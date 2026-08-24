@@ -419,9 +419,9 @@ Astrometry (plate solving) and PCC (photometric color calibration) are optional 
 
 > ASTAP catalogs can also be downloaded directly via GUI3 (Tools → Astrometry → Download Catalog).
 
-### Siril Gaia DR3 XP Catalog (for PCC)
+### Local Gaia DR3 Catalog (for PCC and astrometry fallback)
 
-1. **Catalog data**: The Siril Gaia DR3 XP sampled catalog is required for photometric color calibration.
+1. **Catalog data**: The Siril Gaia DR3 XP sampled catalog is required for photometric color calibration and is also the offline fallback catalog for astrometry.
 2. **Configure in GUI3**:
    - Tab **Tools → Sub-Tab PCC**
    - **Catalog Dir**: Path to the catalog directory (default: `~/.local/share/siril/siril_cat1_healpix8_xpsamp/`)
@@ -430,6 +430,11 @@ Astrometry (plate solving) and PCC (photometric color calibration) are optional 
 
 > If the catalog has already been downloaded by [Siril](https://siril.org/), the same folder can be reused.
 
+If ASTAP cannot return a WCS, Tile Compile performs the fallback natively; it
+does not start Siril and does not use the network. The stack must contain
+`RA`, `DEC`, `FOCALLEN`, and `XPIXSZ` or `YPIXSZ`. The resulting WCS is linear
+TAN/CD (without SIP distortion terms).
+
 3. **PCC parameters** (in Parameter Studio):
    - `pcc.source`: `auto` (recommended), `siril`, `vizier_gaia`, or `vizier_apass`
    - `pcc.mag_limit`: Magnitude limit for stars (default: 14.0)
@@ -437,9 +442,10 @@ Astrometry (plate solving) and PCC (photometric color calibration) are optional 
 
 ### When Catalogs Are Missing
 
-If ASTAP or the Siril catalog are not installed:
+If ASTAP or the local Gaia catalog are not installed:
 - Core reconstruction (registration, AQMH, stacking, debayer) still works.
-- The `ASTROMETRY` and `PCC` phases will be marked as `skipped` or fail, depending on configuration.
+- Astrometry can use either a successful ASTAP solve or the local Gaia fallback; PCC needs the local Gaia catalog (or its configured online source).
+- A phase without an available applicable solver/catalog will be marked as `skipped` or fail, depending on configuration.
 - BGE (Background Gradient Extraction) works independently of external catalogs.
 
 ---

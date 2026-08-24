@@ -232,7 +232,7 @@ const bool skip_clustering_for_aqmh = cfg.aqmh.enabled;
                              │
               ┌──────────────▼──────────────┐
               │  PHASE 14: ASTROMETRY       │
-              │  • ASTAP solve / WCS        │
+              │  • ASTAP, local Gaia fallback│
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐

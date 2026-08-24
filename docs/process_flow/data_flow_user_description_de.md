@@ -373,13 +373,13 @@ ausgeführt und lokale Tile-Metriken und Gewichte `L_f,t` berechnet.
 
 **Verarbeitung**
 
-- Plate Solving gegen Astrometrie-Werkzeuge und Kataloge
+- zuerst ASTAP-Plate-Solving; liefert es keine WCS, werden erkannte Sterne ohne Siril-Start und ohne Netzabfrage gegen den lokal installierten PCC-Gaia-DR3-Katalog abgeglichen
 - Eintrag oder Ableitung von Himmelskoordinatenbezug und Bildskalierung
 
 **Ausgabe**
 
 - WCS-informiertes Bild oder zugehörige WCS-Datei
-- Diagnoseartefakte zum Solve-Prozess
+- Diagnoseartefakte und Phasenfelder zum gewählten Löser, zu Gaia-Sternzahlen und zu einem möglichen Fallback-Fehler
 
 ---
 

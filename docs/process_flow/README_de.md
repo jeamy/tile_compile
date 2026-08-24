@@ -184,7 +184,7 @@ Kurzzuordnung:
                              │
               ┌──────────────▼──────────────┐
               │  PHASE 14: ASTROMETRY       │
-              │  • ASTAP solve / WCS        │
+              │  • ASTAP, lokaler Gaia-Fallback│
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐

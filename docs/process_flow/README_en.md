@@ -184,7 +184,7 @@ High-level mapping:
                              │
               ┌──────────────▼──────────────┐
               │  PHASE 14: ASTROMETRY       │
-              │  • ASTAP solve / WCS        │
+              │  • ASTAP, local Gaia fallback│
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐

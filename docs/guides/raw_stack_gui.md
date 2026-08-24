@@ -6,7 +6,7 @@ The Raw Stack page provides standalone preprocessing from FITS light frames to a
 
 ## Pipeline phases
 
-Calibration → CFA/Mono Prep → Registration → Quality Analysis → Frame Filtering → Stacking (Sigma/Median/Winsor) → Astrometry (ASTAP) → BGE → PCC → HyperMetric Stretch
+Calibration → CFA/Mono Prep → Registration → Quality Analysis → Frame Filtering → Stacking (Sigma/Median/Winsor) → Astrometry (ASTAP, then local Gaia DR3 fallback) → BGE → PCC → HyperMetric Stretch
 
 All configurable parameters (sigma-clip, rejection method, stacking weighting, BGE, PCC, Astrometry, and HyperMetric Stretch) are taken directly from the Parameter Studio configuration — no hardcoded values.
 

@@ -432,9 +432,9 @@ Astrometrie (Plate Solving) und PCC (Photometrische Farbkalibrierung) sind optio
 
 > Die ASTAP-Kataloge können auch direkt über die GUI3 heruntergeladen werden (Tools → Astrometry → Download Catalog).
 
-### Siril Gaia DR3 XP Katalog (für PCC)
+### Lokaler Gaia-DR3-Katalog (für PCC und Astrometrie-Fallback)
 
-1. **Katalogdaten**: Der Siril Gaia DR3 XP sampled catalog wird für die photometrische Farbkalibrierung benötigt.
+1. **Katalogdaten**: Der Siril Gaia DR3 XP sampled catalog wird für die photometrische Farbkalibrierung benötigt und dient auch als Offline-Fallback für die Astrometrie.
 2. **In GUI3 einrichten**:
    - Tab **Tools → Sub-Tab PCC**
    - **Catalog Dir**: Pfad zum Katalogverzeichnis (Standard: `~/.local/share/siril/siril_cat1_healpix8_xpsamp/`)
@@ -443,6 +443,11 @@ Astrometrie (Plate Solving) und PCC (Photometrische Farbkalibrierung) sind optio
 
 > Falls der Katalog bereits von [Siril](https://siril.org/) heruntergeladen wurde, kann derselbe Ordner wiederverwendet werden.
 
+Falls ASTAP keine WCS liefert, führt Tile Compile den Fallback nativ aus; Siril
+wird nicht gestartet und es findet keine Netzabfrage statt. Der Stack benötigt
+`RA`, `DEC`, `FOCALLEN` sowie `XPIXSZ` oder `YPIXSZ`. Die erzeugte WCS ist
+linear TAN/CD und enthält keine SIP-Verzerrungsterme.
+
 3. **PCC-Parameter** (im Parameter Studio):
    - `pcc.source`: `auto` (empfohlen), `siril`, `vizier_gaia` oder `vizier_apass`
    - `pcc.mag_limit`: Grenzgröße für Sterne (Standard: 14.0)
@@ -450,9 +455,10 @@ Astrometrie (Plate Solving) und PCC (Photometrische Farbkalibrierung) sind optio
 
 ### Wenn Kataloge fehlen
 
-Wenn ASTAP oder der Siril-Katalog nicht installiert sind:
+Wenn ASTAP oder der lokale Gaia-Katalog nicht installiert sind:
 - Die Kernrekonstruktion (Registrierung, AQMH, Stacking, Debayer) funktioniert weiterhin.
-- Die Phasen `ASTROMETRY` und `PCC` werden als `skipped` markiert oder schlagen fehl, je nach Konfiguration.
+- Astrometrie kann entweder einen erfolgreichen ASTAP-Solve oder den lokalen Gaia-Fallback verwenden; PCC benötigt den lokalen Gaia-Katalog (oder seine konfigurierte Online-Quelle).
+- Eine Phase ohne verfügbaren passenden Löser/Katalog wird je nach Konfiguration als `skipped` markiert oder schlägt fehl.
 - BGE (Background Gradient Extraction) funktioniert unabhängig von externen Katalogen.
 
 ---

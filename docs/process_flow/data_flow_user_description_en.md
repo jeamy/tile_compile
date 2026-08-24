@@ -371,13 +371,13 @@ is executed instead and computes local tile metrics and weights `L_f,t`.
 
 **Processing**
 
-- perform plate solving against astrometry tools and catalogs
+- try ASTAP plate solving first; if it does not produce a WCS, match detected stars against the locally installed PCC Gaia DR3 catalog without starting Siril or using the network
 - derive or write sky-coordinate context and image scale
 
 **Output**
 
 - WCS-aware image or associated WCS file
-- diagnostic artifacts describing the solving process
+- diagnostic artifacts and phase fields describing the selected solver, Gaia star counts, and any fallback error
 
 ---
 

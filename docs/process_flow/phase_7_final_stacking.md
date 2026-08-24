@@ -63,7 +63,7 @@ Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Fram
                        │
 ┌──────────────────────▼───────────────────────────────┐
 │  ASTROMETRY (Phase 14)                               │
-│  • ASTAP solve / WCS                                 │
+│  • ASTAP, local Gaia fallback / WCS                  │
 │  • WCS-Header in RGB-Outputs                         │
 └──────────────────────┬───────────────────────────────┘
                        │
@@ -411,7 +411,7 @@ if (detected_mode == ColorMode::OSC) {
 
 ## Phase 14: ASTROMETRY
 
-Wenn aktiviert und RGB-Daten vorhanden sind, wird ein ASTAP-Plate-Solve ausgeführt. Bei Erfolg:
+Wenn aktiviert und RGB-Daten vorhanden sind, wird zunächst ein ASTAP-Plate-Solve ausgeführt. Liefert ASTAP keine gültige WCS, gleicht der Runner die erkannten Sterne nativ gegen den lokal für PCC installierten Gaia-DR3-Katalog ab. Dafür sind `RA`, `DEC`, `FOCALLEN` sowie `XPIXSZ` oder `YPIXSZ` im RGB-Stack erforderlich; Siril wird nicht gestartet und es findet keine Netzabfrage statt. Bei Erfolg:
 
 - WCS wird aus `.wcs` geparst
 - WCS-Header in `first_hdr` injiziert
