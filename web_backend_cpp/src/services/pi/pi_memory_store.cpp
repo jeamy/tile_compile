@@ -60,6 +60,11 @@ nlohmann::json memory_dedupe_signature(const nlohmann::json& memory) {
     if (memory.contains("config_updates")) signature["config_updates"] = memory["config_updates"];
     if (memory.contains("recommendation")) signature["recommendation"] = memory["recommendation"];
     if (memory.contains("avoid")) signature["avoid"] = memory["avoid"];
+    // Without this, re-applying the identical update set onto a since-changed base config (the
+    // common case: apply once, tweak something else, apply again) collided on the earlier fields
+    // alone and returned the OLD candidate — with its stale config_sha256/revision_id — instead of
+    // creating a new one, silently breaking the Schritt 1c join for the new apply.
+    if (memory.contains("config_sha256")) signature["config_sha256"] = memory["config_sha256"];
     return signature;
 }
 
@@ -440,6 +445,10 @@ std::filesystem::path PiMemoryStore::reviews_path() const {
     return _memory_dir / "memory_reviews_v2.jsonl";
 }
 
+std::filesystem::path PiMemoryStore::outcomes_path() const {
+    return _memory_dir / "memory_outcomes_v2.jsonl";
+}
+
 std::filesystem::path PiMemoryStore::indices_path() const {
     return _memory_dir / "memory_indices_v2.json";
 }
@@ -547,18 +556,32 @@ nlohmann::json PiMemoryStore::list(int limit) const {
         if (!memory_id.empty()) latest_reviews[memory_id] = review;
     }
 
+    // Full accumulated history, grouped by memory_id — see attach_outcome()/outcomes_path() for
+    // why this cannot be a latest-wins map like reviews above: Schritt 2's promotion rule needs to
+    // count independent outcomes per memory_id, not just see the most recent one.
+    std::map<std::string, nlohmann::json> outcome_histories;
+    for (const auto& outcome_event : read_jsonl(outcomes_path())) {
+        const std::string memory_id = string_field(outcome_event, "memory_id");
+        if (memory_id.empty()) continue;
+        if (!outcome_histories.count(memory_id)) outcome_histories[memory_id] = nlohmann::json::array();
+        outcome_histories[memory_id].push_back(outcome_event);
+    }
+
     for (auto& item : items) {
         const std::string memory_id = string_field(item, "memory_id");
         auto it = latest_reviews.find(memory_id);
-        if (it == latest_reviews.end()) continue;
-        item["status"] = it->second.value("status", item.value("status", std::string("candidate")));
-        item["review"] = it->second;
-        if (it->second.contains("scope") && it->second["scope"].is_object()) {
-            item["scope"] = it->second["scope"];
+        if (it != latest_reviews.end()) {
+            item["status"] = it->second.value("status", item.value("status", std::string("candidate")));
+            item["review"] = it->second;
+            if (it->second.contains("scope") && it->second["scope"].is_object()) {
+                item["scope"] = it->second["scope"];
+            }
+            if (it->second.contains("outcome") && it->second["outcome"].is_object()) {
+                item["outcome"] = it->second["outcome"];
+            }
         }
-        if (it->second.contains("outcome") && it->second["outcome"].is_object()) {
-            item["outcome"] = it->second["outcome"];
-        }
+        auto outcomes_it = outcome_histories.find(memory_id);
+        item["outcomes"] = outcomes_it != outcome_histories.end() ? outcomes_it->second : nlohmann::json::array();
     }
 
     while (static_cast<int>(items.size()) > limit) items.erase(items.begin());
@@ -609,6 +632,75 @@ nlohmann::json PiMemoryStore::review(const std::string& memory_id,
     if (!out) throw std::runtime_error("failed to write PI memory review");
     rebuild_indices();
     return review_event;
+}
+
+nlohmann::json PiMemoryStore::attach_outcome(const std::string& memory_id,
+                                             const nlohmann::json& outcome,
+                                             const std::string& recorder,
+                                             const std::string& note) const {
+    if (memory_id.empty()) throw std::invalid_argument("memory_id is required");
+    if (!outcome.is_object()) throw std::invalid_argument("outcome must be a JSON object");
+
+    std::string current_status;
+    bool found = false;
+    for (const auto& item : list(100000)) {
+        if (item.value("memory_id", std::string()) == memory_id) {
+            found = true;
+            current_status = item.value("status", std::string("candidate"));
+            break;
+        }
+    }
+    if (!found) throw std::invalid_argument("memory_id not found");
+
+    // Written to two places (see header comment on attach_outcome()):
+    // 1) reviews_path() — same append-only overlay review() writes to; list() already merges the
+    //    latest entry's "outcome" field per memory_id, kept for existing retrieval-scoring code
+    //    that reads item["outcome"].validation_valid. Status is carried forward unchanged — this
+    //    call attaches evidence, it does not promote or reject.
+    // 2) outcomes_path() — accumulating log; list() merges the full per-memory_id history into
+    //    item["outcomes"] so multiple independent outcomes (e.g. several queued runs sharing one
+    //    applied config) are all preserved, not overwritten by the latest one.
+    const std::string reviewed_at = utc_timestamp_iso();
+    const std::string effective_reviewer = recorder.empty() ? "pi_outcome_recorder" : recorder;
+    const nlohmann::json sanitized_outcome = sanitize_memory_privacy(outcome);
+
+    nlohmann::json review_overlay_event = {
+        {"schema_version", kMemorySchemaVersion},
+        {"memory_id", memory_id},
+        {"id", memory_id},
+        {"status", current_status},
+        {"reviewed_at", reviewed_at},
+        {"reviewer", effective_reviewer},
+        {"note", note},
+        {"outcome", sanitized_outcome}
+    };
+    nlohmann::json outcome_history_event = {
+        {"schema_version", kMemorySchemaVersion},
+        {"memory_id", memory_id},
+        {"recorded_at", reviewed_at},
+        {"reviewer", effective_reviewer},
+        {"note", note},
+        {"outcome", sanitized_outcome}
+    };
+
+    std::error_code ec;
+    std::filesystem::create_directories(_memory_dir, ec);
+    if (ec) throw std::runtime_error("failed to create PI memory directory: " + ec.message());
+
+    {
+        std::ofstream out(reviews_path(), std::ios::app);
+        if (!out) throw std::runtime_error("failed to open PI memory review store");
+        out << review_overlay_event.dump() << '\n';
+        if (!out) throw std::runtime_error("failed to write PI memory outcome");
+    }
+    {
+        std::ofstream out(outcomes_path(), std::ios::app);
+        if (!out) throw std::runtime_error("failed to open PI memory outcome history store");
+        out << outcome_history_event.dump() << '\n';
+        if (!out) throw std::runtime_error("failed to write PI memory outcome history");
+    }
+    rebuild_indices();
+    return outcome_history_event;
 }
 
 nlohmann::json PiMemoryStore::indices() const {

@@ -176,6 +176,7 @@ set(BACKEND_SOURCES
     src/services/pi/pi_action_validator.cpp
     src/services/pi/pi_ai_request_builder.cpp
     src/services/pi/pi_memory_store.cpp
+    src/services/pi/pi_outcome_recorder.cpp
     src/services/pi/pi_storage_paths.cpp
     src/services/pi/pi_context_builder.cpp
     src/services/pi/pi_context_v2.cpp

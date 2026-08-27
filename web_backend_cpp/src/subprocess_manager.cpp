@@ -517,7 +517,8 @@ std::string SubprocessManager::launch(const std::string& type,
                                       const std::string& cwd,
                                       const std::string& run_id,
                                       const nlohmann::json& initial_data,
-                                      const std::string& stdin_text) {
+                                      const std::string& stdin_text,
+                                      std::function<void(const std::string&, JobState)> on_complete) {
     std::string job_id = _store.create(type, run_id);
     _store.update_state(job_id, JobState::running, initial_data);
 
@@ -529,7 +530,7 @@ std::string SubprocessManager::launch(const std::string& type,
         _procs[job_id] = proc;
     }
 
-    proc->thread = std::thread([this, job_id, type, args, cwd, stdin_text, proc]() {
+    proc->thread = std::thread([this, job_id, type, args, cwd, stdin_text, proc, on_complete]() {
         SubprocessResult res;
 #ifdef _WIN32
         res = run_subprocess(args, cwd, stdin_text, &_limits);
@@ -591,16 +592,27 @@ std::string SubprocessManager::launch(const std::string& type,
                 write_scan_metrics_cache(cwd, job_id, data, compact);
             }
         }
+        JobState final_state;
         if (proc->cancelled.load()) {
-            _store.update_state(job_id, JobState::cancelled, data);
+            final_state = JobState::cancelled;
+            _store.update_state(job_id, final_state, data);
         } else if (res.exit_code == 0) {
-            _store.update_state(job_id, JobState::ok, data);
+            final_state = JobState::ok;
+            _store.update_state(job_id, final_state, data);
         } else {
-            _store.update_state(job_id, JobState::error, data,
+            final_state = JobState::error;
+            _store.update_state(job_id, final_state, data,
                                 res.stderr_str.empty() ? "exit " + std::to_string(res.exit_code)
                                                         : res.stderr_str.substr(0, 256));
         }
         _store.set_pid(job_id, std::nullopt);
+        if (on_complete) {
+            try {
+                on_complete(job_id, final_state);
+            } catch (...) {
+                // A follow-up hook must never take the worker thread down with it.
+            }
+        }
         std::lock_guard<std::mutex> lk(_procs_mutex);
         _procs.erase(job_id);
     });

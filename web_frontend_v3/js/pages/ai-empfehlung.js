@@ -128,8 +128,11 @@ export function createAiEmpfehlungPage() {
   );
 
   // Apply actions
+  // Default: checked. docs/PI/pi_local_learning_plan_de.md Schritt 1a — der Outcome-Recorder
+  // kann nur lernen, was hier tatsächlich mitgeschrieben wird; als reines Opt-in blieb der
+  // Haken in der Praxis fast immer aus. Bleibt sichtbar/abschaltbar, ist aber jetzt der Default.
   const learnMemory = el("label", { class: "tc-checkbox", title: t("ui.tooltip.ai.learn_memory", "Speichert angewendete Optimierungen als reviewbare PI Memory-Kandidaten.") },
-    el("input", { type: "checkbox", id: "ai-learn-memory", title: t("ui.tooltip.ai.learn_memory", "Speichert angewendete Optimierungen als reviewbare PI Memory-Kandidaten.") }),
+    el("input", { type: "checkbox", id: "ai-learn-memory", checked: true, title: t("ui.tooltip.ai.learn_memory", "Speichert angewendete Optimierungen als reviewbare PI Memory-Kandidaten.") }),
     el("span", {}, t("ui.label.pi_learn_memory", "Lernkandidat speichern")),
   );
   const applyBar = el("div", { class: "tc-flex tc-gap-3" },

@@ -56,12 +56,19 @@ public:
     void configure_limits(const BackendGuardLimits& limits) { _limits = limits; }
 
     /// @brief Starts a tracked background subprocess and returns the created job id.
+    /// @brief on_complete, if set, runs on the job's worker thread right after its terminal
+    /// JobState (ok/error/cancelled) is stored — before the job's process-table entry is erased.
+    /// Kept generic (job_id + final JobState) so SubprocessManager stays a mechanism, not a policy;
+    /// callers that need run-specific follow-up (e.g. the PI outcome recorder, Schritt 1c in
+    /// docs/PI/pi_local_learning_plan_de.md) supply it per launch() instead of this class knowing
+    /// about their business logic.
     std::string launch(const std::string& type,
                        const std::vector<std::string>& args,
                        const std::string& cwd = "",
                        const std::string& run_id = "",
                        const nlohmann::json& initial_data = {},
-                       const std::string& stdin_text = "");
+                       const std::string& stdin_text = "",
+                       std::function<void(const std::string& job_id, JobState final_state)> on_complete = nullptr);
 
     /// @brief Requests cancellation for a single tracked job and its process group.
     bool cancel(const std::string& job_id);

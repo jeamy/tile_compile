@@ -338,7 +338,9 @@ json build_apply_candidate_memory(const std::string& analysis_id,
                                   const json& applied,
                                   const json& validation,
                                   const fs::path& config_path,
-                                  bool persisted) {
+                                  bool persisted,
+                                  const std::string& revision_id = "",
+                                  const std::string& config_sha256 = "") {
     json applied_paths = json::array();
     if (applied.is_array()) {
         for (const auto& update : applied) {
@@ -388,10 +390,14 @@ json build_apply_candidate_memory(const std::string& analysis_id,
         {"privacy_class", "metadata_only"},
         {"source", "scan_ai_apply"},
         {"analysis_id", analysis_id},
+        {"revision_id", revision_id},
+        {"config_sha256", config_sha256},
         {"provenance", {
             {"analysis_id", analysis_id},
             {"config_path_name", config_path.filename().string()},
-            {"source", "scan_ai_apply"}
+            {"source", "scan_ai_apply"},
+            {"revision_id", revision_id},
+            {"config_sha256", config_sha256}
         }},
         {"persisted", persisted},
         {"config_updates", applied},
@@ -2203,6 +2209,11 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         };
         for (const auto& update : applied) result["applied_paths"].push_back(json_string_field(update, "path"));
 
+        // Hoisted so the "learn" block below (Schritt 1a, docs/PI/pi_local_learning_plan_de.md)
+        // can attach the produced revision/config fingerprint to the memory candidate even though
+        // no run_id exists yet at apply time. The outcome recorder (Schritt 1c) later joins this
+        // to a run via the config_sha256 written into runs/<run_id>/artifacts/pi_run_provenance.json.
+        std::string rev_id;
         if (body->value("persist", false)) {
             SubprocessResult save_res = run_subprocess({state->runtime.cli_exe, "save-config", target_config_path.string(), "--stdin"},
                                                        state->runtime.project_root.string(),
@@ -2214,7 +2225,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             fs::path saved_path = saved->contains("path") && (*saved)["path"].is_string()
                 ? fs::path((*saved)["path"].get<std::string>())
                 : target_config_path;
-            std::string rev_id = state->revision_store.add(saved_path, yaml_text, "pi_scan_ai");
+            rev_id = state->revision_store.add(saved_path, yaml_text, "pi_scan_ai");
             {
                 std::lock_guard<std::mutex> lk(state->state_mutex);
                 state->active_config_revision_id = rev_id;
@@ -2239,7 +2250,9 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                     applied,
                     validation,
                     target_config_path,
-                    body->value("persist", false));
+                    body->value("persist", false),
+                    rev_id,
+                    sha256_hex(yaml_text));
                 result["memory"] = store.append_candidate(std::move(memory));
             } catch (const std::exception& e) {
                 result["memory_error"] = e.what();

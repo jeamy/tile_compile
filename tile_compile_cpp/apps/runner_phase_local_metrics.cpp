@@ -868,6 +868,39 @@ bool run_phase_local_metrics(
       std::filesystem::create_directories(run_dir / "artifacts");
       core::write_text(run_dir / "artifacts" / "aqmh_metrics.json",
                        aqmh_artifact.dump(2));
+
+      // PI local-learning run-quality summary (docs/PI/pi_local_learning_plan_de.md,
+      // Schritt 1b): a single scalar label per run, aggregated from the per-frame AQMH
+      // global-quality weights already computed above. Kept as its own small artifact
+      // (rather than only the per-frame aqmh_metrics.json) so the backend outcome
+      // recorder (Schritt 1c) can read one cheap, stable-shaped file per run instead of
+      // re-deriving the aggregate from the full per-frame diagnostics array.
+      {
+        double weight_sum = 0.0;
+        size_t valid_frames = 0;
+        const size_t frame_count = static_cast<size_t>(out_aqmh_global_weights.size());
+        for (size_t i = 0; i < frame_count; ++i) {
+          const bool invalid = i < global_input_invalid.size() && global_input_invalid[i] != 0u;
+          if (invalid) continue;
+          weight_sum += static_cast<double>(out_aqmh_global_weights[static_cast<Eigen::Index>(i)]);
+          ++valid_frames;
+        }
+        core::json quality_artifact;
+        quality_artifact["schema_version"] = "pi.run-quality.v1";
+        quality_artifact["run_id"] = run_id;
+        if (valid_frames > 0) {
+          quality_artifact["mean_weight"] = weight_sum / static_cast<double>(valid_frames);
+        } else {
+          quality_artifact["mean_weight"] = nullptr;
+        }
+        quality_artifact["valid_frame_fraction"] =
+            frame_count > 0 ? (static_cast<double>(valid_frames) / static_cast<double>(frame_count)) : 0.0;
+        quality_artifact["frames_total"] = static_cast<uint64_t>(frame_count);
+        quality_artifact["frames_valid"] = static_cast<uint64_t>(valid_frames);
+        core::write_text(run_dir / "artifacts" / "pi_run_quality.json",
+                         quality_artifact.dump(2));
+      }
+
       if (collect_region_diagnostics) {
         core::json regions_artifact;
         regions_artifact["analysis_channel"] =

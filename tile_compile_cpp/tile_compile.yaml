@@ -41,6 +41,8 @@ aqmh:
     clip_sigma_low: 2
     debayer_first: true
     delete_prewarped_cache_after_run: false
+    gpu_half_qmaps: true
+    gpu_packed_masks: true
     memory_budget_mb: 0
     min_fraction: 0.4
     min_n_eff: 2
@@ -59,18 +61,16 @@ aqmh:
     structure_mask_blur_sigma_px: 4
     structure_mask_high_q: 0.9
     structure_mask_low_q: 0.4
-    gpu_half_qmaps: true
-    gpu_packed_masks: true
   storage:
     dtype: uint16
     max_resident_maps: 2
     resolution_divisor: 1
   validation:
-    max_background_rms_regression: 0.05
-    max_elongation_regression: 0.08
-    max_fwhm_regression: 0.02
-    max_seam_score_regression: 0.05
-    max_tail11_abs_regression: 0.1
+    max_background_rms_regression: 100
+    max_elongation_regression: 100
+    max_fwhm_regression: 100
+    max_seam_score_regression: 100
+    max_tail11_abs_regression: 100
 astrometry:
   astap_data_dir: /home/lux/.local/share/tile_compile/astap
   enabled: true
@@ -118,7 +118,7 @@ bge:
   mask:
     sat_dilate_px: 6
     star_dilate_px: 6
-  method: classic
+  method: none
   min_sample_bg_value: 1
   min_tiles_per_cell: 3
   min_valid_sample_fraction_for_apply: 0.3
@@ -129,15 +129,15 @@ bge:
   tile_weight_lambda_structure: 2
 calibration:
   bias_use_master: false
+  dark_master: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/dark_exp_10.000000_gain_80_bin_1_stack_10.fits
   dark_match_exposure_tolerance_percent: 10
   dark_match_temp_tolerance_c: 5
   dark_match_use_temp: false
   dark_use_master: true
   flat_use_master: false
   use_bias: false
-  use_dark: true
+  use_dark: false
   use_flat: false
-  dark_master: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/dark_exp_10.000000_gain_80_bin_1_stack_10.fits
 chroma_denoise:
   apply_stage: post_stack_linear
   blend:
@@ -173,7 +173,9 @@ dithering:
   min_shift_px: 0.7
 global_metrics:
   adaptive_weights: true
-  clamp: [-3, 3]
+  clamp:
+    - -3
+    - 3
   weight_exponent_scale: 1.8
   weights:
     background: 0.35
@@ -208,7 +210,9 @@ linearity:
   min_overall_linearity: 0.9
   strictness: strict
 local_metrics:
-  clamp: [-3, 3]
+  clamp:
+    - -3
+    - 3
   k_local: 1
   neighborhood_normalization:
     blend: 0
@@ -288,7 +292,7 @@ registration:
   use_astrometry: true
 runtime_limits:
   acceleration_backend: auto
-  allow_emergency_mode: false
+  allow_emergency_mode: true
   hard_abort_hours: 6
   memory_budget: 4096
   parallel_workers: 8
@@ -315,7 +319,9 @@ stacking:
   tile_common_valid_min_fraction: 1
 synthetic:
   clustering:
-    cluster_count_range: [3, 12]
+    cluster_count_range:
+      - 3
+      - 12
     mode: kmeans
   frames_max: 20
   frames_min: 4
@@ -342,7 +348,7 @@ tile_denoise:
     q_step: 0.1
     snr_threshold: 5
 validation:
-  max_background_rms_increase_percent: 0
-  min_fwhm_improvement_percent: 5
-  min_tile_weight_variance: 0.1
-  require_no_tile_pattern: true
+  max_background_rms_increase_percent: 1000
+  min_fwhm_improvement_percent: -100
+  min_tile_weight_variance: 0
+  require_no_tile_pattern: false

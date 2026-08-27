@@ -7,6 +7,7 @@
 #include "services/scan_summary.hpp"
 #include "services/hme_preview_service.hpp"
 #include "services/bge_preview_service.hpp"
+#include "services/pi/pi_outcome_recorder.hpp"
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
 #include <fitsio.h>
@@ -30,6 +31,7 @@
 #ifndef _WIN32
 #include <signal.h>
 #include <unistd.h>
+#include <openssl/sha.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -395,6 +397,58 @@ static std::string replace_run_config_with_revisions(
 static void release_run_start_config_claim(const fs::path& run_dir) {
     std::error_code ec;
     fs::remove(run_dir / "artifacts" / "run_start_config_claim.json", ec);
+}
+
+// PI local-learning provenance (docs/PI/pi_local_learning_plan_de.md, Abschnitt 0.1 / Schritt 1a):
+// durable, restart-safe link between the config a run actually used and the AI-apply memory
+// candidate that produced it, so the outcome recorder (Schritt 1c) can join them by content hash
+// instead of relying on the in-memory ConfigRevisionStore id space.
+static std::string pi_provenance_sha256_hex(const std::string& value) {
+    unsigned char digest[SHA256_DIGEST_LENGTH];
+    SHA256(reinterpret_cast<const unsigned char*>(value.data()), value.size(), digest);
+    std::ostringstream out;
+    out << std::hex << std::setfill('0');
+    for (unsigned char byte : digest) out << std::setw(2) << static_cast<int>(byte);
+    return out.str();
+}
+
+static std::string pi_provenance_now_iso() {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_buf{};
+#ifdef _WIN32
+    gmtime_s(&tm_buf, &t);
+#else
+    gmtime_r(&t, &tm_buf);
+#endif
+    std::ostringstream out;
+    out << std::put_time(&tm_buf, "%Y-%m-%dT%H:%M:%SZ");
+    return out.str();
+}
+
+static void write_run_start_provenance(const fs::path& run_dir,
+                                       const std::string& run_id,
+                                       const std::string& config_revision_id,
+                                       const std::string& config_yaml,
+                                       const std::string& prior_active_config_revision_id) {
+    std::error_code ec;
+    fs::create_directories(run_dir / "artifacts", ec);
+    const nlohmann::json provenance = {
+        {"schema_version", "pi.run-provenance.v1"},
+        {"run_id", run_id},
+        {"config_revision_id", config_revision_id},
+        // Primary Schritt 1c join key: the revision_id an AI-apply memory candidate recorded for
+        // itself (ai_routes.cpp build_apply_candidate_memory), if this run started from that
+        // applied config without an intervening apply/save. config_sha256 below is only a
+        // secondary confirmation — content hashes across the apply-time and run-start YAML
+        // serializers are not guaranteed to match byte-for-byte (different serializers, and
+        // effective_config_yaml() injects color_mode/astap paths), so it cannot be the primary key.
+        {"prior_active_config_revision_id", prior_active_config_revision_id},
+        {"config_sha256", pi_provenance_sha256_hex(config_yaml)},
+        {"started_at", pi_provenance_now_iso()}
+    };
+    std::ofstream out(run_dir / "artifacts" / "pi_run_provenance.json", std::ios::out | std::ios::trunc);
+    if (out) out << provenance.dump(2);
 }
 
 static fs::path claim_run_start_config_snapshot(
@@ -1208,6 +1262,17 @@ void register_runs_routes(CrowApp& app,
             return err_resp("CONFIG_EMPTY", "effective run config is empty", 422,
                             nlohmann::json::object());
         }
+        // Captured before revision_store.add()/the branches below overwrite
+        // state->active_config_revision_id: whichever revision was last applied (AI-apply or
+        // manual save) when this run-start request came in. Best-effort correlation, not a
+        // guaranteed unique join — see pi_outcome_recorder.cpp for why this, not config_sha256, is
+        // the primary Schritt 1c join key.
+        std::string prior_active_config_revision_id;
+        {
+            std::lock_guard<std::mutex> lk(state->state_mutex);
+            prior_active_config_revision_id = state->active_config_revision_id;
+        }
+
         const fs::path revision_path =
             fs::path(runs_dir) / base_run_id / "config.yaml";
         std::string revision_id = state->revision_store.add(
@@ -1218,7 +1283,7 @@ void register_runs_routes(CrowApp& app,
             auto queue_payload = queue_job_payload(queue_items, 0, effective_run_id, runs_dir);
             queue_payload["config_revision_id"] = revision_id;
             std::string job_id = tile_compile::routes::spawn_job_thread(state, "run_queue", effective_run_id, queue_payload,
-                [queue_items, runs_dir, prepared_config_yaml, revision_id](std::shared_ptr<AppState> state, const std::string& job_id) mutable {
+                [queue_items, runs_dir, prepared_config_yaml, revision_id, prior_active_config_revision_id](std::shared_ptr<AppState> state, const std::string& job_id) mutable {
                 fs::path staging_root = fs::path(runs_dir) / ".queue_staging" / job_id;
                 std::error_code ec;
                 fs::create_directories(staging_root, ec);
@@ -1283,6 +1348,9 @@ void register_runs_routes(CrowApp& app,
                         return;
                     }
 
+                    write_run_start_provenance(fs::path(runs_dir) / current_run_id, current_run_id,
+                                               revision_id, prepared_config_yaml,
+                                               prior_active_config_revision_id);
                     state->job_store.update_state(job_id, JobState::running,
                         queue_job_payload(queue, static_cast<int>(i), current_run_id, runs_dir));
                     state->job_store.update_progress(job_id, queue.empty() ? 100.0 : (100.0 * i / queue.size()));
@@ -1290,9 +1358,19 @@ void register_runs_routes(CrowApp& app,
                     auto args = runner_run_args(state, config_snapshot_path.string(), effective_input_dir.string(), runs_dir, current_run_id);
                     std::string child_job_id;
                     try {
+                        // Schritt 1c (docs/PI/pi_local_learning_plan_de.md): record the outcome as
+                        // soon as the run itself finishes, not only when someone next polls status
+                        // — narrows the window in which a run deleted right after completion could
+                        // lose its unattached outcome. Does not depend on this specific queue item
+                        // still existing on disk afterwards; run_dir is captured now.
+                        const fs::path child_run_dir = fs::path(runs_dir) / current_run_id;
                         child_job_id = state->subprocess_manager.launch(
                             "run", args, state->runtime.project_root.string(),
-                            current_run_id);
+                            current_run_id, nlohmann::json::object(), "",
+                            [state, current_run_id, child_run_dir](const std::string&, JobState final_state) {
+                                if (final_state != JobState::ok) return;
+                                tile_compile::pi::record_run_outcome_if_needed(state, current_run_id, child_run_dir);
+                            });
                     } catch (const std::exception& e) {
                         release_run_start_config_claim(
                             fs::path(runs_dir) / current_run_id);
@@ -1383,9 +1461,16 @@ void register_runs_routes(CrowApp& app,
         auto args = runner_run_args(state, config_snapshot_path.string(), input_dirs.front(), runs_dir, effective_run_id);
         std::string job_id;
         try {
+            // Schritt 1c (docs/PI/pi_local_learning_plan_de.md): see the queue-path comment above —
+            // record on completion, not only on next status poll.
+            const fs::path run_dir_for_completion = fs::path(runs_dir) / effective_run_id;
             job_id = state->subprocess_manager.launch(
                 "run", args, state->runtime.project_root.string(),
-                effective_run_id);
+                effective_run_id, nlohmann::json::object(), "",
+                [state, effective_run_id, run_dir_for_completion](const std::string&, JobState final_state) {
+                    if (final_state != JobState::ok) return;
+                    tile_compile::pi::record_run_outcome_if_needed(state, effective_run_id, run_dir_for_completion);
+                });
         } catch (const std::exception& e) {
             release_run_start_config_claim(fs::path(runs_dir) / effective_run_id);
             return err_resp("RUN_LAUNCH_FAILED", e.what(), 500,
@@ -1395,6 +1480,9 @@ void register_runs_routes(CrowApp& app,
             return err_resp("RUN_LAUNCH_FAILED", "unknown subprocess launch error", 500,
                             {{"run_id", effective_run_id}, {"runs_dir", runs_dir}});
         }
+        write_run_start_provenance(fs::path(runs_dir) / effective_run_id, effective_run_id,
+                                   revision_id, prepared_config_yaml,
+                                   prior_active_config_revision_id);
         state->job_store.update_state(job_id, JobState::running, {
             {"input_dir", input_dirs.front()},
             {"runs_dir", runs_dir},
@@ -1429,6 +1517,11 @@ void register_runs_routes(CrowApp& app,
             auto status  = read_run_status(run_dir);
             apply_job_state_to_run_status(status, job);
             apply_runtime_liveness_to_run_status(status, job, state->runtime.runner_exe, run_id, run_dir.string());
+            if (status.value("status", std::string()) == "completed") {
+                // Schritt 1c (docs/PI/pi_local_learning_plan_de.md): cheap no-op after the first
+                // successful/resolved call, see pi_outcome_recorder's own marker-file fast path.
+                tile_compile::pi::record_run_outcome_if_needed(state, run_id, run_dir);
+            }
             return json_resp({
                 {"run_id", run_id},
                 {"run_dir", run_dir.string()},
@@ -1986,6 +2079,14 @@ void register_runs_routes(CrowApp& app,
                     return err_resp("RUN_ACTIVE", "cannot delete active run", 409, nlohmann::json::object());
                 }
             }
+            // Deliberately NOT forcing record_run_outcome_if_needed() here (docs/PI/pi_local_learning_plan_de.md,
+            // Schritt 1c): deleting a run is a legitimate way for the user to say "I don't want this
+            // one" — e.g. a bad or test run — and silently harvesting its outcome first would
+            // override that intent. The outcome is instead recorded as soon as the run itself
+            // finishes (subprocess completion callback below/in the run-start routes), which covers
+            // the overwhelming majority of cases without needing a delete-time side effect; a run
+            // deleted directly on the filesystem, outside this route, bypasses recording entirely
+            // either way and no in-app hook can change that.
             fs::remove_all(run_dir);
             {
                 std::lock_guard<std::mutex> lk(state->state_mutex);
