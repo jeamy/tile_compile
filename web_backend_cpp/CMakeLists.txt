@@ -175,8 +175,10 @@ set(BACKEND_SOURCES
     src/services/pi/pi_action_plan.cpp
     src/services/pi/pi_action_validator.cpp
     src/services/pi/pi_ai_request_builder.cpp
+    src/services/pi/pi_feature_vector.cpp
     src/services/pi/pi_memory_store.cpp
     src/services/pi/pi_outcome_recorder.cpp
+    src/services/pi/pi_param_model.cpp
     src/services/pi/pi_storage_paths.cpp
     src/services/pi/pi_context_builder.cpp
     src/services/pi/pi_context_v2.cpp
@@ -186,6 +188,7 @@ set(BACKEND_SOURCES
     src/services/pi/pi_tool_registry.cpp
     src/services/pi/pi_assistant.cpp
     src/services/pi/pi_image_ops.cpp
+    src/services/pi/pi_live_edit_recorder.cpp
     src/services/pi/pi_live_image_session.cpp
     src/services/download_manager.cpp
     src/services/preprocessing_service.cpp
@@ -372,6 +375,15 @@ if(BUILD_TESTS)
     target_sources(web_backend_cpp_pi_memory_store PRIVATE
         src/services/pi/pi_memory_store.cpp
     )
+    add_backend_cpp_test(web_backend_cpp_pi_param_model tests/test_pi_param_model.cpp)
+    target_sources(web_backend_cpp_pi_param_model PRIVATE
+        src/backend_runtime.cpp
+        src/job_store.cpp
+        src/subprocess_manager.cpp
+        src/services/pi/pi_feature_vector.cpp
+        src/services/pi/pi_param_model.cpp
+    )
+    target_link_libraries(web_backend_cpp_pi_param_model PRIVATE OpenSSL::Crypto)
     add_backend_cpp_test(web_backend_cpp_pi_routes tests/test_pi_routes.cpp)
     target_sources(web_backend_cpp_pi_routes PRIVATE
         src/services/pi/pi_context_v2.cpp
@@ -399,4 +411,15 @@ if(BUILD_TESTS)
     )
     target_include_directories(web_backend_cpp_pi_live_image_session PRIVATE ${OPENCV4_INCLUDE_DIRS})
     target_link_libraries(web_backend_cpp_pi_live_image_session PRIVATE ${OPENCV4_LINK_LIBRARIES})
+    add_backend_cpp_test(web_backend_cpp_pi_live_edit_recorder tests/test_pi_live_edit_recorder.cpp)
+    target_sources(web_backend_cpp_pi_live_edit_recorder PRIVATE
+        src/backend_runtime.cpp
+        src/job_store.cpp
+        src/subprocess_manager.cpp
+        src/services/pi/pi_live_edit_recorder.cpp
+        src/services/pi/pi_memory_store.cpp
+        src/services/pi/pi_storage_paths.cpp
+    )
+    target_include_directories(web_backend_cpp_pi_live_edit_recorder PRIVATE ${OPENCV4_INCLUDE_DIRS})
+    target_link_libraries(web_backend_cpp_pi_live_edit_recorder PRIVATE ${OPENCV4_LINK_LIBRARIES})
 endif()

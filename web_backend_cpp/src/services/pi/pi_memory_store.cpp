@@ -703,6 +703,93 @@ nlohmann::json PiMemoryStore::attach_outcome(const std::string& memory_id,
     return outcome_history_event;
 }
 
+std::filesystem::path PiMemoryStore::auto_promotion_shadow_path() const {
+    return _memory_dir / "memory_auto_promotion_shadow_v1.jsonl";
+}
+
+nlohmann::json PiMemoryStore::evaluate_auto_promotion(const std::string& memory_id) const {
+    if (memory_id.empty()) throw std::invalid_argument("memory_id is required");
+
+    nlohmann::json target;
+    bool found = false;
+    for (const auto& item : list(100000)) {
+        if (item.value("memory_id", std::string()) == memory_id) {
+            target = item;
+            found = true;
+            break;
+        }
+    }
+    if (!found) throw std::invalid_argument("memory_id not found");
+
+    const nlohmann::json outcomes = target.value("outcomes", nlohmann::json::array());
+    int positive_count = 0;
+    int negative_count = 0;
+    int total_with_delta = 0;
+    for (const auto& entry : outcomes) {
+        if (!entry.is_object() || !entry.contains("outcome") || !entry["outcome"].is_object()) continue;
+        const auto& outcome = entry["outcome"];
+        if (!outcome.contains("quality_delta") || !outcome["quality_delta"].is_number()) continue;
+        ++total_with_delta;
+        const double delta = outcome["quality_delta"].get<double>();
+        if (delta > 0.0) ++positive_count;
+        else if (delta < 0.0) ++negative_count;
+    }
+
+    std::string decision = "insufficient_data";
+    std::string reason;
+    if (positive_count >= kAutoPromotionMinOutcomes) {
+        decision = "would_promote";
+        reason = "positive_count >= " + std::to_string(kAutoPromotionMinOutcomes);
+    } else if (negative_count >= kAutoPromotionMinOutcomes && negative_count > positive_count) {
+        decision = "would_reject";
+        reason = "negative_count >= " + std::to_string(kAutoPromotionMinOutcomes) + " and exceeds positive_count";
+    } else {
+        // Also the expected outcome today: quality_delta is still "unpaired"/null for every
+        // recorded outcome (docs/PI/pi_local_learning_plan_de.md, Abschnitt 0.3) until an offline
+        // training step starts computing it — this branch is not a sign the evaluator is broken.
+        reason = total_with_delta == 0
+            ? "no outcomes with a computed quality_delta yet"
+            : "not enough qualifying outcomes yet (" + std::to_string(positive_count) + " positive, " +
+              std::to_string(negative_count) + " negative, threshold " + std::to_string(kAutoPromotionMinOutcomes) + ")";
+    }
+
+    return {
+        {"schema_version", kAutoPromotionShadowSchemaVersion},
+        {"memory_id", memory_id},
+        {"current_status", target.value("status", std::string("candidate"))},
+        {"decision", decision},
+        {"reason", reason},
+        {"positive_count", positive_count},
+        {"negative_count", negative_count},
+        {"total_outcomes", static_cast<int>(outcomes.size())},
+        {"total_with_delta", total_with_delta},
+        {"threshold", kAutoPromotionMinOutcomes},
+        {"evaluated_at", utc_timestamp_iso()}
+    };
+}
+
+nlohmann::json PiMemoryStore::log_auto_promotion_shadow_decision(const nlohmann::json& decision) const {
+    if (!decision.is_object() || decision.value("memory_id", std::string()).empty()) {
+        throw std::invalid_argument("decision must be an object with a non-empty memory_id");
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(_memory_dir, ec);
+    if (ec) throw std::runtime_error("failed to create PI memory directory: " + ec.message());
+
+    std::ofstream out(auto_promotion_shadow_path(), std::ios::app);
+    if (!out) throw std::runtime_error("failed to open PI auto-promotion shadow log");
+    out << decision.dump() << '\n';
+    if (!out) throw std::runtime_error("failed to write PI auto-promotion shadow log");
+    return decision;
+}
+
+nlohmann::json PiMemoryStore::auto_promotion_shadow_log(int limit) const {
+    if (limit <= 0) return nlohmann::json::array();
+    nlohmann::json items = read_jsonl(auto_promotion_shadow_path());
+    while (static_cast<int>(items.size()) > limit) items.erase(items.begin());
+    return items;
+}
+
 nlohmann::json PiMemoryStore::indices() const {
     std::ifstream in(indices_path());
     if (in) {

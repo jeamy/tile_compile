@@ -138,6 +138,17 @@ void record_run_outcome_if_needed(const std::shared_ptr<AppState>& state,
         const std::string memory_id = matched_item.value("memory_id", std::string());
         store.attach_outcome(memory_id, outcome, "pi_outcome_recorder",
                              "Schritt 1c: automatischer Join von Run-Provenance und AQMH-Run-Quality");
+
+        // Schritt 2 (docs/PI/pi_local_learning_plan_de.md, Abschnitt 5/7): shadow-mode only —
+        // evaluate and log what auto-promotion WOULD decide, never apply it. A failure here must
+        // not take down outcome recording, which already succeeded above; it is its own try/catch.
+        try {
+            const json decision = store.evaluate_auto_promotion(memory_id);
+            store.log_auto_promotion_shadow_decision(decision);
+        } catch (const std::exception&) {
+            // best-effort observability; not worth failing the whole recorder over
+        }
+
         write_marker(run_dir, {{"matched", true}, {"memory_id", memory_id}, {"match_kind", match_kind}});
     } catch (const std::exception& e) {
         write_marker(run_dir, {{"matched", false}, {"reason", "error"}, {"error", e.what()}});

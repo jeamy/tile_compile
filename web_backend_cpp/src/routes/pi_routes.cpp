@@ -9,9 +9,11 @@
 #include "services/pi/pi_context_v2.hpp"
 #include "services/pi/pi_action_validator.hpp"
 #include "services/pi/pi_memory_store.hpp"
+#include "services/pi/pi_param_model.hpp"
 #include "services/pi/pi_storage_paths.hpp"
 #include "services/pi/pi_tool_registry.hpp"
 #include "services/pi/pi_image_ops.hpp"
+#include "services/pi/pi_live_edit_recorder.hpp"
 #include "services/pi/pi_live_image_session.hpp"
 #include "services/run_inspector.hpp"
 #include "subprocess_manager.hpp"
@@ -2559,6 +2561,46 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         }
     });
 
+    // Schritt 2 shadow-mode (docs/PI/pi_local_learning_plan_de.md, Abschnitt 5/7): read-only view
+    // into what auto-promotion WOULD have decided per memory_id. Nothing here has been applied —
+    // this exists so the shadow decisions can be spot-checked before the rule is ever scharfgeschaltet.
+    CROW_ROUTE(app, "/api/pi/memories/auto-promotion-shadow").methods("GET"_method)
+    ([state](const crow::request& req) {
+        try {
+            const int limit = req.url_params.get("limit") ? std::atoi(req.url_params.get("limit")) : 100;
+            tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
+            return json_resp({{"items", store.auto_promotion_shadow_log(limit)}});
+        } catch (const std::exception& e) {
+            return err_resp("AUTO_PROMOTION_SHADOW_LOG_FAILED", e.what(), 502);
+        }
+    });
+
+    // Schritt 3 shadow logging (docs/PI/pi_local_learning_plan_de.md, Abschnitt 4/7): read-only view
+    // into the local nearest-neighbor model's predictions vs. what the LLM actually recommended for
+    // the same scan and target path. target_path must be one of the PoC paths currently logged
+    // (bge.method, normalization.mode — see log_scan_param_shadow_predictions()).
+    CROW_ROUTE(app, "/api/pi/param-model/shadow-predictions").methods("GET"_method)
+    ([state](const crow::request& req) {
+        try {
+            const std::string target_path = req.url_params.get("target_path") ? req.url_params.get("target_path") : "";
+            if (target_path.empty()) return err_resp("BAD_REQUEST", "target_path is required", 400);
+            const int limit = req.url_params.get("limit") ? std::atoi(req.url_params.get("limit")) : 100;
+            const fs::path log_path = tile_compile::pi::pi_models_dir(state) / "scan" / target_path / "shadow_predictions.jsonl";
+            nlohmann::json items = nlohmann::json::array();
+            std::ifstream in(log_path);
+            std::string line;
+            while (std::getline(in, line)) {
+                if (line.empty()) continue;
+                auto parsed = nlohmann::json::parse(line, nullptr, false);
+                if (!parsed.is_discarded()) items.push_back(std::move(parsed));
+            }
+            while (static_cast<int>(items.size()) > limit) items.erase(items.begin());
+            return json_resp({{"target_path", target_path}, {"items", items}});
+        } catch (const std::exception& e) {
+            return err_resp("PARAM_MODEL_SHADOW_LOG_FAILED", e.what(), 502);
+        }
+    });
+
     CROW_ROUTE(app, "/api/pi/memories/import").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = parse_body(req);
@@ -3354,6 +3396,21 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             }
         }
 
+        // Schritt 5 (docs/PI/pi_local_learning_plan_de.md, Abschnitt 7): shadow-log a param
+        // prediction per applied, chat-sourced operation, using the feature vector of the image
+        // BEFORE this turn's edits (analysis_image, captured above). Never influences the applied
+        // operations — purely observational, same as Schritt 3's scan hook.
+        if (applied_ops.is_array() && !applied_ops.empty()) {
+            const nlohmann::json live_edit_feature_vector =
+                tile_compile::pi::build_live_edit_feature_vector(analysis_image);
+            for (const auto& applied_op : applied_ops) {
+                if (!applied_op.is_object() || !applied_op.contains("type")) continue;
+                tile_compile::pi::log_live_edit_param_shadow_predictions(
+                    state, applied_op.value("type", std::string()), live_edit_feature_vector,
+                    applied_op.value("params", nlohmann::json::object()));
+            }
+        }
+
         const bool sharpen_operation = !applied_ops.empty() &&
             applied_ops.front().value("type", std::string()) == "sharpen";
         const bool adjustable = !requires_confirmation &&
@@ -3766,6 +3823,23 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (const auto error = try_persist_live_session(state, live_store, session_id)) {
             return err_resp("LIVE_SESSION_PERSIST_FAILED", *error, 500);
         }
+
+        // Schritt 4 (docs/PI/pi_local_learning_plan_de.md, Abschnitt 0.4/7): recorded ONLY here, at
+        // true session close — not from try_persist_live_session()'s other call sites (undo/redo/
+        // adjust), which persist a durable copy defensively on every step but are not "the session
+        // ended". Read while the session is still alive; close() below erases it.
+        std::string run_id;
+        cv::Mat original_fits;
+        std::vector<nlohmann::json> final_undo_stack;
+        nlohmann::json edit_history = nlohmann::json::array();
+        live_store->with_session(session_id, [&](tile_compile::pi::LiveImageSession& s) {
+            run_id = s.run_id;
+            original_fits = s.original_fits.clone();
+            final_undo_stack = s.undo_stack;
+            edit_history = s.edit_history;
+        });
+        tile_compile::pi::record_live_edit_session_outcome(
+            state, run_id, original_fits, final_undo_stack, edit_history);
 
         live_store->close(session_id);
         return json_resp({{"ok", true}});

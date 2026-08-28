@@ -8,6 +8,11 @@ namespace tile_compile::pi {
 inline constexpr const char* kMemorySchemaVersion = "pi.memory.v2";
 inline constexpr const char* kMemoryExportSchemaVersion = "pi.memories-export.v2";
 inline constexpr const char* kMemoryRetrievalSchemaVersion = "pi.memory-retrieval.v2";
+inline constexpr const char* kAutoPromotionShadowSchemaVersion = "pi.auto-promotion-shadow.v1";
+// docs/PI/pi_local_learning_plan_de.md, Abschnitt 5/9: "N >= 3 unabhängige Outcomes". Not yet a
+// config knob (pi.memory.auto_promotion.min_outcomes in the doc) — kept a constant until Schritt 2
+// leaves shadow mode and an actual config surface is worth the added complexity.
+inline constexpr int kAutoPromotionMinOutcomes = 3;
 
 class PiMemoryStore {
 public:
@@ -45,6 +50,22 @@ public:
                                   const nlohmann::json& outcome,
                                   const std::string& recorder = "pi_outcome_recorder",
                                   const std::string& note = "") const;
+
+    // Schritt 2 (docs/PI/pi_local_learning_plan_de.md, Abschnitt 5/7): pure evaluation, no side
+    // effect on the memory's status — counts item["outcomes"] entries whose "outcome.quality_delta"
+    // is a positive/negative number (nulls, e.g. today's "unpaired" comparison_kind, count toward
+    // neither) and returns a decision without applying it. Honest about current data: until an
+    // offline training step starts populating quality_delta (Abschnitt 0.3/9), this will mostly
+    // return "insufficient_data" — that reflects the real state of the data, not a bug.
+    nlohmann::json evaluate_auto_promotion(const std::string& memory_id) const;
+    // Appends a decision from evaluate_auto_promotion() to an append-only shadow log — observability
+    // only, deliberately NOT merged into list()'s output (see the "Sicherheitsnetz" note in the
+    // design doc: a wrong promotion rule must not silently degrade live retrieval before it has
+    // been spot-checked).
+    nlohmann::json log_auto_promotion_shadow_decision(const nlohmann::json& decision) const;
+    nlohmann::json auto_promotion_shadow_log(int limit = 100) const;
+    std::filesystem::path auto_promotion_shadow_path() const;
+
     nlohmann::json retrieve(const nlohmann::json& query, int limit = 10) const;
     nlohmann::json retrieve_negative(const nlohmann::json& query, int limit = 10) const;
     nlohmann::json indices() const;

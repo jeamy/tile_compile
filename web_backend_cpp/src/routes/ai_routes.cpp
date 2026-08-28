@@ -10,6 +10,7 @@
 #include "services/pi/pi_ai_request_builder.hpp"
 #include "services/pi/pi_context_v2.hpp"
 #include "services/pi/pi_memory_store.hpp"
+#include "services/pi/pi_param_model.hpp"
 #include "services/pi/pi_recommendation_validator.hpp"
 #include "services/pi/pi_storage_paths.hpp"
 #include "services/scan_summary.hpp"
@@ -1544,6 +1545,11 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             if (validation.contains("patched_config_yaml") && validation["patched_config_yaml"].is_string())
                 analysis["analysis_context"]["patched_config_yaml"] = validation["patched_config_yaml"];
             attach_pi_action_plan(analysis);
+            // Schritt 3 shadow logging (docs/PI/pi_local_learning_plan_de.md, Abschnitt 4/7) — never
+            // influences the served analysis, purely observational.
+            tile_compile::pi::log_scan_param_shadow_predictions(
+                state, request_payload.value("scan_metrics", json::object()), scan_result,
+                analysis["validated_updates"]);
             const std::string job_id = state->job_store.create("scan_ai_analysis");
             json job_data = analysis;
             job_data["analysis_id"] = job_id;
@@ -1621,6 +1627,10 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         if (validation.contains("patched_config_yaml") && validation["patched_config_yaml"].is_string())
             analysis["analysis_context"]["patched_config_yaml"] = validation["patched_config_yaml"];
         attach_pi_action_plan(analysis);
+        // Schritt 3 shadow logging (docs/PI/pi_local_learning_plan_de.md, Abschnitt 4/7) — never
+        // influences the served analysis, purely observational.
+        tile_compile::pi::log_scan_param_shadow_predictions(
+            state, scan_metrics, scan_result, analysis["validated_updates"]);
 
         const std::string job_id = state->job_store.create("scan_ai_analysis");
         json job_data = analysis;
@@ -1827,6 +1837,10 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             if (validation.contains("patched_config_yaml") && validation["patched_config_yaml"].is_string())
                 analysis["analysis_context"]["patched_config_yaml"] = validation["patched_config_yaml"];
             attach_pi_action_plan(analysis);
+            // Schritt 3 shadow logging (docs/PI/pi_local_learning_plan_de.md, Abschnitt 4/7) — never
+            // influences the served analysis, purely observational.
+            tile_compile::pi::log_scan_param_shadow_predictions(
+                state, scan_metrics, scan_result, analysis["validated_updates"]);
             const std::string job_id = state->job_store.create("scan_ai_analysis");
             json job_data = analysis;
             job_data["analysis_id"] = job_id;
