@@ -378,6 +378,57 @@ TEST_CASE("autobge_finalize_is_atomic_when_channel_model_missing") {
   REQUIRE(B.isApprox(B0));
   REQUIRE(diag.failure_reason == "partial_channel_model");
 }
+
+// Regression test: a run whose R/G channels individually clear their per-channel guard while
+// B's guard rejects (e.g. bge.json real-world case: R/G slope improved, B slope worsened by
+// 1.51x against an 1.08x threshold) must report R/G as NOT applied too. finalize_bge_from_
+// channel_models is atomic at the pixel level (already covered above), but the diagnostics
+// used to set channels[R].applied/channels[G].applied = true the moment those channels
+// individually cleared their own guard -- before the loop ever reached B -- which made
+// bge.json's per-channel "applied" flags claim R/G were part of the delivered image even
+// though the whole correction was discarded. "Either all three channels or none."
+TEST_CASE("autobge_finalize_reports_no_channel_applied_when_one_channel_guard_rejects") {
+  // coarse_background_plane_slope() bails out (returns infinity, guard skipped) below 4096
+  // valid pixels, so this needs a real-sized image, not the 16x16 used by the other cases here.
+  constexpr int W = 80, H = 80;
+  auto cfg = make_autobge_config(W, H);
+
+  // R and G: model exactly matches the image's gradient -> corrected slope ~0, a clean
+  // improvement that individually clears the per-channel guard.
+  auto R = make_gradient_image(W, H, 100.0f, 0.5f, 0.3f);
+  auto G = R;
+  auto R0 = R;
+  auto G0 = G;
+
+  // B: model has the gradient's sign flipped -> corrected slope doubles instead of shrinking,
+  // which must trip the slope_worsened guard (post > pre * 1.08).
+  auto B = make_gradient_image(W, H, 100.0f, 0.5f, 0.3f);
+  auto B0 = B;
+
+  std::array<ti::BackgroundModel, 3> models;
+  models[0].model = make_gradient_image(W, H, 100.0f, 0.5f, 0.3f);
+  models[0].success = true;
+  models[1].model = make_gradient_image(W, H, 100.0f, 0.5f, 0.3f);
+  models[1].success = true;
+  models[2].model = make_gradient_image(W, H, 100.0f, -0.5f, -0.3f);
+  models[2].success = true;
+
+  ti::BGEDiagnostics diag;
+  bool ok = ti::finalize_bge_from_channel_models(R, G, B, models, {}, cfg, &diag);
+  REQUIRE_FALSE(ok);
+  // Either the per-channel slope guard or the cross-channel chroma guard can be what actually
+  // catches this particular synthetic B model first -- both are "the whole correction got
+  // rejected" outcomes, which is what this test is about, not which guard fired.
+  REQUIRE_FALSE(diag.failure_reason.empty());
+  REQUIRE(R.isApprox(R0));
+  REQUIRE(G.isApprox(G0));
+  REQUIRE(B.isApprox(B0));
+  REQUIRE(diag.channels.size() == 3);
+  for (const auto& ch : diag.channels) {
+    INFO("channel " << ch.channel_name);
+    REQUIRE_FALSE(ch.applied);
+  }
+}
 #else
 int tile_compile_tests_autobge_stub() { return 0; }
 #endif

@@ -1176,6 +1176,17 @@ bool finalize_bge_from_channel_models(
   std::vector<BGEChannelDiagnostics> out_diags = channel_diagnostics;
   if (out_diags.size() < 3)
     out_diags.resize(3);
+  // This function is all-or-nothing at the pixel level (R/G/B are only written back at the
+  // very end, once every channel has cleared its guards). But out_diags[ch].applied gets set
+  // true the moment a channel individually clears its own per-channel guard (below), which can
+  // happen for R/G before a later channel (B) causes an early return. Without this reset, the
+  // persisted bge.json would report e.g. R/G "applied": true with real mean_shift/output_stats
+  // even though those corrections were discarded and never reached the delivered image -- call
+  // this on every false-return path so the diagnostics can't claim a channel was applied when
+  // the whole correction was rejected.
+  auto reject_all_applied = [&out_diags]() {
+    for (auto& d : out_diags) d.applied = false;
+  };
 
   for (int ch = 0; ch < 3; ++ch) {
     if (out_diags[static_cast<size_t>(ch)].channel_name.empty())
@@ -1189,6 +1200,7 @@ bool finalize_bge_from_channel_models(
         diagnostics->bge_method = "autobge";
         diagnostics->method = "autobge";
         diagnostics->failure_reason = "partial_channel_model";
+        reject_all_applied();
         diagnostics->channels = std::move(out_diags);
       }
       return false;
@@ -1205,6 +1217,7 @@ bool finalize_bge_from_channel_models(
         diagnostics->bge_method = "autobge";
         diagnostics->method = "autobge";
         diagnostics->failure_reason = "model_dimension_mismatch";
+        reject_all_applied();
         diagnostics->channels = std::move(out_diags);
       }
       return false;
@@ -1271,6 +1284,7 @@ bool finalize_bge_from_channel_models(
           diagnostics->bge_method = "autobge";
           diagnostics->method = "autobge";
           diagnostics->failure_reason = ch_diag.guard_reason;
+          reject_all_applied();
           diagnostics->channels = std::move(out_diags);
         }
         return false;
@@ -1304,6 +1318,7 @@ bool finalize_bge_from_channel_models(
         diagnostics->bge_method = "autobge";
         diagnostics->method = "autobge";
         diagnostics->failure_reason = "background_chroma_worsened";
+        reject_all_applied();
         diagnostics->channels = std::move(out_diags);
       }
       return false;
