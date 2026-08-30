@@ -57,6 +57,7 @@ smoke-home-macos/
 smoke-home-windows/
 .codex
 site/
+pi_models/
 
 # GUI state files
 .tile_compile/
