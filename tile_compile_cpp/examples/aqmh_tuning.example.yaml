@@ -156,8 +156,16 @@ aqmh:
   # Reconstruction parameters
   reconstruction:
     clip_sigma: 2.0
-    clip_sigma_low: 2.0       # Symmetric clipping preserves diffuse background level
-    clip_sigma_high: 2.0
+    clip_sigma_low: 2.0       # Keep symmetric-side behavior for diffuse background pixels
+    clip_sigma_high: 4.0      # Loosened from 2.0: at a star's PSF peak, per-frame subpixel
+                               # registration jitter makes the pixel's frame-to-frame
+                               # distribution right-skewed, so a tight symmetric clip
+                               # preferentially rejects the genuinely bright frames and
+                               # biases the reconstructed peak down -- visible as a dark
+                               # notch in star centers. Raising only the high side (low side
+                               # stays at 2.0, so diffuse-background behavior is unchanged)
+                               # removes the notch and also improved background_rms/seam_score
+                               # regression in testing (M16 dataset, 222 frames).
     clip_iterations: 4
     min_fraction: 0.4
     min_n_eff: 2.0

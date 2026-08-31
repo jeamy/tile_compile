@@ -903,8 +903,10 @@ properties:
           clip_sigma_high:
             type: number
             exclusiveMinimum: 0
-            default: 2.0
-            description: Upper-side AQMH sigma clipping threshold. The symmetric 2.0 default avoids a negative location bias in diffuse backgrounds.
+            default: 4.0
+            description: Upper-side AQMH sigma clipping threshold. Kept looser than clip_sigma_low (2.0): at a star's PSF peak, per-frame subpixel registration jitter makes the
+              pixel's frame-to-frame value distribution right-skewed, so a tight symmetric clip preferentially rejects the genuinely bright frames and biases the reconstructed
+              peak down, visible as a dark notch in star centers. 4.0 removes that notch without loosening clip_sigma_low, so diffuse-background behavior is unchanged.
           clip_iterations:
             type: integer
             minimum: 0

@@ -37,7 +37,7 @@ aqmh:
     chunk_rows: 0
     clip_iterations: 4
     clip_sigma: 2
-    clip_sigma_high: 2
+    clip_sigma_high: 4
     clip_sigma_low: 2
     debayer_first: true
     delete_prewarped_cache_after_run: false
