@@ -1,4 +1,5 @@
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/config/legacy_config_migration.hpp"
 #include "tile_compile/core/errors.hpp"
 
 #include <cerrno>
@@ -216,6 +217,14 @@ void round_yaml_numeric_scalars_inplace(YAML::Node node) {
 Config Config::from_yaml_text(const std::string &yaml_text) {
   const std::string sanitized = sanitize_yaml_windows_paths(yaml_text);
   YAML::Node node = YAML::Load(sanitized);
+  return from_yaml(node);
+}
+
+Config Config::from_yaml_text_migrated(const std::string &yaml_text,
+                                      ConfigMigrationReport &report) {
+  const std::string sanitized = sanitize_yaml_windows_paths(yaml_text);
+  YAML::Node node = YAML::Load(sanitized);
+  migrate_legacy_config_node(node, report);  // may throw ConfigError
   return from_yaml(node);
 }
 
@@ -812,6 +821,117 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (yaml_has_value(v["max_background_rms_regression"])) cfg.aqmh.validation.max_background_rms_regression = v["max_background_rms_regression"].as<float>();
       if (yaml_has_value(v["max_tail11_abs_regression"])) cfg.aqmh.validation.max_tail11_abs_regression = v["max_tail11_abs_regression"].as<float>();
       if (yaml_has_value(v["max_elongation_regression"])) cfg.aqmh.validation.max_elongation_regression = v["max_elongation_regression"].as<float>();
+    }
+  }
+
+  // Single-method reconstruction contract (plan 6.1). Parsed and validated but
+  // not yet consumed by any phase (built in M2+).
+  if (node["reconstruction"]) {
+    auto r = node["reconstruction"];
+    auto &rc = cfg.reconstruction;
+    if (yaml_has_value(r["delete_source_cache_after_run"]))
+      rc.delete_source_cache_after_run =
+          r["delete_source_cache_after_run"].as<bool>();
+    if (yaml_has_value(r["keep_profile_cache_after_run"]))
+      rc.keep_profile_cache_after_run =
+          r["keep_profile_cache_after_run"].as<bool>();
+    if (yaml_has_value(r["common_overlap_required_fraction"]))
+      rc.common_overlap_required_fraction =
+          r["common_overlap_required_fraction"].as<float>();
+    if (yaml_has_value(r["diagnostics"]) &&
+        yaml_has_value(r["diagnostics"]["level"]))
+      rc.diagnostics.level = r["diagnostics"]["level"].as<std::string>();
+    if (yaml_has_value(r["diagnostics"]) &&
+        yaml_has_value(r["diagnostics"]["preview_forward_drizzle_uniform"]))
+      rc.diagnostics.preview_forward_drizzle_uniform =
+          r["diagnostics"]["preview_forward_drizzle_uniform"].as<bool>();
+    if (yaml_has_value(r["diagnostics"]) &&
+        yaml_has_value(r["diagnostics"]["persist_forward_drizzle_uniform_store"]))
+      rc.diagnostics.persist_forward_drizzle_uniform_store =
+          r["diagnostics"]["persist_forward_drizzle_uniform_store"].as<bool>();
+    if (yaml_has_value(r["drizzle"])) {
+      auto d = r["drizzle"];
+      if (yaml_has_value(d["internal_scale"]))
+        rc.drizzle.internal_scale = d["internal_scale"].as<int>();
+      if (yaml_has_value(d["output_scale"]))
+        rc.drizzle.output_scale = d["output_scale"].as<int>();
+      if (yaml_has_value(d["kernel"]))
+        rc.drizzle.kernel = d["kernel"].as<std::string>();
+      if (yaml_has_value(d["pixfrac"]))
+        rc.drizzle.pixfrac = d["pixfrac"].as<float>();
+      if (yaml_has_value(d["robust_passes"]))
+        rc.drizzle.robust_passes = d["robust_passes"].as<int>();
+      if (yaml_has_value(d["min_clip_contributors"]))
+        rc.drizzle.min_clip_contributors = d["min_clip_contributors"].as<int>();
+      if (yaml_has_value(d["chunk_rows"]))
+        rc.drizzle.chunk_rows = d["chunk_rows"].as<int>();
+      if (yaml_has_value(d["chunk_halo_rows"]))
+        rc.drizzle.chunk_halo_rows = d["chunk_halo_rows"].as<int>();
+      if (yaml_has_value(d["memory_budget_mb"]))
+        rc.drizzle.memory_budget_mb = d["memory_budget_mb"].as<size_t>();
+    }
+    if (yaml_has_value(r["clipping"])) {
+      auto c = r["clipping"];
+      if (yaml_has_value(c["clip_sigma_low"]))
+        rc.clipping.clip_sigma_low = c["clip_sigma_low"].as<float>();
+      if (yaml_has_value(c["clip_sigma_high"]))
+        rc.clipping.clip_sigma_high = c["clip_sigma_high"].as<float>();
+      if (yaml_has_value(c["min_fraction"]))
+        rc.clipping.min_fraction = c["min_fraction"].as<float>();
+      if (yaml_has_value(c["min_n_eff"]))
+        rc.clipping.min_n_eff = c["min_n_eff"].as<float>();
+    }
+    if (yaml_has_value(r["coverage_gate"])) {
+      auto g = r["coverage_gate"];
+      if (yaml_has_value(g["min_frames"]))
+        rc.coverage_gate.min_frames = g["min_frames"].as<int>();
+      if (yaml_has_value(g["min_supported_fraction"]))
+        rc.coverage_gate.min_supported_fraction =
+            g["min_supported_fraction"].as<float>();
+      if (yaml_has_value(g["min_channel_n_eff_floor"]))
+        rc.coverage_gate.min_channel_n_eff_floor =
+            g["min_channel_n_eff_floor"].as<float>();
+      if (yaml_has_value(g["min_channel_n_eff_fraction"]))
+        rc.coverage_gate.min_channel_n_eff_fraction =
+            g["min_channel_n_eff_fraction"].as<float>();
+      if (yaml_has_value(g["min_analysis_pixels"]))
+        rc.coverage_gate.min_analysis_pixels =
+            g["min_analysis_pixels"].as<int>();
+      if (yaml_has_value(g["max_internal_hole_area_px"]))
+        rc.coverage_gate.max_internal_hole_area_px =
+            g["max_internal_hole_area_px"].as<long long>();
+    }
+    if (yaml_has_value(r["quality"]) &&
+        yaml_has_value(r["quality"]["pyramid"]) &&
+        yaml_has_value(r["quality"]["pyramid"]["scales"]))
+      rc.quality.pyramid.scales =
+          r["quality"]["pyramid"]["scales"].as<int>();
+    if (yaml_has_value(r["multiband"])) {
+      auto m = r["multiband"];
+      if (yaml_has_value(m["enabled"]))
+        rc.multiband.enabled = m["enabled"].as<bool>();
+      if (yaml_has_value(m["levels"]))
+        rc.multiband.levels = m["levels"].as<int>();
+      if (yaml_has_value(m["alpha_cap"]))
+        rc.multiband.alpha_cap = m["alpha_cap"].as<float>();
+      if (yaml_has_value(m["fine_quality_exponent"]))
+        rc.multiband.fine_quality_exponent =
+            m["fine_quality_exponent"].as<float>();
+      if (yaml_has_value(m["medium_quality_exponent"]))
+        rc.multiband.medium_quality_exponent =
+            m["medium_quality_exponent"].as<float>();
+      if (yaml_has_value(m["min_quality_separation"]))
+        rc.multiband.min_quality_separation =
+            m["min_quality_separation"].as<float>();
+      if (yaml_has_value(m["full_quality_separation"]))
+        rc.multiband.full_quality_separation =
+            m["full_quality_separation"].as<float>();
+      if (yaml_has_value(m["min_effective_samples"]))
+        rc.multiband.min_effective_samples =
+            m["min_effective_samples"].as<float>();
+      if (yaml_has_value(m["full_effective_samples"]))
+        rc.multiband.full_effective_samples =
+            m["full_effective_samples"].as<float>();
     }
   }
 
@@ -1538,6 +1658,60 @@ YAML::Node Config::to_yaml() const {
   node["aqmh"]["validation"]["max_elongation_regression"] =
       aqmh.validation.max_elongation_regression;
 
+  // Single-method reconstruction contract (plan 6.1).
+  {
+    const auto &rc = reconstruction;
+    auto r = node["reconstruction"];
+    r["delete_source_cache_after_run"] = rc.delete_source_cache_after_run;
+    r["keep_profile_cache_after_run"] = rc.keep_profile_cache_after_run;
+    r["common_overlap_required_fraction"] = rc.common_overlap_required_fraction;
+    r["diagnostics"]["level"] = rc.diagnostics.level;
+    r["diagnostics"]["preview_forward_drizzle_uniform"] =
+        rc.diagnostics.preview_forward_drizzle_uniform;
+    r["diagnostics"]["persist_forward_drizzle_uniform_store"] =
+        rc.diagnostics.persist_forward_drizzle_uniform_store;
+    r["drizzle"]["internal_scale"] = rc.drizzle.internal_scale;
+    r["drizzle"]["output_scale"] = rc.drizzle.output_scale;
+    r["drizzle"]["kernel"] = rc.drizzle.kernel;
+    r["drizzle"]["pixfrac"] = rc.drizzle.pixfrac;
+    r["drizzle"]["robust_passes"] = rc.drizzle.robust_passes;
+    r["drizzle"]["min_clip_contributors"] = rc.drizzle.min_clip_contributors;
+    r["drizzle"]["chunk_rows"] = rc.drizzle.chunk_rows;
+    r["drizzle"]["chunk_halo_rows"] = rc.drizzle.chunk_halo_rows;
+    r["drizzle"]["memory_budget_mb"] = rc.drizzle.memory_budget_mb;
+    r["clipping"]["clip_sigma_low"] = rc.clipping.clip_sigma_low;
+    r["clipping"]["clip_sigma_high"] = rc.clipping.clip_sigma_high;
+    r["clipping"]["min_fraction"] = rc.clipping.min_fraction;
+    r["clipping"]["min_n_eff"] = rc.clipping.min_n_eff;
+    r["coverage_gate"]["min_frames"] = rc.coverage_gate.min_frames;
+    r["coverage_gate"]["min_supported_fraction"] =
+        rc.coverage_gate.min_supported_fraction;
+    r["coverage_gate"]["min_channel_n_eff_floor"] =
+        rc.coverage_gate.min_channel_n_eff_floor;
+    r["coverage_gate"]["min_channel_n_eff_fraction"] =
+        rc.coverage_gate.min_channel_n_eff_fraction;
+    r["coverage_gate"]["min_analysis_pixels"] =
+        rc.coverage_gate.min_analysis_pixels;
+    r["coverage_gate"]["max_internal_hole_area_px"] =
+        rc.coverage_gate.max_internal_hole_area_px;
+    r["quality"]["pyramid"]["scales"] = rc.quality.pyramid.scales;
+    r["multiband"]["enabled"] = rc.multiband.enabled;
+    r["multiband"]["levels"] = rc.multiband.levels;
+    r["multiband"]["alpha_cap"] = rc.multiband.alpha_cap;
+    r["multiband"]["fine_quality_exponent"] =
+        rc.multiband.fine_quality_exponent;
+    r["multiband"]["medium_quality_exponent"] =
+        rc.multiband.medium_quality_exponent;
+    r["multiband"]["min_quality_separation"] =
+        rc.multiband.min_quality_separation;
+    r["multiband"]["full_quality_separation"] =
+        rc.multiband.full_quality_separation;
+    r["multiband"]["min_effective_samples"] =
+        rc.multiband.min_effective_samples;
+    r["multiband"]["full_effective_samples"] =
+        rc.multiband.full_effective_samples;
+  }
+
   node["synthetic"]["weighting"] = synthetic.weighting;
   node["synthetic"]["frames_min"] = synthetic.frames_min;
   node["synthetic"]["frames_max"] = synthetic.frames_max;
@@ -1742,10 +1916,83 @@ YAML::Node Config::to_yaml() const {
 /// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+void ReconstructionConfig::validate() const {
+  auto req = [](bool cond, const std::string &msg) {
+    if (!cond) throw ValidationError("reconstruction: " + msg);
+  };
+  req(drizzle.internal_scale == 1 || drizzle.internal_scale == 2,
+      "drizzle.internal_scale must be 1 or 2");
+  req(drizzle.output_scale == 1 || drizzle.output_scale == 2,
+      "drizzle.output_scale must be 1 or 2");
+  req(drizzle.output_scale <= drizzle.internal_scale,
+      "drizzle.output_scale must be <= drizzle.internal_scale");
+  req(drizzle.kernel == "square", "drizzle.kernel must be 'square' in the MVP");
+  req(drizzle.pixfrac > 0.0f && drizzle.pixfrac <= 1.0f,
+      "drizzle.pixfrac must be in (0, 1]");
+  req(drizzle.robust_passes >= 1 && drizzle.robust_passes <= 6,
+      "drizzle.robust_passes must be in [1, 6]");
+  req(drizzle.min_clip_contributors >= 2,
+      "drizzle.min_clip_contributors must be >= 2");
+  req(drizzle.chunk_rows >= 0, "drizzle.chunk_rows must be >= 0");
+  req(drizzle.chunk_halo_rows == -1 || drizzle.chunk_halo_rows >= 1,
+      "drizzle.chunk_halo_rows must be -1 (auto) or >= 1");
+
+  req(clipping.clip_sigma_low > 0.0f, "clipping.clip_sigma_low must be > 0");
+  req(clipping.clip_sigma_high > 0.0f, "clipping.clip_sigma_high must be > 0");
+  req(clipping.min_fraction > 0.0f && clipping.min_fraction <= 1.0f,
+      "clipping.min_fraction must be in (0, 1]");
+  req(clipping.min_n_eff >= 1.0f, "clipping.min_n_eff must be >= 1");
+
+  req(diagnostics.level == "summary" || diagnostics.level == "full",
+      "diagnostics.level must be 'summary' or 'full'");
+
+  req(quality.pyramid.scales >= 1 && quality.pyramid.scales <= 4,
+      "quality.pyramid.scales must be in [1, 4]");
+
+  req(coverage_gate.min_frames >= 2, "coverage_gate.min_frames must be >= 2");
+  req(coverage_gate.min_supported_fraction > 0.0f &&
+          coverage_gate.min_supported_fraction <= 1.0f,
+      "coverage_gate.min_supported_fraction must be in (0, 1]");
+  req(coverage_gate.min_channel_n_eff_floor >= 1.0f,
+      "coverage_gate.min_channel_n_eff_floor must be >= 1");
+  req(coverage_gate.min_channel_n_eff_fraction > 0.0f &&
+          coverage_gate.min_channel_n_eff_fraction <= 1.0f,
+      "coverage_gate.min_channel_n_eff_fraction must be in (0, 1]");
+  req(coverage_gate.min_analysis_pixels >= 1,
+      "coverage_gate.min_analysis_pixels must be >= 1");
+  req(coverage_gate.max_internal_hole_area_px >= 0,
+      "coverage_gate.max_internal_hole_area_px must be >= 0");
+
+  req(multiband.levels >= 1 && multiband.levels <= 4,
+      "multiband.levels must be in [1, 4]");
+  req(multiband.levels < 2 || quality.pyramid.scales >= 2,
+      "multiband.levels >= 2 requires quality.pyramid.scales >= 2");
+  req(multiband.alpha_cap >= 0.0f && multiband.alpha_cap <= 1.0f,
+      "multiband.alpha_cap must be in [0, 1]");
+  req(multiband.fine_quality_exponent >= 0.0f,
+      "multiband.fine_quality_exponent must be >= 0");
+  req(multiband.medium_quality_exponent >= 0.0f,
+      "multiband.medium_quality_exponent must be >= 0");
+  req(multiband.min_quality_separation >= 0.0f &&
+          multiband.min_quality_separation < multiband.full_quality_separation &&
+          multiband.full_quality_separation <= 1.0f,
+      "multiband quality separation must satisfy "
+      "0 <= min < full <= 1");
+  req(multiband.min_effective_samples >= 1.0f &&
+          multiband.min_effective_samples < multiband.full_effective_samples,
+      "multiband effective samples must satisfy 1 <= min < full");
+
+  req(common_overlap_required_fraction >= 0.0f &&
+          common_overlap_required_fraction <= 1.0f,
+      "common_overlap_required_fraction must be in [0, 1]");
+}
+
 void Config::validate() const {
   if (method != "aqmh" && method != "classic_tile_compile") {
     throw ValidationError("method must be 'aqmh' or 'classic_tile_compile'");
   }
+
+  reconstruction.validate();
 
   if (pipeline.mode != "production" && pipeline.mode != "test") {
     throw ValidationError("pipeline.mode must be 'production' or 'test'");
@@ -2514,12 +2761,12 @@ void Config::validate() const {
 /// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-std::string getEffectiveMethod(const Config& config) {
-    const char* forceClassic = std::getenv("FORCE_CLASSIC");
-    if (forceClassic && std::string(forceClassic) == "1") {
-        return "classic_tile_compile";
-    }
-    return config.method;
+std::string getEffectiveMethod(const Config& /*config*/) {
+    // M0 (plan sections 6.5, 17.1, 22.5): there is exactly one reconstruction
+    // method. The `FORCE_CLASSIC` env var and `--force-classic` CLI flag are
+    // removed; no method/engine selection remains. `Config::method` is kept
+    // internally at its "aqmh" default only until the struct rename lands.
+    return "aqmh";
 }
 
 /// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
@@ -2681,6 +2928,17 @@ std::string get_schema_json() {
                       "reconstruction":{"type":"object","properties":{"clip_sigma":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_sigma_low":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_sigma_high":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_iterations":{"type":"integer","minimum":0,"default":4},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.4},"min_n_eff":{"type":"number","minimum":1,"default":2.0},"chunk_rows":{"type":"integer","minimum":0,"default":0},"memory_budget_mb":{"type":"integer","minimum":0,"default":0},"delete_prewarped_cache_after_run":{"type":"boolean","default":true,"description":"Controls deletion of the disk-backed cache/prewarped_frames directory after a successful run. true saves disk space but prevents direct resume from AQMH_RECONSTRUCTION or STACKING; false retains registered and prewarped frames for those resumes without repeating registration and PREWARP. The cache can require several tens of gigabytes."},"prewarp_interpolation":{"type":"string","enum":["linear","cubic","lanczos4"],"default":"linear","description":"Interpolation kernel used when prewarping registered frames onto the common canvas before AQMH reconstruction and stacking. linear is the conservative default; cubic and lanczos4 are explicit tuning options that can preserve more high-frequency detail but may increase background noise or ringing."},"registration_weight_guard":{"type":"boolean","default":true},"registration_weight_floor":{"type":"number","minimum":0,"maximum":1,"default":0.30},"registration_cc_floor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_cc_full":{"type":"number","minimum":0,"maximum":1,"default":0.8},"registration_sequential_factor":{"type":"number","minimum":0,"maximum":1,"default":0.92},"registration_predicted_factor":{"type":"number","minimum":0,"maximum":1,"default":0.50},"registration_chain_depth_penalty":{"type":"number","minimum":0,"maximum":0.5,"default":0.03},"registration_chain_depth_max_penalty":{"type":"number","minimum":0,"maximum":1,"default":0.15},"structure_mask_low_q":{"type":"number","minimum":0,"maximum":1,"default":0.40},"structure_mask_high_q":{"type":"number","minimum":0,"maximum":1,"default":0.90},"structure_mask_blur_sigma_px":{"type":"number","minimum":0,"default":4.0},"gpu_half_qmaps":{"type":"boolean","default":true,"description":"CUDA reconstruction only: stage Q-Maps as fp16 for the host-to-device transfer (halves that transfer's bandwidth), dequantized back to float32 on-device before use. Disable if fp16 rounding is suspected of shifting cherry-pick/sigma-clip decisions at the tolerance boundary."},"gpu_packed_masks":{"type":"boolean","default":true,"description":"CUDA reconstruction only: stage per-frame validity masks as 1-bit-per-pixel for the host-to-device transfer, unpacked back to uint8 on-device before use."}}},
                       "validation":{"type":"object","properties":{"max_seam_score_regression":{"type":"number","minimum":0,"default":0.05},"max_fwhm_regression":{"type":"number","minimum":0,"default":0.02},"max_background_rms_regression":{"type":"number","minimum":0,"default":0.05},"max_tail11_abs_regression":{"type":"number","minimum":0,"default":0.10},"max_elongation_regression":{"type":"number","minimum":0,"default":0.08}}},
                       "diagnostics":{"type":"object","properties":{"enabled":{"type":"boolean","default":true},"level":{"type":"string","enum":["none","summary","full"],"default":"full"},"per_frame_blocks":{"type":"boolean","default":true},"heatmaps":{"type":"boolean","default":true},"regions":{"type":"boolean","default":true},"format":{"type":"string","enum":["json","binary"],"default":"json"},"binary_block_size_px":{"type":"integer","minimum":0,"default":0},"tau_artifact":{"type":"number","minimum":0,"maximum":1,"default":0.20},"q_region":{"type":"number","minimum":0,"maximum":1,"default":0.75},"r_morph_canvas_px":{"type":"integer","minimum":1,"default":6}}} } },
+    "reconstruction": { "type":"object", "description":"Single-method CFA-forward-drizzle + multiband reconstruction contract (plan sections 6.1-6.3). Parsed and validated in M0; consumed from M2 onward.",
+      "properties": {
+        "delete_source_cache_after_run":{"type":"boolean","default":false},
+        "keep_profile_cache_after_run":{"type":"boolean","default":false},
+        "common_overlap_required_fraction":{"type":"number","minimum":0,"maximum":1,"default":1.0},
+        "diagnostics":{"type":"object","properties":{"level":{"type":"string","enum":["summary","full"],"default":"summary"}}},
+        "drizzle":{"type":"object","properties":{"internal_scale":{"type":"integer","enum":[1,2],"default":2},"output_scale":{"type":"integer","enum":[1,2],"default":1},"kernel":{"type":"string","enum":["square"],"default":"square"},"pixfrac":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.8},"robust_passes":{"type":"integer","minimum":1,"maximum":6,"default":2},"min_clip_contributors":{"type":"integer","minimum":2,"default":5},"chunk_rows":{"type":"integer","minimum":0,"default":0},"chunk_halo_rows":{"type":"integer","minimum":-1,"default":-1,"description":"-1 = auto"},"memory_budget_mb":{"type":"integer","minimum":0,"default":0}}},
+        "clipping":{"type":"object","properties":{"clip_sigma_low":{"type":"number","exclusiveMinimum":0,"default":3.0},"clip_sigma_high":{"type":"number","exclusiveMinimum":0,"default":3.0},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.4},"min_n_eff":{"type":"number","minimum":1,"default":3.0}}},
+        "coverage_gate":{"type":"object","properties":{"min_frames":{"type":"integer","minimum":2,"default":2},"min_supported_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.995},"min_channel_n_eff_floor":{"type":"number","minimum":1,"default":3.0},"min_channel_n_eff_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.15},"min_analysis_pixels":{"type":"integer","minimum":1,"default":1024},"max_internal_hole_area_px":{"type":"integer","minimum":0,"default":0}}},
+        "quality":{"type":"object","properties":{"pyramid":{"type":"object","properties":{"scales":{"type":"integer","minimum":1,"maximum":4,"default":4}}}}},
+        "multiband":{"type":"object","properties":{"enabled":{"type":"boolean","default":true},"levels":{"type":"integer","minimum":1,"maximum":4,"default":3},"alpha_cap":{"type":"number","minimum":0,"maximum":1,"default":1.0},"fine_quality_exponent":{"type":"number","minimum":0,"default":4.0},"medium_quality_exponent":{"type":"number","minimum":0,"default":2.0},"min_quality_separation":{"type":"number","minimum":0,"maximum":1,"default":0.05},"full_quality_separation":{"type":"number","minimum":0,"maximum":1,"default":0.20},"min_effective_samples":{"type":"number","minimum":1,"default":8.0},"full_effective_samples":{"type":"number","minimum":1,"default":24.0}}} } },
     "synthetic": { "type":"object",
       "properties": { "weighting":{"type":"string","enum":["global","tile_weighted"]},
                       "frames_min":{"type":"integer","minimum":1},

@@ -16,4 +16,5 @@ int run_pipeline_command(const std::string &config_path,
                          bool dry_run,
                          int max_frames,
                          int max_tiles,
-                         bool config_from_stdin);
+                         bool config_from_stdin,
+                         bool forward_drizzle_only = false);

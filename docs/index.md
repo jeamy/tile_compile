@@ -106,6 +106,7 @@ The online help is intentionally split into four levels:
 ### Methodology
 
 - [AQMH Methodology v0.2.1](AQMH/aqmh_methodik_en_v0.2.1.md)
+- [CFA Forward-Drizzle and Multiband as the Single Method — Implementation Plan (DE)](AQMH/aqmh_cfa_forward_drizzle_multiband_implementierungsplan_de.md)
 - [TBQR Methodology v3.3.9 (EN)](v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md)
 - [Process Flow](process_flow/phase_0_overview.md)
 

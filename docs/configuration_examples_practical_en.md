@@ -942,3 +942,39 @@ Raw Stack uses a separate preprocessing configuration through the GUI/API, not t
 These examples now reflect the active parameters in code and schema (`v3.3.9` status) and stay closer to the maintained repository profiles.
 
 Adjust values to your specific hardware and conditions.
+
+## Forward drizzle: streaming and memory budget (development, 2026-09-05)
+
+The new CPU coverage/Uniform path processes target stripes instead of full-canvas
+accumulators per frame or worker. It is not yet a released full reconstruction or
+resume pipeline. The preview remains disabled by default.
+
+| Parameter | Units, range and default | Behavior |
+|---|---|---|
+| `reconstruction.drizzle.memory_budget_mb` | MiB, integer >=0, default 0 | 0 inherits `runtime_limits.memory_budget`; direct library calls use 512 MiB. Accounts for retained output/masks, one source plus transient load copy, stripe scratch and reserve. Available host/cgroup headroom can further reduce the budget. |
+| `reconstruction.drizzle.chunk_rows` | internal target rows, integer >=0, default 0 | Auto selects at most 256 rows within budget. Oversized explicit values fail; if one row cannot fit, allocation is rejected before large buffers are created. |
+| `reconstruction.drizzle.chunk_halo_rows` | rows, integer >=-1, default -1 | Compatibility field. Exact source-footprint enumeration includes droplets crossing stripe boundaries; CPU Uniform/coverage does not need duplicate output halo rows. |
+| `reconstruction.common_overlap_required_fraction` | fraction, (0,1], default 1 | Fraction of accepted dense frame footprints defining an independent analysis region, not intersection of sparse R/G/B droplets. |
+| `reconstruction.diagnostics.preview_forward_drizzle_uniform` | boolean, default false | Streaming summary diagnostic, not a finished stack or resume commit. |
+
+Coverage and Uniform share the polygon kernel. `n_eff=(sum B)^2/sum(B^2)` uses
+geometric frame weights; missing support counts as zero within the analysis region.
+An empty analysis region fails its gate. Production coverage retains only two full
+byte masks; frame buffers are striped. Exact percentiles use temporary float spools
+and a bounded read buffer, at most approximately `4 * active_channels * internal_pixels`
+bytes on disk, with an additional 64 MiB free-space requirement. Hole detection
+uses two scanlines; FITS mask export uses one float row instead of a float image.
+
+The CPU reference uses one worker and fixed frame order. Sources may be reloaded
+per stripe; affine source rows are geometrically bounded, local warps conservatively
+revisited. Extra I/O trades for bounded RAM. Diagnostics report `estimated_peak_bytes`,
+`resolved_chunk_rows` and `workers_used`. This is an allocation estimate, not measured
+whole-process RSS; existing registration data and concurrent processes require
+separate accounting. There is no automatic method or scale fallback. See
+`tile_compile_cpp/examples/forward_drizzle_streaming.example.yaml`.
+
+For shared Uniform/Raw library calls, also prefer `chunk_rows: 0`: candidate storage grows with the number of frames, so more frames may require smaller stripes at the same image dimensions. If one row cannot fit, the call fails early. The streaming API avoids retaining both complete outputs in RAM; its sink must consume stripes immediately. This API is not yet a complete new runner path.
+
+`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (boolean, default `false`) is independent of preview. When enabled, it streams unclipped Uniform planes into `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` publishes the complete verified generation atomically. The existing drizzle budget includes an additional 8 MiB FITS/metadata reserve and one float row. Insufficient memory fails before source loading; insufficient free disk fails before plane writing. A failed diagnostic does not fail the legacy run. Old generations are retained and consume disk; there is no automatic cleanup. This is a diagnostic store, not a resumable pipeline phase. Read `current.json` and validate it against the expected source, sampling and algorithm identity; old flat stores are not implicitly accepted or rewritten. The shared clipped Uniform/Raw library store uses the same transaction but is not yet wired into a new runner phase.
+
+The checked predecessor library API uses an explicit source-quality MiB budget (512 MiB by default). It may reject large native frames under its conservative scratch estimate; do not bypass that check. Cache manifests identify existing normalized raw float files and do not perform calibration. Commit schema 2 binds cache and quality-plan hashes. Production runner cache retention and resume integration remain pending.

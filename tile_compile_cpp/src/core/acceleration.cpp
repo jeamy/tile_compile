@@ -69,6 +69,8 @@ bool opencv_cuda_headers_available(AccelerationPhase phase) {
     return TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM != 0;
   case AccelerationPhase::stacking:
     return TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM != 0;
+  case AccelerationPhase::forward_drizzle:
+    return false;  // custom CUDA path, not OpenCV-CUDA
   }
 #endif
   (void)phase;
@@ -104,7 +106,8 @@ bool phase_supports_backend(AccelerationPhase phase,
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
   case AccelerationBackend::cuda:
-    return phase == AccelerationPhase::aqmh_reconstruction;
+    return phase == AccelerationPhase::aqmh_reconstruction ||
+           phase == AccelerationPhase::forward_drizzle;
   }
   return false;
 }
@@ -1915,6 +1918,8 @@ std::string acceleration_phase_name(AccelerationPhase phase) {
     return "TILE_RECONSTRUCTION";
   case AccelerationPhase::stacking:
     return "STACKING";
+  case AccelerationPhase::forward_drizzle:
+    return "FORWARD_DRIZZLE";
   }
   return "UNKNOWN";
 }
@@ -2026,7 +2031,8 @@ json AccelerationContext::to_json() const {
                                   AccelerationPhase::aqmh_maps,
                                   AccelerationPhase::aqmh_reconstruction,
                                   AccelerationPhase::tile_reconstruction,
-                                  AccelerationPhase::stacking}) {
+                                  AccelerationPhase::stacking,
+                                  AccelerationPhase::forward_drizzle}) {
     phases[acceleration_phase_name(phase)] =
         acceleration_selection_to_json(selection_for(phase));
   }

@@ -942,3 +942,41 @@ Raw Stack verwendet eine separate Preprocessing-Konfiguration ueber die GUI/API,
 Diese Beispiele basieren jetzt auf den aktiven Parametern von Code und Schema (`v3.3.9`-Stand) und sind enger an die gepflegten Repository-Profile angelehnt.
 
 Passen Sie die Werte an Ihre spezifische Hardware und Bedingungen an.
+
+## Forward-Drizzle: Streaming und Speicherbudget (Entwicklungsstand 2026-09-05)
+
+Der neue CPU-Coverage-/Uniform-Pfad verarbeitet Zielstreifen statt Vollbild-
+Akkumulatoren pro Frame oder Worker. Er ist noch kein freigegebener vollständiger
+Rekonstruktions-/Resume-Pfad. Die Preview bleibt standardmäßig deaktiviert.
+
+| Parameter | Einheit, Bereich und Default | Verhalten |
+|---|---|---|
+| `reconstruction.drizzle.memory_budget_mb` | MiB, Ganzzahl >=0, Default 0 | 0 übernimmt `runtime_limits.memory_budget`; direkte Bibliotheksaufrufe verwenden 512 MiB. Berücksichtigt zurückgehaltene Ergebnisse/Masken, Quellbild samt temporärer Ladekopie, Arbeitsstreifen und Reserve. Verfügbarer Host-/cgroup-Speicher kann das Budget zusätzlich begrenzen. |
+| `reconstruction.drizzle.chunk_rows` | interne Zielzeilen, Ganzzahl >=0, Default 0 | Auto wählt höchstens 256 Zeilen innerhalb des Budgets. Ein expliziter zu großer Wert wird abgelehnt; passt nicht einmal eine Zeile, erfolgt ein kontrollierter Fehler vor der großen Allokation. |
+| `reconstruction.drizzle.chunk_halo_rows` | Zeilen, Ganzzahl >=-1, Default -1 | Kompatibilitätsfeld. Die exakte Quellfootprint-Aufzählung erfasst auch über Streifengrenzen ragende Droplets; im CPU-Uniform-/Coverage-Pfad werden keine Ausgabe-Halozeilen benötigt. |
+| `reconstruction.common_overlap_required_fraction` | Anteil, (0,1], Default 1 | Anteil akzeptierter dichter Frame-Footprints für die unabhängige Analysefläche. Keine Schnittmenge aller dünnen R/G/B-Droplets. |
+| `reconstruction.diagnostics.preview_forward_drizzle_uniform` | Bool, Default false | Streaming-Diagnose mit Summenstatistik; kein fertiger Stack, kein Resume-Commit. |
+
+Coverage und Uniform benutzen denselben Polygonkernel. `n_eff=(sum B)^2/sum(B^2)`
+verwendet geometrische Framegewichte; fehlender Support zählt in der Analysefläche
+als null. Eine leere Analysefläche ist ein Gatefehler, kein impliziter Pass.
+Coverage hält produktiv nur zwei Vollbild-Bytemasken; Framepuffer sind streifenweise.
+Exakte Perzentile verwenden temporäre Floatspools mit begrenztem Lesepuffer,
+maximal etwa `4 * aktive_Kanäle * interne_Pixelzahl` Byte Diskdaten. Vorab werden
+zusätzlich 64 MiB freier Temporärspeicher verlangt. Die Lochsuche benötigt nur
+zwei Scanlines. FITS-Maskenexport benötigt eine Floatzeile statt eines Floatbildes.
+
+CPU-Referenz: ein Worker, feste Framefolge. Streaming kann Quellframes pro Streifen
+neu laden; affine Quellzeilen werden geometrisch eingeschränkt, lokale Warps
+konservativ erneut geprüft. Mehr I/O ist der bewusste Tausch gegen begrenzten RAM.
+Die Preview gibt `estimated_peak_bytes`, `resolved_chunk_rows` und `workers_used`
+aus. Dies ist eine Allokationsschätzung, kein gemessener Gesamtprozess-RSS; bereits
+vorhandene Registrierungsdaten und konkurrierende Prozesse bleiben gesondert zu
+berücksichtigen. Es gibt keinen automatischen Methoden- oder Skalenfallback.
+Ein Beispiel steht in `tile_compile_cpp/examples/forward_drizzle_streaming.example.yaml`.
+
+Für gemeinsame Uniform/Raw-Bibliotheksaufrufe empfiehlt sich ebenfalls `chunk_rows: 0`: Der Kandidatenspeicher wächst mit der Framezahl, deshalb können dieselben Bilddimensionen bei mehr Frames kleinere Streifen erfordern. Passt eine Zeile nicht, erfolgt eine frühe Ablehnung. Die Streaming-API vermeidet beide vollständigen Ausgaben im RAM; ihr Sink muss Streifen unmittelbar verbrauchen. Diese API ist noch kein vollständiger neuer Runnerpfad.
+
+`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (Bool, Default `false`) ist unabhängig von der Preview. Aktiviert schreibt es ungeclippte Uniform-Ebenen per Streaming nach `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` veröffentlicht die vollständige geprüfte Generation atomar. Das bestehende Drizzle-Budget umfasst zusätzlich 8 MiB für FITS/Metadaten und eine float-Zeile. Zu wenig RAM wird vor Quell-I/O abgewiesen; zu wenig freie Disk vor dem Ebenenschreiben. Ein Diagnosefehler lässt den Legacy-Lauf weiterlaufen. Alte Generationen bleiben erhalten und belegen Disk; es gibt keine automatische Bereinigung. Der Store ist kein Resume-Phaseneinstieg. Leser müssen `current.json` gegen erwartete Quell-, Sampling- und Algorithmusidentität prüfen; alte flache Stores werden weder automatisch akzeptiert noch umgeschrieben. Der geclippte Uniform/Raw-Bibliotheksstore nutzt dieselbe Transaktion, ist aber noch nicht als neue Runnerphase verdrahtet.
+
+Die geprüfte Vorgänger-Bibliotheks-API verwendet ein explizites Quellqualitätsbudget in MiB (Default 512 MiB). Große native Frames können wegen der konservativen Scratch-Schätzung früh abgelehnt werden; diese Prüfung nicht umgehen. Cachemanifeste identifizieren vorhandene normalisierte Float-Rohdateien und führen keine Kalibrierung aus. Store-Commit-Schema 2 bindet Cache- und Qualitätsplanhash. Produktive Cache-Aufbewahrung und Resume-Integration im Runner bleiben offen.

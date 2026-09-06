@@ -1,3 +1,4 @@
+#include "tile_compile/reconstruction/drizzle_profile_store.hpp"
 #include "runner_phase_registration.hpp"
 #include "runner_registration_refinement_state.hpp"
 #include "runner_shared.hpp"
@@ -11,6 +12,10 @@
 #include "tile_compile/registration/astrometric_rescue.hpp"
 #include "tile_compile/registration/global_registration.hpp"
 #include "tile_compile/registration/registration.hpp"
+#include "tile_compile/reconstruction/forward_drizzle.hpp"
+#include "tile_compile/reconstruction/profile_store_manifest.hpp"
+#include "tile_compile/registration/registration_sampling_plan.hpp"
+#include "tile_compile/registration/sampling_geometry.hpp"
 #include "tile_compile/runner/registration_outlier_utils.hpp"
 
 #include <Eigen/Dense>
@@ -30,7 +35,9 @@
 #include <iostream>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <sstream>
+#include <chrono>
 #include <thread>
 #include <vector>
 
@@ -154,6 +161,7 @@ RegistrationResidualStats measure_registration_residuals(
   out.applicable = true;
   return out;
 }
+
 
 /// @brief Implements wrap angle near.
 /// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
@@ -326,6 +334,435 @@ const char *registration_provenance_name(RegistrationProvenance provenance) {
   return "unknown";
 }
 
+// M1 (plan section 7): assembles and persists the RegistrationSamplingPlan
+// from the already-computed global registration + local-refinement results,
+// right after canvas/offset computation and before any PREWARP image warping
+// runs. This is additive: it does not change frames, warps, or the canvas in
+// any way, and PREWARP continues unmodified below it. See plan sections
+// 7.1-7.4 and 11.9 (model_prediction_factor / registration_residual_factor).
+//
+// Frame identity binds the manifest/config digest and canonical source index.
+bool write_registration_sampling_plan(
+    const std::vector<fs::path> &frames,
+    const std::vector<WarpMatrix> &global_frame_warps_offset_corrected,
+    const std::vector<RegistrationProvenance> &reg_provenance,
+    const std::vector<int> &reg_chain_depth,
+    const std::vector<RegistrationResidualStats> &reg_residual_stats,
+    const std::vector<SmoothLocalRefinementFrameStats> &local_refinement_stats,
+    float local_model_coordinate_scale, int offset_x, int offset_y,
+    int source_width, int source_height, int canvas_width, int canvas_height,
+    ColorMode detected_mode, BayerPattern detected_bayer,
+    const config::RegistrationConfig &registration_cfg, const fs::path &run_dir,
+    core::EventEmitter &emitter, const std::string &run_id,
+    std::ostream &log_file, std::string &out_plan_hash,
+    registration::RegistrationSamplingPlan *out_plan = nullptr) {
+  using registration::FrameSamplingTransform;
+  using registration::RegistrationSamplingPlan;
+
+  RegistrationSamplingPlan plan;
+  plan.source_width = source_width;
+  plan.source_height = source_height;
+  plan.canvas_width_native = canvas_width;
+  plan.canvas_height_native = canvas_height;
+  plan.canvas_offset_x_native = offset_x;
+  plan.canvas_offset_y_native = offset_y;
+  plan.internal_scale = 1;   // drizzle geometry hash domain (18.3); not consumed here
+  plan.output_scale = 1;
+  plan.color_mode = detected_mode;
+  plan.bayer_pattern = detected_bayer;
+  plan.cfa_origin_x = 0;  // normalized-cache (0,0) parity; no ROI/crop offset applied upstream
+  plan.cfa_origin_y = 0;
+  plan.convention = registration::SamplingWarpConvention::canvas_to_source;
+
+  // Reuse the already hashed input manifest and effective configuration.
+  // No resume eligibility is inferred from this identity alone: a committed
+  // normalized-cache manifest is still required by the future resume phase.
+  const auto provenance=core::json::parse(core::read_text(run_dir / "artifacts" / "run_provenance.json"));
+  const std::string identity=provenance.at("input_manifest").at("sha256").get<std::string>()+":"+
+                             provenance.at("config").at("sha256").get<std::string>();
+  plan.source_identity_hash=core::sha256_bytes(std::vector<uint8_t>(identity.begin(),identity.end()));
+
+  const float det_min = registration_cfg.reject_scale_min * registration_cfg.reject_scale_min;
+  const float det_max = registration_cfg.reject_scale_max * registration_cfg.reject_scale_max;
+
+  int invalid_frames = 0;
+  plan.frames.reserve(frames.size());
+  for (size_t fi = 0; fi < frames.size(); ++fi) {
+    FrameSamplingTransform f;
+    f.frame_id = plan.source_identity_hash + ":" + std::to_string(fi);
+    f.source_index = fi;
+    f.provenance = registration_provenance_name(reg_provenance[fi]);
+
+    const bool unresolved = reg_provenance[fi] == RegistrationProvenance::unresolved;
+    f.canvas_to_source = registration::opencv_to_edge_sampling_map(global_frame_warps_offset_corrected[fi]);
+    f.valid = !unresolved &&
+             registration::invert_affine_2x3(f.canvas_to_source, det_min, det_max,
+                                             f.source_to_canvas);
+    f.source_to_canvas_affine_valid = f.valid;
+    if (!f.valid) {
+      ++invalid_frames;
+      plan.frames.push_back(std::move(f));
+      continue;
+    }
+
+    // --- local (non-affine) model (7.1, 7.3) ---
+    const auto &lrs = local_refinement_stats[fi];
+    f.has_smooth_local_model = lrs.applied && lrs.fit.model.valid;
+    if (f.has_smooth_local_model) {
+      f.smooth_local_model = lrs.fit.model;
+      f.model_coordinate_scale = local_model_coordinate_scale;
+      f.model_offset_x = static_cast<float>(offset_x) + 0.5f;
+      f.model_offset_y = static_cast<float>(offset_y) + 0.5f;
+    }
+
+    // --- registration_residual_factor (11.9) ---
+    const auto &rs = reg_residual_stats[fi];
+    const bool is_reference = reg_provenance[fi] == RegistrationProvenance::reference;
+    if (is_reference) {
+      f.registration_residual_factor = 1.0f;
+      f.residual_applicable = true;
+    } else if (rs.applicable) {
+      f.registration_residual_factor = rs.weight_factor;
+      f.residual_applicable = true;
+    } else {
+      f.registration_residual_factor = 0.55f;  // conservative missing-floor
+      f.residual_applicable = false;
+    }
+
+    // --- model_prediction_factor (11.9) ---
+    switch (reg_provenance[fi]) {
+      case RegistrationProvenance::model_interpolated:
+      case RegistrationProvenance::model_blended:
+      case RegistrationProvenance::model_global_poly:
+      case RegistrationProvenance::model_local_poly: {
+        f.model_predicted = true;
+        f.chain_depth = reg_chain_depth[fi];
+        const float depth = static_cast<float>(std::max(0, f.chain_depth));
+        f.model_prediction_factor =
+            std::clamp(1.0f / (1.0f + 0.4f * depth), 0.5f, 0.9f);
+        break;
+      }
+      case RegistrationProvenance::model_nearest_copy: {
+        f.model_predicted = true;
+        f.chain_depth = reg_chain_depth[fi];
+        const float depth = static_cast<float>(std::max(0, f.chain_depth));
+        f.model_prediction_factor =
+            std::min(std::clamp(1.0f / (1.0f + 0.4f * depth), 0.5f, 0.9f), 0.5f);
+        break;
+      }
+      default:
+        f.model_predicted = false;
+        f.chain_depth = std::max(0, reg_chain_depth[fi]);
+        f.model_prediction_factor = 1.0f;
+        break;
+    }
+
+    plan.frames.push_back(std::move(f));
+  }
+
+  plan.plan_hash = registration::compute_plan_hash(plan);
+  out_plan_hash = plan.plan_hash;
+
+  std::error_code ec;
+  fs::create_directories(run_dir / "artifacts", ec);
+  const fs::path artifact_path = run_dir / "artifacts" / "registration_sampling.json";
+  try {
+    core::write_text_atomic(artifact_path, registration::serialize_to_json_string(plan));
+  } catch (const std::exception &e) {
+    emitter.warning(run_id,
+                    std::string("Failed to write registration_sampling.json: ") +
+                        e.what(),
+                    log_file);
+    std::cout << "[REGISTRATION_SAMPLING] write failed: " << e.what() << std::endl;
+    if (out_plan) *out_plan = plan;
+    return false;
+  }
+
+  std::cout << "[REGISTRATION_SAMPLING] wrote " << artifact_path
+            << " frames=" << plan.frames.size() << " invalid=" << invalid_frames
+            << " plan_hash=" << plan.plan_hash.substr(0, 16) << "..." << std::endl;
+  if (out_plan) *out_plan = std::move(plan);
+  return true;
+}
+
+// M2 (plan section 11) diagnostic-only preview of the CFA-forward-drizzle
+// Uniform-Control kernel. Gated behind
+// reconstruction.diagnostics.preview_forward_drizzle_uniform (default off,
+// see configuration.hpp for why). This is NOT a pipeline phase: it never
+// aborts the run, never gates anything, and runs identically on both the new
+// and the legacy-reference binary (it is pure additional diagnostic output,
+// unlike SAMPLING_GEOMETRY's fail-closed gate). Source samples come from
+// `load_frame_normalized` --- the same normalized-cache source the eventual
+// M2+ pipeline will use, never `prewarped_frames` (plan section 23 M2
+// acceptance).
+void run_forward_drizzle_uniform_preview(
+    const registration::RegistrationSamplingPlan &plan,
+    const config::ReconstructionDrizzleConfig &drizzle_cfg,
+    const std::function<Matrix2Df(size_t)> &load_frame_normalized,
+    const fs::path &run_dir, core::EventEmitter &emitter,
+    const std::string &run_id, std::ostream &log_file) {
+  try {
+    const auto t0 = std::chrono::steady_clock::now();
+
+    // Streaming revisits sources per stripe in fixed frame order. A single
+    // cache slot bounds the decoded source working set independently of N.
+    std::optional<size_t> cached_index;
+    Matrix2Df cached_image;
+    reconstruction::SourceImageProvider source_of =
+        [&](std::size_t idx) -> const Matrix2Df & {
+      if (!cached_index.has_value() || *cached_index != idx) {
+        cached_image.resize(0, 0);
+        cached_index.reset();
+        cached_image = load_frame_normalized(idx);
+        cached_index = idx;
+      }
+      return cached_image;
+    };
+
+    std::array<size_t,4> supported{};
+    const auto diagnostics = reconstruction::stream_forward_drizzle_uniform(
+        plan,source_of,drizzle_cfg,[&](int,const reconstruction::ForwardDrizzleUniformResult& stripe) {
+          const std::array<const reconstruction::ProfilePlane*,4> planes={&stripe.R,&stripe.G,&stripe.B,&stripe.L};
+          for(size_t c=0;c<planes.size();++c)
+            supported[c]+=std::count(planes[c]->support.begin(),planes[c]->support.end(),uint8_t{1});
+        });
+    const int internal_width=plan.canvas_width_native*drizzle_cfg.internal_scale;
+    const int internal_height=plan.canvas_height_native*drizzle_cfg.internal_scale;
+    auto coverage_fraction=[&](size_t c) {
+      return static_cast<double>(supported[c])/(static_cast<size_t>(internal_width)*internal_height);
+    };
+
+    core::json extra = {
+        {"internal_width", internal_width},
+        {"internal_height", internal_height},
+        {"local_model_samples_total", diagnostics.local_model_samples_total},
+        {"local_model_samples_discarded", diagnostics.local_model_samples_discarded},
+        {"frames_excluded_subdivision_error_rate", core::json::array()},
+    };
+    for (const auto &kv : diagnostics.frames_excluded_subdivision_error_rate) {
+      extra["frames_excluded_subdivision_error_rate"].push_back(
+          {{"frame_id", kv.first}, {"rate", kv.second}});
+    }
+    if (plan.color_mode == ColorMode::MONO) {
+      extra["coverage_fraction_L"] = coverage_fraction(3);
+    } else {
+      extra["coverage_fraction_R"] = coverage_fraction(0);
+      extra["coverage_fraction_G"] = coverage_fraction(1);
+      extra["coverage_fraction_B"] = coverage_fraction(2);
+    }
+    extra["estimated_peak_bytes"] = diagnostics.estimated_peak_bytes;
+    extra["resolved_chunk_rows"] = diagnostics.resolved_chunk_rows;
+    extra["workers_used"] = diagnostics.workers_used;
+    extra["elapsed_s"] =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    extra["note"] =
+        "M2 diagnostic-only preview (plan section 11); Uniform-Control only, "
+        "no clipping/quality weights/multiband, not yet a pipeline phase.";
+
+    core::write_text_atomic(run_dir / "artifacts" / "forward_drizzle_uniform_diagnostic.json",
+                     extra.dump(2));
+    std::cout << "[FORWARD_DRIZZLE_PREVIEW] (M2 diagnostic, does not gate the run) "
+             << extra.dump() << std::endl;
+  } catch (const std::exception &e) {
+    emitter.warning(run_id,
+                    std::string("forward_drizzle_uniform preview failed "
+                                "(diagnostic-only, does not affect the run): ") +
+                        e.what(),
+                    log_file);
+  }
+}
+
+// M2 (plan section 11.3) small, real step toward the transactional
+// DrizzleProfileStore: persists the materialized Uniform-Control planes as
+// FITS files, each written atomically via io::write_fits_float() (which
+// stages-and-renames internally, see fits_io.cpp). Gated behind
+// reconstruction.diagnostics.persist_forward_drizzle_uniform_store (default
+// off), independent of the preview flag. Explicitly NOT a whole-store
+// transaction: each plane file is individually atomic (never observed
+// truncated/partial), but a crash between two plane writes can leave a
+// mixed-generation set of files on disk --- the full plan 11.3 contract
+// (mmap-backed, read_region()/write_region(), single-transaction commit
+// across all planes) is still open M2 work. This function fully
+// materializes the result in memory first (via compute_forward_drizzle_uniform,
+// itself memory-budget-checked) rather than streaming plane writes row by
+// row, because no streaming FITS writer exists yet for float planes (only
+// io::write_fits_mask_rows() for boolean masks, plan section 9's need, not
+// section 11's).
+void write_forward_drizzle_uniform_store(
+    const registration::RegistrationSamplingPlan &plan,
+    const config::ReconstructionDrizzleConfig &drizzle_cfg,
+    const std::function<Matrix2Df(size_t)> &load_frame_normalized,
+    const fs::path &run_dir, core::EventEmitter &emitter,
+    const std::string &run_id, std::ostream &log_file) {
+  try {
+    const auto t0 = std::chrono::steady_clock::now();
+    std::optional<size_t> cached_index;
+    Matrix2Df cached_image;
+    reconstruction::SourceImageProvider source_of =
+        [&](std::size_t idx) -> const Matrix2Df & {
+      if (!cached_index.has_value() || *cached_index != idx) {
+        cached_image.resize(0, 0);
+        cached_index.reset();
+        cached_image = load_frame_normalized(idx);
+        cached_index = idx;
+      }
+      return cached_image;
+    };
+
+    const fs::path store_dir = run_dir / "artifacts" / "forward_drizzle_uniform_store";
+    const auto result = reconstruction::persist_forward_drizzle_uniform(
+        store_dir, plan, source_of, drizzle_cfg);
+    std::cout << "[FORWARD_DRIZZLE_STORE] committed " << result.generation_dir.string()
+              << " estimated_peak_bytes=" << result.diagnostics.estimated_peak_bytes
+              << " chunk_rows=" << result.diagnostics.resolved_chunk_rows
+              << " elapsed_s="
+              << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count()
+              << std::endl;
+  } catch (const std::exception &e) {
+    emitter.warning(run_id,
+                    std::string("forward_drizzle_uniform store persistence failed "
+                                "(diagnostic-only, does not affect the run): ") +
+                        e.what(),
+                    log_file);
+  }
+}
+
+// Bounded diagnostic geometry export. The surrounding legacy runner still
+// owns the PREWARP event; this helper does not claim a separate resume phase.
+bool write_sampling_geometry_mask_fits(const fs::path &mask_path,
+                                       const std::vector<uint8_t> &mask,
+                                       int rows, int cols,
+                                       const io::FitsHeader &header,
+                                       std::string &error_out) {
+  if (rows <= 0 || cols <= 0) {
+    error_out = "invalid mask dimensions";
+    return false;
+  }
+  if (mask.size() != static_cast<size_t>(rows) * static_cast<size_t>(cols)) {
+    error_out = "mask size mismatch while writing";
+    return false;
+  }
+  try {
+    std::error_code ec;
+    fs::create_directories(mask_path.parent_path(), ec);
+    (void)header;
+    io::FitsHeader mask_header;
+    mask_header.set("MASKTYPE", std::string("SAMPLING_GEOMETRY"));
+    io::write_fits_mask_rows(mask_path, mask, rows, cols, mask_header);
+    return true;
+  } catch (const std::exception &e) {
+    error_out = std::string("cannot write mask: ") + e.what();
+    return false;
+  }
+}
+
+// Returns true when the run may proceed (gate passed, or the gate is not
+// being enforced on this build), false when SAMPLING_GEOMETRY must abort the
+// run. The caller decides what "must abort" means for its own build.
+bool run_phase_sampling_geometry(
+    const registration::RegistrationSamplingPlan &plan,
+    const config::ReconstructionConfig &reconstruction_cfg,
+    const fs::path &run_dir, core::EventEmitter &emitter,
+    const std::string &run_id, std::ostream &log_file,
+    const io::FitsHeader &source_header,
+    registration::GeometricCoverageResult &out_coverage) {
+  if (plan.frames.empty()) {
+    emitter.warning(run_id, "SAMPLING_GEOMETRY: empty sampling plan", log_file);
+    return false;
+  }
+  const auto t0 = std::chrono::steady_clock::now();
+  try {
+    out_coverage = registration::compute_geometric_coverage(
+        plan, reconstruction_cfg.drizzle.internal_scale,
+        reconstruction_cfg.drizzle.pixfrac, reconstruction_cfg.coverage_gate,
+        reconstruction_cfg.common_overlap_required_fraction, 1,
+        reconstruction_cfg.drizzle, false);
+  } catch (const std::exception& e) {
+    out_coverage = {};
+    out_coverage.gate.violations.push_back(e.what());
+    emitter.warning(run_id, std::string("SAMPLING_GEOMETRY: ") + e.what(), log_file);
+  }
+  const double elapsed_s = std::chrono::duration<double>(
+                               std::chrono::steady_clock::now() - t0)
+                               .count();
+
+  // Plan section 9.3: persist the geometric masks as FITS. Written under
+  // artifacts/ (not outputs/canvas_mask.fits) so this stays additive and does
+  // not collide with the still-active PREWARP-derived COMMON_OVERLAP masks at
+  // native resolution; these are at internal-canvas resolution.
+  {
+    std::string mask_err;
+    if (!write_sampling_geometry_mask_fits(
+            run_dir / "artifacts" / "sampling_geometry_analysis_common_mask.fits",
+            out_coverage.analysis_common_mask, out_coverage.internal_height,
+            out_coverage.internal_width, source_header, mask_err)) {
+      emitter.warning(run_id,
+                      "Failed to write sampling_geometry_analysis_common_mask.fits: " +
+                          mask_err,
+                      log_file);
+      out_coverage.gate.passed = false;
+      out_coverage.gate.violations.push_back("analysis mask write failed: " + mask_err);
+    }
+    if (!write_sampling_geometry_mask_fits(
+            run_dir / "artifacts" /
+                "sampling_geometry_reconstruction_support_mask.fits",
+            out_coverage.reconstruction_support_mask, out_coverage.internal_height,
+            out_coverage.internal_width, source_header, mask_err)) {
+      emitter.warning(run_id,
+                      "Failed to write "
+                      "sampling_geometry_reconstruction_support_mask.fits: " +
+                          mask_err,
+                      log_file);
+      out_coverage.gate.passed = false;
+      out_coverage.gate.violations.push_back("support mask write failed: " + mask_err);
+    }
+  }
+
+  const std::string coverage_geometry_hash = registration::compute_coverage_geometry_hash(
+      plan,reconstruction_cfg.drizzle,reconstruction_cfg.common_overlap_required_fraction);
+
+  // Written unconditionally, independent of the gate outcome (plan 9.4: "Das
+  // Artefakt wird unabhängig vom Gate-Ergebnis atomar" geschrieben).
+  const std::string json_text = registration::serialize_sampling_geometry_json(
+      plan, coverage_geometry_hash, reconstruction_cfg.drizzle.kernel,
+      reconstruction_cfg.drizzle.pixfrac,
+      reconstruction_cfg.drizzle.internal_scale, out_coverage);
+  const fs::path artifact_path = run_dir / "artifacts" / "sampling_geometry.json";
+  try {
+    core::write_text_atomic(artifact_path, json_text);
+  } catch (const std::exception &e) {
+    emitter.warning(run_id,
+                    std::string("Failed to write sampling_geometry.json: ") +
+                        e.what(),
+                    log_file);
+    return false;
+  }
+
+  std::ostringstream msg;
+  msg << "[SAMPLING_GEOMETRY] internal=" << out_coverage.internal_width << "x"
+      << out_coverage.internal_height
+      << " valid_frames=" << out_coverage.gate.valid_frame_count
+      << " analysis_px=" << out_coverage.gate.analysis_pixels
+      << " min_supported_fraction=" << out_coverage.gate.min_supported_fraction
+      << " min_channel_n_eff_p10=" << out_coverage.gate.min_channel_n_eff_p10
+      << " gate_passed=" << (out_coverage.gate.passed ? "yes" : "no")
+      << " dither_spread_circular_px_p10=("
+      << out_coverage.dither_spread_circular.x_p10 << ","
+      << out_coverage.dither_spread_circular.y_p10
+      << ")  [diagnostic only, plan 9.3/8.x - not a gate]"
+      << " elapsed_s=" << elapsed_s;
+  std::cout << msg.str() << std::endl;
+  if (!out_coverage.gate.passed) {
+    std::ostringstream violations;
+    for (const auto &v : out_coverage.gate.violations) violations << v << "; ";
+    emitter.warning(run_id, "SAMPLING_GEOMETRY coverage_gate failed: " +
+                                violations.str(),
+                    log_file);
+    return false;
+  }
+  return true;
+}
+
 /// @brief Implements fit weighted poly.
 /// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -408,7 +845,7 @@ bool run_phase_registration_prewarp(
     const VectorXf &global_weights, const io::FitsHeader &first_header,
     core::AccelerationContext &acceleration, core::EventEmitter &emitter,
     std::ostream &log_file,
-    PhaseRegistrationContext &out) {
+    PhaseRegistrationContext &out, bool registration_only) {
   config::RegistrationConfig registration_cfg = cfg.registration;
 
   // Auto-engine: detect conditions where the configured engine would fail and
@@ -4286,8 +4723,9 @@ bool run_phase_registration_prewarp(
     }
   }
 
-  emitter.phase_end(run_id, Phase::REGISTRATION, global_reg_status,
-                    global_reg_extra, log_file);
+  if (!registration_only)
+    emitter.phase_end(run_id, Phase::REGISTRATION, global_reg_status,
+                      global_reg_extra, log_file);
 
   // Export model-predicted mask so the pipeline can apply a weight penalty.
   out.model_predicted_mask.assign(frames.size(), 0);
@@ -4304,7 +4742,8 @@ bool run_phase_registration_prewarp(
     }
   }
 
-  emitter.phase_start(run_id, Phase::PREWARP, "PREWARP", log_file);
+  if (!registration_only)
+    emitter.phase_start(run_id, Phase::PREWARP, "PREWARP", log_file);
 
   // ================================================================
   // SECTION 7: Canvas bounds computation
@@ -4385,7 +4824,110 @@ bool run_phase_registration_prewarp(
       w(1, 2) -= w(1, 0) * ox + w(1, 1) * oy;
     }
   }
-  
+
+  // Registration is complete and all registration workers have joined. These
+  // caches are no longer read below; release them before the budgeted geometry.
+  std::vector<Matrix2Df>().swap(in_memory_proxies);
+  std::vector<std::vector<registration::StarPoint>>().swap(in_memory_star_lists);
+
+  // M1 (plan section 7): persist the RegistrationSamplingPlan now that canvas
+  // size/offset and the final offset-corrected warps are known, before any
+  // PREWARP image warping starts. Additive; does not affect the pipeline below.
+  {
+    std::string sampling_plan_hash;
+    registration::RegistrationSamplingPlan sampling_plan;
+    const bool sampling_written = write_registration_sampling_plan(
+        frames, global_frame_warps, reg_provenance, reg_chain_depth,
+        reg_residual_stats, local_refinement_stats,
+        (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale) : 1.0f,
+        offset_x, offset_y, width, height, canvas_width, canvas_height,
+        detected_mode, string_to_bayer_pattern(detected_bayer_str),
+        registration_cfg, run_dir, emitter, run_id, log_file,
+        sampling_plan_hash, &sampling_plan);
+
+    if (registration_only) {
+      if (!sampling_written || global_reg_status != "ok") {
+        emitter.phase_end(run_id, Phase::REGISTRATION, "error",
+                          {{"error", "registration sampling artifact unavailable"}}, log_file);
+        return false;
+      }
+      std::string sampling_error;
+      registration::RegistrationSamplingPlan checked_sampling;
+      if (!registration::parse_from_json_string(
+              registration::serialize_to_json_string(sampling_plan), checked_sampling, sampling_error)) {
+        emitter.phase_end(run_id, Phase::REGISTRATION, "error", {{"error", sampling_error}}, log_file);
+        return false;
+      }
+      out.sampling_plan = std::move(checked_sampling);
+      out.canvas_width = canvas_width;
+      out.canvas_height = canvas_height;
+      out.tile_offset_x = offset_x;
+      out.tile_offset_y = offset_y;
+      emitter.phase_end(run_id, Phase::REGISTRATION, "ok",
+                        {{"sampling_plan_hash", out.sampling_plan.plan_hash}}, log_file);
+      return true; // No coverage, PREWARP images or legacy masks on this entry.
+    }
+
+    // M1 / plan sections 8.2, 9.2-9.5: SAMPLING_GEOMETRY, the real separated
+    // new-pipeline phase. On the new path (this binary, once the M0-M2 lock
+    // lifts) a failed coverage_gate aborts the run fail-closed here, before
+    // PREWARP does any image work below. The frozen legacy-reference binary
+    // is a separate, unaffected pipeline: it never enforces this gate, so
+    // historical-behaviour regression/bisection runs keep working regardless
+    // of what the new coverage_gate says about them.
+    auto resolved_reconstruction=cfg.reconstruction;
+    if(resolved_reconstruction.drizzle.memory_budget_mb==0)
+      resolved_reconstruction.drizzle.memory_budget_mb=static_cast<size_t>(std::max(1,cfg.runtime_limits.memory_budget));
+    registration::GeometricCoverageResult sampling_coverage;
+    const bool coverage_gate_ok = run_phase_sampling_geometry(
+        sampling_plan, resolved_reconstruction, run_dir, emitter, run_id, log_file,
+        first_header, sampling_coverage);
+#ifndef TILE_COMPILE_LEGACY_REFERENCE
+    if (!coverage_gate_ok) {
+      core::json extra = {
+          {"analysis_pixels", sampling_coverage.gate.analysis_pixels},
+          {"min_supported_fraction",
+           sampling_coverage.gate.min_supported_fraction},
+          {"min_channel_n_eff_p10",
+           sampling_coverage.gate.min_channel_n_eff_p10},
+          {"violations", sampling_coverage.gate.violations},
+      };
+      emitter.phase_end(run_id, Phase::PREWARP, "error", extra, log_file);
+      std::cerr << "Error: SAMPLING_GEOMETRY coverage_gate failed --- "
+                << "no silent fallback to internal_scale=1, no method "
+                << "fallback (plan section 9.5). Adjust "
+                << "reconstruction.drizzle.internal_scale or the input "
+                << "dither/frame coverage and restart the run."
+                << std::endl;
+      emitter.run_end(
+          run_id, false, "error", log_file,
+          {{"message", "SAMPLING_GEOMETRY coverage_gate failed"}});
+      return false;
+    }
+#else
+    (void)coverage_gate_ok;
+#endif
+
+    // M2 (plan section 11) diagnostic-only preview, opt-in and off by
+    // default (config.hpp: reconstruction.diagnostics.preview_forward_drizzle_uniform).
+    // Never gates the run; runs on both the new and the legacy-reference
+    // binary since it is pure additional output, not a behaviour change.
+    sampling_coverage = {}; // release full byte masks before the next budgeted phase
+    if (cfg.reconstruction.diagnostics.preview_forward_drizzle_uniform) {
+      run_forward_drizzle_uniform_preview(sampling_plan, resolved_reconstruction.drizzle,
+                                          load_frame_normalized, run_dir, emitter, run_id,
+                                          log_file);
+    }
+    // M2 (plan section 11.3), opt-in and independent of the preview flag
+    // above: persists the materialized Uniform-Control planes as atomic
+    // FITS files. Never gates the run.
+    if (cfg.reconstruction.diagnostics.persist_forward_drizzle_uniform_store) {
+      write_forward_drizzle_uniform_store(sampling_plan, resolved_reconstruction.drizzle,
+                                          load_frame_normalized, run_dir, emitter, run_id,
+                                          log_file);
+    }
+  }
+
   // Log canvas expansion for field rotation
   if (canvas_width > width || canvas_height > height) {
     std::ostringstream msg;

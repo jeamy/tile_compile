@@ -439,6 +439,7 @@ set(LIB_SOURCES
     src/core/cfa_warp.cpp
     src/io/fits_io.cpp
     src/io/config.cpp
+    src/io/legacy_config_migration.cpp
     src/image/processing.cpp
     src/image/cfa_processing.cpp
     src/image/normalization.cpp
@@ -448,6 +449,26 @@ set(LIB_SOURCES
     src/registration/registration.cpp
     src/registration/global_registration.cpp
     src/registration/astrometric_rescue.cpp
+    src/registration/registration_sampling_plan.cpp
+    src/registration/sampling_geometry.cpp
+    src/reconstruction/forward_drizzle.cpp
+    src/reconstruction/source_quality_proxy.cpp
+    src/reconstruction/source_quality_maps.cpp
+    src/reconstruction/source_quality_map_cache.cpp
+    src/reconstruction/atrous_decomposition.cpp
+    src/reconstruction/multiband_fusion.cpp
+    src/reconstruction/adaptive_alpha.cpp
+    src/reconstruction/alpha_guard.cpp
+    src/reconstruction/alpha_confidence.cpp
+    src/reconstruction/multiband_validation.cpp
+    src/reconstruction/global_quality.cpp
+    src/reconstruction/quality_frame_weight_plan.cpp
+    src/reconstruction/source_quality_artifact.cpp
+    src/reconstruction/normalized_source_cache.cpp
+    src/reconstruction/drizzle_profile_store.cpp
+    src/reconstruction/forward_drizzle_cuda.cpp
+    src/reconstruction/output_scale.cpp
+    src/reconstruction/profile_store_manifest.cpp
     src/metrics/metrics.cpp
     src/metrics/tile_metrics.cpp
     src/metrics/linearity.cpp
@@ -524,7 +545,7 @@ if(TILE_COMPILE_WITH_CUDA)
 endif()
 
 # CLI Runner executable
-add_executable(tile_compile_runner
+set(_tile_compile_runner_sources
     apps/runner_main.cpp
     apps/runner_pipeline.cpp
     apps/runner_phase_metrics.cpp
@@ -534,6 +555,7 @@ add_executable(tile_compile_runner
     apps/runner_phase_aqmh_global_quality.cpp
     apps/runner_phase_aqmh_reconstruction.cpp
     apps/runner_aqmh_pipeline.cpp
+    apps/runner_forward_drizzle.cpp
     apps/runner_phase_registration.cpp
     apps/runner_phase_preprocess_pipeline.cpp
     apps/runner_phase_quality_analysis.cpp
@@ -542,11 +564,32 @@ add_executable(tile_compile_runner
     apps/runner_resume.cpp
     apps/runner_phase_post_stack_output.cpp
 )
+
+add_executable(tile_compile_runner ${_tile_compile_runner_sources})
 target_link_libraries(tile_compile_runner PRIVATE tile_compile_lib)
 
 if(CLI11_FOUND)
     target_link_libraries(tile_compile_runner PRIVATE CLI11::CLI11)
     target_compile_definitions(tile_compile_runner PRIVATE HAVE_CLI11)
+endif()
+
+# Frozen legacy reference runner (plan sections 1.1, 23/M0, 25.11).
+# Identical sources to tile_compile_runner but compiled with
+# TILE_COMPILE_LEGACY_REFERENCE so the M0-M9 PIPELINE_UNAVAILABLE_DURING_CUTOVER
+# guard is skipped. It is NOT installed and NOT invoked by the backend; it exists
+# only to produce reproducible regression / bisection runs while the
+# single-method pipeline is under construction. Removed in M11.
+option(TILE_COMPILE_BUILD_LEGACY_REFERENCE
+    "Build the legacy-reference runner (dev/regression only)" OFF)
+if(TILE_COMPILE_BUILD_LEGACY_REFERENCE)
+    add_executable(tile_compile_legacy_reference ${_tile_compile_runner_sources})
+    target_link_libraries(tile_compile_legacy_reference PRIVATE tile_compile_lib)
+    target_compile_definitions(tile_compile_legacy_reference PRIVATE
+        TILE_COMPILE_LEGACY_REFERENCE)
+    if(CLI11_FOUND)
+        target_link_libraries(tile_compile_legacy_reference PRIVATE CLI11::CLI11)
+        target_compile_definitions(tile_compile_legacy_reference PRIVATE HAVE_CLI11)
+    endif()
 endif()
 
 # Backend CLI executable
@@ -581,6 +624,16 @@ tile_compile_add_build_info(tile_compile_cli
     CUDA_VERSION "${CUDAToolkit_VERSION}"
     FEATURE_FLAGS "${_tile_compile_feature_flags}"
     BUILD_INFO_SOURCE "${_tile_compile_build_info_source}")
+if(TARGET tile_compile_legacy_reference)
+    tile_compile_add_build_info(tile_compile_legacy_reference
+        COMPONENT tile_compile_legacy_reference
+        PROJECT_VERSION "${PROJECT_VERSION}"
+        SOURCE_ROOT "${TILE_COMPILE_REPOSITORY_ROOT}"
+        OPENCV_VERSION "${OpenCV_VERSION}"
+        CUDA_VERSION "${CUDAToolkit_VERSION}"
+        FEATURE_FLAGS "${_tile_compile_feature_flags}"
+        BUILD_INFO_SOURCE "${_tile_compile_build_info_source}")
+endif()
 
 if(APPLE)
     set(_TC_INSTALL_RPATH "@executable_path/../lib")
@@ -617,6 +670,7 @@ if(BUILD_TESTS)
         add_executable(tests
             tests/test_main.cpp
             tests/test_acceleration_backend.cpp
+            apps/runner_forward_drizzle.cpp
             apps/runner_shared.cpp
             apps/runner_phase_post_stack_output.cpp
             tests/test_background_extraction.cpp
@@ -631,6 +685,28 @@ if(BUILD_TESTS)
             tests/test_registration_cascade.cpp
             tests/test_registration_new_features.cpp
             tests/test_registration_outlier_utils.cpp
+            tests/test_registration_sampling_plan.cpp
+            tests/test_legacy_config_migration.cpp
+            tests/test_input_class_policy.cpp
+            tests/test_reconstruction_config.cpp
+            tests/test_sampling_geometry.cpp
+            tests/test_forward_drizzle.cpp
+            tests/test_source_quality_proxy.cpp
+            tests/test_source_quality_maps.cpp
+            tests/test_source_quality_map_cache.cpp
+            tests/test_atrous_decomposition.cpp
+            tests/test_multiband_fusion.cpp
+            tests/test_adaptive_alpha.cpp
+            tests/test_alpha_guard.cpp
+            tests/test_alpha_confidence.cpp
+            tests/test_multiband_validation.cpp
+            tests/test_global_quality.cpp
+            tests/test_quality_frame_weight_plan.cpp
+            tests/test_runner_forward_drizzle.cpp
+            tests/test_source_quality_artifact.cpp
+            tests/test_drizzle_profile_store.cpp
+            tests/test_output_scale.cpp
+            tests/test_profile_store_manifest.cpp
             tests/test_reconstruction_regression.cpp
             tests/test_stacking_quality_weighting.cpp
             tests/test_memory_budget.cpp
@@ -642,7 +718,6 @@ if(BUILD_TESTS)
             tests/test_photometric_color_cal.cpp
             tests/test_aqmh_quality_map.cpp
             tests/test_aqmh_quality_map_cache.cpp
-            tests/test_aqmh_reconstruction.cpp
             tests/test_aqmh_validation.cpp
             tests/test_aqmh_config.cpp
         )
@@ -650,6 +725,21 @@ if(BUILD_TESTS)
         include(CTest)
         include(Catch)
         catch_discover_tests(tests)
+
+        # Legacy-reference tests (plan sections 22.3, 23/M0, 25.11). Tests that
+        # only exercise the PREWARP-AQMH reconstruction kernel live here so the
+        # main suite stays scoped to the single-method contract. Built and run
+        # in CI but reported separately; deleted in M11.
+        if(TILE_COMPILE_BUILD_LEGACY_REFERENCE)
+            add_executable(tile_compile_legacy_reference_tests
+                tests/test_main.cpp
+                tests/test_aqmh_reconstruction.cpp
+            )
+            target_link_libraries(tile_compile_legacy_reference_tests
+                PRIVATE tile_compile_lib Catch2::Catch2WithMain)
+            catch_discover_tests(tile_compile_legacy_reference_tests
+                TEST_PREFIX "legacy_reference.")
+        endif()
     endif()
 endif()
 

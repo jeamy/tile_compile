@@ -1,3 +1,4 @@
+#include "tile_compile/reconstruction/normalized_source_cache.hpp"
 #include "runner_shared.hpp"
 
 #include "tile_compile/core/utils.hpp"
@@ -2161,7 +2162,7 @@ RunnerFrameCache::RunnerFrameCache() = default;
 /// artifact, and error-handling semantics expected by callers.
 RunnerFrameCache::RunnerFrameCache(const fs::path &cache_dir, size_t n_frames,
                                    int rows, int cols)
-    : normalized_frames_(cache_dir, n_frames, rows, cols),
+    : normalized_cache_dir_(cache_dir), normalized_frames_(cache_dir, n_frames, rows, cols),
       has_registration_proxy_(n_frames, static_cast<uint8_t>(0)),
       registration_proxies_(n_frames) {}
 
@@ -2169,7 +2170,27 @@ RunnerFrameCache::RunnerFrameCache(const fs::path &cache_dir, size_t n_frames,
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+void RunnerFrameCache::release_registration_proxies() {
+  std::lock_guard<std::mutex> lock(proxy_mutex_);
+  std::vector<Matrix2Df>().swap(registration_proxies_);
+  std::vector<uint8_t>().swap(has_registration_proxy_);
+}
+
+void RunnerFrameCache::seal_normalized_cache(const registration::RegistrationSamplingPlan &plan) {
+  if (plan.source_width != cols() || plan.source_height != rows() || plan.frames.size() != size())
+    throw std::runtime_error("NORMALIZED_CACHE_PLAN_MISMATCH");
+  for (const auto &f : plan.frames)
+    if (f.source_index >= size() || !has_normalized(f.source_index))
+      throw std::runtime_error("NORMALIZED_CACHE_INCOMPLETE");
+  normalized_frames_.clear_mappings();
+  reconstruction::publish_normalized_source_manifest(normalized_cache_dir_, plan);
+  normalized_frames_.set_preserve_files(true);
+  normalized_cache_sealed_ = true;
+  release_registration_proxies();
+}
+
 void RunnerFrameCache::store_normalized(size_t fi, const Matrix2Df &frame) {
+  if (normalized_cache_sealed_) throw std::runtime_error("NORMALIZED_CACHE_IS_SEALED");
   normalized_frames_.store(fi, frame);
 }
 

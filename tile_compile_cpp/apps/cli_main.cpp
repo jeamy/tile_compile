@@ -1,6 +1,8 @@
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/config/legacy_config_migration.hpp"
 #include "tile_compile/core/build_info.hpp"
+#include "tile_compile/core/errors.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
 #include "tile_compile/metrics/metrics.hpp"
@@ -746,6 +748,53 @@ int cmd_save_config(const std::string& path, const std::string& yaml_text, bool 
     result["path"] = path;
     result["saved"] = true;
     print_json(result);
+    return 0;
+}
+
+// ============================================================================
+// migrate-config <in> <out>
+// ============================================================================
+/// @brief Applies the single-method legacy config migration (plan section 6.5)
+/// to an input YAML and writes the cleaned result. Rejects `method` / engine
+/// keys fail-closed; strips removed structural blocks with a report.
+int cmd_migrate_config(const std::string& in_path, const std::string& out_path) {
+    fs::path in(in_path);
+    if (!fs::exists(in)) {
+        json r; r["ok"] = false; r["error"] = "File not found: " + in_path;
+        print_json(r);
+        return 1;
+    }
+    YAML::Node node;
+    try {
+        node = YAML::Load(read_file_text(in));
+    } catch (const std::exception& e) {
+        json r; r["ok"] = false;
+        r["error"] = std::string("YAML parse error: ") + e.what();
+        print_json(r);
+        return 1;
+    }
+    tile_compile::config::ConfigMigrationReport report;
+    try {
+        tile_compile::config::migrate_legacy_config_node(node, report);
+    } catch (const tile_compile::ConfigError& e) {
+        json r; r["ok"] = false; r["error"] = e.what();
+        print_json(r);
+        return 1;
+    }
+    YAML::Emitter emitter;
+    emitter << node;
+    if (!write_file_text(out_path, std::string(emitter.c_str()) + "\n")) {
+        json r; r["ok"] = false;
+        r["error"] = "failed to write file: " + out_path;
+        print_json(r);
+        return 1;
+    }
+    json r;
+    r["ok"] = true;
+    r["input"] = in_path;
+    r["output"] = out_path;
+    r["migration"] = json::parse(report.to_json_string());
+    print_json(r);
     return 0;
 }
 
@@ -1752,6 +1801,7 @@ void print_usage() {
               << "  load-config <path>              Load config YAML file\n"
               << "  save-config <path> [--stdin | YAML]  Save config YAML file\n"
               << "  validate-config (--path P | --yaml Y | --stdin)  Validate config\n"
+              << "  migrate-config <in> <out>       Apply the single-method legacy config migration\n"
               << "  scan <input_path> [--frames-min N]  Scan input directory for frames\n"
               << "  list-runs <runs_dir>            List pipeline runs\n"
               << "  get-run-status <run_dir>        Get status of a run\n"
@@ -1866,7 +1916,17 @@ int main(int argc, char* argv[]) {
         }
         return cmd_validate_config(path, yaml, use_stdin, strict);
     }
-    
+
+    if (command == "migrate-config") {
+        std::string in_path = get_positional(0);
+        std::string out_path = get_positional(1);
+        if (in_path.empty() || out_path.empty()) {
+            std::cerr << "migrate-config requires <in> and <out> path arguments\n";
+            return 1;
+        }
+        return cmd_migrate_config(in_path, out_path);
+    }
+
     if (command == "scan") {
         std::string input_path = get_positional(0);
         if (input_path.empty()) {

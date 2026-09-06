@@ -258,3 +258,18 @@ global_metrics:
 ```
 
 - **Why:** with low N, conservative blending and larger overlaps reduce tile pattern artifacts.
+
+### Forward-drizzle streaming (development)
+
+`forward_drizzle_streaming.example.yaml` documents the bounded CPU coverage and
+Uniform stripe path. `memory_budget_mb: 0` inherits the runner budget;
+`chunk_rows: 0` chooses at most 256 target rows within it. Large materialized
+outputs fail before allocation; the preview uses a streaming summary sink.
+Coverage retains two byte masks and spools exact weighted-`n_eff` quantiles to
+temporary disk. This fragment does not enable the unfinished production cutover.
+
+The M3 Uniform/Raw library API also uses this automatic stripe sizing, including worst-case per-frame clipping storage. Its streaming sink can avoid retaining both output canvases; complete new runner/store integration is still pending.
+
+`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (boolean, default `false`) is independent of preview. When enabled, it streams unclipped Uniform planes into `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` publishes the complete verified generation atomically. The existing drizzle budget includes an additional 8 MiB FITS/metadata reserve and one float row. Insufficient memory fails before source loading; insufficient free disk fails before plane writing. A failed diagnostic does not fail the legacy run. Old generations are retained and consume disk; there is no automatic cleanup. This is a diagnostic store, not a resumable pipeline phase. Read `current.json` and validate it against the expected source, sampling and algorithm identity; old flat stores are not implicitly accepted or rewritten. The shared clipped Uniform/Raw library store uses the same transaction but is not yet wired into a new runner phase.
+
+The checked predecessor library API uses an explicit source-quality MiB budget (512 MiB by default). It may reject large native frames under its conservative scratch estimate; do not bypass that check. Cache manifests identify existing normalized raw float files and do not perform calibration. Commit schema 2 binds cache and quality-plan hashes. Production runner cache retention and resume integration remain pending.

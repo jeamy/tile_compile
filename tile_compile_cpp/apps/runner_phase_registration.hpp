@@ -26,6 +26,7 @@ class RunnerFrameCache;
 /// the validity masks here instead of re-reading or re-warping the original
 /// FITS files.
 struct PhaseRegistrationContext {
+  registration::RegistrationSamplingPlan sampling_plan;
   /// Disk-backed prewarped frames on the common canvas.
   DiskCacheFrameStore prewarped_frames;
   /// True when OSC input was demosaiced before prewarp/AQMH. In that mode
@@ -90,6 +91,6 @@ bool run_phase_registration_prewarp(
     const VectorXf &global_weights, const io::FitsHeader &first_hdr,
     core::AccelerationContext &acceleration, core::EventEmitter &emitter,
     std::ostream &log_file,
-    PhaseRegistrationContext &out);
+    PhaseRegistrationContext &out, bool registration_only = false);
 
 } // namespace tile_compile::runner

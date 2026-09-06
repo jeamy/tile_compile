@@ -43,6 +43,24 @@ inline BayerOffsets get_bayer_offsets(BayerPattern pattern) {
     }
 }
 
+// Shared CFA-channel classification (plan section 11.4): the colour of a
+// source sample is determined *exclusively* from its integer cache
+// coordinates, the Bayer pattern and the persisted CFA origin --- never from
+// canvas offset, rotation or dither. This is the single implementation; do
+// not duplicate the parity arithmetic elsewhere (M1's sampling_geometry.cpp
+// and M2's forward_drizzle.cpp both call this).
+enum class CfaChannel { R, G, B, L };
+
+inline CfaChannel cfa_channel_for_source_pixel(int sx, int sy, BayerPattern bayer,
+                                               int cfa_origin_x, int cfa_origin_y) {
+    const BayerOffsets off = get_bayer_offsets(bayer);
+    const int px = (sx + cfa_origin_x) & 1;
+    const int py = (sy + cfa_origin_y) & 1;
+    if (py == off.r_row && px == off.r_col) return CfaChannel::R;
+    if (py == off.b_row && px == off.b_col) return CfaChannel::B;
+    return CfaChannel::G;
+}
+
 inline std::string bayer_pattern_to_string(BayerPattern pattern) {
     switch (pattern) {
         case BayerPattern::RGGB: return "RGGB";
@@ -196,7 +214,13 @@ enum class Phase {
     AQMH_GLOBAL_QUALITY = 20,
     AQMH_RECONSTRUCTION = 21,
     AQMH_DIAGNOSTICS = 22,
-    AQMH_BGE_INPUTS = 23
+    AQMH_BGE_INPUTS = 23,
+    NORMALIZED_CACHE = 24,
+    SAMPLING_GEOMETRY = 25,
+    GLOBAL_QUALITY = 26,
+    FORWARD_DRIZZLE = 27,
+    SOURCE_QUALITY_MAPS = 28,
+    MULTIBAND = 29
 };
 
 inline std::string phase_to_string(Phase phase) {
@@ -225,6 +249,13 @@ inline std::string phase_to_string(Phase phase) {
         case Phase::AQMH_RECONSTRUCTION: return "AQMH_RECONSTRUCTION";
         case Phase::AQMH_DIAGNOSTICS: return "AQMH_DIAGNOSTICS";
         case Phase::AQMH_BGE_INPUTS: return "AQMH_BGE_INPUTS";
+        case Phase::NORMALIZED_CACHE: return "NORMALIZED_CACHE";
+        case Phase::SAMPLING_GEOMETRY: return "SAMPLING_GEOMETRY";
+        case Phase::GLOBAL_QUALITY: return "GLOBAL_QUALITY";
+        case Phase::FORWARD_DRIZZLE: return "FORWARD_DRIZZLE";
+        case Phase::SOURCE_QUALITY_MAPS: return "SOURCE_QUALITY_MAPS";
+        case Phase::MULTIBAND: return "MULTIBAND";
+
         default: return "UNKNOWN";
     }
 }

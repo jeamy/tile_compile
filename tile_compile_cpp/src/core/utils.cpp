@@ -1,4 +1,5 @@
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/core/atomic_output.hpp"
 #include "tile_compile/core/errors.hpp"
 
 #include <algorithm>
@@ -174,6 +175,15 @@ std::string read_text(const fs::path& path) {
 /// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+void write_text_atomic(const fs::path& path, const std::string& text) {
+    AtomicOutput output(path);
+    std::ofstream file(output.path(),std::ios::binary);
+    file.exceptions(std::ios::failbit | std::ios::badbit);
+    file.write(text.data(),static_cast<std::streamsize>(text.size()));
+    file.close();
+    output.commit();
+}
+
 void write_text(const fs::path& path, const std::string& text) {
     std::ofstream file(path);
     if (!file) {

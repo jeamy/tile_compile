@@ -1,10 +1,15 @@
+#include "runner_forward_drizzle.hpp"
+#include "tile_compile/reconstruction/forward_drizzle.hpp"
 #include "runner_pipeline.hpp"
 
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/build_info.hpp"
 #include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/core/events.hpp"
+#include "tile_compile/config/legacy_config_migration.hpp"
+#include "tile_compile/core/input_class_policy.hpp"
 #include "tile_compile/core/mode_gating.hpp"
+#include "tile_compile/core/pipeline_contract.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/background_extraction.hpp"
@@ -163,6 +168,11 @@ core::json make_run_provenance(
       {"created_at", core::get_iso_timestamp()},
       {"build", core::build_info_json(true)},
       {"config", config_file},
+      // Milestone M0: identifies which reconstruction contract wrote this run.
+      // 0 == legacy / cutover-in-progress (see core/pipeline_contract.hpp).
+      {"pipeline_contract_version", core::kPipelineContractVersionActive},
+      {"pipeline_contract_label",
+       core::pipeline_contract_label(core::kPipelineContractVersionActive)},
       {"input_manifest",
        {{"ordering", "lexicographic_path_after_max_frames"},
         {"entry_count", entries.size()},
@@ -1134,12 +1144,42 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 const std::string &runs_dir, const std::string &project_root,
                 const std::string &run_id_override,
                 bool dry_run, int max_frames, int max_tiles,
-                bool config_from_stdin) {
+                bool config_from_stdin, bool forward_drizzle_only) {
   using namespace tile_compile;
+
+  if (const std::string reason = core::pipeline_unavailable_reason();
+      !forward_drizzle_only && !reason.empty()) {
+    std::cerr << "Error: " << reason << std::endl;
+    return 1;
+  }
+
+#ifdef TILE_COMPILE_LEGACY_REFERENCE
+  if (forward_drizzle_only) {
+    std::cerr << "FORWARD_DRIZZLE_REQUIRES_STANDARD_RUNNER" << std::endl;
+    return 1;
+  }
+#endif
 
   fs::path cfg_path(config_path);
   fs::path in_dir(input_dir);
   fs::path runs(runs_dir);
+
+#ifdef TILE_COMPILE_LEGACY_REFERENCE
+  // Reference execution may create only a new directory below the system temp
+  // root. Existing output trees (including symlink aliases) are never reused.
+  {
+    std::error_code ec;
+    const auto root=fs::weakly_canonical(fs::temp_directory_path(),ec);
+    const auto destination=fs::weakly_canonical(runs,ec);
+    const auto relative=destination.lexically_relative(root);
+    if(ec || relative.empty() || relative=="." || *relative.begin()==".." || fs::exists(runs) ||
+       (!run_id_override.empty() && (fs::path(run_id_override).filename()!=run_id_override ||
+                                    run_id_override=="." || run_id_override==".."))) {
+      std::cerr << "Error: LEGACY_REFERENCE_REQUIRES_FRESH_TEMP_OUTPUT" << std::endl;
+      return 1;
+    }
+  }
+#endif
 
   const bool use_stdin_config = config_from_stdin || (config_path == "-");
   fs::path proj_root;
@@ -1151,6 +1191,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   config::Config cfg;
   std::string cfg_text;
+  // M0 / plan section 6.5: the production run path migrates a legacy config
+  // (reject method/engine fail-closed, strip removed structural blocks) and
+  // records the changes in config_migration.json below. The frozen
+  // legacy-reference runner intentionally loads the config verbatim.
+  config::ConfigMigrationReport config_migration_report;
   if (use_stdin_config) {
     std::ostringstream ss;
     ss << std::cin.rdbuf();
@@ -1160,8 +1205,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 << std::endl;
       return 1;
     }
-    cfg = config::Config::from_yaml_text(cfg_text);
-    cfg.validate();
     proj_root =
         project_root.empty() ? fs::current_path() : fs::path(project_root);
   } else {
@@ -1169,15 +1212,29 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       std::cerr << "Error: Config file not found: " << config_path << std::endl;
       return 1;
     }
-    cfg = config::Config::load(cfg_path);
-    cfg.validate();
+    cfg_text = core::read_text(cfg_path);
     proj_root = project_root.empty() ? core::resolve_project_root(cfg_path)
                                      : fs::path(project_root);
+  }
+  try {
+#ifdef TILE_COMPILE_LEGACY_REFERENCE
+    cfg = config::Config::from_yaml_text(cfg_text);
+#else
+    cfg = config::Config::from_yaml_text_migrated(cfg_text,
+                                                  config_migration_report);
+#endif
+    cfg.validate();
+  } catch (const std::exception &e) {
+    std::cerr << "Error: failed to load/validate config: " << e.what()
+              << std::endl;
+    return 1;
   }
 
 
   cfg.method = config::getEffectiveMethod(cfg);
   cfg.aqmh.enabled = cfg.method == "aqmh";
+
+  if (forward_drizzle_only) cfg.runtime_limits.parallel_workers = 1;
 
   auto frames = core::discover_frames(in_dir, "*");
   frames.erase(
@@ -1202,6 +1259,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     // Fall back to lexical normalization — the path is still usable.
     run_dir = (runs / run_id).lexically_normal();
   }
+  if (forward_drizzle_only) {
+    if (run_id.empty() || fs::path(run_id).filename() != run_id || run_id == "." || run_id == "..") {
+      std::cerr << "FORWARD_RUN_INVALID_ID" << std::endl;
+      return 1;
+    }
+    fs::create_directories(runs);
+    if (!fs::create_directory(run_dir)) {
+      std::cerr << "FORWARD_RUN_REQUIRES_FRESH_DIRECTORY" << std::endl;
+      return 1;
+    }
+  }
   try {
     fs::create_directories(run_dir / "logs");
     fs::create_directories(run_dir / "outputs");
@@ -1225,11 +1293,20 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     core::copy_config(cfg_path, config_snapshot_path);
   }
 
+  // M0 / plan section 6.5: record any legacy-config migration that was applied
+  // so the strip is auditable. Written even when nothing changed is not useful,
+  // so only emit it when the migration touched the config.
+  if (config_migration_report.applied) {
+    core::write_text(run_dir / "artifacts" / "config_migration.json",
+                     config_migration_report.to_json_string());
+  }
+
   core::json run_provenance;
   const fs::path run_provenance_path =
       run_dir / "artifacts" / "run_provenance.json";
   try {
     run_provenance = make_run_provenance(config_snapshot_path, frames);
+    if (forward_drizzle_only) run_provenance["execution_scope"] = "forward_drizzle_m1_m3";
     core::write_text(run_provenance_path, run_provenance.dump(2));
   } catch (const std::exception &e) {
     std::cerr << "Error: cannot establish immutable run provenance: "
@@ -1264,6 +1341,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                      {"binary_sha256",
                       run_provenance["build"]["binary"]["sha256"]},
                      {"frames_discovered", frames.size()},
+                     {"pipeline_contract_version",
+                      core::kPipelineContractVersionActive},
                      {"dry_run", dry_run}},
                     log_file);
   core::AccelerationContext acceleration(
@@ -1425,6 +1504,34 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
     return 1;
   }
+
+#ifndef TILE_COMPILE_LEGACY_REFERENCE
+  // M0 / plan section 3.1.1: the single-method pipeline supports only OSC raw
+  // (with a known Bayer pattern) and MONO raw. Already-debayered RGB cubes and
+  // unclassifiable colour metadata are rejected fail-closed here so no such
+  // input is silently forced down a wrong compute path. The frozen
+  // legacy-reference build keeps the old behaviour.
+  {
+    const core::InputClassDecision input_decision =
+        core::classify_input_for_single_method(detected_mode, detected_bayer);
+    if (!core::input_class_accepted(input_decision)) {
+      const std::string msg =
+          core::input_class_rejection_message(input_decision);
+      emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
+                        {{"error", msg},
+                         {"input_dir", input_dir},
+                         {"color_mode", detected_mode_str},
+                         {"bayer_pattern", detected_bayer_str}},
+                        log_file);
+      emitter.run_end(
+          run_id, false, "error", log_file,
+          {{"message", std::string("Error during SCAN_INPUT: ") + msg}});
+      std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
+      return 1;
+    }
+  }
+#endif
+
   if (width <= 0 && cfg.data.image_width > 0) {
     width = cfg.data.image_width;
     emitter.warning(run_id,
@@ -1695,6 +1802,29 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     return 1;
   }
 
+  if (forward_drizzle_only) {
+    try {
+      registration::RegistrationSamplingPlan resources;
+      resources.source_width = resources.canvas_width_native = width;
+      resources.source_height = resources.canvas_height_native = height;
+      resources.color_mode = detected_mode;
+      resources.bayer_pattern = detected_bayer;
+      resources.frames.resize(frames.size());
+      auto limits = cfg.reconstruction.drizzle;
+      limits.internal_scale = 1;
+      limits.chunk_rows = height;
+      if (!limits.memory_budget_mb) limits.memory_budget_mb = std::max(1, cfg.runtime_limits.memory_budget);
+      const size_t pixels = static_cast<size_t>(width) * height;
+      if (frames.size() > std::numeric_limits<size_t>::max() / sizeof(float) / pixels)
+        throw std::runtime_error("FORWARD_RUN_MEMORY_SIZE_OVERFLOW");
+      // Bound existing registration-proxy retention before normalization starts.
+      reconstruction::plan_drizzle_memory(resources, limits, 128, pixels * sizeof(float) * frames.size());
+    } catch (const std::exception &e) {
+      emitter.run_end(run_id, false, "error", log_file, {{"message", e.what()}});
+      return 1;
+    }
+  }
+
   runner::PhaseRegistrationContext phase_registration_ctx;
 
   runner::PhaseMetricsContext phase_metrics_ctx;
@@ -1721,6 +1851,28 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   const float output_bg_r = phase_metrics_ctx.output_bg_r;
   const float output_bg_g = phase_metrics_ctx.output_bg_g;
   const float output_bg_b = phase_metrics_ctx.output_bg_b;
+
+  if (forward_drizzle_only) {
+    try {
+      if (!frame_cache) throw std::runtime_error("FORWARD_RUN_REQUIRES_NORMALIZED_CACHE");
+      for (size_t i = 0; i < frames.size(); ++i)
+        if (!frame_cache->has_normalized(i))
+          throw std::runtime_error("FORWARD_RUN_NORMALIZATION_INCOMPLETE");
+      frame_cache->release_registration_proxies();
+      if (!runner::run_phase_registration_prewarp(run_id, cfg, frames, run_dir,
+              height, width, detected_mode, detected_bayer_str, frame_cache,
+              norm_scales, frame_metrics, global_weights, first_header,
+              acceleration, emitter, log_file, phase_registration_ctx, true)) {
+        emitter.run_end(run_id, false, "error", log_file, {{"message", "registration failed"}});
+        return 1;
+      }
+      return runner::run_forward_drizzle_stages(run_id, cfg, run_dir,
+          phase_registration_ctx.sampling_plan, frame_cache.get(), emitter, log_file) ? 0 : 1;
+    } catch (const std::exception &e) {
+      emitter.run_end(run_id, false, "error", log_file, {{"message", e.what()}});
+      return 1;
+    }
+  }
 
   // Seeing is shared by registration validation and Classic tile sizing.
   float seeing_fwhm_med = 3.0f;

@@ -6,6 +6,7 @@
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/core/events.hpp"
+#include "tile_compile/core/pipeline_contract.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/background_extraction.hpp"
@@ -779,10 +780,60 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   namespace astro = tile_compile::astrometry;
   namespace image = tile_compile::image;
 
+  if (const std::string reason = core::pipeline_unavailable_reason();
+      !reason.empty()) {
+    std::cerr << "Error: " << reason << std::endl;
+    return 1;
+  }
+
+#ifdef TILE_COMPILE_LEGACY_REFERENCE
+  std::cerr << "Error: LEGACY_REFERENCE_RESUME_DISABLED --- reference fixtures cannot resume user runs" << std::endl;
+  return 1;
+#endif
+
   fs::path run_dir(run_dir_path);
   if (!fs::exists(run_dir) || !fs::is_directory(run_dir)) {
     std::cerr << "Error: run_dir not found: " << run_dir_path << std::endl;
     return 1;
+  }
+
+  // M0 / plan section 18.1: before opening any artifact for writing, read the
+  // run's pipeline_contract_version. If this binary speaks the single-method
+  // contract but the run was written under an older (Classic / PREWARP-AQMH)
+  // contract, the resume is refused fail-closed. While the active pipeline is
+  // still legacy (kPipelineContractVersionActive == 0) this check is dormant:
+  // a legacy binary resuming a legacy run is allowed.
+  {
+    int run_contract_version = -1;  // missing field == legacy
+    const fs::path prov_path = run_dir / "artifacts" / "run_provenance.json";
+    if (fs::is_regular_file(prov_path)) {
+      try {
+        const auto prov =
+            core::json::parse(core::read_text(prov_path));
+        if (prov.contains("pipeline_contract_version") &&
+            prov["pipeline_contract_version"].is_number_integer()) {
+          run_contract_version =
+              prov["pipeline_contract_version"].get<int>();
+        }
+      } catch (...) {
+        run_contract_version = -1;
+      }
+    }
+    if (core::pipeline_contract_is_single_method(
+            core::kPipelineContractVersionActive) &&
+        !core::pipeline_contract_is_single_method(run_contract_version)) {
+      std::cerr
+          << "Error: LEGACY_RUN_NOT_RESUMABLE --- this run was written under "
+          << "pipeline contract '"
+          << core::pipeline_contract_label(run_contract_version)
+          << "' (version " << run_contract_version
+          << ") and cannot be resumed with the single-method runner (contract '"
+          << core::pipeline_contract_label(
+                 core::kPipelineContractVersionActive)
+          << "'). Start a full new run from the unchanged source frames."
+          << std::endl;
+      return 1;
+    }
   }
 
   fs::path cfg_path = run_dir / "config.yaml";

@@ -1,3 +1,5 @@
+#include <type_traits>
+#include "tile_compile/core/atomic_output.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/core/errors.hpp"
 #include "tile_compile/core/utils.hpp"
@@ -646,59 +648,122 @@ Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width
 /// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+template <typename T>
+void write_fits_plane_rows(const fs::path& path,const std::vector<T>& mask,
+                          int rows,int cols,const FitsHeader& header) {
+    if(rows<=0 || cols<=0 || mask.size()!=static_cast<size_t>(rows)*cols)
+        throw FitsError("Invalid mask dimensions");
+    core::AtomicOutput output(path);
+    fitsfile* file=nullptr;
+    int status=0;
+    if(fits_create_file(&file,output.path().string().c_str(),&status))
+        throw FitsError("Cannot create staged mask FITS");
+    try {
+        long axes[]={cols,rows};
+        fits_create_img(file,FLOAT_IMG,2,axes,&status);
+        write_header_keywords(file,header,false,status);
+        char roworder[]="TOP-DOWN";
+        fits_update_key(file,TSTRING,"ROWORDER",roworder,nullptr,&status);
+        std::vector<float> row(cols);
+        for(int y=0;y<rows && !status;++y) {
+            for(int x=0;x<cols;++x) {
+                const auto value = mask[static_cast<size_t>(y)*cols+x];
+                if constexpr (std::is_same_v<T, uint8_t>) row[x] = value ? 1.0f : 0.0f;
+                else row[x] = value;
+            }
+            fits_write_img(file,TFLOAT,static_cast<LONGLONG>(y)*cols+1,cols,row.data(),&status);
+        }
+        int close_status=0;
+        fits_close_file(file,&close_status);file=nullptr;
+        if(status || close_status) throw FitsError("Cannot complete mask FITS");
+        output.commit();
+    } catch(...) {
+        if(file) {int close_status=0;fits_close_file(file,&close_status);}
+        throw;
+    }
+}
+
+void write_fits_mask_rows(const fs::path& path, const std::vector<uint8_t>& mask,
+                          int rows, int cols, const FitsHeader& header) {
+    write_fits_plane_rows(path, mask, rows, cols, header);
+}
+
+void write_fits_float_rows(const fs::path& path, const std::vector<float>& values,
+                           int rows, int cols, const FitsHeader& header) {
+    write_fits_plane_rows(path, values, rows, cols, header);
+}
+
 void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHeader& header) {
+    // Atomic (plan section A6/audit 2026-09-05): stage under a private
+    // directory, fsync, then rename into place --- matches
+    // write_fits_mask_rows() above, so every reader of `path` observes either
+    // the complete previous file or the complete new one, never a partial
+    // write from cfitsio's own "!"-prefix clobber-in-place. NOTE: the two
+    // other FITS writers in this file (write_fits_rgb, write_fits_rgb_u32)
+    // still use the non-atomic "!" convention; only this function and
+    // write_fits_mask_rows are fixed so far (tracked, not silently assumed
+    // fixed elsewhere).
+    core::AtomicOutput output(path);
     fitsfile* fptr = nullptr;
     int status = 0;
-    
-    std::string filepath = "!" + path.string();
-    
-    if (fits_create_file(&fptr, filepath.c_str(), &status)) {
+
+    if (fits_create_file(&fptr, output.path().string().c_str(), &status)) {
         throw FitsError(fits_write_error_message("create FITS file", path, status));
     }
-    
-    long naxes[2] = {static_cast<long>(data.cols()), static_cast<long>(data.rows())};
-    
-    fits_create_img(fptr, FLOAT_IMG, 2, naxes, &status);
-    if (status) {
-        const int write_status = status;
-        int close_status = 0;
-        fits_close_file(fptr, &close_status);
-        throw FitsError(fits_write_error_message("create FITS image", path, write_status));
-    }
 
-    write_header_keywords(fptr, header, false, status);
+    try {
+        long naxes[2] = {static_cast<long>(data.cols()), static_cast<long>(data.rows())};
 
-    // Declare row order: the internal Eigen RowMajor buffer has row 0 at the top
-    // (screen convention), which is the opposite of the default FITS bottom-up
-    // convention. ROWORDER=TOP-DOWN tells viewers (Siril, DS9, etc.) to display
-    // the image without flipping, matching the actual data layout on disk.
-    {
-        char roworder[] = "TOP-DOWN";
-        fits_update_key(fptr, TSTRING, "ROWORDER", roworder,
-                        "Row order: row 0 is top of image", &status);
-        if (status) status = 0; // non-fatal: proceed even if key cannot be written
-    }
-    
-    // Write pixel data row by row to avoid cfitsio internal buffer issues
-    // with very large single-write calls (e.g. 50M+ elements for expanded canvas).
-    const long nrows = static_cast<long>(data.rows());
-    const long ncols = static_cast<long>(data.cols());
-    for (long row = 0; row < nrows; ++row) {
-        long fpixel[2] = {1, row + 1};
-        const float* row_ptr = data.data() + row * ncols;
-        fits_write_pix(fptr, TFLOAT, fpixel, ncols,
-                       const_cast<float*>(row_ptr), &status);
+        fits_create_img(fptr, FLOAT_IMG, 2, naxes, &status);
         if (status) {
             const int write_status = status;
             int close_status = 0;
             fits_close_file(fptr, &close_status);
-            throw FitsError(fits_write_error_message("write FITS pixel data", path, write_status));
+            fptr = nullptr;
+            throw FitsError(fits_write_error_message("create FITS image", path, write_status));
         }
-    }
-    
-    fits_close_file(fptr, &status);
-    if (status) {
-        throw FitsError(fits_write_error_message("close FITS file", path, status));
+
+        write_header_keywords(fptr, header, false, status);
+
+        // Declare row order: the internal Eigen RowMajor buffer has row 0 at the top
+        // (screen convention), which is the opposite of the default FITS bottom-up
+        // convention. ROWORDER=TOP-DOWN tells viewers (Siril, DS9, etc.) to display
+        // the image without flipping, matching the actual data layout on disk.
+        {
+            char roworder[] = "TOP-DOWN";
+            fits_update_key(fptr, TSTRING, "ROWORDER", roworder,
+                            "Row order: row 0 is top of image", &status);
+            if (status) status = 0; // non-fatal: proceed even if key cannot be written
+        }
+
+        // Write pixel data row by row to avoid cfitsio internal buffer issues
+        // with very large single-write calls (e.g. 50M+ elements for expanded canvas).
+        const long nrows = static_cast<long>(data.rows());
+        const long ncols = static_cast<long>(data.cols());
+        for (long row = 0; row < nrows; ++row) {
+            long fpixel[2] = {1, row + 1};
+            const float* row_ptr = data.data() + row * ncols;
+            fits_write_pix(fptr, TFLOAT, fpixel, ncols,
+                           const_cast<float*>(row_ptr), &status);
+            if (status) {
+                const int write_status = status;
+                int close_status = 0;
+                fits_close_file(fptr, &close_status);
+                fptr = nullptr;
+                throw FitsError(fits_write_error_message("write FITS pixel data", path, write_status));
+            }
+        }
+
+        int close_status = 0;
+        fits_close_file(fptr, &close_status);
+        fptr = nullptr;
+        if (close_status) {
+            throw FitsError(fits_write_error_message("close FITS file", path, close_status));
+        }
+        output.commit();
+    } catch (...) {
+        if (fptr) { int close_status = 0; fits_close_file(fptr, &close_status); }
+        throw;
     }
 }
 

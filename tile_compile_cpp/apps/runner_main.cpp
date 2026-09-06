@@ -1,9 +1,9 @@
+#include "runner_forward_drizzle.hpp"
 #include "runner_pipeline.hpp"
 #include "runner_preprocess.hpp"
 #include "runner_resume.hpp"
 #include "tile_compile/core/build_info.hpp"
 
-#include <cstdlib>
 #include <iostream>
 #include <string>
 
@@ -19,6 +19,8 @@ void print_usage() {
   std::cout << "Usage: tile_compile_runner <command> [options]\n\n"
             << "Commands:\n"
             << "  run      Run the pipeline\n"
+            << "  reconstruct Run the CFA forward-drizzle + multiband pipeline to the final reconstruction image\n"
+            << "  resume-reconstruction Resume from GLOBAL_QUALITY or FORWARD_DRIZZLE (MULTIBAND always re-runs)\n"
             << "  preprocess Run the separate raw-preprocessing pipeline\n"
             << "  resume   Resume a run from a specific phase\n"
             << "\nOptions:\n"
@@ -34,20 +36,7 @@ void print_usage() {
             << "  --dry-run             Dry run (no actual processing)\n"
             << "  --version            Print build/version information\n"
             << "  --json               Use JSON with --version\n"
-            << "  --force-classic       Run new executions as classic_tile_compile\n"
             << std::endl;
-}
-
-/// @brief Runs command.
-/// @details Part of the tile_compile_runner executable entry point and command dispatcher; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-void set_force_classic_env() {
-#ifdef _WIN32
-  _putenv_s("FORCE_CLASSIC", "1");
-#else
-  setenv("FORCE_CLASSIC", "1", 1);
-#endif
 }
 
 int run_command(const std::string &config_path, const std::string &input_dir,
@@ -98,7 +87,6 @@ int main(int argc, char *argv[]) {
   int max_tiles = 0;
   bool config_from_stdin = false;
   bool preprocess_config_from_stdin = false;
-  bool force_classic = false;
 
   auto run_cmd = app.add_subcommand("run", "Run the pipeline");
   run_cmd->add_option("--config", config_path, "Path to config.yaml")
@@ -115,8 +103,20 @@ int main(int argc, char *argv[]) {
   run_cmd->add_flag("--dry-run", dry_run, "Dry run");
   run_cmd->add_flag("--stdin", config_from_stdin,
                     "Read config YAML from stdin (use with --config -)");
-  run_cmd->add_flag("--force-classic", force_classic,
-                    "Run this new execution as classic_tile_compile");
+
+  auto reconstruct_cmd = app.add_subcommand("reconstruct", "Run the CFA forward-drizzle + multiband pipeline to the final reconstruction image");
+  reconstruct_cmd->add_option("--config", config_path)->required();
+  reconstruct_cmd->add_option("--input-dir", input_dir)->required();
+  reconstruct_cmd->add_option("--runs-dir", runs_dir)->required();
+  reconstruct_cmd->add_option("--project-root", project_root);
+  reconstruct_cmd->add_option("--run-id", run_id_override);
+  reconstruct_cmd->add_option("--max-frames", max_frames);
+  reconstruct_cmd->add_flag("--dry-run", dry_run);
+  reconstruct_cmd->add_flag("--stdin", config_from_stdin);
+  std::string reconstruction_resume_phase = "GLOBAL_QUALITY";
+  auto reconstruction_resume = app.add_subcommand("resume-reconstruction", "Resume checked M1-M3 predecessors");
+  reconstruction_resume->add_option("--run-dir", resume_run_dir)->required();
+  reconstruction_resume->add_option("--from-phase", reconstruction_resume_phase);
 
   auto preprocess_cmd = app.add_subcommand("preprocess", "Run the separate raw-preprocessing pipeline");
   preprocess_cmd->add_option("--config", preprocess_config_path, "Path to preprocessing JSON config")
@@ -136,11 +136,16 @@ int main(int argc, char *argv[]) {
 
   CLI11_PARSE(app, argc, argv);
 
+  if (reconstruct_cmd->parsed())
+    return run_pipeline_command(config_path, input_dir, runs_dir, project_root,
+        run_id_override, dry_run, max_frames, 0, config_from_stdin, true);
+  if (reconstruction_resume->parsed())
+    return resume_forward_drizzle_command(resume_run_dir, reconstruction_resume_phase);
+
   if (run_cmd->parsed()) {
-    if (force_classic) set_force_classic_env();
-    return run_command(config_path, input_dir, runs_dir, project_root,
+    return run_pipeline_command(config_path, input_dir, runs_dir, project_root,
                        run_id_override, dry_run,
-                       max_frames, max_tiles, config_from_stdin);
+                       max_frames, max_tiles, config_from_stdin, command == "reconstruct");
   }
 
   if (preprocess_cmd->parsed()) {
@@ -175,7 +180,6 @@ int main(int argc, char *argv[]) {
   int max_tiles = 0;
   bool config_from_stdin = false;
   bool preprocess_config_from_stdin = false;
-  bool force_classic = false;
 
   for (int i = 2; i < argc; ++i) {
     std::string arg = argv[i];
@@ -201,20 +205,23 @@ int main(int argc, char *argv[]) {
       dry_run = true;
     else if (arg == "--stdin")
       config_from_stdin = true;
-    else if (arg == "--force-classic")
-      force_classic = true;
   }
 
-  if (command == "run") {
-    if (force_classic) set_force_classic_env();
+  if (command == "run" || command == "reconstruct") {
     if (config_path.empty() || input_dir.empty() || runs_dir.empty()) {
       std::cerr << "Error: --config, --input-dir, and --runs-dir are required"
                 << std::endl;
       return 1;
     }
-    return run_command(config_path, input_dir, runs_dir, project_root,
+    return run_pipeline_command(config_path, input_dir, runs_dir, project_root,
                        run_id_override, dry_run,
-                       max_frames, max_tiles, config_from_stdin);
+                       max_frames, max_tiles, config_from_stdin, command == "reconstruct");
+  }
+
+  if (command == "resume-reconstruction") {
+    if (resume_run_dir.empty()) { std::cerr << "--run-dir required\n"; return 1; }
+    if (resume_from_phase == "PCC") resume_from_phase = "GLOBAL_QUALITY";
+    return resume_forward_drizzle_command(resume_run_dir, resume_from_phase);
   }
 
   if (command == "resume") {

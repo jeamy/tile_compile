@@ -1,3 +1,4 @@
+#include "tile_compile/registration/registration_sampling_plan.hpp"
 #pragma once
 
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
@@ -727,6 +728,10 @@ public:
   /// Load a cached registration proxy if present.
   bool try_load_registration_proxy(size_t fi, Matrix2Df &out) const;
 
+  /// Seal a complete normalized cache and retain it beyond this object lifetime.
+  void seal_normalized_cache(const registration::RegistrationSamplingPlan &plan);
+  void release_registration_proxies();
+
   /// Number of frame slots in the cache.
   size_t size() const;
   /// Normalized frame row count.
@@ -737,6 +742,8 @@ public:
   void cleanup();
 
 private:
+  std::filesystem::path normalized_cache_dir_;
+  bool normalized_cache_sealed_ = false;
   DiskCacheFrameStore normalized_frames_;
   mutable std::mutex proxy_mutex_;
   std::vector<uint8_t> has_registration_proxy_;

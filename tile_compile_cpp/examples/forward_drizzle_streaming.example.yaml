@@ -1,0 +1,20 @@
+# Development configuration fragment, not a production cutover switch.
+# Merge into a config. Does not authorize a processing run.
+# 0 memory budget inherits runtime_limits.memory_budget in MiB.
+# Uniform preview emits statistics only; it remains off here.
+reconstruction:
+  common_overlap_required_fraction: 1.0
+  diagnostics:
+    preview_forward_drizzle_uniform: false
+  drizzle:
+    internal_scale: 2
+    output_scale: 1
+    pixfrac: 0.8
+    chunk_rows: 0
+    chunk_halo_rows: -1
+    memory_budget_mb: 0
+
+# Optional diagnostic store: independent of preview, default false.
+# Enable reconstruction.diagnostics.persist_forward_drizzle_uniform_store
+# in the complete configuration to stream immutable FITS generations.
+# The existing drizzle budget includes 8 MiB IO reserve plus one float row.

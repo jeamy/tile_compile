@@ -953,7 +953,8 @@ AqmhQualityMapResult compute_aqmh_quality_map(
     int canvas_mask_width, int canvas_mask_height,
     const config::AqmhPyramidConfig &cfg,
     core::AccelerationBackend backend,
-    cv::cuda::Stream *stream) {
+    cv::cuda::Stream *stream,
+    const PerScaleQualityHook &per_scale_hook) {
   const auto total_start = std::chrono::steady_clock::now();
   const auto elapsed_since = [](const auto &start) {
     return std::chrono::duration<double>(
@@ -1042,6 +1043,8 @@ AqmhQualityMapResult compute_aqmh_quality_map(
 
     const auto psi_accumulate_start = std::chrono::steady_clock::now();
     const Matrix2Df psi = compute_psi(sharp, snr, artifact, cfg);
+    if (per_scale_hook)
+      per_scale_hook(s, factor, psi, artifact);
     accumulate_upsampled_log_psi(
         psi, frame.cols(), frame.rows(), factor, log_sum, veto);
     result.diagnostics.timing_psi_accumulate_seconds +=

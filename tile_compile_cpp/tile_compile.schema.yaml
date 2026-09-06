@@ -904,7 +904,8 @@ properties:
             type: number
             exclusiveMinimum: 0
             default: 4.0
-            description: Upper-side AQMH sigma clipping threshold. Kept looser than clip_sigma_low (2.0): at a star's PSF peak, per-frame subpixel registration jitter makes the
+            description: >-
+              Upper-side AQMH sigma clipping threshold. Kept looser than clip_sigma_low (2.0): at a star's PSF peak, per-frame subpixel registration jitter makes the
               pixel's frame-to-frame value distribution right-skewed, so a tight symmetric clip preferentially rejects the genuinely bright frames and biases the reconstructed
               peak down, visible as a dark notch in star centers. 4.0 removes that notch without loosening clip_sigma_low, so diffuse-background behavior is unchanged.
           clip_iterations:
@@ -1103,6 +1104,85 @@ properties:
             minimum: 1
             default: 6
             description: 'Morphological canvas size in pixels for AQMH artifact detection. Larger canvases detect larger artifacts. Range 16–256. Recommended: 64.'
+  reconstruction:
+    type: object
+    description: Single-method CFA-forward-drizzle + multiband reconstruction contract (plan sections 6.1-6.3). Parsed and validated in M0; consumed from M2 onward.
+    properties:
+      delete_source_cache_after_run:
+        type: boolean
+        default: false
+      keep_profile_cache_after_run:
+        type: boolean
+        default: false
+      common_overlap_required_fraction:
+        type: number
+        exclusiveMinimum: 0
+        maximum: 1
+        default: 1.0
+        description: "Fraction of accepted dense frame footprints defining the analysis region, independent of sparse CFA support; (0,1], default 1."
+      diagnostics:
+        type: object
+        properties:
+          level:
+            type: string
+            enum: [summary, full]
+            default: summary
+          preview_forward_drizzle_uniform:
+            type: boolean
+            default: false
+            description: "Opt-in bounded stripe Uniform diagnostic; default false. Writes summary statistics only. No complete reconstruction phase, clipping, multiband or resume contract."
+          persist_forward_drizzle_uniform_store:
+            type: boolean
+            default: false
+            description: "Opt-in, independent of preview. Streams unclipped Uniform planes into immutable generations under artifacts/forward_drizzle_uniform_store/. current.json atomically commits the complete generation after checksum and FITS validation. Includes 8 MiB IO reserve plus one float row in the drizzle budget; old generations are retained. Diagnostic only, not a pipeline resume entry."
+
+      drizzle:
+        type: object
+        properties:
+          internal_scale: {type: integer, enum: [1, 2], default: 2}
+          output_scale: {type: integer, enum: [1, 2], default: 1}
+          kernel: {type: string, enum: [square], default: square}
+          pixfrac: {type: number, exclusiveMinimum: 0, maximum: 1, default: 0.8}
+          robust_passes: {type: integer, minimum: 1, maximum: 6, default: 2}
+          min_clip_contributors: {type: integer, minimum: 2, default: 5}
+          chunk_rows: {type: integer, minimum: 0, default: 0, description: "Target stripe rows; 0 selects at most 256 rows within the memory budget. Explicit values exceeding the budget fail closed."}
+          chunk_halo_rows: {type: integer, minimum: -1, default: -1, description: "Compatibility field (-1 auto, >=0 explicit). Exact source-footprint enumeration completes each target stripe without an output halo; the CPU Uniform/coverage path does not duplicate halo rows."}
+          memory_budget_mb: {type: integer, minimum: 0, default: 0, description: "Phase allocation budget in MiB, including retained masks/output, one source plus transient load copy and stripe scratch. 0 inherits runtime_limits.memory_budget (library default 512 MiB). Available host/cgroup headroom may reduce it. Fails before allocation if one row does not fit."}
+      clipping:
+        type: object
+        properties:
+          clip_sigma_low: {type: number, exclusiveMinimum: 0, default: 3.0}
+          clip_sigma_high: {type: number, exclusiveMinimum: 0, default: 3.0}
+          min_fraction: {type: number, exclusiveMinimum: 0, maximum: 1, default: 0.4}
+          min_n_eff: {type: number, minimum: 1, default: 3.0}
+      coverage_gate:
+        type: object
+        properties:
+          min_frames: {type: integer, minimum: 2, default: 2}
+          min_supported_fraction: {type: number, exclusiveMinimum: 0, maximum: 1, default: 0.995}
+          min_channel_n_eff_floor: {type: number, minimum: 1, default: 3.0}
+          min_channel_n_eff_fraction: {type: number, exclusiveMinimum: 0, maximum: 1, default: 0.15}
+          min_analysis_pixels: {type: integer, minimum: 1, default: 1024}
+          max_internal_hole_area_px: {type: integer, minimum: 0, default: 0}
+      quality:
+        type: object
+        properties:
+          pyramid:
+            type: object
+            properties:
+              scales: {type: integer, minimum: 1, maximum: 4, default: 4}
+      multiband:
+        type: object
+        properties:
+          enabled: {type: boolean, default: true}
+          levels: {type: integer, minimum: 1, maximum: 4, default: 3}
+          alpha_cap: {type: number, minimum: 0, maximum: 1, default: 1.0}
+          fine_quality_exponent: {type: number, minimum: 0, default: 4.0}
+          medium_quality_exponent: {type: number, minimum: 0, default: 2.0}
+          min_quality_separation: {type: number, minimum: 0, maximum: 1, default: 0.05}
+          full_quality_separation: {type: number, minimum: 0, maximum: 1, default: 0.20}
+          min_effective_samples: {type: number, minimum: 1, default: 8.0}
+          full_effective_samples: {type: number, minimum: 1, default: 24.0}
   synthetic:
     type: object
     properties:

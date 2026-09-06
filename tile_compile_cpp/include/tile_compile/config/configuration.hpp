@@ -350,6 +350,98 @@ struct AqmhConfig {
   AqmhValidationConfig validation;
 };
 
+// ---------------------------------------------------------------------------
+// Single-method reconstruction contract (CFA forward drizzle + multiband).
+// Plan sections 6.1-6.3 / 11.2. This is the public `reconstruction:` config
+// root introduced in M0. It is parsed and validated but not yet consumed by
+// any phase (the forward-drizzle pipeline is built in M2+); the legacy `aqmh:`
+// block keeps driving the active pipeline until M10.
+// ---------------------------------------------------------------------------
+
+struct ReconstructionDiagnosticsConfig {
+  std::string level = "summary";  // "summary" | "full"
+  // M2 (plan section 11) is not yet a real pipeline phase: no clipping, no
+  // quality weights, no multiband, no transactional store/chunking, no
+  // resume contract. When true, run_phase_registration_prewarp additionally
+  // computes the CFA-forward-drizzle Uniform-Control profile as a
+  // best-effort, non-fatal diagnostic (artifacts/forward_drizzle_uniform_diagnostic.json)
+  // after SAMPLING_GEOMETRY, using the same normalized-cache source the
+  // final M2+ pipeline will use (never prewarped_frames). Off by default:
+  // the single-threaded reference kernel's exact polygon clip is
+  // meaningfully slower than SAMPLING_GEOMETRY's coverage-only touch test,
+  // and this is diagnostic-only work that must never impose that cost on a
+  // normal run.
+  bool preview_forward_drizzle_uniform = false;
+  // Independent opt-in diagnostic. Streams unclipped Uniform planes into
+  // immutable generations under artifacts/forward_drizzle_uniform_store/.
+  // current.json commits the complete, checked generation atomically.
+  // Includes FITS IO reserve in the drizzle budget. No pipeline resume claim.
+  bool persist_forward_drizzle_uniform_store = false;
+};
+
+struct ReconstructionDrizzleConfig {
+  int internal_scale = 2;             // {1, 2}
+  int output_scale = 1;              // {1, 2}, <= internal_scale
+  std::string kernel = "square";     // MVP: only "square"
+  float pixfrac = 0.8f;              // (0, 1]
+  int robust_passes = 2;            // [1, 6]
+  int min_clip_contributors = 5;    // >= 2; below this no sigma/MAD clipping
+  int chunk_rows = 0;               // 0 = budgeted stripes, <=256 rows; >0 budget-checked
+  int chunk_halo_rows = -1;         // compatibility; exact footprint enumeration needs no output halo
+  size_t memory_budget_mb = 0;      // MiB; 0 inherits runtime_limits (library: 512 MiB)
+};
+
+struct ReconstructionClippingConfig {
+  float clip_sigma_low = 3.0f;      // > 0
+  float clip_sigma_high = 3.0f;     // > 0
+  float min_fraction = 0.4f;        // (0, 1]
+  float min_n_eff = 3.0f;           // >= 1
+};
+
+struct ReconstructionCoverageGateConfig {
+  int min_frames = 2;                       // >= 2
+  float min_supported_fraction = 0.995f;    // (0, 1]
+  float min_channel_n_eff_floor = 3.0f;     // >= 1
+  float min_channel_n_eff_fraction = 0.15f; // (0, 1]
+  int min_analysis_pixels = 1024;           // >= 1
+  long long max_internal_hole_area_px = 0;  // >= 0
+};
+
+struct ReconstructionQualityPyramidConfig {
+  int scales = 4;  // [1, 4]
+};
+
+struct ReconstructionQualityConfig {
+  ReconstructionQualityPyramidConfig pyramid;
+};
+
+struct ReconstructionMultibandConfig {
+  bool enabled = true;
+  int levels = 3;                         // [1, 4]; >=2 needs pyramid.scales>=2
+  float alpha_cap = 1.0f;                 // [0, 1]
+  float fine_quality_exponent = 4.0f;     // >= 0
+  float medium_quality_exponent = 2.0f;   // >= 0
+  float min_quality_separation = 0.05f;   // 0 <= min < full <= 1
+  float full_quality_separation = 0.20f;
+  float min_effective_samples = 8.0f;     // 1 <= min < full
+  float full_effective_samples = 24.0f;
+};
+
+struct ReconstructionConfig {
+  bool delete_source_cache_after_run = false;
+  bool keep_profile_cache_after_run = false;
+  float common_overlap_required_fraction = 1.0f;  // (0,1], dense frame footprints
+  ReconstructionDiagnosticsConfig diagnostics;
+  ReconstructionDrizzleConfig drizzle;
+  ReconstructionClippingConfig clipping;
+  ReconstructionCoverageGateConfig coverage_gate;
+  ReconstructionQualityConfig quality;
+  ReconstructionMultibandConfig multiband;
+
+  // Throws tile_compile::ValidationError on a contract violation (plan 6.3).
+  void validate() const;
+};
+
 struct SyntheticConfig {
   struct ClusteringConfig {
     std::string mode = "kmeans";
@@ -565,6 +657,7 @@ struct Config {
   TileConfig tile;
   LocalMetricsConfig local_metrics;
   AqmhConfig aqmh;
+  ReconstructionConfig reconstruction;
   SyntheticConfig synthetic;
   AstrometryConfig astrometry;
   BGEConfig bge;
@@ -577,6 +670,15 @@ struct Config {
   static Config load(const fs::path &path);
   static Config from_yaml(const YAML::Node &node);
   static Config from_yaml_text(const std::string &yaml_text);
+
+  // Like from_yaml_text but first applies the single-method legacy config
+  // migration (plan section 6.5): rejects `method`/engine keys fail-closed
+  // (throws tile_compile::ConfigError) and strips removed structural blocks,
+  // recording every change in `report` (see legacy_config_migration.hpp). Used
+  // by the production run path; the legacy-reference runner keeps using plain
+  // load()/from_yaml_text().
+  static Config from_yaml_text_migrated(const std::string &yaml_text,
+                                        struct ConfigMigrationReport &report);
 
   void save(const fs::path &path) const;
   YAML::Node to_yaml() const;

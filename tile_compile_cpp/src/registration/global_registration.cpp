@@ -866,16 +866,6 @@ SmoothLocalWarpModel::Coefficients smooth_local_basis(
   return basis;
 }
 
-cv::Point2f evaluate_smooth_local_displacement(
-    const SmoothLocalWarpModel &model, float x, float y) {
-  if (!model.valid) {
-    return {};
-  }
-  const auto basis =
-      smooth_local_basis(x, y, model.image_rows, model.image_cols);
-  return {basis.dot(model.coeff_x), basis.dot(model.coeff_y)};
-}
-
 float sample_displacement(const cv::Mat &field, float x, float y) {
   if (field.empty()) {
     return 0.0f;
@@ -898,6 +888,19 @@ float sample_displacement(const cv::Mat &field, float x, float y) {
 }
 
 } // namespace
+
+// Exported for the forward-drizzle source->canvas inversion
+// (registration_sampling_plan.cpp, plan section 7.3). smooth_local_basis stays
+// internal (anonymous namespace above) but is visible here at file scope.
+cv::Point2f evaluate_smooth_local_displacement(
+    const SmoothLocalWarpModel &model, float x, float y) {
+  if (!model.valid) {
+    return {};
+  }
+  const auto basis =
+      smooth_local_basis(x, y, model.image_rows, model.image_cols);
+  return {basis.dot(model.coeff_x), basis.dot(model.coeff_y)};
+}
 
 SmoothLocalRefinementResult estimate_smooth_local_star_refinement(
     const std::vector<StarPoint> &ref_stars,

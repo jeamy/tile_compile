@@ -56,6 +56,14 @@ static crow::response err_resp(const std::string& code,
     return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
 }
 
+// M0 (plan sections 6.5, 17.5): there is exactly one reconstruction method.
+// New-style configs no longer carry a `method:` key; historical Classic /
+// PREWARP-AQMH runs still do. When the key is absent we resolve to the single
+// method so the (now single-valued) phase-order / resume mapping keeps working;
+// an explicit legacy value is passed through for the read-only history view.
+// The deeper phase-ID rework (SAMPLING_GEOMETRY / FORWARD_DRIZZLE) is M8.
+static constexpr const char* kSingleReconstructionMethod = "aqmh";
+
 static std::string read_method_from_yaml_text_local(const std::string& yaml_text) {
     if (yaml_text.empty()) return "";
     try {
@@ -79,7 +87,7 @@ static std::string read_run_method_local(const fs::path& run_dir, const std::str
             }
         } catch (...) {}
     }
-    return "";
+    return kSingleReconstructionMethod;
 }
 
 static bool has_nonempty_prewarped_cache(const fs::path& run_dir) {

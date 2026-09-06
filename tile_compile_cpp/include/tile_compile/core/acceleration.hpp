@@ -33,6 +33,10 @@ enum class AccelerationPhase {
   aqmh_reconstruction,
   tile_reconstruction,
   stacking,
+  // CFA-forward-drizzle single method (plan M6/M7). CUDA covers the droplet /
+  // clipping / profile accumulation only; the a-trous fusion stays on the CPU
+  // reference path (plan 19.2 stage 9).
+  forward_drizzle,
 };
 
 struct AccelerationCapabilities {

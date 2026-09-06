@@ -24,6 +24,7 @@ std::string get_run_id();
 std::vector<fs::path> discover_frames(const fs::path& input_dir, const std::string& pattern = "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz");
 std::vector<uint8_t> read_bytes(const fs::path& path);
 std::string read_text(const fs::path& path);
+void write_text_atomic(const fs::path& path, const std::string& text);
 void write_text(const fs::path& path, const std::string& text);
 void safe_hardlink_or_copy(const fs::path& src, const fs::path& dst);
 fs::path pick_output_file(const fs::path& dir, const std::string& prefix, const std::string& ext);
