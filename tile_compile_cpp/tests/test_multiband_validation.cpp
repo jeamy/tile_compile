@@ -304,21 +304,27 @@ TEST_CASE("multiband validation: a real support boundary (NaN off-support) "
   REQUIRE(res.reason.find("seam") == std::string::npos);
 }
 
-TEST_CASE("multiband validation: scattered per-pixel dropouts dilute the seam "
-          "gate to inert -- documents the open seam-form plan question (30.46)") {
+TEST_CASE("multiband validation: mask closing makes the seam gate ignore "
+          "scattered dropouts and still catch a real boundary step (30.47)") {
   // M42 real data (2026-09-06): the OSC working-luminance support mask is shot
-  // through with ~5% scattered single-pixel dropouts, so the interior-edge
-  // locus (~1M px) is dominated by dropout-hole edges, not the true support
-  // boundary. seam_score then lands at ~1.03 for ALL three candidates
-  // (ratios within 0.4%), so a genuine step at the real boundary cannot move
-  // the gate. This is a seam-*form* issue (which locus to measure), flagged
-  // plan-unconfirmed in 30.42 -- NOT re-patched here. This test pins the
-  // current behaviour so a later form change is a deliberate, visible edit.
+  // through with ~5% scattered single-pixel dropouts. Before the mask-close
+  // fix the interior-edge locus was dominated by dropout-hole edges, so
+  // seam_score collapsed to ~1.0 for all three candidates and a genuine
+  // boundary step could not move the gate (30.46/30.47). After closing the
+  // mask (kMultibandValidationSeamMaskCloseRadius) the locus is the true
+  // contiguous boundary only: a real +200 step there pushes the multiband
+  // seam ratio well past the 1.05 gate, while the scattered dropouts alone
+  // (raw vs uniform) stay within it.
   const int w = 260, h = 240;
-  const double s_r = 2.0, s_m = 1.78, a0 = 2000.0;
-  auto U = make_field(w, h, 81, 2.4, a0 * (s_r * s_r) / (2.4 * 2.4), 100.0, 2.0, 7);
-  auto Rf = make_field(w, h, 81, s_r, a0, 100.0, 2.0, 7);
-  auto Mf = make_field(w, h, 81, s_m, a0 * (s_r * s_r) / (s_m * s_m), 100.0, 1.7, 7);
+  const double s_m = 1.78, a0 = 2000.0;
+  // Uniform and Raw share PSF (sigma 2.0) so raw cleanly passes the 15.3.2
+  // safety gates; multiband is a genuine FWHM improvement (sigma 1.78) so its
+  // FWHM/tail gates pass -- leaving the injected boundary step as the ONLY
+  // reason multiband can be rejected. That isolates the seam gate.
+  auto U = make_field(w, h, 60, 2.0, a0, 100.0, 2.0, 7);
+  auto Rf = make_field(w, h, 60, 2.0, a0, 100.0, 2.0, 7);
+  auto Mf = make_field(w, h, 60, s_m, a0 * (2.0 * 2.0) / (s_m * s_m), 100.0,
+                       1.7, 7);
 
   std::vector<uint8_t> mask(static_cast<size_t>(w) * h, 1u);
   const float nan = std::numeric_limits<float>::quiet_NaN();
@@ -354,25 +360,34 @@ TEST_CASE("multiband validation: scattered per-pixel dropouts dilute the seam "
                        << res.raw.seam_score.value << " / "
                        << res.multiband.seam_score.value);
   REQUIRE(res.uniform.seam_score.applicable);
+  REQUIRE(res.raw.seam_score.applicable);
+  REQUIRE(res.multiband.seam_score.applicable);
   const double su = res.uniform.seam_score.value;
+  const double sr = res.raw.seam_score.value;
   const double sm = res.multiband.seam_score.value;
-  // Self-normalised, so a healthy score sits near 1 -- rule out the 0 sentinel
-  // and any runaway.
-  REQUIRE(su > 0.5);
-  REQUIRE(su < 2.0);
-  // The DISCRIMINATING pin: multiband carries a real +200 step along its
-  // interior-edge columns (x=118, x=161), uniform carries none -- yet the two
-  // seam scores agree to within 5%, because the step is ~44 px in a ~1M-px
-  // dropout-dominated edge set. A seam-form fix that restricts the locus to
-  // the true boundary would push sm/su well past 1.05 and fail here on
-  // purpose, forcing a deliberate update rather than a silent behaviour flip.
-  REQUIRE(std::abs(sm / su - 1.0) < 0.05);
+  // Uniform and Raw carry no injected step and identical PSF; the ~5% scattered
+  // dropouts are closed out of the boundary locus, so their seam scores are
+  // essentially equal -- the gate does NOT react to dropout noise.
+  REQUIRE(su > 0.1);
+  REQUIRE(std::abs(sr / su - 1.0) < 0.02);
+  // The discriminating positive pin: multiband carries a real +200 step along
+  // the contiguous boundary. Pre-fix (dropout-dominated locus) this ratio was
+  // ~1.0 and the gate was blind; the closed-mask locus makes it fire well past
+  // the 1.05 promotion bound.
+  REQUIRE(sm / su > 1.05);
 }
 
 TEST_CASE("multiband_validation_config_hash is stable and config-sensitive") {
   const std::string base = multiband_validation_config_hash();
+  INFO("multiband_validation_config_hash() = " << base);
   // 64 lowercase hex chars, deterministic across calls.
   REQUIRE(base.size() == 64);
+  // Literal pin: this must only change on a deliberate constant/threshold edit
+  // (which also bumps kMultibandValidationVersion). A silent regression that
+  // still round-trips against the recomputed value would slip past the runner
+  // assertion; this catches it.
+  REQUIRE(base ==
+          "f1bf5607a94e245404ad6b30d547aa6762e9d0e7e9c44644be636ee381fd343f");
   REQUIRE(base == multiband_validation_config_hash(MultibandValidationConfig{}));
 
   MultibandValidationConfig tweaked;

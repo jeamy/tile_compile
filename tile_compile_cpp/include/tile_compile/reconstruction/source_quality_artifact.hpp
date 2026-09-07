@@ -3,6 +3,8 @@
 #include "tile_compile/reconstruction/quality_frame_weight_plan.hpp"
 #include "tile_compile/reconstruction/drizzle_profile_store.hpp"
 
+#include <array>
+
 namespace tile_compile::reconstruction {
 
 // Returns source-index-addressed weights after checking identities, factors and
@@ -87,6 +89,20 @@ struct MultibandCandidateLuma {
   std::vector<std::vector<float>> alpha_final_by_band;
 };
 
+// The three plan-15 candidate images at FULL per-channel resolution (not luma),
+// assembled in the same single fusion pass. `nch` is 1 (MONO -> index 0 = L) or
+// 3 (OSC -> R,G,B). Each plane is row-major width*height, NaN off support. Used
+// by the runner to deliver `outputs/forward_drizzle_raw_*` (immutable Raw
+// baseline) and `outputs/reconstructed_*` (the selected candidate) per plan
+// 16.1, plus the `full`-diagnostics uniform/multiband control FITS.
+struct MultibandCandidateChannels {
+  int width = 0;
+  int height = 0;
+  int nch = 1;
+  bool mono = true;
+  std::array<std::vector<float>, 3> uniform, raw, multiband;
+};
+
 // M6 phase 2: fuse the durable multiband store (plan 14, streamed path) into a
 // single final X_out image at `final_image_path` (MONO -> float FITS, OSC ->
 // RGB FITS). `chunk_rows <= 0` uses a default. Returns supported-pixel count.
@@ -98,6 +114,10 @@ long long fuse_multiband_store_to_image(
     const fs::path &final_image_path,
     const config::ReconstructionMultibandConfig &multiband_cfg,
     int chunk_rows = 0, size_t memory_budget_mb = 512,
-    MultibandCandidateLuma *candidates_out = nullptr);
+    MultibandCandidateLuma *candidates_out = nullptr,
+    // When non-null, also captures the three candidates at full per-channel
+    // resolution (opt-in: holds 3*nch full planes resident). `final_image_path`
+    // still receives the multiband X_out as before.
+    MultibandCandidateChannels *channels_out = nullptr);
 
 } // namespace tile_compile::reconstruction

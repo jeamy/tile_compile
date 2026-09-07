@@ -567,12 +567,33 @@ TEST_CASE("drizzle store: OSC multiband store + fuse_multiband_store_to_image "
   // M42/OSC registration run (a dithered geometry); the accumulation/striping
   // maths is covered bit-exact by the MONO store test above.
   reconstruction::MultibandCandidateLuma cand;
+  reconstruction::MultibandCandidateChannels chans;
   reconstruction::fuse_multiband_store_to_image(fixture.root, identity,
-      fixture.root / "x_cand.fits", fcfg, /*chunk_rows=*/5, 64, &cand);
+      fixture.root / "x_cand.fits", fcfg, /*chunk_rows=*/5, 64, &cand, &chans);
   REQUIRE(cand.width == identity.width);
   REQUIRE(cand.height == identity.height);
   REQUIRE(cand.alpha_final_by_band.size() == 3u);
   REQUIRE(cand.alpha_final_by_band[2].empty());          // D3 <- Raw
+
+  // Plan 16.1: the per-channel candidate capture. multiband[c] is the fused
+  // X_out per channel -- bit-exact to the non-streaming reference where the
+  // channel is supported, NaN elsewhere.
+  REQUIRE(chans.nch == 3);
+  REQUIRE_FALSE(chans.mono);
+  REQUIRE(chans.width == identity.width);
+  REQUIRE(chans.height == identity.height);
+  {
+    const std::vector<float> *rref[3] = {&ref.R, &ref.G, &ref.B};
+    const std::vector<uint8_t> *sref[3] = {&ref.support_R, &ref.support_G,
+                                           &ref.support_B};
+    for (int c = 0; c < 3; ++c)
+      for (size_t i = 0; i < chans.multiband[c].size(); ++i) {
+        if ((*sref[c])[i] && std::isfinite((*rref[c])[i]))
+          REQUIRE(chans.multiband[c][i] == (*rref[c])[i]);
+        else
+          REQUIRE(std::isnan(chans.multiband[c][i]));
+      }
+  }
   int tri_cells = 0, luma_cells = 0;
   for (int y = 0; y < identity.height; ++y)
     for (int x = 0; x < identity.width; ++x) {
@@ -838,5 +859,165 @@ TEST_CASE("drizzle store: plan-19.4 CUDA transactional restart -- an injected "
         fx.root, plan, provider, cfg, clip, mbc, quality_of);  // cuda = {}
     REQUIRE(digest(restart.generation_dir) == cpu_digest);
     REQUIRE(verify_drizzle_profile_store(fx.root, identity).usable);
+  }
+}
+
+TEST_CASE("plan-19.4 CUDA auto-chunking: reserve, fit, and the halving ladder",
+          "[drizzle-store]") {
+  using reconstruction::plan_cuda_chunking;
+
+  SECTION("chunk fills usable memory after the reserve is withheld") {
+    // 4 GiB free, 20% reserve -> ~3.2 GiB usable. 1 MiB/row -> ~3276 rows fit.
+    const auto p = plan_cuda_chunking(4ull << 30, 1ull << 20, /*image_rows=*/8000);
+    REQUIRE(p.feasible);
+    REQUIRE(p.reserve_bytes == static_cast<std::size_t>((4ull << 30) * 0.20));
+    REQUIRE(p.usable_bytes == (4ull << 30) - p.reserve_bytes);
+    REQUIRE(p.chunk_rows == static_cast<int>(p.usable_bytes / (1ull << 20)));
+    REQUIRE(p.chunk_rows < 8000);  // memory-bound, not image-bound
+  }
+
+  SECTION("image height caps the chunk when memory is ample") {
+    const auto p = plan_cuda_chunking(16ull << 30, 1ull << 20, /*image_rows=*/512);
+    REQUIRE(p.feasible);
+    REQUIRE(p.chunk_rows == 512);
+  }
+
+  SECTION("a config ceiling caps the initial chunk") {
+    const auto p = plan_cuda_chunking(16ull << 30, 1ull << 20, 4000,
+                                      /*requested_chunk_rows=*/64);
+    REQUIRE(p.chunk_rows == 64);
+  }
+
+  SECTION("reserve floor dominates the fraction for a small free figure") {
+    // 300 MiB free, 20% = 60 MiB < 256 MiB floor -> floor wins.
+    const auto p = plan_cuda_chunking(300ull << 20, 1ull << 20, 1000);
+    REQUIRE(p.reserve_bytes == (static_cast<std::size_t>(256) << 20));
+    REQUIRE(p.usable_bytes == (300ull << 20) - (256ull << 20));  // 44 MiB
+    REQUIRE(p.feasible);
+    REQUIRE(p.chunk_rows == 44);
+  }
+
+  SECTION("reserve floor exceeds free memory -> underwater, infeasible") {
+    const auto p = plan_cuda_chunking(200ull << 20, 1ull << 20, 1000);
+    REQUIRE(p.usable_bytes == 0);
+    REQUIRE_FALSE(p.feasible);
+  }
+
+  SECTION("not enough for even one row -> infeasible, no negative sizes") {
+    const auto p = plan_cuda_chunking(1ull << 30, 4ull << 30, 100);
+    REQUIRE_FALSE(p.feasible);
+    REQUIRE(p.chunk_rows == 0);
+  }
+
+  SECTION("retry ladder halves down to >= 1") {
+    // Force chunk_rows == 100 via image height, ample memory.
+    const auto p = plan_cuda_chunking(64ull << 30, 1ull << 20, 100);
+    REQUIRE(p.chunk_rows == 100);
+    // 100 -> 50 -> 25 -> 12 -> 6 -> 3 -> 1 : 6 halvings.
+    REQUIRE(p.max_retries == 6);
+    REQUIRE(p.min_chunk_rows == 1);
+  }
+
+  SECTION("degenerate inputs are rejected, not divided-by-zero") {
+    REQUIRE_FALSE(plan_cuda_chunking(1ull << 30, 0, 100).feasible);
+    REQUIRE_FALSE(plan_cuda_chunking(1ull << 30, 1 << 20, 0).feasible);
+  }
+
+  SECTION("device-memory probe drives the plan") {
+    const auto mem = reconstruction::forward_drizzle_cuda_device_memory();
+    if (mem.free_bytes == 0) {
+      // CUDA-free build, or no usable device: the plan must be infeasible so
+      // the caller stays on the CPU reference path.
+      REQUIRE(mem.total_bytes == 0);
+      REQUIRE_FALSE(plan_cuda_chunking(mem.free_bytes, 1 << 20, 1000).feasible);
+    } else {
+      // Real device: free <= total, and a modest per-row cost yields a plan.
+      REQUIRE(mem.free_bytes <= mem.total_bytes);
+      const auto p = plan_cuda_chunking(mem.free_bytes, 1 << 20, 4096);
+      REQUIRE(p.feasible);
+      REQUIRE(p.chunk_rows >= 1);
+    }
+  }
+
+  SECTION("the forward-drizzle CUDA path stays disabled until the kernels land") {
+    // A device may be present, but slice 2 has no kernels yet -- attempting the
+    // path would only cost a CPU restart per run.
+    REQUIRE_FALSE(reconstruction::forward_drizzle_cuda_runtime_available());
+  }
+}
+
+TEST_CASE("plan-19.4 CUDA chunk driver: retry ladder + hard-failure restart",
+          "[drizzle-store]") {
+  using reconstruction::run_cuda_chunked;
+  using reconstruction::CudaAllocFailure;
+  using reconstruction::CudaChunkPlan;
+
+  auto plan = [](int chunk, int min_rows) {
+    CudaChunkPlan p;
+    p.feasible = true;
+    p.chunk_rows = chunk;
+    p.min_chunk_rows = min_rows;
+    return p;
+  };
+
+  SECTION("happy path: contiguous bands that exactly cover the image") {
+    std::vector<std::pair<int, int>> bands;
+    const int n = run_cuda_chunked(plan(64, 1), 200,
+                                   [&](int y0, int rows) { bands.push_back({y0, rows}); });
+    REQUIRE(n == static_cast<int>(bands.size()));
+    REQUIRE(bands.front().first == 0);
+    int covered = 0;
+    for (size_t i = 0; i < bands.size(); ++i) {
+      if (i) REQUIRE(bands[i].first == bands[i - 1].first + bands[i - 1].second);
+      covered += bands[i].second;
+    }
+    REQUIRE(covered == 200);
+  }
+
+  SECTION("OOM twice then succeed: the SAME band retries at halved height") {
+    int calls = 0;
+    std::vector<int> heights;
+    run_cuda_chunked(plan(100, 1), 100, [&](int, int rows) {
+      heights.push_back(rows);
+      if (++calls <= 2) throw CudaAllocFailure("oom");
+    });
+    // 100 -> 50 -> 25, third attempt succeeds; then 25,25,25 for the rest.
+    REQUIRE(heights[0] == 100);
+    REQUIRE(heights[1] == 50);
+    REQUIRE(heights[2] == 25);
+    int covered = 0;
+    for (size_t i = 2; i < heights.size(); ++i) covered += heights[i];
+    REQUIRE(covered == 100);
+  }
+
+  SECTION("OOM forever at the floor -> ForwardDrizzleCudaError (CPU restart)") {
+    REQUIRE_THROWS_AS(
+        run_cuda_chunked(plan(16, 4), 64,
+                         [](int, int) { throw CudaAllocFailure("oom"); }),
+        reconstruction::ForwardDrizzleCudaError);
+  }
+
+  SECTION("a non-OOM throw is a hard failure -> propagates unchanged") {
+    REQUIRE_THROWS_AS(
+        run_cuda_chunked(plan(16, 1), 64,
+                         [](int, int) { throw std::runtime_error("kernel launch failed"); }),
+        std::runtime_error);
+    // ... and specifically NOT swallowed into a ForwardDrizzleCudaError retry.
+    bool caught_generic = false;
+    try {
+      run_cuda_chunked(plan(16, 1), 64,
+                       [](int, int) { throw std::logic_error("bug"); });
+    } catch (const reconstruction::ForwardDrizzleCudaError &) {
+      FAIL("hard error was misclassified as a retryable CUDA fault");
+    } catch (const std::logic_error &) {
+      caught_generic = true;
+    }
+    REQUIRE(caught_generic);
+  }
+
+  SECTION("infeasible plan is rejected up front") {
+    CudaChunkPlan bad;  // feasible == false
+    REQUIRE_THROWS_AS(run_cuda_chunked(bad, 64, [](int, int) {}),
+                      reconstruction::ForwardDrizzleCudaError);
   }
 }

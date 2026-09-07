@@ -504,6 +504,7 @@ set(LIB_SOURCES
 
 if(TILE_COMPILE_WITH_CUDA)
     list(APPEND LIB_SOURCES src/reconstruction/aqmh_reconstruction_cuda.cu)
+    list(APPEND LIB_SOURCES src/reconstruction/forward_drizzle_cuda_device.cu)
 endif()
 
 # Main library

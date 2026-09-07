@@ -213,31 +213,80 @@ double laplacian_abs(const Matrix2Df &im, int x, int y) {
     return std::numeric_limits<double>::quiet_NaN();
   return std::abs(4.0 * c - l - rr - u - d);
 }
+// Morphological closing (dilate then erode) of a 0/1 support mask with a square
+// structuring element of the given radius. Fills off-support dropouts up to
+// 2*radius wide; the true outer edge and larger contiguous holes are preserved.
+// Separable min/max passes; out-of-frame counts as off-support.
+std::vector<uint8_t> close_support_mask(const std::vector<uint8_t> &mask,
+                                        int width, int height, int radius) {
+  const std::size_t n = static_cast<std::size_t>(width) * height;
+  if (radius <= 0 || mask.size() != n) return mask;
+  auto sep = [&](const std::vector<uint8_t> &in, bool dilate) {
+    std::vector<uint8_t> tmp(n), out(n);
+    const uint8_t border = dilate ? 0u : 1u;  // pass identity outside the frame
+    auto pick = [&](uint8_t a, uint8_t b) {
+      return dilate ? (a | b) : (a & b);
+    };
+    for (int y = 0; y < height; ++y)
+      for (int x = 0; x < width; ++x) {
+        uint8_t v = dilate ? 0u : 1u;
+        for (int dx = -radius; dx <= radius; ++dx) {
+          const int xx = x + dx;
+          const uint8_t s = (xx < 0 || xx >= width)
+                                ? border
+                                : in[static_cast<std::size_t>(y) * width + xx];
+          v = pick(v, s);
+        }
+        tmp[static_cast<std::size_t>(y) * width + x] = v;
+      }
+    for (int y = 0; y < height; ++y)
+      for (int x = 0; x < width; ++x) {
+        uint8_t v = dilate ? 0u : 1u;
+        for (int dy = -radius; dy <= radius; ++dy) {
+          const int yy = y + dy;
+          const uint8_t s = (yy < 0 || yy >= height)
+                                ? border
+                                : tmp[static_cast<std::size_t>(yy) * width + x];
+          v = pick(v, s);
+        }
+        out[static_cast<std::size_t>(y) * width + x] = v;
+      }
+    return out;
+  };
+  return sep(sep(mask, /*dilate=*/true), /*dilate=*/false);
+}
 double boundary_seam_score(const Matrix2Df &image, int width, int height,
                            const std::vector<uint8_t> &mask,
                            std::vector<std::size_t> *edge_cache) {
   const double kNotMeasurable = std::numeric_limits<double>::quiet_NaN();
   std::vector<std::size_t> local;
   std::vector<std::size_t> &edge = edge_cache ? *edge_cache : local;
-  auto valid = [&](int x, int y) {
+  auto on = [&](const std::vector<uint8_t> &m, int x, int y) {
     return x >= 0 && y >= 0 && x < width && y < height &&
-           (mask.empty() || mask[static_cast<std::size_t>(y) * width + x] != 0u);
+           (m.empty() || m[static_cast<std::size_t>(y) * width + x] != 0u);
   };
-  // A boundary pixel is on-support with >=1 off-support 4-neighbour.
-  auto is_boundary = [&](int x, int y) {
-    return valid(x, y) && !(valid(x - 1, y) && valid(x + 1, y) &&
-                            valid(x, y - 1) && valid(x, y + 1));
-  };
+  auto valid = [&](int x, int y) { return on(mask, x, y); };
   if (edge.empty()) {
     if (mask.empty() ||
         mask.size() != static_cast<std::size_t>(width) * height)
       return kNotMeasurable;  // no support boundary at all
-    // Interior edge: fully-supported pixel adjacent to a boundary pixel.
+    // Derive the boundary locus from a CLOSED copy of the mask so scattered
+    // single-pixel dropouts do not count as boundary (30.47).
+    const std::vector<uint8_t> closed = close_support_mask(
+        mask, width, height, kMultibandValidationSeamMaskCloseRadius);
+    auto vc = [&](int x, int y) { return on(closed, x, y); };
+    // A boundary pixel (closed mask) is on-support with >=1 off-support 4-nb.
+    auto is_boundary = [&](int x, int y) {
+      return vc(x, y) && !(vc(x - 1, y) && vc(x + 1, y) && vc(x, y - 1) &&
+                           vc(x, y + 1));
+    };
+    // Interior edge: pixel whose ORIGINAL 5-point stencil is on-support and
+    // that is adjacent to a closed-mask boundary pixel.
     for (int y = 2; y < height - 2; ++y)
       for (int x = 2; x < width - 2; ++x) {
         if (!(valid(x, y) && valid(x - 1, y) && valid(x + 1, y) &&
               valid(x, y - 1) && valid(x, y + 1)))
-          continue;  // stencil must be on-support
+          continue;  // stencil must be on-support in the real field
         if (is_boundary(x - 1, y) || is_boundary(x + 1, y) ||
             is_boundary(x, y - 1) || is_boundary(x, y + 1))
           edge.push_back(static_cast<std::size_t>(y) * width + x);
@@ -519,6 +568,7 @@ std::string multiband_validation_config_hash(const MultibandValidationConfig &cf
       {"seam_min_boundary_pixels", kMultibandValidationSeamMinBoundaryPixels},
       {"seam_interior_stride_target",
        kMultibandValidationSeamInteriorStrideTarget},
+      {"seam_mask_close_radius", kMultibandValidationSeamMaskCloseRadius},
       {"fwhm_ratio_max", cfg.fwhm_ratio_max},
       {"p90_fwhm_ratio_max", cfg.p90_fwhm_ratio_max},
       {"tail_ratio_max", cfg.tail_ratio_max},

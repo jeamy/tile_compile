@@ -53,6 +53,15 @@ inline constexpr double kMultibandValidationStarPatchMinFiniteFraction = 0.75;
 // interior sample is decimated to about this many pixels for speed).
 inline constexpr int kMultibandValidationSeamMinBoundaryPixels = 8;
 inline constexpr int kMultibandValidationSeamInteriorStrideTarget = 40000;
+// The interior-edge locus is derived from a morphologically CLOSED copy of the
+// support mask (dilate-then-erode, square SE of this radius) so that scattered
+// single-pixel off-support dropouts --- endemic to real OSC working luminance
+// (30.47: pre-close boundary was ~20% of supported pixels) --- do not create
+// spurious "boundary". Only the true outer footprint edge and contiguous holes
+// wider than 2*radius survive. The Laplacian is still evaluated on the ORIGINAL
+// field with the on-support-stencil requirement (close selects the locus, it
+// does not fill data). 0 disables closing.
+inline constexpr int kMultibandValidationSeamMaskCloseRadius = 1;
 
 struct MultibandValidationConfig {
   // 15.3.4 promotion ratios.

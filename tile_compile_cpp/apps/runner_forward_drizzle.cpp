@@ -9,15 +9,26 @@
 #include "tile_compile/registration/sampling_geometry.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/io/fits_io.hpp"
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <iostream>
 #include <optional>
 
+#include <sys/resource.h>
+
 namespace tile_compile::runner {
 namespace {
 using core::json;
 constexpr const char *scope = "forward_drizzle_m1_m3";
+
+// Peak resident set size of this process, in KiB. Linux ru_maxrss is already
+// KiB; if the call fails we report 0 rather than a misleading number.
+long long read_maxrss_kb() {
+  struct rusage ru {};
+  if (getrusage(RUSAGE_SELF, &ru) != 0) return 0;
+  return static_cast<long long>(ru.ru_maxrss);
+}
 const std::vector<std::string> geometry_files = {
     "registration_sampling.json", "sampling_geometry.json",
     "sampling_geometry_analysis_common_mask.fits",
@@ -64,8 +75,16 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     RunnerFrameCache *fresh_cache,core::EventEmitter &emitter,std::ostream &log,
     const std::string &resume_from) {
   std::optional<Phase> active;
-  auto begin=[&](Phase phase) { active=phase; emitter.phase_start(run_id,phase,phase_to_string(phase),log); };
+  const long long rss_baseline_kb=read_maxrss_kb();
+  json phase_seconds=json::object();
+  std::chrono::steady_clock::time_point phase_t0;
+  auto begin=[&](Phase phase) {
+    active=phase; phase_t0=std::chrono::steady_clock::now();
+    emitter.phase_start(run_id,phase,phase_to_string(phase),log);
+  };
   auto end=[&](const json &extra=json::object()) {
+    phase_seconds[phase_to_string(*active)]=
+        std::chrono::duration<double>(std::chrono::steady_clock::now()-phase_t0).count();
     emitter.phase_end(run_id,*active,"ok",extra,log); active.reset();
   };
   try {
@@ -234,17 +253,20 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     bool final_image_available=false;
     if (want_multiband) {
       begin(Phase::MULTIBAND);
-      const auto final_image=artifacts/"reconstruction_multiband.fits";
+      // Internal artifact: the multiband X_out in one file (kept for debugging
+      // and as the fuse commit target). The canonical deliverables are the
+      // plan-16.1 per-channel files under outputs/, written after selection.
+      const auto mb_internal=artifacts/"reconstruction_multiband.fits";
       reconstruction::MultibandCandidateLuma cand;
+      reconstruction::MultibandCandidateChannels chans;
       const auto pixels=reconstruction::fuse_multiband_store_to_image(
-          profiles_root,mb_identity,final_image,reconstruction_cfg.multiband,
-          drizzle.chunk_rows,drizzle.memory_budget_mb,&cand);
-      checkpoint["final_image_sha256"]=core::sha256_file(final_image);
+          profiles_root,mb_identity,mb_internal,reconstruction_cfg.multiband,
+          drizzle.chunk_rows,drizzle.memory_budget_mb,&cand,&chans);
+      checkpoint["final_image_sha256"]=core::sha256_file(mb_internal);
 
       // Plan 15: three-way candidate selection on the fixed working luminance
       // (drizzle_uniform / drizzle_raw / drizzle_multiband), stars detected
-      // ONCE on the uniform control. This RECORDS the decision (16.3); it does
-      // not (yet) change which file is delivered downstream.
+      // ONCE on the uniform control (16.3).
       auto to_mat=[](const std::vector<float> &v,int w,int h){
         Matrix2Df m(h,w);
         for (int y=0;y<h;++y) for (int x=0;x<w;++x)
@@ -265,6 +287,52 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           sel.selected==reconstruction::SelectedCandidate::kDrizzleMultiband ? "drizzle_multiband"
           : sel.selected==reconstruction::SelectedCandidate::kDrizzleRaw ? "drizzle_raw"
           : "drizzle_uniform";
+
+      // ---- Plan 16.1 delivery: per-channel outputs/ in output_scale geometry,
+      // in the normalised linear working space (same as
+      // reconstruction_multiband.fits). forward_drizzle_raw_* is the IMMUTABLE
+      // Raw baseline (always written, regardless of which candidate won);
+      // reconstructed_* carries the selected candidate; `full` adds the
+      // uniform/multiband control FITS. These are NEW names with no downstream
+      // consumer. The STACKING pass-through outputs/stacked[_rgb].fits are the
+      // legacy canonical downstream entry points and MUST carry the 17.4
+      // normalisation undo (scale_r/g/b, pedestal) -- that is M10 cutover work,
+      // so they are deliberately NOT written here yet (writing wrong-space data
+      // under a name astrometry/BGE/PCC already read would be a trap).
+      cand={};  // free the luma buffers; selection is done
+      const auto outdir=dir/"outputs";
+      { std::error_code ec; fs::create_directories(outdir,ec); }
+      const std::vector<std::string> ch=
+          chans.mono ? std::vector<std::string>{"L"}
+                     : std::vector<std::string>{"R","G","B"};
+      json out_list=json::array();
+      auto record=[&](const fs::path &p){
+        out_list.push_back({{"path","outputs/"+p.filename().string()},
+                            {"size",static_cast<long long>(fs::file_size(p))},
+                            {"sha256",core::sha256_file(p)}});
+      };
+      auto emit_set=[&](const std::string &prefix,
+                        const std::array<std::vector<float>,3> &planes){
+        for (std::size_t c=0;c<ch.size();++c) {
+          const auto p=outdir/(prefix+"_"+ch[c]+".fit");
+          io::FitsHeader h;
+          io::write_fits_float_rows(p,planes[c],chans.height,chans.width,h);
+          record(p);
+        }
+      };
+      emit_set("forward_drizzle_raw",chans.raw);
+      const auto &selected_planes=
+          sel.selected==reconstruction::SelectedCandidate::kDrizzleUniform ? chans.uniform
+          : sel.selected==reconstruction::SelectedCandidate::kDrizzleRaw ? chans.raw
+          : chans.multiband;
+      emit_set("reconstructed",selected_planes);
+      if (reconstruction_cfg.diagnostics.level=="full") {
+        emit_set("forward_drizzle_uniform",chans.uniform);
+        emit_set("forward_drizzle_multiband",chans.multiband);
+      }
+      checkpoint["outputs"]=json::object();
+      for (const auto &o:out_list)
+        checkpoint["outputs"][o.at("path").get<std::string>()]=o.at("sha256");
 
       auto metric_json=[](const reconstruction::ValidationMetric &m){
         // A non-applicable metric serialises value:null uniformly, so a
@@ -287,6 +355,18 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
                     {"seam_score",metric_json(c.seam_score)},
                     {"support_ok",c.support_ok},{"numerics_ok",c.numerics_ok}};
       };
+      // Plan 16.4 mandatory diagnostics --- only fields actually measured on
+      // this run are emitted; per-kernel timing / retries belong to M7 slice 2
+      // and stay absent rather than as a misleading {}.
+      const long long rss_peak_kb=read_maxrss_kb();
+      json local_warp={
+        {"local_model_samples_total",result.diagnostics.local_model_samples_total},
+        {"local_model_samples_discarded",
+         result.diagnostics.local_model_samples_discarded}};
+      { json fx=json::array();
+        for (const auto &fr:result.diagnostics.frames_excluded_subdivision_error_rate)
+          fx.push_back({{"frame_id",fr.first},{"inversion_error_rate",fr.second}});
+        local_warp["frames_excluded_subdivision_error_rate"]=fx; }
       json fwd={
         {"schema_version",1},
         {"pipeline_method","cfa_forward_drizzle_multiband"},
@@ -296,6 +376,40 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         {"multiband_reconstruction_hash",mb_identity.reconstruction_hash},
         {"multiband_levels",mb_identity.multiband_levels},
         {"luma_definition",reconstruction::kWorkingLumaDefinition},
+        {"geometry",{
+          {"source_width",sampling.source_width},
+          {"source_height",sampling.source_height},
+          {"canvas_width_native",sampling.canvas_width_native},
+          {"canvas_height_native",sampling.canvas_height_native},
+          {"reconstruction_width",mb_identity.width},
+          {"reconstruction_height",mb_identity.height},
+          {"internal_scale",drizzle.internal_scale},
+          {"output_scale",drizzle.output_scale},
+          {"output_scale_applied",applied_2x2},
+          {"kernel",drizzle.kernel},
+          {"pixfrac",drizzle.pixfrac}}},
+        {"clipping",{
+          {"pixel_channel_evaluations",result.clipping.pixel_channel_evaluations},
+          {"pixel_channel_rejected",result.clipping.pixel_channel_rejected},
+          {"candidate_contributions_clipped",
+           result.clipping.candidate_contributions_clipped}}},
+        {"local_warp",local_warp},
+        {"pixels_supported",pixels},
+        {"acceleration",{
+          {"forward_drizzle_backend",fd_backend_used},
+          {"cuda_fallback_reason",
+           fd_cuda_fallback_reason.empty() ? json(nullptr)
+                                           : json(fd_cuda_fallback_reason)},
+          {"workers_used",result.diagnostics.workers_used},
+          {"resolved_chunk_rows",result.diagnostics.resolved_chunk_rows}}},
+        {"resources",{
+          {"estimated_peak_bytes",result.diagnostics.estimated_peak_bytes},
+          {"rss_baseline_kib",rss_baseline_kb},
+          {"rss_peak_kib",rss_peak_kb},
+          {"rss_growth_kib",rss_peak_kb-rss_baseline_kb},
+          {"memory_budget_mb",
+           static_cast<long long>(drizzle.memory_budget_mb)}}},
+        {"timing_seconds",phase_seconds},
         {"validation",{
           {"version",reconstruction::kMultibandValidationVersion},
           {"validation_config_hash",
@@ -311,8 +425,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         {"fallback_reason",
          sel.selected==reconstruction::SelectedCandidate::kDrizzleMultiband
              ? json(nullptr) : json(sel.reason)},
-        {"outputs",json::array({json{{"path",final_image.filename().string()},
-                                     {"sha256",checkpoint["final_image_sha256"]}}})},
+        {"outputs",out_list},
         {"commit_complete",true}};
       core::write_text_atomic(artifacts/"forward_drizzle.json",fwd.dump(2));
       // No checkpoint hash guard for forward_drizzle.json: MULTIBAND fully
@@ -322,7 +435,8 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       checkpoint["status"]="final_image_ready";
       core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
       final_image_available=true;
-      end({{"final_image",final_image.filename().string()},
+      end({{"final_image",std::string("outputs/reconstructed_")+ch.front()+".fit"},
+           {"outputs_count",static_cast<int>(out_list.size())},
            {"pixels_supported",pixels},
            {"selected_candidate",sel_name},
            {"selection_reason",sel.reason},

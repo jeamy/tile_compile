@@ -153,6 +153,50 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
     for (const auto &event:events(log.str()))
       if (event["type"]=="phase_end" && event["phase_name"]=="MULTIBAND") phase_end=event;
     REQUIRE(phase_end.at("selected_candidate")==sel);
+
+    // Plan 16.1 delivery (MONO fixture): the immutable Raw baseline + the
+    // selected candidate land under outputs/. The canonical stacked[_rgb].fits
+    // pass-through is deferred to M10 (needs the 17.4 normalisation undo), so
+    // it must NOT be written here.
+    REQUIRE(fs::exists(f.dir/"outputs/forward_drizzle_raw_L.fit"));
+    REQUIRE(fs::exists(f.dir/"outputs/reconstructed_L.fit"));
+    REQUIRE_FALSE(fs::exists(f.dir/"outputs/stacked.fits"));
+    REQUIRE_FALSE(fs::exists(f.dir/"outputs/stacked_rgb.fits"));
+    // summary diagnostics => no uniform/multiband control FITS.
+    REQUIRE_FALSE(fs::exists(f.dir/"outputs/forward_drizzle_uniform_L.fit"));
+    REQUIRE_FALSE(fs::exists(f.dir/"outputs/forward_drizzle_multiband_L.fit"));
+    // forward_drizzle.json lists every delivered file with size + sha256.
+    const auto outs=j.at("outputs");
+    REQUIRE(outs.is_array());
+    REQUIRE(outs.size()==2);
+    for (const auto &o:outs) {
+      REQUIRE(o.at("path").get<std::string>().rfind("outputs/",0)==0);
+      REQUIRE(o.at("size").get<long long>()>0);
+      REQUIRE(o.at("sha256").get<std::string>().size()==64);
+      REQUIRE(core::sha256_file(f.dir/o.at("path").get<std::string>())==
+              o.at("sha256").get<std::string>());
+    }
+    // The checkpoint keys resume on the same delivered set.
+    std::ifstream cf(f.dir/"artifacts/forward_drizzle_checkpoint.json");
+    const auto ck=core::json::parse(cf);
+    REQUIRE(ck.at("outputs").size()==2);
+    REQUIRE(ck.at("outputs").contains("outputs/reconstructed_L.fit"));
+
+    // Plan 16.4 mandatory diagnostics that this run actually measures.
+    REQUIRE(j.at("geometry").at("internal_scale").get<int>()>=1);
+    REQUIRE(j.at("geometry").at("kernel").is_string());
+    REQUIRE(j.at("geometry").at("reconstruction_width")==32);
+    REQUIRE(j.at("clipping").contains("pixel_channel_evaluations"));
+    REQUIRE(j.at("acceleration").at("forward_drizzle_backend")=="cpu");
+    // null when no CUDA attempt was made; a string when a CUDA build resolved
+    // and fell back (slice 1 has no kernels) -- both are valid.
+    REQUIRE((j.at("acceleration").at("cuda_fallback_reason").is_null()||
+             j.at("acceleration").at("cuda_fallback_reason").is_string()));
+    REQUIRE(j.at("resources").at("rss_peak_kib").get<long long>()>0);
+    REQUIRE(j.at("resources").at("memory_budget_mb").get<long long>()>0);
+    REQUIRE(j.at("timing_seconds").contains("FORWARD_DRIZZLE"));
+    REQUIRE(j.at("timing_seconds").at("FORWARD_DRIZZLE").get<double>()>=0.0);
+    REQUIRE(j.at("pixels_supported").get<long long>()>0);
   }
   REQUIRE_FALSE(fs::exists(f.dir/"cache/prewarped_frames"));
   REQUIRE_THROWS(f.cache->store_normalized(0,Matrix2Df::Ones(32,32)));

@@ -3,6 +3,7 @@
 // section 11).
 
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -1286,4 +1287,141 @@ TEST_CASE("uniform+raw: clipped OSC results are invariant across stripe boundari
   compare(a.raw.R,b.raw.R); compare(a.raw.G,b.raw.G); compare(a.raw.B,b.raw.B);
   REQUIRE(a.clipping.pixel_channel_rejected == b.clipping.pixel_channel_rejected);
   REQUIRE(a.clipping.candidate_contributions_clipped == b.clipping.candidate_contributions_clipped);
+}
+
+// --- M7 slice 2: CPU <-> CUDA parity for the exact droplet/cell overlap area.
+// The device kernel is a 1:1 port of polygon_rectangle_intersection_area; this
+// is the first entry in the plan-19.5 parity matrix. Skips cleanly when no
+// CUDA device is available (CUDA-free build, or CI without a GPU).
+TEST_CASE("plan-19.5 parity: CUDA polygon_rect_area == CPU reference",
+          "[forward-drizzle][cuda-parity]") {
+  if (reconstruction::forward_drizzle_cuda_device_memory().free_bytes == 0) {
+    SUCCEED("no CUDA device -- parity check skipped");
+    return;
+  }
+
+  // A spread of cases: full cover, partial, straddle, disjoint, degenerate,
+  // rotated parallelograms (affine droplets), sub-pixel shifts.
+  std::vector<std::array<double, 8>> quads;
+  std::vector<std::array<double, 4>> rects;
+  auto add = [&](std::array<double, 8> q, std::array<double, 4> r) {
+    quads.push_back(q);
+    rects.push_back(r);
+  };
+  add({0, 0, 1, 0, 1, 1, 0, 1}, {0, 0, 1, 1});            // exact cell
+  add({0.3, 0.3, 1.3, 0.3, 1.3, 1.3, 0.3, 1.3}, {0, 0, 1, 1});  // shifted
+  add({2, 0, 3, 0, 3, 1, 2, 1}, {0, 0, 1, 1});            // disjoint -> 0
+  add({-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5}, {0, 0, 1, 1});  // corner
+  add({0.1, 0.0, 1.1, 0.2, 0.9, 1.2, -0.1, 1.0}, {0, 0, 1, 1});  // parallelogram
+  add({0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5}, {0, 0, 1, 1});  // degenerate pt
+  // A deterministic pseudo-random sweep of small affine droplets.
+  uint64_t s = 0x2545F4914F6CDD1Dull;
+  auto nextf = [&]() {
+    s ^= s << 13; s ^= s >> 7; s ^= s << 17;
+    return static_cast<double>(s >> 11) / static_cast<double>(1ull << 53);
+  };
+  for (int i = 0; i < 4000; ++i) {
+    const double cx = nextf() * 4.0, cy = nextf() * 4.0;
+    const double a = nextf() * 6.28318, sc = 0.3 + nextf() * 1.4;
+    const double ca = std::cos(a) * sc, sa = std::sin(a) * sc;
+    // unit square [-0.5,0.5]^2 rotated+scaled about (cx,cy)
+    const double lx[4] = {-0.5, 0.5, 0.5, -0.5}, ly[4] = {-0.5, -0.5, 0.5, 0.5};
+    std::array<double, 8> q{};
+    for (int k = 0; k < 4; ++k) {
+      q[2 * k] = cx + ca * lx[k] - sa * ly[k];
+      q[2 * k + 1] = cy + sa * lx[k] + ca * ly[k];
+    }
+    const int rx = static_cast<int>(nextf() * 4), ry = static_cast<int>(nextf() * 4);
+    add(q, {double(rx), double(ry), double(rx + 1), double(ry + 1)});
+  }
+
+  const int n = static_cast<int>(quads.size());
+  std::vector<double> flat_q(n * 8), flat_r(n * 4), gpu(n, -1.0);
+  for (int i = 0; i < n; ++i) {
+    std::copy(quads[i].begin(), quads[i].end(), flat_q.begin() + i * 8);
+    std::copy(rects[i].begin(), rects[i].end(), flat_r.begin() + i * 4);
+  }
+  REQUIRE(reconstruction::forward_drizzle_cuda_polygon_rect_area_batch(
+      flat_q.data(), flat_r.data(), n, gpu.data()));
+
+  // Plan 19.3: CPU/CUDA may differ only within an explicitly tested tolerance.
+  // The device and host run the *same* double-precision algorithm, so the only
+  // source of divergence is FMA contraction / reassociation by the two
+  // compilers -- a tight relative tolerance is the contract; the bit-exact
+  // fraction is tracked as a health signal (empirically ~89%).
+  int bit_exact = 0;
+  double worst_rel = 0.0;
+  for (int i = 0; i < n; ++i) {
+    const double px[4] = {quads[i][0], quads[i][2], quads[i][4], quads[i][6]};
+    const double py[4] = {quads[i][1], quads[i][3], quads[i][5], quads[i][7]};
+    const double cpu = polygon_rectangle_intersection_area(
+        px, py, rects[i][0], rects[i][1], rects[i][2], rects[i][3]);
+    if (cpu == gpu[i]) ++bit_exact;
+    const double denom = std::max(1e-9, std::abs(cpu));
+    worst_rel = std::max(worst_rel, std::abs(cpu - gpu[i]) / denom);
+    INFO("i=" << i << " cpu=" << cpu << " gpu=" << gpu[i]);
+    // 5e-10 relative: FMA/reassoc only. Negligible vs the float32 profile
+    // planes these areas ultimately feed (~1e-7 precision).
+    REQUIRE(std::abs(cpu - gpu[i]) <= 5e-10 * std::max(1.0, std::abs(cpu)));
+  }
+  INFO("bit-exact " << bit_exact << " / " << n << ", worst rel " << worst_rel);
+  REQUIRE(worst_rel < 1e-9);
+  REQUIRE(bit_exact >= n * 4 / 5);  // the large majority stay bit-identical
+}
+
+// Plan-19.5 parity entry 2: the affine droplet corner map (build_affine_leaf +
+// to_internal). Pure per-sample arithmetic -> expected bit-exact CPU<->CUDA.
+TEST_CASE("plan-19.5 parity: CUDA affine leaf corners == CPU reference",
+          "[forward-drizzle][cuda-parity]") {
+  if (reconstruction::forward_drizzle_cuda_device_memory().free_bytes == 0) {
+    SUCCEED("no CUDA device -- parity check skipped");
+    return;
+  }
+  // A non-trivial affine: rotation + anisotropic scale + shear + translation.
+  const double aff[6] = {1.017, -0.033, 12.5, 0.041, 0.994, -7.25};
+  const int scale = 2;
+  const double half = 0.4;  // pixfrac/2
+
+  std::vector<double> samples;
+  uint64_t s = 0x9E3779B97F4A7C15ull;
+  auto nextf = [&]() {
+    s ^= s << 13; s ^= s >> 7; s ^= s << 17;
+    return static_cast<double>(s >> 11) / static_cast<double>(1ull << 53);
+  };
+  for (int i = 0; i < 5000; ++i) {
+    samples.push_back(nextf() * 4000.0);   // sx over a realistic sensor extent
+    samples.push_back(nextf() * 3000.0);   // sy
+  }
+  const int n = static_cast<int>(samples.size() / 2);
+  std::vector<double> gpu(n * 8, 0.0);
+  REQUIRE(reconstruction::forward_drizzle_cuda_affine_leaf_corners_batch(
+      aff, scale, half, samples.data(), n, gpu.data()));
+
+  int bit_exact = 0;
+  double worst_rel = 0.0;
+  for (int i = 0; i < n; ++i) {
+    const double sx = samples[2 * i], sy = samples[2 * i + 1];
+    const double csx[4] = {sx - half, sx + half, sx + half, sx - half};
+    const double csy[4] = {sy - half, sy - half, sy + half, sy + half};
+    for (int k = 0; k < 4; ++k) {
+      const double qx = aff[0] * csx[k] + aff[1] * csy[k] + aff[2];
+      const double qy = aff[3] * csx[k] + aff[4] * csy[k] + aff[5];
+      const double ex = qx * scale, ey = qy * scale;
+      const double gx = gpu[i * 8 + 2 * k], gy = gpu[i * 8 + 2 * k + 1];
+      if (ex == gx && ey == gy) ++bit_exact;
+      worst_rel = std::max({worst_rel,
+                            std::abs(ex - gx) / std::max(1.0, std::abs(ex)),
+                            std::abs(ey - gy) / std::max(1.0, std::abs(ey))});
+      INFO("i=" << i << " k=" << k << " cpu=(" << ex << "," << ey
+                << ") gpu=(" << gx << "," << gy << ")");
+      // Plan 19.3: FMA contraction of the affine dot product is the only
+      // divergence; a 1e-9 relative gate is the tested tolerance (the leaf
+      // corners feed polygon areas that end up in float32 planes).
+      REQUIRE(std::abs(ex - gx) <= 1e-9 * std::max(1.0, std::abs(ex)));
+      REQUIRE(std::abs(ey - gy) <= 1e-9 * std::max(1.0, std::abs(ey)));
+    }
+  }
+  INFO("bit-exact " << bit_exact << " / " << (n * 4) << ", worst rel "
+                    << worst_rel);
+  REQUIRE(worst_rel < 1e-9);
 }

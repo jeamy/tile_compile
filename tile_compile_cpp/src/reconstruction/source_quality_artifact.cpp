@@ -342,7 +342,8 @@ long long fuse_multiband_store_to_image(
     const fs::path &final_image_path,
     const config::ReconstructionMultibandConfig &multiband_cfg,
     int chunk_rows,size_t memory_budget_mb,
-    MultibandCandidateLuma *candidates_out) {
+    MultibandCandidateLuma *candidates_out,
+    MultibandCandidateChannels *channels_out) {
   if (identity.multiband_levels<1)
     throw std::invalid_argument("FUSE_STORE_NOT_A_MULTIBAND_IDENTITY");
   // The caller must pass the config the store was built with. Guard the one
@@ -389,6 +390,20 @@ long long fuse_multiband_store_to_image(
         static_cast<std::size_t>(fcfg.levels),{});
   }
 
+  if (channels_out) {
+    *channels_out={};
+    channels_out->width=W;
+    channels_out->height=H;
+    channels_out->nch=nch;
+    channels_out->mono=mono;
+    const float qn=std::numeric_limits<float>::quiet_NaN();
+    for (int c=0;c<nch;++c) {
+      channels_out->uniform[static_cast<std::size_t>(c)].assign(N,qn);
+      channels_out->raw[static_cast<std::size_t>(c)].assign(N,qn);
+      channels_out->multiband[static_cast<std::size_t>(c)].assign(N,qn);
+    }
+  }
+
   for (int y0=0;y0<H;y0+=chunk) {
     const int y1=std::min(H,y0+chunk);
     const int ys=std::max(0,y0-halo), ye=std::min(H,y1+halo);
@@ -416,6 +431,24 @@ long long fuse_multiband_store_to_image(
       std::copy(sv[c]->begin()+src_off,sv[c]->begin()+src_off+core,
                 out[c].begin()+dst_off);
       for (std::size_t k=0;k<core;++k) if ((*ss[c])[src_off+k]) ++pixels_supported;
+    }
+
+    if (channels_out) {
+      const std::vector<float> *uv3[3], *rv3[3];
+      if (mono) { uv3[0]=&U.L.value; rv3[0]=&R.L.value; }
+      else { uv3[0]=&U.R.value; uv3[1]=&U.G.value; uv3[2]=&U.B.value;
+             rv3[0]=&R.R.value; rv3[1]=&R.G.value; rv3[2]=&R.B.value; }
+      for (int c=0;c<nch;++c) {
+        auto &uc=channels_out->uniform[static_cast<std::size_t>(c)];
+        auto &rc=channels_out->raw[static_cast<std::size_t>(c)];
+        auto &mc=channels_out->multiband[static_cast<std::size_t>(c)];
+        std::copy(uv3[c]->begin()+src_off,uv3[c]->begin()+src_off+core,
+                  uc.begin()+dst_off);
+        std::copy(rv3[c]->begin()+src_off,rv3[c]->begin()+src_off+core,
+                  rc.begin()+dst_off);
+        std::copy(sv[c]->begin()+src_off,sv[c]->begin()+src_off+core,
+                  mc.begin()+dst_off);
+      }
     }
 
     if (candidates_out) {
