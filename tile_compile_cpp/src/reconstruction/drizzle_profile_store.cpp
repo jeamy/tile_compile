@@ -3,6 +3,7 @@
 #include "tile_compile/core/atomic_output.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/reconstruction/atrous_decomposition.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_contrib_list.hpp"
 #include "tile_compile/reconstruction/output_scale.hpp"
 #include "tile_compile/reconstruction/profile_store_manifest.hpp"
 
@@ -450,15 +451,30 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
   const auto identity = make_drizzle_store_identity(plan, cfg, subdivision,
                                                    &clipping, g_eff,
                                                    predecessors, multiband);
-  // Plan 19: the CUDA droplet/clipping/profile kernels are a later slice. When
-  // the CUDA path is requested we either fail immediately, or --- for the
-  // fault-injection restart test --- after `fault_after` committed stripes.
+  // Plan 19.4 / 19.6.1: the CUDA path drives the internal canvas in
+  // device-sized bands, each one a deterministic per-frame contribution-list
+  // pass (accumulate_pair_by_frame_cuda). It handles AFFINE frame sets only,
+  // outside mode 2/1, with a usable device. A local-warp frame (transcendental
+  // Gauss basis, §19.6.1), mode 2/1, or no device makes the whole store fall
+  // back to the CPU reference path; the reason lands in `cuda_fallback_reason`.
+  // The `fault_after >= 0` branch is the slice-1 restart-contract test: it
+  // still runs the CPU streaming path with a sink that throws after N stripes.
   const int fault_after =
       cuda.attempt ? forward_drizzle_cuda_fault_after_chunks() : -1;
-  if (cuda.attempt && fault_after < 0)
-    throw ForwardDrizzleCudaError(
-        "forward_drizzle CUDA path not implemented (M7 slice 1: "
-        "transactional-restart contract only)");
+  const bool mode_2_1 = cfg.internal_scale == 2 && cfg.output_scale == 1;
+  const bool cuda_stripe_path = cuda.attempt && fault_after < 0;
+  CudaDeviceMemory devmem;
+  if (cuda_stripe_path) {
+    if (mode_2_1)
+      throw ForwardDrizzleCudaError(
+          "forward_drizzle CUDA: mode 2/1 is CPU-only (no device 2x2 average)");
+    // Local-warp frames are NOT rejected here any more: they take the plan
+    // 19.6.2 hybrid path (CPU builds the leaf geometry, GPU rasterizes) inside
+    // accumulate_pair_by_frame_cuda. Only mode 2/1 and "no device" still decline.
+    devmem = forward_drizzle_cuda_device_memory();
+    if (devmem.free_bytes == 0)
+      throw ForwardDrizzleCudaError("forward_drizzle CUDA: no usable device");
+  }
   StoreWriter writer(root, identity);
 
   MultibandProfileParams mb;
@@ -480,7 +496,97 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     ++committed_stripes;
   };
   ForwardDrizzlePairDiagnostics summary;
-  if (cfg.internal_scale == 2 && cfg.output_scale == 1) {
+  if (cuda_stripe_path) {
+    // Device-sized bands over the internal canvas; each band is one
+    // accumulate_pair_by_frame_cuda pass feeding the SAME multiband stripe
+    // sink. Bit-identical to the CPU streaming build (verified store-level by
+    // the [drizzle-store][cuda-parity] test) --- §19.6's chunk-height
+    // invariance covers the differing band boundaries.
+    const auto dims = plan_drizzle_memory(plan, cfg, 1);
+    const int channels = plan.color_mode == ColorMode::MONO ? 1 : 3;
+    const std::size_t frame_count = plan.frames.size();
+    // Working-set estimate per internal output row, used ONLY to pick the
+    // initial band height. It is deliberately the SUM of the host and device
+    // terms (not the max): the host flat ClipCandidate buffer
+    // (channels * W * frames), the device per-frame contribution vector
+    // (~ source_width * a few cells), the 8 double stripe accumulators per
+    // channel. At real geometry the host term dominates, so the resolved band
+    // is smaller than raw VRAM would allow --- conservative on purpose.
+    const std::size_t cand_row = static_cast<std::size_t>(channels) *
+                                 dims.width * frame_count * sizeof(ClipCandidate);
+    const std::size_t rec_row = static_cast<std::size_t>(plan.source_width) *
+                                16 * sizeof(CudaDrizzleContribRecord);
+    const std::size_t acc_row = static_cast<std::size_t>(channels) * dims.width *
+                                8 * sizeof(double);
+    const std::size_t bytes_per_row = cand_row + rec_row + acc_row;
+    const auto chunk_plan = plan_cuda_chunking(devmem.free_bytes, bytes_per_row,
+                                               dims.height, std::max(cfg.chunk_rows, 0));
+    if (!chunk_plan.feasible)
+      throw ForwardDrizzleCudaError(
+          "forward_drizzle CUDA: device memory below one internal row");
+    // The per-band host ClipCandidate buffer is bounded by an ABSOLUTE ceiling
+    // (the explicit drizzle budget, else 2 GiB) --- independent of the band
+    // height, so a band too tall for it genuinely throws
+    // DRIZZLE_CONTRIB_LIST_BUDGET and run_cuda_chunked's halving ladder makes
+    // real progress (plan 19.4). A budget derived from `bytes_per_row * rows`
+    // could never be exceeded by the buffer it bounds.
+    const std::size_t host_budget =
+        cfg.memory_budget_mb
+            ? static_cast<std::size_t>(cfg.memory_budget_mb) << 20
+            : (static_cast<std::size_t>(2) << 30);
+    int hybrid_local_frames = 0;
+    for (const auto &f : plan.frames)
+      if (f.has_smooth_local_model) ++hybrid_local_frames;
+    result.cuda_timing.used = true;
+    result.cuda_timing.hybrid_local_frames = hybrid_local_frames;
+    result.cuda_timing.resolved_chunk_rows = chunk_plan.chunk_rows;
+    result.cuda_timing.min_chunk_rows = chunk_plan.min_chunk_rows;
+    result.cuda_timing.bytes_per_row = bytes_per_row;
+    result.cuda_timing.device_free_bytes = devmem.free_bytes;
+    using store_clock = std::chrono::steady_clock;
+    const auto t_all0 = store_clock::now();
+    ForwardDrizzleClippingDiagnostics clip_total;
+    ForwardDrizzleDiagnostics last_diag;
+    const int bands = run_cuda_chunked(
+        chunk_plan, dims.height, [&](int y0, int rows) {
+          ForwardDrizzleUniformAndRawResult stripe;
+          const auto t0 = store_clock::now();
+          try {
+            stripe = accumulate_pair_by_frame_cuda(plan, source_of, cfg, clipping,
+                                                   y0, rows, subdivision, g_eff,
+                                                   quality_of, mb, host_budget);
+          } catch (const std::runtime_error &e) {
+            // A band too tall for the host ClipCandidate ceiling -> ask
+            // run_cuda_chunked for a shorter band (plan 19.4 halving ladder).
+            const std::string what = e.what();
+            if (what.find("DRIZZLE_CONTRIB_LIST_BUDGET") != std::string::npos)
+              throw CudaAllocFailure(what);
+            throw;
+          }
+          result.cuda_timing.stripe_seconds +=
+              std::chrono::duration<double>(store_clock::now() - t0).count();
+          sink(y0, stripe);
+          clip_total.pixel_channel_evaluations +=
+              stripe.clipping.pixel_channel_evaluations;
+          clip_total.pixel_channel_rejected +=
+              stripe.clipping.pixel_channel_rejected;
+          clip_total.candidate_contributions_clipped +=
+              stripe.clipping.candidate_contributions_clipped;
+          last_diag = stripe.diagnostics;
+        });
+    result.cuda_timing.bands = bands;
+    result.cuda_timing.total_seconds =
+        std::chrono::duration<double>(store_clock::now() - t_all0).count();
+    summary.diagnostics = last_diag;
+    // Keep the FORWARD_DRIZZLE diagnostics the runner emits populated on the
+    // CUDA path (they otherwise come from the streaming planner, which did not
+    // run here).
+    summary.diagnostics.resolved_chunk_rows = chunk_plan.chunk_rows;
+    summary.diagnostics.estimated_peak_bytes =
+        bytes_per_row *
+        static_cast<std::size_t>(std::max(chunk_plan.chunk_rows, 1));
+    summary.clipping = clip_total;
+  } else if (mode_2_1) {
     // Plan 12.1 mode 2/1: stripes arrive already area-averaged to output (1x)
     // resolution --- fine/medium via the same 2x2 mean, the channel-min
     // confidence maps via 2x2 min + AND support (plan 14.4).

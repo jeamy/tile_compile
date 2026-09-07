@@ -20,6 +20,7 @@
 // into a clean CPU run.
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <stdexcept>
 
@@ -133,6 +134,56 @@ bool forward_drizzle_cuda_affine_leaf_corners_batch(const double affine6[6],
                                                     double half,
                                                     const double *sample_xy,
                                                     int n, double *out_corners);
+
+// --- Plan 19.2/19.6 stage 3: the affine droplet rasterizer on the device ---
+
+// One positive-area forward contribution for a single stripe, as produced by
+// the device rasterizer. `target_y` is stripe-local. Mirrors the CPU
+// DrizzleContrib key (minus `frame_order`, which the caller supplies per batch,
+// and `leaf_order`, which is always 0 on the affine path).
+struct CudaDrizzleContribRecord {
+  std::uint32_t channel = 0;
+  std::uint32_t target_y = 0;
+  std::uint32_t target_x = 0;
+  std::uint32_t source_y = 0;
+  std::uint32_t source_x = 0;
+  double area = 0.0;   // exact polygon/rectangle overlap, > 0
+  double value = 0.0;  // source(source_y, source_x)
+};
+
+// Rasterize ONE affine frame's stripe-band contributions on the device. The
+// square [x-half, x+half]^2 (x = sx+0.5) is mapped through `affine6`
+// (source->canvas, row-major), scaled by `internal_scale`, and overlapped with
+// each internal-canvas cell in the stripe --- a 1:1 device port of
+// build_affine_leaf + the rasterize_drizzle_stripe bbox/area loop, compiled
+// --fmad=false so every area is bit-identical to the CPU reference.
+//
+//   half            : pixfrac / 2
+//   y_begin, rows   : the internal-canvas stripe [y_begin, y_begin+rows)
+//   canvas_w_internal : W = canvas_width_native * internal_scale
+//   band_sy0/1      : the source-row range to scan (caller derives it from the
+//                     inverse affine exactly like the CPU path; [0, source_h]
+//                     is always safe, just slower). Clamped to [0, source_h].
+//   source_values   : host pointer to the BAND-LOCAL source buffer ---
+//                     (band_sy1 - band_sy0) * source_w row-major floats, row 0
+//                     == source row band_sy0. The whole image is never copied.
+//   mono            : true => channel is always 0; false => CFA classification
+//   max_cells_per_pixel : per-source-pixel record capacity (a leaf spanning
+//                     more cells than this makes the call fail -> CPU fallback)
+//
+// `records_out` must hold band_rows * source_w * max_cells_per_pixel entries.
+// Unused slots are left with area == 0. `*out_written` gets the compacted count
+// after the call packs the positive-area records to the front, preserving the
+// (source_y, source_x, emit) order. Returns false (and the caller falls back to
+// the CPU path for this frame) on: a CUDA-free build, no device, any CUDA
+// error, or a leaf exceeding `max_cells_per_pixel`.
+bool forward_drizzle_cuda_affine_frame_contributions(
+    const double affine6[6], int internal_scale, double half, int y_begin,
+    int rows, int canvas_w_internal, int band_sy0, int band_sy1, int source_w,
+    int source_h, const float *source_values, int bayer_pattern,
+    int cfa_origin_x, int cfa_origin_y, bool mono, int max_cells_per_pixel,
+    CudaDrizzleContribRecord *records_out, long long records_capacity,
+    long long *out_written);
 
 // Plan-19.4 chunk driver (host-only, no device calls of its own). Walks the
 // image in bands of `plan.chunk_rows`; on CudaAllocFailure it halves the

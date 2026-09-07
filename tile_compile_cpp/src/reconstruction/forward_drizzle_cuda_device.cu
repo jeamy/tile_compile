@@ -126,6 +126,99 @@ struct CudaScopedError {
   ~CudaScopedError() { cudaGetLastError(); }
 };
 
+// --- 1:1 device port of core/types.hpp cfa_channel_for_source_pixel ---------
+// BayerPattern enum order: UNKNOWN=0, RGGB=1, BGGR=2, GRBG=3, GBRG=4.
+// Returns 0=R, 1=G, 2=B to match forward_drizzle.cpp's channel mapping.
+__device__ int d_cfa_channel(int sx, int sy, int bayer, int ox, int oy) {
+  int rr, rc, br, bc;
+  switch (bayer) {
+    case 2:  rr = 1; rc = 1; br = 0; bc = 0; break;  // BGGR
+    case 3:  rr = 0; rc = 1; br = 1; bc = 0; break;  // GRBG
+    case 4:  rr = 1; rc = 0; br = 0; bc = 1; break;  // GBRG
+    default: rr = 0; rc = 0; br = 1; bc = 1; break;  // RGGB / UNKNOWN
+  }
+  const int px = (sx + ox) & 1;
+  const int py = (sy + oy) & 1;
+  if (py == rr && px == rc) return 0;  // R
+  if (py == br && px == bc) return 2;  // B
+  return 1;                            // G
+}
+
+__device__ double d_clampd(double v, double lo, double hi) {
+  return fmin(fmax(v, lo), hi);
+}
+
+// 1:1 with build_affine_leaf + the rasterize_drizzle_stripe bbox/area loop.
+// One thread per source pixel of the band. Contributions are appended at a
+// dense atomic offset --- the ORDER is arbitrary, which is fine: the host sorts
+// by the (unique) canonical key afterwards, so the reduction is deterministic
+// regardless of append order (plan 19.6). Areas are bit-identical to the CPU
+// because this TU is compiled --fmad=false and the CPU path -ffp-contract=off.
+__global__ void k_affine_frame_contribs(
+    double a0, double a1, double a2, double a3, double a4, double a5, double sc,
+    double half, int y_begin, int rows, int W, int band_sy0, int band_sy1,
+    int source_w, const float *src_band, int bayer, int ox, int oy, int mono,
+    int max_cells, CudaDrizzleContribRecord *recs, long long cap,
+    unsigned long long *count, int *overflow) {
+  const long long tid =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const long long band_rows = band_sy1 - band_sy0;
+  const long long total = band_rows * source_w;
+  if (tid >= total) return;
+  const long long row_in_band = tid / source_w;
+  const int sy = band_sy0 + static_cast<int>(row_in_band);
+  const int sx = static_cast<int>(tid % source_w);
+  // `src_band` starts at source row band_sy0 (band-local buffer, not full image).
+  const double v = static_cast<double>(src_band[row_in_band * source_w + sx]);
+  if (!isfinite(v)) return;
+  const int ch = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
+
+  const double x = sx + 0.5, y = sy + 0.5;
+  const double csx[4] = {x - half, x + half, x + half, x - half};
+  const double csy[4] = {y - half, y - half, y + half, y + half};
+  double lx[4], ly[4];
+  double xmin = 1e300, xmax = -1e300, ymin = 1e300, ymax = -1e300;
+  for (int i = 0; i < 4; ++i) {
+    const double qx = a0 * csx[i] + a1 * csy[i] + a2;
+    const double qy = a3 * csx[i] + a4 * csy[i] + a5;
+    lx[i] = qx * sc;
+    ly[i] = qy * sc;
+    xmin = fmin(xmin, lx[i]); xmax = fmax(xmax, lx[i]);
+    ymin = fmin(ymin, ly[i]); ymax = fmax(ymax, ly[i]);
+  }
+  const int x0 = static_cast<int>(d_clampd(floor(xmin), 0.0, (double)W));
+  const int x1 = static_cast<int>(d_clampd(ceil(xmax), 0.0, (double)W));
+  const int y0 = static_cast<int>(
+      d_clampd(floor(ymin), (double)y_begin, (double)(y_begin + rows)));
+  const int y1 = static_cast<int>(
+      d_clampd(ceil(ymax), (double)y_begin, (double)(y_begin + rows)));
+
+  int emitted = 0;
+  for (int yy = y0; yy < y1; ++yy)
+    for (int xx = x0; xx < x1; ++xx) {
+      const double k =
+          d_polygon_rect_area(lx, ly, (double)xx, (double)yy, xx + 1.0, yy + 1.0);
+      if (k > 0.0) {
+        if (emitted >= max_cells) { atomicExch(overflow, 1); return; }
+        const unsigned long long idx = atomicAdd(count, 1ULL);
+        if (idx >= static_cast<unsigned long long>(cap)) {
+          atomicExch(overflow, 1);
+          return;
+        }
+        CudaDrizzleContribRecord r;
+        r.channel = static_cast<unsigned>(ch);
+        r.target_y = static_cast<unsigned>(yy - y_begin);
+        r.target_x = static_cast<unsigned>(xx);
+        r.source_y = static_cast<unsigned>(sy);
+        r.source_x = static_cast<unsigned>(sx);
+        r.area = k;
+        r.value = v;
+        recs[idx] = r;
+        ++emitted;
+      }
+    }
+}
+
 }  // namespace
 
 bool forward_drizzle_cuda_polygon_rect_area_batch(const double *quad_xy,
@@ -207,6 +300,87 @@ bool forward_drizzle_cuda_affine_leaf_corners_batch(const double affine6[6],
   return ok;
 }
 
+bool forward_drizzle_cuda_affine_frame_contributions(
+    const double affine6[6], int internal_scale, double half, int y_begin,
+    int rows, int canvas_w_internal, int band_sy0, int band_sy1, int source_w,
+    int source_h, const float *source_values, int bayer_pattern,
+    int cfa_origin_x, int cfa_origin_y, bool mono, int max_cells_per_pixel,
+    CudaDrizzleContribRecord *records_out, long long records_capacity,
+    long long *out_written) {
+  if (!affine6 || !source_values || !records_out || !out_written ||
+      internal_scale <= 0 || source_w <= 0 || source_h <= 0 ||
+      max_cells_per_pixel <= 0 || records_capacity <= 0)
+    return false;
+  band_sy0 = band_sy0 < 0 ? 0 : band_sy0;
+  band_sy1 = band_sy1 > source_h ? source_h : band_sy1;
+  *out_written = 0;
+  if (band_sy1 <= band_sy0 || rows <= 0) return true;  // empty band, no records
+
+  int dev = 0;
+  if (cudaGetDeviceCount(&dev) != cudaSuccess || dev <= 0) {
+    cudaGetLastError();
+    return false;
+  }
+  CudaScopedError clear_on_exit;
+
+  const long long band_rows = band_sy1 - band_sy0;
+  const long long total_threads = band_rows * source_w;
+  const long long grid_ll = (total_threads + 127) / 128;
+  if (grid_ll > 2000000000LL) return false;  // absurd band; caller uses CPU
+
+  float *d_src = nullptr;
+  CudaDrizzleContribRecord *d_recs = nullptr;
+  unsigned long long *d_count = nullptr;
+  int *d_overflow = nullptr;
+  // `source_values` is already the band-local buffer (row 0 == source row
+  // band_sy0), sized band_rows * source_w --- the caller never copies the whole
+  // image.
+  const size_t src_bytes =
+      static_cast<size_t>(band_rows) * source_w * sizeof(float);
+  const size_t rec_bytes =
+      static_cast<size_t>(records_capacity) * sizeof(CudaDrizzleContribRecord);
+  bool ok = cudaMalloc(&d_src, src_bytes) == cudaSuccess &&
+            cudaMalloc(&d_recs, rec_bytes) == cudaSuccess &&
+            cudaMalloc(&d_count, sizeof(unsigned long long)) == cudaSuccess &&
+            cudaMalloc(&d_overflow, sizeof(int)) == cudaSuccess;
+  if (ok)
+    ok = cudaMemcpy(d_src, source_values, src_bytes, cudaMemcpyHostToDevice) ==
+             cudaSuccess &&
+         cudaMemset(d_count, 0, sizeof(unsigned long long)) == cudaSuccess &&
+         cudaMemset(d_overflow, 0, sizeof(int)) == cudaSuccess;
+  if (ok) {
+    k_affine_frame_contribs<<<static_cast<unsigned>(grid_ll), 128>>>(
+        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
+        static_cast<double>(internal_scale), half, y_begin, rows,
+        canvas_w_internal, band_sy0, band_sy1, source_w, d_src, bayer_pattern,
+        cfa_origin_x, cfa_origin_y, mono ? 1 : 0, max_cells_per_pixel, d_recs,
+        records_capacity, d_count, d_overflow);
+    ok = cudaGetLastError() == cudaSuccess &&
+         cudaDeviceSynchronize() == cudaSuccess;
+  }
+  int overflow = 0;
+  unsigned long long count = 0;
+  if (ok)
+    ok = cudaMemcpy(&overflow, d_overflow, sizeof(int), cudaMemcpyDeviceToHost) ==
+             cudaSuccess &&
+         cudaMemcpy(&count, d_count, sizeof(unsigned long long),
+                    cudaMemcpyDeviceToHost) == cudaSuccess;
+  if (ok && overflow == 0 &&
+      count <= static_cast<unsigned long long>(records_capacity)) {
+    ok = cudaMemcpy(records_out, d_recs,
+                    static_cast<size_t>(count) * sizeof(CudaDrizzleContribRecord),
+                    cudaMemcpyDeviceToHost) == cudaSuccess;
+    if (ok) *out_written = static_cast<long long>(count);
+  } else {
+    ok = false;  // overflow or capacity exceeded -> caller falls back to CPU
+  }
+  cudaFree(d_src);
+  cudaFree(d_recs);
+  cudaFree(d_count);
+  cudaFree(d_overflow);
+  return ok;
+}
+
 CudaDeviceMemory forward_drizzle_cuda_device_memory() {
   CudaDeviceMemory m;
   int n = 0;
@@ -225,9 +399,12 @@ CudaDeviceMemory forward_drizzle_cuda_device_memory() {
 }
 
 bool forward_drizzle_cuda_runtime_available() {
-  // Slice 2 step 1: a device may be present, but there are no forward-drizzle
-  // kernels yet. Keep the path disabled so no run attempts-then-restarts.
-  return false;
+  // Plan 19.4/19.6: the affine device path is wired into
+  // persist_forward_drizzle_multiband (§30.54) and store-level byte-identical
+  // to the CPU reference. Enable it whenever a usable CUDA device is present;
+  // persist_forward_drizzle_multiband still gates each attempt on
+  // affine-only + not mode 2/1 and falls back to the CPU reference otherwise.
+  return forward_drizzle_cuda_device_memory().free_bytes > 0;
 }
 
 }  // namespace tile_compile::reconstruction

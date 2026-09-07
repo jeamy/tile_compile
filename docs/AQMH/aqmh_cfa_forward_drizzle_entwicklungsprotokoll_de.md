@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09. | [§30.12–30.49](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09. | [§30.12–30.56](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -3717,6 +3717,587 @@ Source-Schleife — matcht CPU-Reihenfolge exakt, braucht die inverse Abbildung
 + begrenzte Suchfenster) vs. Scatter + Toleranz. Das ist ein eigener
 fokussierter Block; §19.1 verlangt eine vollständig getestete CPU-Referenz als
 Voraussetzung, die mit M6 jetzt vorliegt.
+
+---
+
+<a id="historie-30-50"></a>
+
+### 30.50 M6-Ressourcenabnahme (§11.13): Kandidaten-Spooling, Vor-Plan, phasen-lokale RSS (2026-09-07)
+
+Die fünf §11.13-Punkte für die MULTIBAND-Phase (Fusion/Validierung/Export)
+umgesetzt; M6 damit von „funktional implementiert" auf „Ressourcenvertrag
+erfüllt" gehoben.
+
+1. **Kein stilles Anheben eines expliziten Budgets.** `fuse_multiband_store_to_image`
+   nutzte `budget = max(memory_budget_mb, 256)` — ein explizit kleines Budget
+   wurde stillschweigend auf 256 MiB gehoben. Jetzt: `memory_budget_mb == 0`
+   ⇒ interner 256-MiB-Boden (unset); jeder Wert `> 0` ist ein **expliziter**
+   Auftrag und wird wörtlich übernommen.
+
+2. **Geteilter, überlaufsicherer Working-Set-Vor-Plan.**
+   `plan_multiband_fusion_memory(W,H,nch,levels,chunk,halo, with_luma,
+   with_spool, budget_bytes)` → `MultibandFusionMemoryPlan` mit sechs
+   Einzeltermen (`final_image`, `stripe_working`, `candidate_luma`,
+   `spool_stripe`, `delivery_readback`, `margin`), sättigende `sat_add`/`sat_mul`,
+   `fits = estimated_peak_bytes <= budget_bytes`. Der Plan wird **vor** der
+   ersten großen Allokation berechnet; `!fits` ⇒ `throw "MULTIBAND_MEMORY_BUDGET"`.
+   Zu diesem Zeitpunkt wurde nur der (bereits committete) Store gelesen — die
+   vorherige gültige Generation und alle bestehenden Ausgaben bleiben unberührt
+   (fail-closed).
+
+3. **Kandidatenkanäle streifenweise in temporäre Stores.** Die 3·nch vollen
+   Kandidatenebenen (`MultibandCandidateChannels`) wurden komplett resident
+   gehalten (~9·N·float bei OSC). Ersetzt durch `MultibandCandidateSpool`: je
+   (Kandidat, Kanal) ein Append-Stream in ein Scratch-Verzeichnis; die
+   Streifenschleife schreibt exakt die `core`-Zeilen in streng steigender
+   y-Reihenfolge ⇒ jede Datei ist eine zeilen-majore `W·H`-Ebene.
+   `read_candidate_spool_plane` liest je eine Ebene zurück (Größenprüfung
+   `== N·4`). Der Runner exportiert nur die gelieferten Kandidaten (Raw-Basis +
+   ausgewählter + bei `diagnostics.level=full` die Kontrollen), Ebene für Ebene
+   → FITS, dann freigegeben (Spitzen-Liefer-RAM = eine Ebene). Spool-Dir unter
+   `artifacts/multiband_candidate_spool`, nach erfolgreicher Lieferung entfernt.
+
+4. **Getrennte Ausweisung von Schätzung und gemessener RSS.**
+   `read_maxrss_kb()` (`ru_maxrss`) ist ein Prozess-**Lebenszeit**-Maximum; die
+   Differenz zweier solcher Maxima ist kein phasen-lokales Wachstum. `resources`
+   in `forward_drizzle.json` jetzt:
+   - `multiband_estimated_working_set_bytes` + `multiband_working_set_breakdown`
+     (die sechs Terme) + `multiband_working_set_fits_budget`;
+   - `rss_process_peak_kib` (`VmHWM`), `rss_maxrss_kib` (`ru_maxrss`) — beide
+     ausdrücklich als Lebenszeit-Maxima benannt;
+   - `multiband_phase_rss_start_kib` / `_now_kib` / `_growth_kib` — `VmRSS` aus
+     `/proc/self/status`, gemessen gegen den Wert bei MULTIBAND-Phasenbeginn;
+   - `multiband_phase_rss_envelope_kib` = `budget·1024·1.05 + 256·1024` (§11.11)
+     und `multiband_phase_rss_within_envelope` (bool);
+   - `phase_rss` — pro Phase `{start,end,growth}` aus den begin/end-Lambdas.
+
+5. **Regressionsfixtures** (`[drizzle-store]`, `[forward-runner]`):
+   - `plan-11.13 multiband working-set planner` — exakte Terme
+     (`final_image == nch·N·4`, `candidate_luma == N·(13+levels·4)`,
+     `estimated == Σ der sechs Terme`), Monotonie in N, OSC > MONO,
+     Fail-Closed-Grenze (`estimated_peak_bytes-1` ⇒ `!fits`, `== estimated` ⇒
+     `fits`), Spool-Term nur bei `with_spool`.
+   - `plan-11.13(1)(3): explizit kleines Budget` — 200×200-Fixture, `mb=1` ⇒
+     `MULTIBAND_MEMORY_BUDGET`-Wurf, `!plan.fits`, `budget_bytes == 1 MiB`,
+     kein Zielbild geschrieben, `current.json` unverändert, Store weiter
+     `usable`; danach `mb=256` ⇒ `NOTHROW`, `spool.populated`, Zielbild da.
+   - `plan-11.13(5): injizierter Spool-Fehler` — nicht existierendes Spool-Dir
+     ⇒ `FUSE_STORE_SPOOL_DIR_MISSING`, kein Zielbild, `current.json`
+     unverändert, Store `usable`.
+   - `plan-11.13(5): Chunkhöhen-Variation` — Fusion bei `chunk ∈ {1,3,H}` in
+     getrennte Spools; identische `selected`-Kandidat, identische
+     `applicable`-Bitsets aller Metriken/Kandidaten, identische SHA-256 jeder
+     gespoolten Ebene über alle Chunkhöhen.
+   - `test_runner_forward_drizzle` — `resources.rss_process_peak_kib > 0`,
+     `multiband_estimated_working_set_bytes > 0`,
+     `multiband_working_set_fits_budget == true`,
+     `multiband_phase_rss_within_envelope == true`, Breakdown/Growth-Felder
+     vorhanden.
+
+6. **Temp-Space-Vertrag (§11.11) und Spool-Aufräumen.**
+   - `plan_multiband_fusion_memory` weist jetzt `spool_temp_bytes`
+     (= 3·nch·N·4) aus; `fuse_multiband_store_to_image` verfeinert
+     `required_free_temp_bytes = spool_temp_bytes·1.20 + max(2 GiB,
+     5 %·Kapazität)` mit der realen Kapazität des Spool-Dateisystems
+     (`std::filesystem::space`), setzt `available_temp_bytes`/`temp_space_ok`
+     und wirft fail-closed `MULTIBAND_TEMP_SPACE` **vor** der ersten großen
+     Allokation, wenn der freie Platz nicht reicht. Die Spool-Dir-Prüfung
+     wanderte in dasselbe Vor-Allokations-Fenster.
+   - Runner: `SpoolGuard` (RAII) entfernt `artifacts/multiband_candidate_spool`
+     bei **jedem** Verlassen der MULTIBAND-Phase — Erfolg wie Wurf —, damit ein
+     fehlgeschlagener Lauf keine bis zu 3·nch vollen `.f32`-Ebenen auf dem
+     Temp-Dateisystem hinterlässt. `resources` trägt `multiband_spool_temp_bytes`,
+     `multiband_required_free_temp_bytes`, `multiband_available_temp_bytes`,
+     `multiband_temp_space_ok`.
+   - `/proc/self/status`-Parser bricht am ersten Token-Ende nach der Zahl ab
+     (statt alle Ziffern der Zeile zu sammeln).
+   - `test_runner_forward_drizzle` prüft `multiband_temp_space_ok` und dass die
+     Spool-Dir nach dem Lauf verschwunden ist; der Planer-Test prüft
+     `spool_temp_bytes` und die `required_free_temp`-Untergrenze.
+
+Verifikation: Code + synthetisch (Planer-Arithmetik bit-genau, Spool-Round-Trip
+bit-exakt gegen die nicht-streamende `fuse_multiband`-Referenz, Chunk-Invarianz
+der Auswahl, Fail-Closed für RAM- und Temp-Budget, Commit-Vertrag bei
+injiziertem Fehler, Spool-Aufräumen, Runner-Integrationstest mit den neuen
+`resources`-Feldern). Kein realer Reconstruction-Lauf angestoßen (der Plan
+erteilt keinen Run-Auftrag); Hauptsuite **498/499** (die eine Abweichung ist der
+vorbestehende, unabhängige `test_acceleration_backend.cpp:254`
+Legacy-AQMH-OpenCV-CUDA-Fall).
+
+---
+
+<a id="historie-30-51"></a>
+
+### 30.51 M7: Paritäts-Fehlergrenzen fixiert (§19.5.1) + deterministischer Vorwärts-Listenrasterisierer als CPU-Referenz (2026-09-07)
+
+**§19.5.1 (Plan) — Fehlergrenzen der Paritätsmatrix festgeschrieben.** Vor
+jeder Rasterisierer-Zeile, weil §19.6 nachträgliches Erweitern verbietet.
+Tabelle mit Spalten CPU↔CUDA / Wiederholung / Chunkvariation: diskrete
+Entscheidungen bit-exakt; Profilfelder `D_*`/`X_out` rel. ≤ `1·10⁻⁹` +
+abs. ≤ `1·10⁻⁶`·Median; nahezu nullwertige Felder nur absolut; `weight_sum`/
+`coverage`/`n_eff` rel. ≤ `1·10⁻⁹`; Aperturflux je Stern rel. ≤ `1·10⁻³`
+(weit unter dem 0,5 %-Produktgate); Zentroid ≤ `2·10⁻³` px; Wiederholung und
+Chunkvariation überall bit-exakt. Die `1·10⁻⁹`-Feldgrenze ist die
+Fortpflanzung der beiden gemessenen Geometriekern-Abweichungen, nicht die
+Kern-Toleranz selbst.
+
+**`DrizzleAreaSink` um `int leaf` erweitert.** Der Sink liefert jetzt
+`(sx, sy, channel, leaf, index, area)`; `leaf` ist die 0-basierte Ordnung des
+transformierten Quellpixel-Leafs innerhalb des `(sx,sy)`-Samples (immer 0 im
+affinen Pfad, 0..n-1 bei subdividiertem lokalem Warp) und Teil des
+§19.6-Schlüssels. Vier Aufrufstellen mechanisch nachgezogen
+(`forward_drizzle.cpp` ×2, `sampling_geometry.cpp` ×2).
+
+**`forward_drizzle_contrib_list.{hpp,cpp}` (neu) — CPU-Referenz für §19.6.**
+- `DrizzleContribKey` = `(frame_order, channel, target_y, target_x, source_y,
+  source_x, leaf_order)`; `DrizzleContrib` = Key + `area` (k, immer > 0) +
+  `value` (v, immer endlich). `contrib_key_less` = kanonische Ordnung in
+  Plan-Feldreihenfolge.
+- `build_uniform_contrib_list(plan, source_of, cfg, y_begin, rows, sub,
+  mem_budget_bytes)`: Zwei-Pass (Vorzählen mit Endlich-v-Filter → exakt
+  reservieren → materialisieren), überlaufsichere Zählung, dann **eine**
+  kanonische Sortierung. `records_bytes > mem_budget_bytes` ⇒
+  `DRIZZLE_CONTRIB_LIST_BUDGET` (Aufrufer halbiert Chunkhöhe gemäß §19.4).
+- `reduce_uniform_contrib_list`: pro Segment `(frame, channel, Zielzelle)` ein
+  Thread, Double-Akkumulatoren `A=Σk·v`, `B=Σk` in Datensatzreihenfolge, dann
+  `wx += A`, `w += B`, `w2 += B·B`. Kein paralleler Reduktionsbaum.
+- **Bit-Exaktheit per Konstruktion:** für eine feste Zielzelle ist die
+  Streaming-Emissionsreihenfolge von `rasterize_drizzle_stripe` genau
+  `(source_y, source_x, leaf_order)` aufsteigend = die kanonische
+  Schlüsselordnung innerhalb eines Segments; Segmente werden in
+  Frame-dann-Zell-Reihenfolge besucht = die Streaming-`wx += A`-Akkumulation
+  über Frames.
+
+**Produktionsform `accumulate_uniform_by_frame` (Advisor-Hinweis).** Da
+`frame_order` der führende Schlüsselteil ist, überspannt kein Segment zwei
+Frames: die Liste wird **frameweise** gebaut/sortiert/reduziert und in
+gemeinsame `wx`/`w`/`w2` akkumuliert — bit-identisch zum
+Gesamt-Streifen-`build+sort+reduce` (dieselben `wx[cell] += A_segment` in
+derselben Frame-dann-Zell-Reihenfolge), aber Spitzenspeicher = ein Frame
+statt aller Frames. Größenordnung an M42-Realgeometrie (7716×4380 intern,
+40 Frames, Chunk 64): Gesamt-Streifen ≈ 12,6 M Records ≈ 0,6 GB/Streifen (auf
+6 GiB knapp, mit allen Profilen unhaltbar); frameweise ≈ 15 MB/Frame. Die
+`q`-Werte für Raw/Detail/Alpha kommen bei der Reduktion aus den Q-Maps über
+`(source_y, source_x)`, nicht je Record gespeichert — `DrizzleContrib` bleibt
+`area + value`. `build_uniform_contrib_list` (Gesamtform) bleibt als
+Debug-/Spezifikations-Artefakt.
+
+**§19.5.1 verfeinert (Advisor-Hinweis):** im normalisierten linearen Raum ist
+`X_out` ≪ 1, also wirkt `rel. ≤ 1·10⁻⁹` mit `max(1,·)` effektiv absolut — für
+`X_out` fest genug, für die à-trous-Detailbänder zu locker. Neue Zeile: `D_j`
+relativ zur je Band gemessenen robusten Skala `s_j = p99.5(|D_j|)` mit
+abs. Boden `1·10⁻⁶·s_j`; die Methode ist jetzt festgeschrieben, `s_j` wird
+beim Matrixlauf aus Banddaten bestimmt und literal gepinnt (datengetriebene
+Instanziierung, kein nachträgliches Erweitern). Der tote `abs. ≤ 1·10⁻⁶·Median`
+Zusatz entfernt.
+
+**Tests `[forward-drizzle][contrib-list]` (3 Fälle, ~91 000 Assertions):**
+1. bit-identisch zur inline gespiegelten Streaming-Uniform-Referenz
+   (`wx`/`w`/`w2`, exakter `double`-Vergleich) über {affin + Subpixel +
+   Rotation}-Frames × {MONO; OSC in **allen vier** Bayer-Pattern} ×
+   {mit/ohne lokalen Warp} × {innen; an den Canvas-Rändern geclippt} — plus
+   `records.size() == predicted_count`, `std::is_sorted` nach `contrib_key_less`,
+   jeder Record `area > 0` und `isfinite(value)`, und
+   `accumulate_uniform_by_frame` bit-identisch zur Gesamtform.
+2. Canvas in drei ungleiche Streifen `{[0,5),[5,12),[12,16)}` zerlegt →
+   zusammengesetzte Akkumulatoren bit-identisch zum Ein-Streifen-Ergebnis
+   (§19.6 „unterschiedliche Chunkhöhen → identische Profile" auf Referenzebene).
+3. `mem_budget_bytes=64` ⇒ `DRIZZLE_CONTRIB_LIST_BUDGET` vor der
+   Materialisierung; großzügiges Budget ⇒ `NOTHROW`.
+
+Hauptsuite **501/502** (die eine Abweichung bleibt der vorbestehende,
+unabhängige `test_acceleration_backend.cpp:254`). Kein realer Lauf.
+
+**Noch offen für M7** (§19.6/§19.5): Raw-/Detailprofil- und
+Alpha-Beitragslisten (derselbe Schlüssel, zusätzliche `q`-Werte je Record),
+Clipping mit gemeinsamer Akzeptanzmaske und fester Framefolge-Profilreduktion,
+`.cu`-Kernel, die die zwei Geometriekerne zu dieser Listenform komponieren,
+`run_cuda_chunked`/`plan_cuda_chunking` in den produktiven Storepfad,
+`forward_drizzle_cuda_runtime_available()` erst mit bestandener §19.5-Matrix
+auf `true`, Per-Kernel-Timing in `forward_drizzle.json`.
+
+---
+
+<a id="historie-30-52"></a>
+
+### 30.52 M7: CPU-Referenz für den vollständigen §19.6-Pfad — Clipping/Profile faktorisiert + Raw/Detail/Alpha-Beitragslisten (2026-09-07)
+
+Schließt die zwei **algorithmischen** M7-Lücken auf der CPU-Referenzseite
+(die `.cu`-Kernel + produktive Verdrahtung + native §19.5-Matrix bleiben).
+
+**Schnitt A — reiner Refactor (berührt M6-verifizierten Produktionscode).**
+Der Pro-`(Kanal, Zielzelle)`-Block „Clipping → 4 Profile → Alpha" (vormals
+inline in `stream_forward_drizzle_uniform_and_raw`, ~80 Zeilen) ist als
+`reduce_pixel_profiles(pixel, DrizzleProfileReduceConfig, g_eff_for,
+reg_by_source, gi, uniform/raw/fine/medium-Plane*, ac_sep/art/reg*, diag&)`
+herausgezogen. `stream_...` ruft ihn jetzt in derselben `for c / for i`-Schleife
+auf. Verhalten unverändert: Hauptsuite **501/502** vor und nach dem Schnitt,
+alle `[forward-drizzle]`/`[drizzle-store]`/`multiband*`/`[output-scale]`-Fälle
+grün. `candidates`-Slice ist bereits frame-geordnet (Push in
+`prepared.frames`-Reihenfolge) → §19.6 Schritt 4 „feste Framefolge".
+
+**Schnitt B — `accumulate_pair_by_frame` (neu, in `forward_drizzle_contrib_list`).**
+Ein Streifen, voller Pfad Uniform(geklippt)+Raw+Fine+Medium+Alpha über die
+deterministische frameweise Beitragsliste:
+- je Frame: `build_frame_records` → kanonische Sortierung → Segmentreduktion je
+  `(Kanal, Zielzelle)`: `A=Σk·v`, `B=Σk` **und** die Q-K-Mittel `QA/QA0/QA1/QAA`
+  = `Σ k·fold(qv)` mit `fold(qv)=(isfinite∧>0)?qv:0` **je Record in
+  Recordreihenfolge** aus den Frame-Q-Maps über `(source_y, source_x)` gelesen
+  (nicht je Record gespeichert); `QAF += k` wenn Artefakt-Sample endlich.
+- danach je Segment mit `B>0` ein `ClipCandidate{ f.source_index /* nicht fo!,
+  für Tie-Break + g_eff + reg_by_source */, A/B, B, QA/B…, QAF>0 }` in den
+  frame-major `cand[c][i*frame_count + counts++]`-Puffer.
+- `reduce_pixel_profiles` (identisch mit dem Streaming-Pfad) je `(c, Zelle)`.
+- Spitzenspeicher: ein Frame Records + der `ClipCandidate`-Streifenpuffer,
+  nicht die ganze Streifen-Liste. Der flache `ClipCandidate`-Puffer
+  (`channels·W·rows·frame_count·sizeof`) begrenzt `rows` **nicht** selbst (anders
+  als `stream_...` über `plan_drizzle_memory`) — die Funktion ist ausdrücklich
+  **streifen-scoped**: der Aufrufer wählt `rows` (bei der produktiven
+  Verdrahtung aus `plan_cuda_chunking`/dem §11.13-Vorplan). `mem_budget_bytes`
+  begrenzt Recordvektor **und** Kandidatenpuffer, überlaufsicher, Wurf
+  `DRIZZLE_CONTRIB_LIST_BUDGET` **vor** der Allokation.
+
+**Bit-Exaktheit per Konstruktion:** die Segment-/Recordreihenfolge entspricht
+der Streaming-Emissionsreihenfolge je Zelle; `reduce_pixel_profiles` ist
+buchstäblich dieselbe Funktion. `frame_index` im Kandidat ist `source_index`
+(für den Clip-Tie-Break §11.8 Schritt 3 und `g_eff`/`reg_by_source`), die
+Push-Reihenfolge ist `fo` (prepared-frame) — beide getrennt und korrekt.
+
+**Tests `[forward-drizzle][contrib-list]` (+3 Fälle, ~346k Assertions gesamt):**
+1. `accumulate_pair_by_frame` bit-identisch zu
+   `compute_forward_drizzle_uniform_and_raw` — `value`/`weight_sum`/`n_eff`/
+   `support` aller vier Profile (exakter `float`-Vergleich, NaN-behandelt),
+   `a_separation`/`a_artifact`/`a_registration` + Support, **und alle drei
+   `clipping`-Zähler** — über {MONO; OSC in allen 4 Bayer-Pattern} × {±lokaler
+   Warp} × {innen; randgeclippt}, mit **aktivem Clipping**
+   (`candidate_contributions_clipped > 0`, Frame 3 heller Ausreißer, Frame 2
+   ohne Artefakt-Map).
+2. **Streifenzerlegung** `{[0,5),[5,12),[12,16)}` → zusammengesetzte Profile,
+   Alpha-Maps **und Clipping-Zähler** bit-identisch zum Ein-Streifen-Ergebnis
+   (Chunk-Invarianz der Clip-Entscheidungen — §19.5.1-Nulltoleranzzeile).
+3. `mem_budget_bytes=512` ⇒ `DRIZZLE_CONTRIB_LIST_BUDGET` vor der
+   Kandidatenpuffer-Allokation; großzügiges Budget ⇒ `NOTHROW`.
+
+Hauptsuite **504/505** (die 1 Abweichung bleibt `test_acceleration_backend.cpp:254`).
+
+**Noch offen für M7:** die `.cu`-Kernel (frame-lokale Droplet-Akkumulation mit
+den zwei Geometriekernen → Segmentreduktion → Kandidat → Clip → Profil),
+`accumulate_pair_by_frame`/`accumulate_uniform_by_frame` +
+`run_cuda_chunked`/`plan_cuda_chunking` in `persist_forward_drizzle_multiband`
+verdrahten, `forward_drizzle_cuda_runtime_available()` erst mit bestandener
+nativer §19.5-Matrix (inkl. `s_j`-Pinning je Detailband, §19.5.1) auf `true`,
+Per-Kernel-Timing in `forward_drizzle.json`.
+
+---
+
+<a id="historie-30-53"></a>
+
+### 30.53 M7: FP-Kontraktionspolitik fixiert + affiner CUDA-Rasterisierer, bit-identisch auf echter Hardware (2026-09-07)
+
+**FP-Kontraktion (§19.6 „FMA-/Compilerpolitik explizit fixieren").** Getestete
+Hypothese: `-ffp-contract=off` (CPU) + `--fmad=false` (CUDA) auf dem
+Referenzpfad ⇒ keine Fusion von `a*b+c` auf beiden Seiten ⇒ die zwei
+Geometriekerne werden **100 % bit-identisch** (vorher 3582/4006 bzw. ~57 %).
+In `CMakeLists.txt` als `set_source_files_properties` für
+`forward_drizzle.cpp`, `forward_drizzle_contrib_list.cpp`,
+`forward_drizzle_cuda.cpp` + die beiden Paritätstest-TUs (die die
+CPU-Referenz inline nachbilden); `--fmad=false` für
+`forward_drizzle_cuda_device.cu`. **Korrektheitstragend, kein
+Optimierungsschalter** — ein neuer TU auf dem Pfad ohne diesen Eintrag
+regressiert die Bit-Exaktheit still (Kommentar an Ort und Stelle).
+Die alten `[cuda-parity]`-Toleranztests (`5e-10`/`1e-9` relativ) sind auf
+`REQUIRE(cpu == gpu)` verschärft.
+
+**`k_affine_frame_contribs` (neu, `.cu`) — der affine Droplet-Rasterisierer.**
+1:1-Port von `build_affine_leaf` + der `rasterize_drizzle_stripe`-BBox/Flächen-
+Schleife: ein Thread je Quellpixel des Streifenbands, affine Leaf-Ecken,
+BBox-Clamp `[0,W)×[y_begin,y_begin+rows)`, je Zelle `d_polygon_rect_area`,
+`k>0` ⇒ Record an dichter atomarer Position (Reihenfolge beliebig — der Host
+sortiert nach dem eindeutigen kanonischen Schlüssel, daher deterministisch).
+Host-Wrapper `forward_drizzle_cuda_affine_frame_contributions` kopiert nur das
+**bandlokale** Quell-Sub-Bild (nicht das ganze Bild je Frame), führt eine
+Per-Pixel-Zellobergrenze (`max_cells_per_pixel`, Default 32) und eine globale
+Kapazitätsgrenze; jede Überschreitung / jeder CUDA-Fehler ⇒ `false` ⇒
+CPU-Fallback für den ganzen Streifen (§19.4, kein CPU/CUDA-Mix im Commit).
+
+**`accumulate_pair_by_frame_cuda` (neu).** `accumulate_pair_by_frame` in
+`accumulate_pair_impl(..., PairFrameRecordProducer)` faktorisiert; nur die
+Recordproduktion unterscheidet CPU (`build_frame_records`) und CUDA
+(`cuda_pair_producer` → Device-Rasterisierer, Bandberechnung per
+`invert_affine_2x3` exakt wie die CPU). Sortierung, Q-Fold, `reduce_pixel_profiles`,
+Ergebnisaufbau sind **geteilt** ⇒ bit-identisch, wenn die Records passen.
+Lokale-Warp-Frames: `ForwardDrizzleCudaError` (harte Ablehnung, kein
+Durchrutschen).
+
+**Native Parität `[forward-drizzle][contrib-list][cuda-parity]` (GTX 1660 Ti):**
+`accumulate_pair_by_frame_cuda` bit-identisch zu `accumulate_pair_by_frame` —
+`value`/`weight_sum`/`n_eff`/`support` aller vier Profile, `a_*` + Support,
+**und alle drei `clipping`-Zähler** (`evaluations`/`rejected`/
+`candidate_contributions_clipped`, letzterer > 0) — über {MONO; OSC alle 4
+Bayer} × {innen; randgeclippt}, 10 Varianten, ~120k Assertions. Plus:
+Lokale-Warp-Frame ⇒ `ForwardDrizzleCudaError`.
+
+Hauptsuite **506/507** (die 1 Abweichung bleibt `test_acceleration_backend.cpp:254`).
+
+**Noch offen für M7 — die §19.5-Matrix ist konstruktiv unvollständig:**
+- **Kernel-Fähigkeitslücke:** lokale Warps (Subdivision) laufen NICHT auf der
+  GPU. §19.5 nennt „lokale Warps" ausdrücklich → die Matrix ist erst mit dem
+  Device-Subdivisionspfad vollständig. 10 bestandene affine Varianten sind
+  nicht „§19.5-Matrix bestanden".
+- Produktive Verdrahtung von `accumulate_pair_by_frame_cuda` +
+  `run_cuda_chunked`/`plan_cuda_chunking` in `persist_forward_drizzle_multiband`
+  (der bandlokale `src_buf` wird noch je Frame gebaut — für die Verdrahtung zu
+  hoisten; eine echte Zeitmessung erst danach).
+- `forward_drizzle_cuda_runtime_available()` bleibt `false` bis die
+  vollständige Matrix (inkl. lokaler Warps + `s_j`-Pinning je Detailband)
+  besteht. Der Flag-Flip ist der letzte Schritt, nicht einer zum Test-Aktivieren.
+- Per-Kernel-Timing in `forward_drizzle.json` (hängt an der Verdrahtung).
+
+### 30.54 M7: lokale Warps sind CPU-only (§19.6.1) + produktive CUDA-Verdrahtung + Timing (2026-09-07)
+
+**Vertragsentscheidung §19.6.1 — lokale Warps bleiben CPU-only, solange §19.5.1 gilt.**
+`smooth_local_basis` wertet die 4×4-Gauß-Basis über `std::exp` aus; `expf`
+glibc vs. CUDA-libdevice unterscheiden sich ~1 ULP. Dieses Ergebnis fließt in
+**diskrete** Entscheidungen (Fixpunkt-Konvergenz `step < tol_px`,
+`out_of_bounds`, akzeptierte Leaf-Menge) — §19.6/§19.5.1 lassen dafür keine
+Toleranz zu, also gibt es aktuell keinen zulässigen GPU-Pfad. Eine
+Wiederaufnahme bräuchte eine §19.5.1-Änderung (eine vorab festgelegte Toleranz
+für das *kontinuierliche* Verschiebungsfeld plus Nachweis exakt gleicher
+diskreter Entscheidungen), die §19.5.1 derzeit untersagt. Bis dahin: die
+§19.5-Zeilen mit lokalen Warps sind CPU-Referenz-only (kein GPU-Vergleich, weil
+es keinen GPU-Pfad gibt); die Matrix ist für den GPU-Teil vollständig, sobald
+alle **affinen** Zeilen bestehen. Im Plan als §19.6.1 festgeschrieben.
+
+**Produktive Verdrahtung in `persist_forward_drizzle_multiband`.** Vor jedem
+CUDA-Versuch (nur bei `cuda.attempt && fault_after < 0`) drei Gates, alle in
+der Funktion geprüft: kein Frame mit `has_smooth_local_model`, nicht Modus 2/1,
+ein nutzbares Device (`forward_drizzle_cuda_device_memory().free_bytes > 0`).
+Verletzt eines das Gate ⇒ `ForwardDrizzleCudaError` **vor** dem
+`StoreWriter` ⇒ der Aufrufer
+(`persist_multiband_store_from_predecessors`) fängt es, setzt
+`cuda_fallback_reason` und baut den ganzen Store auf dem CPU-Referenzpfad
+(§19.4, kein CPU/CUDA-Mix; der „Neustart" ist hier ein No-Op-Relabel, da noch
+keine Generation offen war). Bei erfüllten Gates: `plan_cuda_chunking`
+(Working-Set-Schätzung je interner Zeile = Host-`ClipCandidate`-Puffer +
+Device-Beitragsvektor + 8 Double-Akkumulatoren/Kanal) → `run_cuda_chunked`
+treibt die interne Leinwand in gerätegroßen Bändern, jedes Band ein
+`accumulate_pair_by_frame_cuda`-Lauf in **denselben** `writer.multiband_stripe`-
+Sink. `DRIZZLE_CONTRIB_LIST_BUDGET` aus einem zu hohen Band wird in
+`CudaAllocFailure` übersetzt (Band halbieren, §19.4-Leiter); jeder andere
+`ForwardDrizzleCudaError` propagiert (CPU-Neustart).
+
+**Store-Level-Parität `[drizzle-store][cuda-parity]` (GTX 1660 Ti):** ein via
+CUDA-Streifenpfad gebauter Multiband-Store ist **byte-identisch** zum
+CPU-Streaming-Build — alle Planes (`uniform`/`raw`/`fine`/`medium` ×
+`value`/`weight_sum`/`n_eff`/`support` + die vier Alpha-Maps), plus identische
+`clipping`-Zähler — über {MONO; OSC} bei subpixel-rotierten affinen Frames mit
+engagiertem Clipping; zusätzlich byte-identisch zu einem Ganzleinwand-CPU-Build
+(die 8-Zeilen-CUDA-Bänder erzeugen keinen eigenen Seam). `commit.json` und der
+Generationsverzeichnisname (Zeitstempel/Zähler) sind wie bei den bestehenden
+Chunk-Invarianz-Tests **nicht** Teil der Bit-Gleichheit; verglichen werden nur
+die Plane-FITS. Neue Gates auch getestet: Lokale-Warp-Frame ⇒
+`ForwardDrizzleCudaError`; Modus 2/1 ⇒ `ForwardDrizzleCudaError`. Der frühere
+Slice-1-Test „attempt ohne Fault ⇒ sofortiger Wurf" wurde auf „CUDA-Pfad
+committet einen bit-identischen Store" umgestellt (der Wurf-Zweig bleibt für
+den Fall „kein Device").
+
+**Timing.** `DrizzleStoreResult::cuda_timing` (`used`, `bands`,
+`resolved_chunk_rows`, `min_chunk_rows`, `bytes_per_row`, `device_free_bytes`,
+`stripe_seconds`, `total_seconds`); im Runner unter
+`acceleration.cuda_stripe_path` in `forward_drizzle.json` emittiert (nur wenn
+der Pfad tatsächlich lief, sonst `null`).
+
+**`forward_drizzle_cuda_runtime_available()` bleibt `false` (in §30.54).** Die
+Verdrahtung existiert und ist store-level bit-verifiziert, aber der Flag-Flip
+wartet auf einen realen Großbild-Ressourcenlauf (braucht einen ausdrücklichen
+Run-Auftrag). → In **§30.55** auf Run-Auftrag ausgeführt und die Probe-Form
+aktiviert.
+
+Hauptsuite **508/509** (die 1 Abweichung bleibt `test_acceleration_backend.cpp:254`).
+
+**`forward_drizzle_cuda_runtime_available()` bleibt `false`** (bis §30.55).
+
+**Noch offen für M7 (Stand §30.54):**
+- GPU-Subdivision für lokale Warps: **ausgesetzt, solange §19.5.1 gilt**
+  (§19.6.1). Ohne eine §19.5.1-Änderung kein GPU-Pfad; die §19.5-Matrix ist für
+  den GPU-Teil mit den affinen Zeilen komplett.
+- Realer Großbild-Lauf (M31/M42, affin) als Voraussetzung für den
+  `runtime_available()`-Flip — braucht einen Run-Auftrag → in §30.55 erledigt.
+- `s_j`-Pinning je Detailband (§19.5.1) beim Matrix-Lauf.
+- `bytes_per_row` ist bewusst Host+Device-Summe (nicht max) — die aufgelöste
+  Bandhöhe ist damit konservativ kleiner als reines VRAM erlaubte; der
+  Host-`ClipCandidate`-Puffer wird separat durch eine absolute Obergrenze
+  (`cfg.memory_budget_mb`, sonst 2 GiB) begrenzt, damit die §19.4-Halbierung
+  überhaupt greifen kann.
+
+---
+
+### 30.55 M6/M7: reale M31/M42-Läufe — CUDA store-byte-identisch, §11.13 bestätigt, Runtime aktiviert (2026-09-07)
+
+Auf ausdrücklichen Run-Auftrag ausgeführt. Binary `git=51d3e851 dirty`,
+GTX 1660 Ti (6 GiB, ~3,7–4,4 GiB frei), CUDA 13.0. Alle Läufe frische
+`reconstruct`-Vollläufe (40 Frames, `--max-frames 40`), Configs unterscheiden
+sich **nur** in `runtime_limits.acceleration_backend` und
+(top-level) `reconstruction.keep_profile_cache_after_run: true`.
+Verglichen wird der **Plane-FITS-Digest** des committeten
+`forward_drizzle_profiles/generation-*` (52 Planes: uniform/raw/fine/medium ×
+value/weight_sum/n_eff/support + 4 Alpha-Maps); `commit.json` und
+Generationsname (Zeitstempel) sind ausgenommen. Die Läufe lagen unter
+`verify_m6m7/` (gitignoriert, Wegwerf-Artefakte).
+
+**M7 — affiner CUDA-Pfad bit-identisch auf echten Daten (M31), zwei Geometrien:**
+| Lauf | CPU Plane-Digest / `.fits` | CUDA Plane-Digest / `.fits` | CUDA `cuda_stripe_path` |
+|---|---|---|---|
+| `internal_scale=1` | `da60a400…` / `eb16598f…` | **gleich** | `bands=21, chunk_rows=106, stripe_s≈797` |
+| `internal_scale=2, output_scale=2` (Produktions-Oversampling) | `0ead57b8…` / `35575fdc…` | **gleich** | `bands=92, chunk_rows=48, stripe_s≈1983` |
+
+Real: 40 OSC-Frames, native Leinwand ≈ 5760×5664 (bei 2/2 interne Leinwand 2×,
+≈ 96 MP Ausgabe), echte Triangle-Star-Registrierung (0 lokale Modelle, 40
+affin), echte Q-Maps, aktives Robust-Clipping (`candidate_contributions_clipped`
+99 M bei 1/1, 301 M bei 2/1). **Der 2/2-Lauf ist der belastbarste Nachweis:**
+bei `internal_scale=2` überdeckt jedes 0,8-Droplet ≈ 1,6 interne Zellen, d. h.
+der Sutherland-Hodgman-Mehrzellen-Clip läuft für praktisch jedes Droplet —
+über 92 Device-Bänder byte-identisch. `forward_drizzle_backend=cuda`,
+`cuda_fallback_reason=null` in beiden Läufen.
+
+Durchsatz: CUDA-FORWARD_DRIZZLE ≈ 1,6× langsamer als CPU (1/1: ~13 vs ~8 min;
+2/2: ~33 vs ~21 min) — host-gebundene deterministische Sortier-/Segment-
+reduktion dominiert, GPU-Auslastung niedrig, kein Halbieren nötig. Bit-Exaktheit
+ist der Vertrag, nicht der Durchsatz (§19.6). Nebenbefund: der CUDA-Bandpfad
+hat einen **kleineren Host-RSS-Peak** (2/2: `rss_process_peak_kib` 3,6 GB CUDA
+vs 14,7 GB CPU) — 48-Zeilen-Device-Bänder statt 229-Zeilen-CPU-Chunks.
+
+**M7 — Modus 2/1 (Produktionsconfig, `internal_scale=2, output_scale=1`):** die
+CUDA-Anfrage wird korrekt abgelehnt —
+`cuda_fallback_reason: "forward_drizzle CUDA: mode 2/1 is CPU-only (no device 2x2 average)"`,
+`backend=cpu`, Lauf sauber zu Ende. Auf der Pipeline **wie normal konfiguriert**
+ist der Device-Pfad damit inert; ein Device-2×2-Downsample ist ein eigener
+Slice (offen).
+
+**M7 — lokale-Warp-Ablehnung auf echten Daten (M42, `internal_scale=1`, 1 Frame
+mit `has_smooth_local_model`):**
+`cuda_fallback_reason: "forward_drizzle CUDA: local-warp frame present; device path is affine-only (plan 19.6.1)"`,
+`backend=cpu`. Der Fallback-Store ist **byte-identisch** (`d869f53b…`) zu einem
+reinen CPU-Lauf derselben Daten; `reconstruction_multiband.fits` gleich
+(`07f09104…`).
+
+**CPU-Referenz unverändert durch die §30.52/§30.53-Refaktorierung.** Der
+M31-Lauf in Produktionsconfig (2/1, CPU) liefert `reconstruction_multiband.fits`
+`sha256=49ca284c…` — **byte-identisch** zum Vor-§30.54-Binary (`git=9bedc775`).
+Das deckt die gesamte Kette ab: `reduce_pixel_profiles`-Extraktion aus dem
+Streaming-Pfad, `-ffp-contract=off` auf vier TUs, `--fmad=false` auf dem `.cu` —
+alles ein No-Op auf dem realen Produktionsergebnis. Breitere Regressionsfläche
+als die CUDA-Parität selbst.
+
+**M6 §11.13 — auf beiden realen Datensätzen bestätigt** (M31 2/1 und 1/1, M42
+1/1): `multiband_working_set_fits_budget=true`, `multiband_temp_space_ok=true`,
+`multiband_phase_rss_within_envelope=true` (MULTIBAND-RSS-Wachstum 17–128 MB),
+`multiband_candidate_spool` nach dem Lauf entfernt, `phase_rss` je Phase
+protokolliert.
+
+**`forward_drizzle_cuda_runtime_available()` → aktiviert.** Von `return false` auf
+die Probe-Form `forward_drizzle_cuda_device_memory().free_bytes > 0`. Jeder
+Versuch bleibt in `persist_forward_drizzle_multiband` durch die drei Gates
+(affin-only, nicht Modus 2/1, Device vorhanden) abgesichert; alles andere fällt
+mit `cuda_fallback_reason` auf den CPU-Referenzpfad zurück. Zwei veraltete
+Testannahmen angepasst: `test_drizzle_profile_store.cpp` („CUDA-Pfad bleibt
+deaktiviert" → „aktiv genau bei vorhandenem Device") und
+`test_runner_forward_drizzle.cpp` (`backend=="cpu"` → `cpu|cuda`, bei `cuda`
+kein Fallback-Grund). Hauptsuite **508/509** (unverändert nur
+`test_acceleration_backend.cpp:254`, ohne Bezug).
+
+**Noch offen für M7:** Device-2×2-Downsample (Modus 2/1) als eigener Slice —
+sonst ist der CUDA-Pfad auf der Produktionsconfig inert. `s_j`-Pinning je
+Detailband (§19.5.1). Durchsatz-Optimierung (aktuell langsamer als CPU).
+
+---
+
+<a id="historie-30-56"></a>
+
+### 30.56 M7: hybrider Pfad §19.6.2 — lokale-Warp-Geometrie auf CPU, Rasterisierung auf GPU (2026-09-07)
+
+Statt lokale Warps auf dem Device ganz auszulassen (§19.6.1: `std::exp` in
+`smooth_local_basis` macht CPU↔GPU-Bitidentität der diskreten Entscheidungen
+unerreichbar), wird die **Geometrie** vollständig auf der CPU-Referenz
+berechnet und nur die **Rasterisierung** auf die GPU gegeben. Plan §19.6.2
+lässt diesen hybriden Backend-Pfad jetzt ausdrücklich zu (kein versteckter
+Fehlerfallback).
+
+**Gemeinsame Zell-Enumeration herausgezogen.** `rasterize_drizzle_stripe`
+delegiert an `enumerate_drizzle_stripe_leaf_cells(plan, f, scale, pixfrac,
+y_begin, rows, DrizzleLeafCellSink, sub)`: identische Quellzeilen-Band-
+Ableitung, `sample_leaves`, `floor`/`ceil`-Bounding-Box je Leaf, aber statt der
+Fläche werden je (Leaf, Zelle) die **vier exakten Ecken** und der Zell-Ursprung
+emittiert (keine Vorfilterung auf Fläche — der Konsument entscheidet).
+`rasterize_drizzle_stripe` ist danach ein dünner Wrapper, der pro Zelle
+`polygon_rectangle_intersection_area` aufruft; Verhalten byte-identisch, alle
+bestehenden Tests decken es transitiv ab. `DrizzleAreaSink` trägt jetzt den
+`leaf`-Index (kanonischer §19.6-Schlüssel).
+
+**`build_frame_records_hybrid_local`** (neben `build_frame_records`): für einen
+lokale-Warp-Frame streamt `enumerate_drizzle_stripe_leaf_cells` (Leaf, Zelle)-
+Arbeitspakete in **budgetierte Batches** (`max_batch_items`, Default 2^20). Je
+Batch berechnet `forward_drizzle_cuda_polygon_rect_area_batch` die exakten
+Polygon-Zell-Flächen auf dem Device (derselbe bit-exakte Kernel wie der affine
+Pfad, `--fmad=false`, §30.49/§30.53). `leaf_order`, Quellindex und Kanal werden
+host-seitig neben dem Batch getragen; `DrizzleContrib`-Records entstehen auf dem
+Host, der Downstream (Sortierung nach `contrib_key_less`, Q-Faltung, Clipping,
+`reduce_pixel_profiles`) ist unveränderter gemeinsamer Hostcode. Kein
+CPU↔GPU-`exp`-Vergleich, keine neue Toleranz, §19.5.1 unverändert. Bei
+Device-Alloc-Druck halbiert sich `batch_cap` bis zu einer Untergrenze (4096),
+darunter `ForwardDrizzleCudaError` → §19.4-CPU-Neustart. Host-Budget
+weiterhin über `DRIZZLE_CONTRIB_LIST_BUDGET` durchgesetzt (inkrementell statt
+Vorzählung).
+
+**Verdrahtung.** `cuda_pair_producer` verzweigt jetzt: `has_smooth_local_model`
+→ Hybridpfad, sonst affiner Device-Rasterisierer. `accumulate_pair_by_frame_cuda`
+nimmt `subdivision` (nach `rows`, wie die CPU-Variante) und `max_batch_items`.
+`persist_forward_drizzle_multiband` lehnt lokale Warps **nicht mehr** ab; es
+bleiben nur die zwei Gates Modus-2/1 und Device-vorhanden. Committet ein Lauf
+mit ≥ 1 lokale-Warp-Frame über CUDA, meldet
+`MultibandStoreBuildResult::backend_used = "cuda_hybrid"` (sonst `"cuda"`);
+`DrizzleCudaStoreTiming::hybrid_local_frames` zählt sie,
+`acceleration.cuda_stripe_path.hybrid_local_frames` im `forward_drizzle.json`.
+
+**Parität.**
+- `test_forward_drizzle_contrib_list.cpp` `[cuda-parity]`: der frühere
+  „CUDA-Pfad lehnt lokalen Warp ab"-Test ist jetzt eine **Bitidentitäts**-
+  Prüfung — MONO+OSC, Rand/kein Rand, `accumulate_pair_by_frame_cuda` gegen die
+  CPU-`accumulate_pair_by_frame` (alle vier Profile, Alpha-Maps, alle drei
+  `clipping`-Zähler). Zusätzlich mit **winzigen** Batch-Grenzen (1, 7, 64 →
+  Flush mitten im Frame/Leaf) und einem **ungleichen Streifen-Split** mit
+  `max_batch_items=5`: die summierten Clipping-Zähler bleiben gleich der
+  Ganzstreifen-CPU-Referenz. 16 Ganzstreifen-Varianten geprüft.
+- `test_drizzle_profile_store.cpp` `[drizzle-store][cuda-parity]`: der frühere
+  „lehnt lokale Warps ab"-Abschnitt prüft jetzt, dass ein Store mit einem
+  lokale-Warp-Frame über CUDA (`hybrid_local_frames == 1`) **byte-identisch**
+  (Plane-FITS-Digest) zum reinen CPU-Build ist; der Modus-2/1-Abschnitt lehnt
+  weiterhin ab.
+
+Keine neue Übersetzungseinheit — `enumerate_drizzle_stripe_leaf_cells` liegt in
+`forward_drizzle.cpp`, der Hybrid-Producer in `forward_drizzle_contrib_list.cpp`,
+beide schon in der `-ffp-contract=off`-Liste der `CMakeLists.txt`.
+
+**Reihenfolge (§19.6.2):** zuerst dieser Schnitt mit unveränderten
+Paritätsgrenzen, danach profilieren. Dominiert die lokale
+Inversion/Subdivision den Durchsatz, folgt eine eigenständige, versionierte
+Numerikrevision (`std::exp` → FMA-freie Minimax-Approximation, bit-identisch,
+ohne §19.5.1-Änderung, mit neuem Registrierungs-Hash) — **nicht** eine
+feldbezogene Toleranz.
+
+**Suite:** 526/528 (`ctest`). Die zwei roten Tests liegen im **legacy-AQMH-Pfad**,
+den keine dieser Änderungen berührt (`git diff` betrifft nur `forward_drizzle*`,
+`drizzle_profile_store*`, `source_quality_artifact*`, `runner_forward_drizzle*`;
+`test_aqmh_reconstruction.cpp` und die AQMH-CUDA-Rekonstruktion sind unverändert):
+`test_acceleration_backend.cpp:254` (`acceleration_context_keeps_aqmh_maps_cpu_only`,
+AQMH_MAPS-Selektion) und `legacy_reference` `aqmh_native_cuda_reconstruction_matches_cpu_reference`
+(legacy AQMH-CUDA `weight_sum` überschreitet `margin(2e-4)` um ~2,4e-4 auf der
+GTX 1660 Ti — GPU-Reduktionsreihenfolge, zu enge Marge). Der Versuch, ihren
+Vorbestand aus einem sauberen HEAD-Worktree zu bestätigen, scheiterte an einer
+CUDA-Toolchain-Fehlkonfiguration des frischen `cmake`-Configs (13.0 statt exakt
+12.9 durch OpenCV-CUDA); die Zuordnung stützt sich daher auf die
+Code-Trennung, nicht auf einen Vergleichslauf. Realer Großbild-Hybrid-Lauf (M42)
+noch offen (braucht Run-Auftrag).
 
 ---
 

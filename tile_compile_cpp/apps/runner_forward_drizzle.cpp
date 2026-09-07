@@ -22,13 +22,36 @@ namespace {
 using core::json;
 constexpr const char *scope = "forward_drizzle_m1_m3";
 
-// Peak resident set size of this process, in KiB. Linux ru_maxrss is already
-// KiB; if the call fails we report 0 rather than a misleading number.
+// Process-lifetime peak RSS, in KiB (Linux ru_maxrss is already KiB). This is a
+// LIFETIME maximum -- the difference of two such readings is NOT phase-local
+// growth (plan 11.13(4)); it is reported only as `rss_process_peak_kib`.
 long long read_maxrss_kb() {
   struct rusage ru {};
   if (getrusage(RUSAGE_SELF, &ru) != 0) return 0;
   return static_cast<long long>(ru.ru_maxrss);
 }
+// Current / peak resident set size from /proc/self/status, in KiB. `VmRSS` is
+// the live figure used for phase-scoped growth (sampled at phase begin/end);
+// `VmHWM` is the process-lifetime high-water mark. 0 if unreadable.
+long long read_proc_status_kb(const char *key) {
+  std::ifstream st("/proc/self/status");
+  std::string line;
+  const std::string want = std::string(key) + ":";
+  while (std::getline(st, line)) {
+    if (line.rfind(want, 0) != 0) continue;
+    long long kb = 0;
+    bool seen = false;
+    for (std::size_t i = want.size(); i < line.size(); ++i) {
+      const char ch = line[i];
+      if (ch >= '0' && ch <= '9') { kb = kb * 10 + (ch - '0'); seen = true; }
+      else if (seen) break;  // stop at the first token boundary after the number
+    }
+    return kb;
+  }
+  return 0;
+}
+long long read_vmrss_kb() { return read_proc_status_kb("VmRSS"); }
+long long read_vmhwm_kb() { return read_proc_status_kb("VmHWM"); }
 const std::vector<std::string> geometry_files = {
     "registration_sampling.json", "sampling_geometry.json",
     "sampling_geometry_analysis_common_mask.fits",
@@ -77,14 +100,24 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
   std::optional<Phase> active;
   const long long rss_baseline_kb=read_maxrss_kb();
   json phase_seconds=json::object();
+  // Plan 11.13(4): phase-scoped RSS growth measured against the live VmRSS at
+  // phase start (not a delta of two lifetime maxima).
+  json phase_rss=json::object();
   std::chrono::steady_clock::time_point phase_t0;
+  long long phase_rss_start_kb=0;
   auto begin=[&](Phase phase) {
     active=phase; phase_t0=std::chrono::steady_clock::now();
+    phase_rss_start_kb=read_vmrss_kb();
     emitter.phase_start(run_id,phase,phase_to_string(phase),log);
   };
   auto end=[&](const json &extra=json::object()) {
-    phase_seconds[phase_to_string(*active)]=
+    const std::string name=phase_to_string(*active);
+    phase_seconds[name]=
         std::chrono::duration<double>(std::chrono::steady_clock::now()-phase_t0).count();
+    const long long rss_end_kb=read_vmrss_kb();
+    phase_rss[name]={{"start_kib",phase_rss_start_kb},
+                     {"end_kib",rss_end_kb},
+                     {"growth_kib",rss_end_kb-phase_rss_start_kb}};
     emitter.phase_end(run_id,*active,"ok",extra,log); active.reset();
   };
   try {
@@ -258,10 +291,23 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       // plan-16.1 per-channel files under outputs/, written after selection.
       const auto mb_internal=artifacts/"reconstruction_multiband.fits";
       reconstruction::MultibandCandidateLuma cand;
-      reconstruction::MultibandCandidateChannels chans;
+      // Plan 11.13(2): candidate channels stream to a phase-local scratch dir;
+      // only the delivered planes are read back (one at a time) for export.
+      reconstruction::MultibandCandidateSpool spool;
+      spool.dir=artifacts/"multiband_candidate_spool";
+      { std::error_code ec; fs::remove_all(spool.dir,ec);
+        fs::create_directories(spool.dir,ec); }
+      // Plan 11.13(3): the candidate spool is scratch --- remove it on ANY exit
+      // from this phase (success or a mid-fuse/-delivery throw), so a failed run
+      // never leaves up to 3*nch full-size .f32 planes on the temp filesystem.
+      struct SpoolGuard {
+        fs::path dir;
+        ~SpoolGuard() { std::error_code ec; fs::remove_all(dir,ec); }
+      } spool_guard{spool.dir};
+      reconstruction::MultibandFusionMemoryPlan mem_plan;
       const auto pixels=reconstruction::fuse_multiband_store_to_image(
           profiles_root,mb_identity,mb_internal,reconstruction_cfg.multiband,
-          drizzle.chunk_rows,drizzle.memory_budget_mb,&cand,&chans);
+          drizzle.chunk_rows,drizzle.memory_budget_mb,&cand,&spool,&mem_plan);
       checkpoint["final_image_sha256"]=core::sha256_file(mb_internal);
 
       // Plan 15: three-way candidate selection on the fixed working luminance
@@ -303,7 +349,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       const auto outdir=dir/"outputs";
       { std::error_code ec; fs::create_directories(outdir,ec); }
       const std::vector<std::string> ch=
-          chans.mono ? std::vector<std::string>{"L"}
+          spool.mono ? std::vector<std::string>{"L"}
                      : std::vector<std::string>{"R","G","B"};
       json out_list=json::array();
       auto record=[&](const fs::path &p){
@@ -311,24 +357,27 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
                             {"size",static_cast<long long>(fs::file_size(p))},
                             {"sha256",core::sha256_file(p)}});
       };
-      auto emit_set=[&](const std::string &prefix,
-                        const std::array<std::vector<float>,3> &planes){
+      // Plan 11.13(2): each delivered plane is read back from the spool one at a
+      // time (peak = one plane), written straight to FITS, then freed.
+      auto emit_set=[&](const std::string &prefix,const std::string &candidate){
         for (std::size_t c=0;c<ch.size();++c) {
+          const auto plane=reconstruction::read_candidate_spool_plane(
+              spool,candidate,static_cast<int>(c));
           const auto p=outdir/(prefix+"_"+ch[c]+".fit");
           io::FitsHeader h;
-          io::write_fits_float_rows(p,planes[c],chans.height,chans.width,h);
+          io::write_fits_float_rows(p,plane,spool.height,spool.width,h);
           record(p);
         }
       };
-      emit_set("forward_drizzle_raw",chans.raw);
-      const auto &selected_planes=
-          sel.selected==reconstruction::SelectedCandidate::kDrizzleUniform ? chans.uniform
-          : sel.selected==reconstruction::SelectedCandidate::kDrizzleRaw ? chans.raw
-          : chans.multiband;
-      emit_set("reconstructed",selected_planes);
+      const std::string sel_candidate=
+          sel.selected==reconstruction::SelectedCandidate::kDrizzleUniform ? "uniform"
+          : sel.selected==reconstruction::SelectedCandidate::kDrizzleRaw ? "raw"
+          : "multiband";
+      emit_set("forward_drizzle_raw","raw");
+      emit_set("reconstructed",sel_candidate);
       if (reconstruction_cfg.diagnostics.level=="full") {
-        emit_set("forward_drizzle_uniform",chans.uniform);
-        emit_set("forward_drizzle_multiband",chans.multiband);
+        emit_set("forward_drizzle_uniform","uniform");
+        emit_set("forward_drizzle_multiband","multiband");
       }
       checkpoint["outputs"]=json::object();
       for (const auto &o:out_list)
@@ -358,7 +407,23 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       // Plan 16.4 mandatory diagnostics --- only fields actually measured on
       // this run are emitted; per-kernel timing / retries belong to M7 slice 2
       // and stay absent rather than as a misleading {}.
-      const long long rss_peak_kb=read_maxrss_kb();
+      // Plan 11.13(4): the estimated working set and the phase-scoped RSS peak
+      // are reported SEPARATELY. Phase growth is VmRSS-now minus VmRSS at the
+      // MULTIBAND phase start (`phase_rss_start_kb`), never a delta of two
+      // process-lifetime maxima.
+      const long long rss_maxrss_kb=read_maxrss_kb();          // ru_maxrss, lifetime
+      const long long rss_process_peak_kb=read_vmhwm_kb();     // VmHWM, lifetime
+      const long long mb_phase_rss_now_kb=read_vmrss_kb();
+      const long long mb_phase_rss_growth_kb=
+          mb_phase_rss_now_kb-phase_rss_start_kb;
+      const long long mb_budget_mb=
+          static_cast<long long>(drizzle.memory_budget_mb
+              ? drizzle.memory_budget_mb : 256);
+      // Plan 11.11 envelope: growth <= budget*1.05 + 256 MiB.
+      const long long mb_envelope_kb=
+          static_cast<long long>(mb_budget_mb*1024*1.05)+256*1024;
+      const bool mb_growth_within_envelope=
+          mb_phase_rss_growth_kb<=mb_envelope_kb;
       json local_warp={
         {"local_model_samples_total",result.diagnostics.local_model_samples_total},
         {"local_model_samples_discarded",
@@ -401,12 +466,71 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
            fd_cuda_fallback_reason.empty() ? json(nullptr)
                                            : json(fd_cuda_fallback_reason)},
           {"workers_used",result.diagnostics.workers_used},
-          {"resolved_chunk_rows",result.diagnostics.resolved_chunk_rows}}},
+          {"resolved_chunk_rows",result.diagnostics.resolved_chunk_rows},
+          // Plan 19.4/19.6: populated only when the CUDA per-stripe path
+          // (accumulate_pair_by_frame_cuda via run_cuda_chunked) actually ran.
+          {"cuda_stripe_path",
+           result.cuda_timing.used
+               ? json{{"bands",result.cuda_timing.bands},
+                      {"resolved_chunk_rows",
+                       result.cuda_timing.resolved_chunk_rows},
+                      {"min_chunk_rows",result.cuda_timing.min_chunk_rows},
+                      {"bytes_per_row",
+                       static_cast<long long>(result.cuda_timing.bytes_per_row)},
+                      {"device_free_bytes",
+                       static_cast<long long>(
+                           result.cuda_timing.device_free_bytes)},
+                      {"stripe_seconds",result.cuda_timing.stripe_seconds},
+                      {"total_seconds",result.cuda_timing.total_seconds},
+                      {"hybrid_local_frames",
+                       result.cuda_timing.hybrid_local_frames}}
+               : json(nullptr)}}},
         {"resources",{
+          // FORWARD_DRIZZLE store-build estimate (unchanged).
           {"estimated_peak_bytes",result.diagnostics.estimated_peak_bytes},
+          // Plan 11.13(1)+(4): the MULTIBAND fuse/validate/export working-set
+          // pre-plan that gated the phase, reported next to (not merged with)
+          // the measured RSS.
+          {"multiband_estimated_working_set_bytes",
+           static_cast<long long>(mem_plan.estimated_peak_bytes)},
+          {"multiband_working_set_breakdown",{
+            {"final_image_bytes",
+             static_cast<long long>(mem_plan.final_image_bytes)},
+            {"stripe_working_bytes",
+             static_cast<long long>(mem_plan.stripe_working_bytes)},
+            {"candidate_luma_bytes",
+             static_cast<long long>(mem_plan.candidate_luma_bytes)},
+            {"spool_stripe_bytes",
+             static_cast<long long>(mem_plan.spool_stripe_bytes)},
+            {"delivery_readback_bytes",
+             static_cast<long long>(mem_plan.delivery_readback_bytes)},
+            {"margin_bytes",static_cast<long long>(mem_plan.margin_bytes)}}},
+          {"multiband_working_set_budget_bytes",
+           static_cast<long long>(mem_plan.budget_bytes)},
+          {"multiband_working_set_fits_budget",mem_plan.fits},
+          // Plan 11.11 temp space for the candidate spool.
+          {"multiband_spool_temp_bytes",
+           static_cast<long long>(mem_plan.spool_temp_bytes)},
+          {"multiband_required_free_temp_bytes",
+           static_cast<long long>(mem_plan.required_free_temp_bytes)},
+          {"multiband_available_temp_bytes",
+           static_cast<long long>(mem_plan.available_temp_bytes)},
+          {"multiband_temp_space_ok",mem_plan.temp_space_ok},
+          // Process-lifetime maxima --- LABELLED as such, never differenced for
+          // phase growth.
+          {"rss_process_peak_kib",rss_process_peak_kb},
+          {"rss_maxrss_kib",rss_maxrss_kb},
           {"rss_baseline_kib",rss_baseline_kb},
-          {"rss_peak_kib",rss_peak_kb},
-          {"rss_growth_kib",rss_peak_kb-rss_baseline_kb},
+          // Phase-scoped: VmRSS at MULTIBAND start vs. now. Computed inline (not
+          // read from `phase_rss` below) because this JSON is assembled before
+          // the MULTIBAND phase `end()` runs, so `phase_rss` has no MULTIBAND
+          // entry yet.
+          {"multiband_phase_rss_start_kib",phase_rss_start_kb},
+          {"multiband_phase_rss_now_kib",mb_phase_rss_now_kb},
+          {"multiband_phase_rss_growth_kib",mb_phase_rss_growth_kb},
+          {"multiband_phase_rss_envelope_kib",mb_envelope_kb},
+          {"multiband_phase_rss_within_envelope",mb_growth_within_envelope},
+          {"phase_rss",phase_rss},
           {"memory_budget_mb",
            static_cast<long long>(drizzle.memory_budget_mb)}}},
         {"timing_seconds",phase_seconds},
@@ -434,6 +558,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       checkpoint["selected_candidate"]=sel_name;
       checkpoint["status"]="final_image_ready";
       core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
+      // (spool_guard removes the scratch spool on scope exit.)
       final_image_available=true;
       end({{"final_image",std::string("outputs/reconstructed_")+ch.front()+".fit"},
            {"outputs_count",static_cast<int>(out_list.size())},

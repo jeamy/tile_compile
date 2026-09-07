@@ -1,15 +1,21 @@
 #include "tile_compile/reconstruction/drizzle_profile_store.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_contrib_list.hpp"
 #include "tile_compile/core/atomic_output.hpp"
 #include "tile_compile/reconstruction/multiband_fusion.hpp"
 #include "tile_compile/reconstruction/output_scale.hpp"
 #include "tile_compile/reconstruction/profile_store_manifest.hpp"
 #include "tile_compile/reconstruction/source_quality_artifact.hpp"
+#include "tile_compile/reconstruction/multiband_validation.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <nlohmann/json.hpp>
+#include <array>
 #include <cmath>
 #include <fstream>
+#include <functional>
+#include <map>
 
 using namespace tile_compile;
 using namespace tile_compile::reconstruction;
@@ -567,32 +573,44 @@ TEST_CASE("drizzle store: OSC multiband store + fuse_multiband_store_to_image "
   // M42/OSC registration run (a dithered geometry); the accumulation/striping
   // maths is covered bit-exact by the MONO store test above.
   reconstruction::MultibandCandidateLuma cand;
-  reconstruction::MultibandCandidateChannels chans;
+  reconstruction::MultibandCandidateSpool spool;
+  spool.dir = fixture.root / "cand_spool";
+  fs::create_directories(spool.dir);
+  reconstruction::MultibandFusionMemoryPlan mem_plan;
   reconstruction::fuse_multiband_store_to_image(fixture.root, identity,
-      fixture.root / "x_cand.fits", fcfg, /*chunk_rows=*/5, 64, &cand, &chans);
+      fixture.root / "x_cand.fits", fcfg, /*chunk_rows=*/5, 64, &cand, &spool,
+      &mem_plan);
   REQUIRE(cand.width == identity.width);
   REQUIRE(cand.height == identity.height);
   REQUIRE(cand.alpha_final_by_band.size() == 3u);
   REQUIRE(cand.alpha_final_by_band[2].empty());          // D3 <- Raw
+  REQUIRE(mem_plan.fits);
+  REQUIRE(mem_plan.estimated_peak_bytes > 0u);
 
-  // Plan 16.1: the per-channel candidate capture. multiband[c] is the fused
-  // X_out per channel -- bit-exact to the non-streaming reference where the
-  // channel is supported, NaN elsewhere.
-  REQUIRE(chans.nch == 3);
-  REQUIRE_FALSE(chans.mono);
-  REQUIRE(chans.width == identity.width);
-  REQUIRE(chans.height == identity.height);
+  // Plan 11.13(2) / 16.1: the per-channel candidate capture, now streamed to a
+  // spool. The read-back "multiband" plane is the fused X_out per channel --
+  // bit-exact to the non-streaming reference where the channel is supported,
+  // NaN elsewhere.
+  REQUIRE(spool.nch == 3);
+  REQUIRE_FALSE(spool.mono);
+  REQUIRE(spool.width == identity.width);
+  REQUIRE(spool.height == identity.height);
+  REQUIRE(spool.populated);
   {
     const std::vector<float> *rref[3] = {&ref.R, &ref.G, &ref.B};
     const std::vector<uint8_t> *sref[3] = {&ref.support_R, &ref.support_G,
                                            &ref.support_B};
-    for (int c = 0; c < 3; ++c)
-      for (size_t i = 0; i < chans.multiband[c].size(); ++i) {
+    for (int c = 0; c < 3; ++c) {
+      const auto plane =
+          reconstruction::read_candidate_spool_plane(spool, "multiband", c);
+      REQUIRE(plane.size() == rref[c]->size());
+      for (size_t i = 0; i < plane.size(); ++i) {
         if ((*sref[c])[i] && std::isfinite((*rref[c])[i]))
-          REQUIRE(chans.multiband[c][i] == (*rref[c])[i]);
+          REQUIRE(plane[i] == (*rref[c])[i]);
         else
-          REQUIRE(std::isnan(chans.multiband[c][i]));
+          REQUIRE(std::isnan(plane[i]));
       }
+    }
   }
   int tri_cells = 0, luma_cells = 0;
   for (int y = 0; y < identity.height; ++y)
@@ -631,6 +649,281 @@ TEST_CASE("drizzle store: OSC multiband store + fuse_multiband_store_to_image "
   REQUIRE(cand2.alpha_final_by_band.size() == cand.alpha_final_by_band.size());
   for (size_t b = 0; b < cand.alpha_final_by_band.size(); ++b)
     REQUIRE(same(cand2.alpha_final_by_band[b], cand.alpha_final_by_band[b]));
+}
+
+// ---------------------------------------------------------------------------
+// Plan 11.13: the MULTIBAND fuse / validation / export resource contract.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("plan-11.13 multiband working-set planner: exact terms, monotonicity "
+          "and the fail-closed budget boundary", "[drizzle-store]") {
+  using reconstruction::plan_multiband_fusion_memory;
+
+  // Degenerate inputs never "fit".
+  REQUIRE_FALSE(plan_multiband_fusion_memory(0, 10, 1, 3, 8, 1, false, false,
+                                             std::size_t(1) << 30)
+                    .fits);
+  REQUIRE_FALSE(plan_multiband_fusion_memory(10, 10, 3, 0, 8, 1, false, false,
+                                             std::size_t(1) << 30)
+                    .fits);
+  REQUIRE_FALSE(plan_multiband_fusion_memory(10, 10, 3, 3, 0, 1, false, false,
+                                             std::size_t(1) << 30)
+                    .fits);
+
+  const int W = 4000, H = 3000, LV = 3;
+  const std::size_t N = static_cast<std::size_t>(W) * H;
+  const std::size_t big = std::size_t(64) << 30;  // 64 GiB: never the limiter
+
+  // MONO (nch 1) and OSC (nch 3): final image is exactly nch * N * 4.
+  const auto m = plan_multiband_fusion_memory(W, H, 1, LV, 64, 1, true, true, big);
+  const auto o = plan_multiband_fusion_memory(W, H, 3, LV, 64, 1, true, true, big);
+  REQUIRE(m.final_image_bytes == N * 4);
+  REQUIRE(o.final_image_bytes == 3 * N * 4);
+  // Candidate working-luminance buffers: N * (3*4 + 1 + levels*4) when captured,
+  // 0 when not.
+  REQUIRE(o.candidate_luma_bytes == N * (13 + LV * 4));
+  const auto o_noluma =
+      plan_multiband_fusion_memory(W, H, 3, LV, 64, 1, false, true, big);
+  REQUIRE(o_noluma.candidate_luma_bytes == 0u);
+  // The spool term appears only when candidate channels are spooled.
+  REQUIRE(o.spool_stripe_bytes > 0u);
+  REQUIRE(o.delivery_readback_bytes == N * 4);
+  // Plan 11.11 temp space: spooled bytes are 3 * nch * N * 4; required free temp
+  // is spool*1.2 + at least the 2 GiB floor.
+  REQUIRE(o.spool_temp_bytes == 3u * 3u * N * 4u);
+  REQUIRE(o.required_free_temp_bytes >
+          o.spool_temp_bytes + (std::size_t(2) << 30) - 1u);
+  const auto o_nospool =
+      plan_multiband_fusion_memory(W, H, 3, LV, 64, 1, true, false, big);
+  REQUIRE(o_nospool.spool_stripe_bytes == 0u);
+  REQUIRE(o_nospool.delivery_readback_bytes == 0u);
+  REQUIRE(o_nospool.spool_temp_bytes == 0u);
+  // estimated_peak == sum of the six sub-terms.
+  REQUIRE(o.estimated_peak_bytes ==
+          o.final_image_bytes + o.stripe_working_bytes + o.candidate_luma_bytes +
+              o.spool_stripe_bytes + o.delivery_readback_bytes + o.margin_bytes);
+  // OSC needs strictly more than MONO for the same geometry.
+  REQUIRE(o.estimated_peak_bytes > m.estimated_peak_bytes);
+  // Bigger canvas -> bigger estimate (monotone in N).
+  const auto small =
+      plan_multiband_fusion_memory(1000, 1000, 3, LV, 64, 1, true, true, big);
+  REQUIRE(small.estimated_peak_bytes < o.estimated_peak_bytes);
+
+  // Fail-closed boundary: an explicit tiny budget does not fit; a budget just
+  // above the estimate does. No silent raising -- the planner honours the value.
+  const auto tight = plan_multiband_fusion_memory(W, H, 3, LV, 64, 1, true, true,
+                                                  std::size_t(8) << 20);
+  REQUIRE_FALSE(tight.fits);
+  REQUIRE(tight.budget_bytes == (std::size_t(8) << 20));
+  const auto exact = plan_multiband_fusion_memory(W, H, 3, LV, 64, 1, true, true,
+                                                  o.estimated_peak_bytes);
+  REQUIRE(exact.fits);
+  const auto under = plan_multiband_fusion_memory(
+      W, H, 3, LV, 64, 1, true, true, o.estimated_peak_bytes - 1);
+  REQUIRE_FALSE(under.fits);
+}
+
+namespace {
+// A compact MONO multiband store fixture shared by the resource-contract tests.
+struct MbFixture {
+  Fixture fixture;
+  reconstruction::DrizzleStoreIdentity identity;
+  config::ReconstructionMultibandConfig fcfg;
+  // Members (not statics): they only need to outlive the constructor body, where
+  // persist_forward_drizzle_multiband consumes the provider/quality lambdas
+  // synchronously. Statics would cross-contaminate a reordered/parallel run.
+  std::vector<Matrix2Df> imgs;
+  Matrix2Df comp, s0, s1, art;
+  explicit MbFixture(int S = 16) {
+    auto plan = plan_for(S);
+    plan.canvas_width_native = plan.canvas_height_native = S;
+    plan.frames.clear();
+    for (int i = 0; i < 5; ++i) {
+      registration::FrameSamplingTransform f;
+      f.valid = f.source_to_canvas_affine_valid = true;
+      f.frame_id = "synthetic:" + std::to_string(i);
+      f.source_index = static_cast<size_t>(i);
+      f.model_prediction_factor = 1.0f;
+      f.registration_residual_factor = 1.0f;
+      plan.frames.push_back(f);
+    }
+    config::ReconstructionDrizzleConfig cfg = config_for();
+    cfg.min_clip_contributors = 6;  // > 5 frames: no clipping
+    config::ReconstructionClippingConfig clip;
+    clip.min_n_eff = 1.0f;
+    clip.min_fraction = 0.1f;
+    imgs.assign(5, Matrix2Df(S, S));
+    for (int i = 0; i < 5; ++i)
+      for (int y = 0; y < S; ++y)
+        for (int x = 0; x < S; ++x)
+          imgs[i](y, x) = 100.0f + 6.0f * std::sin(0.3f * x) +
+                          3.0f * std::cos(0.2f * y) +
+                          40.0f * std::exp(-((x - S / 2.0) * (x - S / 2.0) +
+                                             (y - S / 2.0) * (y - S / 2.0)) /
+                                           5.0);
+    SourceImageProvider provider = [&](size_t i) -> const Matrix2Df & {
+      return imgs[i];
+    };
+    comp = Matrix2Df::Constant(S, S, 0.7f);
+    s0 = Matrix2Df::Constant(S, S, 0.6f);
+    s1 = Matrix2Df::Constant(S, S, 0.65f);
+    art = Matrix2Df::Constant(S, S, 0.9f);
+    FrameQualityProvider quality_of = [&](size_t) -> FrameQualityMaps {
+      return {&comp, &s0, &s1, &art};
+    };
+    MultibandStoreContract mbc;
+    mbc.enabled = true;
+    mbc.levels = 3;
+    const auto result = persist_forward_drizzle_multiband(
+        fixture.root, plan, provider, cfg, clip, mbc, quality_of);
+    identity = result.identity;
+    fcfg.levels = 3;
+    REQUIRE(verify_drizzle_profile_store(fixture.root, identity).usable);
+  }
+};
+
+std::string run_and_catch(const std::function<void()> &fn) {
+  try {
+    fn();
+  } catch (const std::exception &e) {
+    return e.what();
+  }
+  return "<no throw>";
+}
+}  // namespace
+
+TEST_CASE("plan-11.13(1)(3): an explicit small budget is rejected before any "
+          "large allocation and the prior generation is untouched",
+          "[drizzle-store]") {
+  MbFixture mb(200);  // large enough that a 1 MiB budget cannot hold the plan
+  const auto prior_current = read_json(mb.fixture.root / "current.json");
+  const auto target = mb.fixture.root / "x_budget.fits";
+
+  reconstruction::MultibandCandidateLuma cand;
+  reconstruction::MultibandCandidateSpool spool;
+  spool.dir = mb.fixture.root / "spool_budget";
+  fs::create_directories(spool.dir);
+  reconstruction::MultibandFusionMemoryPlan plan;
+
+  const auto msg = run_and_catch([&] {
+    reconstruction::fuse_multiband_store_to_image(
+        mb.fixture.root, mb.identity, target, mb.fcfg, /*chunk_rows=*/4,
+        /*mb=*/1, &cand, &spool, &plan);
+  });
+  REQUIRE(msg.find("MULTIBAND_MEMORY_BUDGET") != std::string::npos);
+  REQUIRE_FALSE(plan.fits);
+  REQUIRE(plan.budget_bytes == (std::size_t(1) << 20));
+  // Nothing was produced; nothing prior was disturbed.
+  REQUIRE_FALSE(fs::exists(target));
+  REQUIRE_FALSE(spool.populated);
+  REQUIRE(read_json(mb.fixture.root / "current.json") == prior_current);
+  REQUIRE(verify_drizzle_profile_store(mb.fixture.root, mb.identity).usable);
+
+  // A non-zero budget is honoured verbatim (no silent raise to the old 256
+  // floor): the same call under a generous explicit budget now succeeds.
+  reconstruction::MultibandCandidateSpool spool_ok;
+  spool_ok.dir = mb.fixture.root / "spool_ok";
+  fs::create_directories(spool_ok.dir);
+  REQUIRE_NOTHROW(reconstruction::fuse_multiband_store_to_image(
+      mb.fixture.root, mb.identity, target, mb.fcfg, /*chunk_rows=*/4,
+      /*mb=*/256, &cand, &spool_ok, &plan));
+  REQUIRE(plan.fits);
+  REQUIRE(spool_ok.populated);
+  REQUIRE(fs::exists(target));
+}
+
+TEST_CASE("plan-11.13(5): injected spool failure preserves the prior generation "
+          "and writes no final image", "[drizzle-store]") {
+  MbFixture mb;
+  const auto prior_current = read_json(mb.fixture.root / "current.json");
+  const auto target = mb.fixture.root / "x_injfail.fits";
+
+  reconstruction::MultibandCandidateSpool spool;
+  spool.dir = mb.fixture.root / "does_not_exist";  // never created
+  reconstruction::MultibandFusionMemoryPlan plan;
+  const auto msg = run_and_catch([&] {
+    reconstruction::fuse_multiband_store_to_image(
+        mb.fixture.root, mb.identity, target, mb.fcfg, /*chunk_rows=*/4,
+        /*mb=*/256, nullptr, &spool, &plan);
+  });
+  REQUIRE(msg.find("SPOOL_DIR_MISSING") != std::string::npos);
+  REQUIRE_FALSE(fs::exists(target));
+  REQUIRE_FALSE(spool.populated);
+  REQUIRE(read_json(mb.fixture.root / "current.json") == prior_current);
+  REQUIRE(verify_drizzle_profile_store(mb.fixture.root, mb.identity).usable);
+}
+
+TEST_CASE("plan-11.13(5): chunk-height variation does not change the spooled "
+          "candidates, the luma masks or the plan-15 selection outcome",
+          "[drizzle-store]") {
+  MbFixture mb;
+  const int H = mb.identity.height;
+
+  auto to_mat = [](const std::vector<float> &v, int w, int h) {
+    Matrix2Df m(h, w);
+    for (int y = 0; y < h; ++y)
+      for (int x = 0; x < w; ++x)
+        m(y, x) = v[static_cast<std::size_t>(y) * w + x];
+    return m;
+  };
+
+  struct Run {
+    reconstruction::MultibandCandidateLuma cand;
+    reconstruction::MultibandCandidateSpool spool;
+    reconstruction::SelectedCandidate selected{};
+    std::array<std::string, 3> plane_sha;  // sha of "uniform"/"raw"/"multiband"
+    std::vector<bool> applicable;          // per-metric applicability bitset
+  };
+  static constexpr const char *kNames[3] = {"uniform", "raw", "multiband"};
+
+  auto do_run = [&](int chunk) {
+    Run r;
+    r.spool.dir = mb.fixture.root / ("spool_cr" + std::to_string(chunk));
+    fs::create_directories(r.spool.dir);
+    reconstruction::MultibandFusionMemoryPlan plan;
+    reconstruction::fuse_multiband_store_to_image(
+        mb.fixture.root, mb.identity,
+        mb.fixture.root / ("x_cr" + std::to_string(chunk) + ".fits"), mb.fcfg,
+        chunk, /*mb=*/256, &r.cand, &r.spool, &plan);
+    REQUIRE(plan.fits);
+    const int W = r.cand.width;
+    const auto uni = to_mat(r.cand.uniform_luma, W, r.cand.height);
+    const auto raw = to_mat(r.cand.raw_luma, W, r.cand.height);
+    const auto mbm = to_mat(r.cand.multiband_luma, W, r.cand.height);
+    const auto stars = reconstruction::prepare_validation_samples(
+        uni, W, r.cand.height, r.cand.uniform_support,
+        r.cand.alpha_final_by_band);
+    const reconstruction::MultibandValidationConfig vcfg{};
+    const auto sel = reconstruction::select_reconstruction_candidate(
+        uni, raw, mbm, W, r.cand.height, stars, vcfg, r.cand.uniform_support);
+    r.selected = sel.selected;
+    for (const auto *cm : {&sel.uniform, &sel.raw, &sel.multiband}) {
+      for (bool a : {cm->median_fwhm.applicable, cm->p90_fwhm.applicable,
+                     cm->tail.applicable, cm->elongation.applicable,
+                     cm->background_rms.applicable, cm->seam_score.applicable})
+        r.applicable.push_back(a);
+    }
+    for (int k = 0; k < 3; ++k)
+      r.plane_sha[static_cast<std::size_t>(k)] = core::sha256_bytes([&] {
+        const auto p =
+            reconstruction::read_candidate_spool_plane(r.spool, kNames[k], 0);
+        const auto *raw_bytes = reinterpret_cast<const uint8_t *>(p.data());
+        return std::vector<uint8_t>(raw_bytes,
+                                    raw_bytes + p.size() * sizeof(float));
+      }());
+    return r;
+  };
+
+  const auto a = do_run(1);
+  const auto b = do_run(3);
+  const auto c = do_run(H);  // single chunk, no halo split
+
+  REQUIRE(a.selected == b.selected);
+  REQUIRE(b.selected == c.selected);
+  REQUIRE(a.applicable == b.applicable);
+  REQUIRE(b.applicable == c.applicable);
+  REQUIRE(a.plane_sha == b.plane_sha);
+  REQUIRE(b.plane_sha == c.plane_sha);
 }
 
 TEST_CASE("drizzle store: multiband 2/1 store persists at output (1x) resolution "
@@ -823,15 +1116,28 @@ TEST_CASE("drizzle store: plan-19.4 CUDA transactional restart -- an injected "
   reconstruction::ForwardDrizzleCudaOptions attempt;
   attempt.attempt = true;
 
-  SECTION("attempt with no fault armed -> immediate throw, nothing created") {
+  SECTION("attempt with no fault armed -> the CUDA per-stripe path commits a "
+          "store bit-identical to the pure CPU build (affine frames)") {
     CudaFaultGuard guard(-1);
-    Fixture fx;
-    REQUIRE_THROWS_AS(
-        persist_forward_drizzle_multiband(fx.root, plan, provider, cfg, clip, mbc,
-                                          quality_of, {}, {}, {}, attempt),
-        reconstruction::ForwardDrizzleCudaError);
-    REQUIRE_FALSE(fs::exists(fx.root / "current.json"));
-    REQUIRE(count_dirs(fx.root) == 0);  // not even a discarded generation
+    if (reconstruction::forward_drizzle_cuda_device_memory().free_bytes == 0) {
+      // No device: the wiring throws before any generation directory, and the
+      // caller (persist_multiband_store_from_predecessors) restarts on CPU.
+      Fixture fx;
+      REQUIRE_THROWS_AS(
+          persist_forward_drizzle_multiband(fx.root, plan, provider, cfg, clip,
+                                            mbc, quality_of, {}, {}, {}, attempt),
+          reconstruction::ForwardDrizzleCudaError);
+      REQUIRE(count_dirs(fx.root) == 0);
+    } else {
+      Fixture fx;
+      const auto gpu = persist_forward_drizzle_multiband(
+          fx.root, plan, provider, cfg, clip, mbc, quality_of, {}, {}, {},
+          attempt);
+      REQUIRE(gpu.cuda_timing.used);
+      REQUIRE(gpu.cuda_timing.bands >= 1);
+      REQUIRE(digest(gpu.generation_dir) == cpu_digest);
+      REQUIRE(verify_drizzle_profile_store(fx.root, identity).usable);
+    }
   }
 
   SECTION("fault after 3 stripes -> throw, uncommitted generation discarded") {
@@ -859,6 +1165,255 @@ TEST_CASE("drizzle store: plan-19.4 CUDA transactional restart -- an injected "
         fx.root, plan, provider, cfg, clip, mbc, quality_of);  // cuda = {}
     REQUIRE(digest(restart.generation_dir) == cpu_digest);
     REQUIRE(verify_drizzle_profile_store(fx.root, identity).usable);
+  }
+}
+
+TEST_CASE("drizzle store: plan-19.6 CUDA per-stripe path commits a store "
+          "byte-identical to the CPU reference build",
+          "[drizzle-store][cuda-parity]") {
+  if (reconstruction::forward_drizzle_cuda_device_memory().free_bytes == 0) {
+    SUCCEED("no CUDA device");
+    return;
+  }
+  // Digest of the committed SCIENTIFIC artifact --- every plane FITS file,
+  // keyed by name. The generation directory name embeds a timestamp/counter
+  // and commit.json embeds that name, so neither is part of the bit-exactness
+  // claim (the existing chunk-invariance tests digest planes only for the same
+  // reason).
+  auto plane_digest = [](const fs::path &gen) {
+    std::map<std::string, std::string> h;
+    for (const auto &e : fs::directory_iterator(gen)) {
+      const std::string n = e.path().filename().string();
+      if (e.is_regular_file() && n.size() > 5 &&
+          n.substr(n.size() - 5) == ".fits")
+        h[n] = core::sha256_file(e.path());
+    }
+    REQUIRE(h.size() >= 12);  // uniform/raw/fine/medium x 4 fields + alpha maps
+    return h;
+  };
+
+  for (bool osc : {false, true}) {
+    CAPTURE(osc);
+    const int S = 24;           // source
+    const int C = 32;           // native canvas
+    auto plan = plan_for(S, osc);
+    plan.canvas_width_native = plan.canvas_height_native = C;
+    plan.frames.clear();
+    const int nf = 5;
+    for (int i = 0; i < nf; ++i) {
+      registration::FrameSamplingTransform f;
+      f.valid = f.source_to_canvas_affine_valid = true;
+      f.frame_id = "synthetic:" + std::to_string(i);
+      f.source_index = static_cast<size_t>(i);
+      f.model_prediction_factor = 1.0f;
+      f.registration_residual_factor = 1.0f;
+      // Sub-pixel rotation + translation so the device rasterizer does real
+      // multi-cell work (identity frames would hide most of the geometry).
+      const double ang = 0.012 * std::sin(0.5 * i);
+      const double dx = 3.0 + ((i * 7) % 5) / 5.0;
+      const double dy = 3.0 + ((i * 3) % 5) / 5.0;
+      WarpMatrix m;
+      m(0, 0) = static_cast<float>(std::cos(ang));
+      m(0, 1) = static_cast<float>(-std::sin(ang));
+      m(0, 2) = static_cast<float>(dx);
+      m(1, 0) = static_cast<float>(std::sin(ang));
+      m(1, 1) = static_cast<float>(std::cos(ang));
+      m(1, 2) = static_cast<float>(dy);
+      f.source_to_canvas = m;
+      plan.frames.push_back(f);
+    }
+
+    config::ReconstructionDrizzleConfig cfg = config_for();  // 1/1
+    cfg.pixfrac = 0.85f;
+    cfg.chunk_rows = 8;                 // CPU: 4 stripes; CUDA: 8-row bands
+    cfg.min_clip_contributors = 3;      // < nf -> robust clip engaged
+    config::ReconstructionClippingConfig clip;
+    clip.clip_sigma_low = clip.clip_sigma_high = 2.5f;
+    clip.min_fraction = 0.1f;
+    clip.min_n_eff = 1.0f;
+
+    std::vector<Matrix2Df> imgs(nf, Matrix2Df(S, S));
+    for (int i = 0; i < nf; ++i)
+      for (int y = 0; y < S; ++y)
+        for (int x = 0; x < S; ++x) {
+          const float outlier = (i == 3) ? 500.0f : 0.0f;  // forces clipping
+          imgs[i](y, x) = 40.0f + outlier + 3.0f * x + 2.0f * y +
+                          11.0f * std::sin(0.55f * (x + y)) + 0.7f * i;
+        }
+    SourceImageProvider provider = [&](size_t i) -> const Matrix2Df & {
+      return imgs[i];
+    };
+    Matrix2Df comp = Matrix2Df::Constant(S, S, 0.7f);
+    Matrix2Df q0 = Matrix2Df::Constant(S, S, 0.6f);
+    Matrix2Df q1 = Matrix2Df::Constant(S, S, 0.65f);
+    Matrix2Df art = Matrix2Df::Constant(S, S, 0.9f);
+    FrameQualityProvider quality_of = [&](size_t i) -> FrameQualityMaps {
+      return {&comp, &q0, &q1, i == 2 ? nullptr : &art};  // frame 2: no artifact
+    };
+
+    MultibandStoreContract mbc;
+    mbc.enabled = true;
+    mbc.levels = 3;
+
+    Fixture cpu_fx;
+    const auto cpu = persist_forward_drizzle_multiband(
+        cpu_fx.root, plan, provider, cfg, clip, mbc, quality_of);  // cuda = {}
+    REQUIRE_FALSE(cpu.cuda_timing.used);
+
+    reconstruction::ForwardDrizzleCudaOptions attempt;
+    attempt.attempt = true;
+    Fixture cuda_fx;
+    const auto gpu = persist_forward_drizzle_multiband(
+        cuda_fx.root, plan, provider, cfg, clip, mbc, quality_of, {}, {}, {},
+        attempt);
+
+    REQUIRE(gpu.cuda_timing.used);
+    REQUIRE(gpu.cuda_timing.bands >= 2);        // 32 canvas rows / 8-row bands
+    REQUIRE(gpu.cuda_timing.resolved_chunk_rows == 8);
+    REQUIRE(gpu.cuda_timing.total_seconds >= 0.0);
+    // Same clipping totals -> the shared acceptance mask matched exactly.
+    REQUIRE(gpu.clipping.pixel_channel_evaluations ==
+            cpu.clipping.pixel_channel_evaluations);
+    REQUIRE(gpu.clipping.pixel_channel_rejected ==
+            cpu.clipping.pixel_channel_rejected);
+    REQUIRE(gpu.clipping.candidate_contributions_clipped ==
+            cpu.clipping.candidate_contributions_clipped);
+    REQUIRE(gpu.clipping.candidate_contributions_clipped > 0);  // clip engaged
+
+    REQUIRE(verify_drizzle_profile_store(cuda_fx.root, gpu.identity).usable);
+
+    // The scientific planes are bit-identical to the CPU streaming build...
+    REQUIRE(plane_digest(gpu.generation_dir) == plane_digest(cpu.generation_dir));
+
+    // ...and also to a whole-canvas CPU build --- so the CUDA band boundaries
+    // (8 rows) introduce no seam of their own (plan 19.6 chunk invariance).
+    Fixture cpu1_fx;
+    auto cfg1 = cfg;
+    cfg1.chunk_rows = C;
+    const auto cpu1 = persist_forward_drizzle_multiband(
+        cpu1_fx.root, plan, provider, cfg1, clip, mbc, quality_of);
+    REQUIRE(plane_digest(gpu.generation_dir) == plane_digest(cpu1.generation_dir));
+
+    // The token the wiring's DRIZZLE_CONTRIB_LIST_BUDGET -> CudaAllocFailure
+    // translation matches on must actually be what a too-small host budget
+    // raises (else run_cuda_chunked's halving ladder is unreachable, plan 19.4).
+    if (!osc) {
+      MultibandProfileParams mbp;
+      mbp.emit_fine = mbp.emit_medium = mbp.emit_alpha_confidence = true;
+      const int Hc = plan.canvas_height_native * cfg.internal_scale;
+      REQUIRE_THROWS_WITH(
+          accumulate_pair_by_frame_cuda(plan, provider, cfg, clip, 0, Hc, {}, {},
+                                        quality_of, mbp, /*mem_budget=*/512),
+          Catch::Matchers::ContainsSubstring("DRIZZLE_CONTRIB_LIST_BUDGET"));
+    }
+  }
+}
+
+TEST_CASE("drizzle store: the CUDA per-stripe path takes local-warp frames "
+          "through the plan-19.6.2 hybrid path (store byte-identical to CPU) "
+          "and still declines mode 2/1 to the CPU reference",
+          "[drizzle-store][cuda-parity]") {
+  auto plan = plan_for(/*size=*/16, /*osc=*/false);
+  plan.canvas_width_native = plan.canvas_height_native = 16;
+  plan.frames.clear();
+  const int nfr = 5;
+  for (int i = 0; i < nfr; ++i) {
+    registration::FrameSamplingTransform f;
+    f.valid = f.source_to_canvas_affine_valid = true;
+    f.frame_id = "synthetic:" + std::to_string(i);
+    f.source_index = static_cast<size_t>(i);
+    f.model_prediction_factor = 1.0f;
+    f.registration_residual_factor = 1.0f;
+    // Sub-pixel rotation + translation per frame, so droplets straddle cell
+    // boundaries and every contribution carries a distinct polygon area --- a
+    // digest over identity transforms + a flat source could not catch a
+    // leaf_order / target-cell mix-up.
+    const double ang = 0.02 * std::sin(0.5 * i);
+    const double tx = 0.37 + 0.21 * ((i * 7) % 5) / 5.0;
+    const double ty = 0.11 + 0.19 * ((i * 3) % 5) / 5.0;
+    f.source_to_canvas(0, 0) = static_cast<float>(std::cos(ang));
+    f.source_to_canvas(0, 1) = static_cast<float>(-std::sin(ang));
+    f.source_to_canvas(0, 2) = static_cast<float>(tx);
+    f.source_to_canvas(1, 0) = static_cast<float>(std::sin(ang));
+    f.source_to_canvas(1, 1) = static_cast<float>(std::cos(ang));
+    f.source_to_canvas(1, 2) = static_cast<float>(ty);
+    plan.frames.push_back(f);
+  }
+  config::ReconstructionDrizzleConfig cfg = config_for();
+  config::ReconstructionClippingConfig clip;
+  clip.min_n_eff = 1.0f;
+  clip.min_fraction = 0.1f;
+  std::vector<Matrix2Df> imgs;
+  for (int i = 0; i < nfr; ++i) {
+    Matrix2Df img(16, 16);
+    for (int y = 0; y < 16; ++y)
+      for (int x = 0; x < 16; ++x)
+        img(y, x) = 40.0f + (i == 2 ? 500.0f : 0.0f)  // frame 2 forces clipping
+                    + 3.0f * x + 2.0f * y +
+                    11.0f * std::sin(0.6f * (x + y)) + 0.5f * i;
+    imgs.push_back(std::move(img));
+  }
+  SourceImageProvider provider = [&](size_t i) -> const Matrix2Df & {
+    return imgs[i];
+  };
+  Matrix2Df m = Matrix2Df::Constant(16, 16, 0.7f);
+  FrameQualityProvider quality_of = [&](size_t) -> FrameQualityMaps {
+    return {&m, &m, &m, &m};
+  };
+  MultibandStoreContract mbc;
+  mbc.enabled = true;
+  mbc.levels = 2;
+  reconstruction::ForwardDrizzleCudaOptions attempt;
+  attempt.attempt = true;
+
+  SECTION("a local-warp frame -> hybrid path, store byte-identical to CPU") {
+    if (reconstruction::forward_drizzle_cuda_device_memory().free_bytes == 0) {
+      SUCCEED("no CUDA device -- skipped");
+      return;
+    }
+    auto p = plan;
+    p.frames[1].has_smooth_local_model = true;
+    p.frames[1].smooth_local_model.valid = true;
+    p.frames[1].smooth_local_model.image_rows = 16;
+    p.frames[1].smooth_local_model.image_cols = 16;
+    p.frames[1].model_coordinate_scale = 1.0f;
+
+    Fixture cpu_fx, gpu_fx;
+    const auto cpu = persist_forward_drizzle_multiband(
+        cpu_fx.root, p, provider, cfg, clip, mbc, quality_of);
+    const auto gpu = persist_forward_drizzle_multiband(
+        gpu_fx.root, p, provider, cfg, clip, mbc, quality_of, {}, {}, {},
+        attempt);
+    REQUIRE(gpu.cuda_timing.used);
+    REQUIRE(gpu.cuda_timing.hybrid_local_frames == 1);
+    REQUIRE(cpu.clipping.candidate_contributions_clipped > 0);  // non-vacuous
+    REQUIRE(gpu.clipping.candidate_contributions_clipped ==
+            cpu.clipping.candidate_contributions_clipped);
+    auto plane_digest = [](const fs::path &gen) {
+      std::map<std::string, std::string> h;
+      for (const auto &e : fs::directory_iterator(gen)) {
+        const std::string n = e.path().filename().string();
+        if (e.is_regular_file() && n.size() > 5 &&
+            n.substr(n.size() - 5) == ".fits")
+          h[n] = core::sha256_file(e.path());
+      }
+      REQUIRE(h.size() >= 12);
+      return h;
+    };
+    REQUIRE(plane_digest(gpu.generation_dir) ==
+            plane_digest(cpu.generation_dir));
+  }
+
+  SECTION("mode 2/1 -> ForwardDrizzleCudaError before any generation") {
+    auto c = cfg;
+    c.internal_scale = 2;
+    c.output_scale = 1;
+    Fixture fx;
+    REQUIRE_THROWS_AS(
+        persist_forward_drizzle_multiband(fx.root, plan, provider, c, clip, mbc,
+                                          quality_of, {}, {}, {}, attempt),
+        reconstruction::ForwardDrizzleCudaError);
+    REQUIRE_FALSE(fs::exists(fx.root / "current.json"));
   }
 }
 
@@ -939,10 +1494,12 @@ TEST_CASE("plan-19.4 CUDA auto-chunking: reserve, fit, and the halving ladder",
     }
   }
 
-  SECTION("the forward-drizzle CUDA path stays disabled until the kernels land") {
-    // A device may be present, but slice 2 has no kernels yet -- attempting the
-    // path would only cost a CPU restart per run.
-    REQUIRE_FALSE(reconstruction::forward_drizzle_cuda_runtime_available());
+  SECTION("the affine forward-drizzle CUDA path is enabled exactly when a "
+          "usable device is present (§30.54/§30.55: wired + store-level "
+          "byte-identical on real M31 data)") {
+    const auto mem = reconstruction::forward_drizzle_cuda_device_memory();
+    REQUIRE(reconstruction::forward_drizzle_cuda_runtime_available() ==
+            (mem.free_bytes > 0));
   }
 }
 

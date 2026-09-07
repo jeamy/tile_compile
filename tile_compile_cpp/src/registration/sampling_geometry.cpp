@@ -354,7 +354,7 @@ GeometricCoverageResult compute_geometric_coverage(
         std::fill(B[c].begin(), B[c].end(), 0);
       rasterize_drizzle_stripe(
           plan, *f, internal_scale, pixfrac, y, rows,
-          [&](int, int, int c, size_t i, double k) { B[c][i] += k; });
+          [&](int, int, int c, int, size_t i, double k) { B[c][i] += k; });
       for (int c = 0; c < channels; ++c)
         for (size_t i = 0; i < n; ++i)
           if (B[c][i] > 0) {
@@ -367,7 +367,7 @@ GeometricCoverageResult compute_geometric_coverage(
       // of CFA colour and the shrunken reconstruction droplet.
       rasterize_drizzle_stripe(
           plan, *f, internal_scale, 1.0f, y, rows,
-          [&](int, int, int, size_t i, double) { touched[i] = 1; });
+          [&](int, int, int, int, size_t i, double) { touched[i] = 1; });
       for (size_t i = 0; i < n; ++i)
         footprint_count[i] += touched[i];
     }

@@ -2,7 +2,7 @@
 
 ## Detaillierter Implementierungsplan
 
-**Status:** CPU-Rekonstruktionspfad M1–M5 funktional integriert; M4-Produktintegration separat M10 zugeordnet. M6-Fusion, Kandidatenauswahl und Ausgabe implementiert, Ressourcenabnahme offen. M7 teilweise implementiert, produktiver CUDA-Rekonstruktionspfad deaktiviert. Keine pauschale Abnahme M1–M6.
+**Status:** CPU-Rekonstruktionspfad M1–M5 funktional integriert; M4-Produktintegration separat M10 zugeordnet. M6-Fusion, Kandidatenauswahl, Ausgabe **und §11.13-Ressourcenabnahme auf realen M31/M42-Läufen** abgeschlossen. M7: affiner CUDA-Pfad verdrahtet und auf echten M31-Daten (1/1 **und** 2/2) byte-identisch zur CPU-Referenz, `runtime_available()` aktiviert; lokale-Warp-Frames laufen über den hybriden Pfad §19.6.2 (CPU-Geometrie → GPU-Rasterisierung, `backend=cuda_hybrid`, §30.56) — synthetisch byte-identisch, realer Großbild-Lauf offen; die Produktionsconfig (Modus 2/1) fällt weiterhin auf CPU zurück — Device-2×2-Downsample offen. Keine pauschale Abnahme M1–M6.
 
 **Datum:** Status- und Entscheidungsrevision 2026-09-07.
 
@@ -50,25 +50,38 @@ getestet und für den Produktrelease abgenommen sind getrennte Aussagen.
 | M3 | Clipping, Qualitätsgewichte und geprüfte Vorgänger integriert | Cache-Produktpolitik M8/M10; Kandidaten-Vorabplanung bereits vorhanden |
 | M4 | Kern und Store implementiert | Downstream/WCS/Photometrie M10, Report M8; ursprüngliche Gesamtabnahme dadurch nicht erledigt |
 | M5 | Source-Q-Maps samt Konsum implementiert | Reales MONO und objektoffene Matrix M9 |
-| M6 | Fusion, Auswahl und Ausgabe funktional implementiert | Gesamtbudget für Fusion/Validierung/Export und Ressourcenabnahme offen (§11.13) |
-| M7 | Neustartvertrag, Planer, Probe, Treiber und zwei CUDA-Geometriekerne | Rasterisierung/Clipping/Profile, produktive Integration und vollständige native Parität offen; Runtime deaktiviert |
+| M6 | Fusion, Auswahl, Ausgabe und §11.13-Ressourcenvertrag (Vorabplan, Fail-Closed, Kandidaten-Spool, phasen-lokale RSS) implementiert und synthetisch abgenommen | Reale Ressourcenabnahme mit großen Bildern braucht einen Run-Auftrag (§11.13) |
+| M7 | Affiner CUDA-Pfad verdrahtet + Runtime aktiviert; auf echten M31-Daten (40 Frames) Profil-Store **und** fusioniertes Bild byte-identisch CPU↔CUDA (§30.55); lokale-Warp-Frames über den hybriden Pfad §19.6.2 (CPU-Geometrie → GPU-Raster, §30.56), synthetisch byte-identisch; §11.13 auf M31+M42 bestätigt; FP-Kontraktion fixiert | **Device-2×2 für Modus 2/1** (Produktionsconfig fällt sonst auf CPU zurück); realer Großbild-Hybrid-Lauf (M42) offen; getrennte Hybrid-Timing-Felder; `s_j`-Pinning; CUDA ≈ 1,6× langsamer als CPU (Profiling offen) |
 | M8 | offen | GUI, Report, vollständige aktive Dokumentation und Cache-Kommunikation |
 | M9 | offen | Vollständige unabhängige Pflichtmatrix fehlt; einzelne historische M31/M42-Läufe ersetzen sie nicht |
 | M10 | offen | Kanonische Downstream-Ausgabe, Photometrie-/WCS-Vertrag, Retention und Produkt-Cutover |
 | M11 | offen | M10 und Grace-Zyklus vorausgesetzt |
 
-**Prüfung dieser Statusrevision:** vorhandenes `build/tests`: 21 gezielte
-Drizzle-/Store-/Runner-Fälle (5.426 Assertions) sowie 24 `multiband*`-Fälle
-(19.542 Assertions) bestanden. Kein Neubuild, keine vollständige Suite, keine
-erneute native GPU-Abnahme. Historische Hauptsuite-Zahlen und damalige
-GPU-Fehler werden nicht als aktueller Teststatus übernommen. Keine neuen
-Bildverarbeitungsläufe oder Artefaktänderungen in Benutzerruns.
+**Prüfung dieser Statusrevision:** Neubuild + vollständige `build/tests`-Suite
+**508/509** bestanden (die eine Abweichung bleibt das vorbestehende
+`test_acceleration_backend.cpp:254`, ohne Bezug zu diesem Pfad). Store-Level-
+CUDA-Parität nativ auf der GTX 1660 Ti; zusätzlich reale `reconstruct`-Vollläufe
+M31/M42 auf ausdrücklichem Run-Auftrag mit byte-identischem CPU↔CUDA-Store
+([§30.55](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-55)).
+Diese Verifikationsläufe sind Wegwerf-Artefakte, keine kanonischen Benutzerruns.
 
 ### 0.2 Nächste Arbeitsschritte
 
-1. M6-Gesamtbudget für Fusion, Validierung und Export schließen (§11.13).
-2. M7-Beitragslisten, Rasterisierung, Clipping und Profile implementieren
-   (§19.6), anschließend native Parität, Fehlerneustart und Timing nachweisen.
+1. M6-Ressourcenvertrag §11.13 in Code, synthetischen Fixtures **und auf realen
+   M31/M42-Vollläufen** bestätigt
+   ([§30.50](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-50),
+   [§30.55](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-55)):
+   Working-Set fits budget, Temp-Space ok, Phase-RSS im Envelope, Spool entfernt.
+2. M7: affiner CUDA-Pfad verdrahtet, `runtime_available()` aktiviert, auf echten
+   M31-Daten Profil-Store und fusioniertes Bild byte-identisch CPU↔CUDA
+   ([§30.51](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-51)–[§30.56](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-56)).
+   Lokale-Warp-Geometrie bleibt auf der CPU; die Rasterisierung läuft über den
+   hybriden Pfad §19.6.2 (`backend=cuda_hybrid`, §30.56) — synthetisch
+   byte-identisch, realer Großbild-Lauf offen.
+   **Offen und blockierend für den produktiven Nutzen:** Device-2×2-Downsample
+   für Modus 2/1 — die Standard-Pipeline (`internal_scale=2, output_scale=1`)
+   fällt sonst mit `cuda_fallback_reason` auf CPU zurück. Ferner: `s_j`-Pinning,
+   Durchsatz (CUDA aktuell ≈ 1,6× langsamer als CPU).
 3. M8-/M10-Integration mit kanonischen WCS-/Photometrie-Ausgaben, Report und
    Cachepolitik abschließen; übertragene Pflichten bleiben offen (§23.1).
 4. M9-Pflichtmatrix einschließlich realem MONO und unabhängigen Truth-Fixtures
@@ -3190,6 +3203,40 @@ und Bibliotheksfunktionen noch keine CPU-/GPU-Bitidentität.
 - Uniform, Raw und jedes Detailprofil;
 - À-trous-Bänder und Alpha.
 
+<a id="paritaets-fehlergrenzen"></a>
+
+#### 19.5.1 Fehlergrenzen der Paritätsmatrix (festgeschrieben 2026-09-07)
+
+Diese Grenzen erfüllt §19.6 „vor Aktivierung"; sie dürfen nicht nachträglich
+zum Bestehen erweitert werden. Feldbezogen, nicht als Gesamtprofil-Toleranz.
+
+| Größe | CPU↔CUDA | Wiederholung gleiche HW/Binary | Chunkhöhen-Variation |
+| --- | --- | --- | --- |
+| Diskrete Entscheidungen (Frameausschluss, Clipping accept/reject, Support/Veto, N/A, Kandidatenauswahl, Akzeptanzmaske, Tie-Breaks) | identisch (bit-exakt) | identisch | identisch |
+| `X_out` je Zelle (normalisierter linearer Arbeitsraum) | rel. ≤ `1·10⁻⁹` mit abs. Boden `1·10⁻¹²` | bit-exakt | bit-exakt |
+| À-trous-Detailfelder `D_fine` / `D_medium` je Zelle | rel. ≤ `1·10⁻⁹` **relativ zur robusten Bandskala** `s_j` (nicht zu `max(1,·)`) mit abs. Boden `1·10⁻⁶·s_j`; `s_j` = p99.5(|D_j|) auf Support, beim Matrixlauf je Band gemessen und im Testfixture literal gepinnt | bit-exakt | bit-exakt |
+| `weight_sum` / `coverage` je Zelle | rel. ≤ `1·10⁻⁹` | bit-exakt | bit-exakt |
+| Integrierter Aperturflux je synthetischem Stern (§19.5-Fixtures) | rel. ≤ `1·10⁻³` | rel. ≤ `1·10⁻⁶` | rel. ≤ `1·10⁻⁶` |
+| Zentroid je synthetischem Stern | ≤ `2·10⁻³` native Pixel | ≤ `1·10⁻⁴` px | ≤ `1·10⁻⁴` px |
+| `n_eff` der Rekonstruktion | rel. ≤ `1·10⁻⁹` | bit-exakt | bit-exakt |
+
+`X_out` liegt im normalisierten linearen Arbeitsraum bei ≪ 1, daher greift
+`max(1,|cpu|)` **nicht** und die Grenze wirkt effektiv absolut `1·10⁻⁹` — für
+`X_out` fest genug. Die à-trous-Detailbänder haben die kleinsten Beträge; eine
+feste absolute `1·10⁻⁹`-Grenze wäre dort ein zweistelliger Relativfehler und
+könnte eine echt fehlsortierte Reduktion durchlassen. Deshalb: **die Methode**
+(rel. zur je Band gemessenen robusten Skala `s_j`, abs. Boden `1·10⁻⁶·s_j`) ist
+hiermit festgeschrieben; die Zahl `s_j` selbst wird beim Matrixlauf aus den
+Banddaten bestimmt und im Fixture literal gepinnt — das ist kein
+nachträgliches Erweitern, sondern die datengetriebene Instanziierung der hier
+fixierten Methode. Die `1·10⁻⁹`-Feldgrenze ist die lineare Fortpflanzung der
+zwei gemessenen Geometriekern-Abweichungen (Polygon-Rechteck-Fläche
+`4,7·10⁻¹¹`, affine Ecken `<1·10⁻⁹`) in die akkumulierten Gewichte —
+ausdrücklich **nicht** dieselbe Zahl wie die Kern-Toleranzen, sondern deren
+gebündelte Feldwirkung. Der Aperturflux-Paritätswert `1·10⁻³` liegt weit
+innerhalb des Produktgates `< 0,5 %` (§32). Ein Masken-/Gate-Unterschied ist
+nie ein tolerierter Feldfehler (§19.6).
+
 <a id="entscheidung-cuda"></a>
 
 ### 19.6 Entscheidung: deterministische Vorwärtslisten und Segmentreduktion
@@ -3233,8 +3280,9 @@ vorab festgelegte, feldbezogene absolute/relative Toleranzen nutzen. Die zwei
 vorhandenen Geometriekernel-Toleranzen sind keine Toleranz für ganze Profile.
 Vor Aktivierung muss die Paritätsmatrix die Profil-/Flux-/Zentroidfehlergrenzen
 festschreiben und bestehen, einschließlich nahezu nullwertiger Felder und
-Schwellenfixtures. Toleranzen dürfen nicht nachträglich zum Bestehen erweitert
-werden. FMA-/Compilerpolitik explizit fixieren, kein Fast-Math im Referenzpfad.
+Schwellenfixtures. Die konkreten Grenzen sind in [§19.5.1](#paritaets-fehlergrenzen)
+festgeschrieben (2026-09-07); Toleranzen dürfen nicht nachträglich zum Bestehen
+erweitert werden. FMA-/Compilerpolitik explizit fixieren, kein Fast-Math im Referenzpfad.
 Ein Masken- oder Gate-Unterschied ist kein tolerierter kleiner Pixelfehler.
 
 **Begründung:** Floating-Point-Addition ist nicht assoziativ; auch FMA verändert
@@ -3244,6 +3292,118 @@ sind in [NVIDIAs Floating-Point-Dokumentation](https://docs.nvidia.com/cuda/arch
 beschrieben. Die konkrete Listenstrategie ist unsere Entwurfsentscheidung für
 lokale Warps und diskontinuierliche Clipping-/Gateentscheidungen. Durchsatzgewinn
 bleibt zu messen; Geschwindigkeit hat keinen Vorrang vor dem Paritätsvertrag.
+
+#### 19.6.1 Lokale Warps bleiben CPU-only, solange §19.5.1 gilt
+
+**Festlegung: 2026-09-07.**
+
+Der Subdivisionspfad für lokale Warps kann auf der GPU **nicht** bit-identisch
+zur CPU-Referenz laufen. Unter §19.5.1 in der geltenden Fassung (exakte
+diskrete Entscheidungen, keine Toleranz für Masken/Gates) ist damit **kein**
+GPU-Pfad für lokale Warps zulässig; er wird nicht auf das Device abgebildet.
+Eine Wiederaufnahme setzt eine Änderung von §19.5.1 voraus — konkret eine
+vorab festgelegte, feldbezogene Toleranz für das *kontinuierliche*
+Verschiebungsfeld (die §19.6 für kontinuierliche Felder grundsätzlich
+zulässt), verbunden mit dem Nachweis, dass die davon abhängigen diskreten
+Entscheidungen dennoch exakt gleich bleiben. Diese Änderung ist derzeit nicht
+gemacht und durch §19.5.1 ausdrücklich untersagt.
+
+Grund für die Bit-Diskrepanz: `smooth_local_basis` (`src/registration/global_registration.cpp`)
+wertet eine 4×4-Gauß-Basis über `std::exp` aus. `expf`/`std::exp` sind
+transzendent; die glibc- und die CUDA-libdevice-Implementierung unterscheiden
+sich um ~1 ULP. Dieses Ergebnis fließt über `evaluate_smooth_local_displacement`
+→ das Verschiebungsfeld → den Fixpunkt-Iterator `invert_local_source_to_canvas`
+in **diskrete** Entscheidungen: die Konvergenzprüfung `step < tol_px`, den
+`out_of_bounds`-Frühausstieg und damit die Menge der akzeptierten Leaves und
+ihrer Ecken. §19.6 verlangt für diskrete Entscheidungen exakte CPU↔GPU-Gleichheit
+(„Ein Masken- oder Gate-Unterschied ist kein tolerierter kleiner Pixelfehler"),
+§19.5.1 lässt hierfür keine Toleranz zu. Beides ist mit `expf`-Parität nicht
+erfüllbar.
+
+Konsequenz für die Paritätsmatrix §19.5: die **Geometrie** lokaler Warps
+(Verschiebungsfeld, Fixpunkt-Inversion, Bounds, adaptive Subdivision, Leaf-Ecken)
+bleibt CPU-Referenz-only — für sie gibt es keinen GPU-Vergleich, weil es keine
+GPU-Auswertung des Verschiebungsfelds gibt. Die reine **Rasterisierung** (Polygon-
+Zell-Fläche aus fertigen Leaf-Ecken) darf per §19.6.2 auf das Device abgebildet
+werden; dafür gelten die vorhandenen affinen Paritätszeilen (Geometriekernel
+bit-identisch). Die Matrix ist für den GPU-Teil vollständig, sobald alle
+**affinen** Zeilen und die §19.6.2-Rasterzeile bestehen.
+
+Konsequenz für die produktive Verdrahtung (§19.4): `persist_forward_drizzle_multiband`
+prüft vor jedem CUDA-Versuch, dass nicht Modus 2/1 vorliegt und ein Device
+verfügbar ist. Frames mit lokalem Modell (`has_smooth_local_model`) laufen über
+den hybriden Pfad §19.6.2 (CPU-Geometrie → GPU-Rasterisierung), affine Frames
+über den reinen Device-Pfad; beide teilen sich denselben kanonischen Downstream.
+Trifft eine der beiden verbleibenden Bedingungen (Modus, Device) nicht zu oder
+schlägt ein Device-Schritt fehl, läuft die Rekonstruktion vollständig auf dem
+CPU-Referenzpfad; der Grund steht in `cuda_fallback_reason`. Es gibt keinen
+gemischten CPU/CUDA-Commit.
+
+#### 19.6.2 Hybrider Pfad für lokale Warps: CPU-Geometrie → GPU-Rasterisierung
+
+**Festlegung: 2026-09-07.**
+
+§19.6.1 schließt eine **eigenständige** GPU-Auswertung des Verschiebungsfelds aus.
+Es ist aber zulässig und vom Plan ausdrücklich erlaubt, die Geometrie vollständig
+auf der CPU-Referenz zu berechnen und der GPU nur die **Rasterisierung** zu
+übergeben. Dieser hybride Pfad ist kein versteckter Fehlerfallback, sondern ein
+regulärer Backend-Pfad.
+
+**Ablauf (verbindlich):**
+
+1. Die vorhandene CPU-Referenz (`sample_leaves` → `subdivide_local`,
+   `invert_local_source_to_canvas`) berechnet je Quell-Sample lokale
+   Verschiebung, Fixpunkt-Inversion, Bounds-Prüfung und adaptive Subdivision.
+2. Sie legt Sample- und Frame-Ausschlüsse sowie die endgültigen Leaf-Ecken
+   **verbindlich** fest. Alle Ausschlüsse werden vor der Veröffentlichung des
+   Beitrags angewandt.
+3. Die CPU zählt zellweise die Bounding-Box jedes Leaves auf (identisch zu
+   `rasterize_drizzle_stripe`: `floor`/`ceil` über die vier exakten Ecken, keine
+   Vorfilterung) und überträgt je (Leaf, Zelle) die vier Ecken (8 Doubles,
+   unquantisiert), das Zellrechteck `[x, y, x+1, y+1]`, den Quellindex
+   `(source_y, source_x)`, den Kanal und die Leaf-Reihenfolge `leaf_order`.
+4. Die GPU berechnet ausschließlich die Polygon-Zell-Fläche über denselben
+   bit-exakten Kernel wie der affine Pfad (`d_polygon_rect_area`,
+   Sutherland-Hodgman + Shoelace, `--fmad=false`). Sie wertet **kein**
+   Verschiebungsfeld, **keine** Subdivision und **keine** diskrete Entscheidung
+   aus; `floor`/`ceil`/Bounds sind bereits CPU-seitig fixiert.
+5. Der kanonische Schlüssel
+   `(frame_order, channel, target_y, target_x, source_y, source_x, leaf_order)`
+   und der gesamte Downstream (Sortierung, Q-Faltung, Clipping,
+   Profilakkumulation in `accumulate_pair_impl`) bleiben unverändert gemeinsamer
+   Hostcode.
+
+**Numerischer Vertrag:** Weil die GPU das Verschiebungsfeld nicht unabhängig
+auswertet, entfällt der CPU↔GPU-`exp`-Vergleich vollständig. Es wird **keine
+neue Toleranz** eingeführt; §19.5.1 bleibt unverändert. Die einzige GPU-Rechnung
+ist die Polygon-Fläche, die bereits als bit-identisch nachgewiesen ist
+(§30.49/§30.53). Ergebnis: der hybride Pfad muss byte-identische gespeicherte
+Profile liefern wie der reine CPU-Referenzpfad — für MONO und OSC, für alle
+Chunkhöhen und für beliebige Leaf-Batch-Grenzen.
+
+**Ressourcen und Restart:** Leaf/Zell-Arbeitspakete werden in **budgetierten
+Batches** an die GPU gegeben (`max_batch_items`), nicht die gesamte Geometrie
+aller Frames im RAM. Der §19.4-Restart-Vertrag gilt weiter: jeder Device-Fehler
+(Alloc, Kernel) führt zu vollständigem CPU-Neustart, kein gemischter Commit. Der
+Batch schrumpft bei Alloc-Druck (Halbierung bis zu einer festen Untergrenze),
+darunter greift der CPU-Neustart.
+
+**Kennzeichnung:** Sind lokale-Warp-Frames beteiligt, meldet der committende
+Store `backend_used = "cuda_hybrid"` (sonst `"cuda"`);
+`DrizzleCudaStoreTiming::hybrid_local_frames` bzw.
+`acceleration.cuda_stripe_path.hybrid_local_frames` nennt die Anzahl. Die
+Timing-Telemetrie misst den Hybridpfad zunächst als Ganzes
+(`cuda_timing.stripe_seconds`); die Aufschlüsselung nach CPU-Geometrie,
+H2D/D2H-Transfer und GPU-Rasterzeit folgt mit dem Profiling.
+
+**Reihenfolge:** Zuerst CPU-Leaf-Erzeugung mit GPU-Rasterisierung und
+unveränderten Paritätsgrenzen; danach profilieren. Nur wenn die lokale
+Geometrie (Inversion/Subdivision) den Durchsatz tatsächlich begrenzt, wird eine
+eigenständige, versionierte Numerikrevision verfolgt, die das Transzendente aus
+`smooth_local_basis` durch eine FMA-freie Minimax-Approximation ersetzt
+(bit-identisch, ohne §19.5.1-Änderung, aber mit neuem Registrierungs-Hash und
+Re-Validierung). Ein voller GPU-Lokalpfad über eine feldbezogene Toleranz
+(§19.6.1) bleibt davon unberührt und weiterhin durch §19.5.1 untersagt.
 
 ---
 
@@ -3757,7 +3917,7 @@ Revision. Reales MONO und vollständige objektoffene Qualitätsmatrix bleiben M9
 
 ### M6 — Mehrprofil-Drizzle und Mehrbandfusion
 
-**Status: Funktionalität implementiert; Ressourcenabnahme offen.**
+**Status: Funktionalität implementiert; Ressourcenvertrag §11.13 erfüllt (Code + synthetisch). Reale Ressourcenabnahme mit großen Bildern steht noch aus.**
 
 - [x] Fine-/Medium-Profile mit gemeinsamer Clippingmaske, transaktionaler
   Mehrprofilstore und Confidence-Ebenen für `1/1`, `2/1`, `2/2`.
@@ -3770,19 +3930,27 @@ Revision. Reales MONO und vollständige objektoffene Qualitätsmatrix bleiben M9
   gewählte `reconstructed_*`, optionale Kontrollen sowie Output-Hashes.
 - [x] Geometrie-/Clipping-/Warp-/Phasen-/Ressourcendiagnostik vorhanden;
   GPU-Detailtiming bleibt M7.
-- [ ] Gemeinsame Vorabplanung für Fusion, Kandidaten, Validierung und Export
-  samt Allokationsablehnung und phasenspezifischer RSS-Messung (§11.13).
-- [ ] Ressourcenabnahme mit großen Bildern, kleinen Budgets, mehreren
-  Chunkhöhen, OSC/MONO und allen Scale-Modi; erst danach M6 vollständig abnehmen.
+- [x] Gemeinsame, überlaufsichere Vorabplanung (`plan_multiband_fusion_memory`,
+  sechs Einzelterme) für Fusion, Kandidaten, Validierung und Export; Fail-Closed
+  `MULTIBAND_MEMORY_BUDGET` vor der ersten großen Allokation; kein stilles
+  Anheben eines expliziten Budgets; Kandidatenkanäle streifenweise in einen
+  Spool statt 3·nch voller Ebenen; phasen-lokale `VmRSS`-Messung gegen den Wert
+  bei Phasenbeginn, getrennt vom Lebenszeit-Peak ([§30.50](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-50)).
+- [x] Synthetische Ressourcenfixtures: Planer-Arithmetik, Fail-Closed-Grenze,
+  Chunkhöhen-Invarianz von Kandidaten/Masken/**Auswahl**, injizierter Fehler
+  bewahrt den Commitvertrag, Runner-Integration mit den neuen `resources`-Feldern.
+- [ ] Reale Ressourcenabnahme mit großen Bildern (M31/M42 Full-Res), kleinen
+  Budgets, mehreren Chunkhöhen, OSC/MONO und allen Scale-Modi — benötigt einen
+  ausdrücklichen Run-Auftrag; erst danach M6 vollständig abnehmen.
 
-M31/M42-OSC-Ergebnisse sind in [§30.45](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-45)–30.48 dokumentiert; reales MONO fehlt.
+M31/M42-OSC-Ergebnisse sind in [§30.45](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-45)–30.50 dokumentiert; reales MONO fehlt.
 Die Erfolgsmeldung „M6 abgeschlossen“ aus [§30.48](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-48) wird auf funktionale Umsetzung
 eingeschränkt. Die zwei wissenschaftlichen Auswahlfragen sind in §15.5/15.6
 entschieden. Sie erlauben keine nachträgliche Lockerung der Safety-Gates.
 
 ### M7 — CUDA
 
-**Status: Infrastruktur und zwei Geometriekerne vorhanden; Produktionspfad aus.**
+**Status: affiner Device-Pfad verdrahtet und auf echten M31-Daten (40 Frames, `internal_scale=1`) byte-identisch zur CPU-Referenz — Store und fusioniertes Bild ([§30.55](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-55)). `forward_drizzle_cuda_runtime_available()` aktiviert (Probe-Form). Offen: Device-2×2-Downsample für Modus 2/1 — die Produktionsconfig (`internal_scale=2, output_scale=1`) fällt weiterhin mit `cuda_fallback_reason` auf CPU zurück. Lokale-Warp-Frames laufen über den hybriden Pfad §19.6.2 (CPU-Geometrie → GPU-Rasterisierung, `backend=cuda_hybrid`, [§30.56](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-56)) — synthetisch byte-identisch, realer Großbild-Lauf offen.**
 
 - [x] Transaktionaler vollständiger CPU-Neustart nach CUDA-Fehler, synthetische
   Fault-Injection einschließlich Store-/Runner-Vergleich ([§30.44](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-44)).
@@ -3790,13 +3958,103 @@ entschieden. Sie erlauben keine nachträgliche Lockerung der Safety-Gates.
   Host-Chunk-Treiber mit Halbierungs-Retries ([§30.49](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-49)).
 - [x] CUDA-Polygon-Rechteck-Fläche und affine Leaf-Ecken mit Komponenten-
   Paritätstests; frühere native Hardwareergebnisse in [§30.49](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-49) dokumentiert.
-- [ ] Deterministische Beitragslisten und frame-lokale Rasterisierung gemäß
-  §19.6, Clipping, gemeinsame Akzeptanzmaske und Profilakkumulation.
-- [ ] Planer/Retry-Treiber in den produktiven Storepfad integrieren;
-  `forward_drizzle_cuda_runtime_available()` bleibt bis zur Abnahme `false`.
-- [ ] Vollständige native CPU↔CUDA-Matrix einschließlich lokaler Warps,
-  Schwellenfälle, Profile, Chunk-/Repeat-Determinismus und Fehlerneustart.
-- [ ] Kernel-/Transfer-/Store-I/O-Timing, tatsächliche Chunkhöhen und Retries.
+- [x] Paritäts-Fehlergrenzen festgeschrieben ([§19.5.1](#paritaets-fehlergrenzen)); nachträgliches
+  Erweitern durch §19.6 ausgeschlossen.
+- [x] Deterministischer Vorwärts-Listenrasterisierer (Uniform) als CPU-Referenz:
+  `build_uniform_contrib_list` (Vorzählen + überlaufsichere Reservierung +
+  kanonische Sortierung nach dem 7-Tupel-Schlüssel), `reduce_uniform_contrib_list`
+  und die Produktionsform `accumulate_uniform_by_frame` (frameweise, ein Frame
+  Records Spitzenspeicher) — bit-identisch zur Streaming-Uniform-Referenz über
+  affin/Subpixel/Rotation × MONO/OSC (alle Bayer) × lokalem Warp × Randfälle
+  und über Streifenzerlegung
+  ([§30.51](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-51)).
+- [x] Raw-/Detailprofil-/Alpha-Beitragslisten und Clipping mit gemeinsamer
+  Akzeptanzmaske und fester Framefolge-Profilreduktion gemäß §19.6:
+  `reduce_pixel_profiles` (aus dem Streaming-Pfad herausgezogen, dort
+  weiterverwendet) + `accumulate_pair_by_frame` — bit-identisch zu
+  `compute_forward_drizzle_uniform_and_raw` inkl. aller `clipping`-Zähler bei
+  aktivem Clipping, über MONO/OSC (alle Bayer) × lokalem Warp × Randfälle
+  ([§30.52](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-52)).
+- [x] FP-Kontraktionspolitik fixiert (`-ffp-contract=off` CPU, `--fmad=false`
+  CUDA) → beide Geometriekerne **100 % bit-identisch**; die alten
+  `[cuda-parity]`-Toleranzen auf `cpu == gpu` verschärft
+  ([§30.53](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-53)).
+- [x] Affiner Device-Droplet-Rasterisierer `k_affine_frame_contribs` +
+  `forward_drizzle_cuda_affine_frame_contributions` (bandlokale Quellkopie,
+  atomarer Dense-Append, Zell-/Kapazitätsgrenzen → CPU-Fallback) und
+  `accumulate_pair_by_frame_cuda` — auf der GTX 1660 Ti **bit-identisch** zu
+  `accumulate_pair_by_frame` (alle vier Profile, Alpha-Maps, alle drei
+  `clipping`-Zähler) über MONO/OSC alle Bayer × Randfälle; lokale-Warp-Frames
+  hart abgelehnt ([§30.53](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-53)).
+- [x] Lokale-Warp-**Geometrie** auf der GPU **ausgesetzt, solange §19.5.1 gilt**
+  ([§19.6.1](#plan-19-6)): die Gauß-Basis (`std::exp`) macht diskrete
+  CPU↔GPU-Gleichheit des Verschiebungsfelds unerreichbar; ohne eine (derzeit
+  untersagte) §19.5.1-Toleranz gibt es keinen vollen GPU-Lokalpfad. Die
+  **Rasterisierung** lokaler Warps läuft dagegen über den hybriden Pfad
+  §19.6.2 (CPU-Geometrie → GPU-Fläche,
+  [§30.56](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-56)):
+  die GPU wertet das Feld nicht aus, §19.5.1 unverändert. Die §19.5-Matrix ist
+  für den GPU-Teil mit den affinen Zeilen + der §19.6.2-Rasterzeile komplett
+  ([§30.54](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-54)).
+- [x] `accumulate_pair_by_frame_cuda` + `plan_cuda_chunking`/`run_cuda_chunked`
+  in `persist_forward_drizzle_multiband` verdrahtet: Drei-Gate-Prüfung
+  (affin-only, nicht Modus 2/1, Device vorhanden) vor dem `StoreWriter`,
+  sonst voller CPU-Referenz-Build mit `cuda_fallback_reason`; gerätegroße
+  Bänder in denselben `multiband_stripe`-Sink. Store **byte-identisch** zum
+  CPU-Streaming- und zum Ganzleinwand-CPU-Build (MONO + OSC, subpixel-rotiert,
+  Clipping aktiv) — `[drizzle-store][cuda-parity]`
+  ([§30.54](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-54)).
+- [x] Timing: `DrizzleStoreResult::cuda_timing` → `acceleration.cuda_stripe_path`
+  in `forward_drizzle.json` (Bänder, aufgelöste Chunkhöhe, Retryboden,
+  `bytes_per_row`, freier VRAM, Streifen-/Gesamtsekunden).
+- [x] Realer Großbild-Lauf auf Run-Auftrag ([§30.55](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-55)):
+  M31 (40 OSC-Frames, native Leinwand ≈ 5760×5664) in **zwei** Geometrien —
+  `internal_scale=1` (21 Bänder) und `internal_scale=2, output_scale=2`
+  (Produktions-Oversampling, 92 Bänder, Mehrzellen-Clip voll belastet). In
+  beiden ist der committete Profil-Store (52 Plane-FITS) **und**
+  `reconstruction_multiband.fits` byte-identisch CPU↔CUDA. M42 (1 lokaler-Warp-
+  Frame) lehnt korrekt mit `cuda_fallback_reason` ab, Store byte-identisch zum
+  CPU-Lauf. §11.13 auf beiden Datensätzen und allen drei Geometrien bestätigt.
+- [x] `forward_drizzle_cuda_runtime_available()` aktiviert — Probe-Form
+  `forward_drizzle_cuda_device_memory().free_bytes > 0`; jeder Versuch bleibt
+  durch die Drei-Gate-Prüfung abgesichert. Zwei veraltete Testannahmen
+  angepasst.
+- [x] **Hybrider Pfad §19.6.2 (CPU-Geometrie → GPU-Rasterisierung) für lokale
+  Warps** ([§30.56](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-56)).
+  `enumerate_drizzle_stripe_leaf_cells` als gemeinsame Zell-Enumeration aus
+  `rasterize_drizzle_stripe` herausgezogen (`DrizzleLeafCellSink`, `leaf`-Index
+  im `DrizzleAreaSink`-Schlüssel); `cuda_pair_producer` verzweigt bei
+  `has_smooth_local_model` in `build_frame_records_hybrid_local`: CPU baut die
+  verbindliche Leaf-Liste, GPU rasterisiert je (Leaf, Zelle) über
+  `forward_drizzle_cuda_polygon_rect_area_batch` (nur Fläche; `leaf_order`,
+  Quellindex und Kanal host-seitig getragen); budgetierte Leaf-Batches
+  (`max_batch_items`, Halbierung bei Alloc-Druck bis Untergrenze 4096 →
+  `ForwardDrizzleCudaError`/§19.4-CPU-Neustart). `accumulate_pair_by_frame_cuda`
+  nimmt `subdivision` + `max_batch_items`; `backend_used = "cuda_hybrid"` bei
+  ≥ 1 lokale-Warp-Frame, `DrizzleCudaStoreTiming::hybrid_local_frames` +
+  `acceleration.cuda_stripe_path.hybrid_local_frames`. Parität `[cuda-parity]`:
+  lokale-Warp-Fixture byte-identisch zum CPU-Pair-Pfad (MONO+OSC), auch bei
+  Batch-Grenzen 1/7/64 und ungleichem Streifen-Split; Store-Digest byte-identisch
+  CPU↔CUDA.
+- [ ] **Getrennte Hybrid-Timing-Felder** (CPU-Geometrie vs. H2D/D2H vs.
+  GPU-Raster). Derzeit misst `cuda_timing.stripe_seconds` den Hybridpfad als
+  Ganzes; die Aufschlüsselung folgt mit dem Profiling.
+- [ ] **Profilieren** (nach §19.6.2): dominiert die lokale Inversion/Subdivision
+  den Durchsatz, ist die versionierte Numerikrevision (`std::exp` →
+  FMA-freie Minimax-Approximation) der nächste Schritt, nicht eine
+  §19.5.1-Toleranz.
+- [ ] **Realer Großbild-Hybrid-Lauf** (M42, 1 lokaler-Warp-Frame): braucht einen
+  Run-Auftrag; erwartet Store byte-identisch zum CPU-Referenzlauf,
+  `backend=cuda_hybrid`.
+- [ ] **Device-2×2-Downsample für Modus 2/1.** Die Produktionsconfig läuft mit
+  `internal_scale=2, output_scale=1`; der affine Device-Pfad hat kein 2×2-Mittel
+  und lehnt mit `cuda_fallback_reason: "mode 2/1 is CPU-only"` ab. Bis dieser
+  Slice steht, ist der CUDA-Pfad auf der Standard-Pipeline inert.
+- [ ] `s_j`-Pinning je Detailband ([§19.5.1](#paritaets-fehlergrenzen)) beim
+  Matrix-Lauf.
+- [ ] Durchsatz: CUDA-FORWARD_DRIZZLE ist derzeit ≈ 1,6× langsamer als CPU
+  (host-gebundene Sortier-/Reduktionsphase). Optimierung offen; Bit-Exaktheit
+  hat Vorrang (§19.6).
 
 À-trous bleibt CPU. Komponentenfortschritt ist kein Nachweis einer beschleunigten
 Gesamtrekonstruktion. M6-Ressourcenvertrag vor produktiver M7-Freigabe schließen.

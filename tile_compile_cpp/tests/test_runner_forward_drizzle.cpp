@@ -100,13 +100,18 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
   REQUIRE(events(log.str()).back()["final_image_available"]==true);
   REQUIRE(events(log.str()).back()["status"]=="final_image_ready");
   {
-    // Plan 19: the FORWARD_DRIZZLE phase records the acceleration backend it
-    // actually ran on. Slice 1 has no CUDA kernels, so it is always "cpu"
-    // (whether or not "auto"/"cuda" was the resolved intent).
+    // Plan 19 / §30.54: the FORWARD_DRIZZLE phase records the acceleration
+    // backend it actually ran on. This affine 1/1 fixture runs on the CUDA
+    // per-stripe path when the host has a usable device (store byte-identical
+    // to the CPU build, verified by test_drizzle_profile_store), otherwise CPU.
     core::json fd_end;
     for (const auto &event:events(log.str()))
       if (event["type"]=="phase_end" && event["phase_name"]=="FORWARD_DRIZZLE") fd_end=event;
-    REQUIRE(fd_end.at("acceleration_backend")=="cpu");
+    const std::string be=fd_end.at("acceleration_backend").get<std::string>();
+    REQUIRE((be=="cpu" || be=="cuda"));
+    // The phase_end event carries cuda_fallback_reason only when a CUDA attempt
+    // fell back; a committed CUDA build omits it.
+    if (be=="cuda") REQUIRE_FALSE(fd_end.contains("cuda_fallback_reason"));
   }
   REQUIRE(fs::exists(f.dir/"artifacts/reconstruction_multiband.fits"));
   {
@@ -187,13 +192,31 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
     REQUIRE(j.at("geometry").at("kernel").is_string());
     REQUIRE(j.at("geometry").at("reconstruction_width")==32);
     REQUIRE(j.at("clipping").contains("pixel_channel_evaluations"));
-    REQUIRE(j.at("acceleration").at("forward_drizzle_backend")=="cpu");
-    // null when no CUDA attempt was made; a string when a CUDA build resolved
-    // and fell back (slice 1 has no kernels) -- both are valid.
+    {
+      const std::string be=
+          j.at("acceleration").at("forward_drizzle_backend").get<std::string>();
+      REQUIRE((be=="cpu" || be=="cuda"));
+      if (be=="cuda")
+        REQUIRE(j.at("acceleration").at("cuda_fallback_reason").is_null());
+    }
+    // null when no CUDA attempt was made or the affine device path committed;
+    // a string when a CUDA build resolved and fell back (local warp / mode 2/1).
     REQUIRE((j.at("acceleration").at("cuda_fallback_reason").is_null()||
              j.at("acceleration").at("cuda_fallback_reason").is_string()));
-    REQUIRE(j.at("resources").at("rss_peak_kib").get<long long>()>0);
+    // Plan 11.13(4): lifetime peak and phase-scoped growth are distinct fields.
+    REQUIRE(j.at("resources").at("rss_process_peak_kib").get<long long>()>0);
     REQUIRE(j.at("resources").at("memory_budget_mb").get<long long>()>0);
+    REQUIRE(j.at("resources").at("multiband_estimated_working_set_bytes")
+                .get<long long>()>0);
+    REQUIRE(j.at("resources").at("multiband_working_set_fits_budget")
+                .get<bool>());
+    REQUIRE(j.at("resources").contains("multiband_phase_rss_growth_kib"));
+    REQUIRE(j.at("resources").contains("multiband_working_set_breakdown"));
+    REQUIRE(j.at("resources").at("multiband_phase_rss_within_envelope")
+                .get<bool>());
+    REQUIRE(j.at("resources").at("multiband_temp_space_ok").get<bool>());
+    // Plan 11.13(3): the candidate spool is scratch and is gone after the run.
+    REQUIRE_FALSE(fs::exists(f.dir/"artifacts/multiband_candidate_spool"));
     REQUIRE(j.at("timing_seconds").contains("FORWARD_DRIZZLE"));
     REQUIRE(j.at("timing_seconds").at("FORWARD_DRIZZLE").get<double>()>=0.0);
     REQUIRE(j.at("pixels_supported").get<long long>()>0);

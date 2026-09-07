@@ -45,6 +45,7 @@ DartConfiguration.tcl
 runs/*
 tmp/
 /runs/*
+verify_m6m7/
 outputs/
 artifacts/
 logs/

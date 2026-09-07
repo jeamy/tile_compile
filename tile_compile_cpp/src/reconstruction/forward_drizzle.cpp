@@ -413,11 +413,10 @@ prepare_drizzle_frames(const RegistrationSamplingPlan &plan,
   return result;
 }
 
-void rasterize_drizzle_stripe(const RegistrationSamplingPlan &plan,
-                              const FrameSamplingTransform &f, int scale,
-                              float pixfrac, int y_begin, int rows,
-                              const DrizzleAreaSink &sink,
-                              const ForwardDrizzleSubdivisionParams &p) {
+void enumerate_drizzle_stripe_leaf_cells(
+    const RegistrationSamplingPlan &plan, const FrameSamplingTransform &f,
+    int scale, float pixfrac, int y_begin, int rows,
+    const DrizzleLeafCellSink &sink, const ForwardDrizzleSubdivisionParams &p) {
   const int W = plan.canvas_width_native * scale;
   int source_y0 = 0, source_y1 = plan.source_height;
   if (!f.has_smooth_local_model) {
@@ -453,7 +452,8 @@ void rasterize_drizzle_stripe(const RegistrationSamplingPlan &plan,
             sx, sy, plan.bayer_pattern, plan.cfa_origin_x, plan.cfa_origin_y);
         c = channel == CfaChannel::R ? 0 : channel == CfaChannel::G ? 1 : 2;
       }
-      for (const auto &leaf : leaves) {
+      for (size_t li = 0; li < leaves.size(); ++li) {
+        const auto &leaf = leaves[li];
         double xmin = *std::min_element(leaf.x, leaf.x + 4),
                xmax = *std::max_element(leaf.x, leaf.x + 4);
         double ymin = *std::min_element(leaf.y, leaf.y + 4),
@@ -469,14 +469,29 @@ void rasterize_drizzle_stripe(const RegistrationSamplingPlan &plan,
             std::clamp(std::ceil(ymax), static_cast<double>(y_begin),
                        static_cast<double>(y_begin + rows)));
         for (int y = y0; y < y1; ++y)
-          for (int x = x0; x < x1; ++x) {
-            const double k = polygon_rectangle_intersection_area(
-                leaf.x, leaf.y, x, y, x + 1.0, y + 1.0);
-            if (k > 0)
-              sink(sx, sy, c, static_cast<size_t>(y - y_begin) * W + x, k);
-          }
+          for (int x = x0; x < x1; ++x)
+            sink(sx, sy, c, static_cast<int>(li), x, y, leaf.x, leaf.y);
       }
     }
+}
+
+void rasterize_drizzle_stripe(const RegistrationSamplingPlan &plan,
+                              const FrameSamplingTransform &f, int scale,
+                              float pixfrac, int y_begin, int rows,
+                              const DrizzleAreaSink &sink,
+                              const ForwardDrizzleSubdivisionParams &p) {
+  const int W = plan.canvas_width_native * scale;
+  enumerate_drizzle_stripe_leaf_cells(
+      plan, f, scale, pixfrac, y_begin, rows,
+      [&](int sx, int sy, int c, int leaf_order, int x, int y,
+          const double *lx, const double *ly) {
+        const double k = polygon_rectangle_intersection_area(lx, ly, x, y,
+                                                             x + 1.0, y + 1.0);
+        if (k > 0)
+          sink(sx, sy, c, leaf_order,
+               static_cast<size_t>(y - y_begin) * W + x, k);
+      },
+      p);
 }
 
 ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
@@ -513,7 +528,7 @@ ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
       }
       rasterize_drizzle_stripe(
           plan, *f, cfg.internal_scale, cfg.pixfrac, y, rows,
-          [&](int sx, int sy, int c, size_t i, double k) {
+          [&](int sx, int sy, int c, int /*leaf*/, size_t i, double k) {
             const double v = source(sy, sx);
             if (std::isfinite(v)) {
               A[c][i] += k * v;
@@ -719,6 +734,83 @@ ClipResult apply_robust_clipping(std::span<const ClipCandidate> candidates,
   return result;
 }
 
+// Plan 11.8 / 11.9 / 14.4: the per-(channel, target cell) clip + profile +
+// alpha reduction, factored out so the streaming path below and the plan-19.6
+// contribution-list path (forward_drizzle_contrib_list.cpp) run the IDENTICAL
+// code and are therefore bit-identical. `candidates` must be frame-ordered.
+void reduce_pixel_profiles(
+    std::span<const ClipCandidate> pixel, const DrizzleProfileReduceConfig &cfg,
+    const std::function<double(std::size_t)> &g_eff_for,
+    const std::vector<std::pair<std::uint8_t, float>> &reg_by_source,
+    std::size_t gi, ProfilePlane *uniform_c, ProfilePlane *raw_c,
+    ProfilePlane *fine_c, ProfilePlane *medium_c, double *ac_sep, double *ac_art,
+    double *ac_reg, ForwardDrizzleClippingDiagnostics &diag) {
+  if (pixel.empty()) return;
+  ++diag.pixel_channel_evaluations;
+  auto clip = apply_robust_clipping(pixel, cfg.min_clip_contributors,
+                                    cfg.robust_passes, cfg.clip_sigma_low,
+                                    cfg.clip_sigma_high, cfg.min_fraction,
+                                    cfg.min_n_eff);
+  for (bool accepted : clip.accepted)
+    if (!accepted) ++diag.candidate_contributions_clipped;
+  if (clip.pixel_rejected) {
+    ++diag.pixel_channel_rejected;
+    return;
+  }
+  // Uniform: w = B. Raw/Fine/Medium: w = B * G_eff(f) * Q^e. The per-candidate
+  // geometric K-averages q / q0 / q1 never entered the clip decision above.
+  struct Accum { double wx = 0, w = 0, w2 = 0; };
+  Accum au, ar, af, am;
+  auto add = [](Accum &a, double w, double x) {
+    a.wx += w * x; a.w += w; a.w2 += w * w;
+  };
+  for (size_t k = 0; k < pixel.size(); ++k) {
+    if (!clip.accepted[k]) continue;
+    const auto &cd = pixel[k];
+    const double g = g_eff_for(cd.frame_index);
+    add(au, cd.b, cd.x);
+    add(ar, cd.b * g * cd.q, cd.x);
+    if (cfg.emit_fine)
+      add(af, cd.b * g * std::pow(cd.q0, cfg.fine_quality_exponent), cd.x);
+    if (cfg.emit_medium)
+      add(am, cd.b * g * std::pow(cd.q1, cfg.medium_quality_exponent), cd.x);
+  }
+  auto write = [&](ProfilePlane *p, const Accum &a) {
+    if (!p || a.w <= 0.0) return;
+    p->value[gi] = static_cast<float>(a.wx / a.w);
+    p->weight_sum[gi] = static_cast<float>(a.w);
+    p->n_eff[gi] = static_cast<float>(a.w2 > 0.0 ? (a.w * a.w) / a.w2 : 0.0);
+    p->support[gi] = 1;
+  };
+  write(uniform_c, au);
+  write(raw_c, ar);
+  if (cfg.emit_fine) write(fine_c, af);
+  if (cfg.emit_medium) write(medium_c, am);
+
+  if (cfg.emit_alpha && ac_sep && ac_art && ac_reg) {
+    // Plan 14.4: A_separation / A_artifact / A_registration from the accepted
+    // frame contributions for this channel; the frame result takes the
+    // conservative min over active channels.
+    std::vector<AlphaFactorContribution> contribs;
+    contribs.reserve(pixel.size());
+    for (size_t k = 0; k < pixel.size(); ++k) {
+      if (!clip.accepted[k]) continue;
+      const auto &cd = pixel[k];
+      const auto &rg = reg_by_source[cd.frame_index];
+      const double art_conf = cd.qa_has_data
+                                  ? cd.qa
+                                  : std::numeric_limits<double>::quiet_NaN();
+      contribs.push_back({cd.b, cd.q, art_conf, rg.first != 0u,
+                          static_cast<double>(rg.second)});
+    }
+    const auto fac =
+        compute_alpha_confidence_channel(contribs, cfg.alpha_confidence);
+    *ac_sep = std::min(*ac_sep, fac.a_separation);
+    *ac_art = std::min(*ac_art, fac.a_artifact);
+    *ac_reg = std::min(*ac_reg, fac.a_registration);
+  }
+}
+
 // M3/M6 (plan 11.8/11.9): Uniform (clipped), Raw and --- when requested ---
 // Fine and Medium computed together, all sharing one clipping decision per
 // pixel/channel. G_eff is supplied per frame; Q_composite / Q_scale0 /
@@ -796,6 +888,13 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     if (g_eff_by_source_index.empty()) return 1.0;
     return static_cast<double>(g_eff_by_source_index[source_index]);
   };
+  const DrizzleProfileReduceConfig reduce_cfg{
+      cfg.min_clip_contributors,   cfg.robust_passes,
+      clip_cfg.clip_sigma_low,     clip_cfg.clip_sigma_high,
+      clip_cfg.min_fraction,       clip_cfg.min_n_eff,
+      mb.emit_fine,                mb.emit_medium,
+      need_qa,                     mb.fine_quality_exponent,
+      mb.medium_quality_exponent,  mb.alpha_confidence};
   // Worst case: every frame contributes at every pixel. Use flat, exactly
   // sized storage; no vector growth or per-pixel heap allocations.
   const size_t quality_bytes = checked_product(g_eff_by_source_index.size(), sizeof(float));
@@ -930,7 +1029,7 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
       }
       rasterize_drizzle_stripe(
           plan, *f, cfg.internal_scale, cfg.pixfrac, y, rows,
-          [&](int sx, int sy, int c, size_t i, double k) {
+          [&](int sx, int sy, int c, int /*leaf*/, size_t i, double k) {
             const double v = source(sy, sx);
             if (!std::isfinite(v)) return;
             A[c][i] += k * v;
@@ -968,81 +1067,16 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     for (int c = 0; c < channels; ++c) {
       for (size_t i = 0; i < n; ++i) {
         if (!counts[c][i]) continue;
+        // The per-frame accumulation above pushes candidates in prepared-frame
+        // order, so this slice is already frame-ordered (plan 19.6 step 4).
         const std::span<const ClipCandidate> pixel(
             candidates[c].data() + i * frame_count, counts[c][i]);
-        ++result.clipping.pixel_channel_evaluations;
-        auto clip = apply_robust_clipping(
-            pixel, cfg.min_clip_contributors, cfg.robust_passes,
-            clip_cfg.clip_sigma_low, clip_cfg.clip_sigma_high, clip_cfg.min_fraction,
-            clip_cfg.min_n_eff);
-        for (bool accepted : clip.accepted)
-          if (!accepted) ++result.clipping.candidate_contributions_clipped;
-        if (clip.pixel_rejected) {
-          ++result.clipping.pixel_channel_rejected;
-          continue;
-        }
-        // Uniform: w = B. Raw/Fine/Medium: w = B * G_eff(f) * Q^e, where the
-        // per-candidate geometric K-averages are q (composite, e=1),
-        // q0 (scale0, e=fine_quality_exponent) and q1 (scale1,
-        // e=medium_quality_exponent). All share the clip mask above (plan
-        // 11.8); none of q/q0/q1 entered it.
-        struct Accum { double wx = 0, w = 0, w2 = 0; };
-        Accum au, ar, af, am;
-        auto add = [](Accum &a, double w, double x) {
-          a.wx += w * x; a.w += w; a.w2 += w * w;
-        };
-        for (size_t k = 0; k < pixel.size(); ++k) {
-          if (!clip.accepted[k]) continue;
-          const auto &cd = pixel[k];
-          const double g = g_eff_for(cd.frame_index);
-          add(au, cd.b, cd.x);
-          add(ar, cd.b * g * cd.q, cd.x);
-          if (mb.emit_fine)
-            add(af, cd.b * g * std::pow(cd.q0, mb.fine_quality_exponent), cd.x);
-          if (mb.emit_medium)
-            add(am, cd.b * g * std::pow(cd.q1, mb.medium_quality_exponent),
-                cd.x);
-        }
-        const size_t gi = i;
-        auto write = [&](const std::array<ProfilePlane *, 3> &pl,
-                         const Accum &a) {
-          if (a.w <= 0.0) return;
-          ProfilePlane &p = *pl[c];
-          p.value[gi] = static_cast<float>(a.wx / a.w);
-          p.weight_sum[gi] = static_cast<float>(a.w);
-          p.n_eff[gi] =
-              static_cast<float>(a.w2 > 0.0 ? (a.w * a.w) / a.w2 : 0.0);
-          p.support[gi] = 1;
-        };
-        write(uniform_planes, au);
-        write(raw_planes, ar);
-        if (mb.emit_fine) write(fine_planes, af);
-        if (mb.emit_medium) write(medium_planes, am);
-
-        if (need_qa) {
-          // Plan 14.4: A_separation / A_artifact / A_registration from the
-          // accepted frame contributions for this channel; the frame result
-          // takes the conservative min over active channels.
-          std::vector<AlphaFactorContribution> contribs;
-          contribs.reserve(pixel.size());
-          for (size_t k = 0; k < pixel.size(); ++k) {
-            if (!clip.accepted[k]) continue;
-            const auto &cd = pixel[k];
-            const auto &rg = reg_by_source[cd.frame_index];
-            // No real artifact datum for this contribution => exclude it from
-            // the robust artifact statistic (NaN, not a fabricated value).
-            const double art_conf =
-                cd.qa_has_data ? cd.qa
-                               : std::numeric_limits<double>::quiet_NaN();
-            contribs.push_back({cd.b, cd.q, art_conf, rg.first != 0u,
-                                static_cast<double>(rg.second)});
-          }
-          const auto fac =
-              compute_alpha_confidence_channel(contribs, mb.alpha_confidence);
-          ac_sep[gi] = std::min(ac_sep[gi], fac.a_separation);
-          ac_art[gi] = std::min(ac_art[gi], fac.a_artifact);
-          ac_reg[gi] = std::min(ac_reg[gi], fac.a_registration);
-        }
+        reduce_pixel_profiles(
+            pixel, reduce_cfg, g_eff_for, reg_by_source, i, uniform_planes[c],
+            raw_planes[c], mb.emit_fine ? fine_planes[c] : nullptr,
+            mb.emit_medium ? medium_planes[c] : nullptr,
+            need_qa ? &ac_sep[i] : nullptr, need_qa ? &ac_art[i] : nullptr,
+            need_qa ? &ac_reg[i] : nullptr, result.clipping);
       }
     }
     if (need_qa) {

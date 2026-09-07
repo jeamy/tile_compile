@@ -5,7 +5,9 @@
 #include "tile_compile/io/fits_io.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <limits>
 #include <map>
@@ -320,7 +322,10 @@ MultibandStoreBuildResult persist_multiband_store_from_predecessors(
     try {
       ForwardDrizzleCudaOptions cuda; cuda.attempt=true;
       out.store=build(cuda);
-      out.backend_used="cuda";
+      // plan 19.6.2: local-warp frames rode the hybrid CPU-geometry ->
+      // GPU-rasterization path; label the committed store accordingly.
+      out.backend_used=
+          out.store.cuda_timing.hybrid_local_frames>0 ? "cuda_hybrid" : "cuda";
     } catch (const ForwardDrizzleCudaError &e) {
       // Plan 19.4: the uncommitted generation is already discarded by
       // StoreWriter's destructor; restart the ENTIRE build on the CPU
@@ -337,13 +342,109 @@ MultibandStoreBuildResult persist_multiband_store_from_predecessors(
   return out;
 }
 
+fs::path MultibandCandidateSpool::plane_path(const std::string &candidate,
+                                            int c) const {
+  return dir / (candidate + "_" + std::to_string(c) + ".f32");
+}
+
+MultibandFusionMemoryPlan plan_multiband_fusion_memory(
+    int width,int height,int nch,int levels,int chunk_rows,int halo_rows,
+    bool with_candidate_luma,bool with_candidate_spool,std::size_t budget_bytes) {
+  MultibandFusionMemoryPlan p;
+  p.budget_bytes=budget_bytes;
+  if (width<=0||height<=0||nch<=0||levels<=0||chunk_rows<=0) return p;  // !fits
+  const auto sat_mul=[](std::size_t a,std::size_t b)->std::size_t{
+    if (a!=0 && b>std::numeric_limits<std::size_t>::max()/a)
+      return std::numeric_limits<std::size_t>::max();
+    return a*b;
+  };
+  const auto sat_add=[](std::size_t a,std::size_t b)->std::size_t{
+    return (b>std::numeric_limits<std::size_t>::max()-a)
+        ? std::numeric_limits<std::size_t>::max() : a+b;
+  };
+  const std::size_t n=sat_mul(static_cast<std::size_t>(width),
+                              static_cast<std::size_t>(height));
+  const std::size_t nc=static_cast<std::size_t>(nch);
+  const std::size_t lv=static_cast<std::size_t>(levels);
+  const std::size_t stripe_rows=static_cast<std::size_t>(chunk_rows)+
+      2u*static_cast<std::size_t>(std::max(0,halo_rows));
+  const std::size_t stripe_px=sat_mul(stripe_rows,
+                                      static_cast<std::size_t>(width));
+
+  // Final X_out held whole: nch planes * 4 bytes.
+  p.final_image_bytes=sat_mul(sat_mul(nc,n),4u);
+  // One resident fusion stripe: U/R/F/M (value+support, all nch) + the fused
+  // `sub` (value+support+levels alpha) + 3 alpha maps + combine_luma scratch.
+  // Generous per-pixel upper bound: nch*40 + levels*8 + 64 bytes.
+  p.stripe_working_bytes=sat_mul(stripe_px,
+      sat_add(sat_add(sat_mul(nc,40u),sat_mul(lv,8u)),64u));
+  // Candidate working-luminance buffers held whole (plan 15 selection needs the
+  // full field): 3 luma (4) + support (1) + levels alpha (4).
+  p.candidate_luma_bytes=with_candidate_luma
+      ? sat_mul(n,sat_add(13u,sat_mul(lv,4u))) : 0u;
+  // Spool write path is zero-copy from the stripe buffers; only OS write
+  // buffering is transient. Budget up to 64 rows per (candidate, channel).
+  p.spool_stripe_bytes=with_candidate_spool
+      ? sat_mul(sat_mul(sat_mul(3u,nc),
+                        sat_mul(static_cast<std::size_t>(width),
+                                std::min<std::size_t>(64u,stripe_rows))),4u)
+      : 0u;
+  // Delivery: the runner reads back one spooled plane at a time for FITS export.
+  p.delivery_readback_bytes=with_candidate_spool ? sat_mul(n,4u) : 0u;
+
+  std::size_t sum=0;
+  for (std::size_t v : {p.final_image_bytes,p.stripe_working_bytes,
+                        p.candidate_luma_bytes,p.spool_stripe_bytes,
+                        p.delivery_readback_bytes})
+    sum=sat_add(sum,v);
+  // 5% of the working set, with a modest absolute floor that is itself capped
+  // at the working set so a tiny image under a tiny explicit budget is not
+  // rejected by the margin alone.
+  p.margin_bytes=std::max<std::size_t>(
+      sum/20u,std::min<std::size_t>(std::size_t(64)<<20,sum));
+  p.estimated_peak_bytes=sat_add(sum,p.margin_bytes);
+  p.fits=p.estimated_peak_bytes<=budget_bytes;
+
+  // Plan 11.13(2) + 11.11 temp space: the spool writes 3 * nch * N * 4 bytes to
+  // the temp filesystem. `required_free_temp` here uses the 2 GiB floor; the
+  // caller refines it with the real filesystem capacity and fills
+  // available_temp_bytes / temp_space_ok.
+  if (with_candidate_spool) {
+    p.spool_temp_bytes=sat_mul(sat_mul(sat_mul(3u,nc),n),4u);
+    p.required_free_temp_bytes=sat_add(
+        static_cast<std::size_t>(static_cast<long double>(p.spool_temp_bytes)*1.20L),
+        std::size_t(2)<<30);
+  }
+  return p;
+}
+
+std::vector<float> read_candidate_spool_plane(
+    const MultibandCandidateSpool &spool,const std::string &candidate,int c) {
+  if (!spool.populated || c<0 || c>=spool.nch || spool.width<=0 ||
+      spool.height<=0)
+    throw std::runtime_error("SPOOL_PLANE_NOT_AVAILABLE");
+  const std::size_t n=static_cast<std::size_t>(spool.width)*spool.height;
+  const auto path=spool.plane_path(candidate,c);
+  std::error_code ec;
+  if (fs::file_size(path,ec)!=static_cast<std::uintmax_t>(n*sizeof(float)))
+    throw std::runtime_error("SPOOL_PLANE_SIZE_MISMATCH");
+  std::ifstream in(path.string(),std::ios::binary);
+  if (!in) throw std::runtime_error("SPOOL_PLANE_OPEN_FAILED");
+  std::vector<float> plane(n);
+  in.read(reinterpret_cast<char *>(plane.data()),
+          static_cast<std::streamsize>(n*sizeof(float)));
+  if (!in) throw std::runtime_error("SPOOL_PLANE_READ_FAILED");
+  return plane;
+}
+
 long long fuse_multiband_store_to_image(
     const fs::path &store_root,const DrizzleStoreIdentity &identity,
     const fs::path &final_image_path,
     const config::ReconstructionMultibandConfig &multiband_cfg,
     int chunk_rows,size_t memory_budget_mb,
     MultibandCandidateLuma *candidates_out,
-    MultibandCandidateChannels *channels_out) {
+    MultibandCandidateSpool *spool_out,
+    MultibandFusionMemoryPlan *mem_plan_out) {
   if (identity.multiband_levels<1)
     throw std::invalid_argument("FUSE_STORE_NOT_A_MULTIBAND_IDENTITY");
   // The caller must pass the config the store was built with. Guard the one
@@ -353,7 +454,10 @@ long long fuse_multiband_store_to_image(
   if (multiband_cfg.enabled && multiband_cfg.levels!=identity.multiband_levels)
     throw std::invalid_argument("FUSE_STORE_MULTIBAND_LEVELS_MISMATCH");
   const bool need_medium=identity.multiband_levels>=2;
-  const size_t budget=std::max<size_t>(memory_budget_mb,256);
+  // Plan 11.13: `memory_budget_mb == 0` is "unset" -> internal 256 MiB floor.
+  // A non-zero value is an EXPLICIT budget and is honoured verbatim (no silent
+  // raising); the phase fails closed below if the pre-plan does not fit it.
+  const size_t budget=memory_budget_mb ? memory_budget_mb : size_t(256);
   // Verify the generation ONCE (a full rehash), then read every stripe from
   // the verified directory --- otherwise the striped reads below would rehash
   // the whole store O(H/chunk) times.
@@ -368,6 +472,40 @@ long long fuse_multiband_store_to_image(
   const int halo=multiband_fusion_halo_rows(fcfg.levels);
   const bool mono=identity.color_mode==ColorMode::MONO;
   const std::size_t N=static_cast<std::size_t>(W)*H;
+  const int nch_plan=mono?1:3;
+
+  // Plan 11.13(1)+(4): pre-plan the whole MULTIBAND working set and fail closed
+  // BEFORE the first large allocation. Nothing durable has been created yet ---
+  // only the (already committed) store was read --- so a throw here leaves the
+  // prior valid generation and any prior outputs untouched.
+  MultibandFusionMemoryPlan mem_plan=plan_multiband_fusion_memory(
+      W,H,nch_plan,fcfg.levels,chunk,halo,
+      candidates_out!=nullptr,spool_out!=nullptr,
+      static_cast<std::size_t>(budget)*1024*1024);
+  // Plan 11.11 temp space: refine required_free_temp with the real capacity of
+  // the spool filesystem and record what is actually available.
+  if (spool_out) {
+    std::error_code ec;
+    if (!fs::is_directory(spool_out->dir,ec)) {
+      if (mem_plan_out) *mem_plan_out=mem_plan;
+      throw std::runtime_error("FUSE_STORE_SPOOL_DIR_MISSING");
+    }
+    const auto sp=fs::space(spool_out->dir,ec);
+    mem_plan.available_temp_bytes=ec ? 0u : static_cast<std::size_t>(sp.available);
+    const std::size_t cap=ec ? 0u : static_cast<std::size_t>(sp.capacity);
+    const std::size_t reserve=std::max<std::size_t>(
+        std::size_t(2)<<30,static_cast<std::size_t>(cap/20));
+    mem_plan.required_free_temp_bytes=
+        static_cast<std::size_t>(
+            static_cast<long double>(mem_plan.spool_temp_bytes)*1.20L)+reserve;
+    mem_plan.temp_space_ok=
+        mem_plan.available_temp_bytes>=mem_plan.required_free_temp_bytes;
+  }
+  if (mem_plan_out) *mem_plan_out=mem_plan;
+  if (!mem_plan.fits)
+    throw std::runtime_error("MULTIBAND_MEMORY_BUDGET");
+  if (!mem_plan.temp_space_ok)
+    throw std::runtime_error("MULTIBAND_TEMP_SPACE");
 
   // Only the final image is held whole (1 plane MONO / 3 planes OSC); the
   // store reads are striped so peak resident input is O(chunk + 2*halo) rows,
@@ -390,18 +528,24 @@ long long fuse_multiband_store_to_image(
         static_cast<std::size_t>(fcfg.levels),{});
   }
 
-  if (channels_out) {
-    *channels_out={};
-    channels_out->width=W;
-    channels_out->height=H;
-    channels_out->nch=nch;
-    channels_out->mono=mono;
-    const float qn=std::numeric_limits<float>::quiet_NaN();
-    for (int c=0;c<nch;++c) {
-      channels_out->uniform[static_cast<std::size_t>(c)].assign(N,qn);
-      channels_out->raw[static_cast<std::size_t>(c)].assign(N,qn);
-      channels_out->multiband[static_cast<std::size_t>(c)].assign(N,qn);
-    }
+  // Plan 11.13(2): candidate channels are streamed stripe-wise to a scratch
+  // directory, not held whole. One append stream per (candidate, channel); the
+  // stripe loop below writes exactly the `core` rows in strictly increasing y
+  // order, so each file ends up a row-major width*height plane.
+  static constexpr const char *kCandNames[3]={"uniform","raw","multiband"};
+  std::array<std::array<std::ofstream,3>,3> spool_os;
+  if (spool_out) {
+    spool_out->width=W; spool_out->height=H; spool_out->nch=nch; spool_out->mono=mono;
+    spool_out->populated=false;
+    // (spool_out->dir existence + temp-space were checked pre-allocation above.)
+    for (int k=0;k<3;++k)
+      for (int c=0;c<nch;++c) {
+        const auto p=spool_out->plane_path(kCandNames[k],c);
+        spool_os[static_cast<std::size_t>(k)][static_cast<std::size_t>(c)].open(
+            p.string(),std::ios::binary|std::ios::trunc);
+        if (!spool_os[static_cast<std::size_t>(k)][static_cast<std::size_t>(c)])
+          throw std::runtime_error("FUSE_STORE_SPOOL_OPEN_FAILED");
+      }
   }
 
   for (int y0=0;y0<H;y0+=chunk) {
@@ -433,21 +577,21 @@ long long fuse_multiband_store_to_image(
       for (std::size_t k=0;k<core;++k) if ((*ss[c])[src_off+k]) ++pixels_supported;
     }
 
-    if (channels_out) {
+    if (spool_out) {
       const std::vector<float> *uv3[3], *rv3[3];
       if (mono) { uv3[0]=&U.L.value; rv3[0]=&R.L.value; }
       else { uv3[0]=&U.R.value; uv3[1]=&U.G.value; uv3[2]=&U.B.value;
              rv3[0]=&R.R.value; rv3[1]=&R.G.value; rv3[2]=&R.B.value; }
+      const std::vector<float> *src[3]={nullptr,nullptr,nullptr};
+      const std::streamsize nbytes=
+          static_cast<std::streamsize>(core*sizeof(float));
       for (int c=0;c<nch;++c) {
-        auto &uc=channels_out->uniform[static_cast<std::size_t>(c)];
-        auto &rc=channels_out->raw[static_cast<std::size_t>(c)];
-        auto &mc=channels_out->multiband[static_cast<std::size_t>(c)];
-        std::copy(uv3[c]->begin()+src_off,uv3[c]->begin()+src_off+core,
-                  uc.begin()+dst_off);
-        std::copy(rv3[c]->begin()+src_off,rv3[c]->begin()+src_off+core,
-                  rc.begin()+dst_off);
-        std::copy(sv[c]->begin()+src_off,sv[c]->begin()+src_off+core,
-                  mc.begin()+dst_off);
+        src[0]=uv3[c]; src[1]=rv3[c]; src[2]=sv[c];  // uniform / raw / multiband
+        for (int k=0;k<3;++k) {
+          auto &os=spool_os[static_cast<std::size_t>(k)][static_cast<std::size_t>(c)];
+          os.write(reinterpret_cast<const char *>(src[k]->data()+src_off),nbytes);
+          if (!os) throw std::runtime_error("FUSE_STORE_SPOOL_WRITE_FAILED");
+        }
       }
     }
 
@@ -487,6 +631,19 @@ long long fuse_multiband_store_to_image(
         std::copy(af.begin()+src_off,af.begin()+src_off+core,dstv.begin()+dst_off);
       }
     }
+  }
+
+  if (spool_out) {
+    for (int k=0;k<3;++k)
+      for (int c=0;c<nch;++c) {
+        auto &os=spool_os[static_cast<std::size_t>(k)][static_cast<std::size_t>(c)];
+        os.flush(); os.close();
+        std::error_code ec;
+        const auto want=static_cast<std::uintmax_t>(N*sizeof(float));
+        if (fs::file_size(spool_out->plane_path(kCandNames[k],c),ec)!=want)
+          throw std::runtime_error("FUSE_STORE_SPOOL_SIZE_MISMATCH");
+      }
+    spool_out->populated=true;
   }
 
   io::FitsHeader header;

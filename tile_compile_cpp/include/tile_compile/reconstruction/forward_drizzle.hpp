@@ -152,13 +152,34 @@ prepare_drizzle_frames(const registration::RegistrationSamplingPlan &plan,
                        const config::ReconstructionDrizzleConfig &cfg,
                        const ForwardDrizzleSubdivisionParams &subdivision = {});
 
-// index is stripe-local; each contribution is an exact positive area.
-using DrizzleAreaSink =
-    std::function<void(int sx, int sy, int channel, size_t index, double area)>;
+// index is stripe-local; each contribution is an exact positive area. `leaf` is
+// the 0-based order of the transformed source-pixel leaf within this
+// (sx, sy) sample (always 0 for the affine path; 0..n-1 for a subdivided local
+// warp). It is part of the plan-19.6 canonical contribution key.
+using DrizzleAreaSink = std::function<void(int sx, int sy, int channel, int leaf,
+                                           size_t index, double area)>;
 void rasterize_drizzle_stripe(
     const registration::RegistrationSamplingPlan &plan,
     const registration::FrameSamplingTransform &frame, int internal_scale,
     float pixfrac, int y_begin, int rows, const DrizzleAreaSink &sink,
+    const ForwardDrizzleSubdivisionParams &subdivision = {});
+
+// plan 19.6.2 hybrid CPU-geometry -> GPU-rasterization: the shared cell
+// enumeration that `rasterize_drizzle_stripe` is built on. For every accepted
+// leaf of every source sample in the stripe it emits, once per integer cell in
+// the leaf's clamped bounding box, the four exact leaf corners (`leaf_x`,
+// `leaf_y`, four doubles each) and the cell's integer origin (`cell_x`,
+// `cell_y`; the cell rectangle is [cell_x, cell_y, cell_x+1, cell_y+1] in
+// internal-scale pixels, `cell_y` NOT stripe-local). No area is computed and no
+// cell is pre-filtered on area: the consumer decides. `channel` is 0 for MONO,
+// R/G/B = 0/1/2 for OSC; `leaf_order` is the canonical 19.6 leaf index.
+using DrizzleLeafCellSink =
+    std::function<void(int sx, int sy, int channel, int leaf_order, int cell_x,
+                       int cell_y, const double *leaf_x, const double *leaf_y)>;
+void enumerate_drizzle_stripe_leaf_cells(
+    const registration::RegistrationSamplingPlan &plan,
+    const registration::FrameSamplingTransform &frame, int internal_scale,
+    float pixfrac, int y_begin, int rows, const DrizzleLeafCellSink &sink,
     const ForwardDrizzleSubdivisionParams &subdivision = {});
 
 // --- M3 (plan section 11.8): shared robust clipping -------------------------
@@ -252,6 +273,44 @@ struct ForwardDrizzleClippingDiagnostics {
   long long pixel_channel_rejected = 0;   // plan 11.8 step 8 veto
   long long candidate_contributions_clipped = 0;  // total false entries across all pixels
 };
+
+// Plan 11.8 / 11.9 / 14.4: the per-(channel, target cell) reduction that turns
+// one frame-ordered ClipCandidate list into the Uniform / Raw / Fine / Medium
+// profile samples plus the alpha-confidence factors. Shared VERBATIM by the
+// streaming path (stream_forward_drizzle_uniform_and_raw) and the plan-19.6
+// contribution-list path so the two are bit-identical by construction. Q- and
+// G_eff weights never enter the clipping decision (only the geometric weight
+// B); they only weight the post-clip profile accumulation.
+struct DrizzleProfileReduceConfig {
+  int min_clip_contributors = 0;
+  int robust_passes = 0;
+  float clip_sigma_low = 0.0f;
+  float clip_sigma_high = 0.0f;
+  float min_fraction = 0.0f;
+  float min_n_eff = 0.0f;
+  bool emit_fine = false;
+  bool emit_medium = false;
+  bool emit_alpha = false;
+  float fine_quality_exponent = 4.0f;
+  float medium_quality_exponent = 2.0f;
+  AlphaConfidenceParams alpha_confidence{};
+};
+
+// `candidates` MUST be in ascending frame order (plan 19.6 step 4's
+// "feste Framefolge"). Writes value/weight_sum/n_eff/support at `gi` into each
+// non-null profile plane; when the alpha pointers are non-null, folds the
+// channel's alpha factors into them via std::min (the caller seeds them to
+// +inf and takes the min over active channels). Bumps `diag`
+// (pixel_channel_evaluations always; pixel_channel_rejected +
+// candidate_contributions_clipped per the clip result).
+void reduce_pixel_profiles(
+    std::span<const ClipCandidate> candidates,
+    const DrizzleProfileReduceConfig &cfg,
+    const std::function<double(std::size_t /*source_index*/)> &g_eff_for,
+    const std::vector<std::pair<std::uint8_t, float>> &reg_by_source,
+    std::size_t gi, ProfilePlane *uniform_c, ProfilePlane *raw_c,
+    ProfilePlane *fine_c, ProfilePlane *medium_c, double *ac_sep, double *ac_art,
+    double *ac_reg, ForwardDrizzleClippingDiagnostics &diag);
 
 struct ForwardDrizzleUniformAndRawResult {
   ForwardDrizzleUniformResult uniform;  // clipped (plan 11.8)

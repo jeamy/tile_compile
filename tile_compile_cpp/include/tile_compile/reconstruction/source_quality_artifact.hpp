@@ -45,9 +45,11 @@ MultibandStoreContract multiband_store_contract_from_config(
 struct MultibandStoreBuildResult {
   DrizzleStoreResult store;
   DrizzleStoreIdentity identity;
-  // Plan 19: which path actually produced the committed store. "cuda" only
-  // when a CUDA attempt ran to completion; "cpu" for the plain path AND for a
-  // CUDA attempt that failed and was restarted on the CPU reference path.
+  // Plan 19: which path actually produced the committed store. "cuda" when a
+  // CUDA attempt ran to completion with affine-only frames; "cuda_hybrid" when
+  // that run also took at least one local-warp frame through the plan-19.6.2
+  // hybrid CPU-geometry -> GPU-rasterization path; "cpu" for the plain path AND
+  // for a CUDA attempt that failed and was restarted on the CPU reference path.
   std::string backend_used = "cpu";
   // Non-empty iff a CUDA attempt was made and did not commit: the reason the
   // phase fell back to the CPU reference path (plan 19.4).
@@ -89,19 +91,63 @@ struct MultibandCandidateLuma {
   std::vector<std::vector<float>> alpha_final_by_band;
 };
 
-// The three plan-15 candidate images at FULL per-channel resolution (not luma),
-// assembled in the same single fusion pass. `nch` is 1 (MONO -> index 0 = L) or
-// 3 (OSC -> R,G,B). Each plane is row-major width*height, NaN off support. Used
-// by the runner to deliver `outputs/forward_drizzle_raw_*` (immutable Raw
-// baseline) and `outputs/reconstructed_*` (the selected candidate) per plan
-// 16.1, plus the `full`-diagnostics uniform/multiband control FITS.
-struct MultibandCandidateChannels {
+// Plan 11.13(2): the three plan-15 candidate images at FULL per-channel
+// resolution are streamed stripe-wise into a caller-owned scratch directory
+// instead of held whole in RAM. Peak resident candidate data is then one fusion
+// stripe (nch * chunk * W floats) during the fuse pass and one plane during
+// delivery read-back --- not 3*nch whole planes. `nch` is 1 (MONO -> "L") or 3
+// (OSC -> R,G,B). Each spooled plane is host-native `float`, row-major
+// width*height, NaN off support. The runner reads back only the delivered
+// candidates (Raw baseline + selected + optionally the `full`-diagnostics
+// controls), one plane at a time, straight to FITS.
+struct MultibandCandidateSpool {
+  fs::path dir;  // caller-created scratch directory; must exist before the call
   int width = 0;
   int height = 0;
   int nch = 1;
   bool mono = true;
-  std::array<std::vector<float>, 3> uniform, raw, multiband;
+  bool populated = false;
+  // "<candidate>_<c>.f32" under `dir`; candidate in {uniform,raw,multiband}.
+  fs::path plane_path(const std::string &candidate, int c) const;
 };
+
+// Read one spooled candidate plane back (width*height host-native floats).
+// Throws std::runtime_error on a shape / size / I/O mismatch. The caller writes
+// it straight to FITS and frees it, so peak delivery memory is one plane.
+std::vector<float> read_candidate_spool_plane(const MultibandCandidateSpool &spool,
+                                              const std::string &candidate, int c);
+
+// Plan 11.13(1)+(4): the shared, overflow-safe host working-set estimate for the
+// MULTIBAND fuse / validation / export phase, computed BEFORE any large
+// allocation. Every term is an upper bound on data that is concurrently
+// resident. `fuse_multiband_store_to_image` fails closed
+// (throws "MULTIBAND_MEMORY_BUDGET") when `estimated_peak_bytes > budget_bytes`,
+// before it touches the final image, the candidate buffers or the spool ---
+// nothing already committed is disturbed.
+struct MultibandFusionMemoryPlan {
+  std::size_t final_image_bytes = 0;       // nch * N * 4  (held whole)
+  std::size_t stripe_working_bytes = 0;    // U/R/F/M + fuse + alpha + luma scratch
+  std::size_t candidate_luma_bytes = 0;    // with_candidate_luma: 3 luma + support + alpha
+  std::size_t spool_stripe_bytes = 0;      // with_candidate_spool: 3 * nch * chunk * W * 4
+  std::size_t delivery_readback_bytes = 0; // one plane read back for FITS export
+  std::size_t margin_bytes = 0;            // max(64 MiB, 5% of the raw sum)
+  std::size_t estimated_peak_bytes = 0;    // RAM sum of the above
+  std::size_t budget_bytes = 0;
+  bool fits = false;                       // estimated_peak_bytes <= budget_bytes
+  // Plan 11.13(2) + 11.11: bytes the candidate spool writes to the temp
+  // filesystem (3 candidates * nch * N * 4), and the free space that must be
+  // available for it: estimated_temp_peak * 1.20 + max(2 GiB, 5% of capacity).
+  // `available_temp_bytes` / `temp_space_ok` are filled by
+  // fuse_multiband_store_to_image once the spool directory is known (0 / true
+  // when no spool is requested).
+  std::size_t spool_temp_bytes = 0;
+  std::size_t required_free_temp_bytes = 0;
+  std::size_t available_temp_bytes = 0;
+  bool temp_space_ok = true;
+};
+MultibandFusionMemoryPlan plan_multiband_fusion_memory(
+    int width, int height, int nch, int levels, int chunk_rows, int halo_rows,
+    bool with_candidate_luma, bool with_candidate_spool, std::size_t budget_bytes);
 
 // M6 phase 2: fuse the durable multiband store (plan 14, streamed path) into a
 // single final X_out image at `final_image_path` (MONO -> float FITS, OSC ->
@@ -109,15 +155,23 @@ struct MultibandCandidateChannels {
 // When `candidates_out` is non-null it is also filled with the plan-15
 // uniform / raw / multiband working-luminance candidates + the fused per-band
 // alpha maps, at no extra store I/O.
+//
+// `memory_budget_mb == 0` means "unset" --- an internal floor is applied. A
+// non-zero value is an EXPLICIT budget and is used verbatim (plan 11.13: no
+// silent raising of an explicit budget); the phase fails closed if the
+// pre-planned working set does not fit it.
 long long fuse_multiband_store_to_image(
     const fs::path &store_root, const DrizzleStoreIdentity &identity,
     const fs::path &final_image_path,
     const config::ReconstructionMultibandConfig &multiband_cfg,
     int chunk_rows = 0, size_t memory_budget_mb = 512,
     MultibandCandidateLuma *candidates_out = nullptr,
-    // When non-null, also captures the three candidates at full per-channel
-    // resolution (opt-in: holds 3*nch full planes resident). `final_image_path`
-    // still receives the multiband X_out as before.
-    MultibandCandidateChannels *channels_out = nullptr);
+    // When non-null, streams the three candidates at full per-channel resolution
+    // to `spool_out->dir` (which must already exist). `final_image_path` still
+    // receives the multiband X_out as before.
+    MultibandCandidateSpool *spool_out = nullptr,
+    // When non-null, receives the pre-allocation working-set plan that gated the
+    // phase (plan 11.13(4): reported separately from the measured RSS peak).
+    MultibandFusionMemoryPlan *mem_plan_out = nullptr);
 
 } // namespace tile_compile::reconstruction

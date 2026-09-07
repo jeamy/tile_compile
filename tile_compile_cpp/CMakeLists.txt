@@ -452,6 +452,7 @@ set(LIB_SOURCES
     src/registration/registration_sampling_plan.cpp
     src/registration/sampling_geometry.cpp
     src/reconstruction/forward_drizzle.cpp
+    src/reconstruction/forward_drizzle_contrib_list.cpp
     src/reconstruction/source_quality_proxy.cpp
     src/reconstruction/source_quality_maps.cpp
     src/reconstruction/source_quality_map_cache.cpp
@@ -505,6 +506,36 @@ set(LIB_SOURCES
 if(TILE_COMPILE_WITH_CUDA)
     list(APPEND LIB_SOURCES src/reconstruction/aqmh_reconstruction_cuda.cu)
     list(APPEND LIB_SOURCES src/reconstruction/forward_drizzle_cuda_device.cu)
+endif()
+
+# Plan 19.6 numerical contract --- LOAD-BEARING FOR CORRECTNESS, NOT AN
+# OPTIMISATION KNOB. The CFA-forward-drizzle reference path has an EXPLICITLY
+# fixed FP-contraction policy so the CPU reference and the CUDA path agree
+# BIT-FOR-BIT on the geometry that feeds discrete (clip / veto / mask)
+# decisions. CPU: -ffp-contract=off (GCC/Clang default at -O2/-O3 is "fast",
+# which fuses a*b+c and breaks CPU<->CUDA bit-exactness). CUDA: --fmad=false.
+#
+# Any NEW translation unit on this path --- a new src/reconstruction/forward_*
+# file, OR a test that re-implements a reference computation inline --- MUST be
+# added to the list below, or bit-exactness silently regresses with no failing
+# test until a parity case happens to exercise the drifted code.
+# The parity gates: tests/test_forward_drizzle.cpp [cuda-parity] and
+# tests/test_forward_drizzle_contrib_list.cpp [cuda-parity].
+if(NOT MSVC)
+    set_source_files_properties(
+        src/reconstruction/forward_drizzle.cpp
+        src/reconstruction/forward_drizzle_contrib_list.cpp
+        src/reconstruction/forward_drizzle_cuda.cpp
+        # The parity tests re-implement the CPU reference inline; they must be
+        # pinned identically to the path they validate.
+        tests/test_forward_drizzle.cpp
+        tests/test_forward_drizzle_contrib_list.cpp
+        PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+endif()
+if(TILE_COMPILE_WITH_CUDA)
+    set_source_files_properties(
+        src/reconstruction/forward_drizzle_cuda_device.cu
+        PROPERTIES COMPILE_OPTIONS "--fmad=false")
 endif()
 
 # Main library
@@ -692,6 +723,7 @@ if(BUILD_TESTS)
             tests/test_reconstruction_config.cpp
             tests/test_sampling_geometry.cpp
             tests/test_forward_drizzle.cpp
+            tests/test_forward_drizzle_contrib_list.cpp
             tests/test_source_quality_proxy.cpp
             tests/test_source_quality_maps.cpp
             tests/test_source_quality_map_cache.cpp

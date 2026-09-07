@@ -56,10 +56,29 @@ DrizzleStoreIdentity make_drizzle_store_identity(
     const DrizzleStorePredecessors &predecessors = {},
     const MultibandStoreContract &multiband = {});
 
+// Plan 19.4 / 19.6: telemetry for a multiband store built via the CUDA
+// per-stripe path (accumulate_pair_by_frame_cuda driven by run_cuda_chunked).
+// `used` stays false for the CPU reference path; the timings are wall clock.
+struct DrizzleCudaStoreTiming {
+  bool used = false;
+  int bands = 0;                       // bands committed by run_cuda_chunked
+  int resolved_chunk_rows = 0;         // initial band height from plan_cuda_chunking
+  int min_chunk_rows = 0;
+  std::size_t bytes_per_row = 0;       // device+host working-set estimate used
+  std::size_t device_free_bytes = 0;   // free VRAM at plan time
+  double stripe_seconds = 0.0;         // sum of time inside accumulate_pair_by_frame_cuda
+  double total_seconds = 0.0;          // whole chunked drive incl. sink / store I/O
+  // plan 19.6.2: how many frames took the hybrid CPU-geometry -> GPU-raster
+  // path (local-warp frames). > 0 => the committed store is labelled
+  // "cuda_hybrid" rather than "cuda". Affine-only CUDA runs leave this 0.
+  int hybrid_local_frames = 0;
+};
+
 struct DrizzleStoreResult {
   fs::path generation_dir;
   ForwardDrizzleDiagnostics diagnostics;
   ForwardDrizzleClippingDiagnostics clipping;
+  DrizzleCudaStoreTiming cuda_timing;
   // The identity actually written (populated by persist_* entry points). A
   // consumer that reads the store back should use THIS, never a re-derived
   // one, so a write/read identity divergence fails at write time.

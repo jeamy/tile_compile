@@ -1344,29 +1344,23 @@ TEST_CASE("plan-19.5 parity: CUDA polygon_rect_area == CPU reference",
   REQUIRE(reconstruction::forward_drizzle_cuda_polygon_rect_area_batch(
       flat_q.data(), flat_r.data(), n, gpu.data()));
 
-  // Plan 19.3: CPU/CUDA may differ only within an explicitly tested tolerance.
-  // The device and host run the *same* double-precision algorithm, so the only
-  // source of divergence is FMA contraction / reassociation by the two
-  // compilers -- a tight relative tolerance is the contract; the bit-exact
-  // fraction is tracked as a health signal (empirically ~89%).
+  // Plan 19.6 numerical contract: with -ffp-contract=off (CPU) and --fmad=false
+  // (CUDA) on this path, the device and host run the *same* double-precision
+  // algorithm with no contraction on either side, so every area is
+  // BIT-IDENTICAL. This is what lets the downstream discrete decisions
+  // (clip accept/reject, veto, mask) match exactly CPU<->GPU.
   int bit_exact = 0;
-  double worst_rel = 0.0;
   for (int i = 0; i < n; ++i) {
     const double px[4] = {quads[i][0], quads[i][2], quads[i][4], quads[i][6]};
     const double py[4] = {quads[i][1], quads[i][3], quads[i][5], quads[i][7]};
     const double cpu = polygon_rectangle_intersection_area(
         px, py, rects[i][0], rects[i][1], rects[i][2], rects[i][3]);
     if (cpu == gpu[i]) ++bit_exact;
-    const double denom = std::max(1e-9, std::abs(cpu));
-    worst_rel = std::max(worst_rel, std::abs(cpu - gpu[i]) / denom);
     INFO("i=" << i << " cpu=" << cpu << " gpu=" << gpu[i]);
-    // 5e-10 relative: FMA/reassoc only. Negligible vs the float32 profile
-    // planes these areas ultimately feed (~1e-7 precision).
-    REQUIRE(std::abs(cpu - gpu[i]) <= 5e-10 * std::max(1.0, std::abs(cpu)));
+    REQUIRE(cpu == gpu[i]);
   }
-  INFO("bit-exact " << bit_exact << " / " << n << ", worst rel " << worst_rel);
-  REQUIRE(worst_rel < 1e-9);
-  REQUIRE(bit_exact >= n * 4 / 5);  // the large majority stay bit-identical
+  INFO("bit-exact " << bit_exact << " / " << n);
+  REQUIRE(bit_exact == n);
 }
 
 // Plan-19.5 parity entry 2: the affine droplet corner map (build_affine_leaf +
@@ -1398,7 +1392,6 @@ TEST_CASE("plan-19.5 parity: CUDA affine leaf corners == CPU reference",
       aff, scale, half, samples.data(), n, gpu.data()));
 
   int bit_exact = 0;
-  double worst_rel = 0.0;
   for (int i = 0; i < n; ++i) {
     const double sx = samples[2 * i], sy = samples[2 * i + 1];
     const double csx[4] = {sx - half, sx + half, sx + half, sx - half};
@@ -1409,19 +1402,14 @@ TEST_CASE("plan-19.5 parity: CUDA affine leaf corners == CPU reference",
       const double ex = qx * scale, ey = qy * scale;
       const double gx = gpu[i * 8 + 2 * k], gy = gpu[i * 8 + 2 * k + 1];
       if (ex == gx && ey == gy) ++bit_exact;
-      worst_rel = std::max({worst_rel,
-                            std::abs(ex - gx) / std::max(1.0, std::abs(ex)),
-                            std::abs(ey - gy) / std::max(1.0, std::abs(ey))});
       INFO("i=" << i << " k=" << k << " cpu=(" << ex << "," << ey
                 << ") gpu=(" << gx << "," << gy << ")");
-      // Plan 19.3: FMA contraction of the affine dot product is the only
-      // divergence; a 1e-9 relative gate is the tested tolerance (the leaf
-      // corners feed polygon areas that end up in float32 planes).
-      REQUIRE(std::abs(ex - gx) <= 1e-9 * std::max(1.0, std::abs(ex)));
-      REQUIRE(std::abs(ey - gy) <= 1e-9 * std::max(1.0, std::abs(ey)));
+      // Plan 19.6: -ffp-contract=off + --fmad=false -> the affine dot product
+      // is not fused on either side -> bit-identical.
+      REQUIRE(ex == gx);
+      REQUIRE(ey == gy);
     }
   }
-  INFO("bit-exact " << bit_exact << " / " << (n * 4) << ", worst rel "
-                    << worst_rel);
-  REQUIRE(worst_rel < 1e-9);
+  INFO("bit-exact " << bit_exact << " / " << (n * 4));
+  REQUIRE(bit_exact == n * 4);
 }
