@@ -18,6 +18,8 @@
 #include "tile_compile/astrometry/wcs.hpp"
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
 
+#include <memory>
+
 namespace tile_compile::reconstruction {
 
 // Plan 12.1's deterministic 2x2 -> 1x area-average:
@@ -57,6 +59,36 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw_2x2(
     const std::vector<float> &g_eff_by_source_index = {}, size_t retained_bytes = 0,
     const FrameQualityProvider &quality_of = {},
     const MultibandProfileParams &multiband = {});
+
+// The same row-buffered 2x2 -> 1x fold that stream_forward_drizzle_uniform_and_raw_2x2
+// uses internally, exposed for callers that own their own internal-row stripe
+// loop (e.g. the plan-19.4 CUDA per-band driver, which produces internal-2x
+// stripes on the device and must fold them to output geometry before the
+// StoreWriter). `feed()` takes internal-row stripes with contiguous, ascending
+// `y_begin` (0, then +internal_height each call --- chunk height may vary); it
+// emits one output-row stripe per even internal-row pair through `out` with a
+// 0-based OUTPUT row index. `finish()` throws if the total internal height was
+// odd. Byte-identical to downsample_uniform_and_raw_2x2 on the assembled image
+// and independent of how the internal rows were chunked. `internal_width` is
+// canvas_width_native*2 (always even). Carries fine/medium/alpha-confidence
+// when the fed stripes contain them (latched from the first stripe).
+class Downsample2x2StripeAdapter {
+ public:
+  Downsample2x2StripeAdapter(UniformAndRawStripeSink out, int internal_width,
+                             bool mono);
+  ~Downsample2x2StripeAdapter();
+  Downsample2x2StripeAdapter(Downsample2x2StripeAdapter &&) noexcept;
+  Downsample2x2StripeAdapter &operator=(Downsample2x2StripeAdapter &&) noexcept;
+  Downsample2x2StripeAdapter(const Downsample2x2StripeAdapter &) = delete;
+  Downsample2x2StripeAdapter &operator=(const Downsample2x2StripeAdapter &) =
+      delete;
+  void feed(int y_begin, const ForwardDrizzleUniformAndRawResult &internal_stripe);
+  void finish();
+
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
 
 struct OutputScaleMode {
   int internal_scale = 2;

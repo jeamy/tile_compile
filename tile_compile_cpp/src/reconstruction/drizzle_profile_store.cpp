@@ -465,12 +465,12 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
   const bool cuda_stripe_path = cuda.attempt && fault_after < 0;
   CudaDeviceMemory devmem;
   if (cuda_stripe_path) {
-    if (mode_2_1)
-      throw ForwardDrizzleCudaError(
-          "forward_drizzle CUDA: mode 2/1 is CPU-only (no device 2x2 average)");
-    // Local-warp frames are NOT rejected here any more: they take the plan
-    // 19.6.2 hybrid path (CPU builds the leaf geometry, GPU rasterizes) inside
-    // accumulate_pair_by_frame_cuda. Only mode 2/1 and "no device" still decline.
+    // Mode 2/1 is NO LONGER declined: the device produces internal-2x stripes
+    // exactly as it does for 2/2 (real M31 2/2 run, §30.55); a
+    // Downsample2x2StripeAdapter folds each band 2x2 -> 1x on the host with the
+    // plan-12.1 operator before the StoreWriter --- byte-identical to the CPU
+    // mode-2/1 build. Local-warp frames take the plan-19.6.2 hybrid path inside
+    // accumulate_pair_by_frame_cuda. Only "no device" still declines here.
     devmem = forward_drizzle_cuda_device_memory();
     if (devmem.free_bytes == 0)
       throw ForwardDrizzleCudaError("forward_drizzle CUDA: no usable device");
@@ -547,14 +547,34 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     const auto t_all0 = store_clock::now();
     ForwardDrizzleClippingDiagnostics clip_total;
     ForwardDrizzleDiagnostics last_diag;
+    HybridPathStats hybrid_stats;
+    // Mode 2/1: the device bands are internal-2x; fold them 2x2 -> 1x on the
+    // host (plan 12.1) before `sink`, exactly as the CPU mode-2/1 path does.
+    // Exactly one adapter per build --- a ForwardDrizzleCudaError discards this
+    // generation and persist_multiband_store_from_predecessors restarts on a
+    // fresh CPU path with its own adapter, never nested.
+    std::unique_ptr<Downsample2x2StripeAdapter> down;
+    if (mode_2_1)
+      down = std::make_unique<Downsample2x2StripeAdapter>(
+          [&](int y, const ForwardDrizzleUniformAndRawResult &o) { sink(y, o); },
+          dims.width, plan.color_mode == ColorMode::MONO);
     const int bands = run_cuda_chunked(
         chunk_plan, dims.height, [&](int y0, int rows) {
           ForwardDrizzleUniformAndRawResult stripe;
           const auto t0 = store_clock::now();
           try {
-            stripe = accumulate_pair_by_frame_cuda(plan, source_of, cfg, clipping,
-                                                   y0, rows, subdivision, g_eff,
-                                                   quality_of, mb, host_budget);
+            // The two literals mirror the accumulate_pair_by_frame_cuda header
+            // defaults; they are spelled out only to reach the trailing
+            // &hybrid_stats out-param. On the hybrid path a batch that cannot
+            // fit even at the floor throws ForwardDrizzleCudaError -> full CPU
+            // restart (plan 19.6.2), NOT CudaAllocFailure -> band halving (that
+            // translation is the affine producer's DRIZZLE_CONTRIB_LIST_BUDGET
+            // path below).
+            stripe = accumulate_pair_by_frame_cuda(
+                plan, source_of, cfg, clipping, y0, rows, subdivision, g_eff,
+                quality_of, mb, host_budget, /*max_cells_per_pixel=*/32,
+                /*max_batch_items=*/static_cast<std::size_t>(1) << 20,
+                &hybrid_stats);
           } catch (const std::runtime_error &e) {
             // A band too tall for the host ClipCandidate ceiling -> ask
             // run_cuda_chunked for a shorter band (plan 19.4 halving ladder).
@@ -565,7 +585,18 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
           }
           result.cuda_timing.stripe_seconds +=
               std::chrono::duration<double>(store_clock::now() - t0).count();
-          sink(y0, stripe);
+          if (down) {
+            // The row-buffered fold desynchronises silently if a band's plane
+            // set differs from band 0's --- assert full-height planes first.
+            if (stripe.uniform.internal_height != rows ||
+                (mb.emit_fine && stripe.fine.internal_height != rows) ||
+                (mb.emit_medium && stripe.medium.internal_height != rows))
+              throw std::runtime_error(
+                  "DRIZZLE_STORE_CUDA_BAND_PLANE_HEIGHT_MISMATCH");
+            down->feed(y0, stripe);
+          } else {
+            sink(y0, stripe);
+          }
           clip_total.pixel_channel_evaluations +=
               stripe.clipping.pixel_channel_evaluations;
           clip_total.pixel_channel_rejected +=
@@ -574,9 +605,14 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
               stripe.clipping.candidate_contributions_clipped;
           last_diag = stripe.diagnostics;
         });
+    if (down) down->finish();  // asserts the total internal height was even
     result.cuda_timing.bands = bands;
     result.cuda_timing.total_seconds =
         std::chrono::duration<double>(store_clock::now() - t_all0).count();
+    result.cuda_timing.hybrid_cpu_seconds = hybrid_stats.cpu_seconds;
+    result.cuda_timing.hybrid_gpu_raster_seconds =
+        hybrid_stats.gpu_raster_seconds;
+    result.cuda_timing.hybrid_leaf_cells = hybrid_stats.leaf_cells;
     summary.diagnostics = last_diag;
     // Keep the FORWARD_DRIZZLE diagnostics the runner emits populated on the
     // CUDA path (they otherwise come from the streaming planner, which did not

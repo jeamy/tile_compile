@@ -4,6 +4,7 @@
 #include "tile_compile/registration/registration_sampling_plan.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -112,10 +113,15 @@ std::vector<DrizzleContrib> build_frame_records_hybrid_local(
     const Matrix2Df &src, const config::ReconstructionDrizzleConfig &cfg,
     const StripeGeom &g, int y_begin, int rows,
     const ForwardDrizzleSubdivisionParams &sub, std::size_t mem_budget_bytes,
-    std::size_t max_batch_items) {
+    std::size_t max_batch_items, HybridPathStats *stats) {
   if (src.rows() != plan.source_height || src.cols() != plan.source_width)
     throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
   if (max_batch_items == 0) max_batch_items = 1;
+
+  using hclock = std::chrono::steady_clock;
+  const auto t_total0 = hclock::now();
+  double gpu_seconds = 0.0;
+  long long gpu_calls = 0, cells = 0;
 
   struct WorkItem {
     std::uint32_t sx, sy, ty, tx, channel, leaf_order;
@@ -135,12 +141,14 @@ std::vector<DrizzleContrib> build_frame_records_hybrid_local(
     const std::size_t n = meta.size();
     if (n == 0) return;
     std::vector<double> area(n);
+    const auto t_gpu0 = hclock::now();
     for (;;) {
       bool ok = true;
       for (std::size_t off = 0; off < n && ok; off += batch_cap) {
         const int m = static_cast<int>(std::min(batch_cap, n - off));
         ok = forward_drizzle_cuda_polygon_rect_area_batch(
             quad.data() + off * 8, rect.data() + off * 4, m, area.data() + off);
+        ++gpu_calls;
       }
       if (ok) break;
       if (batch_cap <= kBatchFloor)
@@ -149,6 +157,9 @@ std::vector<DrizzleContrib> build_frame_records_hybrid_local(
             "(hybrid local-warp path)");
       batch_cap /= 2;
     }
+    gpu_seconds +=
+        std::chrono::duration<double>(hclock::now() - t_gpu0).count();
+    cells += static_cast<long long>(n);
     for (std::size_t t = 0; t < n; ++t) {
       if (!(area[t] > 0.0)) continue;
       const WorkItem &w = meta[t];
@@ -193,6 +204,15 @@ std::vector<DrizzleContrib> build_frame_records_hybrid_local(
       },
       sub);
   flush();
+  if (stats) {
+    const double total =
+        std::chrono::duration<double>(hclock::now() - t_total0).count();
+    stats->gpu_raster_seconds += gpu_seconds;
+    stats->cpu_seconds += std::max(0.0, total - gpu_seconds);
+    stats->gpu_batch_calls += gpu_calls;
+    stats->leaf_cells += cells;
+    stats->records += static_cast<long long>(out.size());
+  }
   return out;
 }
 
@@ -578,15 +598,16 @@ PairFrameRecordProducer cuda_pair_producer(
     const config::ReconstructionDrizzleConfig &cfg,
     const ForwardDrizzleSubdivisionParams &subdivision, int y_begin, int rows,
     int max_cells_per_pixel, std::size_t mem_budget_bytes,
-    std::size_t max_batch_items) {
+    std::size_t max_batch_items, HybridPathStats *hybrid_stats) {
   return [&plan, &source_of, &cfg, &subdivision, y_begin, rows,
-          max_cells_per_pixel, mem_budget_bytes, max_batch_items](
+          max_cells_per_pixel, mem_budget_bytes, max_batch_items, hybrid_stats](
              std::size_t fo, const registration::FrameSamplingTransform &f,
              const StripeGeom &g) -> std::vector<DrizzleContrib> {
     if (f.has_smooth_local_model)
       return build_frame_records_hybrid_local(
           plan, f, static_cast<std::uint32_t>(fo), source_of(f.source_index),
-          cfg, g, y_begin, rows, subdivision, mem_budget_bytes, max_batch_items);
+          cfg, g, y_begin, rows, subdivision, mem_budget_bytes, max_batch_items,
+          hybrid_stats);
     if (!f.source_to_canvas_affine_valid)
       throw ForwardDrizzleCudaError(
           "forward_drizzle CUDA: frame has no valid affine");
@@ -693,12 +714,13 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     const std::vector<float> &g_eff_by_source_index,
     const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
     std::size_t mem_budget_bytes, int max_cells_per_pixel,
-    std::size_t max_batch_items) {
+    std::size_t max_batch_items, HybridPathStats *hybrid_stats) {
   return accumulate_pair_impl(
       plan, cfg, clip_cfg, y_begin, rows, subdivision, g_eff_by_source_index,
       quality_of, mb, mem_budget_bytes,
       cuda_pair_producer(plan, source_of, cfg, subdivision, y_begin, rows,
-                         max_cells_per_pixel, mem_budget_bytes, max_batch_items));
+                         max_cells_per_pixel, mem_budget_bytes, max_batch_items,
+                         hybrid_stats));
 }
 
 }  // namespace tile_compile::reconstruction

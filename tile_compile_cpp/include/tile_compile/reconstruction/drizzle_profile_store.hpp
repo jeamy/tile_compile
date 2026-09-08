@@ -72,6 +72,13 @@ struct DrizzleCudaStoreTiming {
   // path (local-warp frames). > 0 => the committed store is labelled
   // "cuda_hybrid" rather than "cuda". Affine-only CUDA runs leave this 0.
   int hybrid_local_frames = 0;
+  // plan 19.6.2 wall-clock split of the hybrid path, summed over all local-warp
+  // frames of all bands (0 on an affine-only CUDA run). `hybrid_cpu_seconds` is
+  // the CPU leaf geometry + marshalling + record assembly; the raster figure is
+  // time inside the device polygon-area kernel (transfer + kernel, lumped).
+  double hybrid_cpu_seconds = 0.0;
+  double hybrid_gpu_raster_seconds = 0.0;
+  long long hybrid_leaf_cells = 0;
 };
 
 struct DrizzleStoreResult {

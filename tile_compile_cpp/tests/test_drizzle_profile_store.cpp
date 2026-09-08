@@ -1386,6 +1386,14 @@ TEST_CASE("drizzle store: the CUDA per-stripe path takes local-warp frames "
         attempt);
     REQUIRE(gpu.cuda_timing.used);
     REQUIRE(gpu.cuda_timing.hybrid_local_frames == 1);
+    REQUIRE(gpu.cuda_timing.hybrid_leaf_cells > 0);          // path ran
+    REQUIRE(gpu.cuda_timing.hybrid_cpu_seconds >= 0.0);
+    REQUIRE(gpu.cuda_timing.hybrid_gpu_raster_seconds >= 0.0);
+    // The hybrid path runs strictly inside the accumulate_pair_by_frame_cuda
+    // calls that stripe_seconds brackets -> its split must not exceed it.
+    REQUIRE(gpu.cuda_timing.hybrid_cpu_seconds +
+                gpu.cuda_timing.hybrid_gpu_raster_seconds <=
+            gpu.cuda_timing.stripe_seconds + 1e-6);
     REQUIRE(cpu.clipping.candidate_contributions_clipped > 0);  // non-vacuous
     REQUIRE(gpu.clipping.candidate_contributions_clipped ==
             cpu.clipping.candidate_contributions_clipped);
@@ -1404,16 +1412,91 @@ TEST_CASE("drizzle store: the CUDA per-stripe path takes local-warp frames "
             plane_digest(cpu.generation_dir));
   }
 
-  SECTION("mode 2/1 -> ForwardDrizzleCudaError before any generation") {
+  SECTION("mode 2/1 -> device internal-2x bands folded 2x2 -> 1x on the host, "
+          "store byte-identical to the CPU mode-2/1 build (§30.57)") {
+    if (reconstruction::forward_drizzle_cuda_device_memory().free_bytes == 0) {
+      SUCCEED("no CUDA device -- skipped");
+      return;
+    }
+    auto c = cfg;
+    c.internal_scale = 2;
+    c.output_scale = 1;  // native 16 -> internal 32 -> output 16
+
+    auto plane_digest = [](const fs::path &gen) {
+      std::map<std::string, std::string> h;
+      for (const auto &e : fs::directory_iterator(gen)) {
+        const std::string n = e.path().filename().string();
+        if (e.is_regular_file() && n.size() > 5 &&
+            n.substr(n.size() - 5) == ".fits")
+          h[n] = core::sha256_file(e.path());
+      }
+      REQUIRE(h.size() >= 12);
+      return h;
+    };
+
+    Fixture cpu_fx;
+    const auto cpu = persist_forward_drizzle_multiband(
+        cpu_fx.root, plan, provider, c, clip, mbc, quality_of);
+    const auto ref = plane_digest(cpu.generation_dir);
+
+    // Band boundary on an ODD internal row (chunk_rows=3 -> rows 0,3,6,...): the
+    // exact case where a mis-aligned 2x2 fold would shift. And whole canvas.
+    for (int cr : {3, 64}) {
+      auto cc = c;
+      cc.chunk_rows = cr;
+      Fixture gpu_fx;
+      const auto gpu = persist_forward_drizzle_multiband(
+          gpu_fx.root, plan, provider, cc, clip, mbc, quality_of, {}, {}, {},
+          attempt);
+      REQUIRE(gpu.cuda_timing.used);
+      REQUIRE(gpu.cuda_timing.hybrid_local_frames == 0);  // affine frames
+      REQUIRE(plane_digest(gpu.generation_dir) == ref);
+      REQUIRE(verify_drizzle_profile_store(gpu_fx.root, gpu.identity).usable);
+    }
+  }
+
+  SECTION("mode 2/1 WITH a local-warp frame: hybrid §19.6.2 AND the 2x2 fold "
+          "in one build, still byte-identical to CPU (§30.57)") {
+    if (reconstruction::forward_drizzle_cuda_device_memory().free_bytes == 0) {
+      SUCCEED("no CUDA device -- skipped");
+      return;
+    }
     auto c = cfg;
     c.internal_scale = 2;
     c.output_scale = 1;
-    Fixture fx;
-    REQUIRE_THROWS_AS(
-        persist_forward_drizzle_multiband(fx.root, plan, provider, c, clip, mbc,
-                                          quality_of, {}, {}, {}, attempt),
-        reconstruction::ForwardDrizzleCudaError);
-    REQUIRE_FALSE(fs::exists(fx.root / "current.json"));
+
+    // A valid local model routes frame 2 through build_frame_records_hybrid_local
+    // regardless of whether it subdivides (dispatch is on has_smooth_local_model).
+    // The leaf_order > 0 sub-case is covered by the dedicated contrib-list test;
+    // here the point is hybrid producer AND 2x2 fold in ONE build.
+    auto p = plan;
+    p.frames[2].has_smooth_local_model = true;
+    p.frames[2].smooth_local_model.valid = true;
+    p.frames[2].smooth_local_model.image_rows = 16;
+    p.frames[2].smooth_local_model.image_cols = 16;
+    p.frames[2].model_coordinate_scale = 1.0f;
+
+    auto plane_digest = [](const fs::path &gen) {
+      std::map<std::string, std::string> h;
+      for (const auto &e : fs::directory_iterator(gen)) {
+        const std::string n = e.path().filename().string();
+        if (e.is_regular_file() && n.size() > 5 &&
+            n.substr(n.size() - 5) == ".fits")
+          h[n] = core::sha256_file(e.path());
+      }
+      REQUIRE(h.size() >= 12);
+      return h;
+    };
+
+    Fixture cpu_fx, gpu_fx;
+    const auto cpu = persist_forward_drizzle_multiband(
+        cpu_fx.root, p, provider, c, clip, mbc, quality_of);
+    const auto gpu = persist_forward_drizzle_multiband(
+        gpu_fx.root, p, provider, c, clip, mbc, quality_of, {}, {}, {}, attempt);
+    REQUIRE(gpu.cuda_timing.used);
+    REQUIRE(gpu.cuda_timing.hybrid_local_frames == 1);   // the local-warp frame
+    REQUIRE(gpu.cuda_timing.hybrid_leaf_cells > 0);
+    REQUIRE(plane_digest(gpu.generation_dir) == plane_digest(cpu.generation_dir));
   }
 }
 

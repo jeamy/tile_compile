@@ -199,8 +199,9 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
       if (be=="cuda")
         REQUIRE(j.at("acceleration").at("cuda_fallback_reason").is_null());
     }
-    // null when no CUDA attempt was made or the affine device path committed;
-    // a string when a CUDA build resolved and fell back (local warp / mode 2/1).
+    // null when no CUDA attempt was made or the device path committed (affine,
+    // hybrid local-warp, or mode-2/1 with the host 2x2 fold); a string only when
+    // a CUDA build resolved and then fell back (e.g. no usable device).
     REQUIRE((j.at("acceleration").at("cuda_fallback_reason").is_null()||
              j.at("acceleration").at("cuda_fallback_reason").is_string()));
     // Plan 11.13(4): lifetime peak and phase-scoped growth are distinct fields.

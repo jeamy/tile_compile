@@ -50,6 +50,23 @@ struct DrizzleContrib {
 // order (frame, channel, target_y, target_x, source_y, source_x, leaf_order).
 bool contrib_key_less(const DrizzleContribKey &a, const DrizzleContribKey &b);
 
+// plan 19.6.2: wall-clock split of the hybrid CPU-geometry -> GPU-rasterization
+// path, accumulated across every local-warp frame of every band. `cpu_seconds`
+// is the CPU leaf geometry (sample_leaves / subdivide_local / fixed-point
+// inversion), the (leaf,cell) buffer marshalling and the host record assembly;
+// `gpu_raster_seconds` is time inside forward_drizzle_cuda_polygon_rect_area_batch
+// (H2D + kernel + D2H, not separable without instrumenting the .cu).
+struct HybridPathStats {
+  double cpu_seconds = 0.0;
+  double gpu_raster_seconds = 0.0;
+  // Device polygon-area kernel invocations. INCLUDES retried attempts after a
+  // CudaAllocFailure halved the batch, so `leaf_cells / gpu_batch_calls` is not
+  // a clean "cells per call" on a run that hit device allocation pressure.
+  long long gpu_batch_calls = 0;
+  long long leaf_cells = 0;   // (leaf, cell) work items enumerated on the CPU
+  long long records = 0;      // positive-area, finite-value records emitted
+};
+
 struct DrizzleContribList {
   int width = 0;      // stripe width = canvas_width_native * internal_scale
   int rows = 0;       // stripe height
@@ -157,6 +174,9 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
 // polygon-area kernel at once on the hybrid path (halved down to a floor on
 // device allocation pressure); it does not affect the result, only peak
 // transfer/scratch. Tests pass a tiny value to exercise flush boundaries.
+// `hybrid_stats`, if non-null, is ADDED TO (not reset) with the CPU/GPU
+// wall-clock split of the hybrid path for this band --- a no-op when no frame
+// takes the hybrid path.
 ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     const registration::RegistrationSamplingPlan &plan,
     const SourceImageProvider &source_of,
@@ -168,6 +188,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     const MultibandProfileParams &mb = {},
     std::size_t mem_budget_bytes = static_cast<std::size_t>(1) << 32,
     int max_cells_per_pixel = 32,
-    std::size_t max_batch_items = static_cast<std::size_t>(1) << 20);
+    std::size_t max_batch_items = static_cast<std::size_t>(1) << 20,
+    HybridPathStats *hybrid_stats = nullptr);
 
 }  // namespace tile_compile::reconstruction

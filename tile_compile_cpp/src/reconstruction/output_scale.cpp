@@ -349,6 +349,28 @@ class Downsample2x2Adapter {
 
 }  // namespace
 
+struct Downsample2x2StripeAdapter::Impl {
+  UniformAndRawStripeSink sink;   // owns the sink; `inner` binds a ref to it
+  Downsample2x2Adapter inner;
+  Impl(UniformAndRawStripeSink s, int iw, bool mono)
+      : sink(std::move(s)), inner(sink, iw, mono) {}
+};
+
+Downsample2x2StripeAdapter::Downsample2x2StripeAdapter(UniformAndRawStripeSink out,
+                                                       int internal_width,
+                                                       bool mono)
+    : impl_(std::make_unique<Impl>(std::move(out), internal_width, mono)) {}
+Downsample2x2StripeAdapter::~Downsample2x2StripeAdapter() = default;
+Downsample2x2StripeAdapter::Downsample2x2StripeAdapter(
+    Downsample2x2StripeAdapter &&) noexcept = default;
+Downsample2x2StripeAdapter &Downsample2x2StripeAdapter::operator=(
+    Downsample2x2StripeAdapter &&) noexcept = default;
+void Downsample2x2StripeAdapter::feed(
+    int y_begin, const ForwardDrizzleUniformAndRawResult &internal_stripe) {
+  impl_->inner.feed(y_begin, internal_stripe);
+}
+void Downsample2x2StripeAdapter::finish() { impl_->inner.finish(); }
+
 ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw_2x2(
     const registration::RegistrationSamplingPlan &plan, const SourceImageProvider &source_of,
     const config::ReconstructionDrizzleConfig &drizzle_cfg,

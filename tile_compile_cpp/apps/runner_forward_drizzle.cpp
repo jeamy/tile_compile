@@ -483,7 +483,14 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
                       {"stripe_seconds",result.cuda_timing.stripe_seconds},
                       {"total_seconds",result.cuda_timing.total_seconds},
                       {"hybrid_local_frames",
-                       result.cuda_timing.hybrid_local_frames}}
+                       result.cuda_timing.hybrid_local_frames},
+                      {"hybrid_cpu_seconds",
+                       result.cuda_timing.hybrid_cpu_seconds},
+                      {"hybrid_gpu_raster_seconds",
+                       result.cuda_timing.hybrid_gpu_raster_seconds},
+                      {"hybrid_leaf_cells",
+                       static_cast<long long>(
+                           result.cuda_timing.hybrid_leaf_cells)}}
                : json(nullptr)}}},
         {"resources",{
           // FORWARD_DRIZZLE store-build estimate (unchanged).
