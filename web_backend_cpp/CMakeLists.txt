@@ -398,6 +398,7 @@ if(BUILD_TESTS)
     add_backend_cpp_test(web_backend_cpp_run_stop_status_overlay tests/test_run_stop_status_overlay.cpp)
     add_backend_cpp_test(web_backend_cpp_memory_guards tests/test_memory_guards.cpp)
     add_backend_cpp_test(web_backend_cpp_report_phase_issues tests/test_report_phase_issues.cpp)
+    add_backend_cpp_test(web_backend_cpp_report_forward_drizzle tests/test_report_forward_drizzle.cpp)
     add_backend_cpp_test(web_backend_cpp_pi_image_ops tests/test_pi_image_ops.cpp)
     target_sources(web_backend_cpp_pi_image_ops PRIVATE
         src/services/pi/pi_image_ops.cpp

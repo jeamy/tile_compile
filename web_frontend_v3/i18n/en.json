@@ -2326,5 +2326,7 @@
   "ui.toast.config_invalid": "Config invalid",
   "ui.error.completion_config_revalidation_failed": "The applied config failed revalidation.",
   "ui.toast.parameters_applied_for_new_run": "Parameters applied for new run",
-  "ui.confirm.apply_and_resume": "Apply validated parameters and resume the run from {phase}?"
+  "ui.confirm.apply_and_resume": "Apply validated parameters and resume the run from {phase}?",
+  "param.reconstruction.keep_profile_cache_after_run.short_help": "Keep the internal U/R/F/M drizzle profile store after a finished image. Default: off (deleted). On = kept as a hashed cache so a re-fuse skips the forward-drizzle pass — costs disk. Does not change the computed result.",
+  "param.reconstruction.delete_source_cache_after_run.short_help": "Delete the normalized CFA source cache and quality maps after a finished image. Default: off. On = frees disk immediately but DISABLES resume-reconstruction for this run (a later resume would re-normalize every frame). The report announces this as resume_reconstruction_disabled."
 }

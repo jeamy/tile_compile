@@ -83,6 +83,8 @@ nav:
     - GUI3 User Guide (EN): gui3_user_guide_en.md
     - GUI3 Benutzerhandbuch (DE): gui3_user_guide_de.md
   - Workflows & Tools:
+    - Reconstruction Method (EN): guides/cfa_forward_drizzle_pipeline_en.md
+    - Rekonstruktionsmethode (DE): guides/cfa_forward_drizzle_pipeline_de.md
     - Workflow & Pipeline (EN): guides/workflow.md
     - Workflow & Pipeline (DE): guides/workflow_de.md
     - Live Image Editor (EN): guides/live_image_editor_en.md

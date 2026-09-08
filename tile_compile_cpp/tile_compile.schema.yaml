@@ -1111,9 +1111,11 @@ properties:
       delete_source_cache_after_run:
         type: boolean
         default: false
+        description: "Delete the normalized CFA source cache and source quality maps after a fully committed final image. Default false. Setting it true frees disk immediately but DISABLES resume-reconstruction for this run (a later resume would have to re-normalize every frame); the run report announces this as resume_reconstruction_disabled."
       keep_profile_cache_after_run:
         type: boolean
         default: false
+        description: "Keep the internal transactional U/R/F/M drizzle profile store after a committed final image. Default false (deleted: it is a reconstruction cache, never a downstream-resume predecessor). Setting it true keeps it as a hashed cache so a re-fuse can skip the forward-drizzle pass, at the cost of disk."
       common_overlap_required_fraction:
         type: number
         exclusiveMinimum: 0

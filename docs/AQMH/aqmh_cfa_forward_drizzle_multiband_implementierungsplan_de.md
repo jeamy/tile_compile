@@ -52,7 +52,7 @@ getestet und für den Produktrelease abgenommen sind getrennte Aussagen.
 | M5 | Source-Q-Maps samt Konsum implementiert | Reales MONO und objektoffene Matrix M9 |
 | M6 | Fusion, Auswahl, Ausgabe und §11.13-Ressourcenvertrag (Vorabplan, Fail-Closed, Kandidaten-Spool, phasen-lokale RSS) implementiert und synthetisch abgenommen | Reale Ressourcenabnahme mit großen Bildern braucht einen Run-Auftrag (§11.13) |
 | M7 | **CUDA-Vorwärtsdrizzle abgeschlossen** (§30.55–§30.57): auf **allen** produktiv relevanten Configs aktiv und byte-identisch zur CPU-Referenz — affin 1/1 + 2/2, **Produktionsconfig Modus 2/1** (Host-2×2-Faltung der internen Device-Bänder, kein fehlender Kernel), **lokale Warps** (Hybridpfad §19.6.2, `backend=cuda_hybrid`). Vor dem CUDA-Versuch bleibt nur „Device vorhanden". Reale M31-Modus-2/1- und M42-Hybrid-Vollläufe byte-identisch (§30.57); `[cuda-parity]` synthetisch vollständig; §11.13 auf M31+M42; FP-Kontraktion fixiert; `s_j`-Pinning n/a solange bit-exakt. | Nur Durchsatz-Optimierung (CUDA ≈ 1,1–2,1× langsamer je nach Config; **kein Blocker**, §19.6) und — davon abhängig — die optionale Numerikrevision (`std::exp` → Minimax) für einen vollen GPU-Lokalpfad. Profiling-Befund: `hybrid_cpu_seconds` ≫ GPU-Raster (§30.57). |
-| M8 | offen | GUI, Report, vollständige aktive Dokumentation und Cache-Kommunikation |
+| M8 | **weitgehend geschlossen** (Reihenfolge Report → GUI/Cache → Legacy → Doku, Beschluss 2026-09-08). Erledigt: Durchsatz-Baseline §11.11.1; **Report A+B (§30.59)**; **GUI-Methodenwahl entfernt (inkl. `method`-Feld) + Cache-Kommunikation + Rechen-Invarianz-Test + Browser-Abnahme + DE/EN-Methodikdoku (§30.60)** — `parameter.js`, `phase-list.js` (Run-Monitor-Phasenliste `RECONSTRUCT_PHASES` auf die real emittierte `reconstruct`-Reihenfolge korrigiert), Cache-`description` (Schema .json+.yaml) + DE/EN-`short_help`, `[forward-runner]`-Invarianz-Test, `test_report_forward_drizzle.cpp` (EN+DE-Doppellauf), `docs/guides/cfa_forward_drizzle_pipeline_{en,de}.md` + `workflow*` aktualisiert. Im Browser verifiziert (kein Methodenselektor, Felder + Tooltips, korrekte 11-Phasen-Liste, Report-Sektion, `&`→`&amp;`-Übersetzungsbug behoben). | Offen: `process_flow/`-Per-Phase- **und** `configuration_reference*`/`configuration_examples_practical_*`-Neuschreibung (alle M10-Ära, Legacy-Pfad); `report_en.json`-Identitätseinträge (EN läuft über Basis-Strings); explizite Legacy-Lauf-„read-only"-Badges. `Config::method`/Schema/`AqmhConfig` → **M10**. |
 | M9 | offen | Vollständige unabhängige Pflichtmatrix fehlt; einzelne historische M31/M42-Läufe ersetzen sie nicht |
 | M10 | offen | Kanonische Downstream-Ausgabe, Photometrie-/WCS-Vertrag, Retention und Produkt-Cutover |
 | M11 | offen | M10 und Grace-Zyklus vorausgesetzt |
@@ -2013,6 +2013,41 @@ M8-Baseline höchstens 20 % sinken. Der reale Referenzdatensatz mit 100 Frames u
 Timingbasis. Hardware, Build, kalter/warmer Cache, Threadzahl, Backend und alle
 Ist-/Grenzwerte werden in `forward_drizzle.json` protokolliert. Eine Verletzung
 ist ein M9-Release-No-Go; RAM-/Diskverletzungen sind zusätzlich Runtimefehler.
+
+#### 11.11.1 Eingefrorene M8-Durchsatz-Baseline (Beschluss 2026-09-08)
+
+Referenz für das 20-%-Durchsatzgate aus §11.11. Eingefroren werden die realen
+`FORWARD_DRIZZLE`-Wandzeiten der beiden §30.57-Vollläufe (nicht die kleinen
+Mikro-Benchmarks — der Beschluss ersetzt diese als Timingbasis, bis eine
+nicht-bit-exakte Numerikrevision einen erneuten Lauf erzwingt).
+
+**Referenzumgebung (für jede M9-Vergleichsmessung identisch zu halten):**
+AMD Ryzen 7 3700X (8C/16T), NVIDIA GeForce GTX 1660 Ti; Release-Build mit
+`-ffp-contract=off` (CPU) + `--fmad=false` (nvcc); `reconstruct`-Pfad,
+`--max-frames 40`, `workers_used = 1`, warmer Datencache (SSD); Sensor
+3840×2160 OSC, also `processed_source_samples_nominal = 40 · 3840 · 2160 =
+331 776 000` je Lauf.
+
+| Config | Backend | `FORWARD_DRIZZLE` s | `pixels_supported` | nomin, `px_supported / s` |
+|---|---|---|---|---|
+| M31 Produktionsconfig — Modus 2/1 (`internal_scale=2, output_scale=1`, affin), Ausgabe 3870×2188 | `cpu` | **1899,13** | 21 353 918 | 11 244 |
+| M31 Modus 2/1 | `cuda` | **2037,65** | 21 353 918 | 10 480 |
+| M42 lokaler Warp — 1/1 (`internal_scale=1`), Hybridpfad §19.6.2 | `cpu` | **878,19** | 24 879 983 | 28 331 |
+| M42 1/1 Hybrid | `cuda_hybrid` | **1831,95** | 24 879 983 | 13 581 |
+
+Byte-Identität CPU↔CUDA je Zeile ist in §30.57 belegt; hier zählt nur die Zeit.
+Das M9-Gate vergleicht **dieselbe Config auf demselben Backend** auf der
+Referenzumgebung: Median aus drei Wiederholungen ≥ 0,8 × der jeweiligen
+eingefrorenen Zahl.
+
+**`processed_source_samples` (seit §30.59 in `forward_drizzle.json`, `schema_version`
+2):** die **nominale** Eingangs-CFA-Sample-Zahl `frames · source_width ·
+source_height` — ein stabiler, reproduzierbarer Nenner ohne Hot-Loop-Zähler. Der
+normierte Bruch `throughput = processed_source_samples /
+forward_drizzle_wall_seconds` ist damit **jetzt** die verbindliche Vergleichsgröße
+(zusätzlich zur reinen Wandzeit je Config/Backend). Eine Post-Masken-Verfeinerung
+ist, falls sie je gebraucht wird, ein **neues, anders benanntes Feld** und ändert
+diese Metrikdefinition nicht.
 
 ### 11.12 Determinismus
 
@@ -4111,26 +4146,87 @@ fertig und byte-identisch; die **vollständige** wissenschaftliche Abnahme
 **Übernahme aus M4 (§23.1):** korrekter Pixelmaßstab, Fluxraum und
 Rausch-/Korrelationsvertrag im Report für OSC/MONO und alle Scale-Modi.
 
+**Reihenfolge (Beschluss 2026-09-08):** Report → GUI/Cache → Legacy-Entfernung →
+Doku. Report zuerst, weil §23.1 „Anzeige stimmt mit den tatsächlichen
+FITS-/Runartefakten überein" gegen die vier realen M31/M42-Läufe (§30.57)
+sofort prüfbar ist; Doku zuletzt, weil sie das Ergebnis der ersten drei
+Schritte beschreibt.
+
 **Änderungen:**
 
-- neue Konfigurationsfelder in der aktiven v3-Oberfläche;
-- deutsche und englische Texte;
-- Run-Report für Coverage, `n_eff`, Alpha und Candidate Gates;
-- aktive Methodik- und Prozessdokumentation;
-- Resume-Abhängigkeiten;
-- historische Classic-/PREWARP-Runs read-only anzeigen und Resume deaktivieren;
-- OSC-/MONO-Umfang, RGB-Ablehnung, Coveragefehler und fehlende
-  Rekonstruktions-Caches verständlich anzeigen;
-- `keep_profile_cache_after_run`, dauerhaften Source-Cache-Default `false` und
-  explizite Cachebereinigung samt Resume-Warnung integrieren;
-- alle Methodenwahlfelder und Legacy-Konfigurationsvorschläge entfernen.
+- **[Report] ✔ (§30.59)** Report-Sektion „CFA Forward Drizzle / Multiband"
+  (`gen_forward_drizzle`): Abdeckung/Geometrie inkl. Coverage-Gate + `n_eff`
+  p10 je Kanal (aus `sampling_geometry.json`), Kandidatenauswahl + 3×6-Gate-
+  Matrix, Alpha-Konfidenz je Band;
+- **[Report] ✔ (§30.59)** M4-Übernahme (§23.1): Pixelmaßstab (Rekon/Quelle,
+  internal×output; Himmels-Maßstab → M10) und Fluxraum
+  (`normalised_linear_working`, 17.4-Rücknahme → M10) als Report-Karten +
+  `flux_space`-Block in `forward_drizzle.json`; Rauschdiagnostik-Karte
+  (`background_rms`/`seam_score` je Kandidat, Arbeitsraum-Hinweis);
+- **[Report] ✔ (§30.59)** `forward_drizzle.json` `schema_version` 2:
+  `throughput` (`processed_source_samples` = nominale Eingangs-Samples;
+  Post-Masken-Zähler bleibt ein optionales späteres Feld) + `runtime_environment`
+  (Hardware/Build/Threads) — Nenner und Referenzmaschine für §11.11.1;
+- **[Report] ✔ 2026-09-08** eingefrorene M8-Durchsatz-Baseline in §11.11.1
+  festgeschrieben (§30.57-Zeiten, M31 Modus 2/1 + M42 1/1 Hybrid);
+- **[GUI] ✔ (§30.60)** neue Konfigurationsfelder in der v3-Oberfläche: der
+  `reconstruction.*`-Vertrag (drizzle, clipping, coverage_gate, multiband,
+  diagnostics) wird vom schemagetriebenen Parameter-Editor automatisch
+  gerendert — nach Wegfall des Methodenfilters (§30.60) sichtbar;
+- **[GUI] ✔ (§30.60)** `keep_profile_cache_after_run` / `delete_source_cache_after_run`
+  (Default je `false`): `description` für beide Felder in
+  `tile_compile.schema.{json,yaml}` + lokalisierte
+  `param.reconstruction.*.short_help` in `i18n/{de,en}.json` mit
+  **Resume-Warnung** (`delete_source_cache_after_run=true` deaktiviert die
+  Rekonstruktions-Wiederaufnahme; Report weist `resume_reconstruction_disabled`
+  aus). Die eigentliche **Cache-Bereinigungs-Mechanik** ist M10 (§23.1);
+- **[GUI]** Resume-Abhängigkeiten — durch die bestehende
+  Resume-Machbarkeitsprüfung (Backend-Dry-Run + Frontend-Grundanzeige) getragen;
+- **[GUI]** historische Classic-/PREWARP-Runs read-only anzeigen und Resume
+  deaktivieren — die Machbarkeitsprüfung lehnt einen Legacy-Resume unter der
+  Single-Method-Pipeline ab und zeigt den Grund; **offen:** ein Frontend-Audit
+  auf explizite „read-only"-Badges;
+- **[GUI]** OSC-/MONO-Umfang, RGB-Ablehnung, Coveragefehler und fehlende
+  Rekonstruktions-Caches verständlich anzeigen — Validierungs-/Fehlerpfade
+  vorhanden; **offen:** Wortlaut-Audit + Desktop-/Mobile-Sichtprüfung (Browser);
+- **[Legacy] ✔ (§30.60)** GUI-Methodenwahl entfernt: `parameter.js`
+  (`draft?.method`, `reconMethod`, `methodHiddenCats`, `isMethodParamVisible`,
+  `AQMH_ONLY_CATEGORIES` weg; `CLASSIC_ONLY_CATEGORIES` →
+  `LEGACY_HIDDEN_CATEGORIES`, bedingungslos ausgeblendet) und `phase-list.js`
+  (`getPhasesForConfig` nicht mehr config-abhängig; `RECONSTRUCT_PHASES` =
+  die real emittierte `reconstruct`-Phasenreihenfolge, gegen M31/M42-Event-Logs
+  + im Browser verifiziert — die alte `AQMH_PHASES`-Liste zeigte nie feuernde
+  AQMH-/Legacy-Phasen und keine der Forward-Drizzle-Phasen). **M10:**
+  `Config::method`,
+  `normalizeMethod`, YAML-Parse/Serialize, `method`-Schlüssel in
+  `tile_compile.schema.json`, `getEffectiveMethod()`, `AqmhConfig` — sie tragen
+  den Legacy-AQMH-Pfad, den die M9-10-%-Gegenüberstellung braucht;
+- **[Doku] ✔ (§30.60)** aktive Methodikdokumentation: neu
+  `docs/guides/cfa_forward_drizzle_pipeline_{en,de}.md` (Was-es-tut,
+  Drei-Wege-Kandidaten + Fallback, aktive Phasen, Coverage-Gate, Scale-Modi,
+  Ausgaben, Caches & Resume, Report-Sektion), in `mkdocs.yml` verlinkt;
+  `workflow{,_de}.md` auf die aktive Pipeline umgestellt. **Offen:** die
+  per-Phase-`process_flow/`-Docs *und* `configuration_reference{,_en}.md` /
+  `configuration_examples_practical_{de,en}.md` beschreiben noch den
+  Legacy-Classic-/AQMH-Pfad — nicht falsch (der Pfad lebt bis M10), aber
+  Angleich an den Single-Method-`reconstruct`-Pfad ist M10-Ära-Arbeit (nach
+  Legacy-Entfernung); die neue Guide-Seite trägt die aktive Methodik bis dahin.
 
 **Abnahme:**
 
+- Report-Werte stimmen mit den realen M31/M42-Artefakten (§30.57) überein;
 - Desktop-/Mobile-Prüfung der Frontendfelder einschließlich Cachelöschwarnung;
-- `summary`/`full` und Profilcache-Retention verändern keine Rechenergebnisse;
+- `summary`/`full` und Profilcache-Retention verändern keine Rechenergebnisse
+  (Testnachweis in der `tile_compile`-Suite: gleicher Config einmal
+  `diagnostics.level` `summary` vs `full` und `keep_profile_cache_after_run`
+  `true` vs `false`, Plane-Digest / fusionierter Hash identisch);
 - JSON/YAML valide;
-- deutsche/englische Dokumentation konsistent.
+- kein Methodenwahl-Mechanismus in CLI/API/GUI; `Config::method` bleibt bis M10
+  als stub-gefütterter `"aqmh"`-Default (Schema-/Struct-Entfernung ist M10);
+- deutsche/englische aktive Methodikdokumentation konsistent (neue Guide-Seite
+  + `workflow*`); `configuration_reference*` / `configuration_examples_practical_*`
+  / `process_flow/` bleiben bis zur Legacy-Entfernung in M10 auf dem
+  Legacy-Pfad und sind dort als offen vermerkt.
 
 ### M9 — Kontrollierte Qualitätsläufe
 
@@ -4195,7 +4291,8 @@ als Ersatz für positive Qualitätsnachweise.
 - sämtliche Promotionskriterien aus Abschnitt 3.2 auf der vereinbarten
   Datensatzmatrix bestanden;
 - RSS- und Temporärdiskformeln aus 11.11 eingehalten; Durchsatzmedian höchstens
-  20 % unter der eingefrorenen M8-Baseline;
+  20 % unter der eingefrorenen M8-Baseline (§11.11.1: M31 Modus 2/1 und M42 1/1
+  Hybrid, je Config/Backend auf der dort fixierten Referenzumgebung);
 - M66-, IC5070- und MONO-Bisektion mit Bootstrap-Konfidenzintervallen
   dokumentiert;
 - keine schwere Regression in Runtime, Speicher, Farbe, Astrometrie oder
@@ -4232,7 +4329,12 @@ erfolgt widerspruchsfrei erst in M11.
 - verbliebene **Rekonstruktions**-Engine-/Methodenschlüssel aus Schema,
   Beispielen, Übersetzungen, Reports und Dokumentation entfernen;
   `registration.engine` und der allgemeine Acceleration-Backendvertrag bleiben
-  davon ausdrücklich unberührt;
+  davon ausdrücklich unberührt. **Konkret aus M8 hierher verschoben (Beschluss
+  2026-09-08):** `Config::method` (Feld + `"aqmh"`-Default), `normalizeMethod`,
+  der `method`-YAML-Parse/-Serialize in `src/io/config.cpp`, der `method`-Knoten
+  in `tile_compile.schema.json`, die `getEffectiveMethod()`-Stub-Funktion und
+  `runner_pipeline.cpp:` `cfg.method = getEffectiveMethod(cfg)`. Der
+  GUI-Auswahlmechanismus ist bereits in M8 entfernt;
 - historische Methodikdokumente unverändert nach `attic/` verschieben, sofern
   sie noch in aktiven Dokumentationsbereichen liegen;
 - read-only Legacy-Run-Parser als getrennte, nicht schreibende Komponente
@@ -4469,7 +4571,7 @@ nicht durch eine Planentscheidung als implementiert markiert.
 | Validation/N/A | FWHM ab 20, p90/Tail/Elongation ab 30 Sternen; FWHM-CI-Breite ≤10 %; N/A erfüllt nie Promotion | M6-Validationtests und M9-Anwendbarkeit |
 | À-trous-Backend | CPU in M7; CUDA erst später bei ≥20 % Phasenanteil und ≥15 % End-to-End-Gewinn | CPU-Parität und Profiling |
 | Kontrollpersistenz | Raw/Selected/Support/Validation immer; Kontroll-FITS nur `full`; interne Profile nur bei `keep_profile_cache_after_run=true` | Cache-/Resume-/Checksummentests in M8 |
-| Ressourcen | RSS-Wachstum ≤Budget×1,05+256 MiB; Temp-Preflight ≥Schätzung×1,20+Reserve; Durchsatzregression höchstens 20 % auf Referenzhardware | M8-Baseline und M9-100-Frame-Bestätigung |
+| Ressourcen | RSS-Wachstum ≤Budget×1,05+256 MiB; Temp-Preflight ≥Schätzung×1,20+Reserve; Durchsatzregression höchstens 20 % auf Referenzhardware | Eingefrorene M8-Baseline §11.11.1 (§30.57-Zeiten) und M9-100-Frame-Bestätigung |
 | Source-Cache | `delete_source_cache_after_run=false` bleibt Produktionsdefault; Löschung nur explizit nach vollständigem Commit | GUI-/CLI-/Resumeprüfung in M8/M10 |
 | Interpolations-/Seeing-Aufschlüsselung | M16 plus M66, IC5070 und realer MONO-Datensatz; Bootstrap-CIs, kein fixer 0,5-px-Zwang | autorisierte M9-Läufe |
 | Legacy-Grace-Zyklus | `tile_compile_legacy_reference_tests` ab M0 isoliert, in M10 nur test-only, Löschung in M11 | Buildinventar M0/M10/M11 |

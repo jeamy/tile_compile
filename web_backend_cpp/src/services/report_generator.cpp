@@ -2961,6 +2961,265 @@ std::optional<ReportSection> gen_reconstruction(const json& recon, const json& t
                                         charts, evals, infer_status(evals))};
 }
 
+/// @brief Generates the single-method CFA-forward-drizzle / multiband section.
+/// @details Plan M8 (§23.1): surface the reconstruction contract from
+/// `forward_drizzle.json` (+ the coverage gate from `sampling_geometry.json`) so
+/// the displayed numbers can be checked against the actual run artifacts ---
+/// coverage & geometry, candidate selection & gates, flux space & pixel scale,
+/// noise diagnostics, resources & throughput, per-band alpha confidence.
+std::optional<ReportSection> gen_forward_drizzle(const json& fd, const json& sg) {
+    if (!fd.is_object() || !fd.contains("geometry")) return std::nullopt;
+
+    auto row = [](const std::string& k, const std::string& v) {
+        return std::make_pair(k, v);
+    };
+    auto num = [](const json& o, const char* k, int prec = 3) -> std::string {
+        if (!o.is_object() || !o.contains(k) || !o[k].is_number()) return "n/a";
+        return format_number(o[k].get<double>(), prec);
+    };
+    auto b2s = [](bool v) { return std::string(v ? "yes" : "no"); };
+    // A validation metric serialises {value:null|number, applicable, sample_count,
+    // reason_if_not_applicable?}. Render the number, or "n/a" plus the reason.
+    auto metric_cell = [&](const json& m) -> std::string {
+        if (!m.is_object()) return "&mdash;";
+        if (m.value("applicable", false) && m.contains("value") && m["value"].is_number()) {
+            std::string s = format_number(m["value"].get<double>(), 4);
+            if (m.contains("ci_low") && m.contains("ci_high") && m["ci_low"].is_number()) {
+                s += " [" + format_number(m["ci_low"].get<double>(), 3) + ", " +
+                     format_number(m["ci_high"].get<double>(), 3) + "]";
+            }
+            return s;
+        }
+        std::string r = m.value("reason_if_not_applicable", std::string());
+        return r.empty() ? std::string("n/a") : ("n/a (" + r + ")");
+    };
+
+    const json& geom = fd["geometry"];
+    const json cg = (sg.is_object() && sg.contains("coverage_gate")) ? sg["coverage_gate"]
+                                                                     : json::object();
+    std::ostringstream cards;
+
+    // ---- Card 1: Coverage & geometry -------------------------------------------
+    {
+        std::vector<std::pair<std::string, std::string>> kv = {
+            row("Pipeline method", json_string_or(fd, "pipeline_method", "?")),
+            row("Contract version", std::to_string(static_cast<long long>(
+                    json_number_or(fd, "pipeline_contract_version", 0.0)))),
+            row("Source (px)", num(geom, "source_width", 0) + " x " + num(geom, "source_height", 0)),
+            row("Reconstruction (px)", num(geom, "reconstruction_width", 0) + " x " +
+                    num(geom, "reconstruction_height", 0)),
+            row("Internal scale", num(geom, "internal_scale", 0)),
+            row("Output scale", num(geom, "output_scale", 0) + " (applied: " +
+                    b2s(json_bool_or(geom, "output_scale_applied", false)) + ")"),
+            row("Kernel", json_string_or(geom, "kernel", "?")),
+            row("pixfrac", num(geom, "pixfrac", 3)),
+            row("Pixels supported", std::to_string(static_cast<long long>(
+                    json_number_or(fd, "pixels_supported", 0.0)))),
+            row("Luma definition", json_string_or(fd, "luma_definition", "?")),
+            row("Coverage geometry hash", json_string_or(fd, "coverage_geometry_hash", "?").substr(0, 16)),
+        };
+        std::vector<std::string> evals;
+        std::string status = "ok";
+        if (cg.is_object() && !cg.empty()) {
+            const bool passed = json_bool_or(cg, "passed", false);
+            evals.push_back(std::string("coverage gate: ") + (passed ? "PASS" : "FAIL"));
+            if (!passed) status = "bad";
+            evals.push_back("min supported fraction: " + num(cg, "min_supported_fraction", 4));
+            evals.push_back("min channel n_eff p10: " + num(cg, "min_channel_n_eff_p10", 3));
+            evals.push_back("largest internal hole (px): " + num(cg, "largest_internal_hole_area_px", 0));
+            evals.push_back("analysis pixels: " + num(cg, "analysis_pixels", 0));
+            evals.push_back("valid frames: " + num(cg, "valid_frames", 0));
+            if (cg.contains("supported_fraction") && cg["supported_fraction"].is_object()) {
+                for (auto it = cg["supported_fraction"].begin(); it != cg["supported_fraction"].end(); ++it)
+                    kv.push_back(row("Supported fraction " + it.key(),
+                                     it.value().is_number() ? format_number(it.value().get<double>(), 5) : "?"));
+            }
+            if (cg.contains("geometric_uniform_neff_p10") && cg["geometric_uniform_neff_p10"].is_object()) {
+                for (auto it = cg["geometric_uniform_neff_p10"].begin();
+                     it != cg["geometric_uniform_neff_p10"].end(); ++it)
+                    kv.push_back(row("n_eff p10 " + it.key(),
+                                     it.value().is_number() ? format_number(it.value().get<double>(), 3) : "?"));
+            }
+            if (cg.contains("violations") && cg["violations"].is_array() && !cg["violations"].empty()) {
+                for (const auto& v : cg["violations"])
+                    if (v.is_string()) evals.push_back("VIOLATION: " + v.get<std::string>());
+            }
+        } else {
+            evals.push_back("coverage gate: not available (sampling_geometry.json missing)");
+            status = "warn";
+        }
+        cards << make_plain_card_html("Coverage and geometry",
+                                      render_kv_table(kv) +
+                                          "<div class=\"metric-box\"><ul>" + [&] {
+                                              std::string li;
+                                              for (const auto& e : evals) li += "<li>" + html_escape(e) + "</li>";
+                                              return li;
+                                          }() + "</ul></div>",
+                                      status);
+    }
+
+    // ---- Card 2: Candidate selection & gates ---------------------------------
+    {
+        const std::string sel = json_string_or(fd, "selected_candidate", "?");
+        const std::string status = (sel == "drizzle_multiband") ? "ok" : "warn";
+        std::ostringstream body;
+        body << "<table class=\"kv\"><tbody>"
+             << "<tr><th>Selected candidate</th><td>" << html_escape(sel) << "</td></tr>"
+             << "<tr><th>Selection reason</th><td>" << html_escape(json_string_or(fd, "selection_reason", "?")) << "</td></tr>";
+        if (fd.contains("fallback_reason") && fd["fallback_reason"].is_string())
+            body << "<tr><th>Fallback reason</th><td>" << html_escape(fd["fallback_reason"].get<std::string>()) << "</td></tr>";
+        body << "</tbody></table>";
+
+        const json v = fd.value("validation", json::object());
+        const std::array<std::pair<const char*, const char*>, 3> cols = {{
+            {"drizzle_uniform", "Uniform"}, {"drizzle_raw", "Raw"}, {"drizzle_multiband", "Multiband"}}};
+        const std::array<const char*, 6> metrics = {
+            "median_fwhm", "p90_fwhm", "tail", "elongation", "background_rms", "seam_score"};
+        body << "<table class=\"kv\"><thead><tr><th>Metric</th>";
+        for (const auto& c : cols) body << "<th>" << c.second << "</th>";
+        body << "</tr></thead><tbody>";
+        for (const char* mk : metrics) {
+            body << "<tr><th>" << mk << "</th>";
+            for (const auto& c : cols) {
+                const json cand = v.value(c.first, json::object());
+                body << "<td>" << metric_cell(cand.value(mk, json())) << "</td>";
+            }
+            body << "</tr>";
+        }
+        body << "<tr><th>support_ok / numerics_ok</th>";
+        for (const auto& c : cols) {
+            const json cand = v.value(c.first, json::object());
+            body << "<td>" << b2s(json_bool_or(cand, "support_ok", false)) << " / "
+                 << b2s(json_bool_or(cand, "numerics_ok", false)) << "</td>";
+        }
+        body << "</tr></tbody></table>";
+        body << "<div class=\"metric-box\"><ul><li>"
+             << html_escape("stars total: " + std::to_string(static_cast<long long>(json_number_or(v, "stars_total", 0.0))) +
+                            ", multiband-effective: " + std::to_string(static_cast<long long>(json_number_or(v, "stars_multiband_effective", 0.0))))
+             << "</li></ul></div>";
+        cards << make_plain_card_html("Candidate selection and gates", body.str(), status);
+    }
+
+    // ---- Card 3: Flux space & pixel scale ----------------------------------
+    {
+        const json fx = fd.value("flux_space", json::object());
+        const double sx = json_number_or(geom, "source_width", 0.0);
+        const double rx = json_number_or(geom, "reconstruction_width", 0.0);
+        std::vector<std::pair<std::string, std::string>> kv = {
+            row("Flux space", json_string_or(fx, "space", "n/a")),
+            row("Luma definition", json_string_or(fx, "luma_definition", json_string_or(fd, "luma_definition", "?"))),
+            row("Same space as", json_string_or(fx, "same_space_as", "n/a")),
+            row("STACKING normalisation undo applied",
+                b2s(json_bool_or(fx, "stacking_normalisation_undo_applied", false))),
+            row("Note", json_string_or(fx, "note", "")),
+            row("Pixel scale (recon / source)", (sx > 0.0) ? format_number(rx / sx, 4) + " x" : "n/a"),
+            row("Internal x output", num(geom, "internal_scale", 0) + " x " + num(geom, "output_scale", 0)),
+            row("Sky pixel scale (WCS)", "deferred to M10 (canonical WCS/photometry)"),
+        };
+        cards << make_plain_card_html("Flux space and pixel scale", render_kv_table(kv), "ok");
+    }
+
+    // ---- Card 4: Noise diagnostics ---------------------------------------
+    {
+        const json v = fd.value("validation", json::object());
+        std::ostringstream body;
+        body << "<table class=\"kv\"><thead><tr><th>Candidate</th><th>background_rms</th><th>seam_score</th></tr></thead><tbody>";
+        for (const char* ck : {"drizzle_uniform", "drizzle_raw", "drizzle_multiband"}) {
+            const json cand = v.value(ck, json::object());
+            body << "<tr><th>" << ck << "</th><td>" << metric_cell(cand.value("background_rms", json()))
+                 << "</td><td>" << metric_cell(cand.value("seam_score", json())) << "</td></tr>";
+        }
+        body << "</tbody></table>";
+        body << "<div class=\"metric-box\"><ul><li>"
+             << html_escape("Lower background_rms and seam_score near 1.0 indicate a flat background and no visible band seams. "
+                            "background_rms is in the normalised linear working space, not ADU.")
+             << "</li></ul></div>";
+        cards << make_plain_card_html("Noise diagnostics", body.str(), "ok");
+    }
+
+    // ---- Card 5: Resources & throughput --------------------------------
+    {
+        const json tp = fd.value("throughput", json::object());
+        const json re = fd.value("runtime_environment", json::object());
+        const json res = fd.value("resources", json::object());
+        const json acc = fd.value("acceleration", json::object());
+        const json hw = re.value("hardware", json::object());
+        const json th = re.value("threads", json::object());
+        const json bld = re.value("build", json::object());
+        std::vector<std::pair<std::string, std::string>> kv = {
+            row("Backend", json_string_or(acc, "forward_drizzle_backend", "?")),
+            row("Processed source samples", std::to_string(static_cast<long long>(
+                    json_number_or(tp, "processed_source_samples", 0.0)))),
+            row("FORWARD_DRIZZLE wall (s)", num(tp, "forward_drizzle_wall_seconds", 2)),
+            row("Source samples / s", num(tp, "source_samples_per_second", 0)),
+            row("Frames used", num(tp, "frames_used", 0)),
+            row("CPU model", json_string_or(hw, "cpu_model", "?")),
+            row("Logical cores", num(hw, "logical_cores", 0)),
+            row("GPU", hw.contains("gpu") && hw["gpu"].is_string() ? hw["gpu"].get<std::string>() : std::string("-")),
+            row("Workers used", num(th, "workers_used", 0)),
+            row("Build",
+                json_string_or(bld.value("toolchain", json::object()), "build_type", "?") + " / " +
+                    json_string_or(bld.value("source", json::object()), "git_describe", "?") +
+                    (json_bool_or(bld.value("source", json::object()), "git_dirty", false) ? " (dirty)" : "")),
+            row("Peak RSS (KiB)", num(res, "rss_process_peak_kib", 0)),
+        };
+        std::vector<std::string> evals;
+        std::string status = "ok";
+        const bool env_ok = json_bool_or(res, "multiband_phase_rss_within_envelope", false);
+        const bool temp_ok = json_bool_or(res, "multiband_temp_space_ok", false);
+        const bool ws_ok = json_bool_or(res, "multiband_working_set_fits_budget", false);
+        evals.push_back(std::string("phase RSS within envelope: ") + (env_ok ? "yes" : "NO"));
+        evals.push_back(std::string("temp space ok: ") + (temp_ok ? "yes" : "NO"));
+        evals.push_back(std::string("working set fits budget: ") + (ws_ok ? "yes" : "NO"));
+        if (!(env_ok && temp_ok && ws_ok)) status = "bad";
+        if (acc.contains("cuda_stripe_path") && acc["cuda_stripe_path"].is_object()) {
+            const json& csp = acc["cuda_stripe_path"];
+            evals.push_back("cuda bands: " + num(csp, "bands", 0) +
+                            ", resolved chunk rows: " + num(csp, "resolved_chunk_rows", 0));
+            if (json_number_or(csp, "hybrid_local_frames", 0.0) > 0.0) {
+                evals.push_back("hybrid local frames: " + num(csp, "hybrid_local_frames", 0) +
+                                " (cpu " + num(csp, "hybrid_cpu_seconds", 1) + " s vs gpu-raster " +
+                                num(csp, "hybrid_gpu_raster_seconds", 2) + " s)");
+            }
+        }
+        cards << make_plain_card_html("Resources and throughput",
+                                      render_kv_table(kv) + "<div class=\"metric-box\"><ul>" + [&] {
+                                          std::string li;
+                                          for (const auto& e : evals) {
+                                              const bool w = e.find("NO") != std::string::npos;
+                                              li += std::string("<li") + (w ? " class=\"warn\"" : "") + ">" +
+                                                    html_escape(e) + "</li>";
+                                          }
+                                          return li;
+                                      }() + "</ul></div>",
+                                      status);
+    }
+
+    // ---- Card 6: Alpha confidence ------------------------------------
+    if (fd.contains("alpha_confidence_summary") && fd["alpha_confidence_summary"].is_array() &&
+        !fd["alpha_confidence_summary"].empty()) {
+        std::ostringstream body;
+        body << "<table class=\"kv\"><thead><tr><th>Band</th><th>Support px</th>"
+             << "<th>alpha &lt; 1 fraction</th><th>mean alpha</th><th>min alpha</th></tr></thead><tbody>";
+        for (const auto& band : fd["alpha_confidence_summary"]) {
+            body << "<tr><th>" << num(band, "band", 0) << "</th><td>"
+                 << std::to_string(static_cast<long long>(json_number_or(band, "support_px", 0.0)))
+                 << "</td><td>" << num(band, "alpha_below_one_fraction", 4)
+                 << "</td><td>" << num(band, "mean_alpha_on_support", 4)
+                 << "</td><td>" << num(band, "min_alpha_on_support", 4) << "</td></tr>";
+        }
+        body << "</tbody></table>";
+        body << "<div class=\"metric-box\"><ul><li>"
+             << html_escape("alpha < 1 marks pixels where the multiband detail was pulled back toward the raw/uniform "
+                            "estimate because per-band confidence was low. A high fraction in a fine band is expected "
+                            "on sparse CFA coverage; a high fraction in the coarsest band is a coverage warning.")
+             << "</li></ul></div>";
+        cards << make_plain_card_html("Alpha confidence", body.str(), "ok");
+    }
+
+    return ReportSection{"CFA Forward Drizzle / Multiband", cards.str()};
+}
+
 /// @brief Generates clustering.
 /// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -3381,6 +3640,8 @@ std::string build_report_html(const fs::path& run_dir,
                               const json& reg,
                               const json& lm,
                               const json& recon,
+                              const json& fwd_drizzle,
+                              const json& sampling_geometry,
                               const json& cl,
                               const json& syn,
                               const json& bge,
@@ -3423,6 +3684,7 @@ std::string build_report_html(const fs::path& run_dir,
     add(gen_registration(reg));
     add(gen_local_metrics(lm, tg));
     add(gen_reconstruction(recon, tg));
+    add(gen_forward_drizzle(fwd_drizzle, sampling_geometry));
     add(gen_aqmh_metrics(run_dir, aqmh_metrics, aqmh_regions));
     add(gen_clustering(cl));
     add(gen_synthetic(syn));
@@ -3525,10 +3787,14 @@ nlohmann::json generate_run_report(const fs::path& run_dir) {
         const json aqmh_metrics = read_json_if_exists(artifacts_dir / "aqmh_metrics.json");
         const json aqmh_regions = read_json_if_exists(artifacts_dir / "aqmh_regions.json");
         const json common_overlap = read_json_if_exists(artifacts_dir / "common_overlap.json");
+        // Plan M8: single-method reconstruction contract + coverage gate.
+        const json fwd_drizzle = read_json_if_exists(artifacts_dir / "forward_drizzle.json");
+        const json sampling_geometry = read_json_if_exists(artifacts_dir / "sampling_geometry.json");
         const std::string config_yaml = read_text(run_dir / "config.yaml");
 
         const std::string report_html = build_report_html(run_dir, status, artifacts_before, events,
-                                                          norm, gm, tg, reg, lm, recon, cl,
+                                                          norm, gm, tg, reg, lm, recon,
+                                                          fwd_drizzle, sampling_geometry, cl,
                                                           syn, bge, val, aqmh_metrics, aqmh_regions,
                                                           common_overlap, config_yaml, locale);
 

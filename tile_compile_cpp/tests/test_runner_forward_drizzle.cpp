@@ -221,6 +221,45 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
     REQUIRE(j.at("timing_seconds").contains("FORWARD_DRIZZLE"));
     REQUIRE(j.at("timing_seconds").at("FORWARD_DRIZZLE").get<double>()>=0.0);
     REQUIRE(j.at("pixels_supported").get<long long>()>0);
+
+    // Plan M8 / schema v2: throughput denominator + reference-machine block +
+    // flux space + per-band alpha summary.
+    REQUIRE(j.at("schema_version").get<int>()==2);
+    {
+      const auto &tp=j.at("throughput");
+      REQUIRE(tp.at("frames_used").get<long long>()>0);
+      const long long pss=tp.at("processed_source_samples").get<long long>();
+      REQUIRE(pss==tp.at("frames_used").get<long long>()*
+                   tp.at("source_width").get<long long>()*
+                   tp.at("source_height").get<long long>());
+      REQUIRE(tp.at("forward_drizzle_wall_seconds").get<double>()>=0.0);
+      REQUIRE(tp.at("source_samples_per_second").get<double>()>=0.0);
+    }
+    {
+      const auto &re=j.at("runtime_environment");
+      REQUIRE(re.at("build").at("toolchain").at("build_type").is_string());
+      REQUIRE(re.at("hardware").contains("cpu_model"));
+      REQUIRE(re.at("hardware").at("logical_cores").get<long long>()>=0);
+      REQUIRE((re.at("hardware").at("gpu").is_null()||
+               re.at("hardware").at("gpu").is_string()));
+      REQUIRE(re.at("threads").at("workers_used").get<int>()>=1);
+    }
+    {
+      const auto &fx=j.at("flux_space");
+      REQUIRE(fx.at("space")=="normalised_linear_working");
+      REQUIRE(fx.at("stacking_normalisation_undo_applied").get<bool>()==false);
+    }
+    {
+      const auto &as=j.at("alpha_confidence_summary");
+      REQUIRE(as.is_array());
+      for (const auto &b:as) {
+        REQUIRE(b.at("support_px").get<long long>()>=0);
+        const double f=b.at("alpha_below_one_fraction").get<double>();
+        REQUIRE((f>=0.0 && f<=1.0));
+        const double m=b.at("mean_alpha_on_support").get<double>();
+        REQUIRE((m>=0.0 && m<=1.0+1e-9));
+      }
+    }
   }
   REQUIRE_FALSE(fs::exists(f.dir/"cache/prewarped_frames"));
   REQUIRE_THROWS(f.cache->store_normalized(0,Matrix2Df::Ones(32,32)));
@@ -263,6 +302,77 @@ TEST_CASE("forward runner: an injected FORWARD_DRIZZLE CUDA fault restarts the "
   REQUIRE(clean.execute(clean_log));
   REQUIRE(core::sha256_file(f.dir / "artifacts/reconstruction_multiband.fits") ==
           core::sha256_file(clean.dir / "artifacts/reconstruction_multiband.fits"));
+}
+
+TEST_CASE("forward runner: diagnostics.level and profile-cache retention do not "
+          "change the computed result (plan M8 acceptance)",
+          "[forward-runner]") {
+  // §23.1 / M8: "`summary`/`full` und Profilcache-Retention verändern keine
+  // Rechenergebnisse." diagnostics.level=full only writes EXTRA control FITS;
+  // keep_profile_cache_after_run / delete_source_cache_after_run only act on
+  // caches AFTER the committed image. None feeds the store math.
+  // Scope: this proves retention does NOT change the run that produces the
+  // store. It does not exercise a *subsequent* re-fuse consuming a retained
+  // profile store -- that is a separate case if it ever matters.
+  struct Run {
+    std::string final_image_sha, multiband_fits_sha, reconstructed_sha,
+        raw_sha, selected;
+    core::json cache_retention;
+  };
+  auto run_with = [](const std::string &level, bool keep_profile,
+                     bool delete_source) {
+    Fixture f;
+    f.cfg.reconstruction.diagnostics.level = level;
+    f.cfg.reconstruction.keep_profile_cache_after_run = keep_profile;
+    f.cfg.reconstruction.delete_source_cache_after_run = delete_source;
+    std::ostringstream log;
+    REQUIRE(f.execute(log));
+    const auto tail = events(log.str()).back();
+    REQUIRE(tail["status"] == "final_image_ready");
+    std::ifstream cf(f.dir / "artifacts/forward_drizzle_checkpoint.json");
+    const auto ck = core::json::parse(cf);
+    Run r;
+    r.final_image_sha = ck.at("final_image_sha256").get<std::string>();
+    r.multiband_fits_sha =
+        core::sha256_file(f.dir / "artifacts/reconstruction_multiband.fits");
+    r.reconstructed_sha =
+        core::sha256_file(f.dir / "outputs/reconstructed_L.fit");
+    r.raw_sha = core::sha256_file(f.dir /
+                                  "outputs/forward_drizzle_raw_L.fit");
+    std::ifstream fj(f.dir / "artifacts/forward_drizzle.json");
+    r.selected = core::json::parse(fj).at("selected_candidate").get<std::string>();
+    r.cache_retention = tail["cache_retention"];
+    // full adds the two control sets; summary must not have written them.
+    const bool full_extras =
+        fs::exists(f.dir / "outputs/forward_drizzle_uniform_L.fit");
+    REQUIRE(full_extras == (level == "full"));
+    return r;
+  };
+
+  const Run base = run_with("summary", /*keep*/ false, /*del_src*/ false);
+  const Run full = run_with("full", /*keep*/ false, /*del_src*/ false);
+  const Run kept = run_with("summary", /*keep*/ true, /*del_src*/ false);
+  const Run full_kept = run_with("full", /*keep*/ true, /*del_src*/ false);
+
+  for (const Run *r : {&full, &kept, &full_kept}) {
+    REQUIRE(r->final_image_sha == base.final_image_sha);
+    REQUIRE(r->multiband_fits_sha == base.multiband_fits_sha);
+    REQUIRE(r->reconstructed_sha == base.reconstructed_sha);
+    REQUIRE(r->raw_sha == base.raw_sha);
+    REQUIRE(r->selected == base.selected);
+  }
+  // Retention flags act only on the caches, and are announced.
+  REQUIRE(base.cache_retention["profile_cache"] == "deleted");
+  REQUIRE(kept.cache_retention["profile_cache"] == "retained");
+  REQUIRE(base.cache_retention["source_cache"] == "retained");
+
+  // delete_source_cache_after_run: same computed result, source cache gone,
+  // resume-reconstruction announced as disabled.
+  const Run del_src = run_with("summary", /*keep*/ false, /*del_src*/ true);
+  REQUIRE(del_src.final_image_sha == base.final_image_sha);
+  REQUIRE(del_src.multiband_fits_sha == base.multiband_fits_sha);
+  REQUIRE(del_src.cache_retention["source_cache"] == "deleted");
+  REQUIRE(del_src.cache_retention["resume_reconstruction_disabled"] == true);
 }
 
 TEST_CASE("forward runner: geometry veto never completes overlap or reconstruction", "[forward-runner]") {

@@ -3,36 +3,40 @@
 Der Standard-Workflow mit GUI3 umfasst drei Schritte:
 
 1. **Input scannen** — Tab *Processing → Input & Scan*: Input-Ordner mit FITS-Lights auswählen, optional Kalibrierungsframes (Bias/Dark/Flat) angeben, Scan starten. Der Scan erkennt Frames, Auflösung und Farbmodus.
-2. **Parameter anpassen** — Tab *Processing → Parameter*: Beispiel-Konfiguration laden oder Werte anpassen. Wichtige Parameter: Registration (Rotation, Transformationsmodell), AQMH (Cherry-Pick, Pyramiden-Skalen), Stacking-Methode, Bayer-Pattern. Konfiguration validieren und speichern.
+2. **Parameter anpassen** — Tab *Processing → Parameter*: Beispiel-Konfiguration laden oder Werte anpassen. Wichtige Parameter: Registration (Rotation, Transformationsmodell), Rekonstruktion (`internal_scale`/`output_scale`, `pixfrac`, Coverage-Gate, Multiband), Cache-Retention, Bayer-Pattern. Es gibt keine Rekonstruktions-Methodenauswahl — jeder Lauf verwendet CFA-Forward-Drizzle + Multiband. Konfiguration validieren und speichern.
 3. **Run starten und überwachen** — Tab *Processing → Run Monitor*: Run starten, Phasenfortschritt in Echtzeit verfolgen, bei Bedarf abbrechen oder ab einer bestimmten Phase fortsetzen.
 
 Nach Abschluss: Ergebnisse liegen in `runs/<run_id>/outputs/`. Diagnosebericht über *Generate Stats* im Run Monitor oder über die Run-History erzeugen.
 
-Vollständige Anleitung: [GUI3 Benutzerhandbuch](../gui3_user_guide_de.md)
+Vollständige Anleitung: [GUI3 Benutzerhandbuch](../gui3_user_guide_de.md) · Methode: [CFA-Forward-Drizzle + Multiband](cfa_forward_drizzle_pipeline_de.md)
 
 ## Pipeline-Phasen
 
-| ID | Phase | Beschreibung |
-|----|-------|-------------|
-| 0 | SCAN_INPUT | Input-Erkennung, Moduserkennung, Linearitätsprüfung, Speicherplatz-Precheck |
-| 1 | REGISTRATION | Kaskadierte globale Registrierung |
-| 2 | PREWARP | Full-Frame-Canvas-Prewarp (CFA-sicher für OSC) |
-| 3 | CHANNEL_SPLIT | Metadaten-Phase (Kanalmodell) |
-| 4 | NORMALIZATION | Lineare hintergrundbasierte Normalisierung |
-| 5 | GLOBAL_METRICS | Globale Frame-Metriken und Gewichte |
-| 6 | TILE_GRID | Adaptive Tile-Geometrie (für klassische TILE_RECONSTRUCTION) |
-| 7 | COMMON_OVERLAP | Gemeinsamer gültiger Daten-Overlap (globale/tile-lokale Masken) |
-| 8 | LOCAL_METRICS | Lokale Tile-Metriken + **AQMH-Qualitätskarten-Berechnung** |
-| 9 | TILE_RECONSTRUCTION | **AQMH pixelgenaue gewichtete Rekonstruktion** (Standard) oder Tile-gewichtete OLA (klassisch) |
-| 10 | STATE_CLUSTERING | Optionales State-Clustering |
-| 11 | SYNTHETIC_FRAMES | Optionale synthetische Frame-Erzeugung |
-| 12 | STACKING | Finale lineare Stacking |
-| 13 | DEBAYER | OSC-Demosaic zu RGB (MONO-Durchlauf) |
-| 14 | ASTROMETRY | Plate Solving / WCS |
-| 15 | BGE | Optionale RGB-Hintergrund-Gradient-Extraktion vor PCC |
-| 16 | PCC | Photometrische Farbkalibrierung |
-| 17 | HYPERMETRIC_STRETCH | Optionaler VeraLux HyperMetric Stretch nach PCC |
-| 18 | DONE | Endstatus (`ok` oder `validation_failed`) |
+Die Rekonstruktion ist CFA-Forward-Drizzle + Multiband — Details in
+[CFA-Forward-Drizzle + Multiband](cfa_forward_drizzle_pipeline_de.md). Die
+aktive Phasenreihenfolge:
+
+| Phase | Beschreibung |
+|----|-------|
+| SCAN_INPUT | Input-Erkennung, Moduserkennung, Linearitätsprüfung, Speicherplatz-Precheck |
+| REGISTRATION | Kaskadierte globale Registrierung |
+| NORMALIZED_CACHE | Normalisierter CFA-Quellcache (mit Metadaten) |
+| SAMPLING_GEOMETRY | Sampling-Plan, direkte Kanal-Coverage / `n_eff` / Loch-Abdeckung, **Coverage-Gate** |
+| COMMON_OVERLAP | Gemeinsamer gültiger Daten-Overlap über die akzeptierten Frames |
+| SOURCE_QUALITY_MAPS | Frame-weise Quell-Qualitätskarten (Pyramide) |
+| GLOBAL_QUALITY | Globale frame-weise Qualitätsgewichte |
+| FORWARD_DRIZZLE | CFA-Forward-Drizzle → transaktionaler U/R/F/M-Profilspeicher (CPU oder CUDA) |
+| MULTIBAND | À-trous-Fusion zu `X_out`, Drei-Wege-Kandidatenauswahl, Auslieferung je Kanal |
+| STACKING | Lineares Stacking-Pass-through |
+| DEBAYER | OSC-Demosaic zu RGB (MONO-Durchlauf) |
+| ASTROMETRY | Plate Solving / WCS |
+| BGE | Optionale RGB-Hintergrund-Gradient-Extraktion vor PCC |
+| PCC | Photometrische Farbkalibrierung |
+| HYPERMETRIC_STRETCH | Optionaler VeraLux HyperMetric Stretch nach PCC |
+| DONE | Endstatus (`ok` oder `validation_failed`) |
+
+> Die *Process-Flow*-Dokumente beschreiben die historische Classic-/AQMH-Tile-
+> Pipeline und dienen nur noch als Referenz.
 
 Detaillierte Phasen-Dokumentation: [Process Flow](../process_flow/phase_0_overview.md)
 

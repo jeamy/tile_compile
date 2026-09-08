@@ -237,24 +237,20 @@ function renderCategories() {
     return;
   }
 
-  const reconMethod = draft?.method ?? "aqmh";
-  const methodHiddenCats = reconMethod === "aqmh"
-    ? CLASSIC_ONLY_CATEGORIES
-    : reconMethod === "classic_tile_compile"
-    ? AQMH_ONLY_CATEGORIES
-    : [];
-
+  // Single-method pipeline (plan M8): no reconstruction-method selector. The
+  // legacy Classic/tile-era categories below are never editable and stay hidden
+  // unconditionally until their schema keys are removed in M10.
   const filter = parameterSearchTerm();
   const entries = parameterSearchEntries(schemaPaths, schema);
   const matchingEntries = entries.filter((entry) =>
     parameterMatchesSearch(entry, filter) &&
-    !methodHiddenCats.includes(entry.category)
+    !LEGACY_HIDDEN_CATEGORIES.includes(entry.category)
   );
   const matchingCategories = new Set(matchingEntries.map((entry) => entry.category));
   const visibleCategories = (filter
     ? categories.filter((cat) => cat === "all" || matchingCategories.has(cat))
     : categories
-  ).filter((cat) => cat === "all" || !methodHiddenCats.includes(cat));
+  ).filter((cat) => cat === "all" || !LEGACY_HIDDEN_CATEGORIES.includes(cat));
   const savedCat = getUiState().selectedCategory || "all";
 
   if (filter && matchingEntries.length === 0) {
@@ -295,10 +291,17 @@ const BGE_CLASSIC_ONLY_PREFIXES = [
 ];
 const BGE_AUTOBGE_ONLY_PREFIXES = ["bge.autobge."];
 
-const CLASSIC_ONLY_CATEGORIES = [
+// Config top-level keys hidden from the editor under the single-method pipeline
+// (plan M8). `method` is the reconstruction-method selector: the pipeline offers
+// exactly one method, so it must not be shown as a choice; the schema key itself
+// is removed in M10. The rest are legacy Classic/tile-era blocks, never editable
+// here, hidden until their schema keys go in M10. `aqmh` is deliberately NOT
+// here: `aqmh.pyramid.*` still feeds the active SOURCE_QUALITY_MAPS phase (M10
+// renames the block to reconstruction.quality.*).
+const LEGACY_HIDDEN_CATEGORIES = [
+  "method",
   "synthetic", "tile", "tile_denoise", "local_metrics", "global_metrics",
 ];
-const AQMH_ONLY_CATEGORIES = ["aqmh"];
 
 function isBgeParamVisible(path, bgeMethod) {
   const isClassicOnly = BGE_CLASSIC_ONLY_PREFIXES.some(p => path === p || path.startsWith(p));
@@ -308,15 +311,9 @@ function isBgeParamVisible(path, bgeMethod) {
   return isClassicOnly;
 }
 
-function isMethodParamVisible(path, method) {
+function isLegacyCategoryHidden(path) {
   const top = path.split(".")[0] || "";
-  if (method === "aqmh") {
-    return !CLASSIC_ONLY_CATEGORIES.includes(top);
-  }
-  if (method === "classic_tile_compile") {
-    return !AQMH_ONLY_CATEGORIES.includes(top);
-  }
-  return true;
+  return LEGACY_HIDDEN_CATEGORIES.includes(top);
 }
 
 export function renderEditorForCategory(category) {
@@ -326,7 +323,6 @@ export function renderEditorForCategory(category) {
   clear(editorBody);
 
   const bgeMethod = draft?.bge?.method ?? "none";
-  const reconMethod = draft?.method ?? "aqmh";
 
   const filter = parameterSearchTerm();
   const categoryPaths = category === "all"
@@ -339,7 +335,7 @@ export function renderEditorForCategory(category) {
   let renderedCount = 0;
   for (const path of paths) {
     if (!isBgeParamVisible(path, bgeMethod)) continue;
-    if (!isMethodParamVisible(path, reconMethod)) continue;
+    if (isLegacyCategoryHidden(path)) continue;
     const fieldSchema = getSchemaForPath(schema, path);
     const value = draft ? (getConfigValue(draft, path) ?? fieldSchema?.default) : "";
     editorBody.appendChild(editableParamRow(path, value, fieldSchema));

@@ -753,7 +753,19 @@ if(BUILD_TESTS)
             tests/test_aqmh_quality_map_cache.cpp
             tests/test_aqmh_validation.cpp
             tests/test_aqmh_config.cpp
+            ${_tile_compile_build_info_source}
         )
+        # runner_forward_drizzle.cpp (compiled into `tests`) now reports
+        # core::build_info_json() in forward_drizzle.json; give the test binary
+        # its own generated build-info translation unit, like the other targets.
+        tile_compile_add_build_info(tests
+            COMPONENT tests
+            PROJECT_VERSION "${PROJECT_VERSION}"
+            SOURCE_ROOT "${TILE_COMPILE_REPOSITORY_ROOT}"
+            OPENCV_VERSION "${OpenCV_VERSION}"
+            CUDA_VERSION "${CUDAToolkit_VERSION}"
+            FEATURE_FLAGS "${_tile_compile_feature_flags}"
+            BUILD_INFO_SOURCE "${_tile_compile_build_info_source}")
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)
         include(Catch)

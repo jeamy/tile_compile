@@ -6,6 +6,7 @@
 #include "tile_compile/reconstruction/multiband_fusion.hpp"
 #include "tile_compile/reconstruction/output_scale.hpp"
 #include "tile_compile/core/acceleration.hpp"
+#include "tile_compile/core/build_info.hpp"
 #include "tile_compile/registration/sampling_geometry.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/io/fits_io.hpp"
@@ -14,6 +15,7 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <thread>
 
 #include <sys/resource.h>
 
@@ -52,6 +54,23 @@ long long read_proc_status_kb(const char *key) {
 }
 long long read_vmrss_kb() { return read_proc_status_kb("VmRSS"); }
 long long read_vmhwm_kb() { return read_proc_status_kb("VmHWM"); }
+// Plan 11.11 / 11.11.1: the throughput baseline is only comparable on a named
+// reference machine, so `forward_drizzle.json` records the CPU model string.
+// Linux `/proc/cpuinfo`; empty when unreadable (never fatal).
+std::string read_cpu_model_name() {
+  std::ifstream ci("/proc/cpuinfo");
+  std::string line;
+  while (std::getline(ci, line)) {
+    if (line.rfind("model name", 0) != 0) continue;
+    const auto colon = line.find(':');
+    if (colon == std::string::npos) continue;
+    std::string v = line.substr(colon + 1);
+    const auto b = v.find_first_not_of(" \t");
+    const auto e = v.find_last_not_of(" \t\r\n");
+    return (b == std::string::npos) ? std::string() : v.substr(b, e - b + 1);
+  }
+  return {};
+}
 const std::vector<std::string> geometry_files = {
     "registration_sampling.json", "sampling_geometry.json",
     "sampling_geometry_analysis_common_mask.fits",
@@ -242,6 +261,21 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         fd_accel.selected==core::AccelerationBackend::cuda ? "cuda" : "cpu";
     std::string fd_backend_used="cpu", fd_cuda_fallback_reason;
 
+    // Plan 11.11.1: probe the GPU name for the throughput-baseline machine
+    // BEFORE any phase begins --- the AccelerationContext ctor calls
+    // cv::cuda::setDevice(), which can initialise a CUDA context, and doing that
+    // mid-MULTIBAND would land after that phase's RSS start is captured and skew
+    // §11.13 phase-growth accounting. The forward-drizzle CUDA path re-selects
+    // the device itself, so this adds no perturbation to the actual compute.
+    // Only probed when the resolved intent is GPU; never fatal.
+    std::string gpu_device_name;
+    if (fd_accel.using_gpu) {
+      try {
+        core::AccelerationContext acc(cfg.runtime_limits.acceleration_backend);
+        gpu_device_name = acc.capabilities().device_name;
+      } catch (...) { gpu_device_name.clear(); }
+    }
+
     begin(Phase::FORWARD_DRIZZLE);
     const auto profiles_root=artifacts/"forward_drizzle_profiles";
     reconstruction::DrizzleStoreIdentity mb_identity;
@@ -309,6 +343,54 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           profiles_root,mb_identity,mb_internal,reconstruction_cfg.multiband,
           drizzle.chunk_rows,drizzle.memory_budget_mb,&cand,&spool,&mem_plan);
       checkpoint["final_image_sha256"]=core::sha256_file(mb_internal);
+
+      // Plan 16.4: per-band alpha-confidence summary. `cand.alpha_final_by_band`
+      // is freed with the luma buffers below (line ~`cand={}`), so the summary
+      // is computed here. An empty inner vector means alpha == 1 across the band
+      // (no fallback anywhere). Denominator is the luma support (every active
+      // channel co-present) so the fraction is "of the pixels the reconstruction
+      // actually delivered", not of the whole canvas.
+      json alpha_confidence_summary=json::array();
+      {
+        // alpha_final_by_band[b] is populated in source_quality_artifact.cpp as
+        // either empty (alpha == 1 across the band) or assign(W*H, ...) --- the
+        // SAME full-resolution grid as uniform_support (also W*H). Fail loudly if
+        // a future change ever breaks that so the fraction never silently means
+        // nothing (a coarse alpha buffer indexed with fine-grid indices).
+        const std::size_t sup_n=cand.uniform_support.size();
+        long long support_px=0;
+        for (auto s:cand.uniform_support) if (s) ++support_px;
+        for (std::size_t b=0;b<cand.alpha_final_by_band.size();++b) {
+          const auto &af=cand.alpha_final_by_band[b];
+          json band={{"band",static_cast<int>(b)},
+                     {"support_px",support_px}};
+          if (af.empty()) {
+            band["alpha_below_one_px"]=0;
+            band["alpha_below_one_fraction"]=0.0;
+            band["mean_alpha_on_support"]=1.0;
+            band["min_alpha_on_support"]=1.0;
+          } else {
+            if (af.size()!=sup_n)
+              throw std::runtime_error(
+                  "FORWARD_STAGE_ALPHA_GRID_MISMATCH: alpha_final_by_band vs uniform_support");
+            long long below=0, counted=0; double sum=0.0, mn=1.0;
+            for (std::size_t i=0;i<sup_n;++i) {
+              if (!cand.uniform_support[i]) continue;
+              const float a=af[i];
+              if (!std::isfinite(a)) continue;
+              ++counted; sum+=a; if (a<mn) mn=a;
+              if (a<1.0f) ++below;
+            }
+            band["alpha_below_one_px"]=below;
+            band["alpha_below_one_fraction"]=
+                counted>0 ? static_cast<double>(below)/static_cast<double>(counted) : 0.0;
+            band["mean_alpha_on_support"]=
+                counted>0 ? sum/static_cast<double>(counted) : 1.0;
+            band["min_alpha_on_support"]=mn;
+          }
+          alpha_confidence_summary.push_back(std::move(band));
+        }
+      }
 
       // Plan 15: three-way candidate selection on the fixed working luminance
       // (drizzle_uniform / drizzle_raw / drizzle_multiband), stars detected
@@ -433,7 +515,9 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           fx.push_back({{"frame_id",fr.first},{"inversion_error_rate",fr.second}});
         local_warp["frames_excluded_subdivision_error_rate"]=fx; }
       json fwd={
-        {"schema_version",1},
+        // v2 (2026-09-08, plan M8): additive -- throughput, runtime_environment,
+        // flux_space, alpha_confidence_summary. No existing key changed shape.
+        {"schema_version",2},
         {"pipeline_method","cfa_forward_drizzle_multiband"},
         {"pipeline_contract_version",1},
         {"sampling_plan_hash",sampling.plan_hash},
@@ -541,6 +625,58 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           {"memory_budget_mb",
            static_cast<long long>(drizzle.memory_budget_mb)}}},
         {"timing_seconds",phase_seconds},
+        // Plan 11.11 / 11.11.1: the throughput gate is
+        //   throughput = processed_source_samples / forward_drizzle_wall_seconds
+        // on a NAMED reference machine. `processed_source_samples` is the nominal
+        // input CFA sample count (frames actually in the plan x sensor pixels) --
+        // a stable, reproducible denominator that needs no hot-loop counter; a
+        // post-mask refinement, if added later, is a NEW field and does not
+        // redefine this metric.
+        {"throughput",{
+          {"frames_used",static_cast<long long>(sampling.frames.size())},
+          {"source_width",sampling.source_width},
+          {"source_height",sampling.source_height},
+          {"processed_source_samples",
+           static_cast<long long>(sampling.frames.size())*
+               static_cast<long long>(sampling.source_width)*
+               static_cast<long long>(sampling.source_height)},
+          {"forward_drizzle_wall_seconds",
+           phase_seconds.value("FORWARD_DRIZZLE",0.0)},
+          {"source_samples_per_second",
+           phase_seconds.value("FORWARD_DRIZZLE",0.0)>0.0
+               ? (static_cast<double>(sampling.frames.size())*
+                  static_cast<double>(sampling.source_width)*
+                  static_cast<double>(sampling.source_height))/
+                     phase_seconds.value("FORWARD_DRIZZLE",0.0)
+               : 0.0}}},
+        // Plan 11.11 / 23.1: the machine the throughput baseline is pinned to.
+        // Build provenance comes from the generated build-info header; hardware
+        // and thread counts are read here so a report can state "same machine?"
+        // without a second artifact.
+        {"runtime_environment",{
+          {"build",core::build_info_json(/*include_runtime_binary=*/false)},
+          {"hardware",{
+            {"cpu_model",read_cpu_model_name()},
+            {"logical_cores",
+             static_cast<long long>(std::thread::hardware_concurrency())},
+            // Emitted only when a CUDA forward-drizzle path actually committed;
+            // a run that resolved GPU then fell back to CPU reports gpu:null.
+            {"gpu",(!gpu_device_name.empty() && fd_backend_used.rfind("cuda",0)==0)
+                       ? json(gpu_device_name) : json(nullptr)}}},
+          {"threads",{
+            {"parallel_workers_config",cfg.runtime_limits.parallel_workers},
+            {"workers_used",result.diagnostics.workers_used}}}}},
+        // Plan 23.1 (M4 carry-over -> M8 report): state the flux space of the
+        // delivered planes unambiguously. The STACKING 17.4 normalisation undo
+        // (scale_r/g/b, pedestal) is deliberately NOT applied here -- that is
+        // M10 cutover work -- so downstream photometry must not assume ADU.
+        {"flux_space",{
+          {"space","normalised_linear_working"},
+          {"luma_definition",reconstruction::kWorkingLumaDefinition},
+          {"same_space_as","reconstruction_multiband.fits"},
+          {"stacking_normalisation_undo_applied",false},
+          {"note","17.4 scale_r/g/b + pedestal undo pending M10 cutover"}}},
+        {"alpha_confidence_summary",alpha_confidence_summary},
         {"validation",{
           {"version",reconstruction::kMultibandValidationVersion},
           {"validation_config_hash",

@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09. | [§30.12–30.57](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09. | [§30.12–30.60](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -4446,6 +4446,316 @@ Punkt.
 
 **Durchsatz.** Keine Optimierungsarbeit (§19.6: Bit-Exaktheit hat Vorrang). Die
 gemessene CPU↔CUDA-Zeit wird als Befund eingetragen, nicht als Blocker.
+
+---
+
+<a id="historie-30-58"></a>
+
+### 30.58 M8 begonnen: Reihenfolge festgelegt + Durchsatz-Baseline eingefroren (2026-09-08)
+
+M7 abgeschlossen (§30.55–§30.57), Start von M8 (GUI, Report, Doku,
+Cache-Kommunikation).
+
+**Reihenfolge (Benutzerbeschluss):** Report → GUI/Cache → Legacy-Entfernung →
+Doku. Begründung: die Report-Abnahme („Anzeige = tatsächliche FITS-/Runartefakte",
+§23.1) ist gegen die vier realen §30.57-Läufe sofort prüfbar, ohne neuen Lauf;
+die Doku beschreibt zuletzt das Ergebnis der ersten drei Schritte.
+
+**Durchsatz-Baseline eingefroren (Benutzerbeschluss).** Die realen
+`FORWARD_DRIZZLE`-Wandzeiten der §30.57-Läufe werden die eingefrorene
+M8-Baseline für das 20-%-Gate aus §11.11 — festgeschrieben in **§11.11.1** des
+Implementierungsplans mit Referenzumgebung (AMD Ryzen 7 3700X 8C/16T, GTX 1660 Ti,
+Release + `-ffp-contract=off`/`--fmad=false`, `reconstruct`, `--max-frames 40`,
+`workers_used=1`, warmer SSD-Cache):
+
+| Config | Backend | `FORWARD_DRIZZLE` s | `pixels_supported` |
+|---|---|---|---|
+| M31 Modus 2/1 (`internal_scale=2, output_scale=1`, affin) | `cpu` | 1899,13 | 21 353 918 |
+| M31 Modus 2/1 | `cuda` | 2037,65 | 21 353 918 |
+| M42 lokaler Warp 1/1, Hybrid §19.6.2 | `cpu` | 878,19 | 24 879 983 |
+| M42 1/1 Hybrid | `cuda_hybrid` | 1831,95 | 24 879 983 |
+
+M9 vergleicht je Config/Backend auf derselben Referenzumgebung (Median aus drei
+Wiederholungen ≥ 0,8 ×). Der normierte Bruch
+`throughput = processed_source_samples / forward_drizzle_wall_seconds` wird mit
+§30.59 verbindlich — `processed_source_samples` = nominale Eingangs-Samples
+`frames · W · H` in `forward_drizzle.json` v2.
+
+**Nächster Schritt:** Report — `report_generator` + `report_{de,en}.json`:
+Coverage/`n_eff`/Alpha/Candidate-Gates, M4-Übernahme (Pixelmaßstab, Fluxraum,
+Rausch-/Korrelationsvertrag OSC/MONO × Scale-Modi), plus die neuen
+`forward_drizzle.json`-Felder. Verifikation gegen die §30.57-Artefakte.
+
+**Noch nichts committet.**
+
+---
+
+<a id="historie-30-59"></a>
+
+### 30.59 M8 Report-Schritt: `forward_drizzle.json` v2 + Report-Sektion (A + B, 2026-09-08)
+
+Erster M8-Änderungsschritt aus §30.58 („Report zuerst"). **A = Report-Generator,
+B = Core-Emit-Lücken**, in einem Zug.
+
+**B — `forward_drizzle.json` `schema_version` 1 → 2 (additiv, keine bestehende
+Form geändert), in `apps/runner_forward_drizzle.cpp`:**
+
+- `throughput`: `frames_used`, `source_width/height`, `processed_source_samples`
+  (= `frames · W · H`, nominale Eingangs-CFA-Samples — stabiler, reproduzierbarer
+  Nenner ohne Hot-Loop-Zähler; eine Post-Masken-Verfeinerung wäre ein NEUES
+  Feld, keine Neudefinition), `forward_drizzle_wall_seconds`,
+  `source_samples_per_second`. Das ist der Nenner für das §11.11/§11.11.1-Gate.
+- `runtime_environment`: `build` (= `core::build_info_json(false)`), `hardware`
+  (`cpu_model` aus `/proc/cpuinfo`, `logical_cores`, `gpu`), `threads`
+  (`parallel_workers_config`, `workers_used`). Beantwortet „gleiche Maschine wie
+  die Baseline?" ohne zweites Artefakt. Die `gpu`-Probe
+  (`AccelerationContext`-Ctor → `cv::cuda::setDevice`) läuft **vor**
+  `begin(Phase::FORWARD_DRIZZLE)` und nur wenn `fd_accel.using_gpu` — nie
+  mitten in MULTIBAND, wo sie nach dem Erfassen von `phase_rss_start` läge und
+  die §11.13-Phasen-RSS-Buchhaltung verzerren würde; der CUDA-Stripe-Pfad
+  wählt das Gerät ohnehin selbst, also keine zusätzliche Störung des Computes.
+  Ins JSON kommt `gpu` nur, wenn ein CUDA-Pfad tatsächlich committet hat
+  (`fd_backend_used` beginnt mit `cuda`), sonst `null`.
+- `flux_space`: `space = "normalised_linear_working"`, `luma_definition`,
+  `same_space_as = "reconstruction_multiband.fits"`,
+  `stacking_normalisation_undo_applied = false`, Hinweis auf die 17.4-Rücknahme
+  in M10. §23.1-M4-Übernahme („Fluxraum im Report") als eindeutige Aussage.
+- `alpha_confidence_summary`: je Band `support_px`, `alpha_below_one_px`,
+  `alpha_below_one_fraction`, `mean_alpha_on_support`, `min_alpha_on_support`,
+  berechnet vor der Freigabe von `cand` (`alpha_final_by_band`), Nenner = Luma-
+  Support. `alpha_final_by_band[b]` ist entweder leer (alpha ≡ 1) oder
+  `assign(W·H)` — dasselbe Vollraster wie `uniform_support`; ein
+  `af.size() != uniform_support.size()` wirft `FORWARD_STAGE_ALPHA_GRID_MISMATCH`,
+  damit eine spätere Rasteränderung laut scheitert statt eine sinnlose Zahl zu
+  melden. Die Frame-/Sample-Ausschlussentscheidung ist davon unberührt (läuft in
+  `prepare_drizzle_frames`, §30.57).
+- **`n_eff`/Coverage werden NICHT neu emittiert** — `sampling_geometry.json`
+  enthält bereits die vollständige Coverage-Gate-Zusammenfassung
+  (`geometric_uniform_neff_p10` je Kanal, `min_channel_n_eff_p10`,
+  `supported_fraction`, Löcher, `violations`, Dither-Streuung). Der Report liest
+  sie von dort.
+- `tests/test_runner_forward_drizzle.cpp`: Assertions für alle vier neuen Blöcke
+  + `schema_version == 2` + `processed_source_samples == frames·W·H`. `tests`-
+  Target in `CMakeLists.txt` bekommt jetzt eine eigene generierte Build-Info-TU
+  (`tile_compile_add_build_info(tests …)`), weil das in `tests` kompilierte
+  `runner_forward_drizzle.cpp` nun `core::build_info_json()` referenziert.
+
+**A — Report-Sektion `gen_forward_drizzle(fd, sg)` in
+`web_backend_cpp/src/services/report_generator.cpp`:**
+
+Neue Sektion „CFA Forward Drizzle / Multiband" mit sechs Karten, aus
+`forward_drizzle.json` + `sampling_geometry.json`:
+
+1. **Abdeckung & Geometrie** — Pipeline-Methode/Vertrag, Quelle/Rekon px,
+   internal/output scale, Kernel, pixfrac, `pixels_supported`, Coverage-Gate
+   (passed, `min_supported_fraction`, `min_channel_n_eff_p10`, `supported_fraction`
+   je Kanal, `geometric_uniform_neff_p10` je Kanal, Löcher, `violations`). Status
+   `bad` bei nicht bestandenem Gate.
+2. **Kandidatenauswahl & Gates** — `selected_candidate`/`selection_reason`/
+   `fallback_reason` + 3×6-Metrikmatrix (`median_fwhm`, `p90_fwhm`, `tail`,
+   `elongation`, `background_rms`, `seam_score`) je Kandidat mit Wert oder
+   „n/a (Grund)". Status `warn`, wenn nicht `drizzle_multiband` gewählt wurde.
+3. **Fluxraum & Pixelmaßstab** — `flux_space`-Block, Pixelmaßstab
+   (Rekon/Quelle-Verhältnis, internal×output); Himmels-Pixelmaßstab ausdrücklich
+   „auf M10 verschoben".
+4. **Rauschdiagnostik** — `background_rms` + `seam_score` je Kandidat, mit dem
+   Hinweis, dass `background_rms` im normalisierten linearen Arbeitsraum liegt.
+5. **Ressourcen & Durchsatz** — Backend, `throughput`-Block, `runtime_environment`
+   (CPU-Modell, Kerne, GPU, Worker, Build), Phase-RSS-Hülle/Temp-OK/Working-Set,
+   `cuda_stripe_path`-Kennzahlen inkl. `hybrid_*`. Status `bad`, wenn eine der
+   Ressourcengrenzen nicht ok ist.
+6. **Alpha-Konfidenz** — je Band `support_px`, `alpha < 1`-Anteil, Mittel-/Min-
+   Alpha.
+
+Registriert nach `gen_reconstruction`; `build_report_html` bekommt zwei neue
+Parameter (`fwd_drizzle`, `sampling_geometry`), `generate_run_report` liest die
+beiden Artefakte. Basis-Strings **englisch**; 39 DE-Übersetzungen in
+`web_frontend_v3/i18n/report_de.json` (Titel, Kartenüberschriften, Zeilenlabels,
+zwei Erklärsätze). Bewusst **nicht** übersetzt: kurze Ein-Wort-Labels, die
+Präfixe anderer Report-Wörter sind (`Metric`→`Metrics`, `Candidate`→`Candidates`,
+`Note`, `Band`) — `apply_replacements` matcht greedy längster-Key-zuerst über das
+ganze Dokument, ein Teiltreffer würde fremden Text verstümmeln. Alte
+`forward_drizzle.json` ohne v2-Felder rendern die Sektion weiter (Karten zeigen
+„n/a"/„-").
+
+**Verifikation.** Neuer `web_backend_cpp/tests/test_report_forward_drizzle.cpp`
+(`BackendHarness`, Fixture in M42-Form, `schema_version:2`) rendert den Report
+mit `TILE_COMPILE_REPORT_LOCALE=en` und prüft, dass die englischen Basis-Strings
+(Sektions- + alle sechs Kartentitel, `cfa_forward_drizzle_multiband`,
+`selection_reason`, `processed_source_samples`, CPU-Modell, Coverage-Gate-`n_eff`,
+`normalised_linear_working`) den EN-Übersetzungslauf (DE→EN, greedy) **verbatim**
+überstehen — der Test für die Teiltreffer-Verstümmelung aus dem Review. Grün.
+`[forward-runner]` (tile_compile) grün mit den v2-Assertions (inkl.
+`processed_source_samples == frames·W·H`).
+
+**Vorbestehende rote Tests (unverändert, nicht durch diesen Schritt):**
+`tile_compile` `acceleration_context_keeps_aqmh_maps_cpu_only` (Umgebung: CUDA-
+Gerät vorhanden) + die zwei Legacy-AQMH-Fälle; `web_backend_cpp_contract`
+(`raw stack ui` 404) + `web_backend_cpp_report_phase_issues`
+(`tileCompileReportSetLanguage`/`const templates=` existieren nirgends im Baum) —
+alle vier scheitern auch auf sauberem HEAD.
+
+**Offen für M8:** GUI-Configfelder + Cache-Kommunikation, toter `method`-Zweig,
+DE/EN-Doku. **Noch nichts committet.**
+
+---
+
+<a id="historie-30-60"></a>
+
+### 30.60 M8: GUI-Methodenwahl entfernt, Cache-Kommunikation, Rechen-Invarianz-Test (2026-09-08)
+
+Nach §30.59 die restlichen M8-Punkte, in der §30.58-Reihenfolge (GUI/Cache →
+Legacy → Doku).
+
+**Plan-Korrektur zuerst (M8/M10-Grenze).** Die frühere M8-Formulierung „toter
+Code: `Config::method`, `getEffectiveMethod()` …" war falsch: `Config::method`
+ist **nicht** tot — `normalizeMethod` leitet `aqmh.enabled` daraus ab,
+`config.cpp:252` parst ihn, `to_yaml` serialisiert ihn, `runner_pipeline.cpp:1234`
+weist ihn zu, `tile_compile.schema.json:6` dokumentiert `aqmh`/`classic_tile_compile`.
+Das trägt den Legacy-AQMH-Rekonstruktionspfad, den die M9-10-%-Gegenüberstellung
+braucht. **M8 = nur der GUI-Auswahlmechanismus**; `Config::method` + Schema +
+`normalizeMethod` + `AqmhConfig` sind **nach M10 verschoben** (dessen
+Änderungsliste nennt „Methodenschlüssel aus Schema … entfernen" ohnehin schon).
+§23.1 „kein offener Punkt verschwindet" — der verschobene Teil ist explizit in
+M10 ergänzt, die M8-Abnahmezeile entsprechend eng gefasst.
+
+**[Legacy] GUI-Methodenwahl entfernt.**
+- `web_frontend_v3/js/pages/parameter.js`: `draft?.method`, `reconMethod`,
+  `methodHiddenCats`-Ternär, `isMethodParamVisible`, `AQMH_ONLY_CATEGORIES` weg.
+  `CLASSIC_ONLY_CATEGORIES` → `LEGACY_HIDDEN_CATEGORIES`, die Legacy-Kategorien
+  (`synthetic`, `tile`, `tile_denoise`, `local_metrics`, `global_metrics`)
+  werden jetzt **bedingungslos** ausgeblendet (waren es unter Single-Method
+  ohnehin immer) statt method-abhängig — kein Verhaltensunterschied, nur der
+  Auswahl-Zweig verschwindet. `isLegacyCategoryHidden(path)` ersetzt
+  `isMethodParamVisible(path, method)`. **`aqmh` bleibt sichtbar** —
+  `cfg.aqmh.pyramid` speist die aktive SOURCE_QUALITY_MAPS-Phase
+  (`runner_forward_drizzle.cpp:212`); die Umbenennung nach
+  `reconstruction.quality.*` ist M10.
+- `web_frontend_v3/js/components/phase-list.js`: `getPhasesForConfig` ist nicht
+  mehr config-abhängig (der `method === "classic_tile_compile"`-Zweig weg);
+  `CLASSIC_PHASES` bleibt nur für `CLICKABLE_PHASES`, bis die Legacy-Phasen-IDs
+  in M10 aus UI/Resume fallen.
+
+**[GUI] Phasenliste des Run-Monitors auf die aktive Pipeline korrigiert.**
+Beim Prüfen fiel auf: die bisherige `AQMH_PHASES`-Liste war für die
+Single-Method-Pipeline schlicht falsch — sie listete `AQMH_MAPS`,
+`AQMH_GLOBAL_QUALITY`, `AQMH_RECONSTRUCTION`, `AQMH_DIAGNOSTICS` (feuern im
+`reconstruct`-Pfad nie) sowie `STACKING`/`DEBAYER`/`ASTROMETRY`/`BGE`/`PCC`/
+`HYPERMETRIC_STRETCH` (nur Legacy-`run`), und **keine** der sechs
+Forward-Drizzle-Phasen. `updatePhaseState` hängt unbekannte Phasen nicht an,
+also war der Live-Fortschritt von `FORWARD_DRIZZLE`/`MULTIBAND` unsichtbar und
+vier AQMH-Zeilen standen dauerhaft auf „pending". Neu `RECONSTRUCT_PHASES` =
+exakt die vom `forward_drizzle_only`-Pfad emittierte Reihenfolge, gegen die
+Event-Logs zweier realer Läufe (M31/M42 `*_m6verify_*`) verifiziert:
+`SCAN_INPUT, CHANNEL_SPLIT, NORMALIZATION, REGISTRATION, NORMALIZED_CACHE,
+SAMPLING_GEOMETRY, COMMON_OVERLAP, SOURCE_QUALITY_MAPS, GLOBAL_QUALITY,
+FORWARD_DRIZZLE, MULTIBAND` (11 Zeilen). `PREWARP` entfällt (der Forward-Pfad
+ruft `run_phase_registration_prewarp(..., registration_only=true)`).
+`GLOBAL_METRICS` **auch nicht** in der Liste: `runner_phase_metrics.cpp:541`
+exponiert es nur als Stage wenn `aqmh.enabled==false`, aber `normalizeMethod`
+(`io/config.cpp:87`) setzt `Config::method` per Default auf `"aqmh"` →
+`aqmh.enabled==true` auf dem `reconstruct`-Pfad by construction (beide realen
+Läufe emittieren kein `GLOBAL_METRICS`-Event). Es käme sonst als dauerhaft
+„pending"-Zeile — genau der Defekt, der hier für die AQMH-Zeilen behoben wurde.
+Kehrt in die Liste zurück, wenn M10 `Config::method` entfernt. Im Browser gegen
+einen realen M42-Lauf verifiziert: Run-Monitor zeigt die 11 Zeilen, keine
+Konsolenfehler. Das M10-Item „PREWARP-/DEBAYER-Scheinphasen aus der aktiven
+Phasen-ID-Liste entfernen" bleibt bestehen (betrifft die *Legacy*-IDs in
+`CLASSIC_PHASES`/`CLICKABLE_PHASES`).
+- **Nicht angefasst** (Anzeige von Lauf-Metadaten, keine Auswahl):
+  `run-history.js`/`run-monitor.js` zeigen `status.method` historischer Läufe.
+
+**[GUI] Cache-Kommunikation.** `keep_profile_cache_after_run` und
+`delete_source_cache_after_run` sind schon im Schema + Struct (Default je
+`false`) und werden vom schemagetriebenen Parameter-Editor automatisch
+gerendert (nach Wegfall des Methodenfilters sichtbar). Neu: **Erklärungstext**
+— `description` für beide Felder in `tile_compile.schema.json` **und**
+`tile_compile.schema.yaml` (Resume-Warnung: `delete_source_cache_after_run=true`
+deaktiviert die Rekonstruktions-Wiederaufnahme, Report weist
+`resume_reconstruction_disabled` aus) plus lokalisierte
+`param.reconstruction.*.short_help` in `web_frontend_v3/i18n/{de,en}.json`.
+
+**[GUI] Rechen-Invarianz-Nachweis (die einzige M8-Abnahme mit echtem Test).**
+Neuer `[forward-runner]`-Fall in `tests/test_runner_forward_drizzle.cpp`: derselbe
+synthetische Lauf viermal (`diagnostics.level` `summary`/`full` ×
+`keep_profile_cache_after_run` `false`/`true`) liefert **byte-identisch**
+`final_image_sha256`, `reconstruction_multiband.fits`, `reconstructed_L.fit`,
+`forward_drizzle_raw_L.fit` und denselben `selected_candidate`; `full` schreibt
+nur die zwei zusätzlichen Control-FITS-Sätze. Fünfter Lauf mit
+`delete_source_cache_after_run=true`: gleiches Rechenergebnis,
+`cache_retention.source_cache=="deleted"` und
+`resume_reconstruction_disabled==true`. Grün.
+
+**[GUI] `method`-Feld ausgeblendet + Browser-Abnahme.** Der reine
+Branching-Wegfall in `parameter.js` ließ das Schema-Feld `method` (noch bis M10
+im Schema) weiterhin als editierbares `<select>` rendern — also doch ein
+Auswahlmechanismus. Fix: `"method"` in `LEGACY_HIDDEN_CATEGORIES` (deckt Feld +
+„Method"-Kategorie über `entry.category` bzw. `path.split(".")[0]`).
+**Browser-Abnahme** (lokaler `tile_compile_web_backend` auf :8080 — `client.js`
+zwingt alle API-Calls auf Port 8080, daher nicht 8091):
+- Kategorienliste: kein `method`, kein `synthetic`/`tile`/`tile_denoise`/
+  `local_metrics`/`global_metrics`; `aqmh` + `reconstruction` vorhanden.
+- Suche „method": nur `bge.method`, `registration.engine`,
+  `aqmh.reconstruction.pre_debayer_method` — kein Top-Level-`method`, keine
+  „Method"-Kategorie (12 statt 13 Treffer).
+- `reconstruction.drizzle.*` (9 Felder), `coverage_gate.*`, `multiband.*` und
+  beide Cache-Felder rendern; die DE-`short_help` steht als `title=`-Tooltip am
+  Label **und** am `<select>` (im DOM verifiziert), in `de.json` **und**
+  `en.json` vorhanden.
+- Keine Konsolenfehler.
+- Report-Sektion gegen einen realen (Vor-v2-)M42-Lauf: Sektionstitel +
+  fünf Karten voll DE-übersetzt, fehlende v2-Felder degradieren sauber zu
+  „n/a" (die Alpha-Konfidenz-Karte fehlt mangels `alpha_confidence_summary`).
+- **Bug gefunden + behoben:** Kartentitel mit `&` (`Coverage & geometry`, …)
+  wurden von `make_plain_card_html`→`html_escape` zu `&amp;` und matchten die
+  `report_de.json`-Schlüssel nicht mehr → blieben englisch. Titel auf „and"
+  umgestellt (`Coverage and geometry` …), Schlüssel + EN-Test nachgezogen.
+- **Test verschärft:** `test_report_forward_drizzle.cpp` rendert dieselbe
+  Fixture jetzt **zweimal** — Locale `en` (Basis-Strings überleben den
+  Ersetzungslauf) *und* Locale `de` (die deutschen Kartentitel erscheinen
+  tatsächlich, die englischen Formen sind weg). Der `en`-Durchlauf allein
+  konnte den `&amp;`-Bug nicht fangen (englische Basis braucht keine
+  Übersetzung); der `de`-Durchlauf ist die diskriminierende Prüfung. Die
+  Harness bootet das Backend pro Durchlauf neu (`start()` liest
+  `TILE_COMPILE_REPORT_LOCALE` frisch). Grün.
+
+**[Doku] DE/EN-Methodikdokumentation.** Neu:
+`docs/guides/cfa_forward_drizzle_pipeline_{en,de}.md` — die aktive
+Single-Method-Pipeline: Was-es-tut, Drei-Wege-Kandidaten (`drizzle_uniform`/
+`_raw`/`_multiband`) + Fallback, aktive Phasen (`NORMALIZED_CACHE` …
+`MULTIBAND`), Coverage-Gate, Scale-Modi (1/1, 2/2, 2/1), Ausgaben, Caches &
+Resume (die zwei Flags), Report-Sektion. In `mkdocs.yml` unter „Workflows &
+Tools" verlinkt. `docs/guides/workflow{,_de}.md`: Schritt 2 + Phasentabelle
+auf die aktive Pipeline umgestellt, Verweis auf die neue Seite, Hinweis dass
+die *Process-Flow*-Docs die historische Classic-/AQMH-Pipeline beschreiben.
+`mkdocs build` grün (die 7 `--strict`-Warnungen sind vorbestehend im
+Implementierungsplan-Doc, nicht in den neuen Seiten).
+
+**Verbleibend für M8:**
+- Vollständige Neuschreibung des `process_flow/`-Baums (per-Phase) auf die neue
+  Pipeline — das ist M10-Ära-Arbeit (wenn Legacy entfernt wird); die neue
+  Guide-Seite deckt die aktive Methodik ab.
+- `docs/configuration_reference{,_en}.md` und
+  `docs/configuration_examples_practical_{de,en}.md` beschreiben durchgehend den
+  Legacy-Classic-/AQMH-Pfad (`method: classic`, `aqmh:`-Blöcke, „AQMH
+  deaktivieren", `debayer_first`). Sie sind nicht *falsch* — der Pfad existiert
+  bis M10 (M9 braucht ihn) — aber sie erklären nicht den Single-Method-
+  `reconstruct`-Pfad und die jetzt in der GUI sichtbaren
+  `reconstruction.*`-Felder. Angleich = mit der Legacy-Entfernung in M10; die
+  neue Guide-Seite trägt die aktive Methodik bis dahin.
+- `report_en.json`: die Report-Strings sind nur DE übersetzt; EN läuft über die
+  englischen Basis-Strings (per EN-Locale-Test verifiziert, kein Shadowing).
+- Explizite Legacy-Lauf-„read-only"-Badges: die Resume-Machbarkeitsprüfung
+  (Backend-Dry-Run + Frontend-Grundanzeige) trägt die Substanz; ein
+  Badge-Audit steht aus.
+
+**Teststand:** `tile_compile` 510/511 (nur `acceleration_context_keeps_aqmh_maps_cpu_only`
+rot, vorbestehend), inkl. neuem Rechen-Invarianz-Fall.
+`web_backend_cpp_report_forward_drizzle` grün (`web_backend_cpp_contract` +
+`web_backend_cpp_report_phase_issues` vorbestehend rot). Frontend `node --check`
+grün, im Browser verifiziert. Schema-JSON/-YAML + i18n valide. `mkdocs build`
+grün. **Noch nichts committet.** `pi_models/live_edit/*/shadow_predictions.jsonl`
+sind Harness-Nebeneffekt, nicht Teil der Arbeit.
 
 ---
 

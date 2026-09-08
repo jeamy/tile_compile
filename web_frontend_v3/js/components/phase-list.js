@@ -25,31 +25,39 @@ const CLASSIC_PHASES = [
   "HYPERMETRIC_STRETCH",
 ];
 
-// AQMH main path: GLOBAL_METRICS/TILE_GRID/LOCAL_METRICS/TILE_RECONSTRUCTION/
-// STATE_CLUSTERING/SYNTHETIC_FRAMES are Classic-only and omitted.
-// STACKING is still executed for AQMH (output scaling/writing).
-const AQMH_PHASES = [
+// Single-method CFA forward-drizzle + multiband pipeline (`runner reconstruct`).
+// Exact event order emitted by runner_pipeline.cpp's forward_drizzle_only path:
+// SCAN_INPUT + channel-split/normalization + registration (the forward path runs
+// registration_only=true, so PREWARP is not emitted), then
+// run_forward_drizzle_stages (NORMALIZED_CACHE .. MULTIBAND). Verified against
+// the event logs of two real runs (M31/M42).
+// Not listed:
+//  - GLOBAL_METRICS: runner_phase_metrics.cpp only emits it as a stage when
+//    aqmh.enabled is false; normalizeMethod (io/config.cpp) defaults
+//    Config::method to "aqmh" => aqmh.enabled is true on the reconstruct path
+//    by construction, so the phase is computed but not exposed. It re-enters
+//    this list when M10 drops Config::method.
+//  - PREWARP / AQMH_* / TILE_* / STACKING / DEBAYER / ASTROMETRY / BGE / PCC /
+//    HYPERMETRIC_STRETCH: legacy `run` path only.
+const RECONSTRUCT_PHASES = [
   "SCAN_INPUT",
   "CHANNEL_SPLIT",
   "NORMALIZATION",
   "REGISTRATION",
-  "PREWARP",
+  "NORMALIZED_CACHE",
+  "SAMPLING_GEOMETRY",
   "COMMON_OVERLAP",
-  "AQMH_MAPS",
-  "AQMH_GLOBAL_QUALITY",
-  "AQMH_RECONSTRUCTION",
-  "AQMH_DIAGNOSTICS",
-  "STACKING",
-  "DEBAYER",
-  "ASTROMETRY",
-  "BGE",
-  "PCC",
-  "HYPERMETRIC_STRETCH",
+  "SOURCE_QUALITY_MAPS",
+  "GLOBAL_QUALITY",
+  "FORWARD_DRIZZLE",
+  "MULTIBAND",
 ];
 
-const DEFAULT_PHASES = AQMH_PHASES;
+const DEFAULT_PHASES = RECONSTRUCT_PHASES;
 
-const CLICKABLE_PHASES = new Set([...CLASSIC_PHASES, ...AQMH_PHASES]);
+// CLASSIC_PHASES is kept only so legacy runs still resolve clickable phase
+// deep-links until the legacy phase IDs are pruned from UI/Resume in M10.
+const CLICKABLE_PHASES = new Set([...CLASSIC_PHASES, ...RECONSTRUCT_PHASES]);
 
 let selectedPhase = null;
 let phaseClickHandler = null;
@@ -67,11 +75,9 @@ export function getBgeLabel(configDraft) {
 }
 
 export function getPhasesForConfig(configDraft) {
-  if (!configDraft || typeof configDraft !== "object") return DEFAULT_PHASES.map(p => ({ phase: p, label: p }));
-  const method = configDraft.method;
-  const aqmhEnabled = configDraft.aqmh && configDraft.aqmh.enabled;
-  const basePhases = (method === "classic_tile_compile" || aqmhEnabled === false) ? CLASSIC_PHASES : AQMH_PHASES;
-  return basePhases.map(p => p === "BGE"
+  // Single-method pipeline (plan M8): no method selector, so the phase list is
+  // no longer config-dependent - it is always the `runner reconstruct` order.
+  return RECONSTRUCT_PHASES.map(p => p === "BGE"
     ? { phase: "BGE", label: getBgeLabel(configDraft), bgeMethod: configDraft?.bge?.method || "none" }
     : { phase: p, label: p });
 }

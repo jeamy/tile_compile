@@ -2347,5 +2347,7 @@
   "ui.toast.config_invalid": "Config ungültig",
   "ui.error.completion_config_revalidation_failed": "Die übernommene Config konnte nicht erneut validiert werden.",
   "ui.toast.parameters_applied_for_new_run": "Parameter für neuen Run übernommen",
-  "ui.confirm.apply_and_resume": "Validierte Parameter übernehmen und den Run ab {phase} fortsetzen?"
+  "ui.confirm.apply_and_resume": "Validierte Parameter übernehmen und den Run ab {phase} fortsetzen?",
+  "param.reconstruction.keep_profile_cache_after_run.short_help": "Behält den internen U/R/F/M-Drizzle-Profilspeicher nach einem fertigen Bild. Standard: aus (wird gelöscht). An = als gehashter Cache behalten, damit eine erneute Fusion den Forward-Drizzle-Durchlauf überspringt – kostet Plattenplatz. Verändert das Rechenergebnis nicht.",
+  "param.reconstruction.delete_source_cache_after_run.short_help": "Löscht den normalisierten CFA-Quellcache und die Quality-Maps nach einem fertigen Bild. Standard: aus. An = gibt sofort Plattenplatz frei, DEAKTIVIERT aber die Rekonstruktions-Wiederaufnahme für diesen Lauf (ein späteres Resume müsste alle Frames neu normalisieren). Der Report weist das als resume_reconstruction_disabled aus."
 }
