@@ -2,9 +2,9 @@
 
 ## Detaillierter Implementierungsplan
 
-**Status:** CPU-Rekonstruktionspfad M1–M5 funktional integriert; M4-Produktintegration separat M10 zugeordnet. M6-Fusion, Kandidatenauswahl, Ausgabe **und §11.13-Ressourcenabnahme auf realen M31/M42-Läufen** abgeschlossen. M7 CUDA-Vorwärtsdrizzle **abgeschlossen** (§30.55–§30.57): auf allen produktiv relevanten Configs aktiv und **byte-identisch** zur CPU-Referenz — affin 1/1 + 2/2, **Produktionsconfig Modus 2/1** (Host-2×2→1×-Faltung der internen Device-Bänder, kein neuer Kernel), **lokale Warps** (Hybridpfad §19.6.2, `backend=cuda_hybrid`). Belegt real (M31 Modus 2/1, M42 Hybrid, §30.57) und synthetisch (`[cuda-parity]`). Vor dem CUDA-Versuch bleibt nur „Device vorhanden". Offen nur Durchsatz-Optimierung (kein Blocker). Keine pauschale Abnahme M1–M6.
+**Status:** CPU-Rekonstruktionspfad M1–M5 funktional integriert; M4-Produktintegration separat M10 zugeordnet. M6-Fusion, Kandidatenauswahl, Ausgabe **und §11.13-Ressourcenabnahme auf realen M31/M42-Läufen** abgeschlossen. M7 CUDA-Vorwärtsdrizzle **funktional/paritätsseitig implementiert; Produktionsskalierung offen** (§30.55–§30.57): auf allen produktiv relevanten Configs aktiv und **byte-identisch** zur CPU-Referenz — affin 1/1 + 2/2, **Produktionsconfig Modus 2/1** (Host-2×2→1×-Faltung der internen Device-Bänder, kein neuer Kernel), **lokale Warps** (Hybridpfad §19.6.2, `backend=cuda_hybrid`). Belegt real (M31 Modus 2/1, M42 Hybrid, §30.57) und synthetisch (`[cuda-parity]`). Vor dem CUDA-Versuch bleibt nur „Device vorhanden". Offen: Produktionsskalierung P0–P6 (§11.14), verbindlicher M9/M10-Releaseblocker (§3.4). Keine pauschale Abnahme M1–M6.
 
-**Datum:** Status- und Entscheidungsrevision 2026-09-07.
+**Datum:** Gliederungsrevision 2026-09-07; Produktionsskalierungsrevision 2026-09-08.
 
 **Leseregel:** §0 enthält Status und nächste Schritte, §1–19 die verbindlichen Fachverträge, §20–27 Implementierung und Abnahme, §28 die Belege und §29 die Quellen. Die Entscheidungen vom 2026-09-07 sind in §11.13, §15.5/15.6, §19.6 und §23.1 integriert und präzisieren dort ältere Grundfestlegungen. Historische Fortschrittsnotizen stehen im [Entwicklungsprotokoll](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md); dessen Aussagen ersetzen keine aktuelle Abnahme.
 
@@ -21,6 +21,7 @@
 - [Status und nächste Schritte](#plan-0)
 - [Ziele und Architektur](#plan-1) · [Konfiguration](#plan-6)
 - [Geometrie und CPU-Rekonstruktion](#plan-7) · [Ressourcenarbeit](#ressourcen-restarbeit)
+- [Produktionszeitgate](#produktionszeitgate) · [Skalierungsarbeit P0–P6](#produktionsskalierung)
 - [Q-Maps und Mehrband](#plan-13) · [Kandidatenauswahl](#plan-15)
 - [Artefakte, Runner und Resume](#plan-16) · [CUDA](#plan-19)
 - [Tests und Fixtures](#plan-20) · [Meilensteine](#plan-23)
@@ -51,7 +52,7 @@ getestet und für den Produktrelease abgenommen sind getrennte Aussagen.
 | M4 | Kern und Store implementiert | Downstream/WCS/Photometrie M10, Report M8; ursprüngliche Gesamtabnahme dadurch nicht erledigt |
 | M5 | Source-Q-Maps samt Konsum implementiert | Reales MONO und objektoffene Matrix M9 |
 | M6 | Fusion, Auswahl, Ausgabe und §11.13-Ressourcenvertrag (Vorabplan, Fail-Closed, Kandidaten-Spool, phasen-lokale RSS) implementiert und synthetisch abgenommen | Reale Ressourcenabnahme mit großen Bildern braucht einen Run-Auftrag (§11.13) |
-| M7 | **CUDA-Vorwärtsdrizzle abgeschlossen** (§30.55–§30.57): auf **allen** produktiv relevanten Configs aktiv und byte-identisch zur CPU-Referenz — affin 1/1 + 2/2, **Produktionsconfig Modus 2/1** (Host-2×2-Faltung der internen Device-Bänder, kein fehlender Kernel), **lokale Warps** (Hybridpfad §19.6.2, `backend=cuda_hybrid`). Vor dem CUDA-Versuch bleibt nur „Device vorhanden". Reale M31-Modus-2/1- und M42-Hybrid-Vollläufe byte-identisch (§30.57); `[cuda-parity]` synthetisch vollständig; §11.13 auf M31+M42; FP-Kontraktion fixiert; `s_j`-Pinning n/a solange bit-exakt. | Nur Durchsatz-Optimierung (CUDA ≈ 1,1–2,1× langsamer je nach Config; **kein Blocker**, §19.6) und — davon abhängig — die optionale Numerikrevision (`std::exp` → Minimax) für einen vollen GPU-Lokalpfad. Profiling-Befund: `hybrid_cpu_seconds` ≫ GPU-Raster (§30.57). |
+| M7 | **CUDA-Vorwärtsdrizzle funktional/paritätsseitig implementiert; Produktionsskalierung offen** (§30.55–§30.57): auf **allen** produktiv relevanten Configs aktiv und byte-identisch zur CPU-Referenz — affin 1/1 + 2/2, **Produktionsconfig Modus 2/1** (Host-2×2-Faltung der internen Device-Bänder, kein fehlender Kernel), **lokale Warps** (Hybridpfad §19.6.2, `backend=cuda_hybrid`). Vor dem CUDA-Versuch bleibt nur „Device vorhanden". Reale M31-Modus-2/1- und M42-Hybrid-Vollläufe byte-identisch (§30.57); `[cuda-parity]` synthetisch vollständig; §11.13 auf M31+M42; FP-Kontraktion fixiert; `s_j`-Pinning n/a solange bit-exakt. | Produktionsskalierung P0–P6 (CUDA ≈ 1,1–2,1× langsamer je nach Config; **M9/M10-Releaseblocker**, §3.4/§11.14) und — davon abhängig — die optionale Numerikrevision (`std::exp` → Minimax) für einen vollen GPU-Lokalpfad. Profiling-Befund: `hybrid_cpu_seconds` ≫ GPU-Raster (§30.57). |
 | M8 | **weitgehend geschlossen** (Reihenfolge Report → GUI/Cache → Legacy → Doku, Beschluss 2026-09-08). Erledigt: Durchsatz-Baseline §11.11.1; **Report A+B (§30.59)**; **GUI-Methodenwahl entfernt (inkl. `method`-Feld) + Cache-Kommunikation + Rechen-Invarianz-Test + Browser-Abnahme + DE/EN-Methodikdoku (§30.60)** — `parameter.js`, `phase-list.js` (Run-Monitor-Phasenliste `RECONSTRUCT_PHASES` auf die real emittierte `reconstruct`-Reihenfolge korrigiert), Cache-`description` (Schema .json+.yaml) + DE/EN-`short_help`, `[forward-runner]`-Invarianz-Test, `test_report_forward_drizzle.cpp` (EN+DE-Doppellauf), `docs/guides/cfa_forward_drizzle_pipeline_{en,de}.md` + `workflow*` aktualisiert. Im Browser verifiziert (kein Methodenselektor, Felder + Tooltips, korrekte 11-Phasen-Liste, Report-Sektion, `&`→`&amp;`-Übersetzungsbug behoben). | Offen: `process_flow/`-Per-Phase- **und** `configuration_reference*`/`configuration_examples_practical_*`-Neuschreibung (alle M10-Ära, Legacy-Pfad); `report_en.json`-Identitätseinträge (EN läuft über Basis-Strings); explizite Legacy-Lauf-„read-only"-Badges. `Config::method`/Schema/`AqmhConfig` → **M10**. |
 | M9 | offen | Vollständige unabhängige Pflichtmatrix fehlt; einzelne historische M31/M42-Läufe ersetzen sie nicht |
 | M10 | offen | Kanonische Downstream-Ausgabe, Photometrie-/WCS-Vertrag, Retention und Produkt-Cutover |
@@ -65,39 +66,33 @@ M31/M42 auf ausdrücklichem Run-Auftrag mit byte-identischem CPU↔CUDA-Store
 ([§30.55](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-55)).
 Diese Verifikationsläufe sind Wegwerf-Artefakte, keine kanonischen Benutzerruns.
 
-### 0.2 Nächste Arbeitsschritte
+### 0.2 Nächste Arbeitsschritte (Priorität 2026-09-08)
 
-1. M6-Ressourcenvertrag §11.13 in Code, synthetischen Fixtures **und auf realen
-   M31/M42-Vollläufen** bestätigt
-   ([§30.50](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-50),
-   [§30.55](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-55)):
-   Working-Set fits budget, Temp-Space ok, Phase-RSS im Envelope, Spool entfernt.
-2. M7 CUDA-Vorwärtsdrizzle **abgeschlossen**
-   ([§30.51](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-51)–[§30.57](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-57)):
-   auf allen produktiv relevanten Configs aktiv und **byte-identisch** zur
-   CPU-Referenz — affin 1/1 + 2/2 (§30.55), **Produktionsconfig Modus 2/1**
-   (Host-2×2→1×-Faltung der internen Device-2×-Bänder, kein fehlender Kernel),
-   **lokale Warps** (Hybridpfad §19.6.2, `backend=cuda_hybrid`). Real belegt
-   (M31 Modus 2/1: `reconstruction_multiband.fits` identisch = Vor-§30.54-Wert;
-   M42 Hybrid: 52 Plane-FITS + fusioniertes Bild identisch = §30.55-CPU-Referenz;
-   §30.57) und synthetisch (`[cuda-parity]`). Vor dem CUDA-Versuch bleibt nur
-   „Device vorhanden". `s_j`-Pinning: nicht anwendbar solange die Kernel
-   bit-exakt sind. Profiling-Befund: der Hybrid-Timing-Split zeigt
-   `hybrid_cpu_seconds` (444 s CPU-Geometrie) ≫ `hybrid_gpu_raster_seconds`
-   (0,6 s) — die Rasterisierungs-Auslagerung allein beschleunigt lokale Warps
-   nicht.
-   **Offen (kein Korrektheits- oder Freigabe-Blocker):** Durchsatz-Optimierung
-   (CUDA ≈ 1,1–2,1× langsamer je Config, §19.6 stellt Bit-Exaktheit voran) und,
-   davon abhängig, die optionale Numerikrevision (`std::exp` → Minimax) für
-   einen vollen GPU-Lokalpfad.
-3. M8-/M10-Integration mit kanonischen WCS-/Photometrie-Ausgaben, Report und
-   Cachepolitik abschließen; übertragene Pflichten bleiben offen (§23.1).
-4. M9-Pflichtmatrix einschließlich realem MONO und unabhängigen Truth-Fixtures
-   vervollständigen. Reale Läufe nur nach ausdrücklichem Auftrag.
+**Produktionsziel:** 600 Frames à 3840×2160 bis einschließlich HMS in
+30–40 Minuten, maximal 2400 s auf festgelegter Referenzhardware (§3.4).
+Die dokumentierten M31/M42-Korrektheits- und Ressourcenbelege bleiben gültige
+Einzelnachweise. Sie belegen nicht den erforderlichen Produktionsdurchsatz.
+M7 ist hinsichtlich CPU-/CUDA-Parität weit fortgeschritten; Durchsatzreife für
+viele lokale Warps fehlt. Diese Lücke ist jetzt ein M9/M10-Releaseblocker.
 
-Produktfreigabe setzt die vollständigen M8/M9/M10-Nachweise voraus. Die
-Ressourcen- und GPU-Freigabekriterien dürfen nicht durch bloßen Fortschritt
-einzelner Komponenten ersetzt werden.
+1. P0: Aufrufzähler und Kostenzerlegung für lokale Geometrie, Streifen,
+   Quell-I/O, Listen und Profile ergänzen (§11.14). Keine Stundenhochrechnung
+   aus einem unvollständigen Lauf als Abnahme übernehmen.
+2. P1/P2: Geometrie einmal pro Frame und Geometrievariante erzeugen, räumlich
+   indexieren und in Coverage, CPU- und Hybrid-Rekonstruktion wiederverwenden.
+   Kein vollständiger lokaler Quellbildscan je Zielstreifen.
+3. P3/P4: Budgetierte Parallelität unabhängiger Arbeitseinheiten und begrenzte
+   Quell-/Geometrie-/Kandidatenhaltung; Reduktionsordnung unverändert.
+4. P5: Erst den verbleibenden Hotspot profilieren. Eine Minimax-/GPU-
+   Numerikrevision nur bei belegtem Restbedarf, mit eigenem Identitäts- und
+   Paritätsnachweis. Der Hybridpfad allein löst die Geometriekosten nicht.
+5. P6: M8/M10-Integration bis HMS und die absolute 600-Frame-Abnahme in M9
+   abschließen. Reale Läufe weiterhin nur nach ausdrücklichem Auftrag.
+
+Die technische Einschätzung lautet: unter einer Stunde ist ein plausibles,
+noch unbewiesenes Entwicklungsziel; freigegeben wird erst bei höchstens
+40 Minuten und bestandenen Qualitäts-/Ressourcengates. Keine Verschiebung der
+Produktionsskalierung auf M11. Nächste konkrete Codearbeit: P0, danach P1/P2.
 
 ### 0.3 Geometrie- und Speicherinvarianten
 
@@ -601,6 +596,46 @@ Feldrotation.
 - Kein dynamisches Aufweichen der Gates für bestimmte Objekte.
 - Keine dauerhafte Parallelarchitektur mit Classic oder PREWARP-AQMH.
 - Kein automatischer Wechsel zu Siril oder einem externen Stacker.
+
+<a id="produktionszeitgate"></a>
+
+### 3.4 Absolutes Produktions-Durchsatzgate (2026-09-08)
+
+**Verbindlich:** Zielbereich 1800–2400 s, harte obere Grenze **2400 s** für
+600 Frames à 3840×2160 vom angenommenen Runstart bis zum erfolgreichen Commit
+der finalen HMS-Ausgabe. Kürzere Laufzeit ist zulässig. Enthalten sind Scan,
+Kalibration mit vorhandenen gültigen Masters, Normalisierung, Registrierung,
+Geometrie, Q-Maps, Drizzle, Mehrband, Ausgabe, BGE/PCC/HMS, erforderliche
+Astrometrie und alle Transfers, Hashprüfungen und I/O. Fehlende Mastererzeugung
+oder externe Downloads separat benennen; keine benötigte Runphase heimlich
+aus der End-to-End-Zeit ausklammern.
+
+**Referenzprofil vor der Messung einfrieren:** konkrete CPU/GPU, RAM, SSD,
+Threads, Treiber/Compiler/Binary, Config und Inputmanifest mit Hashes. Die
+Hardware ist die vorgesehene Produktionsmaschine; ein Wechsel erfordert eine
+neue gekennzeichnete Baseline. OSC, internes 2x / Ausgabe 1x, unveränderte
+Qualitätsgates und alle 600 angebotenen Frames vollständig durch die reguläre
+Qualitätsauswahl; keine künstliche Reduktion per `max_frames` oder Downscale.
+Verworfene Frames mit Grund ausweisen, nicht zur Laufzeitverkürzung erzwingen.
+
+Mindestens ein affiner und ein lokal verzerrter Datensatz mit 600 verschiedenen
+Realframes müssen bestehen. Rotationswinkel und Anteil tatsächlich benötigter
+lokaler Modelle ausweisen; reine Rotation ist affin und kein Beweis für die
+Notwendigkeit eines lokalen Modells. Reicht ein vorhandener Datensatz nicht
+aus, bleibt die reale Abnahme offen: Duplizieren von Frames ist nur ein
+gekennzeichneter Lasttest. MONO bleibt zusätzlich Bestandteil der bestehenden
+M9-Qualitätsmatrix; das OSC-Zeitgate ersetzt diese nicht.
+
+Abnahme je Datenklasse: zwei vollständige, neu gestartete Runs ohne Wieder-
+verwendung runabhängiger Normalized-/Q-/Geometrie-/Profilcaches; beide ≤2400 s.
+Betriebssystem-Dateicachezustand dokumentieren, keinen erzwungenen Cacheflush
+voraussetzen. Wiederholungen nutzen getrennte neue Runverzeichnisse. Peaks,
+Temp-Disk, Phasezeiten, tatsächliche Worker und ausgewählte Kandidaten ausweisen.
+Die bisherigen relativen Durchsatzgates (≤20 % Regression gegen die Baseline)
+bleiben zusätzlich gültig; ein schneller kleiner Run ersetzt dieses Gate nicht.
+
+Dieses Ziel ist eine Produktanforderung, keine behauptete Messung oder
+theoretische Laufzeitgarantie. Ein verfehltes Gate blockiert M10-Cutover.
 
 ---
 
@@ -2111,6 +2146,154 @@ eine phasenbezogene Messung gegen tatsächliches RSS zu Phasenbeginn.
 Clipping/Profile → vollständige native Paritäts-/Neustartmatrix und Timing →
 Produktfreigabe erst mit M8/M9/M10. Reale Benutzerruns benötigen weiterhin
 einen ausdrücklichen Auftrag; dieser Plan erteilt keinen Run-Auftrag.
+
+<a id="produktionsskalierung"></a>
+
+### 11.14 Produktionsskalierung: Befund und verbindliche Arbeitspakete
+
+**Einschätzung, Codeprüfung 2026-09-08:** Die bisher berichteten Stundenzeiten
+widerlegen nicht die Forward-Drizzle-Methodik, zeigen aber einen nicht
+produktionstauglichen Ausführungspfad. 600×3840×2160 sind 4.976.640.000
+Quellsamples. Ein einfacher Durchgang in 2400 s erfordert rund 2,07 Millionen
+Samples/s; das ist nur eine Größenordnung, kein Benchmark der mehrphasigen
+Rekonstruktion. Behauptete 8–16×-/2–5×-/10–100×-Beschleunigungen werden nicht
+als Beleg übernommen oder multipliziert. 15–20 Stunden und 25 GB Mindest-RAM
+sind keine nachgewiesenen Untergrenzen der Methodik.
+
+#### 11.14.1 Konkrete Ursache und Ansatzstellen
+
+| Ansatzstelle | Aktuelles Verhalten | Erforderliche Änderung |
+|---|---|---|
+| `forward_drizzle.cpp::enumerate_drizzle_stripe_leaf_cells` | Bei lokalen Modellen `source_y0=0`, `source_y1=source_height`; `sample_leaves` für jedes Quellpixel vor Streifenbegrenzung | Streifenabfrage auf vorbereitetem räumlichem Geometrieindex, keine neue vollständige Warp-Auswertung |
+| `forward_drizzle.cpp::prepare_drizzle_frames` | Vollständige lokale Sampleprüfung für Frameausschlüsse; Leaves werden nicht zur Rasterisierung aufbewahrt | Ausschlusszählung und persistente/budgetierte Geometrieerzeugung verbinden |
+| `forward_drizzle.cpp::subdivide_local` / `local_forward` | Mehrere Inversionen je Sample und rekursiv wiederholte Prüfpunkte | Erst Aufrufvervielfachung entfernen; danach gleiche Prüfpunkte innerhalb eines Samples wiederverwenden, mit exakt gleichen Koordinatenbits |
+| `sampling_geometry.cpp::compute_geometric_coverage` | Coverage und dichter Footprint rufen Streifenrasterisierung auf | Beide expliziten Geometrievarianten vorbereiten und räumlich lesen |
+| `forward_drizzle_contrib_list.cpp::build_frame_records_hybrid_local` | CPU erzeugt über denselben Enumerator erneut Geometrie; GPU berechnet nur Flächen | Vorgefertigte Leaf-Batches und kanonische IDs direkt konsumieren |
+| Beitragslisten: Count-/Fill-Pässe und `accumulate_*_by_frame` | Wiederholte Rasterizer-/Prepare-Einstiege | Vorbereitete Geometriesitzung außerhalb der Streifenschleife weiterreichen; Count/Fill dürfen keine neue Inversion auslösen |
+| `runner_pipeline.cpp` bei `forward_drizzle_only` | `parallel_workers=1` hart erzwungen | Erst nach P3 einen budgetierten deterministischen Scheduler anbinden, nicht nur die Zuweisung löschen |
+| `plan_drizzle_memory`, `source_quality_artifact.cpp`, Runner-Cacheprovider | Quell-/Q-/Kandidaten-/Retentionskosten müssen gemeinsam erfasst werden | Gleichzeitige Residenz und tatsächliche I/O pro Buffer prüfen; keine angenommene Vollframehaltung als mathematische Pflicht |
+
+Für N Frames, P Quellpixel und K Zielstreifen enthält die aktuelle lokale
+Geometriearbeit einen Term O(N·P·K). Bei fixem Budget wachsen Kandidatenkosten
+mit N; dadurch kann die Chunkhöhe sinken und K zusätzlich wachsen. Eine
+pauschal lineare Laufzeithochrechnung ist deshalb unsicher. 4320 Zielzeilen
+bei 64 Kernzeilen ergeben beispielsweise K=68; das ist keine Feststellung der
+real verwendeten M66-Chunkhöhe. Der Befund betrifft die Anzahl der Warp-
+Auswertungen, nicht eine garantierte 68-fache End-to-End-Beschleunigung.
+
+#### 11.14.2 P0 — Messen, bevor Numerik geändert wird
+
+- [ ] Zähler pro Phase/Frame/Geometrievariante: Prepare-Aufrufe, besuchte
+  Quellsamples, `sample_leaves`, Inversionsiterationen, Basisauswertungen,
+  erzeugte/verworfene Leaves, Stripe-Abfragen und ausgegebene Beiträge.
+- [ ] Wall-Time und CPU-Arbeit getrennt für Geometrie, Polygonflächen,
+  Count/Fill/Sort, Q-Laden, Clipping/Profile, Transfers, Hashes und Store-I/O.
+  Bei parallelen Tasks CPU-Zeiten nicht als End-to-End-Wall-Time aufsummieren.
+- [ ] Diagnostische Zähler dürfen kein Rechenhash-/Pixelverhalten ändern.
+  Synthetische lokale Fixtures bei Chunkhöhen 1, 16, 64, 256 und Vollhöhe
+  charakterisieren den heutigen K-Faktor. Nur budgetkompatible Kombinationen
+  ausführen; Budgetablehnungen ausdrücklich protokollieren.
+
+#### 11.14.3 P1 — Autoritative Geometrie einmal erzeugen
+
+- [ ] Budgetierten Geometry-Builder und verifizierten Reader einführen
+  (vorgeschlagene neue Dateien `reconstruction/drizzle_geometry_cache.hpp/cpp`).
+  Geometrie mit der unveränderten CPU-Auswertung erzeugen; keine Minimax-
+  Änderung, kein neues Interpolieren der Bildwerte in diesem Arbeitspaket.
+- [ ] Identität bindet Sampling-/Modellidentität, Canvas, CFA-Vertrag,
+  internal_scale, pixfrac, Subdivisions-/Inversionsparameter, Koordinaten-
+  und Algorithmusversion. **Dichter Footprint mit pixfrac=1 und eigentliche
+  Drizzle-Coverage mit pixfrac=0.8 sind unterschiedliche Varianten.** Keine
+  ungeprüfte Wiederverwendung zwischen ihnen; identische Varianten deduplizieren.
+- [ ] Pro Variante/Frame jedes Quellsample genau einmal durch `sample_leaves`
+  schicken. Ergebnis samt kanonischer Frame-/Quell-/Leaf-ID, exakten Ecken
+  und Ziel-Bounds in budgetierten Batches temporär speichern. Subdivision
+  innerhalb eines Samples bleibt zulässig und wird separat gezählt.
+- [ ] Alle Ausschlussquoten abschließen, bevor die akzeptierte Framepopulation
+  veröffentlicht wird. Verworfene Samples/Frames dürfen in keiner späteren
+  Coverage-/Profilphase wieder auftauchen. Chunkhöhe beeinflusst diese Menge nicht.
+- [ ] Generationencommit, Checksummen und Schema-/Identitätsprüfung analog zum
+  Profilstore; kein stilles Nutzen unvollständiger Geometrie nach Abbruch.
+  Disk-Preflight einschließlich Index und Staging. Kein Vollleaf-Cache aller
+  600 Frames im RAM; Tempbedarf darf nicht durch billionenfache Record-
+  Vervielfältigung unkontrolliert wachsen. Exakte kompakte Speicherung prüfen.
+
+#### 11.14.4 P2 — Räumlich indexieren und überall wiederverwenden
+
+- [ ] Chunkhöhenunabhängiger Index über konservative transformierte Leaf-
+  Bounds. Stripe-Abfragen müssen sämtliche schneidenden Leaves liefern;
+  kein affines inverses Suchfenster für lokale Modelle ohne bewiesene Schranke.
+- [ ] Leaves nur einmal speichern; Index referenziert sie. Große Bounds und
+  Streifengrenzüberschreitungen ohne verlorene oder doppelte Zellbeiträge behandeln.
+- [ ] Coverage, Uniform/Raw/Fine/Medium sowie CPU-/Hybrid-Listen auf denselben
+  Reader für dieselbe Identität umstellen. Unterschiedliche Kernelvarianten
+  bleiben getrennt. Rechenreihenfolge pro Zelle bleibt kanonisch.
+- [ ] Abnahme: In einem frischen Geometry-Build gilt je Variante
+  `top_level_sample_leaves_calls = eligible_local_frames * source_pixels`;
+  weitere Prepare-/Raster-/Count-/Fill-Verbraucher lösen **null** zusätzliche
+  lokale Basisauswertungen aus. Dieser Zähler bleibt bei allen getesteten
+  Chunkhöhen gleich. Ein identischer gültiger Cache führt zu null Neubuilds.
+- [ ] Bit-exakte Parität gegen alte CPU-Referenz: Leaves, Ausschlüsse,
+  Coverage, Beiträge, Clipping, Profile und Auswahl; Chunk-/Resume-/Fehler-
+  Tests einschließlich Pixfrac-Identitätswechsel und korruptem Cache.
+  Zielkomplexität der Geometrie O(V·N·P), V = explizite Variantenanzahl;
+  Index-/Record-I/O separat messen, damit CPU-Mehrfacharbeit nicht nur durch
+  vollständiges wiederholtes Lesen des Spools ersetzt wird.
+
+#### 11.14.5 P3 — Deterministische Parallelität
+
+- [ ] Geometry-Batches unabhängig parallel erzeugen. Ergebnisse nach stabiler
+  Frame-/Quell-/Leaf-ID veröffentlichen, nie nach Task-Fertigstellungsreihenfolge.
+- [ ] Rekonstruktionsarbeit nach unabhängigen Zielregionen partitionieren.
+  Pro Zelle bleiben Source-/Leaf- und Frame-Reduktionsfolge unverändert.
+  Kein freier paralleler Summenbaum, keine ungeordneten Float-Atomics.
+- [ ] Workerzahl aus gemeinsamem Budget für Quellen, Q-Maps, Geometrieindex,
+  Kandidaten, Halo, Reader und Scratch bestimmen. Keine unbudgetierten
+  Vollbildkopien pro Worker; verschachtelte Bibliotheksthreads berücksichtigen.
+- [ ] Erst dann Runner-Zwang `parallel_workers=1` durch Scheduler ersetzen.
+  Referenzmodus mit einem Worker bleibt verfügbar.
+- [ ] Tests bei 1, 2, 4 und maximal budgetverträglichen Workern: gespeicherte
+  Profile, Masken, Auswahl und Chunkvariation bit-exakt; Peak-RSS im Vertrag.
+  Skalierung messen, keine Kernzahl als Speedup versprechen.
+
+#### 11.14.6 P4 — Quell-I/O und Speicher bei 600 Frames
+
+- [ ] Lebensdauer-/Residenztabelle aller Buffer an Runner, Sourcecache,
+  Q-Reader, Geometry-Reader und Kandidatenlisten erstellen. Den behaupteten
+  `3840*2160*4*N`-Admission-Term an seinem tatsächlichen Aufrufer lokalisieren
+  oder als unbestätigte Annahme zurückweisen; nicht pauschal 25 GB verlangen.
+- [ ] Framezahlabhängige Daten auf Disk belassen, nur aktive Arbeitsfenster
+  laden. Kandidaten dürfen N-abhängig sein, aber nur für budgetierte
+  Zielregionen. Quell-/Q-Neuladungen und SHA-I/O zählen; Reader-/LRU-Budget
+  gemeinsam mit Workerzahl planen. Integritätsprüfung nicht zur Beschleunigung
+  entfernen; wiederverwendbare verifizierte Generationen korrekt binden.
+- [ ] 40/100/200/600 Frames als Skalierungsleiter prüfen. Synthetische Daten
+  dürfen Lastskalierung testen; echte Qualitätsabnahme bleibt getrennt.
+  Bei gleichem Budget: keine O(N·P)-RAM-Pflicht; keine erneute K-fache
+  Geometrieberechnung, wenn Kandidaten mehr Zeilenbudget verbrauchen.
+
+#### 11.14.7 P5/P6 — Resthotspot und End-to-End-Abnahme
+
+- [ ] P5 nach P2/P3 profilieren. Dominiert die einmalige lokale Basis-
+  auswertung weiterhin, zuerst exakte Wiederverwendung identischer Prüfpunkte
+  und SIMD untersuchen. Minimax oder voller GPU-Lokalpfad braucht eine eigene
+  Numerik-/Modellidentitätsrevision und unveränderte oder vorab neu begründete
+  Abnahmeverträge. Kein automatisches Lockern von Gate-/Profilgrenzen.
+- [ ] P6 Phasenbudget aus gemessenen Kosten und realer Hardware ableiten.
+  Für frühe Prognosen 20 % Laufzeitreserve vorsehen: projizierte vollständige
+  Kette ≤1920 s, sodass 480 s bis zur harten 2400-s-Grenze bleiben. Diese
+  Planungsreserve ersetzt keinen vollständigen Messlauf und ist keine
+  behauptete erreichbare Laufzeit.
+- [ ] Absolute Abnahme gemäß §3.4 bis HMS, einschließlich I/O und allen
+  produktiven Phasen. Falls sie scheitert: M10 blockiert; den dominierenden
+  Restterm gezielt neu entwerfen. Weder Minimax noch zusätzliche Threads
+  ohne Messung als ausreichende Lösung deklarieren.
+
+**Priorität und Zuständigkeit:** P0–P5 sind M7-Produktionsskalierungsarbeit
+mit Auswirkungen auf M1/M2-Geometrieinfrastruktur; P6 gehört M9, Freigabe M10.
+M11 ist ausschließlich nachgelagerte Legacy-Entfernung. Die vorhandene
+CPU-Referenz bleibt Korrektheitsoracle, nicht der vorgeschriebene serielle
+Produktionsalgorithmus. Kein Arbeitspaket autorisiert einen Benutzerrun.
 
 ---
 
@@ -4001,7 +4184,9 @@ entschieden. Sie erlauben keine nachträgliche Lockerung der Safety-Gates.
 
 ### M7 — CUDA
 
-**Status: CUDA-Vorwärtsdrizzle abgeschlossen ([§30.55](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-55)–[§30.57](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-57)).** Auf **allen** produktiv relevanten Configs aktiv und **byte-identisch** zur CPU-Referenz: affin 1/1 + 2/2 (§30.55); **Produktionsconfig Modus 2/1** (`internal_scale=2, output_scale=1`) — die internen 2×-Device-Bänder werden host-seitig 2×2→1× gefaltet (`Downsample2x2StripeAdapter`), kein fehlender Kernel; **lokale-Warp-Frames** über den Hybridpfad §19.6.2 (`backend=cuda_hybrid`, [§30.56](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-56)). **Real belegt** (§30.57): M31 Modus 2/1 `reconstruction_multiband.fits` identisch (= Vor-§30.54-Wert); M42 Hybrid 52 Plane-FITS + fusioniertes Bild identisch (= §30.55-CPU-Referenz). `[cuda-parity]` synthetisch vollständig (Modus 2/1 bei ungerader Bandgrenze + Ganzleinwand, Hybrid inkl. `leaf_order > 0`, Hybrid+Faltung kombiniert). **Vor dem CUDA-Versuch bleibt nur „Device vorhanden".** `s_j`-Pinning: nicht anwendbar solange die Kernel bit-exakt sind. Offen: nur Durchsatz-Optimierung (kein Blocker) und die optionale Numerikrevision für einen vollen GPU-Lokalpfad — Profiling-Befund `hybrid_cpu_seconds` ≫ GPU-Raster (§30.57).**
+**Produktionsreife-Ergänzung 2026-09-08:** Komponentenparität bleibt ein eigener Nachweis. Die P0–P5-Arbeitspakete (§11.14) sind vor M10 verbindlich; geringe Geschwindigkeit des Hybridpfads ist kein freigabeneutraler Restpunkt mehr.
+
+**Status: CUDA-Vorwärtsdrizzle funktional/paritätsseitig implementiert; Produktionsskalierung offen ([§30.55](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-55)–[§30.57](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-57)).** Auf **allen** produktiv relevanten Configs aktiv und **byte-identisch** zur CPU-Referenz: affin 1/1 + 2/2 (§30.55); **Produktionsconfig Modus 2/1** (`internal_scale=2, output_scale=1`) — die internen 2×-Device-Bänder werden host-seitig 2×2→1× gefaltet (`Downsample2x2StripeAdapter`), kein fehlender Kernel; **lokale-Warp-Frames** über den Hybridpfad §19.6.2 (`backend=cuda_hybrid`, [§30.56](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-56)). **Real belegt** (§30.57): M31 Modus 2/1 `reconstruction_multiband.fits` identisch (= Vor-§30.54-Wert); M42 Hybrid 52 Plane-FITS + fusioniertes Bild identisch (= §30.55-CPU-Referenz). `[cuda-parity]` synthetisch vollständig (Modus 2/1 bei ungerader Bandgrenze + Ganzleinwand, Hybrid inkl. `leaf_order > 0`, Hybrid+Faltung kombiniert). **Vor dem CUDA-Versuch bleibt nur „Device vorhanden".** `s_j`-Pinning: nicht anwendbar solange die Kernel bit-exakt sind. Offen: Produktionsskalierung P0–P6 als M9/M10-Releaseblocker und die optionale Numerikrevision für einen vollen GPU-Lokalpfad — Profiling-Befund `hybrid_cpu_seconds` ≫ GPU-Raster (§30.57).**
 
 - [x] Transaktionaler vollständiger CPU-Neustart nach CUDA-Fehler, synthetische
   Fault-Injection einschließlich Store-/Runner-Vergleich ([§30.44](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-44)).
@@ -4122,24 +4307,24 @@ entschieden. Sie erlauben keine nachträgliche Lockerung der Safety-Gates.
 - [x] **Profiling mit dem Timing-Split** ([§30.57](aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de.md#historie-30-57)):
   auf M42 dominiert `hybrid_cpu_seconds` (444 s, CPU-Inversion/Subdivision) die
   GPU-Rasterzeit (`hybrid_gpu_raster_seconds` 0,60 s) um **~740×**. Die
-  Rasterisierungs-Auslagerung allein bringt für lokale Warps nichts. → **Wenn**
-  der Hybrid-Durchsatz relevant wird, ist der nächste Schritt die versionierte
-  Numerikrevision (`std::exp` → FMA-freie Minimax-Approximation, damit die
-  ganze Geometrie bit-identisch auf der GPU läuft), **nicht** eine
-  §19.5.1-Toleranz.
-- [ ] **Durchsatz-Optimierung** (kein M7-Blocker, §19.6 stellt Bit-Exaktheit
+  Rasterisierungs-Auslagerung allein löst die lokalen Geometriekosten nicht.
+  **Neue Priorität 2026-09-08:** zuerst P0–P4 (§11.14), insbesondere den
+  K-fachen Geometrieaufwand entfernen. Eine versionierte Minimax-/GPU-
+  Numerikrevision erst bei nachgewiesenem Resthotspot in P5; keine pauschale
+  Lockerung von §19.5.1.
+- [ ] **Durchsatz-Optimierung** (M9/M10-Releaseblocker gemäß §3.4/§11.14; §19.6 stellt Bit-Exaktheit
   voran): CUDA-FORWARD_DRIZZLE ≈ 1,1× (M31 Modus 2/1) bis ≈ 2,1× (M42 1/1
   Hybrid) langsamer als CPU — host-gebundene Sortier-/Reduktionsphase, bei
-  Hybrid zusätzlich die CPU-Geometrie. Optional und nachgelagert; siehe die
-  Numerikrevision oben.
+  Hybrid zusätzlich die CPU-Geometrie. Verbindliche Reihenfolge und
+  Abnahmekriterien: P0–P6 in §11.14; End-to-End-Gate in §3.4.
 
 À-trous bleibt CPU. Komponentenfortschritt ist kein Nachweis einer beschleunigten
 Gesamtrekonstruktion. Der M6-Ressourcenvertrag (§11.13) ist auf realen
 M31/M42-Läufen geschlossen (§30.55) und wurde auf beiden realen M7-Läufen
 (§30.57) erneut grün bestätigt — working-set im Budget, temp-space ok,
-Phase-RSS im Envelope, kein Spool. „M7 abgeschlossen" heißt: die CUDA-Arbeit ist
-fertig und byte-identisch; die **vollständige** wissenschaftliche Abnahme
-(Paritätsmatrix §19.5, Powerloss) bleibt M9.
+Phase-RSS im Envelope, kein Spool. Diese Belege bestätigen die bisherige
+Komponentenparität; Produktionsskalierung bleibt vor M10 offen (§11.14). Die
+vollständige wissenschaftliche und Ressourcen-/Durchsatzabnahme bleibt M9.
 
 ### M8 — GUI, Report und vollständige Dokumentation
 
@@ -4230,6 +4415,8 @@ Schritte beschreibt.
 
 ### M9 — Kontrollierte Qualitätsläufe
 
+**Zusätzliches Releasegate (2026-09-08):** P6 aus §11.14 und die vollständige 600-Frame-Kette bis HMS gemäß §3.4 müssen ≤2400 s erreichen. Ein 40-/100-Frame-Teilphasenlauf oder rein relatives Durchsatzgate reicht nicht.
+
 Dieser Meilenstein benötigt eine ausdrückliche Benutzeranforderung zum Starten
 von Bildverarbeitungsläufen.
 
@@ -4300,6 +4487,8 @@ als Ersatz für positive Qualitätsnachweise.
 - dokumentierter Go/No-Go-Entscheid für den endgültigen Cutover.
 
 ### M10 — Endgültiger Produkt-Cutover und Legacy-Isolation
+
+**Produktionsskalierung ist Cutover-Blocker:** keine Freigabe ohne bestandenes §3.4-Gate und P0–P6-Nachweise (§11.14). Diese Pflicht darf nicht nach M11 verschoben werden.
 
 **Übernahme aus M4/M3 (§23.1):** kanonische WCS-/Crop-/Maskenausgabe,
 §17.4-Photometrie-Rücknahme, STACKING-Pass-through, BGE/PCC/HMS in 1x/2x
@@ -4585,6 +4774,8 @@ objektspezifisch festgelegt werden.
 <a id="plan-27"></a>
 
 ## 27. Definition of Done
+
+- [ ] Absolute Produktionsabnahme §3.4 bestanden: 600 Frames bis HMS ≤2400 s, affine und lokale Datenklasse auf fixierter Hardware, mit vollständigen Qualitäts- und Ressourcenbelegen.
 
 Die Implementierung gilt erst als abgeschlossen, wenn alle folgenden Punkte
 erfüllt sind:

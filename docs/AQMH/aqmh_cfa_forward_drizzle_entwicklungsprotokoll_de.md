@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09. | [§30.12–30.60](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09. | [§30.12–30.61](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -4756,6 +4756,119 @@ rot, vorbestehend), inkl. neuem Rechen-Invarianz-Fall.
 grün, im Browser verifiziert. Schema-JSON/-YAML + i18n valide. `mkdocs build`
 grün. **Noch nichts committet.** `pi_models/live_edit/*/shadow_predictions.jsonl`
 sind Harness-Nebeneffekt, nicht Teil der Arbeit.
+
+Nachtrag: §30.60 wurde committet — `27ba6e82 M8` (Autor Jeamy, 2026-09-08),
+Arbeitsbaum sauber, inkl. der Run-Monitor-Phasenliste (`RECONSTRUCT_PHASES`,
+11 Zeilen) und `test_report_forward_drizzle.cpp` EN+DE-Doppellauf.
+
+---
+
+### 30.61 M9 begonnen: synthetisches Qualitätsfixture + M66-100-Frame-Gate (2026-09-08)
+
+Nutzerentscheidung: M9-Umfang jetzt = **Schritt 1 (synthetisch) + 100-Frame-M66-Gate
+parallel**; PREWARP-AQMH-Referenz für den späteren 10-%-Vergleich = **Legacy-Testharness**.
+
+**[§21] Unabhängiges synthetisches Qualitätsfixture.** Neu
+`tile_compile_cpp/tests/test_forward_drizzle_synthetic_quality.cpp`
+(`[synthetic-quality]`, ~13 s). Treibt den **ausgelieferten** Pfad
+(`run_forward_drizzle_stages`: NORMALIZED_CACHE .. MULTIBAND) mit Frames aus einer
+analytischen Ground-Truth-Szene und prüft die Plan-§3.2-Synthetikgates:
+- **Erzeuger ist kernel-unabhängig** (Plan 21.2): analytische Gauß-Sterne, PSF per
+  Quadratur (`sigma_eff² = sigma_intrinsic² + sigma_psf²`), bekannte Per-Frame-Affine
+  (Rotation ±0,4° + Sub-Pixel-Dither), 3×3-Box-Integration je Quellpixel, GBRG-Bayer,
+  Poisson- + Ausleserauschen mit festem Seed. Der Polygon-Rasterizer wird auf der
+  Erzeugerseite **nie** aufgerufen.
+- **Ergebnisse** (28–36 Frames, 176×176 Canvas, FWHM ~6,9 px): Zentroidfehler-Median
+  **0,012 Ausgabepixel** (Gate < 0,1); Fluxstreuung (MAD der Per-Stern-Ratio) auf der
+  **G/Luma-Ebene ~0,3 %** (Gate < 0,5 % — die Ebene, die die Aperturphotometrie/PCC
+  nutzt), R/B **~1–2 %** (Gate < 2 %, sampling-limitiert: die R/B-CFA-Ebenen liegen
+  auf einem 2-px-Untergitter, das ist eine Abtast- und keine Rekonstruktionsgrenze);
+  kein systematischer Flux-Bias > 5 %; Multiband keine FWHM-Regression gegen Raw.
+- **Bewusst zunächst eng** (erster Schnitt, nicht die ganze §21-Liste). **Offen in
+  §21:** Moffat-Profile, bekannte WCS, diffuse Struktur + linearer/gekrümmter
+  Himmel (gehören zu den RMS-/Seam-Gates), lokales Warp-Feld, ortsvariable PSF,
+  Hotpix/Cosmics, bekannte Schlechtframes, RGGB/BGGR/GRBG, MONO-Ein-Ebenen-Fixture,
+  MTF50, Farbdifferenz, Seam-/Support-Fehler, Bootstrap-CIs. Ein Coverage-Kommentar
+  im Testkopf listet Abgedecktes vs. Offenes.
+
+**[Gate 2] M66-100-Frame-Lauf.** `reconstruct --max-frames 100` auf
+`/media/tc_ssd/M66_lights_min` (277 Frames, 3840×2160 OSC GBRG, DWARF II 5 s VIS),
+Config = m6verify-Config (`runs/m42_m6verify_.../config.yaml`) mit **einer** Änderung:
+`runtime_limits.memory_budget 4096 → 8192`. Run-ID `m66_m9gate_20260908`, in `runs/`,
+`git_sha 27ba6e82`, `git_dirty false`, `input_manifest_sha256 674533a6…` (für den
+Legacy-Vergleich replaybar).
+- **Befund: der eingefrorene 4-GB-Umschlag lässt 100 Frames bei 3840×2160 nicht zu.**
+  Der Admission-Guard vor NORMALIZATION (`runner_pipeline.cpp:1815`,
+  `plan_drizzle_memory` mit `chunk_rows = height`) wirft
+  `DRIZZLE_MEMORY_BUDGET: explicit chunk_rows exceeds budget`:
+  `retained = 100·3840·2160·4 = 3,32 GB`; `budget − retained − source − fixed ≈ 900 MB`;
+  `max_rows ≈ 1832 < height 2160`. Bei 40 Frames (m6verify) passt es. Das Gate läuft
+  daher gegen einen **8-GB-Umschlag**, nicht den §11.11.1-4-GB — bei der Bewertung
+  von „11.11-Formeln eingehalten" als Eingabe protokollieren, nicht als bestandenes
+  4-GB-Resultat lesen. (Nebenfrage, nicht jetzt: der Guard nutzt `chunk_rows = height`
+  für die Vorabschätzung, der Lauf selbst `chunk_rows = 0`/auto ≤ 256 — der Guard
+  weist damit Konfigurationen ab, die der Lauf per Chunking bewältigt hätte.)
+- **Phasenzeiten:** SCAN_INPUT 1,6 s, CHANNEL_SPLIT ~0 s, NORMALIZATION 65 s (1 Worker),
+  REGISTRATION 80 s, NORMALIZED_CACHE 2 s, **SAMPLING_GEOMETRY 36 min** (09:47:57→10:23:55),
+  COMMON_OVERLAP 0,2 s, SOURCE_QUALITY_MAPS 4 min 39 s, GLOBAL_QUALITY 37 s.
+  `compute_geometric_coverage` ist ausdrücklich „deterministic bounded reference, no
+  per-worker canvases" (`sampling_geometry.cpp:274` `(void)num_workers`) — **einkernig**;
+  je 256-Zeilen-Stripe wird jeder Frame **zweimal** voll rasterisiert (CFA-Droplet +
+  Full-Footprint), also O(Quellpixel·Frames·Stripes). Bei 100 Frames / vollem Sensor
+  die dominante Wandzeit. Eigener M9-Datenpunkt.
+- **Als Hintergrund-Task gestartete FORWARD_DRIZZLE-Läufe wurden wiederholt vom
+  Claude-Code-Hintergrund-Task-Supervisor gekillt** (Meldung „system running low
+  on memory"). **Wichtige Korrektur:** das ist eine Heuristik des Supervisors,
+  **nicht** der Kernel — `free` zeigte durchgehend ~30 GB `available`, kein
+  dmesg-OOM, der Runner selbst meldete nie einen Fehler. Auch triviale
+  Watcher-`until`-Schleifen (~3 MB) wurden in Sekunden gekillt. Die frühere
+  Formulierung „die Box hat keinen Spielraum / Umgebungsblocker" war falsch —
+  Ursache ist der Supervisor-Schwellwert, der die ~30 GB freien RAM nicht
+  widerspiegelt. Der Vorgänger-Checkpoint (bis GLOBAL_QUALITY) bleibt jeweils
+  intakt; `resume-reconstruction --from-phase FORWARD_DRIZZLE` überspringt die
+  36 min SAMPLING_GEOMETRY + 4,6 min SOURCE_QUALITY_MAPS.
+- **Sackgasse: `memory_budget` lässt sich nicht nachträglich am Lauf senken.** Ein
+  Versuch, die Config-Snapshot von 8192 auf 4096 zu editieren (plus `config.sha256`
+  in `run_provenance.json` und `config_sha256` im Checkpoint), scheiterte an
+  `FORWARD_STAGE_SOURCE_IDENTITY_MISMATCH`: `plan.source_identity_hash` in
+  `registration_sampling.json` ist über `sha256_bytes(input_manifest ":" config_sha)`
+  gebildet — die Config-SHA ist in die Sampling-Geometrie-Identität eingewoben.
+  `memory_budget` ist also **Teil der Lauf-Identität**, obwohl es das Rechenergebnis
+  nicht ändert. Config-Snapshot + Hashes zurückgesetzt; der Checkpoint ist wieder
+  konsistent für einen 8192-Resume.
+- **Lösung: der Lauf muss außerhalb des CC-Hintergrund-Supervisors laufen.** Der
+  Nutzer startete `resume-reconstruction --from-phase FORWARD_DRIZZLE` per
+  `nohup … &` im eigenen Terminal (Stand: läuft, > 60 min CPU-Zeit einkernig in
+  FORWARD_DRIZZLE, RSS stabil ~3,7 GB, keine Fehler, ~30 GB frei). M66 ist ein
+  rotierendes Feld → §19.6.2-Local-Warp-Pfad (CPU-Geometrie + GPU-Polygonfläche),
+  laut Memory ~1–2× langsamer als reine CPU und ohne Beschleunigung lokaler
+  Warps. **Eigener M9-Datenpunkt: FORWARD_DRIZZLE auf 100 rotierenden Realframes
+  ist einkernig > 1 h.**
+- **Stand M66-Realdaten-Gate:** Ressourcen/Zeiten des 100-Frame-Laufs bis
+  GLOBAL_QUALITY vollständig charakterisiert (der primäre „Speicher/Runtime"-Zweck
+  von Gate 2). FORWARD_DRIZZLE läuft (Nutzer-Terminal); MULTIBAND +
+  `forward_drizzle.json`-v2 + gematchte Metriken auf M66 folgen nach Abschluss.
+
+**[Legacy-Referenz] Harness identifiziert.** `tile_compile_legacy_reference`
+(`CMakeLists.txt:617`, Option `TILE_COMPILE_BUILD_LEGACY_REFERENCE`) — identische
+Quellen wie `tile_compile_runner`, kompiliert mit `TILE_COMPILE_LEGACY_REFERENCE`,
+überspringt den `PIPELINE_UNAVAILABLE_DURING_CUTOVER`-Guard; nicht installiert, in
+M11 entfernt. Der 10-%-Vergleich (frisches isoliertes Verzeichnis außerhalb `runs/`,
+gleiches Manifest/Frameauswahl/Normalisierung/Crop/`output_scale`, primär
+`internal_scale=2 output_scale=1` wo der Altpfad nur 1× kann, plus `G_quality:=1`-
+Kontrolllauf) ist ein eigener Schritt, noch nicht begonnen.
+
+**Strukturelle M9-Blocker (Abnahme wird später schließen als der Laufplan nahelegt):**
+1. Die §21-Truth-Fixture-Menge ist erst angefangen (siehe Offen-Liste oben).
+2. Kein realer MONO-/Schmalbanddatensatz vorhanden — die Pflichtmatrix-Zeile „realer
+   MONO-Datensatz" und die MONO-Bisektion sind hier nicht ausführbar.
+3. ASTROMETRY/BGE/PCC/HMS laufen im `reconstruct`-Pfad nicht (STACKING-Pass-through
+   erst M10), daher ist die Abnahmezeile „keine schwere Regression in … Astrometrie
+   oder Downstream-Kompatibilität" auf diesem Codestand **nicht bewertbar**.
+
+**Teststand:** neues `[synthetic-quality]` grün (73 Assertions, 3× deterministisch);
+`[forward-runner]`+`[synthetic-quality]` 7 Fälle / 233 Assertions grün. M66-Gate läuft.
+**Noch nichts committet** (M9-Arbeit).
 
 ---
 

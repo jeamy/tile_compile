@@ -724,6 +724,7 @@ if(BUILD_TESTS)
             tests/test_sampling_geometry.cpp
             tests/test_forward_drizzle.cpp
             tests/test_forward_drizzle_contrib_list.cpp
+            tests/test_forward_drizzle_synthetic_quality.cpp
             tests/test_source_quality_proxy.cpp
             tests/test_source_quality_maps.cpp
             tests/test_source_quality_map_cache.cpp
