@@ -107,13 +107,26 @@ std::vector<float> resolve_quality_frame_weights(
 }
 QualityFrameWeightPlan persist_source_quality_artifact(
     const fs::path &path,const registration::RegistrationSamplingPlan &sampling,
-    VerifiedNormalizedSourceCache &cache,const GlobalQualityConfig &cfg,size_t mb) {
+    VerifiedNormalizedSourceCache &cache,const GlobalQualityConfig &cfg,size_t mb,
+    int workers) {
   preflight(sampling,cfg,mb);
   validate_sampling(sampling);
   if (!cache.matches(sampling)) throw std::invalid_argument("SOURCE_QUALITY_CACHE_CONTEXT_MISMATCH");
+  // Plan §30.72 R4: frames 1..n-1 run concurrently, each worker on its own
+  // verified cache clone (load() is not thread-safe). Frame 0 stays serial
+  // (fixes ref_star_count). Result is bit-identical --- the per-frame metrics
+  // are pure functions of the frame.
+  const size_t worker_mb = cache.frame_byte_size()/(1024*1024) + 4;
   const auto weights=compute_global_quality_weights(sampling.frames.size(),
       [&](size_t i)->const Matrix2Df & { return cache.load(sampling.frames.at(i).source_index); },
-      sampling.color_mode,sampling.bayer_pattern,sampling.cfa_origin_x,sampling.cfa_origin_y,cfg);
+      sampling.color_mode,sampling.bayer_pattern,sampling.cfa_origin_x,sampling.cfa_origin_y,cfg,
+      workers,
+      [&]()->SourceImageProvider {
+        auto wc=std::make_shared<VerifiedNormalizedSourceCache>(cache,worker_mb);
+        return [wc,&sampling](size_t i)->const Matrix2Df & {
+          return wc->load(sampling.frames.at(i).source_index);
+        };
+      });
   auto plan=build_quality_frame_weight_plan(sampling,weights,compute_source_quality_config_hash(cfg));
   resolve_quality_frame_weights(plan,sampling,cfg,mb);
   json artifact={{"schema_version",1},{"normalized_cache_hash",cache.manifest_hash()},

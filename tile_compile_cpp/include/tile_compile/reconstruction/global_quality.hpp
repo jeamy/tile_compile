@@ -30,6 +30,7 @@
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
 
+#include <functional>
 #include <vector>
 
 namespace tile_compile::reconstruction {
@@ -56,11 +57,18 @@ struct GlobalQualityConfig {
 // (matches the existing legacy convention).
 // Provider overload retains one frame's proxy plus scalar metrics for all
 // frames. The provider must release its previous source before loading another.
-VectorXf compute_global_quality_weights(size_t frame_count,
-                                        const SourceImageProvider &source_of,
-                                        ColorMode color_mode, BayerPattern bayer_pattern,
-                                        int cfa_origin_x, int cfa_origin_y,
-                                        const GlobalQualityConfig &cfg);
+//
+// workers > 1 (plan §30.72 R4): frame 0 is processed first with `source_of`
+// to fix ref_star_count, then frames 1..n-1 run concurrently. Each worker
+// gets its own provider from `make_thread_provider` (required when workers > 1;
+// `source_of` itself is only used for frame 0). The per-frame metrics are pure
+// functions of their input and are written to per-index slots, so the result
+// is bit-identical to the serial run.
+VectorXf compute_global_quality_weights(
+    size_t frame_count, const SourceImageProvider &source_of,
+    ColorMode color_mode, BayerPattern bayer_pattern, int cfa_origin_x,
+    int cfa_origin_y, const GlobalQualityConfig &cfg, int workers = 1,
+    const std::function<SourceImageProvider()> &make_thread_provider = {});
 
 VectorXf compute_global_quality_weights(const std::vector<Matrix2Df> &sources,
                                         ColorMode color_mode, BayerPattern bayer_pattern,

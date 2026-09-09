@@ -391,8 +391,17 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     const auto quality_path=artifacts/"source_quality_plan.json";
     if (resume_from!="FORWARD_DRIZZLE") {
       begin(Phase::GLOBAL_QUALITY);
+      // Plan §30.72 R4: parallel per-frame proxy/metrics; bit-identical.
+      // TC_GLOBAL_QUALITY_WORKERS=1 restores the serial reference.
+      int gq_workers=std::max(1,cfg.runtime_limits.parallel_workers);
+      if (const int hw=static_cast<int>(std::thread::hardware_concurrency()); hw>=1)
+        gq_workers=std::min(gq_workers,hw);
+      if (const char *e=std::getenv("TC_GLOBAL_QUALITY_WORKERS")) {
+        const int v=std::atoi(e);
+        if (v>=1) gq_workers=v;
+      }
       const auto quality=reconstruction::persist_source_quality_artifact(
-          quality_path,sampling,cache,qcfg,drizzle.memory_budget_mb);
+          quality_path,sampling,cache,qcfg,drizzle.memory_budget_mb,gq_workers);
       checkpoint["quality_plan_hash"]=quality.plan_hash;
       core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
       end({{"quality_plan_hash",quality.plan_hash}});

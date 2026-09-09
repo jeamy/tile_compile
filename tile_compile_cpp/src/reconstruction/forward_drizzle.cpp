@@ -489,26 +489,40 @@ void enumerate_drizzle_stripe_leaf_cells(
 
   const int W = plan.canvas_width_native * scale;
   int source_y0 = 0, source_y1 = plan.source_height;
+  int source_x0 = 0, source_x1 = plan.source_width;
   if (!f.has_smooth_local_model) {
-    // Inverse-map the entire destination stripe (plus source half-pixel).
-    // This includes every intersecting droplet, including across stripe edges;
-    // no value halo or duplicate output rows are necessary.
+    // Inverse-map the destination-stripe rectangle back into the source, in
+    // BOTH axes (plus a one-source-pixel droplet margin). A source pixel
+    // outside this box maps entirely outside the stripe, so sample_leaves
+    // there would only ever produce leaves whose y/x bbox clamps empty and the
+    // cell sink is never called --- skipping it is bit-identical. This is the
+    // same argument the Y bound already relied on, now extended to X so a frame
+    // that covers only part of the canvas width (rotation, shear, a smaller
+    // frame) does not rescan full source rows.
     WarpMatrix inverse;
     if (!registration::invert_affine_2x3(f.source_to_canvas, 1e-12f, 1e12f,
                                          inverse))
       throw std::invalid_argument("DRIZZLE_SINGULAR_TRANSFORM");
     double lo = std::numeric_limits<double>::infinity(), hi = -lo;
+    double xlo = lo, xhi = hi;
     for (double x : {0.0, static_cast<double>(W) / scale})
       for (double y : {static_cast<double>(y_begin) / scale,
                        static_cast<double>(y_begin + rows) / scale}) {
+        const double sx = inverse(0, 0) * x + inverse(0, 1) * y + inverse(0, 2);
         const double sy = inverse(1, 0) * x + inverse(1, 1) * y + inverse(1, 2);
         lo = std::min(lo, sy);
         hi = std::max(hi, sy);
+        xlo = std::min(xlo, sx);
+        xhi = std::max(xhi, sx);
       }
     source_y0 = static_cast<int>(std::clamp(
         std::floor(lo - 1), 0.0, static_cast<double>(plan.source_height)));
     source_y1 = static_cast<int>(std::clamp(
         std::ceil(hi + 1), 0.0, static_cast<double>(plan.source_height)));
+    source_x0 = static_cast<int>(std::clamp(
+        std::floor(xlo - 1), 0.0, static_cast<double>(plan.source_width)));
+    source_x1 = static_cast<int>(std::clamp(
+        std::ceil(xhi + 1), 0.0, static_cast<double>(plan.source_width)));
   }
   if (instrument) {
     auto &c = gs::registry().cur();
@@ -517,12 +531,12 @@ void enumerate_drizzle_stripe_leaf_cells(
         static_cast<std::uint64_t>(std::max(0, source_y1 - source_y0));
     c.source_samples_visited +=
         static_cast<std::uint64_t>(std::max(0, source_y1 - source_y0)) *
-        static_cast<std::uint64_t>(std::max(0, plan.source_width));
+        static_cast<std::uint64_t>(std::max(0, source_x1 - source_x0));
   }
   std::vector<Leaf> leaves;
   leaves.reserve(16);
   for (int sy = source_y0; sy < source_y1; ++sy)
-    for (int sx = 0; sx < plan.source_width; ++sx) {
+    for (int sx = source_x0; sx < source_x1; ++sx) {
       if (!sample_leaves(plan, f, sx, sy, scale, pixfrac, p, leaves))
         continue;
       int c = 0;

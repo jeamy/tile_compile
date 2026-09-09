@@ -16,6 +16,11 @@ subdirectories may add or override rules for their subtree.
 - Do not revert unrelated worktree changes. Work with existing edits and keep
   changes scoped to the request.
 - Do not use destructive Git or filesystem commands without explicit approval.
+- **Never give time or effort estimates.** No "~1 day", "~1 week", "weeks",
+  "quick", "medium effort", "1-2 days", story points, or any calendar/duration
+  guess for implementing something. State scope, risk, blast radius, dependency
+  order, and what must be verified — never how long it takes. (User directive
+  2026-09-09.)
 
 ## Running Services
 

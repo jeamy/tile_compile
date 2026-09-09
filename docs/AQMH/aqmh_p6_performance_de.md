@@ -1,11 +1,19 @@
 # P6 — Leistungsengpässe: Analyse, Lösungen, Umsetzung
 
-Status: **in Umsetzung.** Ziel: gesamte `reconstruct`-Kette **< 30 min** bei
+Status: **Analyse und Lösungsentwurf; Produktionsabnahme offen.** Aktuelles Ziel:
+`reconstruct` vom Kaltstart bis zur committed Rekonstruktionsausgabe **< 30 min**,
+**ohne Astrometrie, BGE, PCC und HMS**, bei
 600 Frames, 3840×2160 OSC, `internal_scale=2` / `output_scale=1`. Alles darüber
 gilt als Fehlschlag (Benutzervorgabe 2026-09-09).
 
 Erstellt 2026-09-09. Protokollverweis: **§30.72**. Setzt auf `aqmh_p6_runbook_de.md`
 (§30.70) auf.
+
+**Review 2026-09-09, §30.73:** Die bisherigen O2-Durchsatzaussagen sind
+korrigiert. Abschnitt 6 ist der aktuelle Lösungsentwurf: CUDA-Kandidatenbudget,
+echte zweidimensionale Bereichszugriffe, exakte Clip-Wiederverwendung und
+Kalibrierungs-/Qualitätsarbeit. O1–O3 allein belegen die Zielzeit nicht.
+Das ursprüngliche P6-Gate bis HMS bleibt ein separates, weiter offenes Gate.
 
 ---
 
@@ -16,7 +24,7 @@ Erstellt 2026-09-09. Protokollverweis: **§30.72**. Setzt auf `aqmh_p6_runbook_d
 | SAMPLING_GEOMETRY | **2 h 21 min** (~8460 s) | seriell |
 | SOURCE_QUALITY_MAPS | **48 min 35 s** (~2915 s) | seriell |
 | GLOBAL_QUALITY | 4 min 26 s (~266 s) | |
-| FORWARD_DRIZZLE | läuft (>47 min) | wiederholtes Voll-Bild-Lesen + Re-Hash |
+| FORWARD_DRIZZLE | vor dem benutzerseitigen Stopp >47 min beobachtet | kein abgeschlossener Phasenwert |
 | MULTIBAND / Ausgabe / BGE / PCC / HMS | nicht erreicht | — |
 
 ### 1.1 SAMPLING_GEOMETRY — Attribution durch Messung
@@ -34,10 +42,13 @@ cfa  rasterize : 694 ns / source-sample
 foot rasterize : 915 ns / source-sample   (pixfrac 1.0 → größere Tropfen)
 ```
 
-- **95 % ist reine Polygon-Geometrie** in `rasterize_drizzle_stripe`:
+- **95 % entfallen auf die beiden Rasterizer-Aufrufe** in `rasterize_drizzle_stripe`:
   `sample_leaves` → `build_affine_leaf` → pro Zelle `polygon_rectangle_intersection_area`
   (4 Halbebenen-Clips + Shoelace). Zwei Durchläufe pro Frame (CFA-Tropfen
   pixfrac 0,8 + dichter Footprint pixfrac 1,0), alle 600 Frames, **einthreadig**.
+  Der Timer umfasst auch Leaf-Bau, Enumeration und Callbacks; er isoliert
+  `polygon_rectangle_intersection_area` nicht. Die Profil-Szene verwendet nur
+  Translationen, keine Rotation oder Scherung.
 - **Kein K-Faktor.** Der affine Pfad begrenzt den Quell-Scan pro Streifen auf das
   rückprojizierte Zeilenband (`forward_drizzle.cpp:492-512`);
   `source_samples_visited` ≈ 1,02 × Quellpixel über alle Streifen, nicht 19 ×.
@@ -61,10 +72,11 @@ braucht Serialisierung.
 `VerifiedNormalizedSourceCache::load` (`normalized_source_cache.cpp:112`) liest bei
 **jedem** Aufruf die vollständige `.raw` (33 MB bei 3840×2160 float) **und** rechnet
 SHA-256 neu. Der Streifenpfad ruft das pro (Streifen, Frame) auf:
-19 × 600 = 11 400 Loads ≈ **376 GB** gelesen + 11 400 × SHA-256 über 33 MB.
-GDB-Stackprobe des laufenden Prozesses: Hauptthread wartend in `load`, aufgerufen
-aus dem CUDA-Streifenpfad; 236 GB physisch gelesen. SQM trifft dieselbe Funktion,
-dort 600 Loads ≈ 20 GB.
+**Bei angenommenen 19 Bändern**: 19 × 600 = 11 400 Loads ≈ **378,2 GB**
+logisches Lesevolumen plus Hashing. Die 19 Coverage-Streifen sind jedoch
+**nicht die CUDA-Drizzle-Bandzahl**; siehe Abschnitt 6.2. Die GDB-Stackprobe
+zeigte einen wartenden Hauptthread in `load` im CUDA-Pfad. Die 236 GB physischen
+Reads sind ein kumulativer Prozesswert, keine isolierte Drizzle-Messung.
 
 ---
 
@@ -109,7 +121,8 @@ begrenzt, Maskenschreibzugriffe disjunkt über `offset = y*width`).
   `TC_SAMPLING_GEOMETRY_WORKERS` überschreibt (Spiegel von
   `TC_GEOMETRY_CACHE_WORKERS` / `TC_FORWARD_DRIZZLE_WORKERS`). `gate.workers_used`
   füllen (bereits im Struct, wird in `sampling_geometry.json:504` serialisiert).
-- **Erwartung:** 19 Streifen, 16 Worker, dynamisch → ~13–16 ×. 8460 s → **~550–650 s**.
+- **Überholte Idealprojektion:** 13–16 × auf 16 Workern wurde nicht erreicht;
+  maßgeblich ist die Messung in Abschnitt 3 (SMT: 6,87 ×).
 - **Gate:** bestehende Compute-Invarianz-Tests + neuer `[geometry-parallel]`-Fall
   W ∈ {1,2,4}: Masken, `gate`-Felder, `n_eff`-p10, `hole_area` byte-/bit-identisch
   zu W=1.
@@ -117,7 +130,7 @@ begrenzt, Maskenschreibzugriffe disjunkt über `offset = y*width`).
 ### O2 — `VerifiedNormalizedSourceCache`: LRU + Hash nur beim ersten Zugriff
 
 - Statt eines einzigen `image_` eine **LRU-Map** `source_index → {Matrix2Df, verifiziert}`,
-  Kapazität aus `memory_budget_mb` (16 GB / 33 MB ≈ ~480 von 600 Frames).
+  Kapazität aus `memory_budget_mb` (16384 MiB: 517 von 600 Frames).
 - Treffer: gecachte Matrix zurückgeben, **kein Read, kein SHA-256**.
 - Fehltreffer: lesen + hashen + verifizieren + einfügen (LRU-Verdrängung).
   Den gerade zurückgegebenen Eintrag **nie** verdrängen.
@@ -125,9 +138,11 @@ begrenzt, Maskenschreibzugriffe disjunkt über `offset = y*width`).
   eine Referenz über einen späteren `load()` eines anderen Index hinweg (§30.67
   hat streifenweite Parallelität genau wegen dieses Aliasing verworfen — mit
   Per-Index-Einträgen entfällt der Hazard, aber die Aufrufer-Prüfung bleibt Pflicht).
-- **Wirkung:** Drizzle-Lesevolumen 376 GB → ~16 GB (einmal je Frame), SQM 20 GB →
-  20 GB einmalig; 11 400 → 600 SHA-256-Läufe. Entkoppelt außerdem den
-  Aliasing-Block für spätere Frame-Parallelität im Drizzle-Streifenpfad.
+- **Wirkung nur bei Treffern:** Der zyklische Scan über 600 Frames mit 517
+  Plätzen erzeugt ausschließlich Fehltreffer. Einmaliges Lesen/Hashen ist damit
+  nicht erreicht. Ein vollständiger Source-Bestand braucht 19,91 GB = 18,54 GiB
+  zusätzlich zum übrigen Arbeitsspeicher. `load()` bleibt nicht threadsicher;
+  Referenzen können durch Verdrängung ungültig werden.
 - **Gate:** bestehende `[forward-runner]` / `[cuda-parity]` Byte-Identität;
   neuer Fall: wiederholtes `load()` desselben Index gibt bit-gleiche Daten,
   Zähler „SHA-256-Aufrufe" steigt nur beim ersten Zugriff; manipulierte Datei
@@ -136,8 +151,8 @@ begrenzt, Maskenschreibzugriffe disjunkt über `offset = y*width`).
 ### O3 — Paralleler SQM-Bau
 
 - `build_source_quality_map_cache`: Frame-Schleife auf `#pragma omp parallel for
-  schedule(dynamic,1) if(workers>1)`. Per-Frame: `cache.load` (nach O2 threadsicher,
-  da Per-Index-Einträge — sonst je Worker eine eigene `VerifiedNormalizedSourceCache`),
+  schedule(dynamic,1) if(workers>1)`. Per-Frame: `cache.load` mit eigener
+  `VerifiedNormalizedSourceCache` je Worker (O2 ist nicht threadsicher),
   `compute_source_quality_proxy_v1`, `compute_source_quality_maps` unabhängig.
 - `writer.put(stream, source_index, matrix)` — Serialisierung prüfen: entweder
   `#pragma omp critical` um die `put`-Gruppe je Frame, oder je Frame in einen
@@ -188,11 +203,12 @@ W=128 vs W=1 — Maskenbytes, `n_eff`-p10, Lochflächen alle gleich).
 
 ### O2 — Source-Cache LRU + Hash-once
 
-Kein Rechen-Speedup, aber Drizzle-Streifenpfad-Lesevolumen **376 GB → ~16 GB**
-(einmal je Frame statt 19 ×), SHA-256-Läufe **11 400 → 600**. LRU-Treffer eines
-auf Platte unveränderten Frames: kein Read, kein Hash (Stat auf Größe+mtime);
-jede Änderung erzwingt volle Neuverifikation → Trunkierung/Rewrite scheitern
-weiterhin geschlossen. Tests `[cache-lru]`.
+Implementiert und durch `[cache-lru]` fokussiert geprüft; **kein belegter
+600-Frame-Durchsatzgewinn**. Beim wiederholten Scan 0…599 passen mit 16 GiB nur
+517 Frames in den Cache: null Treffer, weiterhin Hashing auf jedem Miss.
+Größe/mtime/Verifikationszeit ersetzen außerdem keinen allgemeinen
+Unveränderlichkeitsnachweis (etwa bei wiederhergestellter mtime oder einer
+Änderung zwischen Lesen und anschließendem Stat). Siehe Abschnitt 6.3.
 
 ### O3 — Paralleler SQM-Bau
 
@@ -207,9 +223,13 @@ gleich für Worker ∈ {1,2,3,6} (`[source-quality-parallel]`).
 | SAMPLING_GEOMETRY | 8460 s | ~1410 s (O1, ~6 ×) |
 | SOURCE_QUALITY_MAPS | 2915 s | ~490 s (O3, ~6 ×) |
 | GLOBAL_QUALITY | 266 s | ~266 s (noch seriell) |
-| FORWARD_DRIZZLE | läuft (>47 min) | schneller durch O2 (war I/O-gebunden), real ungemessen |
+| FORWARD_DRIZZLE | unvollständige Phase (>47 min beobachtet) | O2-Gewinn nicht belegt; CUDA-Bänder separat auflösen |
 | MULTIBAND + Ausgabe + BGE/PCC/HMS | — | ungemessen, teils nicht im Pfad |
-| **Kette ohne Drizzle/HMS** | ~11 900 s | **~2430 s ≈ 40 min** |
+| **Nur diese drei abgeschlossenen Phasen** | ~11 641 s | **~2166 s ≈ 36 min** |
+
+Diese Summe enthält noch keinen Scan, keine Kalibrierung, Normalisierung,
+Registrierung, Zwischenzeiten und Ausgabe. Die frühere 2430-s-Summe war
+rechnerisch falsch; sie war auch keine vollständige Kette.
 
 Referenzbox = **8 physische Kerne** (`parallel_workers: 8` in der M6-Config); die
 `/N`-Tabellen im Runbook (§30.70) sind auf N=16 gerahmt — hier gilt N=8, gemessen
@@ -230,19 +250,309 @@ reichen **voraussichtlich nicht**:
 - **FORWARD_DRIZZLE nach O2 messen** (war I/O-gebunden).
 - **O5** (affine Flächen-Schablone) — Numerik-/Modellidentitätsklasse, gesperrt.
 
-Selbst mit O4 optimistisch und parallelem GLOBAL_QUALITY landet die Kette bei
-~1200–1400 s **vor** FORWARD_DRIZZLE + MULTIBAND + dem noch nicht vollständig
-im Pfad gemessenen BGE/PCC/HMS-Block. **Die 30-min-Grenze ist aus O1–O5 allein
-sehr wahrscheinlich nicht erreichbar** — es braucht zusätzlich O5 (bit-exakt
-abgesichert) oder einen grundlegend anderen Geometrie-Algorithmus für den
-affinen Coverage-Pfad.
+Eine 30-min-Prognose ist daraus nicht ableitbar. Insbesondere ist O5 keine
+zwingende Voraussetzung: Es gibt Änderungen an Speicherzugriff und exakter
+Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 6).
 
 ## 5. Fortschritt
 
 - [x] **O1 — Streifen-parallele Coverage** — gemessen ~6 ×/8 Kerne, bit-identisch
-- [x] **O2 — Source-Cache LRU + Hash-once** — Drizzle-Lesevolumen 376 GB → ~16 GB
+- [x] **O2 — Source-Cache LRU** — implementiert; Hash-Vermeidung nur bei Treffern
+- [ ] O2-Produktionswirkung bei 600 Frames / begrenztem Gesamtbudget nachweisen
+      (LRU-Thrash bei zyklischem 0…599, §30.73 — R1/R2 muss das ablösen)
 - [x] **O3 — Paralleler SQM-Bau** — byte-identisch W ∈ {1,2,3,6}
-- [ ] O4 — CFA+Footprint-Durchläufe fusionieren
-- [ ] GLOBAL_QUALITY parallelisieren
+- [x] **O3-Race-Fix** (§30.74) — `worker_error` war ungeschützt gelesen; jetzt
+      `std::atomic<bool>` Fast-Path + `exception_ptr` nur unter `critical`;
+      Klon-Ctor in try/catch
+- [x] **R1.3 — Quellrechteck auch in X** (§30.74) — `enumerate_drizzle_stripe_leaf_cells`
+      bounds Quell-X (bisher nur Y), bit-identisch, hilft Coverage + affinem Drizzle
+- [x] **GLOBAL_QUALITY parallelisieren** (§30.74) — Frame 0 seriell, Rest
+      `omp parallel for` auf Per-Worker-Cache-Klonen, bit-identisch
+      (`[drizzle-audit][geometry-parallel]`)
+- [ ] R4 — `writer.put` Datei-Write + sha256 aus dem `critical` heraus
+- [ ] R3 — exakte X-Clip-Wiederverwendung im Rasterizer + gespiegelter
+      CUDA-Device-Kernel + volle Paritätsmatrix
+- [ ] Alternativer/beschleunigter Coverage-Pfad (Footprint-Rasterisierung /
+      analytische affine Fläche) hinter Masken-/Gate-Paritäts-Gate
+- [ ] R1.1 + R1.2 + R2 — CUDA Host/Device-Budget-Trennung, 2D-Zielkacheln,
+      echte Source-/Q-Bereichsprovider; `[cuda-parity]` durchgehend
 - [ ] Realer/halbrealer Messlauf, Phasenbudget final
-- [ ] O5 (gesperrt) nach Bedarf
+
+<a id="p6-loesungsweg-30min"></a>
+
+## 6. Code-Review: konkreter Weg zum 30-Minuten-Ziel (§30.73)
+
+Direkte Codequellen (Stand des uncommitteten Arbeitsbaums beim Review):
+
+| Befund | Quelle |
+|---|---|
+| CUDA-Budget und Bandaufrufe | [drizzle_profile_store.cpp](../../tile_compile_cpp/src/reconstruction/drizzle_profile_store.cpp) |
+| CPU-Sortierung/Reduktion im CUDA-Pfad | [forward_drizzle_contrib_list.cpp](../../tile_compile_cpp/src/reconstruction/forward_drizzle_contrib_list.cpp) |
+| LRU-Verdrängung und Verifikation | [normalized_source_cache.cpp](../../tile_compile_cpp/src/reconstruction/normalized_source_cache.cpp) |
+| Q-Provider/Vollbildexpansion | [source_quality_artifact.cpp](../../tile_compile_cpp/src/reconstruction/source_quality_artifact.cpp) |
+| Bereichslesen und SQM-Writer | [source_quality_map_cache.cpp](../../tile_compile_cpp/src/reconstruction/source_quality_map_cache.cpp) |
+| Polygon-Clips und Enumeration | [forward_drizzle.cpp](../../tile_compile_cpp/src/reconstruction/forward_drizzle.cpp) |
+| Coverage-Parallelität | [sampling_geometry.cpp](../../tile_compile_cpp/src/registration/sampling_geometry.cpp) |
+| Kalibrierung und Vorlauf | [runner_pipeline.cpp](../../tile_compile_cpp/apps/runner_pipeline.cpp), [runner_phase_metrics.cpp](../../tile_compile_cpp/apps/runner_phase_metrics.cpp) |
+| Frame-0-Abhängigkeit | [global_quality.cpp](../../tile_compile_cpp/src/reconstruction/global_quality.cpp) |
+
+### 6.1 Messgrenze und belastbare Ausgangsbasis
+
+Start ist der Kaltstart des Runners, Ende der Commit der Rekonstruktionsausgabe
+einschließlich Mehrbandfusion, STACKING-Pass-through und erforderlicher
+Photometrie-Rücknahme. Scan, vorhandene Kalibriermaster anwenden, Normalisierung,
+Registrierung, alle Hashes, Transfers und Writes zählen mit. Astrometrie
+(einschließlich eines gegebenenfalls aktivierten Rescue-Solvers), BGE, PCC und
+HMS zählen in diesem **neuen Teilziel nicht mit** und müssen tatsächlich
+deaktiviert sein. Registration ist weiterhin erforderlich. Kein Resume als
+Kaltlauf ausgeben; keine Reduktion der 600 Frames oder der Auflösung.
+
+Aus dem erhaltenen Ereignisextrakt `/tmp/out_bn_phases.txt` des inzwischen
+gestoppten M31-Laufs `20260909_155821_833897f4`:
+
+| Vorlauf | Sekunden |
+|---|---:|
+| SCAN_INPUT einschließlich Kalibrierung | 459,611 |
+| NORMALIZATION | 375,481 |
+| Abstand Normalisierung → Registrierung | 167,453 |
+| REGISTRATION | 206,834 |
+| NORMALIZED_CACHE | 12,813 |
+| SCAN_INPUT-Start → SAMPLING_GEOMETRY-Start, einschließlich Lücken | **1222,262** |
+
+Diese Zeiten stammen aus einem erhaltenen Diagnoseextrakt, nicht aus einem
+neuen Lauf. Das ursprüngliche `p6_runs/.../logs/run_events.jsonl` ist an seinem
+damaligen Pfad bei diesem Review nicht mehr vorhanden. Die Zuordnung der
+167-s-Lücke zu einzelnen Metrikoperationen braucht eigene Timer. Bereits dieser
+Vorlauf zeigt: Selbst perfekte Geometrie allein löst das Kaltstartziel nicht.
+
+### 6.2 Größter zusätzlicher Befund: CUDA-Bandhöhe kollabiert mit N
+
+Quellen: `src/reconstruction/drizzle_profile_store.cpp`,
+`persist_forward_drizzle_multiband`; `forward_drizzle_contrib_list.cpp`,
+`accumulate_pair_impl`; `forward_drizzle_cuda.cpp`, `plan_cuda_chunking`.
+
+Der CUDA-Pfad reserviert **dicht für jede Kanal-Zielzelle alle Frames**:
+
+```
+candidate_bytes_per_row = channels * internal_width * N * sizeof(ClipCandidate)
+```
+
+Bei der üblichen 64-Bit-ABI (`sizeof(ClipCandidate)=64`), 7852 Pixeln Breite,
+3 Kanälen und 600 Frames: **904.550.400 B = 862,65 MiB pro interner Zeile**.
+Das ist Host-RAM. Der Planer addiert diesen Term jedoch zum Device-Term und
+teilt den freien **VRAM** durch die Summe. Bei höchstens 6 GiB freiem VRAM und
+20 % Reserve passen schon allein wegen dieses Terms höchstens **5 Zeilen**.
+4620 / 5 bedeutet **mindestens 924 Bänder**, nicht die 19 Coverage-Streifen.
+Weniger freier VRAM oder ein Retry verkleinern die Bänder weiter. Das ist eine
+Code-/Budgetableitung, keine nachträglich gemessene Bandzahl des alten Laufs.
+
+Jedes Band iteriert wieder über alle Frames. `cuda_pair_producer` begrenzt zwar
+den Upload auf Quellzeilen, ruft **vorher aber den Vollbild-Source-Provider** auf.
+Der Q-Provider in `source_quality_artifact.cpp` expandiert dabei bis zu vier
+vollständige Karten (`composite`, `scale_0`, `scale_1`, `artifact`). Das bedeutet
+bei vier Karten rund **79,63 GB erzeugte Float-Daten pro Vollpass**. Bei 924
+Bändern wären es rund **73,6 TB allein für diese Expansionen**. Das ist ein
+logischer Aufwand, keine gemessene physische Diskmenge. Ein Cache-Miss auf allen
+Quellen würde zusätzlich rund 18,4 TB Source-Reads/Hashes erzeugen.
+
+Außerdem laufen im CUDA-Zweig `std::sort` der Records, Segmentreduktion und
+`reduce_pixel_profiles` auf der CPU **seriell**. Der Kommentar „CUDA ignoriert
+workers“ beschreibt keine vollständig auf der GPU ausgeführte Rekonstruktion.
+Ihre genaue Zeit muss getrennt gemessen werden. Ein pauschaler I/O-Befund
+aus einer einzigen Stackprobe erklärt nicht die ganze Phase.
+
+**Entscheidung R1, erste Priorität:**
+
+1. Host- und Device-Budget getrennt planen. Größere Host-Bänder dürfen nicht
+   fiktiv VRAM verbrauchen; Device-Microbatches bleiben unabhängig klein.
+   Alle gleichzeitig residenten Source-, Q-, Kandidaten-, Sortier- und
+   Ausgabepuffer tatsächlich vom gemeinsamen Host-Budget abziehen.
+2. Den Vollbreiten-Zwang des Kandidatenpuffers durch **zweidimensionale
+   Zielkacheln** auflösen. Beispiel 128×64 intern: derselbe dichte
+   Kandidatenpuffer benötigt etwa 900 MiB statt 55 GiB für 64 volle Zeilen.
+   Das ist eine Arbeitskachel, keine Änderung des wissenschaftlichen Bildrasters.
+3. Für jede affine Zielkachel Quellrechteck in **X und Y** invers bestimmen,
+   einschließlich konservativem Tropfenrand; dieselben `sample_leaves` und
+   Zellclips aufrufen. Der heutige Pfad begrenzt nur Quell-Y. Für lokale Modelle
+   den vorhandenen Geometrieindex verwenden; ein affines Rechteck allein wäre
+   dort keine gültige Schranke.
+4. Reihenfolge pro Zielzelle exakt erhalten: Frame, Quell-Y, Quell-X, Leaf.
+   Unabhängige Zielzellen dürfen parallel reduziert werden. Kein ungeordnetes
+   Floating-Point-Atomic-Add. `reduce_pixel_profiles` zunächst unverändert;
+   pro Worker eigener Scratch und deterministische Diagnostikreduktion.
+5. Kleine Kacheln nicht in Millionen synchroner CUDA-Einzelaufrufe übersetzen:
+   mehrere Frame-/Kachel-Aufträge mit begrenztem Speicher bündeln, Device-Puffer
+   wiederverwenden, CPU-Reduktion disjunkter Zellen parallelisieren. CPU und CUDA
+   separat messen. Einfach nur mehr kleine Kernel zu starten ist kein Fix.
+
+Getrennte Budgets allein sparen Wiederholungen, beseitigen aber nicht den
+Vollbild-Provider. R1 und R2 müssen zusammen umgesetzt werden.
+
+### 6.3 R2: echte Bereichsprovider statt zyklischem Vollbild-LRU
+
+Quellen: `normalized_source_cache.cpp`, `VerifiedNormalizedSourceCache::load`;
+`source_quality_map_cache.cpp`, `read_bin`, `read_region`, `read_full`;
+`source_quality_artifact.cpp`, `persist_multiband_store_from_predecessors`.
+
+**Nachgerechnet und als LRU-Simulation geprüft:** ein Frame hat 33.177.600 B;
+600 Frames haben 19.906.560.000 B = 18,54 GiB. Mit 16384 MiB und 1 MiB Reserve
+passen 517 Frames. Ein zyklischer Durchlauf 0…599 verdrängt die jeweils als
+nächstes gebrauchten Frames: über 19 Pässe **0 Treffer, 11.400 Misses**.
+O2 hält die Verifikation auch nicht unabhängig von den LRU-Einträgen vor.
+
+Das Runner-Objekt erhält derzeit das volle Drizzle-Budget; SQM-Klone und
+Kandidatenpuffer kommen zusätzlich dazu. 16 GiB Source-LRU plus 16 GiB
+Drizzle-Arbeitsbudget sind kein gemeinsames 16-GiB-Budget. Bei 30 GiB freiem RAM
+darf deshalb nicht ohne Gesamtbilanz ein größerer Source-Cache zugesagt werden.
+
+**Umsetzung:**
+
+- Source-Provider um Rechteck-/Zeilenansichten mit absolutem Ursprung erweitern.
+  Nur die für R1 erforderlichen Rohdaten lesen; Source-Indizes im Clipping-Key
+  bleiben absolut. Kein Crop mit stillschweigend verschobenem CFA-Ursprung.
+- `SourceQualityMapCacheReader::read_region` muss echtes Range-I/O erhalten:
+  derzeit lädt es mit `read_bin` die gesamte Datei und expandiert erst danach
+  die gewünschten Zeilen. Werte- und Vetoebene liegen getrennt in der Datei;
+  deren Offsets und Speicherzeilen separat lesen und validieren.
+- Noch günstiger: vorhandene uint16-Werte und Veto-Bytes direkt über einen
+  unveränderlichen Karten-View adressieren. `dequantize_quality`, `y/divisor`,
+  `x/divisor` und Hard-Veto→NaN müssen exakt dieselben Ergebnisse liefern.
+  Das vermeidet die wiederholte volle Float-Expansion, ohne neue Quantisierung.
+- Hashes nicht einfach streichen. Entweder verifizierte unveränderliche
+  Generationen mit klarer Besitz-/Mutationsregel, oder verifizierbare Blöcke
+  mit an das Manifest gebundenen Digests. Bei Schemaänderung Version/Identität
+  und Resume-Vertrag anpassen. Ein offener Dateideskriptor verhindert allein
+  keine In-place-Schreibzugriffe; Größe+mtime allein garantiert keine Integrität.
+- Zielzähler: physische und logische Reads getrennt, gelesene/expandierte Pixel,
+  Hash-Bytes, Source-/Q-Treffer, Band-/Kachelzahl, Host-/Device-Peaks und
+  `source_pixels_loaded / (N*P)`. Schranken aus tatsächlich geschnittenen
+  Rechtecken plus Randüberlappung ableiten, nicht pauschal „genau einmal“ sagen.
+
+### 6.4 R3: schnellere exakte Geometrie, ohne O5-Schablone
+
+Quelle: `forward_drizzle.cpp`, `clip_one_plane`,
+`polygon_rectangle_intersection_area`, `enumerate_drizzle_stripe_leaf_cells`.
+
+Der vorhandene Clip führt X-min, X-max, Y-min, Y-max und Shoelace für **jede**
+Zielzelle erneut aus. Die ersten beiden Ergebnisse hängen von Leaf und Ziel-X
+ab, **nicht von Ziel-Y**. Sie können pro Leaf/X berechnet und über alle
+betroffenen Zielzeilen wiederverwendet werden. Die Ausgabe bleibt in derselben
+Y/X-Reihenfolge; lediglich ein kleiner Puffer für X-Zwischenpolygone kommt hinzu.
+Wenn alle Polygonpunkte eine Clip-Halbebene bereits erfüllen, kopiert der
+Referenzschritt die Punkte unverändert in identischer Reihenfolge. Dieser
+Schritt kann entfallen. Schnittformeln, Vertex-Reihenfolge und Shoelace bleiben
+unverändert. Keine Translation der Shoelace-Koordinaten, kein FMA/Reassociation,
+kein `fast-math`, keine gerasterte Subpixel-Schablone.
+
+**Isolierter Machbarkeitsversuch dieses Reviews:**
+`/tmp/p6_clip_reuse_probe.cpp`, gebaut mit
+`g++ -O3 -std=c++20 -ffp-contract=off`. 100.000 Quads mit Translationen und
+kleinen Rotationen, beide Pixfracs, 784.712 Zellflächen:
+
+| Variante | Zeit für fünf Wiederholungen | Bitabweichungen |
+|---|---:|---:|
+| vier Clips pro Zelle | 0,256082 s | Referenz |
+| X-Clip-Wiederverwendung + wirkungslose Clips auslassen | 0,165475 s | **0** |
+
+Das sind **1,55× in einem eigenständigen Mikroversuch**, der die Referenzformeln
+nachbildet, nicht die vollständige Library aufruft. Es ist weder ein
+Produktionsbenchmark noch ein Beweis für sämtliche degenerierten Polygone.
+Original- und optimierte Library-Pfade müssen direkt gegeneinander getestet
+werden: Rotation, Scherung, Spiegelung, Tangenten, ganzzahlige Grenzen und
+`nextafter`-Nachbarn, große Koordinaten, lokale Leaves und mehrere Chunkhöhen.
+Naive Variante `Rechteckfläche statt Shoelace` ist ausdrücklich ausgeschlossen:
+mathematische Flächengleichheit garantiert keine gleichen Floating-Point-Bits.
+
+**Zweiter, größerer Hebel:** Der dichte affine Footprint benötigt nur die
+Information, ob mindestens ein Pixelquadrat eine Zelle mit `k>0` berührt.
+Die Vereinigung aller ungeschrumpften Quellpixelquadrate ist mathematisch das
+transformierte Frame-Rechteck. Daher ist ein rasterisierter Frame-Footprint
+statt Milliarden Einzelpixelclips grundsätzlich möglich. Aber das heutige
+numerische `k>0` ist der Referenzvertrag: Tangenten, degenerierte Transformationen
+und Rundungsartefakte dürfen nicht stillschweigend anders behandelt werden.
+Nur konservativ zertifizierte Innen-/Außenzellen beschleunigen, Grenzfälle mit
+dem bisherigen Einzelpixelpfad prüfen. Eine numerische Fehlerschranke muss
+auch die berechneten Quellpixelgrenzen abdecken; bloß ein Rand um die vier
+Framekanten reicht als Beweis nicht. Diese Stufe bleibt bis zu diesem Nachweis
+und Masken-/Gate-Parität gesperrt. Der Footprint-Anteil des bisherigen Profils
+liegt bei etwa 57 % der Rasterzeit: seine Beseitigung wäre ein wesentlich
+größerer Hebel als die bloße Fusion zweier Schleifengerüste.
+
+### 6.5 R4: Vorlauf und Qualität gezielt verkürzen
+
+- `runner_pipeline.cpp`, Kalibrierungsschleife über `input_frames`: derzeit
+  sequenzielles Lesen, Bias/Dark/Flat und FITS-Schreiben. Frames mit begrenzten
+  I/O-Workern verarbeiten, Ausgabepfade/Ergebnisvektor nach Index festlegen,
+  Masters read-only teilen. FITS-Threadfähigkeit und tatsächlichen
+  Speicherdurchsatz prüfen; die 459,6 s sind nicht vollständig Rechenzeit.
+- `runner_phase_metrics.cpp`: Normalisierung und frühe globale Metriken besitzen
+  **bereits Worker**. Noch ein Parallel-Pragma verspricht hier keinen Faktor 8.
+  Lesen, Hintergrundschätzung, Normalisierung, Cache-Schreiben und Proxybau
+  einzeln messen. Doppelte Arbeit nur bei identischen Inputs/Definitionen
+  wiederverwenden. Registrierungsmetriken dürfen nicht als AQMH-Gewichte dienen.
+- `source_quality_map_cache.cpp`: O3 hat eine serielle `writer.put`-Sektion
+  einschließlich Serialisierung/Hash/Write; ca. 6× ist bisher eine Erwartung.
+  Unabhängige Dateien parallel vorbereiten, nur Metadatenaufnahme/Commit
+  serialisieren. SQM-Working-Set pro Worker einschließlich `pending` budgetieren.
+  Nebenbefund vor Ausbau beheben: `worker_error` wird außerhalb von `critical`
+  gelesen und darin geschrieben; das ist ein ungeschützter gemeinsamer Zugriff.
+  Ein atomarer Fehlerindikator bzw. ausschließlich synchronisierte Zugriffe
+  sowie Exception-Weitergabe auch für die Cache-Klon-Konstruktion sind nötig.
+- `global_quality.cpp`: Frame 0 setzt `ref_star_count`; zuerst diesen Frame
+  berechnen, dann 1…N−1 parallel mit fixem Referenzwert. Endgültige
+  Gewichtsbildung in ursprünglicher Reihenfolge. SQM und Global Quality bauen
+  beide `compute_source_quality_proxy_v1`: gemeinsamen Proxy innerhalb eines
+  Frame-Jobs nutzen, sofern Input und Konfiguration identisch sind. Die
+  getrennten Phasen-/Resume-Artefakte dennoch vollständig veröffentlichen.
+
+### 6.6 Budget, Reihenfolge und Entscheidung
+
+**Es gibt keinen aus dem Code ableitbaren mathematischen Grund für mehrere
+Stunden.** Der derzeitige N-abhängige Vollbreiten-Kandidatenpuffer erzwingt
+kleinste Bänder, deren Provider dann erneut Vollbilder bearbeiten. Dieser
+vermeidbare Aufwand ist zusätzlich zur eigentlichen Rekonstruktion vorhanden.
+Seine Beseitigung ist der erste Lösungsweg; O5 ist dafür nicht erforderlich.
+
+Ein **Entwicklungsbudget, keine Laufzeitprognose**, für das affine 600-Frame-Ziel:
+
+| Teil | Zu erreichendes Budget |
+|---|---:|
+| gesamter Vorlauf bis Coverage | 650 s |
+| Coverage einschließlich Gate/Masken | 300 s |
+| SQM | 400 s |
+| Global Quality | 45 s |
+| Forward Drizzle einschließlich Clipping/Transfers | 180 s |
+| Mehrband, STACKING, Ausgabe-Commit | 55 s |
+| sonstige Übergänge/Hashes | 50 s |
+| **Summe / Reserve bis 1800 s** | **1680 s / 120 s** |
+
+Die anspruchsvollsten offenen Posten sind Coverage 300 s und Drizzle 180 s.
+Der 1,55×-Clipversuch plus O1 allein trägt Coverage 300 s nicht; dafür muss die
+Footprint-Stufe oder ein separat paritätsgeprüfter beschleunigter Coverage-Pfad
+zusätzlich bestehen. Die Tabelle darf nicht als erreichte oder bereits
+wahrscheinliche Endzeit kommuniziert werden. Lokale Modelle brauchen dieselbe
+Abnahme separat; die affine Ableitung überträgt sich darauf nicht automatisch.
+
+**Verbindliche nächste Schnitte:**
+
+1. R1/R2 gemeinsam: aktuelle Bandzahl/Peaks erfassen, getrennte Budgets,
+   Bereichsprovider und CPU-Reduktionsparallelität; Vollbildexpansion aus dem
+   inneren Band-/Frame-Loop entfernen. Zunächst ohne Geometrieänderung.
+2. R3: exakte Clip-Wiederverwendung in den bestehenden Rasterizer einbauen und
+   gegen den alten Pfad testen. Footprint-Beschleunigung als eigenes Gate.
+3. R4: Kalibrierung, SQM-Writer und Global Quality; bestehende Normalisierung
+   anhand ihrer Subtimer optimieren, nicht ungemessen weitere Worker ergänzen.
+4. Skalierungsbenchmark mit realer Canvasgröße, 40/100/600 synthetischen Frames,
+   gleichem RAM-Budget und realem CPU-/CUDA-Pfad. Auch 600 bei kleinem Budget
+   testen: dieses N löst die Bandkollaps-/LRU-Probleme aus. Hidden-Test misst
+   zusätzlich tatsächliche aktive Worker; ein Requested-Wert reicht nicht.
+5. Erst wenn die Summe der Phasen auf voller Größe das Budget trägt: separat
+   autorisierte reale Kaltläufe, zwei pro Klasse, identische Selektion und
+   Gates; alle Laufstart→Commit-Zwischenzeiten mitzählen.
+
+Abnahme jeder Änderung: Source-/Masken-/Coverage-Gate-Bits, Clipping-Entscheide,
+Q-Artefakt-Identität und committed Profilebytes gegen Referenz; CPU-Fallback,
+Korruption/Resume und harte RAM-Grenzen. Keine Toleranzlockerung als Ersatz.
+Kein Produktionslauf wurde für diesen Review gestartet. Die Arbeit dieses
+Abschnitts besteht aus Codeanalyse, LRU-Simulation, isoliertem Clipversuch und
+Dokumentation; R1–R4 sind damit **noch nicht implementiert oder abgenommen**.

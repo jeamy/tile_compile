@@ -8,12 +8,14 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cmath>
 #include <cstring>
 #include <exception>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -542,7 +544,17 @@ SourceQualityMapsBuildResult build_source_quality_map_cache(
   int nw = std::max(1, std::min(workers, nf));
 
   int max_scales = 0;
+  // `failed` is the lock-free fast-path check; `worker_error` is only ever
+  // touched inside the sqm_error critical section. A plain read of
+  // std::exception_ptr racing with its assignment would be UB.
+  std::atomic<bool> failed{false};
   std::exception_ptr worker_error;
+  auto record_error = [&] {
+#pragma omp critical(sqm_error)
+    if (!worker_error)
+      worker_error = std::current_exception();
+    failed.store(true, std::memory_order_relaxed);
+  };
 
   // One process for each frame: load (own cache clone) -> proxy -> quality
   // maps, buffered locally; then a short critical section flushes the writer.
@@ -586,18 +598,26 @@ SourceQualityMapsBuildResult build_source_quality_map_cache(
         cache.frame_byte_size() / (1024 * 1024) + 4; // ~2 frames resident
 #pragma omp parallel num_threads(nw)
     {
-      // Per-worker cache clone: independent LRU, no shared load() state.
-      VerifiedNormalizedSourceCache wc(cache, worker_mb);
+      // Per-worker cache clone: independent LRU, no shared load() state. The
+      // clone constructor can throw (budget check); a throw escaping the
+      // parallel region would call std::terminate, so catch it here. Every
+      // thread must still reach the `omp for` worksharing region below (a
+      // skipped one deadlocks the team), so a clone failure just sets `failed`
+      // and every iteration becomes a no-op.
+      std::optional<VerifiedNormalizedSourceCache> wc;
+      try {
+        wc.emplace(cache, worker_mb);
+      } catch (...) {
+        record_error();
+      }
 #pragma omp for schedule(dynamic, 1)
       for (int i = 0; i < nf; ++i) {
-        if (worker_error)
+        if (failed.load(std::memory_order_relaxed) || !wc)
           continue;
         try {
-          process_frame(i, wc);
+          process_frame(i, *wc);
         } catch (...) {
-#pragma omp critical(sqm_error)
-          if (!worker_error)
-            worker_error = std::current_exception();
+          record_error();
         }
       }
     }

@@ -17,7 +17,7 @@ std::vector<float> resolve_quality_frame_weights(
 QualityFrameWeightPlan persist_source_quality_artifact(
     const fs::path &path, const registration::RegistrationSamplingPlan &sampling,
     VerifiedNormalizedSourceCache &cache, const GlobalQualityConfig &cfg,
-    size_t memory_budget_mb = 512);
+    size_t memory_budget_mb = 512, int workers = 1);
 QualityFrameWeightPlan load_source_quality_artifact(
     const fs::path &path, const registration::RegistrationSamplingPlan &sampling,
     const VerifiedNormalizedSourceCache &cache, const GlobalQualityConfig &cfg,

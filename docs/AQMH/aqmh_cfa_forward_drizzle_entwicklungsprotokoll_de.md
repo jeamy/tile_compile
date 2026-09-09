@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf-O1/O2/O3 09.09. | [§30.12–30.72](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) 09.09. | [§30.12–30.74](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -5915,6 +5915,116 @@ identitätsklasse, gesperrt).
 GPU-umgebungsabhängige `test_acceleration_backend.cpp:254` (auf Pristine-Baseline
 identisch). **Nicht committet** — der Arbeitsbaum trägt gleichzeitig die
 uncommittete STACKING-/Downstream-Arbeit (§30.71) des Benutzers.
+
+---
+
+<a id="historie-30-73"></a>
+
+### 30.73 P6-Review: CUDA-Bandkollaps, LRU-Thrashing und exakte Clip-Wiederverwendung (2026-09-09)
+
+Die Benutzerpräzisierung verlangt zunächst **<1800 s vom Kaltstart bis zur
+Rekonstruktionsausgabe ohne Astrometrie/BGE/PCC/HMS**. Das bisherige vollständige
+P6-HMS-Gate bleibt davon getrennt. Aktueller Lösungsentwurf und Quellstellen:
+[P6-Leistungsanalyse, Abschnitt 6](aqmh_p6_performance_de.md#p6-loesungsweg-30min).
+
+**Korrektur zu §30.72:** O2 belegt keine Reduktion von 376 GB auf 16 GB.
+600 Float-Frames bei 3840×2160 belegen 19,91 GB / 18,54 GiB; der 16-GiB-LRU
+hält 517 Frames. Wiederholtes sequenzielles Lesen aller 600 ergibt null Treffer
+(Simulation: 11.400 Misses über 19 Pässe). Größe/mtime ist zudem kein allgemeiner
+Unveränderlichkeitsnachweis. Die bisherige Partialsumme 2430 s war falsch:
+1410+490+266=2166 s, noch ohne Vorlauf und Rekonstruktion.
+
+**Neuer Hauptbefund:** Der CUDA-Pfad budgetiert
+`3 * internal_width * N * sizeof(ClipCandidate)` **Host-Speicher pro Zeile**
+gegen den freien **VRAM**. Bei 7852×4620, N=600 und 64-Byte-Kandidaten sind das
+863 MiB pro Zeile. Selbst 6 GiB komplett freier VRAM mit 20 % Reserve erlauben
+höchstens fünf Zeilen bzw. mindestens 924 Bänder. Die 19 Coverage-Streifen
+dürfen nicht als CUDA-Drizzle-Bandzahl verwendet werden. Vollbild-Source-Loads
+und bis zu vier volle Q-Expansionen je Band/Frame verstärken den Aufwand massiv.
+`read_region` lädt aktuell die komplette SQM-Binärdatei. CUDA-Sortierung,
+Segmentbildung und Pixel-Clipping laufen außerdem seriell auf der CPU.
+
+**Lösung:** Host/Device-Budget trennen, Kandidaten in zweidimensionalen
+Zielkacheln verarbeiten, echte Source-/Q-Bereichsprovider und kompakte Q-Views,
+unabhängige Pixelreduktion parallelisieren. Kanonische Reihenfolge innerhalb
+jedes Pixels bewahren, keine ungeordneten Floating-Point-Atomics. Kleine
+CUDA-Aufträge bündeln, nicht mit einer Kernel-Flut neue Engpässe erzeugen.
+
+**Exakte Geometriealternative zu O5:** X-Clips pro Leaf/X über Ziel-Y
+wiederverwenden und wirkungslose Clips auslassen. Eigenständiger Mikroversuch:
+100.000 Quads, 784.712 Zellflächen, null Bitabweichungen; 0,256082→0,165475 s
+(1,55×). Dies bildet die Referenzformeln nach, ist noch kein Library-/Run-Gate.
+Ein schneller dichter Frame-Footprint ist ein weiterer, separat zu beweisender
+Hebel; mathematische Gleichheit allein genügt nicht für das bestehende `k>0`.
+
+**Vorlauf zählt mit:** Erhaltener Ereignisextrakt des gestoppten M31-Laufs
+`20260909_155821_833897f4`: SCAN→Coverage bereits 1222,262 s. Original-Runpfad
+bei diesem Review nicht mehr vorhanden. Kalibrierung ist im Code seriell;
+Normalisierung/frühe Metriken bereits parallel. SQM-Writer serialisiert Writes;
+Global Quality braucht zuerst Frame 0, dann sind weitere Frames parallelisierbar.
+
+**Stand:** Dokumentation, Codeanalyse, LRU-Simulation und Clip-Mikroversuch
+abgeschlossen; die neuen Optimierungen sind nicht implementiert. Das Budget
+1680 s + 120 s Reserve in der Leistungsanalyse ist ein Entwicklungsziel,
+keine Endzeitprognose. Kein neuer Produktionslauf, kein Commit. Der frühere
+GPU-Testfehler aus §30.72 wurde separat durch Korrektur des veralteten
+CPU-only-Testvertrags behoben; dieser Review hat keine Gesamtsuite neu gestartet.
+
+---
+
+<a id="historie-30-74"></a>
+
+### 30.74 P6-Umsetzung Schritt 1: O3-Race-Fix, R1.3, R4-Global-Quality (2026-09-09)
+
+Erste umgesetzte Schnitte aus dem §30.73-Lösungsentwurf. Alle bit-identisch,
+keine Prognosen (Benutzervorgabe: keine Zeit-/Aufwandsschätzungen mehr, in
+`AGENTS.md` und Memory festgehalten).
+
+**O3-Race-Fix** (`source_quality_map_cache.cpp`, Bug aus §30.72): `worker_error`
+(`std::exception_ptr`) wurde außerhalb von `#pragma omp critical` gelesen
+(`if (worker_error) continue;`) und darin geschrieben — Data Race, UB. Ersetzt
+durch `std::atomic<bool> failed` für den Lock-freien Fast-Path-Check; der
+`exception_ptr` wird nur noch unter `critical(sqm_error)` berührt. Zusätzlich:
+der Per-Worker-Cache-Klon-Konstruktor kann werfen (Budgetprüfung) — jetzt in
+try/catch im Parallelbereich, kein `std::terminate` mehr. Alle Threads erreichen
+weiterhin dasselbe `omp for` (Worksharing darf nicht per Thread übersprungen
+werden); eine fehlgeschlagene Klon-Konstruktion macht die Iterationen zu No-ops.
+
+**R1.3 — Quellrechteck auch in X** (`forward_drizzle.cpp`,
+`enumerate_drizzle_stripe_leaf_cells`): der affine Pfad invers-mappt jetzt die
+Ziel-Streifenecken in **X und Y** (bisher nur Y) und begrenzt die
+Quellpixel-Doppelschleife auf `[source_x0, source_x1)`. Bit-identisch — ein
+Quellpixel außerhalb der Box mappt vollständig aus dem Streifen, seine Leaves
+klammern in der Zell-bbox leer, der Sink wird nie gerufen. Gewinn skaliert mit
+Rotation/Scherung bzw. kleineren Frames gegenüber Canvas (Translation-only:
+X-Bound = volle Breite, kein Unterschied). Lokale Modelle unverändert
+(affines Rechteck ist dort keine gültige Schranke). `[geometry-scaling]`,
+`[geometry-cache]`, `[cuda-parity]`, `[drizzle-audit]` grün.
+
+**R4 — Global Quality parallel** (`global_quality.cpp`,
+`compute_global_quality_weights` +`int workers` + `make_thread_provider`;
+`source_quality_artifact.cpp`, Runner `TC_GLOBAL_QUALITY_WORKERS`): Frame 0
+seriell (fixiert `ref_star_count`), Frames 1…n−1 `#pragma omp parallel for
+schedule(dynamic,1)`, jeder Worker auf eigenem `VerifiedNormalizedSourceCache`-
+Klon (`load()` nicht thread-safe). Die Per-Frame-Metriken (`calculate_frame_
+metrics`, `measure_frame_stars`) sind reine Funktionen ihres Inputs und
+schreiben in Per-Index-Slots → `calculate_global_weights_with_stars` bekommt
+byte-identische Vektoren → **bit-identisch** zu seriell. Test
+`test_global_quality.cpp` „parallel worker counts are bit-identical to serial"
+(Worker ∈ {1,2,3,7}, `norm(ref − got) == 0`).
+
+**Suite:** 535/535 (1.431.318 Assertions). Legacy-Reference weiterhin 17/18 —
+`test_aqmh_reconstruction.cpp:451` (GPU↔CPU-`weight_sum`-Toleranz auf der
+GTX 1660 Ti, unberührter Pfad).
+
+**Offen (Reihenfolge nach Blast-Radius):** R4 `writer.put`-Erweiterung
+(Datei-Write + sha256 aus dem `critical`); R3 exakte X-Clip-Wiederverwendung
+im Rasterizer **plus gespiegelter CUDA-Device-Kernel** + volle Paritätsmatrix;
+beschleunigter/alternativer Coverage-Pfad (Footprint-Rasterisierung / analytische
+affine Fläche) hinter neuem Masken-/Gate-Paritäts-Gate — vom Benutzer autorisiert
+als „alternative suchen, wenn es so nicht funktioniert"; R1.1+R1.2+R2 (CUDA
+Host/Device-Budget-Trennung + 2D-Zielkacheln + echte Bereichsprovider),
+`[cuda-parity]` durchgehend.
 
 ---
 

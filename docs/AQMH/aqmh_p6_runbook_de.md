@@ -1,5 +1,22 @@
 # P6 — Runbook und Phasenbudget-Ableitung
 
+**Aktueller Nachtrag (2026-09-09, §30.73):** Für das neue Teilziel
+**<30 Minuten bis zur Rekonstruktionsausgabe ohne Astrometrie/BGE/PCC/HMS** gilt
+die [aktuelle Codeanalyse und der Lösungsentwurf](aqmh_p6_performance_de.md#p6-loesungsweg-30min).
+Die folgenden 2400-s-Vorläufe sind historische Diagnoseversuche. Der spätere
+M31-Lauf `20260909_155821_833897f4` erreichte FORWARD_DRIZZLE und wurde auf
+Benutzerwunsch gestoppt; M42 wurde danach nicht gestartet. Die alte Aussage
+„keiner erreichte FORWARD_DRIZZLE“ bezieht sich nur auf die zwei unten genannten
+Vorläufe. Eine vollständige Abnahme liegt weiterhin nicht vor.
+
+Entscheidende neue Befunde: Source-LRU mit 16 GiB verdrängt bei 600 Frames
+zyklisch die als Nächstes benötigten Einträge;
+CUDA-Host-Kandidaten erzwingen rechnerisch hunderte kleinste Bänder;
+Vollbild-Q-Expansionen und Source-Loads wiederholen sich pro Band. Daher sind
+die frühere O2-Durchsatzzusage und die Zuordnung affiner Coverage-Kosten zum
+lokalen Cache-Bau überholt. Das ursprüngliche P6-Gate einschließlich HMS wird
+durch das neue Teilziel nicht als erfüllt markiert.
+
 Status: **Implementierung verifiziert; die realen 600-Frame-Läufe sind bis zum
 P6-Gate dokumentiert, aber keine P6-Abnahme.** Stand 2026-09-09. Beide Läufe
 wurden ausdrücklich gestartet und am 2400-s-Gate kontrolliert beendet; keiner

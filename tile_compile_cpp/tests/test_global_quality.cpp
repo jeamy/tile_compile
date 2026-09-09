@@ -110,3 +110,31 @@ TEST_CASE("global quality: provider and vector paths agree with one source reque
   REQUIRE(calls == sources.size());
   REQUIRE((reference - streamed).norm() == 0.0f);
 }
+
+// Plan §30.72 R4: frames 1..n-1 run concurrently on per-worker providers;
+// frame 0 stays serial to fix ref_star_count. The per-frame metrics are pure,
+// so every worker count must produce the exact same weights as the serial run.
+TEST_CASE("global quality: parallel worker counts are bit-identical to serial",
+          "[drizzle-audit][geometry-parallel]") {
+  std::vector<Matrix2Df> sources;
+  for (int i = 0; i < 11; ++i)
+    sources.push_back(noisy_flat(80, 96, 1000.0f, 4.0f + 3.0f * (i % 4),
+                                 static_cast<unsigned>(17 + i)));
+  GlobalQualityConfig cfg;
+  const auto reference = compute_global_quality_weights(
+      sources, ColorMode::MONO, BayerPattern::UNKNOWN, 0, 0, cfg);
+
+  for (int workers : {1, 2, 3, 7}) {
+    std::atomic<int> live_providers{0};
+    const auto got = compute_global_quality_weights(
+        sources.size(),
+        [&](size_t i) -> const Matrix2Df & { return sources.at(i); },
+        ColorMode::MONO, BayerPattern::UNKNOWN, 0, 0, cfg, workers,
+        [&]() -> SourceImageProvider {
+          ++live_providers;
+          return [&](size_t i) -> const Matrix2Df & { return sources.at(i); };
+        });
+    REQUIRE(got.size() == reference.size());
+    REQUIRE((reference - got).norm() == 0.0f);
+  }
+}
