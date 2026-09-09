@@ -307,6 +307,61 @@ TEST_CASE("polygon_rectangle_intersection_area: square straddling two pixels "
   REQUIRE((left + right) == Approx(1.0).epsilon(1e-9));
 }
 
+// P6 CPU FORWARD_DRIZZLE acceleration probe: a candidate fast path skips
+// polygon_rectangle_intersection_area for a unit cell that lies strictly
+// inside the leaf quad and takes k = 1.0 directly. That is only a *bit-exact*
+// win if the full clip also returns exactly 1.0 for such a cell. This probe
+// asserts that across rotated / sheared leaves and realistic internal-canvas
+// coordinate magnitudes (integers to ~7680, so shoelace products ~6e7, inside
+// exact double). If any case is not exactly 1.0 the shortcut becomes a
+// numeric-gated change instead of a free one.
+TEST_CASE("polygon_rectangle_intersection_area returns EXACTLY 1.0 for a unit "
+          "cell strictly inside the leaf quad",
+          "[drizzle-audit]") {
+  struct Leaf2 {
+    double x[4], y[4];
+  };
+  auto mapped_leaf = [](double a, double b, double c, double d, double ox,
+                        double oy, double s) {
+    // image of a large source square [-s,s]^2 under [[a,b],[c,d]] + (ox,oy)
+    const double sx[4] = {-s, s, s, -s};
+    const double sy[4] = {-s, -s, s, s};
+    Leaf2 L;
+    for (int i = 0; i < 4; ++i) {
+      L.x[i] = a * sx[i] + b * sy[i] + ox;
+      L.y[i] = c * sx[i] + d * sy[i] + oy;
+    }
+    return L;
+  };
+  const std::array<std::array<double, 4>, 5> lin = {{
+      {1.0, 0.0, 0.0, 1.0},        // identity
+      {1.0, 0.18, 0.05, 1.0},      // shear
+      {0.9063, -0.4226, 0.4226, 0.9063},  // 25 deg rotation
+      {1.0, 0.70, 0.0, 1.0},       // strong shear
+      {1.2, 0.15, -0.1, 0.85},     // rotation + anisotropic scale
+  }};
+  int checked = 0;
+  for (const auto &m : lin)
+    for (double centre : {40.0, 512.0, 4000.0, 7600.0}) {
+      // A leaf that comfortably contains a 6x6 block of unit cells around
+      // (centre, centre): source half-size 8 -> mapped extent >= 8 * min|.|.
+      const Leaf2 L = mapped_leaf(m[0], m[1], m[2], m[3], centre + 0.37,
+                                  centre - 0.21, 8.0);
+      for (int gy = static_cast<int>(centre) - 1;
+           gy <= static_cast<int>(centre) + 1; ++gy)
+        for (int gx = static_cast<int>(centre) - 1;
+             gx <= static_cast<int>(centre) + 1; ++gx) {
+          const double k = polygon_rectangle_intersection_area(
+              L.x, L.y, gx, gy, gx + 1.0, gy + 1.0);
+          INFO("lin " << m[0] << "," << m[1] << "," << m[2] << "," << m[3]
+                      << " cell " << gx << "," << gy);
+          REQUIRE(k == 1.0);
+          ++checked;
+        }
+    }
+  REQUIRE(checked == 5 * 4 * 9);
+}
+
 TEST_CASE("polygon_rectangle_intersection_area: no overlap returns exactly 0") {
   const double px[4] = {10.0, 11.0, 11.0, 10.0};
   const double py[4] = {10.0, 10.0, 11.0, 11.0};

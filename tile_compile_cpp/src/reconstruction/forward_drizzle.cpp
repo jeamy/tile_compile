@@ -5,7 +5,10 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <limits>
@@ -1294,7 +1297,19 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
       scratch = checked_product(static_cast<size_t>(req_workers), worker_scratch);
     }
   }
+  // Measurement-only coarse phase timing (P6). Zero effect unless TC_FD_PROFILE
+  // is set; never touches compute, order or bounds.
+  const bool fd_profile = std::getenv("TC_FD_PROFILE") != nullptr;
+  double prof_prep = 0, prof_alloc = 0, prof_raster = 0, prof_reduce = 0,
+         prof_sink = 0;
+  auto prof_now = [] { return std::chrono::steady_clock::now(); };
+  auto prof_add = [&](double &acc, std::chrono::steady_clock::time_point s) {
+    if (fd_profile)
+      acc += std::chrono::duration<double>(prof_now() - s).count();
+  };
+  auto prof_t0 = prof_now();
   auto prepared = prepare_drizzle_frames(plan, cfg, subdivision);
+  prof_add(prof_prep, prof_t0);
   ForwardDrizzlePairDiagnostics summary;
   summary.diagnostics = prepared.diagnostics;
   summary.diagnostics.estimated_peak_bytes = memory.estimated_peak_bytes;
@@ -1334,7 +1349,38 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
   // worker threads do not inherit; capture it here and re-publish it per band.
   const DrizzleGeometryCacheReader *const geom_cache = active_geometry_cache();
 
+  // P6: the per-stripe accumulators and the flat candidate buffer are sized to
+  // the LARGEST stripe (`memory.rows`) and reused across stripes. A fresh
+  // allocation + value-initialisation of the ~channels*width*rows*frame_count
+  // ClipCandidate buffer per stripe was ~24% of the phase and fully serial
+  // (measured, §30.76). `candidates` is never zeroed --- every entry read by
+  // the reduce was written by the gather this stripe, bounded by `counts` ---
+  // so only the `counts` prefix is reset. Bit-identical: same values, same
+  // per-pixel frame order, same reduce spans.
+  const size_t max_n =
+      static_cast<size_t>(memory.width) * static_cast<size_t>(memory.rows);
+  std::array<std::vector<ClipCandidate>, 3> candidates;
+  std::array<std::vector<size_t>, 3> counts;
+  std::array<std::vector<double>, 3> A, B, QA, QA0, QA1, QAA, QAF;
+  std::vector<double> ac_sep, ac_art, ac_reg;
+  for (int c = 0; c < channels; ++c) {
+    candidates[c].resize(checked_product(max_n, frame_count));
+    counts[c].resize(max_n);
+    A[c].resize(max_n);
+    B[c].resize(max_n);
+    if (need_qc) QA[c].resize(max_n);
+    if (need_q0) QA0[c].resize(max_n);
+    if (need_q1) QA1[c].resize(max_n);
+    if (need_qa) { QAA[c].resize(max_n); QAF[c].resize(max_n); }
+  }
+  if (need_qa) {
+    ac_sep.resize(max_n);
+    ac_art.resize(max_n);
+    ac_reg.resize(max_n);
+  }
+
   for (int y = 0; y < memory.height;) {
+    auto prof_ts = prof_now();
     const int rows = std::min(memory.rows, memory.height - y);
     const size_t n = static_cast<size_t>(memory.width) * rows;
     ForwardDrizzleUniformAndRawResult result;
@@ -1355,16 +1401,15 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     if (mb.emit_fine) init_profile(result.fine);
     if (mb.emit_medium) init_profile(result.medium);
     // Alpha-confidence stripe maps (channel-min): NaN until at least one
-    // channel writes a value.
-    std::vector<double> ac_sep, ac_art, ac_reg;
+    // channel writes a value. `ac_*` are hoisted; reset the used prefix.
     if (need_qa) {
       result.a_separation.assign(n, std::numeric_limits<float>::quiet_NaN());
       result.a_artifact.assign(n, std::numeric_limits<float>::quiet_NaN());
       result.a_registration.assign(n, std::numeric_limits<float>::quiet_NaN());
       result.alpha_confidence_support.assign(n, 0u);
-      ac_sep.assign(n, std::numeric_limits<double>::infinity());
-      ac_art.assign(n, std::numeric_limits<double>::infinity());
-      ac_reg.assign(n, std::numeric_limits<double>::infinity());
+      std::fill_n(ac_sep.begin(), n, std::numeric_limits<double>::infinity());
+      std::fill_n(ac_art.begin(), n, std::numeric_limits<double>::infinity());
+      std::fill_n(ac_reg.begin(), n, std::numeric_limits<double>::infinity());
     }
     auto planes_of = [&](ForwardDrizzleUniformResult &p) {
       return channels == 1
@@ -1376,25 +1421,24 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     const auto fine_planes = planes_of(result.fine);
     const auto medium_planes = planes_of(result.medium);
 
-    std::array<std::vector<ClipCandidate>, 3> candidates;
-    std::array<std::vector<size_t>, 3> counts;
-    for (int c = 0; c < channels; ++c) {
-      candidates[c].resize(checked_product(n, frame_count));
-      counts[c].assign(n, 0);
-    }
-
-    // QAF = K-weight of contributions whose artifact sample was FINITE. Plan
+    // Hoisted buffers: reset only the `[0, n)` prefix this stripe uses. `A`/`B`
+    // (and the QA* streams) are additionally re-zeroed per band per frame
+    // below; the prefix wipe here keeps the stripe-entry state identical to the
+    // old per-stripe `assign`. `candidates` is deliberately NOT touched.
+    // QAF = K-weight of contributions whose artifact sample was FINITE (plan
     // 14.4's "< 8 gueltige Framebeiträge" counts contributions with real
-    // artifact data, so QAA (which folds NaN -> 0 like every other Q stream)
-    // cannot distinguish "no artifact map here" from "artifact_conf == 0".
-    std::array<std::vector<double>, 3> A, B, QA, QA0, QA1, QAA, QAF;
+    // artifact data).
     for (int c = 0; c < channels; ++c) {
-      A[c].assign(n, 0);
-      B[c].assign(n, 0);
-      if (need_qc) QA[c].assign(n, 0);
-      if (need_q0) QA0[c].assign(n, 0);
-      if (need_q1) QA1[c].assign(n, 0);
-      if (need_qa) { QAA[c].assign(n, 0); QAF[c].assign(n, 0); }
+      std::fill_n(counts[c].begin(), n, size_t{0});
+      std::fill_n(A[c].begin(), n, 0.0);
+      std::fill_n(B[c].begin(), n, 0.0);
+      if (need_qc) std::fill_n(QA[c].begin(), n, 0.0);
+      if (need_q0) std::fill_n(QA0[c].begin(), n, 0.0);
+      if (need_q1) std::fill_n(QA1[c].begin(), n, 0.0);
+      if (need_qa) {
+        std::fill_n(QAA[c].begin(), n, 0.0);
+        std::fill_n(QAF[c].begin(), n, 0.0);
+      }
     }
 
     // Output-row-band partition of this stripe: band b covers canvas rows
@@ -1438,6 +1482,8 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
       for (int b = 0; b < nb; ++b) fn(b);
     };
 
+    prof_add(prof_alloc, prof_ts);
+    prof_ts = prof_now();
     for (const auto *f : prepared.frames) {
       const Matrix2Df &source = source_of(f->source_index);
       if (source.rows() != plan.source_height || source.cols() != plan.source_width)
@@ -1532,6 +1578,8 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
       });
     }
 
+    prof_add(prof_raster, prof_ts);
+    prof_ts = prof_now();
     std::vector<ForwardDrizzleClippingDiagnostics> band_clip(nb);
     for_each_band([&](int b) {
       const int r0 = band_lo(b), r1 = band_lo(b + 1);
@@ -1574,13 +1622,21 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
       result.clipping.candidate_contributions_clipped +=
           lc.candidate_contributions_clipped;
     }
+    prof_add(prof_reduce, prof_ts);
+    prof_ts = prof_now();
     result.diagnostics = summary.diagnostics;
     sink(y, result);
+    prof_add(prof_sink, prof_ts);
     summary.clipping.pixel_channel_evaluations += result.clipping.pixel_channel_evaluations;
     summary.clipping.pixel_channel_rejected += result.clipping.pixel_channel_rejected;
     summary.clipping.candidate_contributions_clipped += result.clipping.candidate_contributions_clipped;
     y += rows;
   }
+  if (fd_profile)
+    std::fprintf(stderr,
+                 "[TC_FD_PROFILE] prep=%.3f alloc=%.3f raster=%.3f "
+                 "reduce=%.3f sink=%.3f (s)\n",
+                 prof_prep, prof_alloc, prof_raster, prof_reduce, prof_sink);
   return summary;
 }
 

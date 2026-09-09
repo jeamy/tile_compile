@@ -742,6 +742,7 @@ if(BUILD_TESTS)
             tests/test_geometry_scaling_ladder.cpp
             tests/test_forward_drizzle_local_basis_profile.cpp
             tests/test_coverage_hotspot_profile.cpp
+            tests/test_forward_drizzle_hotspot_profile.cpp
             tests/test_source_quality_proxy.cpp
             tests/test_source_quality_maps.cpp
             tests/test_source_quality_map_cache.cpp
