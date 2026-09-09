@@ -5662,17 +5662,60 @@ sie ist Cache-/Registerdruck aus dem umgebenden `subdivide_local`-Kontext
 (`Leaf`-Vektor, 3×3-Gitter-Arrays, Shoelace-Scratch), der bleibt. Der
 Basis-Eval selbst (~99 ns) ist LTO-invariant.
 
-⇒ **Der Umbau (Punkt 2) ist gerechtfertigt**, aber die realistische Obergrenze
-liegt eher bei **~1,2–1,3×** auf `sample_leaves`: die 38 % `exp` bleiben, das
-~17 % Residuum bleibt weitgehend, De-Eigen holt vielleicht die Hälfte des
-~50 %-Anteils „Basis-Eval minus exp" ⇒ ~1,3×. Nächster konkreter Schritt:
-`global_registration.cpp` auf die `-ffp-contract=off`-Liste, dann
-`smooth_local_basis` von `Eigen::Matrix<float,16,1>` auf `float basis[16]` +
-Out-Param + `.dot()` als Schleife, `sum += value` **sequenziell**, Gate =
-Cache-Build-Manifest-Byte-Identität.
+**P5 Teil 2 — Bewertung des bit-exakten Umbaus: VERWORFEN (Risiko/Nutzen).**
+Zwei bei der Code-Prüfung gefundene Fakten kippen die frühere „gerechtfertigt"-
+Einschätzung:
 
-**Commit-Stand:** P5-Profil (Test + CMake + dieses §30.69) committet — Branch
-`CFA-aware-Forward-Drizzle`. Kein Produktionscode geändert.
+1. **`smooth_local_basis` speist NICHT nur die Forward-Drizzle-Geometrie,
+   sondern auch den Registrierungs-Modell-Fit** (`global_registration.cpp:977`,
+   Designmatrix des gedämpften Least-Squares). Eine Bit-Änderung dort verschiebt
+   die gefitteten `coeff_x/coeff_y` → den Sampling-Plan → **alles** stromabwärts
+   inkl. der CUDA-Paritäts-Gates und jedes gespeicherten Profil-Hashs. Der
+   Blast-Radius ist die ganze Registrierungs-/Rekonstruktionskette, nicht nur
+   der Geometrie-Cache.
+2. **`basis.dot(model.coeff_x)` lässt sich NICHT bit-exakt durch eine
+   sequentielle Schleife ersetzen** — Eigen vektorisiert die 16-Float-Reduktion
+   (SIMD-Teilsummen + horizontale Reduktion), eine naive `for`-Schleife hat eine
+   andere Summationsreihenfolge. Der größte Einzel-Nicht-exp-Posten ist damit
+   tabu.
+
+Der bit-exakt zulässige Rest (`Coefficients::Zero()`, Füllschleife,
+`*= taper/sum`, Rückgabe per Wert) ist genau der Teil, den Eigen bei fester
+Größe **bereits** zu geradliniger SIMD ausrollt — und der LTO-Test (4–5 %)
+zeigt, dass auch der Aufruf-Overhead nicht die Kosten ist. Realistischer
+bit-exakter Gewinn: **~1,05–1,15×** auf `sample_leaves`, erkauft mit einer
+Änderung auf dem Registrierungs-Kritischen-Pfad. **Nicht wert.**
+
+**⇒ P5 ist durch Messung abgeschlossen** (Plan §11.14.7: „zuerst exakte
+Wiederverwendung … und SIMD untersuchen" — beides untersucht, beides für den
+Produktionspfad negativ, mit Zahlen):
+- exakte Prüfpunkt-Wiederverwendung: ~1,0× (cfa, keine Rekursion) — gemessen
+- LTO/Inlining: 4–5 % — gemessen
+- bit-exakter De-Eigen-Umbau: ~1,05–1,15×-Ceiling, Blast-Radius bis in die
+  Modellkoeffizienten (`global_registration.cpp:977`) — **verworfen** auf
+  Risiko/Nutzen
+- verbleibende ~38 % = `std::exp` → braucht ein Vektor-/Minimax-`expf`, das
+  **per Konstruktion** Bits ändert → die plan-eigene, separat abgesicherte
+  Numerik-/Modellidentitätsrevision.
+
+**Folge für P6:** der einmalige Geometrie-Bau liegt bei **~1440 s / 16 Kerne**
+(**Extrapolation** aus einer 96²/192²-Sprosse — §30.64-Rate ~2150 ns/Sample ×
+600 f × 3840×2160 × 2 Varianten / 16; **kein realer 3840×2160-Lauf**, den gibt
+es nicht, P6 ist der Benutzerlauf) gegen das ≤1920-s-Ziel für die *gesamte*
+Kette. **P5 behebt das nicht.** Die verbleibenden Hebel: mehr Kerne (P3
+skaliert per-Frame) oder die Numerikrevision. Damit ist der dominierende
+Restterm mit Zahlen benannt — der Input für die P6-Budgetableitung bzw. für
+das plan-vorgesehene „den dominierenden Restterm gezielt neu entwerfen", falls
+die absolute Abnahme scheitert.
+
+**Falls doch ein bit-exakter Anlauf:** `global_registration.cpp` zuerst auf die
+`-ffp-contract=off`-Liste (sonst prüft das Gate ein bewegliches Ziel), Gate =
+Cache-Build-Manifest-Byte-Identität **plus** die CUDA-Paritäts-Gates (wegen des
+Fit-Pfad-Blast-Radius). `.dot()` unangetastet lassen.
+
+**Commit-Stand:** P5-Profil + LTO-Test + diese P5-Abschluss-Bewertung committet
+— Branch `CFA-aware-Forward-Drizzle`. **Kein Produktionscode geändert**
+(`global_registration.cpp` bewusst nicht angefasst).
 
 ---
 

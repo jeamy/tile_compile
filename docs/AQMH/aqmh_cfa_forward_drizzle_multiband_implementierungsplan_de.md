@@ -2274,11 +2274,21 @@ Auswertungen, nicht eine garantierte 68-fache End-to-End-Beschleunigung.
 
 #### 11.14.7 P5/P6 — Resthotspot und End-to-End-Abnahme
 
-- [ ] P5 nach P2/P3 profilieren. Dominiert die einmalige lokale Basis-
+- [x] P5 nach P2/P3 profilieren. Dominiert die einmalige lokale Basis-
   auswertung weiterhin, zuerst exakte Wiederverwendung identischer Prüfpunkte
   und SIMD untersuchen. Minimax oder voller GPU-Lokalpfad braucht eine eigene
   Numerik-/Modellidentitätsrevision und unveränderte oder vorab neu begründete
   Abnahmeverträge. Kein automatisches Lockern von Gate-/Profilgrenzen.
+  → **Durch Messung abgeschlossen (§30.69, 2026-09-09).** `sample_leaves` ~2150 ns
+  (leaves/Sample = 1, keine Rekursion in irgendeinem synthetischen Regime —
+  strukturell, `kSigma=0,28` normiert). Prüfpunkt-Wiederverwendung ~1,0× für den
+  cfa-Produktionspfad; LTO/Inlining 4–5 %; bit-exakter De-Eigen-Umbau von
+  `smooth_local_basis` **verworfen** (Blast-Radius bis in den Modell-Fit
+  `global_registration.cpp:977`; `.dot()` nicht bit-exakt ersetzbar; Ceiling nur
+  ~1,05–1,15×). Verbleibende ~38 % = `std::exp` → **braucht die oben genannte
+  Numerikrevision** (Vektor-/Minimax-`expf`). Einmaliger Geometrie-Bau
+  extrapoliert ~1440 s / 16 Kerne gegen ≤1920 s Gesamtkette — Hebel: mehr Kerne
+  (P3 skaliert) oder die Numerikrevision.
 - [ ] P6 Phasenbudget aus gemessenen Kosten und realer Hardware ableiten.
   Für frühe Prognosen 20 % Laufzeitreserve vorsehen: projizierte vollständige
   Kette ≤1920 s, sodass 480 s bis zur harten 2400-s-Grenze bleiben. Diese

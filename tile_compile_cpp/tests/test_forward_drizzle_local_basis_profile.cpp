@@ -287,16 +287,20 @@ TEST_CASE("plan 11.14 P5: local basis-eval hotspot profile after P2/P3",
   }
 
   std::printf(
-      "\n[p5] READING: no recursion in any regime -> exact identical-probe-point "
-      "reuse buys ~1.0x on the production (cfa) path. std::exp is ~38%% (already "
-      "the float path: expf, not a promotion). The bit-exact win is the "
-      "NON-exp half of the basis eval (~52 of ~99 ns: Eigen Matrix<float,16,1> "
-      "traffic, return-by-value, 2x .dot(), the 5-deep non-inlined call chain) "
-      "plus the ~20-36%% residual. Attack: float basis[16] not Eigen, out-param "
-      "return, .dot() as a plain loop, flatten the chain -- but KEEP `sum += "
-      "value` sequential (it divides every coefficient -> a reordered reduction "
-      "is NOT bit-exact). Realistic ceiling ~1.3-1.5x. A faster exp (minimax/"
-      "vector) hits the 38%% but changes bits -> separate numeric revision, not "
-      "P5 Teil 1. smooth_local_basis is in global_registration.cpp, NOT on the "
-      "-ffp-contract=off list -- add it there before touching it.\n");
+      "\n[p5] CONCLUSION (P5 closed by measurement, see protocol §30.69):\n"
+      "[p5]  - exact identical-probe reuse: ~1.0x on the cfa production path "
+      "(no recursion in any regime -> no sharing).\n"
+      "[p5]  - LTO/inlining: 4-5%% (measured separately with IPO=ON).\n"
+      "[p5]  - bit-exact de-Eigen of smooth_local_basis: REJECTED. It also "
+      "feeds the registration model fit (global_registration.cpp:977) so a bit "
+      "change moves the fitted coeffs and every downstream hash; and "
+      "basis.dot() cannot be replaced by a sequential loop bit-exactly (Eigen "
+      "vectorises the 16-float reduction). Ceiling only ~1.05-1.15x -- not "
+      "worth the blast radius.\n"
+      "[p5]  - remaining ~38%% is std::exp (already the expf float path). "
+      "Cutting it needs a vector/minimax expf -> changes bits by construction "
+      "-> the plan's separately-gated numeric/model-identity revision.\n"
+      "[p5]  P5 does NOT close the ~1440 s/16-core geometry-build extrapolation "
+      "vs the <=1920 s whole-chain P6 target. Levers: more cores (P3 scales) or "
+      "the numeric revision.\n");
 }
