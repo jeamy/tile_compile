@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler 09.09. | [§30.12–30.68](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil 09.09. | [§30.12–30.69](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -5546,6 +5546,112 @@ Build-Parallelität + Teil 2 Reduktions-Bänder + Scheduler) vollständig; P5
 (Resthotspot) als Nächstes. **P6 ist ein Benutzerlauf** — nicht autorisiert.
 
 **Noch nichts committet.**
+
+---
+
+### 30.69 §11.14 P5 (Teil 1) — Resthotspot-Profil nach P2/P3 (2026-09-09)
+
+**Aufgabe (Plan §11.14.7):** den verbleibenden Hotspot messen. **Nur
+profilieren** — dominiert die einmalige lokale Basisauswertung weiterhin, dann
+*untersuchen*: exakte Wiederverwendung identischer Prüfpunkte + SIMD **vor**
+Minimax/GPU. Minimax/GPU braucht eine eigene Numerik-/Modellidentitätsrevision.
+Kein Lockern von Gate-/Profilgrenzen.
+
+**Messwerkzeug:** neuer `tests/test_forward_drizzle_local_basis_profile.cpp`
+(`[geometry-p5]`, reine Messung, nur Sanity-`REQUIRE`s). Voller
+`sample_leaves`-Sweep über eine 96²-Quelle für einen Local-Warp-Frame, je
+Variante (`pixfrac 0.8` = cfa / `pixfrac 1.0` = footprint) und je
+Krümmungsregime (`curv` 0/3.5/12 skaliert die Höherordnungs-RBF-Koeffizienten).
+Mikrobenchmarks (Min aus 5): `std::exp(float)` / `expf()` / `std::exp(double)`,
+ein voller `evaluate_smooth_local_displacement`. **`perf` ist in dieser
+Umgebung nicht verfügbar** → die Term-Aufteilung ist mikrobenchmark-abgeleitet
+(Heißschleifen-Untergrenze je Aufruf), **kein Profiler-Self-Time-Split**.
+
+**Kette:** `sample_leaves` → `subdivide_local` (Tiefe 0: **3×3-Gitter** =
+9 `local_forward`) → `invert_local_source_to_canvas` (Newton, je Schritt ein
+`smooth_local_basis`) → `smooth_local_basis` = **16 `std::exp`**
+(`kSmoothLocalGridSize=4`, `Coefficients = Eigen::Matrix<float,16,1>`).
+
+**Ergebnisse (dieser Box):**
+
+| Regime | mean Newton-Iter | local_forward/Sample | exp/Quell-px | ns/`sample_leaves` (cfa / fp) | leaves/Sample | subdiv/Sample |
+|---|--:|--:|--:|--:|--:|--:|
+| near-linear (curv 0) | 1,93 | 9,00 | 277 | 2170 / 2166 | 1,000 | 1,000 |
+| curved (curv 3,5) | 2,68 | 9,00 | 386 | 3721 / 2982 | 1,000 | 1,000 |
+| strongly-curved (curv 12) | 3,65 | 9,00 | 526 | 4123 / 4110 | 1,000 | 1,000 |
+
+- **Keine Rekursion in irgendeinem Regime.** `subdiv/Sample = 1,000`,
+  `leaves/Sample = 1,000`, `local_forward/Sample = 9,00` **exakt**, selbst bei
+  curv 12. Grund: das 4×4-RBF hat `kSigma = 0,28` in **normierten**
+  Gitterkoordinaten → das Feld ist über *jedes* einzelne Quellpixel
+  quasi-linear, unabhängig von der Koeffizientengröße; die Krümmung über 1 px
+  bleibt unter `position_epsilon_internal_px = 0,05`. Das ist **kein
+  Kleinstufen-Artefakt**, sondern strukturell — und deckt sich mit **jeder**
+  bisherigen Messung (§30.55 M42, §30.64-Leiter: alle leaves/Sample = 1).
+- ⇒ **Exakte Prüfpunkt-Wiederverwendung bringt fast nichts.** cfa-Variante:
+  Tiefe-0-Proben sind pixel-**intern** (`sx+0,1 / sx+0,5 / sx+0,9` bei
+  pixfrac 0,8) → **null** Nachbar-Sharing; Parent↔Child-Reuse nur bei
+  Rekursion, die nie eintritt → Ceiling **1,0×**. footprint-Variante:
+  Tiefe-0-Gitter kachelt das Halbinteger-Lattice → Ceiling **2,25×**, aber die
+  kleinere Variante und ein Lattice-Memo nötig. Für den Produktionspfad (cfa):
+  nichts zu holen.
+- **`std::exp` läuft bereits über den schnellen `float`-Pfad:**
+  `std::exp(float)` = **2,97 ns**, `expf()` = 2,98 ns, `std::exp(double)` =
+  5,31 ns → keine Promotion-Regression, das war eine mögliche Erklärung und ist
+  **ausgeschlossen**.
+- **`std::exp` ist NICHT der dominante Einzelterm, aber auch nicht klein.**
+  Attribution (mikrobenchmark-abgeleitet, Untergrenzen): `std::exp` **≥ 31–38 %**
+  der `sample_leaves`-Zeit; voller `smooth_local_basis` (16 exp +
+  `Coefficients::Zero()` + 16 Stores/`sum+=` + Taper + `basis*=taper/sum` +
+  Rückgabe per Wert + 2 `.dot()` im Aufrufer) **≥ 64–80 %**; **Residuum**
+  (9× `local_forward`-Aufruf-Overhead + Newton-Steuerung + `subdivide_local`
+  Bilinear-Fehlerprobe + 5× `shoelace_area` + Leaf-Bookkeeping) **~20–36 %**.
+  Ein einzelner Basis-Eval = **~98–99 ns** (stabil über alle Regime), bare-exp-
+  Anteil daran **48 %** → die anderen ~52 ns sind Eigen-/`.dot()`-/Taper-/
+  Rückgabe-Overhead **um** die 16 exp herum.
+- **`ns/sample_leaves` ≈ 2170** (near-linear) deckt sich mit der
+  §30.64-Leiterprojektion (~2150 ns/Sample). Bei 600 f @ 3840×2160 × 2
+  Varianten ⇒ ~2,3·10¹³ ns ≈ **~23 000 s einthreadig**, mit P3 (~16 Kerne)
+  **~1440 s** — der echte einmalige Bauaufwand, ~75 % des §11.14-P6-Ziels von
+  ≤1920 s für die *gesamte* Kette. Realer Angriffspunkt.
+
+**P5-Teil-1-Befund / Empfehlung:**
+1. **„Identische Prüfpunkte" ist erledigt-durch-Messung** — kein Nutzen für
+   den Produktionspfad (kein Sharing ohne Rekursion, Rekursion tritt beim
+   glatten RBF nicht auf).
+2. **Bit-exakte Chance = der Nicht-exp-Anteil des Basis-Evals + die
+   Aufrufkette.** ~52 ns von 99 ns pro Basis-Eval sind Eigen-`Matrix<float,16,1>`-
+   Verkehr (`Coefficients::Zero()`, Rückgabe von 16 Floats per Wert,
+   `basis*=taper/sum`, 2× `.dot()` im Aufrufer) plus die 5-stufige nicht-inlinte
+   Kette `local_forward → invert_local_source_to_canvas →
+   local_displacement_render_units → evaluate_smooth_local_displacement →
+   smooth_local_basis` (`cv::Point2f`-Rückgabe, wiederholte `isfinite`-Checks).
+   Angriff: `float basis[16]` statt Eigen, Rückgabe per Out-Param, `.dot()` als
+   einfache Schleife, Kette abflachen/inlinen — **mit sequentieller
+   `sum += value`-Reduktion** (die Summe teilt jeden Koeffizienten → umsortierte
+   Reduktion ist **nicht** bit-exakt). Realistische Erwartung **~1,3–1,5×**
+   (nicht 1,5–2× — das Residuum + die 38 % `exp` bleiben). Byte-Identität via
+   Manifest-`rows_sha256`/`leaves_sha256` der Cache-Build-Tests.
+3. **Ein schnelleres `exp`** (Minimax/Vektor-`expf`) trifft die ~38 %, ändert
+   aber Bits → gehört in die eigene Numerikrevision (Plan: „Minimax oder voller
+   GPU-Lokalpfad braucht eine eigene … Revision"), **nicht** in P5 Teil 1.
+4. `smooth_local_basis` lebt in `src/registration/global_registration.cpp` —
+   **nicht** auf der `-ffp-contract=off`-Liste. Vor jeder Änderung dort muss die
+   TU auf die Liste (CMakeLists), sonst prüft das Byte-Identitäts-Gate ein
+   bewegliches Ziel.
+
+**P5 Teil 2 — erster Schritt VOR jedem Quellumbau:** Die 5-stufige Kette
+kreuzt eine TU-Grenze (`local_forward` / `invert_local_source_to_canvas` in
+`registration_sampling_plan.cpp` → `evaluate_smooth_local_displacement` gibt
+`cv::Point2f` über die Grenze zu `global_registration.cpp` zurück). Zuerst mit
+`-flto` bauen (oder die Kette temporär als `inline` in einen Header ziehen) und
+`[geometry-p5]` erneut messen. Fällt `ns/sample_leaves` deutlich → der Gewinn
+ist reines Inlining/LTO, **kein Quellumbau nötig**. Bleibt es stehen → die
+Kosten liegen wirklich im Eigen-/`.dot()`-Verkehr und der Umbau (Punkt 2) ist
+gerechtfertigt. ~10 min, kann den Rewrite überflüssig machen.
+
+**Noch nichts committet.** Kein Produktionscode geändert (nur neuer Test +
+CMake-Eintrag).
 
 ---
 
