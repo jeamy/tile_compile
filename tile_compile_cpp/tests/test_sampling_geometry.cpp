@@ -625,6 +625,8 @@ RegistrationSamplingPlan matrix_plan(ColorMode mode) {
       rot(-12.0f, -4.0f, 3.0f),                 // rotation, other sign
       make_affine(1.0f, 0.18f, 2.0f, 0.05f, 1.0f, 1.0f),   // shear
       make_affine(1.0f, -0.22f, 5.0f, -0.09f, 1.0f, 2.0f), // shear, other sign
+      make_affine(1.0f, 0.70f, 1.0f, 0.0f, 1.0f, 1.0f),    // strong shear, det=1
+      make_affine(1.0f, 0.0f, 3.0f, 0.75f, 1.0f, -2.0f),   // strong shear y, det=1
       make_affine(0.82f, 0.0f, 10.0f, 0.0f, 0.82f, 9.0f),  // frame smaller than canvas
       make_affine(1.28f, 0.0f, -6.0f, 0.0f, 1.28f, -4.0f), // frame larger than canvas
       // NOTE: reflections (det < 0) are rejected upstream by invert_affine_2x3

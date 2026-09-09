@@ -698,18 +698,32 @@ void dense_footprint_touched_stripe(const RegistrationSamplingPlan &plan,
     return nx[e] * (x - Px[e]) + ny[e] * (y - Py[e]);
   };
 
-  // Interior margin: a cell whose four corners are at least `margin` inside
-  // every edge of P is fully tiled by mapped source-pixel squares, and (for
-  // scale <= 2 and a well-conditioned linear part) at least one of those tiles
-  // clips the cell with a comfortably positive area --- so the reference sets
-  // touched = 1. `ext` bounds one mapped source-pixel square's internal extent.
+  // Interior margin + soundness of the interior fast-fill.
+  //
+  // `ext` bounds one mapped source-pixel square's internal-canvas extent along
+  // either axis: ext = scale * max(|a|+|b|, |c|+|d|). A cell whose four corners
+  // are all >= `margin = 2*ext + 3` inside every edge of P is:
+  //   (1) fully tiled by mapped source-pixel squares --- every point of the
+  //       cell is farther from dP than one square's diameter, and the squares
+  //       tile P (affine image of a partition), so the cell lies in the union;
+  //   (2) touched by the reference: the unit cell's area (= 1) is partitioned
+  //       among the tiles that meet it; at most (1+ext)^2 tiles can meet a unit
+  //       cell (their bounding boxes are ext x ext), so some tile contributes
+  //       >= 1/(1+ext)^2 of the cell. With ext <= 64 that share is >= ~2.4e-4,
+  //       far above any double-precision rounding in
+  //       polygon_rectangle_intersection_area --- it returns > 0, and the
+  //       reference sets touched = 1.
+  // This holds for any non-singular linear part (invert_affine_2x3 already
+  // rejected singular ones above); it does not need a near-unit determinant.
+  // ext > 64 (a large scale-up / extreme shear) is bounced to the exact path
+  // so the 1/(1+ext)^2 argument always applies.
   const auto &s2c = f.source_to_canvas;
   const double lin_x = std::fabs(static_cast<double>(s2c(0, 0))) +
                        std::fabs(static_cast<double>(s2c(0, 1)));
   const double lin_y = std::fabs(static_cast<double>(s2c(1, 0))) +
                        std::fabs(static_cast<double>(s2c(1, 1)));
   const double ext = static_cast<double>(scale) * std::max(lin_x, lin_y);
-  if (!(ext > 0.0) || ext > 64.0) {  // pathological scale-up: stay exact
+  if (!(ext > 0.0) || ext > 64.0) {
     exact_reference();
     return;
   }

@@ -6047,11 +6047,16 @@ des Streifens gegen dieses Parallelogramm P:
 - **außen** (Zelle liegt vollständig auf der Außenseite einer P-Kante) →
   unberührt;
 - **innen** (alle vier Zellecken ≥ `2·ext+3` innerhalb jeder P-Kante, `ext` =
-  Internalausdehnung eines gemappten Quellpixelquadrats) → `touched = 1`; für
-  scale ≤ 2 und gut konditionierte Linearteile ist die Zelle dann von
-  gemappten Quadraten lückenlos gekachelt und mindestens eines klippt sie mit
-  komfortabel positiver Fläche, d. h. der Referenzpfad hätte `touched = 1`
-  gesetzt;
+  Internalausdehnung eines gemappten Quellpixelquadrats,
+  `ext = scale·max(|a|+|b|, |c|+|d|)`) → `touched = 1`. Beweis: die Zelle ist
+  dann von gemappten Quadraten lückenlos gekachelt; die Zellfläche (= 1) wird
+  unter den Quadraten aufgeteilt, die sie treffen; höchstens `(1+ext)²` Quadrate
+  können eine Einheitszelle treffen → mindestens eines trägt ≥ `1/(1+ext)²` bei;
+  bei `ext ≤ 64` ist das ≥ ~2,4·10⁻⁴, weit über jeder Doppel-Rundung in
+  `polygon_rectangle_intersection_area` → `> 0`, der Referenzpfad hätte
+  `touched = 1` gesetzt. Gilt für jeden nicht-singulären Linearteil (kein
+  Determinanten-nah-1 nötig); `ext > 64` → exakter Pfad, damit die Schranke
+  immer greift. Getestet bis Scherung 0,75 (det = 1);
 - **Rand** (Zelle schneidet/nähert sich einer P-Kante) → **exakter Fallback**:
   derselbe `sample_leaves` + `polygon_rectangle_intersection_area > 0`-Test wie
   die Referenz, beschränkt auf die Quellpixel, die die Zelle erreichen können
