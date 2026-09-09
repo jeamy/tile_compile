@@ -328,21 +328,33 @@ void SourceQualityMapCacheWriter::put(const std::string &stream,
 
   const std::string name = stream_file_name(stream, source_index);
   const fs::path target = root_ / name;
-  fs::create_directories(target.parent_path());
+  {
+    // AtomicOutput's staging dir lives under target.parent_path(), so the
+    // stream directory must exist before write_bin_atomic. Concurrent
+    // create_directories on the same path can throw on some libstdc++, so
+    // serialise just this step.
+    std::lock_guard<std::mutex> lk(files_mu_);
+    fs::create_directories(target.parent_path());
+  }
+  // Lock-free: distinct (stream, source_index) -> distinct file, written via
+  // AtomicOutput (its own unique staging dir).
   write_bin_atomic(target, sw, sh, d, source_index, cells, veto_cells);
 
-  files_.erase(std::remove_if(files_.begin(), files_.end(),
-                              [&](const SourceQualityCacheFileEntry &e) {
-                                return e.stream == stream &&
-                                       e.source_index == source_index;
-                              }),
-               files_.end());
   SourceQualityCacheFileEntry e;
   e.stream = stream;
   e.source_index = source_index;
   e.name = name;
   e.sha256 = core::sha256_file(target);
-  files_.push_back(std::move(e));
+  {
+    std::lock_guard<std::mutex> lk(files_mu_);
+    files_.erase(std::remove_if(files_.begin(), files_.end(),
+                                [&](const SourceQualityCacheFileEntry &fe) {
+                                  return fe.stream == stream &&
+                                         fe.source_index == source_index;
+                                }),
+                 files_.end());
+    files_.push_back(std::move(e));
+  }
 }
 
 SourceQualityCacheMetadata SourceQualityMapCacheWriter::commit() {
@@ -580,10 +592,14 @@ SourceQualityMapsBuildResult build_source_quality_map_cache(
     pending.emplace_back("composite", maps.q_map);
     pending.emplace_back("artifact", maps.artifact_confidence);
 
-#pragma omp critical(sqm_writer)
+    // writer.put is internally thread-safe (plan §30.72 R4): the heavy
+    // downsample/quantize/write/sha256 runs concurrently; only the file-list
+    // update is briefly locked. Only the tiny scalar reduction needs a
+    // critical here.
+    for (const auto &[stream, mtx] : pending)
+      writer.put(stream, f.source_index, mtx);
+#pragma omp critical(sqm_reduce)
     {
-      for (const auto &[stream, mtx] : pending)
-        writer.put(stream, f.source_index, mtx);
       max_scales = std::max(max_scales, maps.diagnostics.computed_scales);
       ++r.frames;
     }

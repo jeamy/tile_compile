@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -100,6 +101,12 @@ class SourceQualityMapCacheWriter {
   // frame into one stream ("composite", "scale_0".."scale_3", "artifact").
   // Downsample to the storage grid is conservative: a storage cell that
   // covers ANY veto source pixel is stored as veto (plan 13.5).
+  //
+  // Thread-safe (plan §30.72 R4): the downsample/quantize/write/sha256 work is
+  // lock-free (each (stream, source_index) writes its own uniquely named file
+  // via AtomicOutput); only the parent-dir creation and the file-list update
+  // take the internal mutex. commit() sorts the list, so the committed bytes
+  // and source_quality_cache_hash do not depend on the call order.
   void put(const std::string &stream, std::size_t source_index,
            const Matrix2Df &source_geom_map);
 
@@ -116,6 +123,7 @@ class SourceQualityMapCacheWriter {
   std::string normalized_cache_hash_, identity_hash_, config_hash_;
   SourceQualityMapCacheConfig cfg_;
   std::vector<SourceQualityCacheFileEntry> files_;
+  std::mutex files_mu_;  // guards files_ + parent-dir creation in put()
 };
 
 // Reader. Fail-closed: usable() is true only when metadata.json parses, its
