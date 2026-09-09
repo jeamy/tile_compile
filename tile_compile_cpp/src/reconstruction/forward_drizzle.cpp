@@ -590,6 +590,216 @@ void rasterize_drizzle_stripe(const RegistrationSamplingPlan &plan,
       p);
 }
 
+namespace {
+
+// x-bbox of a convex quad intersected with the horizontal slab [ylo, yhi].
+// Returns false when the intersection is empty. Used only to bound which
+// internal cells of a stripe row need explicit classification against the
+// dense footprint parallelogram --- the classification itself is exact.
+bool convex_quad_slab_x_range(const double *px, const double *py, double ylo,
+                              double yhi, double &xlo, double &xhi) {
+  xlo = std::numeric_limits<double>::infinity();
+  xhi = -xlo;
+  for (int i = 0; i < 4; ++i) {
+    const int j = (i + 1) & 3;
+    const double ax = px[i], ay = py[i], bx = px[j], by = py[j];
+    if (ay >= ylo && ay <= yhi) {
+      xlo = std::min(xlo, ax);
+      xhi = std::max(xhi, ax);
+    }
+    for (double yc : {ylo, yhi}) {
+      if ((ay < yc) != (by < yc)) {
+        const double t = (yc - ay) / (by - ay);
+        const double xc = ax + t * (bx - ax);
+        xlo = std::min(xlo, xc);
+        xhi = std::max(xhi, xc);
+      }
+    }
+  }
+  return xlo <= xhi;
+}
+
+} // namespace
+
+void dense_footprint_touched_stripe(const RegistrationSamplingPlan &plan,
+                                    const FrameSamplingTransform &f, int scale,
+                                    int y_begin, int rows,
+                                    std::vector<std::uint8_t> &touched,
+                                    bool force_exact) {
+  const int W = plan.canvas_width_native * scale;
+  const size_t n = static_cast<size_t>(W) * static_cast<size_t>(std::max(0, rows));
+  touched.assign(n, 0);
+  if (rows <= 0 || W <= 0)
+    return;
+
+  const ForwardDrizzleSubdivisionParams p{};
+
+  // The exact reference path, kept verbatim: it is the definition this routine
+  // must reproduce byte-for-byte.
+  auto exact_reference = [&] {
+    rasterize_drizzle_stripe(
+        plan, f, scale, 1.0f, y_begin, rows,
+        [&](int, int, int, int, size_t i, double) { touched[i] = 1; }, p);
+  };
+
+  if (force_exact || f.has_smooth_local_model ||
+      !f.source_to_canvas_affine_valid) {
+    exact_reference();
+    return;
+  }
+
+  // P = affine_f([0, W_src] x [0, H_src]) in internal-canvas coordinates: the
+  // union of every unshrunk source-pixel square's image.
+  const double src_x[4] = {0.0, static_cast<double>(plan.source_width),
+                           static_cast<double>(plan.source_width), 0.0};
+  const double src_y[4] = {0.0, 0.0, static_cast<double>(plan.source_height),
+                           static_cast<double>(plan.source_height)};
+  double Px[4], Py[4];
+  for (int k = 0; k < 4; ++k) {
+    double qx = 0.0, qy = 0.0;
+    if (!affine_forward(f, src_x[k], src_y[k], qx, qy)) {
+      exact_reference();
+      return;
+    }
+    to_internal(qx, qy, scale, Px[k], Py[k]);
+  }
+
+  WarpMatrix inverse;
+  if (!registration::invert_affine_2x3(f.source_to_canvas, 1e-12f, 1e12f,
+                                       inverse)) {
+    exact_reference();  // matches enumerate_drizzle_stripe_leaf_cells' throw
+    return;             // path being taken by the reference rasterize
+  }
+
+  // Inward unit normals + a support vertex for each of P's four edges. Signed
+  // distance dot(n_e, q - v_e) is >= 0 for points inside that edge's half-plane.
+  const double cx = 0.25 * (Px[0] + Px[1] + Px[2] + Px[3]);
+  const double cy = 0.25 * (Py[0] + Py[1] + Py[2] + Py[3]);
+  double nx[4], ny[4];
+  for (int e = 0; e < 4; ++e) {
+    const int j = (e + 1) & 3;
+    double ex = Px[j] - Px[e], ey = Py[j] - Py[e];
+    double cand_x = -ey, cand_y = ex;
+    const double len = std::hypot(cand_x, cand_y);
+    if (!(len > 0.0)) {  // degenerate edge -> fall back wholesale
+      exact_reference();
+      return;
+    }
+    cand_x /= len;
+    cand_y /= len;
+    if (cand_x * (cx - Px[e]) + cand_y * (cy - Py[e]) < 0.0) {
+      cand_x = -cand_x;
+      cand_y = -cand_y;
+    }
+    nx[e] = cand_x;
+    ny[e] = cand_y;
+  }
+  auto signed_dist = [&](int e, double x, double y) {
+    return nx[e] * (x - Px[e]) + ny[e] * (y - Py[e]);
+  };
+
+  // Interior margin: a cell whose four corners are at least `margin` inside
+  // every edge of P is fully tiled by mapped source-pixel squares, and (for
+  // scale <= 2 and a well-conditioned linear part) at least one of those tiles
+  // clips the cell with a comfortably positive area --- so the reference sets
+  // touched = 1. `ext` bounds one mapped source-pixel square's internal extent.
+  const auto &s2c = f.source_to_canvas;
+  const double lin_x = std::fabs(static_cast<double>(s2c(0, 0))) +
+                       std::fabs(static_cast<double>(s2c(0, 1)));
+  const double lin_y = std::fabs(static_cast<double>(s2c(1, 0))) +
+                       std::fabs(static_cast<double>(s2c(1, 1)));
+  const double ext = static_cast<double>(scale) * std::max(lin_x, lin_y);
+  if (!(ext > 0.0) || ext > 64.0) {  // pathological scale-up: stay exact
+    exact_reference();
+    return;
+  }
+  const double margin = 2.0 * ext + 3.0;
+
+  std::vector<Leaf> leaves;
+  leaves.reserve(4);
+
+  // Exact per-cell fallback for a boundary cell: replay the reference test
+  // (sample_leaves + polygon_rectangle_intersection_area > 0) over exactly the
+  // source pixels whose unshrunk square can reach this cell. The inverse-mapped
+  // cell rectangle plus a one-source-pixel margin is the same superset rule
+  // enumerate_drizzle_stripe_leaf_cells already relies on for its stripe bound.
+  auto boundary_cell_touched = [&](int gx, int gy) -> bool {
+    double slo_x = std::numeric_limits<double>::infinity(), shi_x = -slo_x;
+    double slo_y = slo_x, shi_y = shi_x;
+    for (double dx : {static_cast<double>(gx) - 1.0,
+                      static_cast<double>(gx) + 2.0})
+      for (double dy : {static_cast<double>(gy) - 1.0,
+                        static_cast<double>(gy) + 2.0}) {
+        const double xn = dx / scale, yn = dy / scale;
+        const double sx = inverse(0, 0) * xn + inverse(0, 1) * yn + inverse(0, 2);
+        const double sy = inverse(1, 0) * xn + inverse(1, 1) * yn + inverse(1, 2);
+        slo_x = std::min(slo_x, sx);
+        shi_x = std::max(shi_x, sx);
+        slo_y = std::min(slo_y, sy);
+        shi_y = std::max(shi_y, sy);
+      }
+    const int sx0 = static_cast<int>(std::clamp(
+        std::floor(slo_x - 1.0), 0.0, static_cast<double>(plan.source_width)));
+    const int sx1 = static_cast<int>(std::clamp(
+        std::ceil(shi_x + 1.0), 0.0, static_cast<double>(plan.source_width)));
+    const int sy0 = static_cast<int>(std::clamp(
+        std::floor(slo_y - 1.0), 0.0, static_cast<double>(plan.source_height)));
+    const int sy1 = static_cast<int>(std::clamp(
+        std::ceil(shi_y + 1.0), 0.0, static_cast<double>(plan.source_height)));
+    for (int sy = sy0; sy < sy1; ++sy)
+      for (int sx = sx0; sx < sx1; ++sx) {
+        if (!sample_leaves(plan, f, sx, sy, scale, 1.0f, p, leaves))
+          continue;
+        for (const auto &L : leaves)
+          if (polygon_rectangle_intersection_area(L.x, L.y, gx, gy, gx + 1.0,
+                                                  gy + 1.0) > 0)
+            return true;
+      }
+    return false;
+  };
+
+  for (int gy = y_begin; gy < y_begin + rows; ++gy) {
+    double xr_lo, xr_hi;
+    if (!convex_quad_slab_x_range(Px, Py, static_cast<double>(gy),
+                                  static_cast<double>(gy) + 1.0, xr_lo, xr_hi))
+      continue;  // P does not reach this stripe row at all
+    int gx0 = static_cast<int>(
+        std::clamp(std::floor(xr_lo), 0.0, static_cast<double>(W)));
+    int gx1 = static_cast<int>(
+        std::clamp(std::ceil(xr_hi), 0.0, static_cast<double>(W)));
+    const size_t row_off = static_cast<size_t>(gy - y_begin) * W;
+    for (int gx = gx0; gx < gx1; ++gx) {
+      const double corner_x[4] = {static_cast<double>(gx),
+                                  static_cast<double>(gx) + 1.0,
+                                  static_cast<double>(gx) + 1.0,
+                                  static_cast<double>(gx)};
+      const double corner_y[4] = {static_cast<double>(gy),
+                                  static_cast<double>(gy),
+                                  static_cast<double>(gy) + 1.0,
+                                  static_cast<double>(gy) + 1.0};
+      bool interior = true;
+      bool exterior = false;
+      for (int e = 0; e < 4; ++e) {
+        double dmin = std::numeric_limits<double>::infinity();
+        double dmax = -dmin;
+        for (int c = 0; c < 4; ++c) {
+          const double d = signed_dist(e, corner_x[c], corner_y[c]);
+          dmin = std::min(dmin, d);
+          dmax = std::max(dmax, d);
+        }
+        if (dmin < margin)
+          interior = false;
+        if (dmax <= 0.0)
+          exterior = true;
+      }
+      if (exterior)
+        continue;
+      if (interior || boundary_cell_touched(gx, gy))
+        touched[row_off + static_cast<size_t>(gx)] = 1;
+    }
+  }
+}
+
 ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
     const RegistrationSamplingPlan &plan, const SourceImageProvider &source_of,
     const config::ReconstructionDrizzleConfig &cfg,

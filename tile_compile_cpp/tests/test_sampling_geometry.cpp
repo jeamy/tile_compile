@@ -11,6 +11,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
+#include <string>
+#include <vector>
 
 using namespace tile_compile;
 using namespace tile_compile::registration;
@@ -530,4 +533,127 @@ TEST_CASE("coverage audit: exact support and neff match uniform under rotation "
         std::min(expected, neff[lo] + (neff[hi] - neff[lo]) * (rank - lo));
   }
   REQUIRE(cov.gate.min_channel_n_eff_p10 == Approx(expected).margin(1e-7));
+}
+
+// --- §30.75: dense-footprint fast path parity ------------------------------
+//
+// compute_geometric_coverage now classifies internal cells against the frame's
+// mapped source rectangle (dense_footprint_touched_stripe) instead of
+// rasterizing every source pixel for the footprint pass. This must be
+// byte-identical to the old per-pixel footprint rasterize, which the env
+// override TC_COVERAGE_FOOTPRINT_EXACT still selects. The gate below runs both
+// paths across a scene matrix (translation, rotation, shear, mirror, sub-pixel
+// and integer offsets, a frame smaller than the canvas, frames overhanging
+// each canvas edge) at internal_scale 1 and 2 and several chunk heights, and
+// requires every mask and every gate field to match exactly.
+namespace {
+
+// Build a frame from an explicit source->canvas affine (bypasses make_frame's
+// tight invert bounds so mirror / strong shear cases are expressible).
+FrameSamplingTransform make_frame_s2c(const std::string &id, size_t idx,
+                                      const WarpMatrix &source_to_canvas) {
+  FrameSamplingTransform f;
+  f.frame_id = id;
+  f.source_index = idx;
+  f.valid = true;
+  f.source_to_canvas = source_to_canvas;
+  f.source_to_canvas_affine_valid = true;
+  REQUIRE(invert_affine_2x3(source_to_canvas, 1e-9f, 1e9f, f.canvas_to_source));
+  return f;
+}
+
+GeometricCoverageResult coverage_once(const RegistrationSamplingPlan &plan,
+                                      int scale, float pixfrac, float fraction,
+                                      int chunk_rows, bool exact) {
+  if (exact)
+    setenv("TC_COVERAGE_FOOTPRINT_EXACT", "1", 1);
+  else
+    unsetenv("TC_COVERAGE_FOOTPRINT_EXACT");
+  config::ReconstructionDrizzleConfig cfg;
+  cfg.internal_scale = scale;
+  cfg.chunk_rows = chunk_rows;
+  auto cov = compute_geometric_coverage(plan, scale, pixfrac, lenient_gate(),
+                                        fraction, 1, cfg);
+  unsetenv("TC_COVERAGE_FOOTPRINT_EXACT");
+  return cov;
+}
+
+void require_coverage_identical(const GeometricCoverageResult &a,
+                                const GeometricCoverageResult &b) {
+  REQUIRE(a.internal_width == b.internal_width);
+  REQUIRE(a.internal_height == b.internal_height);
+  REQUIRE(a.analysis_common_mask == b.analysis_common_mask);
+  REQUIRE(a.reconstruction_support_mask == b.reconstruction_support_mask);
+  REQUIRE(a.support_count_l == b.support_count_l);
+  REQUIRE(a.support_count_r == b.support_count_r);
+  REQUIRE(a.support_count_g == b.support_count_g);
+  REQUIRE(a.support_count_b == b.support_count_b);
+  REQUIRE(a.gate.valid_frame_count == b.gate.valid_frame_count);
+  REQUIRE(a.gate.analysis_pixels == b.gate.analysis_pixels);
+  REQUIRE(a.gate.largest_internal_hole_area_px ==
+          b.gate.largest_internal_hole_area_px);
+  REQUIRE(a.gate.passed == b.gate.passed);
+  REQUIRE(a.gate.min_supported_fraction == b.gate.min_supported_fraction);
+  REQUIRE(a.gate.min_channel_n_eff_p10 == b.gate.min_channel_n_eff_p10);
+  for (int c = 0; c < 3; ++c) {
+    REQUIRE(a.gate.supported_fraction[c] == b.gate.supported_fraction[c]);
+    REQUIRE(a.gate.channel_neff_p10[c] == b.gate.channel_neff_p10[c]);
+  }
+}
+
+RegistrationSamplingPlan matrix_plan(ColorMode mode) {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 60;
+  plan.source_height = 44;
+  plan.canvas_width_native = 72;
+  plan.canvas_height_native = 56;
+  plan.color_mode = mode;
+  plan.bayer_pattern =
+      mode == ColorMode::OSC ? BayerPattern::RGGB : BayerPattern::UNKNOWN;
+  const float cx = plan.source_width * 0.5f, cy = plan.source_height * 0.5f;
+  auto rot = [&](float deg, float tx, float ty) {
+    const float r = deg * 3.14159265358979f / 180.0f;
+    const float c = std::cos(r), s = std::sin(r);
+    // rotate about the source centre, then translate
+    return make_affine(c, -s, tx + cx - c * cx + s * cy, s, c,
+                       ty + cy - s * cx - c * cy);
+  };
+  std::vector<WarpMatrix> xf = {
+      make_affine(1, 0, 6, 0, 1, 5),            // integer translation
+      make_affine(1, 0, 6.37f, 0, 1, 4.82f),    // sub-pixel translation
+      rot(7.5f, 3.0f, -2.0f),                   // rotation
+      rot(-12.0f, -4.0f, 3.0f),                 // rotation, other sign
+      make_affine(1.0f, 0.18f, 2.0f, 0.05f, 1.0f, 1.0f),   // shear
+      make_affine(1.0f, -0.22f, 5.0f, -0.09f, 1.0f, 2.0f), // shear, other sign
+      make_affine(0.82f, 0.0f, 10.0f, 0.0f, 0.82f, 9.0f),  // frame smaller than canvas
+      make_affine(1.28f, 0.0f, -6.0f, 0.0f, 1.28f, -4.0f), // frame larger than canvas
+      // NOTE: reflections (det < 0) are rejected upstream by invert_affine_2x3
+      // (orientation-preserving warps only), so compute_geometric_coverage
+      // never rasterizes a mirrored footprint --- nothing to compare there.
+      make_affine(1, 0, -14.0f, 0, 1, -11.0f),  // overhang top-left
+      make_affine(1, 0, 26.0f, 0, 1, 20.0f),    // overhang bottom-right
+  };
+  for (size_t i = 0; i < xf.size(); ++i)
+    plan.frames.push_back(make_frame_s2c("f" + std::to_string(i), i, xf[i]));
+  return plan;
+}
+
+}  // namespace
+
+TEST_CASE("coverage: dense-footprint fast path is byte-identical to the exact "
+          "per-pixel footprint rasterize",
+          "[drizzle-audit][footprint-fastpath]") {
+  for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+    const RegistrationSamplingPlan plan = matrix_plan(mode);
+    for (int scale : {1, 2})
+      for (float fraction : {0.5f, 1.0f})
+        for (int chunk : {3, 16, 0}) {
+          CAPTURE(mode == ColorMode::OSC, scale, fraction, chunk);
+          const auto fast =
+              coverage_once(plan, scale, 0.8f, fraction, chunk, false);
+          const auto exact =
+              coverage_once(plan, scale, 0.8f, fraction, chunk, true);
+          require_coverage_identical(fast, exact);
+        }
+  }
 }

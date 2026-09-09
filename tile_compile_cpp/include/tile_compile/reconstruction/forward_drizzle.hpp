@@ -194,6 +194,35 @@ struct Leaf {
   double y[4];
 };
 
+// Plan §30.75 (P6 SAMPLING_GEOMETRY acceleration): the dense-footprint
+// touched-cell mask for ONE frame over ONE destination stripe.
+//
+// The reference footprint pass runs `rasterize_drizzle_stripe` at pixfrac 1.0
+// with a sink that only records "this internal cell received positive area from
+// some source-pixel square". For an AFFINE frame every unshrunk source-pixel
+// square [sx,sx+1]x[sy,sy+1] maps to a parallelogram, and their union over the
+// whole source is exactly the single parallelogram affine_f([0,W_src]x
+// [0,H_src]) (an affine image of a partition tiles the image). This routine
+// classifies each internal cell of the stripe against that parallelogram P:
+//   - exterior (cell lies fully outside one edge of P)  -> left untouched;
+//   - interior (cell lies at least one mapped-pixel diameter inside every edge
+//     of P)                                             -> touched = 1;
+//   - boundary (cell straddles or is near an edge of P) -> exact fallback: the
+//     same sample_leaves + polygon_rectangle_intersection_area test the
+//     reference uses, restricted to the source pixels that can reach the cell.
+// The result is byte-identical to the reference footprint pass by construction.
+//
+// `touched` is resized to internal_width*rows (row-major, stripe-local rows)
+// and every entry is written (0 or 1). LOCAL-warp frames, singular/degenerate
+// affine frames, and `force_exact` delegate to the reference rasterize
+// unchanged. Only used by compute_geometric_coverage; NOT part of the
+// rasterize_drizzle_stripe / CUDA contribution path.
+void dense_footprint_touched_stripe(
+    const registration::RegistrationSamplingPlan &plan,
+    const registration::FrameSamplingTransform &frame, int internal_scale,
+    int y_begin, int rows, std::vector<std::uint8_t> &touched,
+    bool force_exact = false);
+
 // The plan-11.6 per-sample leaf set for source pixel (sx, sy): the affine
 // droplet, or --- for a local-warp frame --- the adaptively subdivided leaves
 // from `invert_local_source_to_canvas`. Returns false (and clears `leaves`)

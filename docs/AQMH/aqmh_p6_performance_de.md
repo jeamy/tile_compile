@@ -184,6 +184,13 @@ Bruch-Translation nicht bit-exakt. Das ist eine Änderung der Numerik-/
 Modellidentitätsklasse (wie die `expf`-Revision in §30.69) und braucht ein eigenes
 Gate. **Geparkt.** Nur anfassen, wenn O1+O2+O3 die 30 min verfehlen.
 
+> **Für den Footprint-Pass hinfällig geworden (§30.75):** dort speisen die
+> Flächen nichts — nur „berührt ja/nein". `dense_footprint_touched_stripe`
+> klassifiziert Zellen gegen das eine Frame-Parallelogramm und ist ohne
+> Tabellen-Lookup byte-identisch (Randzellen exakt). 13,6× auf dem
+> Footprint-Pass, 2,04× auf Coverage gesamt. Für den **CFA-Droplet-Pass**
+> (Flächen → `w`/`w2` → `n_eff`) gilt die Sperre unverändert.
+
 ---
 
 ## 3. Gemessene Beschleunigung (Referenzbox: AMD Ryzen 7 3700X, **8 Kerne** / 16 Threads)
@@ -269,11 +276,21 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
 - [x] **GLOBAL_QUALITY parallelisieren** (§30.74) — Frame 0 seriell, Rest
       `omp parallel for` auf Per-Worker-Cache-Klonen, bit-identisch
       (`[drizzle-audit][geometry-parallel]`)
-- [ ] R4 — `writer.put` Datei-Write + sha256 aus dem `critical` heraus
+- [x] **R4 — `writer.put` Datei-Write + sha256 aus dem `critical`** (§30.72
+      Schritt 2) — `SourceQualityMapCacheWriter::put` intern thread-safe
+      (`std::mutex files_mu_` nur um `create_directories` + `files_`;
+      Downsample/Quantisierung/Write/sha256 lock-frei), `critical(sqm_writer)`
+      im Build entfernt; `source_quality_cache_hash` byte-identisch
+- [x] **Alternativer Coverage-Footprint-Pfad** (§30.75) —
+      `dense_footprint_touched_stripe`: Zellklassifikation gegen das eine
+      Parallelogramm `affine_f([0,W_src]×[0,H_src])` (innen/außen/Rand), exakter
+      Per-Pixel-Fallback nur für Randzellen → **byte-identisch** zum
+      Per-Pixel-Rasterize (`[drizzle-audit][footprint-fastpath]`, 500 Assert.,
+      MONO+OSC × scale {1,2} × fraction {0,5;1,0} × chunk {3,16,0} × 9 Transforme).
+      Gemessen: Footprint-Pass **47,6 s → 3,5 s (13,6×)**, Coverage gesamt
+      **87,2 s → 42,8 s (2,04×)**; `source_samples_visited` 50,9 M → 0.
 - [ ] R3 — exakte X-Clip-Wiederverwendung im Rasterizer + gespiegelter
       CUDA-Device-Kernel + volle Paritätsmatrix
-- [ ] Alternativer/beschleunigter Coverage-Pfad (Footprint-Rasterisierung /
-      analytische affine Fläche) hinter Masken-/Gate-Paritäts-Gate
 - [ ] R1.1 + R1.2 + R2 — CUDA Host/Device-Budget-Trennung, 2D-Zielkacheln,
       echte Source-/Q-Bereichsprovider; `[cuda-parity]` durchgehend
 - [ ] Realer/halbrealer Messlauf, Phasenbudget final
@@ -473,10 +490,20 @@ und Rundungsartefakte dürfen nicht stillschweigend anders behandelt werden.
 Nur konservativ zertifizierte Innen-/Außenzellen beschleunigen, Grenzfälle mit
 dem bisherigen Einzelpixelpfad prüfen. Eine numerische Fehlerschranke muss
 auch die berechneten Quellpixelgrenzen abdecken; bloß ein Rand um die vier
-Framekanten reicht als Beweis nicht. Diese Stufe bleibt bis zu diesem Nachweis
-und Masken-/Gate-Parität gesperrt. Der Footprint-Anteil des bisherigen Profils
+Framekanten reicht als Beweis nicht. Der Footprint-Anteil des bisherigen Profils
 liegt bei etwa 57 % der Rasterzeit: seine Beseitigung wäre ein wesentlich
 größerer Hebel als die bloße Fusion zweier Schleifengerüste.
+
+**Umgesetzt in §30.75** (`dense_footprint_touched_stripe`): genau dieser Ansatz —
+Innen-/Außen-/Randklassifikation gegen das eine Parallelogramm
+`affine_f([0,W_src]×[0,H_src])`. Randzellen (inkl. numerischer Randband-Breite
+`2·ext+3`) laufen exakt über `sample_leaves` + `polygon_rectangle_intersection_area`
+auf einem invers-gemappten, um ±1 Quellpixel erweiterten Quellpixel-Superset —
+also **derselbe Referenzvertrag auf den Randzellen, byte-identisch per
+Konstruktion**. Reflexionen sind upstream (`invert_affine_2x3`,
+orientierungserhaltend) ausgeschlossen; lokale/singuläre Frames delegieren an den
+Rasterizer. Paritäts-Gate `[drizzle-audit][footprint-fastpath]`. Gemessen:
+Footprint-Pass 47,6 s → 3,5 s (13,6×), Coverage gesamt 87,2 s → 42,8 s (2,04×).
 
 ### 6.5 R4: Vorlauf und Qualität gezielt verkürzen
 

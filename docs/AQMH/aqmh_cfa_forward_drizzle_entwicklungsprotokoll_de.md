@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) 09.09. | [§30.12–30.74](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09. | [§30.12–30.75](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -6020,11 +6020,79 @@ GTX 1660 Ti, unberührter Pfad).
 **Offen (Reihenfolge nach Blast-Radius):** R4 `writer.put`-Erweiterung
 (Datei-Write + sha256 aus dem `critical`); R3 exakte X-Clip-Wiederverwendung
 im Rasterizer **plus gespiegelter CUDA-Device-Kernel** + volle Paritätsmatrix;
-beschleunigter/alternativer Coverage-Pfad (Footprint-Rasterisierung / analytische
-affine Fläche) hinter neuem Masken-/Gate-Paritäts-Gate — vom Benutzer autorisiert
-als „alternative suchen, wenn es so nicht funktioniert"; R1.1+R1.2+R2 (CUDA
-Host/Device-Budget-Trennung + 2D-Zielkacheln + echte Bereichsprovider),
-`[cuda-parity]` durchgehend.
+R1.1+R1.2+R2 (CUDA Host/Device-Budget-Trennung + 2D-Zielkacheln + echte
+Bereichsprovider), `[cuda-parity]` durchgehend.
+
+---
+
+### 30.75 P6-Umsetzung Schritt 3: alternativer Coverage-Footprint-Pfad (2026-09-09)
+
+Der vom Benutzer autorisierte alternative Coverage-Algorithmus („suchen eine
+alternative, wenn es so nicht funktioniert"). Gemessener Anlass: im
+Hotspot-Profil (`[coverage-profile]`, 1920×1080, scale 2, 24 affine Frames,
+1 Worker) kostet der **dichte Footprint-Pass 47,6 s** — mehr als der
+CFA-Droplet-Pass (35,8 s) und damit der größte Einzelposten in
+SAMPLING_GEOMETRY. Er rasterte bisher jeden Quellpixel ein zweites Mal
+(pixfrac 1,0) nur um „diese Internalzelle wurde von irgendeinem
+Quellpixelquadrat berührt" zu bestimmen.
+
+**Einsicht:** Für einen affinen Frame ist die Vereinigung aller ungeschrumpften
+Quellpixelquadrate `[sx,sx+1]×[sy,sy+1]` über die ganze Quelle **exakt das eine
+Parallelogramm** `affine_f([0,W_src]×[0,H_src])` (das affine Bild einer Partition
+kachelt das Bild). `dense_footprint_touched_stripe` (`forward_drizzle.cpp`,
+nur von `compute_geometric_coverage` genutzt, **nicht** auf dem
+`rasterize_drizzle_stripe`/CUDA-Beitragspfad) klassifiziert jede Internalzelle
+des Streifens gegen dieses Parallelogramm P:
+
+- **außen** (Zelle liegt vollständig auf der Außenseite einer P-Kante) →
+  unberührt;
+- **innen** (alle vier Zellecken ≥ `2·ext+3` innerhalb jeder P-Kante, `ext` =
+  Internalausdehnung eines gemappten Quellpixelquadrats) → `touched = 1`; für
+  scale ≤ 2 und gut konditionierte Linearteile ist die Zelle dann von
+  gemappten Quadraten lückenlos gekachelt und mindestens eines klippt sie mit
+  komfortabel positiver Fläche, d. h. der Referenzpfad hätte `touched = 1`
+  gesetzt;
+- **Rand** (Zelle schneidet/nähert sich einer P-Kante) → **exakter Fallback**:
+  derselbe `sample_leaves` + `polygon_rectangle_intersection_area > 0`-Test wie
+  die Referenz, beschränkt auf die Quellpixel, die die Zelle erreichen können
+  (invers-gemapptes, um ±1 Quellpixel erweitertes Zellrechteck — dieselbe
+  Superset-Regel wie die R1.3-Streifenschranke).
+
+Damit ist das Ergebnis **byte-identisch zum Per-Pixel-Footprint-Rasterize per
+Konstruktion**. LOKALE Frames, singuläre/reflexive Affinen (`invert_affine_2x3`
+lässt nur orientierungserhaltende Warps zu) und `force_exact` delegieren
+unverändert an `rasterize_drizzle_stripe`. Env `TC_COVERAGE_FOOTPRINT_EXACT`
+erzwingt den Referenzpfad für den Paritätstest.
+
+**Paritäts-Gate:** `test_sampling_geometry.cpp` „dense-footprint fast path is
+byte-identical to the exact per-pixel footprint rasterize"
+(`[drizzle-audit][footprint-fastpath]`): MONO+OSC × scale {1,2} × fraction
+{0,5;1,0} × chunk {3,16,0} × 9 Transforme (Ganz-/Subpixel-Translation,
+Rotation ±, Scherung ±, Frame kleiner/größer als Canvas, Überhang oben-links
+und unten-rechts). Vergleicht `analysis_common_mask`,
+`reconstruction_support_mask`, alle `support_count_*` und alle Gate-Felder
+exakt — 500 Assertions grün.
+
+**Messung** (derselbe Prozess, dieselbe Szene):
+
+| Pass | exakt | schnell | Faktor |
+|---|---|---|---|
+| Footprint | 47,6 s | 3,5 s | **13,6×** |
+| CFA-Droplet | 35,8 s | 35,6 s | 1,0× (unberührt) |
+| **Coverage gesamt** | **87,2 s** | **42,8 s** | **2,04×** |
+
+`source_samples_visited` im Footprint-Pass: 50 856 960 → **0** (kein
+Per-Pixel-Scan mehr, reine Klassifikation + dünnes Randband). Der
+CFA-Droplet-Pass (pixfrac 0,8, per CFA-Kanal, geschrumpfte Droplets — keine
+einzelne Vereinigungsfläche) bleibt bewusst unangetastet und ist jetzt der
+alleinige Geometrieposten in SAMPLING_GEOMETRY.
+
+**Suite:** 536/536. Legacy-Reference 17/18 (`test_aqmh_reconstruction.cpp:451`,
+GPU-Toleranz, unberührter Pfad).
+
+**Offen:** R3 exakte X-Clip-Wiederverwendung im Rasterizer **plus gespiegelter
+CUDA-Device-Kernel** + volle `[cuda-parity]`-Matrix; R1.1+R1.2+R2 (CUDA
+Host/Device-Budget-Trennung, 2D-Zielkacheln, echte Bereichsprovider).
 
 ---
 

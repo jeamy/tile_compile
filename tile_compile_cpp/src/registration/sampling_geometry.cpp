@@ -13,6 +13,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <limits>
 #include <memory>
@@ -296,6 +297,12 @@ GeometricCoverageResult compute_geometric_coverage(
   // chunk height, and therefore resolved_chunk_rows + every geometry hash, stay
   // a function of the W=1 budget only.
   const int req_workers = std::max(1, num_workers);
+  // §30.75: the dense-footprint pass classifies internal cells against the
+  // frame's mapped source rectangle instead of rasterizing every source pixel,
+  // and is byte-identical to the per-pixel rasterize by construction. The env
+  // override forces the exact reference path for the parity test.
+  const bool footprint_exact =
+      std::getenv("TC_COVERAGE_FOOTPRINT_EXACT") != nullptr;
   if (!std::isfinite(fraction) || fraction <= 0 || fraction > 1)
     throw std::invalid_argument("COVERAGE_INVALID_COMMON_FRACTION");
   config::ReconstructionDrizzleConfig cfg = resources;
@@ -475,16 +482,16 @@ GeometricCoverageResult compute_geometric_coverage(
             w[c][i] += B[c][i];
             w2[c][i] += B[c][i] * B[c][i];
           }
-      std::fill(touched.begin(), touched.end(), 0);
       // Dense source pixel squares define full-frame footprints, independently
-      // of CFA colour and the shrunken reconstruction droplet.
+      // of CFA colour and the shrunken reconstruction droplet. §30.75: cell
+      // classification against the mapped source rectangle, exact per-pixel
+      // fallback only for boundary cells; byte-identical to the rasterize.
       {
         reconstruction::geomstats::ScopedVariant _v(
             reconstruction::geomstats::Variant::kCoverageFootprint, 1.0);
         reconstruction::geomstats::ScopedGeometryTimer _t;
-        rasterize_drizzle_stripe(
-            plan, *f, internal_scale, 1.0f, y, rows,
-            [&](int, int, int, int, size_t i, double) { touched[i] = 1; });
+        reconstruction::dense_footprint_touched_stripe(
+            plan, *f, internal_scale, y, rows, touched, footprint_exact);
       }
       for (size_t i = 0; i < n; ++i)
         footprint_count[i] += touched[i];
