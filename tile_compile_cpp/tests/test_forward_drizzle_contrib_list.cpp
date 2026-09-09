@@ -5,6 +5,7 @@
 // plan-19.5 warp/CFA/chunk matrix, and that its pre-count / budget / canonical
 // sort contracts hold.
 
+#include "tile_compile/reconstruction/drizzle_geometry_cache.hpp"
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_contrib_list.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
@@ -15,6 +16,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -662,6 +665,83 @@ TEST_CASE("plan-19.6.2 hybrid: a local-warp frame on the CUDA path (CPU "
               cpu.clipping.candidate_contributions_clipped);
     }
   REQUIRE(checked == 2 * 2 * 4);  // modes x edge x batch caps
+}
+
+TEST_CASE("plan 11.14 P2 x CUDA: a published geometry cache keeps the "
+          "CPU-vs-CUDA-hybrid pair parity byte-identical for a local-warp frame",
+          "[forward-drizzle][contrib-list][cuda-parity][geometry-cache]") {
+  if (forward_drizzle_cuda_device_memory().free_bytes == 0) {
+    SUCCEED("no CUDA device -- skipped");
+    return;
+  }
+  namespace fs = std::filesystem;
+  using namespace tile_compile::reconstruction;
+
+  auto planes = [](const ForwardDrizzleUniformResult &r) {
+    return r.color_mode == ColorMode::MONO
+               ? std::vector<const ProfilePlane *>{&r.L}
+               : std::vector<const ProfilePlane *>{&r.R, &r.G, &r.B};
+  };
+  auto require_same = [&](const ForwardDrizzleUniformAndRawResult &a,
+                          const ForwardDrizzleUniformAndRawResult &b) {
+    for (auto pr : {std::pair{&a.uniform, &b.uniform},
+                    std::pair{&a.raw, &b.raw}, std::pair{&a.fine, &b.fine},
+                    std::pair{&a.medium, &b.medium}}) {
+      const auto ap = planes(*pr.first), bp = planes(*pr.second);
+      REQUIRE(ap.size() == bp.size());
+      for (size_t c = 0; c < ap.size(); ++c)
+        require_plane_identical(*ap[c], *bp[c]);
+    }
+    require_float_vec_identical(a.a_separation, b.a_separation);
+    require_float_vec_identical(a.a_artifact, b.a_artifact);
+    require_float_vec_identical(a.a_registration, b.a_registration);
+    REQUIRE(a.alpha_confidence_support == b.alpha_confidence_support);
+    REQUIRE(a.clipping.pixel_channel_evaluations ==
+            b.clipping.pixel_channel_evaluations);
+    REQUIRE(a.clipping.candidate_contributions_clipped ==
+            b.clipping.candidate_contributions_clipped);
+  };
+
+  for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+    const PairCase k =
+        make_pair_case(mode, /*local=*/true, BayerPattern::RGGB, /*edge=*/false);
+    const int H = k.plan.canvas_height_native * k.cfg.internal_scale;
+    const std::size_t batch = 7;
+
+    // No-cache baselines (this is the existing [cuda-parity] combination).
+    const auto cpu0 = accumulate_pair_by_frame(k.plan, k.src(), k.cfg, k.clip, 0,
+                                               H, k.sub, k.g_eff, k.quality(),
+                                               k.mb);
+    const auto gpu0 = accumulate_pair_by_frame_cuda(
+        k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(), k.mb,
+        static_cast<std::size_t>(1) << 32, 32, batch);
+
+    // Build + publish the geometry cache for this plan's local-warp frame.
+    const fs::path root =
+        fs::temp_directory_path() /
+        ("tc_gc_cudaparity_" + std::to_string(std::random_device{}()));
+    fs::remove_all(root);
+    std::vector<GeometryVariant> vars{{k.cfg.pixfrac}};
+    std::vector<std::size_t> local_idx;
+    for (const auto &fr : k.plan.frames)
+      if (fr.has_smooth_local_model) local_idx.push_back(fr.source_index);
+    const auto built = build_drizzle_geometry_cache(root, k.plan, k.cfg, vars,
+                                                    k.sub, 64ull << 20);
+    DrizzleGeometryCacheReader reader(root, built.identities, local_idx);
+    {
+      ScopedActiveGeometryCache guard(&reader);
+      const auto cpu1 = accumulate_pair_by_frame(k.plan, k.src(), k.cfg, k.clip,
+                                                 0, H, k.sub, k.g_eff,
+                                                 k.quality(), k.mb);
+      const auto gpu1 = accumulate_pair_by_frame_cuda(
+          k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(),
+          k.mb, static_cast<std::size_t>(1) << 32, 32, batch);
+      require_same(cpu0, cpu1);  // cache does not move the CPU reference
+      require_same(gpu0, gpu1);  // cache does not move the CUDA-hybrid result
+      require_same(cpu1, gpu1);  // parity still holds WITH the cache active
+    }
+    fs::remove_all(root);
+  }
 }
 
 TEST_CASE("plan-19.6.2 hybrid: a subdivided local-warp frame (leaf_order > 0) "

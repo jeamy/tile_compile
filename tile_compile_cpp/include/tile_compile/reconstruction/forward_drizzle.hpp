@@ -182,6 +182,27 @@ void enumerate_drizzle_stripe_leaf_cells(
     float pixfrac, int y_begin, int rows, const DrizzleLeafCellSink &sink,
     const ForwardDrizzleSubdivisionParams &subdivision = {});
 
+// One accepted leaf of a (possibly subdivided) source-pixel droplet: a convex
+// quadrilateral in internal-canvas coordinates. Exported for the plan-11.14
+// geometry cache builder, which must produce byte-identical leaves.
+struct Leaf {
+  double x[4];
+  double y[4];
+};
+
+// The plan-11.6 per-sample leaf set for source pixel (sx, sy): the affine
+// droplet, or --- for a local-warp frame --- the adaptively subdivided leaves
+// from `invert_local_source_to_canvas`. Returns false (and clears `leaves`)
+// when the sample is rejected (inversion / subdivision failure); the caller
+// counts that as a discard. Bit-exact and deterministic. Exported so the
+// geometry cache builds its store with the SAME evaluation the stripe
+// enumerator uses.
+bool sample_leaves(const registration::RegistrationSamplingPlan &plan,
+                   const registration::FrameSamplingTransform &frame, int sx,
+                   int sy, int internal_scale, float pixfrac,
+                   const ForwardDrizzleSubdivisionParams &subdivision,
+                   std::vector<Leaf> &leaves);
+
 // --- M3 (plan section 11.8): shared robust clipping -------------------------
 //
 // Status: the algorithm itself (this function) is implemented and tested
@@ -348,7 +369,18 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     const std::vector<float> &g_eff_by_source_index = {},
     size_t retained_bytes = 0,
     const FrameQualityProvider &quality_of = {},
-    const MultibandProfileParams &multiband = {});
+    const MultibandProfileParams &multiband = {},
+    // Plan 11.14.5 P3 (Teil 2): partition each stripe's rasterize + candidate
+    // gather + reduce into `workers` disjoint output-row bands, computed
+    // concurrently. Every canvas cell is still touched by exactly one worker
+    // and every source contribution is still added in the unchanged canonical
+    // order, so profiles / alpha maps / clipping counters are bit-identical to
+    // the serial (`workers == 1`, the default) reference. The source frame is
+    // loaded once on the caller thread per frame; the geometry cache reader is
+    // shared (its `enumerate_stripe` is const + concurrency-safe). Values < 1
+    // are treated as 1. Geometry-stats instrumentation is only collected at
+    // `workers == 1` (the process-global registry is not concurrency-safe).
+    int workers = 1);
 
 ForwardDrizzleUniformAndRawResult compute_forward_drizzle_uniform_and_raw(
     const registration::RegistrationSamplingPlan &plan,
@@ -358,7 +390,8 @@ ForwardDrizzleUniformAndRawResult compute_forward_drizzle_uniform_and_raw(
     const ForwardDrizzleSubdivisionParams &subdivision_params = {},
     const std::vector<float> &g_eff_by_source_index = {},
     const FrameQualityProvider &quality_of = {},
-    const MultibandProfileParams &multiband = {});
+    const MultibandProfileParams &multiband = {},
+    int workers = 1);
 
 // --- exposed for unit tests (plan section 11.6 geometry) -------------------
 

@@ -58,7 +58,12 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw_2x2(
     const ForwardDrizzleSubdivisionParams &subdivision_params = {},
     const std::vector<float> &g_eff_by_source_index = {}, size_t retained_bytes = 0,
     const FrameQualityProvider &quality_of = {},
-    const MultibandProfileParams &multiband = {});
+    const MultibandProfileParams &multiband = {},
+    // Forwarded verbatim to stream_forward_drizzle_uniform_and_raw(): per-stripe
+    // output-row-band parallelism, bit-identical to `workers == 1` (default).
+    // The 2x2 -> 1x fold is downstream of the (still in-order, one-per-stripe)
+    // inner sink, so it is unaffected.
+    int workers = 1);
 
 // The same row-buffered 2x2 -> 1x fold that stream_forward_drizzle_uniform_and_raw_2x2
 // uses internally, exposed for callers that own their own internal-row stripe

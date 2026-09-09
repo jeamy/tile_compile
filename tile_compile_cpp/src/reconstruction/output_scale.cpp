@@ -378,7 +378,8 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw_2x2(
     const UniformAndRawStripeSink &output_sink,
     const ForwardDrizzleSubdivisionParams &subdivision_params,
     const std::vector<float> &g_eff_by_source_index, size_t retained_bytes,
-    const FrameQualityProvider &quality_of, const MultibandProfileParams &mb) {
+    const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
+    int workers) {
   if (drizzle_cfg.internal_scale != 2)
     throw std::invalid_argument("DRIZZLE_2X2_REQUIRES_INTERNAL_SCALE_2");
   const int internal_width = plan.canvas_width_native * 2;
@@ -388,7 +389,8 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw_2x2(
   auto diag = stream_forward_drizzle_uniform_and_raw(
       plan, source_of, drizzle_cfg, clipping_cfg,
       [&](int y, const ForwardDrizzleUniformAndRawResult &stripe) { adapter.feed(y, stripe); },
-      subdivision_params, g_eff_by_source_index, retained_bytes, quality_of, mb);
+      subdivision_params, g_eff_by_source_index, retained_bytes, quality_of, mb,
+      workers);
   adapter.finish();
   return diag;
 }

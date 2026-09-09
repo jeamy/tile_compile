@@ -6,6 +6,7 @@
 
 #include "tile_compile/core/atomic_output.hpp"
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/reconstruction/drizzle_geometry_stats.hpp"
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
 #include <algorithm>
 #include <array>
@@ -322,6 +323,16 @@ GeometricCoverageResult compute_geometric_coverage(
   const int N = prepared.frames.size();
   const int required = std::max(
       1, static_cast<int>(std::ceil(static_cast<double>(fraction) * N)));
+  {
+    int local_n = 0;
+    for (const auto *pf : prepared.frames)
+      if (pf->has_smooth_local_model)
+        ++local_n;
+    reconstruction::geomstats::stamp_context(
+        plan.source_width, plan.source_height, plan.canvas_width_native,
+        plan.canvas_height_native, internal_scale, memory.rows, memory.height,
+        N, local_n);
+  }
   std::array<std::unique_ptr<DiskQuantile>, 3> quantiles;
   std::array<std::unique_ptr<StripeHoles>, 3> holes;
   std::array<size_t, 3> supported{};
@@ -352,9 +363,14 @@ GeometricCoverageResult compute_geometric_coverage(
     for (const auto *f : prepared.frames) {
       for (int c = 0; c < channels; ++c)
         std::fill(B[c].begin(), B[c].end(), 0);
-      rasterize_drizzle_stripe(
-          plan, *f, internal_scale, pixfrac, y, rows,
-          [&](int, int, int c, int, size_t i, double k) { B[c][i] += k; });
+      {
+        reconstruction::geomstats::ScopedVariant _v(
+            reconstruction::geomstats::Variant::kCoverageCfa, pixfrac);
+        reconstruction::geomstats::ScopedGeometryTimer _t;
+        rasterize_drizzle_stripe(
+            plan, *f, internal_scale, pixfrac, y, rows,
+            [&](int, int, int c, int, size_t i, double k) { B[c][i] += k; });
+      }
       for (int c = 0; c < channels; ++c)
         for (size_t i = 0; i < n; ++i)
           if (B[c][i] > 0) {
@@ -365,9 +381,14 @@ GeometricCoverageResult compute_geometric_coverage(
       std::fill(touched.begin(), touched.end(), 0);
       // Dense source pixel squares define full-frame footprints, independently
       // of CFA colour and the shrunken reconstruction droplet.
-      rasterize_drizzle_stripe(
-          plan, *f, internal_scale, 1.0f, y, rows,
-          [&](int, int, int, int, size_t i, double) { touched[i] = 1; });
+      {
+        reconstruction::geomstats::ScopedVariant _v(
+            reconstruction::geomstats::Variant::kCoverageFootprint, 1.0);
+        reconstruction::geomstats::ScopedGeometryTimer _t;
+        rasterize_drizzle_stripe(
+            plan, *f, internal_scale, 1.0f, y, rows,
+            [&](int, int, int, int, size_t i, double) { touched[i] = 1; });
+      }
       for (size_t i = 0; i < n; ++i)
         footprint_count[i] += touched[i];
     }

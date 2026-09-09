@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09. | [§30.12–30.61](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 09.09. | [§30.12–30.67](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -4869,6 +4869,603 @@ Kontrolllauf) ist ein eigener Schritt, noch nicht begonnen.
 **Teststand:** neues `[synthetic-quality]` grün (73 Assertions, 3× deterministisch);
 `[forward-runner]`+`[synthetic-quality]` 7 Fälle / 233 Assertions grün. M66-Gate läuft.
 **Noch nichts committet** (M9-Arbeit).
+
+---
+
+### 30.62 §11.14 P0: Forward-Drizzle-Geometrie-Instrumentierung + K-Faktor-Messung (2026-09-08)
+
+Erster verbindlicher Schritt der §11.14-Reihenfolge (P0: „Geometrieaufrufe, I/O
+und Teilzeiten messen"). Nicht-invasive Diagnosezähler + grobe Teilzeit-Timer
+über den kompletten Geometriepfad; anschließend eine synthetische Lokal-Warp-
+Fixture, die den heutigen K-Faktor (Stripe-Anzahl) bei Chunkhöhen 1/16/64/256/
+Vollhöhe charakterisiert.
+
+**Neu:**
+- `tile_compile/reconstruction/drizzle_geometry_stats.hpp/.cpp` — Prozess-globale
+  `Registry` (einfache `uint64_t`, **nicht atomar** — der Referenzpfad ist heute
+  einkernig; deterministische Parallelität ist P3 und besitzt die Atomics).
+  `ScopedEnable` (Facility pro Phase an/aus + Reset), `ScopedVariant`
+  (Consumer×pixfrac-Kontext, RAII), `ScopedGeometryTimer` (Wall + `CLOCK_PROCESS_
+  CPUTIME_ID` pro `enumerate`-Aufruf), `stamp_context`, `to_json`.
+- Zähler pro **Variante** (`prepare_exclusion_scan`, `coverage_cfa`,
+  `coverage_footprint`, `production_uniform_raw`, `uniform_diagnostic`,
+  `contrib_count`, `contrib_fill`, `hybrid_cpu_geometry`): `enumerate_calls`,
+  `source_rows_scanned`, `source_samples_visited`,
+  `top_level_sample_leaves_calls` (**nur** am Kopf von `sample_leaves`, nicht in
+  der `subdivide_local`-Rekursion — das ist die P2-Abnahmezahl aus §11.14.4),
+  `sample_leaves_discarded`, `leaves_generated`, `subdivide_local_calls`,
+  `local_forward_calls`, `invert_calls`, `invert_iterations`
+  (== `basis_evaluations` == `smooth_local_basis`-Aufrufe; jeder Newton-Schritt
+  ruft genau ein `evaluate_smooth_local_displacement` → 16 `std::exp`, daher
+  `exp_calls == 16·invert_iterations`), `leaf_cells_emitted`, `geometry_wall_s`,
+  `geometry_cpu_s`.
+- `tests/test_forward_drizzle_geometry_scaling.cpp` (`[forward-drizzle-p0]`,
+  2 Fälle / 93 Assertions, deterministisch): Fall 1 `stream_forward_drizzle_uniform`
+  über Chunkhöhen {1,16,64,256,0}, Fall 2 `compute_geometric_coverage`
+  (= SAMPLING_GEOMETRY, die 36-min-Phase aus §30.61) über {1,16,64,0}.
+- `tests/test_runner_forward_drizzle.cpp` `[forward-runner]`: prüft, dass
+  `forward_drizzle_geometry_profile.json` bei erfolgreichem Stage geschrieben
+  wird und nicht-leere `variants` mit emittierten `leaf_cells` trägt.
+- Runner: `run_forward_drizzle_stages` läuft komplett unter `ScopedEnable(true)`;
+  neues Artefakt `artifacts/forward_drizzle_geometry_profile.json` nach
+  FORWARD_DRIZZLE (kein Checkpoint-Hash-Guard, wie `forward_drizzle.json`).
+
+**Verdrahtung (guard: `registry().enabled`, ein gut vorhergesagter Branch):**
+`forward_drizzle.cpp` (`local_forward`, `subdivide_local`, `sample_leaves`,
+`prepare_drizzle_frames`-Sweep, `enumerate_drizzle_stripe_leaf_cells`, +
+`ScopedVariant` an `stream_forward_drizzle_uniform` und
+`stream_forward_drizzle_uniform_and_raw`), `registration_sampling_plan.cpp`
+(`invert_local_source_to_canvas` — Aufruf + tatsächliche Newton-Schritte),
+`sampling_geometry.cpp` (beide `rasterize_drizzle_stripe`-Aufrufe im
+Stripe-Loop + `stamp_context`), `forward_drizzle_contrib_list.cpp`
+(Count-/Fill-Pass + Hybrid-`enumerate`). Neue TU auf der `-ffp-contract=off`-
+Liste (nur Integer/Timer, aber auf dem Pfad → identisch gepinnt).
+
+**Messergebnis (Fixture: 1 Lokal-Warp-Frame, Quelle 24×24 = 576 px,
+Canvas 48×48, `internal_scale=1`, pixfrac 0.8). `top_level_sample_leaves` /
+`invert_iterations` (= `basis_evaluations`) je Consumer-Variante:**
+
+| chunk_rows | K | `uniform_diagnostic` | `coverage_cfa` (pf 0.8) | `coverage_footprint` (pf 1.0) | wall (uniform) |
+|-----------:|--:|---------------------:|------------------------:|-----------------------------:|---------------:|
+| 1          | 48| 27 648 / 497 664     | 27 648 / 497 664       | 27 648 / 497 664            | 0.062 s        |
+| 16         | 3 | 1 728 / 31 104       | 1 728 / 31 104         | 1 728 / 31 104             | 0.004 s        |
+| 64 / 256 / 0 (auto) | 1 | 576 / 10 368 | 576 / 10 368     | 576 / 10 368              | 0.0014 s       |
+
+`prepare_drizzle_frames` **zusätzlich konstant** `576` / `10 368` (ein voller
+Quell-Sweep, K-unabhängig, Blätter verworfen). SAMPLING_GEOMETRY-Geometrie pro
+Lokal-Warp-Frame = `coverage_cfa` + `coverage_footprint` = **2·K·source_pixels**
+Top-Level-`sample_leaves` (zwei pixfrac-getrennte Varianten, §11.14.3 —
+Fixture prüft `cfa.pixfrac == 0.8f ≠ foot.pixfrac == 1.0` explizit). Genau diese
+zwei Passes verursachten die 36 min im realen 100-Frame-M66-Lauf (§30.61); die
+Fixture zeigt denselben K-Faktor auf beiden.
+
+**Damit ist der O(N·P·K·consumers)-Term aus §11.14.1 bestätigt, nicht widerlegt:**
+- Für einen Lokal-Warp-Frame setzt `enumerate_drizzle_stripe_leaf_cells`
+  `source_y0=0, source_y1=source_height` (kein Stripe-Bounding) und ruft
+  `sample_leaves` **pro Quellpixel pro Stripe** — also `K·source_pixels`
+  Top-Level-Aufrufe je Consumer-Variante statt `source_pixels`.
+- Der Blow-up-Faktor **ist exakt K, je Consumer** (chunk_rows=1 ⇒ 48× je
+  `uniform_diagnostic`/`coverage_cfa`/`coverage_footprint`, 44× Wall-Zeit
+  gegenüber K=1). SAMPLING_GEOMETRY zahlt ihn zweimal (beide Coverage-Passes).
+- `prepare_drizzle_frames` fügt einen weiteren vollen Sweep hinzu, dessen
+  Blätter sofort verworfen werden.
+- Ausgabe **bitidentisch** über alle fünf Chunkhöhen (Profil-Digest-Assertion).
+- Auto-Chunking wählt für diese Mini-Szene K=1; der Blow-up beißt erst, wenn
+  `chunk_rows` klein erzwungen wird **oder** das Budget bei großem Canvas viele
+  Stripes erzwingt — genau das 100-Frame-M66- / 600-Frame-Produktionsregime
+  (§30.61: SAMPLING_GEOMETRY 36 min einkernig, FORWARD_DRIZZLE > 1 h).
+
+**P2-Zielzahl (§11.14.4), heute vs. Soll:** `production_uniform_raw` /
+`uniform_diagnostic` `top_level_sample_leaves_calls` muss nach P1/P2
+`eligible_local_frames · source_pixels` erreichen und **K-invariant** sein.
+Heute: `1.0×` bei K=1, `3.0×` bei K=3, `48.0×` bei K=48. Die Fixture protokolliert
+dieses Verhältnis, damit P2 eine konkrete Vorher/Nachher-Zahl hat.
+
+**Bit-Exaktheit:** `[cuda-parity]` + `[forward-runner]` (329 727 Assertions /
+13 Fälle) **vor der Verdrahtung identisch zu nach der Verdrahtung**, plus
+`[forward-drizzle-p0]` 93 (2 Fälle, 3× deterministisch) + `[synthetic-quality]`
+73. Der `sample_leaves`-Umbau ist logikerhaltend (Diff geprüft; Parity-Gate
+beweist es). **Vorbestehender, unabhängiger** Fehlschlag im Gesamtlauf:
+`test_acceleration_backend.cpp:254` (`acceleration_context_keeps_aqmh_maps_cpu_only`
+— GPU-Umgebungs-abhängige Backend-Wahl in `core/acceleration.cpp`; per
+`git stash` verifiziert, dass er auf dem unveränderten Baseline **identisch**
+fehlschlägt — von P0 nicht verursacht).
+
+**Noch nichts committet.** Nächster Schritt: P1 (autoritative Geometrie einmal,
+`reconstruction/drizzle_geometry_cache.hpp/cpp`).
+
+---
+
+### 30.63 §11.14 P1+P2: autoritative Geometrie einmal, räumlicher Index, Bibliotheks-Verdrahtung (2026-09-08)
+
+P1 und P2 als eine bit-exakt gegatete Änderung (untrennbar: P1s Store ist ohne
+P2s Index/Verdrahtung nicht beobachtbar, das Abnahmekriterium steht nur in P2).
+
+**Datenvolumen (aus P0-Zahlen):** empirisch 1 Leaf/Sample → ~0,6 GB
+Record-Bytes pro Frame @ 3840×2160 (`LeafRecord` 72 B, 8,29 M Samples). Mit
+Subdivision (`max_subdivision_depth=2`) theoretisch bis 16 Leaves/Sample,
+**angenommene** 2–3 Leaves/Sample im Mittel ⇒ ~1,2–1,8 GB/Frame ⇒ 600 Frames
+~360 GB–1,1 TB (Obergrenze abhängig von der genannten Leaf/Sample-Annahme,
+kein Messwert). Geometrie-*Rechnung* fällt von O(N·P·K·consumers) auf O(V·N·P),
+einmalig.
+
+**Architekturwahl (nicht „mathematisch erzwungen", Korrektur nach Review):**
+Ein Disk-Generation-Store ist die gewählte Lösung, weil er (a) phasenübergreifende
+Wiederverwendung erlaubt (SAMPLING_GEOMETRY baut, FORWARD_DRIZZLE liest, statt
+neu zu rechnen) und (b) den RAM-Bedarf unabhängig von Frame- **und** Zeilenzahl
+hält. Eine reine „pro Frame bauen–lesen–verwerfen"-Variante wäre RAM-seitig bei
+jedem N tragbar (der frühere „≤ 100 Frames"-Satz war falsch), verliert aber die
+phasenübergreifende Wiederverwendung und zahlt O(N·P) je geometrieberührender
+Phase erneut. **Offener Risikopunkt (P4):** Schreiben + vollständiges
+Hash-Lesen + spätere Reads von 360 GB–1,1 TB müssen ausdrücklich in das
+2400-s-Budget passen; sonst ersetzt I/O den Rechenengpass. Bis das gemessen ist,
+gilt der Disk-Store als **nicht** für 600 Frames belegt.
+
+**Neu — `tile_compile/reconstruction/drizzle_geometry_cache.hpp/.cpp`:**
+- `make_geometry_cache_identity` — Hash pro Variante über
+  `compute_coverage_geometry_hash` (bindet plan_hash, kernel, internal_scale,
+  pixfrac, Subdivision) + Inversionsparameter + Canvas + CFA-Vertrag +
+  color_mode + Algorithmusversion. **Dichter Footprint (pixfrac=1) und
+  Drizzle-Coverage (pixfrac=0.8) = verschiedene Identitäten**; gleiche
+  dedupliziert.
+- `build_drizzle_geometry_cache` — pro (Variante, **lokalem** Frame) direkter
+  `sample_leaves`-Sweep (jetzt aus `forward_drizzle.hpp` exportiert; `Leaf`
+  ebenso). **Streaming:** jede fertige Quellzeile wird als ein
+  zusammenhängender Block an die `.leaves`-Datei angehängt und **vor** der
+  nächsten Zeile freigegeben (begrenzter Batch ≤ `source_width · 16 · 72 B`,
+  unabhängig von Frame- und Canvashöhe; `memory_budget_bytes` = Untergrenze-
+  Prüfung). **Ausschlusszählung direkt aus dem `sample_leaves`-Rückgabewert** —
+  **nie** aus `geomstats` (Review-Punkt 3; Test `[geometry-cache]` weist
+  identische Ausschlüsse mit Zählern an/aus nach). Serialisierung: `.rows`
+  (`source_height` × `RowEntry` = {canvas_ymin, canvas_ymax, offset, count},
+  32 B), `.leaves` (`LeafRecord` = {source_x:u32, channel:u16, leaf_order:u16,
+  x[4]:f64, y[4]:f64}, 72 B), Records je Zeile geordnet nach `(sx, leaf_order)`.
+  Streaming-SHA-256 der `.leaves` (kein zweiter Lesepass). **Crash-sicherer
+  Commit** (Review-Punkt 4): eindeutige Generation- **und** Staging-Namen
+  (`<hash>-<uid>`, `<uid>` aus rd()/pid), alte Generation **unangetastet**
+  (nie gelöscht), alle Payload-Dateien `fsync`, dann `manifest.json` +
+  `fsync`, dann `rename(staging→gen)` + Verzeichnis-`fsync`, zuletzt
+  `current.json` per Temp-Datei-`rename` + `fsync`. Abbruch an jedem Punkt →
+  vorherige committete Generation voll nutzbar.
+- `DrizzleGeometryCacheReader` — lädt/​hasht beim Öffnen **nur** den
+  Zeilenindex (`.rows`, ~35 KB/Frame) und prüft (Review-Punkt 5):
+  Schema-/Algorithmusversion; Identität pro Variante (geometry_hash, Canvas,
+  internal_scale, pixfrac, color_mode); **exakte erwartete lokale
+  Framepopulation** (kein Fehlen/Extra/Duplikat, `expected_local_source_indices`-
+  Argument); Dimensions-, Ausschlussstatistik- und Ratenkonsistenz; **jeder
+  Row-Offset/-Count gegen die echte `.leaves`-Dateilänge** (lückenlose,
+  ausgerichtete Kachelung, Summe == Dateigröße). `verify_record_bytes`
+  (Default aus) streamt zusätzlich die `.leaves`-SHA — O(Store-Bytes) I/O,
+  vom Aufrufer budgetiert; sonst tragen `.rows`-Hash + Strukturprüfung +
+  Commit-Kette die Integrität. Leaf-**Records nie vollständig resident**:
+  `enumerate_stripe` seekt/liest nur die den Streifen schneidenden Row-Blöcke
+  (Test prüft `resident_bytes()` gegen die Leaf-Volumen-Schranke). Replay =
+  **derselbe bbox-Clamp + Zell-Loop** in kanonischer
+  `(sy, sx, leaf_order, y, x)`-Reihenfolge → bit-identisch. TU auf der
+  `-ffp-contract=off`-Liste.
+- `ScopedActiveGeometryCache` — thread-lokaler aktiver Reader. Das
+  Delegations-*Mechanik* ist P3-tauglich (const-Reads, ein Guard pro Worker);
+  **noch offen für P3**: ein Reader wird geteilt, nicht pro Worker neu
+  geöffnet/geprüft. Ohne Guard = Status quo.
+
+**Verdrahtung (`forward_drizzle.cpp`):**
+- `enumerate_drizzle_stripe_leaf_cells` — Cache-Kurzschluss oben für lokale
+  Frames; kein `sample_leaves`, kein `subdivide_local`, keine Inversion.
+- `prepare_drizzle_frames` — bei aktivem Cache liefert `frame_stats` Total,
+  Discarded, Ausschluss-Entscheidung; der Voll-Sweep entfällt (§11.14.3:
+  Ausschlusszählung in den Build gefaltet). `local_model_samples_total/_discarded`
+  und `frames_excluded_subdivision_error_rate` bit-gleich (dieselbe
+  `double(discarded)/double(total)`-Rechnung, dieselbe Schranke).
+- `rasterize_drizzle_stripe` → nutzt `enumerate_drizzle_stripe_leaf_cells`,
+  daher sind Coverage (`compute_geometric_coverage`), Uniform/Raw/Fine/Medium
+  (`stream_forward_drizzle_uniform_and_raw`) und die Beitragslisten
+  (`build_frame_records`, `build_frame_records_hybrid_local`) **automatisch**
+  mitgedeckt, sobald ein Cache aktiv ist.
+
+**Neue Tests:**
+- `tests/test_drizzle_geometry_cache.cpp` (`[geometry-cache]`, 7 Fälle,
+  ~8 100 Assertions): Build→Read **zellenweise bit-identisch** (sx, sy, c,
+  leaf_order, x, y + 8 Eck-`double` per `memcmp`) bei Chunkhöhen
+  {1,7,16,Vollhöhe}; `resident_bytes()` skaliert **nicht** mit dem
+  Leaf-Volumen; Reader = **null** `invert_iterations`/`subdivide_local`;
+  **Ausschlüsse identisch mit `geomstats` an und aus**; strikter
+  Readervertrag (Identität, Population {fehlend/extra/Duplikat}, Schema,
+  Row-Offsets); Record-Korruption gefangen mit `verify_record_bytes` **und**
+  strukturell (Truncation); Rebuild lässt die alte Generation intakt,
+  `current.json` atomar, kein `.staging-`-Rest.
+- `tests/test_forward_drizzle_geometry_scaling.cpp` neuer Fall
+  `[forward-drizzle-p0][geometry-scaling][geometry-cache]`: mit publiziertem
+  Cache ist die Uniform-/Coverage-Ausgabe **bit-identisch zum No-Cache-Lauf**
+  (Digest == Baseline bei jeder Chunkhöhe); `uniform_diagnostic`,
+  `coverage_cfa`, `coverage_footprint`, `prepare_exclusion_scan` machen je
+  **null** `sample_leaves`/`invert_iterations`/`subdivide_local`; der Build
+  macht genau `V · eligible_local_frames · source_pixels` Top-Level-Aufrufe.
+  **⇒ K-Faktor für alle Consumer eliminiert, §11.14.4-Abnahme
+  bibliotheksseitig belegt.**
+
+**Parität:** Gesamtlauf 520/521 Fälle grün, **1 373 375 Assertions**
+(inkl. `[cuda-parity]`); einziger Fehlschlag = der vorbestehende,
+baseline-verifizierte `test_acceleration_backend.cpp:254`. Cache-Zweige sind
+No-ops ohne aktiven Reader → Parität trivial erhalten. `sample_leaves`/`Leaf`-
+Export ist logikerhaltend (Definition nur aus der anonymen Namespace
+verschoben).
+
+**Review-Nachtrag (2026-09-08), fünf behobene Lücken der ersten Fassung:**
+1. Reader lud vorher jede `.leaves`-Datei komplett in den RAM → jetzt
+   Range-Reads, nur `.rows` resident, `resident_bytes()` beweisbar. 
+2. Builder sammelte den ganzen Frame vor dem Schreiben → jetzt zeilenweises
+   Streaming mit Freigabe.
+3. Ausschluss hing an `geomstats.enabled` (sonst `discarded=0`) → jetzt direkt
+   aus `sample_leaves`; Test an/aus.
+4. Generationswechsel löschte die alte Generation vor dem Rename und nutzte
+   `flush()` statt `fsync` → jetzt eindeutige Namen, alte unangetastet,
+   `fsync` von Dateien + Verzeichnissen, atomarer Pointer-Swap, kollisionsfreies
+   Staging.
+5. Readervertrag prüfte nur den Geometriehash → jetzt Schema/Algo, Population,
+   Dimensions-/Ausschluss-/Offsetkonsistenz, Datei-Längen, optionale
+   Record-Byte-Verifikation.
+
+**Runner-Integration (erledigt, `runner_forward_drizzle.cpp`):**
+- **Frischlauf:** in SAMPLING_GEOMETRY, **vor** `compute_geometric_coverage`,
+  bei mindestens einem lokalen Frame: Disk-Preflight (konservativ
+  4 Leaves/Sample · Variantenzahl · 1,5 Marge gegen `fs::space(dir)`), dann
+  `build_drizzle_geometry_cache` nach `dir/artifacts/forward_drizzle_geometry/`,
+  Reader öffnen, `ScopedActiveGeometryCache` publizieren (funktionsweit → deckt
+  Coverage, GLOBAL_QUALITY **und** FORWARD_DRIZZLE, single-thread). Phase-Ende
+  meldet `geometry_cache_seconds` / `geometry_cache_leaves`.
+- **Checkpoint** `forward_drizzle_checkpoint.json` → neues Objekt
+  `geometry_cache`: `generation`, `manifest_sha256`, `local_source_indices`,
+  `variants[]` ({pixfrac, geometry_hash}), `total_leaves`,
+  `total_record_bytes`.
+- **Resume** (`--from-phase GLOBAL_QUALITY`/`FORWARD_DRIZZLE`): rekonstruiert
+  die Varianten-Identitäten, prüft Anzahl + `geometry_hash` + sortierte
+  `local_source_indices` gegen den Checkpoint,
+  `FORWARD_STAGE_GEOMETRY_CACHE_PRESENCE_MISMATCH` wenn Lokal-Flag ↔ Checkpoint
+  divergieren, öffnet den Reader **mit `verify_record_bytes=true`** (voller
+  `.leaves`-SHA — einmalig, nicht der Per-Phase-Pfad), prüft
+  `manifest_sha256`. Jeder Fehlschlag wirft **vor** jedem `phase_start`.
+- **Affin-only-Läufe**: kein lokaler Frame → Cache komplett übersprungen,
+  Verhalten unverändert (die 6 bestehenden `[forward-runner]`-Fälle grün).
+- Neuer Test `test_runner_forward_drizzle.cpp`
+  `[forward-runner][geometry-cache]` (`LocalWarpFixture`, 3 lokale Frames,
+  48² Canvas, `chunk_rows=3` ⇒ K≈16): Frischlauf baut/publiziert/​checkpointet
+  den Cache; `forward_drizzle_geometry_profile.json` zeigt für
+  `production_uniform_raw`/`coverage_cfa`/`coverage_footprint`/
+  `prepare_exclusion_scan` je **null** `invert_iterations` /
+  `top_level_sample_leaves_calls`; Resume ab FORWARD_DRIZZLE verifiziert den
+  Cache neu (`FORWARD_DRIZZLE`,`MULTIBAND` starten); ein mittiger Byte-Flip in
+  `.leaves` lässt den Resume **vor** jedem `phase_start` scheitern.
+
+**Cache × CUDA-Hybrid-Parität (Nachtrag Review):** neuer Fall
+`[cuda-parity][geometry-cache]` in `test_forward_drizzle_contrib_list.cpp` —
+für einen Lokal-Warp-Frame (MONO + OSC) gilt mit publiziertem Cache:
+`accumulate_pair_by_frame` (CPU) unverändert gegenüber No-Cache **und**
+`accumulate_pair_by_frame_cuda` (Hybrid) unverändert gegenüber No-Cache
+**und** CPU == Hybrid — das Quadrat kommutiert byte-identisch (57 738
+Assertions). Vorher war `[cuda-parity]` × Cache nicht getestet.
+
+**Messwert Leaf/Sample:** der `LocalWarpFixture`-Lauf meldet
+`geometry_cache_leaves = 6144` bei 3 Frames × 32² = 3072 Samples ⇒
+**2 Leaves/Sample** (stärkerer Warp als die P0-Fixture mit 1). Erster
+gemessener Beleg für die „2–3 Leaves/Sample"-Annahme, auf der die
+P4-I/O-Frage ruht; der Disk-Preflight (Faktor 4) hat damit nur ~2×
+Reserve, nicht 4×.
+
+**Parität nach Runner-Integration:** Gesamtlauf **522/523, 1 431 129
+Assertions**; einziger Fehlschlag weiterhin `test_acceleration_backend.cpp:254`.
+
+**Damit ist P1+P2 abgeschlossen** (Bibliothek + Runner + Resume + Tests +
+CUDA-Parität).
+
+---
+
+### 30.64 §11.14 P3/P4-Vorbereitung: Skalierungsleiter + gemessene Raten (2026-09-08)
+
+Nutzerentscheidung: „beides vorbereiten" — die synthetische Skalierungsleiter
+(gemeinsame Infrastruktur für P3-Worker-Bit-Exaktheit und P4-I/O/RAM-Messung)
+zuerst bauen, dann aus den ersten Zahlen über die Reihenfolge P3↔P4 entscheiden.
+
+**Neu:**
+- `build_drizzle_geometry_cache` liefert jetzt die Wall-Zeit-Aufteilung
+  `sample_leaves_seconds` (der O(V·N·P)-Rechenterm, einmalig, per-Frame
+  parallelisierbar) vs. `write_seconds` (Record-/Index-Schreiben + `fsync`).
+- `tests/test_geometry_scaling_ladder.cpp` (`[geometry-ladder]`): parametrische
+  Lokal-Warp-Szene über eine Frame-Leiter. Default-Sprossen {4,8,16} @ 96²
+  (schnell, CI); `TC_LADDER_FULL=1` → {8,40,100,200} @ 192². Misst pro Sprosse
+  Build-Compute/Write, Disk-Bytes, Reader-`open`/`open+verify`,
+  `resident_bytes`, Leaves/Sample, Forward-Drizzle mit/ohne Cache. Prüft:
+  Cache-an-Ausgabe **byte-identisch** zu Cache-aus bei jeder Sprosse;
+  `resident_bytes` < `total_record_bytes/4` (Zeilenindex-gebunden);
+  Leaves/Sample über die Leiter ~konstant. Heavy-Sweep bricht bei kleinem
+  `/tmp` sauber ab (kein Defekt).
+
+**Messung (Default-Sprossen, diese Maschine):**
+
+| N | compute_s | write_s | disk_MiB | wr_MiB/s | resident_KiB | Leaves/Sample | drz_cache_s | drz_nocache_s | Speedup |
+|--:|----------:|--------:|---------:|---------:|-------------:|--------------:|------------:|--------------:|--------:|
+| 4 | 0,077 | 0,005 | 2,53 | ~500 | 12 | **1,00** | 0,035 | 1,72 | **49×** |
+| 8 | 0,155 | 0,008 | 5,06 | ~620 | 24 | 1,00 | 0,056 | 3,45 | **61×** |
+| 16 | 0,318 | 0,017 | 10,12 | ~600 | 49 | 1,00 | 0,112 | 6,84 | **61×** |
+
+- **Leaves/Sample = 1,00 exakt und konstant** (dieser Warp-Klasse; der stärkere
+  `LocalWarpFixture`-Warp gab 2 — die Spanne 1–3 steht).
+- **`resident_bytes` = nur Zeilenindex**, ~3 KiB/Frame, entkoppelt vom
+  Record-Volumen (2,5–10 MiB). Der „kein Vollleaf-Cache"-Vertrag hält bei
+  Skalierung.
+- **Write ≈ 500–680 MiB/s** (Sprosse rechengebunden ⇒ Untergrenze).
+- **Forward-Drizzle mit Cache 49–61× schneller** als ohne, bit-identisch.
+
+**Projektion 600 Frames @ 3840×2160 (Extrapolation aus der 16-Frame/96²-Sprosse,
+kein Lauf):** ~334 GiB Records auf Disk; `sample_leaves`-Build ~10 700 s
+einkernig (**~670 s / 16 Kerne** — per-Frame trivial parallel); Record-Write
+~570 s bei ≥ 600 MiB/s.
+
+**Entscheidung P3↔P4:** Die I/O widerlegt die Architektur **nicht** — 334 GiB,
+~570 s Write und ~1,8 MiB residenter Index sind unkritisch. Der einmalige
+O(V·N·P)-`sample_leaves`-Rechenterm (~3 h einkernig) ist die Kostenstelle, und
+der ist **per-Frame trivial parallelisierbar** ⇒ **P3 (deterministische
+Parallelität) ist der richtige nächste Schritt**, die verbindliche Planreihenfolge
+wird durch die Messung bestätigt (die Advisor-Sorge „I/O kippt die Architektur"
+ist gemessen widerlegt). P4 behält den realen 600-Frame-End-to-End-Nachweis bei
+echter Canvasgröße.
+
+**Parität:** Gesamtlauf **523/524, 1 431 142 Assertions**; einziger Fehlschlag
+weiterhin `test_acceleration_backend.cpp:254`.
+
+**Noch nichts committet.**
+
+---
+
+### 30.65 §11.14 P3 Teil 1: paralleler Geometrie-Cache-Build (2026-09-08)
+
+Die Messung (§30.64) zeigt den **Geometrie-Build** als dominante Kostenstelle
+(~3 h einkernig für 600 Frames) — und er ist per-Frame trivial parallel.
+Deshalb zuerst P3s ersten Bulletpoint: „Geometrie-Batches unabhängig parallel
+erzeugen. Ergebnisse nach stabiler Frame-/Quell-/Leaf-ID veröffentlichen, nie
+nach Task-Fertigstellungsreihenfolge."
+
+**`build_drizzle_geometry_cache(..., int max_workers = 1)`:**
+- Jede `(Variante, lokaler Frame)`-Kombination ist eine unabhängige Task
+  (`build_one_frame`): eigener `sample_leaves`-Sweep, eigene `.rows`/`.leaves`-
+  Dateien, eigene SHA-Kontexte, **kein geteilter veränderlicher Zustand**.
+- OpenMP-Team (`#pragma omp parallel for schedule(dynamic,1) if(workers>1)`) über
+  die flache Taskliste; Exception-Weiterleitung über `std::exception_ptr` +
+  `#pragma omp critical` (OpenMP-Regionen lassen keine Exceptions heraus).
+- Die `geomstats`-Zähler (prozess-global) werden über die Region deaktiviert und
+  danach restauriert — sonst Data-Race auf dem Diagnosezähler; der Build ist
+  ohnehin kein Consumer.
+- **Manifest-Assemblierung seriell in deterministischer
+  `(Variante, source_index)`-Reihenfolge** aus den `outs[k]`-Slots (Tasks in
+  eben dieser Reihenfolge gepusht) → der committete Store ist
+  **byte-identisch** zur 1-Worker-Referenz, unabhängig von Workerzahl und
+  Scheduling.
+- Ergebnis meldet `workers_used`, `wall_seconds`, `sample_leaves_seconds`
+  (Summe über Frames = Einkern-Äquivalent), `write_seconds`.
+
+**Runner:** `runner_forward_drizzle.cpp` leitet den Build-Workercount aus
+`hardware_concurrency()` ab, gedeckelt auf die Taskzahl;
+`TC_GEOMETRY_CACHE_WORKERS` überschreibt (`=1` = Referenzmodus). `workers_used`
++ Build-Teilzeiten landen im Checkpoint `geometry_cache` (informativ, **nicht**
+Teil der Resume-Validierung — der Store ist workerzahl-unabhängig identisch).
+Die Reduktion bleibt einkernig (`parallel_workers=1` unangetastet).
+
+**Tests:**
+- `test_drizzle_geometry_cache.cpp` `[geometry-cache][geometry-parallel]`:
+  Build mit 1/2/4 Workern (6 lokale Frames, 2 Varianten) → identische
+  per-Frame `rows_sha256`/`leaves_sha256`, `total_leaves`, `total_record_bytes`,
+  Ausschlusszahl **und** identischer Forward-Drizzle-Digest.
+- `test_geometry_scaling_ladder.cpp`: P3-Worker-Sweep (1/2/4/8) auf der größten
+  Sprosse — per-Frame-SHAs byte-identisch über alle Workerzahlen; gemessene
+  Wall-Speedups (16-Frame-Sprosse, diese Maschine):
+
+| Workers | wall_s | Speedup vs. 1 |
+|--------:|-------:|--------------:|
+| 1 | 0,373 | 1,0× |
+| 2 | 0,192 | 1,9× |
+| 4 | 0,103 | 3,6× |
+| 8 | 0,069 | 5,4× |
+
+  `sample_leaves_seconds` (Gesamtarbeit) bleibt ~0,34–0,42 s über alle
+  Workerzahlen. ⇒ Der ~11 900-s-Einkern-Build-Projektionswert skaliert real
+  (≈ 3,6× bei 4 Kernen, 5,4× bei 8), macht die Disk-Store-Architektur
+  laufzeitseitig tragbar.
+
+**Parität:** Gesamtlauf **524/525, 1 431 157 Assertions**; einziger Fehlschlag
+weiterhin `test_acceleration_backend.cpp:254`.
+
+**Noch offen (P3 Teil 2, gekoppelt an P4):** Reduktionsarbeit nach unabhängigen
+Zielregionen partitionieren (kanonische Reduktionsfolge pro Zelle, kein freier
+Summenbaum), Workerzahl aus **gemeinsamem** Budget (Quellen, Q-Maps,
+Geometrieindex, Kandidaten, Halo, Reader, Scratch) statt nur
+`hardware_concurrency`, **geteilter** Reader statt pro Worker, dann Runner-Zwang
+`parallel_workers=1` durch budgetierten Scheduler ersetzen, Tests 1/2/4/max mit
+Store-/Masken-/Auswahl-Bit-Exaktheit + Peak-RSS im Vertrag. Diese Zahlen hängen
+von P4s Speicher-/I-O-Messung bei echter Canvasgröße ab.
+
+**Noch nichts committet.**
+
+---
+
+### 30.66 §11.14 P4: Speicher-/I-O-Residenz — Analyse, Admission-Term-Korrektur, Messung (2026-09-08)
+
+**Kern-P4-Aufgabe: den behaupteten `3840*2160*4*N`-Admission-Term lokalisieren
+oder als unbestätigt zurückweisen.**
+
+**Lokalisiert:** `apps/runner_pipeline.cpp` Zeile 1817, `forward_drizzle_only`-
+Preflight, direkt nach SCAN_INPUT. Übergab
+`retained_bytes = pixels·sizeof(float)·frames.size()` an `plan_drizzle_memory`
+(Kommentar: „bound existing registration-proxy retention"). **Der Term war
+4× zu hoch:** der Registration-Proxy ist ein **2×2-Downsample**
+(`build_registration_proxy` → `cfa_green_proxy_downsample2x2` /
+`downsample2x2_mean`, `apps/runner_shared.cpp:1499`), also `pixels/4` Floats,
+**keine** Vollauflösungsebene. Korrigiert zu
+`(pixels/4)·sizeof(float)·frames.size()`. Realer frameskalierender
+RAM-Term: **`N·pixels` Bytes** (100 Frames @ 3840×2160 = **~830 MB**, nicht
+3,3 GB) — die §30.61-Blockade (100 Frames @ 4 GB abgelehnt) ist damit weg.
+Keine pauschalen „25 GB".
+
+**Residenztabelle (alle frameskalierenden Buffer):**
+
+| Buffer | Eigentümer | Pro Frame | Ort | Anmerkung |
+|---|---|---|---|---|
+| Registration-Proxies | `RunnerFrameCache::registration_proxies_` | `pixels/4 · 4 B` | **RAM** | **Einziger** N-RAM-Term; **vor** FORWARD_DRIZZLE freigegeben (`runner_pipeline.cpp:1861`). Admission-Guard lädt ihn jetzt korrekt. |
+| Normalisierte Vollframes | `DiskCacheFrameStore` | `pixels · 4 B` | **Disk** | LRU-Read via `VerifiedNormalizedSourceCache(memory_budget_mb)` → begrenztes Arbeitsfenster, nicht N-resident. |
+| Source-Quality-Maps | `SourceQualityMapCacheReader` | ≤ 4 Streams · `pixels · 4 B` | **Disk** | „valid until next call" → 1 Frame gleichzeitig resident. |
+| Geometrie-Cache-Leaves | `.leaves`-Dateien | `pixels · Leaves/Sample · 72 B` | **Disk** | `enumerate_stripe` seekt nur schneidende Row-Blöcke; nie voll resident. |
+| Geometrie-Cache-Zeilenindex | `DrizzleGeometryCacheReader` | `source_height · 32 B` | **RAM** | Gemessen **3 KiB/Frame**, O(N), entkoppelt vom Record-Volumen. |
+| Kandidaten-Buffer | `stream_forward_drizzle_uniform_and_raw` | `stripe_rows · width · N · sizeof(ClipCandidate)` | **RAM** | N-abhängig, aber **streifenbegrenzt** (chunk_rows), nicht vollhöhe; von `plan_drizzle_memory` budgetiert. |
+| Streifen-Akkumulatoren (A,B,QA*) | dito | `stripe_rows · width · ~48 B · Kanäle` | **RAM** | **N-unabhängig**, chunk-begrenzt. |
+
+⇒ **Nach der Korrektur gibt es keine O(N·P)-RAM-Pflicht.** Alles ist entweder
+disk-backed mit begrenztem Fenster oder streifenbegrenzt. Der einzige echte
+N-RAM-Term (Proxies) ist ¼-Auflösung und vor der Rekonstruktion frei.
+
+**Skalierungsleiter-Messung (`test_geometry_scaling_ladder.cpp`, neuer
+P4-Residenzblock):**
+
+| N | Disk-Records MiB | Reader resident KiB | resident/record | Prozess-VmHWM MiB |
+|--:|-----------------:|--------------------:|----------------:|-----------------:|
+| 4 | 2,53 | 12 | 0,0048 | 232 |
+| 8 | 5,06 | 24 | 0,0048 | 232 |
+| 16 | 10,12 | 49 | 0,0048 | 232 |
+
+- Reader-Residenz **linear in N** (3 KiB/Frame), **nicht** in N·P. Bei echter
+  3840×2160-Canvas wäre der Zeilenindex `2160·32 B/Frame` ≈ 0,01 % des
+  Record-Volumens.
+- Prozess-`VmHWM` **konstant über N** — der Build mit seinem begrenzten
+  Ein-Zeilen-Staging wächst nicht mit der Framezahl.
+- Assertion: resident/Frame ~konstant, resident/record-Verhältnis wächst nicht
+  mit N.
+
+**Parität:** Gesamtlauf **524/525, 1 431 159 Assertions**; einziger Fehlschlag
+weiterhin `test_acceleration_backend.cpp:254`. Die Admission-Guard-Korrektur
+in `runner_pipeline.cpp` hat keinen Unit-Test (nur im vollen `reconstruct`-Lauf
+erreicht); sie **lockert** einen Guard mit belegter Begründung (Proxy =
+2×2-Downsample).
+
+**Noch offen:** die reale 40/100/200/600-Frame-Skalierungsleiter bei **echter
+Canvasgröße** (synthetisch für Lastskalierung zulässig; braucht aber Platz +
+Zeit — die `TC_LADDER_FULL`-Sprossen sind 192², nicht 3840²) und der
+600-Frame-End-to-End-Nachweis gehören zu **P6** (Benutzerlauf, nicht
+autorisiert). P4-seitig ist der Speicherpfad analysiert und der eine falsche
+Guard-Term korrigiert.
+
+**Als Nächstes:** P3 Teil 2 (Reduktion nach Zielregionen partitionieren,
+gemeinsames Worker-Budget aus der Residenztabelle oben, geteilter Reader,
+`parallel_workers=1` durch Scheduler ersetzen). Dann P5 (Resthotspot). **P6
+ist ein Benutzerlauf** — nicht autorisiert.
+
+**Noch nichts committet.**
+
+---
+
+### 30.67 §11.14 P3 Teil 2: streifeninterne Zeilenband-Parallelität der Reduktion (2026-09-09)
+
+**Aufgabe:** die Rekonstruktions-Reduktion nach unabhängigen Zielregionen
+partitionieren, ohne die kanonische Reduktionsreihenfolge pro Zelle zu ändern
+(kein freier Summenbaum, keine ungeordneten Float-Atomics), gemeinsames
+Worker-Budget, geteilter Reader.
+
+**Partitionierungsachse — nicht die naheliegende.** Erste Idee war
+Streifen-Parallelität (jeder `chunk_rows`-Streifen ein Worker). Verworfen, weil:
+1. `VerifiedNormalizedSourceCache` hält **einen** `Matrix2Df image_`; `load()`
+   überschreibt ihn und gibt eine Referenz darauf zurück. W Streifen-Worker =
+   W gleichzeitige Schreiber in denselben Puffer + hängende Referenzen. Die
+   Frame-Schleife ist **innerhalb** der Streifenschleife, also würde jeder
+   Streifen-Worker alle Frames erneut laden.
+2. Der Profile-Store erzwingt strikte y-Reihenfolge (`drizzle_profile_store.cpp`
+   `y != next_y_` → Wurf). Streifen-Parallelität bräuchte eine geordnete
+   Drain-Schlange.
+
+**Gewählt: streifeninterne Zeilenband-Partition** (`stream_forward_drizzle_uniform_and_raw`,
+neuer Trailing-Parameter `int workers = 1`). Pro Streifen wird `[0, rows)` in
+`nb = min(workers, rows)` lückenlose, disjunkte Canvas-Zeilenbänder geteilt.
+Die Frame-Schleife bleibt **außen + seriell** (ein `source_of`-Load pro Frame
+auf dem Aufruferthread); pro Frame läuft eine `#pragma omp parallel num_threads(nb)`-
+Region, in der jeder Worker sein Band rastert (`rasterize_drizzle_stripe(plan,
+*f, scale, pixfrac, y + r0, r1 - r0, …)` — der `i`-Callbackwert ist
+fensterrelativ und wird per `gi = i + r0·width` in die streifenweiten
+Akkumulatoren umbasiert), die Kandidaten seines Bandes sammelt und danach in
+einer zweiten Band-Region `reduce_pixel_profiles` über dieselben `i`-Bereiche
+aufruft. Jede Canvas-Zelle wird von **genau einem** Worker geschrieben, und die
+Quell-Iterationsreihenfolge pro `i` ist unverändert → **bit-identisch** zu
+`workers == 1`.
+
+Warum das alle Klippen umgeht: **kein Provider-Concurrency** (ein `load()` pro
+Frame, Aufruferthread), **keine Sink-Umsortierung** (ein `sink(y, result)` pro
+Streifen, y-Reihenfolge, Store unangetastet), **keine Budget-Division** (A/B/QA*/
+candidates sind dieselben Puffer, nur andere Indexbereiche → RAM identisch zur
+seriellen Variante, keine `budget/W`-Verkleinerung von `chunk_rows`), **keine
+Reduktionsbaum-Atomics**. Die 2/1-Produktionsvariante
+(`stream_forward_drizzle_uniform_and_raw_2x2`) reicht `workers` nur durch — der
+2×2→1×-Fold liegt hinter dem (weiterhin geordneten, ein-pro-Streifen) inneren
+Sink.
+
+**Geometrie-Cache-Weitergabe.** OpenMP-Worker erben den `thread_local`-Guard
+`g_active_geometry_cache` nicht. `stream_*` fängt `active_geometry_cache()` auf
+dem Aufruferthread ab und jeder Band-Worker setzt einen eigenen
+`ScopedActiveGeometryCache` — ohne den würden Worker still auf volle
+Re-Enumeration zurückfallen (numerisch **korrekt**, aber P1/P2 entwertet, von
+Byte-Identität allein nicht erkennbar). Absicherung: neuer
+`std::atomic<uint64_t> DrizzleGeometryCacheReader::enumerate_call_count()`;
+der Test verlangt, dass er bei **jedem** W pro Lauf strikt wächst.
+
+**Geometrie-Statistik.** Die prozessglobale, nicht-concurrency-sichere
+`geomstats::Registry` wird bei `workers > 1` für die Streifenschleife
+deaktiviert (RAII-Restore). Bei `workers == 1` (Default, Runner-Pfad
+unverändert) ist die `ScopedVariant`/`ScopedGeometryTimer`-Instrumentierung
+byte-identisch zu vorher.
+
+**Band-Dispatch.** `#pragma omp for schedule(static, 1)` über `b ∈ [0, nb)`,
+**nicht** Schlüsselung über `omp_get_thread_num()` — `num_threads(nb)` ist nur
+eine Obergrenze, die der Laufzeitkern (z. B. unter `OMP_THREAD_LIMIT` oder
+Nesting) senken darf; die Worksharing-Schleife garantiert die Bandabdeckung
+auch dann, wenn weniger als `nb` Threads vergeben werden. Verifiziert:
+`[geometry-parallel]` grün bei `OMP_NUM_THREADS=1` **und** `=6`.
+
+**Ausnahmen.** Ein aus einer OpenMP-Region entkommender Wurf ist UB; der
+Schleifenkörper fängt pro Iteration und rethrowt nach der Region via
+`std::exception_ptr` + `#pragma omp critical` (dasselbe Muster wie der
+P3-Teil-1-Build).
+
+**Reichweite dieses Schnitts (bewusst eng):** nur `stream_forward_drizzle_uniform_and_raw`
+(+ 2x2-Wrapper). `compute_geometric_coverage` bleibt seriell (eigener
+Aufrufort, eigene Gate-Config; laut §30.64 nicht mehr der Engpass, seit
+cache-gespeist). **Der Runner ist unangetastet** — `parallel_workers=1` bleibt,
+bis ein budgetierter Scheduler entworfen ist (Plan-Reihenfolge: „Erst dann").
+Alle Bestandsaufrufer/-Tests bleiben durch `workers = 1` auf dem seriellen
+Referenzpfad.
+
+**Tests** (`test_drizzle_geometry_cache.cpp`, `[geometry-cache][geometry-parallel]`):
+1. **Band-Tiling-Invariante:** Vereinigung der Leaf-Zellen aus 2/3/5 disjunkten
+   Canvas-Zeilenfenstern == Ganzstreifen-Zellen (als sortierte Multimenge —
+   die Band-Zerlegung ändert die *Sequenz*, nicht den Inhalt), für einen
+   cache-gespeisten Local-Frame **und** einen Affin-Frame.
+2. **Reduktions-Bit-Identität:** `compute_forward_drizzle_uniform_and_raw` mit
+   vollem Mehrband + Quality-Provider (Raw/Fine/Medium + alle drei
+   Alpha-Confidence-Faktoren), `workers ∈ {1,2,4}` × `chunk_rows ∈ {3,7}`:
+   alle Profilebenen-Bytes (value/weight_sum/n_eff/support), alle Alpha-Maps,
+   `alpha_confidence_support` und die drei Clipping-Zähler byte-identisch zu
+   `workers == 1`; `enumerate_call_count()` bei jedem W > 0.
+`-fopenmp` ist für `tile_compile_lib` aktiv (`flags.make`), die W=2/4-Läufe
+sind also echte Parallelität.
+
+**Parität:** Gesamtlauf **526/527, 1 431 204 Assertions** (+2 Fälle, +45
+Assertions ggü. §30.66); einziger Fehlschlag weiterhin
+`test_acceleration_backend.cpp:254` (GPU-umgebungsabhängig, vorbestehend).
+
+**Noch offen (P3-seitig):** Wall-Speedup-Messung der Reduktion bei realer
+Canvasgröße (die Unit-Fixtures sind zu klein für aussagekräftige Zeiten);
+Runner-Scheduler, der `parallel_workers=1` ersetzt. Es gibt **keine**
+Budget-Division: `plan_drizzle_memory` wird einmal mit dem vollen Budget
+aufgerufen, die Bänder teilen dieselben Puffer. Die echte
+Worker-Zahl-Schranke ist `nb ≤ rows` — bei Produktions-`chunk_rows` (Auto
+≤ 256) kann eine 16-Kern-Box alle 16 Bänder nutzen, ein klein erzwungenes
+`chunk_rows` deckelt die Parallelität still; das ist ein Scheduler-Input, kein
+Speicherproblem. P5 (Resthotspot) danach. **P6 ist ein Benutzerlauf** — nicht
+autorisiert.
+
+**Noch nichts committet.**
 
 ---
 

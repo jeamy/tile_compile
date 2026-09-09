@@ -453,6 +453,8 @@ set(LIB_SOURCES
     src/registration/sampling_geometry.cpp
     src/reconstruction/forward_drizzle.cpp
     src/reconstruction/forward_drizzle_contrib_list.cpp
+    src/reconstruction/drizzle_geometry_stats.cpp
+    src/reconstruction/drizzle_geometry_cache.cpp
     src/reconstruction/source_quality_proxy.cpp
     src/reconstruction/source_quality_maps.cpp
     src/reconstruction/source_quality_map_cache.cpp
@@ -526,6 +528,12 @@ if(NOT MSVC)
         src/reconstruction/forward_drizzle.cpp
         src/reconstruction/forward_drizzle_contrib_list.cpp
         src/reconstruction/forward_drizzle_cuda.cpp
+        # P0 geometry instrumentation: integer counters + diagnostic timers
+        # only, but it lives on the forward-drizzle path, so pin it identically.
+        src/reconstruction/drizzle_geometry_stats.cpp
+        # P1/P2 geometry cache: replays the exact leaf-bbox clamp + cell loop
+        # the enumerator uses, so it MUST share the FP-contraction contract.
+        src/reconstruction/drizzle_geometry_cache.cpp
         # The parity tests re-implement the CPU reference inline; they must be
         # pinned identically to the path they validate.
         tests/test_forward_drizzle.cpp
@@ -725,6 +733,9 @@ if(BUILD_TESTS)
             tests/test_forward_drizzle.cpp
             tests/test_forward_drizzle_contrib_list.cpp
             tests/test_forward_drizzle_synthetic_quality.cpp
+            tests/test_forward_drizzle_geometry_scaling.cpp
+            tests/test_drizzle_geometry_cache.cpp
+            tests/test_geometry_scaling_ladder.cpp
             tests/test_source_quality_proxy.cpp
             tests/test_source_quality_maps.cpp
             tests/test_source_quality_map_cache.cpp

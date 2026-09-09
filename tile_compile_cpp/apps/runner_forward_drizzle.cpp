@@ -7,7 +7,11 @@
 #include "tile_compile/reconstruction/output_scale.hpp"
 #include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/core/build_info.hpp"
+#include "tile_compile/reconstruction/drizzle_geometry_cache.hpp"
+#include "tile_compile/reconstruction/drizzle_geometry_stats.hpp"
 #include "tile_compile/registration/sampling_geometry.hpp"
+#include <algorithm>
+#include <cstdlib>
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include <chrono>
@@ -117,6 +121,13 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     RunnerFrameCache *fresh_cache,core::EventEmitter &emitter,std::ostream &log,
     const std::string &resume_from) {
   std::optional<Phase> active;
+  // Plan 11.14 P0: geometry instrumentation on for the whole stage. Integer
+  // counters + coarse timers only --- no compute-hash / pixel effect (the
+  // [cuda-parity] and [forward-runner] gates confirm). Per-variant counters
+  // separate SAMPLING_GEOMETRY (coverage_*) from FORWARD_DRIZZLE
+  // (production_uniform_raw / contrib_* / hybrid_cpu_geometry). Written to
+  // artifacts/forward_drizzle_geometry_profile.json after FORWARD_DRIZZLE.
+  reconstruction::geomstats::ScopedEnable geom_p0(true);
   const long long rss_baseline_kb=read_maxrss_kb();
   json phase_seconds=json::object();
   // Plan 11.13(4): phase-scoped RSS growth measured against the live VmRSS at
@@ -152,13 +163,95 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     const auto checkpoint_path=artifacts/"forward_drizzle_checkpoint.json";
     const auto geometry_hash=registration::compute_coverage_geometry_hash(
         sampling,drizzle,reconstruction_cfg.common_overlap_required_fraction);
+
+    // Plan 11.14 P1/P2: authoritative local-warp geometry cache. Built once at
+    // SAMPLING_GEOMETRY, then published (thread-local guard) for coverage,
+    // GLOBAL_QUALITY and FORWARD_DRIZZLE so no consumer re-runs sample_leaves
+    // per stripe. Affine-only runs skip it entirely (behaviour unchanged).
+    const reconstruction::ForwardDrizzleSubdivisionParams geom_sub{};
+    std::vector<reconstruction::GeometryVariant> geom_variants{
+        {drizzle.pixfrac}};
+    if (drizzle.pixfrac != 1.0f) geom_variants.push_back({1.0f});
+    std::vector<reconstruction::GeometryCacheIdentity> geom_ids;
+    for (const auto &gv : geom_variants)
+      geom_ids.push_back(reconstruction::make_geometry_cache_identity(
+          sampling, drizzle, gv, geom_sub));
+    std::vector<std::size_t> geom_local_indices;
+    for (const auto &f : sampling.frames)
+      if (f.valid && f.has_smooth_local_model)
+        geom_local_indices.push_back(f.source_index);
+    std::sort(geom_local_indices.begin(), geom_local_indices.end());
+    const bool geom_any_local = !geom_local_indices.empty();
+    const fs::path geom_cache_root = dir / "artifacts/forward_drizzle_geometry";
+    std::optional<reconstruction::DrizzleGeometryCacheReader> geom_reader;
+    std::optional<reconstruction::ScopedActiveGeometryCache> geom_guard;
+    auto open_geometry_cache = [&](bool from_resume) {
+      // On a fresh run the build just fsync'd every file --- the .rows hash +
+      // structural offset/length checks are sufficient. A resume re-reads a
+      // possibly stale-on-disk cache, so it pays the full .leaves byte
+      // verification (one-time, not the per-phase hot path).
+      geom_reader.emplace(geom_cache_root, geom_ids, geom_local_indices,
+                          /*verify_record_bytes=*/from_resume);
+      geom_guard.emplace(&*geom_reader);
+    };
+
     json checkpoint;
+    json checkpoint_geometry_cache;  // filled if a local-warp geometry cache is built
     if (resume_from.empty()) {
       if (!fresh_cache) throw std::runtime_error("FORWARD_STAGE_NORMALIZED_CACHE_REQUIRED");
       begin(Phase::NORMALIZED_CACHE);
       fresh_cache->seal_normalized_cache(sampling);
       end();
       begin(Phase::SAMPLING_GEOMETRY);
+      double geometry_cache_seconds=0.0;
+      if (geom_any_local) {
+        // Disk pre-flight (plan 11.14.3): a conservative 4 leaves/sample bound
+        // per variant, x1.5 margin. Records dominate; the row index is tiny.
+        const std::uint64_t sp=
+            static_cast<std::uint64_t>(sampling.source_width)*sampling.source_height;
+        const std::uint64_t est_bytes=
+            static_cast<std::uint64_t>(geom_local_indices.size())*sp*4ull*72ull*
+            geom_variants.size();
+        std::error_code sec;
+        const auto space=std::filesystem::space(dir,sec);
+        if (!sec && space.available < est_bytes + est_bytes/2)
+          throw std::runtime_error("FORWARD_STAGE_GEOMETRY_CACHE_DISK: need ~"+
+              std::to_string(est_bytes/(1024*1024))+" MiB");
+        // Plan 11.14.5 P3: each (variant, frame) build task is independent and
+        // its per-worker footprint is one source row of records --- safe to
+        // parallelise even while the reduction stays single-threaded. The
+        // committed store is byte-identical to the 1-worker reference.
+        // TC_GEOMETRY_CACHE_WORKERS overrides (=1 restores the reference mode).
+        int geom_workers=static_cast<int>(std::thread::hardware_concurrency());
+        if (geom_workers<1) geom_workers=1;
+        if (const char *e=std::getenv("TC_GEOMETRY_CACHE_WORKERS")) {
+          const int v=std::atoi(e);
+          if (v>=1) geom_workers=v;
+        }
+        geom_workers=std::min<int>(geom_workers,
+            std::max<std::size_t>(1,geom_local_indices.size()*geom_variants.size()));
+        const auto gc0=std::chrono::steady_clock::now();
+        const auto built=reconstruction::build_drizzle_geometry_cache(
+            geom_cache_root,sampling,drizzle,geom_variants,geom_sub,
+            static_cast<std::uint64_t>(drizzle.memory_budget_mb)<<20,geom_workers);
+        geometry_cache_seconds=
+            std::chrono::duration<double>(std::chrono::steady_clock::now()-gc0).count();
+        open_geometry_cache(false);
+        json gc;
+        gc["generation"]=built.generation_dir.filename().string();
+        gc["manifest_sha256"]=core::sha256_file(built.generation_dir/"manifest.json");
+        gc["local_source_indices"]=geom_local_indices;
+        gc["variants"]=json::array();
+        for (size_t i=0;i<geom_variants.size();++i)
+          gc["variants"].push_back({{"pixfrac",geom_variants[i].pixfrac},
+                                    {"geometry_hash",geom_ids[i].geometry_hash}});
+        gc["total_leaves"]=built.total_leaves;
+        gc["total_record_bytes"]=built.total_record_bytes;
+        gc["workers_used"]=built.workers_used;
+        gc["build_sample_leaves_seconds"]=built.sample_leaves_seconds;
+        gc["build_write_seconds"]=built.write_seconds;
+        checkpoint_geometry_cache=gc;
+      }
       auto coverage=registration::compute_geometric_coverage(sampling,drizzle.internal_scale,
           drizzle.pixfrac,reconstruction_cfg.coverage_gate,
           reconstruction_cfg.common_overlap_required_fraction,1,drizzle,false);
@@ -172,7 +265,14 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           registration::serialize_sampling_geometry_json(sampling,geometry_hash,drizzle.kernel,
               drizzle.pixfrac,drizzle.internal_scale,coverage));
       if (!coverage.gate.passed) throw std::runtime_error("FORWARD_STAGE_COVERAGE_GATE_FAILED");
-      end({{"analysis_pixels",coverage.gate.analysis_pixels}});
+      {
+        json sg_extra={{"analysis_pixels",coverage.gate.analysis_pixels}};
+        if (geom_any_local) {
+          sg_extra["geometry_cache_seconds"]=geometry_cache_seconds;
+          sg_extra["geometry_cache_leaves"]=checkpoint_geometry_cache.value("total_leaves",0);
+        }
+        end(sg_extra);
+      }
       begin(Phase::COMMON_OVERLAP);
       core::write_text_atomic(artifacts/"forward_common_overlap.json",json({
         {"schema_version",1},{"source","sampling_geometry"},{"geometry_hash",geometry_hash},
@@ -186,6 +286,8 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         {"sampling_plan_hash",sampling.plan_hash},{"geometry_hash",geometry_hash},
         {"cache_manifest_hash",cache.manifest_hash()},{"artifacts",json::object()}};
       for (const auto &name:geometry_files) checkpoint["artifacts"][name]=core::sha256_file(artifacts/name);
+      if (!checkpoint_geometry_cache.is_null())
+        checkpoint["geometry_cache"]=checkpoint_geometry_cache;
       core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
       end();
     } else {
@@ -198,6 +300,34 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       for (const auto &name:geometry_files)
         if (checkpoint.at("artifacts").at(name)!=core::sha256_file(artifacts/name))
           throw std::runtime_error("FORWARD_STAGE_PREDECESSOR_CORRUPT: "+name);
+      // Plan 11.14: re-open + verify the local-warp geometry cache before any
+      // resumable phase that consumes it. The reader re-checks identity,
+      // population and every record offset; the checkpoint pins the generation
+      // and its manifest digest so a rebuilt / swapped cache is rejected.
+      const bool ckpt_has_geom=checkpoint.contains("geometry_cache") &&
+                               !checkpoint.at("geometry_cache").is_null();
+      if (geom_any_local != ckpt_has_geom)
+        throw std::runtime_error("FORWARD_STAGE_GEOMETRY_CACHE_PRESENCE_MISMATCH");
+      if (ckpt_has_geom) {
+        const auto &gc=checkpoint.at("geometry_cache");
+        if (gc.at("variants").size()!=geom_ids.size())
+          throw std::runtime_error("FORWARD_STAGE_GEOMETRY_CACHE_VARIANT_MISMATCH");
+        for (size_t i=0;i<geom_ids.size();++i)
+          if (gc.at("variants").at(i).at("geometry_hash")!=geom_ids[i].geometry_hash)
+            throw std::runtime_error("FORWARD_STAGE_GEOMETRY_CACHE_IDENTITY_MISMATCH");
+        std::vector<std::size_t> ckpt_idx=
+            gc.at("local_source_indices").get<std::vector<std::size_t>>();
+        std::sort(ckpt_idx.begin(),ckpt_idx.end());
+        if (ckpt_idx!=geom_local_indices)
+          throw std::runtime_error("FORWARD_STAGE_GEOMETRY_CACHE_POPULATION_MISMATCH");
+        open_geometry_cache(true);  // throws on any structural / checksum fault
+        const fs::path gen_dir=
+            geom_cache_root/gc.at("generation").get<std::string>();
+        if (!fs::is_regular_file(gen_dir/"manifest.json") ||
+            core::sha256_file(gen_dir/"manifest.json")!=
+                gc.at("manifest_sha256").get<std::string>())
+          throw std::runtime_error("FORWARD_STAGE_GEOMETRY_CACHE_MANIFEST_CHANGED");
+      }
     }
     reconstruction::VerifiedNormalizedSourceCache cache(cache_dir,sampling,drizzle.memory_budget_mb);
     if (checkpoint.at("cache_manifest_hash")!=cache.manifest_hash())
@@ -316,6 +446,12 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         extra["cuda_fallback_reason"]=fd_cuda_fallback_reason;
       end(extra);
     }
+
+    // Plan 11.14 P0: persist the geometry counters + timers gathered across
+    // SAMPLING_GEOMETRY and FORWARD_DRIZZLE. Diagnostic-only; no checkpoint
+    // hash guard (like forward_drizzle.json).
+    core::write_text_atomic(artifacts/"forward_drizzle_geometry_profile.json",
+        reconstruction::geomstats::to_json());
 
     bool final_image_available=false;
     if (want_multiband) {

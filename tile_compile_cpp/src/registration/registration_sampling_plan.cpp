@@ -2,6 +2,7 @@
 #include "tile_compile/registration/registration_sampling_plan.hpp"
 
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/reconstruction/drizzle_geometry_stats.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -141,7 +142,12 @@ bool invert_local_source_to_canvas(const FrameSamplingTransform& frame,
   float qy = uy;
   bool converged = false;
   const int max_iter = params.max_iter > 0 ? params.max_iter : 1;
+  const bool instrument = reconstruction::geomstats::registry().enabled;
+  if (instrument)
+    ++reconstruction::geomstats::registry().cur().invert_calls;
   for (int n = 0; n < max_iter; ++n) {
+    if (instrument)
+      ++reconstruction::geomstats::registry().cur().invert_iterations;
     float dx = 0.0f;
     float dy = 0.0f;
     if (!local_displacement_render_units(frame, qx, qy, dx, dy)) return false;

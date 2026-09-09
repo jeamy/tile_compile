@@ -1,5 +1,6 @@
 #include "tile_compile/reconstruction/forward_drizzle_contrib_list.hpp"
 
+#include "tile_compile/reconstruction/drizzle_geometry_stats.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
 #include "tile_compile/registration/registration_sampling_plan.hpp"
 
@@ -60,12 +61,16 @@ std::vector<DrizzleContrib> build_frame_records(
   const unsigned long long kCountCeiling =
       static_cast<unsigned long long>(std::numeric_limits<std::size_t>::max() /
                                       sizeof(DrizzleContrib));
-  rasterize_drizzle_stripe(
-      plan, f, g.scale, cfg.pixfrac, y_begin, rows,
-      [&](int sx, int sy, int, int, std::size_t, double) {
-        if (std::isfinite(static_cast<double>(src(sy, sx)))) ++count;
-      },
-      sub);
+  {
+    geomstats::ScopedVariant _v(geomstats::Variant::kContribCount, cfg.pixfrac);
+    geomstats::ScopedGeometryTimer _t;
+    rasterize_drizzle_stripe(
+        plan, f, g.scale, cfg.pixfrac, y_begin, rows,
+        [&](int sx, int sy, int, int, std::size_t, double) {
+          if (std::isfinite(static_cast<double>(src(sy, sx)))) ++count;
+        },
+        sub);
+  }
   if (count >= kCountCeiling ||
       static_cast<std::size_t>(count) * sizeof(DrizzleContrib) > mem_budget_bytes)
     throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
@@ -73,6 +78,8 @@ std::vector<DrizzleContrib> build_frame_records(
   std::vector<DrizzleContrib> out;
   out.reserve(static_cast<std::size_t>(count));
   const auto Wsz = static_cast<std::size_t>(g.W);
+  geomstats::ScopedVariant _v(geomstats::Variant::kContribFill, cfg.pixfrac);
+  geomstats::ScopedGeometryTimer _t;
   rasterize_drizzle_stripe(
       plan, f, g.scale, cfg.pixfrac, y_begin, rows,
       [&](int sx, int sy, int c, int leaf, std::size_t i, double k) {
@@ -185,6 +192,11 @@ std::vector<DrizzleContrib> build_frame_records_hybrid_local(
     meta.clear();
   };
 
+  // No ScopedGeometryTimer here: HybridPathStats already separates CPU geometry
+  // from GPU raster time on this path, and flush() (GPU work) runs inside the
+  // enumerate sink.
+  geomstats::ScopedVariant _v(geomstats::Variant::kHybridCpuGeometry,
+                              cfg.pixfrac);
   enumerate_drizzle_stripe_leaf_cells(
       plan, f, g.scale, cfg.pixfrac, y_begin, rows,
       [&](int sx, int sy, int c, int leaf_order, int cx, int cy,

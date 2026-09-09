@@ -1817,8 +1817,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       const size_t pixels = static_cast<size_t>(width) * height;
       if (frames.size() > std::numeric_limits<size_t>::max() / sizeof(float) / pixels)
         throw std::runtime_error("FORWARD_RUN_MEMORY_SIZE_OVERFLOW");
-      // Bound existing registration-proxy retention before normalization starts.
-      reconstruction::plan_drizzle_memory(resources, limits, 128, pixels * sizeof(float) * frames.size());
+      // Plan 11.14.6 P4: the only frame-count-dependent RAM held concurrently
+      // with the reconstruction working set is the in-memory registration
+      // proxy set (RunnerFrameCache::registration_proxies_). Each proxy is a
+      // 2x2 downsample (build_registration_proxy -> cfa_green_proxy_downsample2x2
+      // / downsample2x2_mean), i.e. pixels/4 floats --- NOT a full-resolution
+      // plane. Normalized full frames are disk-backed (DiskCacheFrameStore) and
+      // the geometry cache reader keeps only the row index (~KiB/frame). Charge
+      // the real proxy footprint; the earlier pixels*4*N term over-estimated it
+      // 4x and needlessly rejected 100+ frame runs (dev protocol s30.61).
+      const size_t proxy_bytes_per_frame = (pixels / 4) * sizeof(float);
+      reconstruction::plan_drizzle_memory(resources, limits, 128,
+                                          proxy_bytes_per_frame * frames.size());
     } catch (const std::exception &e) {
       emitter.run_end(run_id, false, "error", log_file, {{"message", e.what()}});
       return 1;

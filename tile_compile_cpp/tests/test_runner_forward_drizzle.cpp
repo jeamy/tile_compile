@@ -140,6 +140,20 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
     // near-constant control has ~0 background RMS => that mandatory safety
     // metric is non-applicable => Raw drops to the Uniform control.
     REQUIRE(fs::exists(f.dir/"artifacts/forward_drizzle.json"));
+    // Plan 11.14 P0: the geometry profile is written on every successful stage
+    // and carries at least the production + coverage geometry variants.
+    REQUIRE(fs::exists(f.dir/"artifacts/forward_drizzle_geometry_profile.json"));
+    {
+      std::ifstream gp(f.dir/"artifacts/forward_drizzle_geometry_profile.json");
+      const auto gj=core::json::parse(gp);
+      REQUIRE(gj.at("context").at("prepared_frames").get<int>()>0);
+      REQUIRE(gj.at("variants").is_object());
+      REQUIRE_FALSE(gj.at("variants").empty());
+      bool any_leaves=false;
+      for (auto it=gj.at("variants").begin();it!=gj.at("variants").end();++it)
+        any_leaves=any_leaves||it.value().at("leaf_cells_emitted").get<long long>()>0;
+      REQUIRE(any_leaves);
+    }
     std::ifstream fj(f.dir/"artifacts/forward_drizzle.json");
     const auto j=core::json::parse(fj);
     const std::string sel=j.at("selected_candidate");
@@ -413,4 +427,148 @@ TEST_CASE("forward runner: changed config or geometric artifact rejects resume",
   std::ostringstream rejected;
   REQUIRE_FALSE(f.execute(rejected,"GLOBAL_QUALITY"));
   for (const auto &event:events(rejected.str())) REQUIRE(event["type"]!="phase_start");
+}
+
+// Plan 11.14 P1/P2 --- a run with LOCAL-WARP frames builds the geometry cache
+// at SAMPLING_GEOMETRY, publishes it for the downstream phases (so no consumer
+// re-runs sample_leaves per stripe), records it in the checkpoint, re-opens +
+// verifies it on resume, and rejects a tampered cache.
+namespace {
+struct LocalWarpFixture {
+  core::AtomicOutput staging{fs::temp_directory_path()/"runner-fd-localwarp"};
+  fs::path dir=staging.path();
+  config::Config cfg;
+  registration::RegistrationSamplingPlan plan;
+  std::unique_ptr<runner::RunnerFrameCache> cache;
+  LocalWarpFixture() {
+    fs::create_directories(dir/"artifacts"); fs::create_directories(dir/"logs");
+    const std::string yaml=R"(data:
+  color_mode: MONO
+runtime_limits:
+  memory_budget: 32
+reconstruction:
+  drizzle:
+    internal_scale: 1
+    output_scale: 1
+    pixfrac: 0.8
+    memory_budget_mb: 32
+    chunk_rows: 3
+  coverage_gate:
+    min_channel_n_eff_floor: 1.0
+    min_analysis_pixels: 16
+  clipping:
+    min_n_eff: 1.0
+)";
+    core::write_text_atomic(dir/"config.yaml",yaml);
+    cfg=config::Config::from_yaml_text(yaml);
+    const auto config_hash=core::sha256_file(dir/"config.yaml");
+    const std::string identity="synthetic-input:"+config_hash;
+    plan.source_identity_hash=core::sha256_bytes(std::vector<uint8_t>(identity.begin(),identity.end()));
+    plan.source_width=plan.source_height=32;
+    plan.canvas_width_native=plan.canvas_height_native=48;
+    plan.color_mode=ColorMode::MONO;
+    cache=std::make_unique<runner::RunnerFrameCache>(dir/"cache/normalized_frames",3,32,32);
+    for (size_t i=0;i<3;++i) {
+      registration::FrameSamplingTransform frame;
+      frame.frame_id=plan.source_identity_hash+":"+std::to_string(i);
+      frame.source_index=i; frame.valid=frame.source_to_canvas_affine_valid=true;
+      const float tx=8.0f+0.2f*static_cast<float>(i), ty=8.0f-0.1f*static_cast<float>(i);
+      frame.source_to_canvas.setZero();
+      frame.source_to_canvas(0,0)=1.0f; frame.source_to_canvas(1,1)=1.0f;
+      frame.source_to_canvas(0,2)=tx; frame.source_to_canvas(1,2)=ty;
+      frame.canvas_to_source.setZero();
+      frame.canvas_to_source(0,0)=1.0f; frame.canvas_to_source(1,1)=1.0f;
+      frame.canvas_to_source(0,2)=-tx; frame.canvas_to_source(1,2)=-ty;
+      frame.has_smooth_local_model=true;
+      frame.smooth_local_model.valid=true;
+      frame.smooth_local_model.image_rows=48;
+      frame.smooth_local_model.image_cols=48;
+      frame.smooth_local_model.coeff_x.setZero();
+      frame.smooth_local_model.coeff_y.setZero();
+      frame.smooth_local_model.coeff_x[0]=0.10f+0.02f*i;
+      frame.smooth_local_model.coeff_y[0]=-0.07f;
+      frame.model_coordinate_scale=1.0f;
+      plan.frames.push_back(frame);
+      cache->store_normalized(i,Matrix2Df::Constant(32,32,10.0f+i));
+    }
+    plan.plan_hash=registration::compute_plan_hash(plan);
+    core::write_text_atomic(dir/"artifacts/registration_sampling.json",registration::serialize_to_json_string(plan));
+    core::write_text_atomic(dir/"artifacts/run_provenance.json",core::json({
+        {"execution_scope","forward_drizzle_m1_m3"},{"config",{{"sha256",config_hash}}},
+        {"input_manifest",{{"sha256","synthetic-input"}}}}).dump());
+  }
+  ~LocalWarpFixture() { cache.reset(); std::error_code ec; fs::remove_all(dir,ec); }
+  bool execute(std::ostream &out,const std::string &resume="") {
+    core::EventEmitter emitter;
+    return runner::run_forward_drizzle_stages("test",cfg,dir,plan,
+        resume.empty()?cache.get():nullptr,emitter,out,resume);
+  }
+};
+} // namespace
+
+TEST_CASE("forward runner: local-warp geometry cache is built, published, "
+          "checkpointed and re-verified on resume (plan 11.14 P1/P2)",
+          "[forward-runner][geometry-cache]") {
+  LocalWarpFixture f;
+  f.cfg.reconstruction.keep_profile_cache_after_run=true;
+  std::ostringstream first;
+  const bool ok_first=f.execute(first);
+  INFO("first run log:\n"<<first.str());
+  REQUIRE(ok_first);
+
+  // Cache materialised + recorded.
+  REQUIRE(fs::exists(f.dir/"artifacts/forward_drizzle_geometry/current.json"));
+  const auto ckpt=core::json::parse(std::ifstream(
+      f.dir/"artifacts/forward_drizzle_checkpoint.json"));
+  REQUIRE(ckpt.contains("geometry_cache"));
+  const auto &gc=ckpt.at("geometry_cache");
+  REQUIRE(gc.at("variants").size()==2u);            // pixfrac 0.8 + footprint 1.0
+  REQUIRE(gc.at("local_source_indices").size()==3u);
+  REQUIRE(gc.at("total_leaves").get<long long>()>0);
+
+  // The published cache means no consumer re-ran the local geometry: the P0
+  // profile shows zero sample_leaves / basis evals for the stripe consumers.
+  const auto prof=core::json::parse(std::ifstream(
+      f.dir/"artifacts/forward_drizzle_geometry_profile.json"));
+  const auto &vars=prof.at("variants");
+  for (const char *name : {"production_uniform_raw","coverage_cfa",
+                           "coverage_footprint","prepare_exclusion_scan"}) {
+    if (!vars.contains(name)) continue;
+    INFO("variant "<<name);
+    REQUIRE(vars.at(name).at("invert_iterations").get<long long>()==0);
+    REQUIRE(vars.at(name).at("top_level_sample_leaves_calls").get<long long>()==0);
+  }
+
+  // Resume from FORWARD_DRIZZLE: the cache is re-opened + fully re-verified.
+  const auto current=f.dir/"artifacts/forward_drizzle_profiles/current.json";
+  const auto before=core::sha256_file(current);
+  std::ostringstream resumed;
+  REQUIRE(f.execute(resumed,"FORWARD_DRIZZLE"));
+  std::vector<std::string> starts;
+  for (const auto &e:events(resumed.str()))
+    if (e["type"]=="phase_start") starts.push_back(e["phase_name"]);
+  REQUIRE(starts==(std::vector<std::string>{"FORWARD_DRIZZLE","MULTIBAND"}));
+  // Re-drizzle from the same verified cache -> the store is rewritten but the
+  // run succeeds; the geometry did not change.
+  REQUIRE(fs::exists(current));
+
+  // Tamper with the committed cache -> resume must refuse before any phase.
+  {
+    const fs::path gen=f.dir/"artifacts/forward_drizzle_geometry"/
+        gc.at("generation").get<std::string>();
+    bool hit=false;
+    for (const auto &e:fs::directory_iterator(gen)) {
+      if (e.path().extension()!=".leaves") continue;
+      const auto sz=fs::file_size(e.path());
+      if (sz<16) continue;
+      std::fstream fh(e.path(),std::ios::binary|std::ios::in|std::ios::out);
+      fh.seekp(static_cast<std::streamoff>(sz/2));
+      const char flip[8]={90,90,90,90,90,90,90,90}; fh.write(flip,8);
+      hit=true; break;
+    }
+    REQUIRE(hit);
+  }
+  std::ostringstream rejected;
+  REQUIRE_FALSE(f.execute(rejected,"FORWARD_DRIZZLE"));
+  for (const auto &e:events(rejected.str())) REQUIRE(e["type"]!="phase_start");
 }

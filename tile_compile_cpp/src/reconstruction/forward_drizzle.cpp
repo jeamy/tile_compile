@@ -1,14 +1,24 @@
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
 
+#include "tile_compile/reconstruction/drizzle_geometry_cache.hpp"
+#include "tile_compile/reconstruction/drizzle_geometry_stats.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <exception>
 #include <fstream>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace tile_compile::reconstruction {
 
@@ -134,14 +144,9 @@ double polygon_rectangle_intersection_area(const double poly_x[4],
   return shoelace_area(cx, cy, n);
 }
 
-namespace {
+// `Leaf` is declared in the header (the plan-11.14 geometry cache needs it).
 
-// One accepted leaf of the (possibly subdivided) droplet: a convex
-// quadrilateral in internal-canvas coordinates.
-struct Leaf {
-  double x[4];
-  double y[4];
-};
+namespace {
 
 // Maps a native-canvas point to internal-canvas coordinates.
 inline void to_internal(double nx, double ny, int internal_scale, double &ix,
@@ -168,6 +173,9 @@ bool affine_forward(const FrameSamplingTransform &f, double sx, double sy,
 bool local_forward(const FrameSamplingTransform &f, double sx, double sy,
                    int canvas_w_native, int canvas_h_native,
                    const LocalInversionParams &params, double &qx, double &qy) {
+  namespace gs = geomstats;
+  if (gs::registry().enabled)
+    ++gs::registry().cur().local_forward_calls;
   float fqx = 0.0f, fqy = 0.0f;
   if (!registration::invert_local_source_to_canvas(
           f, static_cast<float>(sx), static_cast<float>(sy), canvas_w_native,
@@ -202,6 +210,8 @@ bool subdivide_local(const FrameSamplingTransform &f, double x0, double y0,
                      const ForwardDrizzleSubdivisionParams &p,
                      const LocalInversionParams &inv,
                      std::vector<Leaf> &leaves) {
+  if (geomstats::registry().enabled)
+    ++geomstats::registry().cur().subdivide_local_calls;
   double x[3][3], y[3][3];
   for (int j = 0; j < 3; ++j)
     for (int i = 0; i < 3; ++i) {
@@ -253,23 +263,6 @@ bool subdivide_local(const FrameSamplingTransform &f, double x0, double y0,
   return true;
 }
 
-bool sample_leaves(const RegistrationSamplingPlan &plan,
-                   const FrameSamplingTransform &f, int sx, int sy, int scale,
-                   float pixfrac, const ForwardDrizzleSubdivisionParams &p,
-                   std::vector<Leaf> &leaves) {
-  leaves.clear();
-  const double x = sx + 0.5, y = sy + 0.5, h = pixfrac / 2.0;
-  if (f.has_smooth_local_model)
-    return subdivide_local(f, x - h, y - h, x + h, y + h, 0,
-                           plan.canvas_width_native, plan.canvas_height_native,
-                           scale, p, {}, leaves);
-  Leaf leaf;
-  if (!build_affine_leaf(f, x, y, h, scale, leaf))
-    return false;
-  leaves.push_back(leaf);
-  return true;
-}
-
 size_t available_memory_headroom() {
   size_t available = std::numeric_limits<size_t>::max();
 #ifdef __linux__
@@ -302,6 +295,36 @@ size_t checked_product(size_t a, size_t b) {
 }
 
 } // namespace
+
+bool sample_leaves(const RegistrationSamplingPlan &plan,
+                   const FrameSamplingTransform &f, int sx, int sy, int scale,
+                   float pixfrac, const ForwardDrizzleSubdivisionParams &p,
+                   std::vector<Leaf> &leaves) {
+  namespace gs = geomstats;
+  const bool instrument = gs::registry().enabled;
+  if (instrument)
+    ++gs::registry().cur().top_level_sample_leaves_calls;
+  leaves.clear();
+  const double x = sx + 0.5, y = sy + 0.5, h = pixfrac / 2.0;
+  bool ok;
+  if (f.has_smooth_local_model) {
+    ok = subdivide_local(f, x - h, y - h, x + h, y + h, 0,
+                         plan.canvas_width_native, plan.canvas_height_native,
+                         scale, p, {}, leaves);
+  } else {
+    Leaf leaf;
+    ok = build_affine_leaf(f, x, y, h, scale, leaf);
+    if (ok)
+      leaves.push_back(leaf);
+  }
+  if (instrument) {
+    if (ok)
+      gs::registry().cur().leaves_generated += leaves.size();
+    else
+      ++gs::registry().cur().sample_leaves_discarded;
+  }
+  return ok;
+}
 
 DrizzleMemoryPlan
 plan_drizzle_memory(const RegistrationSamplingPlan &plan,
@@ -389,6 +412,35 @@ prepare_drizzle_frames(const RegistrationSamplingPlan &plan,
     if (!f.source_to_canvas_affine_valid || !f.source_to_canvas.allFinite())
       throw std::invalid_argument("DRIZZLE_INVALID_TRANSFORM");
     if (f.has_smooth_local_model) {
+      // Plan 11.14 P1: a published geometry cache has already run the full
+      // per-sample sweep for this frame and finalised its exclusion rate.
+      // Consume that instead of re-running sample_leaves (§11.14.3: exclusion
+      // counting folds into the build; chunk height does not change the set).
+      if (const auto *cache = active_geometry_cache()) {
+        const auto st = cache->frame_stats(cfg.pixfrac, f.source_index);
+        if (st.present) {
+          result.diagnostics.local_model_samples_total +=
+              static_cast<long long>(st.samples_total);
+          result.diagnostics.local_model_samples_discarded +=
+              static_cast<long long>(st.samples_discarded);
+          if (st.excluded) {
+            result.diagnostics.frames_excluded_subdivision_error_rate
+                .emplace_back(f.frame_id, st.subdivision_error_rate);
+            continue;
+          }
+          result.frames.push_back(&f);
+          continue;
+        }
+      }
+      geomstats::ScopedVariant _v(geomstats::Variant::kPrepareExclusionScan,
+                                  cfg.pixfrac);
+      geomstats::ScopedGeometryTimer _t;
+      if (geomstats::registry().enabled) {
+        ++geomstats::registry().cur().enumerate_calls;
+        geomstats::registry().cur().source_rows_scanned += plan.source_height;
+        geomstats::registry().cur().source_samples_visited +=
+            static_cast<std::uint64_t>(plan.source_width) * plan.source_height;
+      }
       long long total = static_cast<long long>(plan.source_width) *
                         plan.source_height,
                 discarded = 0;
@@ -417,6 +469,24 @@ void enumerate_drizzle_stripe_leaf_cells(
     const RegistrationSamplingPlan &plan, const FrameSamplingTransform &f,
     int scale, float pixfrac, int y_begin, int rows,
     const DrizzleLeafCellSink &sink, const ForwardDrizzleSubdivisionParams &p) {
+  namespace gs = geomstats;
+  const bool instrument = gs::registry().enabled;
+
+  // Plan 11.14 P1/P2: for a LOCAL-WARP frame that a published geometry cache
+  // holds, replay the pre-built leaves for this stripe instead of re-running
+  // sample_leaves over the whole source. Bit-identical to the scan below
+  // (same corners, same bbox clamp, same canonical order); adds zero local
+  // basis evaluations. Affine frames and cache misses fall through unchanged.
+  if (f.has_smooth_local_model) {
+    const auto *cache = active_geometry_cache();
+    if (cache && cache->has_frame(pixfrac, f.source_index)) {
+      if (instrument) ++gs::registry().cur().enumerate_calls;
+      cache->enumerate_stripe(pixfrac, f.source_index, scale, y_begin, rows,
+                              sink);
+      return;
+    }
+  }
+
   const int W = plan.canvas_width_native * scale;
   int source_y0 = 0, source_y1 = plan.source_height;
   if (!f.has_smooth_local_model) {
@@ -439,6 +509,15 @@ void enumerate_drizzle_stripe_leaf_cells(
         std::floor(lo - 1), 0.0, static_cast<double>(plan.source_height)));
     source_y1 = static_cast<int>(std::clamp(
         std::ceil(hi + 1), 0.0, static_cast<double>(plan.source_height)));
+  }
+  if (instrument) {
+    auto &c = gs::registry().cur();
+    ++c.enumerate_calls;
+    c.source_rows_scanned +=
+        static_cast<std::uint64_t>(std::max(0, source_y1 - source_y0));
+    c.source_samples_visited +=
+        static_cast<std::uint64_t>(std::max(0, source_y1 - source_y0)) *
+        static_cast<std::uint64_t>(std::max(0, plan.source_width));
   }
   std::vector<Leaf> leaves;
   leaves.reserve(16);
@@ -469,8 +548,11 @@ void enumerate_drizzle_stripe_leaf_cells(
             std::clamp(std::ceil(ymax), static_cast<double>(y_begin),
                        static_cast<double>(y_begin + rows)));
         for (int y = y0; y < y1; ++y)
-          for (int x = x0; x < x1; ++x)
+          for (int x = x0; x < x1; ++x) {
+            if (instrument)
+              ++gs::registry().cur().leaf_cells_emitted;
             sink(sx, sy, c, static_cast<int>(li), x, y, leaf.x, leaf.y);
+          }
       }
     }
 }
@@ -506,6 +588,17 @@ ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
   auto diag = prepared.diagnostics;
   diag.estimated_peak_bytes = memory.estimated_peak_bytes;
   diag.resolved_chunk_rows = memory.rows;
+  {
+    int local_n = 0;
+    for (const auto *pf : prepared.frames)
+      if (pf->has_smooth_local_model)
+        ++local_n;
+    geomstats::stamp_context(plan.source_width, plan.source_height,
+                             plan.canvas_width_native,
+                             plan.canvas_height_native, cfg.internal_scale,
+                             memory.rows, memory.height,
+                             static_cast<int>(prepared.frames.size()), local_n);
+  }
   for (int y = 0; y < memory.height; y += memory.rows) {
     const int rows = std::min(memory.rows, memory.height - y);
     const size_t n = static_cast<size_t>(memory.width) * rows;
@@ -526,16 +619,21 @@ ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
         std::fill(A[c].begin(), A[c].end(), 0);
         std::fill(B[c].begin(), B[c].end(), 0);
       }
-      rasterize_drizzle_stripe(
-          plan, *f, cfg.internal_scale, cfg.pixfrac, y, rows,
-          [&](int sx, int sy, int c, int /*leaf*/, size_t i, double k) {
-            const double v = source(sy, sx);
-            if (std::isfinite(v)) {
-              A[c][i] += k * v;
-              B[c][i] += k;
-            }
-          },
-          subdivision);
+      {
+        geomstats::ScopedVariant _v(
+            geomstats::Variant::kUniformDiagnostic, cfg.pixfrac);
+        geomstats::ScopedGeometryTimer _t;
+        rasterize_drizzle_stripe(
+            plan, *f, cfg.internal_scale, cfg.pixfrac, y, rows,
+            [&](int sx, int sy, int c, int /*leaf*/, size_t i, double k) {
+              const double v = source(sy, sx);
+              if (std::isfinite(v)) {
+                A[c][i] += k * v;
+                B[c][i] += k;
+              }
+            },
+            subdivision);
+      }
       for (int c = 0; c < channels; ++c)
         for (size_t i = 0; i < n; ++i)
           if (B[c][i] > 0) {
@@ -822,7 +920,8 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     const UniformAndRawStripeSink &sink,
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff_by_source_index, size_t retained_bytes,
-    const FrameQualityProvider &quality_of, const MultibandProfileParams &mb) {
+    const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
+    int workers) {
   if ((mb.emit_fine || mb.emit_medium || mb.emit_alpha_confidence) && !quality_of)
     throw std::invalid_argument("DRIZZLE_MULTIBAND_REQUIRES_QUALITY_PROVIDER");
   const bool need_q0 = mb.emit_fine;
@@ -931,6 +1030,37 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
   summary.diagnostics = prepared.diagnostics;
   summary.diagnostics.estimated_peak_bytes = memory.estimated_peak_bytes;
   summary.diagnostics.resolved_chunk_rows = memory.rows;
+  {
+    int local_n = 0;
+    for (const auto *pf : prepared.frames)
+      if (pf->has_smooth_local_model)
+        ++local_n;
+    geomstats::stamp_context(plan.source_width, plan.source_height,
+                             plan.canvas_width_native,
+                             plan.canvas_height_native, cfg.internal_scale,
+                             memory.rows, memory.height,
+                             static_cast<int>(prepared.frames.size()), local_n);
+  }
+
+  // Plan 11.14.5 P3 (Teil 2): per-stripe output-row-band parallelism. Each band
+  // is a disjoint slice of the stripe's canvas rows; the frame loop stays
+  // outer + serial (one `source_of` load per frame on this thread) and the
+  // reduce is band-partitioned on the SAME `i` ranges, so every canvas cell is
+  // written by exactly one worker and every source contribution is added in the
+  // unchanged canonical order --- bit-identical to `req_workers == 1`.
+  const int req_workers = std::max(1, workers);
+  // The process-global geometry-stats registry is not concurrency-safe; only
+  // collect it on the serial path. Restored on exit.
+  const bool geom_stats_was_enabled = geomstats::registry().enabled;
+  const bool suppress_geom_stats = req_workers > 1 && geom_stats_was_enabled;
+  struct GeomStatsRestore {
+    bool value;
+    ~GeomStatsRestore() { geomstats::registry().enabled = value; }
+  } geom_stats_restore{geom_stats_was_enabled};
+  if (suppress_geom_stats) geomstats::registry().enabled = false;
+  // The active geometry cache reader lives in a thread_local guard that OpenMP
+  // worker threads do not inherit; capture it here and re-publish it per band.
+  const DrizzleGeometryCacheReader *const geom_cache = active_geometry_cache();
 
   for (int y = 0; y < memory.height;) {
     const int rows = std::min(memory.rows, memory.height - y);
@@ -995,6 +1125,44 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
       if (need_qa) { QAA[c].assign(n, 0); QAF[c].assign(n, 0); }
     }
 
+    // Output-row-band partition of this stripe: band b covers canvas rows
+    // [band_lo(b), band_lo(b + 1)) of the stripe (0-based within the stripe).
+    // The tiling is gap-free and non-overlapping, so unioning per-band
+    // enumerate/reduce over the bands reproduces the whole-stripe result
+    // exactly (the leaf-cell y-clamp already restricts each call to its
+    // window). `nb == 1` on the default serial path.
+    const int nb = std::max(1, std::min(req_workers, rows));
+    const int stripe_w = memory.width;
+    auto band_lo = [&](int b) {
+      return static_cast<int>((static_cast<long long>(b) * rows) / nb);
+    };
+    // Run `fn(b)` for every band in [0, nb), concurrently when nb > 1. Band
+    // coverage is guaranteed by the worksharing loop, not by the team size:
+    // `num_threads` is an upper bound the runtime may reduce, so keying off
+    // `omp_get_thread_num()` could leave bands unprocessed.
+    auto for_each_band = [&](auto &&fn) {
+#ifdef _OPENMP
+      if (nb > 1) {
+        std::exception_ptr eptr;
+#pragma omp parallel num_threads(nb)
+        {
+#pragma omp for schedule(static, 1)
+          for (int b = 0; b < nb; ++b) {
+            try {
+              fn(b);
+            } catch (...) {
+#pragma omp critical
+              if (!eptr) eptr = std::current_exception();
+            }
+          }
+        }
+        if (eptr) std::rethrow_exception(eptr);
+        return;
+      }
+#endif
+      for (int b = 0; b < nb; ++b) fn(b);
+    };
+
     for (const auto *f : prepared.frames) {
       const Matrix2Df &source = source_of(f->source_index);
       if (source.rows() != plan.source_height || source.cols() != plan.source_width)
@@ -1016,77 +1184,120 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
       const Matrix2Df *q0 = need_q0 ? qm.scale0 : nullptr;
       const Matrix2Df *q1 = need_q1 ? qm.scale1 : nullptr;
       const Matrix2Df *qa = need_qa ? qm.artifact : nullptr;
-      for (int c = 0; c < channels; ++c) {
-        std::fill(A[c].begin(), A[c].end(), 0);
-        std::fill(B[c].begin(), B[c].end(), 0);
-        if (need_qc) std::fill(QA[c].begin(), QA[c].end(), 0);
-        if (need_q0) std::fill(QA0[c].begin(), QA0[c].end(), 0);
-        if (need_q1) std::fill(QA1[c].begin(), QA1[c].end(), 0);
-        if (need_qa) {
-          std::fill(QAA[c].begin(), QAA[c].end(), 0);
-          std::fill(QAF[c].begin(), QAF[c].end(), 0);
+
+      for_each_band([&](int b) {
+        const int r0 = band_lo(b), r1 = band_lo(b + 1);
+        if (r1 <= r0) return;
+        // OpenMP workers do not inherit the thread_local active-cache guard;
+        // re-publish it for this worker so local-warp frames still replay from
+        // the geometry cache instead of re-running sample_leaves.
+        std::optional<ScopedActiveGeometryCache> band_cache_guard;
+        if (geom_cache) band_cache_guard.emplace(geom_cache);
+        const size_t bi0 = static_cast<size_t>(r0) * stripe_w;
+        const size_t bn = static_cast<size_t>(r1 - r0) * stripe_w;
+        for (int c = 0; c < channels; ++c) {
+          std::fill_n(A[c].begin() + bi0, bn, 0.0);
+          std::fill_n(B[c].begin() + bi0, bn, 0.0);
+          if (need_qc) std::fill_n(QA[c].begin() + bi0, bn, 0.0);
+          if (need_q0) std::fill_n(QA0[c].begin() + bi0, bn, 0.0);
+          if (need_q1) std::fill_n(QA1[c].begin() + bi0, bn, 0.0);
+          if (need_qa) {
+            std::fill_n(QAA[c].begin() + bi0, bn, 0.0);
+            std::fill_n(QAF[c].begin() + bi0, bn, 0.0);
+          }
         }
-      }
-      rasterize_drizzle_stripe(
-          plan, *f, cfg.internal_scale, cfg.pixfrac, y, rows,
-          [&](int sx, int sy, int c, int /*leaf*/, size_t i, double k) {
-            const double v = source(sy, sx);
-            if (!std::isfinite(v)) return;
-            A[c][i] += k * v;
-            B[c][i] += k;
-            // Plan 11.9: a NaN / <= 0 source Q contributes 0 to the K-average
-            // (a missing Q-map is not an unweighted fallback; Q=0 is an
-            // explicit per-sample veto).
-            auto acc = [&](const Matrix2Df *m, std::vector<double> &dst) {
-              if (!m) return;
-              const double qv = (*m)(sy, sx);
-              dst[i] += k * (std::isfinite(qv) && qv > 0.0 ? qv : 0.0);
-            };
-            acc(qc, QA[c]);
-            acc(q0, QA0[c]);
-            acc(q1, QA1[c]);
-            acc(qa, QAA[c]);
-            if (qa) {
-              const double av = (*qa)(sy, sx);
-              if (std::isfinite(av)) QAF[c][i] += k;  // real artifact datum
-            }
-          },
-          subdivision);
-      for (int c = 0; c < channels; ++c)
-        for (size_t i = 0; i < n; ++i)
-          if (B[c][i] > 0)
-            candidates[c][i * frame_count + counts[c][i]++] = {
-                f->source_index, A[c][i] / B[c][i], B[c][i],
-                need_qc ? QA[c][i] / B[c][i] : 1.0,
-                need_q0 ? QA0[c][i] / B[c][i] : 1.0,
-                need_q1 ? QA1[c][i] / B[c][i] : 1.0,
-                need_qa ? QAA[c][i] / B[c][i] : 1.0,
-                need_qa && QAF[c][i] > 0.0};
+        // Geometry-stats instrumentation is serial-path only (registry is not
+        // concurrency-safe); on the default nb == 1 path this is the identical
+        // scope as before.
+        std::optional<geomstats::ScopedVariant> gs_variant;
+        std::optional<geomstats::ScopedGeometryTimer> gs_timer;
+        if (nb == 1) {
+          gs_variant.emplace(geomstats::Variant::kProductionUniformRaw,
+                             cfg.pixfrac);
+          gs_timer.emplace();
+        }
+        rasterize_drizzle_stripe(
+            plan, *f, cfg.internal_scale, cfg.pixfrac, y + r0, r1 - r0,
+            [&](int sx, int sy, int c, int /*leaf*/, size_t i, double k) {
+              // `i` is relative to the (y + r0) window origin; re-base it into
+              // the stripe-wide accumulators.
+              const size_t gi = i + bi0;
+              const double v = source(sy, sx);
+              if (!std::isfinite(v)) return;
+              A[c][gi] += k * v;
+              B[c][gi] += k;
+              // Plan 11.9: a NaN / <= 0 source Q contributes 0 to the K-average
+              // (a missing Q-map is not an unweighted fallback; Q=0 is an
+              // explicit per-sample veto).
+              auto acc = [&](const Matrix2Df *m, std::vector<double> &dst) {
+                if (!m) return;
+                const double qv = (*m)(sy, sx);
+                dst[gi] += k * (std::isfinite(qv) && qv > 0.0 ? qv : 0.0);
+              };
+              acc(qc, QA[c]);
+              acc(q0, QA0[c]);
+              acc(q1, QA1[c]);
+              acc(qa, QAA[c]);
+              if (qa) {
+                const double av = (*qa)(sy, sx);
+                if (std::isfinite(av)) QAF[c][gi] += k;  // real artifact datum
+              }
+            },
+            subdivision);
+        for (int c = 0; c < channels; ++c)
+          for (size_t i = bi0; i < bi0 + bn; ++i)
+            if (B[c][i] > 0)
+              candidates[c][i * frame_count + counts[c][i]++] = {
+                  f->source_index, A[c][i] / B[c][i], B[c][i],
+                  need_qc ? QA[c][i] / B[c][i] : 1.0,
+                  need_q0 ? QA0[c][i] / B[c][i] : 1.0,
+                  need_q1 ? QA1[c][i] / B[c][i] : 1.0,
+                  need_qa ? QAA[c][i] / B[c][i] : 1.0,
+                  need_qa && QAF[c][i] > 0.0};
+      });
     }
 
-    for (int c = 0; c < channels; ++c) {
-      for (size_t i = 0; i < n; ++i) {
-        if (!counts[c][i]) continue;
-        // The per-frame accumulation above pushes candidates in prepared-frame
-        // order, so this slice is already frame-ordered (plan 19.6 step 4).
-        const std::span<const ClipCandidate> pixel(
-            candidates[c].data() + i * frame_count, counts[c][i]);
-        reduce_pixel_profiles(
-            pixel, reduce_cfg, g_eff_for, reg_by_source, i, uniform_planes[c],
-            raw_planes[c], mb.emit_fine ? fine_planes[c] : nullptr,
-            mb.emit_medium ? medium_planes[c] : nullptr,
-            need_qa ? &ac_sep[i] : nullptr, need_qa ? &ac_art[i] : nullptr,
-            need_qa ? &ac_reg[i] : nullptr, result.clipping);
+    std::vector<ForwardDrizzleClippingDiagnostics> band_clip(nb);
+    for_each_band([&](int b) {
+      const int r0 = band_lo(b), r1 = band_lo(b + 1);
+      if (r1 <= r0) return;
+      const size_t bi0 = static_cast<size_t>(r0) * stripe_w;
+      const size_t bn = static_cast<size_t>(r1 - r0) * stripe_w;
+      ForwardDrizzleClippingDiagnostics lc;
+      for (int c = 0; c < channels; ++c) {
+        for (size_t i = bi0; i < bi0 + bn; ++i) {
+          if (!counts[c][i]) continue;
+          // The per-frame accumulation above pushes candidates in
+          // prepared-frame order, so this slice is already frame-ordered
+          // (plan 19.6 step 4).
+          const std::span<const ClipCandidate> pixel(
+              candidates[c].data() + i * frame_count, counts[c][i]);
+          reduce_pixel_profiles(
+              pixel, reduce_cfg, g_eff_for, reg_by_source, i, uniform_planes[c],
+              raw_planes[c], mb.emit_fine ? fine_planes[c] : nullptr,
+              mb.emit_medium ? medium_planes[c] : nullptr,
+              need_qa ? &ac_sep[i] : nullptr, need_qa ? &ac_art[i] : nullptr,
+              need_qa ? &ac_reg[i] : nullptr, lc);
+        }
       }
-    }
-    if (need_qa) {
-      for (size_t i = 0; i < n; ++i) {
-        if (!std::isfinite(ac_sep[i])) continue;  // no active channel
-        result.a_separation[i] = static_cast<float>(ac_sep[i]);
-        result.a_artifact[i] = static_cast<float>(ac_art[i]);
-        result.a_registration[i] = static_cast<float>(ac_reg[i]);
-        result.alpha_confidence_support[i] = 1u;
+      if (need_qa) {
+        for (size_t i = bi0; i < bi0 + bn; ++i) {
+          if (!std::isfinite(ac_sep[i])) continue;  // no active channel
+          result.a_separation[i] = static_cast<float>(ac_sep[i]);
+          result.a_artifact[i] = static_cast<float>(ac_art[i]);
+          result.a_registration[i] = static_cast<float>(ac_reg[i]);
+          result.alpha_confidence_support[i] = 1u;
+        }
       }
+      band_clip[b] = lc;
+    });
+    // Integer counters --- order-independent, so the summed result is identical
+    // to the serial single-accumulator path.
+    for (const auto &lc : band_clip) {
+      result.clipping.pixel_channel_evaluations += lc.pixel_channel_evaluations;
+      result.clipping.pixel_channel_rejected += lc.pixel_channel_rejected;
+      result.clipping.candidate_contributions_clipped +=
+          lc.candidate_contributions_clipped;
     }
     result.diagnostics = summary.diagnostics;
     sink(y, result);
@@ -1104,7 +1315,8 @@ ForwardDrizzleUniformAndRawResult compute_forward_drizzle_uniform_and_raw(
     const config::ReconstructionClippingConfig &clip_cfg,
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff_by_source_index,
-    const FrameQualityProvider &quality_of, const MultibandProfileParams &mb) {
+    const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
+    int workers) {
   const auto dimensions = plan_drizzle_memory(plan, cfg, 1);
   const int channels = plan.color_mode == ColorMode::MONO ? 1 : 3;
   const size_t retained = checked_product(
@@ -1156,7 +1368,7 @@ ForwardDrizzleUniformAndRawResult compute_forward_drizzle_uniform_and_raw(
                     stripe.alpha_confidence_support.end(),
                     result.alpha_confidence_support.begin() + off);
         }
-      }, subdivision, g_eff_by_source_index, retained, quality_of, mb);
+      }, subdivision, g_eff_by_source_index, retained, quality_of, mb, workers);
   result.diagnostics = summary.diagnostics;
   result.uniform.diagnostics = summary.diagnostics;
   result.raw.diagnostics = summary.diagnostics;
