@@ -845,6 +845,14 @@ std::uint64_t DrizzleGeometryCacheReader::enumerate_call_count() const {
   return impl_->enumerate_calls.load(std::memory_order_relaxed);
 }
 
+std::uint64_t DrizzleGeometryCacheReader::max_row_record_count() const {
+  std::uint64_t m = 0;
+  for (const auto &v : impl_->variants)
+    for (const auto &[idx, fd] : v.frames)
+      for (const auto &re : fd.rows) m = std::max(m, re.record_count);
+  return m;
+}
+
 // --------------------------------------------------------------------------
 // Thread-local active reader (P3: one guard per worker)
 // --------------------------------------------------------------------------

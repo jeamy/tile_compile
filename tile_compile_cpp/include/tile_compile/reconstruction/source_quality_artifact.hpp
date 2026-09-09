@@ -34,7 +34,10 @@ DrizzleStoreResult persist_forward_drizzle_from_predecessors(
     const ForwardDrizzleSubdivisionParams &subdivision = {},
     // M5: when set, Raw consumes the source composite Q-maps from this cache
     // root as Q_composite_f,c(q). Empty => Q_composite = 1.0 (Raw unchanged).
-    const fs::path &source_quality_cache_root = {});
+    const fs::path &source_quality_cache_root = {},
+    // Plan 11.14.5 P3 Teil 2: CPU-reduction output-row-band workers. Forwarded
+    // to the streaming reduction; bit-identical to `workers == 1` (default).
+    int workers = 1);
 
 // Maps the public multiband config onto the store's full hashed contract.
 // Fields not yet in config (energy guard, most confidence edges) take their
@@ -75,7 +78,11 @@ MultibandStoreBuildResult persist_multiband_store_from_predecessors(
     const config::ReconstructionMultibandConfig &multiband_cfg,
     const fs::path &source_quality_cache_root,
     const ForwardDrizzleSubdivisionParams &subdivision = {},
-    const std::string &acceleration_backend = "cpu");
+    const std::string &acceleration_backend = "cpu",
+    // Plan 11.14.5 P3 Teil 2: CPU-reference-path output-row-band workers.
+    // Ignored on the CUDA stripe path (own device band chunking); picked up on
+    // a CUDA->CPU restart. Bit-identical (store commit hash) to 1 (default).
+    int workers = 1);
 
 // The three plan-15 candidate images, each reduced to the fixed working
 // luminance (`kWorkingLumaDefinition`), assembled during the single fusion

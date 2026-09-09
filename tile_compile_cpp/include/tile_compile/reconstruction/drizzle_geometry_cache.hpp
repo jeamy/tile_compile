@@ -189,6 +189,13 @@ public:
   // full re-enumeration, which is also correct but defeats P1/P2).
   std::uint64_t enumerate_call_count() const;
 
+  // Largest per-source-row leaf-record count across every materialised
+  // (variant, frame). `enumerate_stripe` reads at most this many records
+  // (* sizeof(LeafRecord)) into one reused buffer, so it bounds the
+  // per-concurrent-caller working set of a band-parallel reduction
+  // (plan 11.14.5 P3 Teil 2 "shared budget" term).
+  std::uint64_t max_row_record_count() const;
+
 private:
   struct Impl;
   std::unique_ptr<Impl> impl_;

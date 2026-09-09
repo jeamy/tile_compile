@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 09.09. | [§30.12–30.67](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler 09.09. | [§30.12–30.68](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -5431,9 +5431,8 @@ P3-Teil-1-Build).
 **Reichweite dieses Schnitts (bewusst eng):** nur `stream_forward_drizzle_uniform_and_raw`
 (+ 2x2-Wrapper). `compute_geometric_coverage` bleibt seriell (eigener
 Aufrufort, eigene Gate-Config; laut §30.64 nicht mehr der Engpass, seit
-cache-gespeist). **Der Runner ist unangetastet** — `parallel_workers=1` bleibt,
-bis ein budgetierter Scheduler entworfen ist (Plan-Reihenfolge: „Erst dann").
-Alle Bestandsaufrufer/-Tests bleiben durch `workers = 1` auf dem seriellen
+cache-gespeist). Der Runner-Scheduler folgt in **§30.68**; in diesem Schnitt
+bleiben alle Bestandsaufrufer/-Tests durch `workers = 1` auf dem seriellen
 Referenzpfad.
 
 **Tests** (`test_drizzle_geometry_cache.cpp`, `[geometry-cache][geometry-parallel]`):
@@ -5455,15 +5454,96 @@ Assertions ggü. §30.66); einziger Fehlschlag weiterhin
 `test_acceleration_backend.cpp:254` (GPU-umgebungsabhängig, vorbestehend).
 
 **Noch offen (P3-seitig):** Wall-Speedup-Messung der Reduktion bei realer
-Canvasgröße (die Unit-Fixtures sind zu klein für aussagekräftige Zeiten);
-Runner-Scheduler, der `parallel_workers=1` ersetzt. Es gibt **keine**
-Budget-Division: `plan_drizzle_memory` wird einmal mit dem vollen Budget
-aufgerufen, die Bänder teilen dieselben Puffer. Die echte
-Worker-Zahl-Schranke ist `nb ≤ rows` — bei Produktions-`chunk_rows` (Auto
-≤ 256) kann eine 16-Kern-Box alle 16 Bänder nutzen, ein klein erzwungenes
-`chunk_rows` deckelt die Parallelität still; das ist ein Scheduler-Input, kein
-Speicherproblem. P5 (Resthotspot) danach. **P6 ist ein Benutzerlauf** — nicht
-autorisiert.
+Canvasgröße (die Unit-Fixtures sind zu klein für aussagekräftige Zeiten).
+Runner-Scheduler → **§30.68**. Es gibt **keine** Budget-Division:
+`plan_drizzle_memory` wird einmal mit dem vollen Budget aufgerufen, die Bänder
+teilen dieselben Puffer. Die echte Worker-Zahl-Schranke ist `nb ≤ rows` — bei
+Produktions-`chunk_rows` (Auto ≤ 256) kann eine 16-Kern-Box alle 16 Bänder
+nutzen, ein klein erzwungenes `chunk_rows` deckelt die Parallelität still; das
+ist ein Scheduler-Input, kein Speicherproblem. P5 (Resthotspot) danach. **P6
+ist ein Benutzerlauf** — nicht autorisiert.
+
+**Noch nichts committet.**
+
+---
+
+### 30.68 §11.14 P3 Teil 2 — Runner-Scheduler für die Reduktions-Worker (2026-09-09)
+
+**Aufgabe:** die §30.67-Fähigkeit (`workers`-Parameter) als produktiven
+Scheduler in den Runner integrieren; „gemeinsames Budget".
+
+**„Gemeinsames Budget" — ehrliche Fassung.** Die §30.66-Residenztabelle plus
+das Band-Design (§30.67) beantworten die Budgetfrage bereits, und die Antwort
+ist: fast nichts zu budgetieren. Bänder teilen `A/B/QA*/candidates` → **null**
+frameskalierender RAM pro Worker. Einziger Pro-Worker-Term: ein `std::ifstream`
++ ein `block`-Puffer in `enumerate_stripe`, begrenzt durch
+`max_row_record_count · sizeof(LeafRecord)` (neuer Accessor
+`DrizzleGeometryCacheReader::max_row_record_count()` liefert die Zahl direkt aus
+dem Zeilenindex). Die Schranke ist damit **CPU**:
+`min(parallel_workers, hardware_concurrency)`, danach pro Streifen `nb ≤ rows`.
+Ein Solver über nachweislich-null-Terme wäre Theater.
+
+**Verkabelung.** `int workers = 1` (überall Default) durch die Aufrufkette
+gefädelt: `persist_multiband_store_from_predecessors` →
+`persist_forward_drizzle_multiband` → `stream_forward_drizzle_uniform_and_raw[_2x2]`;
+und `persist_forward_drizzle_from_predecessors` →
+`persist_forward_drizzle_uniform_and_raw` → dito. **Kein Feld in
+`config::ReconstructionDrizzleConfig`** — die Struct speist
+`make_drizzle_store_identity`; eine Threadzahl im Identitätshash würde die
+Byte-Identitätsprüfung über Worker-Zahlen sinnlos machen (vgl. §30.61:
+`memory_budget` in `source_identity_hash`). Nur explizite Parameter.
+
+**CUDA-Pfad.** `persist_forward_drizzle_multiband`s `cuda_stripe_path` hat
+eigene Device-Band-Chunkung und erreicht `stream_*` nie → `workers` wirkt dort
+**nicht**; bei einem CUDA→CPU-Neustart greift der CPU-Zweig ihn auf. Kommentar
+im Code, plus `forward_drizzle_reduction_workers` im Checkpoint neben
+`forward_drizzle_backend`, damit das Profil keine nicht-stattgefundene
+Parallelität behauptet.
+
+**Runner-Auflösung** (`run_forward_drizzle_stages`, vor `Phase::FORWARD_DRIZZLE`):
+`fd_workers = clamp(cfg.runtime_limits.parallel_workers, 1, hardware_concurrency)`,
+`TC_FORWARD_DRIZZLE_WORKERS` überschreibt (=1 = serielle Referenz; spiegelt
+`TC_GEOMETRY_CACHE_WORKERS`). **`runner_pipeline.cpp:1237` bleibt unangetastet:**
+es zwingt `parallel_workers=1` nur für *frische* `forward-drizzle-only`-Läufe
+(Dev-Scope `forward_drizzle_m1_m3`) — dort auch NORM/REG seriell, ein
+unabhängiges Verhalten, das hier nicht blind mitgeändert wird. Der Pfad, den
+der Benutzer real fährt (`resume-reconstruction --from-phase FORWARD_DRIZZLE`,
+`resume_forward_drizzle_command`), geht **nicht** durch `run_pipeline_command`
+und kommt mit dem Konfigwert (Default 4) an → bekommt die Parallelität. `end`-
+Extra bekommt `reduction_workers`.
+
+**Profil-JSON-Ehrlichkeit.** Bei `fd_workers > 1` ist die geomstats-Registry
+für die FORWARD_DRIZZLE-Streifenschleife deaktiviert → die
+`production_uniform_raw` / `contrib_*` / `hybrid_*`-Zähler sind **null, weil
+nicht aufgezeichnet**, nicht weil der Cache alles bedient hätte. Damit niemand
+das als P1/P2-Beleg fehlliest, trägt
+`forward_drizzle_geometry_profile.json` in dem Fall
+`forward_drizzle_stage_stats_suppressed_reduction_workers: N` (plus
+`geometry_cache_max_row_record_count` = der Pro-Worker-Lesepuffer-Budgetterm).
+Der bestehende `[forward-runner][geometry-cache]`-P1/P2-Test pinnt jetzt
+`TC_FORWARD_DRIZZLE_WORKERS=1`, damit seine Zähler-Assertions gültig bleiben.
+
+**Test** (`test_runner_forward_drizzle.cpp`,
+`[forward-runner][geometry-cache][geometry-parallel]`): `LocalWarpFixture`
+(MONO, 3 Local-Frames, Mehrband) bei `TC_FORWARD_DRIZZLE_WORKERS ∈ {1,2,4}` —
+die committeten Profilebenen-`.fits` (nicht `current.json`, dessen
+uhrbasierter Generationenname pro Lauf variiert) byte-identisch über alle
+Worker-Zahlen; Checkpoint führt `forward_drizzle_reduction_workers`;
+Suppression-Notiz fehlt bei W=1, vorhanden bei W>1. Grün bei
+`OMP_NUM_THREADS ∈ {1,2,4,8}`.
+
+**Parität:** Gesamtlauf **527/528, 1 431 221 Assertions** (+1 Fall ggü.
+§30.67); einziger Fehlschlag weiterhin `test_acceleration_backend.cpp:254`
+(GPU-umgebungsabhängig, vorbestehend).
+
+**Commit-Stand:** §30.62–§30.67 (P0–P4 + P3 Teil 1/2) wurden vom Benutzer als
+`1f9b5306` + `33ee3288` committet; dieser §30.68-Schnitt (Runner-Scheduler,
+9 Dateien) ist noch uncommittet.
+
+**Noch offen (P3-seitig):** nur noch Wall-Speedup-Messung bei realer Canvas —
+gehört zum §11.14-P6-Benutzerlauf. Damit ist der P3-Code (Teil 1
+Build-Parallelität + Teil 2 Reduktions-Bänder + Scheduler) vollständig; P5
+(Resthotspot) als Nächstes. **P6 ist ein Benutzerlauf** — nicht autorisiert.
 
 **Noch nichts committet.**
 

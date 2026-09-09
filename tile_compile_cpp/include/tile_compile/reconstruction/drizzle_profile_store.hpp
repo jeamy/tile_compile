@@ -108,7 +108,11 @@ DrizzleStoreResult persist_forward_drizzle_uniform_and_raw(
     const ForwardDrizzleSubdivisionParams &subdivision = {},
     const std::vector<float> &g_eff = {},
     const DrizzleStorePredecessors &predecessors = {},
-    const FrameQualityProvider &quality_of = {});
+    const FrameQualityProvider &quality_of = {},
+    // Plan 11.14.5 P3 Teil 2: output-row-band workers for the CPU streaming
+    // reduction. Forwarded verbatim to stream_forward_drizzle_uniform_and_raw();
+    // bit-identical (store commit hash included) to `workers == 1` (default).
+    int workers = 1);
 
 // M6: uniform + raw + fine + (medium, when levels >= 2) profile planes plus
 // the four channel-min alpha-confidence maps (alpha_separation / alpha_artifact
@@ -132,7 +136,13 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     const ForwardDrizzleSubdivisionParams &subdivision = {},
     const std::vector<float> &g_eff = {},
     const DrizzleStorePredecessors &predecessors = {},
-    const ForwardDrizzleCudaOptions &cuda = {});
+    const ForwardDrizzleCudaOptions &cuda = {},
+    // Plan 11.14.5 P3 Teil 2: output-row-band workers for the CPU reference
+    // streaming reduction only. The CUDA stripe path (cuda.attempt with a
+    // usable device) has its own device-band chunking and ignores this; on a
+    // CUDA->CPU restart the CPU path picks it up. Bit-identical (store commit
+    // hash included) to `workers == 1` (default).
+    int workers = 1);
 
 struct DrizzleStoreValidation {
   bool usable = false;

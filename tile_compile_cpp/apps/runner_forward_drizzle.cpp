@@ -406,6 +406,24 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       } catch (...) { gpu_device_name.clear(); }
     }
 
+    // Plan 11.14.5 P3 Teil 2: output-row-band parallelism for the CPU
+    // reduction. "Shared budget" per the §30.66 residency table + the band
+    // design (§30.67): bands share the stripe accumulators / candidate buffers,
+    // so extra workers draw NO frame-scaled RAM --- the only per-worker term is
+    // one geometry-cache `enumerate_stripe` read buffer (<= max row record
+    // count * 72 B). The ceiling is therefore CPU:
+    // min(parallel_workers, hardware_concurrency), then capped per stripe at
+    // rows. `TC_FORWARD_DRIZZLE_WORKERS` overrides (=1 restores the serial
+    // reference). Fresh forward-drizzle-only runs arrive with parallel_workers
+    // forced to 1 (dev scope); resume-reconstruction keeps the config value.
+    int fd_workers=std::max(1,cfg.runtime_limits.parallel_workers);
+    if (const int hw=static_cast<int>(std::thread::hardware_concurrency()); hw>=1)
+      fd_workers=std::min(fd_workers,hw);
+    if (const char *e=std::getenv("TC_FORWARD_DRIZZLE_WORKERS")) {
+      const int v=std::atoi(e);
+      if (v>=1) fd_workers=v;
+    }
+
     begin(Phase::FORWARD_DRIZZLE);
     const auto profiles_root=artifacts/"forward_drizzle_profiles";
     reconstruction::DrizzleStoreIdentity mb_identity;
@@ -414,7 +432,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       auto built=reconstruction::persist_multiband_store_from_predecessors(
           profiles_root,quality_path,sampling,cache,qcfg,drizzle,
           reconstruction_cfg.clipping,reconstruction_cfg.multiband,sqm_cache_root,
-          {},fd_backend);
+          {},fd_backend,fd_workers);
       result=built.store;
       mb_identity=built.identity;
       fd_backend_used=built.backend_used;
@@ -424,10 +442,15 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     } else {
       result=reconstruction::persist_forward_drizzle_from_predecessors(
           profiles_root,quality_path,sampling,cache,qcfg,
-          drizzle,reconstruction_cfg.clipping,{},sqm_cache_root);
+          drizzle,reconstruction_cfg.clipping,{},sqm_cache_root,fd_workers);
     }
     checkpoint["profiles_current_sha256"]=core::sha256_file(profiles_root/"current.json");
     checkpoint["forward_drizzle_backend"]=fd_backend_used;
+    // P3 Teil 2: resolved CPU-reduction worker count (informational; the store
+    // commit hash is invariant to it, so it is NOT resume-validated). On the
+    // CUDA stripe path the device band chunking runs instead --- the value then
+    // only applies to a CUDA->CPU restart.
+    checkpoint["forward_drizzle_reduction_workers"]=fd_workers;
     if (!fd_cuda_fallback_reason.empty())
       checkpoint["forward_drizzle_cuda_fallback_reason"]=fd_cuda_fallback_reason;
     core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
@@ -439,6 +462,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
          {"output_scale_applied",applied_2x2},
          {"multiband",want_multiband},
          {"acceleration_backend",fd_backend_used},
+         {"reduction_workers",fd_workers},
          {"kernel_noise_sigma_factor",
           reconstruction::kernel_noise_correlation_sigma_factor(
               drizzle.pixfrac,drizzle.internal_scale)}};
@@ -450,8 +474,25 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     // Plan 11.14 P0: persist the geometry counters + timers gathered across
     // SAMPLING_GEOMETRY and FORWARD_DRIZZLE. Diagnostic-only; no checkpoint
     // hash guard (like forward_drizzle.json).
-    core::write_text_atomic(artifacts/"forward_drizzle_geometry_profile.json",
-        reconstruction::geomstats::to_json());
+    {
+      auto geom_profile=json::parse(reconstruction::geomstats::to_json());
+      // P3 Teil 2 honesty: with >1 reduction worker the process-global geomstats
+      // registry is DISABLED for the FORWARD_DRIZZLE stripe loop (not
+      // concurrency-safe), so the production_uniform_raw / contrib_* / hybrid
+      // counters below reflect only what ran serially --- a zero there is
+      // "not recorded", NOT "the cache served everything". SAMPLING_GEOMETRY
+      // (coverage_*) is unaffected (still single-threaded).
+      if (fd_workers>1)
+        geom_profile["forward_drizzle_stage_stats_suppressed_reduction_workers"]=
+            fd_workers;
+      // P3 Teil 2 shared-budget term: the largest per-source-row leaf-record
+      // block a band worker seek-reads (one such buffer per concurrent worker).
+      if (geom_reader)
+        geom_profile["geometry_cache_max_row_record_count"]=
+            geom_reader->max_row_record_count();
+      core::write_text_atomic(artifacts/"forward_drizzle_geometry_profile.json",
+          geom_profile.dump(2));
+    }
 
     bool final_image_available=false;
     if (want_multiband) {

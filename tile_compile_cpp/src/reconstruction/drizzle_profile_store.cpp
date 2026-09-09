@@ -408,7 +408,7 @@ DrizzleStoreResult persist_forward_drizzle_uniform_and_raw(
     const config::ReconstructionClippingConfig &clipping,
     const ForwardDrizzleSubdivisionParams &subdivision, const std::vector<float> &g_eff,
     const DrizzleStorePredecessors &predecessors,
-    const FrameQualityProvider &quality_of) {
+    const FrameQualityProvider &quality_of, int workers) {
   const auto identity = make_drizzle_store_identity(plan, cfg, subdivision, &clipping, g_eff, predecessors);
   StoreWriter writer(root, identity);
   DrizzleStoreResult result;
@@ -421,11 +421,11 @@ DrizzleStoreResult persist_forward_drizzle_uniform_and_raw(
     // to output (1x) resolution --- never a full internal-resolution image.
     summary = stream_forward_drizzle_uniform_and_raw_2x2(plan, source_of, cfg, clipping, sink,
                                                          subdivision, g_eff, writer_reserve(identity),
-                                                         quality_of);
+                                                         quality_of, {}, workers);
   } else {
     summary = stream_forward_drizzle_uniform_and_raw(plan, source_of, cfg, clipping, sink,
                                                      subdivision, g_eff, writer_reserve(identity),
-                                                     quality_of);
+                                                     quality_of, {}, workers);
   }
   result.diagnostics = summary.diagnostics;
   result.clipping = summary.clipping;
@@ -443,7 +443,7 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff,
     const DrizzleStorePredecessors &predecessors,
-    const ForwardDrizzleCudaOptions &cuda) {
+    const ForwardDrizzleCudaOptions &cuda, int workers) {
   if (!multiband.enabled)
     throw std::invalid_argument("DRIZZLE_STORE_MULTIBAND_NOT_ENABLED");
   if (!quality_of)
@@ -497,6 +497,10 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
   };
   ForwardDrizzlePairDiagnostics summary;
   if (cuda_stripe_path) {
+    // NB: `workers` (P3 Teil 2 CPU-reduction band parallelism) does NOT apply
+    // here --- this path has its own device-sized band chunking. A
+    // ForwardDrizzleCudaError restarts the whole build on the CPU branch below,
+    // which does honour `workers`.
     // Device-sized bands over the internal canvas; each band is one
     // accumulate_pair_by_frame_cuda pass feeding the SAME multiband stripe
     // sink. Bit-identical to the CPU streaming build (verified store-level by
@@ -628,11 +632,11 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     // confidence maps via 2x2 min + AND support (plan 14.4).
     summary = stream_forward_drizzle_uniform_and_raw_2x2(
         plan, source_of, cfg, clipping, sink, subdivision, g_eff,
-        writer_reserve(identity), quality_of, mb);
+        writer_reserve(identity), quality_of, mb, workers);
   } else {
     summary = stream_forward_drizzle_uniform_and_raw(
         plan, source_of, cfg, clipping, sink, subdivision, g_eff,
-        writer_reserve(identity), quality_of, mb);
+        writer_reserve(identity), quality_of, mb, workers);
   }
   result.diagnostics = summary.diagnostics;
   result.clipping = summary.clipping;

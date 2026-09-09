@@ -149,7 +149,7 @@ DrizzleStoreResult persist_forward_drizzle_from_predecessors(
     const config::ReconstructionDrizzleConfig &drizzle_cfg,
     const config::ReconstructionClippingConfig &clipping_cfg,
     const ForwardDrizzleSubdivisionParams &subdivision,
-    const fs::path &source_quality_cache_root) {
+    const fs::path &source_quality_cache_root, int workers) {
   const size_t mb=drizzle_cfg.memory_budget_mb ? drizzle_cfg.memory_budget_mb : 512;
   const auto quality=load_source_quality_artifact(quality_artifact,sampling,cache,quality_cfg,mb);
   const auto weights=resolve_quality_frame_weights(quality,sampling,quality_cfg,mb);
@@ -182,7 +182,7 @@ DrizzleStoreResult persist_forward_drizzle_from_predecessors(
 
   return persist_forward_drizzle_uniform_and_raw(store_root,sampling,
       [&](size_t index)->const Matrix2Df & { return cache.load(index); },
-      drizzle_cfg,clipping_cfg,subdivision,weights,predecessors,quality_of);
+      drizzle_cfg,clipping_cfg,subdivision,weights,predecessors,quality_of,workers);
 }
 
 MultibandStoreContract multiband_store_contract_from_config(
@@ -256,7 +256,7 @@ MultibandStoreBuildResult persist_multiband_store_from_predecessors(
     const config::ReconstructionMultibandConfig &multiband_cfg,
     const fs::path &source_quality_cache_root,
     const ForwardDrizzleSubdivisionParams &subdivision,
-    const std::string &acceleration_backend) {
+    const std::string &acceleration_backend, int workers) {
   if (source_quality_cache_root.empty())
     throw std::invalid_argument("MULTIBAND_REQUIRES_SOURCE_QUALITY_CACHE");
   const auto contract=multiband_store_contract_from_config(multiband_cfg);
@@ -303,7 +303,7 @@ MultibandStoreBuildResult persist_multiband_store_from_predecessors(
   const auto build=[&](const ForwardDrizzleCudaOptions &cuda){
     return persist_forward_drizzle_multiband(
         store_root,sampling,source_of,drizzle_cfg,clipping_cfg,contract,
-        quality_of,subdivision,weights,predecessors,cuda);
+        quality_of,subdivision,weights,predecessors,cuda,workers);
   };
 
   MultibandStoreBuildResult out;

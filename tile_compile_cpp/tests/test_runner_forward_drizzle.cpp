@@ -7,9 +7,13 @@
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
 #include "tile_compile/reconstruction/multiband_validation.hpp"
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <sstream>
 #include <fstream>
+#include <string>
+#include <vector>
 using namespace tile_compile;
 namespace {
 // Process-global fault injection; disarm even if a REQUIRE throws.
@@ -22,6 +26,18 @@ struct CudaFaultGuard {
   }
   CudaFaultGuard(const CudaFaultGuard &) = delete;
   CudaFaultGuard &operator=(const CudaFaultGuard &) = delete;
+};
+// Plan 11.14.5 P3 Teil 2: pin the FORWARD_DRIZZLE CPU-reduction worker count
+// for a test (=1 restores the serial reference path; process-global env).
+struct ForwardDrizzleWorkersEnvGuard {
+  explicit ForwardDrizzleWorkersEnvGuard(const char *v) {
+    if (v) ::setenv("TC_FORWARD_DRIZZLE_WORKERS", v, 1);
+    else ::unsetenv("TC_FORWARD_DRIZZLE_WORKERS");
+  }
+  ~ForwardDrizzleWorkersEnvGuard() { ::unsetenv("TC_FORWARD_DRIZZLE_WORKERS"); }
+  ForwardDrizzleWorkersEnvGuard(const ForwardDrizzleWorkersEnvGuard &) = delete;
+  ForwardDrizzleWorkersEnvGuard &
+  operator=(const ForwardDrizzleWorkersEnvGuard &) = delete;
 };
 struct Fixture {
   core::AtomicOutput staging{fs::temp_directory_path()/"runner-forward-test"};
@@ -509,6 +525,10 @@ reconstruction:
 TEST_CASE("forward runner: local-warp geometry cache is built, published, "
           "checkpointed and re-verified on resume (plan 11.14 P1/P2)",
           "[forward-runner][geometry-cache]") {
+  // Pin the serial reduction path: the FORWARD_DRIZZLE stripe-consumer geomstats
+  // counters this test inspects (production_uniform_raw etc.) are only recorded
+  // at 1 reduction worker (the registry is disabled for band parallelism).
+  ForwardDrizzleWorkersEnvGuard reduction_workers("1");
   LocalWarpFixture f;
   f.cfg.reconstruction.keep_profile_cache_after_run=true;
   std::ostringstream first;
@@ -571,4 +591,67 @@ TEST_CASE("forward runner: local-warp geometry cache is built, published, "
   std::ostringstream rejected;
   REQUIRE_FALSE(f.execute(rejected,"FORWARD_DRIZZLE"));
   for (const auto &e:events(rejected.str())) REQUIRE(e["type"]!="phase_start");
+}
+
+TEST_CASE("forward runner: FORWARD_DRIZZLE reduction worker count is honoured "
+          "and leaves the committed store bit-identical (plan 11.14.5 P3 T2)",
+          "[forward-runner][geometry-cache][geometry-parallel]") {
+  // current.json / profiles_current_sha256 embed the clock-derived generation
+  // name, so they differ run-to-run even for identical content. Hash the
+  // committed profile-plane FITS files instead (CFITSIO writes no DATE key
+  // here) --- that is the actual pixel payload.
+  auto content_digest = [](const fs::path &profiles_root) {
+    const auto cur = core::json::parse(std::ifstream(profiles_root / "current.json"));
+    const fs::path gen = profiles_root / cur.at("generation").get<std::string>();
+    std::vector<std::string> shas;
+    for (const auto &e : fs::directory_iterator(gen))
+      if (e.path().extension() == ".fits")
+        shas.push_back(e.path().filename().string() + ":" +
+                       core::sha256_file(e.path()));
+    std::sort(shas.begin(), shas.end());
+    std::string joined;
+    for (const auto &s : shas) joined += s + "\n";
+    REQUIRE(shas.size() >= 4u);  // uniform+raw+fine+medium * L * {value,...}
+    return core::sha256_bytes(
+        std::vector<uint8_t>(joined.begin(), joined.end()));
+  };
+
+  auto run_at = [&](const char *workers) {
+    ForwardDrizzleWorkersEnvGuard env(workers);
+    LocalWarpFixture f;
+    f.cfg.reconstruction.keep_profile_cache_after_run = true;
+    std::ostringstream out;
+    const bool ok = f.execute(out);
+    INFO("workers=" << workers << " log:\n" << out.str());
+    REQUIRE(ok);
+    const auto digest =
+        content_digest(f.dir / "artifacts/forward_drizzle_profiles");
+    const auto ckpt = core::json::parse(std::ifstream(
+        f.dir / "artifacts/forward_drizzle_checkpoint.json"));
+    REQUIRE(ckpt.contains("forward_drizzle_reduction_workers"));
+    const auto prof = core::json::parse(std::ifstream(
+        f.dir / "artifacts/forward_drizzle_geometry_profile.json"));
+    struct R {
+      std::string digest;
+      int workers;
+      bool suppressed_note;
+    };
+    return R{digest,
+             ckpt.at("forward_drizzle_reduction_workers").get<int>(),
+             prof.contains(
+                 "forward_drizzle_stage_stats_suppressed_reduction_workers")};
+  };
+
+  const auto ref = run_at("1");
+  REQUIRE(ref.workers == 1);
+  REQUIRE_FALSE(ref.suppressed_note);  // serial path records real counters
+  for (const char *w : {"2", "4"}) {
+    const auto got = run_at(w);
+    INFO("workers=" << w);
+    REQUIRE(got.workers == std::atoi(w));
+    REQUIRE(got.digest == ref.digest);  // store commit invariant to worker count
+    // The all-zero FORWARD_DRIZZLE stripe-consumer counters at W>1 are marked
+    // "not recorded", so nobody misreads them as P1/P2 cache proof.
+    REQUIRE(got.suppressed_note);
+  }
 }
