@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09. | [§30.12–30.75](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist 10.09. | [§30.12–30.76](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -6098,6 +6098,79 @@ GPU-Toleranz, unberührter Pfad).
 **Offen:** R3 exakte X-Clip-Wiederverwendung im Rasterizer **plus gespiegelter
 CUDA-Device-Kernel** + volle `[cuda-parity]`-Matrix; R1.1+R1.2+R2 (CUDA
 Host/Device-Budget-Trennung, 2D-Zielkacheln, echte Bereichsprovider).
+
+---
+
+### 30.76 P6 CPU-FORWARD_DRIZZLE: Messung, Puffer-Hoist, Sackgassen (2026-09-10)
+
+Benutzer: „lass den GPU-Pfad vorerst weg und optimiere den CPU-Pfad bis er
+passt." Neuer versteckter Bench `test_forward_drizzle_hotspot_profile.cpp`
+(`[.][fd-hotspot]`) + env `TC_FD_PROFILE` (nur Messung, ein `getenv` pro
+`stream_*`-Aufruf, gegatete Zähler): grobe Phasenzeiten prep/alloc/raster/
+reduce/sink + Sechs-Wege-Split (enum/clip/accum/fill/gather/reduce) auf einem
+Streifen + Band-Worker-Sweep.
+
+**Messung (affine OSC 1920×1080×2, 12 Frames, 1 Worker):**
+prep 0,00 · **alloc 10,58 s** · raster 24,0 s (davon
+`polygon_rectangle_intersection_area` ~78 %) · reduce 6,8 s · sink 0,47 s.
+`alloc` = Neu-Allokation + Value-Init des flachen `ClipCandidate`-Puffers
+(`channels·width·rows·frame_count`) **pro Streifen**, komplett seriell — die
+Ursache dafür, dass die Band-Parallelität bei ~2,1× hängenblieb.
+
+**Umgesetzt (`1f6379ce`, bit-identisch): Puffer-Hoist.** `candidates`,
+`counts`, `A/B/QA*`, `ac_*` einmal auf die **größte** Streifenhöhe
+(`memory.rows`) allokiert und über alle Streifen wiederverwendet.
+`candidates` wird nie genullt — jeder vom Reduce gelesene Eintrag wurde in
+diesem Streifen vom Gather geschrieben, begrenzt durch `counts` (Span
+`data()+i·frame_count`, Länge `counts[c][i]`) — nur das `counts`-Präfix
+(+ A/B, die ohnehin pro Band pro Frame neu genullt werden) wird über `[0, n)`
+des aktuellen (ggf. kürzeren Rand-) Streifens zurückgesetzt. Gleiche Werte,
+gleiche Per-Pixel-Framefolge, gleiche Reduce-Spans. **Ergebnis:** alloc
+10,58 → 0,42 s; 1-Worker-Gesamt 44,2 → 32,8 s; Band-Speedup bei 8 Workern
+2,1× → **3,7×**. Suite 537/537 (`[drizzle-audit]`, `[geometry-scaling]` mit
+zerklüftetem letzten Streifen, `[geometry-cache]`, `[cuda-parity]`,
+Multiband).
+
+**Sackgasse — Innenzellen-`k=1,0`-Shortcut (verworfen, mit Messung).** Idee
+aus §30.75 auf den Droplet-Rasterizer übertragen: Zelle vollständig innerhalb
+des Leaf-Vierecks → `k=1,0` exakt. Gemessen: bei pixfrac 0,8 / scale 2 ist
+ein Droplet-Leaf **~1,6 Internal-px**; **0,0 %** der Clips liefern Fläche 0,
+~1,6–3 echte Teilüberlappungs-Clips pro Quellpixel, **keine** Innen- oder
+Außenzellen zum Überspringen. Der Shortcut ist für den Droplet-Pass wirkungslos
+(er wirkt nur beim Footprint-Pass, pixfrac 1,0, §30.75). Zurückgerollt.
+
+**Skalierungsdeckel analysiert.** `cells_emitted` ist bei Worker ∈
+{1,4,8,16} **identisch** → keine redundante Band-Enumeration (R1.3-X-Bound +
+Leaf-y-Clamp geben jedem Band exakt seine Zellen). raster skaliert ~4,0×,
+reduce ~4,4–5× bei 8 Kernen (Ryzen 3700X, 8 physisch); 16 Threads (SMT)
+bringen nichts. Der Deckel ist der speicherbandbreiten­gebundene
+Akkumulator-Verkehr (`A[c][gi]+=k·v`, streut in Quellpixel- statt
+Canvas-Reihenfolge) + serielles `sink` + Per-Pixel-Heap-Allokationen in
+`apply_robust_clipping` (`std::vector<bool> accepted`, `order`, `active`,
+`dev_order` pro Pixel×Kanal).
+
+**Realraster-Projektion (3840×2160×2, 20 affine Frames, chunk auto→198,
+16 GB Budget):** 1 Worker 217 s (raster 164 + reduce 46), **8 Worker 56 s
+(3,87×)**. Frame-linear → **600 Frames ≈ 1680 s ≈ 28 min FORWARD_DRIZZLE
+allein @ 8 Kerne** (affin, nach Hoist). Das ist praktisch das gesamte
+30-min-Kettenbudget — SAMPLING_GEOMETRY/SQM/GQ/MULTIBAND/Ausgabe kommen dazu.
+
+**Fazit:** Der affine CPU-Pfad **passt nicht** in 30 min für 600 Frames, auch
+nach dem Hoist. Der Clip ist 81 % von FORWARD_DRIZZLE und ist irreduzible
+exakte Per-Zell-Geometrie (~1,6–3 Clips/Quellpixel, 0 % überspringbar); der
+`.cu` ist ein 1:1-Port, jede Clip-Interna-Umschreibung braucht ein
+Differenz-Gate gegen die aktuelle Implementierung bei ~1,2–1,3× erwartetem
+Gewinn. Reale Hebel: (a) **mehr Kerne** (Clip ist compute-bound, skaliert),
+(b) die Per-Pixel-Heap-Allokationen in `apply_robust_clipping` durch
+Stack-/Thread-Scratch ersetzen (bit-identisch, hilft `reduce`-Skalierung),
+(c) SIMD-Batch-Clipper (bit-exakt, hohes Risiko, unsicherer Gewinn).
+**Lokale Warps (M42/M66 — die tatsächlich hängengebliebenen Läufe) sind ein
+anderes Problem:** `smooth_local_basis` = 16 `std::exp`/Newton-Iteration, von
+§30.69 als separat gegatete Numerik-/Modellidentitätsrevision (minimax-`expf`,
+bit-ändernd, bewegt auch den Registrierungs-Modell-Fit `global_registration.
+cpp:977`) geschlossen. Kein Teil dieser CPU-Arbeit berührt das; „bis es passt"
+autorisiert diese Revision nicht — sie ist eine eigene Entscheidung mit
+benanntem Blast-Radius.
 
 ---
 

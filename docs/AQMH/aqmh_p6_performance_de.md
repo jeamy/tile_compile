@@ -289,11 +289,32 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
       MONO+OSC × scale {1,2} × fraction {0,5;1,0} × chunk {3,16,0} × 9 Transforme).
       Gemessen: Footprint-Pass **47,6 s → 3,5 s (13,6×)**, Coverage gesamt
       **87,2 s → 42,8 s (2,04×)**; `source_samples_visited` 50,9 M → 0.
+- [x] **CPU-FORWARD_DRIZZLE Puffer-Hoist** (§30.76) — `candidates`/`counts`/
+      `A/B/QA*` einmal auf `memory.rows` allokiert + wiederverwendet statt pro
+      Streifen neu allokiert+genullt; `candidates` nie genullt (nur `counts`-
+      Präfix). alloc 10,6 → 0,4 s, 1-Worker 44 → 33 s, Band-Speedup 2,1× →
+      3,7× @ 8 Kerne, bit-identisch (537/537). Bench
+      `test_forward_drizzle_hotspot_profile.cpp` + `TC_FD_PROFILE`.
+- [~] **Innenzellen-`k=1,0`-Shortcut für den Droplet-Rasterizer** — VERWORFEN
+      mit Messung (§30.76): Droplet-Leaf ~1,6 Internal-px, 0 % Null-Flächen-
+      Clips, keine Innen-/Außenzellen. Nur der Footprint-Pass (§30.75) profitiert.
+- [ ] `apply_robust_clipping` Per-Pixel-Heap-Allokationen (`std::vector<bool>
+      accepted` / `order` / `active` / `dev_order`) durch Stack-/Thread-Scratch
+      ersetzen — bit-identisch, hilft `reduce`-Skalierung
 - [ ] R3 — exakte X-Clip-Wiederverwendung im Rasterizer + gespiegelter
       CUDA-Device-Kernel + volle Paritätsmatrix
 - [ ] R1.1 + R1.2 + R2 — CUDA Host/Device-Budget-Trennung, 2D-Zielkacheln,
       echte Source-/Q-Bereichsprovider; `[cuda-parity]` durchgehend
 - [ ] Realer/halbrealer Messlauf, Phasenbudget final
+
+**Realraster-Projektion FORWARD_DRIZZLE (affin, nach Hoist, §30.76):** 20
+Frames 3840×2160×2 = 217 s / 1 Worker, 56 s / 8 Worker (3,87×). Frame-linear
+→ **600 Frames ≈ 1680 s ≈ 28 min @ 8 Kerne** — allein FORWARD_DRIZZLE füllt
+fast das gesamte 30-min-Kettenbudget. Der Clip (`polygon_rectangle_
+intersection_area`, 81 % der Phase) ist irreduzible exakte Per-Zell-Geometrie.
+Reale Hebel: mehr Kerne (Clip skaliert), die `apply_robust_clipping`-Alloks,
+oder ein SIMD-Batch-Clipper (bit-exakt, hohes Risiko). **Lokale Warps** (M42/
+M66) brauchen zusätzlich die separat gegatete `expf`-Numerikrevision (§30.69).
 
 <a id="p6-loesungsweg-30min"></a>
 
