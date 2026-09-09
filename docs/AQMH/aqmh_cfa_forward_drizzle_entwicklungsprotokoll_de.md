@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook 09.09. | [§30.12–30.70](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf-O1/O2/O3 09.09. | [§30.12–30.72](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -5801,6 +5801,120 @@ stimmt, und liefert die realen Phasendauern für den Neuentwurf.
 **Commit-Stand:** Runbook + dieser §30.70-Eintrag committet — Branch
 `CFA-aware-Forward-Drizzle`. **Kein Code geändert.** P6-Checkboxen im Plan
 bleiben offen (Vorbereitung ≠ Abnahme).
+
+---
+
+<a id="historie-30-71"></a>
+
+### 30.71 P6-Vorbereitung: Workerbudget und gemeinsamer Downstream (2026-09-09)
+
+Die Prüfung des Runbooks ergab Implementierungslücken und fehlerhafte
+Extrapolationen. Der folgende Stand ersetzt die aktuellen Schlussfolgerungen
+von §30.70, ohne dessen historischen Messbericht umzuschreiben.
+
+- P3 berücksichtigt Reader-Residenz und pro Worker Reader-/Clipping-/Alpha-Scratch
+  im Streifenbudget. Bei zu kleinem Budget wird die Workerzahl reduziert, bevor
+  die Arbeitsbuffer angelegt werden. Angeforderte, budgetierte und tatsächliche
+  CPU-Worker werden getrennt protokolliert; ein erfolgreicher CUDA-Pfad meldet
+  null CPU-Reduktionsworker. Frische Rekonstruktionsläufe behalten ihre
+  konfigurierte Workerzahl.
+- Der STACKING-Pass-through schreibt aus dem ausgewählten `reconstructed_*`
+  separate kanonische Ausgaben im rücktransformierten Photometrieraum.
+  Faktoren und Hintergründe stammen aus dem gehashten Normalisierungsartefakt.
+  Wiederholung skaliert nicht doppelt; Raw bleibt unverändert. Masken werden
+  konservativ in die Ausgabegeometrie übertragen. Quell-WCS wird nicht auf die
+  transformierte Leinwand kopiert; Astrometrie löst das tatsächliche Ausgaberaster.
+- `runner_downstream.cpp` enthält den aus dem bisherigen Resume-Pfad extrahierten
+  gemeinsamen RGB-Downstream für Astrometrie, BGE, PCC und HMS. Der neue Pfad
+  debayert nicht erneut und übernimmt keine Classic-Tile-Metriken. Fehlende
+  verpflichtende Astrometrie bricht ab. MONO erhält `stacked.fits`; RGB-Phasen
+  sind explizit nicht anwendbar und keine vollständige MONO-Produktabnahme.
+- `forward_downstream_inputs.json` dokumentiert Eingangs-/Ausgangshashes und
+  Photometrie. Der Resume-Checkpoint bindet die Normalisierung und führt den
+  finalen HMS-Hash. Cachebereinigung folgt erst nach erfolgreichem Downstream.
+- Die 4450–11200-s-Projektion ist zurückgezogen: Summenfehler und Division
+  alter Vor-Cache-Zeiten durch Workerzahlen sind keine aktuelle Prognose.
+  Die kleine Indexmessung muss außerdem mit Quellzeilen und Frames skaliert
+  werden: bei 600 × 2160 Zeilen etwa 39,6 MiB pro Variante, nicht 1,8 MiB.
+
+Die Codeprüfung umfasst synthetische Photometrie-/Masken-/Resume-Verträge,
+Workerbudget und CPU-/GPU-Parität. Vollständige reale Solver-/Katalog-/HMS-
+Verifikation, 600-Frame-Skalierung und P6-Abnahme bleiben offen. Datensätze,
+Kalibriermaster und neue Laufverzeichnisse sind noch festzulegen.
+Die verbindlichen Startvoraussetzungen stehen im [P6-Runbook](aqmh_p6_runbook_de.md).
+
+Verifikation: Runner und Tests gebaut; Gesamtsuite 532/532 mit 1.043.956
+Assertions; abschließender CPU-Fokus 15/15 mit 354 Assertions und native
+GTX-1660-Ti-Tests (CUDA-Parität, Runner, Downstream) 19/19 mit 387.531 Assertions.
+`git diff --check` sauber. Keine Benutzerruns gestartet.
+
+
+---
+
+<a id="historie-30-72"></a>
+
+### 30.72 P6-Leistung: Engpassmessung + O1/O2/O3 (2026-09-09)
+
+**Anlass:** ein realer 600-Frame-M31-Lauf (affin) zeigte SAMPLING_GEOMETRY
+2 h 21 min, SOURCE_QUALITY_MAPS 48 min, GLOBAL_QUALITY 4 min, FORWARD_DRIZZLE
+>47 min laufend. Benutzervorgabe: gesamte Kette < 30 min, sonst Fehlschlag.
+Vollständige Analyse + Lösungen in `docs/AQMH/aqmh_p6_performance_de.md`.
+
+**Engpass durch Messung geklärt** (neuer Hidden-Benchmark
+`tests/test_coverage_hotspot_profile.cpp`, `[.][coverage-profile]`): in
+`compute_geometric_coverage` sind **95,3 %** der Wanduhr die zwei
+`rasterize_drizzle_stripe`-Durchläufe (CFA-Tropfen + dichter Footprint), pro
+Quellpixel ~0,7 µs bzw. ~0,9 µs Polygon-Clip, alle 600 Frames einthreadig.
+**Kein K-Faktor** — der affine Pfad begrenzt den Quell-Scan pro Streifen bereits
+(`forward_drizzle.cpp:492-512`). Extrapolation 8,29 Mpx × 600 f × 1,6 µs × 1,02
+≈ 8100 s, deckt sich mit 8460 s gemessen. `(void)num_workers` — Parallelität war
+nie verdrahtet.
+
+**O1 — streifen-parallele Coverage.** `compute_geometric_coverage` verarbeitet
+Zeilenbänder (`band_rows ≤ memory.rows`, ~4× so viele Bänder wie Worker für
+`schedule(dynamic,1)`-Balance) parallel. Pro Band eigene
+`B/w/w2/count/support/footprint_count/touched` und eigene `DiskQuantile`;
+`w[c][i] += B[c][i]` bleibt pro Zelle in Frame-Reihenfolge → **bit-identisch**.
+`DiskQuantile::absorb` faltet die Band-Spools multiset-weise (radix-select
+reihenfolgeunabhängig). Der sequentielle `StripeHoles`-Lochdetektor läuft nach
+dem Parallelbereich über drei kanvasweit persistierte `support`-Ebenen.
+`geomstats` im Parallelbereich deaktiviert (RAII). **`memory.rows` /
+`resolved_chunk_rows` bleiben aus dem W=1-Budget** — die Workerzahl ändert die
+Chunk-Höhe nicht (Compute-Invarianz-Tests). Worker aus `parallel_workers ∩
+hardware_concurrency`, `TC_SAMPLING_GEOMETRY_WORKERS` überschreibt.
+`gate.workers_used` in `sampling_geometry.json`. **Gemessen (Ryzen 3700X, 8
+Kerne):** W=8 5,97×, W=16 6,87×. Bit-identisch (`[drizzle-audit]` „coverage
+audit: stripes preserve exact geometry", W=128 vs W=1).
+
+**O2 — `VerifiedNormalizedSourceCache` LRU.** Statt eines einzigen `image_` eine
+LRU (`std::list`+`unordered_map`), Kapazität aus `memory_budget_mb`. Treffer
+eines auf Platte unveränderten Frames (Stat: Größe + mtime) → kein Read, kein
+SHA-256. Größen-/mtime-Änderung erzwingt volle Neuverifikation → Trunkierung
+und jeder Rewrite scheitern weiterhin geschlossen (`[cache-lru]`, plus die
+bestehenden `[source-predecessors]`-Verträge grün). Per-Worker-Klon-Konstruktor
+`(proto, mb)` für O3. **Wirkung:** Drizzle-Streifenpfad-Lesevolumen 376 GB →
+~16 GB, SHA-256-Läufe 11 400 → 600. `load()` nicht thread-safe (per-Worker-
+Instanzen).
+
+**O3 — paralleler SQM-Bau.** `build_source_quality_map_cache(..., int workers)`:
+Frame-Schleife `#pragma omp parallel for schedule(dynamic,1)`, je Worker ein
+Cache-Klon, `proxy` + `compute_source_quality_maps` unabhängig, `writer.put` in
+`#pragma omp critical` gepuffert. `commit()` sortiert die Dateiliste →
+`source_quality_cache_hash` + alle Datei-SHAs **byte-identisch** für Worker ∈
+{1,2,3,6} (`[source-quality-parallel]`). Runner: `TC_SOURCE_QUALITY_WORKERS`.
+Erwartung ~6×/8 Kerne (gleiches OMP-Muster wie O1).
+
+**Erreichbarkeit 30 min (8-Kern-Projektion):** SAMPLING_GEOMETRY 8460→~1410 s,
+SOURCE_QUALITY_MAPS 2915→~490 s, GLOBAL_QUALITY 266 s (noch seriell). Kette ohne
+Drizzle/HMS ~2430 s ≈ 40 min — **noch über 30 min**. Offen für < 30 min: **O4**
+(CFA+Footprint-Fusion, ~1,3×), GLOBAL_QUALITY parallelisieren, FORWARD_DRIZZLE
+nach O2 messen, ggf. **O5** (affine Flächen-Schablone — Numerik-/Modell-
+identitätsklasse, gesperrt).
+
+**Suite:** 533/534, 1.431.306 Assertions; einziger Fehlschlag weiterhin das
+GPU-umgebungsabhängige `test_acceleration_backend.cpp:254` (auf Pristine-Baseline
+identisch). **Nicht committet** — der Arbeitsbaum trägt gleichzeitig die
+uncommittete STACKING-/Downstream-Arbeit (§30.71) des Benutzers.
 
 ---
 

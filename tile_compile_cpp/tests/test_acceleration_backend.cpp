@@ -247,14 +247,24 @@ TEST_CASE("acceleration_context_keeps_run_scoped_cpu_selection") {
   REQUIRE(artifact["phases"].contains("AQMH_RECONSTRUCTION"));
 }
 
-TEST_CASE("acceleration_context_keeps_aqmh_maps_cpu_only") {
+TEST_CASE("acceleration_context_selects_supported_aqmh_maps_backend") {
   tile_compile::core::AccelerationContext context("opencv_cuda");
   const auto selection =
       context.selection_for(tile_compile::core::AccelerationPhase::aqmh_maps);
-  REQUIRE(selection.selected == tile_compile::core::AccelerationBackend::cpu);
-  REQUIRE_FALSE(selection.using_gpu);
-  REQUIRE_FALSE(selection.request_honored);
-  REQUIRE_FALSE(selection.fallback_reason.empty());
+  const bool cuda_available = selection.opencv_cuda_headers &&
+                              selection.opencv_cuda_runtime;
+  if (cuda_available) {
+    REQUIRE(selection.selected ==
+            tile_compile::core::AccelerationBackend::opencv_cuda);
+    REQUIRE(selection.using_gpu);
+    REQUIRE(selection.request_honored);
+    REQUIRE(selection.fallback_reason.empty());
+  } else {
+    REQUIRE(selection.selected == tile_compile::core::AccelerationBackend::cpu);
+    REQUIRE_FALSE(selection.using_gpu);
+    REQUIRE_FALSE(selection.request_honored);
+    REQUIRE_FALSE(selection.fallback_reason.empty());
+  }
 }
 
 TEST_CASE("worker_cuda_streams_match_selected_cuda_backend") {

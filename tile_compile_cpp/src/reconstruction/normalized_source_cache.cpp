@@ -105,33 +105,91 @@ VerifiedNormalizedSourceCache::VerifiedNormalizedSourceCache(
     hashes_.emplace(index,hash);
   }
   context_hash_=digest(ctx);
+  // LRU capacity (plan §30.72 O2): how many whole frames fit in the budget,
+  // leaving 1 MiB slack. At least one; never more than the manifest holds.
+  const size_t usable = memory_budget_mb*1024*1024 - 1024*1024;
+  capacity_ = std::max<size_t>(1, std::min<size_t>(hashes_.size(),
+                                                   bytes ? usable/bytes : 1));
+}
+
+VerifiedNormalizedSourceCache::VerifiedNormalizedSourceCache(
+    const VerifiedNormalizedSourceCache &proto, size_t memory_budget_mb)
+    : root_(proto.root_), width_(proto.width_), height_(proto.height_),
+      hashes_(proto.hashes_), manifest_hash_(proto.manifest_hash_),
+      context_hash_(proto.context_hash_) {
+  if (memory_budget_mb < 2)
+    throw std::runtime_error("NORMALIZED_CACHE_MEMORY_BUDGET");
+  const size_t bytes = frame_bytes(width_, height_);
+  const size_t usable = memory_budget_mb*1024*1024 - 1024*1024;
+  capacity_ = std::max<size_t>(1, std::min<size_t>(hashes_.size(),
+                                                   bytes ? usable/bytes : 1));
 }
 bool VerifiedNormalizedSourceCache::matches(const registration::RegistrationSamplingPlan &plan) const {
   return digest(context(plan))==context_hash_;
 }
 const Matrix2Df &VerifiedNormalizedSourceCache::load(size_t source_index) {
+  const auto hit=resident_.find(source_index);
+  if (hit!=resident_.end()) {
+    const auto path=root_/(std::to_string(source_index)+".raw");
+    std::error_code ec;
+    const auto sz=fs::file_size(path,ec);
+    const auto mt=fs::last_write_time(path,ec);
+    if (!ec && sz==hit->second->file_size && mt==hit->second->mtime &&
+        mt<hit->second->verified_at) {
+      // Unchanged AND last written strictly before we verified it: promote to
+      // front, no read, no SHA-256. The `mt < verified_at` guard closes the
+      // same-mtime-tick rewrite window that a size+mtime match alone leaves.
+      lru_.splice(lru_.begin(),lru_,hit->second);
+      return hit->second->image;
+    }
+    // Size or mtime moved, a same-tick rewrite is possible, or stat failed:
+    // drop the stale entry and fall through to a full verifying reload.
+    lru_.erase(hit->second);
+    resident_.erase(hit);
+  }
+  return verify_and_insert(source_index);
+}
+
+const Matrix2Df &VerifiedNormalizedSourceCache::verify_and_insert(
+    size_t source_index) {
   const auto found=hashes_.find(source_index);
   if (found==hashes_.end()) throw std::invalid_argument("NORMALIZED_CACHE_UNKNOWN_FRAME");
   const size_t bytes=frame_bytes(width_,height_);
   const auto path=root_/(std::to_string(source_index)+".raw");
   require_file(path,bytes);
-  image_.resize(0,0);
-  image_.resize(height_,width_);
+  Matrix2Df image;
+  image.resize(height_,width_);
   std::ifstream file(path,std::ios::binary);
-  file.read(reinterpret_cast<char *>(image_.data()),static_cast<std::streamsize>(bytes));
-  if (!file || file.peek()!=std::char_traits<char>::eof()) {
-    image_.resize(0,0);
+  file.read(reinterpret_cast<char *>(image.data()),static_cast<std::streamsize>(bytes));
+  if (!file || file.peek()!=std::char_traits<char>::eof())
     throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
-  }
   // Hash the actual image bytes, not a second read of a possibly replaced file.
   unsigned char hash[SHA256_DIGEST_LENGTH];
-  SHA256(reinterpret_cast<const unsigned char *>(image_.data()),bytes,hash);
+  SHA256(reinterpret_cast<const unsigned char *>(image.data()),bytes,hash);
+  ++hash_computations_;
   std::ostringstream encoded;
   for (unsigned char b : hash) encoded<<std::hex<<std::setw(2)<<std::setfill('0')<<static_cast<int>(b);
-  if (encoded.str()!=found->second) {
-    image_.resize(0,0);
+  if (encoded.str()!=found->second)
     throw std::runtime_error("NORMALIZED_CACHE_CONTENT_MISMATCH");
+  std::error_code ec;
+  Entry e;
+  e.index=source_index;
+  e.image=std::move(image);
+  e.file_size=fs::file_size(path,ec);
+  e.mtime=fs::last_write_time(path,ec);
+  // Captured AFTER the read+hash: a hit is trusted only if the file's mtime is
+  // strictly older than this instant, so a write concurrent with (or in the
+  // same fs tick as) our read is never mistaken for "unchanged".
+  e.verified_at=fs::file_time_type::clock::now();
+  lru_.push_front(std::move(e));
+  resident_[source_index]=lru_.begin();
+  // Evict least-recently-used; never the entry just inserted (front). A held
+  // reference to some OTHER frame is invalidated here, matching the previous
+  // single-buffer contract where any load() invalidated the prior reference.
+  while (lru_.size()>capacity_ && lru_.size()>1) {
+    resident_.erase(lru_.back().index);
+    lru_.pop_back();
   }
-  return image_;
+  return lru_.front().image;
 }
 } // namespace tile_compile::reconstruction

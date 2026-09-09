@@ -68,6 +68,8 @@ AlphaConfidenceFactors compute_alpha_confidence_channel(
   q.reserve(accepted.size());
   resid.reserve(accepted.size());
   std::vector<double> art_v, art_w;
+  art_v.reserve(accepted.size());
+  art_w.reserve(accepted.size());
   double b_total = 0.0, b_direct = 0.0;
   for (const auto &c : accepted) {
     if (!(c.b > 0.0)) continue;

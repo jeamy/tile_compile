@@ -462,7 +462,12 @@ TEST_CASE(
   REQUIRE(a.gate.min_channel_n_eff_p10 == b.gate.min_channel_n_eff_p10);
   REQUIRE(a.gate.largest_internal_hole_area_px ==
           b.gate.largest_internal_hole_area_px);
-  REQUIRE(a.gate.workers_used == 1);
+  // Plan §30.72 O1: `a` requested 128 workers and the internal height admits
+  // many single-row stripes, so it genuinely ran stripe-parallel; `b`
+  // requested 1 and stayed on the exact serial path. Every field above is
+  // bit-identical between the two.
+  REQUIRE(a.gate.workers_used > 1);
+  REQUIRE(b.gate.workers_used == 1);
   cfg.memory_budget_mb = 1;
   REQUIRE_THROWS(compute_geometric_coverage(plan, 2, 0.8f, lenient_gate(), 0.5f,
                                             128, cfg));

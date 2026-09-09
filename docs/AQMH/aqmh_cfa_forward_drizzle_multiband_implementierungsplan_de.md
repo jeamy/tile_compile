@@ -38,7 +38,7 @@ Die Kapitelnummern 1–27 bleiben für bestehende Fachverweise erhalten.
 
 <a id="status"></a>
 
-### 0.1 Implementierungsstatus (2026-09-07)
+### 0.1 Implementierungsstatus (2026-09-09)
 
 Aktuelle Übersicht; detaillierte Checklisten stehen in §23. Implementiert,
 getestet und für den Produktrelease abgenommen sind getrennte Aussagen.
@@ -55,7 +55,7 @@ getestet und für den Produktrelease abgenommen sind getrennte Aussagen.
 | M7 | **CUDA-Vorwärtsdrizzle funktional/paritätsseitig implementiert; Produktionsskalierung offen** (§30.55–§30.57): auf **allen** produktiv relevanten Configs aktiv und byte-identisch zur CPU-Referenz — affin 1/1 + 2/2, **Produktionsconfig Modus 2/1** (Host-2×2-Faltung der internen Device-Bänder, kein fehlender Kernel), **lokale Warps** (Hybridpfad §19.6.2, `backend=cuda_hybrid`). Vor dem CUDA-Versuch bleibt nur „Device vorhanden". Reale M31-Modus-2/1- und M42-Hybrid-Vollläufe byte-identisch (§30.57); `[cuda-parity]` synthetisch vollständig; §11.13 auf M31+M42; FP-Kontraktion fixiert; `s_j`-Pinning n/a solange bit-exakt. | Produktionsskalierung P0–P6 (CUDA ≈ 1,1–2,1× langsamer je nach Config; **M9/M10-Releaseblocker**, §3.4/§11.14) und — davon abhängig — die optionale Numerikrevision (`std::exp` → Minimax) für einen vollen GPU-Lokalpfad. Profiling-Befund: `hybrid_cpu_seconds` ≫ GPU-Raster (§30.57). |
 | M8 | **weitgehend geschlossen** (Reihenfolge Report → GUI/Cache → Legacy → Doku, Beschluss 2026-09-08). Erledigt: Durchsatz-Baseline §11.11.1; **Report A+B (§30.59)**; **GUI-Methodenwahl entfernt (inkl. `method`-Feld) + Cache-Kommunikation + Rechen-Invarianz-Test + Browser-Abnahme + DE/EN-Methodikdoku (§30.60)** — `parameter.js`, `phase-list.js` (Run-Monitor-Phasenliste `RECONSTRUCT_PHASES` auf die real emittierte `reconstruct`-Reihenfolge korrigiert), Cache-`description` (Schema .json+.yaml) + DE/EN-`short_help`, `[forward-runner]`-Invarianz-Test, `test_report_forward_drizzle.cpp` (EN+DE-Doppellauf), `docs/guides/cfa_forward_drizzle_pipeline_{en,de}.md` + `workflow*` aktualisiert. Im Browser verifiziert (kein Methodenselektor, Felder + Tooltips, korrekte 11-Phasen-Liste, Report-Sektion, `&`→`&amp;`-Übersetzungsbug behoben). | Offen: `process_flow/`-Per-Phase- **und** `configuration_reference*`/`configuration_examples_practical_*`-Neuschreibung (alle M10-Ära, Legacy-Pfad); `report_en.json`-Identitätseinträge (EN läuft über Basis-Strings); explizite Legacy-Lauf-„read-only"-Badges. `Config::method`/Schema/`AqmhConfig` → **M10**. |
 | M9 | offen | Vollständige unabhängige Pflichtmatrix fehlt; einzelne historische M31/M42-Läufe ersetzen sie nicht |
-| M10 | offen | Kanonische Downstream-Ausgabe, Photometrie-/WCS-Vertrag, Retention und Produkt-Cutover |
+| M10 | teilweise vorbereitet | OSC-Downstream-Anbindung und Photometrie-Rücknahme implementiert; reale WCS-/End-to-End-Abnahme, vollständige MONO-Matrix und Produkt-Cutover offen |
 | M11 | offen | M10 und Grace-Zyklus vorausgesetzt |
 
 **Prüfung dieser Statusrevision:** Neubuild + vollständige `build/tests`-Suite
@@ -2294,16 +2294,16 @@ Auswertungen, nicht eine garantierte 68-fache End-to-End-Beschleunigung.
   Kette ≤1920 s, sodass 480 s bis zur harten 2400-s-Grenze bleiben. Diese
   Planungsreserve ersetzt keinen vollständigen Messlauf und ist keine
   behauptete erreichbare Laufzeit.
-  → **Vorbereitung erstellt (§30.70, 2026-09-09):** `docs/AQMH/aqmh_p6_runbook_de.md`
-  — Run-Config-Delta-Liste, Skalierungsleiter, Speicher-Referenzprofil,
-  zwei-Klassen-Phasenbudget aus den realen m31/m42/m66-Messungen. Projektion
-  600 f (N = Kernzahl, M66 `parallel_workers=8`, für N=16 anheben):
-  **~4450 s (affin, N=16, bester Fall) bis ~11200 s (lokal, N=8) + Ausgabe/HMS**,
-  also ~1,85–5× über 2400 s → verfehlt die Grenze in jedem gerechneten Szenario.
-  Dominante Terme: SOURCE_QUALITY_MAPS ~1700–1800 s (Nenner verifiziert),
-  FORWARD_DRIZZLE lokal ~2720–5400 s, Geometrie-Bau ~1440–4300 s. Benannte Lücke:
-  BGE/PCC/HMS/Astrometrie laufen im `reconstruct`-Pfad nicht → keine Messung. **P6-Lauf
-  weiterhin nicht autorisiert; Checkbox bleibt offen (Vorbereitung ≠ Abnahme).**
+  → **Vorbereitung korrigiert und Anbindung implementiert (2026-09-09):**
+  [P6-Runbook](aqmh_p6_runbook_de.md) enthält die aktuellen Voraussetzungen.
+  Die alten 4450–11200-s-Projektionen sind zurückgezogen: Summenfehler,
+  Vor-Cache-Zeiten und unbelegte Division durch die Workerzahl erlauben keine
+  aktuelle Endzeitprognose. P3 budgetiert Reader-/Clipping-/Alpha-Scratch und
+  meldet angeforderte, budgetierte und tatsächliche Worker getrennt.
+  STACKING stellt separate photometrisch rücktransformierte Ausgaben bereit;
+  OSC nutzt die gemeinsame Astrometrie-/BGE-/PCC-/HMS-Anbindung ohne Debayern.
+  Reale Solver-/Katalogverifikation und vollständige 600-Frame-Kaltläufe sind
+  weiterhin offen; Datensätze und neue Zielverzeichnisse fehlen.
 - [ ] Absolute Abnahme gemäß §3.4 bis HMS, einschließlich I/O und allen
   produktiven Phasen. Falls sie scheitert: M10 blockiert; den dominierenden
   Restterm gezielt neu entwerfen. Weder Minimax noch zusätzliche Threads
@@ -3057,12 +3057,13 @@ bleibt für OSC der bestehende Downstream-Eingang (Astrometrie, BGE, PCC, HMS)
 und wird von STACKING unverändert aus `reconstructed_R/G/B` gebildet (17.2);
 alle Outputs liegen in `output_scale`-Geometrie.
 
-> **Implementierungsstand (30.48):** `forward_drizzle_raw_*` und
-> `reconstructed_*` werden geschrieben. `stacked[_rgb].fits` **noch nicht** —
-> diese kanonischen Namen werden von Astrometrie/BGE/PCC/HMS im
-> **post-§17.4**-Photometrieraum erwartet, und die §17.4-Rücknahme ist
-> M10-Cutover-Arbeit. Bis dahin würde eine `stacked*`-Datei im
-> normalisiert-linearen Raum Downstream täuschen; sie entsteht mit M10.
+> **Implementierungsstand (2026-09-09):** `forward_drizzle_raw_*` und
+> `reconstructed_*` bleiben im normalisierten Arbeitsraum. Bei aktiviertem
+> Downstream schreibt der STACKING-Pass-through separate `stacked*`-Dateien
+> mit einmaliger §17.4-Rücknahme. `forward_downstream_inputs.json` dokumentiert
+> Normalisierungshash, Eingangshashes, Faktoren, Masken und Ausgabegeometrie.
+> OSC verwendet die gemeinsame Astrometrie-/BGE-/PCC-/HMS-Funktion; reale
+> End-to-End-Abnahme und vollständiger M10-Cutover bleiben offen.
 
 Alle Dateien werden zunächst unter einem phasenlokalen temporären Namen
 geschrieben, vollständig geschlossen, gehasht und erst danach atomar

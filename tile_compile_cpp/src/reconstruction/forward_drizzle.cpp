@@ -1013,7 +1013,27 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     retained_bytes += qmap_bytes;
   }
   const size_t frame_count = plan.frames.size();
-  const size_t scratch = checked_product(frame_count, 3 * sizeof(size_t) + 8);
+  const auto *geometry_reader = active_geometry_cache();
+  // Concurrent per-pixel clipping and alpha statistics own frame-sized vectors.
+  // Reader resize may briefly retain its old block as well as the new block.
+  const size_t reader_scratch = geometry_reader
+      ? checked_product(geometry_reader->max_row_record_count(), 2 * 72) : 0;
+  const size_t statistic_scratch = checked_product(frame_count,
+      sizeof(AlphaFactorContribution) + 5 * sizeof(double) +
+      4 * sizeof(size_t) + 8);
+  if (statistic_scratch > std::numeric_limits<size_t>::max() - 262144 ||
+      reader_scratch > std::numeric_limits<size_t>::max() - statistic_scratch - 262144)
+    throw std::runtime_error("DRIZZLE_MEMORY_BUDGET: worker scratch overflow");
+  const size_t worker_scratch = reader_scratch + statistic_scratch + 262144;
+  if (geometry_reader) {
+    const auto resident = geometry_reader->resident_bytes();
+    if (resident > std::numeric_limits<size_t>::max() - retained_bytes)
+      throw std::runtime_error("DRIZZLE_MEMORY_BUDGET: geometry index overflow");
+    retained_bytes += resident;
+  }
+  int req_workers = std::max(1, std::min(workers,
+      plan.canvas_height_native * cfg.internal_scale));
+  size_t scratch = checked_product(static_cast<size_t>(req_workers), worker_scratch);
   if (retained_bytes > std::numeric_limits<size_t>::max() - scratch)
     throw std::runtime_error("DRIZZLE_MEMORY_BUDGET: size overflow");
   const size_t per_channel = checked_product(frame_count, sizeof(ClipCandidate));
@@ -1022,14 +1042,28 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
   constexpr size_t fixed_pixel = 6 * sizeof(double) + sizeof(size_t) + 100;
   if (per_channel > std::numeric_limits<size_t>::max() - fixed_pixel)
     throw std::runtime_error("DRIZZLE_MEMORY_BUDGET: size overflow");
-  const auto memory = plan_drizzle_memory(
-      plan, cfg, checked_product(channels, per_channel + fixed_pixel),
-      retained_bytes + scratch);
+  DrizzleMemoryPlan memory;
+  for (;;) {
+    try {
+      memory = plan_drizzle_memory(
+          plan, cfg, checked_product(channels, per_channel + fixed_pixel),
+          retained_bytes + scratch);
+      break;
+    } catch (const std::runtime_error &e) {
+      if (req_workers == 1 || std::string(e.what()).find("DRIZZLE_MEMORY_BUDGET") != 0)
+        throw;
+      --req_workers;
+      scratch = checked_product(static_cast<size_t>(req_workers), worker_scratch);
+    }
+  }
   auto prepared = prepare_drizzle_frames(plan, cfg, subdivision);
   ForwardDrizzlePairDiagnostics summary;
   summary.diagnostics = prepared.diagnostics;
   summary.diagnostics.estimated_peak_bytes = memory.estimated_peak_bytes;
   summary.diagnostics.resolved_chunk_rows = memory.rows;
+  summary.diagnostics.workers_requested = std::max(1, workers);
+  summary.diagnostics.workers_budgeted = req_workers;
+  summary.diagnostics.worker_scratch_bytes = worker_scratch;
   {
     int local_n = 0;
     for (const auto *pf : prepared.frames)
@@ -1048,7 +1082,6 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
   // reduce is band-partitioned on the SAME `i` ranges, so every canvas cell is
   // written by exactly one worker and every source contribution is added in the
   // unchanged canonical order --- bit-identical to `req_workers == 1`.
-  const int req_workers = std::max(1, workers);
   // The process-global geometry-stats registry is not concurrency-safe; only
   // collect it on the serial path. Restored on exit.
   const bool geom_stats_was_enabled = geomstats::registry().enabled;
@@ -1058,6 +1091,7 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     ~GeomStatsRestore() { geomstats::registry().enabled = value; }
   } geom_stats_restore{geom_stats_was_enabled};
   if (suppress_geom_stats) geomstats::registry().enabled = false;
+  summary.diagnostics.reduction_stats_suppressed = suppress_geom_stats;
   // The active geometry cache reader lives in a thread_local guard that OpenMP
   // worker threads do not inherit; capture it here and re-publish it per band.
   const DrizzleGeometryCacheReader *const geom_cache = active_geometry_cache();
@@ -1146,6 +1180,9 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
         std::exception_ptr eptr;
 #pragma omp parallel num_threads(nb)
         {
+#pragma omp single
+          summary.diagnostics.workers_used = std::max(
+              summary.diagnostics.workers_used, omp_get_num_threads());
 #pragma omp for schedule(static, 1)
           for (int b = 0; b < nb; ++b) {
             try {

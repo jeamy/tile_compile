@@ -11,9 +11,12 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <exception>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace tile_compile::reconstruction {
 
@@ -522,7 +525,7 @@ SourceQualityMapsBuildResult build_source_quality_map_cache(
     const registration::RegistrationSamplingPlan &plan,
     VerifiedNormalizedSourceCache &cache,
     const config::AqmhPyramidConfig &pyramid,
-    SourceQualityMapCacheConfig cache_cfg) {
+    SourceQualityMapCacheConfig cache_cfg, int workers) {
   const std::string normalized_cache_hash = cache.manifest_hash();
   SourceQualityMapCacheWriter writer(cache_root, plan, normalized_cache_hash,
                                      pyramid, cache_cfg);
@@ -531,30 +534,80 @@ SourceQualityMapsBuildResult build_source_quality_map_cache(
   r.source_identity_hash = writer.identity_hash();
   r.source_quality_config_hash = writer.config_hash();
 
-  int max_scales = 0;
-  for (const auto &f : plan.frames) {
-    if (!f.valid) continue;
-    const Matrix2Df &source = cache.load(f.source_index);
+  std::vector<const registration::FrameSamplingTransform *> valid;
+  for (const auto &f : plan.frames)
+    if (f.valid)
+      valid.push_back(&f);
+  const int nf = static_cast<int>(valid.size());
+  int nw = std::max(1, std::min(workers, nf));
 
+  int max_scales = 0;
+  std::exception_ptr worker_error;
+
+  // One process for each frame: load (own cache clone) -> proxy -> quality
+  // maps, buffered locally; then a short critical section flushes the writer.
+  // The writer sorts its file list at commit(), so completion order does not
+  // affect the committed bytes or source_quality_cache_hash.
+  auto process_frame = [&](int idx, VerifiedNormalizedSourceCache &wc) {
+    const auto &f = *valid[static_cast<size_t>(idx)];
+    const Matrix2Df &source = wc.load(f.source_index);
     const auto proxy = compute_source_quality_proxy_v1(
         source, plan.color_mode, plan.bayer_pattern, plan.cfa_origin_x,
         plan.cfa_origin_y);
     const Matrix2Df &analysis = proxy.proxy_full;
 
+    std::vector<std::pair<std::string, Matrix2Df>> pending;
     QualityScaleMapSink sink = [&](int scale_index, int /*downsample_factor*/,
                                    const Matrix2Df &psi_source_geom) {
-      writer.put("scale_" + std::to_string(scale_index), f.source_index,
-                 psi_source_geom);
+      pending.emplace_back("scale_" + std::to_string(scale_index),
+                           psi_source_geom);
     };
     const auto maps = compute_source_quality_maps(
         analysis, /*source_valid_mask=*/{}, analysis.cols(), analysis.rows(),
         pyramid, sink);
+    pending.emplace_back("composite", maps.q_map);
+    pending.emplace_back("artifact", maps.artifact_confidence);
 
-    writer.put("composite", f.source_index, maps.q_map);
-    writer.put("artifact", f.source_index, maps.artifact_confidence);
-    max_scales = std::max(max_scales, maps.diagnostics.computed_scales);
-    ++r.frames;
+#pragma omp critical(sqm_writer)
+    {
+      for (const auto &[stream, mtx] : pending)
+        writer.put(stream, f.source_index, mtx);
+      max_scales = std::max(max_scales, maps.diagnostics.computed_scales);
+      ++r.frames;
+    }
+  };
+
+  if (nw <= 1) {
+    for (int i = 0; i < nf; ++i)
+      process_frame(i, cache);
+  } else {
+#ifdef _OPENMP
+    const size_t worker_mb =
+        cache.frame_byte_size() / (1024 * 1024) + 4; // ~2 frames resident
+#pragma omp parallel num_threads(nw)
+    {
+      // Per-worker cache clone: independent LRU, no shared load() state.
+      VerifiedNormalizedSourceCache wc(cache, worker_mb);
+#pragma omp for schedule(dynamic, 1)
+      for (int i = 0; i < nf; ++i) {
+        if (worker_error)
+          continue;
+        try {
+          process_frame(i, wc);
+        } catch (...) {
+#pragma omp critical(sqm_error)
+          if (!worker_error)
+            worker_error = std::current_exception();
+        }
+      }
+    }
+#else
+    for (int i = 0; i < nf; ++i)
+      process_frame(i, cache);
+#endif
   }
+  if (worker_error)
+    std::rethrow_exception(worker_error);
 
   const auto meta = writer.commit();
   r.source_quality_cache_hash = meta.source_quality_cache_hash;

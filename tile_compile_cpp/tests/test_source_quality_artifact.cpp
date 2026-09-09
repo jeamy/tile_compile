@@ -55,6 +55,79 @@ TEST_CASE("source cache: content bound frame loading rejects replacements and tr
   REQUIRE_THROWS(VerifiedNormalizedSourceCache(f.root,f.plan,32));
 }
 
+// Plan §30.72 O2: the LRU serves a re-load of a resident, on-disk-unchanged
+// frame without a read or a SHA-256, but still fails closed when the file is
+// rewritten or truncated, and a per-worker clone is independent.
+TEST_CASE("source cache: LRU hit skips hashing, tamper still fails closed",
+          "[source-predecessors][cache-lru]") {
+  Fixture f;
+  publish_normalized_source_manifest(f.root,f.plan);
+
+  SECTION("re-load of an unchanged frame does not re-hash") {
+    VerifiedNormalizedSourceCache cache(f.root,f.plan,64); // >= both frames fit
+    const auto *p0=cache.load(0).data();
+    REQUIRE(cache.hash_computation_count()==1);
+    for (int i=0;i<5;++i) {
+      REQUIRE(cache.load(0).data()==p0);           // same buffer, no reload
+      REQUIRE(cache.load(0).minCoeff()==10.0f);
+    }
+    REQUIRE(cache.hash_computation_count()==1);    // still just the first touch
+    cache.load(1);
+    REQUIRE(cache.hash_computation_count()==2);
+    REQUIRE(cache.resident_frame_count()==2);
+  }
+
+  SECTION("eviction under a tight budget, and re-touch re-hashes") {
+    // 512x512 float = 1 MiB/frame; budget 2 MiB -> usable 1 MiB -> capacity 1.
+    core::AtomicOutput big_staging{fs::temp_directory_path()/"src-cache-evict"};
+    const fs::path br=big_staging.path();
+    fs::create_directory(br);
+    registration::RegistrationSamplingPlan bp;
+    bp.source_width=bp.source_height=512;
+    bp.canvas_width_native=bp.canvas_height_native=512;
+    bp.color_mode=ColorMode::MONO;
+    bp.source_identity_hash="evict-src";
+    for (size_t i=0;i<2;++i) {
+      registration::FrameSamplingTransform fr;
+      fr.source_index=i; fr.frame_id="e:"+std::to_string(i);
+      fr.valid=fr.source_to_canvas_affine_valid=true;
+      bp.frames.push_back(fr);
+      Matrix2Df px=Matrix2Df::Constant(512,512,3.0f+i);
+      std::ofstream of(br/(std::to_string(i)+".raw"),std::ios::binary);
+      of.write(reinterpret_cast<const char*>(px.data()),px.size()*sizeof(float));
+    }
+    bp.plan_hash=registration::compute_plan_hash(bp);
+    publish_normalized_source_manifest(br,bp);
+    VerifiedNormalizedSourceCache cache(br,bp,2);
+    REQUIRE(cache.capacity_frames()==1);
+    cache.load(0);
+    cache.load(1);                                        // evicts 0
+    REQUIRE(cache.resident_frame_count()==1);
+    REQUIRE(cache.hash_computation_count()==2);
+    cache.load(0);                                        // re-read + re-hash
+    REQUIRE(cache.hash_computation_count()==3);
+    fs::remove_all(br);
+  }
+
+  SECTION("rewrite with identical size is still caught on the hit path") {
+    VerifiedNormalizedSourceCache cache(f.root,f.plan,64);
+    REQUIRE(cache.load(0).minCoeff()==10.0f);
+    f.write(0,Matrix2Df::Constant(32,32,77.0f));          // same byte count
+    REQUIRE_THROWS(cache.load(0));                        // mtime moved -> reverify
+  }
+
+  SECTION("per-worker clone shares the manifest but has an independent LRU") {
+    VerifiedNormalizedSourceCache cache(f.root,f.plan,64);
+    cache.load(0);
+    VerifiedNormalizedSourceCache worker(cache,8);
+    REQUIRE(worker.manifest_hash()==cache.manifest_hash());
+    REQUIRE(worker.resident_frame_count()==0);
+    REQUIRE(worker.load(0).minCoeff()==10.0f);
+    REQUIRE(worker.hash_computation_count()==1);          // its own first touch
+    REQUIRE(cache.hash_computation_count()==1);           // unaffected
+  }
+}
+
 TEST_CASE("source cache: provenance mismatch and incomplete publication fail closed", "[source-predecessors]") {
   Fixture f;
   publish_normalized_source_manifest(f.root,f.plan);

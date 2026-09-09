@@ -1,31 +1,86 @@
-# P6 — Runbook und Phasenbudget-Ableitung (Vorbereitung)
+# P6 — Runbook und Phasenbudget-Ableitung
 
-Status: **Vorbereitung. Kein Lauf autorisiert.** Dieses Dokument spezifiziert den
-P6-Abnahmelauf (§11.14.7 des Implementierungsplans, Abnahme gemäß §3.4) und leitet
-ein Phasenbudget aus den vorhandenen realen Messungen ab. Es führt selbst nichts
-aus. P6 ist der Benutzerlauf; M9-Zuständigkeit, M10-Freigabe.
+Status: **Implementierung verifiziert; die realen 600-Frame-Läufe sind bis zum
+P6-Gate dokumentiert, aber keine P6-Abnahme.** Stand 2026-09-09. Beide Läufe
+wurden ausdrücklich gestartet und am 2400-s-Gate kontrolliert beendet; keiner
+erreichte FORWARD_DRIZZLE, STACKING oder HMS.
 
-Erstellt 2026-09-09, Branch `CFA-aware-Forward-Drizzle`, HEAD `b23ba727`.
-Protokollverweis: **§30.70**.
+### Aktuelle Voraussetzungen
 
-### Kernbefund vorab
+- P3 plant Reader-, Clipping- und Alpha-Scratch pro Worker gemeinsam mit dem
+  Streifenbudget; angeforderte, budgetierte und tatsächlich verwendete
+  Workerzahlen werden getrennt erfasst. Frische Läufe behalten die konfigurierte
+  Workerzahl. Die reale Skalierung ist weiterhin ungemessen.
+- Der neue Rekonstruktionspfad besitzt einen STACKING-Pass-through mit einmaliger
+  Photometrie-Rücknahme und gemeinsamer RGB-Downstream-Funktion für Astrometrie,
+  BGE, PCC und HMS. Kein erneutes Debayern; Raw und `reconstructed_*` bleiben
+  im normalisierten Arbeitsraum. Reale vollständige P6-Abnahme steht aus.
+- MONO erhält derzeit keinen vollständigen RGB-Downstream; dessen Phasen sind
+  explizit nicht anwendbar. Das ersetzt keine allgemeine M9-MONO-Abnahme.
+- **Keine belastbare 600-Frame-End-to-End-Endzeit verfügbar.** Beide realen
+  Läufe stoppten in `SAMPLING_GEOMETRY`; frühere Summen und `/N`-
+  Extrapolationen werden in §5 nicht als Startzusage verwendet.
+- 600 Registrierungsproxies bei 3840×2160 benötigen etwa **4,97 GB = 4,63 GiB**.
+  16 GiB sind ein zu prüfender Budgetkandidat, kein automatisch sicherer Wert.
+  Freien RAM/cgroup-Headroom und Tempdisk unmittelbar vor dem Lauf messen.
+- Beide Klassen benötigen 600 verschiedene Realframes, unveränderte Gates,
+  vorhandene Kalibriermaster und ein eingefrorenes Hardware-/Configprofil.
 
-- **`memory_budget` ≥ 8192 MB, explizit deklarieren + einfrieren.** 600
-  Registrierungs-Proxies × `pixels/4` × 4 B ≈ **4,97 GB** allein, vor
-  Arbeitsmenge — der 4-GB-Envelope fasst 600 Frames nicht (§4). Referenzbox hat
-  **32 GB frei** → `memory_budget` bis **16384 MB** unbedenklich; empfohlen
-  **16384 MB** (Kopf­raum für Arbeitsmenge + Kandidatenpuffer + CFITSIO-I/O), im
-  Referenzprofil festhalten.
-- **Projizierte Gesamtkette 600 f = ~4450 s (bester gerechneter Fall) bis
-  ~11200 s**, gegen die harte 2400-s-Grenze aus §3.4 → **P6 als Abnahmelauf
-  verfehlt die Grenze in jedem gerechneten Szenario** (§5).
-- Drei dominierende Terme, keiner durch P0–P5 behoben: **SOURCE_QUALITY_MAPS
-  ~1700–1800 s**, **FORWARD_DRIZZLE lokal ~2720–5400 s**, **Geometrie-Bau
-  ~1440–4300 s** (§5.2).
-- **Benannte Lücke:** BGE / PCC / HMS / Astrometrie laufen im `reconstruct`-Pfad
-  nicht → keine Messung, obwohl §3.4 sie innerhalb der 2400 s verlangt (§7).
-- Alle 600-f-Zahlen sind **Extrapolation** — es gibt keinen realen
-  3840×2160/600-f-Lauf. P6 erzeugt ihn.
+### Verifikation dieser Änderung (2026-09-09)
+
+- `tile_compile_runner` und `tests` erfolgreich gebaut; `git diff --check` sauber.
+- Gesamtsuite: **532 Testfälle, 1.043.956 Assertions bestanden**.
+- Nach der abschließenden Worker-Diagnostikkorrektur: CPU-Fokus
+  `[forward-downstream],[forward-runner],[geometry-parallel],[synthetic-quality]`
+  mit **15 Testfällen / 354 Assertions** bestanden.
+- Native GTX 1660 Ti, Treiber 610.57.04:
+  `[cuda-parity],[forward-runner],[forward-downstream]` mit
+  **19 Testfällen / 387.531 Assertions** bestanden. Der CPU-Scheduler-Test
+  erzwingt auf GPU-Hosts den CPU-Fallback; CUDA meldet null CPU-Reduktionsworker.
+- Reale 600-Frame-Läufe sind im folgenden Laufabschnitt dokumentiert. Die Tests belegen weiterhin
+  keine reale Solver-/Katalog-/HMS-Abnahme.
+
+### Reale 600-Frame-Läufe (2026-09-09)
+
+Die Läufe wurden mit dem migrierten M6-Basisprofil, `internal_scale=2`,
+`output_scale=1`, `parallel_workers=8` und einem expliziten
+`memory_budget=16384` gestartet. Das Zielverzeichnis lag auf dem großen
+Arbeitsvolume unter `tile_compile/p6_runs`; das frühere `/media/tc_500`-Volume
+war für den projizierten Record-Bestand nicht ausreichend.
+
+| Klasse | Laufverzeichnis | Ergebnis bis zum Gate |
+|---|---|---|
+| affin (M31) | `p6_runs/20260909_140715_ad7c7da2` | 600/600 Frames; Registrierung 600 gültig, 0 lokale Modelle, affine/field-rotation; `NORMALIZED_CACHE` ok; `SAMPLING_GEOMETRY` ab 12:27:25Z; kontrollierter Stopp nach 2400 s; kein Drizzle/HMS |
+| lokal verzerrt (M42) | `p6_runs/20260909_144826_7db55408` | 600/600 Frames; Registrierung 600 gültig, 4 Frames mit aktivem lokalem Modell, 596 affine-only; `NORMALIZED_CACHE` ok; `SAMPLING_GEOMETRY` ab 12:58:35Z; kontrollierter Stopp nach 2400 s; kein Drizzle/HMS |
+
+Die vor der Geometrie erzeugten Laufdaten umfassten etwa 38 GiB (M31) bzw.
+23 GiB (M42). Der M31-Lauf auf `/media/tc_500` mit demselben 16-GiB-Budget
+wurde zuvor wegen des dort knappen freien Plattenplatzes kontrolliert beendet;
+der erste 4-GiB-Versuch brach bereits mit
+`DRIZZLE_MEMORY_BUDGET` ab. Diese Vorläufe sind Diagnoseartefakte und keine
+zusätzlichen P6-Abnahmen.
+
+Die beiden finalen Läufe liefen bereits mit `memory_budget=16384`. Das Budget
+ist eine Pipeline-Admission-Grenze und keine harte Obergrenze für den gesamten
+Prozess-RSS; während der M42-Registrierung wurde zeitweise ein RSS-Snapshot von
+rund 27,6 GiB beobachtet. Für eine Wiederholung müssen deshalb sowohl das
+Budget als auch der reale verfügbare RAM gemeinsam vorab geprüft werden.
+
+Die Registrierung nutzte den OpenCV-CUDA-Prewarp (GPU); die eigentliche
+Registrierung lief mit acht CPU-Workern. Beide Läufe meldeten
+`ASTAP not available`, obwohl `/home/lux/.local/share/tile_compile/astap/astap_cli`
+ausführbar vorhanden ist. Die aktuelle Verfügbarkeitsprüfung akzeptiert im
+Katalogverzeichnis nur `.290`/`.291`; vorhanden sind dort `.1476`-Dateien und
+`d80_star_database.zip`. Das ist eine erkannte Prüfungs-/Kompatibilitätslücke,
+kein fehlendes Binary. Da HMS nicht erreicht wurde, sind Solver, BGE, PCC und
+HMS aus diesen Läufen nicht bewertet.
+
+**Abnahmeentscheidung:** Die 600-Frame-Voraussetzung und die Klassenbelege sind
+erfüllt, die End-to-End-Zeitgrenze und der HMS-Commit sind nicht erfüllt bzw.
+nicht gemessen. P6 bleibt daher offen; M10 bleibt blockiert. Der dominante
+Restterm ist die CPU-bound `SAMPLING_GEOMETRY`-Phase. Ein nächster Lauf muss
+deren Cache-/Range-Read-Implementierung und die ASTAP-Auflösung separat
+beheben oder mit einer begründeten neuen Budgetierung neu messen.
 
 ---
 
@@ -55,7 +110,7 @@ Protokollverweis: **§30.70**.
 
 ---
 
-## 2. Datenlage — die realen Messungen, auf die sich die Ableitung stützt
+## 2. Historische Datenlage — keine aktuelle Endzeitprognose
 
 Alle drei Läufe: OSC, 3840×2160, `internal_scale=2` / `output_scale=1`,
 `parallel_workers=8`, GTX 1660 Ti vorhanden. Phasendauern aus
@@ -90,8 +145,7 @@ Frame-Bezug (aus den `phase_end`-Feldern, **nicht** geschätzt):
 
 ### 2.1 Zwei Provenienzklassen — pro Phase getrennt behandelt
 
-**Klasse A — gemessen, Phase seither strukturell unverändert, skaliert mit
-Framezahl:** SCAN, CHANNEL_SPLIT, NORMALIZATION, REGISTRATION, NORMALIZED_CACHE,
+**Klasse A — historische Messungen, für eine neue Prognose erneut zu prüfen:** SCAN, CHANNEL_SPLIT, NORMALIZATION, REGISTRATION, NORMALIZED_CACHE,
 COMMON_OVERLAP, SOURCE_QUALITY_MAPS, GLOBAL_QUALITY, MULTIBAND.
 
 **Klasse B — überholt oder nie gemessen, Zahl nicht durch Skalierung
@@ -99,17 +153,14 @@ gewinnbar:**
 
 - **SAMPLING_GEOMETRY**: Die 565 / 1249 / 2158 s stammen vom **Pre-P1/P2-Pfad**
   (K-fache Geometrieberechnung, einthreadig). P1/P2 haben diesen Pfad ersetzt.
-  Die 600-f-Zahl ist die **Cache-Bau-Extrapolation** aus §30.69
-  (~1440 s / 16 Kerne), **kein** realer 3840×2160-Lauf.
-- **FORWARD_DRIZZLE**: m31/m42 liefen mit **einem** Reduktions-Worker
-  (Pre-P3-Teil-2). Die 600-f-Zahl braucht die Neuableitung aus §5 — und die ist
-  eine **doppelte Annahme**: extrapolierte Einthread-Rate × angenommener
-  Band-Speedup `/N`, wobei der Real-Canvas-Speedup von P3 Teil 2 **noch nicht
-  gemessen** ist (§30.68 nennt das als offenen P6-Punkt).
-- **Ausgabe / BGE / PCC / HMS / Astrometrie**: im `reconstruct`-Ausführungs­
-  bereich (`execution_scope: forward_drizzle_m1_m3`) **nicht implementiert**.
-  Es gibt **keine Messung**, weder bei 40 f noch bei 100 f. §3.4 verlangt diese
-  Phasen **innerhalb** der 2400 s. → **benannte Lücke**, siehe §7.
+  Die frühere Cache-Bau-Extrapolation aus §30.69 ist kein realer
+  3840×2160-Lauf und wird hier nicht als aktuelles Budget übernommen.
+- **FORWARD_DRIZZLE**: m31/m42 liefen vor Cache-/Schedulerintegration.
+  Die damaligen Zeiten können nicht direkt durch die heutige Workerzahl
+  geteilt werden. Aktuelle Messungen fehlen (§5).
+- **Ausgabe / BGE / PCC / HMS / Astrometrie**: in diesen historischen Läufen
+  nicht ausgeführt. Die inzwischen integrierte gemeinsame Funktion benötigt
+  noch reale End-to-End-Verifikation; es gibt keinen nachgetragenen Messwert.
 
 ---
 
@@ -134,26 +185,24 @@ Basis: `runs/m66_m9gate_20260908/config.yaml` (Legacy-Format,
 |---|---|---|---|
 | `linearity.max_frames` | 64 | **entfernen** (bzw. ≥ 600) | §3.4: alle 600 Frames durch reguläre Selektion |
 | Datensatz / Frame-Manifest | 100 M66-Frames | **600 verschiedene Realframes** pro Klasse | §3.4 |
-| `runtime_limits.memory_budget` | 8192 | **16384** (32 GB frei, Kopfraum über 4,97 GB Proxys) — explizit + eingefroren (§4) | §3.4 Referenzprofil |
-| `runtime_limits.parallel_workers` | 8 | **N = Referenzhardware-Kernzahl, explizit setzen** (M66 hatte 8; die §5-Projektion rechnet mit `/N` — bei N=8 bleibt es bei 8, für N=16 muss dieser Wert **von 8 auf 16 angehoben** werden) | §5 |
+| `runtime_limits.memory_budget` | 8192 | **16384 als Budgetkandidat** — nur nach RAM-/cgroup-Preflight, explizit einfrieren (§4) | §3.4 Referenzprofil |
+| `runtime_limits.parallel_workers` | 8 | **explizit festlegen und messen**; Requested/Budgeted/Used getrennt protokollieren, keine lineare `/N`-Prognose | §5 |
 | `aqmh.reconstruction.chunk_rows` | 0 (auto) | 0 lassen **oder** eingefroren dokumentieren | Referenzprofil |
 | interne/Ausgabe-Skala | (migriert) | **verifizieren = 2 / 1** nach Migration | §3.4 |
 | Kalibrierung | vorhandene Master | vorhandene Master (Darks/Flats), im Manifest gehasht | §3.4 |
-| `astrometry` / `bge` / `pcc` / `hypermetric_stretch` | (siehe §7) | müssen im Ausführungspfad **aktiv und gemessen** sein | §3.4 — derzeit Lücke |
+| `astrometry` / `bge` / `pcc` / `hypermetric_stretch` | (siehe §7) | müssen im Ausführungspfad **aktiv und gemessen** sein | §3.4 — aktiviert und erfolgreich nachzuweisen |
 
 ### 3.3 Datensatzwahl
 
-- **Lokal verzerrte Klasse**: DwarfII alt-az (Feldrotation), z. B. die
-  M42-Familie aus `verify_m6m7/m42_base.yaml` — aber mit **600** echten Frames,
-  nicht 40. Beleg der Lokalmodell-Notwendigkeit aus dem Lauf:
+- **Lokal verzerrte Klasse**: DwarfII alt-az (Feldrotation), hier die
+  M42-Familie aus `verify_m6m7/m42_base.yaml` mit **600** echten Frames.
+  Beleg der Lokalmodell-Notwendigkeit aus dem Lauf:
   `forward_drizzle.json` / Checkpoint-Feld `hybrid_local_frames` bzw.
   `has_smooth_local_model`-Anteil und die Rotationswinkelspanne. (§30.57: M42
   40 f ergab `hybrid_local_frames=1` — bei 600 f neu zu belegen.)
-- **Affine Klasse**: **vom Benutzer zu benennen.** M31 (`verify_m6m7`) ist mit
-  40 f affin gelaufen; ein 600-Frame-Äquivalent mit vernachlässigbarer
-  Feldrotation (`auto_engine_rotation_threshold_deg` unterschritten) ist
-  erforderlich. Reine Rotation zählt als affin und ist kein Beleg für die
-  lokal-verzerrte Klasse.
+- **Affine Klasse**: M31 (`verify_m6m7`) wurde mit 600 Frames verwendet. Die
+  Laufartefakte zeigen 0 aktive lokale Modelle; reine Rotation zählt als affin
+  und ist kein Beleg für die lokal-verzerrte Klasse.
 
 ### 3.4 Skalierungsleiter 40 / 100 / 200 / 600 (Plan §11.14.7, erster Punkt)
 
@@ -180,16 +229,22 @@ Frame. Bei 3840×2160 = 8,29 Mpx → **≈ 2,07 M Einträge/Frame**.
   CFITSIO-I/O.
 - Der eingefrorene 4-GB-Envelope (§11.13) **fasst 600 Frames bei 3840×2160
   nicht** — das ist bereits bei M9-Start festgestellt (M66 lief bei 8 GB).
-- **Folge:** P6 muss sein `memory_budget` **explizit deklarieren** und im
-  eingefrorenen Referenzprofil festhalten. Referenzbox: **32 GB frei** →
-  **16384 MB empfohlen** (deckt 4,97 GB Proxys + Arbeitsmenge + stripe-begrenzte
-  Kandidatenpuffer + CFITSIO-I/O mit Kopfraum). Die Zahl mit dieser Arithmetik
-  **im Runbook-Kopf**, nicht als Fußnote — damit sie nicht mitten im Lauf
-  entdeckt wird.
-- P3 Teil 2 (§30.67) fügt **keinen** frame­skalierten RAM pro Worker hinzu
-  (Bänder teilen `A/B/QA*/candidates`); der einzige Pro-Worker-Term ist ein
-  `enumerate_stripe`-`ifstream` + `block`-Puffer, beschränkt durch
-  `max_row_record_count × 72 B`. Das ändert die 8-GB-Erwartung nicht.
+- **Folge:** P6 muss sein `memory_budget` explizit deklarieren. 16384 MiB ist
+  ein Kandidat; dessen Eignung wird anhand aktueller RAM-/cgroup-Grenzen,
+  vorhandener Proxies, Downstream-Arbeitssätze und der Leiter geprüft. Frühere
+  Angaben „32 GB frei“ sind keine aktuelle Ressourcenprüfung.
+- Pro Worker entstehen neben dem Geometry-Reader-Block framezahlabhängige
+  temporäre Clipping-/Alpha-Vektoren. Die gemeinsamen Bild-/Kandidatenpuffer
+  werden nicht dupliziert. Der CPU-Plan budgetiert dennoch den vollständigen
+  zusätzlichen Scratch einschließlich Reader-Reallokation und Reserve;
+  zu viele Worker werden reduziert, passt ein Worker nicht, wird abgebrochen.
+- Der Geometry-Index skaliert mit **Framezahl × Quellhöhe**. Eine Hochrechnung
+  von ~3 KiB/Frame bei 96 Zeilen auf 2160 Zeilen muss auch die Höhe skalieren:
+  etwa 600 × 3 KiB × 2160/96 ≈ **39,6 MiB pro solcher Indexvariante**,
+  nicht 1,8 MiB. Variantenanzahl und Metadaten zusätzlich berücksichtigen.
+- Record-Disk, Hash-Lesevolumen, Reader-I/O und persistente Q-/Normalized-
+  Caches separat budgetieren. Kleine warme Testdateien belegen keinen
+  nachhaltigen SSD-Durchsatz für mehrere hundert GiB.
 
 Einzufrieren (Vorlage, vom Benutzer auszufüllen):
 
@@ -211,76 +266,42 @@ CUDA-Backend:        <auto/on/off, tatsächlich genutzt?>
 
 ---
 
-## 5. Phasenbudget — Ableitung und Projektion (600 Frames)
+## 5. Phasenbudget: korrigierte Evidenzlage
 
-**Alle 600-f-Zahlen sind Extrapolationen. Es existiert kein realer
-3840×2160/600-Frame-Lauf. P6 erzeugt ihn.**
+Die historischen Messungen in §2 bleiben als Belege erhalten. Sie sind keine
+Messung des aktuellen vollständigen 600-Frame-Pfads.
 
-**N = Kernzahl der Referenzhardware** (M66-Config: `parallel_workers=8`). Die
-`/N`-Terme unten sind mit **N=8** (Config unverändert) **und N=16** (Wert von 8
-auf 16 angehoben, §3.2) gerechnet. Wo `/N` steht, ist der Speedup als **linear
-angenommen** und **nicht real gemessen** — bei der Geometrie widerspricht dem
-bereits die §30.65-Messung (5,4× bei 8 Kernen, sublinear).
+**Rechenkorrektur:** Die frühere Klasse-A-Tabelle summiert sich auf rund
+**2850–3000 s** (Scan ~5 + Normalisierung ~390 + Registrierung ~480 +
+Normalized-Cache ~15 + Overlap ~1 + Q-Maps ~1700–1800 + Global-Quality ~220–270 +
+Multiband ~40). Der früher eingesetzte Sockel von 1500 s war falsch. Darauf
+beruhende Gesamtsummen 4450–11200 s sind zurückgezogen.
 
-**Klasse A** — gemessen, Phase unverändert, Rate pro Frame:
+**Methodische Korrektur:** Pre-P1/P2-Drizzlezeiten enthalten wiederholte lokale
+Geometrieberechnung. Sie dürfen weder unverändert dem neuen Cachepfad
+zugeordnet noch pauschal durch die CPU-Kernzahl geteilt werden. Ein separater
+Cache-Bauterm plus unveränderter alter lokaler Drizzletakt kann denselben
+Geometrieaufwand doppelt zählen. Der aktuelle `SOURCE_QUALITY_MAPS`-Orchestrator
+arbeitet Frame für Frame; aus `parallel_workers=8` in der Config folgt keine
+achtfache Parallelität dieser Phase. Vermutete I/O-Bindung ist zu messen.
 
-| Phase | Rate | Quelle | 600-f-Projektion |
-|---|--:|---|--:|
-| SCAN_INPUT | ~const | alle | ~5 s |
-| NORMALIZATION | 0,65 s/f | m66 65,2/100 | **~390 s** |
-| REGISTRATION | 0,80 s/f | m66 80,4/100 | **~480 s** (Superlinearitätsrisiko) |
-| NORMALIZED_CACHE | 0,023 s/f | m66 2,3/100 | ~15 s |
-| COMMON_OVERLAP | ~const | alle | ~1 s |
-| SOURCE_QUALITY_MAPS | **2,79–3,01 s/f** | m31 120,1/40 · m42 120,5/40 · m66 279,0/**100** (Nenner aus `phase_end.frames`) | **~1700–1800 s** ⚠️ |
-| GLOBAL_QUALITY | 0,37–0,45 s/f | m66 36,8/100 · m31 17,8/40 | **~220–270 s** |
-| MULTIBAND | ~const (canvasgebunden; m31 40 f ≈ m42 40 f) | m31/m42 ~37 s | **~40 s** |
+### 5.1 Neu zu messende Größen
 
-**Klasse B** — überholt oder nie gemessen:
+| Messung | Trennung / Vergleich |
+|---|---|
+| Geometrie | Wall-Zeit für Build, Records, fsync, Commit/Hashes und anschließende Coverage; Varianten getrennt |
+| Drizzle CPU | Cache aktiv, 1/2/4/budgetverträgliche Worker, tatsächliche Teamgröße, gleiche Bild-/Canvasgeometrie |
+| Drizzle CUDA/Hybrid | GPU-Backend separat; CPU-Workerparameter ist kein Device-Speedup |
+| Q-Maps/Quellen | Rechenzeit, Dateiladungen, SHA-I/O, verifizierte Wiederverwendung |
+| Downstream | STACKING, Astrometrie, BGE, PCC, HMS einschließlich Dateischreiben/Commit |
+| Gesamtlauf | Gemeinsame monotone Wall-Zeit vom Start bis HMS-Commit; Summe paralleler Taskzeiten ist kein Ersatz |
 
-| Phase | Ableitung | N=8 | N=16 |
-|---|---|--:|--:|
-| SAMPLING_GEOMETRY (= Cache-Bau) | §30.69 ~2150 ns/Sample × 600 f × 3840×2160 × 2 Varianten ≈ **23000 s einthreadig**; Speedup **angenommen linear**, §30.65 misst 5,4× @ 8 K (sublinear) | **~4300 s** (23000/5,4) | **~1440 s** (23000/16, optimistisch) |
-| FORWARD_DRIZZLE — affin | m31 1560 s/40 f = 39 s/f → **23400 s einthreadig**; P3-Teil-2-Band-Speedup **angenommen linear, real-canvas nicht gemessen** (§30.68) | **~2900 s** | **~1460 s** |
-| FORWARD_DRIZZLE — lokal verzerrt | m42 ~2900 s/40 f = 72,5 s/f → **43500 s einthreadig** (der §30.69 `std::exp`-Hotspot) | **~5400 s** | **~2720 s** |
-| Ausgabe / BGE / PCC / HMS / Astrometrie | **keine Messung** — §7 | **unbekannt** | **unbekannt** |
-
-### 5.1 Projizierte Gesamtkette (Klasse A ~1500 s + Klasse B)
-
-| Klasse | N=8 | N=16 |
-|---|--:|--:|
-| **affin** | ~1500 + 4300 + 2900 + 40 ≈ **~8700 s + Ausgabe/HMS** | ~1500 + 1440 + 1460 + 40 ≈ **~4450 s + Ausgabe/HMS** |
-| **lokal verzerrt** | ~1500 + 4300 + 5400 + 40 ≈ **~11200 s + Ausgabe/HMS** | ~1500 + 1440 + 2720 + 40 ≈ **~5700 s + Ausgabe/HMS** |
-
-Selbst der **günstigste** dargestellte Fall (affin, N=16, linearer Speedup
-angenommen, Ausgabe/HMS = 0) liegt bei **~4450 s ≈ 1,85× über der harten
-2400-s-Grenze**. Der realistischere Fall (N=8 oder sublinearer Speedup, lokale
-Klasse) liegt bei **~3–5×**.
-
-### 5.2 Ehrliche Schlussfolgerung
-
-Bei aktueller Leistung ist **zu erwarten, dass P6 als Abnahmelauf die §3.4-Grenze
-verfehlt** — in **jedem** der oben gerechneten Szenarien. Die drei dominierenden
-Terme (Reihenfolge je nach N):
-
-1. **SOURCE_QUALITY_MAPS ~1700–1800 s** — allein an der 2400-s-Grenze. Nicht durch
-   P0–P5 berührt. Skaliert linear mit Framezahl (2,8–3,0 s/f, Nenner verifiziert);
-   nutzt `parallel_workers=8` bereits, vermutlich teils I/O-gebunden.
-   **Hauptkandidat für den Neuentwurf.**
-2. **FORWARD_DRIZZLE** — affin ~1460–2900 s / lokal ~2720–5400 s je nach N. P3
-   Teil 2 parallelisiert die Reduktion streifenintern (Speedup real-canvas noch
-   nicht gemessen); der lokale Pfad bleibt am `std::exp` / `sample_leaves`
-   (§30.69) hängen → braucht die separat abgesicherte Numerikrevision
-   (Vektor-/Minimax-`expf`).
-3. **SAMPLING_GEOMETRY / Cache-Bau ~1440–4300 s** je nach N — Extrapolation, kein
-   realer Lauf, §30.65 misst sublinearen Speedup. Hebel: mehr Kerne (P3 skaliert
-   per Frame, aber sublinear) oder Numerikrevision.
-
-Das entspricht der Plan-Vorgabe §11.14.7: „Falls sie scheitert: M10 blockiert;
-den dominierenden Restterm gezielt neu entwerfen." Die drei Terme sind hiermit
-**mit Zahlen benannt** — das ist der Input für diesen Neuentwurf. P6 misst, ob die
-Extrapolation stimmt (insbesondere den real-canvas P3-Speedup und die
-Ausgabe/HMS-Lücke), und liefert die realen Phasendauern, an denen der Neuentwurf
-ansetzt.
+**Entscheidungsregel:** Erst die aktuelle Leiter liefert eine belastbare
+Projektion. Das Planungsziel bleibt ≤1920 s, die tatsächliche P6-Grenze ≤2400 s.
+Bei überschrittener Projektion ist ein weiterer Diagnoselauf von einer
+Erfolgserwartung zu unterscheiden; M10 bleibt ohne bestandene Abnahme blockiert.
+Keine Gate-Lockerung und keine neue Numerik aus einer veralteten Projektion
+ableiten.
 
 ---
 
@@ -293,40 +314,38 @@ ansetzt.
    (`internal_scale=2`, `output_scale=1`, `memory_budget` wie deklariert).
 4. Skalierungsleiter 40/100/200/600 pro Klasse (§3.4 hier), Kennzahlen
    protokollieren.
-5. Pro Klasse **zwei Kaltläufe** (Cache-Verzeichnisse zwischen den Läufen
-   entfernen / lauf­abhängige Wiederverwendung ausschließen), Wanduhr Laufstart →
+5. Pro Klasse **zwei Kaltläufe in verschiedenen neuen Laufverzeichnissen**
+   (keine laufabhängigen Caches übernehmen; bestehende Läufe nicht löschen), Wanduhr Laufstart →
    HMS-Commit.
 6. Pro Lauf sichern: `logs/run_events.jsonl`, alle `artifacts/*.json`,
    `forward_drizzle_geometry_profile.json` (enthält
    `forward_drizzle_stage_stats_suppressed_reduction_workers`,
-   `geometry_cache_max_row_record_count`), Peak-RSS, GPU-Auslastung.
+   `geometry_cache_max_row_record_count`), angeforderte/budgetierte/tatsächliche
+   Workerzahl, Peak-RSS und GPU-Auslastung. CUDA verwendet keine CPU-
+   Reduktionsworker; unterdrückte Zähler sind kein Cache-Nachweis.
 7. Ergebnis gegen §3.4 auswerten: beide Läufe je Klasse ≤ 2400 s? Falls nein:
    dominierenden Restterm aus den realen Phasendauern bestimmen → Neuentwurf,
    M10 bleibt blockiert.
 
 ---
 
-## 7. Benannte Lücken (blockieren die §3.4-Abnahme, unabhängig von der Laufzeit)
+## 7. Verbleibende Start- und Abnahmevoraussetzungen
 
-1. **BGE / PCC / HMS / Astrometrie laufen im `reconstruct`-Pfad nicht**
-   (`execution_scope: forward_drizzle_m1_m3`). §3.4 verlangt sie **innerhalb** der
-   2400 s. Für diese Phasen existiert **keine Messung** — das Budget in §5 hat
-   dort ein Loch, das nicht mit einer Schätzung gefüllt wird. (M9/M10-Arbeit:
-   diese Phasen in den Ausführungspfad bringen.)
-2. **Kein MULTIBAND-/Ausgabe-Wert bei 100 f oder 600 f.** MULTIBAND ist bei 40 f
-   canvasgebunden (~37 s) und dürfte ~konstant bleiben; die Ausgabe-Serialisierung
-   (6 × 33 MB FITS bei m42, mehr bei 600 f Mehrband) ist nicht separat gemessen.
-3. **Kein realer 3840×2160/600-Frame-Lauf.** Jede 600-f-Zahl hier ist
-   Extrapolation aus 40-f-/100-f-/Sprossen-Daten.
-4. **Kein realer MONO-/Schmalband-Datensatz.** M31 und M42 sind beide OSC. §3.4
-   fordert das nicht explizit, aber die generelle Abnahme (M9) schon.
-5. **P3-Teil-2-Reduktions-Speedup real-canvas nicht gemessen** (§30.68). Die
-   `/N`-Terme in §5 nehmen ihn linear an; §30.65 misst für den Geometrie-Bau
-   5,4× bei 8 Kernen (sublinear). Die Leiter (§3.4 hier) liefert die realen
-   Speedup-Punkte.
-6. **SOURCE_QUALITY_MAPS-Skalierung aus 40-f- und 100-f-Punkten.** Nenner
-   verifiziert (`phase_end.frames`), Rate über drei Punkte konsistent
-   (2,79–3,01 s/f); Restunsicherheit ±15 %. Die Leiter schließt das.
+1. Zwei vollständige Input-Manifeste und Kalibriermaster festlegen, je 600
+   verschiedene Realframes. Affine und lokal verzerrte Klasse aus den
+   Registrierungsartefakten nachweisen; reine Feldrotation ist affin.
+2. Aktuellen Runner bauen und relevante CPU-/CUDA-/Downstream-Tests bestehen
+   lassen. Ein funktionierender synthetischer Eingang ersetzt keine reale
+   Astrometrie-/PCC-/HMS-Verifikation mit Katalog und Solver.
+3. Solver/Katalog vorhanden und lesbar; `astrometry.enabled`, `pcc.enabled`
+   und `hypermetric_stretch.enabled` aktiv, BGE passend konfiguriert. Ein
+   fehlender HMS-Commit oder übersprungene Pflichtphase ist kein P6-Pass.
+4. RAM/cgroup/SSD-Preflight für beide Klassen, migrierte effektive Config,
+   Master-/Input-/Binary-Hashes und Zielverzeichnisse einfrieren.
+5. Aktuelle 40/100/200/600-Leiter bei realer Geometrie messen; Index-Residenz,
+   vollständiger Scratch und Cache-I/O gehören zur Ressourcenprüfung.
+6. Erst vollständige Kaltläufe bis HMS belegen P6. Der Gesamtzeitnachweis,
+   reales MONO/Schmalband und die übrige M9-Matrix bleiben separate Abnahmen.
 
 ---
 
@@ -336,4 +355,4 @@ ansetzt.
   autorisiert einen Benutzerrun").
 - Dieses Runbook **bereitet vor** und **projiziert**. Es startet nichts.
 - Die 20-%-Reserve (≤ 1920 s projiziert) ist Planungsreserve, **kein** behaupteter
-  erreichbarer Wert — und die Projektion in §5 liegt ohnehin weit darüber.
+  erreichbarer Wert; §5 verlangt eine neue, aktuelle Messgrundlage.

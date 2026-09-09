@@ -35,6 +35,10 @@ struct ForwardDrizzleDiagnostics {
   size_t estimated_peak_bytes = 0;
   int resolved_chunk_rows = 0;
   int workers_used = 1;
+  int workers_requested = 1;
+  int workers_budgeted = 1;
+  std::size_t worker_scratch_bytes = 0;
+  bool reduction_stats_suppressed = false;
   // Local-warp adaptive subdivision (plan section 11.6).
   long long local_model_samples_total = 0;
   long long local_model_samples_discarded =

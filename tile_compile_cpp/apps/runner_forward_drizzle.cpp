@@ -1,4 +1,5 @@
 #include "runner_forward_drizzle.hpp"
+#include "runner_downstream.hpp"
 #include "tile_compile/config/legacy_config_migration.hpp"
 #include "tile_compile/reconstruction/source_quality_artifact.hpp"
 #include "tile_compile/reconstruction/source_quality_map_cache.hpp"
@@ -159,6 +160,10 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       reconstruction_cfg.drizzle.memory_budget_mb=static_cast<size_t>(std::max(1,cfg.runtime_limits.memory_budget));
     const auto &drizzle=reconstruction_cfg.drizzle;
     const auto artifacts=dir/"artifacts";
+    const bool downstream_requested = cfg.astrometry.enabled || cfg.bge.method != "none" ||
+        cfg.pcc.enabled || cfg.hypermetric_stretch.enabled;
+    const std::string normalization_hash = downstream_requested
+        ? core::sha256_file(artifacts/"normalization.json") : std::string();
     const auto cache_dir=dir/"cache/normalized_frames";
     const auto checkpoint_path=artifacts/"forward_drizzle_checkpoint.json";
     const auto geometry_hash=registration::compute_coverage_geometry_hash(
@@ -252,9 +257,20 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         gc["build_write_seconds"]=built.write_seconds;
         checkpoint_geometry_cache=gc;
       }
+      // Plan §30.72 O1: SAMPLING_GEOMETRY coverage is stripe-parallel and
+      // bit-identical to the serial run. Same resolution as the geometry-cache
+      // and forward-drizzle worker counts; TC_SAMPLING_GEOMETRY_WORKERS=1
+      // restores the exact serial reference.
+      int cov_workers=std::max(1,cfg.runtime_limits.parallel_workers);
+      if (const int hw=static_cast<int>(std::thread::hardware_concurrency()); hw>=1)
+        cov_workers=std::min(cov_workers,hw);
+      if (const char *e=std::getenv("TC_SAMPLING_GEOMETRY_WORKERS")) {
+        const int v=std::atoi(e);
+        if (v>=1) cov_workers=v;
+      }
       auto coverage=registration::compute_geometric_coverage(sampling,drizzle.internal_scale,
           drizzle.pixfrac,reconstruction_cfg.coverage_gate,
-          reconstruction_cfg.common_overlap_required_fraction,1,drizzle,false);
+          reconstruction_cfg.common_overlap_required_fraction,cov_workers,drizzle,false);
       io::FitsHeader header;
       header.set("MASKTYPE",std::string("SAMPLING_GEOMETRY"));
       io::write_fits_mask_rows(artifacts/geometry_files[2],coverage.analysis_common_mask,
@@ -266,7 +282,8 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
               drizzle.pixfrac,drizzle.internal_scale,coverage));
       if (!coverage.gate.passed) throw std::runtime_error("FORWARD_STAGE_COVERAGE_GATE_FAILED");
       {
-        json sg_extra={{"analysis_pixels",coverage.gate.analysis_pixels}};
+        json sg_extra={{"analysis_pixels",coverage.gate.analysis_pixels},
+                       {"coverage_workers",coverage.gate.workers_used}};
         if (geom_any_local) {
           sg_extra["geometry_cache_seconds"]=geometry_cache_seconds;
           sg_extra["geometry_cache_leaves"]=checkpoint_geometry_cache.value("total_leaves",0);
@@ -288,10 +305,13 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       for (const auto &name:geometry_files) checkpoint["artifacts"][name]=core::sha256_file(artifacts/name);
       if (!checkpoint_geometry_cache.is_null())
         checkpoint["geometry_cache"]=checkpoint_geometry_cache;
+      if (downstream_requested) checkpoint["normalization_sha256"]=normalization_hash;
       core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
       end();
     } else {
       checkpoint=checked_json(checkpoint_path);
+      if (downstream_requested && checkpoint.value("normalization_sha256",std::string())!=normalization_hash)
+        throw std::runtime_error("FORWARD_STAGE_NORMALIZATION_PREDECESSOR_MISMATCH");
       if (checkpoint.at("schema_version")!=1 || checkpoint.at("execution_scope")!=scope ||
           checkpoint.at("config_sha256")!=provenance.at("config").at("sha256") ||
           checkpoint.at("sampling_plan_hash")!=sampling.plan_hash || checkpoint.at("geometry_hash")!=geometry_hash ||
@@ -338,14 +358,24 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     const auto sqm_cache_root=dir/"cache/source_quality_maps";
     if (resume_from.empty()) {
       begin(Phase::SOURCE_QUALITY_MAPS);
+      // Plan §30.72 O3: per-frame proxy + quality maps run concurrently; the
+      // committed store is byte-identical. TC_SOURCE_QUALITY_WORKERS=1 restores
+      // the serial reference.
+      int sqm_workers=std::max(1,cfg.runtime_limits.parallel_workers);
+      if (const int hw=static_cast<int>(std::thread::hardware_concurrency()); hw>=1)
+        sqm_workers=std::min(sqm_workers,hw);
+      if (const char *e=std::getenv("TC_SOURCE_QUALITY_WORKERS")) {
+        const int v=std::atoi(e);
+        if (v>=1) sqm_workers=v;
+      }
       const auto sqm=reconstruction::build_source_quality_map_cache(
-          sqm_cache_root,sampling,cache,cfg.aqmh.pyramid);
+          sqm_cache_root,sampling,cache,cfg.aqmh.pyramid,{},sqm_workers);
       checkpoint["source_quality_identity_hash"]=sqm.source_identity_hash;
       checkpoint["source_quality_config_hash"]=sqm.source_quality_config_hash;
       checkpoint["source_quality_cache_hash"]=sqm.source_quality_cache_hash;
       core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
       end({{"frames",sqm.frames},{"computed_scales",sqm.computed_scales},
-           {"streams",sqm.streams},
+           {"streams",sqm.streams},{"workers",sqm_workers},
            {"source_quality_cache_hash",sqm.source_quality_cache_hash}});
     } else {
       reconstruction::SourceQualityMapCacheReader sqm_reader(
@@ -406,16 +436,9 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       } catch (...) { gpu_device_name.clear(); }
     }
 
-    // Plan 11.14.5 P3 Teil 2: output-row-band parallelism for the CPU
-    // reduction. "Shared budget" per the §30.66 residency table + the band
-    // design (§30.67): bands share the stripe accumulators / candidate buffers,
-    // so extra workers draw NO frame-scaled RAM --- the only per-worker term is
-    // one geometry-cache `enumerate_stripe` read buffer (<= max row record
-    // count * 72 B). The ceiling is therefore CPU:
-    // min(parallel_workers, hardware_concurrency), then capped per stripe at
-    // rows. `TC_FORWARD_DRIZZLE_WORKERS` overrides (=1 restores the serial
-    // reference). Fresh forward-drizzle-only runs arrive with parallel_workers
-    // forced to 1 (dev scope); resume-reconstruction keeps the config value.
+    // Requested CPU parallelism. Streaming resolves a budgeted worker count
+    // including concurrent clipping/alpha and geometry-reader scratch, then
+    // records the actual OpenMP team size separately. CUDA ignores this count.
     int fd_workers=std::max(1,cfg.runtime_limits.parallel_workers);
     if (const int hw=static_cast<int>(std::thread::hardware_concurrency()); hw>=1)
       fd_workers=std::min(fd_workers,hw);
@@ -423,6 +446,8 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       const int v=std::atoi(e);
       if (v>=1) fd_workers=v;
     }
+    if (const auto hw=std::thread::hardware_concurrency(); hw>0)
+      fd_workers=std::min(fd_workers,static_cast<int>(hw));
 
     begin(Phase::FORWARD_DRIZZLE);
     const auto profiles_root=artifacts/"forward_drizzle_profiles";
@@ -450,7 +475,12 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     // commit hash is invariant to it, so it is NOT resume-validated). On the
     // CUDA stripe path the device band chunking runs instead --- the value then
     // only applies to a CUDA->CPU restart.
-    checkpoint["forward_drizzle_reduction_workers"]=fd_workers;
+    checkpoint["forward_drizzle_reduction_workers_requested"]=fd_workers;
+    const bool cpu_reduction=fd_backend_used=="cpu";
+    checkpoint["forward_drizzle_reduction_workers"]=
+        cpu_reduction ? result.diagnostics.workers_used : 0;
+    checkpoint["forward_drizzle_reduction_workers_budgeted"]=
+        cpu_reduction ? result.diagnostics.workers_budgeted : 0;
     if (!fd_cuda_fallback_reason.empty())
       checkpoint["forward_drizzle_cuda_fallback_reason"]=fd_cuda_fallback_reason;
     core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
@@ -462,7 +492,9 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
          {"output_scale_applied",applied_2x2},
          {"multiband",want_multiband},
          {"acceleration_backend",fd_backend_used},
-         {"reduction_workers",fd_workers},
+         {"reduction_workers_requested",fd_workers},
+         {"reduction_workers",cpu_reduction ? result.diagnostics.workers_used : 0},
+         {"reduction_worker_scratch_bytes",result.diagnostics.worker_scratch_bytes},
          {"kernel_noise_sigma_factor",
           reconstruction::kernel_noise_correlation_sigma_factor(
               drizzle.pixfrac,drizzle.internal_scale)}};
@@ -482,9 +514,9 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       // counters below reflect only what ran serially --- a zero there is
       // "not recorded", NOT "the cache served everything". SAMPLING_GEOMETRY
       // (coverage_*) is unaffected (still single-threaded).
-      if (fd_workers>1)
+      if (result.diagnostics.reduction_stats_suppressed)
         geom_profile["forward_drizzle_stage_stats_suppressed_reduction_workers"]=
-            fd_workers;
+            result.diagnostics.workers_budgeted;
       // P3 Teil 2 shared-budget term: the largest per-source-row leaf-record
       // block a band worker seek-reads (one such buffer per concurrent worker).
       if (geom_reader)
@@ -601,9 +633,8 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       // uniform/multiband control FITS. These are NEW names with no downstream
       // consumer. The STACKING pass-through outputs/stacked[_rgb].fits are the
       // legacy canonical downstream entry points and MUST carry the 17.4
-      // normalisation undo (scale_r/g/b, pedestal) -- that is M10 cutover work,
-      // so they are deliberately NOT written here yet (writing wrong-space data
-      // under a name astrometry/BGE/PCC already read would be a trap).
+      // normalisation undo (scale_r/g/b, background). The downstream bridge
+      // writes them after releasing the reconstruction candidate buffers.
       cand={};  // free the luma buffers; selection is done
       const auto outdir=dir/"outputs";
       { std::error_code ec; fs::create_directories(outdir,ec); }
@@ -726,7 +757,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           {"cuda_fallback_reason",
            fd_cuda_fallback_reason.empty() ? json(nullptr)
                                            : json(fd_cuda_fallback_reason)},
-          {"workers_used",result.diagnostics.workers_used},
+          {"workers_used",cpu_reduction ? result.diagnostics.workers_used : 0},
           {"resolved_chunk_rows",result.diagnostics.resolved_chunk_rows},
           // Plan 19.4/19.6: populated only when the CUDA per-stripe path
           // (accumulate_pair_by_frame_cuda via run_cuda_chunked) actually ran.
@@ -842,17 +873,16 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
                        ? json(gpu_device_name) : json(nullptr)}}},
           {"threads",{
             {"parallel_workers_config",cfg.runtime_limits.parallel_workers},
-            {"workers_used",result.diagnostics.workers_used}}}}},
+            {"workers_used",cpu_reduction ? result.diagnostics.workers_used : 0}}}}},
         // Plan 23.1 (M4 carry-over -> M8 report): state the flux space of the
         // delivered planes unambiguously. The STACKING 17.4 normalisation undo
-        // (scale_r/g/b, pedestal) is deliberately NOT applied here -- that is
-        // M10 cutover work -- so downstream photometry must not assume ADU.
+        // is applied only to the separate canonical downstream products.
         {"flux_space",{
           {"space","normalised_linear_working"},
           {"luma_definition",reconstruction::kWorkingLumaDefinition},
           {"same_space_as","reconstruction_multiband.fits"},
           {"stacking_normalisation_undo_applied",false},
-          {"note","17.4 scale_r/g/b + pedestal undo pending M10 cutover"}}},
+          {"note","Normalized reconstruction products; restored downstream inputs are recorded separately in forward_downstream_inputs.json"}}},
         {"alpha_confidence_summary",alpha_confidence_summary},
         {"validation",{
           {"version",reconstruction::kMultibandValidationVersion},
@@ -889,6 +919,41 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
            {"multiband_levels",mb_identity.multiband_levels}});
     } else {
       checkpoint["status"]="reconstruction_ready";
+      core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
+    }
+
+    if (final_image_available && downstream_requested) {
+      if (sampling.color_mode == ColorMode::OSC && cfg.hypermetric_stretch.enabled &&
+          (!cfg.pcc.enabled || !cfg.astrometry.enabled))
+        throw std::runtime_error("FORWARD_HMS_REQUIRES_ASTROMETRY_AND_PCC");
+      begin(Phase::STACKING);
+      write_forward_downstream_inputs(dir,sampling,drizzle);
+      end({{"mode","forward_drizzle_pass_through"},
+           {"photometry_applied_once",true},{"output_scale",drizzle.output_scale}});
+      checkpoint["downstream_status"]="running";
+      core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
+      if (sampling.color_mode == ColorMode::OSC) {
+        const auto started=std::chrono::steady_clock::now();
+        const auto abort_downstream=[&](const std::string &) {
+          return std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count()
+              > cfg.runtime_limits.hard_abort_hours*3600.0;
+        };
+        if (run_rgb_downstream(dir,run_id,cfg,"ASTROMETRY",log,abort_downstream,true)!=0)
+          throw std::runtime_error("FORWARD_DOWNSTREAM_FAILED");
+      } else {
+        for (const auto phase : {Phase::ASTROMETRY,Phase::BGE,Phase::PCC,Phase::HYPERMETRIC_STRETCH}) {
+          begin(phase);
+          emitter.phase_end(run_id,phase,"skipped",{{"reason","mono_rgb_downstream_not_applicable"}},log);
+          active.reset();
+        }
+      }
+      checkpoint["downstream_status"]="complete";
+      if (sampling.color_mode == ColorMode::OSC && cfg.hypermetric_stretch.enabled) {
+        fs::path hms_path(cfg.hypermetric_stretch.output_rgb);
+        if (hms_path.is_relative()) hms_path=dir/"outputs"/hms_path;
+        checkpoint["final_output"]={{"path",hms_path.string()},
+            {"sha256",core::sha256_file(hms_path)}};
+      }
       core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
     }
 

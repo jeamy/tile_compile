@@ -1,4 +1,5 @@
 #include "../apps/runner_forward_drizzle.hpp"
+#include "../apps/runner_downstream.hpp"
 #include "tile_compile/core/atomic_output.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/core/acceleration.hpp"
@@ -15,6 +16,57 @@
 #include <string>
 #include <vector>
 using namespace tile_compile;
+
+TEST_CASE("forward downstream restores RGB photometry once and preserves raw inputs",
+          "[forward-downstream]") {
+  core::AtomicOutput temporary(fs::temp_directory_path()/"forward-output-test");
+  const auto dir=temporary.path();
+  fs::create_directories(dir/"outputs");
+  fs::create_directories(dir/"artifacts");
+  registration::RegistrationSamplingPlan sampling;
+  sampling.color_mode=ColorMode::OSC;
+  sampling.bayer_pattern=BayerPattern::RGGB;
+  sampling.source_width=sampling.source_height=8;
+  sampling.canvas_width_native=sampling.canvas_height_native=8;
+  config::ReconstructionDrizzleConfig cfg;
+  cfg.internal_scale=2; cfg.output_scale=1; cfg.memory_budget_mb=32;
+  core::write_text_atomic(dir/"artifacts/run_provenance.json",
+      core::json({{"input_manifest",{{"entries",core::json::array()}}}}).dump());
+  core::write_text_atomic(dir/"artifacts/normalization.json",
+      core::json({{"P_r",{2.0}},{"P_g",{3.0}},{"P_b",{4.0}},
+                  {"B_r",{10.0}},{"B_g",{20.0}},{"B_b",{30.0}}}).dump());
+  for (const auto *c : {"R","G","B"}) {
+    io::write_fits_float(dir/"outputs"/(std::string("reconstructed_")+c+".fit"),
+        Matrix2Df::Constant(8,8,5.0f),{});
+    io::write_fits_float(dir/"outputs"/(std::string("forward_drizzle_raw_")+c+".fit"),
+        Matrix2Df::Constant(8,8,7.0f),{});
+  }
+  auto mask=Matrix2Df::Ones(16,16).eval(); mask(0,0)=0;
+  io::write_fits_float(dir/"artifacts/sampling_geometry_analysis_common_mask.fits",mask,{});
+  const auto input_hash=core::sha256_file(dir/"outputs/reconstructed_R.fit");
+  const auto raw_hash=core::sha256_file(dir/"outputs/forward_drizzle_raw_R.fit");
+  runner::write_forward_downstream_inputs(dir,sampling,cfg);
+  const auto once=core::sha256_file(dir/"outputs/stacked_rgb.fits");
+  runner::write_forward_downstream_inputs(dir,sampling,cfg);
+  REQUIRE(core::sha256_file(dir/"outputs/stacked_rgb.fits")==once);
+  REQUIRE(core::sha256_file(dir/"outputs/reconstructed_R.fit")==input_hash);
+  REQUIRE(core::sha256_file(dir/"outputs/forward_drizzle_raw_R.fit")==raw_hash);
+  const auto rgb=io::read_fits_rgb(dir/"outputs/stacked_rgb.fits");
+  REQUIRE(rgb.R(3,3)==20.0f); REQUIRE(rgb.G(3,3)==35.0f); REQUIRE(rgb.B(3,3)==50.0f);
+  const auto overlap=io::read_fits_pixels_float(dir/"outputs/common_overlap_mask.fits");
+  REQUIRE(overlap(0,0)==0); REQUIRE(overlap(1,1)==1);
+  config::Config downstream;
+  downstream.astrometry.enabled=false; downstream.bge.method="none";
+  downstream.pcc.enabled=false; downstream.hypermetric_stretch.enabled=false;
+  std::ostringstream events;
+  REQUIRE(runner::run_rgb_downstream(dir,"synthetic",downstream,"ASTROMETRY",events,
+      [](const std::string &){return false;},true)==0);
+  REQUIRE(events.str().find("DEBAYER")==std::string::npos);
+  core::write_text_atomic(dir/"artifacts/normalization.json","{}");
+  REQUIRE_THROWS(runner::write_forward_downstream_inputs(dir,sampling,cfg));
+  REQUIRE(core::sha256_file(dir/"outputs/stacked_rgb.fits")==once);
+}
+
 namespace {
 // Process-global fault injection; disarm even if a REQUIRE throws.
 struct CudaFaultGuard {
@@ -47,7 +99,15 @@ struct Fixture {
   std::unique_ptr<runner::RunnerFrameCache> cache;
   Fixture() {
     fs::create_directories(dir/"artifacts"); fs::create_directories(dir/"logs");
-    const std::string yaml=R"(data:
+    const std::string yaml=R"(astrometry:
+  enabled: false
+bge:
+  method: none
+pcc:
+  enabled: false
+hypermetric_stretch:
+  enabled: false
+data:
   color_mode: MONO
 runtime_limits:
   memory_budget: 32
@@ -272,7 +332,10 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
       REQUIRE(re.at("hardware").at("logical_cores").get<long long>()>=0);
       REQUIRE((re.at("hardware").at("gpu").is_null()||
                re.at("hardware").at("gpu").is_string()));
-      REQUIRE(re.at("threads").at("workers_used").get<int>()>=1);
+      const auto backend=j.at("acceleration").at("forward_drizzle_backend").get<std::string>();
+      const int cpu_workers=re.at("threads").at("workers_used").get<int>();
+      if (backend.rfind("cuda",0)==0) REQUIRE(cpu_workers==0);
+      else REQUIRE(cpu_workers>=1);
     }
     {
       const auto &fx=j.at("flux_space");
@@ -458,7 +521,15 @@ struct LocalWarpFixture {
   std::unique_ptr<runner::RunnerFrameCache> cache;
   LocalWarpFixture() {
     fs::create_directories(dir/"artifacts"); fs::create_directories(dir/"logs");
-    const std::string yaml=R"(data:
+    const std::string yaml=R"(astrometry:
+  enabled: false
+bge:
+  method: none
+pcc:
+  enabled: false
+hypermetric_stretch:
+  enabled: false
+data:
   color_mode: MONO
 runtime_limits:
   memory_budget: 32
@@ -596,6 +667,8 @@ TEST_CASE("forward runner: local-warp geometry cache is built, published, "
 TEST_CASE("forward runner: FORWARD_DRIZZLE reduction worker count is honoured "
           "and leaves the committed store bit-identical (plan 11.14.5 P3 T2)",
           "[forward-runner][geometry-cache][geometry-parallel]") {
+  // Exercise the CPU scheduler even on GPU hosts; CUDA has no CPU row workers.
+  CudaFaultGuard force_cpu_fallback(0);
   // current.json / profiles_current_sha256 embed the clock-derived generation
   // name, so they differ run-to-run even for identical content. Hash the
   // committed profile-plane FITS files instead (CFITSIO writes no DATE key
@@ -648,10 +721,55 @@ TEST_CASE("forward runner: FORWARD_DRIZZLE reduction worker count is honoured "
   for (const char *w : {"2", "4"}) {
     const auto got = run_at(w);
     INFO("workers=" << w);
-    REQUIRE(got.workers == std::atoi(w));
+    REQUIRE(got.workers >= 1);
+    REQUIRE(got.workers <= std::atoi(w));
     REQUIRE(got.digest == ref.digest);  // store commit invariant to worker count
     // The all-zero FORWARD_DRIZZLE stripe-consumer counters at W>1 are marked
     // "not recorded", so nobody misreads them as P1/P2 cache proof.
     REQUIRE(got.suppressed_note);
   }
+}
+
+TEST_CASE("forward reduction caps workers against aggregate scratch before allocation",
+          "[forward-runner][drizzle-memory]") {
+  Fixture f;
+  auto cfg=f.cfg.reconstruction.drizzle;
+  cfg.memory_budget_mb=4;
+  cfg.chunk_rows=0;
+  const Matrix2Df source=Matrix2Df::Constant(32,32,11.0f);
+  const auto provider=[&](size_t)->const Matrix2Df & { return source; };
+  const auto ref=reconstruction::compute_forward_drizzle_uniform_and_raw(
+      f.plan,provider,cfg,f.cfg.reconstruction.clipping,{}, {}, {}, {},1);
+  const auto parallel=reconstruction::compute_forward_drizzle_uniform_and_raw(
+      f.plan,provider,cfg,f.cfg.reconstruction.clipping,{}, {}, {}, {},32);
+  REQUIRE(parallel.diagnostics.workers_requested==32);
+  REQUIRE(parallel.diagnostics.workers_budgeted<32);
+  REQUIRE(parallel.diagnostics.workers_used<=parallel.diagnostics.workers_budgeted);
+  REQUIRE(parallel.diagnostics.worker_scratch_bytes>=262144);
+  REQUIRE(parallel.diagnostics.estimated_peak_bytes<=4*1024*1024);
+  REQUIRE(parallel.raw.L.value==ref.raw.L.value);
+  REQUIRE(parallel.raw.L.support==ref.raw.L.support);
+}
+
+TEST_CASE("forward downstream normalization provenance is checked before resume events",
+          "[forward-runner][forward-downstream]") {
+  Fixture f;
+  f.cfg.astrometry.enabled=true;
+  f.cfg.hypermetric_stretch.enabled=false;
+  const auto normalization=f.dir/"artifacts/normalization.json";
+  core::write_text_atomic(normalization,
+      core::json({{"P_mono",{2.0}}, {"B_mono",{7.0}}}).dump());
+  std::ostringstream log;
+  REQUIRE(f.execute(log));
+  REQUIRE(fs::exists(f.dir/"outputs/stacked.fits"));
+  REQUIRE_FALSE(fs::exists(f.dir/"outputs/stacked_rgb.fits"));
+  const auto raw=core::sha256_file(f.dir/"outputs/forward_drizzle_raw_L.fit");
+  const auto checkpoint=core::json::parse(core::read_text(f.dir/"artifacts/forward_drizzle_checkpoint.json"));
+  REQUIRE(checkpoint.at("normalization_sha256")==core::sha256_file(normalization));
+  core::write_text_atomic(normalization,
+      core::json({{"P_mono",{3.0}}, {"B_mono",{7.0}}}).dump());
+  std::ostringstream resumed;
+  REQUIRE_FALSE(f.execute(resumed,"FORWARD_DRIZZLE"));
+  for (const auto &e:events(resumed.str())) REQUIRE(e["type"]!="phase_start");
+  REQUIRE(core::sha256_file(f.dir/"outputs/forward_drizzle_raw_L.fit")==raw);
 }

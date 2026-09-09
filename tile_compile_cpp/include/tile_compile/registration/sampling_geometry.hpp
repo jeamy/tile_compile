@@ -78,10 +78,15 @@ struct GeometricCoverageResult {
   CoverageGateResult gate;
 };
 
-// num_workers is retained for source compatibility. The bounded CPU reference
-// currently processes one stripe/frame at a time regardless of this hint.
-// resources controls chunk_rows and memory_budget_mb (0 => 512 MiB in library;
-// runner resolves 0 from runtime_limits). Production omits full channel counts.
+// num_workers (<= 1, or 0 => 1) runs the exact serial reference. num_workers > 1
+// processes stripes concurrently (plan §30.72 O1): stripes own disjoint canvas
+// i-ranges and per-i frame-ordered w/w2 sums, so the masks, gate fields and
+// n_eff p10 are bit-identical to the serial run; only the wall time changes.
+// The worker count is additionally bounded by the stripe count and by RAM, and
+// NEVER changes memory.rows / resolved_chunk_rows. gate.workers_used reports the
+// resolved value. resources controls chunk_rows and memory_budget_mb (0 => 512
+// MiB in library; runner resolves 0 from runtime_limits). Production omits full
+// channel counts.
 GeometricCoverageResult compute_geometric_coverage(
     const RegistrationSamplingPlan &plan, int internal_scale, float pixfrac,
     const config::ReconstructionCoverageGateConfig &gate_cfg,

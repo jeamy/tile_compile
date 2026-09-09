@@ -315,7 +315,15 @@ struct Fixture {
     fs::create_directories(dir / "logs");
     scene = make_scene(W, H);
 
-    const std::string yaml = R"(data:
+    const std::string yaml = R"(astrometry:
+  enabled: false
+bge:
+  method: none
+pcc:
+  enabled: false
+hypermetric_stretch:
+  enabled: false
+data:
   color_mode: OSC
   bayer_pattern: GBRG
 runtime_limits:

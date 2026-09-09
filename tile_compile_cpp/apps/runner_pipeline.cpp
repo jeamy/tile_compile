@@ -1234,7 +1234,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   cfg.method = config::getEffectiveMethod(cfg);
   cfg.aqmh.enabled = cfg.method == "aqmh";
 
-  if (forward_drizzle_only) cfg.runtime_limits.parallel_workers = 1;
+  // Forward-drizzle resolves CPU workers against its shared memory plan.
+  // Keep the configured count for fresh runs as well as reconstruction resume.
 
   auto frames = core::discover_frames(in_dir, "*");
   frames.erase(

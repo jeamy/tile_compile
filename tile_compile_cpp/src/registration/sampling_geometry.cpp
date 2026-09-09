@@ -89,6 +89,23 @@ public:
           "COVERAGE_TEMP_IO: invalid value or write failure");
     ++count;
   }
+  // Fold every value previously add()-ed to `src` into this quantile. The
+  // radix-select rank (select()) is a function of the multiset only, so the
+  // merge order across stripes does not change p10() bit-for-bit --- this is
+  // what lets O1 give each stripe worker its own spool.
+  void absorb(DiskQuantile &src) {
+    if (std::fflush(src.file.get()) ||
+        std::fseek(src.file.get(), 0, SEEK_SET))
+      throw std::runtime_error("COVERAGE_TEMP_IO");
+    std::array<float, 4096> buffer{};
+    size_t n;
+    while ((n = std::fread(buffer.data(), sizeof(float), buffer.size(),
+                           src.file.get())))
+      for (size_t i = 0; i < n; ++i)
+        add(buffer[i]);
+    if (std::ferror(src.file.get()))
+      throw std::runtime_error("COVERAGE_TEMP_IO");
+  }
   double p10() {
     if (!count)
       return 0;
@@ -272,7 +289,13 @@ GeometricCoverageResult compute_geometric_coverage(
     int num_workers, const config::ReconstructionDrizzleConfig &resources,
     bool retain_channel_counts) {
   using namespace reconstruction;
-  (void)num_workers; // deterministic bounded reference, no per-worker canvases
+  // O1 (plan §30.72): stripes are independent --- disjoint canvas i-ranges,
+  // per-stripe accumulators, per-i frame-ordered w/w2 sums --- so a stripe-
+  // parallel run is bit-identical to the serial one. num_workers <= 1 keeps the
+  // exact serial path. Worker count NEVER changes memory.rows (see below): the
+  // chunk height, and therefore resolved_chunk_rows + every geometry hash, stay
+  // a function of the W=1 budget only.
+  const int req_workers = std::max(1, num_workers);
   if (!std::isfinite(fraction) || fraction <= 0 || fraction > 1)
     throw std::invalid_argument("COVERAGE_INVALID_COMMON_FRACTION");
   config::ReconstructionDrizzleConfig cfg = resources;
@@ -344,8 +367,82 @@ GeometricCoverageResult compute_geometric_coverage(
   gate.valid_frame_count = N;
   gate.estimated_peak_bytes = memory.estimated_peak_bytes;
   gate.resolved_chunk_rows = memory.rows;
-  for (int y = 0; y < memory.height; y += memory.rows) {
-    const int rows = std::min(memory.rows, memory.height - y);
+
+  // The hole detector (StripeHoles) is a sequential connected-components
+  // accumulator over the full canvas height, so it cannot run inside the
+  // parallel loop. Persist the per-channel support planes canvas-wide (disjoint
+  // band writes) and run one serial hole pass afterwards --- bit-identical row
+  // order, bit-identical inputs.
+  std::array<std::vector<uint8_t>, 3> support_full;
+  for (int c = 0; c < channels; ++c)
+    support_full[c].assign(pixels, 0);
+
+  // Parallel work partition. `rasterize_drizzle_stripe` and the per-cell
+  // reduction are correct for ANY row window, and the compute-invariance tests
+  // prove the output does not depend on the row-band height --- so for
+  // workers > 1 we cut the canvas into ~4x more bands than workers so
+  // schedule(dynamic,1) can balance the (heavily non-uniform) per-band load.
+  // band_rows never exceeds memory.rows, so a band's accumulators are never
+  // larger than the W=1 stripe the budget was resolved against.
+  int workers = std::max(1, req_workers);
+  int band_rows = memory.rows;
+  if (workers > 1) {
+    const long long target_bands =
+        static_cast<long long>(workers) * 4;
+    band_rows = static_cast<int>(std::clamp<long long>(
+        (memory.height + target_bands - 1) / target_bands, 1, memory.rows));
+  }
+  int band_count =
+      band_rows > 0 ? (memory.height + band_rows - 1) / band_rows : 0;
+  workers = std::min(workers, std::max(1, band_count));
+
+  // RAM bound: each extra worker needs one more set of band accumulators
+  // (B/w/w2/count/support + footprint_count/touched). memory.rows /
+  // resolved_chunk_rows stay exactly as the W=1 budget resolved them.
+  const size_t per_band_bytes =
+      static_cast<size_t>(memory.width) * band_rows *
+      (static_cast<size_t>(channels) *
+           (3 * sizeof(double) + sizeof(uint32_t) + 1) +
+       sizeof(uint32_t) + 1);
+  {
+    const size_t support_full_bytes = static_cast<size_t>(channels) * pixels;
+    const size_t committed = retained + row_scratch + support_full_bytes +
+                             per_band_bytes + 64ull * 1024 * 1024;
+    while (workers > 1 &&
+           committed + static_cast<size_t>(workers - 1) * per_band_bytes >
+               memory.budget_bytes)
+      --workers;
+  }
+  gate.workers_used = workers;
+
+  // geomstats::Registry is process-global and non-atomic; disable it for the
+  // parallel region (RAII restore). At workers == 1 (the default and the
+  // reference path) the ScopedVariant/ScopedGeometryTimer scopes below are
+  // byte-identical to before.
+  const bool geom_was_enabled = reconstruction::geomstats::registry().enabled;
+  const bool suppress_geom = workers > 1 && geom_was_enabled;
+  struct GeomRestore {
+    bool value;
+    ~GeomRestore() {
+      reconstruction::geomstats::registry().enabled = value;
+    }
+  } geom_restore{geom_was_enabled};
+  if (suppress_geom)
+    reconstruction::geomstats::registry().enabled = false;
+
+  std::vector<std::array<std::unique_ptr<DiskQuantile>, 3>> band_q(
+      static_cast<size_t>(band_count));
+  for (auto &bq : band_q)
+    for (int c = 0; c < channels; ++c)
+      bq[c] = std::make_unique<DiskQuantile>();
+  std::vector<std::array<size_t, 3>> band_supported(
+      static_cast<size_t>(band_count), std::array<size_t, 3>{});
+  std::vector<long long> band_analysis_px(static_cast<size_t>(band_count), 0);
+  std::exception_ptr worker_error;
+
+  auto run_band = [&](int s) {
+    const int y = s * band_rows;
+    const int rows = std::min(band_rows, memory.height - y);
     const size_t n = static_cast<size_t>(memory.width) * rows,
                  offset = static_cast<size_t>(y) * memory.width;
     std::array<std::vector<double>, 3> B, w, w2;
@@ -397,29 +494,63 @@ GeometricCoverageResult compute_geometric_coverage(
           footprint_count[i] >= static_cast<uint32_t>(required);
       result.analysis_common_mask[offset + i] = reference;
       if (reference)
-        ++gate.analysis_pixels;
+        ++band_analysis_px[static_cast<size_t>(s)];
       bool all = true;
       for (int c = 0; c < channels; ++c) {
         support[c][i] = count[c][i] > 0;
         all = all && support[c][i];
+        support_full[c][offset + i] = support[c][i];
         if (retain_channel_counts)
           (*counts[c])[offset + i] = count[c][i];
         if (reference) {
-          supported[c] += support[c][i];
-          quantiles[c]->add(
+          band_supported[static_cast<size_t>(s)][c] += support[c][i];
+          band_q[static_cast<size_t>(s)][c]->add(
               w2[c][i] > 0 ? static_cast<float>(w[c][i] * w[c][i] / w2[c][i])
                            : 0.0f);
         }
       }
       result.reconstruction_support_mask[offset + i] = all;
     }
-    for (int row = 0; row < rows; ++row)
-      for (int c = 0; c < channels; ++c)
-        holes[c]->row(result.analysis_common_mask.data() + offset +
-                          static_cast<size_t>(row) * memory.width,
-                      support[c].data() +
-                          static_cast<size_t>(row) * memory.width);
+  };
+
+#ifdef _OPENMP
+  if (workers > 1) {
+#pragma omp parallel for schedule(dynamic, 1) num_threads(workers)
+    for (int s = 0; s < band_count; ++s) {
+      try {
+        run_band(s);
+      } catch (...) {
+#pragma omp critical
+        if (!worker_error)
+          worker_error = std::current_exception();
+      }
+    }
+  } else
+#endif
+    for (int s = 0; s < band_count; ++s)
+      run_band(s);
+  if (worker_error)
+    std::rethrow_exception(worker_error);
+
+  reconstruction::geomstats::registry().enabled = geom_was_enabled;
+
+  // Deterministic reduction in band order (the DiskQuantile merge is
+  // order-independent regardless, integer sums trivially so).
+  for (int s = 0; s < band_count; ++s) {
+    gate.analysis_pixels +=
+        static_cast<int>(band_analysis_px[static_cast<size_t>(s)]);
+    for (int c = 0; c < channels; ++c) {
+      supported[c] += band_supported[static_cast<size_t>(s)][c];
+      quantiles[c]->absorb(*band_q[static_cast<size_t>(s)][c]);
+    }
   }
+
+  for (int y = 0; y < memory.height; ++y)
+    for (int c = 0; c < channels; ++c)
+      holes[c]->row(result.analysis_common_mask.data() +
+                        static_cast<size_t>(y) * memory.width,
+                    support_full[c].data() +
+                        static_cast<size_t>(y) * memory.width);
   gate.min_supported_fraction = 1;
   gate.min_channel_n_eff_p10 = std::numeric_limits<double>::infinity();
   const double required_neff =

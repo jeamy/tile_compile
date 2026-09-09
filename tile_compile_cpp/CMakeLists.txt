@@ -596,6 +596,8 @@ set(_tile_compile_runner_sources
     apps/runner_phase_aqmh_reconstruction.cpp
     apps/runner_aqmh_pipeline.cpp
     apps/runner_forward_drizzle.cpp
+    apps/runner_downstream.cpp
+    apps/runner_forward_output.cpp
     apps/runner_phase_registration.cpp
     apps/runner_phase_preprocess_pipeline.cpp
     apps/runner_phase_quality_analysis.cpp
@@ -711,6 +713,8 @@ if(BUILD_TESTS)
             tests/test_main.cpp
             tests/test_acceleration_backend.cpp
             apps/runner_forward_drizzle.cpp
+            apps/runner_downstream.cpp
+            apps/runner_forward_output.cpp
             apps/runner_shared.cpp
             apps/runner_phase_post_stack_output.cpp
             tests/test_background_extraction.cpp
@@ -737,6 +741,7 @@ if(BUILD_TESTS)
             tests/test_drizzle_geometry_cache.cpp
             tests/test_geometry_scaling_ladder.cpp
             tests/test_forward_drizzle_local_basis_profile.cpp
+            tests/test_coverage_hotspot_profile.cpp
             tests/test_source_quality_proxy.cpp
             tests/test_source_quality_maps.cpp
             tests/test_source_quality_map_cache.cpp

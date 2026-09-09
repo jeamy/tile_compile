@@ -355,6 +355,62 @@ TEST_CASE("build_source_quality_map_cache orchestrates proxy -> streamed "
   }
 }
 
+// Plan §30.72 O3: the parallel per-frame build commits byte-identical bytes ---
+// same source_quality_cache_hash and same per-file sha256 --- at every worker
+// count, because writer.commit() sorts its file list.
+TEST_CASE("build_source_quality_map_cache is byte-identical across worker counts",
+          "[source-quality-parallel]") {
+  const int w = 96, h = 72;
+  const int nframes = 6;
+  auto plan = make_plan(w, h);
+  plan.color_mode = ColorMode::MONO;
+  plan.source_identity_hash = "mono-parallel-identity";
+  plan.frames.clear();
+  for (int i = 0; i < nframes; ++i) {
+    FrameSamplingTransform f;
+    f.frame_id = "frame-" + std::to_string(i);
+    f.source_index = static_cast<std::size_t>(i);
+    f.valid = true;
+    plan.frames.push_back(f);
+  }
+
+  TempDir tmp;
+  const fs::path ncache_root = tmp.path / "normalized_frames";
+  fs::create_directories(ncache_root);
+  for (int i = 0; i < nframes; ++i)
+    write_raw_frame(ncache_root / (std::to_string(i) + ".raw"), w, h,
+                    2.0f * static_cast<float>(i));
+  reconstruction::publish_normalized_source_manifest(ncache_root, plan);
+
+  config::AqmhPyramidConfig pyr;
+  std::string ref_hash;
+  std::vector<std::string> ref_files;  // "name=sha256" sorted
+  for (int workers : {1, 2, 3, 6}) {
+    const fs::path sqm_root =
+        tmp.path / ("sqm_w" + std::to_string(workers));
+    reconstruction::VerifiedNormalizedSourceCache ncache(ncache_root, plan);
+    const auto built = reconstruction::build_source_quality_map_cache(
+        sqm_root, plan, ncache, pyr, {}, workers);
+    REQUIRE(built.frames == nframes);
+
+    SourceQualityMapCacheReader rd(sqm_root, built.source_identity_hash,
+                                   built.source_quality_config_hash);
+    REQUIRE(rd.usable());
+    std::vector<std::string> files;
+    for (const auto &fe : rd.metadata().files)
+      files.push_back(fe.name + "=" + fe.sha256);
+    std::sort(files.begin(), files.end());
+
+    if (workers == 1) {
+      ref_hash = built.source_quality_cache_hash;
+      ref_files = files;
+    } else {
+      REQUIRE(built.source_quality_cache_hash == ref_hash);
+      REQUIRE(files == ref_files);
+    }
+  }
+}
+
 TEST_CASE("cache preserves an exact Q=0 hard veto through storage even when "
           "the storage cell also covers positive samples") {
   TempDir tmp;

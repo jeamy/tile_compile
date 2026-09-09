@@ -171,11 +171,15 @@ struct SourceQualityMapsBuildResult {
 // composite and artifact_confidence streams. No more than one full
 // source-geometry scale map is resident at a time (plan 13.3). metadata.json
 // is the sole commit point.
+// workers > 1 computes the per-frame proxy + quality maps concurrently, one
+// VerifiedNormalizedSourceCache clone per worker (plan §30.72 O3). writer.put
+// is serialised; metadata.json sorts its file list, so the committed store and
+// source_quality_cache_hash are byte-identical to the 1-worker run.
 SourceQualityMapsBuildResult build_source_quality_map_cache(
     const fs::path &cache_root,
     const registration::RegistrationSamplingPlan &plan,
     VerifiedNormalizedSourceCache &cache,
     const config::AqmhPyramidConfig &pyramid,
-    SourceQualityMapCacheConfig cache_cfg = {});
+    SourceQualityMapCacheConfig cache_cfg = {}, int workers = 1);
 
 }  // namespace tile_compile::reconstruction
