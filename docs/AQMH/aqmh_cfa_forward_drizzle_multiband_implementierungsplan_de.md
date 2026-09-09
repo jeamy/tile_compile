@@ -2294,6 +2294,16 @@ Auswertungen, nicht eine garantierte 68-fache End-to-End-Beschleunigung.
   Kette ≤1920 s, sodass 480 s bis zur harten 2400-s-Grenze bleiben. Diese
   Planungsreserve ersetzt keinen vollständigen Messlauf und ist keine
   behauptete erreichbare Laufzeit.
+  → **Vorbereitung erstellt (§30.70, 2026-09-09):** `docs/AQMH/aqmh_p6_runbook_de.md`
+  — Run-Config-Delta-Liste, Skalierungsleiter, Speicher-Referenzprofil,
+  zwei-Klassen-Phasenbudget aus den realen m31/m42/m66-Messungen. Projektion
+  600 f (N = Kernzahl, M66 `parallel_workers=8`, für N=16 anheben):
+  **~4450 s (affin, N=16, bester Fall) bis ~11200 s (lokal, N=8) + Ausgabe/HMS**,
+  also ~1,85–5× über 2400 s → verfehlt die Grenze in jedem gerechneten Szenario.
+  Dominante Terme: SOURCE_QUALITY_MAPS ~1700–1800 s (Nenner verifiziert),
+  FORWARD_DRIZZLE lokal ~2720–5400 s, Geometrie-Bau ~1440–4300 s. Benannte Lücke:
+  BGE/PCC/HMS/Astrometrie laufen im `reconstruct`-Pfad nicht → keine Messung. **P6-Lauf
+  weiterhin nicht autorisiert; Checkbox bleibt offen (Vorbereitung ≠ Abnahme).**
 - [ ] Absolute Abnahme gemäß §3.4 bis HMS, einschließlich I/O und allen
   produktiven Phasen. Falls sie scheitert: M10 blockiert; den dominierenden
   Restterm gezielt neu entwerfen. Weder Minimax noch zusätzliche Threads

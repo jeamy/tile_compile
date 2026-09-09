@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil 09.09. | [§30.12–30.69](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook 09.09. | [§30.12–30.70](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -5716,6 +5716,91 @@ Fit-Pfad-Blast-Radius). `.dot()` unangetastet lassen.
 **Commit-Stand:** P5-Profil + LTO-Test + diese P5-Abschluss-Bewertung committet
 — Branch `CFA-aware-Forward-Drizzle`. **Kein Produktionscode geändert**
 (`global_registration.cpp` bewusst nicht angefasst).
+
+---
+
+### 30.70 §11.14.7 P6 — Vorbereitung: Runbook und Phasenbudget-Ableitung (2026-09-09)
+
+**Aufgabe:** P6 vorbereiten, ohne einen Lauf zu starten — Run-Config-Spezifikation,
+Skalierungsleiter, Phasenbudget aus gemessenen Kosten. P6 selbst ist der
+Benutzerlauf (M9, Freigabe M10); kein Arbeitspaket autorisiert ihn.
+
+**Ergebnis:** `docs/AQMH/aqmh_p6_runbook_de.md`. Enthält §3.4-Abnahmekriterien,
+Referenzprofil-Vorlage zum Einfrieren, Config-Delta-Liste (M66-Gate als Basis,
+**kein** handgeschriebenes Single-Method-Config — migrierte Werte per
+`run_provenance.json` verifizieren), zwei-Klassen-Phasenbudget mit
+Pro-Zeile-Provenienz, benannte Lücken, Ausführungs-Checkliste.
+
+**Reale Datenbasis** (`runs/<lauf>/logs/run_events.jsonl`, alle OSC 3840×2160,
+`internal_scale=2`/`output_scale=1`, `parallel_workers=8`):
+
+| Phase | m31 40 f (M6) | m42 40 f (M6) | m66 100 f (M8 `27ba6e82`) |
+|---|--:|--:|--:|
+| NORMALIZATION | 30,6 | 28,0 | 65,2 |
+| REGISTRATION | 21,3 | 20,3 | 80,4 |
+| SAMPLING_GEOMETRY | 565 | 1249 | 2158 |
+| SOURCE_QUALITY_MAPS | 120,1 | 120,5 | 279,0 |
+| GLOBAL_QUALITY | 17,8 | 17,6 | 36,8 |
+| FORWARD_DRIZZLE | ~1560 (×2) | ~2900 (×5) | *abgebrochen* |
+| MULTIBAND | ~36 | ~37 | *n. e.* |
+
+**Zwei Provenienzklassen:**
+- **Klasse A** (gemessen, Phase seither unverändert, skaliert mit Framezahl):
+  SCAN, NORMALIZATION (0,65 s/f), REGISTRATION (0,80 s/f), NORMALIZED_CACHE,
+  COMMON_OVERLAP, **SOURCE_QUALITY_MAPS (2,79–3,01 s/f** — Nenner aus
+  `phase_end.frames` verifiziert: m31/m42 je 40, m66 **100** nicht 64), 
+  GLOBAL_QUALITY (0,37–0,45 s/f), MULTIBAND (canvasgebunden ~40 s).
+- **Klasse B** (überholt oder nie gemessen):
+  - SAMPLING_GEOMETRY 565/1249/2158 s = **Pre-P1/P2-K-Pfad**; Neuableitung aus
+    §30.69: ~23000 s einthreadig, Speedup **angenommen linear** (§30.65 misst
+    5,4×@8 K, sublinear) → **~4300 s @ N=8 / ~1440 s @ N=16** — **kein realer Lauf**.
+  - FORWARD_DRIZZLE lief mit **einem** Reduktions-Worker (Pre-P3-Teil-2), P3-Teil-2-
+    Band-Speedup real-canvas **nicht gemessen** (§30.68): affin 39 s/f → 23400 s
+    einthreadig → **~1460 s @ N=16 / ~2900 s @ N=8**; lokal 72,5 s/f → 43500 s →
+    **~2720 s @ N=16 / ~5400 s @ N=8**.
+  - **Ausgabe / BGE / PCC / HMS / Astrometrie** laufen im `reconstruct`-Pfad
+    (`execution_scope: forward_drizzle_m1_m3`) **nicht** — **keine Messung**,
+    §3.4 verlangt sie aber innerhalb der 2400 s. → **benannte Lücke**.
+
+**N = Referenzhardware-Kernzahl.** M66-Config: `parallel_workers=8`. Für N=16 muss
+der Wert von 8 auf 16 angehoben werden (§3.2-Delta). Die §5-Projektion rechnet
+beide.
+
+**Speicher (§3.4 Referenzprofil):** Proxy-Residenz nach §30.66 = `pixels/4`/Frame
+= 2,07 M Einträge/Frame bei 3840×2160. 600 f × 2,07 M × 4 B ≈ **4,97 GB** allein
+Proxys, vor Arbeitsmenge/Canvas/I-O. Der eingefrorene 4-GB-Envelope fasst 600 f
+**nicht** (M66 lief bei 8 GB). P6 muss `memory_budget` **explizit deklarieren**
+(Erwartung ≥ 8192 MB) und einfrieren. P3 Teil 2 fügt keinen frame­skalierten
+Pro-Worker-RAM hinzu (Bänder teilen Puffer).
+
+**Projizierte Gesamtkette 600 f** (alle Zahlen Extrapolation, es gibt keinen
+realen 3840×2160/600-f-Lauf):
+(N = Referenzhardware-Kernzahl; M66-Config `parallel_workers=8`, für N=16 anheben):
+- affin: Klasse A ~1500 + geom + drizzle + MB ≈ **~8700 s @ N=8 / ~4450 s @ N=16** + Ausgabe/HMS
+- lokal verzerrt: ≈ **~11200 s @ N=8 / ~5700 s @ N=16** + Ausgabe/HMS
+- Günstigster gerechneter Fall (affin, N=16, linearer Speedup, Ausgabe/HMS=0) =
+  **~4450 s ≈ 1,85×** über 2400 s; realistisch **~3–5×**.
+
+**Ehrliche Schlussfolgerung:** bei aktueller Leistung ist zu erwarten, dass P6 die
+§3.4-Grenze **in jedem gerechneten Szenario verfehlt**. Drei dominierende Terme,
+keiner durch P0–P5 behoben:
+1. **SOURCE_QUALITY_MAPS ~1700–1800 s** — allein an der 2400-s-Grenze; Rate
+   2,8–3,0 s/f (Nenner `phase_end.frames` verifiziert), nutzt
+   `parallel_workers=8` bereits, vermutlich teils I/O-gebunden. Hauptkandidat für
+   den plan-vorgesehenen Neuentwurf.
+2. **FORWARD_DRIZZLE** — lokaler Pfad ~2720–5400 s je nach N, hängt am `std::exp` /
+   `sample_leaves` (§30.69) → Numerikrevision (Vektor-/Minimax-`expf`); P3-Teil-2-
+   Speedup real-canvas noch nicht gemessen.
+3. **SAMPLING_GEOMETRY / Cache-Bau ~1440–4300 s** je nach N — Extrapolation,
+   §30.65 misst sublinearen Speedup; Hebel mehr Kerne oder Numerikrevision.
+
+Damit ist der Input für §11.14.7 „Falls sie scheitert: … den dominierenden
+Restterm gezielt neu entwerfen" mit Zahlen benannt. P6 misst, ob die Extrapolation
+stimmt, und liefert die realen Phasendauern für den Neuentwurf.
+
+**Commit-Stand:** Runbook + dieser §30.70-Eintrag committet — Branch
+`CFA-aware-Forward-Drizzle`. **Kein Code geändert.** P6-Checkboxen im Plan
+bleiben offen (Vorbereitung ≠ Abnahme).
 
 ---
 
