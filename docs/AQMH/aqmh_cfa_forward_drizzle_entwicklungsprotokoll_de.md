@@ -5671,8 +5671,8 @@ liegt eher bei **~1,2–1,3×** auf `sample_leaves`: die 38 % `exp` bleiben, das
 Out-Param + `.dot()` als Schleife, `sum += value` **sequenziell**, Gate =
 Cache-Build-Manifest-Byte-Identität.
 
-**Noch nichts committet.** Kein Produktionscode geändert (nur neuer Test +
-CMake-Eintrag).
+**Commit-Stand:** P5-Profil (Test + CMake + dieses §30.69) committet — Branch
+`CFA-aware-Forward-Drizzle`. Kein Produktionscode geändert.
 
 ---
 
