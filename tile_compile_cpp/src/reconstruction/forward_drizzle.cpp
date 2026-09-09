@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -1300,6 +1301,8 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
   // Measurement-only coarse phase timing (P6). Zero effect unless TC_FD_PROFILE
   // is set; never touches compute, order or bounds.
   const bool fd_profile = std::getenv("TC_FD_PROFILE") != nullptr;
+  static std::atomic<std::uint64_t> g_fd_cells_emitted{0};
+  if (fd_profile) g_fd_cells_emitted.store(0, std::memory_order_relaxed);
   double prof_prep = 0, prof_alloc = 0, prof_raster = 0, prof_reduce = 0,
          prof_sink = 0;
   auto prof_now = [] { return std::chrono::steady_clock::now(); };
@@ -1537,9 +1540,11 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
                              cfg.pixfrac);
           gs_timer.emplace();
         }
+        std::uint64_t band_cells = 0;
         rasterize_drizzle_stripe(
             plan, *f, cfg.internal_scale, cfg.pixfrac, y + r0, r1 - r0,
             [&](int sx, int sy, int c, int /*leaf*/, size_t i, double k) {
+              if (fd_profile) ++band_cells;
               // `i` is relative to the (y + r0) window origin; re-base it into
               // the stripe-wide accumulators.
               const size_t gi = i + bi0;
@@ -1565,6 +1570,8 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
               }
             },
             subdivision);
+        if (fd_profile)
+          g_fd_cells_emitted.fetch_add(band_cells, std::memory_order_relaxed);
         for (int c = 0; c < channels; ++c)
           for (size_t i = bi0; i < bi0 + bn; ++i)
             if (B[c][i] > 0)
@@ -1635,8 +1642,10 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
   if (fd_profile)
     std::fprintf(stderr,
                  "[TC_FD_PROFILE] prep=%.3f alloc=%.3f raster=%.3f "
-                 "reduce=%.3f sink=%.3f (s)\n",
-                 prof_prep, prof_alloc, prof_raster, prof_reduce, prof_sink);
+                 "reduce=%.3f sink=%.3f (s)  cells_emitted=%llu\n",
+                 prof_prep, prof_alloc, prof_raster, prof_reduce, prof_sink,
+                 (unsigned long long)g_fd_cells_emitted.load(
+                     std::memory_order_relaxed));
   return summary;
 }
 

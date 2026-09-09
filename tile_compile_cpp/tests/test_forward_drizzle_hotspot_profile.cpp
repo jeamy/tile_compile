@@ -48,6 +48,14 @@ int env_int(const char *k, int dflt) {
   return dflt;
 }
 
+// Like env_int but 0 is a valid value (used for chunk_rows = 0 = auto).
+int env_int0(const char *k, int dflt) {
+  if (const char *v = std::getenv(k)) {
+    if (*v) return std::atoi(v);
+  }
+  return dflt;
+}
+
 WarpMatrix affine(double a, double b, double tx, double c, double d, double ty) {
   WarpMatrix m;
   m(0, 0) = static_cast<float>(a);
@@ -126,7 +134,7 @@ TEST_CASE("FORWARD_DRIZZLE hotspot: CPU cost split + band-parallel scaling on "
     return source;
   };
 
-  const int chunk = env_int("TC_FDPROF_CHUNK", 256);
+  const int chunk = env_int0("TC_FDPROF_CHUNK", 256);  // 0 => auto
   config::ReconstructionDrizzleConfig dz;
   dz.internal_scale = scale;
   dz.pixfrac = pixfrac;
@@ -135,6 +143,9 @@ TEST_CASE("FORWARD_DRIZZLE hotspot: CPU cost split + band-parallel scaling on "
   config::ReconstructionClippingConfig clip_cfg;
   dz.min_clip_contributors = 5;
   dz.robust_passes = 2;
+  // The micro-split runs on a single bounded stripe so its own scratch stays
+  // small; the full-pipeline section below uses dz.chunk_rows as given.
+  const int split_rows = std::min(chunk > 0 ? chunk : 256, ih);
 
   std::printf("\n=== FORWARD_DRIZZLE CPU hotspot profile ===\n");
   std::printf("scene: src %dx%d  scale %d  internal %dx%d  frames %d  "
@@ -145,7 +156,7 @@ TEST_CASE("FORWARD_DRIZZLE hotspot: CPU cost split + band-parallel scaling on "
   // rows = chunk (or ih if chunk == 0); the stripe sits mid-canvas so every
   // frame's dithered footprint fully covers it.
   const int channels = 3;
-  const int rows = chunk > 0 ? std::min(chunk, ih) : ih;
+  const int rows = split_rows;
   const int y_begin = std::max(0, (ih - rows) / 2);
   const size_t n = static_cast<size_t>(iw) * static_cast<size_t>(rows);
   const int nstripes = (ih + rows - 1) / rows;
@@ -174,15 +185,30 @@ TEST_CASE("FORWARD_DRIZZLE hotspot: CPU cost split + band-parallel scaling on "
   const auto e1 = t();
   // enum + clip
   volatile double clip_sink = 0.0;
+  std::uint64_t clip_calls = 0, clip_zero = 0;
   for (const auto &f : plan.frames)
     enumerate_drizzle_stripe_leaf_cells(
         plan, f, scale, pixfrac, y_begin, rows,
         [&](int, int, int, int, int cx, int cy, const double *lx,
             const double *ly) {
-          clip_sink += polygon_rectangle_intersection_area(lx, ly, cx, cy,
-                                                           cx + 1.0, cy + 1.0);
+          const double a = polygon_rectangle_intersection_area(lx, ly, cx, cy,
+                                                              cx + 1.0, cy + 1.0);
+          clip_sink += a;
+          ++clip_calls;
+          if (a == 0.0) ++clip_zero;
         });
   const auto e2 = t();
+  const double src_px_this_stripe =
+      static_cast<double>(static_cast<std::uint64_t>(frames) *
+                          static_cast<std::uint64_t>(src_w) *
+                          static_cast<std::uint64_t>(src_h)) /
+      4.0;
+  std::printf("clip calls %llu  zero-area %llu (%.1f%%)  clips/source-px %.2f\n",
+              (unsigned long long)clip_calls, (unsigned long long)clip_zero,
+              100.0 * static_cast<double>(clip_zero) /
+                  static_cast<double>(clip_calls ? clip_calls : 1),
+              static_cast<double>(clip_calls) /
+                  (src_px_this_stripe > 0 ? src_px_this_stripe : 1.0));
   // enum + clip + accumulate (A/B), with a per-frame fill like production
   for (const auto &f : plan.frames) {
     for (int c = 0; c < channels; ++c) {
