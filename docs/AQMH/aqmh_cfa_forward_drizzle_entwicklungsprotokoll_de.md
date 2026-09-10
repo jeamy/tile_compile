@@ -6761,7 +6761,48 @@ bewegen).
 `[drizzle-store][cuda-parity]` echtes Gerät grün, volle Suite **543/543**,
 `[fd-cuda-tile]`-Bench C/A weiter 0,87× und Reassembly == Ein-Aufruf.
 
-**Nächster Schnitt — 3a (Q-Fold, User-Vorzugsvariante):** je Frame/Band Records
+### 30.81 Schritt 3a-2 — Q-Rechteckansichten (2026-09-10, `8db3f70a` + `1c365344`)
+
+User wählte gegen A/B eine dritte Variante (Source-Blockprüfindex, RAM-only,
+kein Formatwechsel) — **Reihenfolge: erst Q-Rechtecke (3a-2), dann Source-Block-
+index, persistente Manifest-Block-Hashes nur bei Bedarf.**
+
+**3a-2 (committet):**
+- `SourceQualityMapCacheReader::read_rect(stream, idx, y0,y1,x0,x1)` — dekodiert
+  nur das Quellrechteck; Speicherzelle aus **absoluter** (y,x) → Randklammer
+  byte-identisch zu `read_full`. `read_region`/`read_full` delegieren.
+- `FrameQualityMaps` bekommt `y_origin`/`x_origin`; `map_at` rebasiert die
+  absolute (source_y, source_x)-Abfrage ins Rechteck. `FrameQualityRectProvider`
+  (`function(idx, y0,y1,x0,x1)`, negatives y1/x1 = volle Achse, y0==y1 =
+  Existenzprobe ohne Dekodierung). `to_rect_provider` adaptiert den einfachen
+  Provider (Streaming/Fusion unberührt).
+- `reduce_window` (§30.81): **erst** Records holen, dann `bbox(source_x,
+  source_y)` über *genau diese* Records, `quality_of(idx, bbox…)` — keine
+  inverse-affine Schätzung, keine Marge, Lokale-Warp-Bbox-Problem entfällt.
+- Store-Provider (`source_quality_artifact.cpp`): `read_rect` statt `read_full`;
+  die `comp/s0/…`-Member sind wiederverwendete Allokationen, **kein Cache** (das
+  Rechteck ändert sich bei jedem Aufruf im kachel-äußeren/frame-inneren Loop).
+- Store-Budget: `src_q_const` (Voll-Quell-Q) → Q in `cand_per_row_col` gefaltet
+  (pro Kachel); `src_const` = nur die zwei residenten Quell-Frames.
+- **Messung** (neue `[.]`-Section + `bin_loads()`/`expanded_floats()`-Zähler):
+  `read_rect` begrenzt die **Expansion** (T Kacheln == 1 Voll-Read, 192==192
+  Floats) — **nicht** den Load: die kompakte `.bin` wird weiter je Aufruf ganz
+  dekodiert (T·F `bin_loads`, nicht F). Hochrechnung Store-Pfad 600 Frames:
+  ~22 Bänder × 120 Kacheln × 600 Frames × 4 Streams ≈ **6,3 M `read_bin`**.
+- **Parität:** `[cuda-parity]` echtes Gerät (Rect-Provider vs. Voll-Map-CPU-
+  Referenz, MONO/OSC/4 Bayer/Rand + lokale Warps, byte-identisch),
+  `[fd-cuda-tile]`-Bench mit echtem Slicing-Provider (reduce 1,06×→0,91×,
+  Reassembly == single), Suite **543/543**.
+
+**Offen 3a-2b:** seek-Read der kompakten `.bin` (nur die überdeckenden
+Speicherzellen `[y0/d … (y1-1)/d] × [x0/d … (x1-1)/d]`), plus gelesene/
+expandierte Bytes auf Store-Ebene berichten. Erst danach ist der
+Durchsatzschnitt für Q vollständig. Danach Schritt 3 (CUDA-Kernel-X-Fenster),
+dann Aspektverhältnis.
+
+---
+
+### 30.81 (Historik) Schritt 3a Erst-Skizze — Q-Fold (User-Vorzugsvariante): je Frame/Band Records
 **einmal** erzeugen + kanonisch sortieren; Q-Daten **einmal** bereitstellen;
 jedes Zielzellsegment in unveränderter Record-Reihenfolge zum vollen
 `ClipCandidate` falten; Kandidaten nach Zielkachel **indizieren** + budgetiert
