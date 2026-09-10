@@ -458,19 +458,22 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
         Geräte **~8×** (Kernel-X-Fenster = Schritt 3), TOTAL **1,88×** — CUDA-
         Store bis Schritt 3 ~2× langsamer. `[cuda-parity]` echtes Gerät +
         `[fd-tile-window]`, 543/543.
-  - [~] **Schritt 3a-2 — Q-Rechteckansichten (§30.81, `8db3f70a`+`1c365344`):**
+  - [x] **Schritt 3a-2 — Q-Rechteckansichten (§30.81, `8db3f70a`+`1c365344`):**
         `read_rect(y0,y1,x0,x1)` + `FrameQualityMaps.y_origin/x_origin` +
         `FrameQualityRectProvider`. `reduce_window` holt Q für **exakt** die
-        Record-Quell-Bbox (keine Schätzung/Marge). Store-Provider `read_rect`.
-        **Expansion begrenzt** (T Kacheln == 1 Voll-Read), Veto/NaN + Randklammer
+        Record-Quell-Bbox (keine Schätzung/Marge → Lokale-Warp-Bbox-Problem
+        entfällt). Store-Provider `read_rect`. Veto/NaN + Randklammer
         byte-identisch (`[cuda-parity]` echtes Gerät + `read_rect`-Unit-Test).
-        **Offen (3a-2b):** die kompakte `.bin` wird je Aufruf weiter **ganz**
-        dekodiert (`bin_loads` T·F statt F → ~6,3 M bei 600 Frames); seek-Read
-        + gelesene/expandierte Bytes auf Store-Ebene fehlen noch. Zähler
-        `bin_loads()`/`expanded_floats()` vorhanden.
-  - [ ] Schritt 3a-2b: seek-Read der kompakten Q-`.bin` (nur überdeckende
-        Speicherzellen); Byte-Reporting Store-Ebene. Source-Blockprüfindex
-        (RAM-only, aus dem Ganzdatei-Hash) als eigener Schnitt danach.
+  - [x] **Schritt 3a-2b — seek-Read (§30.81, `cf2b4e21`):** `read_rect`
+        dekodiert nur die überdeckenden Speicherzellen (je Zell-Zeile ein
+        seek+read Wert- + Veto-Block). `read_bin`→`read_bin_header`+
+        `read_bin_window`. Zähler `bin_cells_decoded()`: T Kacheln == 1
+        Voll-Read (48==48), vor 3a-2b T×. `MultibandStoreBuildResult.q_bin_*`
+        für Lauf-Reporting. **Q-Seite des Durchsatzschnitts vollständig.**
+  - [ ] Source-Blockprüfindex (RAM-only, aus dem Ganzdatei-Hash): erst
+        Blöcke gemeinsam mit dem Ganzdatei-SHA berechnen + freigeben, dann nur
+        gebrauchte Blöcke lesen+prüfen; Index überlebt Bild-LRU-Verdrängung.
+        Erkennungssemantik + Blockleseverstärkung explizit testen.
   - [ ] Schritt 3: CUDA-Producer begrenzen — konservatives inverses
         Quellrechteck, Upload nur dieses, Kernel-Arbeitsmenge + Record-
         Kapazität, Device-Puffer wiederverwenden (X-Filter nach voller

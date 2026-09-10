@@ -6794,11 +6794,22 @@ index, persistente Manifest-Block-Hashes nur bei Bedarf.**
   `[fd-cuda-tile]`-Bench mit echtem Slicing-Provider (reduce 1,06×→0,91×,
   Reassembly == single), Suite **543/543**.
 
-**Offen 3a-2b:** seek-Read der kompakten `.bin` (nur die überdeckenden
-Speicherzellen `[y0/d … (y1-1)/d] × [x0/d … (x1-1)/d]`), plus gelesene/
-expandierte Bytes auf Store-Ebene berichten. Erst danach ist der
-Durchsatzschnitt für Q vollständig. Danach Schritt 3 (CUDA-Kernel-X-Fenster),
-dann Aspektverhältnis.
+**3a-2b (committet `cf2b4e21`):** `read_rect` dekodiert **nicht mehr** das ganze
+`storage_w×storage_h`-Raster. Fester 28-B-Header parsen, dann je überdeckter
+Speicherzell-Zeile **ein** seek+read für den Wert- und einen für den Veto-Block
+— nur die Zellen `[y0/d … (y1-1)/d] × [x0/d … (x1-1)/d]`. Werte byte-identisch
+(Zelle weiter aus **absoluter** (y,x), nur ins gelesene Fenster rebasiert).
+`read_bin` (Ganzraster) entfernt → `read_bin_header` + `read_bin_window`;
+Magic/Schema/Dims-Prüfung unverändert, kurze Datei wirft weiter
+`SQM_CACHE_BIN_TRUNCATED[_VETO]`. Neuer Zähler `bin_cells_decoded()`: die
+`[.]`-Section belegt jetzt **Dekodierung begrenzt** — T Spaltenkacheln eines
+Bandes dekodieren dieselben Zellen wie **ein** Voll-Read (48==48), vor 3a-2b
+T× davon. `bin_loads` bleibt T·F (ein Datei-Open je Aufruf; OS-Page-Cache).
+`MultibandStoreBuildResult` trägt `q_bin_loads`/`q_bin_cells_decoded`/
+`q_expanded_floats` aus dem Reader → ein echter Lauf kann berichten, ob der
+Q-Read begrenzt ist. **Damit ist die Q-Seite des Durchsatzschnitts vollständig.**
+Danach: laufinterner Source-Blockprüfindex; dann Schritt 3 (CUDA-Kernel-
+X-Fenster); dann Aspektverhältnis.
 
 ---
 
