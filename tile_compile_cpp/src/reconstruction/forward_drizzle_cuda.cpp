@@ -82,12 +82,15 @@ CudaChunkPlan plan_cuda_chunking(std::size_t free_bytes,
 }
 
 int run_cuda_chunked(const CudaChunkPlan &plan, int image_rows,
-                     const CudaChunkProcessor &process) {
+                     const CudaChunkProcessor &process,
+                     CudaChunkRunStats *stats) {
   if (!plan.feasible || image_rows <= 0 || !process)
     throw ForwardDrizzleCudaError(
         "forward_drizzle CUDA: chunk plan not feasible");
   const int floor_rows = std::max(1, plan.min_chunk_rows);
   int committed = 0;
+  int halvings = 0;
+  int min_band = 0, max_band = 0;
   int y0 = 0;
   while (y0 < image_rows) {
     int band = std::max(floor_rows,
@@ -105,11 +108,24 @@ int run_cuda_chunked(const CudaChunkPlan &plan, int image_rows,
               "height (" + std::to_string(floor_rows) +
               " rows) after retries; restarting the phase on CPU");
         band = std::max(floor_rows, band / 2);
+        ++halvings;
       }
       // Any other exception propagates: a hard CUDA failure -> CPU restart.
     }
+    if (committed == 0) {
+      min_band = max_band = band;
+    } else {
+      min_band = std::min(min_band, band);
+      max_band = std::max(max_band, band);
+    }
     y0 += band;
     ++committed;
+  }
+  if (stats) {
+    stats->bands = committed;
+    stats->halvings = halvings;
+    stats->min_band_rows = min_band;
+    stats->max_band_rows = max_band;
   }
   return committed;
 }

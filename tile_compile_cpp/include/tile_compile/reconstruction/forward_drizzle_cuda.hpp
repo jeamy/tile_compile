@@ -103,6 +103,18 @@ struct CudaAllocFailure : std::runtime_error {
 // for a smaller band; return normally on success.
 using CudaChunkProcessor = std::function<void(int y0, int rows)>;
 
+// §30.80 (P6 priority-3 groundwork): observed band structure of a
+// run_cuda_chunked drive. `halvings` counts CudaAllocFailure catches (band
+// collapse indicator); `min_band_rows` / `max_band_rows` are the actual
+// processed band heights (the planned `chunk_rows` does not reveal what the
+// ladder collapsed to). Pure telemetry, no behaviour change.
+struct CudaChunkRunStats {
+  int bands = 0;
+  int halvings = 0;
+  int min_band_rows = 0;
+  int max_band_rows = 0;
+};
+
 // --- Plan 19.2 stage 3/5 kernel building block ----------------------------
 
 // The exact square-droplet vs. output-cell overlap area (Sutherland-Hodgman
@@ -191,8 +203,10 @@ bool forward_drizzle_cuda_affine_frame_contributions(
 // If a band still cannot be processed at the floor height, every temporary
 // CUDA store is void and the whole phase must restart on CPU --- signalled by
 // throwing ForwardDrizzleCudaError. Returns the number of bands committed.
-// `plan.feasible` must be true.
+// `plan.feasible` must be true. `stats` (optional): observed band structure
+// (§30.80); filled on a normal return, untouched on a throw.
 int run_cuda_chunked(const CudaChunkPlan &plan, int image_rows,
-                     const CudaChunkProcessor &process);
+                     const CudaChunkProcessor &process,
+                     CudaChunkRunStats *stats = nullptr);
 
 }  // namespace tile_compile::reconstruction

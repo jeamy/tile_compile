@@ -355,9 +355,21 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
 - [ ] R3 — exakte X-Clip-Wiederverwendung im Rasterizer + gespiegelter
       CUDA-Device-Kernel + volle Paritätsmatrix (**separater messbarer
       Schritt nach Priorität 3/4**, nicht gebündelt)
-- [ ] R1.1 + R1.2 + R2 — CUDA Host/Device-Budget-Trennung, 2D-Zielkacheln,
-      echte Source-/Q-Bereichsprovider; `[cuda-parity]` durchgehend
-      (**Priorität 3**)
+- [x] **CUDA-Bandplanungs-Messzähler** (§30.80, Prioritäts-3-Grundlage) —
+      `DrizzleCudaStoreTiming` bekommt `cand_row_bytes`/`rec_row_bytes`/
+      `acc_row_bytes` (Aufschlüsselung von `bytes_per_row`) + `host_budget_bytes`
+      + `band_halvings`/`min_band_rows`/`max_band_rows`;
+      `run_cuda_chunked(..., CudaChunkRunStats*)` optionaler Out-Parameter;
+      Runner emittiert alles in `forward_drizzle.json`. Neuer GPU-freier
+      `[drizzle-store]`-Test (N-Sweep 40/100/300/600 bei Realgeometrie).
+      **Befund:** `cand_row` = 93,8 %→99,6 % von `bytes_per_row`; 600 Frames
+      → 7-Zeilen-Bänder, ~618 Bänder. **R1.1 allein reicht nicht** (16-GiB-
+      Host-Deckel → ~19 Zeilen, ~228 Bänder). Additiv, bit-identisch, 538/538.
+- [ ] R1.1 + R1.2 + R2 — CUDA Host/Device-Budget-Trennung **plus**
+      Kandidatenpuffer-Verkleinerung (2D-Kacheln `W`→`tile_w`, ggf. kleinere
+      `ClipCandidate`), echte Source-/Q-Bereichsprovider; `[cuda-parity]`
+      durchgehend (**Priorität 3**, gemeinsam — §30.80 zeigt die Trennung
+      allein löst den Bandkollaps nicht)
 - [ ] Realer/halbrealer Messlauf, Phasenbudget final
 
 **Realraster-Hochrechnung FORWARD_DRIZZLE (affin, nach Hoist, §30.76):** 20

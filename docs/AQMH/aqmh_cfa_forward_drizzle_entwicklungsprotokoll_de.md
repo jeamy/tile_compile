@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich + budgetierter Clipping-Scratch 10.09. | [§30.12–30.79](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich + budgetierter Clipping-Scratch + CUDA-Bandplanungs-Messzähler 10.09. | [§30.12–30.80](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -6378,6 +6378,59 @@ Wachstumszaehler 3/2, Kapazitaet shrink-frei); Bench-Referenzabgleich
 unveraendert bestanden.
 
 Kein realer Lauf; kein Backend.
+
+---
+
+### 30.80 P6 Prioritaet 3 (Grundlage): Messzaehler fuer die CUDA-Bandplanung (2026-09-10)
+
+Vor dem grossen CUDA-Umbau (R1.1 Host/Device-Budget-Trennung, R1.2 2D-Kacheln,
+R2 echte Bereichsprovider) zuerst die Ist-Struktur pinnen. Additiv, kein
+Verhaltens-, Numerik- oder Hash-Effekt; kein Backend, kein Lauf.
+
+**Papierrechnung + neuer GPU-freier Test** (`[drizzle-store]`,
+`test_drizzle_profile_store.cpp`): `bytes_per_row` in
+`persist_forward_drizzle_multiband` = `cand_row + rec_row + acc_row`.
+`cand_row = channels · dims.width · frame_count · sizeof(ClipCandidate)`
+(64 B) ist der **Host**-ClipCandidate-Flachpuffer, wird aber gegen VRAM
+verrechnet und ist zusaetzlich durch `host_budget` gedeckelt. Bei
+3840×2160 · internal 2 (`dims.width` 7680, `dims.height` 4320), 3 Kanaele,
+8 GiB frei:
+
+| Frames | Bandhoehe | Baender | `cand_row` | Anteil an `bytes_per_row` |
+|---:|---:|---:|---:|---:|
+| 40 | 109 | 40 | 56 MiB | 93,8 % |
+| 100 | 45 | 96 | 141 MiB | 97,4 % |
+| 300 | 15 | 288 | 422 MiB | 99,1 % |
+| **600** | **7** | **618** | **844 MiB** | **99,6 %** |
+
+**Befund:** `cand_row` dominiert `bytes_per_row` absolut; die Bandhoehe
+kollabiert frame-linear (600 Frames → 7-Zeilen-Baender, ~618 Baender, jedes
+liest alle 600 Quell-Frames erneut). **R1.1 allein reicht nicht:** mit
+Host/Device-Trennung sieht das Device nur `rec_row + acc_row`, doch der
+Host-ClipCandidate-Puffer `cand_row · band_rows` muss weiter in eine absolute
+Host-Obergrenze passen — 16 GiB → 600-Frame-Bandhoehe ~19, ~228 Baender.
+Weiter Kollaps. Die eigentliche Wand ist `cand_row` selbst → R1.2 (2D-Kacheln,
+`W` → `tile_w`) **plus** R2 (nur den Kachel-Quell-Footprint lesen), damit die
+Kachelzahl die Quell-I/O nicht zurueckholt; ggf. `sizeof(ClipCandidate)`
+verkleinern (die 4 Q-Doubles nur bei Multiband).
+
+**Neue Telemetrie:**
+- `DrizzleCudaStoreTiming`: `cand_row_bytes` / `rec_row_bytes` / `acc_row_bytes`
+  (die Aufschluesselung) + `host_budget_bytes` + `band_halvings` /
+  `min_band_rows` / `max_band_rows`.
+- `run_cuda_chunked(..., CudaChunkRunStats *stats = nullptr)` — optionaler
+  Out-Parameter: gezaehlte `CudaAllocFailure`-Halbierungen (Bandkollaps-
+  Indikator) und die tatsaechlich verarbeiteten Bandhoehen (die geplante
+  `chunk_rows` verraet nicht, worauf die Leiter kollabiert ist). Auf normalem
+  Return gefuellt, bei Wurf unangetastet.
+- Runner emittiert die Felder in `forward_drizzle.json` unter `cuda_stripe_path`
+  (nur wenn der CUDA-Streifenpfad lief).
+
+**Abnahme:** volle Suite **538/538**; Legacy-Reference 17/18 (vorbestehende
+GPU-`weight_sum`-Toleranz auf der GTX 1660 Ti, unberuehrter Pfad). Neue
+`[drizzle-store]`-SECTIONs: die N-Sweep-Tabelle (Struct-Groessen per
+`static_assert`-Kommentar gepinnt) und `CudaChunkRunStats` auf sauberer Fahrt
+und nach 2 Halbierungen.
 
 ---
 

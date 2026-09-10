@@ -13,9 +13,11 @@
 #include <nlohmann/json.hpp>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <fstream>
 #include <functional>
 #include <map>
+#include <vector>
 
 using namespace tile_compile;
 using namespace tile_compile::reconstruction;
@@ -1561,6 +1563,74 @@ TEST_CASE("plan-19.4 CUDA auto-chunking: reserve, fit, and the halving ladder",
     REQUIRE_FALSE(plan_cuda_chunking(1ull << 30, 1 << 20, 0).feasible);
   }
 
+  SECTION("§30.80: at real 3840x2160x2 geometry the host ClipCandidate term "
+          "(cand_row) dominates bytes_per_row -> band collapse with frame "
+          "count, and a host/device budget split alone does not fix it") {
+    // bytes_per_row is assembled in persist_forward_drizzle_multiband
+    // (drizzle_profile_store.cpp) as cand_row + rec_row + acc_row.
+    //   cand_row = channels * dims.width * frames * sizeof(ClipCandidate)
+    //   rec_row  = source_width * 16 * sizeof(CudaDrizzleContribRecord)
+    //   acc_row  = channels * dims.width * 8 * sizeof(double)
+    // These sizes are pinned so the test fails loudly if the structs change.
+    constexpr std::size_t kClipCandidate = 64;         // 8 + 6*double + bool -> pad
+    constexpr std::size_t kContribRecord = 40;         // 5*u32 -> pad + 2*double
+    const int channels = 3;
+    const int dims_width = 7680;   // (3840) * internal_scale 2
+    const int dims_height = 4320;  // (2160) * 2
+    const int source_width = 3840;
+    const std::size_t rec_row =
+        static_cast<std::size_t>(source_width) * 16 * kContribRecord;
+    const std::size_t acc_row =
+        static_cast<std::size_t>(channels) * dims_width * 8 * sizeof(double);
+    const std::size_t free_bytes = 8ull << 30;  // a mid-range 8 GiB card
+
+    struct Row { int frames; int band_rows; int bands; double cand_frac; };
+    std::vector<Row> table;
+    for (int frames : {40, 100, 300, 600}) {
+      const std::size_t cand_row = static_cast<std::size_t>(channels) *
+                                   dims_width * frames * kClipCandidate;
+      const std::size_t bytes_per_row = cand_row + rec_row + acc_row;
+      const auto p =
+          plan_cuda_chunking(free_bytes, bytes_per_row, dims_height);
+      REQUIRE(p.feasible);
+      const int nbands = (dims_height + p.chunk_rows - 1) / p.chunk_rows;
+      table.push_back({frames, p.chunk_rows, nbands,
+                       static_cast<double>(cand_row) /
+                           static_cast<double>(bytes_per_row)});
+      std::printf("  frames %3d : band_rows %4d  bands %4d  "
+                  "cand_row %6.1f MiB (%.1f%% of bytes_per_row)\n",
+                  frames, p.chunk_rows, nbands,
+                  static_cast<double>(cand_row) / (1024.0 * 1024.0),
+                  100.0 * table.back().cand_frac);
+    }
+    // The finding: cand_row is the overwhelming majority at every realistic
+    // frame count (93 % at 40 frames, rising to > 99 % at 600), and the band
+    // height collapses toward single digits as N grows.
+    for (const auto &r : table) REQUIRE(r.cand_frac > 0.90);
+    REQUIRE(table.front().frames == 40);
+    REQUIRE(table.front().cand_frac > 0.93);
+    REQUIRE(table.back().frames == 600);
+    REQUIRE(table.back().cand_frac > 0.99);
+    REQUIRE(table.back().band_rows <= 16);   // 600 frames -> single-digit-ish
+    REQUIRE(table.back().bands >= 256);      // ... i.e. hundreds of bands
+
+    // A host/device budget split (R1.1): the device would see only
+    // rec_row + acc_row, but the HOST ClipCandidate buffer cand_row*band_rows
+    // must still fit an absolute host ceiling. Even a generous 16 GiB ceiling
+    // only lifts 600-frame bands to ~18 rows -> still hundreds of bands.
+    const std::size_t host_ceiling = 16ull << 30;
+    const std::size_t cand_row_600 = static_cast<std::size_t>(channels) *
+                                     dims_width * 600 * kClipCandidate;
+    const int host_limited_rows =
+        static_cast<int>(host_ceiling / cand_row_600);
+    std::printf("  R1.1 split, 16 GiB host ceiling: 600-frame band_rows -> "
+                "%d (%d bands)\n",
+                host_limited_rows,
+                (dims_height + host_limited_rows - 1) /
+                    std::max(host_limited_rows, 1));
+    REQUIRE(host_limited_rows < 32);  // still a collapse; R1.2/R2 needed
+  }
+
   SECTION("device-memory probe drives the plan") {
     const auto mem = reconstruction::forward_drizzle_cuda_device_memory();
     if (mem.free_bytes == 0) {
@@ -1617,10 +1687,11 @@ TEST_CASE("plan-19.4 CUDA chunk driver: retry ladder + hard-failure restart",
   SECTION("OOM twice then succeed: the SAME band retries at halved height") {
     int calls = 0;
     std::vector<int> heights;
+    reconstruction::CudaChunkRunStats stats;
     run_cuda_chunked(plan(100, 1), 100, [&](int, int rows) {
       heights.push_back(rows);
       if (++calls <= 2) throw CudaAllocFailure("oom");
-    });
+    }, &stats);
     // 100 -> 50 -> 25, third attempt succeeds; then 25,25,25 for the rest.
     REQUIRE(heights[0] == 100);
     REQUIRE(heights[1] == 50);
@@ -1628,6 +1699,23 @@ TEST_CASE("plan-19.4 CUDA chunk driver: retry ladder + hard-failure restart",
     int covered = 0;
     for (size_t i = 2; i < heights.size(); ++i) covered += heights[i];
     REQUIRE(covered == 100);
+    // §30.80 telemetry: two halvings on band 0 (collapsed to 25); band 1
+    // starts fresh at the planned height and takes the remaining 75 rows.
+    REQUIRE(stats.halvings == 2);
+    REQUIRE(stats.bands == 2);
+    REQUIRE(stats.min_band_rows == 25);
+    REQUIRE(stats.max_band_rows == 75);
+  }
+
+  SECTION("§30.80: run stats on a clean drive report the true band heights") {
+    reconstruction::CudaChunkRunStats stats;
+    // 200 rows / 64-row bands -> 64, 64, 64, 8.
+    const int n = run_cuda_chunked(plan(64, 1), 200, [](int, int) {}, &stats);
+    REQUIRE(n == 4);
+    REQUIRE(stats.bands == 4);
+    REQUIRE(stats.halvings == 0);
+    REQUIRE(stats.max_band_rows == 64);
+    REQUIRE(stats.min_band_rows == 8);  // the ragged last band
   }
 
   SECTION("OOM forever at the floor -> ForwardDrizzleCudaError (CPU restart)") {

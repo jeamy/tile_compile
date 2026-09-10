@@ -547,6 +547,12 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     result.cuda_timing.min_chunk_rows = chunk_plan.min_chunk_rows;
     result.cuda_timing.bytes_per_row = bytes_per_row;
     result.cuda_timing.device_free_bytes = devmem.free_bytes;
+    // §30.80: the three-way split + host ceiling, for the priority-3 budget
+    // analysis (cand_row dominates bytes_per_row at real geometry).
+    result.cuda_timing.cand_row_bytes = cand_row;
+    result.cuda_timing.rec_row_bytes = rec_row;
+    result.cuda_timing.acc_row_bytes = acc_row;
+    result.cuda_timing.host_budget_bytes = host_budget;
     using store_clock = std::chrono::steady_clock;
     const auto t_all0 = store_clock::now();
     ForwardDrizzleClippingDiagnostics clip_total;
@@ -562,6 +568,7 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
       down = std::make_unique<Downsample2x2StripeAdapter>(
           [&](int y, const ForwardDrizzleUniformAndRawResult &o) { sink(y, o); },
           dims.width, plan.color_mode == ColorMode::MONO);
+    CudaChunkRunStats chunk_stats;
     const int bands = run_cuda_chunked(
         chunk_plan, dims.height, [&](int y0, int rows) {
           ForwardDrizzleUniformAndRawResult stripe;
@@ -608,9 +615,12 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
           clip_total.candidate_contributions_clipped +=
               stripe.clipping.candidate_contributions_clipped;
           last_diag = stripe.diagnostics;
-        });
+        }, &chunk_stats);
     if (down) down->finish();  // asserts the total internal height was even
     result.cuda_timing.bands = bands;
+    result.cuda_timing.band_halvings = chunk_stats.halvings;
+    result.cuda_timing.min_band_rows = chunk_stats.min_band_rows;
+    result.cuda_timing.max_band_rows = chunk_stats.max_band_rows;
     result.cuda_timing.total_seconds =
         std::chrono::duration<double>(store_clock::now() - t_all0).count();
     result.cuda_timing.hybrid_cpu_seconds = hybrid_stats.cpu_seconds;

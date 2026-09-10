@@ -778,6 +778,21 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
                       {"min_chunk_rows",result.cuda_timing.min_chunk_rows},
                       {"bytes_per_row",
                        static_cast<long long>(result.cuda_timing.bytes_per_row)},
+                      // §30.80: three-way split of bytes_per_row + host ceiling
+                      // + observed band collapse.
+                      {"cand_row_bytes",
+                       static_cast<long long>(
+                           result.cuda_timing.cand_row_bytes)},
+                      {"rec_row_bytes",
+                       static_cast<long long>(result.cuda_timing.rec_row_bytes)},
+                      {"acc_row_bytes",
+                       static_cast<long long>(result.cuda_timing.acc_row_bytes)},
+                      {"host_budget_bytes",
+                       static_cast<long long>(
+                           result.cuda_timing.host_budget_bytes)},
+                      {"band_halvings",result.cuda_timing.band_halvings},
+                      {"min_band_rows",result.cuda_timing.min_band_rows},
+                      {"max_band_rows",result.cuda_timing.max_band_rows},
                       {"device_free_bytes",
                        static_cast<long long>(
                            result.cuda_timing.device_free_bytes)},

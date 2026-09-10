@@ -66,6 +66,22 @@ struct DrizzleCudaStoreTiming {
   int min_chunk_rows = 0;
   std::size_t bytes_per_row = 0;       // device+host working-set estimate used
   std::size_t device_free_bytes = 0;   // free VRAM at plan time
+  // §30.80 (P6 priority-3 groundwork): the three-way split of bytes_per_row.
+  // `cand_row_bytes` is the HOST flat ClipCandidate buffer per internal row
+  // (channels * dims.width * frame_count * sizeof(ClipCandidate)); it is
+  // charged against device VRAM today even though it lives in host RAM and is
+  // separately capped by `host_budget_bytes`. At real geometry it is ~99 % of
+  // bytes_per_row -> the band height is set by a host term against VRAM.
+  std::size_t cand_row_bytes = 0;
+  std::size_t rec_row_bytes = 0;       // device per-frame contribution vector / row
+  std::size_t acc_row_bytes = 0;       // 8 double stripe accumulators / channel / row
+  std::size_t host_budget_bytes = 0;   // absolute host ClipCandidate ceiling used
+  // Observed band structure from run_cuda_chunked (§30.80): halvings counts
+  // CudaAllocFailure catches (band-collapse indicator); the min/max band rows
+  // are the actual processed heights.
+  int band_halvings = 0;
+  int min_band_rows = 0;
+  int max_band_rows = 0;
   double stripe_seconds = 0.0;         // sum of time inside accumulate_pair_by_frame_cuda
   double total_seconds = 0.0;          // whole chunked drive incl. sink / store I/O
   // plan 19.6.2: how many frames took the hybrid CPU-geometry -> GPU-raster
