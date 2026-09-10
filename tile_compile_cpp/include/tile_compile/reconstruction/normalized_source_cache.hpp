@@ -48,6 +48,10 @@ class VerifiedNormalizedSourceCache {
   std::list<Entry> lru_;                                // front = most recent
   std::unordered_map<size_t, std::list<Entry>::iterator> resident_;
   std::uint64_t hash_computations_ = 0;
+  // §30.81 step 3a-3 baseline instrumentation (counters only, compute-neutral):
+  // how the whole-frame LRU path behaves at production N.
+  std::uint64_t load_calls_ = 0, lru_hits_ = 0, evictions_ = 0;
+  double whole_file_sha_seconds_ = 0.0;
   const Matrix2Df &verify_and_insert(size_t source_index);
 
   // ---- §30.81 step 3a-3: run-internal source block-check index -------------
@@ -132,6 +136,11 @@ public:
   std::uint64_t hash_computation_count() const { return hash_computations_; }
   size_t resident_frame_count() const { return lru_.size(); }
   size_t capacity_frames() const { return capacity_; }
+  // Whole-frame LRU path diagnostics (see baseline instrumentation above).
+  std::uint64_t load_call_count() const { return load_calls_; }
+  std::uint64_t lru_hit_count() const { return lru_hits_; }
+  std::uint64_t eviction_count() const { return evictions_; }
+  double whole_file_sha_seconds() const { return whole_file_sha_seconds_; }
   // Bytes of one decoded frame (row-major float32). Lets a caller size a
   // per-worker clone.
   size_t frame_byte_size() const {

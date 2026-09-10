@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 #include <openssl/evp.h>
 #include <openssl/sha.h>
+#include <chrono>
 #include <memory>
 #include <algorithm>
 #include <array>
@@ -149,6 +150,7 @@ bool VerifiedNormalizedSourceCache::matches(const registration::RegistrationSamp
   return digest(context(plan))==context_hash_;
 }
 const Matrix2Df &VerifiedNormalizedSourceCache::load(size_t source_index) {
+  ++load_calls_;
   const auto hit=resident_.find(source_index);
   if (hit!=resident_.end()) {
     const auto path=root_/(std::to_string(source_index)+".raw");
@@ -160,6 +162,7 @@ const Matrix2Df &VerifiedNormalizedSourceCache::load(size_t source_index) {
       // Unchanged AND last written strictly before we verified it: promote to
       // front, no read, no SHA-256. The `mt < verified_at` guard closes the
       // same-mtime-tick rewrite window that a size+mtime match alone leaves.
+      ++lru_hits_;
       lru_.splice(lru_.begin(),lru_,hit->second);
       return hit->second->image;
     }
@@ -187,7 +190,10 @@ const Matrix2Df &VerifiedNormalizedSourceCache::verify_and_insert(
   bytes_read_+=bytes;  // counted on both entry points (load + region-first touch)
   // Hash the actual image bytes, not a second read of a possibly replaced file.
   unsigned char hash[SHA256_DIGEST_LENGTH];
+  const auto sha_t0=std::chrono::steady_clock::now();
   SHA256(reinterpret_cast<const unsigned char *>(image.data()),bytes,hash);
+  whole_file_sha_seconds_+=std::chrono::duration<double>(
+      std::chrono::steady_clock::now()-sha_t0).count();
   ++hash_computations_;
   std::ostringstream encoded;
   for (unsigned char b : hash) encoded<<std::hex<<std::setw(2)<<std::setfill('0')<<static_cast<int>(b);
@@ -217,6 +223,7 @@ const Matrix2Df &VerifiedNormalizedSourceCache::verify_and_insert(
   while (lru_.size()>capacity_ && lru_.size()>1) {
     resident_.erase(lru_.back().index);
     lru_.pop_back();
+    ++evictions_;
   }
   return lru_.front().image;
 }

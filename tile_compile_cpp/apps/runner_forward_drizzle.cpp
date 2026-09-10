@@ -158,6 +158,15 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     auto reconstruction_cfg=cfg.reconstruction;
     if (!reconstruction_cfg.drizzle.memory_budget_mb)
       reconstruction_cfg.drizzle.memory_budget_mb=static_cast<size_t>(std::max(1,cfg.runtime_limits.memory_budget));
+    // §30.81 step 3a-3 baseline sweep: override the FORWARD_DRIZZLE memory
+    // budget without editing config.yaml, so `resume-reconstruction
+    // --from-phase FORWARD_DRIZZLE` keeps its checkpoint valid across a
+    // budget sweep. Affects only the source-LRU capacity and the band
+    // planner; the committed store is budget-invariant (CPU path bit-exact).
+    if (const char *e=std::getenv("TC_FORWARD_DRIZZLE_MEMORY_BUDGET_MB")) {
+      if (const long v=std::atol(e); v>=2)
+        reconstruction_cfg.drizzle.memory_budget_mb=static_cast<size_t>(v);
+    }
     const auto &drizzle=reconstruction_cfg.drizzle;
     const auto artifacts=dir/"artifacts";
     const bool downstream_requested = cfg.astrometry.enabled || cfg.bge.method != "none" ||
@@ -509,6 +518,20 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
               drizzle.pixfrac,drizzle.internal_scale)}};
       if (!fd_cuda_fallback_reason.empty())
         extra["cuda_fallback_reason"]=fd_cuda_fallback_reason;
+      // §30.81 step 3a-3 baseline instrumentation: whole-frame source-LRU
+      // behaviour across this FORWARD_DRIZZLE pass (SQM/GLOBAL_QUALITY share the
+      // instance only when NOT resumed; on `resume_from=FORWARD_DRIZZLE` these
+      // reflect the drizzle pass alone plus the pre-phase retention check).
+      extra["source_cache"]={
+        {"capacity_frames",cache.capacity_frames()},
+        {"frames",sampling.frames.size()},
+        {"memory_budget_mb",drizzle.memory_budget_mb},
+        {"load_calls",cache.load_call_count()},
+        {"lru_hits",cache.lru_hit_count()},
+        {"verify_and_insert",cache.hash_computation_count()},
+        {"evictions",cache.eviction_count()},
+        {"bytes_read",cache.bytes_read()},
+        {"whole_file_sha_seconds",cache.whole_file_sha_seconds()}};
       end(extra);
     }
 
