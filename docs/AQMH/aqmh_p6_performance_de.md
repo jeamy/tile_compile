@@ -365,14 +365,18 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
       **Befund:** `cand_row` = 93,8 %→99,6 % von `bytes_per_row`; 600 Frames
       → 7-Zeilen-Bänder, ~618 Bänder. **R1.1 allein reicht nicht** (16-GiB-
       Host-Deckel → ~19 Zeilen, ~228 Bänder). Additiv, bit-identisch, 538/538.
-- [x] R1.1 + R1.2 + R2 — CUDA Host/Device-Budget-Trennung **plus** 2D-Ziel-
-      Kachelung (`W`→`tile_w`), host-seitiges Record-Filtern statt echter
-      Geräte-Bereichsprovider; `[cuda-parity]` durchgehend (**Priorität 3**,
-      §30.81). **Ergebnis:** Bandplanung nur noch gegen das Geräte-Glied
-      (`rec_row+acc_row`), das Host-`cand_row` durch Spaltenkacheln unter dem
-      absoluten Deckel gehalten. 600 Frames 3840×2160×2 / 8-GiB-Karte:
-      **618 → ~3 Bänder** (`tile_w` 10, 768 Kacheln/Band, Host-Peak 1919 MiB ≤
-      2-GiB-Deckel). Byte-identisch (`[cuda-parity]`, echtes Gerät), 542/542.
+- [~] **2D-Kachelung + Parität fertig; Bereichszugriffe (R2) + Gesamt-Host-Budget
+      offen** (User-Review §30.81). R1.1 (Budget-Split) + 2D-Ziel-Kachelung
+      (`W`→`tile_w`) mit **host-seitigem Record-Filtern** statt echter Geräte-
+      Bereichsprovider; `[cuda-parity]` durchgehend. Bandplanung nur noch gegen
+      das Geräte-Glied (`rec_row+acc_row`), das Host-`cand_row` durch
+      Spaltenkacheln unter dem absoluten Deckel — 600 Frames 3840×2160×2 /
+      8-GiB-Karte: **618 → ~3 Bänder** (Planungszahl; `tile_w` 10, 768 Kacheln/
+      Band, Host-**Kandidaten**-Peak 1919 MiB ≤ 2-GiB-Deckel). Byte-identisch
+      (`[cuda-parity]`, echtes Gerät), 542/542. **Offen:** der Deckel begrenzt
+      nur den Kandidatenpuffer, nicht den Prozess-Peak; Producer + Q-Provider
+      lesen weiter voll-breit; die Sortierung wiederholt sich je Kachel
+      (Basis-Bench §30.81 Schritt 5: 8 Kacheln → Sort 6,95×, TOTAL 3,40×).
   - [x] **Schritt 1 (§30.81):** Ziel-Spaltenfenster `x_begin`/`cols` in
         `enumerate_drizzle_stripe_leaf_cells` + `rasterize_drizzle_stripe`
         (Default = voll-breit, byte-identisch); begrenzt Source-Scan (R2) und
@@ -402,8 +406,22 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
         `resolved_tile_w`/`min_tile_w`/`max_tiles_per_band`.
         `[drizzle-store][cuda-parity]`-Test (echtes Gerät): Multi-Kachel-Store
         byte-identisch zum Ganz-Canvas-CPU-Build.
-  - [ ] Optionaler Schritt 5: `.cu`-Geräte-Enumeration auf das Fenster verengen
-        (Durchsatz-Nachzug, nicht für Korrektheit nötig).
+  - [x] **Schritt 5 Basis-Bench (§30.81):** `TC_FD_CUDA_PROFILE`-gated Grob-Timer
+        (`produce`/`sort`/`reduce` + `.cu` malloc/upload/kernel/download), neuer
+        hidden Bench `test_forward_drizzle_cuda_tile_profile.cpp`
+        (`[.][fd-cuda-tile]`). 8 Kacheln, 6 Frames: **Sort 6,95× / Geräte-Phasen
+        6,4–7,8× / reduce 0,87× / TOTAL 3,40×**; Records sortiert exakt 8,00×.
+        → Sortierung ist der grösste Wiederholungsfaktor.
+  - [ ] Schritt 2: Kachelfenster bis zum Producer durchreichen (inverses
+        Quell-Rechteck X/Y, begrenzte Kernel-Arbeit + Record-Kapazität, absolute
+        Schlüssel); Record-Menge **vor** der Sortierung kappen.
+  - [ ] Schritt 3: Source-/Q-Zugriffe kappen (separat messbar; auch der lokale
+        Hybrid-Producer).
+  - [ ] Schritt 4: gemeinsames Host-Budget schliessen (feste + gleichzeitig
+        lebende Puffer zuerst, dann Kandidatenkapazität; extrem schmale Kacheln
+        meiden).
+  - [ ] Schritt 5b: Paritätsmatrix + Bench erneut (schmale/ragged Kacheln,
+        Rotation/Scherung, lokale Modelle, Modus 2/1, Budget-Retries).
 - [ ] Realer/halbrealer Messlauf, Phasenbudget final
 
 **Realraster-Hochrechnung FORWARD_DRIZZLE (affin, nach Hoist, §30.76):** 20

@@ -19,6 +19,7 @@
 // resolves to an immediate ForwardDrizzleCudaError, which the caller turns
 // into a clean CPU run.
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -196,6 +197,38 @@ bool forward_drizzle_cuda_affine_frame_contributions(
     int cfa_origin_x, int cfa_origin_y, bool mono, int max_cells_per_pixel,
     CudaDrizzleContribRecord *records_out, long long records_capacity,
     long long *out_written);
+
+// §30.81 step-5 baseline instrumentation. Coarse wall-clock accumulators for
+// the affine CUDA pair path, split so the per-tile repetition factor is
+// attributable (producer / device phases vs the host sort + reduce). Enabled
+// only when the env var TC_FD_CUDA_PROFILE is set; every write is guarded by
+// forward_drizzle_cuda_profile_enabled(), so a normal run pays nothing and the
+// numbers never touch compute. NOT thread-safe against concurrent
+// accumulate_pair_impl calls --- the CUDA store path drives it serially.
+struct ForwardDrizzleCudaProfile {
+  std::atomic<double> dev_malloc_s{0.0};   // cudaMalloc/Memset in the .cu wrapper
+  std::atomic<double> dev_upload_s{0.0};   // H2D source copy
+  std::atomic<double> dev_kernel_s{0.0};   // kernel launch + cudaDeviceSynchronize
+  std::atomic<double> dev_download_s{0.0}; // D2H records + count
+  std::atomic<double> produce_s{0.0};      // whole PairFrameRecordProducer call
+  std::atomic<double> sort_s{0.0};         // std::sort of the frame's records
+  std::atomic<double> reduce_s{0.0};       // reduce_pixel_profiles loop
+  std::atomic<std::uint64_t> calls{0};     // accumulate_pair_impl invocations
+  std::atomic<std::uint64_t> records_sorted{0};  // sum of recs.size() over sorts
+  void reset() {
+    dev_malloc_s = dev_upload_s = dev_kernel_s = dev_download_s = 0.0;
+    produce_s = sort_s = reduce_s = 0.0;
+    calls = 0;
+    records_sorted = 0;
+  }
+};
+ForwardDrizzleCudaProfile &forward_drizzle_cuda_profile();
+bool forward_drizzle_cuda_profile_enabled();
+// Add `dt` seconds to `slot` (std::atomic<double>, C++20 fetch_add).
+inline void forward_drizzle_cuda_profile_add(std::atomic<double> &slot,
+                                             double dt) {
+  slot.fetch_add(dt, std::memory_order_relaxed);
+}
 
 // Plan-19.4 chunk driver (host-only, no device calls of its own). Walks the
 // image in bands of `plan.chunk_rows`; on CudaAllocFailure it halves the

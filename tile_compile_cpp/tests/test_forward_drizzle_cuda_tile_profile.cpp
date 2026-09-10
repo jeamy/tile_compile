@@ -1,0 +1,255 @@
+// §30.81 step-5 BASELINE benchmark: attribute the per-column-tile repetition
+// factor of the CUDA affine pair path.
+//
+// Hidden ([.]), needs a real device AND `TC_FD_CUDA_PROFILE` set. It runs the
+// same affine multiband build twice over one internal band --- once full width
+// (1 tile) and once split into N column tiles the way persist_forward_drizzle_
+// multiband now does --- and prints the coarse phase split
+// (producer / device malloc+upload+kernel+download / host sort / host reduce)
+// for each, plus the tiled/single ratio. It also asserts the tiled reassembly
+// is bit-identical to the single call, so a regression here fails loudly.
+//
+//   TC_FD_CUDA_PROFILE=1 ./tests "[fd-cuda-tile]" --success
+
+#include "tile_compile/reconstruction/forward_drizzle.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_contrib_list.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <vector>
+
+using namespace tile_compile;
+using namespace tile_compile::reconstruction;
+using tile_compile::registration::FrameSamplingTransform;
+using tile_compile::registration::RegistrationSamplingPlan;
+
+namespace {
+
+WarpMatrix s2c(double a, double b, double tx, double c, double d, double ty) {
+  WarpMatrix m;
+  m(0, 0) = static_cast<float>(a); m(0, 1) = static_cast<float>(b);
+  m(0, 2) = static_cast<float>(tx);
+  m(1, 0) = static_cast<float>(c); m(1, 1) = static_cast<float>(d);
+  m(1, 2) = static_cast<float>(ty);
+  return m;
+}
+
+struct Snap {
+  double malloc_s, upload_s, kernel_s, download_s, produce_s, sort_s, reduce_s;
+  unsigned long long calls, records_sorted;
+};
+Snap snap() {
+  const auto &p = forward_drizzle_cuda_profile();
+  return {p.dev_malloc_s.load(),   p.dev_upload_s.load(),
+          p.dev_kernel_s.load(),   p.dev_download_s.load(),
+          p.produce_s.load(),      p.sort_s.load(),
+          p.reduce_s.load(),       p.calls.load(),
+          p.records_sorted.load()};
+}
+
+}  // namespace
+
+TEST_CASE("§30.81 step-5 baseline: CUDA affine pair path column-tile repetition "
+          "factor",
+          "[.][fd-cuda-tile]") {
+  if (forward_drizzle_cuda_device_memory().free_bytes == 0) {
+    SUCCEED("no CUDA device");
+    return;
+  }
+  if (!forward_drizzle_cuda_profile_enabled()) {
+    SUCCEED("set TC_FD_CUDA_PROFILE=1 to collect the phase split");
+    return;
+  }
+
+  RegistrationSamplingPlan plan;
+  plan.source_width = 320;
+  plan.source_height = 48;
+  plan.canvas_width_native = 480;   // W = 960 at internal_scale 2
+  plan.canvas_height_native = 40;   // H = 80
+  plan.color_mode = ColorMode::OSC;
+  plan.bayer_pattern = BayerPattern::RGGB;
+  plan.cfa_origin_x = plan.cfa_origin_y = 0;
+
+  const int nf = 6;
+  for (int i = 0; i < nf; ++i) {
+    const double ang = 0.010 * std::sin(0.5 * i);
+    FrameSamplingTransform f;
+    f.frame_id = "f" + std::to_string(i);
+    f.source_index = static_cast<size_t>(i);
+    f.valid = f.source_to_canvas_affine_valid = true;
+    f.model_prediction_factor = 1.0f;
+    f.registration_residual_factor = 1.0f;
+    f.source_to_canvas =
+        s2c(1.25 * std::cos(ang), -1.15 * std::sin(ang), 6.0 + 0.3 * i,
+            1.10 * std::sin(ang), 1.20 * std::cos(ang), 4.0 + 0.2 * i);
+    plan.frames.push_back(f);
+  }
+
+  std::vector<Matrix2Df> src, qc, q0, q1, qa;
+  for (int i = 0; i < nf; ++i) {
+    Matrix2Df s(plan.source_height, plan.source_width);
+    Matrix2Df c(plan.source_height, plan.source_width);
+    Matrix2Df a0(plan.source_height, plan.source_width);
+    Matrix2Df a1(plan.source_height, plan.source_width);
+    Matrix2Df ar(plan.source_height, plan.source_width);
+    for (int y = 0; y < plan.source_height; ++y)
+      for (int x = 0; x < plan.source_width; ++x) {
+        s(y, x) = 30.0f + 0.4f * x - 0.2f * y + 0.5f * i +
+                  9.0f * std::sin(0.3f * (x + y));
+        c(y, x) = 0.4f + 0.4f * std::fabs(std::sin(0.2f * (x + y) + i));
+        a0(y, x) = 0.3f + 0.5f * std::fabs(std::cos(0.15f * x - 0.1f * y + i));
+        a1(y, x) = 0.35f + 0.4f * std::fabs(std::sin(0.1f * x + 0.2f * y - i));
+        ar(y, x) = ((x + y + i) % 5 == 0) ? std::nanf("")
+                                          : 0.6f + 0.3f * std::sin(0.5f * x + i);
+      }
+    s(5 + i, 40) = 900.0f;  // clip outlier
+    src.push_back(std::move(s));
+    qc.push_back(std::move(c));
+    q0.push_back(std::move(a0));
+    q1.push_back(std::move(a1));
+    qa.push_back(std::move(ar));
+  }
+  SourceImageProvider provider = [&](size_t i) -> const Matrix2Df & {
+    return src[i];
+  };
+  FrameQualityProvider quality_of = [&](size_t i) -> FrameQualityMaps {
+    return {&qc[i], &q0[i], &q1[i], &qa[i]};
+  };
+
+  config::ReconstructionDrizzleConfig cfg;
+  cfg.internal_scale = 2;
+  cfg.pixfrac = 0.9f;
+  cfg.min_clip_contributors = 3;
+  cfg.robust_passes = 2;
+  config::ReconstructionClippingConfig clip;
+  clip.clip_sigma_low = clip.clip_sigma_high = 2.5f;
+  clip.min_fraction = 0.1f;
+  clip.min_n_eff = 1.0f;
+  MultibandProfileParams mb;
+  mb.emit_fine = mb.emit_medium = mb.emit_alpha_confidence = true;
+  const std::vector<float> g_eff = {1.0f, 0.95f, 0.9f, 0.88f, 0.92f, 0.97f};
+  const std::size_t budget = static_cast<std::size_t>(1) << 32;
+
+  const int W = plan.canvas_width_native * cfg.internal_scale;   // 960
+  const int H = plan.canvas_height_native * cfg.internal_scale;  // 80
+
+  // --- Run A: one full-width call -------------------------------------------
+  forward_drizzle_cuda_profile().reset();
+  const auto single = accumulate_pair_by_frame_cuda(
+      plan, provider, cfg, clip, 0, H, {}, g_eff, quality_of, mb, budget);
+  const Snap a = snap();
+
+  // --- Run B: the same band split into 8 column tiles ---------------------
+  const int tiles = 8;
+  const int tile_w = (W + tiles - 1) / tiles;
+  forward_drizzle_cuda_profile().reset();
+  ForwardDrizzleUniformAndRawResult tiled;
+  auto init = [&](ForwardDrizzleUniformResult &p, bool on) {
+    p.color_mode = ColorMode::OSC;
+    p.internal_width = W;
+    p.internal_height = on ? H : 0;
+    if (on) { p.R.allocate(W, H); p.G.allocate(W, H); p.B.allocate(W, H); }
+  };
+  init(tiled.uniform, true); init(tiled.raw, true);
+  init(tiled.fine, true); init(tiled.medium, true);
+  const std::size_t N = static_cast<std::size_t>(W) * H;
+  tiled.a_separation.assign(N, std::nanf(""));
+  tiled.a_artifact.assign(N, std::nanf(""));
+  tiled.a_registration.assign(N, std::nanf(""));
+  tiled.alpha_confidence_support.assign(N, 0u);
+
+  for (int xb = 0; xb < W; xb += tile_w) {
+    const int tw = std::min(tile_w, W - xb);
+    const auto part = accumulate_pair_by_frame_cuda(
+        plan, provider, cfg, clip, 0, H, {}, g_eff, quality_of, mb, budget, 32,
+        static_cast<std::size_t>(1) << 20, nullptr, xb, tw);
+    auto blit = [&](ForwardDrizzleUniformResult &d,
+                    const ForwardDrizzleUniformResult &s) {
+      const std::array<ProfilePlane *, 3> dp{&d.R, &d.G, &d.B};
+      const std::array<const ProfilePlane *, 3> sp{&s.R, &s.G, &s.B};
+      for (int c = 0; c < 3; ++c) {
+        if (sp[c]->value.empty()) continue;
+        for (int y = 0; y < H; ++y)
+          for (int x = 0; x < tw; ++x) {
+            const std::size_t si = static_cast<std::size_t>(y) * tw + x;
+            const std::size_t di = static_cast<std::size_t>(y) * W + (xb + x);
+            dp[c]->value[di] = sp[c]->value[si];
+            dp[c]->weight_sum[di] = sp[c]->weight_sum[si];
+            dp[c]->n_eff[di] = sp[c]->n_eff[si];
+            dp[c]->support[di] = sp[c]->support[si];
+          }
+      }
+    };
+    blit(tiled.uniform, part.uniform);
+    blit(tiled.raw, part.raw);
+    blit(tiled.fine, part.fine);
+    blit(tiled.medium, part.medium);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < tw; ++x) {
+        const std::size_t si = static_cast<std::size_t>(y) * tw + x;
+        const std::size_t di = static_cast<std::size_t>(y) * W + (xb + x);
+        tiled.a_separation[di] = part.a_separation[si];
+        tiled.a_artifact[di] = part.a_artifact[si];
+        tiled.a_registration[di] = part.a_registration[si];
+        tiled.alpha_confidence_support[di] = part.alpha_confidence_support[si];
+      }
+  }
+  const Snap b = snap();
+
+  // --- correctness: tiled reassembly == single -----------------------------
+  auto same_plane = [](const ProfilePlane &x, const ProfilePlane &y) {
+    REQUIRE(x.support == y.support);
+    REQUIRE(x.weight_sum == y.weight_sum);
+    REQUIRE(x.n_eff == y.n_eff);
+    for (size_t i = 0; i < x.value.size(); ++i)
+      if (x.support[i]) REQUIRE(x.value[i] == y.value[i]);
+  };
+  for (auto pr : {std::pair{&single.uniform, &tiled.uniform},
+                  std::pair{&single.raw, &tiled.raw},
+                  std::pair{&single.fine, &tiled.fine},
+                  std::pair{&single.medium, &tiled.medium}}) {
+    same_plane(pr.first->R, pr.second->R);
+    same_plane(pr.first->G, pr.second->G);
+    same_plane(pr.first->B, pr.second->B);
+  }
+  REQUIRE(single.alpha_confidence_support == tiled.alpha_confidence_support);
+
+  // --- report ------------------------------------------------------------
+  auto row = [](const char *name, double sa, double sb) {
+    std::printf("  %-12s  %9.4f  %9.4f   %6.2fx\n", name, sa, sb,
+                sa > 0 ? sb / sa : 0.0);
+  };
+  const double a_dev = a.malloc_s + a.upload_s + a.kernel_s + a.download_s;
+  const double b_dev = b.malloc_s + b.upload_s + b.kernel_s + b.download_s;
+  const double a_tot = a.produce_s + a.sort_s + a.reduce_s;
+  const double b_tot = b.produce_s + b.sort_s + b.reduce_s;
+  std::printf("\n=== §30.81 step-5 baseline: CUDA affine pair, %d frames, "
+              "W=%d H=%d, %d column tiles (tile_w=%d) ===\n",
+              nf, W, H, tiles, tile_w);
+  std::printf("  %-12s  %9s  %9s   %6s\n", "phase", "single(s)", "tiled(s)",
+              "B/A");
+  row("produce", a.produce_s, b.produce_s);
+  row("  .malloc", a.malloc_s, b.malloc_s);
+  row("  .upload", a.upload_s, b.upload_s);
+  row("  .kernel", a.kernel_s, b.kernel_s);
+  row("  .download", a.download_s, b.download_s);
+  row("  dev sum", a_dev, b_dev);
+  row("sort", a.sort_s, b.sort_s);
+  row("reduce", a.reduce_s, b.reduce_s);
+  row("TOTAL", a_tot, b_tot);
+  std::printf("  accumulate_pair_impl calls : single %llu  tiled %llu\n",
+              a.calls, b.calls);
+  std::printf("  records sorted (sum)       : single %llu  tiled %llu  (%.2fx)\n",
+              a.records_sorted, b.records_sorted,
+              a.records_sorted ? static_cast<double>(b.records_sorted) /
+                                     static_cast<double>(a.records_sorted)
+                               : 0.0);
+  std::printf("==============================================================="
+              "\n");
+}

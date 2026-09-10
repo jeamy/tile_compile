@@ -517,6 +517,19 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
   const std::uint32_t xb_u = static_cast<std::uint32_t>(xb);
   const std::uint32_t xe_u = static_cast<std::uint32_t>(xe);
 
+  // §30.81 step-5 baseline: coarse split of the per-call work so the per-tile
+  // repetition factor is attributable. Zero cost unless TC_FD_CUDA_PROFILE.
+  const bool cprof = forward_drizzle_cuda_profile_enabled();
+  auto &cp = forward_drizzle_cuda_profile();
+  using cclock = std::chrono::steady_clock;
+  auto cnow = [] { return cclock::now(); };
+  auto cadd = [&](std::atomic<double> &slot, cclock::time_point t0) {
+    if (cprof)
+      forward_drizzle_cuda_profile_add(
+          slot, std::chrono::duration<double>(cnow() - t0).count());
+  };
+  if (cprof) cp.calls.fetch_add(1, std::memory_order_relaxed);
+
   // Per frame: build -> canonical sort -> segment-reduce into one ClipCandidate
   // per (channel, cell), reading the frame's Q maps per record.
   for (std::size_t fo = 0; fo < prepared.frames.size(); ++fo) {
@@ -528,11 +541,17 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     const Matrix2Df *q1 = need_q1 ? qm.scale1 : nullptr;
     const Matrix2Df *qa = need_qa ? qm.artifact : nullptr;
 
+    auto tp = cnow();
     auto recs = produce(fo, f, g);
+    cadd(cp.produce_s, tp);
+    if (cprof)
+      cp.records_sorted.fetch_add(recs.size(), std::memory_order_relaxed);
+    tp = cnow();
     std::sort(recs.begin(), recs.end(),
               [](const DrizzleContrib &a, const DrizzleContrib &b) {
                 return contrib_key_less(a.key, b.key);
               });
+    cadd(cp.sort_s, tp);
 
     std::size_t s = 0;
     while (s < recs.size()) {
@@ -587,6 +606,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
   // parallelised, allocate one scratch per worker INSIDE the parallel body.
   DrizzleClipScratch clip_scratch;
   clip_scratch.reserve_for(frame_count, need_qa);
+  const auto tp_reduce = cnow();
   for (int c = 0; c < channels; ++c)
     for (std::size_t i = 0; i < n; ++i) {
       if (!counts[c][i]) continue;
@@ -600,6 +620,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
                             need_qa ? &ac_reg[i] : nullptr, result.clipping,
                             &clip_scratch);
     }
+  cadd(cp.reduce_s, tp_reduce);
 
   if (need_qa)
     for (std::size_t i = 0; i < n; ++i) {

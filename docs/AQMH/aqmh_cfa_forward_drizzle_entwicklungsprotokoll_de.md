@@ -6593,10 +6593,63 @@ einen expliziten Deckel begrenzt statt das Band zu kollabieren. Volle Suite
 **542/542**; Legacy 17/18 (vorbestehende GTX-1660-Ti-`weight_sum`-Toleranz,
 `test_aqmh_reconstruction.cpp:451`, unberührter Pfad).
 
-**Offen.** Durchsatz-Messung: der `.cu`-Nachzug (Schritt 5) und ein realer/halb-
-realer Lauf mit finalem Phasenbudget stehen noch aus (letzterer braucht
-User-Freigabe). Die 618->3-Bänder-Reduktion ist eine Planungszahl, kein
-gemessener Lauf.
+**Status ehrlich abgegrenzt (User-Review):** *2D-Kachelung und Parität
+abgeschlossen; Bereichszugriffe (R2) und Gesamt-Host-Budget offen.* Die
+618→3-Bänder-Reduktion ist eine **Planungszahl**, kein gemessener Lauf. Drei
+Restpunkte:
+
+1. **Vollbreitenarbeit wird auch host-seitig wiederholt.** `accumulate_pair_impl`
+   sortiert je Kachel **alle** Records des Frames und verwirft danach die
+   ausserhalb liegenden Segmente. Der Verstärkungsfaktor trifft die CPU, nicht
+   nur die GPU.
+2. **R2 ist Enumeration, noch kein Datenzugriff.** Der CUDA-Producer lädt weiter
+   die volle Quelle + kopiert ein vollbreites Quellzeilenband; der Q-Provider
+   nutzt weiter `read_full`.
+3. **Der Kandidatendeckel ist kein Prozess-Peak.** `tile_w` schöpft den Deckel
+   für den Kandidatenpuffer aus; Vollbreiten-Reassembly, Teilprofile, Source-/
+   Q-Puffer und rohe/konvertierte Records leben gleichzeitig daneben.
+   "1919 MiB ≤ Deckel" belegt nur den Kandidatenpuffer.
+
+### 30.81 Schritt 5 Basis-Benchmark (2026-09-10)
+
+Vor der Producer-Verengung: `TC_FD_CUDA_PROFILE`-gated Grob-Timer (env-gated,
+compute-neutral) in `accumulate_pair_impl` (`produce` / `std::sort` /
+`reduce_pixel_profiles`) und im `.cu`-Affin-Wrapper (`cudaMalloc` / H2D /
+Kernel+`Synchronize` / D2H). Neuer hidden Bench
+`tests/test_forward_drizzle_cuda_tile_profile.cpp` (`[.][fd-cuda-tile]`, echtes
+Gerät + Env): derselbe Affin-Mehrband-Build über **ein** internes Band, einmal
+voll-breit (1 Kachel), einmal in 8 Spaltenkacheln — plus Bit-Identitäts-Assert
+der zusammengesetzten Kachel-Rekonstruktion gegen den Ein-Kachel-Lauf.
+
+**Messung (6 Frames, W=960 H=80, 8 Kacheln, `tile_w=120`):**
+
+| Phase | single (s) | tiled (s) | B/A |
+|---|---|---|---|
+| produce (Geräte-Producer gesamt) | 0.042 | 0.153 | **3,63×** |
+| · malloc / upload / kernel / download | 0.003 / 0.0003 / 0.003 / 0.004 | 0.017 / 0.002 / 0.020 / 0.031 | 6,8× / 6,5× / 6,4× / **7,8×** |
+| **sort** (`std::sort` der Frame-Records) | 0.056 | **0.387** | **6,95×** |
+| reduce (`reduce_pixel_profiles`) | 0.082 | 0.071 | 0,87× |
+| **TOTAL** | 0.180 | 0.611 | **3,40×** |
+| Records sortiert (Summe) | 561 964 | 4 495 712 | **8,00×** |
+
+**Befund:** die **Sortierung ist der grösste Wiederholungsfaktor** (6,95×; 21 %
+von TOTAL_A → 63 % von TOTAL_B), weil jede Kachel die vollen Frame-Records
+sortiert (`records sorted` exakt 8,00×). Die Geräte-Phasen skalieren ~6,4–7,8×
+(Vollbreiten-Raster je Kachel wiederholt), `download` am stärksten. `reduce` ist
+bereits `win_w`-lokal → keine Wiederholung. Bei `tile_w=10` / 768 Kacheln würde
+der Sort-Term allein ~768× seiner Ein-Kachel-Kosten erreichen. ⇒ Schritt 2 muss
+die **Record-Menge vor der Sortierung** kappen (Producer emittiert nur
+In-Fenster-Records), nicht bloss nachfiltern.
+
+**Nächste Schnitte (User-Plan):** (2) Kachelfenster bis zum Producer
+durchreichen — konservatives inverses Quellrechteck X/Y, begrenzte Kernel-Arbeit
++ Record-Kapazität, absolute Schlüssel erhalten; (3) Source-/Q-Zugriffe
+tatsächlich kappen (separat messbar; auch der lokale Hybrid-Producer); (4)
+gemeinsames Host-Budget schliessen (feste + gleichzeitig lebende Puffer zuerst
+abziehen, dann Kandidatenkapazität; extrem schmale Kacheln meiden —
+Randüberlappung + Aufrufkosten); (5) dieselbe Paritätsmatrix + derselbe Bench
+erneut (schmale/ragged Kacheln, Rotation/Scherung, lokale Modelle, Modus 2/1,
+Budget-Retries).
 
 ---
 

@@ -18,6 +18,7 @@
 
 #include <cuda_runtime.h>
 
+#include <chrono>
 #include <cstdlib>
 
 namespace tile_compile::reconstruction {
@@ -339,16 +340,33 @@ bool forward_drizzle_cuda_affine_frame_contributions(
       static_cast<size_t>(band_rows) * source_w * sizeof(float);
   const size_t rec_bytes =
       static_cast<size_t>(records_capacity) * sizeof(CudaDrizzleContribRecord);
+  // §30.81 step-5 baseline: coarse device-phase timers, gated by
+  // TC_FD_CUDA_PROFILE. cudaDeviceSynchronize() below makes the kernel window a
+  // real wall measurement; malloc/upload/download are around blocking calls.
+  const bool cprof = forward_drizzle_cuda_profile_enabled();
+  using cclock = std::chrono::steady_clock;
+  auto cnow = [] { return cclock::now(); };
+  auto cadd = [&](std::atomic<double> &slot, cclock::time_point t0) {
+    if (cprof)
+      forward_drizzle_cuda_profile_add(
+          slot, std::chrono::duration<double>(cnow() - t0).count());
+  };
+  auto t_phase = cnow();
   bool ok = cudaMalloc(&d_src, src_bytes) == cudaSuccess &&
             cudaMalloc(&d_recs, rec_bytes) == cudaSuccess &&
             cudaMalloc(&d_count, sizeof(unsigned long long)) == cudaSuccess &&
             cudaMalloc(&d_overflow, sizeof(int)) == cudaSuccess;
-  if (ok)
+  cadd(forward_drizzle_cuda_profile().dev_malloc_s, t_phase);
+  if (ok) {
+    t_phase = cnow();
     ok = cudaMemcpy(d_src, source_values, src_bytes, cudaMemcpyHostToDevice) ==
              cudaSuccess &&
          cudaMemset(d_count, 0, sizeof(unsigned long long)) == cudaSuccess &&
          cudaMemset(d_overflow, 0, sizeof(int)) == cudaSuccess;
+    cadd(forward_drizzle_cuda_profile().dev_upload_s, t_phase);
+  }
   if (ok) {
+    t_phase = cnow();
     k_affine_frame_contribs<<<static_cast<unsigned>(grid_ll), 128>>>(
         affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
         static_cast<double>(internal_scale), half, y_begin, rows,
@@ -357,9 +375,11 @@ bool forward_drizzle_cuda_affine_frame_contributions(
         records_capacity, d_count, d_overflow);
     ok = cudaGetLastError() == cudaSuccess &&
          cudaDeviceSynchronize() == cudaSuccess;
+    cadd(forward_drizzle_cuda_profile().dev_kernel_s, t_phase);
   }
   int overflow = 0;
   unsigned long long count = 0;
+  t_phase = cnow();
   if (ok)
     ok = cudaMemcpy(&overflow, d_overflow, sizeof(int), cudaMemcpyDeviceToHost) ==
              cudaSuccess &&
@@ -374,6 +394,7 @@ bool forward_drizzle_cuda_affine_frame_contributions(
   } else {
     ok = false;  // overflow or capacity exceeded -> caller falls back to CPU
   }
+  cadd(forward_drizzle_cuda_profile().dev_download_s, t_phase);
   cudaFree(d_src);
   cudaFree(d_recs);
   cudaFree(d_count);

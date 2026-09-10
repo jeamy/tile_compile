@@ -24,6 +24,20 @@ int read_env_fault() {
 
 }  // namespace
 
+// §30.81 step-5 baseline instrumentation (see the header). Process-global,
+// gated by TC_FD_CUDA_PROFILE; a normal run never reads or writes it.
+ForwardDrizzleCudaProfile &forward_drizzle_cuda_profile() {
+  static ForwardDrizzleCudaProfile p;
+  return p;
+}
+bool forward_drizzle_cuda_profile_enabled() {
+  static const bool on = [] {
+    const char *v = std::getenv("TC_FD_CUDA_PROFILE");
+    return v != nullptr && *v != '\0';
+  }();
+  return on;
+}
+
 #if !TILE_COMPILE_WITH_CUDA
 // CUDA-free build: no device at all. The CUDA build defines these in
 // forward_drizzle_cuda_device.cu against the real runtime.
