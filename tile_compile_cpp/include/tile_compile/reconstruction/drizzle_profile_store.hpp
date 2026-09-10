@@ -82,6 +82,15 @@ struct DrizzleCudaStoreTiming {
   int band_halvings = 0;
   int min_band_rows = 0;
   int max_band_rows = 0;
+  // §30.81 (P6 priority-3 2D target tiling): each device band is additionally
+  // split into column tiles so the HOST ClipCandidate buffer (cand_row * band
+  // rows * tile_w / dims.width) stays under `host_budget_bytes`. `chunk_plan`
+  // is now planned against the DEVICE term only (rec_row + acc_row). The tile
+  // count is 1 and `resolved_tile_w == dims.width` when the whole band's host
+  // buffer already fits. `min_tile_w` is the narrowest tile any band used.
+  int resolved_tile_w = 0;   // tile width of the first band's tiling
+  int min_tile_w = 0;
+  int max_tiles_per_band = 0;
   double stripe_seconds = 0.0;         // sum of time inside accumulate_pair_by_frame_cuda
   double total_seconds = 0.0;          // whole chunked drive incl. sink / store I/O
   // plan 19.6.2: how many frames took the hybrid CPU-geometry -> GPU-raster

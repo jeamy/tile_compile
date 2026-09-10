@@ -1311,6 +1311,122 @@ TEST_CASE("drizzle store: plan-19.6 CUDA per-stripe path commits a store "
   }
 }
 
+TEST_CASE("drizzle store: §30.81 the CUDA path splits each band into column "
+          "tiles when the host ClipCandidate buffer would exceed the budget, "
+          "and the committed store is byte-identical to the whole-canvas CPU "
+          "build",
+          "[drizzle-store][cuda-parity][fd-tile-window]") {
+  if (reconstruction::forward_drizzle_cuda_device_memory().free_bytes == 0) {
+    SUCCEED("no CUDA device");
+    return;
+  }
+  auto plane_digest = [](const fs::path &gen) {
+    std::map<std::string, std::string> h;
+    for (const auto &e : fs::directory_iterator(gen)) {
+      const std::string n = e.path().filename().string();
+      if (e.is_regular_file() && n.size() > 5 &&
+          n.substr(n.size() - 5) == ".fits")
+        h[n] = core::sha256_file(e.path());
+    }
+    REQUIRE(h.size() >= 12);
+    return h;
+  };
+
+  const int S = 28, C = 56, nf = 20;
+  auto plan = plan_for(S, /*osc=*/true);
+  plan.canvas_width_native = plan.canvas_height_native = C;
+  plan.frames.clear();
+  for (int i = 0; i < nf; ++i) {
+    registration::FrameSamplingTransform f;
+    f.valid = f.source_to_canvas_affine_valid = true;
+    f.frame_id = "synthetic:" + std::to_string(i);
+    f.source_index = static_cast<size_t>(i);
+    f.model_prediction_factor = 1.0f;
+    f.registration_residual_factor = 1.0f;
+    const double ang = 0.010 * std::sin(0.5 * i);
+    const double dx = 3.0 + ((i * 7) % 5) / 5.0;
+    const double dy = 3.0 + ((i * 3) % 5) / 5.0;
+    WarpMatrix m;
+    m(0, 0) = static_cast<float>(std::cos(ang));
+    m(0, 1) = static_cast<float>(-std::sin(ang));
+    m(0, 2) = static_cast<float>(dx);
+    m(1, 0) = static_cast<float>(std::sin(ang));
+    m(1, 1) = static_cast<float>(std::cos(ang));
+    m(1, 2) = static_cast<float>(dy);
+    f.source_to_canvas = m;
+    plan.frames.push_back(f);
+  }
+
+  config::ReconstructionDrizzleConfig cfg = config_for();  // 1/1
+  cfg.pixfrac = 0.85f;
+  cfg.min_clip_contributors = 3;
+  config::ReconstructionClippingConfig clip;
+  clip.clip_sigma_low = clip.clip_sigma_high = 2.5f;
+  clip.min_fraction = 0.1f;
+  clip.min_n_eff = 1.0f;
+
+  std::vector<Matrix2Df> imgs(nf, Matrix2Df(S, S));
+  for (int i = 0; i < nf; ++i)
+    for (int y = 0; y < S; ++y)
+      for (int x = 0; x < S; ++x) {
+        const float outlier = (i == 7) ? 500.0f : 0.0f;
+        imgs[i](y, x) = 40.0f + outlier + 3.0f * x + 2.0f * y +
+                        11.0f * std::sin(0.55f * (x + y)) + 0.7f * i;
+      }
+  SourceImageProvider provider = [&](size_t i) -> const Matrix2Df & {
+    return imgs[i];
+  };
+  Matrix2Df comp = Matrix2Df::Constant(S, S, 0.7f);
+  Matrix2Df q0 = Matrix2Df::Constant(S, S, 0.6f);
+  Matrix2Df q1 = Matrix2Df::Constant(S, S, 0.65f);
+  Matrix2Df art = Matrix2Df::Constant(S, S, 0.9f);
+  FrameQualityProvider quality_of = [&](size_t i) -> FrameQualityMaps {
+    return {&comp, &q0, &q1, i == 2 ? nullptr : &art};
+  };
+
+  MultibandStoreContract mbc;
+  mbc.enabled = true;
+  mbc.levels = 3;
+
+  // Whole-canvas CPU reference.
+  auto cfg_cpu = cfg;
+  cfg_cpu.chunk_rows = C;
+  cfg_cpu.memory_budget_mb = 256;
+  Fixture cpu_fx;
+  const auto cpu = persist_forward_drizzle_multiband(
+      cpu_fx.root, plan, provider, cfg_cpu, clip, mbc, quality_of);
+  REQUIRE_FALSE(cpu.cuda_timing.used);
+
+  // CUDA build with a host budget small enough that a full-width band's
+  // ClipCandidate buffer (channels * C * nf * 64 * band_rows) does not fit ->
+  // the per-band column tiling engages.
+  auto cfg_gpu = cfg;
+  cfg_gpu.chunk_rows = C;         // one band over the whole canvas
+  cfg_gpu.memory_budget_mb = 4;   // ~4 MiB host ceiling
+  reconstruction::ForwardDrizzleCudaOptions attempt;
+  attempt.attempt = true;
+  Fixture gpu_fx;
+  const auto gpu = persist_forward_drizzle_multiband(
+      gpu_fx.root, plan, provider, cfg_gpu, clip, mbc, quality_of, {}, {}, {},
+      attempt);
+
+  REQUIRE(gpu.cuda_timing.used);
+  REQUIRE(gpu.cuda_timing.max_tiles_per_band >= 2);   // tiling actually engaged
+  REQUIRE(gpu.cuda_timing.min_tile_w < C);
+  REQUIRE(gpu.cuda_timing.resolved_tile_w >= 1);
+
+  // Same clip acceptance mask.
+  REQUIRE(gpu.clipping.candidate_contributions_clipped ==
+          cpu.clipping.candidate_contributions_clipped);
+  REQUIRE(gpu.clipping.candidate_contributions_clipped > 0);
+
+  REQUIRE(verify_drizzle_profile_store(gpu_fx.root, gpu.identity).usable);
+  // The scientific planes are bit-identical to the whole-canvas CPU build ---
+  // the column tile seams introduce nothing (the store identity carries no
+  // tile/band terms).
+  REQUIRE(plane_digest(gpu.generation_dir) == plane_digest(cpu.generation_dir));
+}
+
 TEST_CASE("drizzle store: the CUDA per-stripe path takes local-warp frames "
           "through the plan-19.6.2 hybrid path (store byte-identical to CPU) "
           "and still declines mode 2/1 to the CPU reference",
@@ -1629,6 +1745,64 @@ TEST_CASE("plan-19.4 CUDA auto-chunking: reserve, fit, and the halving ladder",
                 (dims_height + host_limited_rows - 1) /
                     std::max(host_limited_rows, 1));
     REQUIRE(host_limited_rows < 32);  // still a collapse; R1.2/R2 needed
+  }
+
+  SECTION("§30.81: planning the band against the DEVICE term only + per-band "
+          "column tiling restores full-height bands at every frame count") {
+    constexpr std::size_t kClipCandidate = 64;
+    constexpr std::size_t kContribRecord = 40;
+    const int channels = 3;
+    const int dims_width = 7680;
+    const int dims_height = 4320;
+    const int source_width = 3840;
+    const std::size_t rec_row =
+        static_cast<std::size_t>(source_width) * 16 * kContribRecord;
+    const std::size_t acc_row =
+        static_cast<std::size_t>(channels) * dims_width * 8 * sizeof(double);
+    const std::size_t device_bytes_per_row = rec_row + acc_row;  // §30.81
+    const std::size_t free_bytes = 8ull << 30;
+    const std::size_t host_budget = 2ull << 30;  // the default absolute ceiling
+
+    std::printf("  §30.81 device-only band plan (8 GiB card, 2 GiB host "
+                "ceiling):\n");
+    // The device term does not depend on frame count, so the band height is the
+    // SAME for every N -> no collapse-with-N (contrast the §30.80 table above,
+    // 109 -> 7 rows / 40 -> 618 bands over the same 40..600 sweep).
+    const auto p_ref =
+        plan_cuda_chunking(free_bytes, device_bytes_per_row, dims_height);
+    REQUIRE(p_ref.feasible);
+    const int ref_bands =
+        (dims_height + p_ref.chunk_rows - 1) / p_ref.chunk_rows;
+    REQUIRE(ref_bands <= 8);  // single-digit bands, not hundreds
+    for (int frames : {40, 100, 300, 600}) {
+      const auto p =
+          plan_cuda_chunking(free_bytes, device_bytes_per_row, dims_height);
+      REQUIRE(p.feasible);
+      REQUIRE(p.chunk_rows == p_ref.chunk_rows);  // frame-count-independent
+
+      // The host ClipCandidate buffer for a full-height band is tiled in the
+      // column direction until it fits `host_budget`:
+      //   cand_per_row_col = channels * frames * sizeof(ClipCandidate)
+      //   tile_w = host_budget / (cand_per_row_col * band_rows)
+      const std::size_t cand_per_row_col =
+          static_cast<std::size_t>(channels) * frames * kClipCandidate;
+      const std::size_t denom =
+          cand_per_row_col * static_cast<std::size_t>(p.chunk_rows);
+      const int tile_w = std::max<int>(
+          1, static_cast<int>(std::min<std::size_t>(
+                 host_budget / denom, static_cast<std::size_t>(dims_width))));
+      const int tiles = (dims_width + tile_w - 1) / tile_w;
+      const std::size_t host_peak = static_cast<std::size_t>(tile_w) *
+                                    static_cast<std::size_t>(p.chunk_rows) *
+                                    cand_per_row_col;
+      std::printf("  frames %3d : band_rows %4d  tile_w %5d  tiles/band "
+                  "%3d  host peak %6.1f MiB\n",
+                  frames, p.chunk_rows, tile_w, tiles,
+                  host_peak / (1024.0 * 1024.0));
+      REQUIRE(host_peak <= host_budget);   // the tiling keeps the host buffer in
+      REQUIRE(tile_w >= 1);
+      REQUIRE(tiles >= 1);
+    }
   }
 
   SECTION("device-memory probe drives the plan") {

@@ -523,8 +523,16 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     const std::size_t acc_row = static_cast<std::size_t>(channels) * dims.width *
                                 8 * sizeof(double);
     const std::size_t bytes_per_row = cand_row + rec_row + acc_row;
-    const auto chunk_plan = plan_cuda_chunking(devmem.free_bytes, bytes_per_row,
-                                               dims.height, std::max(cfg.chunk_rows, 0));
+    // §30.81: the band height is now planned against the DEVICE term only. The
+    // host flat ClipCandidate buffer (`cand_row`) is absorbed by the per-band
+    // column tiling below --- each band is split into `dims.width / tile_w`
+    // column tiles so `cand_row * rows * tile_w / dims.width <= host_budget`.
+    // Before §30.81 `cand_row` was folded into `bytes_per_row` here and drove
+    // the band into 7-row collapse at 600 frames (§30.80).
+    const std::size_t device_bytes_per_row = rec_row + acc_row;
+    const auto chunk_plan =
+        plan_cuda_chunking(devmem.free_bytes, device_bytes_per_row, dims.height,
+                           std::max(cfg.chunk_rows, 0));
     if (!chunk_plan.feasible)
       throw ForwardDrizzleCudaError(
           "forward_drizzle CUDA: device memory below one internal row");
@@ -568,31 +576,144 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
       down = std::make_unique<Downsample2x2StripeAdapter>(
           [&](int y, const ForwardDrizzleUniformAndRawResult &o) { sink(y, o); },
           dims.width, plan.color_mode == ColorMode::MONO);
+    // §30.81 per-band column tiling: bytes of the host ClipCandidate buffer per
+    // internal row per column (independent of band height / tile width).
+    const std::size_t cand_per_row_col =
+        static_cast<std::size_t>(channels) * frame_count * sizeof(ClipCandidate);
+    int first_tile_w = 0, min_tile_w = dims.width, max_tiles_per_band = 0;
     CudaChunkRunStats chunk_stats;
     const int bands = run_cuda_chunked(
         chunk_plan, dims.height, [&](int y0, int rows) {
+          // Widest column tile whose host ClipCandidate buffer fits the
+          // absolute ceiling at THIS band height. Derived per call, so a
+          // halving that shrinks `rows` re-enters here and recomputes it ---
+          // it can never be left stale.
+          const std::size_t denom =
+              cand_per_row_col * static_cast<std::size_t>(std::max(rows, 1));
+          int tile_w = denom ? static_cast<int>(std::min<std::size_t>(
+                                   host_budget / std::max<std::size_t>(denom, 1),
+                                   static_cast<std::size_t>(dims.width)))
+                             : dims.width;
+          tile_w = std::clamp(tile_w, 1, dims.width);
+          const int tiles =
+              (dims.width + tile_w - 1) / std::max(tile_w, 1);
+          if (first_tile_w == 0) first_tile_w = tile_w;
+          min_tile_w = std::min(min_tile_w, tile_w);
+          max_tiles_per_band = std::max(max_tiles_per_band, tiles);
+
           ForwardDrizzleUniformAndRawResult stripe;
+          auto alloc_plane = [&](ForwardDrizzleUniformResult &p, bool on) {
+            p.color_mode = plan.color_mode;
+            p.internal_width = dims.width;
+            p.internal_height = on ? rows : 0;
+            if (!on) return;
+            if (plan.color_mode == ColorMode::MONO) {
+              p.L.allocate(dims.width, rows);
+            } else {
+              p.R.allocate(dims.width, rows);
+              p.G.allocate(dims.width, rows);
+              p.B.allocate(dims.width, rows);
+            }
+          };
+          alloc_plane(stripe.uniform, true);
+          alloc_plane(stripe.raw, true);
+          alloc_plane(stripe.fine, mb.emit_fine);
+          alloc_plane(stripe.medium, mb.emit_medium);
+          const std::size_t full_n =
+              static_cast<std::size_t>(dims.width) * static_cast<std::size_t>(rows);
+          if (mb.emit_alpha_confidence) {
+            stripe.a_separation.assign(full_n,
+                                       std::numeric_limits<float>::quiet_NaN());
+            stripe.a_artifact.assign(full_n,
+                                     std::numeric_limits<float>::quiet_NaN());
+            stripe.a_registration.assign(
+                full_n, std::numeric_limits<float>::quiet_NaN());
+            stripe.alpha_confidence_support.assign(full_n, 0u);
+          }
+
           const auto t0 = store_clock::now();
-          try {
-            // The two literals mirror the accumulate_pair_by_frame_cuda header
-            // defaults; they are spelled out only to reach the trailing
-            // &hybrid_stats out-param. On the hybrid path a batch that cannot
-            // fit even at the floor throws ForwardDrizzleCudaError -> full CPU
-            // restart (plan 19.6.2), NOT CudaAllocFailure -> band halving (that
-            // translation is the affine producer's DRIZZLE_CONTRIB_LIST_BUDGET
-            // path below).
-            stripe = accumulate_pair_by_frame_cuda(
-                plan, source_of, cfg, clipping, y0, rows, subdivision, g_eff,
-                quality_of, mb, host_budget, /*max_cells_per_pixel=*/32,
-                /*max_batch_items=*/static_cast<std::size_t>(1) << 20,
-                &hybrid_stats);
-          } catch (const std::runtime_error &e) {
-            // A band too tall for the host ClipCandidate ceiling -> ask
-            // run_cuda_chunked for a shorter band (plan 19.4 halving ladder).
-            const std::string what = e.what();
-            if (what.find("DRIZZLE_CONTRIB_LIST_BUDGET") != std::string::npos)
-              throw CudaAllocFailure(what);
-            throw;
+          for (int xb = 0; xb < dims.width; xb += tile_w) {
+            const int tw = std::min(tile_w, dims.width - xb);
+            ForwardDrizzleUniformAndRawResult part;
+            try {
+              // The literals mirror the accumulate_pair_by_frame_cuda header
+              // defaults; spelled out only to reach the trailing &hybrid_stats
+              // and the §30.81 window out-params. On the hybrid path a batch
+              // that cannot fit even at the floor throws ForwardDrizzleCudaError
+              // -> full CPU restart (plan 19.6.2), NOT CudaAllocFailure -> band
+              // halving.
+              part = accumulate_pair_by_frame_cuda(
+                  plan, source_of, cfg, clipping, y0, rows, subdivision, g_eff,
+                  quality_of, mb, host_budget, /*max_cells_per_pixel=*/32,
+                  /*max_batch_items=*/static_cast<std::size_t>(1) << 20,
+                  &hybrid_stats, xb, tw);
+            } catch (const std::runtime_error &e) {
+              // A tile still too tall for the host ceiling -> ask
+              // run_cuda_chunked for a shorter band (plan 19.4 halving ladder).
+              // With `tile_w` derived above this should not fire from the
+              // candidate buffer; it stays as the safety net for the per-frame
+              // record vector that shares the same budget.
+              const std::string what = e.what();
+              if (what.find("DRIZZLE_CONTRIB_LIST_BUDGET") != std::string::npos)
+                throw CudaAllocFailure(what);
+              throw;
+            }
+            // Blit this column tile into the full-width band stripe.
+            auto blit = [&](ForwardDrizzleUniformResult &dst,
+                            const ForwardDrizzleUniformResult &s) {
+              auto planes = [&](ForwardDrizzleUniformResult &r) {
+                return plan.color_mode == ColorMode::MONO
+                           ? std::array<ProfilePlane *, 3>{&r.L, nullptr, nullptr}
+                           : std::array<ProfilePlane *, 3>{&r.R, &r.G, &r.B};
+              };
+              const auto dp = planes(dst);
+              auto sp_planes = [&](const ForwardDrizzleUniformResult &r) {
+                return plan.color_mode == ColorMode::MONO
+                           ? std::array<const ProfilePlane *, 3>{&r.L, nullptr,
+                                                                 nullptr}
+                           : std::array<const ProfilePlane *, 3>{&r.R, &r.G,
+                                                                 &r.B};
+              };
+              const auto sp = sp_planes(s);
+              for (int c = 0; c < channels; ++c) {
+                if (!dp[c] || sp[c]->value.empty()) continue;
+                for (int ry = 0; ry < rows; ++ry)
+                  for (int rx = 0; rx < tw; ++rx) {
+                    const std::size_t si =
+                        static_cast<std::size_t>(ry) * tw + rx;
+                    const std::size_t di =
+                        static_cast<std::size_t>(ry) * dims.width + (xb + rx);
+                    dp[c]->value[di] = sp[c]->value[si];
+                    dp[c]->weight_sum[di] = sp[c]->weight_sum[si];
+                    dp[c]->n_eff[di] = sp[c]->n_eff[si];
+                    dp[c]->support[di] = sp[c]->support[si];
+                  }
+              }
+            };
+            blit(stripe.uniform, part.uniform);
+            blit(stripe.raw, part.raw);
+            if (mb.emit_fine) blit(stripe.fine, part.fine);
+            if (mb.emit_medium) blit(stripe.medium, part.medium);
+            if (mb.emit_alpha_confidence && !part.a_separation.empty()) {
+              for (int ry = 0; ry < rows; ++ry)
+                for (int rx = 0; rx < tw; ++rx) {
+                  const std::size_t si = static_cast<std::size_t>(ry) * tw + rx;
+                  const std::size_t di =
+                      static_cast<std::size_t>(ry) * dims.width + (xb + rx);
+                  stripe.a_separation[di] = part.a_separation[si];
+                  stripe.a_artifact[di] = part.a_artifact[si];
+                  stripe.a_registration[di] = part.a_registration[si];
+                  stripe.alpha_confidence_support[di] =
+                      part.alpha_confidence_support[si];
+                }
+            }
+            stripe.clipping.pixel_channel_evaluations +=
+                part.clipping.pixel_channel_evaluations;
+            stripe.clipping.pixel_channel_rejected +=
+                part.clipping.pixel_channel_rejected;
+            stripe.clipping.candidate_contributions_clipped +=
+                part.clipping.candidate_contributions_clipped;
+            last_diag = part.diagnostics;
           }
           result.cuda_timing.stripe_seconds +=
               std::chrono::duration<double>(store_clock::now() - t0).count();
@@ -614,13 +735,17 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
               stripe.clipping.pixel_channel_rejected;
           clip_total.candidate_contributions_clipped +=
               stripe.clipping.candidate_contributions_clipped;
-          last_diag = stripe.diagnostics;
+          // `last_diag` is set per column tile inside the loop above (all tiles
+          // of a band carry the same frame-level diagnostics).
         }, &chunk_stats);
     if (down) down->finish();  // asserts the total internal height was even
     result.cuda_timing.bands = bands;
     result.cuda_timing.band_halvings = chunk_stats.halvings;
     result.cuda_timing.min_band_rows = chunk_stats.min_band_rows;
     result.cuda_timing.max_band_rows = chunk_stats.max_band_rows;
+    result.cuda_timing.resolved_tile_w = first_tile_w;
+    result.cuda_timing.min_tile_w = min_tile_w;
+    result.cuda_timing.max_tiles_per_band = max_tiles_per_band;
     result.cuda_timing.total_seconds =
         std::chrono::duration<double>(store_clock::now() - t_all0).count();
     result.cuda_timing.hybrid_cpu_seconds = hybrid_stats.cpu_seconds;
@@ -632,9 +757,12 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     // CUDA path (they otherwise come from the streaming planner, which did not
     // run here).
     summary.diagnostics.resolved_chunk_rows = chunk_plan.chunk_rows;
+    // §30.81: real peak = device band buffers + the one absolute host
+    // ClipCandidate ceiling (the column tiling keeps the host buffer under it).
     summary.diagnostics.estimated_peak_bytes =
-        bytes_per_row *
-        static_cast<std::size_t>(std::max(chunk_plan.chunk_rows, 1));
+        device_bytes_per_row *
+            static_cast<std::size_t>(std::max(chunk_plan.chunk_rows, 1)) +
+        host_budget;
     summary.clipping = clip_total;
   } else if (mode_2_1) {
     // Plan 12.1 mode 2/1: stripes arrive already area-averaged to output (1x)

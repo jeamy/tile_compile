@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich + budgetierter Clipping-Scratch + CUDA-Bandplanungs-Messzähler + 2D-Ziel-Kachelung P3 Schritte 1–3 (Enumerator-, CPU-Streamer- und `accumulate_pair_impl`-Spaltenfenster) 10.09. | [§30.12–30.81](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich + budgetierter Clipping-Scratch + CUDA-Bandplanungs-Messzähler + 2D-Ziel-Kachelung des CUDA-Store-Pfads P3 Schritte 1–4 (Enumerator-/CPU-Streamer-/`accumulate_pair_impl`-Spaltenfenster + Store-Kachelschleife, 618->3 Baender bei 600 Frames) 10.09. | [§30.12–30.81](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -6434,7 +6434,7 @@ und nach 2 Halbierungen.
 
 ---
 
-### 30.81 P6 Prioritaet 3 Schritt 1: Ziel-Spaltenfenster im Streifen-Enumerator (2026-09-10)
+### 30.81 P6 Prioritaet 3: 2D-Ziel-Kachelung des CUDA-Store-Pfads, Schritte 1–4 (2026-09-10)
 
 **Warum kein billiger Umweg.** Vor dem Umbau geprueft (Advisor-Gate): greift ein
 bedingter `ClipCandidate`-Shrink (64 -> 24 Byte, nur die 4 Q-Doubles weglassen,
@@ -6543,14 +6543,60 @@ Medium + Alpha-Karten + Clip-Zaehler **bit-exakt** zum ungeteilten
 Volle Suite **541/541**; `[contrib-list] [cuda-parity] [drizzle-store]
 [drizzle-audit]` unveraendert gruen.
 
-**Offen (folgt).** Schritt 4 (Integration): Spaltenkachel-Schleife im
-CUDA-Store-Pfad (`drizzle_profile_store.cpp`) -- je Zeilenband die Kacheln
-`accumulate_pair_by_frame_cuda(..., xb, win_w)` aufrufen, Voll-Breiten-Stripe
-zusammensetzen, **ein** `sink`/`down->feed` pro Band wie bisher. R1.1
-(Host-/Device-Budget-Trennung) + `tile_w`-Wahl gehoeren hierher; die
-Halbierungsleiter in `run_cuda_chunked` halbiert dann die **groessere** von
-`rows`/`cols` (ein Fehlerpfad, kein zweiter Planer). Optionaler Schritt 5:
-`.cu`-Geraete-Enumeration auf das Fenster verengen.
+**Schritt 4 (Integration, 2026-09-10).** Spaltenkachel-Schleife im
+CUDA-Store-Pfad (`persist_forward_drizzle_multiband`, `drizzle_profile_store.cpp`).
+
+- **R1.1 fällt heraus:** `chunk_plan` wird jetzt nur gegen das **Geräte-Glied**
+  `device_bytes_per_row = rec_row + acc_row` geplant (vorher
+  `cand_row + rec_row + acc_row`). `cand_row` treibt die Bandhöhe nicht mehr.
+- **Kachelung im `process`-Lambda:** je Zeilenband
+  `tile_w = host_budget / (channels·frame_count·sizeof(ClipCandidate)·rows)`,
+  geklemmt auf `[1, dims.width]`. Für `xb = 0, tile_w, 2·tile_w, …` je Kachel
+  `accumulate_pair_by_frame_cuda(…, xb, min(tile_w, dims.width - xb))`, das
+  Ergebnis in einen **einmal pro Band** allozierten Voll-Breiten-Stripe
+  geblittet (4 `ProfilePlane` × value/weight_sum/n_eff/support + 3 Alpha-
+  Vektoren + `alpha_confidence_support`; Clip-Zähler summiert). `internal_width`
+  des zusammengesetzten Stripe wird **explizit** auf `dims.width` gesetzt, nicht
+  von der letzten Kachel geerbt (`Downsample2x2StripeAdapter` faltet auf
+  `dims.width`). Danach **ein** `sink` / `down->feed` pro Band wie bisher.
+- `tile_w` wird **pro `process`-Aufruf** aus dem aktuellen `rows` abgeleitet --
+  eine Halbierung der Bandhöhe (`CudaAllocFailure`) betritt `process` neu und
+  rechnet `tile_w` neu; es kann nie veralten. Damit **keine 2D-Leiter** in
+  `run_cuda_chunked` -- die `DRIZZLE_CONTRIB_LIST_BUDGET` -> `CudaAllocFailure`-
+  Übersetzung bleibt nur als Sicherheitsnetz für den Per-Frame-Record-Vektor,
+  der dasselbe Budget teilt.
+- `estimated_peak_bytes` = `device_bytes_per_row·chunk_rows + host_budget`
+  (ehrlich statt `bytes_per_row·chunk_rows`).
+- Neue `DrizzleCudaStoreTiming`-Felder `resolved_tile_w` / `min_tile_w` /
+  `max_tiles_per_band`; Runner emittiert sie in `forward_drizzle.json` unter
+  `cuda_stripe_path`.
+- **Kein `.cu`-Eingriff:** die Geräte-Enumeration bleibt voll-breit. Optionaler
+  Schritt 5: `.cu`-Geräte-Enumeration auf das Fenster verengen (reiner
+  Durchsatz-Nachzug).
+
+**Abnahme Schritt 4.** Neuer `[drizzle-store][cuda-parity][fd-tile-window]`-Test
+(echtes Gerät): OSC 56×56 intern, 20 Frames, ganzes Canvas als **ein** Band,
+`memory_budget_mb = 4` => `max_tiles_per_band ≥ 2`, `min_tile_w < 56`; der
+committete wissenschaftliche Store ist **byte-identisch** (SHA-256 je FITS-Ebene)
+zum Ganz-Canvas-CPU-Build. Neue `[drizzle-store]`-SECTION mit den
+Abschlusszahlen (3840×2160×2, 8-GiB-Karte, 2-GiB-Host-Deckel):
+
+| Frames | §30.80 vorher | §30.81 nachher |
+|---|---|---|
+| 40  | 109-Zeilen-Bänder, 40 Bänder  | 1747-Zeilen-Bänder (H-begrenzt, N-unabhängig), `tile_w` 160, 48 Kacheln/Band, Host-Peak 2047 MiB |
+| 100 | 45, 96   | 1747, `tile_w` 64,  120 Kacheln, 2047 MiB |
+| 300 | 15, 288  | 1747, `tile_w` 21,  366 Kacheln, 2015 MiB |
+| 600 | **7, 618**  | **1747, `tile_w` 10, 768 Kacheln, Host-Peak 1919 MiB ≤ Deckel** |
+
+Die Bandzahl bei 600 Frames fällt von **618 auf ~3**; das Host-Glied ist durch
+einen expliziten Deckel begrenzt statt das Band zu kollabieren. Volle Suite
+**542/542**; Legacy 17/18 (vorbestehende GTX-1660-Ti-`weight_sum`-Toleranz,
+`test_aqmh_reconstruction.cpp:451`, unberührter Pfad).
+
+**Offen.** Durchsatz-Messung: der `.cu`-Nachzug (Schritt 5) und ein realer/halb-
+realer Lauf mit finalem Phasenbudget stehen noch aus (letzterer braucht
+User-Freigabe). Die 618->3-Bänder-Reduktion ist eine Planungszahl, kein
+gemessener Lauf.
 
 ---
 

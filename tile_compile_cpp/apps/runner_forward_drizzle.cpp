@@ -793,6 +793,11 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
                       {"band_halvings",result.cuda_timing.band_halvings},
                       {"min_band_rows",result.cuda_timing.min_band_rows},
                       {"max_band_rows",result.cuda_timing.max_band_rows},
+                      // §30.81: per-band column tiling of the host buffer
+                      {"resolved_tile_w",result.cuda_timing.resolved_tile_w},
+                      {"min_tile_w",result.cuda_timing.min_tile_w},
+                      {"max_tiles_per_band",
+                       result.cuda_timing.max_tiles_per_band},
                       {"device_free_bytes",
                        static_cast<long long>(
                            result.cuda_timing.device_free_bytes)},

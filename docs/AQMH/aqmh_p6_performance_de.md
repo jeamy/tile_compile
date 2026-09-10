@@ -365,10 +365,14 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
       **Befund:** `cand_row` = 93,8 %→99,6 % von `bytes_per_row`; 600 Frames
       → 7-Zeilen-Bänder, ~618 Bänder. **R1.1 allein reicht nicht** (16-GiB-
       Host-Deckel → ~19 Zeilen, ~228 Bänder). Additiv, bit-identisch, 538/538.
-- [~] R1.1 + R1.2 + R2 — CUDA Host/Device-Budget-Trennung **plus**
-      Kandidatenpuffer-Verkleinerung (2D-Kacheln `W`→`tile_w`), echte
-      Source-/Q-Bereichsprovider; `[cuda-parity]` durchgehend (**Priorität 3**,
-      gemeinsam — §30.80 zeigt die Trennung allein löst den Bandkollaps nicht).
+- [x] R1.1 + R1.2 + R2 — CUDA Host/Device-Budget-Trennung **plus** 2D-Ziel-
+      Kachelung (`W`→`tile_w`), host-seitiges Record-Filtern statt echter
+      Geräte-Bereichsprovider; `[cuda-parity]` durchgehend (**Priorität 3**,
+      §30.81). **Ergebnis:** Bandplanung nur noch gegen das Geräte-Glied
+      (`rec_row+acc_row`), das Host-`cand_row` durch Spaltenkacheln unter dem
+      absoluten Deckel gehalten. 600 Frames 3840×2160×2 / 8-GiB-Karte:
+      **618 → ~3 Bänder** (`tile_w` 10, 768 Kacheln/Band, Host-Peak 1919 MiB ≤
+      2-GiB-Deckel). Byte-identisch (`[cuda-parity]`, echtes Gerät), 542/542.
   - [x] **Schritt 1 (§30.81):** Ziel-Spaltenfenster `x_begin`/`cols` in
         `enumerate_drizzle_stripe_leaf_cells` + `rasterize_drizzle_stripe`
         (Default = voll-breit, byte-identisch); begrenzt Source-Scan (R2) und
@@ -382,10 +386,24 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
         `rasterize`-Call reicht das Fenster durch. `_uniform` (alter M2-Pfad)
         unberuehrt. `[fd-tile-window]`-Test: ragged Mehrband-Spaltenkacheln
         fuegen sich bit-exakt zusammen, 540/540.
-  - [ ] Schritt 3: Kachel-Schleife in `persist_forward_drizzle_multiband`
-        (`tile_w` aus `host_budget`, `band_rows` aus `devmem`, Leiter leitet
-        `tile_w` neu ab), Voll-Breiten-Stripe je Band, ein `multiband_stripe`.
-  - [ ] Schritt 4: `.cu`-Spiegelung + `[cuda-parity]`-Matrix.
+  - [x] **Schritt 3 (§30.81):** `target_x_begin`/`target_cols` in
+        `accumulate_pair_impl` (+ `accumulate_pair_by_frame` /
+        `_cuda`): Record-Producer rastern voll-breit, Segmente mit
+        `key.target_x ∉ [xb,xe)` werden host-seitig verworfen; `n` / Puffer /
+        `DRIZZLE_CONTRIB_LIST_BUDGET`-Schranke auf `win_w`. Ragged-2D-
+        Partitionstest, 541/541.
+  - [x] **Schritt 4 (§30.81):** Kachel-Schleife in
+        `persist_forward_drizzle_multiband`. `chunk_plan` nur gegen
+        `device_bytes_per_row = rec_row + acc_row`; je Band
+        `tile_w = host_budget / (channels·frames·64·rows)`, Kacheln in einen
+        Voll-Breiten-Stripe geblittet, **ein** `sink`/`down->feed` pro Band.
+        `tile_w` pro `process`-Aufruf abgeleitet → Halbierung kann es nicht
+        veralten lassen, keine 2D-Leiter. Neue Timing-Felder
+        `resolved_tile_w`/`min_tile_w`/`max_tiles_per_band`.
+        `[drizzle-store][cuda-parity]`-Test (echtes Gerät): Multi-Kachel-Store
+        byte-identisch zum Ganz-Canvas-CPU-Build.
+  - [ ] Optionaler Schritt 5: `.cu`-Geräte-Enumeration auf das Fenster verengen
+        (Durchsatz-Nachzug, nicht für Korrektheit nötig).
 - [ ] Realer/halbrealer Messlauf, Phasenbudget final
 
 **Realraster-Hochrechnung FORWARD_DRIZZLE (affin, nach Hoist, §30.76):** 20
