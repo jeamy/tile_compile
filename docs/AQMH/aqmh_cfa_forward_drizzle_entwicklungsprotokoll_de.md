@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich 10.09. | [§30.12–30.78](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich + budgetierter Clipping-Scratch 10.09. | [§30.12–30.79](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -6322,6 +6322,62 @@ Normalisierung→Registrierung, §30.73) bleibt ein separater Messschritt und
 blockiert nichts davon.
 
 Kein realer Lauf; Hidden-Bench + Suite.
+
+---
+
+### 30.79 P6 Prioritaet 2: budgetierter Clipping-Scratch (2026-09-10)
+
+`apply_robust_clippings` Per-Pixel-Heap-Allokationen (`accepted`, `order`,
+pro Robust-Pass `active` + `dev_order`, Alpha-`contribs`) durch den
+wiederverwendbaren, budgetierten `DrizzleClipScratch` ersetzt:
+
+- **Numerik unveraendert:** gleiche Schritte, Wert-/Deviationsordnungen,
+  Frame-Tie-Breaks, Summationsreihenfolge, gewichteter Median/MAD und
+  Abbruchbedingung; die Schleifen in `robust_clip_core` sind 1:1 vom
+  geprueften achtstufigen Verfahren uebernommen. Heap-Scratch (keine
+  Stack-Arrays), grow-only Reserve auf die
+  maximale Span (== `frame_count`), pro Worker eine Instanz, niemals
+  zwischen parallelen Aufrufen geteilt.
+- **Beide Pfade:** Streaming (ein Scratch je Band-Worker, ueber alle
+  Streifen wiederverwendet) und Contrib-List-/CUDA-CPU-Reduktion (serielle
+  Schleife: eine Instanz pro Aufruf; Kommentar markiert die Parallelisier-
+  Regel fuer spaeter).
+- **Budget ohne Doppelzaehlung:** die pauschale `statistic_scratch`-Formel
+  (frame_count x ~128 B) durch den tatsaechlichen Bedarf ersetzt
+  (frame_count x 25 B, + `sizeof(AlphaFactorContribution)` nur bei
+  `emit_alpha`), weiterhin Bestandteil von `worker_scratch`; nichts wird
+  zusaetzlich in `retained_bytes` gezaehlt.
+- **Zaehlung warm:** `clip_scratch_grows` im `TC_FD_PROFILE`-Strich —
+  Kapazitaetswaechstums-Reserve-Aufrufe.
+
+**Messung** (gleiche Bench-Szene wie §30.78, idle Maschine; ein erster Lauf
+parallel zur Voll-Suite wurde wegen Kontamination verworfen):
+
+| Punkt | §30.78 (vorher) | §30.79 (nachher) |
+|---|--:|--:|
+| W=1 gesamt | 47,85 s | 45,09 s |
+| W=1 reduce (Profil) | 10,18 s | 8,18 s |
+| W=8 gesamt | 13,91 s | 12,76 s |
+| W=8 reduce (Profil) | 2,07 s | 1,73 s |
+| Speedup @8 | 3,44x | 3,53x |
+| `clip_scratch_grows` | n/a | exakt W (1/2/4/8/16), danach warm |
+
+Einordnung: der Allokationsanteil der Per-Pixel-Vektoren betrug ~20 % der
+Reduce- bzw. ~4 % der Gesamtphase — messbarer, begrenzter Gewinn; der
+Skalierungsdeckel bleibt die Bandbreite (16 SMT-Threads unveraendert ohne
+Gewinn). Wie vereinbart ist 23 % Reduce-Anteil nicht gleich
+Allokationsanteil — dieser Schritt hat die Zahl belegt.
+
+**Abnahme:** bit-identisch — [forward-drizzle]/[forward-runner]/
+[contrib-list]/[drizzle-store] (43 Cases) und [cuda-parity] (8 Cases)
+gruen; neuer Test `[forward-drizzle][clip-scratch]` (Paritaet frische vs
+wiederverwendete Buffer ueber variable Spans inkl. leerer/1er/Outlier,
+Wachstumszaehler 3/2, Kapazitaet shrink-frei); Bench-Referenzabgleich
+**0 Mismatches**; volle Suite **538/538** (1.432.050 Asserts).
+`worker_scratch_bytes`-Konsum-Test (`>= 262144`) und Peak-Obergrenzen
+unveraendert bestanden.
+
+Kein realer Lauf; kein Backend.
 
 ---
 

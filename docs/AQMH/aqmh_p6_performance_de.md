@@ -341,10 +341,17 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
       Leaf-Visits/src-px ≈ Framezahl). Modell schließt mit
       `TC_FD_PROFILE` (< 3 %). **Offen aus Priorität 1: die
       167-s-Vorlauflücke** (separater Messschritt).
-- [ ] `apply_robust_clipping` Per-Pixel-Heap-Allokationen (`std::vector<bool>
-      accepted` / `order` / `active` / `dev_order`) durch **budgetierten**
-      Stack-/Thread-Scratch ersetzen (**Priorität 2**) — bit-identisch, hilft
-      `reduce`-Skalierung; Scratch in `retained_bytes` der Budgetabrechnung
+- [x] **`apply_robust_clipping` Per-Pixel-Heap-Allokationen ersetzt**
+      (§30.79, **Priorität 2**): wiederverwendbarer budgetierter
+      `DrizzleClipScratch` (`accepted`/`order`/`active`/`dev_order` +
+      Alpha-`contribs`), beide Pfade (Streaming-Band-Pool + Contrib-List),
+      `worker_scratch`-Formel auf tatsächlichen Bedarf umgestellt (keine
+      Doppelzählung), Numerik 1:1. Messung (idle, §30.78-Szene): W=1 reduce
+      10,18→8,18 s, W=8 gesamt 13,91→12,76 s, Speedup 3,44→3,53×,
+      `clip_scratch_grows` = exakt Workerzahl (danach warm). Bit-identisch:
+      neue `[clip-scratch]`-Parität + Bench-Referenzabgleich 0 Mismatches +
+      538/538. **Erkenntnis: Allokationsanteil ≈ 20 % von reduce, ≈ 4 %
+      der Phase — Deckel bleibt die Speicherbandbreite.**
 - [ ] R3 — exakte X-Clip-Wiederverwendung im Rasterizer + gespiegelter
       CUDA-Device-Kernel + volle Paritätsmatrix (**separater messbarer
       Schritt nach Priorität 3/4**, nicht gebündelt)

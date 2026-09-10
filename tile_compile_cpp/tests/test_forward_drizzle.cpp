@@ -675,6 +675,87 @@ TEST_CASE("robust clipping: empty input is rejected, not a crash (plan 11.8)") {
   REQUIRE(result.pixel_rejected);
 }
 
+TEST_CASE("clip scratch: reused DrizzleClipScratch is bit-identical to fresh "
+          "buffers across varying spans (priority 2, §30.79)",
+          "[forward-drizzle][clip-scratch]") {
+  const DrizzleProfileReduceConfig rc{/*min_clip_contributors=*/3,
+                                      /*robust_passes=*/2,
+                                      /*clip_sigma_low=*/3.0f,
+                                      /*clip_sigma_high=*/3.0f,
+                                      /*min_fraction=*/0.0f,
+                                      /*min_n_eff=*/0.0f,
+                                      /*emit_fine=*/false,
+                                      /*emit_medium=*/false,
+                                      /*emit_alpha=*/false,
+                                      /*fine_quality_exponent=*/4.0f,
+                                      /*medium_quality_exponent=*/2.0f,
+                                      {}};
+  auto g_eff = [](std::size_t) { return 1.0; };
+  const std::vector<std::pair<std::uint8_t, float>> reg;
+  ProfilePlane up, rp;
+  up.allocate(1, 1);
+  rp.allocate(1, 1);
+
+  // Varying candidate counts incl. an outlier set (clipping engages) and a
+  // larger constant set, in an order that exercises grow-then-shrink reuse.
+  const std::vector<std::vector<double>> sets = {
+      {10, 11, 12},
+      {10},
+      {10, 11, 12, 13, 100},
+      {10, 11},
+      {5, 5, 5, 5, 5, 5, 5},
+      {},
+  };
+
+  DrizzleClipScratch persistent;  // reused across ALL sets
+  DrizzleClipScratch second;      // independence: alternating instance
+  for (size_t s = 0; s < sets.size(); ++s) {
+    const auto candidates = make_candidates(sets[s]);
+    DrizzleClipScratch &reuse = (s % 2 == 0) ? persistent : second;
+
+    ForwardDrizzleClippingDiagnostics diag_fresh, diag_reuse;
+    reduce_pixel_profiles(candidates, rc, g_eff, reg, 0, &up, &rp, nullptr,
+                          nullptr, nullptr, nullptr, nullptr, diag_fresh,
+                          nullptr);
+    const bool nonempty = !sets[s].empty();
+    const float fv = up.value[0], fw = up.weight_sum[0], fn = up.n_eff[0];
+    const std::uint8_t fs = up.support[0];
+    const float rv = rp.value[0];
+    if (nonempty)
+      up.value[0] = -1.0f;  // prove the reuse run actually rewrites the plane
+    reduce_pixel_profiles(candidates, rc, g_eff, reg, 0, &up, &rp, nullptr,
+                          nullptr, nullptr, nullptr, nullptr, diag_reuse,
+                          &reuse);
+    if (nonempty) {
+      REQUIRE(up.value[0] == fv);
+      REQUIRE(up.weight_sum[0] == fw);
+      REQUIRE(up.n_eff[0] == fn);
+      REQUIRE(up.support[0] == fs);
+      REQUIRE(rp.value[0] == rv);
+    }
+    REQUIRE(diag_fresh.pixel_channel_evaluations ==
+            diag_reuse.pixel_channel_evaluations);
+    REQUIRE(diag_fresh.pixel_channel_rejected ==
+            diag_reuse.pixel_channel_rejected);
+    REQUIRE(diag_fresh.candidate_contributions_clipped ==
+            diag_reuse.candidate_contributions_clipped);
+  }
+  // Grow-only reservation: exactly the strict maxima increases (3, 5, 7)
+  // grew capacity; spans 1, 2 and the empty span reuse warm buffers.
+  REQUIRE(persistent.growth_count == 3);
+  REQUIRE(second.growth_count == 2);
+  REQUIRE(persistent.accepted.capacity() >= 7);
+  // The outlier in set 2 was actually clipped through the reused path.
+  {
+    const auto candidates = make_candidates(std::vector<double>{10, 11, 12, 13, 100});
+    ForwardDrizzleClippingDiagnostics diag;
+    reduce_pixel_profiles(candidates, rc, g_eff, reg, 0, &up, &rp, nullptr,
+                          nullptr, nullptr, nullptr, nullptr, diag,
+                          &persistent);
+    REQUIRE(diag.candidate_contributions_clipped == 1);
+  }
+}
+
 // --- M3 (plan 11.8/11.9): compute_forward_drizzle_uniform_and_raw ----------
 
 namespace {

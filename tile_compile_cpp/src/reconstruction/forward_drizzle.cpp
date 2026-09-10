@@ -959,10 +959,32 @@ ForwardDrizzleUniformResult compute_forward_drizzle_uniform(
 // M3 (plan section 11.8): shared robust clipping. See the header for the
 // integration status note --- this is the reviewed 8-step algorithm, not yet
 // wired into the streaming Uniform-Control computation.
-ClipResult apply_robust_clipping(std::span<const ClipCandidate> candidates,
-                                 int min_clip_contributors, int robust_passes,
-                                 float clip_sigma_low, float clip_sigma_high,
-                                 float min_fraction, float min_n_eff) {
+void DrizzleClipScratch::reserve_for(std::size_t capacity, bool with_alpha) {
+  bool grew = false;
+  if (accepted.capacity() < capacity) { accepted.reserve(capacity); grew = true; }
+  if (order.capacity() < capacity) { order.reserve(capacity); grew = true; }
+  if (active.capacity() < capacity) { active.reserve(capacity); grew = true; }
+  if (dev_order.capacity() < capacity) { dev_order.reserve(capacity); grew = true; }
+  if (with_alpha && alpha_contribs.capacity() < capacity) {
+    alpha_contribs.reserve(capacity);
+    grew = true;
+  }
+  if (grew) ++growth_count;
+}
+
+namespace {
+
+// Core of apply_robust_clipping (plan 0.2 priority 2, §30.79) on caller-
+// provided reusable scratch instead of per-call heap allocations. Steps,
+// value/deviation orders, tie-breaks, summation order, weighted median/MAD
+// and the abort condition are IDENTICAL to the reviewed 8-step procedure;
+// only the buffer ownership changed. Returns `pixel_rejected`; the used
+// `accepted` prefix (size == candidates.size()) lives in the scratch.
+bool robust_clip_core(std::span<const ClipCandidate> candidates,
+                      int min_clip_contributors, int robust_passes,
+                      float clip_sigma_low, float clip_sigma_high,
+                      float min_fraction, float min_n_eff,
+                      DrizzleClipScratch &scratch) {
   if (min_clip_contributors < 1 || robust_passes < 0 ||
       !std::isfinite(clip_sigma_low) || clip_sigma_low < 0 ||
       !std::isfinite(clip_sigma_high) || clip_sigma_high < 0 ||
@@ -972,30 +994,30 @@ ClipResult apply_robust_clipping(std::span<const ClipCandidate> candidates,
   for (const auto &c : candidates)
     if (!std::isfinite(c.x) || !std::isfinite(c.b) || c.b <= 0)
       throw std::invalid_argument("DRIZZLE_INVALID_CLIP_CANDIDATE");
-  ClipResult result;
   const size_t n = candidates.size();
-  result.accepted.assign(n, true);
+  auto &accepted = scratch.accepted;
+  accepted.assign(n, std::uint8_t{1});
   if (n == 0) {
-    result.pixel_rejected = true;
-    return result;
+    return true;
   }
 
   // Step 2: below min_clip_contributors, skip straight to step 8 with every
   // candidate still valid (protects thin R/B channels at low frame counts).
   if (n >= static_cast<size_t>(min_clip_contributors)) {
     // Step 3: one fixed, deterministic value order for the whole procedure.
-    std::vector<size_t> order(n);
-    std::iota(order.begin(), order.end(), 0);
+    auto &order = scratch.order;
+    order.resize(n);
+    std::iota(order.begin(), order.end(), size_t{0});
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
       if (candidates[a].x != candidates[b].x) return candidates[a].x < candidates[b].x;
       return candidates[a].frame_index < candidates[b].frame_index;
     });
 
     for (int pass = 0; pass < robust_passes; ++pass) {
-      std::vector<size_t> active;
-      active.reserve(n);
+      auto &active = scratch.active;
+      active.clear();
       for (size_t idx : order)
-        if (result.accepted[idx]) active.push_back(idx);
+        if (accepted[idx]) active.push_back(idx);
       if (active.empty()) break;
 
       double total_w = 0.0;
@@ -1017,7 +1039,8 @@ ClipResult apply_robust_clipping(std::span<const ClipCandidate> candidates,
 
       // Weighted MAD: same weighted-median construction, over |x - median|,
       // with the same deterministic tie-break re-applied for the new order.
-      std::vector<size_t> dev_order = active;
+      auto &dev_order = scratch.dev_order;
+      dev_order = active;
       std::sort(dev_order.begin(), dev_order.end(), [&](size_t a, size_t b) {
         const double da = std::abs(candidates[a].x - median);
         const double db = std::abs(candidates[b].x - median);
@@ -1046,7 +1069,7 @@ ClipResult apply_robust_clipping(std::span<const ClipCandidate> candidates,
       for (size_t idx : active) {
         const double x = candidates[idx].x;
         if (!(x >= lower && x <= upper)) {
-          result.accepted[idx] = false;
+          accepted[idx] = 0;
           changed = true;
         }
       }
@@ -1061,16 +1084,34 @@ ClipResult apply_robust_clipping(std::span<const ClipCandidate> candidates,
   size_t accepted_count = 0;
   double sum_w = 0.0, sum_w2 = 0.0;
   for (size_t i = 0; i < n; ++i) {
-    if (!result.accepted[i]) continue;
+    if (!accepted[i]) continue;
     ++accepted_count;
     sum_w += candidates[i].b;
     sum_w2 += candidates[i].b * candidates[i].b;
   }
   const double fraction = static_cast<double>(accepted_count) / static_cast<double>(n);
   const double n_eff = sum_w2 > 0.0 ? (sum_w * sum_w) / sum_w2 : 0.0;
-  if (fraction < static_cast<double>(min_fraction) || n_eff < static_cast<double>(min_n_eff)) {
-    result.pixel_rejected = true;
-  }
+  return fraction < static_cast<double>(min_fraction) ||
+         n_eff < static_cast<double>(min_n_eff);
+}
+
+} // namespace
+
+// M3 (plan section 11.8): shared robust clipping. Thin wrapper over
+// robust_clip_core with a per-call scratch: identical results, kept for the
+// standalone callers (config validation, unit tests). Hot paths call
+// reduce_pixel_profiles with a reused scratch instead.
+ClipResult apply_robust_clipping(std::span<const ClipCandidate> candidates,
+                                 int min_clip_contributors, int robust_passes,
+                                 float clip_sigma_low, float clip_sigma_high,
+                                 float min_fraction, float min_n_eff) {
+  DrizzleClipScratch scratch;
+  ClipResult result;
+  result.pixel_rejected =
+      robust_clip_core(candidates, min_clip_contributors, robust_passes,
+                       clip_sigma_low, clip_sigma_high, min_fraction,
+                       min_n_eff, scratch);
+  result.accepted.assign(scratch.accepted.begin(), scratch.accepted.end());
   return result;
 }
 
@@ -1084,16 +1125,23 @@ void reduce_pixel_profiles(
     const std::vector<std::pair<std::uint8_t, float>> &reg_by_source,
     std::size_t gi, ProfilePlane *uniform_c, ProfilePlane *raw_c,
     ProfilePlane *fine_c, ProfilePlane *medium_c, double *ac_sep, double *ac_art,
-    double *ac_reg, ForwardDrizzleClippingDiagnostics &diag) {
+    double *ac_reg, ForwardDrizzleClippingDiagnostics &diag,
+    DrizzleClipScratch *scratch) {
   if (pixel.empty()) return;
   ++diag.pixel_channel_evaluations;
-  auto clip = apply_robust_clipping(pixel, cfg.min_clip_contributors,
-                                    cfg.robust_passes, cfg.clip_sigma_low,
-                                    cfg.clip_sigma_high, cfg.min_fraction,
-                                    cfg.min_n_eff);
-  for (bool accepted : clip.accepted)
-    if (!accepted) ++diag.candidate_contributions_clipped;
-  if (clip.pixel_rejected) {
+  // Reusable caller scratch when provided (one reduce at a time per
+  // instance); a per-call fallback otherwise. Identical results either way.
+  DrizzleClipScratch fallback;
+  DrizzleClipScratch &clip_scratch = scratch ? *scratch : fallback;
+  clip_scratch.reserve_for(pixel.size(), cfg.emit_alpha);
+  const auto &accepted = clip_scratch.accepted;
+  const bool pixel_rejected =
+      robust_clip_core(pixel, cfg.min_clip_contributors, cfg.robust_passes,
+                       cfg.clip_sigma_low, cfg.clip_sigma_high,
+                       cfg.min_fraction, cfg.min_n_eff, clip_scratch);
+  for (std::uint8_t a : accepted)
+    if (!a) ++diag.candidate_contributions_clipped;
+  if (pixel_rejected) {
     ++diag.pixel_channel_rejected;
     return;
   }
@@ -1105,7 +1153,7 @@ void reduce_pixel_profiles(
     a.wx += w * x; a.w += w; a.w2 += w * w;
   };
   for (size_t k = 0; k < pixel.size(); ++k) {
-    if (!clip.accepted[k]) continue;
+    if (!accepted[k]) continue;
     const auto &cd = pixel[k];
     const double g = g_eff_for(cd.frame_index);
     add(au, cd.b, cd.x);
@@ -1131,10 +1179,10 @@ void reduce_pixel_profiles(
     // Plan 14.4: A_separation / A_artifact / A_registration from the accepted
     // frame contributions for this channel; the frame result takes the
     // conservative min over active channels.
-    std::vector<AlphaFactorContribution> contribs;
-    contribs.reserve(pixel.size());
+    auto &contribs = clip_scratch.alpha_contribs;
+    contribs.clear();
     for (size_t k = 0; k < pixel.size(); ++k) {
-      if (!clip.accepted[k]) continue;
+      if (!accepted[k]) continue;
       const auto &cd = pixel[k];
       const auto &rg = reg_by_source[cd.frame_index];
       const double art_conf = cd.qa_has_data
@@ -1260,13 +1308,19 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
   // Reader resize may briefly retain its old block as well as the new block.
   const size_t reader_scratch = geometry_reader
       ? checked_product(geometry_reader->max_row_record_count(), 2 * 72) : 0;
-  const size_t statistic_scratch = checked_product(frame_count,
-      sizeof(AlphaFactorContribution) + 5 * sizeof(double) +
-      4 * sizeof(size_t) + 8);
-  if (statistic_scratch > std::numeric_limits<size_t>::max() - 262144 ||
-      reader_scratch > std::numeric_limits<size_t>::max() - statistic_scratch - 262144)
+  // Priority 2 (§30.79): exact per-worker clipping scratch — the reusable
+  // DrizzleClipScratch buffers sized to the maximum candidate span (==
+  // frame_count), including alpha contributions only when emitted. This
+  // REPLACES the previous blanket statistic estimate; nothing is charged to
+  // retained_bytes on top.
+  const size_t clip_scratch_bytes = checked_product(
+      frame_count, sizeof(std::uint8_t) + 3 * sizeof(size_t) +
+                       (need_qa ? sizeof(AlphaFactorContribution) : 0));
+  if (clip_scratch_bytes > std::numeric_limits<size_t>::max() - 262144 ||
+      reader_scratch >
+          std::numeric_limits<size_t>::max() - clip_scratch_bytes - 262144)
     throw std::runtime_error("DRIZZLE_MEMORY_BUDGET: worker scratch overflow");
-  const size_t worker_scratch = reader_scratch + statistic_scratch + 262144;
+  const size_t worker_scratch = reader_scratch + clip_scratch_bytes + 262144;
   if (geometry_reader) {
     const auto resident = geometry_reader->resident_bytes();
     if (resident > std::numeric_limits<size_t>::max() - retained_bytes)
@@ -1381,6 +1435,14 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     ac_art.resize(max_n);
     ac_reg.resize(max_n);
   }
+
+  // Priority 2 (§30.79): one reusable budgeted clip scratch per band worker,
+  // sized once to the maximum candidate span (frame_count) and reused for
+  // every pixel of every band/stripe. Band b's instance is only touched by
+  // fn(b) of a single for_each_band invocation at a time, so concurrent
+  // reduce calls never share one instance. Cover charge: worker_scratch.
+  std::vector<DrizzleClipScratch> band_clip_scratch(
+      static_cast<size_t>(req_workers));
 
   for (int y = 0; y < memory.height;) {
     auto prof_ts = prof_now();
@@ -1594,6 +1656,8 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
       const size_t bi0 = static_cast<size_t>(r0) * stripe_w;
       const size_t bn = static_cast<size_t>(r1 - r0) * stripe_w;
       ForwardDrizzleClippingDiagnostics lc;
+      auto &clip_scratch = band_clip_scratch[static_cast<size_t>(b)];
+      clip_scratch.reserve_for(frame_count, need_qa);
       for (int c = 0; c < channels; ++c) {
         for (size_t i = bi0; i < bi0 + bn; ++i) {
           if (!counts[c][i]) continue;
@@ -1607,7 +1671,7 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
               raw_planes[c], mb.emit_fine ? fine_planes[c] : nullptr,
               mb.emit_medium ? medium_planes[c] : nullptr,
               need_qa ? &ac_sep[i] : nullptr, need_qa ? &ac_art[i] : nullptr,
-              need_qa ? &ac_reg[i] : nullptr, lc);
+              need_qa ? &ac_reg[i] : nullptr, lc, &clip_scratch);
         }
       }
       if (need_qa) {
@@ -1639,13 +1703,21 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     summary.clipping.candidate_contributions_clipped += result.clipping.candidate_contributions_clipped;
     y += rows;
   }
-  if (fd_profile)
+  if (fd_profile) {
+    // Capacity-growing scratch reserves; ≈ one per worker on the first
+    // stripe, zero while warm. Counts allocations removed from the per-pixel
+    // hot path by the priority-2 scratch.
+    std::uint64_t clip_grows = 0;
+    for (const auto &s : band_clip_scratch) clip_grows += s.growth_count;
     std::fprintf(stderr,
                  "[TC_FD_PROFILE] prep=%.3f alloc=%.3f raster=%.3f "
-                 "reduce=%.3f sink=%.3f (s)  cells_emitted=%llu\n",
+                 "reduce=%.3f sink=%.3f (s)  cells_emitted=%llu "
+                 "clip_scratch_grows=%llu\n",
                  prof_prep, prof_alloc, prof_raster, prof_reduce, prof_sink,
                  (unsigned long long)g_fd_cells_emitted.load(
-                     std::memory_order_relaxed));
+                     std::memory_order_relaxed),
+                 (unsigned long long)clip_grows);
+  }
   return summary;
 }
 

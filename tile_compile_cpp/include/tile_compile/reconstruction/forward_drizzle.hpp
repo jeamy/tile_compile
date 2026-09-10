@@ -283,6 +283,26 @@ struct ClipResult {
   bool pixel_rejected = false;
 };
 
+// Reusable, budgeted clipping scratch (plan 0.2 priority 2, §30.79):
+// `accepted` + `order`/`active`/`dev_order` sized to the maximum candidate
+// span (== frame count; one candidate per frame/pixel/channel), plus the
+// alpha contribution buffer when emitted. Heap-based; the owning scope
+// budgets it (streaming path: worker_scratch_bytes). CONTENT IS TRANSIENT:
+// every clipping call fully rewrites the used prefix, buffers are never
+// shrunk, and one instance must never be shared between concurrent reduce
+// calls.
+struct DrizzleClipScratch {
+  std::vector<std::uint8_t> accepted;  // 0/1 accept flags, size == span
+  std::vector<std::size_t> order;      // fixed value order, plan 11.8 step 3
+  std::vector<std::size_t> active;     // per-pass valid subset of `order`
+  std::vector<std::size_t> dev_order;  // |x - median| order of `active`
+  std::vector<AlphaFactorContribution> alpha_contribs;
+  std::uint64_t growth_count = 0;      // capacity-growing reserve_for calls
+
+  // Grow-only capacity reservation; counts calls that grow any buffer.
+  void reserve_for(std::size_t capacity, bool with_alpha);
+};
+
 // Implements plan section 11.8's 8-step procedure exactly, including the
 // degenerate-MAD guards (identical values stay valid, no arbitrary epsilon
 // widening) and the min_clip_contributors bypass (plan 11.8 step 2, protects
@@ -357,6 +377,8 @@ struct DrizzleProfileReduceConfig {
 // +inf and takes the min over active channels). Bumps `diag`
 // (pixel_channel_evaluations always; pixel_channel_rejected +
 // candidate_contributions_clipped per the clip result).
+// `scratch` (optional): reusable clip buffers, never shared between
+// concurrent calls; nullptr uses a per-call fallback with identical results.
 void reduce_pixel_profiles(
     std::span<const ClipCandidate> candidates,
     const DrizzleProfileReduceConfig &cfg,
@@ -364,7 +386,8 @@ void reduce_pixel_profiles(
     const std::vector<std::pair<std::uint8_t, float>> &reg_by_source,
     std::size_t gi, ProfilePlane *uniform_c, ProfilePlane *raw_c,
     ProfilePlane *fine_c, ProfilePlane *medium_c, double *ac_sep, double *ac_art,
-    double *ac_reg, ForwardDrizzleClippingDiagnostics &diag);
+    double *ac_reg, ForwardDrizzleClippingDiagnostics &diag,
+    DrizzleClipScratch *scratch = nullptr);
 
 struct ForwardDrizzleUniformAndRawResult {
   ForwardDrizzleUniformResult uniform;  // clipped (plan 11.8)

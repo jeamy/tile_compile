@@ -560,6 +560,12 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     }
   }
 
+  // Priority 2 (§30.79): reused clip scratch, same buffers the streaming path
+  // budgets per worker (worker_scratch_bytes). This reduce loop is serial
+  // per invocation, so ONE instance is correct here; if this loop is ever
+  // parallelised, allocate one scratch per worker INSIDE the parallel body.
+  DrizzleClipScratch clip_scratch;
+  clip_scratch.reserve_for(frame_count, need_qa);
   for (int c = 0; c < channels; ++c)
     for (std::size_t i = 0; i < n; ++i) {
       if (!counts[c][i]) continue;
@@ -570,7 +576,8 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
                             mb.emit_medium ? mp[c] : nullptr,
                             need_qa ? &ac_sep[i] : nullptr,
                             need_qa ? &ac_art[i] : nullptr,
-                            need_qa ? &ac_reg[i] : nullptr, result.clipping);
+                            need_qa ? &ac_reg[i] : nullptr, result.clipping,
+                            &clip_scratch);
     }
 
   if (need_qa)
