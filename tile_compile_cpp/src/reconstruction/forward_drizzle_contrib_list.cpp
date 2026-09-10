@@ -398,6 +398,14 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
   const std::size_t frame_count = plan.frames.size();
   const bool tiled = tile_sink != nullptr && *tile_sink && tile_cols > 0;
 
+  // §30.81 step 4: `reduce_window` checks its flat ClipCandidate allocation
+  // against this. On the single-window path it is the full budget. On the tiled
+  // path the per-band record memo is live alongside every tile's candidate
+  // buffer, so the tiled branch lowers it to (budget - memo) once the memo is
+  // built --- before step 4 the memo guard and this guard both used the full
+  // `mem_budget_bytes`, so their sum could reach twice the ceiling.
+  std::size_t cand_budget_bytes = mem_budget_bytes;
+
   const bool need_q0 = mb.emit_fine;
   const bool need_q1 = mb.emit_medium;
   const bool need_qa = mb.emit_alpha_confidence;
@@ -498,7 +506,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
            std::numeric_limits<std::size_t>::max() / sizeof(ClipCandidate))
               ? std::numeric_limits<std::size_t>::max()
               : elems * sizeof(ClipCandidate);
-      if (bytes > mem_budget_bytes)
+      if (bytes > cand_budget_bytes)
         throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
     }
     const std::uint32_t wxb_u = static_cast<std::uint32_t>(wx0);
@@ -637,14 +645,41 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     // then replay it through every column tile. Removes the per-tile produce +
     // sort repetition (baseline §30.81 step 5: sort was the largest amplifier,
     // records sorted scaled exactly with the tile count).
+    //
+    // §30.81 step 4: the memo and one column tile's candidate buffer (+ its
+    // result plane, width tile_cols) are live at the same time. Reserve the
+    // tile's share of `mem_budget_bytes` first; bound the memo by what remains.
+    constexpr std::size_t kPlanePxBytes = 3 * sizeof(float) + sizeof(std::uint8_t);
+    const int n_res_planes =
+        2 + (mb.emit_fine ? 1 : 0) + (mb.emit_medium ? 1 : 0);
+    const std::size_t plane_px_bytes =
+        static_cast<std::size_t>(n_res_planes) *
+            static_cast<std::size_t>(channels) * kPlanePxBytes +
+        (need_qa ? kPlanePxBytes : 0);
+    const std::size_t cand_reserve =
+        (static_cast<std::size_t>(channels) * frame_count * sizeof(ClipCandidate) +
+         static_cast<std::size_t>(channels) * sizeof(std::size_t) +
+         plane_px_bytes) *
+        static_cast<std::size_t>(tile_cols) * static_cast<std::size_t>(rows);
+    const std::size_t memo_ceiling =
+        mem_budget_bytes > cand_reserve ? mem_budget_bytes - cand_reserve : 0;
+    if (memo_ceiling == 0)  // one tile alone exceeds the budget -> shorter band
+      throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
     std::vector<std::vector<DrizzleContrib>> memo(prepared.frames.size());
     std::size_t memo_bytes = 0;
     for (std::size_t fo = 0; fo < prepared.frames.size(); ++fo) {
+      // Guard BEFORE producing frame `fo`: if the mean of the frames already
+      // held would push the memo over its ceiling, fail now rather than after
+      // allocating a frame that cannot be kept (the caller shortens the band).
+      if (fo && memo_bytes + memo_bytes / fo > memo_ceiling)
+        throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
       memo[fo] = produce_sorted(fo);
-      memo_bytes += memo[fo].size() * sizeof(DrizzleContrib);
-      if (memo_bytes > mem_budget_bytes)  // caller must size the band smaller
+      memo_bytes += memo[fo].capacity() * sizeof(DrizzleContrib);  // real peak
+      if (memo_bytes > memo_ceiling)
         throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
     }
+    // What is left after the memo is what each tile's candidate buffer may use.
+    cand_budget_bytes = mem_budget_bytes - memo_bytes;
     auto from_memo =
         [&](std::size_t fo) -> const std::vector<DrizzleContrib> & {
       return memo[fo];

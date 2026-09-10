@@ -1332,7 +1332,13 @@ TEST_CASE("drizzle store: §30.81 the CUDA path splits each band into column "
     return h;
   };
 
-  const int S = 28, C = 56, nf = 20;
+  // §30.81 step 4: the canvas must be wider than the tile-width floor (64) for
+  // column tiling to be the lever the planner picks (a narrower canvas can only
+  // move the band height). nf * S drives the per-band memo; channels * nf * W
+  // drives the full-width ClipCandidate buffer --- sized here so that, at a
+  // band the device permits in full, the candidate buffer overflows the host
+  // budget and the per-band column tiling engages.
+  const int S = 40, C = 160, nf = 24;
   auto plan = plan_for(S, /*osc=*/true);
   plan.canvas_width_native = plan.canvas_height_native = C;
   plan.frames.clear();
@@ -1397,12 +1403,13 @@ TEST_CASE("drizzle store: §30.81 the CUDA path splits each band into column "
       cpu_fx.root, plan, provider, cfg_cpu, clip, mbc, quality_of);
   REQUIRE_FALSE(cpu.cuda_timing.used);
 
-  // CUDA build with a host budget small enough that a full-width band's
-  // ClipCandidate buffer (channels * C * nf * 64 * band_rows) does not fit ->
-  // the per-band column tiling engages.
+  // CUDA build with a host budget that admits a full-height band's memo +
+  // reassembly stripe, but NOT a full-width ClipCandidate buffer at that band
+  // height -> the per-band column tiling engages (§30.81 step 4: band height
+  // and tile width are derived jointly from this one ceiling).
   auto cfg_gpu = cfg;
-  cfg_gpu.chunk_rows = C;         // one band over the whole canvas
-  cfg_gpu.memory_budget_mb = 4;   // ~4 MiB host ceiling
+  cfg_gpu.chunk_rows = C;           // one band over the whole canvas
+  cfg_gpu.memory_budget_mb = 100;   // ~100 MiB host ceiling
   reconstruction::ForwardDrizzleCudaOptions attempt;
   attempt.attempt = true;
   Fixture gpu_fx;
@@ -1747,62 +1754,100 @@ TEST_CASE("plan-19.4 CUDA auto-chunking: reserve, fit, and the halving ladder",
     REQUIRE(host_limited_rows < 32);  // still a collapse; R1.2/R2 needed
   }
 
-  SECTION("§30.81: planning the band against the DEVICE term only + per-band "
-          "column tiling restores full-height bands at every frame count") {
+  SECTION("§30.81 step 4: band height and column tile width are derived JOINTLY "
+          "from one host ceiling, so the regions that are live together "
+          "(memo + full-width reassembly + one tile + source/Q) sum to under "
+          "it --- not each to the full ceiling (the pre-step-4 double count)") {
     constexpr std::size_t kClipCandidate = 64;
     constexpr std::size_t kContribRecord = 40;
+    constexpr std::size_t kDrizzleContrib = 48;
+    constexpr std::size_t kMemoCellsEst = 6;
+    constexpr std::size_t kPlanePx = 3 * sizeof(float) + sizeof(std::uint8_t);
     const int channels = 3;
     const int dims_width = 7680;
     const int dims_height = 4320;
     const int source_width = 3840;
+    const int source_height = 2160;
+    // levels=3 + alpha -> 4 result planes (uniform+raw+fine+medium) + alpha.
+    const std::size_t plane_px_bytes =
+        static_cast<std::size_t>(4) * channels * kPlanePx + kPlanePx;
+    const std::size_t stripe_row =
+        plane_px_bytes * static_cast<std::size_t>(dims_width);
     const std::size_t rec_row =
         static_cast<std::size_t>(source_width) * 16 * kContribRecord;
     const std::size_t acc_row =
         static_cast<std::size_t>(channels) * dims_width * 8 * sizeof(double);
-    const std::size_t device_bytes_per_row = rec_row + acc_row;  // §30.81
+    const std::size_t device_bytes_per_row = rec_row + acc_row;
     const std::size_t free_bytes = 8ull << 30;
     const std::size_t host_budget = 2ull << 30;  // the default absolute ceiling
+    const int kMinTileW = std::min(64, dims_width);
+    const std::size_t src_q_const =
+        static_cast<std::size_t>(2 + 4) * source_width * source_height *
+        sizeof(float);
 
-    std::printf("  §30.81 device-only band plan (8 GiB card, 2 GiB host "
+    std::printf("  §30.81 step-4 joint host budget (8 GiB card, 2 GiB host "
                 "ceiling):\n");
-    // The device term does not depend on frame count, so the band height is the
-    // SAME for every N -> no collapse-with-N (contrast the §30.80 table above,
-    // 109 -> 7 rows / 40 -> 618 bands over the same 40..600 sweep).
-    const auto p_ref =
-        plan_cuda_chunking(free_bytes, device_bytes_per_row, dims_height);
-    REQUIRE(p_ref.feasible);
-    const int ref_bands =
-        (dims_height + p_ref.chunk_rows - 1) / p_ref.chunk_rows;
-    REQUIRE(ref_bands <= 8);  // single-digit bands, not hundreds
+    int prev_bands = 0;
     for (int frames : {40, 100, 300, 600}) {
-      const auto p =
-          plan_cuda_chunking(free_bytes, device_bytes_per_row, dims_height);
-      REQUIRE(p.feasible);
-      REQUIRE(p.chunk_rows == p_ref.chunk_rows);  // frame-count-independent
-
-      // The host ClipCandidate buffer for a full-height band is tiled in the
-      // column direction until it fits `host_budget`:
-      //   cand_per_row_col = channels * frames * sizeof(ClipCandidate)
-      //   tile_w = host_budget / (cand_per_row_col * band_rows)
+      const std::size_t memo_row = static_cast<std::size_t>(frames) *
+                                   source_width * kMemoCellsEst * kDrizzleContrib;
       const std::size_t cand_per_row_col =
-          static_cast<std::size_t>(channels) * frames * kClipCandidate;
-      const std::size_t denom =
-          cand_per_row_col * static_cast<std::size_t>(p.chunk_rows);
-      const int tile_w = std::max<int>(
-          1, static_cast<int>(std::min<std::size_t>(
-                 host_budget / denom, static_cast<std::size_t>(dims_width))));
+          static_cast<std::size_t>(channels) * frames * kClipCandidate +
+          static_cast<std::size_t>(channels) * sizeof(std::size_t) +
+          plane_px_bytes;
+      const std::size_t host_fixed_per_row = memo_row + stripe_row;
+      const std::size_t host_avail =
+          host_budget > src_q_const ? host_budget - src_q_const : 0;
+      const std::size_t host_row_cost =
+          host_fixed_per_row +
+          cand_per_row_col * static_cast<std::size_t>(kMinTileW);
+      const int host_rows = static_cast<int>(std::clamp<std::size_t>(
+          host_avail / host_row_cost, 1,
+          static_cast<std::size_t>(dims_height)));
+
+      const auto p = plan_cuda_chunking(free_bytes, device_bytes_per_row,
+                                        dims_height, host_rows);
+      REQUIRE(p.feasible);
+      const int band_rows = p.chunk_rows;
+      const int bands = (dims_height + band_rows - 1) / band_rows;
+
+      const std::size_t rows_z = static_cast<std::size_t>(band_rows);
+      const std::size_t fixed = host_fixed_per_row * rows_z + src_q_const;
+      REQUIRE(host_budget > fixed);  // the band always leaves room for a tile
+      const std::size_t for_cand = host_budget - fixed;
+      const int tile_w = std::clamp(
+          static_cast<int>(std::min<std::size_t>(
+              for_cand / (cand_per_row_col * rows_z),
+              static_cast<std::size_t>(dims_width))),
+          1, dims_width);
       const int tiles = (dims_width + tile_w - 1) / tile_w;
-      const std::size_t host_peak = static_cast<std::size_t>(tile_w) *
-                                    static_cast<std::size_t>(p.chunk_rows) *
-                                    cand_per_row_col;
-      std::printf("  frames %3d : band_rows %4d  tile_w %5d  tiles/band "
-                  "%3d  host peak %6.1f MiB\n",
-                  frames, p.chunk_rows, tile_w, tiles,
+
+      // The peak is the SUM of the simultaneously-live regions, each at the
+      // resolved band height / tile width --- this is what must fit, and what
+      // the pre-step-4 model failed to bound (memo and candidates each took the
+      // whole ceiling).
+      const std::size_t host_peak = host_fixed_per_row * rows_z +
+                                    cand_per_row_col *
+                                        static_cast<std::size_t>(tile_w) *
+                                        rows_z +
+                                    src_q_const;
+      std::printf("  frames %3d : band_rows %4d (%d bands)  tile_w %5d  "
+                  "tiles/band %3d  host peak %7.1f MiB\n",
+                  frames, band_rows, bands, tile_w, tiles,
                   host_peak / (1024.0 * 1024.0));
-      REQUIRE(host_peak <= host_budget);   // the tiling keeps the host buffer in
-      REQUIRE(tile_w >= 1);
-      REQUIRE(tiles >= 1);
+      // Step 4's deliverable: the JOINT peak is bounded and tiles never degrade
+      // below the floor. It is NOT that big-N bands stay tall --- see below.
+      REQUIRE(host_peak <= host_budget);
+      REQUIRE(tile_w >= std::min(kMinTileW, dims_width));
+      // The per-band record memo (§30.81 step 5 / B) is frame_count * source_
+      // width * cells per internal row, so it reintroduces the §30.80
+      // collapse-with-N: the band shrinks and the band count climbs as frames
+      // grow. This is the honest picture the joint model exposes and the reason
+      // step 3a replaces the full memo with a Q-fold + budgeted candidate store.
+      if (prev_bands) REQUIRE(bands >= prev_bands);
+      prev_bands = bands;
     }
+    REQUIRE(prev_bands > 8);  // 600 frames: the memo forces many bands
   }
 
   SECTION("device-memory probe drives the plan") {

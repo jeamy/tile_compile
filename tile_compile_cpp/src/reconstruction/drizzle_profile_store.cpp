@@ -531,28 +531,69 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
         cfg.memory_budget_mb
             ? static_cast<std::size_t>(cfg.memory_budget_mb) << 20
             : (static_cast<std::size_t>(2) << 30);
-    // §30.81: the band height is planned against the DEVICE term only
-    // (`rec_row + acc_row`) --- the host ClipCandidate buffer (`cand_row`) is
-    // absorbed by the per-band column tiling (§30.81 step 4), and the per-band
-    // record memo (§30.81 step 5 / B) by this cap: memo bytes ~
-    // frame_count * rows * source_width * kMemoCellsEst * sizeof(DrizzleContrib)
-    // must stay under `host_budget`. kMemoCellsEst is a generous
-    // records-per-source-pixel estimate (typical 1--4, kernel capacity 32);
-    // if the real count exceeds it, accumulate_pair_impl throws
-    // DRIZZLE_CONTRIB_LIST_BUDGET and the ladder shortens the band.
-    // Before §30.81 `cand_row` was folded into `bytes_per_row` here and drove
-    // the band into 7-row collapse at 600 frames (§30.80).
+    // §30.81 step 4: the band height and the per-band column tile width are
+    // derived JOINTLY from the one `host_budget` ceiling so the regions that
+    // are live SIMULTANEOUSLY during the tiled/memo reduction sum to under it.
+    // Before step 4 the record-memo cap and the tile-width cap each divided the
+    // FULL `host_budget` -> the sum could reach 2x the ceiling, and the
+    // store-owned full-width reassembly `stripe` was counted nowhere.
+    //
+    // Per internal output row, the host regions are:
+    //   memo_row    frame_count * source_width * kMemoCellsEst records --- the
+    //               per-band record memo (§30.81 step 5 / B), all frames, whole
+    //               band. kMemoCellsEst is a generous records-per-source-pixel
+    //               estimate (typical 1--4, kernel capacity 32); the real span
+    //               refinement is step 2. If the real count exceeds it,
+    //               accumulate_pair_impl throws DRIZZLE_CONTRIB_LIST_BUDGET and
+    //               run_cuda_chunked's halving ladder shortens the band.
+    //   stripe_row  the full-width band reassembly `stripe` (uniform + raw +
+    //               optional fine/medium planes + optional alpha), 13 B/px.
+    //   cand/col    one column tile's flat ClipCandidate buffer + counts + the
+    //               tile result `r` (width tile_w, <= tile_w/W of `stripe`).
+    // Plus ~constant: source image + quality maps (single frame slot).
     constexpr std::size_t kMemoCellsEst = 6;
-    const std::size_t memo_row_bytes =
+    constexpr std::size_t kPlanePxBytes = 3 * sizeof(float) + sizeof(std::uint8_t);
+    const int n_result_planes =
+        2 + (mb.emit_fine ? 1 : 0) + (mb.emit_medium ? 1 : 0);
+    const std::size_t plane_px_bytes =
+        static_cast<std::size_t>(n_result_planes) *
+            static_cast<std::size_t>(channels) * kPlanePxBytes +
+        (mb.emit_alpha_confidence ? kPlanePxBytes : 0);
+    const std::size_t memo_row =
         frame_count * static_cast<std::size_t>(plan.source_width) *
         kMemoCellsEst * sizeof(DrizzleContrib);
-    const int memo_rows = memo_row_bytes
-                              ? static_cast<int>(std::clamp<std::size_t>(
-                                    host_budget / memo_row_bytes, 1,
-                                    static_cast<std::size_t>(dims.height)))
-                              : dims.height;
+    const std::size_t stripe_row =
+        plane_px_bytes * static_cast<std::size_t>(dims.width);
+    const std::size_t cand_per_row_col =
+        static_cast<std::size_t>(channels) * frame_count * sizeof(ClipCandidate) +
+        static_cast<std::size_t>(channels) * sizeof(std::size_t) + plane_px_bytes;
+    const int q_map_count =
+        quality_of ? 1 + (mb.emit_fine ? 1 : 0) + (mb.emit_medium ? 1 : 0) +
+                         (mb.emit_alpha_confidence ? 1 : 0)
+                   : 0;
+    const std::size_t src_q_const =
+        (static_cast<std::size_t>(2) + static_cast<std::size_t>(q_map_count)) *
+        static_cast<std::size_t>(plan.source_width) *
+        static_cast<std::size_t>(plan.source_height) * sizeof(float);
+    // Narrower-than-min column tiles are rejected (edge overlap + per-call cost,
+    // §30.81 step 4): the band is shrunk until a >= kMinTileW tile fits. Capped
+    // at the canvas width --- for a canvas narrower than the floor there is no
+    // tiling to be had and only the band height can move.
+    const int kMinTileW = std::min(64, dims.width);
+    const std::size_t host_fixed_per_row = memo_row + stripe_row;
+    const std::size_t host_avail =
+        host_budget > src_q_const ? host_budget - src_q_const : 0;
+    const std::size_t host_row_cost =
+        host_fixed_per_row +
+        cand_per_row_col * static_cast<std::size_t>(kMinTileW);
+    const int host_rows =
+        (host_avail && host_row_cost)
+            ? static_cast<int>(std::clamp<std::size_t>(
+                  host_avail / host_row_cost, 1,
+                  static_cast<std::size_t>(dims.height)))
+            : dims.height;
     const int requested_rows =
-        cfg.chunk_rows > 0 ? std::min(cfg.chunk_rows, memo_rows) : memo_rows;
+        cfg.chunk_rows > 0 ? std::min(cfg.chunk_rows, host_rows) : host_rows;
     const std::size_t device_bytes_per_row = rec_row + acc_row;
     const auto chunk_plan = plan_cuda_chunking(
         devmem.free_bytes, device_bytes_per_row, dims.height, requested_rows);
@@ -589,24 +630,26 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
       down = std::make_unique<Downsample2x2StripeAdapter>(
           [&](int y, const ForwardDrizzleUniformAndRawResult &o) { sink(y, o); },
           dims.width, plan.color_mode == ColorMode::MONO);
-    // §30.81 per-band column tiling: bytes of the host ClipCandidate buffer per
-    // internal row per column (independent of band height / tile width).
-    const std::size_t cand_per_row_col =
-        static_cast<std::size_t>(channels) * frame_count * sizeof(ClipCandidate);
     int first_tile_w = 0, min_tile_w = dims.width, max_tiles_per_band = 0;
     CudaChunkRunStats chunk_stats;
     const int bands = run_cuda_chunked(
         chunk_plan, dims.height, [&](int y0, int rows) {
-          // Widest column tile whose host ClipCandidate buffer fits the
-          // absolute ceiling at THIS band height. Derived per call, so a
-          // halving that shrinks `rows` re-enters here and recomputes it ---
-          // it can never be left stale.
-          const std::size_t denom =
-              cand_per_row_col * static_cast<std::size_t>(std::max(rows, 1));
-          int tile_w = denom ? static_cast<int>(std::min<std::size_t>(
-                                   host_budget / std::max<std::size_t>(denom, 1),
-                                   static_cast<std::size_t>(dims.width)))
-                             : dims.width;
+          // §30.81 step 4: widest column tile such that, at THIS band height,
+          //   (memo_row + stripe_row) * rows          [memo + reassembly]
+          // + cand_per_row_col * tile_w * rows        [one tile + its result]
+          // + src_q_const                             [source + Q maps]
+          // stays under `host_budget`. Derived per call so a halving that
+          // shrinks `rows` re-enters here and recomputes it --- never stale.
+          const std::size_t rows_z = static_cast<std::size_t>(std::max(rows, 1));
+          const std::size_t fixed = host_fixed_per_row * rows_z + src_q_const;
+          const std::size_t for_cand =
+              host_budget > fixed ? host_budget - fixed : 0;
+          const std::size_t denom = cand_per_row_col * rows_z;
+          int tile_w = (for_cand && denom)
+                           ? static_cast<int>(std::min<std::size_t>(
+                                 for_cand / denom,
+                                 static_cast<std::size_t>(dims.width)))
+                           : (for_cand ? dims.width : 1);
           tile_w = std::clamp(tile_w, 1, dims.width);
           const int tiles =
               (dims.width + tile_w - 1) / std::max(tile_w, 1);
@@ -701,6 +744,21 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
                 }
             }
           };
+          // §30.81 step 4: the budget passed INWARD is what remains after the
+          // store-owned full-width `stripe` and the ~constant source/Q buffers
+          // --- so accumulate_pair_impl's memo and per-tile candidate guards
+          // check against what is actually free, not the full ceiling (before
+          // step 4 both inner guards and this call all used the full
+          // `host_budget`, so memo + candidates + stripe could reach ~3x it).
+          // Floored at 64 MiB: a budget too tight for one producer batch throws
+          // ForwardDrizzleCudaError -> full CPU restart, not the halving ladder.
+          const std::size_t stripe_bytes =
+              stripe_row * static_cast<std::size_t>(std::max(rows, 1));
+          const std::size_t inner_budget = std::max<std::size_t>(
+              host_budget > stripe_bytes + src_q_const
+                  ? host_budget - stripe_bytes - src_q_const
+                  : 0,
+              static_cast<std::size_t>(64) << 20);
           ForwardDrizzleUniformAndRawResult agg;
           try {
             // The literals mirror the accumulate_pair_by_frame_cuda header
@@ -710,7 +768,7 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
             // restart (plan 19.6.2), NOT CudaAllocFailure -> band halving.
             agg = accumulate_pair_by_frame_cuda(
                 plan, source_of, cfg, clipping, y0, rows, subdivision, g_eff,
-                quality_of, mb, host_budget, /*max_cells_per_pixel=*/32,
+                quality_of, mb, inner_budget, /*max_cells_per_pixel=*/32,
                 /*max_batch_items=*/static_cast<std::size_t>(1) << 20,
                 &hybrid_stats, /*target_x_begin=*/0, /*target_cols=*/-1,
                 &tile_sink, tile_w);
@@ -768,12 +826,19 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     // CUDA path (they otherwise come from the streaming planner, which did not
     // run here).
     summary.diagnostics.resolved_chunk_rows = chunk_plan.chunk_rows;
-    // §30.81: real peak = device band buffers + the one absolute host
-    // ClipCandidate ceiling (the column tiling keeps the host buffer under it).
-    summary.diagnostics.estimated_peak_bytes =
-        device_bytes_per_row *
-            static_cast<std::size_t>(std::max(chunk_plan.chunk_rows, 1)) +
-        host_budget;
+    // §30.81 step 4: real peak = device band buffers + the host regions that
+    // are live together (memo + full-width reassembly + one column tile + its
+    // result + source/Q), each modelled at the resolved band height / tile
+    // width rather than assuming the whole `host_budget` is consumed.
+    {
+      const std::size_t band_z =
+          static_cast<std::size_t>(std::max(chunk_plan.chunk_rows, 1));
+      const std::size_t tile_z =
+          static_cast<std::size_t>(std::max(first_tile_w, 1));
+      summary.diagnostics.estimated_peak_bytes =
+          device_bytes_per_row * band_z + host_fixed_per_row * band_z +
+          cand_per_row_col * tile_z * band_z + src_q_const;
+    }
     summary.clipping = clip_total;
   } else if (mode_2_1) {
     // Plan 12.1 mode 2/1: stripes arrive already area-averaged to output (1x)
