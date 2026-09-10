@@ -471,28 +471,33 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
         Voll-Read (48==48), vor 3a-2b T×. `MultibandStoreBuildResult.q_bin_*`
         für Lauf-Reporting. **Q-Seite des Durchsatzschnitts vollständig.**
   - [x] **Schritt 3a-3 Teil 1 — laufinterner Source-Blockprüfindex (§30.81,
-        `53e07038`):** `VerifiedNormalizedSourceCache` bekommt eine
-        Block-SHA-Tabelle je `source_index`, unabhängig vom Bild-LRU, gebaut
-        aus **denselben Bytes** wie der Ganzdatei-SHA beim ersten Zugriff und
-        erst nach Manifest-Übereinstimmung freigegeben. `read_rect(idx,
-        y0,y1,x0,x1)` / `read_region(idx,y0,y1)` liest+prüft nur die von der
-        Y-Fensterung überdeckten Blöcke; Blöcke sind ganzzeilig (~256 KiB
-        zeilengerundet), daher prüft ein X-verengtes Rechteck **genau so viele
-        Blöcke** wie das vollbreite mit gleicher Y-Spanne. Index gilt über
-        LRU-Verdrängung hinweg, solange (Größe, mtime) unverändert und mtime <
-        Bauzeitpunkt (dieselbe Wächterregel wie `load()`); jede Drift → Neubau
-        = Ganzdatei-Reverifikation. Zähler `blocks_verified` /
-        `block_index_builds` / `bytes_read` / `expanded_floats`. RAM-only:
-        frische Instanz (Prozessneustart) reverifiziert beim ersten Zugriff.
-        **Vertragsgrenze getestet** (`[cache-blocks]`): nur tatsächlich
-        berührte Blöcke werden geprüft — eine Änderung in einem ungelesenen
-        Block wird erst bei dessen Zugriff entdeckt; mtime/Größe/fd/mmap
-        ersetzen diesen Nachweis nicht. Messung 512×512 → `block_rows=128`,
-        4 Blöcke/Frame; 1-Block-Read = 1 Block / 262144 B, Voll-Read = 4
-        Blöcke. **Keine Drizzle-Verdrahtung in diesem Commit** (Teil 2:
-        `SourceImageRectProvider` + Producer-Einbindung + Store-Budget +
-        Parität; Bandebenen-Fetch statt Pro-Kachel-Reverifikation, sonst
-        SHA-Verstärkung ~26× — vor Teil 2 zu messen). Suite 544/544.
+        `53e07038` + Review-Nacharbeit):** `VerifiedNormalizedSourceCache`
+        bekommt eine Block-SHA-Tabelle je `source_index`, unabhängig vom
+        Bild-LRU (~2,4 MB gesamt bei 600 Frames — Konstante, kein Budgetterm).
+        **Ein Verifikationspfad, zwei Einstiege:** `load()` baut den Index aus
+        dem schon geprüften Puffer (kein zweiter Read); ein
+        Bereichs-Erstzugriff streamt die Datei blockweise (Peak = **ein**
+        Block). `read_rect(idx,y0,y1,x0,x1)` / `read_region` liest+prüft nur
+        die von der Y-Fensterung überdeckten Blöcke; Blöcke ganzzeilig
+        (~256 KiB zeilengerundet, 3840 → 17 Zeilen/Block). X-Verengung: gleiche
+        Blöcke, **gleiche gelesene Bytes** — kostet nichts extra, spart aber
+        kein I/O. Index gilt über LRU-Verdrängung hinweg (Tripel Größe/mtime/
+        `mt<verified_at` wie `load()`); Drift → Neubau = Ganzdatei-
+        Reverifikation. Zähler `blocks_verified` / `block_index_builds` /
+        `bytes_read` (jeder `.raw`-Byte auf beiden Einstiegen) /
+        `expanded_floats`. **Getestet** (`[cache-blocks]`,
+        `REQUIRE_THROWS_WITH`): Byte-Parität inkl. NaN-Payloads/−0;
+        unvollständiger letzter Block; Produktionsbreite 3840; Indexüberleben
+        nach **echter** Verdrängung; frische Instanz + Klon; Erkennungssemantik
+        (nur berührte Blöcke geprüft, `BLOCK_MISMATCH`); In-place-Rewrite +
+        Rename-Swap → `CONTENT_MISMATCH`. Suite 544/544.
+  - [ ] **Teil 2 Vorlauf — Zugriffssimulation ohne Rekonstruktionslauf:** echte
+        Band-/Kachelrechtecke aus realer Planer-Geometrie (3840×2160, N=600),
+        Quell-Y aus inverser Geometrie; je Schedule Blöcke/Hash-Bytes/Reads/
+        **Peak gehaltene Quellbytes** messen. Drei Schedules: Pro-Kachel;
+        Per-Band alle Frames gehalten; Per-Band mit Frame-Fenster K.
+        Entscheidung Bandhaltung vs. feinere Zugriffe → **dann** Joint-Budget-
+        Term → **dann** `SourceImageRectProvider` + Producer + Parität.
   - [ ] Schritt 3: CUDA-Producer begrenzen — konservatives inverses
         Quellrechteck, Upload nur dieses, Kernel-Arbeitsmenge + Record-
         Kapazität, Device-Puffer wiederverwenden (X-Filter nach voller

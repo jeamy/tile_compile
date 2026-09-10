@@ -1,7 +1,9 @@
 #include "tile_compile/reconstruction/normalized_source_cache.hpp"
 #include "tile_compile/core/utils.hpp"
 #include <nlohmann/json.hpp>
+#include <openssl/evp.h>
 #include <openssl/sha.h>
+#include <memory>
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -182,6 +184,7 @@ const Matrix2Df &VerifiedNormalizedSourceCache::verify_and_insert(
   file.read(reinterpret_cast<char *>(image.data()),static_cast<std::streamsize>(bytes));
   if (!file || file.peek()!=std::char_traits<char>::eof())
     throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+  bytes_read_+=bytes;  // counted on both entry points (load + region-first touch)
   // Hash the actual image bytes, not a second read of a possibly replaced file.
   unsigned char hash[SHA256_DIGEST_LENGTH];
   SHA256(reinterpret_cast<const unsigned char *>(image.data()),bytes,hash);
@@ -190,6 +193,12 @@ const Matrix2Df &VerifiedNormalizedSourceCache::verify_and_insert(
   for (unsigned char b : hash) encoded<<std::hex<<std::setw(2)<<std::setfill('0')<<static_cast<int>(b);
   if (encoded.str()!=found->second)
     throw std::runtime_error("NORMALIZED_CACHE_CONTENT_MISMATCH");
+  // §30.81 step 3a-3: build the block-check index from the SAME verified
+  // buffer, before it is moved into the LRU entry --- no second read, no
+  // second whole-file hash. A later read_rect then just re-checks the (size,
+  // mtime, verified_at) triple and reuses these digests.
+  publish_block_index(source_index,path,
+      digest_blocks(reinterpret_cast<const unsigned char *>(image.data()),bytes));
   std::error_code ec;
   Entry e;
   e.index=source_index;
@@ -212,6 +221,36 @@ const Matrix2Df &VerifiedNormalizedSourceCache::verify_and_insert(
   return lru_.front().image;
 }
 
+std::vector<std::array<unsigned char,32>>
+VerifiedNormalizedSourceCache::digest_blocks(
+    const unsigned char *data,size_t bytes) const {
+  const size_t blk_bytes=block_rows_*static_cast<size_t>(width_)*sizeof(float);
+  std::vector<std::array<unsigned char,32>> digs;
+  digs.reserve(bytes/std::max<size_t>(blk_bytes,1)+1);
+  for (size_t off=0; off<bytes; off+=blk_bytes) {
+    const size_t n=std::min(blk_bytes,bytes-off);
+    std::array<unsigned char,32> d{};
+    SHA256(data+off,n,d.data());
+    digs.push_back(d);
+  }
+  return digs;
+}
+
+void VerifiedNormalizedSourceCache::publish_block_index(
+    size_t source_index,const fs::path &path,
+    std::vector<std::array<unsigned char,32>> digs) {
+  BlockIndex bi;
+  bi.block_sha=std::move(digs);
+  std::error_code ec;
+  bi.file_size=fs::file_size(path,ec);
+  bi.mtime=fs::last_write_time(path,ec);
+  // Captured AFTER read+hash, matching load()'s discipline: the index is
+  // trusted later only while the file's mtime stays strictly older than this.
+  bi.verified_at=fs::file_time_type::clock::now();
+  block_index_[source_index]=std::move(bi);
+  ++block_index_builds_;
+}
+
 const VerifiedNormalizedSourceCache::BlockIndex &
 VerifiedNormalizedSourceCache::ensure_block_index(size_t source_index) {
   const auto found=hashes_.find(source_index);
@@ -227,39 +266,40 @@ VerifiedNormalizedSourceCache::ensure_block_index(size_t source_index) {
       return it->second;                     // trusted across image-LRU eviction
     block_index_.erase(it);                  // drift: rebuild = full re-verify
   }
+  // Region-first touch (load() never ran for this index): stream the file in
+  // block-sized chunks so peak scratch is ONE block, not a whole frame. The
+  // running whole-file SHA-256 must still match the manifest before any block
+  // digest is published.
   require_file(path,bytes);
-  std::vector<unsigned char> buf(bytes);
-  {
-    std::ifstream file(path,std::ios::binary);
-    file.read(reinterpret_cast<char *>(buf.data()),static_cast<std::streamsize>(bytes));
-    if (!file || file.peek()!=std::char_traits<char>::eof())
-      throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
-  }
-  bytes_read_+=bytes;
-  // Whole-file SHA-256 from the very bytes just read: no block digest is
-  // published unless this matches the manifest.
-  unsigned char whole[SHA256_DIGEST_LENGTH];
-  SHA256(buf.data(),bytes,whole);
-  ++hash_computations_;
-  if (hex_digest(whole,SHA256_DIGEST_LENGTH)!=found->second)
-    throw std::runtime_error("NORMALIZED_CACHE_CONTENT_MISMATCH");
-  BlockIndex bi;
-  const size_t row_bytes=static_cast<size_t>(width_)*sizeof(float);
-  const size_t blk_bytes=block_rows_*row_bytes;
+  const size_t blk_bytes=block_rows_*static_cast<size_t>(width_)*sizeof(float);
+  std::vector<unsigned char> blk(blk_bytes);
+  std::vector<std::array<unsigned char,32>> digs;
+  digs.reserve(bytes/std::max<size_t>(blk_bytes,1)+1);
+  std::unique_ptr<EVP_MD_CTX,decltype(&EVP_MD_CTX_free)> ctx(
+      EVP_MD_CTX_new(),&EVP_MD_CTX_free);
+  if (!ctx || EVP_DigestInit_ex(ctx.get(),EVP_sha256(),nullptr)!=1)
+    throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+  std::ifstream file(path,std::ios::binary);
   for (size_t off=0; off<bytes; off+=blk_bytes) {
     const size_t n=std::min(blk_bytes,bytes-off);
+    file.read(reinterpret_cast<char *>(blk.data()),static_cast<std::streamsize>(n));
+    if (!file) throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+    EVP_DigestUpdate(ctx.get(),blk.data(),n);
     std::array<unsigned char,32> d{};
-    SHA256(buf.data()+off,n,d.data());
-    bi.block_sha.push_back(d);
+    SHA256(blk.data(),n,d.data());
+    digs.push_back(d);
   }
-  std::error_code ec;
-  bi.file_size=fs::file_size(path,ec);
-  bi.mtime=fs::last_write_time(path,ec);
-  // Captured AFTER read+hash, matching load()'s discipline: the index is
-  // trusted later only while the file's mtime stays strictly older than this.
-  bi.verified_at=fs::file_time_type::clock::now();
-  ++block_index_builds_;
-  return block_index_.emplace(source_index,std::move(bi)).first->second;
+  if (file.peek()!=std::char_traits<char>::eof())
+    throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+  bytes_read_+=bytes;
+  unsigned char whole[EVP_MAX_MD_SIZE];
+  unsigned int whole_len=0;
+  EVP_DigestFinal_ex(ctx.get(),whole,&whole_len);
+  ++hash_computations_;
+  if (hex_digest(whole,whole_len)!=found->second)
+    throw std::runtime_error("NORMALIZED_CACHE_CONTENT_MISMATCH");
+  publish_block_index(source_index,path,std::move(digs));
+  return block_index_.at(source_index);
 }
 
 Matrix2Df VerifiedNormalizedSourceCache::read_rect(

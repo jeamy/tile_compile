@@ -4,10 +4,15 @@
 #include "tile_compile/io/fits_io.hpp"
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <nlohmann/json.hpp>
 #include <array>
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <functional>
 #include <fstream>
+#include <vector>
 using namespace tile_compile;
 using namespace tile_compile::reconstruction;
 using json=nlohmann::json;
@@ -40,6 +45,44 @@ struct Fixture {
   }
   ~Fixture() { std::error_code ec; fs::remove_all(root,ec); }
 };
+
+// A normalized-source cache directory with `n` frames of W x H whose pixel
+// (i, y, x) is `fill(i, y, x)`. Publishes the manifest so a
+// VerifiedNormalizedSourceCache can be constructed against `plan`.
+struct BlkCacheDir {
+  core::AtomicOutput st;
+  fs::path root;
+  registration::RegistrationSamplingPlan plan;
+  int W, H;
+  using Fill = std::function<float(size_t,int,int)>;
+  BlkCacheDir(const char *id,int w,int h,size_t n,const Fill &fill)
+      : st{fs::temp_directory_path()/id}, root(st.path()), W(w), H(h) {
+    fs::create_directory(root);
+    plan.source_width=W; plan.source_height=H;
+    plan.canvas_width_native=plan.canvas_height_native=(W>H?W:H);
+    plan.color_mode=ColorMode::MONO;
+    plan.source_identity_hash=std::string("blk-")+id;
+    for (size_t i=0;i<n;++i) {
+      registration::FrameSamplingTransform fr;
+      fr.source_index=i; fr.frame_id=std::string(id)+":"+std::to_string(i);
+      fr.valid=fr.source_to_canvas_affine_valid=true;
+      plan.frames.push_back(fr);
+      write(i,fill);
+    }
+    plan.plan_hash=registration::compute_plan_hash(plan);
+    publish_normalized_source_manifest(root,plan);
+  }
+  void write(size_t i,const Fill &fill) {
+    std::vector<float> px(static_cast<size_t>(W)*H);
+    for (int y=0;y<H;++y) for (int x=0;x<W;++x)
+      px[static_cast<size_t>(y)*W+x]=fill(i,y,x);
+    std::ofstream of(root/(std::to_string(i)+".raw"),std::ios::binary);
+    of.write(reinterpret_cast<const char*>(px.data()),
+             static_cast<std::streamsize>(px.size()*sizeof(float)));
+  }
+  ~BlkCacheDir() { std::error_code ec; fs::remove_all(root,ec); }
+};
+float f_from_u32(std::uint32_t b) { float f; std::memcpy(&f,&b,4); return f; }
 }
 
 TEST_CASE("source cache: content bound frame loading rejects replacements and truncation", "[source-predecessors]") {
@@ -130,77 +173,96 @@ TEST_CASE("source cache: LRU hit skips hashing, tamper still fails closed",
   }
 }
 
-// §30.81 step 3a-3: the run-internal source block-check index. Built from the
-// same bytes as the whole-file SHA on first touch; a later read_rect reads and
-// SHA-256-checks only the blocks its Y window covers. Verifies: region parity
-// with load(), block-read amplification (X width is free, Y width is not), and
-// the detection-semantics contract boundary (only touched blocks are checked).
+// §30.81 step 3a-3 Part 1: the run-internal source block-check index. Built
+// once --- from the buffer load() already verified, or by streaming the file
+// one block at a time on a region-first touch --- and reused across image-LRU
+// eviction. A read_rect reads and SHA-256-checks only the blocks its Y window
+// covers. Covers: byte-exact region parity with load() (incl. NaN payloads and
+// -0), block-read amplification (X width is free, Y width is not), production
+// width 3840 -> 17 rows/block, incomplete last block + cross-block rects, index
+// survival across a real eviction, fresh instance / per-worker clone, and the
+// detection-semantics contract boundary (only touched blocks are verified).
+namespace { using Catch::Matchers::ContainsSubstring;
+bool same_bits(float a,float b){ return std::memcmp(&a,&b,sizeof(float))==0; } }
+
 TEST_CASE("source cache: block-check index --- parity, amplification, detection semantics",
           "[source-predecessors][cache-blocks]") {
-  core::AtomicOutput st{fs::temp_directory_path()/"src-cache-blocks"};
-  const fs::path br=st.path();
-  fs::create_directory(br);
-  const int W=512,H=512;
-  registration::RegistrationSamplingPlan bp;
-  bp.source_width=W; bp.source_height=H;
-  bp.canvas_width_native=bp.canvas_height_native=W;
-  bp.color_mode=ColorMode::MONO;
-  bp.source_identity_hash="blk-src";
-  auto write_frame=[&](size_t i,float bias){
-    Matrix2Df px(H,W);
-    for (int y=0;y<H;++y) for (int x=0;x<W;++x) px(y,x)=bias+y*1000.0f+x;
-    std::ofstream of(br/(std::to_string(i)+".raw"),std::ios::binary);
-    of.write(reinterpret_cast<const char*>(px.data()),px.size()*sizeof(float));
-  };
-  for (size_t i=0;i<2;++i) {
-    registration::FrameSamplingTransform fr;
-    fr.source_index=i; fr.frame_id="b:"+std::to_string(i);
-    fr.valid=fr.source_to_canvas_affine_valid=true;
-    bp.frames.push_back(fr);
-    write_frame(i,i*0.5f);
-  }
-  bp.plan_hash=registration::compute_plan_hash(bp);
-  publish_normalized_source_manifest(br,bp);
-  VerifiedNormalizedSourceCache cache(br,bp,64);
+  // 500 rows over a 512-wide frame: block_rows=128 -> 4 blocks, the last one
+  // only 116 rows (incomplete). Distinct value per (y,x) so a wrong row shows.
+  const int W=512,H=500;
+  BlkCacheDir dir("src-cache-blocks",W,H,3,
+      [](size_t i,int y,int x){ return i*0.5f + y*1000.0f + x; });
+  VerifiedNormalizedSourceCache cache(dir.root,dir.plan,64);
   const int brows=static_cast<int>(cache.block_row_span());
-  REQUIRE(brows>=1);
-  REQUIRE(brows<H);   // frame spans several blocks
+  REQUIRE(brows==128);
+  REQUIRE(brows<H);                       // frame spans several blocks
+  REQUIRE(H % brows != 0);                // ... and the last one is short
 
-  SECTION("read_rect == load() slice, incl. edges and 1px-wide X") {
+  SECTION("read_rect == load() slice, byte-exact, incl. edges, 1px-X, cross-block") {
     const Matrix2Df full=cache.load(0);
-    const std::array<std::array<int,4>,6> rects={{
+    const std::array<std::array<int,4>,7> rects={{
       {{0,H,0,W}},{{10,42,0,W}},{{H-3,H,0,W}},{{100,140,7,9}},{{0,1,0,1}},
-      {{200,201,W-1,W}}}};
+      {{200,201,W-1,W}},{{brows-5,2*brows+5,0,W}}}};   // straddles 3 blocks
     for (const auto &r:rects) {
       const Matrix2Df sub=cache.read_rect(0,r[0],r[1],r[2],r[3]);
       REQUIRE(sub.rows()==r[1]-r[0]);
       REQUIRE(sub.cols()==r[3]-r[2]);
       for (int y=r[0];y<r[1];++y) for (int x=r[2];x<r[3];++x)
-        REQUIRE(sub(y-r[0],x-r[2])==full(y,x));
+        REQUIRE(same_bits(sub(y-r[0],x-r[2]),full(y,x)));
     }
-    REQUIRE(cache.read_rect(0,5,5,0,W).rows()==0);   // empty range -> 0x0
+    REQUIRE(cache.read_rect(0,5,5,0,W).rows()==0);     // empty range -> 0x0
+    REQUIRE(cache.read_rect(0,0,H,9,9).cols()==0);
+  }
+
+  SECTION("byte-exact through NaN payloads and -0.0") {
+    BlkCacheDir nd("src-cache-blk-nan",64,40,1,[](size_t,int y,int x){
+      switch ((y*64+x) % 4) {
+        case 0: return f_from_u32(0x80000000u);        // -0.0
+        case 1: return f_from_u32(0x7fc0deadu);        // quiet NaN, payload
+        case 2: return f_from_u32(0x7f800001u);        // signalling NaN, payload
+        default: return float(x)-32.0f;
+      }
+    });
+    VerifiedNormalizedSourceCache nc(nd.root,nd.plan,8);
+    const Matrix2Df full=nc.load(0);
+    const Matrix2Df sub=nc.read_rect(0,0,40,0,64);
+    for (int y=0;y<40;++y) for (int x=0;x<64;++x)
+      REQUIRE(same_bits(sub(y,x),full(y,x)));           // == would mishandle both
+  }
+
+  SECTION("production width 3840 -> 17 rows per block, short last block") {
+    BlkCacheDir pd("src-cache-blk-3840",3840,40,1,
+        [](size_t,int y,int x){ return float(y*4096+x); });
+    VerifiedNormalizedSourceCache pc(pd.root,pd.plan,32);
+    REQUIRE(pc.block_row_span()==17);                   // 256 KiB / (3840*4) rounded down
+    pc.reset_io_counters();
+    pc.read_rect(0,0,40,0,3840);                        // 3 blocks: 17 + 17 + 6
+    REQUIRE(pc.blocks_verified()==3);
+    const Matrix2Df full=pc.load(0), sub=pc.read_rect(0,18,40,0,3840);
+    for (int y=18;y<40;++y) for (int x=0;x<3840;++x)
+      REQUIRE(same_bits(sub(y-18,x),full(y,x)));
   }
 
   SECTION("block-read amplification: narrowing X is free, narrowing Y is not") {
     cache.reset_io_counters();
-    cache.read_rect(0,0,H,0,W);                       // first touch: builds index
+    cache.read_rect(0,0,H,0,W);                         // region-first touch: streams
     REQUIRE(cache.block_index_builds()==1);
     const auto full_blocks=cache.blocks_verified();
-    REQUIRE(full_blocks>=2);
+    REQUIRE(full_blocks==4);
 
     cache.reset_io_counters();
-    cache.read_rect(0,brows,2*brows,0,W);             // one block, full width
+    cache.read_rect(0,brows,2*brows,0,W);               // one block, full width
     const auto y_win=cache.blocks_verified();
     const auto y_win_bytes=cache.bytes_read();
 
     cache.reset_io_counters();
-    cache.read_rect(0,brows,2*brows,3,4);             // SAME Y, 1px wide
-    REQUIRE(cache.blocks_verified()==y_win);          // X width changed nothing
-    REQUIRE(cache.bytes_read()==y_win_bytes);
+    cache.read_rect(0,brows,2*brows,3,4);               // SAME Y, 1px wide
+    REQUIRE(cache.blocks_verified()==y_win);            // X width: no extra blocks
+    REQUIRE(cache.bytes_read()==y_win_bytes);           // ... and no I/O saved
 
     cache.reset_io_counters();
-    cache.read_rect(0,0,H,3,4);                       // full Y, 1px wide
-    REQUIRE(cache.blocks_verified()==full_blocks);    // all blocks again
+    cache.read_rect(0,0,H,3,4);                         // full Y, 1px wide
+    REQUIRE(cache.blocks_verified()==full_blocks);      // all blocks again
 
     std::printf("[cache-blocks] block_rows=%d blocks/frame=%llu | 1-block "
                 "read=%llu blk / %llu B | full=%llu blk\n",
@@ -209,35 +271,94 @@ TEST_CASE("source cache: block-check index --- parity, amplification, detection 
                 (unsigned long long)full_blocks);
   }
 
+  SECTION("load() and the block index share one verification --- no second read") {
+    cache.reset_io_counters();
+    cache.load(0);                                      // builds the index too
+    REQUIRE(cache.block_index_builds()==1);
+    const auto h0=cache.hash_computation_count();
+    REQUIRE(cache.bytes_read()==static_cast<std::uint64_t>(H)*W*4);   // one whole frame
+    cache.read_rect(0,0,brows,0,W);                     // block 0 only
+    REQUIRE(cache.block_index_builds()==1);             // NOT rebuilt
+    REQUIRE(cache.hash_computation_count()==h0);        // no whole-file re-hash
+    REQUIRE(cache.bytes_read()==
+            static_cast<std::uint64_t>(H)*W*4 + static_cast<std::uint64_t>(brows)*W*4);
+  }
+
+  SECTION("index survives a real image-LRU eviction") {
+    // 512x500 float ~ 0.98 MiB/frame; budget 2 MiB -> usable 1 MiB -> capacity 1.
+    VerifiedNormalizedSourceCache tight(dir.root,dir.plan,2);
+    REQUIRE(tight.capacity_frames()==1);
+    tight.load(0);                                      // resident + index for 0
+    tight.load(1);                                      // evicts image 0
+    REQUIRE(tight.resident_frame_count()==1);
+    const auto builds=tight.block_index_builds();
+    const auto hashes=tight.hash_computation_count();
+    const Matrix2Df sub=tight.read_rect(0,brows,2*brows,0,W);   // image 0 gone
+    REQUIRE(tight.block_index_builds()==builds);        // index outlived the image
+    REQUIRE(tight.hash_computation_count()==hashes);    // no re-verify
+    REQUIRE(sub.rows()==brows);
+  }
+
+  SECTION("fresh instance and per-worker clone each build their own index") {
+    cache.read_rect(0,0,1,0,W);
+    VerifiedNormalizedSourceCache fresh(dir.root,dir.plan,64);
+    fresh.reset_io_counters();
+    fresh.read_rect(0,0,1,0,W);
+    REQUIRE(fresh.block_index_builds()==1);             // nothing carried over
+    VerifiedNormalizedSourceCache worker(cache,8);
+    worker.reset_io_counters();
+    worker.read_rect(0,0,1,0,W);
+    REQUIRE(worker.block_index_builds()==1);
+  }
+
   SECTION("detection semantics: only the blocks a read touches are verified") {
-    cache.read_rect(0,0,1,0,W);                       // build the index
-    const auto saved=fs::last_write_time(br/"0.raw");
+    cache.read_rect(0,0,1,0,W);                         // build the index
+    const auto saved=fs::last_write_time(dir.root/"0.raw");
     // Corrupt one float inside block 2, same file length, then roll the mtime
     // back so the staleness guard still passes: a region read does NOT
     // re-verify the whole file, by contract.
     const int trow=2*brows+1;
     {
-      std::fstream fio(br/"0.raw",std::ios::in|std::ios::out|std::ios::binary);
+      std::fstream fio(dir.root/"0.raw",std::ios::in|std::ios::out|std::ios::binary);
       fio.seekp(std::streamoff(static_cast<size_t>(trow)*W*sizeof(float)));
       const float bad=-42.0f;
       fio.write(reinterpret_cast<const char*>(&bad),sizeof(float));
     }
-    fs::last_write_time(br/"0.raw",saved);
+    fs::last_write_time(dir.root/"0.raw",saved);
 
     // A read that does NOT cover block 2 still succeeds...
     REQUIRE_NOTHROW(cache.read_rect(0,0,brows,0,W));
-    REQUIRE_NOTHROW(cache.read_rect(0,3*brows,4*brows,0,W));
-    // ...a read that DOES cover block 2 is caught only now, on access.
-    REQUIRE_THROWS(cache.read_rect(0,trow,trow+1,0,W));
+    REQUIRE_NOTHROW(cache.read_rect(0,3*brows,H,0,W));
+    // ...a read that DOES cover block 2 is caught only now, on access, and with
+    // the block error --- not an unintended whole-file rebuild.
+    REQUIRE_THROWS_WITH(cache.read_rect(0,trow,trow+1,0,W),
+                        ContainsSubstring("NORMALIZED_CACHE_BLOCK_MISMATCH"));
   }
 
-  SECTION("whole-file replacement invalidates the index and re-verifies") {
+  SECTION("in-place whole-file rewrite: mtime moves forward -> rebuild -> SHA mismatch") {
     cache.read_rect(1,0,1,0,W);
     REQUIRE(cache.block_index_builds()>=1);
-    write_frame(1,777.0f);                            // same length, mtime forward
-    REQUIRE_THROWS(cache.read_rect(1,0,1,0,W));       // rebuild -> SHA mismatch
+    dir.write(1,[](size_t,int y,int x){ return 777.0f + y - x; });
+    REQUIRE_THROWS_WITH(cache.read_rect(1,0,1,0,W),
+                        ContainsSubstring("NORMALIZED_CACHE_CONTENT_MISMATCH"));
   }
-  fs::remove_all(br);
+
+  SECTION("rename-swap replacement is caught on next access") {
+    cache.read_rect(2,0,1,0,W);
+    // Write a valid alternate frame beside the target, then rename it over the
+    // original. The renamed-in file carries a fresh (forward) mtime, so the
+    // staleness triple fails -> rebuild -> whole-file SHA mismatch.
+    const fs::path tgt=dir.root/"2.raw", tmp=dir.root/"2.raw.swap";
+    {
+      std::vector<float> px(static_cast<size_t>(W)*H,3.5f);
+      std::ofstream of(tmp,std::ios::binary);
+      of.write(reinterpret_cast<const char*>(px.data()),
+               static_cast<std::streamsize>(px.size()*sizeof(float)));
+    }
+    fs::rename(tmp,tgt);
+    REQUIRE_THROWS_WITH(cache.read_rect(2,0,1,0,W),
+                        ContainsSubstring("NORMALIZED_CACHE_CONTENT_MISMATCH"));
+  }
 }
 
 TEST_CASE("source cache: provenance mismatch and incomplete publication fail closed", "[source-predecessors]") {

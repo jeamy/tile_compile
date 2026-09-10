@@ -6817,71 +6817,103 @@ X-Fenster); dann Aspektverhältnis.
 
 **Motiv (gemessene Grundlast).** Die Source-LRU wird aus
 `drizzle.memory_budget_mb` dimensioniert (`runner_forward_drizzle.cpp:300/352`),
-**nicht** aus einem separaten 512-MB-Budget. `capacity_ = (budget−1 MiB) /
-33,2 MB`: 2048 MB → ~61 Frames, 8192 MB → ~246, 16384 MB → ~493 — bei 600
-Frames passt selbst 16 GB nicht. Unter der Kachel-außen/Frame-innen-Schleife
-von 3a-1 ruft jede Spaltenkachel den Producer je Frame einmal, also läuft
-jeder Kachelzyklus alle 600 `load()`-Aufrufe durch: bei 16 GB ~107
-Evict+Reload je Kachel × ~120 Kacheln/Band × ~22 Bänder ≈ 280 k
-Ganzframe-Reads + SHA-256 (~9 TB); bei 8 GB deutlich mehr. Das ist der
-Thrash, den der Blockindex beseitigen muss.
+**nicht** aus einem separaten 512-MiB-Budget. `capacity_ =
+min(N, (budget·2^20 − 1 MiB) / frame_bytes)` mit `frame_bytes = 3840·2160·4 =
+33 177 600`: **2048 MiB → 64 Frames, 8192 MiB → 258, 16384 MiB → 517** — bei
+600 Frames passt selbst 16 GiB nicht (GiB ≠ GB durchhalten). Unter der
+Kachel-außen/Frame-innen-Schleife von 3a-1 ruft jede Spaltenkachel den
+Producer je Frame einmal, also läuft jeder Kachelzyklus alle 600
+`load()`-Aufrufe durch: bei 16 GiB ~83 Evict+Reload je Kachel × ~120
+Kacheln/Band × ~22 Bänder ≈ 220 k Ganzframe-Reads + SHA-256 (~7 TB); bei
+8 GiB deutlich mehr. Das ist der Thrash, den der Blockindex beseitigen muss.
 
-**Teil 1 (committet, cache-eigenständig, keine Drizzle-Verdrahtung).**
-`VerifiedNormalizedSourceCache`:
-- `struct BlockIndex` je `source_index` in `std::map` **unabhängig von `lru_`**.
-  Beim ersten Zugriff einmal die ganze Datei lesen; aus **denselben Bytes**
-  den Ganzdatei-SHA-256 (gegen Manifest) **und** die festen Block-SHAs
-  berechnen. Der Blockindex wird **erst nach** Ganzdatei-Übereinstimmung
-  veröffentlicht; Mismatch wirft `NORMALIZED_CACHE_CONTENT_MISMATCH` wie bisher.
+**Teil 1 (committet `53e07038` + Review-Nacharbeit, cache-eigenständig, keine
+Drizzle-Verdrahtung).** `VerifiedNormalizedSourceCache`:
+- **Ein Verifikationspfad, zwei Einstiege** (Review-Lücke 1). `digest_blocks()`
+  ist die gemeinsame Block-SHA-Routine. `verify_and_insert` (der `load()`-Pfad)
+  baut den Blockindex **aus demselben Puffer**, den es gerade gegen das
+  Manifest geprüft hat — kein zweiter Read, kein zweiter Ganzdatei-Hash,
+  bevor der Puffer in den LRU-Eintrag wandert. Ein **Bereichs-Erstzugriff**
+  (`load()` lief nie für diesen Index) streamt die Datei blockweise
+  (`EVP_Digest*` laufender Ganzdatei-SHA + provisorische Block-SHAs, Peak-
+  Scratch = **ein** Block, kein Ganzframe) und veröffentlicht die Digests erst
+  nach Manifest-Match. Mismatch wirft `NORMALIZED_CACHE_CONTENT_MISMATCH`.
+- `struct BlockIndex` je `source_index` in `std::map` **unabhängig von `lru_`**,
+  ~2,4 MB gesamt bei 600 Frames (127 Blöcke × 32 B) — dokumentierte kleine
+  Konstante, **kein** Budgetterm.
 - **Staleness-Tripel** (`file_size`, `mtime`, `verified_at`) mit dem Index
   gespeichert, bei jedem Bereichslesen mit **derselben** Regel wie `load()`
   geprüft (`sz==file_size && mt==mtime && mt<verified_at`). Fällt sie, wird
   der Index verworfen und der nächste Zugriff reverifiziert die ganze Datei.
-  Das macht „Index überlebt Bild-LRU-Verdrängung" sicher.
+  Das macht „Index überlebt Bild-LRU-Verdrängung" sicher — **getestet** mit
+  echter Verdrängung (Kapazität 1, `load(0)` → `load(1)` verdrängt Bild 0 →
+  `read_rect(0)` ohne `block_index_builds`/`hash_computation`-Zuwachs).
 - `read_rect(idx, y0,y1, x0,x1)` / `read_region(idx, y0,y1)`: liest+prüft
-  nur die von `[y0,y1)` überdeckten Blöcke, gibt eine `(y1-y0)×(x1-x0)`-Matrix
-  mit `(r,c) == load(idx)(y0+r, x0+c)` zurück. `.raw` ist zeilenmajor float32;
-  ein Block umfasst ganze Zeilen (~256 KiB, auf Zeilenvielfaches **abgerundet**,
-  bei 3840 Breite → 17 Zeilen/Block), daher trifft ein Y-Fenster einen
-  **zusammenhängenden** Blockbereich und ein X-verengtes Rechteck verifiziert
-  **genau so viele** Blöcke wie das vollbreite mit gleicher Y-Spanne.
-- Zähler `blocks_verified()` / `block_index_builds()` / `bytes_read()`
-  (inkl. des einmaligen Ganzdatei-Reads je Bau) / `expanded_floats()` +
-  `reset_io_counters()`.
-- RAM-only: eine frische Instanz (Prozessneustart) startet ohne Blockindex
-  und reverifiziert beim ersten Zugriff.
+  nur die von `[y0,y1)` überdeckten Blöcke, `(r,c) == load(idx)(y0+r, x0+c)`
+  **byte-exakt** (memcmp, inkl. NaN-Payloads und −0). `.raw` zeilenmajor
+  float32; Block = ganze Zeilen (~256 KiB **abgerundet**, 3840 → 17
+  Zeilen/Block). X-Verengung: **gleiche Blöcke, gleiche gelesene Bytes** wie
+  vollbreit — kostet nichts extra, **spart aber auch kein I/O** (Review-Lücke
+  3), nur Ausgabespeicher und Kopie.
+- Zähler `blocks_verified()` / `block_index_builds()` / `bytes_read()` (jeder
+  `.raw`-Byte auf **beiden** Einstiegen) / `expanded_floats()` +
+  `reset_io_counters()`. RAM-only: frische Instanz + Per-Worker-Klon bauen je
+  ihren eigenen Index (getestet).
 
 **Erkennungssemantik — der ausdrücklich geforderte Nachweis**
-(`[source-predecessors][cache-blocks]`), drei Fälle:
-1. Manipulation in einem Block, den ein `read_rect` **berührt** → Lesen wirft
-   `NORMALIZED_CACHE_BLOCK_MISMATCH`.
-2. Manipulation in einem Block, den es **nicht** berührt (gleiche Dateilänge,
-   mtime zurückgerollt, damit der Wächter passiert) → Lesen gelingt; ein
-   **späteres** `read_rect`, das diesen Block **doch** überdeckt, wirft.
-   ⇒ Vertragsgrenze in ausführbarer Form: nur berührte Blöcke werden geprüft;
-   mtime/Größe/fd/mmap ersetzen diesen Nachweis nicht.
-3. Ganzdatei ersetzt (gleiche Länge, mtime vorwärts) → Tripel fällt → Neubau
-   → Ganzdatei-SHA-Mismatch → wirft.
-Zusätzlich: `read_rect == load()`-Slice über 6 Rechtecke inkl. Ränder und
-1px-breitem X; Blockleseverstärkung gemessen (512×512 → `block_rows=128`,
-4 Blöcke/Frame; 1-Block-Read = 1 Block / 262144 B; X-Verengung ändert
-Blockzahl **und** gelesene Bytes nicht; volle Y-Spanne = 4 Blöcke wieder).
+(`[source-predecessors][cache-blocks]`, `REQUIRE_THROWS_WITH` auf konkrete
+Fehlercodes):
+1. Manipulation in einem Block, den ein `read_rect` **berührt** → wirft
+   `NORMALIZED_CACHE_BLOCK_MISMATCH` (nicht ein versehentlicher
+   Ganzdatei-Neubau).
+2. Manipulation in einem Block, den es **nicht** berührt (gleiche Länge,
+   mtime zurückgerollt) → Lesen gelingt; ein **späteres** `read_rect`, das
+   den Block **doch** überdeckt, wirft. ⇒ Vertragsgrenze: nur berührte Blöcke
+   geprüft; mtime/Größe/fd/mmap ersetzen den Nachweis nicht.
+3. In-place-Ganzdatei-Rewrite (mtime vorwärts) → Tripel fällt → Neubau →
+   `CONTENT_MISMATCH`.
+4. **Rename-Swap** (valider Alt-Frame per `fs::rename` über `<idx>.raw`) →
+   frische mtime → Tripel fällt → Neubau → `CONTENT_MISMATCH`.
+Zusätzlich: `read_rect == load()` über 7 Rechtecke inkl. Ränder, 1px-X,
+blockübergreifend; unvollständiger letzter Block (H=500, block_rows=128 → 4.
+Block nur 116 Zeilen); Produktionsbreite 3840 → 17 Zeilen/Block, 3-Block-Read;
+`load()`+`read_rect` teilen eine Verifikation (kein zweiter Ganzframe-Read).
 
-**Warum kein Teil 2 im selben Commit.** Teil 2 = `SourceImageRectProvider`
-(Spiegel von `FrameQualityRectProvider`) + Einbindung in `build_frame_records`
-/ `cuda_pair_producer` + Store-Host-Budgetterm + Paritätsmatrix. Teil 1 allein
-ist end-to-end auf Cache-Ebene testbar und trägt das gesamte Vertragsrisiko.
-**Vor Teil 2 zu messen:** die Pro-Kachel-Reverifikation. Jede Kachel eines
-Bandes ruft `read_rect` je Frame mit ~gleicher Y-Spanne — bei realer Geometrie
-(3840×2160, Band ~950 interne Zeilen → ~28 von ~127 Blöcken) rechnet das je
-Band je Frame ~120 Kacheln × 28 Block-SHAs ≈ 3360 SHA-256 über je 256 KiB
-≈ 860 MB gehasht statt 33 MB (~26×). Teil 2 braucht daher einen
-**Bandebenen-Fetch** (ein `read_rect` je Frame je Band über die volle
-Band-Y-Spanne, für die Kacheln des Bandes gehalten) statt Pro-Kachel-Zugriff.
-Ist Teil 1s Verstärkung bei realer Kachelgeometrie schlecht, wäre Teil 2s
-Schnittstellenumbau vergebens — die Messung entscheidet.
+**Review-Bewertung (User) — Pivot geändert.** Nicht „Teil 1s Verstärkung
+entscheidet über Teil 2". Die ~26×-SHA-Rechnung (je Band je Frame ~120
+Kacheln × ~28 Block-SHAs) ist ein Artefakt des **Pro-Kachel-Fetch**, den
+niemand shippen will. Die eigentliche Frage ist **Lebensdauer und Budget der
+bereits geprüften Daten**. Ein Fetch je Frame/Band unter der kacheläußeren
+Schleife braucht die Quellbänder **aller** Frames gleichzeitig — Source-RAM
+allein `600 · 3840 · Bandhöhe · 4 B` = **1,72 GiB bei 200 Quellzeilen, 4,29
+GiB bei 500** — ohne Kandidaten/Q/Records/Ausgabe (die das Schritt-4-Budget
+schon ausgibt). Ein kleiner Frame-LRU thrasht erneut zyklisch. ⇒ Drei ehrliche
+Optionen, nicht zwei: (1) Pro-Kachel-`read_rect` (kein Halten, max
+Reverifikation); (2) Per-Band-Fetch mit **allen** Frames gehalten (Budget
+lässt das bei Produktions-N vermutlich nicht zu); (3) Per-Band-Fetch mit
+**begrenztem Frame-Fenster** K (K aus dem gemeinsamen Budget, Kacheln
+frame-major innerhalb des Fensters) — ändert die Schleifenreihenfolge
+(„andere Verarbeitungsschedule").
 
-Suite 544/544. Danach: Schritt 3 (CUDA-Kernel-X-Fenster); dann Aspektverhältnis.
+**Nächste Schritte (User-Reihenfolge), Teil 1 abgeschlossen:**
+1. ✅ Verifikationspfade zusammengeführt; neue Speicherbereiche identifiziert
+   (Blockindex = Konstante; zu budgetieren: Lesepuffer + Ausgabematrix +
+   ggf. gehaltene Banddaten). Joint-Budget-Term **noch nicht geschrieben** —
+   erst wenn Schritt 2 die Schedule bestimmt (sonst zweimal geschrieben, und
+   der Bandhöhen-Planer soll mid-cut nicht getunt werden).
+2. **Produktionsnahe Zugriffssimulation ohne Rekonstruktionslauf:** echte
+   Band-/Kachelrechtecke aus der realen Planer-Geometrie (3840×2160,
+   internal_scale 2, N=600), Quell-Y-Bereiche aus **tatsächlicher inverser
+   Geometrie** (`invert_affine_2x3` über Kachel-X, wie das footprint-Skript),
+   begrenztes Budget; je Schedule: Blöcke verifiziert, Bytes gehasht, Bytes
+   gelesen, **Peak gleichzeitig gehaltene Quellbytes**. Analytisch aus den
+   Zählerformeln + Validierung an einer Handvoll echter `.raw` (nicht 600 ×
+   33 MB Platte); gemessen vs. hochgerechnet klar trennen.
+3. Daraus zwischen budgetierter Bandhaltung (Opt. 3) und feineren
+   Block-/Bereichszugriffen (Opt. 1) entscheiden.
+4. Erst dann `SourceImageRectProvider` + Producer-Anbindung + Store-Parität.
+
+Suite 544/544.
 
 ---
 

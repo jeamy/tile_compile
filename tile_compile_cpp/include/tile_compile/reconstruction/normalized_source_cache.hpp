@@ -53,11 +53,15 @@ class VerifiedNormalizedSourceCache {
   // ---- §30.81 step 3a-3: run-internal source block-check index -------------
   // Independent of the image LRU. Built from the SAME bytes as the whole-file
   // SHA-256 on first touch, and published only after that whole-file hash
-  // matches the manifest. A later read_region / read_rect reads and
-  // SHA-256-verifies ONLY the blocks covering its Y range. Blocks span whole
-  // rows (row-major float32), so a Y window never straddles a partial block and
-  // an X-narrowed rect verifies exactly as many blocks as the full-width rect
-  // with the same Y range. Contract boundary: only blocks a read actually
+  // matches the manifest. It is built once: either from the buffer load()
+  // already verified (no extra read), or --- on a region-first touch --- by
+  // streaming the file one block at a time (peak scratch = one block). A later
+  // read_region / read_rect reads and SHA-256-verifies ONLY the blocks
+  // covering its Y range. Blocks span whole rows (row-major float32), so a Y
+  // window never straddles a partial block; an X-narrowed rect verifies the
+  // SAME blocks and reads the SAME bytes as the full-width rect with the same
+  // Y range --- narrowing X costs nothing extra but saves no I/O either, only
+  // output memory and the copy. Contract boundary: only blocks a read actually
   // touches are verified --- a change confined to an unread block is detected
   // only when a later read covers it. The index is trusted across image-LRU
   // eviction while the file's (size, mtime) are unchanged and mtime is strictly
@@ -76,6 +80,15 @@ class VerifiedNormalizedSourceCache {
   std::uint64_t blocks_verified_ = 0, block_index_builds_ = 0;
   std::uint64_t bytes_read_ = 0, expanded_floats_ = 0;
   const BlockIndex &ensure_block_index(size_t source_index);
+  // Per-block SHA-256 over an in-memory frame buffer (the shared digest
+  // routine; load() feeds it the buffer it already verified, so no extra read
+  // and no extra peak).
+  std::vector<std::array<unsigned char, 32>> digest_blocks(
+      const unsigned char *data, size_t bytes) const;
+  // Store `digs` as the block index for `source_index` with the file's current
+  // (size, mtime) and a fresh verified_at stamp; replaces any stale entry.
+  void publish_block_index(size_t source_index, const std::filesystem::path &path,
+                           std::vector<std::array<unsigned char, 32>> digs);
 public:
   VerifiedNormalizedSourceCache(const fs::path &root,
       const registration::RegistrationSamplingPlan &expected,
@@ -100,8 +113,9 @@ public:
   // Rows per block index entry (whole rows). Lets a test reason about block
   // read amplification for a given Y window.
   size_t block_row_span() const { return block_rows_; }
-  // Diagnostics for the block-check path. `bytes_read` includes the one-time
-  // whole-file read each index build performs.
+  // Diagnostics for the block-check path. `bytes_read` counts every byte read
+  // from a `.raw` file on either entry point: a load() / re-verify whole-frame
+  // read, a region-first-touch streaming build, and each read_rect window.
   std::uint64_t blocks_verified() const { return blocks_verified_; }
   std::uint64_t block_index_builds() const { return block_index_builds_; }
   std::uint64_t bytes_read() const { return bytes_read_; }
