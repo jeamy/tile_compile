@@ -472,9 +472,15 @@ prepare_drizzle_frames(const RegistrationSamplingPlan &plan,
 void enumerate_drizzle_stripe_leaf_cells(
     const RegistrationSamplingPlan &plan, const FrameSamplingTransform &f,
     int scale, float pixfrac, int y_begin, int rows,
-    const DrizzleLeafCellSink &sink, const ForwardDrizzleSubdivisionParams &p) {
+    const DrizzleLeafCellSink &sink, const ForwardDrizzleSubdivisionParams &p,
+    int x_begin, int cols) {
   namespace gs = geomstats;
   const bool instrument = gs::registry().enabled;
+  // §30.81 target-column window. `xb == 0 && xe == W` reproduces the historical
+  // full-width scan exactly (same source box, same bbox clamp, same order).
+  const int W_full = plan.canvas_width_native * scale;
+  const int xb = std::clamp(x_begin, 0, W_full);
+  const int xe = cols < 0 ? W_full : std::clamp(x_begin + cols, xb, W_full);
 
   // Plan 11.14 P1/P2: for a LOCAL-WARP frame that a published geometry cache
   // holds, replay the pre-built leaves for this stripe instead of re-running
@@ -485,13 +491,27 @@ void enumerate_drizzle_stripe_leaf_cells(
     const auto *cache = active_geometry_cache();
     if (cache && cache->has_frame(pixfrac, f.source_index)) {
       if (instrument) ++gs::registry().cur().enumerate_calls;
-      cache->enumerate_stripe(pixfrac, f.source_index, scale, y_begin, rows,
-                              sink);
+      if (xb == 0 && xe == W_full) {
+        cache->enumerate_stripe(pixfrac, f.source_index, scale, y_begin, rows,
+                                sink);
+      } else {
+        // §30.81: the cache replay contract is full-width; a narrower window
+        // drops the out-of-window cells here. Order and per-cell corners are
+        // untouched, so the retained subset is byte-identical to the windowed
+        // affine scan. (Local-warp frames do not reach the tiled CUDA store
+        // path; this keeps the CPU streaming build correct under a window.)
+        cache->enumerate_stripe(
+            pixfrac, f.source_index, scale, y_begin, rows,
+            [&](int sx, int sy, int c, int lo, int cx, int cy, const double *lx,
+                const double *ly) {
+              if (cx >= xb && cx < xe)
+                sink(sx, sy, c, lo, cx, cy, lx, ly);
+            });
+      }
       return;
     }
   }
 
-  const int W = plan.canvas_width_native * scale;
   int source_y0 = 0, source_y1 = plan.source_height;
   int source_x0 = 0, source_x1 = plan.source_width;
   if (!f.has_smooth_local_model) {
@@ -509,7 +529,11 @@ void enumerate_drizzle_stripe_leaf_cells(
       throw std::invalid_argument("DRIZZLE_SINGULAR_TRANSFORM");
     double lo = std::numeric_limits<double>::infinity(), hi = -lo;
     double xlo = lo, xhi = hi;
-    for (double x : {0.0, static_cast<double>(W) / scale})
+    // §30.81: inverse-map the TARGET-COLUMN-WINDOW rectangle (not the full
+    // canvas width) so a narrow tile only scans the source pixels that can
+    // reach it. xb/xe collapse to 0/W for the default window.
+    for (double x : {static_cast<double>(xb) / scale,
+                     static_cast<double>(xe) / scale})
       for (double y : {static_cast<double>(y_begin) / scale,
                        static_cast<double>(y_begin + rows) / scale}) {
         const double sx = inverse(0, 0) * x + inverse(0, 1) * y + inverse(0, 2);
@@ -555,10 +579,10 @@ void enumerate_drizzle_stripe_leaf_cells(
                xmax = *std::max_element(leaf.x, leaf.x + 4);
         double ymin = *std::min_element(leaf.y, leaf.y + 4),
                ymax = *std::max_element(leaf.y, leaf.y + 4);
-        int x0 = static_cast<int>(
-            std::clamp(std::floor(xmin), 0.0, static_cast<double>(W)));
-        int x1 = static_cast<int>(
-            std::clamp(std::ceil(xmax), 0.0, static_cast<double>(W)));
+        int x0 = static_cast<int>(std::clamp(
+            std::floor(xmin), static_cast<double>(xb), static_cast<double>(xe)));
+        int x1 = static_cast<int>(std::clamp(
+            std::ceil(xmax), static_cast<double>(xb), static_cast<double>(xe)));
         int y0 = static_cast<int>(
             std::clamp(std::floor(ymin), static_cast<double>(y_begin),
                        static_cast<double>(y_begin + rows)));
@@ -579,8 +603,12 @@ void rasterize_drizzle_stripe(const RegistrationSamplingPlan &plan,
                               const FrameSamplingTransform &f, int scale,
                               float pixfrac, int y_begin, int rows,
                               const DrizzleAreaSink &sink,
-                              const ForwardDrizzleSubdivisionParams &p) {
-  const int W = plan.canvas_width_native * scale;
+                              const ForwardDrizzleSubdivisionParams &p,
+                              int x_begin, int cols) {
+  const int W_full = plan.canvas_width_native * scale;
+  const int xb = std::clamp(x_begin, 0, W_full);
+  const int xe = cols < 0 ? W_full : std::clamp(x_begin + cols, xb, W_full);
+  const int win_w = xe - xb;
   enumerate_drizzle_stripe_leaf_cells(
       plan, f, scale, pixfrac, y_begin, rows,
       [&](int sx, int sy, int c, int leaf_order, int x, int y,
@@ -589,9 +617,9 @@ void rasterize_drizzle_stripe(const RegistrationSamplingPlan &plan,
                                                              x + 1.0, y + 1.0);
         if (k > 0)
           sink(sx, sy, c, leaf_order,
-               static_cast<size_t>(y - y_begin) * W + x, k);
+               static_cast<size_t>(y - y_begin) * win_w + (x - xb), k);
       },
-      p);
+      p, xb, win_w);
 }
 
 namespace {

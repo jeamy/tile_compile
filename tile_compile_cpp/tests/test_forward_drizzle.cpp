@@ -10,9 +10,11 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
+#include <tuple>
 #include <vector>
 
 using namespace tile_compile;
@@ -413,6 +415,119 @@ TEST_CASE(
   compare(full.R, striped.R);
   compare(full.G, striped.G);
   compare(full.B, striped.B);
+}
+
+TEST_CASE("forward drizzle: §30.81 target-column window partitions the cell "
+          "set exactly, default window is byte-identical",
+          "[drizzle-audit][fd-tile-window]") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 17;
+  plan.source_height = 13;
+  plan.canvas_width_native = 30;
+  plan.canvas_height_native = 24;
+  plan.color_mode = ColorMode::OSC;
+  plan.bayer_pattern = BayerPattern::GBRG;
+  plan.cfa_origin_x = 1;
+  plan.cfa_origin_y = 0;
+  const double angle = 0.6;  // rotation + shear + non-unit scale
+  plan.frames.push_back(make_affine_frame(
+      "f0", 0,
+      make_source_to_canvas(1.3 * std::cos(angle), -1.1 * std::sin(angle) + 0.12,
+                            5.4, 1.2 * std::sin(angle), 1.25 * std::cos(angle),
+                            3.7)));
+  const auto &f = plan.frames.front();
+
+  const int scale = 2;
+  const int W = plan.canvas_width_native * scale;  // 60
+  const float pixfrac = 1.0f;
+  const int y_begin = 3;
+  const int rows = 11;
+  const ForwardDrizzleSubdivisionParams sub{};
+
+  using Cell = std::tuple<int, int, int, int, int, int>;  // sx,sy,c,leaf,cx,cy
+  auto collect = [&](int x_begin, int cols) {
+    std::vector<Cell> cells;
+    enumerate_drizzle_stripe_leaf_cells(
+        plan, f, scale, pixfrac, y_begin, rows,
+        [&](int sx, int sy, int c, int leaf, int cx, int cy, const double *,
+            const double *) { cells.emplace_back(sx, sy, c, leaf, cx, cy); },
+        sub, x_begin, cols);
+    std::sort(cells.begin(), cells.end());
+    return cells;
+  };
+
+  const auto full = collect(0, -1);
+  REQUIRE_FALSE(full.empty());
+  for (const auto &cell : full) {
+    const int cx = std::get<4>(cell);
+    REQUIRE(cx >= 0);
+    REQUIRE(cx < W);
+  }
+
+  // cols < 0 and an over-wide window both mean "full internal width".
+  REQUIRE(collect(0, W) == full);
+  REQUIRE(collect(0, W + 40) == full);
+  REQUIRE(collect(-8, W + 40) == full);
+
+  // Ragged partitions: a split that does not divide W, and one that leaves a
+  // width-1 right remainder (W % w1 == 1) --- where a rebase off-by-one lives.
+  for (int w1 : {7, 23, 31, 59}) {
+    const auto left = collect(0, w1);
+    const auto right = collect(w1, W - w1);
+    for (const auto &cell : left) REQUIRE(std::get<4>(cell) < w1);
+    for (const auto &cell : right) REQUIRE(std::get<4>(cell) >= w1);
+    std::vector<Cell> merged;
+    merged.reserve(left.size() + right.size());
+    merged.insert(merged.end(), left.begin(), left.end());
+    merged.insert(merged.end(), right.begin(), right.end());
+    std::sort(merged.begin(), merged.end());
+    INFO("split at w1=" << w1);
+    REQUIRE(merged == full);  // disjoint by cx, so union == full, no duplicates
+  }
+
+  // Three-way ragged partition covering the same claim with more seams.
+  {
+    const auto a = collect(0, 13);
+    const auto b = collect(13, 27);  // [13, 40)
+    const auto c = collect(40, W - 40);
+    std::vector<Cell> merged;
+    merged.insert(merged.end(), a.begin(), a.end());
+    merged.insert(merged.end(), b.begin(), b.end());
+    merged.insert(merged.end(), c.begin(), c.end());
+    std::sort(merged.begin(), merged.end());
+    REQUIRE(merged == full);
+  }
+
+  // rasterize_drizzle_stripe: the windowed `index` is rebased to the window,
+  // and reassembling the per-window (cx,cy,k) triples reproduces the
+  // full-width rasterization exactly.
+  using Area = std::tuple<int, int, double>;  // cx, cy, k
+  auto raster = [&](int x_begin, int cols) {
+    const int xb = std::clamp(x_begin, 0, W);
+    const int win_w = cols < 0 ? W : std::clamp(x_begin + cols, xb, W) - xb;
+    std::vector<Area> out;
+    rasterize_drizzle_stripe(
+        plan, f, scale, pixfrac, y_begin, rows,
+        [&](int, int, int, int, size_t index, double k) {
+          const int cy = static_cast<int>(index) / win_w + y_begin;
+          const int cx = static_cast<int>(index) % win_w + xb;
+          out.emplace_back(cx, cy, k);
+        },
+        sub, x_begin, cols);
+    std::sort(out.begin(), out.end());
+    return out;
+  };
+  const auto raster_full = raster(0, -1);
+  REQUIRE_FALSE(raster_full.empty());
+  {
+    auto lo = raster(0, 23);
+    auto hi = raster(23, W - 23);
+    std::vector<Area> merged;
+    merged.insert(merged.end(), lo.begin(), lo.end());
+    merged.insert(merged.end(), hi.begin(), hi.end());
+    std::sort(merged.begin(), merged.end());
+    REQUIRE(merged == raster_full);
+  }
 }
 
 TEST_CASE(

@@ -162,11 +162,20 @@ prepare_drizzle_frames(const registration::RegistrationSamplingPlan &plan,
 // warp). It is part of the plan-19.6 canonical contribution key.
 using DrizzleAreaSink = std::function<void(int sx, int sy, int channel, int leaf,
                                            size_t index, double area)>;
+// §30.81 (P6 priority-3 CUDA 2D target tiling): `x_begin` / `cols` restrict the
+// emitted internal cells to the target-column window [x_begin, x_begin + cols)
+// (`cols < 0` => full internal width, the historical behaviour). The window also
+// bounds the inverse-mapped source scan (R2), so a narrow tile reads only its
+// own source footprint. The stripe-local `index` handed to `sink` is rebased to
+// the window: `(cell_y - y_begin) * cols + (cell_x - x_begin)`. With the default
+// full-width window every emitted cell, its `index`, and the enumeration order
+// are byte-identical to the pre-§30.81 path.
 void rasterize_drizzle_stripe(
     const registration::RegistrationSamplingPlan &plan,
     const registration::FrameSamplingTransform &frame, int internal_scale,
     float pixfrac, int y_begin, int rows, const DrizzleAreaSink &sink,
-    const ForwardDrizzleSubdivisionParams &subdivision = {});
+    const ForwardDrizzleSubdivisionParams &subdivision = {}, int x_begin = 0,
+    int cols = -1);
 
 // plan 19.6.2 hybrid CPU-geometry -> GPU-rasterization: the shared cell
 // enumeration that `rasterize_drizzle_stripe` is built on. For every accepted
@@ -180,11 +189,15 @@ void rasterize_drizzle_stripe(
 using DrizzleLeafCellSink =
     std::function<void(int sx, int sy, int channel, int leaf_order, int cell_x,
                        int cell_y, const double *leaf_x, const double *leaf_y)>;
+// §30.81: `x_begin` / `cols` restrict enumeration to the target-column window
+// [x_begin, x_begin + cols) (`cols < 0` => full internal width). `cell_x` is
+// still the absolute internal column (NOT window-local), matching `cell_y`.
 void enumerate_drizzle_stripe_leaf_cells(
     const registration::RegistrationSamplingPlan &plan,
     const registration::FrameSamplingTransform &frame, int internal_scale,
     float pixfrac, int y_begin, int rows, const DrizzleLeafCellSink &sink,
-    const ForwardDrizzleSubdivisionParams &subdivision = {});
+    const ForwardDrizzleSubdivisionParams &subdivision = {}, int x_begin = 0,
+    int cols = -1);
 
 // One accepted leaf of a (possibly subdivided) source-pixel droplet: a convex
 // quadrilateral in internal-canvas coordinates. Exported for the plan-11.14

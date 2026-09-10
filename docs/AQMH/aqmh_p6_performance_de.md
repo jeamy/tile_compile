@@ -365,11 +365,23 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
       **Befund:** `cand_row` = 93,8 %→99,6 % von `bytes_per_row`; 600 Frames
       → 7-Zeilen-Bänder, ~618 Bänder. **R1.1 allein reicht nicht** (16-GiB-
       Host-Deckel → ~19 Zeilen, ~228 Bänder). Additiv, bit-identisch, 538/538.
-- [ ] R1.1 + R1.2 + R2 — CUDA Host/Device-Budget-Trennung **plus**
-      Kandidatenpuffer-Verkleinerung (2D-Kacheln `W`→`tile_w`, ggf. kleinere
-      `ClipCandidate`), echte Source-/Q-Bereichsprovider; `[cuda-parity]`
-      durchgehend (**Priorität 3**, gemeinsam — §30.80 zeigt die Trennung
-      allein löst den Bandkollaps nicht)
+- [~] R1.1 + R1.2 + R2 — CUDA Host/Device-Budget-Trennung **plus**
+      Kandidatenpuffer-Verkleinerung (2D-Kacheln `W`→`tile_w`), echte
+      Source-/Q-Bereichsprovider; `[cuda-parity]` durchgehend (**Priorität 3**,
+      gemeinsam — §30.80 zeigt die Trennung allein löst den Bandkollaps nicht).
+  - [x] **Schritt 1 (§30.81):** Ziel-Spaltenfenster `x_begin`/`cols` in
+        `enumerate_drizzle_stripe_leaf_cells` + `rasterize_drizzle_stripe`
+        (Default = voll-breit, byte-identisch); begrenzt Source-Scan (R2) und
+        Leaf-Bbox, rebased den Sink-`index`. Bedingter `ClipCandidate`-Shrink
+        als Sackgasse ausgeschlossen (`emit_fine`/`emit_alpha_confidence` im
+        Produktions-`persist_forward_drizzle_multiband` fest an). Neuer
+        `[fd-tile-window]`-Partitionstest, 539/539.
+  - [ ] Schritt 2: Fenster in `stream_forward_drizzle_uniform_and_raw` /
+        `_uniform`, Puffer + Ausgabe-`ProfilePlane` auf `cols`.
+  - [ ] Schritt 3: Kachel-Schleife in `persist_forward_drizzle_multiband`
+        (`tile_w` aus `host_budget`, `band_rows` aus `devmem`, Leiter leitet
+        `tile_w` neu ab), Voll-Breiten-Stripe je Band, ein `multiband_stripe`.
+  - [ ] Schritt 4: `.cu`-Spiegelung + `[cuda-parity]`-Matrix.
 - [ ] Realer/halbrealer Messlauf, Phasenbudget final
 
 **Realraster-Hochrechnung FORWARD_DRIZZLE (affin, nach Hoist, §30.76):** 20

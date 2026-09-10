@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich + budgetierter Clipping-Scratch + CUDA-Bandplanungs-Messzähler 10.09. | [§30.12–30.80](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich + budgetierter Clipping-Scratch + CUDA-Bandplanungs-Messzähler + Ziel-Spaltenfenster im Streifen-Enumerator (P3 Schritt 1) 10.09. | [§30.12–30.81](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -6431,6 +6431,62 @@ GPU-`weight_sum`-Toleranz auf der GTX 1660 Ti, unberuehrter Pfad). Neue
 `[drizzle-store]`-SECTIONs: die N-Sweep-Tabelle (Struct-Groessen per
 `static_assert`-Kommentar gepinnt) und `CudaChunkRunStats` auf sauberer Fahrt
 und nach 2 Halbierungen.
+
+---
+
+### 30.81 P6 Prioritaet 3 Schritt 1: Ziel-Spaltenfenster im Streifen-Enumerator (2026-09-10)
+
+**Warum kein billiger Umweg.** Vor dem Umbau geprueft (Advisor-Gate): greift ein
+bedingter `ClipCandidate`-Shrink (64 -> 24 Byte, nur die 4 Q-Doubles weglassen,
+wenn `need_q0/q1/qa` alle aus)? **Nein.** `persist_forward_drizzle_multiband`
+(`drizzle_profile_store.cpp:481-483`) setzt `emit_fine = true` und
+`emit_alpha_confidence = true` fest, `emit_medium = levels >= 2` (Default
+`levels = 3`). Im Produktions-`reconstruct` sind die Q-Felder also **immer
+Live-Daten**. Der Shrink wuerde fuer das P6-Ziel nie greifen -- dieselbe Falle
+wie der zurueckgerollte Interior-Shortcut (§30.76). Ebenso R1.1 (Host-/Device-
+Budget-Trennung) allein: §30.80 zeigt 7 -> 19 Bandzeilen, weiter Bandkollaps.
+Der einzige bit-exakte Hebel mit genug Spielraum bleibt **R1.2 als 2D-Kachelung**
+(`W -> tile_w`), mit R1.1 und R2 (kachel-begrenzte Source-Range-Provider) darin
+gefaltet.
+
+**Schritt 1 (dieser Commit).** `enumerate_drizzle_stripe_leaf_cells` und
+`rasterize_drizzle_stripe` bekommen nachgestellte Default-Parameter
+`int x_begin = 0, int cols = -1`. `cols < 0` => volle interne Breite = das
+historische Verhalten, Byte fuer Byte. Ein gesetztes Fenster
+`[x_begin, x_begin + cols)`:
+
+- begrenzt den invers-gemappten Source-Scan auf beiden Achsen (R2): ein
+  schmaler Streifen liest nur noch seinen eigenen Source-Footprint. Das ist
+  dasselbe Argument wie die bestehende X-Bindung (R1.3) und §30.75, nur auf das
+  Ziel-Spaltenfenster statt die volle Canvas-Breite angewandt.
+- klemmt die Leaf-Bbox-X-Spanne auf `[xb, xe]` statt `[0, W]`.
+- `rasterize_drizzle_stripe` rebased den an den Sink gereichten
+  stripe-lokalen `index` auf das Fenster:
+  `(cell_y - y_begin) * (xe - xb) + (cell_x - xb)`. `cell_x` im
+  Leaf-Cell-Sink bleibt die **absolute** interne Spalte (wie `cell_y`).
+- Cache-Replay-Pfad (LOCAL-WARP): der Cache-Vertrag ist voll-breit; bei
+  schmalerem Fenster werden die ausserhalb liegenden Zellen nach dem Replay
+  verworfen (Reihenfolge und Eck-Koordinaten unangetastet). LOCAL-WARP-Frames
+  erreichen den gekachelten CUDA-Store-Pfad ohnehin nicht.
+
+**Abnahme.** Neuer `[drizzle-audit][fd-tile-window]`-Test: Default-Fenster
+(`cols < 0`, `cols == W`, `cols > W`, negatives `x_begin`) ergibt exakt dieselbe
+sortierte Zell-Multimenge wie vorher; ragged Partitionen (`w1` teilt `W` nicht,
+`W % w1 == 1`, Drei-Wege-Split) vereinigen sich disjunkt-per-`cx` **exakt** zur
+Voll-Breiten-Menge; `rasterize_drizzle_stripe`-Index-Rebase pro Fenster fuegt
+sich wieder zur Voll-Breiten-Rasterung zusammen. Volle Suite **539/539**
+(+1 neuer Fall), `[drizzle-audit] [footprint-fastpath] [geometry-scaling]
+[geometry-cache] [drizzle-store]` unveraendert gruen.
+
+**Offen (folgt).** Schritt 2: `stream_forward_drizzle_uniform_and_raw` /
+`stream_forward_drizzle_uniform` bekommen dasselbe Fenster, alle
+Streifen-Puffer + Ausgabe-`ProfilePlane` auf `cols` statt `memory.width`
+dimensioniert, Sink-`internal_width` = `cols`. Schritt 3: Kachel-Schleife in
+`persist_forward_drizzle_multiband` (`tile_w` aus `host_budget`, `band_rows`
+aus `devmem.free_bytes`; die Halbierungsleiter leitet `tile_w` bei jedem
+`band_rows`-Wechsel neu ab), Voll-Breiten-Stripe je Zeilenband zusammensetzen,
+**ein** `writer.multiband_stripe`-Call wie bisher. Schritt 4: `.cu`-Spiegelung
++ `[cuda-parity]`.
 
 ---
 
