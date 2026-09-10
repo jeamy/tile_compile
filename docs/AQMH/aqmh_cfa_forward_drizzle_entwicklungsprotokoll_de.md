@@ -6692,11 +6692,94 @@ end-to-end durch den Store. Volle Suite **543/543**, Legacy 17/18.
 **Offen (User-Plan, kleiner geworden durch B):** (3) Source-/Q-Zugriffe echt
 kappen (jetzt *pro Band* statt pro Kachel — Verstärkung weg, weitere Eingrenzung
 auf den Band-Footprint als kleine Folgeoptimierung; auch der lokale Hybrid-
-Producer); (4) gemeinsames Host-Budget schliessen (Memo ist der neue „gleichzeitig
-lebende" Term — feste Puffer + Memo + eine Kachel-Kandidatenkapazität +
-Reassembly gemeinsam gegen den Deckel; extrem schmale Kacheln meiden); (5)
-Paritätsmatrix + Bench erneut (schmale/ragged Kacheln, Rotation/Scherung, lokale
-Modelle, Modus 2/1, Budget-Retries).
+Producer); (5) Paritätsmatrix + Bench erneut.
+
+### 30.81 Schritt 4 — gemeinsames Host-Budget geschlossen (2026-09-10, `e59ec4b4`)
+
+User-Reihenfolge geändert: **erst** Budget schliessen, **dann** Q-Fold/Replay.
+
+**Der Fehler.** Bis hierher prüften der Memo-Deckel
+(`forward_drizzle_contrib_list.cpp:645`) und der Spaltenkachelbreiten-Deckel
+(`drizzle_profile_store.cpp`) je gegen die **volle** `host_budget`, und der
+store-eigene Voll-Breiten-Reassembly-`stripe` (`dims.width · rows · alle Planes`)
+wurde nirgends gezählt. Zwei Deckel à 100 % + Stripe ⇒ realer Peak bis ~2–3×
+Decke.
+
+**Der Schnitt.** Bandhöhe **und** `tile_w` werden jetzt *gemeinsam* aus **einer**
+Decke abgeleitet — je Innenzeile:
+
+| Region | Bytes / Innenzeile | gekachelt? |
+|---|---|---|
+| `memo_row` | `frame_count · source_width · kMemoCellsEst(6) · 48` | **nein** |
+| `stripe_row` (Reassembly D) | `n_planes · channels · 13 · dims.width` (+13·W Alpha) | nein |
+| `cand_per_row_col` | `channels · frame_count · 64` + `counts` + `plane_px` (Kachel-Ergebnis C ⊆ `tile_w/W · D`) | **ja** |
+| `src_q_const` | `(2 + q_maps) · source_width · source_height · 4` (≈ konstant) | — |
+
+Nebenbedingung: `(memo_row+stripe_row)·rows + cand_per_row_col·tile_w·rows +
+src_q_const ≤ host_budget`.
+
+- `drizzle_profile_store.cpp`: `memo_rows` → `host_rows` aus den gemeinsamen
+  Fixkosten (`memo_row+stripe_row + cand_per_row_col·kMinTileW`, die
+  Mindestkachel, die das Band noch zulassen muss). `kMinTileW = min(64, W)`
+  verwirft entartete Schmalkacheln (Randüberlappung + Aufrufkosten). Per-Band
+  `tile_w` neu aus dem, was die Fixkosten des Bandes für Kandidaten übrig
+  lassen — pro Aufruf im `run_cuda_chunked`-Lambda, also nach einer Halbierung
+  nie stale. Nach **innen** gereichtes Budget = `host_budget − stripe − src_q`
+  (Boden 64 MiB → sonst `ForwardDrizzleCudaError` → CPU-Restart).
+  `estimated_peak_bytes` summiert jetzt die modellierten lebenden Regionen an
+  der aufgelösten Band-/Kachelgrösse, nicht `host_budget` flach.
+- `forward_drizzle_contrib_list.cpp`: Tiled-Zweig reserviert **erst** den
+  Anteil **einer** Kachel, begrenzt dann das Memo mit dem Rest; Prüfung
+  **vor** `produce_sorted(fo)` (laufender Mittelwert der schon gehaltenen
+  Frames) statt erst nach dem Allozieren eines Frames, der nicht behalten
+  werden kann. Memo-Bytes per `capacity()` (nicht `size()`). `reduce_window`
+  prüft die Kandidaten-Allokation gegen `(budget − memo)`, nicht die volle
+  Decke.
+
+**Befund (der ehrliche Teil).** Das B-Memo ist `frame_count · source_width ·
+cells` je Innenzeile und wird **nicht** gekachelt → es holt die
+§30.80-Kollaps-mit-N zurück. `[drizzle-store]`-Abschnitt (8 GiB Karte, 2 GiB
+Decke, 7680×4320):
+
+| Frames | Bandhöhe | Bänder | `tile_w` | Kacheln/Band | Peak |
+|---|--:|--:|--:|--:|--:|
+| 40 | 42 | 103 | 108 | 72 | 2047,8 MiB |
+| 100 | 17 | 255 | 140 | 55 | 2047,9 MiB |
+| 300 | 5 | 864 | 979 | 8 | 2047,9 MiB |
+| 600 | 2 | 2160 | 2680 | 3 | 2047,8 MiB |
+
+Der Peak ist jetzt fest an der Decke (Vertrag geschlossen), aber die Bandzahl
+skaliert weiter mit N. ⇒ **B zahlt sich bei Produktions-N erst mit Schritt 3a
+aus** (Q-Fold + budgetierter Kandidaten-Store statt Voll-Memo). Der neue
+`[drizzle-store]`-Abschnitt prüft die **Summe** ≤ Decke bei 40/100/300/600 und
+dokumentiert die N-Skalierung explizit; der `[fd-tile-window]`-Store-Test wurde
+auf S=40 C=160 nf=24 / 100 MiB neu getunt, damit die Spaltenkachelung der Hebel
+ist, den der korrigierte Planer wählt (schmalere Leinwand kann nur die Bandhöhe
+bewegen).
+
+**Bit-Identität** unberührt (nur Allokationsschwellen verschoben):
+`[drizzle-store][cuda-parity]` echtes Gerät grün, volle Suite **543/543**,
+`[fd-cuda-tile]`-Bench C/A weiter 0,87× und Reassembly == Ein-Aufruf.
+
+**Nächster Schnitt — 3a (Q-Fold, User-Vorzugsvariante):** je Frame/Band Records
+**einmal** erzeugen + kanonisch sortieren; Q-Daten **einmal** bereitstellen;
+jedes Zielzellsegment in unveränderter Record-Reihenfolge zum vollen
+`ClipCandidate` falten; Kandidaten nach Zielkachel **indizieren** + budgetiert
+ablegen (ggf. begrenzter Spool — „alle Kandidaten im RAM" wäre dieselbe Wand);
+Kacheln danach framegeordnet ins **unveränderte** robuste Clipping. Keine
+Umordnung der numerischen Reduktion (bestehende Segment-Summen nur früher
+berechnet, frameübergreifendes Clipping unverändert). Ein Kachel-/Segmentindex
+ist Pflicht, sonst wird auch das reduzierte Memo je Kachel wieder ganz
+durchsucht. Kleiner Produktions-Multiband-Bench mit **echten** Q-Providern schon
+hier (sonst bleibt der neu gefundene Q-Engpass im Test unsichtbar). Danach 3b
+(Provider/Hybrid) und 5b (zusammenhängende Skalierungsmessung).
+
+Zwei Korrekturen zur Bestandsaufnahme (User): O2 ist **nicht** generell erledigt
+— ein zu kleiner LRU thrasht weiter beim zyklischen Frame-Durchlauf (Memo
+reduziert Aufrufe, repariert die Cache-Eigenschaft nicht). MAD-Re-Sort ist
+**nicht** nachweislich unvermeidbar — Wiederverwendung der Wertordnung wäre
+separat untersuchbar (Tie-Breaks, Summationsreihenfolge), derzeit niedrige
+Priorität.
 
 ---
 

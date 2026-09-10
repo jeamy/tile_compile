@@ -365,8 +365,9 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
       **Befund:** `cand_row` = 93,8 %→99,6 % von `bytes_per_row`; 600 Frames
       → 7-Zeilen-Bänder, ~618 Bänder. **R1.1 allein reicht nicht** (16-GiB-
       Host-Deckel → ~19 Zeilen, ~228 Bänder). Additiv, bit-identisch, 538/538.
-- [~] **2D-Kachelung + Parität fertig; Bereichszugriffe (R2) + Gesamt-Host-Budget
-      offen** (User-Review §30.81). R1.1 (Budget-Split) + 2D-Ziel-Kachelung
+- [~] **2D-Kachelung + Parität + gemeinsames Host-Budget (Schritt 4) fertig;
+      Q-Fold/Bereichszugriffe (3a/3b) offen** (User-Review §30.81). R1.1
+      (Budget-Split) + 2D-Ziel-Kachelung
       (`W`→`tile_w`) mit **host-seitigem Record-Filtern** statt echter Geräte-
       Bereichsprovider; `[cuda-parity]` durchgehend. Bandplanung nur noch gegen
       das Geräte-Glied (`rec_row+acc_row`), das Host-`cand_row` durch
@@ -423,14 +424,37 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
         weg, Parität mit dem Ein-Aufruf-Voll-Breiten-Lauf. Bit-exakt
         (`[fd-tile-window]` GPU-frei + `[drizzle-store][cuda-parity]` echtes
         Gerät), 543/543.
-  - [ ] Schritt 3: Source-/Q-Zugriffe echt kappen — jetzt *pro Band* statt pro
-        Kachel (Verstärkung schon weg; weitere Eingrenzung auf den Band-Footprint
-        als kleine Folgeoptimierung; auch der lokale Hybrid-Producer).
-  - [ ] Schritt 4: gemeinsames Host-Budget schliessen (feste + gleichzeitig
-        lebende Puffer zuerst, dann Kandidatenkapazität; extrem schmale Kacheln
-        meiden).
-  - [ ] Schritt 5b: Paritätsmatrix + Bench erneut (schmale/ragged Kacheln,
-        Rotation/Scherung, lokale Modelle, Modus 2/1, Budget-Retries).
+  - [x] **Schritt 4 — gemeinsames Host-Budget geschlossen (§30.81, `e59ec4b4`):**
+        Bandhöhe **und** Spaltenkachelbreite jetzt *gemeinsam* aus **einer**
+        Decke abgeleitet: `(memo_row + stripe_row)·rows + cand/col·tile_w·rows +
+        src_q_const ≤ host_budget`. Vorher teilten Memo-Deckel und
+        Kachelbreiten-Deckel je die **volle** Decke, der volle Reassembly-
+        `stripe` war nirgends gezählt (Summe bis ~2–3× Decke). `kMinTileW =
+        min(64,W)` verwirft entartete Schmalkacheln. Nach innen gereichtes
+        Budget = `host_budget − stripe − src_q` (Boden 64 MiB → sonst CPU-
+        Restart). `accumulate_pair_impl`: Tiled-Zweig reserviert erst den
+        Kachelanteil, begrenzt dann das Memo, Prüfung **vor** produce (laufender
+        Mittelwert), Memo per `capacity()` gezählt; `reduce_window` prüft gegen
+        `(budget − memo)`. **Befund:** das B-Memo ist
+        `frame_count·source_width·cells` je Innenzeile und **nicht** gekachelt →
+        es holt die §30.80-Kollaps-mit-N zurück: 40→600 Frames = **103→2160
+        Bänder** (Peak fest an der Decke). Genau das motiviert 3a. Bit-Identität
+        unberührt (nur Schwellen verschoben), 543/543, Bench C/A weiter 0,87×.
+  - [ ] Schritt 3a: **Q-Fold statt Voll-Memo** — je Frame/Band Records einmal
+        erzeugen + kanonisch sortieren, Q-Daten einmal bereitstellen, jedes
+        Zielzellsegment in unveränderter Reihenfolge zum vollen `ClipCandidate`
+        falten, Kandidaten nach Zielkachel **indizieren** + budgetiert ablegen
+        (ggf. begrenzter Spool — „alle Kandidaten im RAM" = dieselbe Wand),
+        dann framegeordnet ins unveränderte robuste Clipping. Keine Umordnung
+        der Reduktion, nur früher berechnet. Kachel-/Segmentindex Pflicht
+        (sonst wird das Memo je Kachel doch wieder ganz durchsucht). Kleiner
+        Produktions-Multiband-Bench mit echten Q-Providern schon hier.
+  - [ ] Schritt 3b: verbleibende Provider-/Hybrid-Arbeit — Source-/Q-Zugriffe
+        auf den Band-Footprint kappen; Hybrid-Producer separat auf begrenzte
+        Zwischenpuffer + wiederholte Geometriearbeit prüfen.
+  - [ ] Schritt 5b: Paritätsmatrix + Bench als zusammenhängende Skalierungs-
+        messung (schmale/ragged Kacheln, Rotation/Scherung, lokale Modelle,
+        Modus 2/1, Budget-Retries).
 - [ ] Realer/halbrealer Messlauf, Phasenbudget final
 
 **Realraster-Hochrechnung FORWARD_DRIZZLE (affin, nach Hoist, §30.76):** 20
