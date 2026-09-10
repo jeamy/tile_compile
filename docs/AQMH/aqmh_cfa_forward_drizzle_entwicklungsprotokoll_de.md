@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung 10.09. | [§30.12–30.77](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich 10.09. | [§30.12–30.78](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -6197,20 +6197,27 @@ Reduce-Schleife überspringt via `if (!cnt[c][i]) continue` alles. Die
 Bench-Zeilen „gather"/„reduce" messen also eine Lese-Sweep bzw. eine
 Sprungschleife, **keine** Produktionskosten. Konsequenzen: (a) die
 Raster:Reduce-Aufteilung der Phase ist aus diesem Bench nicht belegt;
-(b) der Clip-Anteil **am Raster** (enum vs. clip, e0→e2) bleibt belastbar;
-(c) Herkunft der kommunizierten Reduce-Angabe (Bench vs.
-`TC_FD_PROFILE`-Produktionstimer) ist zu prüfen. Fix = **Priorität 1**
+(b) der Clip-Anteil **am Raster** (enum vs. clip, e0→e2) ist eine
+**Differenzschätzung** zweier getrennter Läufe mit unterschiedlichen
+Callback-Kosten — Größenordnungsindikator, kein isolierter Profilerbeleg;
+(c) die kommunizierte Reduce-Angabe stammt aus den `TC_FD_PROFILE`-
+Produktionstimern (`forward_drizzle.cpp`), die reale Kandidaten verarbeiten —
+die Bench-Attribution prüft sie nach. Fix = **Priorität 1**
 (Plan §0.2): Reihenfolge enum → clip → accum (befüllt) → gather (befüllt
 cand/cnt) → reduce; Fill isoliert auf Kopien zuletzt. Zusätzlich: tatsächlich
 aktive Worker (nicht requested) und Quellbesuche erfassen; die
 167-s-Vorlauflücke (§30.73 Registrierungsabstand) attribuieren.
 
 **3. „Irreduzibler Clip" zurückgenommen.** §30.76-Fazit formulierte „der Clip
-ist irreduzible exakte Per-Zell-Geometrie". Belegt ist nur: der dort
-verworfene k=1,0-Shortcut ist ungültig (pixfrac 0,8 → Droplet ~1,6
-Internal-px, 0 % Null-Flächen, ~1,6–3 Teilüberlappungs-Clips/Quellpixel).
-Die Nullflächenzählung widerlegt **diesen** Shortcut, beweist aber keine
-allgemeine Leistungsuntergrenze für bit-exakte Geometrie. Die R3-Probe
+ist irreduzible exakte Per-Zell-Geometrie". Die Verwerfung des
+k=1,0-Shortcuts bleibt als **Versuchsergebnis** bestehen; ihre ursprüngliche
+Begründung trägt jedoch nicht: die Nullflächenzählung (0 % Clips mit
+Fläche == 0) sagt nichts über die für den Shortcut maßgebliche Häufigkeit
+**vollständig überdeckter** Zellen (Fläche == 1) aus — diese wurde nicht
+erhoben; die gemessenen ~1,6–3 Teilüberlappungs-Clips pro Quellpixel bei
+~1,6-Internal-px-Droplets deuten auf deren Seltenheit, beweisen sie nicht.
+Es bleibt dabei: Aus dieser Messung folgt keine allgemeine
+Leistungsuntergrenze für bit-exakte Geometrie. Die R3-Probe
 (§30.73, 1,55× im Mikroversuch) und die §6.4-No-op-Clip-Elision (alle
 Polygonpunkte erfüllen die Halbebene → identische Kopie entfällt; Shoelace
 auf unveränderter Vertexfolge ist bit-identisch) sind direkte Gegenbeispiele.
@@ -6256,6 +6263,65 @@ angepasst.
 
 Kein neuer Lauf, kein Backend-Start, kein Produktionsauftrag. Suite-Stand
 unverändert (keine Codeänderung in diesem Eintrag).
+
+---
+
+### 30.78 P6 Prioritaet 1: `fd-hotspot`-Reparatur und Timer-Abgleich (2026-09-10)
+
+Bench `tests/test_forward_drizzle_hotspot_profile.cpp` gemäß Plan §0.2
+Priorität 1 repariert (reine Bench-Änderung, kein Produktionscode):
+
+1. **Korrekte Kandidaten:** Per-Frame-Reihenfolge wie Produktion —
+   fill → raster/accumulate → gather, jede Stufe separat aufsummiert.
+   Zusaetzlich ein isolierter Gather auf explizit voll belegtem Eingang
+   (Worst-Case-Occupancy), ausdruecklich NICHT in der Streifensumme.
+2. **Messinhalt abgesichert:** `REQUIRE(cand_written == Summe(counts))`,
+   `REQUIRE(reductions_executed > 0)`; deterministische Frame-Jitter +
+   sparse 8x-Outlier (1/4096/Frame) — Robust-Clipping arbeitet jetzt
+   nachweisbar (`candidate_contributions_clipped > 0` in der Produktions-
+   Referenz). **Referenzpruefung bit-exakt:** Split-Streifen gegen den
+   Produktions-Volllauf (gleicher Provider, gleiche Reduce-Config) —
+   **0 Mismatches** ueber 1.015.808 Zellen x 2 Profile x 3 Kanaele
+   (value/weight_sum/n_eff/support).
+3. **Timer vollstaendig:** einmalige Hoist-Allokation separat gemessen
+   (1,584 s bei dieser Szenengroesse); keine Fill-Doppelzaehlung (Fill ist
+   Bestandteil der Per-Frame-Summe, keine zusaetzliche isolierte Zeile).
+4. **Sweep isoliert:** Mikro-Puffer vor dem Sweep via swap freigegeben; pro
+   Messpunkt requested/budgeted/**used** Worker, resolved chunk_rows und
+   estimated_peak_bytes; Speedups explizit gegen W=1.
+5. **Zaehler korrigiert:** tatsaechliche Quellbesuche — unique Source-Pixel,
+   Leaf-Visits (Kanonische-Reihenfolge-Schluesselwechsel) statt /4-Nenner.
+
+**Messergebnisse** (Szene: affine OSC 1920x1080, internal 3968x2288, 16
+Frames, chunk 256, 16 GiB Budget; NICHT vergleichbar mit der §30.76-Szene —
+andere Groesse, Outlier, Provider):
+
+- **Schliessung Bench-Modell gegen TC_FD_PROFILE (W=1):** raster: Modell
+  (rasterize 26,13 + gather 7,80 + fill 0,73 = 34,66 s) vs Profil 34,76 s;
+  reduce: Modell 10,44 s vs Profil 10,18 s. Abweichung < 3 %. Die
+  Raster:Reduce-Aufteilung ist damit ERSTMALS belegt (etwa 77 : 23 bei W=1
+  dieser Szene), inklusive des bisher unbelegten Reduce-Anteils.
+- **Sweep:** W=1 47,85 s -> W=8 13,91 s = 3,44x; used == budgeted ==
+  requested an jedem Punkt; chunk 256 stabil; Peak ~6043 MB. `cells_emitted`
+  ueber alle Sweep-Punkte identisch (223.948.800).
+- **Neue Zaehler:** 26.542.080 Clip-Aufrufe ueber alle Frames;
+  zero-area 0 (0,0 %); **full-cover (Flaeche == 1,0): 1.474.560 ≈ 5,6 %**;
+  Leaf-Visits/unique-src-px = 15,73 ≈ Framezahl (keine redundante
+  Leaf-Vorarbeit pro Streifen — die X/Y-Bounds wirken wie beabsichtigt).
+
+**Einordnung full-cover:** Es GIBT vollstaendig ueberdeckte Zellen — der
+§30.77-Hinweis, der Nullflaechenzaehler sei das falsche Instrument, ist
+damit empirisch rueckseitig bestaetigt. Eine bit-exakte Elision
+(`area == 1,0`-Zellen: 4 Halbebenen-Clips entfallen, Shoelace auf
+unveraenderter Vertexfolge) waere auf dieser Szenenklasse auf ~5 % der
+Clip-Aufrufe gedeckelt — unterhalb der R3-Schwelle, kein separates Gate.
+Als Datum fuer R3 registriert.
+
+**Offen aus Prioritaet 1:** die 167-s-Vorlaufluecke (Abstand
+Normalisierung→Registrierung, §30.73) bleibt ein separater Messschritt und
+blockiert nichts davon.
+
+Kein realer Lauf; Hidden-Bench + Suite.
 
 ---
 

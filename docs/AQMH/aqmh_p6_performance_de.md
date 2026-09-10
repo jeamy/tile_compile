@@ -22,21 +22,31 @@ ist in der Reihenfolge revidiert. Vier Review-Korrekturen sind eingearbeitet:
 1. Kettenbilanzen und Realraster-Hochrechnungen sind **Projektionen, keine
    Istzustände** — insbesondere ist die FD-Angabe eine Frame-lineare
    Hochrechnung aus 20 Frames.
-2. „Irreduzibler Clip" ist **zurückgenommen**: belegt bleibt nur die
-   Ungültigkeit des verworfenen k=1,0-Shortcuts. Bit-exakte Hebel (R3,
-   No-op-Clip-Elision) bleiben offen.
+2. „Irreduzibler Clip" ist **zurückgenommen**. Die Verwerfung des
+   k=1,0-Shortcuts bleibt als Versuchsergebnis stehen; ihre ursprüngliche
+   Begründung über die Nullflächenzählung trägt jedoch nicht — Fläche == 0
+   sagt nichts über Fläche == 1 aus, und die maßgebliche Häufigkeit
+   vollständig überdeckter Zellen wurde nicht erhoben (die ~1,6–3
+   Teilüberlappungs-Clips pro Quellpixel deuten auf deren Seltenheit,
+   beweisen sie nicht). Bit-exakte Hebel (R3, No-op-Clip-Elision) bleiben
+   offen.
 3. Das 180-s-FD-Feld in §6.6 ist ein **Entwicklungsbudget**, kein implizit
    abgeleitetes CUDA-Budget; die Wirkung von R1/R2 muss gemessen werden.
 4. Der Scope umfasst affine **und** lokale Datensätze; daraus folgt
    **keine** `expf`-Freigabe — erst getrennte Messung (Cachebau, Replay,
    Clip, I/O), dann Entscheidung.
 
-Bekannter Bench-Defekt, dessen Fix Priorität 1 ist: die isolierten
-Gather-/Reduce-Sektionen von `test_forward_drizzle_hotspot_profile.cpp`
-verarbeiten keine Kandidaten, weil die vorangehende Fill-Sektion A/B nullt
-(`Bv > 0` greift nie, `cnt` bleibt 0). Die Zeilen „gather"/„reduce" der
-Six-Way-Tabelle sind damit keine Produktionskosten; der Clip-Anteil **am
-Raster** (enum vs. clip) bleibt belastbar.
+Bench-Defekt der Pre-Repair-Fassung (`test_forward_drizzle_hotspot_
+profile.cpp`): die isolierten Gather-/Reduce-Sektionen verarbeiteten keine
+Kandidaten, weil die vorangehende Fill-Sektion A/B nullte (`Bv > 0` griff
+nie, `cnt` blieb 0). **Repariert in §30.78** (Per-Frame-Ordnung wie
+Produktion, Assertions, Outlier-belebtes Clipping, bit-exakter Referenz-
+abgleich, Hoist-Timer, isolierter Sweep, echte Besuchszähler). Ergebnis:
+die Raster:Reduce-Aufteilung schließt jetzt mit den
+`TC_FD_PROFILE`-Produktionstimern (Modell 34,66/10,44 s vs Profil
+34,76/10,18 s bei W=1, < 3 %) und ist damit belegt (~77 : 23 in der
+Bench-Szene); der Clip-Anteil **am Raster** bleibt eine mit diesem Vorbehalt
+gekennzeichnete **Differenzschätzung**.
 
 ---
 
@@ -321,10 +331,16 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
 - [~] **Innenzellen-`k=1,0`-Shortcut für den Droplet-Rasterizer** — VERWORFEN
       mit Messung (§30.76): Droplet-Leaf ~1,6 Internal-px, 0 % Null-Flächen-
       Clips, keine Innen-/Außenzellen. Nur der Footprint-Pass (§30.75) profitiert.
-- [ ] **`[fd-hotspot]`-Bench reparieren** (§30.77, **Priorität 1**): isolierte
-      Gather-/Reduce-Sektionen auf befülltem Zustand messen (Fill zuletzt /
-      auf Kopien), tatsächlich aktive Worker (nicht nur requested) und
-      Quellbesuche erfassen; Abgleich mit den `TC_FD_PROFILE`-Produktionstimern
+- [x] **`[fd-hotspot]`-Bench repariert** (§30.78, **Priorität 1**):
+      Per-Frame fill→accum→gather separat getimet, Assertions +
+      Outlier-Clipping, bit-exakter Referenzabgleich gegen den
+      Produktions-Volllauf (0 Mismatches über 1.015.808 Zellen × 2 Profile ×
+      3 Kanäle), Hoist-Allokation separat (1,58 s), Sweep mit
+      requested/budgeted/used + Chunk + Peak (used==budgeted==requested),
+      echte Besuchszähler (full-cover 5,6 % der Clips — neues Datum für R3;
+      Leaf-Visits/src-px ≈ Framezahl). Modell schließt mit
+      `TC_FD_PROFILE` (< 3 %). **Offen aus Priorität 1: die
+      167-s-Vorlauflücke** (separater Messschritt).
 - [ ] `apply_robust_clipping` Per-Pixel-Heap-Allokationen (`std::vector<bool>
       accepted` / `order` / `active` / `dev_order`) durch **budgetierten**
       Stack-/Thread-Scratch ersetzen (**Priorität 2**) — bit-identisch, hilft
@@ -345,11 +361,12 @@ Speicherzugriffe und Clippingkosten ändern sich mit N. Der Clip
 (`polygon_rectangle_intersection_area`) dominiert den Rasteranteil
 (78–81 % **des Rasters** im Bench vor dem Hoist; die Raster:Reduce-Aufteilung
 der Gesamtphase ist wegen des im Kopf benannten Bench-Defekts nicht belegt).
-Zur Leistungsuntergrenze: belegt ist nur die Ungültigkeit des verworfenen
-k=1,0-Shortcuts (0 % Null-Flächen, ~1,6–3 Teilüberlappungs-Clips pro
-Quellpixel — keine Innen-/Außenzellen zum Überspringen); daraus folgt **kein**
-allgemeiner Irreduzibilitätsbeweis — exakte Hebel (R3, No-op-Clip-Elision)
-bleiben offen. Aktuell priorisierte Schritte: Plan §0.2 / Abschnitt 6.6.
+Zur Leistungsuntergrenze: der verworfene k=1,0-Shortcut bleibt als
+Versuchsergebnis verworfen; seine ursprüngliche Begründung (0 % Null-Flächen)
+trug nicht — Fläche == 0 sagt nichts über Fläche == 1, die Häufigkeit
+vollständig überdeckter Zellen wurde nicht erhoben. Daraus folgt weiterhin
+**kein** allgemeiner Irreduzibilitätsbeweis — exakte Hebel (R3,
+No-op-Clip-Elision) bleiben offen. Aktuell priorisierte Schritte: Plan §0.2 / Abschnitt 6.6.
 **Lokale Warps** (M42/M66) gehören zum Scope; die `expf`-Revision (§30.69)
 bleibt geschlossen, bis getrennte Messung (Cachebau, Replay, Clip, I/O) einen
 nachweislichen Budgetbruch zeigt.
