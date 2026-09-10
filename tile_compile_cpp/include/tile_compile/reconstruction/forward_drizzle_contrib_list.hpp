@@ -23,6 +23,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace tile_compile::reconstruction {
@@ -49,6 +50,19 @@ struct DrizzleContrib {
 // Canonical strict-weak ordering over the 7-tuple, in the plan-19.6 field
 // order (frame, channel, target_y, target_x, source_y, source_x, leaf_order).
 bool contrib_key_less(const DrizzleContribKey &a, const DrizzleContribKey &b);
+
+// §30.81 step-5 (B): the tiled driver's per-column-tile callback. `tile` is a
+// reduced ForwardDrizzleUniformAndRawResult of internal width `tile_cols`,
+// valid only for the duration of the call; the caller re-inserts it at column
+// `tile_x_begin` of the full-width band. When a tile sink is supplied,
+// accumulate_pair_by_frame[_cuda] produces + sorts each frame's records ONCE
+// per band (a per-band memo) and replays that memo through every column tile,
+// instead of the caller re-invoking the whole build per tile. The returned
+// result then has empty planes and only `.clipping` populated (summed over
+// tiles).
+using PairTileSink =
+    std::function<void(int tile_x_begin, int tile_cols,
+                       const ForwardDrizzleUniformAndRawResult &tile)>;
 
 // plan 19.6.2: wall-clock split of the hybrid CPU-geometry -> GPU-rasterization
 // path, accumulated across every local-warp frame of every band. `cpu_seconds`
@@ -162,7 +176,12 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
     // the DRIZZLE_CONTRIB_LIST_BUDGET ceiling scales with the tile). The emitted
     // ProfilePlane stripes and `internal_width` report the window width; the
     // caller owns re-inserting the tile at column `target_x_begin`.
-    int target_x_begin = 0, int target_cols = -1);
+    int target_x_begin = 0, int target_cols = -1,
+    // §30.81 step-5 (B): when `tile_sink` is non-null and `tile_cols > 0`, this
+    // call produces + sorts each frame ONCE, then reduces column tiles of width
+    // `tile_cols` from that memo, handing each to `tile_sink`. `target_x_begin`
+    // / `target_cols` are ignored in that mode (the tiles span [0, W)).
+    const PairTileSink *tile_sink = nullptr, int tile_cols = 0);
 
 // The CUDA counterpart of accumulate_pair_by_frame: the per-frame contribution
 // records are produced by the device affine rasterizer
@@ -202,6 +221,9 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     HybridPathStats *hybrid_stats = nullptr,
     // §30.81: see accumulate_pair_by_frame. Same semantics; the CUDA record
     // producer still rasterizes full width, the window is applied host-side.
-    int target_x_begin = 0, int target_cols = -1);
+    int target_x_begin = 0, int target_cols = -1,
+    // §30.81 step-5 (B): per-band memo + column-tile replay; see
+    // accumulate_pair_by_frame.
+    const PairTileSink *tile_sink = nullptr, int tile_cols = 0);
 
 }  // namespace tile_compile::reconstruction

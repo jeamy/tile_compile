@@ -412,11 +412,20 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
         (`[.][fd-cuda-tile]`). 8 Kacheln, 6 Frames: **Sort 6,95× / Geräte-Phasen
         6,4–7,8× / reduce 0,87× / TOTAL 3,40×**; Records sortiert exakt 8,00×.
         → Sortierung ist der grösste Wiederholungsfaktor.
-  - [ ] Schritt 2: Kachelfenster bis zum Producer durchreichen (inverses
-        Quell-Rechteck X/Y, begrenzte Kernel-Arbeit + Record-Kapazität, absolute
-        Schlüssel); Record-Menge **vor** der Sortierung kappen.
-  - [ ] Schritt 3: Source-/Q-Zugriffe kappen (separat messbar; auch der lokale
-        Hybrid-Producer).
+  - [x] **Schritt 5 (B) — Per-Band-Memo (§30.81):** `accumulate_pair_impl` +
+        optionaler `PairTileSink`/`tile_cols`: **ein** produce + sort je (Band,
+        Frame) ins Per-Band-Memo, dann billiger Segment-Scan des Memos je
+        Spaltenkachel. Store-`process` ruft einmal `accumulate_pair_by_frame_cuda
+        (..., &tile_sink, tile_w)`. Bandhöhe zusätzlich durch Memo-Budget
+        begrenzt. `prepare_drizzle_frames` einmal je Band statt je Kachel.
+        **Bench (C-Spalte):** Sort 8,00× → **1,00×**, produce 4,05× → **0,73×**,
+        Geräte-Phasen 7,88× → **1,03×**, TOTAL **0,91×** — Per-Kachel-Verstärker
+        weg, Parität mit dem Ein-Aufruf-Voll-Breiten-Lauf. Bit-exakt
+        (`[fd-tile-window]` GPU-frei + `[drizzle-store][cuda-parity]` echtes
+        Gerät), 543/543.
+  - [ ] Schritt 3: Source-/Q-Zugriffe echt kappen — jetzt *pro Band* statt pro
+        Kachel (Verstärkung schon weg; weitere Eingrenzung auf den Band-Footprint
+        als kleine Folgeoptimierung; auch der lokale Hybrid-Producer).
   - [ ] Schritt 4: gemeinsames Host-Budget schliessen (feste + gleichzeitig
         lebende Puffer zuerst, dann Kandidatenkapazität; extrem schmale Kacheln
         meiden).

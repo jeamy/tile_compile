@@ -391,41 +391,12 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     const std::vector<float> &g_eff_by_source_index,
     const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
     std::size_t mem_budget_bytes, const PairFrameRecordProducer &produce,
-    int x_begin, int cols) {
+    int x_begin, int cols, const PairTileSink *tile_sink, int tile_cols) {
   const StripeGeom g = stripe_geom(plan, cfg, y_begin, rows);
   const auto prepared = prepare_drizzle_frames(plan, cfg, subdivision);
   const int channels = g.channels;
-  // §30.81 target-column window. `cols < 0` => xb == 0 && win_w == g.W, i.e.
-  // every buffer, ProfilePlane and flat index below is byte-for-byte the
-  // pre-§30.81 full-width path. The record producers still emit full-width
-  // records; contributions with `key.target_x` outside [xb, xe) are dropped
-  // before the flat ClipCandidate buffer (which is `win_w` wide, so the budget
-  // ceiling scales with the tile).
-  const int xb = std::clamp(x_begin, 0, g.W);
-  const int xe = cols < 0 ? g.W : std::clamp(x_begin + cols, xb, g.W);
-  const int win_w = xe - xb;
-  if (win_w <= 0)
-    throw std::invalid_argument("DRIZZLE_EMPTY_TARGET_WINDOW");
-  const std::size_t n =
-      static_cast<std::size_t>(win_w) * static_cast<std::size_t>(rows);
   const std::size_t frame_count = plan.frames.size();
-
-  // Fail closed before the flat ClipCandidate buffer allocation (it does NOT
-  // self-limit `rows`). Overflow-safe.
-  {
-    const std::size_t per_ch = (frame_count && n > std::numeric_limits<std::size_t>::max() / frame_count)
-                                   ? std::numeric_limits<std::size_t>::max()
-                                   : n * frame_count;
-    const std::size_t elems =
-        (channels && per_ch > std::numeric_limits<std::size_t>::max() / static_cast<std::size_t>(channels))
-            ? std::numeric_limits<std::size_t>::max()
-            : per_ch * static_cast<std::size_t>(channels);
-    const std::size_t bytes = (elems > std::numeric_limits<std::size_t>::max() / sizeof(ClipCandidate))
-                                  ? std::numeric_limits<std::size_t>::max()
-                                  : elems * sizeof(ClipCandidate);
-    if (bytes > mem_budget_bytes)
-      throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
-  }
+  const bool tiled = tile_sink != nullptr && *tile_sink && tile_cols > 0;
 
   const bool need_q0 = mb.emit_fine;
   const bool need_q1 = mb.emit_medium;
@@ -458,53 +429,6 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     return static_cast<double>(g_eff_by_source_index[si]);
   };
 
-  ForwardDrizzleUniformAndRawResult result;
-  auto init_profile = [&](ForwardDrizzleUniformResult &p, bool on) {
-    p.color_mode = plan.color_mode;
-    p.internal_width = win_w;
-    p.internal_height = on ? rows : 0;
-    if (!on) return;
-    if (channels == 1) {
-      p.L.allocate(win_w, rows);
-    } else {
-      p.R.allocate(win_w, rows);
-      p.G.allocate(win_w, rows);
-      p.B.allocate(win_w, rows);
-    }
-  };
-  init_profile(result.uniform, true);
-  init_profile(result.raw, true);
-  init_profile(result.fine, mb.emit_fine);
-  init_profile(result.medium, mb.emit_medium);
-  std::vector<double> ac_sep, ac_art, ac_reg;
-  if (need_qa) {
-    result.a_separation.assign(n, std::numeric_limits<float>::quiet_NaN());
-    result.a_artifact.assign(n, std::numeric_limits<float>::quiet_NaN());
-    result.a_registration.assign(n, std::numeric_limits<float>::quiet_NaN());
-    result.alpha_confidence_support.assign(n, 0u);
-    ac_sep.assign(n, std::numeric_limits<double>::infinity());
-    ac_art.assign(n, std::numeric_limits<double>::infinity());
-    ac_reg.assign(n, std::numeric_limits<double>::infinity());
-  }
-  auto planes_of = [&](ForwardDrizzleUniformResult &p) {
-    return channels == 1
-               ? std::array<ProfilePlane *, 3>{&p.L, nullptr, nullptr}
-               : std::array<ProfilePlane *, 3>{&p.R, &p.G, &p.B};
-  };
-  const auto up = planes_of(result.uniform);
-  const auto rp = planes_of(result.raw);
-  const auto fp = planes_of(result.fine);
-  const auto mp = planes_of(result.medium);
-
-  // ClipCandidate stripe buffer, exactly as the streaming path (flat, frame-
-  // major). counts[c][i] is the running per-cell frame count.
-  std::vector<std::vector<ClipCandidate>> cand(channels);
-  std::vector<std::vector<std::size_t>> counts(channels);
-  for (int c = 0; c < channels; ++c) {
-    cand[c].resize(n * frame_count);
-    counts[c].assign(n, 0);
-  }
-
   const DrizzleProfileReduceConfig reduce_cfg{
       cfg.min_clip_contributors,   cfg.robust_passes,
       clip_cfg.clip_sigma_low,     clip_cfg.clip_sigma_high,
@@ -513,12 +437,8 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
       need_qa,                     mb.fine_quality_exponent,
       mb.medium_quality_exponent,  mb.alpha_confidence};
 
-  const auto Wsz = static_cast<std::size_t>(win_w);
-  const std::uint32_t xb_u = static_cast<std::uint32_t>(xb);
-  const std::uint32_t xe_u = static_cast<std::uint32_t>(xe);
-
-  // §30.81 step-5 baseline: coarse split of the per-call work so the per-tile
-  // repetition factor is attributable. Zero cost unless TC_FD_CUDA_PROFILE.
+  // §30.81 step-5 baseline timers (see forward_drizzle_cuda.hpp). Zero cost
+  // unless TC_FD_CUDA_PROFILE.
   const bool cprof = forward_drizzle_cuda_profile_enabled();
   auto &cp = forward_drizzle_cuda_profile();
   using cclock = std::chrono::steady_clock;
@@ -530,19 +450,16 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
   };
   if (cprof) cp.calls.fetch_add(1, std::memory_order_relaxed);
 
-  // Per frame: build -> canonical sort -> segment-reduce into one ClipCandidate
-  // per (channel, cell), reading the frame's Q maps per record.
-  for (std::size_t fo = 0; fo < prepared.frames.size(); ++fo) {
-    const auto &f = *prepared.frames[fo];
-    FrameQualityMaps qm;
-    if (quality_of) qm = quality_of(f.source_index);
-    const Matrix2Df *qc = need_qc ? qm.composite : nullptr;
-    const Matrix2Df *q0 = need_q0 ? qm.scale0 : nullptr;
-    const Matrix2Df *q1 = need_q1 ? qm.scale1 : nullptr;
-    const Matrix2Df *qa = need_qa ? qm.artifact : nullptr;
+  auto planes_of = [&](ForwardDrizzleUniformResult &p) {
+    return channels == 1
+               ? std::array<ProfilePlane *, 3>{&p.L, nullptr, nullptr}
+               : std::array<ProfilePlane *, 3>{&p.R, &p.G, &p.B};
+  };
 
+  // Build one frame's records: produce (device or CPU) then the canonical sort.
+  auto produce_sorted = [&](std::size_t fo) {
     auto tp = cnow();
-    auto recs = produce(fo, f, g);
+    auto recs = produce(fo, *prepared.frames[fo], g);
     cadd(cp.produce_s, tp);
     if (cprof)
       cp.records_sorted.fetch_add(recs.size(), std::memory_order_relaxed);
@@ -552,85 +469,216 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
                 return contrib_key_less(a.key, b.key);
               });
     cadd(cp.sort_s, tp);
+    return recs;
+  };
 
-    std::size_t s = 0;
-    while (s < recs.size()) {
-      std::size_t e = s + 1;
-      const auto &k0 = recs[s].key;
-      while (e < recs.size()) {
-        const auto &k = recs[e].key;
-        if (k.channel != k0.channel || k.target_y != k0.target_y ||
-            k.target_x != k0.target_x)
-          break;
-        ++e;
-      }
-      // §30.81: a segment shares one (channel, target_y, target_x) key, so a
-      // record outside the target-column window means the whole segment is;
-      // skip it before the Q fold. Full-width window => never taken.
-      if (k0.target_x < xb_u || k0.target_x >= xe_u) {
-        s = e;
-        continue;
-      }
-      double A = 0.0, B = 0.0, QA = 0.0, QA0 = 0.0, QA1 = 0.0, QAA = 0.0,
-             QAF = 0.0;
-      for (std::size_t t = s; t < e; ++t) {
-        const auto &r = recs[t];
-        A += r.area * r.value;
-        B += r.area;
-        const std::uint32_t sy = r.key.source_y, sx = r.key.source_x;
-        if (qc) QA += r.area * q_fold(map_at(qc, sy, sx));
-        if (q0) QA0 += r.area * q_fold(map_at(q0, sy, sx));
-        if (q1) QA1 += r.area * q_fold(map_at(q1, sy, sx));
-        if (qa) {
-          const double av = map_at(qa, sy, sx);
-          QAA += r.area * q_fold(av);
-          if (std::isfinite(av)) QAF += r.area;
-        }
-      }
-      if (B > 0.0) {
-        const int c = static_cast<int>(k0.channel);
-        const std::size_t i = static_cast<std::size_t>(k0.target_y) * Wsz +
-                              (k0.target_x - xb_u);
-        cand[c][i * frame_count + counts[c][i]++] = ClipCandidate{
-            f.source_index, A / B, B, need_qc ? QA / B : 1.0,
-            need_q0 ? QA0 / B : 1.0, need_q1 ? QA1 / B : 1.0,
-            need_qa ? QAA / B : 1.0, need_qa && QAF > 0.0};
-      }
-      s = e;
+  // Reduce one target-column window [wx0, wx0+ww) into a fresh result of that
+  // width. `get_recs(fo)` yields frame fo's already-sorted records as a live
+  // reference (the memo entry, or a reused scratch on the single-window path).
+  // Bit-identical to the pre-step-5 body over the same window --- the only
+  // change is that the produce + sort moved into `get_recs`.
+  auto reduce_window =
+      [&](int wx0, int ww,
+          const auto &get_recs) -> ForwardDrizzleUniformAndRawResult {
+    const std::size_t n =
+        static_cast<std::size_t>(ww) * static_cast<std::size_t>(rows);
+    {  // fail closed before the flat ClipCandidate buffer allocation
+      const std::size_t per_ch =
+          (frame_count &&
+           n > std::numeric_limits<std::size_t>::max() / frame_count)
+              ? std::numeric_limits<std::size_t>::max()
+              : n * frame_count;
+      const std::size_t elems =
+          (channels && per_ch > std::numeric_limits<std::size_t>::max() /
+                                    static_cast<std::size_t>(channels))
+              ? std::numeric_limits<std::size_t>::max()
+              : per_ch * static_cast<std::size_t>(channels);
+      const std::size_t bytes =
+          (elems >
+           std::numeric_limits<std::size_t>::max() / sizeof(ClipCandidate))
+              ? std::numeric_limits<std::size_t>::max()
+              : elems * sizeof(ClipCandidate);
+      if (bytes > mem_budget_bytes)
+        throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
     }
+    const std::uint32_t wxb_u = static_cast<std::uint32_t>(wx0);
+    const std::uint32_t wxe_u = static_cast<std::uint32_t>(wx0 + ww);
+    const auto Wsz = static_cast<std::size_t>(ww);
+
+    ForwardDrizzleUniformAndRawResult r;
+    auto init_profile = [&](ForwardDrizzleUniformResult &p, bool on) {
+      p.color_mode = plan.color_mode;
+      p.internal_width = ww;
+      p.internal_height = on ? rows : 0;
+      if (!on) return;
+      if (channels == 1) {
+        p.L.allocate(ww, rows);
+      } else {
+        p.R.allocate(ww, rows);
+        p.G.allocate(ww, rows);
+        p.B.allocate(ww, rows);
+      }
+    };
+    init_profile(r.uniform, true);
+    init_profile(r.raw, true);
+    init_profile(r.fine, mb.emit_fine);
+    init_profile(r.medium, mb.emit_medium);
+    std::vector<double> ac_sep, ac_art, ac_reg;
+    if (need_qa) {
+      r.a_separation.assign(n, std::numeric_limits<float>::quiet_NaN());
+      r.a_artifact.assign(n, std::numeric_limits<float>::quiet_NaN());
+      r.a_registration.assign(n, std::numeric_limits<float>::quiet_NaN());
+      r.alpha_confidence_support.assign(n, 0u);
+      ac_sep.assign(n, std::numeric_limits<double>::infinity());
+      ac_art.assign(n, std::numeric_limits<double>::infinity());
+      ac_reg.assign(n, std::numeric_limits<double>::infinity());
+    }
+    const auto up = planes_of(r.uniform);
+    const auto rp = planes_of(r.raw);
+    const auto fp = planes_of(r.fine);
+    const auto mp = planes_of(r.medium);
+
+    std::vector<std::vector<ClipCandidate>> cand(channels);
+    std::vector<std::vector<std::size_t>> counts(channels);
+    for (int c = 0; c < channels; ++c) {
+      cand[c].resize(n * frame_count);
+      counts[c].assign(n, 0);
+    }
+
+    for (std::size_t fo = 0; fo < prepared.frames.size(); ++fo) {
+      const auto &f = *prepared.frames[fo];
+      FrameQualityMaps qm;
+      if (quality_of) qm = quality_of(f.source_index);
+      const Matrix2Df *qc = need_qc ? qm.composite : nullptr;
+      const Matrix2Df *q0 = need_q0 ? qm.scale0 : nullptr;
+      const Matrix2Df *q1 = need_q1 ? qm.scale1 : nullptr;
+      const Matrix2Df *qa = need_qa ? qm.artifact : nullptr;
+      const std::vector<DrizzleContrib> &recs = get_recs(fo);
+
+      std::size_t s = 0;
+      while (s < recs.size()) {
+        std::size_t e = s + 1;
+        const auto &k0 = recs[s].key;
+        while (e < recs.size()) {
+          const auto &k = recs[e].key;
+          if (k.channel != k0.channel || k.target_y != k0.target_y ||
+              k.target_x != k0.target_x)
+            break;
+          ++e;
+        }
+        // A segment shares one (channel, target_y, target_x) key, so a record
+        // outside [wx0, wx0+ww) means the whole segment is; skip it before the
+        // Q fold. Full-width window => never taken.
+        if (k0.target_x < wxb_u || k0.target_x >= wxe_u) {
+          s = e;
+          continue;
+        }
+        double A = 0.0, B = 0.0, QA = 0.0, QA0 = 0.0, QA1 = 0.0, QAA = 0.0,
+               QAF = 0.0;
+        for (std::size_t t = s; t < e; ++t) {
+          const auto &rr = recs[t];
+          A += rr.area * rr.value;
+          B += rr.area;
+          const std::uint32_t sy = rr.key.source_y, sx = rr.key.source_x;
+          if (qc) QA += rr.area * q_fold(map_at(qc, sy, sx));
+          if (q0) QA0 += rr.area * q_fold(map_at(q0, sy, sx));
+          if (q1) QA1 += rr.area * q_fold(map_at(q1, sy, sx));
+          if (qa) {
+            const double av = map_at(qa, sy, sx);
+            QAA += rr.area * q_fold(av);
+            if (std::isfinite(av)) QAF += rr.area;
+          }
+        }
+        if (B > 0.0) {
+          const int c = static_cast<int>(k0.channel);
+          const std::size_t i = static_cast<std::size_t>(k0.target_y) * Wsz +
+                                (k0.target_x - wxb_u);
+          cand[c][i * frame_count + counts[c][i]++] = ClipCandidate{
+              f.source_index, A / B, B, need_qc ? QA / B : 1.0,
+              need_q0 ? QA0 / B : 1.0, need_q1 ? QA1 / B : 1.0,
+              need_qa ? QAA / B : 1.0, need_qa && QAF > 0.0};
+        }
+        s = e;
+      }
+    }
+
+    // Priority 2 (§30.79): reused clip scratch; serial per window.
+    DrizzleClipScratch clip_scratch;
+    clip_scratch.reserve_for(frame_count, need_qa);
+    const auto tp_reduce = cnow();
+    for (int c = 0; c < channels; ++c)
+      for (std::size_t i = 0; i < n; ++i) {
+        if (!counts[c][i]) continue;
+        const std::span<const ClipCandidate> pixel(
+            cand[c].data() + i * frame_count, counts[c][i]);
+        reduce_pixel_profiles(pixel, reduce_cfg, g_eff_for, reg_by_source, i,
+                              up[c], rp[c], mb.emit_fine ? fp[c] : nullptr,
+                              mb.emit_medium ? mp[c] : nullptr,
+                              need_qa ? &ac_sep[i] : nullptr,
+                              need_qa ? &ac_art[i] : nullptr,
+                              need_qa ? &ac_reg[i] : nullptr, r.clipping,
+                              &clip_scratch);
+      }
+    cadd(cp.reduce_s, tp_reduce);
+
+    if (need_qa)
+      for (std::size_t i = 0; i < n; ++i) {
+        if (!std::isfinite(ac_sep[i])) continue;
+        r.a_separation[i] = static_cast<float>(ac_sep[i]);
+        r.a_artifact[i] = static_cast<float>(ac_art[i]);
+        r.a_registration[i] = static_cast<float>(ac_reg[i]);
+        r.alpha_confidence_support[i] = 1u;
+      }
+    return r;
+  };
+
+  if (tiled) {
+    // §30.81 step-5 (B): produce + sort each frame ONCE into a per-band memo,
+    // then replay it through every column tile. Removes the per-tile produce +
+    // sort repetition (baseline §30.81 step 5: sort was the largest amplifier,
+    // records sorted scaled exactly with the tile count).
+    std::vector<std::vector<DrizzleContrib>> memo(prepared.frames.size());
+    std::size_t memo_bytes = 0;
+    for (std::size_t fo = 0; fo < prepared.frames.size(); ++fo) {
+      memo[fo] = produce_sorted(fo);
+      memo_bytes += memo[fo].size() * sizeof(DrizzleContrib);
+      if (memo_bytes > mem_budget_bytes)  // caller must size the band smaller
+        throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
+    }
+    auto from_memo =
+        [&](std::size_t fo) -> const std::vector<DrizzleContrib> & {
+      return memo[fo];
+    };
+    ForwardDrizzleUniformAndRawResult agg;  // planes empty; .clipping summed
+    for (int wx0 = 0; wx0 < g.W; wx0 += tile_cols) {
+      const int tw = std::min(tile_cols, g.W - wx0);
+      auto tile = reduce_window(wx0, tw, from_memo);
+      agg.clipping.pixel_channel_evaluations +=
+          tile.clipping.pixel_channel_evaluations;
+      agg.clipping.pixel_channel_rejected +=
+          tile.clipping.pixel_channel_rejected;
+      agg.clipping.candidate_contributions_clipped +=
+          tile.clipping.candidate_contributions_clipped;
+      (*tile_sink)(wx0, tw, tile);
+    }
+    return agg;
   }
 
-  // Priority 2 (§30.79): reused clip scratch, same buffers the streaming path
-  // budgets per worker (worker_scratch_bytes). This reduce loop is serial
-  // per invocation, so ONE instance is correct here; if this loop is ever
-  // parallelised, allocate one scratch per worker INSIDE the parallel body.
-  DrizzleClipScratch clip_scratch;
-  clip_scratch.reserve_for(frame_count, need_qa);
-  const auto tp_reduce = cnow();
-  for (int c = 0; c < channels; ++c)
-    for (std::size_t i = 0; i < n; ++i) {
-      if (!counts[c][i]) continue;
-      const std::span<const ClipCandidate> pixel(
-          cand[c].data() + i * frame_count, counts[c][i]);
-      reduce_pixel_profiles(pixel, reduce_cfg, g_eff_for, reg_by_source, i,
-                            up[c], rp[c], mb.emit_fine ? fp[c] : nullptr,
-                            mb.emit_medium ? mp[c] : nullptr,
-                            need_qa ? &ac_sep[i] : nullptr,
-                            need_qa ? &ac_art[i] : nullptr,
-                            need_qa ? &ac_reg[i] : nullptr, result.clipping,
-                            &clip_scratch);
-    }
-  cadd(cp.reduce_s, tp_reduce);
-
-  if (need_qa)
-    for (std::size_t i = 0; i < n; ++i) {
-      if (!std::isfinite(ac_sep[i])) continue;
-      result.a_separation[i] = static_cast<float>(ac_sep[i]);
-      result.a_artifact[i] = static_cast<float>(ac_art[i]);
-      result.a_registration[i] = static_cast<float>(ac_reg[i]);
-      result.alpha_confidence_support[i] = 1u;
-    }
-  return result;
+  // Single-window path: produce + sort one frame at a time into a reused
+  // scratch, so the peak is one frame's records + one window's candidate
+  // buffer, exactly as before step 5.
+  const int xb = std::clamp(x_begin, 0, g.W);
+  const int xe = cols < 0 ? g.W : std::clamp(x_begin + cols, xb, g.W);
+  const int win_w = xe - xb;
+  if (win_w <= 0)
+    throw std::invalid_argument("DRIZZLE_EMPTY_TARGET_WINDOW");
+  std::vector<DrizzleContrib> scratch;
+  auto from_producer =
+      [&](std::size_t fo) -> const std::vector<DrizzleContrib> & {
+    scratch = produce_sorted(fo);
+    return scratch;
+  };
+  return reduce_window(xb, win_w, from_producer);
 }
 
 // The CPU record producer: the plan-19.6 reference rasterizer.
@@ -759,13 +807,14 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff_by_source_index,
     const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
-    std::size_t mem_budget_bytes, int target_x_begin, int target_cols) {
+    std::size_t mem_budget_bytes, int target_x_begin, int target_cols,
+    const PairTileSink *tile_sink, int tile_cols) {
   return accumulate_pair_impl(
       plan, cfg, clip_cfg, y_begin, rows, subdivision, g_eff_by_source_index,
       quality_of, mb, mem_budget_bytes,
       cpu_pair_producer(plan, source_of, cfg, subdivision, y_begin, rows,
                         mem_budget_bytes),
-      target_x_begin, target_cols);
+      target_x_begin, target_cols, tile_sink, tile_cols);
 }
 
 ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
@@ -777,14 +826,15 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
     std::size_t mem_budget_bytes, int max_cells_per_pixel,
     std::size_t max_batch_items, HybridPathStats *hybrid_stats,
-    int target_x_begin, int target_cols) {
+    int target_x_begin, int target_cols, const PairTileSink *tile_sink,
+    int tile_cols) {
   return accumulate_pair_impl(
       plan, cfg, clip_cfg, y_begin, rows, subdivision, g_eff_by_source_index,
       quality_of, mb, mem_budget_bytes,
       cuda_pair_producer(plan, source_of, cfg, subdivision, y_begin, rows,
                          max_cells_per_pixel, mem_budget_bytes, max_batch_items,
                          hybrid_stats),
-      target_x_begin, target_cols);
+      target_x_begin, target_cols, tile_sink, tile_cols);
 }
 
 }  // namespace tile_compile::reconstruction

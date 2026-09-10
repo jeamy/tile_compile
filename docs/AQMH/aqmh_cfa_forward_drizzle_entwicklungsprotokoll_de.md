@@ -6641,15 +6641,62 @@ der Sort-Term allein ~768× seiner Ein-Kachel-Kosten erreichen. ⇒ Schritt 2 mu
 die **Record-Menge vor der Sortierung** kappen (Producer emittiert nur
 In-Fenster-Records), nicht bloss nachfiltern.
 
-**Nächste Schnitte (User-Plan):** (2) Kachelfenster bis zum Producer
-durchreichen — konservatives inverses Quellrechteck X/Y, begrenzte Kernel-Arbeit
-+ Record-Kapazität, absolute Schlüssel erhalten; (3) Source-/Q-Zugriffe
-tatsächlich kappen (separat messbar; auch der lokale Hybrid-Producer); (4)
-gemeinsames Host-Budget schliessen (feste + gleichzeitig lebende Puffer zuerst
-abziehen, dann Kandidatenkapazität; extrem schmale Kacheln meiden —
-Randüberlappung + Aufrufkosten); (5) dieselbe Paritätsmatrix + derselbe Bench
-erneut (schmale/ragged Kacheln, Rotation/Scherung, lokale Modelle, Modus 2/1,
-Budget-Retries).
+### 30.81 Schritt 5 (B) — Per-Band-Memo statt Per-Kachel-produce+sort (2026-09-10)
+
+Statt das Kachelfenster in den Kernel zu schieben (Option A: kleinere Records/
+Kachel, aber weiter N× fixer Per-Aufruf-Overhead) wurde die stärkere Umstrukturierung
+gewählt (User: „ja, natürlich B"):
+
+- `accumulate_pair_impl` bekommt einen optionalen `PairTileSink` + `tile_cols`.
+  Ist er gesetzt: **ein** `produce()` + **ein** `std::sort()` je (Band, Frame) in
+  ein Per-Band-Memo (`std::vector<std::vector<DrizzleContrib>>`), danach je
+  Spaltenkachel ein billiger gefilterter Segment-Scan des Memos → kachelgrosser
+  Kandidatenpuffer → `reduce_pixel_profiles` → `tile_sink(xb, tw, tile)`. Der
+  zurückgegebene Aggregatwert trägt nur `.clipping` (über Kacheln summiert).
+- Die Segment-Scan/Reduce/Alpha-Logik ist in ein `reduce_window(wx0, ww,
+  get_recs)`-Lambda faktorisiert, das **beide** Pfade nutzen — der Ein-Fenster-
+  Pfad (`get_recs` = produce-on-demand in einen wiederverwendeten Scratch, ein
+  Frame nach dem anderen) ist byte-für-byte der Vor-Schritt-5-Rumpf, Peak
+  unverändert.
+- `prepare_drizzle_frames` läuft jetzt **einmal je Band** statt einmal je Kachel
+  (Analyse-Befund #2).
+- Store-`process`-Lambda: **ein** `accumulate_pair_by_frame_cuda(..., &tile_sink,
+  tile_w)` statt der Per-Kachel-Schleife; der Sink blittet in den Voll-Breiten-
+  Band-Stripe. Bandhöhe zusätzlich durch ein **Memo-Budget** begrenzt
+  (`frame_count · rows · source_width · kMemoCellsEst(=6) · sizeof(DrizzleContrib)
+  ≤ host_budget`); überläuft der reale Record-Zähler, wirft `accumulate_pair_impl`
+  `DRIZZLE_CONTRIB_LIST_BUDGET` und die Halbierungsleiter kürzt das Band.
+
+**Messung** (`[.][fd-cuda-tile]`, echtes Gerät, 6 Frames, W=960 H=80, 8 Kacheln,
+`tile_w=120`) — A = Ein-Aufruf voll-breit, B = 8 Per-Kachel-Aufrufe, **C = Memo-Treiber**:
+
+| Phase | A single | B per-tile | **C memo** | B/A | **C/A** |
+|---|--:|--:|--:|--:|--:|
+| produce | 0,040 | 0,162 | **0,029** | 4,05× | **0,73×** |
+| Geräte-Summe | 0,009 | 0,072 | **0,009** | 7,88× | **1,03×** |
+| sort | 0,046 | 0,365 | **0,043** | 7,93× | **0,92×** |
+| reduce | 0,066 | 0,068 | 0,067 | 1,03× | 1,02× |
+| **TOTAL** | 0,152 | 0,595 | **0,139** | 3,91× | **0,91×** |
+| Records sortiert | 561 964 | 4 495 712 | **561 964** | 8,00× | **1,00×** |
+| `accumulate_pair_impl`-Aufrufe | 1 | 8 | **1** | | |
+
+**Ergebnis:** der Per-Kachel-Verstärker ist **weg** — Sort 8,00× → 1,00×,
+produce 4,05× → 0,73×, Geräte-Phasen 7,88× → 1,03×. C ist bei Parität mit dem
+Ein-Aufruf-Voll-Breiten-Lauf (0,91× TOTAL, Rauschen). Bit-Identität von C's
+Reassembly gegen den Ein-Aufruf ist im Bench asserted; neuer GPU-freier
+`[contrib-list][fd-tile-window]`-Test für den Treiber (`tile_cols`-Stride, 4
+Kacheln inkl. Breite-1-Rest, Uniform/Raw/Fine/Medium + Alpha + Clip-Zähler
+bit-exakt). `[drizzle-store][cuda-parity]` (echtes Gerät) prüft den Treiber
+end-to-end durch den Store. Volle Suite **543/543**, Legacy 17/18.
+
+**Offen (User-Plan, kleiner geworden durch B):** (3) Source-/Q-Zugriffe echt
+kappen (jetzt *pro Band* statt pro Kachel — Verstärkung weg, weitere Eingrenzung
+auf den Band-Footprint als kleine Folgeoptimierung; auch der lokale Hybrid-
+Producer); (4) gemeinsames Host-Budget schliessen (Memo ist der neue „gleichzeitig
+lebende" Term — feste Puffer + Memo + eine Kachel-Kandidatenkapazität +
+Reassembly gemeinsam gegen den Deckel; extrem schmale Kacheln meiden); (5)
+Paritätsmatrix + Bench erneut (schmale/ragged Kacheln, Rotation/Scherung, lokale
+Modelle, Modus 2/1, Budget-Retries).
 
 ---
 

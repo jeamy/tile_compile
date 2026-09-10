@@ -620,6 +620,94 @@ TEST_CASE("§30.81 pair list: 2D row-band x column-tile splitting leaves the "
           stitched.clipping.candidate_contributions_clipped);
 }
 
+TEST_CASE("§30.81 step-5 (B): the tiled driver (produce+sort each frame once "
+          "per band, replay through column tiles) is bit-identical to the "
+          "whole-width build",
+          "[forward-drizzle][contrib-list][fd-tile-window]") {
+  const PairCase k = make_pair_case(ColorMode::OSC, /*local=*/false,
+                                    BayerPattern::RGGB, /*edge=*/false);
+  const int W = k.plan.canvas_width_native * k.cfg.internal_scale;
+  const int H = k.plan.canvas_height_native * k.cfg.internal_scale;
+
+  const auto whole = accumulate_pair_by_frame(
+      k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(), k.mb);
+
+  auto planes = [](const ForwardDrizzleUniformResult &r) {
+    return std::vector<const ProfilePlane *>{&r.R, &r.G, &r.B};
+  };
+  auto mut_planes = [](ForwardDrizzleUniformResult &r) {
+    return std::vector<ProfilePlane *>{&r.R, &r.G, &r.B};
+  };
+  ForwardDrizzleUniformAndRawResult stitched;
+  for (auto *p : {&stitched.uniform, &stitched.raw, &stitched.fine,
+                  &stitched.medium}) {
+    p->R.allocate(W, H); p->G.allocate(W, H); p->B.allocate(W, H);
+  }
+  const size_t N = static_cast<size_t>(W) * H;
+  stitched.a_separation.assign(N, std::numeric_limits<float>::quiet_NaN());
+  stitched.a_artifact.assign(N, std::numeric_limits<float>::quiet_NaN());
+  stitched.a_registration.assign(N, std::numeric_limits<float>::quiet_NaN());
+  stitched.alpha_confidence_support.assign(N, 0u);
+
+  int tiles_seen = 0;
+  PairTileSink sink = [&](int xb, int tw,
+                          const ForwardDrizzleUniformAndRawResult &part) {
+    ++tiles_seen;
+    REQUIRE(part.uniform.internal_width == tw);
+    for (auto pr : {std::pair{&stitched.uniform, &part.uniform},
+                    std::pair{&stitched.raw, &part.raw},
+                    std::pair{&stitched.fine, &part.fine},
+                    std::pair{&stitched.medium, &part.medium}}) {
+      auto dp = mut_planes(*pr.first);
+      auto sp = planes(*pr.second);
+      for (int c = 0; c < 3; ++c)
+        for (int ty = 0; ty < H; ++ty)
+          for (int x = 0; x < tw; ++x) {
+            const size_t s = static_cast<size_t>(ty) * tw + x;
+            const size_t d = static_cast<size_t>(ty) * W + (xb + x);
+            dp[c]->value[d] = sp[c]->value[s];
+            dp[c]->weight_sum[d] = sp[c]->weight_sum[s];
+            dp[c]->n_eff[d] = sp[c]->n_eff[s];
+            dp[c]->support[d] = sp[c]->support[s];
+          }
+    }
+    for (int ty = 0; ty < H; ++ty)
+      for (int x = 0; x < tw; ++x) {
+        const size_t s = static_cast<size_t>(ty) * tw + x;
+        const size_t d = static_cast<size_t>(ty) * W + (xb + x);
+        stitched.a_separation[d] = part.a_separation[s];
+        stitched.a_artifact[d] = part.a_artifact[s];
+        stitched.a_registration[d] = part.a_registration[s];
+        stitched.alpha_confidence_support[d] = part.alpha_confidence_support[s];
+      }
+  };
+
+  const int tile_cols = 5;  // W=16 -> tiles [0,5)[5,10)[10,15)[15,16)
+  const auto agg = accumulate_pair_by_frame(
+      k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(), k.mb,
+      static_cast<std::size_t>(1) << 32, 0, -1, &sink, tile_cols);
+  REQUIRE(tiles_seen == 4);
+  REQUIRE(agg.uniform.R.value.empty());  // aggregate carries only .clipping
+
+  for (auto pr : {std::pair{&whole.uniform, &stitched.uniform},
+                  std::pair{&whole.raw, &stitched.raw},
+                  std::pair{&whole.fine, &stitched.fine},
+                  std::pair{&whole.medium, &stitched.medium}}) {
+    const auto wp = planes(*pr.first), sp2 = planes(*pr.second);
+    for (int c = 0; c < 3; ++c) require_plane_identical(*wp[c], *sp2[c]);
+  }
+  require_float_vec_identical(whole.a_separation, stitched.a_separation);
+  require_float_vec_identical(whole.a_artifact, stitched.a_artifact);
+  require_float_vec_identical(whole.a_registration, stitched.a_registration);
+  REQUIRE(whole.alpha_confidence_support == stitched.alpha_confidence_support);
+  REQUIRE(agg.clipping.pixel_channel_evaluations ==
+          whole.clipping.pixel_channel_evaluations);
+  REQUIRE(agg.clipping.pixel_channel_rejected ==
+          whole.clipping.pixel_channel_rejected);
+  REQUIRE(agg.clipping.candidate_contributions_clipped ==
+          whole.clipping.candidate_contributions_clipped);
+}
+
 TEST_CASE("plan-19.5 pair parity: the CUDA affine rasterizer path is "
           "bit-identical to the CPU pair reference",
           "[forward-drizzle][contrib-list][cuda-parity]") {
