@@ -449,7 +449,16 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     // shared (its `enumerate_stripe` is const + concurrency-safe). Values < 1
     // are treated as 1. Geometry-stats instrumentation is only collected at
     // `workers == 1` (the process-global registry is not concurrency-safe).
-    int workers = 1);
+    int workers = 1,
+    // §30.81 (P6 priority-3 CUDA 2D target tiling): restrict every stripe to the
+    // target-column window [target_x_begin, target_x_begin + target_cols) of the
+    // internal canvas. `target_cols < 0` => full internal width, i.e. the
+    // historical behaviour, byte-for-byte. When a window is set, all per-stripe
+    // buffers and the emitted ProfilePlane stripes are `target_cols` wide and
+    // `ForwardDrizzleUniformResult::internal_width` reports the window width; the
+    // sink's `y_begin` is still the absolute internal row and the caller owns
+    // re-inserting the tile at column `target_x_begin`.
+    int target_x_begin = 0, int target_cols = -1);
 
 ForwardDrizzleUniformAndRawResult compute_forward_drizzle_uniform_and_raw(
     const registration::RegistrationSamplingPlan &plan,

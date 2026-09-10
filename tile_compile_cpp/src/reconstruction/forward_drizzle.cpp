@@ -1239,7 +1239,7 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff_by_source_index, size_t retained_bytes,
     const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
-    int workers) {
+    int workers, int target_x_begin, int target_cols) {
   if ((mb.emit_fine || mb.emit_medium || mb.emit_alpha_confidence) && !quality_of)
     throw std::invalid_argument("DRIZZLE_MULTIBAND_REQUIRES_QUALITY_PROVIDER");
   const bool need_q0 = mb.emit_fine;
@@ -1380,6 +1380,20 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
       scratch = checked_product(static_cast<size_t>(req_workers), worker_scratch);
     }
   }
+  // §30.81: target-column window over the internal canvas. `target_cols < 0`
+  // (the default) => `win_x0 == 0 && win_w == memory.width`, i.e. every stripe
+  // buffer, ProfilePlane and sink index below is byte-for-byte the pre-§30.81
+  // full-width path. A set window makes all per-stripe state `win_w` wide; the
+  // memory plan above is deliberately still sized to the full width (it only
+  // picks the row count, and a narrower window can only need fewer rows).
+  const int win_x0 = std::clamp(target_x_begin, 0, memory.width);
+  const int win_w =
+      target_cols < 0
+          ? memory.width
+          : std::clamp(target_x_begin + target_cols, win_x0, memory.width) -
+                win_x0;
+  if (win_w <= 0)
+    throw std::invalid_argument("DRIZZLE_EMPTY_TARGET_WINDOW");
   // Measurement-only coarse phase timing (P6). Zero effect unless TC_FD_PROFILE
   // is set; never touches compute, order or bounds.
   const bool fd_profile = std::getenv("TC_FD_PROFILE") != nullptr;
@@ -1443,7 +1457,7 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
   // so only the `counts` prefix is reset. Bit-identical: same values, same
   // per-pixel frame order, same reduce spans.
   const size_t max_n =
-      static_cast<size_t>(memory.width) * static_cast<size_t>(memory.rows);
+      static_cast<size_t>(win_w) * static_cast<size_t>(memory.rows);
   std::array<std::vector<ClipCandidate>, 3> candidates;
   std::array<std::vector<size_t>, 3> counts;
   std::array<std::vector<double>, 3> A, B, QA, QA0, QA1, QAA, QAF;
@@ -1475,18 +1489,18 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
   for (int y = 0; y < memory.height;) {
     auto prof_ts = prof_now();
     const int rows = std::min(memory.rows, memory.height - y);
-    const size_t n = static_cast<size_t>(memory.width) * rows;
+    const size_t n = static_cast<size_t>(win_w) * rows;
     ForwardDrizzleUniformAndRawResult result;
     auto init_profile = [&](ForwardDrizzleUniformResult &p) {
       p.color_mode = plan.color_mode;
-      p.internal_width = memory.width;
+      p.internal_width = win_w;
       p.internal_height = rows;
       if (plan.color_mode == ColorMode::MONO) {
-        p.L.allocate(memory.width, rows);
+        p.L.allocate(win_w, rows);
       } else {
-        p.R.allocate(memory.width, rows);
-        p.G.allocate(memory.width, rows);
-        p.B.allocate(memory.width, rows);
+        p.R.allocate(win_w, rows);
+        p.G.allocate(win_w, rows);
+        p.B.allocate(win_w, rows);
       }
     };
     init_profile(result.uniform);
@@ -1541,7 +1555,7 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     // exactly (the leaf-cell y-clamp already restricts each call to its
     // window). `nb == 1` on the default serial path.
     const int nb = std::max(1, std::min(req_workers, rows));
-    const int stripe_w = memory.width;
+    const int stripe_w = win_w;
     auto band_lo = [&](int b) {
       return static_cast<int>((static_cast<long long>(b) * rows) / nb);
     };
@@ -1635,8 +1649,8 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
             plan, *f, cfg.internal_scale, cfg.pixfrac, y + r0, r1 - r0,
             [&](int sx, int sy, int c, int /*leaf*/, size_t i, double k) {
               if (fd_profile) ++band_cells;
-              // `i` is relative to the (y + r0) window origin; re-base it into
-              // the stripe-wide accumulators.
+              // `i` is relative to the (y + r0, win_x0) window origin and
+              // `win_w`-strided; re-base it into the stripe-wide accumulators.
               const size_t gi = i + bi0;
               const double v = source(sy, sx);
               if (!std::isfinite(v)) return;
@@ -1659,7 +1673,7 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
                 if (std::isfinite(av)) QAF[c][gi] += k;  // real artifact datum
               }
             },
-            subdivision);
+            subdivision, win_x0, win_w);
         if (fd_profile)
           g_fd_cells_emitted.fetch_add(band_cells, std::memory_order_relaxed);
         for (int c = 0; c < channels; ++c)

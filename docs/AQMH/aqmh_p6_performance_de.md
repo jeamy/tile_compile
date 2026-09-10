@@ -376,8 +376,12 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
         als Sackgasse ausgeschlossen (`emit_fine`/`emit_alpha_confidence` im
         Produktions-`persist_forward_drizzle_multiband` fest an). Neuer
         `[fd-tile-window]`-Partitionstest, 539/539.
-  - [ ] Schritt 2: Fenster in `stream_forward_drizzle_uniform_and_raw` /
-        `_uniform`, Puffer + Ausgabe-`ProfilePlane` auf `cols`.
+  - [x] **Schritt 2 (§30.81):** `target_x_begin`/`target_cols` in
+        `stream_forward_drizzle_uniform_and_raw`; alle Streifen-Puffer +
+        Ausgabe-`ProfilePlane` auf `win_w`, `internal_width` = `win_w`,
+        `rasterize`-Call reicht das Fenster durch. `_uniform` (alter M2-Pfad)
+        unberuehrt. `[fd-tile-window]`-Test: ragged Mehrband-Spaltenkacheln
+        fuegen sich bit-exakt zusammen, 540/540.
   - [ ] Schritt 3: Kachel-Schleife in `persist_forward_drizzle_multiband`
         (`tile_w` aus `host_budget`, `band_rows` aus `devmem`, Leiter leitet
         `tile_w` neu ab), Voll-Breiten-Stripe je Band, ein `multiband_stripe`.

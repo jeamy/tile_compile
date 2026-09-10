@@ -14,7 +14,9 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 using namespace tile_compile;
@@ -528,6 +530,147 @@ TEST_CASE("forward drizzle: §30.81 target-column window partitions the cell "
     std::sort(merged.begin(), merged.end());
     REQUIRE(merged == raster_full);
   }
+}
+
+TEST_CASE("uniform+raw: §30.81 target-column tiling reassembles bit-identically "
+          "to the full-width multiband streaming build",
+          "[drizzle-audit][fd-tile-window]") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 19;
+  plan.source_height = 15;
+  plan.canvas_width_native = 22;
+  plan.canvas_height_native = 16;
+  plan.color_mode = ColorMode::OSC;
+  plan.bayer_pattern = BayerPattern::RGGB;
+  plan.cfa_origin_x = 0;
+  plan.cfa_origin_y = 0;
+  const int nframes = 4;
+  const double ang = 0.35;
+  for (int i = 0; i < nframes; ++i)
+    plan.frames.push_back(make_affine_frame(
+        "f" + std::to_string(i), static_cast<size_t>(i),
+        make_source_to_canvas(1.15 * std::cos(ang), -1.05 * std::sin(ang),
+                              1.6 + 0.11 * i, 1.10 * std::sin(ang),
+                              1.20 * std::cos(ang), 1.3 + 0.07 * i)));
+
+  std::vector<Matrix2Df> src, qc, q0, q1, qa;
+  for (int i = 0; i < nframes; ++i) {
+    Matrix2Df s(plan.source_height, plan.source_width);
+    Matrix2Df c(plan.source_height, plan.source_width);
+    Matrix2Df a0(plan.source_height, plan.source_width);
+    Matrix2Df a1(plan.source_height, plan.source_width);
+    Matrix2Df ar(plan.source_height, plan.source_width);
+    for (int y = 0; y < plan.source_height; ++y)
+      for (int x = 0; x < plan.source_width; ++x) {
+        s(y, x) = 8.0f + 0.6f * x - 0.25f * y + 0.4f * i;
+        c(y, x) = 0.3f + 0.5f * std::fabs(std::sin(0.4f * (x + y) + i));
+        a0(y, x) = 0.2f + 0.7f * std::fabs(std::cos(0.3f * x - 0.2f * y + i));
+        a1(y, x) = 0.25f + 0.6f * std::fabs(std::sin(0.2f * x + 0.5f * y - i));
+        ar(y, x) = ((x + y + i) % 4 == 0)
+                       ? std::numeric_limits<float>::quiet_NaN()
+                       : 0.4f + 0.3f * std::fabs(std::sin(0.6f * x + i));
+      }
+    s(3 + i, 5) = 90.0f;                                   // clip outlier
+    s(9, 2 + i) = std::numeric_limits<float>::quiet_NaN(); // non-finite source
+    src.push_back(std::move(s));
+    qc.push_back(std::move(c));
+    q0.push_back(std::move(a0));
+    q1.push_back(std::move(a1));
+    qa.push_back(std::move(ar));
+  }
+  SourceImageProvider source_of = [&](std::size_t idx) -> const Matrix2Df & {
+    return src[idx];
+  };
+  FrameQualityProvider quality_of = [&](std::size_t idx) -> FrameQualityMaps {
+    return {&qc[idx], &q0[idx], &q1[idx], &qa[idx]};
+  };
+
+  config::ReconstructionDrizzleConfig cfg;
+  cfg.internal_scale = 2;
+  cfg.pixfrac = 0.9f;
+  cfg.chunk_rows = 5;  // several stripes
+  cfg.min_clip_contributors = 3;
+  cfg.robust_passes = 2;
+  config::ReconstructionClippingConfig clip;
+  MultibandProfileParams mb;
+  mb.emit_fine = true;
+  mb.emit_medium = true;
+  mb.emit_alpha_confidence = true;
+  const std::vector<float> g_eff = {1.0f, 0.95f, 0.9f, 0.85f};
+
+  const int scale = 2;
+  const int W = plan.canvas_width_native * scale;   // 44
+  const int H = plan.canvas_height_native * scale;  // 32
+
+  // key: (profile 0..3, channel 0..2, abs_x, abs_y) -> {value,wsum,neff,support}
+  using Key = std::tuple<int, int, int, int>;
+  using Rec = std::array<double, 4>;
+  auto record = [&](int x_begin, int cols) {
+    std::map<Key, Rec> vals;
+    std::map<std::tuple<int, int>, std::array<double, 4>> alpha;  // (x,y)->sep,art,reg,support
+    const int xb = x_begin;
+    const int wexp =
+        cols < 0 ? W : std::min(x_begin + cols, W) - x_begin;
+    stream_forward_drizzle_uniform_and_raw(
+        plan, source_of, cfg, clip,
+        [&](int y0, const ForwardDrizzleUniformAndRawResult &st) {
+          const int sw = st.uniform.internal_width;
+          const int sh = st.uniform.internal_height;
+          REQUIRE(sw == wexp);
+          const std::array<const ForwardDrizzleUniformResult *, 4> profs = {
+              &st.uniform, &st.raw, &st.fine, &st.medium};
+          for (int pi = 0; pi < 4; ++pi) {
+            const std::array<const ProfilePlane *, 3> pl = {
+                &profs[pi]->R, &profs[pi]->G, &profs[pi]->B};
+            for (int ch = 0; ch < 3; ++ch) {
+              const ProfilePlane &p = *pl[ch];
+              if (p.value.empty()) continue;
+              for (int ry = 0; ry < sh; ++ry)
+                for (int rx = 0; rx < sw; ++rx) {
+                  const size_t i = static_cast<size_t>(ry) * sw + rx;
+                  const bool sup = p.support[i] != 0;
+                  vals[{pi, ch, xb + rx, y0 + ry}] = {
+                      sup ? static_cast<double>(p.value[i]) : 0.0,
+                      static_cast<double>(p.weight_sum[i]),
+                      static_cast<double>(p.n_eff[i]),
+                      sup ? 1.0 : 0.0};
+                }
+            }
+          }
+          if (!st.a_separation.empty())
+            for (int ry = 0; ry < sh; ++ry)
+              for (int rx = 0; rx < sw; ++rx) {
+                const size_t i = static_cast<size_t>(ry) * sw + rx;
+                const bool sup = st.alpha_confidence_support[i] != 0;
+                alpha[{xb + rx, y0 + ry}] = {
+                    sup ? static_cast<double>(st.a_separation[i]) : 0.0,
+                    sup ? static_cast<double>(st.a_artifact[i]) : 0.0,
+                    sup ? static_cast<double>(st.a_registration[i]) : 0.0,
+                    sup ? 1.0 : 0.0};
+              }
+        },
+        {}, g_eff, 0, quality_of, mb, 1, x_begin, cols);
+    return std::make_pair(vals, alpha);
+  };
+
+  const auto full = record(0, -1);
+  REQUIRE_FALSE(full.first.empty());
+
+  for (int w1 : {9, 17, 23, 43}) {  // ragged; 43 leaves a width-1 remainder
+    auto lo = record(0, w1);
+    auto hi = record(w1, W - w1);
+    // disjoint abs_x ranges -> plain merge, no key overlap
+    auto merged_vals = lo.first;
+    merged_vals.insert(hi.first.begin(), hi.first.end());
+    auto merged_alpha = lo.second;
+    merged_alpha.insert(hi.second.begin(), hi.second.end());
+    INFO("tile seam at x=" << w1);
+    REQUIRE(merged_vals.size() == full.first.size());
+    REQUIRE(merged_alpha.size() == full.second.size());
+    REQUIRE(merged_vals == full.first);      // exact bit compare
+    REQUIRE(merged_alpha == full.second);
+  }
+  (void)H;
 }
 
 TEST_CASE(

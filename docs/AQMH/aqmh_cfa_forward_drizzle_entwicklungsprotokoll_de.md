@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich + budgetierter Clipping-Scratch + CUDA-Bandplanungs-Messzähler + Ziel-Spaltenfenster im Streifen-Enumerator (P3 Schritt 1) 10.09. | [§30.12–30.81](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich + budgetierter Clipping-Scratch + CUDA-Bandplanungs-Messzähler + Ziel-Spaltenfenster im Streifen-Enumerator (P3 Schritt 1) 10.09. | [§30.12–30.81, Schritt 2](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -6478,10 +6478,34 @@ sich wieder zur Voll-Breiten-Rasterung zusammen. Volle Suite **539/539**
 (+1 neuer Fall), `[drizzle-audit] [footprint-fastpath] [geometry-scaling]
 [geometry-cache] [drizzle-store]` unveraendert gruen.
 
-**Offen (folgt).** Schritt 2: `stream_forward_drizzle_uniform_and_raw` /
-`stream_forward_drizzle_uniform` bekommen dasselbe Fenster, alle
-Streifen-Puffer + Ausgabe-`ProfilePlane` auf `cols` statt `memory.width`
-dimensioniert, Sink-`internal_width` = `cols`. Schritt 3: Kachel-Schleife in
+**Schritt 2 (2026-09-10).** `stream_forward_drizzle_uniform_and_raw` bekommt
+nachgestellte Default-Parameter `int target_x_begin = 0, int target_cols = -1`.
+`target_cols < 0` => `win_x0 == 0 && win_w == memory.width`, byte-identisch zur
+Vor-§30.81-Vollbreite. Bei gesetztem Fenster:
+
+- `max_n`, `n`, `stripe_w`, `init_profile`-Allokation und die Ausgabe-
+  `ProfilePlane`-Streifen sind `win_w` breit; `internal_width` meldet die
+  Fensterbreite. `plan_drizzle_memory` bleibt absichtlich auf voller Breite
+  dimensioniert (es waehlt nur die Zeilenzahl, ein schmaleres Fenster braucht
+  nie mehr Zeilen).
+- Der `rasterize_drizzle_stripe`-Aufruf reicht `win_x0, win_w` durch; der Sink
+  bekommt den bereits fenster-rebasierten `index`, `gi = i + bi0` mit
+  `bi0 = r0 * win_w` bleibt korrekt.
+- `stream_forward_drizzle_uniform` (der alte reine Uniform-M2-Pfad) bleibt
+  unberuehrt -- der Produktions-Store nutzt ausschliesslich den `_and_raw`-
+  Streamer.
+- Der Aufrufer besitzt das Wieder-Einsetzen der Kachel bei Spalte
+  `target_x_begin`; `y_begin` im Sink bleibt die absolute interne Zeile.
+
+**Abnahme Schritt 2.** Neuer `[drizzle-audit][fd-tile-window]`-Test: voller
+Mehrband-Lauf (Uniform/Raw/Fine/Medium + Alpha-Karten, `emit_fine/medium/
+alpha_confidence` alle an, Q-Provider, `g_eff`, `chunk_rows = 5` => mehrere
+Streifen, Clip-Ausreisser + nicht-endliche Source) -- ragged Spaltenkacheln
+(`w1 ∈ {9,17,23,43}`, `43` laesst einen Breite-1-Rest) fuegen sich disjunkt
+**bit-exakt** (`==` auf `double`) zum Voll-Breiten-Lauf zusammen, Wert- und
+Alpha-Karten getrennt geprueft. Volle Suite **540/540**.
+
+**Offen (folgt).** Schritt 3: Kachel-Schleife in
 `persist_forward_drizzle_multiband` (`tile_w` aus `host_budget`, `band_rows`
 aus `devmem.free_bytes`; die Halbierungsleiter leitet `tile_w` bei jedem
 `band_rows`-Wechsel neu ab), Voll-Breiten-Stripe je Zeilenband zusammensetzen,
