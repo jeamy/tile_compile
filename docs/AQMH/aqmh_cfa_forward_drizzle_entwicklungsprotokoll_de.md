@@ -6781,6 +6781,66 @@ reduziert Aufrufe, repariert die Cache-Eigenschaft nicht). MAD-Re-Sort ist
 separat untersuchbar (Tie-Breaks, Summationsreihenfolge), derzeit niedrige
 Priorität.
 
+### 30.81 Schritt 3a — Fork-Entscheidung + 3a-1 (2026-09-10, `a8738e6e`)
+
+**Fork.** Der eigentliche Wall ist der Kandidatenpuffer `channels·W·band_rows·
+frames·64`, **nicht** das Record-Memo. Drei Wege, „je Frame/Band einmal
+produzieren" mit begrenztem RAM zu vereinen: (a) gefaltete Kandidaten spoolen,
+(b) Record-Memo halten (B, N-Kollaps), (c) kachelweiser Producer mit
+X+Y-begrenztem Quellzugriff. **Messungen, die den Fork entschieden:**
+
+- *Spool-Volumen* (dichte Rechnung): 33,2 M Innenzellen × 3 Kanäle × bis
+  `frames` Kandidaten × 64 B = **3,8 TB bei 600 Frames** → 7,6 TB Schreiben+
+  Lesen ≈ 21–32 min allein Schreiben bei 2–3 GB/s. Sprengt das 30-min-Budget.
+  Spool bleibt Reserveoption, nicht der nächste Pfad.
+- *`group_w == tile_w`*: Kachelgruppen senken die Produktionswiederholung
+  nicht — dieselbe Budgetformel. (Advisor-Vorschlag „tile-groups" verworfen.)
+- *Quell-Footprint je Kachel* (`invert_affine_2x3` über Kachel-X-Bereiche,
+  3840×2160, `internal_scale=2`): **nur Y verengt** = 16–64× (nutzlos für
+  dünne hohe Spalten). **X+Y verengt, volles Band**: 1,03× (θ=0°) … 1,66×
+  (θ=1°/64 Kacheln) … 4,2× (θ=5°). **X+Y verengt, flaches Band (~950
+  Innenzeilen)**: ≤**1,03× bei jeder Rotation bis 5°**. ⇒ (c) mit X+Y-Producer
+  und flachem, N-unabhängigem Band ist der Weg; Scherung/Skalierung/Rand/
+  lokale Warps noch offen.
+
+**3a-1 (`a8738e6e`) — Memo raus, CPU-Producer gefenstert.**
+
+- `PairFrameRecordProducer` bekommt `(x_begin, cols)`. `build_frame_records`
+  reicht sie an `rasterize_drizzle_stripe` (Signatur seit §30.81 Schritt 1)
+  und dekodiert den fensterlokalen Sink-Index zurück auf **absolute**
+  `target_x/y`-Keys → kanonische Sortierreihenfolge = Vollbreite auf das
+  Fenster eingeschränkt.
+- `cpu_pair_producer`: echte gefensterte Enumeration. `cuda_pair_producer`:
+  **verwirft** Records außerhalb des Fensters nach der Konvertierung, hält das
+  Quellband aber über die **volle** Leinwandbreite — `band0/band1` per
+  Fenster-X zu verengen läge auf einer ungeprüften Quell-Y-Marge
+  (Droplet-Halbbreite + Leaf-Subdivision-Spread). Kernel-X-Fenster + verengter
+  Upload = Schritt 3. Lokale Warps: volle Produktion + Filter (keine sichere
+  inverse-affine Bbox).
+- `accumulate_pair_impl` Tiled-Zweig: **kein Memo**. Je Spaltenkachel
+  `reduce_window(wx0, tw, gefensterter-Producer-on-demand)`. Ein
+  Frame-Kachel-Fenster live → Bandhöhe trägt keinen `frame_count`-Faktor.
+- Store-Bandmodell: `memo_row` → `frame_rec_row = source_width · cells · 48`
+  (N-unabhängig). Bandkollaps weg: 40→600 Frames = **670→199 Zeilen /
+  7→22 Bänder** (B: 42→2 / 103→2160). Schwacher Rest-N-Term, weil die
+  Bandhöhen-Rechnung eine `kMinTileW`-breite Kandidaten-Scheibe reserviert →
+  `tile_w` pinnt bei ~64. Der Planer hat einen Band×Kachel-Freiheitsgrad, den
+  er noch nicht nutzt (Aspektverhältnis = Schritt 3/4).
+- **Parität:** `[drizzle-store][cuda-parity]` echtes Gerät, `[contrib-list]
+  [fd-tile-window]` (ragged Kacheln, Breite-1-Rest), Suite **543/543**.
+  `[fd-cuda-tile]`-Bench neu beschriftet: Records sortiert **1,00×**
+  Vollbreite (Fenster hält Record-Gesamtarbeit flach), Geräte-Phasen **~8×**
+  (Kernel-X-Fenster = Schritt 3), **TOTAL 1,88×** (war 0,91× mit Memo — der
+  CUDA-Store-Pfad ist bis Schritt 3 ~2× langsamer, wie sequenziert).
+
+**Offen:** (2) echte Source/Q-Bereichsansichten (absolute Quellkoords,
+CFA-Ursprung, Q-Raster, Veto-Semantik); (3) CUDA-Producer begrenzen (inverses
+Quellrechteck + Upload nur dieses + Kernel-Arbeitsmenge/Record-Kapazität,
+Device-Puffer wiederverwenden); (4) produktionsnahe Messung (Zeit inkl.
+Provider/Transfers/Sort/Ausgabe, Launches, Quellbesuche, gelesene Bytes,
+Host-/Device-Peaks, Store-Parität); Aspektverhältnis-Tuning; lokale Warps
+separat (inverse affine Bbox dort keine sichere Schranke).
+
 ---
 
 <a id="historie-28"></a>

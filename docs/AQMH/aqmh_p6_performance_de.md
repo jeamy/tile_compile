@@ -365,9 +365,10 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
       **Befund:** `cand_row` = 93,8 %→99,6 % von `bytes_per_row`; 600 Frames
       → 7-Zeilen-Bänder, ~618 Bänder. **R1.1 allein reicht nicht** (16-GiB-
       Host-Deckel → ~19 Zeilen, ~228 Bänder). Additiv, bit-identisch, 538/538.
-- [~] **2D-Kachelung + Parität + gemeinsames Host-Budget (Schritt 4) fertig;
-      Q-Fold/Bereichszugriffe (3a/3b) offen** (User-Review §30.81). R1.1
-      (Budget-Split) + 2D-Ziel-Kachelung
+- [~] **2D-Kachelung + Parität + Host-Budget (Schritt 4) + Memo-Entfernung
+      (3a-1) fertig; CUDA-Producer-Begrenzung (3/3a-2) + Aspektverhältnis
+      offen** (User-Review §30.81). Bandkollaps-mit-N beseitigt (103→2160 →
+      7→22 Bänder). R1.1 (Budget-Split) + 2D-Ziel-Kachelung
       (`W`→`tile_w`) mit **host-seitigem Record-Filtern** statt echter Geräte-
       Bereichsprovider; `[cuda-parity]` durchgehend. Bandplanung nur noch gegen
       das Geräte-Glied (`rec_row+acc_row`), das Host-`cand_row` durch
@@ -440,18 +441,36 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
         es holt die §30.80-Kollaps-mit-N zurück: 40→600 Frames = **103→2160
         Bänder** (Peak fest an der Decke). Genau das motiviert 3a. Bit-Identität
         unberührt (nur Schwellen verschoben), 543/543, Bench C/A weiter 0,87×.
-  - [ ] Schritt 3a: **Q-Fold statt Voll-Memo** — je Frame/Band Records einmal
-        erzeugen + kanonisch sortieren, Q-Daten einmal bereitstellen, jedes
-        Zielzellsegment in unveränderter Reihenfolge zum vollen `ClipCandidate`
-        falten, Kandidaten nach Zielkachel **indizieren** + budgetiert ablegen
-        (ggf. begrenzter Spool — „alle Kandidaten im RAM" = dieselbe Wand),
-        dann framegeordnet ins unveränderte robuste Clipping. Keine Umordnung
-        der Reduktion, nur früher berechnet. Kachel-/Segmentindex Pflicht
-        (sonst wird das Memo je Kachel doch wieder ganz durchsucht). Kleiner
-        Produktions-Multiband-Bench mit echten Q-Providern schon hier.
-  - [ ] Schritt 3b: verbleibende Provider-/Hybrid-Arbeit — Source-/Q-Zugriffe
-        auf den Band-Footprint kappen; Hybrid-Producer separat auf begrenzte
-        Zwischenpuffer + wiederholte Geometriearbeit prüfen.
+  - [x] **Schritt 3a Fork-Entscheidung (§30.81):** Spool verworfen (dichte
+        Rechnung **3,8 TB / 600 Frames** → 7,6 TB I/O, sprengt 30 min);
+        Kachelgruppen bringen nichts (`group_w == tile_w`); Footprint-Messung
+        → **X+Y-begrenzter Producer + flaches N-unabhängiges Band** (≤1,03×
+        Duplikation bei jeder Rotation am flachen Band). Spool bleibt Reserve.
+  - [x] **Schritt 3a-1 — Memo raus, CPU-Producer gefenstert (§30.81,
+        `a8738e6e`):** `PairFrameRecordProducer(x_begin,cols)` →
+        `build_frame_records` → `rasterize_drizzle_stripe`, absolute
+        `target_x`-Keys. `accumulate_pair_impl` Tiled-Zweig **ohne Memo**: je
+        Kachel `reduce_window(wx0, tw, gefensterter Producer on-demand)`.
+        Store-Modell `memo_row` → `frame_rec_row` (N-unabhängig): Bandkollaps
+        weg, 40→600 Frames = **670→199 Zeilen / 7→22 Bänder** (war 103→2160).
+        `cuda_pair_producer` verwirft nur Out-of-Window-Records (volle
+        Kernelbreite, volles Quellband). **Bench:** Records sortiert **1,00×**,
+        Geräte **~8×** (Kernel-X-Fenster = Schritt 3), TOTAL **1,88×** — CUDA-
+        Store bis Schritt 3 ~2× langsamer. `[cuda-parity]` echtes Gerät +
+        `[fd-tile-window]`, 543/543.
+  - [ ] Schritt 3a-2: echte Source-/Q-Bereichsansichten (absolute Quellkoords,
+        CFA-Ursprung, Q-Speicherraster, Veto-Semantik) — ohne dies ist der
+        Durchsatzschnitt nicht vollständig.
+  - [ ] Schritt 3: CUDA-Producer begrenzen — konservatives inverses
+        Quellrechteck, Upload nur dieses, Kernel-Arbeitsmenge + Record-
+        Kapazität, Device-Puffer wiederverwenden (X-Filter nach voller
+        Produktion genügt nicht).
+  - [ ] Schritt 3b: Hybrid-Producer separat auf begrenzte Zwischenpuffer +
+        wiederholte Geometriearbeit prüfen (inverse affine Bbox dort keine
+        sichere Schranke — Begrenzung anhand der lokalen Geometrie/ihres Index).
+  - [ ] Aspektverhältnis: Bandhöhe × Kachelbreite gemeinsam wählen (Planer
+        pinnt `tile_w` derzeit bei `kMinTileW`); einige budgetkonforme
+        Verhältnisse vergleichen.
   - [ ] Schritt 5b: Paritätsmatrix + Bench als zusammenhängende Skalierungs-
         messung (schmale/ragged Kacheln, Rotation/Scherung, lokale Modelle,
         Modus 2/1, Budget-Retries).
