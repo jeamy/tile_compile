@@ -22,6 +22,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -123,8 +124,31 @@ TEST_CASE("§30.81 step-5 baseline: CUDA affine pair path column-tile repetition
   SourceImageProvider provider = [&](size_t i) -> const Matrix2Df & {
     return src[i];
   };
-  FrameQualityProvider quality_of = [&](size_t i) -> FrameQualityMaps {
-    return {&qc[i], &q0[i], &q1[i], &qa[i]};
+  // §30.81 step 3a-2: a real rect provider --- slices the requested source
+  // rectangle of the full maps into fresh matrices with the matching origin,
+  // exactly like the SQM cache reader's read_rect. Exercises the rebasing on
+  // the CUDA store path in this bench.
+  std::vector<Matrix2Df> rc(nf), r0(nf), r1(nf), ra(nf);
+  FrameQualityRectProvider quality_of =
+      [&](size_t i, int y0, int y1, int x0, int x1) -> FrameQualityMaps {
+    const int h = qc[i].rows(), w = qc[i].cols();
+    if (y1 < 0) y1 = h;
+    if (x1 < 0) x1 = w;
+    y0 = std::clamp(y0, 0, h); y1 = std::clamp(y1, y0, h);
+    x0 = std::clamp(x0, 0, w); x1 = std::clamp(x1, x0, w);
+    auto slice = [&](const Matrix2Df &full, Matrix2Df &dst) {
+      dst.resize(y1 - y0, x1 - x0);
+      for (int y = y0; y < y1; ++y)
+        for (int x = x0; x < x1; ++x) dst(y - y0, x - x0) = full(y, x);
+    };
+    slice(qc[i], rc[i]);
+    slice(q0[i], r0[i]);
+    slice(q1[i], r1[i]);
+    slice(qa[i], ra[i]);
+    FrameQualityMaps m{&rc[i], &r0[i], &r1[i], &ra[i]};
+    m.y_origin = y0;
+    m.x_origin = x0;
+    return m;
   };
 
   config::ReconstructionDrizzleConfig cfg;

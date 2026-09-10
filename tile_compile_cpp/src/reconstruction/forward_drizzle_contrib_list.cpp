@@ -376,9 +376,10 @@ namespace {
 double q_fold(double qv) {
   return (std::isfinite(qv) && qv > 0.0) ? qv : 0.0;
 }
-double map_at(const Matrix2Df *m, std::uint32_t sy, std::uint32_t sx) {
-  return m ? static_cast<double>((*m)(static_cast<int>(sy),
-                                      static_cast<int>(sx)))
+double map_at(const Matrix2Df *m, std::uint32_t sy, std::uint32_t sx,
+              int y_origin, int x_origin) {
+  return m ? static_cast<double>((*m)(static_cast<int>(sy) - y_origin,
+                                      static_cast<int>(sx) - x_origin))
            : 1.0;
 }
 
@@ -402,7 +403,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     const config::ReconstructionClippingConfig &clip_cfg, int y_begin, int rows,
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff_by_source_index,
-    const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
+    const FrameQualityRectProvider &quality_of, const MultibandProfileParams &mb,
     std::size_t mem_budget_bytes, const PairFrameRecordProducer &produce,
     int x_begin, int cols, const PairTileSink *tile_sink, int tile_cols) {
   const StripeGeom g = stripe_geom(plan, cfg, y_begin, rows);
@@ -421,10 +422,15 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
   for (const auto &f : plan.frames)
     source_count = std::max(source_count, f.source_index + 1);
 
+  // §30.81 step 3a-2: an empty rect (y0==y1) is a pure existence probe --- no
+  // decode; a stream that exists still yields a non-null (empty) pointer.
   bool need_qc = false;
   if (quality_of)
     for (const auto &f : plan.frames)
-      if (quality_of(f.source_index).composite) { need_qc = true; break; }
+      if (quality_of(f.source_index, 0, 0, 0, 0).composite) {
+        need_qc = true;
+        break;
+      }
 
   std::vector<std::pair<std::uint8_t, float>> reg_by_source;
   if (need_qa) {
@@ -563,13 +569,34 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
 
     for (std::size_t fo = 0; fo < prepared.frames.size(); ++fo) {
       const auto &f = *prepared.frames[fo];
+      const std::vector<DrizzleContrib> &recs = get_recs(fo);
+
+      // §30.81 step 3a-2: fetch the quality maps for EXACTLY the source
+      // rectangle these records touch --- the bbox over the actual
+      // (source_y, source_x) keys, no inverse-affine estimate, no margin, so
+      // the rebased lookup can never fall outside the returned rect. `map_at`
+      // subtracts the rect origin; identical values to a full-map lookup.
       FrameQualityMaps qm;
-      if (quality_of) qm = quality_of(f.source_index);
+      const bool want_q =
+          quality_of && (need_qc || need_q0 || need_q1 || need_qa);
+      if (want_q && !recs.empty()) {
+        std::uint32_t sy0 = recs[0].key.source_y, sy1 = sy0;
+        std::uint32_t sx0 = recs[0].key.source_x, sx1 = sx0;
+        for (const auto &rr : recs) {
+          sy0 = std::min(sy0, rr.key.source_y);
+          sy1 = std::max(sy1, rr.key.source_y);
+          sx0 = std::min(sx0, rr.key.source_x);
+          sx1 = std::max(sx1, rr.key.source_x);
+        }
+        qm = quality_of(f.source_index, static_cast<int>(sy0),
+                        static_cast<int>(sy1) + 1, static_cast<int>(sx0),
+                        static_cast<int>(sx1) + 1);
+      }
       const Matrix2Df *qc = need_qc ? qm.composite : nullptr;
       const Matrix2Df *q0 = need_q0 ? qm.scale0 : nullptr;
       const Matrix2Df *q1 = need_q1 ? qm.scale1 : nullptr;
       const Matrix2Df *qa = need_qa ? qm.artifact : nullptr;
-      const std::vector<DrizzleContrib> &recs = get_recs(fo);
+      const int q_yo = qm.y_origin, q_xo = qm.x_origin;
 
       std::size_t s = 0;
       while (s < recs.size()) {
@@ -596,11 +623,11 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
           A += rr.area * rr.value;
           B += rr.area;
           const std::uint32_t sy = rr.key.source_y, sx = rr.key.source_x;
-          if (qc) QA += rr.area * q_fold(map_at(qc, sy, sx));
-          if (q0) QA0 += rr.area * q_fold(map_at(q0, sy, sx));
-          if (q1) QA1 += rr.area * q_fold(map_at(q1, sy, sx));
+          if (qc) QA += rr.area * q_fold(map_at(qc, sy, sx, q_yo, q_xo));
+          if (q0) QA0 += rr.area * q_fold(map_at(q0, sy, sx, q_yo, q_xo));
+          if (q1) QA1 += rr.area * q_fold(map_at(q1, sy, sx, q_yo, q_xo));
           if (qa) {
-            const double av = map_at(qa, sy, sx);
+            const double av = map_at(qa, sy, sx, q_yo, q_xo);
             QAA += rr.area * q_fold(av);
             if (std::isfinite(av)) QAF += rr.area;
           }
@@ -870,7 +897,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
     const PairTileSink *tile_sink, int tile_cols) {
   return accumulate_pair_impl(
       plan, cfg, clip_cfg, y_begin, rows, subdivision, g_eff_by_source_index,
-      quality_of, mb, mem_budget_bytes,
+      to_rect_provider(quality_of), mb, mem_budget_bytes,
       cpu_pair_producer(plan, source_of, cfg, subdivision, y_begin, rows,
                         mem_budget_bytes),
       target_x_begin, target_cols, tile_sink, tile_cols);
@@ -882,7 +909,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     const config::ReconstructionClippingConfig &clip_cfg, int y_begin, int rows,
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff_by_source_index,
-    const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
+    const FrameQualityRectProvider &quality_of, const MultibandProfileParams &mb,
     std::size_t mem_budget_bytes, int max_cells_per_pixel,
     std::size_t max_batch_items, HybridPathStats *hybrid_stats,
     int target_x_begin, int target_cols, const PairTileSink *tile_sink,

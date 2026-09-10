@@ -64,6 +64,10 @@ using PairTileSink =
     std::function<void(int tile_x_begin, int tile_cols,
                        const ForwardDrizzleUniformAndRawResult &tile)>;
 
+// FrameQualityRectProvider / to_rect_provider: see forward_drizzle.hpp. The
+// CUDA store pair path takes the rect provider; accumulate_pair_by_frame
+// adapts a plain FrameQualityProvider to it internally.
+
 // plan 19.6.2: wall-clock split of the hybrid CPU-geometry -> GPU-rasterization
 // path, accumulated across every local-warp frame of every band. `cpu_seconds`
 // is the CPU leaf geometry (sample_leaves / subdivide_local / fixed-point
@@ -213,7 +217,9 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     const config::ReconstructionClippingConfig &clip_cfg, int y_begin, int rows,
     const ForwardDrizzleSubdivisionParams &subdivision = {},
     const std::vector<float> &g_eff_by_source_index = {},
-    const FrameQualityProvider &quality_of = {},
+    // §30.81 step 3a-2: rect provider (source-rectangle Q maps). A full-source
+    // FrameQualityProvider is adapted via to_rect_provider() at the call site.
+    const FrameQualityRectProvider &quality_of = {},
     const MultibandProfileParams &mb = {},
     std::size_t mem_budget_bytes = static_cast<std::size_t>(1) << 32,
     int max_cells_per_pixel = 32,

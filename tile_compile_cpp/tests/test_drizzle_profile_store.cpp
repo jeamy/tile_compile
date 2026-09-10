@@ -1305,7 +1305,8 @@ TEST_CASE("drizzle store: plan-19.6 CUDA per-stripe path commits a store "
       const int Hc = plan.canvas_height_native * cfg.internal_scale;
       REQUIRE_THROWS_WITH(
           accumulate_pair_by_frame_cuda(plan, provider, cfg, clip, 0, Hc, {}, {},
-                                        quality_of, mbp, /*mem_budget=*/512),
+                                        to_rect_provider(quality_of), mbp,
+                                        /*mem_budget=*/512),
           Catch::Matchers::ContainsSubstring("DRIZZLE_CONTRIB_LIST_BUDGET"));
     }
   }

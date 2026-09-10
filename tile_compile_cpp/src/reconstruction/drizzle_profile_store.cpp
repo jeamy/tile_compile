@@ -439,7 +439,7 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     const config::ReconstructionDrizzleConfig &cfg,
     const config::ReconstructionClippingConfig &clipping,
     const MultibandStoreContract &multiband,
-    const FrameQualityProvider &quality_of,
+    const FrameQualityRectProvider &quality_of,
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff,
     const DrizzleStorePredecessors &predecessors,
@@ -448,6 +448,11 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     throw std::invalid_argument("DRIZZLE_STORE_MULTIBAND_NOT_ENABLED");
   if (!quality_of)
     throw std::invalid_argument("DRIZZLE_STORE_MULTIBAND_REQUIRES_QUALITY");
+  // §30.81 step 3a-2: the CPU streaming sub-paths take a full-source provider;
+  // adapt the rect provider back (full extent) for them. Only the CUDA stripe
+  // path uses the real per-tile rectangle.
+  const FrameQualityProvider quality_full =
+      [&quality_of](std::size_t si) { return quality_of(si, -1, -1, -1, -1); };
   const auto identity = make_drizzle_store_identity(plan, cfg, subdivision,
                                                    &clipping, g_eff,
                                                    predecessors, multiband);
@@ -568,17 +573,23 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
         sizeof(DrizzleContrib);
     const std::size_t stripe_row =
         plane_px_bytes * static_cast<std::size_t>(dims.width);
-    const std::size_t cand_per_row_col =
-        static_cast<std::size_t>(channels) * frame_count * sizeof(ClipCandidate) +
-        static_cast<std::size_t>(channels) * sizeof(std::size_t) + plane_px_bytes;
     const int q_map_count =
         quality_of ? 1 + (mb.emit_fine ? 1 : 0) + (mb.emit_medium ? 1 : 0) +
                          (mb.emit_alpha_confidence ? 1 : 0)
                    : 0;
-    const std::size_t src_q_const =
-        (static_cast<std::size_t>(2) + static_cast<std::size_t>(q_map_count)) *
-        static_cast<std::size_t>(plan.source_width) *
-        static_cast<std::size_t>(plan.source_height) * sizeof(float);
+    // §30.81 step 3a-2: the Q maps are now per-tile source RECTANGLES, not
+    // full-source. Their bytes scale with tile_w -> fold into cand_per_row_col
+    // (<= q_map_count floats per INTERNAL cell touched; source rect is smaller
+    // at internal_scale > 1, so conservative). src_const keeps only the two
+    // resident source frames (full, until the block-index cut).
+    const std::size_t cand_per_row_col =
+        static_cast<std::size_t>(channels) * frame_count * sizeof(ClipCandidate) +
+        static_cast<std::size_t>(channels) * sizeof(std::size_t) + plane_px_bytes +
+        static_cast<std::size_t>(q_map_count) * sizeof(float);
+    const std::size_t src_const = static_cast<std::size_t>(2) *
+                                    static_cast<std::size_t>(plan.source_width) *
+                                    static_cast<std::size_t>(plan.source_height) *
+                                    sizeof(float);
     // Narrower-than-min column tiles are rejected (edge overlap + per-call cost,
     // §30.81 step 4): the band is shrunk until a >= kMinTileW tile fits. Capped
     // at the canvas width --- for a canvas narrower than the floor there is no
@@ -586,7 +597,7 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     const int kMinTileW = std::min(64, dims.width);
     const std::size_t host_fixed_per_row = frame_rec_row + stripe_row;
     const std::size_t host_avail =
-        host_budget > src_q_const ? host_budget - src_q_const : 0;
+        host_budget > src_const ? host_budget - src_const : 0;
     const std::size_t host_row_cost =
         host_fixed_per_row +
         cand_per_row_col * static_cast<std::size_t>(kMinTileW);
@@ -642,11 +653,11 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
           // height,
           //   (frame_rec_row + stripe_row) * rows    [1 frame records + reassembly]
           // + cand_per_row_col * tile_w * rows        [one tile + its result]
-          // + src_q_const                             [source + Q maps]
+          // + src_const                              [two resident source frames]
           // stays under `host_budget`. Derived per call so a halving that
           // shrinks `rows` re-enters here and recomputes it --- never stale.
           const std::size_t rows_z = static_cast<std::size_t>(std::max(rows, 1));
-          const std::size_t fixed = host_fixed_per_row * rows_z + src_q_const;
+          const std::size_t fixed = host_fixed_per_row * rows_z + src_const;
           const std::size_t for_cand =
               host_budget > fixed ? host_budget - fixed : 0;
           const std::size_t denom = cand_per_row_col * rows_z;
@@ -759,7 +770,7 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
           // ForwardDrizzleCudaError -> full CPU restart, not the halving ladder.
           const std::size_t fixed_bytes =
               host_fixed_per_row * static_cast<std::size_t>(std::max(rows, 1)) +
-              src_q_const;
+              src_const;
           const std::size_t inner_budget = std::max<std::size_t>(
               host_budget > fixed_bytes ? host_budget - fixed_bytes : 0,
               static_cast<std::size_t>(64) << 20);
@@ -841,7 +852,7 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
           static_cast<std::size_t>(std::max(first_tile_w, 1));
       summary.diagnostics.estimated_peak_bytes =
           device_bytes_per_row * band_z + host_fixed_per_row * band_z +
-          cand_per_row_col * tile_z * band_z + src_q_const;
+          cand_per_row_col * tile_z * band_z + src_const;
     }
     summary.clipping = clip_total;
   } else if (mode_2_1) {
@@ -850,11 +861,11 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     // confidence maps via 2x2 min + AND support (plan 14.4).
     summary = stream_forward_drizzle_uniform_and_raw_2x2(
         plan, source_of, cfg, clipping, sink, subdivision, g_eff,
-        writer_reserve(identity), quality_of, mb, workers);
+        writer_reserve(identity), quality_full, mb, workers);
   } else {
     summary = stream_forward_drizzle_uniform_and_raw(
         plan, source_of, cfg, clipping, sink, subdivision, g_eff,
-        writer_reserve(identity), quality_of, mb, workers);
+        writer_reserve(identity), quality_full, mb, workers);
   }
   result.diagnostics = summary.diagnostics;
   result.clipping = summary.clipping;

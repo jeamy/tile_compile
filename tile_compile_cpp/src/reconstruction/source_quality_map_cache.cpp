@@ -514,6 +514,10 @@ Matrix2Df SourceQualityMapCacheReader::read_rect(const std::string &stream,
   x0 = std::max(0, x0);
   x1 = std::min(meta_.source_width, x1);
   if (y1 <= y0 || x1 <= x0) return Matrix2Df(0, 0);
+  bin_loads_.fetch_add(1, std::memory_order_relaxed);
+  expanded_floats_.fetch_add(
+      static_cast<std::uint64_t>(y1 - y0) * static_cast<std::uint64_t>(x1 - x0),
+      std::memory_order_relaxed);
   const BinContents c = read_bin(file_path(stream, source_index));
   const int d = meta_.storage_divisor;
   if (c.divisor != d ||

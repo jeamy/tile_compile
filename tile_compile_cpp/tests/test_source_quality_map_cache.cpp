@@ -15,6 +15,8 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <fstream>
 #include <vector>
 
@@ -271,6 +273,38 @@ TEST_CASE("cache writer + fail-closed reader round-trip with a zero-veto "
     }
     REQUIRE(rd.read_rect("composite", 0, 3, 3, 0, w).rows() == 0);  // empty
     REQUIRE(rd.read_rect("composite", 0, 0, h, 5, 2).rows() == 0);  // x1<=x0
+  }
+
+  SECTION("§30.81 step 3a-2: read_rect bounds the EXPANSION but still loads the "
+          "whole compact .bin per call --- the seek-read is 3a-2b") {
+    SourceQualityMapCacheReader rd(root, identity, cfghash);
+    REQUIRE(rd.usable());
+    // Mimic the store's access pattern: T column tiles x F frames of a
+    // tile-sized rect, versus F frames of a full-source read.
+    const int T = 4, F = 3, tw = w / T;
+    rd.reset_io_counters();
+    for (int f = 0; f < F; ++f)
+      for (int t = 0; t < T; ++t)
+        (void)rd.read_rect("composite", 0, 0, h, t * tw, t * tw + tw);
+    const std::uint64_t rect_loads = rd.bin_loads();
+    const std::uint64_t rect_floats = rd.expanded_floats();
+    rd.reset_io_counters();
+    for (int f = 0; f < F; ++f) (void)rd.read_full("composite", 0);
+    const std::uint64_t full_loads = rd.bin_loads();
+    const std::uint64_t full_floats = rd.expanded_floats();
+    std::printf("  read_rect (%d tiles x %d frames): bin_loads=%llu "
+                "expanded_floats=%llu  |  read_full (%d frames): bin_loads=%llu "
+                "expanded_floats=%llu\n",
+                T, F, static_cast<unsigned long long>(rect_loads),
+                static_cast<unsigned long long>(rect_floats), F,
+                static_cast<unsigned long long>(full_loads),
+                static_cast<unsigned long long>(full_floats));
+    // The expansion IS bounded: T tiles cover the same area as 1 full read.
+    REQUIRE(rect_floats == full_floats * static_cast<std::uint64_t>(1));
+    REQUIRE(rect_floats / F == static_cast<std::uint64_t>(h) * w);
+    // The .bin load is NOT bounded: one per (tile, frame), not one per frame.
+    REQUIRE(rect_loads == static_cast<std::uint64_t>(T) * F);
+    REQUIRE(full_loads == static_cast<std::uint64_t>(F));
   }
 
   SECTION("wrong expected identity hash -> not usable") {

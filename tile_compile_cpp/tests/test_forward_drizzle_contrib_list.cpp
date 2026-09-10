@@ -309,6 +309,35 @@ struct PairCase {
               i == 2 ? nullptr : &art.at(i)};  // frame 2 has no artifact map
     };
   }
+  // §30.81 step 3a-2: a genuine rect provider --- it copies the requested
+  // sub-rectangle of the full test maps into fresh matrices with the matching
+  // origin, so the accumulate path exercises the rebasing / clamping. A
+  // full-extent request (y1 < 0) returns the whole map, origin 0.
+  mutable std::vector<Matrix2Df> rc_, rs0_, rs1_, ra_;
+  FrameQualityRectProvider quality_rect() const {
+    rc_.resize(comp.size()); rs0_.resize(comp.size());
+    rs1_.resize(comp.size()); ra_.resize(comp.size());
+    return [this](size_t i, int y0, int y1, int x0, int x1) -> FrameQualityMaps {
+      const int h = comp.at(i).rows(), w = comp.at(i).cols();
+      if (y1 < 0) y1 = h;
+      if (x1 < 0) x1 = w;
+      y0 = std::clamp(y0, 0, h); y1 = std::clamp(y1, y0, h);
+      x0 = std::clamp(x0, 0, w); x1 = std::clamp(x1, x0, w);
+      auto slice = [&](const Matrix2Df &full, Matrix2Df &dst) {
+        dst.resize(y1 - y0, x1 - x0);
+        for (int y = y0; y < y1; ++y)
+          for (int x = x0; x < x1; ++x) dst(y - y0, x - x0) = full(y, x);
+      };
+      slice(comp.at(i), rc_[i]);
+      slice(s0.at(i), rs0_[i]);
+      slice(s1.at(i), rs1_[i]);
+      if (i != 2) slice(art.at(i), ra_[i]);
+      FrameQualityMaps m{&rc_[i], &rs0_[i], &rs1_[i], i == 2 ? nullptr : &ra_[i]};
+      m.y_origin = y0;
+      m.x_origin = x0;
+      return m;
+    };
+  }
 };
 
 PairCase make_pair_case(ColorMode mode, bool local, BayerPattern bayer,
@@ -729,7 +758,7 @@ TEST_CASE("plan-19.5 pair parity: the CUDA affine rasterizer path is "
             k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(),
             k.mb);
         const auto gpu = accumulate_pair_by_frame_cuda(
-            k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(),
+            k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality_rect(),
             k.mb);
 
         auto planes = [](const ForwardDrizzleUniformResult &r) {
@@ -817,7 +846,7 @@ TEST_CASE("plan-19.6.2 hybrid: a local-warp frame on the CUDA path (CPU "
       for (std::size_t batch : {std::size_t{1}, std::size_t{7}, std::size_t{64},
                                 std::size_t{1} << 20}) {
         const auto gpu = accumulate_pair_by_frame_cuda(
-            k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(),
+            k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality_rect(),
             k.mb, static_cast<std::size_t>(1) << 32, 32, batch);
         require_same(cpu, gpu);
         ++checked;
@@ -832,7 +861,7 @@ TEST_CASE("plan-19.6.2 hybrid: a local-warp frame on the CUDA path (CPU "
                        std::pair{y1, H - y1}}) {
         const auto part = accumulate_pair_by_frame_cuda(
             k.plan, k.src(), k.cfg, k.clip, seg.first, seg.second, k.sub,
-            k.g_eff, k.quality(), k.mb, static_cast<std::size_t>(1) << 32, 32,
+            k.g_eff, k.quality_rect(), k.mb, static_cast<std::size_t>(1) << 32, 32,
             std::size_t{5});
         split_clip.pixel_channel_evaluations +=
             part.clipping.pixel_channel_evaluations;
@@ -897,7 +926,7 @@ TEST_CASE("plan 11.14 P2 x CUDA: a published geometry cache keeps the "
                                                H, k.sub, k.g_eff, k.quality(),
                                                k.mb);
     const auto gpu0 = accumulate_pair_by_frame_cuda(
-        k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(), k.mb,
+        k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality_rect(), k.mb,
         static_cast<std::size_t>(1) << 32, 32, batch);
 
     // Build + publish the geometry cache for this plan's local-warp frame.
@@ -918,7 +947,7 @@ TEST_CASE("plan 11.14 P2 x CUDA: a published geometry cache keeps the "
                                                  0, H, k.sub, k.g_eff,
                                                  k.quality(), k.mb);
       const auto gpu1 = accumulate_pair_by_frame_cuda(
-          k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(),
+          k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality_rect(),
           k.mb, static_cast<std::size_t>(1) << 32, 32, batch);
       require_same(cpu0, cpu1);  // cache does not move the CPU reference
       require_same(gpu0, gpu1);  // cache does not move the CUDA-hybrid result
@@ -978,7 +1007,7 @@ TEST_CASE("plan-19.6.2 hybrid: a subdivided local-warp frame (leaf_order > 0) "
   for (std::size_t batch : {std::size_t{1}, std::size_t{9},
                             std::size_t{1} << 20}) {
     const auto gpu = accumulate_pair_by_frame_cuda(
-        k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(), k.mb,
+        k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality_rect(), k.mb,
         static_cast<std::size_t>(1) << 32, 32, batch);
     for (auto pr : {std::pair{&cpu.uniform, &gpu.uniform},
                     std::pair{&cpu.raw, &gpu.raw},

@@ -157,7 +157,10 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     const config::ReconstructionDrizzleConfig &cfg,
     const config::ReconstructionClippingConfig &clipping,
     const MultibandStoreContract &multiband,
-    const FrameQualityProvider &quality_of,
+    // §30.81 step 3a-2: rect provider. The CUDA stripe path decodes Q maps for
+    // only the source rectangle each column tile's records touch; the CPU
+    // streaming sub-path adapts it back to full via a plain wrapper.
+    const FrameQualityRectProvider &quality_of,
     const ForwardDrizzleSubdivisionParams &subdivision = {},
     const std::vector<float> &g_eff = {},
     const DrizzleStorePredecessors &predecessors = {},
@@ -168,6 +171,26 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     // CUDA->CPU restart the CPU path picks it up. Bit-identical (store commit
     // hash included) to `workers == 1` (default).
     int workers = 1);
+
+// Convenience overload for callers that only have a full-source-geometry
+// FrameQualityProvider (tests, non-cache paths): adapts it via
+// to_rect_provider (the CUDA path then decodes full maps, no rectangle win).
+inline DrizzleStoreResult persist_forward_drizzle_multiband(
+    const fs::path &root, const registration::RegistrationSamplingPlan &plan,
+    const SourceImageProvider &source_of,
+    const config::ReconstructionDrizzleConfig &cfg,
+    const config::ReconstructionClippingConfig &clipping,
+    const MultibandStoreContract &multiband,
+    const FrameQualityProvider &quality_of,
+    const ForwardDrizzleSubdivisionParams &subdivision = {},
+    const std::vector<float> &g_eff = {},
+    const DrizzleStorePredecessors &predecessors = {},
+    const ForwardDrizzleCudaOptions &cuda = {}, int workers = 1) {
+  return persist_forward_drizzle_multiband(
+      root, plan, source_of, cfg, clipping, multiband,
+      to_rect_provider(quality_of), subdivision, g_eff, predecessors, cuda,
+      workers);
+}
 
 struct DrizzleStoreValidation {
   bool usable = false;

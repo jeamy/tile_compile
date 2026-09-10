@@ -290,26 +290,37 @@ MultibandStoreBuildResult persist_multiband_store_from_predecessors(
   predecessors.source_quality_cache_hash=qreader->metadata().source_quality_cache_hash;
 
   const bool need_medium=contract.levels>=2;
-  FrameQualityProvider quality_of=
+  // §30.81 step 3a-2: decode Q maps for only the source rectangle
+  // [y0,y1) x [x0,x1) the caller asks for (its records' exact source bbox).
+  // A negative y1/x1 means the full extent; y0==y1 (or x0==x1) is a pure
+  // existence probe -- no decode, but an existing stream still returns a
+  // non-null (empty) pointer so `need_qc` etc. resolve. The `comp`/`s0`/...
+  // members are reused allocations, NOT a cache: the rect differs on every
+  // call under the tile-outer/frame-inner loop, so there is nothing to hit.
+  FrameQualityRectProvider quality_of=
       [reader=qreader.get(),need_medium,
-       comp=Matrix2Df(),s0=Matrix2Df(),s1=Matrix2Df(),art=Matrix2Df(),
-       have_s0=false,have_s1=false,have_art=false,
-       idx=std::size_t(-1)](std::size_t source_index) mutable -> FrameQualityMaps {
-    if (source_index!=idx) {
-      // composite is mandatory; the finer scale + artifact streams may be
-      // absent for a small image (fewer pyramid scales) --- a missing map is
-      // a null pointer (weight degrades), never a hard failure here.
-      comp=reader->read_full("composite",source_index);
-      have_s0=reader->has("scale_0",source_index);
-      if (have_s0) s0=reader->read_full("scale_0",source_index);
-      have_s1=need_medium && reader->has("scale_1",source_index);
-      if (have_s1) s1=reader->read_full("scale_1",source_index);
-      have_art=reader->has("artifact",source_index);
-      if (have_art) art=reader->read_full("artifact",source_index);
-      idx=source_index;
-    }
-    return FrameQualityMaps{&comp, have_s0?&s0:nullptr, have_s1?&s1:nullptr,
-                            have_art?&art:nullptr};
+       comp=Matrix2Df(),s0=Matrix2Df(),s1=Matrix2Df(),art=Matrix2Df()](
+          std::size_t si,int y0,int y1,int x0,int x1) mutable -> FrameQualityMaps {
+    const int sh=reader->metadata().source_height;
+    const int sw=reader->metadata().source_width;
+    if (y1<0) y1=sh;
+    if (x1<0) x1=sw;
+    y0=std::clamp(y0,0,sh); y1=std::clamp(y1,y0,sh);
+    x0=std::clamp(x0,0,sw); x1=std::clamp(x1,x0,sw);
+    const bool have_s0=reader->has("scale_0",si);
+    const bool have_s1=need_medium && reader->has("scale_1",si);
+    const bool have_art=reader->has("artifact",si);
+    // composite is mandatory; finer scale + artifact may be absent for a small
+    // image -- a missing map is a null pointer (weight degrades), not a fault.
+    comp=reader->read_rect("composite",si,y0,y1,x0,x1);
+    if (have_s0) s0=reader->read_rect("scale_0",si,y0,y1,x0,x1);
+    if (have_s1) s1=reader->read_rect("scale_1",si,y0,y1,x0,x1);
+    if (have_art) art=reader->read_rect("artifact",si,y0,y1,x0,x1);
+    FrameQualityMaps m{&comp, have_s0?&s0:nullptr, have_s1?&s1:nullptr,
+                       have_art?&art:nullptr};
+    m.y_origin=y0;
+    m.x_origin=x0;
+    return m;
   };
 
   const auto source_of=[&](size_t index)->const Matrix2Df & { return cache.load(index); };

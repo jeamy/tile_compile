@@ -97,9 +97,29 @@ struct FrameQualityMaps {
   const Matrix2Df *scale0 = nullptr;     // Q_scale0      -> Fine weight
   const Matrix2Df *scale1 = nullptr;     // Q_scale1      -> Medium weight
   const Matrix2Df *artifact = nullptr;   // artifact_confidence -> A_artifact
+  // §30.81 step 3a-2: when the maps cover only a source rectangle (rect
+  // provider), a lookup at absolute source (sy, sx) reads element
+  // (sy - y_origin, sx - x_origin). Both 0 for full-source-geometry maps.
+  int y_origin = 0;
+  int x_origin = 0;
 };
 using FrameQualityProvider =
     std::function<FrameQualityMaps(std::size_t source_index)>;
+
+// §30.81 step 3a-2: a quality provider that decodes only the source rectangle
+// [y0, y1) x [x0, x1) (a negative `y1` or `x1` => the full extent on that
+// axis; y0 == y1 or x0 == x1 => a pure existence probe, no decode). The
+// returned FrameQualityMaps carry the rectangle origin so an absolute
+// (source_y, source_x) lookup rebases into it. The plain FrameQualityProvider
+// (full source geometry) is unchanged; `to_rect_provider` adapts it.
+using FrameQualityRectProvider = std::function<FrameQualityMaps(
+    std::size_t source_index, int y0, int y1, int x0, int x1)>;
+
+inline FrameQualityRectProvider to_rect_provider(
+    const FrameQualityProvider &full) {
+  if (!full) return {};
+  return [full](std::size_t si, int, int, int, int) { return full(si); };
+}
 
 // Which quality profiles / alpha inputs the drizzle should additionally emit
 // (plan 11.9 / 14.1 / 14.4). Fine uses pow(Q_scale0, fine_quality_exponent);

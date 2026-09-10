@@ -22,6 +22,7 @@
 #include "tile_compile/reconstruction/normalized_source_cache.hpp"
 #include "tile_compile/registration/registration_sampling_plan.hpp"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -162,6 +163,17 @@ class SourceQualityMapCacheReader {
   Matrix2Df read_rect(const std::string &stream, std::size_t source_index,
                       int y0, int y1, int x0, int x1) const;
 
+  // §30.81 step 3a-2: I/O accounting. `bin_loads` counts .bin files decoded
+  // (a non-empty read_rect still loads and decodes the WHOLE compact grid ---
+  // only the float expansion is bounded; the seek-read is 3a-2b).
+  // `expanded_floats` counts map elements actually materialised.
+  std::uint64_t bin_loads() const { return bin_loads_.load(); }
+  std::uint64_t expanded_floats() const { return expanded_floats_.load(); }
+  void reset_io_counters() const {
+    bin_loads_.store(0);
+    expanded_floats_.store(0);
+  }
+
  private:
   fs::path file_path(const std::string &stream,
                      std::size_t source_index) const;
@@ -170,6 +182,8 @@ class SourceQualityMapCacheReader {
   bool usable_ = false;
   std::string error_;
   SourceQualityCacheMetadata meta_;
+  mutable std::atomic<std::uint64_t> bin_loads_{0};
+  mutable std::atomic<std::uint64_t> expanded_floats_{0};
 };
 
 struct SourceQualityMapsBuildResult {
