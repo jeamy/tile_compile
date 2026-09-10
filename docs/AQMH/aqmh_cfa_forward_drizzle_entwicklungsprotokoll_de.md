@@ -6813,6 +6813,78 @@ X-Fenster); dann Aspektverhältnis.
 
 ---
 
+### 30.81 Schritt 3a-3 Teil 1 — laufinterner Source-Blockprüfindex (2026-09-10, `53e07038`)
+
+**Motiv (gemessene Grundlast).** Die Source-LRU wird aus
+`drizzle.memory_budget_mb` dimensioniert (`runner_forward_drizzle.cpp:300/352`),
+**nicht** aus einem separaten 512-MB-Budget. `capacity_ = (budget−1 MiB) /
+33,2 MB`: 2048 MB → ~61 Frames, 8192 MB → ~246, 16384 MB → ~493 — bei 600
+Frames passt selbst 16 GB nicht. Unter der Kachel-außen/Frame-innen-Schleife
+von 3a-1 ruft jede Spaltenkachel den Producer je Frame einmal, also läuft
+jeder Kachelzyklus alle 600 `load()`-Aufrufe durch: bei 16 GB ~107
+Evict+Reload je Kachel × ~120 Kacheln/Band × ~22 Bänder ≈ 280 k
+Ganzframe-Reads + SHA-256 (~9 TB); bei 8 GB deutlich mehr. Das ist der
+Thrash, den der Blockindex beseitigen muss.
+
+**Teil 1 (committet, cache-eigenständig, keine Drizzle-Verdrahtung).**
+`VerifiedNormalizedSourceCache`:
+- `struct BlockIndex` je `source_index` in `std::map` **unabhängig von `lru_`**.
+  Beim ersten Zugriff einmal die ganze Datei lesen; aus **denselben Bytes**
+  den Ganzdatei-SHA-256 (gegen Manifest) **und** die festen Block-SHAs
+  berechnen. Der Blockindex wird **erst nach** Ganzdatei-Übereinstimmung
+  veröffentlicht; Mismatch wirft `NORMALIZED_CACHE_CONTENT_MISMATCH` wie bisher.
+- **Staleness-Tripel** (`file_size`, `mtime`, `verified_at`) mit dem Index
+  gespeichert, bei jedem Bereichslesen mit **derselben** Regel wie `load()`
+  geprüft (`sz==file_size && mt==mtime && mt<verified_at`). Fällt sie, wird
+  der Index verworfen und der nächste Zugriff reverifiziert die ganze Datei.
+  Das macht „Index überlebt Bild-LRU-Verdrängung" sicher.
+- `read_rect(idx, y0,y1, x0,x1)` / `read_region(idx, y0,y1)`: liest+prüft
+  nur die von `[y0,y1)` überdeckten Blöcke, gibt eine `(y1-y0)×(x1-x0)`-Matrix
+  mit `(r,c) == load(idx)(y0+r, x0+c)` zurück. `.raw` ist zeilenmajor float32;
+  ein Block umfasst ganze Zeilen (~256 KiB, auf Zeilenvielfaches **abgerundet**,
+  bei 3840 Breite → 17 Zeilen/Block), daher trifft ein Y-Fenster einen
+  **zusammenhängenden** Blockbereich und ein X-verengtes Rechteck verifiziert
+  **genau so viele** Blöcke wie das vollbreite mit gleicher Y-Spanne.
+- Zähler `blocks_verified()` / `block_index_builds()` / `bytes_read()`
+  (inkl. des einmaligen Ganzdatei-Reads je Bau) / `expanded_floats()` +
+  `reset_io_counters()`.
+- RAM-only: eine frische Instanz (Prozessneustart) startet ohne Blockindex
+  und reverifiziert beim ersten Zugriff.
+
+**Erkennungssemantik — der ausdrücklich geforderte Nachweis**
+(`[source-predecessors][cache-blocks]`), drei Fälle:
+1. Manipulation in einem Block, den ein `read_rect` **berührt** → Lesen wirft
+   `NORMALIZED_CACHE_BLOCK_MISMATCH`.
+2. Manipulation in einem Block, den es **nicht** berührt (gleiche Dateilänge,
+   mtime zurückgerollt, damit der Wächter passiert) → Lesen gelingt; ein
+   **späteres** `read_rect`, das diesen Block **doch** überdeckt, wirft.
+   ⇒ Vertragsgrenze in ausführbarer Form: nur berührte Blöcke werden geprüft;
+   mtime/Größe/fd/mmap ersetzen diesen Nachweis nicht.
+3. Ganzdatei ersetzt (gleiche Länge, mtime vorwärts) → Tripel fällt → Neubau
+   → Ganzdatei-SHA-Mismatch → wirft.
+Zusätzlich: `read_rect == load()`-Slice über 6 Rechtecke inkl. Ränder und
+1px-breitem X; Blockleseverstärkung gemessen (512×512 → `block_rows=128`,
+4 Blöcke/Frame; 1-Block-Read = 1 Block / 262144 B; X-Verengung ändert
+Blockzahl **und** gelesene Bytes nicht; volle Y-Spanne = 4 Blöcke wieder).
+
+**Warum kein Teil 2 im selben Commit.** Teil 2 = `SourceImageRectProvider`
+(Spiegel von `FrameQualityRectProvider`) + Einbindung in `build_frame_records`
+/ `cuda_pair_producer` + Store-Host-Budgetterm + Paritätsmatrix. Teil 1 allein
+ist end-to-end auf Cache-Ebene testbar und trägt das gesamte Vertragsrisiko.
+**Vor Teil 2 zu messen:** die Pro-Kachel-Reverifikation. Jede Kachel eines
+Bandes ruft `read_rect` je Frame mit ~gleicher Y-Spanne — bei realer Geometrie
+(3840×2160, Band ~950 interne Zeilen → ~28 von ~127 Blöcken) rechnet das je
+Band je Frame ~120 Kacheln × 28 Block-SHAs ≈ 3360 SHA-256 über je 256 KiB
+≈ 860 MB gehasht statt 33 MB (~26×). Teil 2 braucht daher einen
+**Bandebenen-Fetch** (ein `read_rect` je Frame je Band über die volle
+Band-Y-Spanne, für die Kacheln des Bandes gehalten) statt Pro-Kachel-Zugriff.
+Ist Teil 1s Verstärkung bei realer Kachelgeometrie schlecht, wäre Teil 2s
+Schnittstellenumbau vergebens — die Messung entscheidet.
+
+Suite 544/544. Danach: Schritt 3 (CUDA-Kernel-X-Fenster); dann Aspektverhältnis.
+
+---
+
 ### 30.81 (Historik) Schritt 3a Erst-Skizze — Q-Fold (User-Vorzugsvariante): je Frame/Band Records
 **einmal** erzeugen + kanonisch sortieren; Q-Daten **einmal** bereitstellen;
 jedes Zielzellsegment in unveränderter Record-Reihenfolge zum vollen

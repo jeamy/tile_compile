@@ -470,10 +470,29 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
         `read_bin_window`. Zähler `bin_cells_decoded()`: T Kacheln == 1
         Voll-Read (48==48), vor 3a-2b T×. `MultibandStoreBuildResult.q_bin_*`
         für Lauf-Reporting. **Q-Seite des Durchsatzschnitts vollständig.**
-  - [ ] Source-Blockprüfindex (RAM-only, aus dem Ganzdatei-Hash): erst
-        Blöcke gemeinsam mit dem Ganzdatei-SHA berechnen + freigeben, dann nur
-        gebrauchte Blöcke lesen+prüfen; Index überlebt Bild-LRU-Verdrängung.
-        Erkennungssemantik + Blockleseverstärkung explizit testen.
+  - [x] **Schritt 3a-3 Teil 1 — laufinterner Source-Blockprüfindex (§30.81,
+        `53e07038`):** `VerifiedNormalizedSourceCache` bekommt eine
+        Block-SHA-Tabelle je `source_index`, unabhängig vom Bild-LRU, gebaut
+        aus **denselben Bytes** wie der Ganzdatei-SHA beim ersten Zugriff und
+        erst nach Manifest-Übereinstimmung freigegeben. `read_rect(idx,
+        y0,y1,x0,x1)` / `read_region(idx,y0,y1)` liest+prüft nur die von der
+        Y-Fensterung überdeckten Blöcke; Blöcke sind ganzzeilig (~256 KiB
+        zeilengerundet), daher prüft ein X-verengtes Rechteck **genau so viele
+        Blöcke** wie das vollbreite mit gleicher Y-Spanne. Index gilt über
+        LRU-Verdrängung hinweg, solange (Größe, mtime) unverändert und mtime <
+        Bauzeitpunkt (dieselbe Wächterregel wie `load()`); jede Drift → Neubau
+        = Ganzdatei-Reverifikation. Zähler `blocks_verified` /
+        `block_index_builds` / `bytes_read` / `expanded_floats`. RAM-only:
+        frische Instanz (Prozessneustart) reverifiziert beim ersten Zugriff.
+        **Vertragsgrenze getestet** (`[cache-blocks]`): nur tatsächlich
+        berührte Blöcke werden geprüft — eine Änderung in einem ungelesenen
+        Block wird erst bei dessen Zugriff entdeckt; mtime/Größe/fd/mmap
+        ersetzen diesen Nachweis nicht. Messung 512×512 → `block_rows=128`,
+        4 Blöcke/Frame; 1-Block-Read = 1 Block / 262144 B, Voll-Read = 4
+        Blöcke. **Keine Drizzle-Verdrahtung in diesem Commit** (Teil 2:
+        `SourceImageRectProvider` + Producer-Einbindung + Store-Budget +
+        Parität; Bandebenen-Fetch statt Pro-Kachel-Reverifikation, sonst
+        SHA-Verstärkung ~26× — vor Teil 2 zu messen). Suite 544/544.
   - [ ] Schritt 3: CUDA-Producer begrenzen — konservatives inverses
         Quellrechteck, Upload nur dieses, Kernel-Arbeitsmenge + Record-
         Kapazität, Device-Puffer wiederverwenden (X-Filter nach voller
