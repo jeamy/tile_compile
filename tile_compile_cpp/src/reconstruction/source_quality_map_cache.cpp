@@ -103,16 +103,18 @@ void write_bin_atomic(const fs::path &target, int storage_w, int storage_h,
   out.commit();
 }
 
-struct BinContents {
+// Fixed .bin header: magic(4) + u32 schema + u32 storage_w + u32 storage_h
+// + u32 divisor + u64 source_index. Cells (storage_w*storage_h uint16 LE,
+// row-major) follow at kBinHeaderBytes; the veto block (one uint8 per cell)
+// follows the cells.
+constexpr std::streamoff kBinHeaderBytes = 4 + 4 * 4 + 8;
+
+struct BinHeader {
   int storage_w = 0, storage_h = 0, divisor = 0;
   std::size_t source_index = 0;
-  std::vector<uint16_t> cells;
-  std::vector<uint8_t> veto_cells;
 };
 
-BinContents read_bin(const fs::path &path) {
-  std::ifstream f(path, std::ios::binary);
-  if (!f) throw std::runtime_error("SQM_CACHE_BIN_MISSING: " + path.string());
+BinHeader read_bin_header(std::ifstream &f, const fs::path &path) {
   char magic[4];
   f.read(magic, 4);
   if (!f || std::memcmp(magic, kBinMagic, 4) != 0)
@@ -124,36 +126,76 @@ BinContents read_bin(const fs::path &path) {
            (static_cast<uint32_t>(b[2]) << 16) |
            (static_cast<uint32_t>(b[3]) << 24);
   };
-  const uint32_t schema = rd_u32();
-  if (schema != kBinSchema)
+  if (rd_u32() != kBinSchema)
     throw std::runtime_error("SQM_CACHE_BIN_BAD_SCHEMA: " + path.string());
-  BinContents c;
-  c.storage_w = static_cast<int>(rd_u32());
-  c.storage_h = static_cast<int>(rd_u32());
-  c.divisor = static_cast<int>(rd_u32());
+  BinHeader h;
+  h.storage_w = static_cast<int>(rd_u32());
+  h.storage_h = static_cast<int>(rd_u32());
+  h.divisor = static_cast<int>(rd_u32());
   const uint32_t lo = rd_u32();
   const uint32_t hi = rd_u32();
-  c.source_index = static_cast<std::size_t>(lo) |
-                   (static_cast<std::size_t>(hi) << 32);
-  if (c.storage_w <= 0 || c.storage_h <= 0 || c.divisor <= 0)
+  h.source_index =
+      static_cast<std::size_t>(lo) | (static_cast<std::size_t>(hi) << 32);
+  if (!f || h.storage_w <= 0 || h.storage_h <= 0 || h.divisor <= 0)
     throw std::runtime_error("SQM_CACHE_BIN_BAD_DIMS: " + path.string());
-  const std::size_t n = static_cast<std::size_t>(c.storage_w) *
-                        static_cast<std::size_t>(c.storage_h);
-  std::vector<uint8_t> body(n * 2);
-  f.read(reinterpret_cast<char *>(body.data()),
-         static_cast<std::streamsize>(body.size()));
-  if (static_cast<std::size_t>(f.gcount()) != body.size())
-    throw std::runtime_error("SQM_CACHE_BIN_TRUNCATED: " + path.string());
-  c.cells.resize(n);
-  for (std::size_t i = 0; i < n; ++i)
-    c.cells[i] = static_cast<uint16_t>(body[2 * i]) |
-                 (static_cast<uint16_t>(body[2 * i + 1]) << 8);
-  c.veto_cells.resize(n);
-  f.read(reinterpret_cast<char *>(c.veto_cells.data()),
-         static_cast<std::streamsize>(n));
-  if (static_cast<std::size_t>(f.gcount()) != n)
-    throw std::runtime_error("SQM_CACHE_BIN_TRUNCATED_VETO: " + path.string());
-  return c;
+  return h;
+}
+
+// §30.81 step 3a-2b: read ONLY the storage cells covering
+// [cy0, cy1] x [cx0, cx1] (inclusive) --- one contiguous seek+read per cell
+// row, for the value block and the veto block. `win` is
+// (cy1-cy0+1) x (cx1-cx0+1), row-major; caller rebases (cy - cy0, cx - cx0).
+struct BinWindow {
+  int storage_w = 0, storage_h = 0, divisor = 0;
+  int cy0 = 0, cx0 = 0, win_h = 0, win_w = 0;
+  std::vector<uint16_t> cells;
+  std::vector<uint8_t> veto;
+};
+
+BinWindow read_bin_window(const fs::path &path, int cy0, int cy1, int cx0,
+                          int cx1) {
+  std::ifstream f(path, std::ios::binary);
+  if (!f) throw std::runtime_error("SQM_CACHE_BIN_MISSING: " + path.string());
+  const BinHeader h = read_bin_header(f, path);
+  cy0 = std::clamp(cy0, 0, h.storage_h - 1);
+  cy1 = std::clamp(cy1, cy0, h.storage_h - 1);
+  cx0 = std::clamp(cx0, 0, h.storage_w - 1);
+  cx1 = std::clamp(cx1, cx0, h.storage_w - 1);
+  BinWindow w;
+  w.storage_w = h.storage_w;
+  w.storage_h = h.storage_h;
+  w.divisor = h.divisor;
+  w.cy0 = cy0;
+  w.cx0 = cx0;
+  w.win_h = cy1 - cy0 + 1;
+  w.win_w = cx1 - cx0 + 1;
+  const std::size_t run = static_cast<std::size_t>(w.win_w);
+  const std::size_t total = run * static_cast<std::size_t>(w.win_h);
+  const std::streamoff n_cells = static_cast<std::streamoff>(h.storage_w) *
+                                 static_cast<std::streamoff>(h.storage_h);
+  const std::streamoff veto_base = kBinHeaderBytes + n_cells * 2;
+  w.cells.resize(total);
+  w.veto.resize(total);
+  std::vector<uint8_t> row(run * 2);
+  for (int cy = cy0; cy <= cy1; ++cy) {
+    const std::streamoff first =
+        static_cast<std::streamoff>(cy) * h.storage_w + cx0;
+    const std::size_t out = static_cast<std::size_t>(cy - cy0) * run;
+    f.seekg(kBinHeaderBytes + first * 2, std::ios::beg);
+    f.read(reinterpret_cast<char *>(row.data()),
+           static_cast<std::streamsize>(row.size()));
+    if (static_cast<std::size_t>(f.gcount()) != row.size())
+      throw std::runtime_error("SQM_CACHE_BIN_TRUNCATED: " + path.string());
+    for (std::size_t i = 0; i < run; ++i)
+      w.cells[out + i] = static_cast<uint16_t>(row[2 * i]) |
+                         (static_cast<uint16_t>(row[2 * i + 1]) << 8);
+    f.seekg(veto_base + first, std::ios::beg);
+    f.read(reinterpret_cast<char *>(w.veto.data() + out),
+           static_cast<std::streamsize>(run));
+    if (static_cast<std::size_t>(f.gcount()) != run)
+      throw std::runtime_error("SQM_CACHE_BIN_TRUNCATED_VETO: " + path.string());
+  }
+  return w;
 }
 
 std::string stream_file_name(const std::string &stream,
@@ -514,28 +556,35 @@ Matrix2Df SourceQualityMapCacheReader::read_rect(const std::string &stream,
   x0 = std::max(0, x0);
   x1 = std::min(meta_.source_width, x1);
   if (y1 <= y0 || x1 <= x0) return Matrix2Df(0, 0);
+  const int d = meta_.storage_divisor;
+  // §30.81 step 3a-2b: seek-read only the storage cells covering the rect.
+  const BinWindow w = read_bin_window(
+      file_path(stream, source_index), y0 / d, (y1 - 1) / d, x0 / d,
+      (x1 - 1) / d);
+  if (w.divisor != d || w.storage_w != storage_dim(meta_.source_width, d) ||
+      w.storage_h != storage_dim(meta_.source_height, d))
+    throw std::runtime_error("SQM_CACHE_BIN_GEOMETRY_MISMATCH: " + stream);
   bin_loads_.fetch_add(1, std::memory_order_relaxed);
+  bin_cells_decoded_.fetch_add(
+      static_cast<std::uint64_t>(w.win_h) * static_cast<std::uint64_t>(w.win_w),
+      std::memory_order_relaxed);
   expanded_floats_.fetch_add(
       static_cast<std::uint64_t>(y1 - y0) * static_cast<std::uint64_t>(x1 - x0),
       std::memory_order_relaxed);
-  const BinContents c = read_bin(file_path(stream, source_index));
-  const int d = meta_.storage_divisor;
-  if (c.divisor != d ||
-      c.storage_w != storage_dim(meta_.source_width, d) ||
-      c.storage_h != storage_dim(meta_.source_height, d))
-    throw std::runtime_error("SQM_CACHE_BIN_GEOMETRY_MISMATCH: " + stream);
 
   Matrix2Df out(y1 - y0, x1 - x0);
   for (int y = y0; y < y1; ++y) {
-    // Storage cell picked from the ABSOLUTE y (edge-clamp unchanged).
-    const int cy = std::min(c.storage_h - 1, y / d);
+    // Storage cell picked from the ABSOLUTE y (edge-clamp unchanged), then
+    // rebased into the window that was actually read.
+    const int cy = std::min(w.storage_h - 1, y / d);
+    const std::size_t wy = static_cast<std::size_t>(cy - w.cy0) * w.win_w;
     for (int x = x0; x < x1; ++x) {
-      const int cx = std::min(c.storage_w - 1, x / d);  // ABSOLUTE x
-      const std::size_t ci = static_cast<std::size_t>(cy) * c.storage_w + cx;
+      const int cx = std::min(w.storage_w - 1, x / d);  // ABSOLUTE x
+      const std::size_t wi = wy + static_cast<std::size_t>(cx - w.cx0);
       // Hard-veto cell forces NaN regardless of the value cell (plan 13.5).
-      out(y - y0, x - x0) = c.veto_cells[ci]
+      out(y - y0, x - x0) = w.veto[wi]
                                 ? std::numeric_limits<float>::quiet_NaN()
-                                : dequantize_quality(c.cells[ci]);
+                                : dequantize_quality(w.cells[wi]);
     }
   }
   return out;

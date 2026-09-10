@@ -163,14 +163,17 @@ class SourceQualityMapCacheReader {
   Matrix2Df read_rect(const std::string &stream, std::size_t source_index,
                       int y0, int y1, int x0, int x1) const;
 
-  // §30.81 step 3a-2: I/O accounting. `bin_loads` counts .bin files decoded
-  // (a non-empty read_rect still loads and decodes the WHOLE compact grid ---
-  // only the float expansion is bounded; the seek-read is 3a-2b).
-  // `expanded_floats` counts map elements actually materialised.
+  // §30.81 step 3a-2 / 3a-2b: I/O accounting for the read_rect path.
+  //   bin_loads        .bin files opened (one per non-empty read_rect call)
+  //   bin_cells_decoded storage-grid cells actually read (3a-2b: only those
+  //                     covering the rect, vs storage_w*storage_h whole-grid)
+  //   expanded_floats   map elements materialised into the returned matrix
   std::uint64_t bin_loads() const { return bin_loads_.load(); }
+  std::uint64_t bin_cells_decoded() const { return bin_cells_decoded_.load(); }
   std::uint64_t expanded_floats() const { return expanded_floats_.load(); }
   void reset_io_counters() const {
     bin_loads_.store(0);
+    bin_cells_decoded_.store(0);
     expanded_floats_.store(0);
   }
 
@@ -183,6 +186,7 @@ class SourceQualityMapCacheReader {
   std::string error_;
   SourceQualityCacheMetadata meta_;
   mutable std::atomic<std::uint64_t> bin_loads_{0};
+  mutable std::atomic<std::uint64_t> bin_cells_decoded_{0};
   mutable std::atomic<std::uint64_t> expanded_floats_{0};
 };
 

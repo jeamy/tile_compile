@@ -4,6 +4,7 @@
 #include "tile_compile/reconstruction/drizzle_profile_store.hpp"
 
 #include <array>
+#include <cstdint>
 
 namespace tile_compile::reconstruction {
 
@@ -57,6 +58,15 @@ struct MultibandStoreBuildResult {
   // Non-empty iff a CUDA attempt was made and did not commit: the reason the
   // phase fell back to the CPU reference path (plan 19.4).
   std::string cuda_fallback_reason;
+  // §30.81 step 3a-2/3a-2b: SourceQualityMapCacheReader I/O totals for this
+  // build --- lets a run report whether the Q read is actually bounded.
+  //   q_bin_loads         .bin files opened (one per read_rect call)
+  //   q_bin_cells_decoded  storage-grid cells read (3a-2b: only the covering
+  //                        cells; before it, storage_w*storage_h per call)
+  //   q_expanded_floats    map elements materialised
+  std::uint64_t q_bin_loads = 0;
+  std::uint64_t q_bin_cells_decoded = 0;
+  std::uint64_t q_expanded_floats = 0;
 };
 
 // M6 phase 1: build the multiband profile store (uniform+raw+fine+(medium)+

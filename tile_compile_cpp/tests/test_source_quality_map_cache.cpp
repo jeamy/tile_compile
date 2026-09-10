@@ -275,34 +275,43 @@ TEST_CASE("cache writer + fail-closed reader round-trip with a zero-veto "
     REQUIRE(rd.read_rect("composite", 0, 0, h, 5, 2).rows() == 0);  // x1<=x0
   }
 
-  SECTION("§30.81 step 3a-2: read_rect bounds the EXPANSION but still loads the "
-          "whole compact .bin per call --- the seek-read is 3a-2b") {
+  SECTION("§30.81 step 3a-2b: read_rect seek-reads only the covering storage "
+          "cells --- total cells decoded over T tiles == one full read, not T") {
     SourceQualityMapCacheReader rd(root, identity, cfghash);
     REQUIRE(rd.usable());
     // Mimic the store's access pattern: T column tiles x F frames of a
-    // tile-sized rect, versus F frames of a full-source read.
+    // tile-sized full-height rect, versus F frames of a full-source read.
     const int T = 4, F = 3, tw = w / T;
     rd.reset_io_counters();
     for (int f = 0; f < F; ++f)
       for (int t = 0; t < T; ++t)
         (void)rd.read_rect("composite", 0, 0, h, t * tw, t * tw + tw);
     const std::uint64_t rect_loads = rd.bin_loads();
+    const std::uint64_t rect_cells = rd.bin_cells_decoded();
     const std::uint64_t rect_floats = rd.expanded_floats();
     rd.reset_io_counters();
     for (int f = 0; f < F; ++f) (void)rd.read_full("composite", 0);
     const std::uint64_t full_loads = rd.bin_loads();
+    const std::uint64_t full_cells = rd.bin_cells_decoded();
     const std::uint64_t full_floats = rd.expanded_floats();
     std::printf("  read_rect (%d tiles x %d frames): bin_loads=%llu "
-                "expanded_floats=%llu  |  read_full (%d frames): bin_loads=%llu "
-                "expanded_floats=%llu\n",
+                "cells_decoded=%llu expanded_floats=%llu  |  read_full (%d): "
+                "bin_loads=%llu cells_decoded=%llu expanded_floats=%llu\n",
                 T, F, static_cast<unsigned long long>(rect_loads),
+                static_cast<unsigned long long>(rect_cells),
                 static_cast<unsigned long long>(rect_floats), F,
                 static_cast<unsigned long long>(full_loads),
+                static_cast<unsigned long long>(full_cells),
                 static_cast<unsigned long long>(full_floats));
-    // The expansion IS bounded: T tiles cover the same area as 1 full read.
-    REQUIRE(rect_floats == full_floats * static_cast<std::uint64_t>(1));
+    // 3a-2b: the DECODE is bounded --- the T tiles of a band together read the
+    // same storage cells one full read does (before 3a-2b each call decoded
+    // the whole storage_w*storage_h grid -> T x this).
+    REQUIRE(rect_cells == full_cells);
+    // Expansion equal (T tiles cover one full frame's area).
+    REQUIRE(rect_floats == full_floats);
     REQUIRE(rect_floats / F == static_cast<std::uint64_t>(h) * w);
-    // The .bin load is NOT bounded: one per (tile, frame), not one per frame.
+    // The file is still opened once per call (cheap; OS page cache). That plus
+    // per-call header parse is the residual; the decode was the cost.
     REQUIRE(rect_loads == static_cast<std::uint64_t>(T) * F);
     REQUIRE(full_loads == static_cast<std::uint64_t>(F));
   }

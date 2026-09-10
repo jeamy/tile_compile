@@ -363,6 +363,9 @@ MultibandStoreBuildResult persist_multiband_store_from_predecessors(
     out.backend_used="cpu";
   }
   out.identity=out.store.identity;  // the identity actually written
+  out.q_bin_loads=qreader->bin_loads();
+  out.q_bin_cells_decoded=qreader->bin_cells_decoded();
+  out.q_expanded_floats=qreader->expanded_floats();
   return out;
 }
 
