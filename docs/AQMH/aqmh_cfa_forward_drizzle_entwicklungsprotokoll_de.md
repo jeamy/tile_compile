@@ -6895,23 +6895,49 @@ lässt das bei Produktions-N vermutlich nicht zu); (3) Per-Band-Fetch mit
 frame-major innerhalb des Fensters) — ändert die Schleifenreihenfolge
 („andere Verarbeitungsschedule").
 
-**Nächste Schritte (User-Reihenfolge), Teil 1 abgeschlossen:**
-1. ✅ Verifikationspfade zusammengeführt; neue Speicherbereiche identifiziert
-   (Blockindex = Konstante; zu budgetieren: Lesepuffer + Ausgabematrix +
-   ggf. gehaltene Banddaten). Joint-Budget-Term **noch nicht geschrieben** —
-   erst wenn Schritt 2 die Schedule bestimmt (sonst zweimal geschrieben, und
-   der Bandhöhen-Planer soll mid-cut nicht getunt werden).
-2. **Produktionsnahe Zugriffssimulation ohne Rekonstruktionslauf:** echte
-   Band-/Kachelrechtecke aus der realen Planer-Geometrie (3840×2160,
-   internal_scale 2, N=600), Quell-Y-Bereiche aus **tatsächlicher inverser
-   Geometrie** (`invert_affine_2x3` über Kachel-X, wie das footprint-Skript),
-   begrenztes Budget; je Schedule: Blöcke verifiziert, Bytes gehasht, Bytes
-   gelesen, **Peak gleichzeitig gehaltene Quellbytes**. Analytisch aus den
-   Zählerformeln + Validierung an einer Handvoll echter `.raw` (nicht 600 ×
-   33 MB Platte); gemessen vs. hochgerechnet klar trennen.
-3. Daraus zwischen budgetierter Bandhaltung (Opt. 3) und feineren
-   Block-/Bereichszugriffen (Opt. 1) entscheiden.
-4. Erst dann `SourceImageRectProvider` + Producer-Anbindung + Store-Parität.
+**Schritt ② — Zugriffssimulation ohne Rekonstruktionslauf
+(`scratchpad/source_access_sim.py`, hochgerechnet aus den Zählerformeln;
+Per-Fenster-Zählerarithmetik in `[cache-blocks]` an echtem
+`VerifiedNormalizedSourceCache` validiert).** Step-4-Planer-Geometrie
+(3840×2160, internal_scale 2, OSC, N=600), Quell-Y aus `invert_affine_2x3`
+über Band-/Kachel-X, 17-Zeilen-Blöcke. Ein voller FORWARD_DRIZZLE-Store-Pass:
+
+| host_budget | Plan | Baseline heute (Ganzframe-LRU) | Sched 1 Pro-Kachel | Sched 2 Per-Band alle Frames | Sched 3 Per-Band Fenster K |
+|---|---|---|---|---|---|
+| 2048 MiB | 219 Zeilen, 20 Bänder×120 Kacheln | ~754 GB R+H, LRU 64/600 | **~2990 GB** H (Peak ~0) | ~45–57 GB, Peak 1,1–1,7 GB | ~45–57 GB, Peak **1,07 GB**, K 373–587 |
+| 8192 MiB | 898 Zeilen, 5×120 | ~156 GB, LRU 258/600 | **~2540 GB** | ~41–44 GB, Peak 4,2–4,9 GB | ~41–44 GB, Peak **4,3 GB**, K 530–600 |
+| 16384 MiB | 1803 Zeilen, 3×120 | ~68 GB, LRU 517/600 | **~2500 GB** | ~41–42 GB, Peak 8,5–9,1 GB | ~41–42 GB, Peak **8,6 GB**, K 567–600 |
+
+(θ 0–1°; Rotation +25 % Blöcke durch Scherung, nicht entscheidend.) **Befunde:**
+1. **Pro-Kachel ist ein Nichtstarter** — 120× Block-Reverifikation (n_tiles
+   pro Band), ~2,5 TB gehasht, **16–37× schlechter als heute**. Bestätigt: der
+   ~26×-Verdacht war real, aber niemand shippt Pro-Kachel-Fetch.
+2. **Per-Band-Fetch (Sched 2/3) schlägt heute um ~3,7×** bei Bytes gelesen
+   **und** gehasht (~42 vs ~156 GB @ 8 GiB): liest je Frame nur die ~450
+   Quellzeilen des Bandes statt 2160, und verifiziert je Band einmal statt den
+   LRU zu thrashen.
+3. **Sched 2 vs 3: identisches I/O.** Einziger Unterschied = Peak-Quell-RAM.
+   Sched 2 hält alle 600 Frame-Bänder (1,1 / 4,2 / 8,5 GB bei 2/8/16 GiB — bei
+   16 GiB die halbe Decke). Sched 3 mit begrenztem K deckelt das; bei ≥8 GiB
+   ist K ≈ N, Sched 3 → Sched 2. Sched 3 zählt nur bei knapper Decke.
+4. Der **Kandidatenpuffer** (`channels·tile_w·band_rows·N·sizeof(ClipCandidate)`)
+   ist ohnehin N-groß und für das ganze Band gehalten — K deckelt **nur die
+   Quellbytes**, nicht die Kandidaten. Sched 3 = Sched 2s Schleife, die
+   Quell-Bandpuffer außerhalb des aktuellen K-Fensters freigibt; Kandidaten
+   unverändert. Minimaler Loop-Umbau (Frame-Fenster-major innerhalb eines
+   Band-Kachel-Blocks).
+
+**Schritt ③ Empfehlung: Schedule 3** (Per-Band-Fetch, begrenztes Frame-Fenster
+K, K aus dem gemeinsamen Budget). Einzige Option, die (a) heute schlägt,
+(b) jede Decke einhält, (c) bei großzügiger Decke sauber auf Sched 2 degradiert.
+**Awaiting User-Ratifizierung vor Schritt ④.**
+
+**Schritt ④ (nach Ratifizierung):** `SourceImageRectProvider` (Spiegel von
+`FrameQualityRectProvider`) + `read_region`-Einbindung in
+`build_frame_records` / `cuda_pair_producer` mit `to_rect_provider`-artigem
+Voll-Quell-Adapter für Streaming/Fusion; Joint-Budget-Term für Quell-Bandpuffer
+(K) + Lesepuffer + Ausgabematrix (Blockindex bleibt dokumentierte Konstante);
+Per-Band-K-Schleife; Paritätsmatrix.
 
 Suite 544/544.
 

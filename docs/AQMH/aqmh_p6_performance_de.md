@@ -491,13 +491,21 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
         nach **echter** Verdrängung; frische Instanz + Klon; Erkennungssemantik
         (nur berührte Blöcke geprüft, `BLOCK_MISMATCH`); In-place-Rewrite +
         Rename-Swap → `CONTENT_MISMATCH`. Suite 544/544.
-  - [ ] **Teil 2 Vorlauf — Zugriffssimulation ohne Rekonstruktionslauf:** echte
-        Band-/Kachelrechtecke aus realer Planer-Geometrie (3840×2160, N=600),
-        Quell-Y aus inverser Geometrie; je Schedule Blöcke/Hash-Bytes/Reads/
-        **Peak gehaltene Quellbytes** messen. Drei Schedules: Pro-Kachel;
-        Per-Band alle Frames gehalten; Per-Band mit Frame-Fenster K.
-        Entscheidung Bandhaltung vs. feinere Zugriffe → **dann** Joint-Budget-
-        Term → **dann** `SourceImageRectProvider` + Producer + Parität.
+  - [x] **Teil 2 Vorlauf — Zugriffssimulation (`scratchpad/source_access_sim.py`,
+        §30.81):** step-4-Planer-Geometrie N=600, Quell-Y aus `invert_affine_2x3`,
+        17-Zeilen-Blöcke. Ergebnis (voller Store-Pass, θ 0–1°): **Pro-Kachel
+        ~2,5 TB gehasht = 16–37× schlechter als heute** (120× Block-Reverif.);
+        **Per-Band-Fetch ~42 GB = ~3,7× besser als heute** (~156 GB), Bytes
+        gelesen **und** gehasht; Sched 2 (alle Frames) vs Sched 3 (Fenster K)
+        identisches I/O, nur Peak-Quell-RAM unterschiedlich (8,5 GB vs deckel­bar
+        via K). Kandidatenpuffer bleibt N-groß, K deckelt nur Quellbytes →
+        Sched 3 = Sched 2s Schleife mit Freigabe außerhalb des K-Fensters
+        (minimaler Loop-Umbau). **Empfehlung Schedule 3**, awaiting Ratifizierung.
+  - [ ] **Teil 2 — `SourceImageRectProvider` + Producer + Joint-Budget + Parität**
+        (nach Ratifizierung Schedule 3): `read_region`-Einbindung in
+        `build_frame_records`/`cuda_pair_producer`, `to_rect_provider`-Adapter
+        für Streaming/Fusion, Budgetterm Quell-Bandpuffer(K)+Lesepuffer+
+        Ausgabematrix, Per-Band-K-Schleife, Paritätsmatrix.
   - [ ] Schritt 3: CUDA-Producer begrenzen — konservatives inverses
         Quellrechteck, Upload nur dieses, Kernel-Arbeitsmenge + Record-
         Kapazität, Device-Puffer wiederverwenden (X-Filter nach voller
