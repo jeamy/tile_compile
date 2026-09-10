@@ -501,10 +501,19 @@ fs::path SourceQualityMapCacheReader::file_path(
 Matrix2Df SourceQualityMapCacheReader::read_region(const std::string &stream,
                                                    std::size_t source_index,
                                                    int y0, int y1) const {
+  return read_rect(stream, source_index, y0, y1, 0, meta_.source_width);
+}
+
+Matrix2Df SourceQualityMapCacheReader::read_rect(const std::string &stream,
+                                                 std::size_t source_index,
+                                                 int y0, int y1, int x0,
+                                                 int x1) const {
   if (!usable_) throw std::runtime_error("SQM_CACHE_NOT_USABLE: " + error_);
   y0 = std::max(0, y0);
   y1 = std::min(meta_.source_height, y1);
-  if (y1 <= y0) return Matrix2Df(0, 0);
+  x0 = std::max(0, x0);
+  x1 = std::min(meta_.source_width, x1);
+  if (y1 <= y0 || x1 <= x0) return Matrix2Df(0, 0);
   const BinContents c = read_bin(file_path(stream, source_index));
   const int d = meta_.storage_divisor;
   if (c.divisor != d ||
@@ -512,16 +521,17 @@ Matrix2Df SourceQualityMapCacheReader::read_region(const std::string &stream,
       c.storage_h != storage_dim(meta_.source_height, d))
     throw std::runtime_error("SQM_CACHE_BIN_GEOMETRY_MISMATCH: " + stream);
 
-  Matrix2Df out(y1 - y0, meta_.source_width);
+  Matrix2Df out(y1 - y0, x1 - x0);
   for (int y = y0; y < y1; ++y) {
+    // Storage cell picked from the ABSOLUTE y (edge-clamp unchanged).
     const int cy = std::min(c.storage_h - 1, y / d);
-    for (int x = 0; x < meta_.source_width; ++x) {
-      const int cx = std::min(c.storage_w - 1, x / d);
+    for (int x = x0; x < x1; ++x) {
+      const int cx = std::min(c.storage_w - 1, x / d);  // ABSOLUTE x
       const std::size_t ci = static_cast<std::size_t>(cy) * c.storage_w + cx;
       // Hard-veto cell forces NaN regardless of the value cell (plan 13.5).
-      out(y - y0, x) = c.veto_cells[ci]
-                           ? std::numeric_limits<float>::quiet_NaN()
-                           : dequantize_quality(c.cells[ci]);
+      out(y - y0, x - x0) = c.veto_cells[ci]
+                                ? std::numeric_limits<float>::quiet_NaN()
+                                : dequantize_quality(c.cells[ci]);
     }
   }
   return out;
@@ -529,7 +539,8 @@ Matrix2Df SourceQualityMapCacheReader::read_region(const std::string &stream,
 
 Matrix2Df SourceQualityMapCacheReader::read_full(
     const std::string &stream, std::size_t source_index) const {
-  return read_region(stream, source_index, 0, meta_.source_height);
+  return read_rect(stream, source_index, 0, meta_.source_height, 0,
+                   meta_.source_width);
 }
 
 // --- Orchestrator -------------------------------------------------------------

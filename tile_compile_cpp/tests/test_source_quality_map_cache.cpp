@@ -12,6 +12,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -242,6 +243,34 @@ TEST_CASE("cache writer + fail-closed reader round-trip with a zero-veto "
         REQUIRE((std::isnan(a) == std::isnan(b)));
         if (std::isfinite(a)) REQUIRE(a == b);
       }
+
+    // §30.81 step 3a-2: read_rect over an X+Y rectangle == the matching
+    // sub-block of read_full, including the vetoed cell, odd origins and the
+    // last ragged storage column/row (the storage cell is picked from the
+    // ABSOLUTE coordinate, so the edge-clamp must survive a non-zero x0/y0).
+    const std::array<std::array<int, 4>, 6> rects{{
+        {{0, h, 0, w}},           // whole
+        {{1, 4, 1, 3}},           // odd origin, straddles the veto cell
+        {{2, 3, 2, 4}},           // entirely inside the vetoed storage cell
+        {{h - 1, h, w - 1, w}},   // 1x1 at the far corner (edge clamp)
+        {{0, 1, 0, 1}},           // 1x1 at the origin (probe shape)
+        {{h - 3, h, w - 3, w}},   // ragged block touching both far edges
+    }};
+    for (const auto &r : rects) {
+      const int y0 = r[0], y1 = r[1], x0 = r[2], x1 = r[3];
+      const Matrix2Df rect = rd.read_rect("composite", 0, y0, y1, x0, x1);
+      REQUIRE(rect.rows() == y1 - y0);
+      REQUIRE(rect.cols() == x1 - x0);
+      for (int y = y0; y < y1; ++y)
+        for (int x = x0; x < x1; ++x) {
+          const float a = rect(y - y0, x - x0);
+          const float b = full(y, x);
+          REQUIRE((std::isnan(a) == std::isnan(b)));
+          if (std::isfinite(a)) REQUIRE(a == b);
+        }
+    }
+    REQUIRE(rd.read_rect("composite", 0, 3, 3, 0, w).rows() == 0);  // empty
+    REQUIRE(rd.read_rect("composite", 0, 0, h, 5, 2).rows() == 0);  // x1<=x0
   }
 
   SECTION("wrong expected identity hash -> not usable") {

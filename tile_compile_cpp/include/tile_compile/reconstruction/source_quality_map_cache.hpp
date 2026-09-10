@@ -153,6 +153,15 @@ class SourceQualityMapCacheReader {
   Matrix2Df read_region(const std::string &stream, std::size_t source_index,
                         int y0, int y1) const;
 
+  // Rectangle read (§30.81 step 3a-2): decode only the source rectangle
+  // [y0, y1) x [x0, x1). Returns a (y1 - y0) x (x1 - x0) map whose element
+  // (y - y0, x - x0) equals read_full()(y, x) for every (y, x) in the rect ---
+  // the storage-grid cell is picked from the ABSOLUTE (y, x), so the
+  // edge-clamp against the last storage row/column is unchanged. Ranges are
+  // clamped to the source geometry; an empty rect returns Matrix2Df(0, 0).
+  Matrix2Df read_rect(const std::string &stream, std::size_t source_index,
+                      int y0, int y1, int x0, int x1) const;
+
  private:
   fs::path file_path(const std::string &stream,
                      std::size_t source_index) const;
