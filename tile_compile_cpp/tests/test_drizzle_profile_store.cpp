@@ -1754,10 +1754,10 @@ TEST_CASE("plan-19.4 CUDA auto-chunking: reserve, fit, and the halving ladder",
     REQUIRE(host_limited_rows < 32);  // still a collapse; R1.2/R2 needed
   }
 
-  SECTION("§30.81 step 4: band height and column tile width are derived JOINTLY "
-          "from one host ceiling, so the regions that are live together "
-          "(memo + full-width reassembly + one tile + source/Q) sum to under "
-          "it --- not each to the full ceiling (the pre-step-4 double count)") {
+  SECTION("§30.81 step 4 + 3a: band height and column tile width are derived "
+          "JOINTLY from one host ceiling (the live regions sum to under it), "
+          "AND --- with the per-band record memo removed in 3a --- the band "
+          "height is frame-count-INDEPENDENT (no §30.80 collapse-with-N)") {
     constexpr std::size_t kClipCandidate = 64;
     constexpr std::size_t kContribRecord = 40;
     constexpr std::size_t kDrizzleContrib = 48;
@@ -1785,17 +1785,19 @@ TEST_CASE("plan-19.4 CUDA auto-chunking: reserve, fit, and the halving ladder",
         static_cast<std::size_t>(2 + 4) * source_width * source_height *
         sizeof(float);
 
-    std::printf("  §30.81 step-4 joint host budget (8 GiB card, 2 GiB host "
+    // 3a: one frame's record scratch, N-INDEPENDENT (no frame_count factor).
+    const std::size_t frame_rec_row =
+        static_cast<std::size_t>(source_width) * kMemoCellsEst * kDrizzleContrib;
+
+    std::printf("  §30.81 step-4+3a joint host budget (8 GiB card, 2 GiB host "
                 "ceiling):\n");
-    int prev_bands = 0;
+    int first_band_rows = 0, last_band_rows = 0;
     for (int frames : {40, 100, 300, 600}) {
-      const std::size_t memo_row = static_cast<std::size_t>(frames) *
-                                   source_width * kMemoCellsEst * kDrizzleContrib;
       const std::size_t cand_per_row_col =
           static_cast<std::size_t>(channels) * frames * kClipCandidate +
           static_cast<std::size_t>(channels) * sizeof(std::size_t) +
           plane_px_bytes;
-      const std::size_t host_fixed_per_row = memo_row + stripe_row;
+      const std::size_t host_fixed_per_row = frame_rec_row + stripe_row;
       const std::size_t host_avail =
           host_budget > src_q_const ? host_budget - src_q_const : 0;
       const std::size_t host_row_cost =
@@ -1835,19 +1837,23 @@ TEST_CASE("plan-19.4 CUDA auto-chunking: reserve, fit, and the halving ladder",
                   "tiles/band %3d  host peak %7.1f MiB\n",
                   frames, band_rows, bands, tile_w, tiles,
                   host_peak / (1024.0 * 1024.0));
-      // Step 4's deliverable: the JOINT peak is bounded and tiles never degrade
-      // below the floor. It is NOT that big-N bands stay tall --- see below.
+      // Step 4: the JOINT peak is bounded and tiles never degrade below the
+      // floor. Step 3a: with the memo gone, `host_fixed_per_row` carries no
+      // frame_count factor. The band-height calc still reserves one kMinTileW-
+      // wide candidate slice (so tiles never go below the floor), which leaves
+      // a WEAK residual N-dependence in the band height --- but the §30.80 / B
+      // collapse (42 -> 2 rows, 103 -> 2160 bands over 40..600) is gone: the
+      // band stays in the hundreds of rows and the band count stays < 32.
       REQUIRE(host_peak <= host_budget);
       REQUIRE(tile_w >= std::min(kMinTileW, dims_width));
-      // The per-band record memo (§30.81 step 5 / B) is frame_count * source_
-      // width * cells per internal row, so it reintroduces the §30.80
-      // collapse-with-N: the band shrinks and the band count climbs as frames
-      // grow. This is the honest picture the joint model exposes and the reason
-      // step 3a replaces the full memo with a Q-fold + budgeted candidate store.
-      if (prev_bands) REQUIRE(bands >= prev_bands);
-      prev_bands = bands;
+      if (first_band_rows == 0) first_band_rows = band_rows;
+      REQUIRE(band_rows <= first_band_rows);   // weakly decreasing in N
+      REQUIRE(band_rows >= 128);               // NOT a collapse (B: 2)
+      REQUIRE(bands <= 32);                    // NOT hundreds (B: 2160)
+      last_band_rows = band_rows;
     }
-    REQUIRE(prev_bands > 8);  // 600 frames: the memo forces many bands
+    // 600-frame band height still >= 1/4 of the 40-frame one (B: ~1/20).
+    REQUIRE(last_band_rows * 4 >= first_band_rows);
   }
 
   SECTION("device-memory probe drives the plan") {

@@ -531,25 +531,29 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
         cfg.memory_budget_mb
             ? static_cast<std::size_t>(cfg.memory_budget_mb) << 20
             : (static_cast<std::size_t>(2) << 30);
-    // §30.81 step 4: the band height and the per-band column tile width are
-    // derived JOINTLY from the one `host_budget` ceiling so the regions that
-    // are live SIMULTANEOUSLY during the tiled/memo reduction sum to under it.
-    // Before step 4 the record-memo cap and the tile-width cap each divided the
-    // FULL `host_budget` -> the sum could reach 2x the ceiling, and the
-    // store-owned full-width reassembly `stripe` was counted nowhere.
+    // §30.81 step 4 + step 3a: the band height and the per-band column tile
+    // width are derived JOINTLY from the one `host_budget` ceiling so the
+    // regions that are live SIMULTANEOUSLY during the tiled reduction sum to
+    // under it. Before step 4 the memo cap and the tile-width cap each divided
+    // the FULL `host_budget` and the full-width reassembly `stripe` was counted
+    // nowhere. Step 3a then removed the per-band record memo entirely --- its
+    // `frame_count * source_width * cells` per-row term was what dragged the
+    // band into the §30.80 collapse-with-N.
     //
-    // Per internal output row, the host regions are:
-    //   memo_row    frame_count * source_width * kMemoCellsEst records --- the
-    //               per-band record memo (§30.81 step 5 / B), all frames, whole
-    //               band. kMemoCellsEst is a generous records-per-source-pixel
-    //               estimate (typical 1--4, kernel capacity 32); the real span
-    //               refinement is step 2. If the real count exceeds it,
-    //               accumulate_pair_impl throws DRIZZLE_CONTRIB_LIST_BUDGET and
-    //               run_cuda_chunked's halving ladder shortens the band.
-    //   stripe_row  the full-width band reassembly `stripe` (uniform + raw +
-    //               optional fine/medium planes + optional alpha), 13 B/px.
-    //   cand/col    one column tile's flat ClipCandidate buffer + counts + the
-    //               tile result `r` (width tile_w, <= tile_w/W of `stripe`).
+    // Per internal output row, the host regions now are:
+    //   frame_rec_row  one frame's contribution records for the band (produced
+    //                  per column tile, freed after the fold) --- N-INDEPENDENT
+    //                  (no frame_count factor). kMemoCellsEst is a generous
+    //                  records-per-source-pixel estimate (typical 1--4, kernel
+    //                  capacity 32); counted per INTERNAL row while the records
+    //                  are per source row, so at internal_scale 2 it is ~2x
+    //                  conservative. If the real count exceeds it,
+    //                  accumulate_pair_impl throws DRIZZLE_CONTRIB_LIST_BUDGET
+    //                  and run_cuda_chunked's halving ladder shortens the band.
+    //   stripe_row     the full-width band reassembly `stripe` (uniform + raw +
+    //                  optional fine/medium planes + optional alpha), 13 B/px.
+    //   cand/col       one column tile's flat ClipCandidate buffer + counts +
+    //                  the tile result `r` (width tile_w, <= tile_w/W of stripe).
     // Plus ~constant: source image + quality maps (single frame slot).
     constexpr std::size_t kMemoCellsEst = 6;
     constexpr std::size_t kPlanePxBytes = 3 * sizeof(float) + sizeof(std::uint8_t);
@@ -559,9 +563,9 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
         static_cast<std::size_t>(n_result_planes) *
             static_cast<std::size_t>(channels) * kPlanePxBytes +
         (mb.emit_alpha_confidence ? kPlanePxBytes : 0);
-    const std::size_t memo_row =
-        frame_count * static_cast<std::size_t>(plan.source_width) *
-        kMemoCellsEst * sizeof(DrizzleContrib);
+    const std::size_t frame_rec_row =
+        static_cast<std::size_t>(plan.source_width) * kMemoCellsEst *
+        sizeof(DrizzleContrib);
     const std::size_t stripe_row =
         plane_px_bytes * static_cast<std::size_t>(dims.width);
     const std::size_t cand_per_row_col =
@@ -580,7 +584,7 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     // at the canvas width --- for a canvas narrower than the floor there is no
     // tiling to be had and only the band height can move.
     const int kMinTileW = std::min(64, dims.width);
-    const std::size_t host_fixed_per_row = memo_row + stripe_row;
+    const std::size_t host_fixed_per_row = frame_rec_row + stripe_row;
     const std::size_t host_avail =
         host_budget > src_q_const ? host_budget - src_q_const : 0;
     const std::size_t host_row_cost =
@@ -634,8 +638,9 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     CudaChunkRunStats chunk_stats;
     const int bands = run_cuda_chunked(
         chunk_plan, dims.height, [&](int y0, int rows) {
-          // §30.81 step 4: widest column tile such that, at THIS band height,
-          //   (memo_row + stripe_row) * rows          [memo + reassembly]
+          // §30.81 step 4 + 3a: widest column tile such that, at THIS band
+          // height,
+          //   (frame_rec_row + stripe_row) * rows    [1 frame records + reassembly]
           // + cand_per_row_col * tile_w * rows        [one tile + its result]
           // + src_q_const                             [source + Q maps]
           // stays under `host_budget`. Derived per call so a halving that
@@ -744,20 +749,19 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
                 }
             }
           };
-          // §30.81 step 4: the budget passed INWARD is what remains after the
-          // store-owned full-width `stripe` and the ~constant source/Q buffers
-          // --- so accumulate_pair_impl's memo and per-tile candidate guards
-          // check against what is actually free, not the full ceiling (before
-          // step 4 both inner guards and this call all used the full
-          // `host_budget`, so memo + candidates + stripe could reach ~3x it).
-          // Floored at 64 MiB: a budget too tight for one producer batch throws
+          // §30.81 step 4 + 3a: the budget passed INWARD is what remains after
+          // the store-owned full-width `stripe`, one frame's record scratch and
+          // the ~constant source/Q buffers --- so accumulate_pair_impl's
+          // per-tile candidate guard checks against what is actually free, not
+          // the full ceiling (before step 4 both the inner guard and this call
+          // used the full `host_budget`, so candidates + stripe could exceed
+          // it). Floored at 64 MiB: too tight for one producer batch -> throws
           // ForwardDrizzleCudaError -> full CPU restart, not the halving ladder.
-          const std::size_t stripe_bytes =
-              stripe_row * static_cast<std::size_t>(std::max(rows, 1));
+          const std::size_t fixed_bytes =
+              host_fixed_per_row * static_cast<std::size_t>(std::max(rows, 1)) +
+              src_q_const;
           const std::size_t inner_budget = std::max<std::size_t>(
-              host_budget > stripe_bytes + src_q_const
-                  ? host_budget - stripe_bytes - src_q_const
-                  : 0,
+              host_budget > fixed_bytes ? host_budget - fixed_bytes : 0,
               static_cast<std::size_t>(64) << 20);
           ForwardDrizzleUniformAndRawResult agg;
           try {

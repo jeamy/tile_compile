@@ -53,9 +53,16 @@ std::vector<DrizzleContrib> build_frame_records(
     const registration::FrameSamplingTransform &f, std::uint32_t frame_order,
     const Matrix2Df &src, const config::ReconstructionDrizzleConfig &cfg,
     const StripeGeom &g, int y_begin, int rows,
-    const ForwardDrizzleSubdivisionParams &sub, std::size_t mem_budget_bytes) {
+    const ForwardDrizzleSubdivisionParams &sub, std::size_t mem_budget_bytes,
+    int x_begin = 0, int cols = -1) {
   if (src.rows() != plan.source_height || src.cols() != plan.source_width)
     throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
+
+  // §30.81 step 3a: the rasterizer sink indexes the window row-major (`win_w`
+  // wide, origin `xb`); decode target_x/y back to ABSOLUTE canvas coords.
+  const int xb = std::clamp(x_begin, 0, g.W);
+  const int win_w = cols < 0 ? g.W : std::clamp(x_begin + cols, xb, g.W) - xb;
+  if (win_w <= 0) return {};
 
   unsigned long long count = 0;
   const unsigned long long kCountCeiling =
@@ -69,7 +76,7 @@ std::vector<DrizzleContrib> build_frame_records(
         [&](int sx, int sy, int, int, std::size_t, double) {
           if (std::isfinite(static_cast<double>(src(sy, sx)))) ++count;
         },
-        sub);
+        sub, xb, win_w);
   }
   if (count >= kCountCeiling ||
       static_cast<std::size_t>(count) * sizeof(DrizzleContrib) > mem_budget_bytes)
@@ -77,7 +84,8 @@ std::vector<DrizzleContrib> build_frame_records(
 
   std::vector<DrizzleContrib> out;
   out.reserve(static_cast<std::size_t>(count));
-  const auto Wsz = static_cast<std::size_t>(g.W);
+  const auto Wwin = static_cast<std::size_t>(win_w);
+  const auto xb_u = static_cast<std::uint32_t>(xb);
   geomstats::ScopedVariant _v(geomstats::Variant::kContribFill, cfg.pixfrac);
   geomstats::ScopedGeometryTimer _t;
   rasterize_drizzle_stripe(
@@ -88,8 +96,8 @@ std::vector<DrizzleContrib> build_frame_records(
         DrizzleContrib rec;
         rec.key.frame_order = frame_order;
         rec.key.channel = static_cast<std::uint32_t>(c);
-        rec.key.target_y = static_cast<std::uint32_t>(i / Wsz);
-        rec.key.target_x = static_cast<std::uint32_t>(i % Wsz);
+        rec.key.target_y = static_cast<std::uint32_t>(i / Wwin);
+        rec.key.target_x = xb_u + static_cast<std::uint32_t>(i % Wwin);
         rec.key.source_y = static_cast<std::uint32_t>(sy);
         rec.key.source_x = static_cast<std::uint32_t>(sx);
         rec.key.leaf_order = static_cast<std::uint32_t>(leaf);
@@ -97,7 +105,7 @@ std::vector<DrizzleContrib> build_frame_records(
         rec.value = v;
         out.push_back(rec);
       },
-      sub);
+      sub, xb, win_w);
   if (out.size() != static_cast<std::size_t>(count))
     throw std::runtime_error("DRIZZLE_CONTRIB_LIST_COUNT_DRIFT");
   return out;
@@ -379,9 +387,14 @@ double map_at(const Matrix2Df *m, std::uint32_t sy, std::uint32_t sx) {
 // rasterizer and converts. Everything downstream (sort, Q fold, clip, profile)
 // is shared, so the CPU and CUDA pair results are bit-identical exactly when
 // the records match.
+//
+// §30.81 step 3a: `x_begin`/`cols` scope the producer to a target-column window
+// (`cols < 0` => full width). The CPU producer enumerates only that window; the
+// CUDA producer narrows the uploaded source-row band and drops out-of-window
+// records (the device kernel X-window is step 3). target_x keys stay ABSOLUTE.
 using PairFrameRecordProducer = std::function<std::vector<DrizzleContrib>(
     std::size_t fo, const registration::FrameSamplingTransform &f,
-    const StripeGeom &g)>;
+    const StripeGeom &g, int x_begin, int cols)>;
 
 ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     const RegistrationSamplingPlan &plan,
@@ -397,14 +410,6 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
   const int channels = g.channels;
   const std::size_t frame_count = plan.frames.size();
   const bool tiled = tile_sink != nullptr && *tile_sink && tile_cols > 0;
-
-  // §30.81 step 4: `reduce_window` checks its flat ClipCandidate allocation
-  // against this. On the single-window path it is the full budget. On the tiled
-  // path the per-band record memo is live alongside every tile's candidate
-  // buffer, so the tiled branch lowers it to (budget - memo) once the memo is
-  // built --- before step 4 the memo guard and this guard both used the full
-  // `mem_budget_bytes`, so their sum could reach twice the ceiling.
-  std::size_t cand_budget_bytes = mem_budget_bytes;
 
   const bool need_q0 = mb.emit_fine;
   const bool need_q1 = mb.emit_medium;
@@ -464,10 +469,13 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
                : std::array<ProfilePlane *, 3>{&p.R, &p.G, &p.B};
   };
 
-  // Build one frame's records: produce (device or CPU) then the canonical sort.
-  auto produce_sorted = [&](std::size_t fo) {
+  // Build one frame's records for a target-column window (`ww < 0` => full
+  // width): produce (device or CPU) then the canonical sort. target_x keys are
+  // absolute, so the sort order and every downstream step are identical to the
+  // full-width records restricted to the window.
+  auto produce_sorted = [&](std::size_t fo, int wx0, int ww) {
     auto tp = cnow();
-    auto recs = produce(fo, *prepared.frames[fo], g);
+    auto recs = produce(fo, *prepared.frames[fo], g, wx0, ww);
     cadd(cp.produce_s, tp);
     if (cprof)
       cp.records_sorted.fetch_add(recs.size(), std::memory_order_relaxed);
@@ -506,7 +514,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
            std::numeric_limits<std::size_t>::max() / sizeof(ClipCandidate))
               ? std::numeric_limits<std::size_t>::max()
               : elems * sizeof(ClipCandidate);
-      if (bytes > cand_budget_bytes)
+      if (bytes > mem_budget_bytes)
         throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
     }
     const std::uint32_t wxb_u = static_cast<std::uint32_t>(wx0);
@@ -641,53 +649,39 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
   };
 
   if (tiled) {
-    // §30.81 step-5 (B): produce + sort each frame ONCE into a per-band memo,
-    // then replay it through every column tile. Removes the per-tile produce +
-    // sort repetition (baseline §30.81 step 5: sort was the largest amplifier,
-    // records sorted scaled exactly with the tile count).
+    // §30.81 step 3a: NO per-band record memo. B's memo held every frame's
+    // sorted records for the whole band at once --- frame_count * source_width *
+    // cells per internal row --- which reintroduced the §30.80 collapse-with-N
+    // (the band shrank to ~2 rows at 600 frames). Instead each column tile is
+    // reduced from a producer call SCOPED to that tile's target window: only
+    // one frame's tile-window records are live at any time, so the band height
+    // no longer carries a frame_count factor.
     //
-    // §30.81 step 4: the memo and one column tile's candidate buffer (+ its
-    // result plane, width tile_cols) are live at the same time. Reserve the
-    // tile's share of `mem_budget_bytes` first; bound the memo by what remains.
-    constexpr std::size_t kPlanePxBytes = 3 * sizeof(float) + sizeof(std::uint8_t);
-    const int n_res_planes =
-        2 + (mb.emit_fine ? 1 : 0) + (mb.emit_medium ? 1 : 0);
-    const std::size_t plane_px_bytes =
-        static_cast<std::size_t>(n_res_planes) *
-            static_cast<std::size_t>(channels) * kPlanePxBytes +
-        (need_qa ? kPlanePxBytes : 0);
-    const std::size_t cand_reserve =
-        (static_cast<std::size_t>(channels) * frame_count * sizeof(ClipCandidate) +
-         static_cast<std::size_t>(channels) * sizeof(std::size_t) +
-         plane_px_bytes) *
-        static_cast<std::size_t>(tile_cols) * static_cast<std::size_t>(rows);
-    const std::size_t memo_ceiling =
-        mem_budget_bytes > cand_reserve ? mem_budget_bytes - cand_reserve : 0;
-    if (memo_ceiling == 0)  // one tile alone exceeds the budget -> shorter band
-      throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
-    std::vector<std::vector<DrizzleContrib>> memo(prepared.frames.size());
-    std::size_t memo_bytes = 0;
-    for (std::size_t fo = 0; fo < prepared.frames.size(); ++fo) {
-      // Guard BEFORE producing frame `fo`: if the mean of the frames already
-      // held would push the memo over its ceiling, fail now rather than after
-      // allocating a frame that cannot be kept (the caller shortens the band).
-      if (fo && memo_bytes + memo_bytes / fo > memo_ceiling)
-        throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
-      memo[fo] = produce_sorted(fo);
-      memo_bytes += memo[fo].capacity() * sizeof(DrizzleContrib);  // real peak
-      if (memo_bytes > memo_ceiling)
-        throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
-    }
-    // What is left after the memo is what each tile's candidate buffer may use.
-    cand_budget_bytes = mem_budget_bytes - memo_bytes;
-    auto from_memo =
+    // Bit-identity: the producer keeps target_x keys ABSOLUTE (so the canonical
+    // sort order matches the full-width records restricted to the window), and
+    // reduce_window's per-frame loop appends candidates frame-ascending within
+    // each target cell --- the same (channel, cell) candidate spans, same
+    // order, that the pre-3a full-width tiled path produced.
+    //
+    // Cost: produce + sort now run once per (tile, frame) again, but each call
+    // is scoped to ~tile_cols/W of the canvas (CPU: windowed enumeration; CUDA:
+    // narrowed source band today, device X-window is step 3), so the total
+    // record work stays ~flat in the tile count for well-behaved affines
+    // (measured source-footprint duplication <= 1.03x at the resolved band
+    // heights; shear / scale / edge / local-warp coverage is step 3/4).
+    int cur_x0 = 0, cur_w = 0;
+    std::vector<DrizzleContrib> scratch;
+    auto from_window =
         [&](std::size_t fo) -> const std::vector<DrizzleContrib> & {
-      return memo[fo];
+      scratch = produce_sorted(fo, cur_x0, cur_w);
+      return scratch;
     };
     ForwardDrizzleUniformAndRawResult agg;  // planes empty; .clipping summed
     for (int wx0 = 0; wx0 < g.W; wx0 += tile_cols) {
       const int tw = std::min(tile_cols, g.W - wx0);
-      auto tile = reduce_window(wx0, tw, from_memo);
+      cur_x0 = wx0;
+      cur_w = tw;
+      auto tile = reduce_window(wx0, tw, from_window);
       agg.clipping.pixel_channel_evaluations +=
           tile.clipping.pixel_channel_evaluations;
       agg.clipping.pixel_channel_rejected +=
@@ -701,7 +695,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
 
   // Single-window path: produce + sort one frame at a time into a reused
   // scratch, so the peak is one frame's records + one window's candidate
-  // buffer, exactly as before step 5.
+  // buffer.
   const int xb = std::clamp(x_begin, 0, g.W);
   const int xe = cols < 0 ? g.W : std::clamp(x_begin + cols, xb, g.W);
   const int win_w = xe - xb;
@@ -710,7 +704,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
   std::vector<DrizzleContrib> scratch;
   auto from_producer =
       [&](std::size_t fo) -> const std::vector<DrizzleContrib> & {
-    scratch = produce_sorted(fo);
+    scratch = produce_sorted(fo, xb, win_w);
     return scratch;
   };
   return reduce_window(xb, win_w, from_producer);
@@ -725,10 +719,10 @@ PairFrameRecordProducer cpu_pair_producer(
   return [&plan, &source_of, &cfg, &subdivision, y_begin, rows,
           mem_budget_bytes](std::size_t fo,
                             const registration::FrameSamplingTransform &f,
-                            const StripeGeom &g) {
+                            const StripeGeom &g, int x_begin, int cols) {
     return build_frame_records(plan, f, static_cast<std::uint32_t>(fo),
                                source_of(f.source_index), cfg, g, y_begin, rows,
-                               subdivision, mem_budget_bytes);
+                               subdivision, mem_budget_bytes, x_begin, cols);
   };
 }
 
@@ -746,12 +740,35 @@ PairFrameRecordProducer cuda_pair_producer(
   return [&plan, &source_of, &cfg, &subdivision, y_begin, rows,
           max_cells_per_pixel, mem_budget_bytes, max_batch_items, hybrid_stats](
              std::size_t fo, const registration::FrameSamplingTransform &f,
-             const StripeGeom &g) -> std::vector<DrizzleContrib> {
-    if (f.has_smooth_local_model)
-      return build_frame_records_hybrid_local(
+             const StripeGeom &g, int x_begin,
+             int cols) -> std::vector<DrizzleContrib> {
+    // §30.81 step 3a: the device kernel does not yet take an X-window (step 3),
+    // so the affine path narrows the uploaded source-row band using the window
+    // corners and drops out-of-window records after conversion; the hybrid
+    // local-warp path (no safe inverse-affine bbox, §30.81 note) produces full
+    // width and is filtered the same way. `cols < 0` => full width, unchanged.
+    const int win_xb = std::clamp(x_begin, 0, g.W);
+    const int win_xe = cols < 0 ? g.W : std::clamp(x_begin + cols, win_xb, g.W);
+    const auto win_xb_u = static_cast<std::uint32_t>(win_xb);
+    const auto win_xe_u = static_cast<std::uint32_t>(win_xe);
+    const bool windowed = win_xb != 0 || win_xe != g.W;
+    auto clip_to_window = [&](std::vector<DrizzleContrib> &v) {
+      if (!windowed) return;
+      v.erase(std::remove_if(v.begin(), v.end(),
+                             [&](const DrizzleContrib &d) {
+                               return d.key.target_x < win_xb_u ||
+                                      d.key.target_x >= win_xe_u;
+                             }),
+              v.end());
+    };
+    if (f.has_smooth_local_model) {
+      auto recs = build_frame_records_hybrid_local(
           plan, f, static_cast<std::uint32_t>(fo), source_of(f.source_index),
           cfg, g, y_begin, rows, subdivision, mem_budget_bytes, max_batch_items,
           hybrid_stats);
+      clip_to_window(recs);
+      return recs;
+    }
     if (!f.source_to_canvas_affine_valid)
       throw ForwardDrizzleCudaError(
           "forward_drizzle CUDA: frame has no valid affine");
@@ -762,6 +779,12 @@ PairFrameRecordProducer cuda_pair_producer(
 
     // Source-row band for this stripe, derived exactly like the CPU path
     // (rasterize_drizzle_stripe): inverse-map the destination stripe corners.
+    // §30.81 step 3a keeps this over the FULL canvas width even for a tile
+    // window: the device kernel still enumerates [0, g.W), and narrowing the
+    // band by the window's dest-x range would rest on a source-y margin
+    // (droplet half-width + leaf-subdivision spread) that is not verified here.
+    // The real per-window device saving (kernel X-window + narrowed upload) is
+    // step 3; step 3a's CUDA producer only DROPS out-of-window records.
     const auto &s2c = f.source_to_canvas;
     WarpMatrix inv;
     if (!registration::invert_affine_2x3(s2c, 1e-12f, 1e12f, inv))
@@ -829,6 +852,7 @@ PairFrameRecordProducer cuda_pair_producer(
       d.value = r.value;
       out.push_back(d);
     }
+    clip_to_window(out);
     return out;
   };
 }

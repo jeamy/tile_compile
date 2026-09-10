@@ -1,13 +1,18 @@
-// §30.81 step-5 BASELINE benchmark: attribute the per-column-tile repetition
+// §30.81 step-5 / step-3a benchmark: attribute the per-column-tile repetition
 // factor of the CUDA affine pair path.
 //
 // Hidden ([.]), needs a real device AND `TC_FD_CUDA_PROFILE` set. It runs the
-// same affine multiband build twice over one internal band --- once full width
-// (1 tile) and once split into N column tiles the way persist_forward_drizzle_
-// multiband now does --- and prints the coarse phase split
-// (producer / device malloc+upload+kernel+download / host sort / host reduce)
-// for each, plus the tiled/single ratio. It also asserts the tiled reassembly
-// is bit-identical to the single call, so a regression here fails loudly.
+// same affine multiband build three ways over one internal band --- full width
+// (A, 1 tile), N external per-tile calls (B), and the internal tiled driver
+// (C) --- and prints the coarse phase split (producer / device
+// malloc+upload+kernel+download / host sort / host reduce) plus the
+// tiled/single ratio. It asserts every reassembly is bit-identical to A.
+//
+// §30.81 step 3a removed the per-band record memo: each column tile is now
+// produced through a WINDOWED producer, so total records sorted stays 1x the
+// full-width call (asserted) instead of Nx. The device phases are still ~Nx
+// because the affine kernel does not yet take an X-window --- that is step 3;
+// this bench is its baseline.
 //
 //   TC_FD_CUDA_PROFILE=1 ./tests "[fd-cuda-tile]" --success
 
@@ -202,9 +207,10 @@ TEST_CASE("§30.81 step-5 baseline: CUDA affine pair path column-tile repetition
   }
   const Snap b = snap();
 
-  // --- Run C: the §30.81 step-5 (B) memo/tiled driver --------------------
-  // One accumulate_pair_by_frame_cuda call: produce + sort each frame ONCE per
-  // band, replay the memo through every column tile via the tile sink.
+  // --- Run C: the §30.81 step-3a internal tiled driver -----------------
+  // One accumulate_pair_by_frame_cuda call with a tile sink: the tiled branch
+  // reduces each column tile from a WINDOWED producer call (no record memo),
+  // stitching the parts through the sink.
   forward_drizzle_cuda_profile().reset();
   ForwardDrizzleUniformAndRawResult memo;
   init(memo.uniform, true); init(memo.raw, true);
@@ -272,6 +278,12 @@ TEST_CASE("§30.81 step-5 baseline: CUDA affine pair path column-tile repetition
   REQUIRE(single.alpha_confidence_support == tiled.alpha_confidence_support);
   REQUIRE(single.alpha_confidence_support == memo.alpha_confidence_support);
 
+  // §30.81 step 3a gate: the windowed producer keeps TOTAL record work at 1x
+  // the full-width call --- each tile emits only its own window's records.
+  // (The device phases are still ~Nx; the kernel X-window is step 3.)
+  REQUIRE(b.records_sorted == a.records_sorted);
+  REQUIRE(cc.records_sorted == a.records_sorted);
+
   // --- report ------------------------------------------------------------
   auto dev = [](const Snap &s) {
     return s.malloc_s + s.upload_s + s.kernel_s + s.download_s;
@@ -283,11 +295,11 @@ TEST_CASE("§30.81 step-5 baseline: CUDA affine pair path column-tile repetition
     std::printf("  %-12s  %8.4f  %8.4f  %8.4f   %6.2fx  %6.2fx\n", name, va, vb,
                 vc, va > 0 ? vb / va : 0.0, va > 0 ? vc / va : 0.0);
   };
-  std::printf("\n=== §30.81 step-5: CUDA affine pair, %d frames, W=%d H=%d, "
+  std::printf("\n=== §30.81 step-3a: CUDA affine pair, %d frames, W=%d H=%d, "
               "%d column tiles (tile_w=%d) ===\n",
               nf, W, H, tiles, tile_w);
   std::printf("  %-12s  %8s  %8s  %8s   %6s  %6s\n", "phase", "A single",
-              "B per-tile", "C memo", "B/A", "C/A");
+              "B per-tile", "C tiled", "B/A", "C/A");
   row("produce", a.produce_s, b.produce_s, cc.produce_s);
   row("  .malloc", a.malloc_s, b.malloc_s, cc.malloc_s);
   row("  .upload", a.upload_s, b.upload_s, cc.upload_s);
