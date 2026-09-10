@@ -152,7 +152,17 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
     const std::vector<float> &g_eff_by_source_index = {},
     const FrameQualityProvider &quality_of = {},
     const MultibandProfileParams &mb = {},
-    std::size_t mem_budget_bytes = static_cast<std::size_t>(1) << 32);
+    std::size_t mem_budget_bytes = static_cast<std::size_t>(1) << 32,
+    // §30.81 (P6 priority-3 CUDA 2D target tiling): restrict this pair build to
+    // the target-column window [target_x_begin, target_x_begin + target_cols) of
+    // the internal canvas. `target_cols < 0` => full internal width, i.e. the
+    // historical behaviour, byte-for-byte. The record producers still emit
+    // full-width records; out-of-window contributions are dropped host-side
+    // before the flat ClipCandidate buffer (which is then `target_cols` wide, so
+    // the DRIZZLE_CONTRIB_LIST_BUDGET ceiling scales with the tile). The emitted
+    // ProfilePlane stripes and `internal_width` report the window width; the
+    // caller owns re-inserting the tile at column `target_x_begin`.
+    int target_x_begin = 0, int target_cols = -1);
 
 // The CUDA counterpart of accumulate_pair_by_frame: the per-frame contribution
 // records are produced by the device affine rasterizer
@@ -189,6 +199,9 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     std::size_t mem_budget_bytes = static_cast<std::size_t>(1) << 32,
     int max_cells_per_pixel = 32,
     std::size_t max_batch_items = static_cast<std::size_t>(1) << 20,
-    HybridPathStats *hybrid_stats = nullptr);
+    HybridPathStats *hybrid_stats = nullptr,
+    // §30.81: see accumulate_pair_by_frame. Same semantics; the CUDA record
+    // producer still rasterizes full width, the window is applied host-side.
+    int target_x_begin = 0, int target_cols = -1);
 
 }  // namespace tile_compile::reconstruction

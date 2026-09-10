@@ -390,12 +390,24 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff_by_source_index,
     const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
-    std::size_t mem_budget_bytes, const PairFrameRecordProducer &produce) {
+    std::size_t mem_budget_bytes, const PairFrameRecordProducer &produce,
+    int x_begin, int cols) {
   const StripeGeom g = stripe_geom(plan, cfg, y_begin, rows);
   const auto prepared = prepare_drizzle_frames(plan, cfg, subdivision);
   const int channels = g.channels;
+  // §30.81 target-column window. `cols < 0` => xb == 0 && win_w == g.W, i.e.
+  // every buffer, ProfilePlane and flat index below is byte-for-byte the
+  // pre-§30.81 full-width path. The record producers still emit full-width
+  // records; contributions with `key.target_x` outside [xb, xe) are dropped
+  // before the flat ClipCandidate buffer (which is `win_w` wide, so the budget
+  // ceiling scales with the tile).
+  const int xb = std::clamp(x_begin, 0, g.W);
+  const int xe = cols < 0 ? g.W : std::clamp(x_begin + cols, xb, g.W);
+  const int win_w = xe - xb;
+  if (win_w <= 0)
+    throw std::invalid_argument("DRIZZLE_EMPTY_TARGET_WINDOW");
   const std::size_t n =
-      static_cast<std::size_t>(g.W) * static_cast<std::size_t>(rows);
+      static_cast<std::size_t>(win_w) * static_cast<std::size_t>(rows);
   const std::size_t frame_count = plan.frames.size();
 
   // Fail closed before the flat ClipCandidate buffer allocation (it does NOT
@@ -449,15 +461,15 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
   ForwardDrizzleUniformAndRawResult result;
   auto init_profile = [&](ForwardDrizzleUniformResult &p, bool on) {
     p.color_mode = plan.color_mode;
-    p.internal_width = g.W;
+    p.internal_width = win_w;
     p.internal_height = on ? rows : 0;
     if (!on) return;
     if (channels == 1) {
-      p.L.allocate(g.W, rows);
+      p.L.allocate(win_w, rows);
     } else {
-      p.R.allocate(g.W, rows);
-      p.G.allocate(g.W, rows);
-      p.B.allocate(g.W, rows);
+      p.R.allocate(win_w, rows);
+      p.G.allocate(win_w, rows);
+      p.B.allocate(win_w, rows);
     }
   };
   init_profile(result.uniform, true);
@@ -501,7 +513,9 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
       need_qa,                     mb.fine_quality_exponent,
       mb.medium_quality_exponent,  mb.alpha_confidence};
 
-  const auto Wsz = static_cast<std::size_t>(g.W);
+  const auto Wsz = static_cast<std::size_t>(win_w);
+  const std::uint32_t xb_u = static_cast<std::uint32_t>(xb);
+  const std::uint32_t xe_u = static_cast<std::uint32_t>(xe);
 
   // Per frame: build -> canonical sort -> segment-reduce into one ClipCandidate
   // per (channel, cell), reading the frame's Q maps per record.
@@ -531,6 +545,13 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
           break;
         ++e;
       }
+      // §30.81: a segment shares one (channel, target_y, target_x) key, so a
+      // record outside the target-column window means the whole segment is;
+      // skip it before the Q fold. Full-width window => never taken.
+      if (k0.target_x < xb_u || k0.target_x >= xe_u) {
+        s = e;
+        continue;
+      }
       double A = 0.0, B = 0.0, QA = 0.0, QA0 = 0.0, QA1 = 0.0, QAA = 0.0,
              QAF = 0.0;
       for (std::size_t t = s; t < e; ++t) {
@@ -549,8 +570,8 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
       }
       if (B > 0.0) {
         const int c = static_cast<int>(k0.channel);
-        const std::size_t i =
-            static_cast<std::size_t>(k0.target_y) * Wsz + k0.target_x;
+        const std::size_t i = static_cast<std::size_t>(k0.target_y) * Wsz +
+                              (k0.target_x - xb_u);
         cand[c][i * frame_count + counts[c][i]++] = ClipCandidate{
             f.source_index, A / B, B, need_qc ? QA / B : 1.0,
             need_q0 ? QA0 / B : 1.0, need_q1 ? QA1 / B : 1.0,
@@ -717,12 +738,13 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff_by_source_index,
     const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
-    std::size_t mem_budget_bytes) {
+    std::size_t mem_budget_bytes, int target_x_begin, int target_cols) {
   return accumulate_pair_impl(
       plan, cfg, clip_cfg, y_begin, rows, subdivision, g_eff_by_source_index,
       quality_of, mb, mem_budget_bytes,
       cpu_pair_producer(plan, source_of, cfg, subdivision, y_begin, rows,
-                        mem_budget_bytes));
+                        mem_budget_bytes),
+      target_x_begin, target_cols);
 }
 
 ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
@@ -733,13 +755,15 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     const std::vector<float> &g_eff_by_source_index,
     const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
     std::size_t mem_budget_bytes, int max_cells_per_pixel,
-    std::size_t max_batch_items, HybridPathStats *hybrid_stats) {
+    std::size_t max_batch_items, HybridPathStats *hybrid_stats,
+    int target_x_begin, int target_cols) {
   return accumulate_pair_impl(
       plan, cfg, clip_cfg, y_begin, rows, subdivision, g_eff_by_source_index,
       quality_of, mb, mem_budget_bytes,
       cuda_pair_producer(plan, source_of, cfg, subdivision, y_begin, rows,
                          max_cells_per_pixel, mem_budget_bytes, max_batch_items,
-                         hybrid_stats));
+                         hybrid_stats),
+      target_x_begin, target_cols);
 }
 
 }  // namespace tile_compile::reconstruction

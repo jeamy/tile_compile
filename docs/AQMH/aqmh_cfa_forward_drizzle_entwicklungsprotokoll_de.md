@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich + budgetierter Clipping-Scratch + CUDA-Bandplanungs-Messzähler + Ziel-Spaltenfenster im Streifen-Enumerator (P3 Schritt 1) 10.09. | [§30.12–30.81, Schritt 2](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung + `fd-hotspot`-Reparatur/Timer-Abgleich + budgetierter Clipping-Scratch + CUDA-Bandplanungs-Messzähler + 2D-Ziel-Kachelung P3 Schritte 1–3 (Enumerator-, CPU-Streamer- und `accumulate_pair_impl`-Spaltenfenster) 10.09. | [§30.12–30.81](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -6505,12 +6505,52 @@ Streifen, Clip-Ausreisser + nicht-endliche Source) -- ragged Spaltenkacheln
 **bit-exakt** (`==` auf `double`) zum Voll-Breiten-Lauf zusammen, Wert- und
 Alpha-Karten getrennt geprueft. Volle Suite **540/540**.
 
-**Offen (folgt).** Schritt 3: Kachel-Schleife in
-`persist_forward_drizzle_multiband` (`tile_w` aus `host_budget`, `band_rows`
-aus `devmem.free_bytes`; die Halbierungsleiter leitet `tile_w` bei jedem
-`band_rows`-Wechsel neu ab), Voll-Breiten-Stripe je Zeilenband zusammensetzen,
-**ein** `writer.multiband_stripe`-Call wie bisher. Schritt 4: `.cu`-Spiegelung
-+ `[cuda-parity]`.
+**Befund unterwegs.** Der CUDA-Store-Pfad ruft **nicht**
+`stream_forward_drizzle_uniform_and_raw`, sondern
+`accumulate_pair_by_frame_cuda` -> `accumulate_pair_impl`
+(`forward_drizzle_contrib_list.cpp`), das seinen **eigenen**
+`cand[c].resize(n·frame_count)`-Puffer mit `n = g.W·rows` besitzt -- genau der
+Puffer, den §30.80 als VRAM-Wand misst. Die `DrizzleContrib`-Records sind mit
+**absoluten** Schluesseln versehen (`key.target_x` absolut, `key.target_y`
+streifen-lokal); `accumulate_pair_impl` rechnet den flachen Index lokal aus.
+
+**Schritt 3 (2026-09-10).** `accumulate_pair_impl` (und die oeffentlichen
+`accumulate_pair_by_frame` / `accumulate_pair_by_frame_cuda`) bekommen
+nachgestellte Default-Parameter `int target_x_begin = 0, int target_cols = -1`.
+`target_cols < 0` => `xb == 0 && win_w == g.W`, byte-identisch. Bei gesetztem
+Fenster:
+
+- Die Record-Producer (CPU-Referenzrasterizer **und** der Geraete-Affin-
+  Rasterizer) rastern weiter voll-breit; ein Segment mit
+  `key.target_x ∉ [xb, xe)` wird **host-seitig vor der Q-Faltung** verworfen
+  (`s = e; continue;`). Ein Segment teilt genau einen
+  `(channel, target_y, target_x)`-Schluessel, das Verwerfen ist also exakt.
+- `n`, `init_profile`-Breite/`internal_width`, `cand`/`counts`, `ac_*` und die
+  `DRIZZLE_CONTRIB_LIST_BUDGET`-Schranke sind `win_w` breit -- die Schranke
+  **skaliert mit der Kachel**. Das ist der Term, der schrumpfen musste.
+- Flacher Index `i = target_y·win_w + (target_x - xb)`.
+- Kein `.cu`-Eingriff: die Geraete-Enumeration bleibt voll-breit
+  (GPU-Verschwendung ist billig gegen die Host-`cand_row`-Wand); die
+  Geraete-Enumerations-Verengung ist ein reiner Performance-Nachzug.
+- `[cuda-parity]` bleibt: die Fensterlogik liegt im **gemeinsamen**
+  `accumulate_pair_impl`, CPU- und CUDA-Producer speisen sie identisch.
+
+**Abnahme Schritt 3.** Neuer `[forward-drizzle][contrib-list][fd-tile-window]`-
+Test: ragged 2D-Partition (Zeilenbaender `{0,5}{5,7}{12,4}` × Spaltenkacheln
+`[0,3)[3,11)[11,15)[15,16)`, letzte Kachel Breite 1) fuegt Uniform/Raw/Fine/
+Medium + Alpha-Karten + Clip-Zaehler **bit-exakt** zum ungeteilten
+`accumulate_pair_by_frame(0, H)` zusammen. `internal_width == cols` gepinnt.
+Volle Suite **541/541**; `[contrib-list] [cuda-parity] [drizzle-store]
+[drizzle-audit]` unveraendert gruen.
+
+**Offen (folgt).** Schritt 4 (Integration): Spaltenkachel-Schleife im
+CUDA-Store-Pfad (`drizzle_profile_store.cpp`) -- je Zeilenband die Kacheln
+`accumulate_pair_by_frame_cuda(..., xb, win_w)` aufrufen, Voll-Breiten-Stripe
+zusammensetzen, **ein** `sink`/`down->feed` pro Band wie bisher. R1.1
+(Host-/Device-Budget-Trennung) + `tile_w`-Wahl gehoeren hierher; die
+Halbierungsleiter in `run_cuda_chunked` halbiert dann die **groessere** von
+`rows`/`cols` (ein Fehlerpfad, kein zweiter Planer). Optionaler Schritt 5:
+`.cu`-Geraete-Enumeration auf das Fenster verengen.
 
 ---
 
