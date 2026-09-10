@@ -5,6 +5,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <nlohmann/json.hpp>
+#include <array>
+#include <cstdio>
 #include <fstream>
 using namespace tile_compile;
 using namespace tile_compile::reconstruction;
@@ -126,6 +128,116 @@ TEST_CASE("source cache: LRU hit skips hashing, tamper still fails closed",
     REQUIRE(worker.hash_computation_count()==1);          // its own first touch
     REQUIRE(cache.hash_computation_count()==1);           // unaffected
   }
+}
+
+// §30.81 step 3a-3: the run-internal source block-check index. Built from the
+// same bytes as the whole-file SHA on first touch; a later read_rect reads and
+// SHA-256-checks only the blocks its Y window covers. Verifies: region parity
+// with load(), block-read amplification (X width is free, Y width is not), and
+// the detection-semantics contract boundary (only touched blocks are checked).
+TEST_CASE("source cache: block-check index --- parity, amplification, detection semantics",
+          "[source-predecessors][cache-blocks]") {
+  core::AtomicOutput st{fs::temp_directory_path()/"src-cache-blocks"};
+  const fs::path br=st.path();
+  fs::create_directory(br);
+  const int W=512,H=512;
+  registration::RegistrationSamplingPlan bp;
+  bp.source_width=W; bp.source_height=H;
+  bp.canvas_width_native=bp.canvas_height_native=W;
+  bp.color_mode=ColorMode::MONO;
+  bp.source_identity_hash="blk-src";
+  auto write_frame=[&](size_t i,float bias){
+    Matrix2Df px(H,W);
+    for (int y=0;y<H;++y) for (int x=0;x<W;++x) px(y,x)=bias+y*1000.0f+x;
+    std::ofstream of(br/(std::to_string(i)+".raw"),std::ios::binary);
+    of.write(reinterpret_cast<const char*>(px.data()),px.size()*sizeof(float));
+  };
+  for (size_t i=0;i<2;++i) {
+    registration::FrameSamplingTransform fr;
+    fr.source_index=i; fr.frame_id="b:"+std::to_string(i);
+    fr.valid=fr.source_to_canvas_affine_valid=true;
+    bp.frames.push_back(fr);
+    write_frame(i,i*0.5f);
+  }
+  bp.plan_hash=registration::compute_plan_hash(bp);
+  publish_normalized_source_manifest(br,bp);
+  VerifiedNormalizedSourceCache cache(br,bp,64);
+  const int brows=static_cast<int>(cache.block_row_span());
+  REQUIRE(brows>=1);
+  REQUIRE(brows<H);   // frame spans several blocks
+
+  SECTION("read_rect == load() slice, incl. edges and 1px-wide X") {
+    const Matrix2Df full=cache.load(0);
+    const std::array<std::array<int,4>,6> rects={{
+      {{0,H,0,W}},{{10,42,0,W}},{{H-3,H,0,W}},{{100,140,7,9}},{{0,1,0,1}},
+      {{200,201,W-1,W}}}};
+    for (const auto &r:rects) {
+      const Matrix2Df sub=cache.read_rect(0,r[0],r[1],r[2],r[3]);
+      REQUIRE(sub.rows()==r[1]-r[0]);
+      REQUIRE(sub.cols()==r[3]-r[2]);
+      for (int y=r[0];y<r[1];++y) for (int x=r[2];x<r[3];++x)
+        REQUIRE(sub(y-r[0],x-r[2])==full(y,x));
+    }
+    REQUIRE(cache.read_rect(0,5,5,0,W).rows()==0);   // empty range -> 0x0
+  }
+
+  SECTION("block-read amplification: narrowing X is free, narrowing Y is not") {
+    cache.reset_io_counters();
+    cache.read_rect(0,0,H,0,W);                       // first touch: builds index
+    REQUIRE(cache.block_index_builds()==1);
+    const auto full_blocks=cache.blocks_verified();
+    REQUIRE(full_blocks>=2);
+
+    cache.reset_io_counters();
+    cache.read_rect(0,brows,2*brows,0,W);             // one block, full width
+    const auto y_win=cache.blocks_verified();
+    const auto y_win_bytes=cache.bytes_read();
+
+    cache.reset_io_counters();
+    cache.read_rect(0,brows,2*brows,3,4);             // SAME Y, 1px wide
+    REQUIRE(cache.blocks_verified()==y_win);          // X width changed nothing
+    REQUIRE(cache.bytes_read()==y_win_bytes);
+
+    cache.reset_io_counters();
+    cache.read_rect(0,0,H,3,4);                       // full Y, 1px wide
+    REQUIRE(cache.blocks_verified()==full_blocks);    // all blocks again
+
+    std::printf("[cache-blocks] block_rows=%d blocks/frame=%llu | 1-block "
+                "read=%llu blk / %llu B | full=%llu blk\n",
+                brows,(unsigned long long)full_blocks,
+                (unsigned long long)y_win,(unsigned long long)y_win_bytes,
+                (unsigned long long)full_blocks);
+  }
+
+  SECTION("detection semantics: only the blocks a read touches are verified") {
+    cache.read_rect(0,0,1,0,W);                       // build the index
+    const auto saved=fs::last_write_time(br/"0.raw");
+    // Corrupt one float inside block 2, same file length, then roll the mtime
+    // back so the staleness guard still passes: a region read does NOT
+    // re-verify the whole file, by contract.
+    const int trow=2*brows+1;
+    {
+      std::fstream fio(br/"0.raw",std::ios::in|std::ios::out|std::ios::binary);
+      fio.seekp(std::streamoff(static_cast<size_t>(trow)*W*sizeof(float)));
+      const float bad=-42.0f;
+      fio.write(reinterpret_cast<const char*>(&bad),sizeof(float));
+    }
+    fs::last_write_time(br/"0.raw",saved);
+
+    // A read that does NOT cover block 2 still succeeds...
+    REQUIRE_NOTHROW(cache.read_rect(0,0,brows,0,W));
+    REQUIRE_NOTHROW(cache.read_rect(0,3*brows,4*brows,0,W));
+    // ...a read that DOES cover block 2 is caught only now, on access.
+    REQUIRE_THROWS(cache.read_rect(0,trow,trow+1,0,W));
+  }
+
+  SECTION("whole-file replacement invalidates the index and re-verifies") {
+    cache.read_rect(1,0,1,0,W);
+    REQUIRE(cache.block_index_builds()>=1);
+    write_frame(1,777.0f);                            // same length, mtime forward
+    REQUIRE_THROWS(cache.read_rect(1,0,1,0,W));       // rebuild -> SHA mismatch
+  }
+  fs::remove_all(br);
 }
 
 TEST_CASE("source cache: provenance mismatch and incomplete publication fail closed", "[source-predecessors]") {

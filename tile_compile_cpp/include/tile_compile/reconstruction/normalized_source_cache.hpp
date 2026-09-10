@@ -1,9 +1,11 @@
 #pragma once
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
+#include <array>
 #include <cstdint>
 #include <list>
 #include <map>
 #include <unordered_map>
+#include <vector>
 
 namespace tile_compile::reconstruction {
 
@@ -47,6 +49,33 @@ class VerifiedNormalizedSourceCache {
   std::unordered_map<size_t, std::list<Entry>::iterator> resident_;
   std::uint64_t hash_computations_ = 0;
   const Matrix2Df &verify_and_insert(size_t source_index);
+
+  // ---- §30.81 step 3a-3: run-internal source block-check index -------------
+  // Independent of the image LRU. Built from the SAME bytes as the whole-file
+  // SHA-256 on first touch, and published only after that whole-file hash
+  // matches the manifest. A later read_region / read_rect reads and
+  // SHA-256-verifies ONLY the blocks covering its Y range. Blocks span whole
+  // rows (row-major float32), so a Y window never straddles a partial block and
+  // an X-narrowed rect verifies exactly as many blocks as the full-width rect
+  // with the same Y range. Contract boundary: only blocks a read actually
+  // touches are verified --- a change confined to an unread block is detected
+  // only when a later read covers it. The index is trusted across image-LRU
+  // eviction while the file's (size, mtime) are unchanged and mtime is strictly
+  // older than the instant it was built (the same guard load() uses on the hit
+  // path); any drift rebuilds it, which re-verifies the whole file. RAM-only:
+  // a fresh cache instance (process restart) starts with no block index and
+  // re-verifies on first touch.
+  struct BlockIndex {
+    std::uintmax_t file_size = 0;
+    std::filesystem::file_time_type mtime{};
+    std::filesystem::file_time_type verified_at{};
+    std::vector<std::array<unsigned char, 32>> block_sha;
+  };
+  size_t block_rows_ = 1;  // rows per block (whole rows, >= 1)
+  std::map<size_t, BlockIndex> block_index_;
+  std::uint64_t blocks_verified_ = 0, block_index_builds_ = 0;
+  std::uint64_t bytes_read_ = 0, expanded_floats_ = 0;
+  const BlockIndex &ensure_block_index(size_t source_index);
 public:
   VerifiedNormalizedSourceCache(const fs::path &root,
       const registration::RegistrationSamplingPlan &expected,
@@ -56,6 +85,31 @@ public:
   VerifiedNormalizedSourceCache(const VerifiedNormalizedSourceCache &proto,
                                 size_t memory_budget_mb);
   const Matrix2Df &load(size_t source_index);
+
+  // Block-verified partial read: returns a (y1-y0) x (x1-x0) matrix whose
+  // element (r, c) equals load(source_index)(y0 + r, x0 + c). Only the blocks
+  // covering [y0, y1) are read and SHA-256-checked (see BlockIndex above).
+  // Ranges are clamped to the frame; an empty range returns a 0x0 matrix.
+  // Throws NORMALIZED_CACHE_BLOCK_MISMATCH if a covered block no longer matches
+  // its published digest, NORMALIZED_CACHE_CONTENT_MISMATCH if the whole-file
+  // hash fails when the index is (re)built. Not thread-safe (like load()).
+  Matrix2Df read_rect(size_t source_index, int y0, int y1, int x0, int x1);
+  Matrix2Df read_region(size_t source_index, int y0, int y1) {
+    return read_rect(source_index, y0, y1, 0, width_);
+  }
+  // Rows per block index entry (whole rows). Lets a test reason about block
+  // read amplification for a given Y window.
+  size_t block_row_span() const { return block_rows_; }
+  // Diagnostics for the block-check path. `bytes_read` includes the one-time
+  // whole-file read each index build performs.
+  std::uint64_t blocks_verified() const { return blocks_verified_; }
+  std::uint64_t block_index_builds() const { return block_index_builds_; }
+  std::uint64_t bytes_read() const { return bytes_read_; }
+  std::uint64_t expanded_floats() const { return expanded_floats_; }
+  void reset_io_counters() {
+    blocks_verified_ = block_index_builds_ = bytes_read_ = expanded_floats_ = 0;
+  }
+
   const std::string &manifest_hash() const { return manifest_hash_; }
   bool matches(const registration::RegistrationSamplingPlan &plan) const;
   // Diagnostics: number of SHA-256 verifications actually performed (one per

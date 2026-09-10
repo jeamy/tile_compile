@@ -2,6 +2,8 @@
 #include "tile_compile/core/utils.hpp"
 #include <nlohmann/json.hpp>
 #include <openssl/sha.h>
+#include <algorithm>
+#include <array>
 #include <bit>
 #include <fstream>
 #include <iomanip>
@@ -9,6 +11,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 namespace tile_compile::reconstruction {
 namespace {
@@ -51,6 +54,20 @@ size_t frame_bytes(int width,int height) {
 void require_file(const fs::path &p,size_t bytes) {
   if (!fs::is_regular_file(fs::symlink_status(p)) || fs::file_size(p)!=bytes)
     throw std::runtime_error("NORMALIZED_CACHE_MISSING_OR_INVALID_FILE");
+}
+// Rows per block for the run-internal block-check index: a ~256 KiB target,
+// rounded DOWN to a whole number of rows (>= 1) so a block never straddles a
+// row and a Y window maps to a contiguous block range.
+constexpr size_t kBlockTargetBytes = 256*1024;
+size_t block_rows_for(int width) {
+  const size_t row_bytes = std::max<size_t>(static_cast<size_t>(width)*sizeof(float),1);
+  return std::max<size_t>(1, kBlockTargetBytes/row_bytes);
+}
+std::string hex_digest(const unsigned char *d,size_t n) {
+  std::ostringstream enc;
+  for (size_t i=0;i<n;++i)
+    enc<<std::hex<<std::setw(2)<<std::setfill('0')<<static_cast<int>(d[i]);
+  return enc.str();
 }
 }
 std::string publish_normalized_source_manifest(
@@ -110,6 +127,7 @@ VerifiedNormalizedSourceCache::VerifiedNormalizedSourceCache(
   const size_t usable = memory_budget_mb*1024*1024 - 1024*1024;
   capacity_ = std::max<size_t>(1, std::min<size_t>(hashes_.size(),
                                                    bytes ? usable/bytes : 1));
+  block_rows_ = block_rows_for(width_);
 }
 
 VerifiedNormalizedSourceCache::VerifiedNormalizedSourceCache(
@@ -123,6 +141,7 @@ VerifiedNormalizedSourceCache::VerifiedNormalizedSourceCache(
   const size_t usable = memory_budget_mb*1024*1024 - 1024*1024;
   capacity_ = std::max<size_t>(1, std::min<size_t>(hashes_.size(),
                                                    bytes ? usable/bytes : 1));
+  block_rows_ = block_rows_for(width_);
 }
 bool VerifiedNormalizedSourceCache::matches(const registration::RegistrationSamplingPlan &plan) const {
   return digest(context(plan))==context_hash_;
@@ -191,5 +210,101 @@ const Matrix2Df &VerifiedNormalizedSourceCache::verify_and_insert(
     lru_.pop_back();
   }
   return lru_.front().image;
+}
+
+const VerifiedNormalizedSourceCache::BlockIndex &
+VerifiedNormalizedSourceCache::ensure_block_index(size_t source_index) {
+  const auto found=hashes_.find(source_index);
+  if (found==hashes_.end()) throw std::invalid_argument("NORMALIZED_CACHE_UNKNOWN_FRAME");
+  const size_t bytes=frame_bytes(width_,height_);
+  const auto path=root_/(std::to_string(source_index)+".raw");
+  if (auto it=block_index_.find(source_index); it!=block_index_.end()) {
+    std::error_code ec;
+    const auto sz=fs::file_size(path,ec);
+    const auto mt=fs::last_write_time(path,ec);
+    if (!ec && sz==it->second.file_size && mt==it->second.mtime &&
+        mt<it->second.verified_at)
+      return it->second;                     // trusted across image-LRU eviction
+    block_index_.erase(it);                  // drift: rebuild = full re-verify
+  }
+  require_file(path,bytes);
+  std::vector<unsigned char> buf(bytes);
+  {
+    std::ifstream file(path,std::ios::binary);
+    file.read(reinterpret_cast<char *>(buf.data()),static_cast<std::streamsize>(bytes));
+    if (!file || file.peek()!=std::char_traits<char>::eof())
+      throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+  }
+  bytes_read_+=bytes;
+  // Whole-file SHA-256 from the very bytes just read: no block digest is
+  // published unless this matches the manifest.
+  unsigned char whole[SHA256_DIGEST_LENGTH];
+  SHA256(buf.data(),bytes,whole);
+  ++hash_computations_;
+  if (hex_digest(whole,SHA256_DIGEST_LENGTH)!=found->second)
+    throw std::runtime_error("NORMALIZED_CACHE_CONTENT_MISMATCH");
+  BlockIndex bi;
+  const size_t row_bytes=static_cast<size_t>(width_)*sizeof(float);
+  const size_t blk_bytes=block_rows_*row_bytes;
+  for (size_t off=0; off<bytes; off+=blk_bytes) {
+    const size_t n=std::min(blk_bytes,bytes-off);
+    std::array<unsigned char,32> d{};
+    SHA256(buf.data()+off,n,d.data());
+    bi.block_sha.push_back(d);
+  }
+  std::error_code ec;
+  bi.file_size=fs::file_size(path,ec);
+  bi.mtime=fs::last_write_time(path,ec);
+  // Captured AFTER read+hash, matching load()'s discipline: the index is
+  // trusted later only while the file's mtime stays strictly older than this.
+  bi.verified_at=fs::file_time_type::clock::now();
+  ++block_index_builds_;
+  return block_index_.emplace(source_index,std::move(bi)).first->second;
+}
+
+Matrix2Df VerifiedNormalizedSourceCache::read_rect(
+    size_t source_index,int y0,int y1,int x0,int x1) {
+  y0=std::clamp(y0,0,height_); y1=std::clamp(y1,0,height_);
+  x0=std::clamp(x0,0,width_);  x1=std::clamp(x1,0,width_);
+  if (y1<=y0 || x1<=x0) return Matrix2Df(0,0);
+  const BlockIndex &bi=ensure_block_index(source_index);
+  const size_t frame_total=frame_bytes(width_,height_);
+  const size_t row_bytes=static_cast<size_t>(width_)*sizeof(float);
+  const size_t blk_bytes=block_rows_*row_bytes;
+  const size_t b0=static_cast<size_t>(y0)/block_rows_;
+  const size_t b1=static_cast<size_t>(y1-1)/block_rows_;
+  const size_t span_y0=b0*block_rows_;
+  const size_t span_y1=std::min<size_t>(static_cast<size_t>(height_),(b1+1)*block_rows_);
+  const size_t span_off=span_y0*row_bytes;
+  const size_t span_bytes=(span_y1-span_y0)*row_bytes;
+  std::vector<unsigned char> buf(span_bytes);
+  {
+    const auto path=root_/(std::to_string(source_index)+".raw");
+    std::ifstream file(path,std::ios::binary);
+    file.seekg(static_cast<std::streamoff>(span_off));
+    file.read(reinterpret_cast<char *>(buf.data()),static_cast<std::streamsize>(span_bytes));
+    if (!file) throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+  }
+  bytes_read_+=span_bytes;
+  // Verify every block the Y window covers against its published digest.
+  for (size_t b=b0;b<=b1;++b) {
+    if (b>=bi.block_sha.size())
+      throw std::runtime_error("NORMALIZED_CACHE_BLOCK_INDEX_MISMATCH");
+    const size_t off=b*blk_bytes;
+    const size_t n=std::min(blk_bytes,frame_total-off);
+    std::array<unsigned char,32> d{};
+    SHA256(buf.data()+(off-span_off),n,d.data());
+    ++blocks_verified_;
+    if (d!=bi.block_sha[b])
+      throw std::runtime_error("NORMALIZED_CACHE_BLOCK_MISMATCH");
+  }
+  Matrix2Df out(y1-y0,x1-x0);
+  const auto *base=reinterpret_cast<const float *>(buf.data());
+  for (int y=y0;y<y1;++y) {
+    const float *row=base+(static_cast<size_t>(y)-span_y0)*static_cast<size_t>(width_);
+    for (int x=x0;x<x1;++x) out(y-y0,x-x0)=row[x];
+  }
+  expanded_floats_+=static_cast<std::uint64_t>(y1-y0)*static_cast<std::uint64_t>(x1-x0);
+  return out;
 }
 } // namespace tile_compile::reconstruction
