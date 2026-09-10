@@ -15,6 +15,29 @@ echte zweidimensionale Bereichszugriffe, exakte Clip-Wiederverwendung und
 Kalibrierungs-/Qualitätsarbeit. O1–O3 allein belegen die Zielzeit nicht.
 Das ursprüngliche P6-Gate bis HMS bleibt ein separates, weiter offenes Gate.
 
+**Review 2026-09-10, §30.77 (Konsolidierung und Korrekturen):** Der
+maßgebliche Prioritätenstand ist Plan §0.2; die Schnittliste in Abschnitt 6.6
+ist in der Reihenfolge revidiert. Vier Review-Korrekturen sind eingearbeitet:
+
+1. Kettenbilanzen und Realraster-Hochrechnungen sind **Projektionen, keine
+   Istzustände** — insbesondere ist die FD-Angabe eine Frame-lineare
+   Hochrechnung aus 20 Frames.
+2. „Irreduzibler Clip" ist **zurückgenommen**: belegt bleibt nur die
+   Ungültigkeit des verworfenen k=1,0-Shortcuts. Bit-exakte Hebel (R3,
+   No-op-Clip-Elision) bleiben offen.
+3. Das 180-s-FD-Feld in §6.6 ist ein **Entwicklungsbudget**, kein implizit
+   abgeleitetes CUDA-Budget; die Wirkung von R1/R2 muss gemessen werden.
+4. Der Scope umfasst affine **und** lokale Datensätze; daraus folgt
+   **keine** `expf`-Freigabe — erst getrennte Messung (Cachebau, Replay,
+   Clip, I/O), dann Entscheidung.
+
+Bekannter Bench-Defekt, dessen Fix Priorität 1 ist: die isolierten
+Gather-/Reduce-Sektionen von `test_forward_drizzle_hotspot_profile.cpp`
+verarbeiten keine Kandidaten, weil die vorangehende Fill-Sektion A/B nullt
+(`Bv > 0` greift nie, `cnt` bleibt 0). Die Zeilen „gather"/„reduce" der
+Six-Way-Tabelle sind damit keine Produktionskosten; der Clip-Anteil **am
+Raster** (enum vs. clip) bleibt belastbar.
+
 ---
 
 ## 1. Gemessener Ausgangszustand (realer 600-Frame-Lauf, M31 affin)
@@ -298,23 +321,38 @@ Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 
 - [~] **Innenzellen-`k=1,0`-Shortcut für den Droplet-Rasterizer** — VERWORFEN
       mit Messung (§30.76): Droplet-Leaf ~1,6 Internal-px, 0 % Null-Flächen-
       Clips, keine Innen-/Außenzellen. Nur der Footprint-Pass (§30.75) profitiert.
+- [ ] **`[fd-hotspot]`-Bench reparieren** (§30.77, **Priorität 1**): isolierte
+      Gather-/Reduce-Sektionen auf befülltem Zustand messen (Fill zuletzt /
+      auf Kopien), tatsächlich aktive Worker (nicht nur requested) und
+      Quellbesuche erfassen; Abgleich mit den `TC_FD_PROFILE`-Produktionstimern
 - [ ] `apply_robust_clipping` Per-Pixel-Heap-Allokationen (`std::vector<bool>
-      accepted` / `order` / `active` / `dev_order`) durch Stack-/Thread-Scratch
-      ersetzen — bit-identisch, hilft `reduce`-Skalierung
+      accepted` / `order` / `active` / `dev_order`) durch **budgetierten**
+      Stack-/Thread-Scratch ersetzen (**Priorität 2**) — bit-identisch, hilft
+      `reduce`-Skalierung; Scratch in `retained_bytes` der Budgetabrechnung
 - [ ] R3 — exakte X-Clip-Wiederverwendung im Rasterizer + gespiegelter
-      CUDA-Device-Kernel + volle Paritätsmatrix
+      CUDA-Device-Kernel + volle Paritätsmatrix (**separater messbarer
+      Schritt nach Priorität 3/4**, nicht gebündelt)
 - [ ] R1.1 + R1.2 + R2 — CUDA Host/Device-Budget-Trennung, 2D-Zielkacheln,
       echte Source-/Q-Bereichsprovider; `[cuda-parity]` durchgehend
+      (**Priorität 3**)
 - [ ] Realer/halbrealer Messlauf, Phasenbudget final
 
-**Realraster-Projektion FORWARD_DRIZZLE (affin, nach Hoist, §30.76):** 20
-Frames 3840×2160×2 = 217 s / 1 Worker, 56 s / 8 Worker (3,87×). Frame-linear
-→ **600 Frames ≈ 1680 s ≈ 28 min @ 8 Kerne** — allein FORWARD_DRIZZLE füllt
-fast das gesamte 30-min-Kettenbudget. Der Clip (`polygon_rectangle_
-intersection_area`, 81 % der Phase) ist irreduzible exakte Per-Zell-Geometrie.
-Reale Hebel: mehr Kerne (Clip skaliert), die `apply_robust_clipping`-Alloks,
-oder ein SIMD-Batch-Clipper (bit-exakt, hohes Risiko). **Lokale Warps** (M42/
-M66) brauchen zusätzlich die separat gegatete `expf`-Numerikrevision (§30.69).
+**Realraster-Hochrechnung FORWARD_DRIZZLE (affin, nach Hoist, §30.76):** 20
+Frames 3840×2160×2 = 217 s / 1 Worker, 56 s / 8 Worker (3,87×) — gemessen.
+Frame-linear hochgerechnet → **600 Frames ≈ 1680 s ≈ 28 min @ 8 Kerne**:
+**Hochrechnung, kein 600-Frame-Istwert** — Streifenhöhe, Worker-Auslastung,
+Speicherzugriffe und Clippingkosten ändern sich mit N. Der Clip
+(`polygon_rectangle_intersection_area`) dominiert den Rasteranteil
+(78–81 % **des Rasters** im Bench vor dem Hoist; die Raster:Reduce-Aufteilung
+der Gesamtphase ist wegen des im Kopf benannten Bench-Defekts nicht belegt).
+Zur Leistungsuntergrenze: belegt ist nur die Ungültigkeit des verworfenen
+k=1,0-Shortcuts (0 % Null-Flächen, ~1,6–3 Teilüberlappungs-Clips pro
+Quellpixel — keine Innen-/Außenzellen zum Überspringen); daraus folgt **kein**
+allgemeiner Irreduzibilitätsbeweis — exakte Hebel (R3, No-op-Clip-Elision)
+bleiben offen. Aktuell priorisierte Schritte: Plan §0.2 / Abschnitt 6.6.
+**Lokale Warps** (M42/M66) gehören zum Scope; die `expf`-Revision (§30.69)
+bleibt geschlossen, bis getrennte Messung (Cachebau, Replay, Clip, I/O) einen
+nachweislichen Budgetbruch zeigt.
 
 <a id="p6-loesungsweg-30min"></a>
 
@@ -581,20 +619,33 @@ zusätzlich bestehen. Die Tabelle darf nicht als erreichte oder bereits
 wahrscheinliche Endzeit kommuniziert werden. Lokale Modelle brauchen dieselbe
 Abnahme separat; die affine Ableitung überträgt sich darauf nicht automatisch.
 
-**Verbindliche nächste Schnitte:**
+**Verbindliche nächste Schnitte (Revision 2026-09-10, §30.77 — ersetzt die
+ursprüngliche Reihenfolge dieses Reviews; maßgeblich ist Plan §0.2):**
 
-1. R1/R2 gemeinsam: aktuelle Bandzahl/Peaks erfassen, getrennte Budgets,
-   Bereichsprovider und CPU-Reduktionsparallelität; Vollbildexpansion aus dem
-   inneren Band-/Frame-Loop entfernen. Zunächst ohne Geometrieänderung.
-2. R3: exakte Clip-Wiederverwendung in den bestehenden Rasterizer einbauen und
-   gegen den alten Pfad testen. Footprint-Beschleunigung als eigenes Gate.
-3. R4: Kalibrierung, SQM-Writer und Global Quality; bestehende Normalisierung
-   anhand ihrer Subtimer optimieren, nicht ungemessen weitere Worker ergänzen.
-4. Skalierungsbenchmark mit realer Canvasgröße, 40/100/600 synthetischen Frames,
-   gleichem RAM-Budget und realem CPU-/CUDA-Pfad. Auch 600 bei kleinem Budget
-   testen: dieses N löst die Bandkollaps-/LRU-Probleme aus. Hidden-Test misst
-   zusätzlich tatsächliche aktive Worker; ein Requested-Wert reicht nicht.
-5. Erst wenn die Summe der Phasen auf voller Größe das Budget trägt: separat
+1. **Benchmarkfehler und Timerlücken beheben; tatsächliche Worker und
+   Quellbesuche erfassen.** Konkret: `[fd-hotspot]`-Gather/-Reduce auf
+   befülltem Zustand, Abgleich mit den `TC_FD_PROFILE`-Produktionstimern;
+   die 167-s-Vorlauflücke attribuieren.
+2. **Wiederverwendbaren, budgetierten Clipping-Scratch** in
+   `apply_robust_clipping` implementieren (bit-identisch; Scratch in
+   `retained_bytes`). Hilfreich für die spätere Reduce-Parallelisierung,
+   aber keine zwingende Voraussetzung dafür.
+3. **R1.1/R1.2/R2 gemeinsam:** aktuelle Bandzahl/Peaks erfassen, getrennte
+   Host-/Device-Budgets, zweidimensionale Zielkacheln, echte Bereichsprovider
+   und CPU-Reduktionsparallelität; Vollbildexpansion aus dem inneren
+   Band-/Frame-Loop entfernen. Zunächst ohne Geometrieänderung. Welchen
+   Faktor das bringt, muss gemessen werden; auch die CPU-Seite profitiert
+   von den Bereichsprovidiern.
+4. **Produktionsnaher Skalierungsbenchmark** mit realer Canvasgröße,
+   40/100/600 synthetischen Frames, gleichem RAM-Budget und realem
+   CPU-/CUDA-Pfad. Auch 600 bei kleinem Budget: dieses N löst die
+   Bandkollaps-/LRU-Probleme aus. Hidden-Test misst tatsächlich aktive
+   Worker; ein Requested-Wert reicht nicht.
+5. **R4-Vorlauf** (Kalibrierung, SQM-Writer-Rest, Normalisierung anhand ihrer
+   Subtimer — nicht ungemessen weitere Worker ergänzen); danach **R3** als
+   separaten messbaren Schritt: exakte Clip-Wiederverwendung gegen den alten
+   Pfad testen, dieselbe Paritätsmatrix wiederverwenden, nicht bündeln.
+6. Erst wenn die Summe der Phasen auf voller Größe das Budget trägt: separat
    autorisierte reale Kaltläufe, zwei pro Klasse, identische Selektion und
    Gates; alle Laufstart→Commit-Zwischenzeiten mitzählen.
 

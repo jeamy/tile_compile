@@ -23,7 +23,7 @@ historischer Ausgangsplan.
 | Grundentscheidungen 02.09. | [§31](#historie-31) |
 | Grundlagen und Geometrie 03.–04.09. | [§30.4–30.11](#historie-30-4) |
 | Audit und Store-/Runner-Verträge 05.09. | [§0.1–0.5](#historie-0-1) |
-| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist 10.09. | [§30.12–30.76](#historie-30-12) |
+| CPU, Q-Maps, Mehrband und CUDA 05.–07.09.; M8-Start 08.09.; M9-Start 08.09.; §11.14 P0–P2 + P3 Teil 1 + P4-Analyse 08.09.; P3 Teil 2 + Runner-Scheduler + P5-Profil + P6-Runbook + Perf O1-O3 + Review + Schritt 1 (O3-Race/R1.3/R4) + Schritt 2 (SQM-writer.put) + Schritt 3 (alt. Coverage-Footprint, 13,6× / 2,04×) 09.09.; CPU-FORWARD_DRIZZLE-Messung + Puffer-Hoist + Review-Übernahme/Doku-Konsolidierung 10.09. | [§30.12–30.77](#historie-30-12) |
 | Ursprünglicher erster Implementierungsschnitt | [§28](#historie-28) |
 
 Historische Querverweise auf §30.1 meinen die damalige Statustabelle;
@@ -6171,6 +6171,91 @@ bit-ändernd, bewegt auch den Registrierungs-Modell-Fit `global_registration.
 cpp:977`) geschlossen. Kein Teil dieser CPU-Arbeit berührt das; „bis es passt"
 autorisiert diese Revision nicht — sie ist eine eigene Entscheidung mit
 benanntem Blast-Radius.
+
+---
+
+### 30.77 P6 Review-Übernahme, Bench-Defekt und Doku-Konsolidierung (2026-09-10)
+
+Kontext: Code-Review der §30.76-Zwischenbilanz; anschließende Konsolidierung
+der vier AQMH-Arbeitsdokumente. §30.76 wird gemäß Protokollregel nicht
+umgeschrieben; dieser Eintrag **korrigiert bzw. präzisiert** an vier Punkten.
+
+**1. Kettenbilanz ist Projektion, nicht Istzustand.** Die ~4087-s-Summe
+(Vorlauf 1222 s gemessen; Coverage/SQM teils extrapoliert; FORWARD_DRIZZLE
+1680 s = Frame-lineare Hochrechnung aus 20 Frames, 3840×2160×2) ist keine
+gemessene 600-Frame-Kette. Bei 600 Frames ändern sich Streifenhöhe,
+Worker-Auslastung, Speicherzugriffe und Clippingkosten. §30.76 hatte die
+FD-Hochrechnung bereits als solche bezeichnet; sie wurde in der Diskussion
+dennoch temporär wie ein Istwert behandelt. Zurück zur Nomenklatur:
+„Hochrechnung".
+
+**2. Bench-Defekt in `test_forward_drizzle_hotspot_profile.cpp` (belegt im
+Code).** Die isolierten Gather-/Reduce-Sektionen (Ablauf e3→e6) verarbeiten
+**keine Kandidaten**: die isolierte Fill-Sektion (e3→e4) nullt A/B, das
+Gather-Gate `Bv[c][i] > 0.0` greift danach nie, `cnt` bleibt 0, und die
+Reduce-Schleife überspringt via `if (!cnt[c][i]) continue` alles. Die
+Bench-Zeilen „gather"/„reduce" messen also eine Lese-Sweep bzw. eine
+Sprungschleife, **keine** Produktionskosten. Konsequenzen: (a) die
+Raster:Reduce-Aufteilung der Phase ist aus diesem Bench nicht belegt;
+(b) der Clip-Anteil **am Raster** (enum vs. clip, e0→e2) bleibt belastbar;
+(c) Herkunft der kommunizierten Reduce-Angabe (Bench vs.
+`TC_FD_PROFILE`-Produktionstimer) ist zu prüfen. Fix = **Priorität 1**
+(Plan §0.2): Reihenfolge enum → clip → accum (befüllt) → gather (befüllt
+cand/cnt) → reduce; Fill isoliert auf Kopien zuletzt. Zusätzlich: tatsächlich
+aktive Worker (nicht requested) und Quellbesuche erfassen; die
+167-s-Vorlauflücke (§30.73 Registrierungsabstand) attribuieren.
+
+**3. „Irreduzibler Clip" zurückgenommen.** §30.76-Fazit formulierte „der Clip
+ist irreduzible exakte Per-Zell-Geometrie". Belegt ist nur: der dort
+verworfene k=1,0-Shortcut ist ungültig (pixfrac 0,8 → Droplet ~1,6
+Internal-px, 0 % Null-Flächen, ~1,6–3 Teilüberlappungs-Clips/Quellpixel).
+Die Nullflächenzählung widerlegt **diesen** Shortcut, beweist aber keine
+allgemeine Leistungsuntergrenze für bit-exakte Geometrie. Die R3-Probe
+(§30.73, 1,55× im Mikroversuch) und die §6.4-No-op-Clip-Elision (alle
+Polygonpunkte erfüllen die Halbebene → identische Kopie entfällt; Shoelace
+auf unveränderter Vertexfolge ist bit-identisch) sind direkte Gegenbeispiele.
+Wortwahl korrigiert in `aqmh_p6_performance_de.md`.
+
+**4. Budgetstatus und Scope.** Das 180-s-Feld „Forward Drizzle" in §6.6 ist
+ein **Entwicklungsbudget, keine Laufzeitprognose** (dort selbst so
+deklariert); es impliziert keinen gemessenen CUDA-Faktor. Umgekehrt beweist
+die CPU-Hochrechnung keine CPU-Unmöglichkeit. **Scope des 30-min-Teilziels:
+affine und lokale Datensätze**; die Ausschlüsse (Astrometrie, BGE, PCC, HMS)
+betreffen nur Phasen, nicht Geometrieklassen. Lokale Datensätze erzwingen
+**keine** `expf`-Freigabe: der lokale Geometrie-Cache verlagert die
+Newton-/exp-Arbeit in den (pro Frame einmaligen, parallelisierbaren)
+Cachebau; das FD-Replay arbeitet auf dem Cache. Reihenfolge: erst Cachebau /
+Replay / Clip / I-O getrennt messen; die §30.69-Revision wird erst zur
+Entscheidung, wenn der verbleibende Cachebau das Budget nachweislich
+verhindert — dann als eigenes Gate mit benanntem Blast-Radius.
+
+**Verbindliche Leistungsentscheidungen (Beschluss 2026-09-10):**
+CUDA liegt im Zielpfad; CPU-Parität bleibt Vertrag (getesteter CPU-Fallback,
+`[cuda-parity]`); `expf` unverändert bis Messnachweis; Änderungsschritte
+bleiben einzeln messbar, die Paritätsmatrix wird zwischen Schritten
+wiederverwendet, Schritte nicht gebündelt. **Prioritäten** (stehen
+maßgeblich in Plan §0.2): (1) Bench-/Timer-Fixes + echte Worker-/Besuchs-
+zähler, (2) budgetierter Clipping-Scratch in `apply_robust_clipping`,
+(3) Host-/Device-Budget-Trennung + Bereichsprovider + 2D-Zielkacheln
+(R1.1/R1.2/R2), (4) produktionsnaher CPU-/CUDA-Skalierungstest unter
+gleichem RAM-Budget, (5) Vorlauf-R4, danach R3 als separater messbarer
+Schritt.
+
+**Doku-Konsolidierung (Beschluss 2026-09-10):** Keine neue Statusdatei;
+das bestehende Rollenmodell wird wiederhergestellt — **Plan §0** ist die
+maßgebliche Status-/Prioritätenquelle (auf 2026-09-10 gezogen, alte
+P0–P6-Reihenfolge ersetzt; das §11.14-P-Schema bleibt Phasenbenennung),
+**dieses Protokoll** bleibt append-only-Belegarchiv,
+**`aqmh_p6_performance_de.md`** bleibt das Leistungs-Arbeitsdokument
+(Messstände, Hochrechnungen, Budgettabelle; Korrekturen 1–4 eingearbeitet),
+**`aqmh_p6_runbook_de.md`** bleibt die operative Messanleitung.
+`aqmh_reconstruction_optimierung_de.md` (abgeschlossener Bericht zur
+`AQMH_RECONSTRUCTION`-Phase, keine aktiven Verweise außer dem Changelog)
+wurde nach `docs/AQMH/attic/` verschoben; der Changelog-Verweis wurde
+angepasst.
+
+Kein neuer Lauf, kein Backend-Start, kein Produktionsauftrag. Suite-Stand
+unverändert (keine Codeänderung in diesem Eintrag).
 
 ---
 

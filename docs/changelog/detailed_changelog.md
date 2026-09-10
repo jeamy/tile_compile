@@ -78,7 +78,7 @@
 
 **Documentation:**
 
-- Added AQMH reconstruction optimization documentation (`docs/AQMH/aqmh_reconstruction_optimierung_de.md`).
+- Added AQMH reconstruction optimization documentation (`docs/AQMH/attic/aqmh_reconstruction_optimierung_de.md`; archived 2026-09-10).
 - Updated registration process flow documentation (`docs/process_flow/phase_1_registration.md`).
 - Removed obsolete M31 stacked RGB comparison document.
 
