@@ -177,14 +177,20 @@ struct CudaDrizzleContribRecord {
 //   band_sy0/1      : the source-row range to scan (caller derives it from the
 //                     inverse affine exactly like the CPU path; [0, source_h]
 //                     is always safe, just slower). Clamped to [0, source_h].
+//   band_sx0/1      : T5 X+Y windowing — the source-column range to scan,
+//                     derived from the tile window's inverse affine. Clamped
+//                     to [0, source_w]. [0, source_w] is always safe (full
+//                     width), just slower.
 //   source_values   : host pointer to the BAND-LOCAL source buffer ---
-//                     (band_sy1 - band_sy0) * source_w row-major floats, row 0
-//                     == source row band_sy0. The whole image is never copied.
+//                     (band_sy1 - band_sy0) * (band_sx1 - band_sx0) row-major
+//                     floats, row 0 == source row band_sy0, col 0 == source
+//                     col band_sx0. The whole image is never copied.
 //   mono            : true => channel is always 0; false => CFA classification
 //   max_cells_per_pixel : per-source-pixel record capacity (a leaf spanning
 //                     more cells than this makes the call fail -> CPU fallback)
 //
-// `records_out` must hold band_rows * source_w * max_cells_per_pixel entries.
+// `records_out` must hold band_rows * band_cols * max_cells_per_pixel entries
+// (band_cols = band_sx1 - band_sx0).
 // Unused slots are left with area == 0. `*out_written` gets the compacted count
 // after the call packs the positive-area records to the front, preserving the
 // (source_y, source_x, emit) order. Returns false (and the caller falls back to
@@ -192,7 +198,8 @@ struct CudaDrizzleContribRecord {
 // error, or a leaf exceeding `max_cells_per_pixel`.
 bool forward_drizzle_cuda_affine_frame_contributions(
     const double affine6[6], int internal_scale, double half, int y_begin,
-    int rows, int canvas_w_internal, int band_sy0, int band_sy1, int source_w,
+    int rows, int canvas_w_internal, int band_sy0, int band_sy1,
+    int band_sx0, int band_sx1, int source_w,
     int source_h, const float *source_values, int bayer_pattern,
     int cfa_origin_x, int cfa_origin_y, bool mono, int max_cells_per_pixel,
     CudaDrizzleContribRecord *records_out, long long records_capacity,

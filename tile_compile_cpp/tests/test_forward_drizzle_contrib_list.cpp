@@ -737,6 +737,409 @@ TEST_CASE("§30.81 step-5 (B): the tiled driver (produce+sort each frame once "
           whole.clipping.candidate_contributions_clipped);
 }
 
+TEST_CASE("T4b: Q-band caching in tiled path is bit-identical to non-cached "
+          "and populates cache counters",
+          "[forward-drizzle][contrib-list][t4]") {
+  for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+    const PairCase k = make_pair_case(mode, /*local=*/false,
+                                      BayerPattern::RGGB, /*edge=*/false);
+    const int H = k.plan.canvas_height_native * k.cfg.internal_scale;
+    const int W = k.plan.canvas_width_native * k.cfg.internal_scale;
+
+    // Reference: non-tiled path with quality() (full-source provider).
+    const auto whole = accumulate_pair_by_frame(
+        k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(),
+        k.mb);
+
+    // Tiled path with quality() — triggers Q-band caching inside
+    // accumulate_pair_impl (to_rect_provider adapts the full provider).
+    // Stitch tiles back to full width for comparison.
+    const auto planes_mut = [&](ForwardDrizzleUniformResult &r) {
+      return mode == ColorMode::MONO
+                 ? std::array<ProfilePlane *, 3>{&r.L, nullptr, nullptr}
+                 : std::array<ProfilePlane *, 3>{&r.R, &r.G, &r.B};
+    };
+    const auto planes_const = [&](const ForwardDrizzleUniformResult &r) {
+      return mode == ColorMode::MONO
+                 ? std::array<const ProfilePlane *, 3>{&r.L, nullptr, nullptr}
+                 : std::array<const ProfilePlane *, 3>{&r.R, &r.G, &r.B};
+    };
+    ForwardDrizzleUniformAndRawResult stitched;
+    auto init_p = [&](ForwardDrizzleUniformResult &p) {
+      p.color_mode = mode;
+      p.internal_width = W;
+      p.internal_height = H;
+      if (mode == ColorMode::MONO) p.L.allocate(W, H);
+      else { p.R.allocate(W, H); p.G.allocate(W, H); p.B.allocate(W, H); }
+    };
+    init_p(stitched.uniform); init_p(stitched.raw);
+    init_p(stitched.fine); init_p(stitched.medium);
+    const std::size_t full_n = static_cast<std::size_t>(W) * H;
+    stitched.a_separation.assign(full_n, std::numeric_limits<float>::quiet_NaN());
+    stitched.a_artifact.assign(full_n, std::numeric_limits<float>::quiet_NaN());
+    stitched.a_registration.assign(full_n, std::numeric_limits<float>::quiet_NaN());
+    stitched.alpha_confidence_support.assign(full_n, 0u);
+
+    long long tot_q_hits = 0, tot_q_misses = 0;
+    const int tile_cols = 5;
+    PairTileSink sink = [&](int xb, int tw,
+                          const ForwardDrizzleUniformAndRawResult &part) {
+      for (auto pr : {std::pair{&stitched.uniform, &part.uniform},
+                      std::pair{&stitched.raw, &part.raw},
+                      std::pair{&stitched.fine, &part.fine},
+                      std::pair{&stitched.medium, &part.medium}}) {
+        const auto dp = planes_mut(*pr.first);
+        const auto sp = planes_const(*pr.second);
+        for (int c = 0; c < 3; ++c) {
+          if (!dp[c] || sp[c]->value.empty()) continue;
+          for (int ty = 0; ty < H; ++ty)
+            for (int x = 0; x < tw; ++x) {
+              const size_t s = static_cast<size_t>(ty) * tw + x;
+              const size_t d = static_cast<size_t>(ty) * W + (xb + x);
+              dp[c]->value[d] = sp[c]->value[s];
+              dp[c]->weight_sum[d] = sp[c]->weight_sum[s];
+              dp[c]->n_eff[d] = sp[c]->n_eff[s];
+              dp[c]->support[d] = sp[c]->support[s];
+            }
+        }
+      }
+      for (int ty = 0; ty < H; ++ty)
+        for (int x = 0; x < tw; ++x) {
+          const size_t s = static_cast<size_t>(ty) * tw + x;
+          const size_t d = static_cast<size_t>(ty) * W + (xb + x);
+          stitched.a_separation[d] = part.a_separation[s];
+          stitched.a_artifact[d] = part.a_artifact[s];
+          stitched.a_registration[d] = part.a_registration[s];
+          stitched.alpha_confidence_support[d] = part.alpha_confidence_support[s];
+        }
+    };
+
+    const auto agg = accumulate_pair_by_frame(
+        k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(),
+        k.mb, static_cast<std::size_t>(1) << 32, 0, -1, &sink, tile_cols);
+    tot_q_hits += agg.diagnostics.q_band_cache_hits;
+    tot_q_misses += agg.diagnostics.q_band_cache_misses;
+
+    // Bit-identity: tiled (with Q-band caching) == non-tiled reference.
+    for (auto pr : {std::pair{&whole.uniform, &stitched.uniform},
+                    std::pair{&whole.raw, &stitched.raw},
+                    std::pair{&whole.fine, &stitched.fine},
+                    std::pair{&whole.medium, &stitched.medium}}) {
+      const auto wp = planes_const(*pr.first), sp2 = planes_const(*pr.second);
+      for (int c = 0; c < 3; ++c)
+        if (wp[c] && sp2[c]) require_plane_identical(*wp[c], *sp2[c]);
+    }
+    require_float_vec_identical(whole.a_separation, stitched.a_separation);
+    require_float_vec_identical(whole.a_artifact, stitched.a_artifact);
+    require_float_vec_identical(whole.a_registration, stitched.a_registration);
+    REQUIRE(whole.alpha_confidence_support == stitched.alpha_confidence_support);
+
+    // T4c: Q-band cache counters are populated. With 4 tiles and N frames,
+    // misses == N (one pre-fetch per frame), hits == N * (4 - 1) (3 reuses).
+    REQUIRE(tot_q_misses > 0);
+    REQUIRE(tot_q_hits > 0);
+    REQUIRE(tot_q_hits > tot_q_misses);  // more hits than misses when >1 tile
+  }
+}
+
+TEST_CASE("T4a: CUDA source-band caching is bit-identical and populates "
+          "source cache counters",
+          "[forward-drizzle][contrib-list][t4][cuda]") {
+  if (forward_drizzle_cuda_device_memory().free_bytes == 0) {
+    SUCCEED("no CUDA device -- T4a CUDA test skipped");
+    return;
+  }
+  for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+    const PairCase k = make_pair_case(mode, /*local=*/false,
+                                      BayerPattern::RGGB, /*edge=*/false);
+    const int H = k.plan.canvas_height_native * k.cfg.internal_scale;
+    const int W = k.plan.canvas_width_native * k.cfg.internal_scale;
+
+    // Reference: non-tiled CUDA path.
+    const auto whole = accumulate_pair_by_frame_cuda(
+        k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality_rect(),
+        k.mb, static_cast<std::size_t>(1) << 32, 32,
+        static_cast<std::size_t>(1) << 20);
+
+    // Tiled CUDA path — triggers source-band caching in the CUDA producer.
+    const auto planes_mut = [&](ForwardDrizzleUniformResult &r) {
+      return mode == ColorMode::MONO
+                 ? std::array<ProfilePlane *, 3>{&r.L, nullptr, nullptr}
+                 : std::array<ProfilePlane *, 3>{&r.R, &r.G, &r.B};
+    };
+    const auto planes_const = [&](const ForwardDrizzleUniformResult &r) {
+      return mode == ColorMode::MONO
+                 ? std::array<const ProfilePlane *, 3>{&r.L, nullptr, nullptr}
+                 : std::array<const ProfilePlane *, 3>{&r.R, &r.G, &r.B};
+    };
+    ForwardDrizzleUniformAndRawResult stitched;
+    auto init_p = [&](ForwardDrizzleUniformResult &p) {
+      p.color_mode = mode;
+      p.internal_width = W;
+      p.internal_height = H;
+      if (mode == ColorMode::MONO) p.L.allocate(W, H);
+      else { p.R.allocate(W, H); p.G.allocate(W, H); p.B.allocate(W, H); }
+    };
+    init_p(stitched.uniform); init_p(stitched.raw);
+    init_p(stitched.fine); init_p(stitched.medium);
+    const std::size_t full_n = static_cast<std::size_t>(W) * H;
+    stitched.a_separation.assign(full_n, std::numeric_limits<float>::quiet_NaN());
+    stitched.a_artifact.assign(full_n, std::numeric_limits<float>::quiet_NaN());
+    stitched.a_registration.assign(full_n, std::numeric_limits<float>::quiet_NaN());
+    stitched.alpha_confidence_support.assign(full_n, 0u);
+
+    long long tot_src_hits = 0, tot_src_misses = 0;
+    const int tile_cols = 5;
+    PairTileSink sink = [&](int xb, int tw,
+                          const ForwardDrizzleUniformAndRawResult &part) {
+      for (auto pr : {std::pair{&stitched.uniform, &part.uniform},
+                      std::pair{&stitched.raw, &part.raw},
+                      std::pair{&stitched.fine, &part.fine},
+                      std::pair{&stitched.medium, &part.medium}}) {
+        const auto dp = planes_mut(*pr.first);
+        const auto sp = planes_const(*pr.second);
+        for (int c = 0; c < 3; ++c) {
+          if (!dp[c] || sp[c]->value.empty()) continue;
+          for (int ty = 0; ty < H; ++ty)
+            for (int x = 0; x < tw; ++x) {
+              const size_t s = static_cast<size_t>(ty) * tw + x;
+              const size_t d = static_cast<size_t>(ty) * W + (xb + x);
+              dp[c]->value[d] = sp[c]->value[s];
+              dp[c]->weight_sum[d] = sp[c]->weight_sum[s];
+              dp[c]->n_eff[d] = sp[c]->n_eff[s];
+              dp[c]->support[d] = sp[c]->support[s];
+            }
+        }
+      }
+      for (int ty = 0; ty < H; ++ty)
+        for (int x = 0; x < tw; ++x) {
+          const size_t s = static_cast<size_t>(ty) * tw + x;
+          const size_t d = static_cast<size_t>(ty) * W + (xb + x);
+          stitched.a_separation[d] = part.a_separation[s];
+          stitched.a_artifact[d] = part.a_artifact[s];
+          stitched.a_registration[d] = part.a_registration[s];
+          stitched.alpha_confidence_support[d] = part.alpha_confidence_support[s];
+        }
+    };
+
+    const auto agg = accumulate_pair_by_frame_cuda(
+        k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality_rect(),
+        k.mb, static_cast<std::size_t>(1) << 32, 32,
+        static_cast<std::size_t>(1) << 20, nullptr, 0, -1, &sink, tile_cols);
+    tot_src_hits += agg.diagnostics.source_band_cache_hits;
+    tot_src_misses += agg.diagnostics.source_band_cache_misses;
+
+    // Bit-identity: tiled CUDA (with source-band caching) == non-tiled CUDA.
+    for (auto pr : {std::pair{&whole.uniform, &stitched.uniform},
+                    std::pair{&whole.raw, &stitched.raw},
+                    std::pair{&whole.fine, &stitched.fine},
+                    std::pair{&whole.medium, &stitched.medium}}) {
+      const auto wp = planes_const(*pr.first), sp2 = planes_const(*pr.second);
+      for (int c = 0; c < 3; ++c)
+        if (wp[c] && sp2[c]) require_plane_identical(*wp[c], *sp2[c]);
+    }
+    require_float_vec_identical(whole.a_separation, stitched.a_separation);
+    require_float_vec_identical(whole.a_artifact, stitched.a_artifact);
+    require_float_vec_identical(whole.a_registration, stitched.a_registration);
+    REQUIRE(whole.alpha_confidence_support == stitched.alpha_confidence_support);
+
+    // T4c: source-band cache counters are populated.
+    REQUIRE(tot_src_misses > 0);
+    REQUIRE(tot_src_hits > 0);
+    REQUIRE(tot_src_hits > tot_src_misses);
+  }
+}
+
+TEST_CASE("T5: CUDA X+Y windowing is bit-identical across rotation, shear, "
+          "scaling, and edge cases",
+          "[forward-drizzle][contrib-list][t5][cuda]") {
+  if (forward_drizzle_cuda_device_memory().free_bytes == 0) {
+    SUCCEED("no CUDA device -- T5 test skipped");
+    return;
+  }
+  // Stress-test the X+Y source rectangle narrowing with aggressive transforms.
+  // Each variant creates a PairCase with a different affine type, then compares
+  // the tiled CUDA path (narrowed source rect per tile) against the non-tiled
+  // CUDA path (full canvas width as the tile window). Bit-identity proves the
+  // conservative source rectangle covers all contributing source pixels.
+  struct TransformVariant {
+    const char *name;
+    WarpMatrix warp;
+  };
+  const TransformVariant variants[] = {
+    {"rotation30",
+     s2c(std::cos(0.52), -std::sin(0.52), 5.0,
+         std::sin(0.52),  std::cos(0.52), 5.0)},
+    {"rotation60",
+     s2c(std::cos(1.05), -std::sin(1.05), 6.0,
+         std::sin(1.05),  std::cos(1.05), 6.0)},
+    {"shear",
+     s2c(1.0, 0.4, 3.0, 0.3, 1.0, 3.0)},
+    {"scale_up",
+     s2c(2.5, 0.0, -3.0, 0.0, 2.5, -3.0)},
+    {"scale_down",
+     s2c(0.5, 0.0, 4.0, 0.0, 0.5, 4.0)},
+    {"edge_negative",
+     s2c(1.0, 0.0, -2.5, 0.0, 1.0, -2.5)},
+  };
+
+  for (const auto &v : variants) {
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+      PairCase k;
+      auto &plan = k.plan;
+      plan.source_width = 8;
+      plan.source_height = 8;
+      plan.canvas_width_native = 20;
+      plan.canvas_height_native = 20;
+      plan.color_mode = mode;
+      if (mode == ColorMode::OSC) {
+        plan.bayer_pattern = BayerPattern::RGGB;
+        plan.cfa_origin_x = 0;
+        plan.cfa_origin_y = 0;
+      }
+      const int nf = 4;
+      for (int i = 0; i < nf; ++i) {
+        const double dx = 0.3 * i;
+        const double dy = 0.2 * i;
+        WarpMatrix w = v.warp;
+        w(0, 2) += dx;
+        w(1, 2) += dy;
+        FrameSamplingTransform f = affine_frame(
+            "f" + std::to_string(i), i, w);
+        plan.frames.push_back(f);
+      }
+      for (int f = 0; f < nf; ++f) {
+        Matrix2Df img(8, 8), c(8, 8), a0(8, 8), a1(8, 8), ar(8, 8);
+        for (int y = 0; y < 8; ++y)
+          for (int x = 0; x < 8; ++x) {
+            img(y, x) = 30.0f + 3.0f * x + 2.0f * y +
+                        9.0f * std::sin(0.6f * (x + y)) + 0.5f * f;
+            c(y, x) = 0.4f + 0.1f * f;
+            a0(y, x) = 0.55f + 0.07f * f;
+            a1(y, x) = 0.6f + 0.05f * f;
+            ar(y, x) = 0.9f;
+          }
+        k.imgs.push_back(std::move(img));
+        k.comp.push_back(std::move(c));
+        k.s0.push_back(std::move(a0));
+        k.s1.push_back(std::move(a1));
+        k.art.push_back(std::move(ar));
+      }
+      k.g_eff.assign(nf, 0.6f);
+      k.cfg.internal_scale = 1;
+      k.cfg.pixfrac = 0.85f;
+      k.cfg.kernel = "square";
+      k.cfg.robust_passes = 2;
+      k.cfg.min_clip_contributors = 3;
+      k.clip.clip_sigma_low = 2.5f;
+      k.clip.clip_sigma_high = 2.5f;
+      k.clip.min_fraction = 0.1f;
+      k.clip.min_n_eff = 1.0f;
+      k.mb.emit_fine = true;
+      k.mb.emit_medium = true;
+      k.mb.emit_alpha_confidence = true;
+
+      const int H = plan.canvas_height_native * k.cfg.internal_scale;
+      const int W = plan.canvas_width_native * k.cfg.internal_scale;
+
+      // Non-tiled CUDA reference.
+      const auto whole = accumulate_pair_by_frame_cuda(
+          k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff,
+          k.quality_rect(), k.mb, static_cast<std::size_t>(1) << 32, 32,
+          static_cast<std::size_t>(1) << 20);
+
+      // Tiled CUDA path with T5 X+Y windowing. Use multiple tile widths to
+      // stress-test the source rectangle narrowing.
+      for (int tile_cols : {3, 5, 7, 11}) {
+        const auto planes_mut = [&](ForwardDrizzleUniformResult &r) {
+          return mode == ColorMode::MONO
+                     ? std::array<ProfilePlane *, 3>{&r.L, nullptr, nullptr}
+                     : std::array<ProfilePlane *, 3>{&r.R, &r.G, &r.B};
+        };
+        const auto planes_const = [&](const ForwardDrizzleUniformResult &r) {
+          return mode == ColorMode::MONO
+                     ? std::array<const ProfilePlane *, 3>{&r.L, nullptr, nullptr}
+                     : std::array<const ProfilePlane *, 3>{&r.R, &r.G, &r.B};
+        };
+        ForwardDrizzleUniformAndRawResult stitched;
+        auto init_p = [&](ForwardDrizzleUniformResult &p) {
+          p.color_mode = mode;
+          p.internal_width = W;
+          p.internal_height = H;
+          if (mode == ColorMode::MONO) p.L.allocate(W, H);
+          else { p.R.allocate(W, H); p.G.allocate(W, H); p.B.allocate(W, H); }
+        };
+        init_p(stitched.uniform); init_p(stitched.raw);
+        init_p(stitched.fine); init_p(stitched.medium);
+        const std::size_t full_n = static_cast<std::size_t>(W) * H;
+        stitched.a_separation.assign(full_n, std::numeric_limits<float>::quiet_NaN());
+        stitched.a_artifact.assign(full_n, std::numeric_limits<float>::quiet_NaN());
+        stitched.a_registration.assign(full_n, std::numeric_limits<float>::quiet_NaN());
+        stitched.alpha_confidence_support.assign(full_n, 0u);
+
+        PairTileSink sink = [&](int xb, int tw,
+                              const ForwardDrizzleUniformAndRawResult &part) {
+          for (auto pr : {std::pair{&stitched.uniform, &part.uniform},
+                          std::pair{&stitched.raw, &part.raw},
+                          std::pair{&stitched.fine, &part.fine},
+                          std::pair{&stitched.medium, &part.medium}}) {
+            const auto dp = planes_mut(*pr.first);
+            const auto sp = planes_const(*pr.second);
+            for (int c = 0; c < 3; ++c) {
+              if (!dp[c] || sp[c]->value.empty()) continue;
+              for (int ty = 0; ty < H; ++ty)
+                for (int x = 0; x < tw; ++x) {
+                  const size_t s = static_cast<size_t>(ty) * tw + x;
+                  const size_t d = static_cast<size_t>(ty) * W + (xb + x);
+                  dp[c]->value[d] = sp[c]->value[s];
+                  dp[c]->weight_sum[d] = sp[c]->weight_sum[s];
+                  dp[c]->n_eff[d] = sp[c]->n_eff[s];
+                  dp[c]->support[d] = sp[c]->support[s];
+                }
+            }
+          }
+          for (int ty = 0; ty < H; ++ty)
+            for (int x = 0; x < tw; ++x) {
+              const size_t s = static_cast<size_t>(ty) * tw + x;
+              const size_t d = static_cast<size_t>(ty) * W + (xb + x);
+              stitched.a_separation[d] = part.a_separation[s];
+              stitched.a_artifact[d] = part.a_artifact[s];
+              stitched.a_registration[d] = part.a_registration[s];
+              stitched.alpha_confidence_support[d] = part.alpha_confidence_support[s];
+            }
+        };
+
+        const auto agg = accumulate_pair_by_frame_cuda(
+            k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff,
+            k.quality_rect(), k.mb, static_cast<std::size_t>(1) << 32, 32,
+            static_cast<std::size_t>(1) << 20, nullptr, 0, -1, &sink,
+            tile_cols);
+
+        // Bit-identity: tiled CUDA (with T5 X+Y windowing) == non-tiled CUDA.
+        for (auto pr : {std::pair{&whole.uniform, &stitched.uniform},
+                        std::pair{&whole.raw, &stitched.raw},
+                        std::pair{&whole.fine, &stitched.fine},
+                        std::pair{&whole.medium, &stitched.medium}}) {
+          const auto wp = planes_const(*pr.first);
+          const auto sp2 = planes_const(*pr.second);
+          for (int c = 0; c < 3; ++c)
+            if (wp[c] && sp2[c]) require_plane_identical(*wp[c], *sp2[c]);
+        }
+        require_float_vec_identical(whole.a_separation, stitched.a_separation);
+        require_float_vec_identical(whole.a_artifact, stitched.a_artifact);
+        require_float_vec_identical(whole.a_registration, stitched.a_registration);
+        REQUIRE(whole.alpha_confidence_support == stitched.alpha_confidence_support);
+        REQUIRE(agg.clipping.pixel_channel_evaluations ==
+                whole.clipping.pixel_channel_evaluations);
+        REQUIRE(agg.clipping.pixel_channel_rejected ==
+                whole.clipping.pixel_channel_rejected);
+        REQUIRE(agg.clipping.candidate_contributions_clipped ==
+                whole.clipping.candidate_contributions_clipped);
+      }
+    }
+  }
+}
+
 TEST_CASE("plan-19.5 pair parity: the CUDA affine rasterizer path is "
           "bit-identical to the CPU pair reference",
           "[forward-drizzle][contrib-list][cuda-parity]") {

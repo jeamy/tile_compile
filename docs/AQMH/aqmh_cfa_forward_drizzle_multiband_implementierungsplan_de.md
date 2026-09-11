@@ -83,7 +83,9 @@ und HMS (tatsächlich deaktiviert), bei 600 Frames, 3840×2160 OSC,
 Datensätze; die Ausschlüsse betreffen nur die genannten Phasen, nicht die
 Geometrieklassen. Kein Resume als Kaltlauf; keine Reduktion von Framezahl
 oder Auflösung. Details und Messstände:
-[P6-Leistungsdokument](aqmh_p6_performance_de.md).
+[P6-Leistungsdokument](aqmh_p6_performance_de.md); konkrete Trusted-Run-,
+Migrations- und Testschritte:
+[Trusted-Run-Implementierungsplan](aqmh_p6_trusted_run_implementierung_de.md).
 
 **Verbindliche Leistungsentscheidungen (2026-09-10, §30.77):**
 

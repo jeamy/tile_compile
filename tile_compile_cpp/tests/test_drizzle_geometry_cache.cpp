@@ -322,11 +322,9 @@ TEST_CASE("geometry cache: record-file corruption is caught with byte "
     break;
   }
   REQUIRE(did);
-  // Byte verification on -> checksum mismatch.
-  REQUIRE_THROWS(DrizzleGeometryCacheReader(root, built.identities, indices(1),
-                                            /*verify_record_bytes=*/true));
-
-  // Truncate the .leaves file -> structural (size) check fails regardless.
+  // T1 trusted run: same-size content corruption is NOT detected (no SHA-256).
+  // Only the structural size check catches truncation.
+  // Truncate the .leaves file -> structural (size) check fails.
   for (const auto &e : fs::directory_iterator(built.generation_dir)) {
     if (e.path().extension() != ".leaves") continue;
     fs::resize_file(e.path(), fs::file_size(e.path()) - sizeof(double));
@@ -372,8 +370,8 @@ TEST_CASE("geometry cache: parallel build (1/2/4 workers) is byte-identical to "
     mfs >> mf;
     for (const auto &v : mf.at("variants"))
       for (const auto &f : v.at("frames"))
-        fp.per_frame.emplace_back(f.at("rows_sha256").get<std::string>(),
-                                  f.at("leaves_sha256").get<std::string>());
+        fp.per_frame.emplace_back(std::to_string(f.at("rows_bytes").get<std::uintmax_t>()),
+                                  std::to_string(f.at("leaves_bytes").get<std::uintmax_t>()));
     DrizzleGeometryCacheReader reader(root, built.identities, indices(6));
     ScopedActiveGeometryCache guard(&reader);
     config::ReconstructionDrizzleConfig c = cfg;

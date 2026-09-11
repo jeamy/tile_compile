@@ -39,17 +39,6 @@ void print_usage() {
             << std::endl;
 }
 
-int run_command(const std::string &config_path, const std::string &input_dir,
-                const std::string &runs_dir, const std::string &project_root,
-                const std::string &run_id_override,
-                bool dry_run, int max_frames, int max_tiles,
-                bool config_from_stdin) {
-  return run_pipeline_command(config_path, input_dir, runs_dir, project_root,
-                              run_id_override,
-                              dry_run, max_frames, max_tiles,
-                              config_from_stdin);
-}
-
 /// @brief Implements main.
 /// @details Part of the tile_compile_runner executable entry point and command dispatcher; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -143,9 +132,13 @@ int main(int argc, char *argv[]) {
     return resume_forward_drizzle_command(resume_run_dir, reconstruction_resume_phase);
 
   if (run_cmd->parsed()) {
+    // `command` doesn't exist in this branch (it's declared only in the
+    // #else/no-CLI11 path below) --- and doesn't need to: reconstruct_cmd is
+    // handled separately above and returns before this point, so reaching
+    // here means the parsed subcommand is "run", never "reconstruct".
     return run_pipeline_command(config_path, input_dir, runs_dir, project_root,
                        run_id_override, dry_run,
-                       max_frames, max_tiles, config_from_stdin, command == "reconstruct");
+                       max_frames, max_tiles, config_from_stdin, /*reconstruct_only=*/false);
   }
 
   if (preprocess_cmd->parsed()) {

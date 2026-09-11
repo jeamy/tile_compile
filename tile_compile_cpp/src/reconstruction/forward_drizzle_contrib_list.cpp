@@ -10,6 +10,7 @@
 #include <limits>
 #include <stdexcept>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 namespace tile_compile::reconstruction {
@@ -397,6 +398,64 @@ using PairFrameRecordProducer = std::function<std::vector<DrizzleContrib>(
     std::size_t fo, const registration::FrameSamplingTransform &f,
     const StripeGeom &g, int x_begin, int cols)>;
 
+// T4a/T4b: compute the conservative source-Y band [band0, band1) for a frame's
+// inverse-mapped destination stripe. Mirrors the CUDA producer's logic
+// (lines ~820-835): inverse-map the destination stripe corners over the FULL
+// canvas width, take min/max with a ±1 margin. Returns {band0, band1} clamped
+// to [0, source_height]; band1 <= band0 means no source rows.
+struct SourceYBand { int band0 = 0, band1 = 0; };
+SourceYBand conservative_source_y_band(
+    const registration::FrameSamplingTransform &f,
+    const StripeGeom &g, int y_begin, int rows, int source_height) {
+  const auto &s2c = f.source_to_canvas;
+  WarpMatrix inv;
+  if (!registration::invert_affine_2x3(s2c, 1e-12f, 1e12f, inv))
+    return {0, 0};  // caller handles singular affines
+  double lo = std::numeric_limits<double>::infinity(), hi = -lo;
+  for (double dx : {0.0, static_cast<double>(g.W) / g.scale})
+    for (double dy : {static_cast<double>(y_begin) / g.scale,
+                      static_cast<double>(y_begin + rows) / g.scale}) {
+      const double sy = static_cast<double>(inv(1, 0)) * dx +
+                        static_cast<double>(inv(1, 1)) * dy +
+                        static_cast<double>(inv(1, 2));
+      lo = std::min(lo, sy);
+      hi = std::max(hi, sy);
+    }
+  int band0 = static_cast<int>(
+      std::clamp(std::floor(lo - 1), 0.0, static_cast<double>(source_height)));
+  int band1 = static_cast<int>(
+      std::clamp(std::ceil(hi + 1), 0.0, static_cast<double>(source_height)));
+  return {band0, band1};
+}
+
+// T4b: cached Q maps for one frame. Owns the matrix storage so the
+// FrameQualityMaps pointers stay valid across tile windows.
+struct CachedQMaps {
+  Matrix2Df comp, s0, s1, art;
+  FrameQualityMaps maps;
+  bool valid = false;
+  void store_from(const FrameQualityMaps &src) {
+    if (src.composite) comp = *src.composite;
+    if (src.scale0) s0 = *src.scale0;
+    if (src.scale1) s1 = *src.scale1;
+    if (src.artifact) art = *src.artifact;
+    maps.composite = src.composite ? &comp : nullptr;
+    maps.scale0 = src.scale0 ? &s0 : nullptr;
+    maps.scale1 = src.scale1 ? &s1 : nullptr;
+    maps.artifact = src.artifact ? &art : nullptr;
+    maps.y_origin = src.y_origin;
+    maps.x_origin = src.x_origin;
+    valid = true;
+  }
+};
+
+// T4a: cached source-Y band buffer for one frame (CUDA producer).
+struct CachedSourceBand {
+  int band0 = 0, band1 = 0;
+  std::vector<float> buf;
+  bool valid = false;
+};
+
 ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     const RegistrationSamplingPlan &plan,
     const config::ReconstructionDrizzleConfig &cfg,
@@ -405,9 +464,17 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     const std::vector<float> &g_eff_by_source_index,
     const FrameQualityRectProvider &quality_of, const MultibandProfileParams &mb,
     std::size_t mem_budget_bytes, const PairFrameRecordProducer &produce,
-    int x_begin, int cols, const PairTileSink *tile_sink, int tile_cols) {
+    int x_begin, int cols, const PairTileSink *tile_sink, int tile_cols,
+    const PreparedDrizzleFrames *prepared_frames) {
   const StripeGeom g = stripe_geom(plan, cfg, y_begin, rows);
-  const auto prepared = prepare_drizzle_frames(plan, cfg, subdivision);
+  // §4.4: prepare_drizzle_frames() is band-invariant. When the caller supplies
+  // a pre-built PreparedDrizzleFrames (built once before the band loop), reuse
+  // it instead of rebuilding per band.
+  const PreparedDrizzleFrames prepared_local =
+      prepared_frames ? PreparedDrizzleFrames{} :
+                        prepare_drizzle_frames(plan, cfg, subdivision);
+  const PreparedDrizzleFrames &prepared =
+      prepared_frames ? *prepared_frames : prepared_local;
   const int channels = g.channels;
   const std::size_t frame_count = plan.frames.size();
   const bool tiled = tile_sink != nullptr && *tile_sink && tile_cols > 0;
@@ -494,6 +561,14 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     return recs;
   };
 
+  // T4b: Q-band cache. When tiled, pre-fetch Q maps once per frame for the
+  // conservative source-Y band (full source-X width), then reuse across all
+  // tile windows. In the non-tiled path the cache stays empty and
+  // reduce_window falls back to per-frame quality_of() as before.
+  const bool want_q = quality_of && (need_qc || need_q0 || need_q1 || need_qa);
+  std::vector<CachedQMaps> q_cache;
+  long long q_hits = 0, q_misses = 0, q_bytes = 0;
+
   // Reduce one target-column window [wx0, wx0+ww) into a fresh result of that
   // width. `get_recs(fo)` yields frame fo's already-sorted records as a live
   // reference (the memo entry, or a reused scratch on the single-window path).
@@ -571,26 +646,35 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
       const auto &f = *prepared.frames[fo];
       const std::vector<DrizzleContrib> &recs = get_recs(fo);
 
-      // §30.81 step 3a-2: fetch the quality maps for EXACTLY the source
-      // rectangle these records touch --- the bbox over the actual
-      // (source_y, source_x) keys, no inverse-affine estimate, no margin, so
-      // the rebased lookup can never fall outside the returned rect. `map_at`
-      // subtracts the rect origin; identical values to a full-map lookup.
+      // T4b: when the Q-band cache is populated (tiled path), use the cached
+      // maps instead of calling quality_of() per tile window. The cached maps
+      // cover the conservative source-Y band with full source-X width, so
+      // map_at's rebase handles any tile window's source rectangle. Values are
+      // identical to a per-tile read_rect() of the same source region.
+      //
+      // §30.81 step 3a-2 (non-cached fallback): fetch the quality maps for
+      // EXACTLY the source rectangle these records touch --- the bbox over the
+      // actual (source_y, source_x) keys, no inverse-affine estimate, no
+      // margin, so the rebased lookup can never fall outside the returned rect.
       FrameQualityMaps qm;
-      const bool want_q =
-          quality_of && (need_qc || need_q0 || need_q1 || need_qa);
       if (want_q && !recs.empty()) {
-        std::uint32_t sy0 = recs[0].key.source_y, sy1 = sy0;
-        std::uint32_t sx0 = recs[0].key.source_x, sx1 = sx0;
-        for (const auto &rr : recs) {
-          sy0 = std::min(sy0, rr.key.source_y);
-          sy1 = std::max(sy1, rr.key.source_y);
-          sx0 = std::min(sx0, rr.key.source_x);
-          sx1 = std::max(sx1, rr.key.source_x);
+        if (fo < q_cache.size() && q_cache[fo].valid) {
+          qm = q_cache[fo].maps;
+          ++q_hits;
+        } else {
+          std::uint32_t sy0 = recs[0].key.source_y, sy1 = sy0;
+          std::uint32_t sx0 = recs[0].key.source_x, sx1 = sx0;
+          for (const auto &rr : recs) {
+            sy0 = std::min(sy0, rr.key.source_y);
+            sy1 = std::max(sy1, rr.key.source_y);
+            sx0 = std::min(sx0, rr.key.source_x);
+            sx1 = std::max(sx1, rr.key.source_x);
+          }
+          qm = quality_of(f.source_index, static_cast<int>(sy0),
+                          static_cast<int>(sy1) + 1, static_cast<int>(sx0),
+                          static_cast<int>(sx1) + 1);
+          ++q_misses;
         }
-        qm = quality_of(f.source_index, static_cast<int>(sy0),
-                        static_cast<int>(sy1) + 1, static_cast<int>(sx0),
-                        static_cast<int>(sx1) + 1);
       }
       const Matrix2Df *qc = need_qc ? qm.composite : nullptr;
       const Matrix2Df *q0 = need_q0 ? qm.scale0 : nullptr;
@@ -703,6 +787,30 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
       scratch = produce_sorted(fo, cur_x0, cur_w);
       return scratch;
     };
+    // T4b: pre-fetch Q maps once per frame for the conservative source-Y band
+    // (full source-X width). The cached maps are reused across all tile
+    // windows via the q_cache lookup in reduce_window. One read_rect() per
+    // stream per frame instead of one per (frame, tile_window).
+    if (want_q) {
+      q_cache.resize(prepared.frames.size());
+      for (std::size_t fo = 0; fo < prepared.frames.size(); ++fo) {
+        const auto &f = *prepared.frames[fo];
+        const auto yb = conservative_source_y_band(
+            f, g, y_begin, rows, plan.source_height);
+        if (yb.band1 <= yb.band0) continue;
+        auto m = quality_of(f.source_index, yb.band0, yb.band1, 0,
+                            plan.source_width);
+        q_cache[fo].store_from(m);
+        // T4c: one cache miss per frame (the pre-fetch read), plus bytes read.
+        ++q_misses;
+        const int qh = yb.band1 - yb.band0;
+        const int qw = plan.source_width;
+        if (m.composite)  q_bytes += static_cast<long long>(qh) * qw * sizeof(float);
+        if (m.scale0)     q_bytes += static_cast<long long>(qh) * qw * sizeof(float);
+        if (m.scale1)     q_bytes += static_cast<long long>(qh) * qw * sizeof(float);
+        if (m.artifact)   q_bytes += static_cast<long long>(qh) * qw * sizeof(float);
+      }
+    }
     ForwardDrizzleUniformAndRawResult agg;  // planes empty; .clipping summed
     for (int wx0 = 0; wx0 < g.W; wx0 += tile_cols) {
       const int tw = std::min(tile_cols, g.W - wx0);
@@ -717,6 +825,9 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
           tile.clipping.candidate_contributions_clipped;
       (*tile_sink)(wx0, tw, tile);
     }
+    agg.diagnostics.q_band_cache_hits = q_hits;
+    agg.diagnostics.q_band_cache_misses = q_misses;
+    agg.diagnostics.q_bytes_read = q_bytes;
     return agg;
   }
 
@@ -734,7 +845,11 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     scratch = produce_sorted(fo, xb, win_w);
     return scratch;
   };
-  return reduce_window(xb, win_w, from_producer);
+  auto result = reduce_window(xb, win_w, from_producer);
+  result.diagnostics.q_band_cache_hits = q_hits;
+  result.diagnostics.q_band_cache_misses = q_misses;
+  result.diagnostics.q_bytes_read = q_bytes;
+  return result;
 }
 
 // The CPU record producer: the plan-19.6 reference rasterizer.
@@ -753,19 +868,36 @@ PairFrameRecordProducer cpu_pair_producer(
   };
 }
 
+// T4a: source band cache stats, shared between the CUDA producer and the
+// caller. The producer increments hits/misses/bytes; the caller reads them
+// after the band pass to populate ForwardDrizzleDiagnostics.
+struct SourceBandCacheStats {
+  long long hits = 0;
+  long long misses = 0;
+  long long bytes_read = 0;
+};
+
 // The CUDA record producer. Affine frames -> the device affine rasterizer.
 // Local-warp frames -> the plan-19.6.2 hybrid path (CPU geometry, GPU raster).
 // Throws ForwardDrizzleCudaError on any device failure --- the caller decides
 // whether to fall back to the CPU producer for the whole stripe (plan 19.4: no
 // mixed CPU/CUDA within a commit).
+// T4a: when `src_cache_stats` is non-null, the affine source-Y band buffer is
+// cached per frame offset across tile windows (one load per frame per band
+// instead of one per (frame, tile_window)). Hits/misses/bytes are accumulated.
 PairFrameRecordProducer cuda_pair_producer(
     const RegistrationSamplingPlan &plan, const SourceImageProvider &source_of,
     const config::ReconstructionDrizzleConfig &cfg,
     const ForwardDrizzleSubdivisionParams &subdivision, int y_begin, int rows,
     int max_cells_per_pixel, std::size_t mem_budget_bytes,
-    std::size_t max_batch_items, HybridPathStats *hybrid_stats) {
+    std::size_t max_batch_items, HybridPathStats *hybrid_stats,
+    SourceBandCacheStats *src_cache_stats) {
+  // T4a: per-frame source band cache, shared across tile window calls.
+  auto src_cache = std::make_shared<
+      std::unordered_map<std::size_t, CachedSourceBand>>();
   return [&plan, &source_of, &cfg, &subdivision, y_begin, rows,
-          max_cells_per_pixel, mem_budget_bytes, max_batch_items, hybrid_stats](
+          max_cells_per_pixel, mem_budget_bytes, max_batch_items, hybrid_stats,
+          src_cache, src_cache_stats](
              std::size_t fo, const registration::FrameSamplingTransform &f,
              const StripeGeom &g, int x_begin,
              int cols) -> std::vector<DrizzleContrib> {
@@ -805,40 +937,123 @@ PairFrameRecordProducer cuda_pair_producer(
       throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
 
     // Source-row band for this stripe, derived exactly like the CPU path
-    // (rasterize_drizzle_stripe): inverse-map the destination stripe corners.
-    // §30.81 step 3a keeps this over the FULL canvas width even for a tile
-    // window: the device kernel still enumerates [0, g.W), and narrowing the
-    // band by the window's dest-x range would rest on a source-y margin
-    // (droplet half-width + leaf-subdivision spread) that is not verified here.
-    // The real per-window device saving (kernel X-window + narrowed upload) is
-    // step 3; step 3a's CUDA producer only DROPS out-of-window records.
+    // (rasterize_drizzle_stripe): inverse-map the destination stripe corners
+    // over the FULL canvas width. This full-width source-Y band is the T4a
+    // cache key — it depends only on (frame, y_begin, rows), not on the tile
+    // window, so the cached buffer is reused across all tiles of the same band.
+    //
+    // T5: separately, the source-X (and tightened source-Y) range is computed
+    // from the TILE WINDOW's target-X range, and only that narrowed source
+    // rectangle is uploaded to the kernel. The kernel enumerates only the
+    // narrowed source pixels, reducing both H2D transfer and kernel threads.
+    // The full-width cached buffer (T4a) is sliced host-side to extract the
+    // narrowed rectangle — one source load per frame per band (T4a), one
+    // narrowed upload per (frame, tile) (T5).
     const auto &s2c = f.source_to_canvas;
     WarpMatrix inv;
     if (!registration::invert_affine_2x3(s2c, 1e-12f, 1e12f, inv))
       throw ForwardDrizzleCudaError("forward_drizzle CUDA: singular affine");
-    double lo = std::numeric_limits<double>::infinity(), hi = -lo;
+
+    // Full-width source-Y band (T4a cache key).
+    double sy_lo = std::numeric_limits<double>::infinity(),
+           sy_hi = -sy_lo;
     for (double dx : {0.0, static_cast<double>(g.W) / g.scale})
       for (double dy : {static_cast<double>(y_begin) / g.scale,
                         static_cast<double>(y_begin + rows) / g.scale}) {
         const double sy = static_cast<double>(inv(1, 0)) * dx +
                           static_cast<double>(inv(1, 1)) * dy +
                           static_cast<double>(inv(1, 2));
-        lo = std::min(lo, sy);
-        hi = std::max(hi, sy);
+        sy_lo = std::min(sy_lo, sy);
+        sy_hi = std::max(sy_hi, sy);
       }
     int band0 = static_cast<int>(
-        std::clamp(std::floor(lo - 1), 0.0, static_cast<double>(sh)));
+        std::clamp(std::floor(sy_lo - 1), 0.0, static_cast<double>(sh)));
     int band1 = static_cast<int>(
-        std::clamp(std::ceil(hi + 1), 0.0, static_cast<double>(sh)));
+        std::clamp(std::ceil(sy_hi + 1), 0.0, static_cast<double>(sh)));
     if (band1 <= band0) return {};
 
-    // BAND-LOCAL source buffer only (row 0 == source row band0) --- the whole
-    // image is never copied per frame.
+    // T5: narrowed source rectangle from the tile window's target-X range.
+    // Inverse-map the tile window corners to get both source-X and source-Y
+    // bounds. The source-Y range is intersected with the full-width band.
+    double sx_lo = std::numeric_limits<double>::infinity(),
+           sx_hi = -sx_lo;
+    double tsy_lo = std::numeric_limits<double>::infinity(),
+           tsy_hi = -tsy_lo;
+    for (double dx : {static_cast<double>(win_xb) / g.scale,
+                      static_cast<double>(win_xe) / g.scale})
+      for (double dy : {static_cast<double>(y_begin) / g.scale,
+                        static_cast<double>(y_begin + rows) / g.scale}) {
+        const double sx = static_cast<double>(inv(0, 0)) * dx +
+                          static_cast<double>(inv(0, 1)) * dy +
+                          static_cast<double>(inv(0, 2));
+        const double sy = static_cast<double>(inv(1, 0)) * dx +
+                          static_cast<double>(inv(1, 1)) * dy +
+                          static_cast<double>(inv(1, 2));
+        sx_lo = std::min(sx_lo, sx);
+        sx_hi = std::max(sx_hi, sx);
+        tsy_lo = std::min(tsy_lo, sy);
+        tsy_hi = std::max(tsy_hi, sy);
+      }
+    int sx0 = static_cast<int>(
+        std::clamp(std::floor(sx_lo - 1), 0.0, static_cast<double>(sw)));
+    int sx1 = static_cast<int>(
+        std::clamp(std::ceil(sx_hi + 1), 0.0, static_cast<double>(sw)));
+    // Tightened source-Y range: intersect the tile window's source-Y with the
+    // full-width band. The band is a superset, so the intersection is always
+    // within [band0, band1).
+    int tsy0 = static_cast<int>(
+        std::clamp(std::floor(tsy_lo - 1), 0.0, static_cast<double>(sh)));
+    int tsy1 = static_cast<int>(
+        std::clamp(std::ceil(tsy_hi + 1), 0.0, static_cast<double>(sh)));
+    tsy0 = std::max(tsy0, band0);
+    tsy1 = std::min(tsy1, band1);
+    if (sx1 <= sx0 || tsy1 <= tsy0) return {};
+
+    // BAND-LOCAL source buffer (full source-X width, T4a cache). The whole
+    // image is never copied per frame. T4a: use cached buffer when available.
     const int band_h = band1 - band0;
-    std::vector<float> src_buf(static_cast<std::size_t>(band_h) * sw);
-    for (int yy = 0; yy < band_h; ++yy)
-      for (int xx = 0; xx < sw; ++xx)
-        src_buf[static_cast<std::size_t>(yy) * sw + xx] = src(band0 + yy, xx);
+    const float *src_buf_full = nullptr;
+    std::vector<float> src_buf_local;
+    if (src_cache_stats) {
+      auto it = src_cache->find(fo);
+      if (it != src_cache->end() && it->second.band0 == band0 &&
+          it->second.band1 == band1) {
+        src_buf_full = it->second.buf.data();
+        ++src_cache_stats->hits;
+      } else {
+        auto &entry = (*src_cache)[fo];
+        entry.band0 = band0;
+        entry.band1 = band1;
+        entry.buf.resize(static_cast<std::size_t>(band_h) * sw);
+        for (int yy = 0; yy < band_h; ++yy)
+          for (int xx = 0; xx < sw; ++xx)
+            entry.buf[static_cast<std::size_t>(yy) * sw + xx] =
+                src(band0 + yy, xx);
+        src_buf_full = entry.buf.data();
+        ++src_cache_stats->misses;
+        src_cache_stats->bytes_read +=
+            static_cast<long long>(band_h) * sw * sizeof(float);
+      }
+    } else {
+      src_buf_local.resize(static_cast<std::size_t>(band_h) * sw);
+      for (int yy = 0; yy < band_h; ++yy)
+        for (int xx = 0; xx < sw; ++xx)
+          src_buf_local[static_cast<std::size_t>(yy) * sw + xx] =
+              src(band0 + yy, xx);
+      src_buf_full = src_buf_local.data();
+    }
+
+    // T5: slice the full-width cached buffer to the narrowed source rectangle
+    // [sx0, sx1) x [tsy0, tsy1). This is the buffer uploaded to the kernel.
+    const int tile_band_h = tsy1 - tsy0;
+    const int tile_band_w = sx1 - sx0;
+    std::vector<float> src_buf_narrowed(
+        static_cast<std::size_t>(tile_band_h) * tile_band_w);
+    for (int yy = 0; yy < tile_band_h; ++yy)
+      for (int xx = 0; xx < tile_band_w; ++xx)
+        src_buf_narrowed[static_cast<std::size_t>(yy) * tile_band_w + xx] =
+            src_buf_full[static_cast<std::size_t>(tsy0 - band0 + yy) * sw +
+                         (sx0 + xx)];
 
     const double affine6[6] = {
         static_cast<double>(s2c(0, 0)), static_cast<double>(s2c(0, 1)),
@@ -847,17 +1062,19 @@ PairFrameRecordProducer cuda_pair_producer(
     const double half = static_cast<double>(cfg.pixfrac) / 2.0;
     const bool mono = plan.color_mode == ColorMode::MONO;
 
-    const long long band_rows = band1 - band0;
     // Generous capacity: a well-behaved affine leaf overlaps <= ~4 cells; size
     // for `max_cells_per_pixel` and let the device fail (-> CPU fallback) if a
-    // degenerate frame exceeds it.
+    // degenerate frame exceeds it. T5: capacity scales with the narrowed
+    // source rectangle, not the full source width.
     const long long cap =
-        band_rows * sw * static_cast<long long>(max_cells_per_pixel);
+        static_cast<long long>(tile_band_h) * tile_band_w *
+        static_cast<long long>(max_cells_per_pixel);
     std::vector<CudaDrizzleContribRecord> raw(static_cast<std::size_t>(cap));
     long long written = 0;
     if (!forward_drizzle_cuda_affine_frame_contributions(
-            affine6, cfg.internal_scale, half, y_begin, rows, g.W, band0, band1,
-            sw, sh, src_buf.data(), static_cast<int>(plan.bayer_pattern),
+            affine6, cfg.internal_scale, half, y_begin, rows, g.W,
+            tsy0, tsy1, sx0, sx1, sw, sh, src_buf_narrowed.data(),
+            static_cast<int>(plan.bayer_pattern),
             plan.cfa_origin_x, plan.cfa_origin_y, mono, max_cells_per_pixel,
             raw.data(), cap, &written))
       throw ForwardDrizzleCudaError(
@@ -894,13 +1111,14 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
     const std::vector<float> &g_eff_by_source_index,
     const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
     std::size_t mem_budget_bytes, int target_x_begin, int target_cols,
-    const PairTileSink *tile_sink, int tile_cols) {
+    const PairTileSink *tile_sink, int tile_cols,
+    const PreparedDrizzleFrames *prepared_frames) {
   return accumulate_pair_impl(
       plan, cfg, clip_cfg, y_begin, rows, subdivision, g_eff_by_source_index,
       to_rect_provider(quality_of), mb, mem_budget_bytes,
       cpu_pair_producer(plan, source_of, cfg, subdivision, y_begin, rows,
                         mem_budget_bytes),
-      target_x_begin, target_cols, tile_sink, tile_cols);
+      target_x_begin, target_cols, tile_sink, tile_cols, prepared_frames);
 }
 
 ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
@@ -913,14 +1131,21 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     std::size_t mem_budget_bytes, int max_cells_per_pixel,
     std::size_t max_batch_items, HybridPathStats *hybrid_stats,
     int target_x_begin, int target_cols, const PairTileSink *tile_sink,
-    int tile_cols) {
-  return accumulate_pair_impl(
+    int tile_cols, const PreparedDrizzleFrames *prepared_frames) {
+  // T4a: source band cache stats — populated by the CUDA producer, read after
+  // the band pass to fill ForwardDrizzleDiagnostics.
+  SourceBandCacheStats src_stats;
+  auto result = accumulate_pair_impl(
       plan, cfg, clip_cfg, y_begin, rows, subdivision, g_eff_by_source_index,
       quality_of, mb, mem_budget_bytes,
       cuda_pair_producer(plan, source_of, cfg, subdivision, y_begin, rows,
                          max_cells_per_pixel, mem_budget_bytes, max_batch_items,
-                         hybrid_stats),
-      target_x_begin, target_cols, tile_sink, tile_cols);
+                         hybrid_stats, &src_stats),
+      target_x_begin, target_cols, tile_sink, tile_cols, prepared_frames);
+  result.diagnostics.source_band_cache_hits = src_stats.hits;
+  result.diagnostics.source_band_cache_misses = src_stats.misses;
+  result.diagnostics.source_bytes_read = src_stats.bytes_read;
+  return result;
 }
 
 }  // namespace tile_compile::reconstruction

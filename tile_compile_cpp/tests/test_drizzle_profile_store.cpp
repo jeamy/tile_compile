@@ -150,21 +150,21 @@ TEST_CASE("drizzle store: incomplete or forged planes fail despite rehashed mani
       io::write_fits_float(store.generation_dir / "uniform_L_value.fits",wrong,{});
       for (auto &p : manifest["planes"])
         if (p["name"] == "uniform_L_value")
-          p["sha256"] = core::sha256_file(store.generation_dir / "uniform_L_value.fits");
+          p["bytes"] = fs::file_size(store.generation_dir / "uniform_L_value.fits");
     }
     if (kind == 2) fs::remove(store.generation_dir / "uniform_L_support.fits");
     if (kind == 3) {
       std::ofstream(store.generation_dir / "uniform_L_value.fits",std::ios::binary) << "broken FITS";
       for (auto &p : manifest["planes"])
         if (p["name"] == "uniform_L_value")
-          p["sha256"] = core::sha256_file(store.generation_dir / "uniform_L_value.fits");
+          p["bytes"] = fs::file_size(store.generation_dir / "uniform_L_value.fits");
     }
     // Rehash the generic manifest so completeness and FITS checks must act.
     ProfileStoreManifest parsed;
     parsed.profile = manifest["profile"];
     parsed.internal_width = 16; parsed.internal_height = 16;
     for (const auto &p : manifest["planes"])
-      parsed.planes.push_back({p["name"], p["sha256"], p["width"], p["height"]});
+      parsed.planes.push_back({p["name"], {}, p["bytes"], p["width"], p["height"]});
     manifest["manifest_hash"] = compute_profile_store_manifest_hash(parsed);
     replace_commit(fixture,commit);
     REQUIRE_FALSE(verify_drizzle_profile_store(fixture.root,make_drizzle_store_identity(plan,cfg)).usable);

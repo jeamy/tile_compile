@@ -41,6 +41,9 @@ enum class Variant : int {
   kPrepareExclusionScan, // prepare_drizzle_frames: upfront full source sweep
   kCoverageCfa,          // sampling_geometry: CFA droplet at cfg.pixfrac
   kCoverageFootprint,    // sampling_geometry: dense footprint at pixfrac = 1
+  kCoverageAccumulatorReset,     // T6: per-frame B[c] clear before CFA raster
+  kCoverageAccumulatorReduction, // T6: per-frame w/w2/count fold after CFA
+  kCoverageHoleQuantile,         // T6: post-band hole detection + quantile merge
   kProductionUniformRaw, // stream_forward_drizzle_uniform_and_raw main loop
   kUniformDiagnostic,    // stream_forward_drizzle_uniform (non-production diag)
   kContribCount,         // build_frame_records: pre-count pass

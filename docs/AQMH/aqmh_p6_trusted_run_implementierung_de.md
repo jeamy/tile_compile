@@ -282,7 +282,8 @@ Umsetzung (mit T4 zusammenlegen, da dieselbe Aufrufkette betroffen ist):
 `prepare_drizzle_frames()` einmal vor der Bandschleife in
 `persist_forward_drizzle_multiband()` aufrufen und das Ergebnis per Referenz
 in `accumulate_pair_impl()`/`accumulate_pair_by_frame[_cuda]()` durchreichen,
-statt es intern neu zu bauen. Abnahme: `PreparedDrizzleFrames`-Aufrufzähler
+statt es intern neu zu bauen. **Implementiert 2026-09-11** (mit T4a/T4b/T4c).
+Abnahme: `PreparedDrizzleFrames`-Aufrufzähler
 sinkt von `n_bands` auf 1 je Lauf; Store-Bytes bitidentisch (reine
 Wiederverwendung einer bereits deterministisch berechneten Struktur, keine
 Reihenfolgeänderung).
@@ -330,10 +331,10 @@ Proxybau, Sterndetektion, Paarzuordnung, ECC, Ankerwahl und lokale Verfeinerung.
 | T1 | Trusted-Run-Schema; Source-, Q-, Profil- und Geometrie-Hot-Path-SHAs entfernen | keine Pixeländerung | `NORMALIZED_CACHE` minus etwa 10,32 s; keine Digestbytes im Run |
 | T2 | Q-Reader-Index | keine | lineare Metadatenscans = 0 |
 | T3 | SQM erzeugt Global-Quality-Metriken | Gewichte bytegleich | kein zweiter Proxy-/Sourcepass |
-| T4 | Gepinnte Source- und Q-Bandansichten, gemeinsames Hostbudget, `prepare_drizzle_frames()` einmal statt je Band (§4.4) | Profile bytegleich | Readbytes je Band unabhängig von Kachelzahl; Bandgrenzen separat gemessen; `PreparedDrizzleFrames`-Aufrufe je Lauf statt je Band |
-| T5 | CUDA-X+Y-Provider und Kernel | CPU/CUDA-Parität | Producer-, Transfer- und Kernelarbeit skaliert mit Fenster |
-| T6 | Coverage-Subtimer und beschleunigter affiner Pfad | Coveragebits gleich | Coverage unter eigenes Budget bringen |
-| T7 | Registrierungs-/Normalisierungsoptimierung nach Subtimern | Phasenartefakte gleich | Restbudget schließen |
+| T4 | Gepinnte Source- und Q-Bandansichten, gemeinsames Hostbudget, `prepare_drizzle_frames()` einmal statt je Band (§4.4) — **implementiert 2026-09-11** | Profile bytegleich | Readbytes je Band unabhängig von Kachelzahl; Bandgrenzen separat gemessen; `PreparedDrizzleFrames`-Aufrufe je Lauf statt je Band |
+| T5 | CUDA-X+Y-Provider und Kernel — **implementiert 2026-09-11** | CPU/CUDA-Parität | Producer-, Transfer- und Kernelarbeit skaliert mit Fenster |
+| T6 | Coverage-Subtimer und beschleunigter affiner Pfad — **implementiert 2026-09-11** | Coveragebits gleich | Coverage unter eigenes Budget bringen; CUDA-Pfad mit Mutex für `workers > 1` |
+| T7 | Registrierungs-/Normalisierungsoptimierung nach Subtimern — **implementiert 2026-09-11** | Phasenartefakte gleich | Restbudget schließen |
 
 T1 bis T3 sind unabhängig von CUDA und sofort prüfbar. T4 und T5 sind ein
 gemeinsamer Durchsatzschnitt: ein Bereichsread ohne geänderte Lebensdauer

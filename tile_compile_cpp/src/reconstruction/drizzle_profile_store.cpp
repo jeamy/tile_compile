@@ -18,6 +18,7 @@
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <set>
 #include <stdexcept>
 
@@ -501,6 +502,13 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     ++committed_stripes;
   };
   ForwardDrizzlePairDiagnostics summary;
+  // §4.4: prepare_drizzle_frames() is band-invariant — build it ONCE before
+  // the band loop and pass it through to every accumulate_pair_by_frame_cuda
+  // call, instead of rebuilding it per band inside accumulate_pair_impl.
+  const auto prepared_frames = cuda_stripe_path
+      ? std::optional<PreparedDrizzleFrames>(
+            prepare_drizzle_frames(plan, cfg, subdivision))
+      : std::nullopt;
   if (cuda_stripe_path) {
     // NB: `workers` (P3 Teil 2 CPU-reduction band parallelism) does NOT apply
     // here --- this path has its own device-sized band chunking. A
@@ -635,6 +643,9 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     ForwardDrizzleClippingDiagnostics clip_total;
     ForwardDrizzleDiagnostics last_diag;
     HybridPathStats hybrid_stats;
+    // T4c: aggregate source/Q band cache stats across all bands.
+    long long tot_q_hits = 0, tot_q_misses = 0, tot_q_bytes = 0;
+    long long tot_src_hits = 0, tot_src_misses = 0, tot_src_bytes = 0;
     // Mode 2/1: the device bands are internal-2x; fold them 2x2 -> 1x on the
     // host (plan 12.1) before `sink`, exactly as the CPU mode-2/1 path does.
     // Exactly one adapter per build --- a ForwardDrizzleCudaError discards this
@@ -786,7 +797,8 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
                 quality_of, mb, inner_budget, /*max_cells_per_pixel=*/32,
                 /*max_batch_items=*/static_cast<std::size_t>(1) << 20,
                 &hybrid_stats, /*target_x_begin=*/0, /*target_cols=*/-1,
-                &tile_sink, tile_w);
+                &tile_sink, tile_w,
+                prepared_frames ? &*prepared_frames : nullptr);
           } catch (const std::runtime_error &e) {
             // The per-band record memo or a tile's candidate buffer exceeded the
             // host ceiling -> ask run_cuda_chunked for a shorter band (plan 19.4
@@ -799,6 +811,13 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
           }
           stripe.clipping = agg.clipping;  // aggregated over tiles by the driver
           last_diag = agg.diagnostics;
+          // T4c: accumulate per-band cache stats.
+          tot_q_hits += agg.diagnostics.q_band_cache_hits;
+          tot_q_misses += agg.diagnostics.q_band_cache_misses;
+          tot_q_bytes += agg.diagnostics.q_bytes_read;
+          tot_src_hits += agg.diagnostics.source_band_cache_hits;
+          tot_src_misses += agg.diagnostics.source_band_cache_misses;
+          tot_src_bytes += agg.diagnostics.source_bytes_read;
           result.cuda_timing.stripe_seconds +=
               std::chrono::duration<double>(store_clock::now() - t0).count();
           if (down) {
@@ -837,6 +856,13 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
         hybrid_stats.gpu_raster_seconds;
     result.cuda_timing.hybrid_leaf_cells = hybrid_stats.leaf_cells;
     summary.diagnostics = last_diag;
+    // T4c: replace last-band values with run-wide aggregates.
+    summary.diagnostics.q_band_cache_hits = tot_q_hits;
+    summary.diagnostics.q_band_cache_misses = tot_q_misses;
+    summary.diagnostics.q_bytes_read = tot_q_bytes;
+    summary.diagnostics.source_band_cache_hits = tot_src_hits;
+    summary.diagnostics.source_band_cache_misses = tot_src_misses;
+    summary.diagnostics.source_bytes_read = tot_src_bytes;
     // Keep the FORWARD_DRIZZLE diagnostics the runner emits populated on the
     // CUDA path (they otherwise come from the streaming planner, which did not
     // run here).

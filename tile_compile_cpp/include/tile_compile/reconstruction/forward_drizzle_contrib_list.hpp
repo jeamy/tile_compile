@@ -185,7 +185,10 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
     // call produces + sorts each frame ONCE, then reduces column tiles of width
     // `tile_cols` from that memo, handing each to `tile_sink`. `target_x_begin`
     // / `target_cols` are ignored in that mode (the tiles span [0, W)).
-    const PairTileSink *tile_sink = nullptr, int tile_cols = 0);
+    const PairTileSink *tile_sink = nullptr, int tile_cols = 0,
+    // §4.4 / T4: when non-null, skip the internal prepare_drizzle_frames() call
+    // and reuse the caller-supplied prepared frames (band-invariant).
+    const PreparedDrizzleFrames *prepared_frames = nullptr);
 
 // The CUDA counterpart of accumulate_pair_by_frame: the per-frame contribution
 // records are produced by the device affine rasterizer
@@ -230,6 +233,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     int target_x_begin = 0, int target_cols = -1,
     // §30.81 step-5 (B): per-band memo + column-tile replay; see
     // accumulate_pair_by_frame.
-    const PairTileSink *tile_sink = nullptr, int tile_cols = 0);
+    const PairTileSink *tile_sink = nullptr, int tile_cols = 0,
+    const PreparedDrizzleFrames *prepared_frames = nullptr);
 
 }  // namespace tile_compile::reconstruction

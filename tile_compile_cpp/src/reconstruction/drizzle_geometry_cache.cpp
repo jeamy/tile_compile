@@ -32,7 +32,6 @@
 #include "tile_compile/registration/sampling_geometry.hpp"
 
 #include <nlohmann/json.hpp>
-#include <openssl/evp.h>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -51,6 +50,7 @@
 #include <exception>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <random>
 #include <stdexcept>
 #include <vector>
@@ -80,41 +80,6 @@ struct LeafRecord {
 #pragma pack(pop)
 static_assert(sizeof(RowEntry) == 32, "RowEntry layout");
 static_assert(sizeof(LeafRecord) == 72, "LeafRecord layout");
-
-// ---- streaming SHA-256 ----------------------------------------------------
-class Sha256Stream {
-public:
-  Sha256Stream() : ctx_(EVP_MD_CTX_new()) {
-    if (!ctx_ || EVP_DigestInit_ex(ctx_, EVP_sha256(), nullptr) != 1)
-      throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_SHA_INIT");
-  }
-  ~Sha256Stream() {
-    if (ctx_) EVP_MD_CTX_free(ctx_);
-  }
-  Sha256Stream(const Sha256Stream &) = delete;
-  Sha256Stream &operator=(const Sha256Stream &) = delete;
-  void update(const void *p, std::size_t n) {
-    if (n && EVP_DigestUpdate(ctx_, p, n) != 1)
-      throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_SHA_UPDATE");
-  }
-  std::string hex() {
-    unsigned char h[EVP_MAX_MD_SIZE];
-    unsigned int n = 0;
-    if (EVP_DigestFinal_ex(ctx_, h, &n) != 1)
-      throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_SHA_FINAL");
-    static const char *k = "0123456789abcdef";
-    std::string s;
-    s.reserve(n * 2);
-    for (unsigned int i = 0; i < n; ++i) {
-      s.push_back(k[h[i] >> 4]);
-      s.push_back(k[h[i] & 0xF]);
-    }
-    return s;
-  }
-
-private:
-  EVP_MD_CTX *ctx_;
-};
 
 // ---- POSIX durable IO ---------------------------------------------------
 // Append-writes a byte span to an open fd, retrying short writes.
@@ -199,8 +164,7 @@ FrameBuildOut build_one_frame(
   const int lfd = ::open(lp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (lfd < 0)
     throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_OPEN: " + lp.string());
-  Sha256Stream leaf_sha;
-
+  // T1: no SHA-256 streaming in the hot path (trusted run).
   std::vector<Leaf> leaves;
   leaves.reserve(16);
   std::vector<LeafRecord> row_buf;
@@ -243,7 +207,6 @@ FrameBuildOut build_one_frame(
     if (!row_buf.empty()) {
       const std::size_t nb = row_buf.size() * sizeof(LeafRecord);
       write_all(lfd, row_buf.data(), nb);
-      leaf_sha.update(row_buf.data(), nb);
       running += nb;
       leaves_total += row_buf.size();
     }
@@ -261,7 +224,7 @@ FrameBuildOut build_one_frame(
     throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_FSYNC: " + lp.string());
   }
   ::close(lfd);
-  const std::string leaves_hash = leaf_sha.hex();
+  // T1: no SHA-256 in the hot path.
   {
     const int rfd = ::open(rp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (rfd < 0)
@@ -273,7 +236,6 @@ FrameBuildOut build_one_frame(
     }
     ::close(rfd);
   }
-  const std::string rows_hash = core::sha256_file(rp);
   out.t_write += std::chrono::duration<double>(bclk::now() - tail_w0).count();
 
   const double rate = source_pixels
@@ -296,8 +258,8 @@ FrameBuildOut build_one_frame(
                 {"excluded", excluded},
                 {"rows_file", rows_name(vi, f.source_index)},
                 {"leaves_file", leaves_name(vi, f.source_index)},
-                {"rows_sha256", rows_hash},
-                {"leaves_sha256", leaves_hash}};
+                {"rows_bytes", rows.size() * sizeof(RowEntry)},
+                {"leaves_bytes", running}};
   out.stats.source_index = f.source_index;
   out.stats.samples_total = source_pixels;
   out.stats.top_level_sample_leaves_calls = source_pixels;
@@ -378,7 +340,8 @@ GeometryCacheBuildResult build_drizzle_geometry_cache(
     const config::ReconstructionDrizzleConfig &cfg,
     const std::vector<GeometryVariant> &variants_in,
     const ForwardDrizzleSubdivisionParams &subdivision,
-    std::uint64_t memory_budget_bytes, int max_workers) {
+    std::uint64_t memory_budget_bytes, int max_workers,
+    const GeometryCacheProgressFn &on_progress) {
   if (plan.source_width <= 0 || plan.source_height <= 0)
     throw std::invalid_argument("DRIZZLE_GEOMETRY_CACHE_BAD_PLAN");
   if (static_cast<long long>(plan.source_width) > 0xFFFFFFFF)
@@ -450,6 +413,24 @@ GeometryCacheBuildResult build_drizzle_geometry_cache(
   const int workers = std::max(1, max_workers);
   const auto wall0 = std::chrono::steady_clock::now();
 
+  // Progress reporting: count only tasks that will actually run the
+  // expensive per-sample sweep (has_smooth_local_model). The many trivial
+  // (non-local) tasks in `tasks` finish instantly and are not reported ---
+  // reporting all of them would flood the log for no benefit.
+  std::size_t local_frame_count = 0;
+  for (const auto &f : plan.frames)
+    if (f.valid && f.has_smooth_local_model) ++local_frame_count;
+  const std::size_t total_present = local_frame_count * variants.size();
+  std::atomic<std::size_t> tasks_present_done{0};
+  std::mutex progress_mutex;
+  if (on_progress && total_present > 0) {
+    std::lock_guard<std::mutex> lk(progress_mutex);
+    on_progress(0, total_present,
+               "geometry_cache_build starting, " +
+                   std::to_string(total_present) + " (variant,frame) tasks, " +
+                   std::to_string(workers) + " workers");
+  }
+
   // The sample_leaves path touches the process-global geomstats counters when
   // enabled --- a data race under parallelism, and the build is not a consumer
   // anyway. Disable across the region, restore after (single-threaded here).
@@ -465,11 +446,21 @@ GeometryCacheBuildResult build_drizzle_geometry_cache(
   for (long long k = 0; k < static_cast<long long>(tasks.size()); ++k) {
     if (eptr) continue;
     try {
+      const std::size_t vi = tasks[static_cast<std::size_t>(k)].vi;
+      const std::size_t fidx = tasks[static_cast<std::size_t>(k)].fidx;
       outs[static_cast<std::size_t>(k)] = build_one_frame(
-          staging, tasks[static_cast<std::size_t>(k)].vi,
-          variants[tasks[static_cast<std::size_t>(k)].vi].pixfrac, plan,
-          plan.frames[tasks[static_cast<std::size_t>(k)].fidx], subdivision,
-          scale, internal_w, internal_h, source_pixels);
+          staging, vi, variants[vi].pixfrac, plan, plan.frames[fidx],
+          subdivision, scale, internal_w, internal_h, source_pixels);
+      if (on_progress && outs[static_cast<std::size_t>(k)].present) {
+        const std::size_t done =
+            tasks_present_done.fetch_add(1, std::memory_order_relaxed) + 1;
+        std::lock_guard<std::mutex> lk(progress_mutex);
+        on_progress(done, total_present,
+                   "geom_cache " + std::to_string(done) + "/" +
+                       std::to_string(total_present) + " frame=" +
+                       plan.frames[fidx].frame_id + " pixfrac=" +
+                       std::to_string(variants[vi].pixfrac));
+      }
     } catch (...) {
 #pragma omp critical
       { if (!eptr) eptr = std::current_exception(); }
@@ -695,11 +686,9 @@ DrizzleGeometryCacheReader::DrizzleGeometryCacheReader(
       const fs::path lp = gen / fj.at("leaves_file").get<std::string>();
       if (!fs::is_regular_file(rp) || !fs::is_regular_file(lp))
         throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_MISSING_FILE");
-      if (core::sha256_file(rp) != fj.at("rows_sha256").get<std::string>())
-        throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_ROWS_CHECKSUM");
-      if (verify_record_bytes &&
-          core::sha256_file(lp) != fj.at("leaves_sha256").get<std::string>())
-        throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_LEAVES_CHECKSUM");
+      // T1: no SHA-256 verification in the hot path (trusted run). v1 manifests
+      // with rows_sha256/leaves_sha256 are accepted without re-hashing; the
+      // size checks below catch truncation and corruption.
 
       const auto rsz = fs::file_size(rp);
       const auto lsz = fs::file_size(lp);

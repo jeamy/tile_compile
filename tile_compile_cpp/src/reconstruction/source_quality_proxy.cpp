@@ -1,4 +1,5 @@
 #include "tile_compile/reconstruction/source_quality_proxy.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -63,21 +64,10 @@ double median_absolute_deviation_sigma(const Matrix2Df &values) {
     }
   if (finite.empty()) return 0.0;
 
-  auto median_of = [](std::vector<float> &v) -> double {
-    const size_t mid = v.size() / 2;
-    std::nth_element(v.begin(), v.begin() + mid, v.end());
-    double m = v[mid];
-    if (v.size() % 2 == 0) {
-      std::nth_element(v.begin(), v.begin() + mid - 1, v.begin() + mid);
-      m = 0.5 * (m + v[mid - 1]);
-    }
-    return m;
-  };
-
-  const double med = median_of(finite);
+  const double med = tile_compile::core::median_of_or_nan_inplace(finite);
   for (float &v : finite) v = static_cast<float>(std::abs(v - med));
-  const double mad = median_of(finite);
-  return 1.4826 * mad;
+  const double mad = tile_compile::core::median_of_or_nan_inplace(finite);
+  return tile_compile::core::kMadToSigma * mad;
 }
 
 namespace {

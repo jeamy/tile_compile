@@ -18,6 +18,12 @@ const char *variant_name(Variant v) {
     return "coverage_cfa";
   case Variant::kCoverageFootprint:
     return "coverage_footprint";
+  case Variant::kCoverageAccumulatorReset:
+    return "coverage_accumulator_reset";
+  case Variant::kCoverageAccumulatorReduction:
+    return "coverage_accumulator_reduction";
+  case Variant::kCoverageHoleQuantile:
+    return "coverage_hole_quantile";
   case Variant::kProductionUniformRaw:
     return "production_uniform_raw";
   case Variant::kUniformDiagnostic:

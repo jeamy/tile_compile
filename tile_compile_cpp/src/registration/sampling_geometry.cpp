@@ -8,6 +8,7 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/reconstruction/drizzle_geometry_stats.hpp"
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -17,6 +18,8 @@
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <atomic>
+#include <mutex>
 #include <queue>
 #include <stdexcept>
 #include <thread>
@@ -136,7 +139,7 @@ public:
   explicit StripeHoles(int w) : width(w), previous(w, -1), previous_ref(w, 0) {}
   void row(const uint8_t *reference, const uint8_t *support) {
     std::vector<Node> nodes = components;
-    const int old = nodes.size();
+    const int old = static_cast<int>(nodes.size());
     nodes.reserve(old + width);
     std::vector<int> current(width, -1);
     auto root = [&](int n) {
@@ -160,7 +163,7 @@ public:
         nodes[root(previous[x])].exterior = true;
       if (!reference[x] || support[x])
         continue;
-      int id = nodes.size();
+      int id = static_cast<int>(nodes.size());
       nodes.push_back({id, 1,
                        x == 0 || x == width - 1 || !previous_ref[x] ||
                            (x > 0 && !reference[x - 1]) ||
@@ -178,7 +181,7 @@ public:
       if (current[x] >= 0) {
         int r = root(current[x]);
         if (remap[r] < 0) {
-          int id = next.size();
+          int id = static_cast<int>(next.size());
           remap[r] = id;
           next.push_back({id, nodes[r].area, nodes[r].exterior});
         }
@@ -195,6 +198,107 @@ public:
     return largest;
   } // active last-row components touch the exterior
 };
+
+// T6b: affine GPU rasterization for the coverage CFA pass. Returns true if the
+// CUDA path was used (affine frame, CUDA available); false if the caller should
+// fall back to the CPU `rasterize_drizzle_stripe`. The coverage path doesn't
+// access source pixel values (only geometry), so a dummy all-1.0f buffer is
+// passed to satisfy the kernel's isfinite() guard. The kernel emits (channel,
+// target_y, target_x, area) records; the host accumulates B[c][i] += area,
+// exactly matching the CPU sink lambda. Bit-identical to the CPU path because
+// the kernel is compiled --fmad=false and uses the same polygon/rect area
+// routine.
+//
+// Thread safety: the CUDA runtime is not safe for concurrent calls from
+// multiple host threads. A static mutex serializes the device call (H2D +
+// kernel + D2H + cudaFree). The host-side accumulation (B[c][i] += area) runs
+// without the lock because B[c] is per-band (each OpenMP worker has its own).
+// This allows the coverage path to use CUDA even with workers > 1: affine
+// frames are serialized through the mutex, local-warp frames and all
+// non-CFA passes (reset, reduction, footprint, holes) run in parallel.
+bool rasterize_coverage_stripe_cuda_affine(
+    const RegistrationSamplingPlan &plan, const FrameSamplingTransform &f,
+    int internal_scale, float pixfrac, int y_begin, int rows, int canvas_w,
+    std::array<std::vector<double>, 3> &B, int channels) {
+  if (f.has_smooth_local_model) return false;  // local-warp: CPU only
+  const auto dev_mem = reconstruction::forward_drizzle_cuda_device_memory();
+  if (dev_mem.free_bytes == 0) return false;  // no CUDA device
+
+  const auto &s2c = f.source_to_canvas;
+  WarpMatrix inv;
+  if (!invert_affine_2x3(s2c, 1e-12f, 1e12f, inv)) return false;
+
+  const int sw = plan.source_width;
+  const int sh = plan.source_height;
+  const double half = static_cast<double>(pixfrac) / 2.0;
+
+  // Source-Y band from inverse affine (same as forward-drizzle CUDA producer).
+  double sy_lo = std::numeric_limits<double>::infinity(),
+         sy_hi = -sy_lo;
+  for (double dx : {0.0, static_cast<double>(canvas_w) / internal_scale})
+    for (double dy : {static_cast<double>(y_begin) / internal_scale,
+                      static_cast<double>(y_begin + rows) / internal_scale}) {
+      const double sy = static_cast<double>(inv(1, 0)) * dx +
+                        static_cast<double>(inv(1, 1)) * dy +
+                        static_cast<double>(inv(1, 2));
+      sy_lo = std::min(sy_lo, sy);
+      sy_hi = std::max(sy_hi, sy);
+    }
+  int band0 = static_cast<int>(
+      std::clamp(std::floor(sy_lo - 1), 0.0, static_cast<double>(sh)));
+  int band1 = static_cast<int>(
+      std::clamp(std::ceil(sy_hi + 1), 0.0, static_cast<double>(sh)));
+  if (band1 <= band0) return true;  // empty band, no records (already handled)
+
+  // Dummy source buffer (all 1.0f) --- coverage doesn't access source values.
+  const int band_h = band1 - band0;
+  std::vector<float> src_buf(static_cast<std::size_t>(band_h) * sw, 1.0f);
+
+  const double affine6[6] = {
+      static_cast<double>(s2c(0, 0)), static_cast<double>(s2c(0, 1)),
+      static_cast<double>(s2c(0, 2)), static_cast<double>(s2c(1, 0)),
+      static_cast<double>(s2c(1, 1)), static_cast<double>(s2c(1, 2))};
+  const bool mono = plan.color_mode == ColorMode::MONO;
+
+  const long long cap =
+      static_cast<long long>(band_h) * sw * 32LL;  // max_cells_per_pixel = 32
+  std::vector<reconstruction::CudaDrizzleContribRecord> raw(
+      static_cast<std::size_t>(cap));
+  long long written = 0;
+  // Serialize the CUDA device call across OpenMP workers. The CUDA runtime
+  // (cudaMalloc / cudaMemcpy / kernel launch / cudaFree) is not thread-safe
+  // for concurrent host threads. The host-side accumulation below runs without
+  // the lock because B[c] is per-band.
+  static std::mutex cuda_mutex;
+  bool cuda_ok;
+  {
+    std::lock_guard<std::mutex> lk(cuda_mutex);
+    cuda_ok = reconstruction::forward_drizzle_cuda_affine_frame_contributions(
+        affine6, internal_scale, half, y_begin, rows, canvas_w,
+        band0, band1, 0, sw, sw, sh, src_buf.data(),
+        static_cast<int>(plan.bayer_pattern), plan.cfa_origin_x,
+        plan.cfa_origin_y, mono, 32, raw.data(), cap, &written);
+  }
+  if (!cuda_ok)
+    return false;  // CUDA failed -> CPU fallback
+
+  // Host-side accumulation: B[c][i] += area, matching the CPU sink lambda.
+  for (long long t = 0; t < written; ++t) {
+    const auto &r = raw[static_cast<std::size_t>(t)];
+    const int c = static_cast<int>(r.channel);
+    if (c >= channels) continue;
+    const size_t i = static_cast<size_t>(r.target_y) * canvas_w + r.target_x;
+    if (i < B[c].size()) B[c][i] += r.area;
+  }
+  // T6: populate geomstats leaf_cells_emitted for the CUDA path (the CPU path
+  // increments this inside enumerate_drizzle_stripe_leaf_cells). The current
+  // variant is kCoverageCfa (set by the enclosing ScopedVariant). Only
+  // incremented when geomstats is enabled (workers == 1).
+  if (reconstruction::geomstats::registry().enabled)
+    reconstruction::geomstats::registry().cur().leaf_cells_emitted +=
+        static_cast<std::uint64_t>(written);
+  return true;
+}
 
 } // namespace
 
@@ -288,7 +392,7 @@ GeometricCoverageResult compute_geometric_coverage(
     const RegistrationSamplingPlan &plan, int internal_scale, float pixfrac,
     const config::ReconstructionCoverageGateConfig &gate_cfg, float fraction,
     int num_workers, const config::ReconstructionDrizzleConfig &resources,
-    bool retain_channel_counts) {
+    bool retain_channel_counts, const CoverageProgressFn &on_progress) {
   using namespace reconstruction;
   // O1 (plan §30.72): stripes are independent --- disjoint canvas i-ranges,
   // per-stripe accumulators, per-i frame-ordered w/w2 sums --- so a stripe-
@@ -465,23 +569,47 @@ GeometricCoverageResult compute_geometric_coverage(
     std::vector<uint32_t> footprint_count(n, 0);
     std::vector<uint8_t> touched(n, 0);
     for (const auto *f : prepared.frames) {
-      for (int c = 0; c < channels; ++c)
-        std::fill(B[c].begin(), B[c].end(), 0);
+      // T6: accumulator reset subtimer --- per-frame B[c] clear.
+      {
+        reconstruction::geomstats::ScopedVariant _v(
+            reconstruction::geomstats::Variant::kCoverageAccumulatorReset,
+            pixfrac);
+        reconstruction::geomstats::ScopedGeometryTimer _t;
+        for (int c = 0; c < channels; ++c)
+          std::fill(B[c].begin(), B[c].end(), 0);
+      }
       {
         reconstruction::geomstats::ScopedVariant _v(
             reconstruction::geomstats::Variant::kCoverageCfa, pixfrac);
         reconstruction::geomstats::ScopedGeometryTimer _t;
-        rasterize_drizzle_stripe(
-            plan, *f, internal_scale, pixfrac, y, rows,
-            [&](int, int, int c, int, size_t i, double k) { B[c][i] += k; });
+        // T6b: use CUDA affine rasterization for affine frames when available.
+        // The CUDA call is serialized via a static mutex inside the helper, so
+        // this is safe for workers > 1. Local-warp frames use the CPU path.
+        // Bit-identical because the kernel uses the same polygon/rect area
+        // routine, compiled --fmad=false.
+        const bool cuda_used =
+            rasterize_coverage_stripe_cuda_affine(
+                plan, *f, internal_scale, pixfrac, y, rows, memory.width,
+                B, channels);
+        if (!cuda_used)
+          rasterize_drizzle_stripe(
+              plan, *f, internal_scale, pixfrac, y, rows,
+              [&](int, int, int c, int, size_t i, double k) { B[c][i] += k; });
       }
-      for (int c = 0; c < channels; ++c)
-        for (size_t i = 0; i < n; ++i)
-          if (B[c][i] > 0) {
-            ++count[c][i];
-            w[c][i] += B[c][i];
-            w2[c][i] += B[c][i] * B[c][i];
-          }
+      // T6: accumulator reduction subtimer --- per-frame w/w2/count fold.
+      {
+        reconstruction::geomstats::ScopedVariant _v(
+            reconstruction::geomstats::Variant::kCoverageAccumulatorReduction,
+            pixfrac);
+        reconstruction::geomstats::ScopedGeometryTimer _t;
+        for (int c = 0; c < channels; ++c)
+          for (size_t i = 0; i < n; ++i)
+            if (B[c][i] > 0) {
+              ++count[c][i];
+              w[c][i] += B[c][i];
+              w2[c][i] += B[c][i] * B[c][i];
+            }
+      }
       // Dense source pixel squares define full-frame footprints, independently
       // of CFA colour and the shrunken reconstruction droplet. §30.75: cell
       // classification against the mapped source rectangle, exact per-pixel
@@ -520,12 +648,30 @@ GeometricCoverageResult compute_geometric_coverage(
     }
   };
 
+  std::atomic<std::size_t> bands_done{0};
+  std::mutex coverage_progress_mutex;
+  auto report_band_done = [&](int s) {
+    if (!on_progress) return;
+    const std::size_t done =
+        bands_done.fetch_add(1, std::memory_order_relaxed) + 1;
+    std::lock_guard<std::mutex> lk(coverage_progress_mutex);
+    on_progress(done, static_cast<std::size_t>(band_count),
+               "coverage band " + std::to_string(done) + "/" +
+                   std::to_string(band_count) + " (s=" + std::to_string(s) +
+                   ") workers=" + std::to_string(workers));
+  };
+  if (on_progress)
+    on_progress(0, static_cast<std::size_t>(band_count),
+               "coverage starting, " + std::to_string(band_count) +
+                   " bands, " + std::to_string(workers) + " workers");
+
 #ifdef _OPENMP
   if (workers > 1) {
 #pragma omp parallel for schedule(dynamic, 1) num_threads(workers)
     for (int s = 0; s < band_count; ++s) {
       try {
         run_band(s);
+        report_band_done(s);
       } catch (...) {
 #pragma omp critical
         if (!worker_error)
@@ -534,8 +680,10 @@ GeometricCoverageResult compute_geometric_coverage(
     }
   } else
 #endif
-    for (int s = 0; s < band_count; ++s)
+    for (int s = 0; s < band_count; ++s) {
       run_band(s);
+      report_band_done(s);
+    }
   if (worker_error)
     std::rethrow_exception(worker_error);
 
@@ -552,12 +700,18 @@ GeometricCoverageResult compute_geometric_coverage(
     }
   }
 
-  for (int y = 0; y < memory.height; ++y)
-    for (int c = 0; c < channels; ++c)
-      holes[c]->row(result.analysis_common_mask.data() +
-                        static_cast<size_t>(y) * memory.width,
+  // T6: hole detection + quantile merge subtimer.
+  {
+    reconstruction::geomstats::ScopedVariant _v(
+        reconstruction::geomstats::Variant::kCoverageHoleQuantile, 1.0);
+    reconstruction::geomstats::ScopedGeometryTimer _t;
+    for (int y = 0; y < memory.height; ++y)
+      for (int c = 0; c < channels; ++c)
+        holes[c]->row(result.analysis_common_mask.data() +
+                          static_cast<size_t>(y) * memory.width,
                     support_full[c].data() +
                         static_cast<size_t>(y) * memory.width);
+  }
   gate.min_supported_fraction = 1;
   gate.min_channel_n_eff_p10 = std::numeric_limits<double>::infinity();
   const double required_neff =

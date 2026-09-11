@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
-#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -265,7 +264,13 @@ inline int phase_to_int(Phase phase) {
 }
 
 inline Phase int_to_phase(int i) {
-    if (i >= 0 && i <= 23) {
+    // Phase has values 0 (SCAN_INPUT) through 29 (MULTIBAND) -- was
+    // previously clamped to 0-23, silently mapping NORMALIZED_CACHE,
+    // SAMPLING_GEOMETRY, GLOBAL_QUALITY, FORWARD_DRIZZLE,
+    // SOURCE_QUALITY_MAPS, and MULTIBAND (24-29) to SCAN_INPUT. No current
+    // caller (verified: grep-only match is this declaration), but the range
+    // must track the enum's actual span if this is ever used.
+    if (i >= 0 && i <= 29) {
         return static_cast<Phase>(i);
     }
     return Phase::SCAN_INPUT;

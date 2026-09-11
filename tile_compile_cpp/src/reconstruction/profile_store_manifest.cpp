@@ -43,9 +43,16 @@ bool valid_manifest_shape(const ProfileStoreManifest &m) {
     if (p.name.empty() || p.name.find_first_not_of(
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != std::string::npos ||
         !names.insert(p.name).second || p.width != m.internal_width ||
-        p.height != m.internal_height || p.sha256.size() != 64 ||
-        p.sha256.find_first_not_of("0123456789abcdef") != std::string::npos)
+        p.height != m.internal_height)
       return false;
+    // T1: v1 requires a 64-hex sha256; v2 requires bytes > 0.
+    if (m.schema_version >= 2) {
+      if (p.bytes == 0) return false;
+    } else {
+      if (p.sha256.size() != 64 ||
+          p.sha256.find_first_not_of("0123456789abcdef") != std::string::npos)
+        return false;
+    }
   }
   return true;
 }
@@ -55,14 +62,18 @@ bool valid_manifest_shape(const ProfileStoreManifest &m) {
 std::string compute_profile_store_manifest_hash(const ProfileStoreManifest& m) {
   ByteSink s;
   s.str("profile_store_manifest:v1");
-  s.i32(ProfileStoreManifest::kSchemaVersion);
+  s.i32(m.schema_version);
   s.str(m.profile);
   s.i32(m.internal_width);
   s.i32(m.internal_height);
   s.u64(m.planes.size());
   for (const auto& p : m.planes) {
     s.str(p.name);
-    s.str(p.sha256);
+    // T1: v1 manifests hash the sha256 field; v2 manifests hash the bytes field.
+    if (m.schema_version >= 2)
+      s.u64(p.bytes);
+    else
+      s.str(p.sha256);
     s.i32(p.width);
     s.i32(p.height);
   }
@@ -74,6 +85,7 @@ ProfileStoreManifest build_profile_store_manifest(const std::string& profile,
                                                  const fs::path& dir,
                                                  const std::vector<std::string>& plane_names) {
   ProfileStoreManifest m;
+  m.schema_version = ProfileStoreManifest::kSchemaVersion;
   m.profile = profile;
   m.internal_width = internal_width;
   m.internal_height = internal_height;
@@ -81,19 +93,18 @@ ProfileStoreManifest build_profile_store_manifest(const std::string& profile,
   std::vector<std::string> names = plane_names;
   std::sort(names.begin(), names.end());  // canonical order
   for (const auto& name : names) {
+    const fs::path file = dir / (name + ".fits");
+    if (!fs::is_regular_file(fs::symlink_status(file)))
+      throw std::invalid_argument("PROFILE_STORE_INVALID_FILE");
     ProfileStoreEntry e;
     e.name = name;
     e.width = internal_width;
     e.height = internal_height;
-    e.sha256 = std::string(64, '0');
+    e.bytes = fs::file_size(file);  // T1: set before probe
     ProfileStoreManifest probe = m;
     probe.planes.push_back(e);
     if (!valid_manifest_shape(probe))
       throw std::invalid_argument("PROFILE_STORE_INVALID_MANIFEST");
-    const fs::path file = dir / (name + ".fits");
-    if (!fs::is_regular_file(fs::symlink_status(file)))
-      throw std::invalid_argument("PROFILE_STORE_INVALID_FILE");
-    e.sha256 = core::sha256_file(file);
     m.planes.push_back(std::move(e));
   }
   if (!valid_manifest_shape(m))
@@ -104,19 +115,24 @@ ProfileStoreManifest build_profile_store_manifest(const std::string& profile,
 
 std::string serialize_profile_store_manifest(const ProfileStoreManifest& m) {
   json j;
-  j["schema_version"] = ProfileStoreManifest::kSchemaVersion;
+  j["schema_version"] = m.schema_version;
   j["profile"] = m.profile;
   j["internal_width"] = m.internal_width;
   j["internal_height"] = m.internal_height;
   j["manifest_hash"] = m.manifest_hash;
   j["planes"] = json::array();
   for (const auto& p : m.planes) {
-    j["planes"].push_back({
+    json pe = {
         {"name", p.name},
-        {"sha256", p.sha256},
         {"width", p.width},
         {"height", p.height},
-    });
+    };
+    // T1: v2 writes bytes; v1 writes sha256.
+    if (m.schema_version >= 2)
+      pe["bytes"] = p.bytes;
+    else
+      pe["sha256"] = p.sha256;
+    j["planes"].push_back(pe);
   }
   return j.dump(2);
 }
@@ -125,11 +141,13 @@ bool parse_profile_store_manifest(const std::string& text, ProfileStoreManifest&
                                   std::string& error) {
   try {
     const json j = json::parse(text);
-    if (j.value("schema_version", -1) != ProfileStoreManifest::kSchemaVersion) {
+    const int sv = j.value("schema_version", -1);
+    if (sv != 1 && sv != 2) {
       error = "unsupported profile_store_manifest schema_version";
       return false;
     }
     ProfileStoreManifest m;
+    m.schema_version = sv;
     m.profile = j.at("profile").get<std::string>();
     m.internal_width = j.at("internal_width").get<int>();
     m.internal_height = j.at("internal_height").get<int>();
@@ -139,9 +157,13 @@ bool parse_profile_store_manifest(const std::string& text, ProfileStoreManifest&
     for (const auto& jp : j.at("planes")) {
       ProfileStoreEntry e;
       e.name = jp.at("name").get<std::string>();
-      e.sha256 = jp.at("sha256").get<std::string>();
       e.width = jp.at("width").get<int>();
       e.height = jp.at("height").get<int>();
+      // T1: v1 has sha256, v2 has bytes. Parse whichever is present.
+      if (jp.contains("sha256"))
+        e.sha256 = jp.at("sha256").get<std::string>();
+      if (jp.contains("bytes"))
+        e.bytes = jp.at("bytes").get<std::uintmax_t>();
       m.planes.push_back(std::move(e));
     }
     if (m.manifest_hash != compute_profile_store_manifest_hash(m)) {
@@ -176,10 +198,10 @@ ProfileStoreVerifyResult verify_profile_store(const fs::path& dir,
       r.corrupt.push_back(p.name);
       continue;
     }
-    try {
-      if (core::sha256_file(f) != p.sha256) r.corrupt.push_back(p.name);
-    } catch (const std::exception &) {
-      r.corrupt.push_back(p.name);
+    // T1: size check only (trusted run). v1 manifests without a bytes field
+    // fall back to existence check only.
+    if (manifest.schema_version >= 2 && p.bytes > 0) {
+      if (fs::file_size(f) != p.bytes) r.corrupt.push_back(p.name);
     }
   }
   r.usable = r.manifest_hash_ok && r.missing.empty() && r.corrupt.empty();

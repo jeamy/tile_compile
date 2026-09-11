@@ -422,6 +422,30 @@ float mad_of(std::vector<float> v, float median) {
     return median_of(std::move(v));
 }
 
+float median_of_or_nan(std::vector<float> v) {
+    if (v.empty()) return std::numeric_limits<float>::quiet_NaN();
+    return median_of(std::move(v));
+}
+
+float mad_of_or_nan(std::vector<float> v, float median) {
+    if (v.empty() || !std::isfinite(median))
+        return std::numeric_limits<float>::quiet_NaN();
+    for (float& x : v) x = std::fabs(x - median);
+    return median_of(std::move(v));
+}
+
+float median_of_or_nan_inplace(std::vector<float>& v) {
+    if (v.empty()) return std::numeric_limits<float>::quiet_NaN();
+    const size_t n = v.size();
+    const size_t mid = n / 2;
+    std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(mid), v.end());
+    const float hi = v[mid];
+    if ((n % 2) == 1) return hi;
+    std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(mid - 1), v.end());
+    const float lo = v[mid - 1];
+    return 0.5f * (lo + hi);
+}
+
 /// @brief Implements stddev of.
 /// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -574,6 +598,43 @@ float median_finite(const std::vector<float>& v, float fallback) {
     if (p.empty())
         return fallback;
     return median_of(p);
+}
+
+Matrix2Df downsample2x2_mean(const Matrix2Df& in) {
+    const int h = static_cast<int>(in.rows());
+    const int w = static_cast<int>(in.cols());
+    if (h <= 0 || w <= 0) return Matrix2Df(0, 0);
+    const int h2 = h - (h % 2);
+    const int w2 = w - (w % 2);
+    // `std::max(1, ...)` keeps the pre-existing shape contract every caller
+    // (global_registration.cpp's pyramid loops included) already depends on:
+    // a shrinking pyramid never collapses to a 0-sized matrix mid-loop, even
+    // for a 1-row/1-col input (h2/w2 == 0). But reading row/col `sy+1`/`sx+1`
+    // unconditionally is only valid when h2/w2 >= 2; for h2/w2 == 0 that would
+    // read one row/column past the end of `in` (h<2 means row index 1 does
+    // not exist). Clamp each of the 4 taps to the last valid row/col instead
+    // of changing the output shape --- for every h>=2,w>=2 input (everything
+    // any current caller/test actually reaches) sy+1<h and sx+1<w already, so
+    // the clamp is a no-op and the result is unchanged; only the previously
+    // out-of-bounds h<2-or-w<2 case changes, from UB to a defined "duplicate
+    // the single row/col" mean.
+    const int out_h = std::max(1, h2 / 2);
+    const int out_w = std::max(1, w2 / 2);
+    Matrix2Df out(out_h, out_w);
+    for (int y = 0; y < out_h; ++y) {
+        for (int x = 0; x < out_w; ++x) {
+            const int sy = std::min(y * 2, h - 1);
+            const int sx = std::min(x * 2, w - 1);
+            const int sy1 = std::min(sy + 1, h - 1);
+            const int sx1 = std::min(sx + 1, w - 1);
+            const float a = in(sy, sx);
+            const float b = in(sy, sx1);
+            const float c = in(sy1, sx);
+            const float d = in(sy1, sx1);
+            out(y, x) = 0.25f * (a + b + c + d);
+        }
+    }
+    return out;
 }
 
 /// @brief Implements stretch to u16 linear from zero inplace using robust

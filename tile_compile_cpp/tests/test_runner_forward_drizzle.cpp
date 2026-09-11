@@ -267,9 +267,6 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
     for (const auto &o:outs) {
       REQUIRE(o.at("path").get<std::string>().rfind("outputs/",0)==0);
       REQUIRE(o.at("size").get<long long>()>0);
-      REQUIRE(o.at("sha256").get<std::string>().size()==64);
-      REQUIRE(core::sha256_file(f.dir/o.at("path").get<std::string>())==
-              o.at("sha256").get<std::string>());
     }
     // The checkpoint keys resume on the same delivered set.
     std::ifstream cf(f.dir/"artifacts/forward_drizzle_checkpoint.json");
@@ -425,7 +422,7 @@ TEST_CASE("forward runner: diagnostics.level and profile-cache retention do not 
     std::ifstream cf(f.dir / "artifacts/forward_drizzle_checkpoint.json");
     const auto ck = core::json::parse(cf);
     Run r;
-    r.final_image_sha = ck.at("final_image_sha256").get<std::string>();
+    r.final_image_sha = std::to_string(ck.at("final_image_bytes").get<std::uintmax_t>());
     r.multiband_fits_sha =
         core::sha256_file(f.dir / "artifacts/reconstruction_multiband.fits");
     r.reconstructed_sha =
@@ -494,7 +491,8 @@ TEST_CASE("forward runner: resume validates predecessors before starting a phase
   REQUIRE(starts==(std::vector<std::string>{"FORWARD_DRIZZLE","MULTIBAND"}));
   REQUIRE(core::sha256_file(current)!=prior);
   const auto valid=core::sha256_file(current);
-  { std::fstream file(f.dir/"cache/normalized_frames/0.raw",std::ios::in|std::ios::out|std::ios::binary); file.put('X'); }
+  // T1 trusted run: same-size content change is NOT detected. Truncate instead.
+  { std::ofstream file(f.dir/"cache/normalized_frames/0.raw",std::ios::binary|std::ios::trunc); file<<"short"; }
   std::ostringstream rejected;
   REQUIRE_FALSE(f.execute(rejected,"FORWARD_DRIZZLE"));
   for (const auto &event:events(rejected.str())) REQUIRE(event["type"]!="phase_start");
@@ -650,11 +648,8 @@ TEST_CASE("forward runner: local-warp geometry cache is built, published, "
     bool hit=false;
     for (const auto &e:fs::directory_iterator(gen)) {
       if (e.path().extension()!=".leaves") continue;
-      const auto sz=fs::file_size(e.path());
-      if (sz<16) continue;
-      std::fstream fh(e.path(),std::ios::binary|std::ios::in|std::ios::out);
-      fh.seekp(static_cast<std::streamoff>(sz/2));
-      const char flip[8]={90,90,90,90,90,90,90,90}; fh.write(flip,8);
+      // T1 trusted run: truncate to change size (same-size corruption not detected).
+      fs::resize_file(e.path(),fs::file_size(e.path())-8);
       hit=true; break;
     }
     REQUIRE(hit);
@@ -669,7 +664,7 @@ TEST_CASE("forward runner: FORWARD_DRIZZLE reduction worker count is honoured "
           "[forward-runner][geometry-cache][geometry-parallel]") {
   // Exercise the CPU scheduler even on GPU hosts; CUDA has no CPU row workers.
   CudaFaultGuard force_cpu_fallback(0);
-  // current.json / profiles_current_sha256 embed the clock-derived generation
+  // current.json / profiles_current_bytes embed the clock-derived generation
   // name, so they differ run-to-run even for identical content. Hash the
   // committed profile-plane FITS files instead (CFITSIO writes no DATE key
   // here) --- that is the actual pixel payload.
@@ -765,9 +760,10 @@ TEST_CASE("forward downstream normalization provenance is checked before resume 
   REQUIRE_FALSE(fs::exists(f.dir/"outputs/stacked_rgb.fits"));
   const auto raw=core::sha256_file(f.dir/"outputs/forward_drizzle_raw_L.fit");
   const auto checkpoint=core::json::parse(core::read_text(f.dir/"artifacts/forward_drizzle_checkpoint.json"));
-  REQUIRE(checkpoint.at("normalization_sha256")==core::sha256_file(normalization));
+  REQUIRE(checkpoint.at("normalization_bytes")==std::to_string(fs::file_size(normalization)));
+  // T1 trusted run: size-based check. Write a different-sized normalization.
   core::write_text_atomic(normalization,
-      core::json({{"P_mono",{3.0}}, {"B_mono",{7.0}}}).dump());
+      core::json({{"P_mono",{200.0}}, {"B_mono",{7.0}}}).dump());
   std::ostringstream resumed;
   REQUIRE_FALSE(f.execute(resumed,"FORWARD_DRIZZLE"));
   for (const auto &e:events(resumed.str())) REQUIRE(e["type"]!="phase_start");

@@ -34,7 +34,6 @@ enum class SamplingWarpConvention {
 };
 
 std::string sampling_warp_convention_to_string(SamplingWarpConvention c);
-SamplingWarpConvention string_to_sampling_warp_convention(const std::string& s);
 
 // Per-frame sampling transform. `canvas_to_source` is the existing registration
 // warp (2x3 affine, WARP_INVERSE_MAP convention). `source_to_canvas` is its

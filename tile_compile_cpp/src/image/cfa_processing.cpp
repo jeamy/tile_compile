@@ -1,5 +1,6 @@
 #include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/core/cfa_warp.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <opencv2/opencv.hpp>
 #include <cstdint>
@@ -327,7 +328,7 @@ inline float average_neighbors_of_color_absolute(const float* data,
 /// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-Matrix2Df cfa_green_mask(int height, int width, const std::string& bayer_pattern) {
+static Matrix2Df cfa_green_mask(int height, int width, const std::string& bayer_pattern) {
     Matrix2Df mask = Matrix2Df::Zero(height, width);
     
     std::string bp = bayer_pattern;
@@ -408,36 +409,9 @@ Matrix2Df cfa_green_proxy(const Matrix2Df& mosaic, const std::string& bayer_patt
     return out;
 }
 
-/// @brief Implements cfa green proxy downsample2x2.
-/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
 Matrix2Df cfa_green_proxy_downsample2x2(const Matrix2Df& mosaic, const std::string& bayer_pattern) {
     Matrix2Df p = cfa_green_proxy(mosaic, bayer_pattern);
-    
-    int h = p.rows();
-    int w = p.cols();
-    int h2 = h - (h % 2);
-    int w2 = w - (w % 2);
-    
-    int out_h = h2 / 2;
-    int out_w = w2 / 2;
-    
-    Matrix2Df out(out_h, out_w);
-    
-    for (int y = 0; y < out_h; ++y) {
-        for (int x = 0; x < out_w; ++x) {
-            int sy = y * 2;
-            int sx = x * 2;
-            float a = p(sy, sx);
-            float b = p(sy, sx + 1);
-            float c = p(sy + 1, sx);
-            float d = p(sy + 1, sx + 1);
-            out(y, x) = 0.25f * (a + b + c + d);
-        }
-    }
-    
-    return out;
+    return core::downsample2x2_mean(p);
 }
 
 /// @brief Implements warp cfa mosaic via subplanes.

@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -87,12 +88,21 @@ struct GeometricCoverageResult {
 // resolved value. resources controls chunk_rows and memory_budget_mb (0 => 512
 // MiB in library; runner resolves 0 from runtime_limits). Production omits full
 // channel counts.
+// Progress callback: called once after each completed band. `done`/`total`
+// count bands (NOT frames --- a band's per-frame loop is not instrumented,
+// per plan §30.72 O1 the band is the smallest unit that stays bit-identical
+// regardless of worker count). Called under an internal lock.
+using CoverageProgressFn =
+    std::function<void(std::size_t done, std::size_t total,
+                       const std::string &detail)>;
+
 GeometricCoverageResult compute_geometric_coverage(
     const RegistrationSamplingPlan &plan, int internal_scale, float pixfrac,
     const config::ReconstructionCoverageGateConfig &gate_cfg,
     float common_overlap_required_fraction, int num_workers = 0,
     const config::ReconstructionDrizzleConfig &resources = {},
-    bool retain_channel_counts = true);
+    bool retain_channel_counts = true,
+    const CoverageProgressFn &on_progress = nullptr);
 
 // Area (in pixels) of the largest 4-connected "interior hole" in a W x H
 // boolean support mask: an unsupported (0) region that cannot reach the

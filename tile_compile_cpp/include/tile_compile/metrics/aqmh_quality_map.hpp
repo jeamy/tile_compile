@@ -18,13 +18,35 @@ namespace tile_compile::metrics {
 //                       passed to compute_aqmh_quality_map()
 //   psi              - the scale's quality map at that scale's (downsampled)
 //                      grid, values in [0,1], NaN where unsupported
+//   psi_src          - `psi` already bilinearly upsampled to the full source
+//                      geometry that compute_aqmh_quality_map() operates on
+//                      (see upsample_scale_to_source below). The caller needs
+//                      this same upsample for its own log-accumulation, so it
+//                      is computed exactly ONCE and handed to both instead of
+//                      the hook re-deriving it (that redundant second
+//                      bilinear pass was a measured hot-path duplication,
+//                      identical LUT/sample-position/support-weighting run
+//                      twice per scale for no different result).
 //   artifact         - phi_artifact for that scale on the same grid
 //                      (1 = clean, 0 = fully artefacted, NaN where unsupported)
 // Default-constructed (null) hook => byte-for-byte identical behaviour to the
 // pre-hook implementation; the legacy prewarped Q-map path passes no hook.
 using PerScaleQualityHook = std::function<void(
     int scale_index, int downsample_factor, const Matrix2Df &psi,
-    const Matrix2Df &artifact)>;
+    const Matrix2Df &psi_src, const Matrix2Df &artifact)>;
+
+// Bilinear upsample of one pyramid scale's map to `out_w` x `out_h` (the same
+// half-pixel-centred sample position, clamped 2x2 stencil, and support-
+// weighted normalisation used throughout this file). A source pixel whose
+// interpolation has no finite support, or whose interpolated value is <= 0,
+// comes out as NaN --- a hard zero is never turned into a positive value, and
+// callers can test with std::isfinite/finite() to get the same veto decision
+// accumulate_upsampled_log_psi used to compute inline. Shared by
+// compute_aqmh_quality_map (log-accumulation) and by any per_scale_hook
+// consumer that needs the full-resolution map (e.g. reconstruction's
+// SourceQualityMapCache writer) so the interpolation runs once, not twice.
+Matrix2Df upsample_scale_to_source(const Matrix2Df &src, int out_w, int out_h,
+                                   int factor);
 
 struct AqmhQualityMapDiagnostics {
   float sharpness_p50 = std::numeric_limits<float>::quiet_NaN();

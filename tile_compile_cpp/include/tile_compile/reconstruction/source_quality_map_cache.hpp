@@ -26,8 +26,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace tile_compile::reconstruction {
@@ -44,6 +46,12 @@ struct SourceQualityMapCacheConfig {
   int storage_divisor = 2;  // spatial: storage grid = ceil(source / divisor)
   std::string dtype = "uint16";
   int proxy_version = 1;
+  // T3: star detection parameters for the optional metrics artifact.
+  // When star_max_corners > 0, build_source_quality_map_cache() also computes
+  // per-frame FrameMetrics and FrameStarMetrics and writes
+  // source_quality_metrics-v1.json alongside the Q-map cache.
+  int star_max_corners = 0;   // 0 = no metrics artifact
+  int star_patch_radius = 10;
 };
 
 // Identity of the SOURCE content only (plan 13.4): ordered frame IDs +
@@ -66,7 +74,8 @@ struct SourceQualityCacheFileEntry {
   std::string stream;
   std::size_t source_index = 0;
   std::string name;    // path relative to the cache root
-  std::string sha256;
+  std::string sha256;  // v1 only (empty in v2)
+  std::uintmax_t bytes = 0;  // v2 (trusted run: size check, no content hash)
 };
 
 struct SourceQualityCacheMetadata {
@@ -103,7 +112,7 @@ class SourceQualityMapCacheWriter {
   // Downsample to the storage grid is conservative: a storage cell that
   // covers ANY veto source pixel is stored as veto (plan 13.5).
   //
-  // Thread-safe (plan §30.72 R4): the downsample/quantize/write/sha256 work is
+  // Thread-safe (plan §30.72 R4): the downsample/quantize/write work is
   // lock-free (each (stream, source_index) writes its own uniquely named file
   // via AtomicOutput); only the parent-dir creation and the file-list update
   // take the internal mutex. commit() sorts the list, so the committed bytes
@@ -129,8 +138,27 @@ class SourceQualityMapCacheWriter {
 
 // Reader. Fail-closed: usable() is true only when metadata.json parses, its
 // schema/identity/config hashes match what is expected, its declared
-// source_quality_cache_hash recomputes, and every listed .bin file checksum
-// still matches.
+// source_quality_cache_hash recomputes, and every listed .bin file exists
+// with the expected size (T1: trusted run, no content hash).
+//
+// T2: an unordered_map keyed by (stream, source_index) is built once in the
+// constructor so has() and file_path() are O(1) lookups instead of linear
+// scans over meta_.files. The sorted meta_.files order is preserved for
+// deterministic metadata identity (cache_manifest_hash).
+struct SourceQualityFileKey {
+  std::string stream;
+  std::size_t source_index = 0;
+  bool operator==(const SourceQualityFileKey &o) const {
+    return source_index == o.source_index && stream == o.stream;
+  }
+};
+struct SourceQualityFileKeyHash {
+  std::size_t operator()(const SourceQualityFileKey &k) const noexcept {
+    std::size_t h = std::hash<std::size_t>{}(k.source_index);
+    h ^= std::hash<std::string>{}(k.stream) + 0x9e3779b9u + (h << 6) + (h >> 2);
+    return h;
+  }
+};
 class SourceQualityMapCacheReader {
  public:
   SourceQualityMapCacheReader(fs::path root,
@@ -185,6 +213,9 @@ class SourceQualityMapCacheReader {
   bool usable_ = false;
   std::string error_;
   SourceQualityCacheMetadata meta_;
+  // T2: O(1) lookup by (stream, source_index). Built once in the constructor.
+  std::unordered_map<SourceQualityFileKey, std::size_t,
+                     SourceQualityFileKeyHash> file_index_;
   mutable std::atomic<std::uint64_t> bin_loads_{0};
   mutable std::atomic<std::uint64_t> bin_cells_decoded_{0};
   mutable std::atomic<std::uint64_t> expanded_floats_{0};
@@ -198,6 +229,48 @@ struct SourceQualityMapsBuildResult {
   int frames = 0;
   int computed_scales = 0;
 };
+
+// T3: per-frame metrics computed once during SOURCE_QUALITY_MAPS and reused
+// by GLOBAL_QUALITY. Serialized as source_quality_metrics-v1.json.
+struct SourceQualityFrameMetrics {
+  std::size_t source_index = 0;
+  std::string frame_id;
+  float background = 0.0f;
+  float noise = 0.0f;
+  float gradient_energy = 0.0f;
+  float sky_gradient = 0.0f;
+  float quality_score = 0.0f;
+  float fwhm = 0.0f;
+  float fwhm_x = 0.0f;
+  float fwhm_y = 0.0f;
+  float roundness = 0.0f;
+  float wfwhm = 0.0f;
+  int star_count = 0;
+};
+
+struct SourceQualityMetricsArtifact {
+  int schema_version = 1;
+  std::string source_identity_hash;
+  std::string source_quality_config_hash;
+  std::string normalized_cache_hash;
+  std::vector<SourceQualityFrameMetrics> frames;  // sorted by source_index
+};
+
+// T3: write the metrics artifact atomically. Called by
+// build_source_quality_map_cache() when cache_cfg.star_max_corners > 0.
+void write_source_quality_metrics(
+    const fs::path &path,
+    const SourceQualityMetricsArtifact &artifact);
+
+// T3: load and validate the metrics artifact. Returns false on any mismatch
+// or parse error; error is set to a diagnostic string.
+bool load_source_quality_metrics(
+    const fs::path &path,
+    const std::string &expected_identity_hash,
+    const std::string &expected_config_hash,
+    const std::string &expected_normalized_cache_hash,
+    SourceQualityMetricsArtifact &artifact,
+    std::string &error);
 
 // Orchestrator for the SOURCE_QUALITY_MAPS phase. For every valid frame in the
 // plan: load the normalized source, build the CFA-aware analysis proxy

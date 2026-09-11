@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <thread>
 #include <vector>
@@ -47,11 +48,34 @@ constexpr float kMadToSigma = 1.4826f;
 float median_of(std::vector<float> v);              // returns 0.0f if empty
 float mad_of(std::vector<float> v, float median);   // returns 0.0f if empty
 float stddev_of(const std::vector<float>& v);       // returns 0.0f if < 2 elements
+
+// IEEE-754 quiet NaN for float. Shared canonical helper — replaces the
+// previously duplicated anonymous-namespace copies in aqmh_quality_map.cpp,
+// source_quality_maps.cpp, and source_quality_map_cache.cpp.
+inline constexpr float nan_value() {
+    return std::numeric_limits<float>::quiet_NaN();
+}
+
+// NaN-on-empty variants for callers that treat "no data" as NaN rather than 0.
+// These replace the previously duplicated anonymous-namespace copies in
+// aqmh_quality_map.cpp, source_quality_maps.cpp, aqmh_validation.cpp, and
+// background_extraction.cpp.
+float median_of_or_nan(std::vector<float> v);       // returns NaN if empty
+float mad_of_or_nan(std::vector<float> v, float median); // returns NaN if empty
+
+// In-place variants: mutate the input vector (nth_element reordering) to avoid
+// copying large vectors. Use when the caller does not need the original order.
+float median_of_or_nan_inplace(std::vector<float>& v);  // returns NaN if empty
 float robust_sigma_mad(std::vector<float>& pixels); // returns 0.0f if empty
 float percentile_from_sorted(const std::vector<float>& sorted, float pct); // returns 0.0f if empty
 float percentile_of(std::vector<float>& values, float pct);               // returns 0.0f if empty
 float estimate_background_sigma_clip(std::vector<float> pixels);          // returns 0.0f if empty
 std::vector<size_t> sample_indices(size_t count, int max_samples);
+
+// 2x2 box downsample (mean of each 2x2 block). Odd trailing rows/cols are
+// dropped. Returns 1x1 for degenerate input. Shared by registration pyramid
+// building and CFA green-proxy downsampling.
+Matrix2Df downsample2x2_mean(const Matrix2Df& in);
 
 // Robust z-score normalization: (x - median) / (1.4826 * MAD)
 void robust_zscore(const std::vector<float>& v, std::vector<float>& out);

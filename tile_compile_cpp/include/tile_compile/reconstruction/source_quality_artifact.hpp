@@ -19,6 +19,17 @@ QualityFrameWeightPlan persist_source_quality_artifact(
     const fs::path &path, const registration::RegistrationSamplingPlan &sampling,
     VerifiedNormalizedSourceCache &cache, const GlobalQualityConfig &cfg,
     size_t memory_budget_mb = 512, int workers = 1);
+
+// T3: when `metrics_path` is non-empty and the file exists, load the
+// pre-computed per-frame metrics from SOURCE_QUALITY_MAPS instead of
+// reloading and re-running compute_source_quality_proxy_v1 per frame.
+// The resulting QualityFrameWeightPlan is bit-identical to the recompute path.
+QualityFrameWeightPlan persist_source_quality_artifact(
+    const fs::path &path, const registration::RegistrationSamplingPlan &sampling,
+    VerifiedNormalizedSourceCache &cache, const GlobalQualityConfig &cfg,
+    const fs::path &metrics_path,
+    size_t memory_budget_mb = 512, int workers = 1);
+
 QualityFrameWeightPlan load_source_quality_artifact(
     const fs::path &path, const registration::RegistrationSamplingPlan &sampling,
     const VerifiedNormalizedSourceCache &cache, const GlobalQualityConfig &cfg,

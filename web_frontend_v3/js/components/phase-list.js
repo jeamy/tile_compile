@@ -66,20 +66,13 @@ export function setPhaseClickHandler(handler) {
   phaseClickHandler = handler;
 }
 
-export function getBgeLabel(configDraft) {
-  const bgeMethod = configDraft?.bge?.method || "none";
-  if (bgeMethod === "none") return "BGE (Skipped)";
-  if (bgeMethod === "classic") return "BGE (Classic)";
-  if (bgeMethod === "autobge") return "BGE (AutoBGE)";
-  return "BGE";
-}
-
 export function getPhasesForConfig(configDraft) {
   // Single-method pipeline (plan M8): no method selector, so the phase list is
   // no longer config-dependent - it is always the `runner reconstruct` order.
-  return RECONSTRUCT_PHASES.map(p => p === "BGE"
-    ? { phase: "BGE", label: getBgeLabel(configDraft), bgeMethod: configDraft?.bge?.method || "none" }
-    : { phase: p, label: p });
+  // RECONSTRUCT_PHASES does not contain "BGE" (BGE is not part of the
+  // reconstruct-only pipeline), so this used to carry a dead `p === "BGE"`
+  // branch and an unreachable getBgeLabel() helper; both removed.
+  return RECONSTRUCT_PHASES.map(p => ({ phase: p, label: p }));
 }
 
 export function getSelectedPhase() {

@@ -1,6 +1,7 @@
 #include "tile_compile/reconstruction/source_quality_maps.hpp"
 
 #include "tile_compile/metrics/aqmh_quality_map.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -10,84 +11,10 @@
 namespace tile_compile::reconstruction {
 namespace {
 
+using tile_compile::core::nan_value;
+
 bool finite_f(float v) {
   return (std::bit_cast<uint32_t>(v) & 0x7f800000u) != 0x7f800000u;
-}
-float nan_value() { return std::numeric_limits<float>::quiet_NaN(); }
-
-// Bilinear upsample of one scale's map to source geometry. Mirrors the
-// interpolation in metrics::aqmh_quality_map.cpp's accumulate_upsampled_log_psi
-// (same half-pixel-centred sample position, same clamped 2x2 stencil, same
-// support-weighted normalisation) so the streamed scale maps stay consistent
-// with the geometric-mean composite that path produces.
-//
-// Zero-veto preservation (plan 13.5): a source pixel whose interpolation has
-// no finite support, or whose interpolated value is <= 0, is written as NaN.
-// A hard zero is never turned into a positive value.
-Matrix2Df upsample_to_source(const Matrix2Df &src, int out_w, int out_h,
-                             int factor) {
-  const int rows = static_cast<int>(src.rows());
-  const int cols = static_cast<int>(src.cols());
-  Matrix2Df out(out_h, out_w);
-  out.setConstant(nan_value());
-
-  if (factor <= 1 && rows == out_h && cols == out_w) {
-    for (int y = 0; y < out_h; ++y)
-      for (int x = 0; x < out_w; ++x) {
-        const float v = src(y, x);
-        out(y, x) = (finite_f(v) && v > 0.0f) ? v : nan_value();
-      }
-    return out;
-  }
-
-  struct Interp1D {
-    int idx0, idx1;
-    float w0, w1;
-  };
-  std::vector<Interp1D> x_lut(static_cast<size_t>(out_w));
-  for (int x = 0; x < out_w; ++x) {
-    const float sx =
-        (static_cast<float>(x) + 0.5f) / static_cast<float>(factor) - 0.5f;
-    const int x0 = static_cast<int>(std::floor(sx));
-    x_lut[static_cast<size_t>(x)] = {
-        std::clamp(x0, 0, cols - 1), std::clamp(x0 + 1, 0, cols - 1),
-        std::max(1.0f - std::abs(sx - static_cast<float>(x0)), 0.0f),
-        std::max(1.0f - std::abs(sx - static_cast<float>(x0 + 1)), 0.0f)};
-  }
-  std::vector<Interp1D> y_lut(static_cast<size_t>(out_h));
-  for (int y = 0; y < out_h; ++y) {
-    const float sy =
-        (static_cast<float>(y) + 0.5f) / static_cast<float>(factor) - 0.5f;
-    const int y0 = static_cast<int>(std::floor(sy));
-    y_lut[static_cast<size_t>(y)] = {
-        std::clamp(y0, 0, rows - 1), std::clamp(y0 + 1, 0, rows - 1),
-        std::max(1.0f - std::abs(sy - static_cast<float>(y0)), 0.0f),
-        std::max(1.0f - std::abs(sy - static_cast<float>(y0 + 1)), 0.0f)};
-  }
-
-  for (int y = 0; y < out_h; ++y) {
-    const auto &yl = y_lut[static_cast<size_t>(y)];
-    for (int x = 0; x < out_w; ++x) {
-      const auto &xl = x_lut[static_cast<size_t>(x)];
-      const float s00 = src(yl.idx0, xl.idx0);
-      const float s01 = src(yl.idx0, xl.idx1);
-      const float s10 = src(yl.idx1, xl.idx0);
-      const float s11 = src(yl.idx1, xl.idx1);
-      const float w00 = yl.w0 * xl.w0;
-      const float w01 = yl.w0 * xl.w1;
-      const float w10 = yl.w1 * xl.w0;
-      const float w11 = yl.w1 * xl.w1;
-      double num = 0.0, den = 0.0;
-      if (w00 > 0.0f && finite_f(s00)) { num += w00 * s00; den += w00; }
-      if (w01 > 0.0f && finite_f(s01)) { num += w01 * s01; den += w01; }
-      if (w10 > 0.0f && finite_f(s10)) { num += w10 * s10; den += w10; }
-      if (w11 > 0.0f && finite_f(s11)) { num += w11 * s11; den += w11; }
-      if (den <= 0.0) continue;
-      const float val = static_cast<float>(num / den);
-      out(y, x) = (finite_f(val) && val > 0.0f) ? val : nan_value();
-    }
-  }
-  return out;
 }
 
 float finite_median(const Matrix2Df &m) {
@@ -95,13 +22,7 @@ float finite_median(const Matrix2Df &m) {
   v.reserve(static_cast<size_t>(m.size()));
   for (int i = 0; i < m.size(); ++i)
     if (finite_f(m.data()[i])) v.push_back(m.data()[i]);
-  if (v.empty()) return nan_value();
-  const size_t mid = v.size() / 2;
-  std::nth_element(v.begin(), v.begin() + mid, v.end());
-  float med = v[mid];
-  if (v.size() % 2 == 0)
-    med = 0.5f * (med + *std::max_element(v.begin(), v.begin() + mid));
-  return med;
+  return ::tile_compile::core::median_of_or_nan(std::move(v));
 }
 
 }  // namespace
@@ -131,14 +52,15 @@ SourceQualityMapResult compute_source_quality_maps(
 
   metrics::PerScaleQualityHook hook =
       [&](int scale_index, int downsample_factor, const Matrix2Df &psi,
-          const Matrix2Df &artifact) {
+          const Matrix2Df &psi_src_in, const Matrix2Df &artifact) {
         ++observed_scales;
-        // Upsample this scale to source geometry. This map plus any retained
-        // in result.scale_maps are the only full source-geometry maps held
-        // here; the geometric-mean composite lives inside
-        // compute_aqmh_quality_map as a double log-sum accumulator.
-        Matrix2Df psi_src = upsample_to_source(psi, source_width, source_height,
-                                               downsample_factor);
+        // psi_src_in is `psi` already bilinearly upsampled to source geometry
+        // by compute_aqmh_quality_map (plan: avoid running that identical
+        // interpolation a second time here). This map plus any retained in
+        // result.scale_maps are the only full source-geometry maps held here;
+        // the geometric-mean composite lives inside compute_aqmh_quality_map
+        // as a double log-sum accumulator.
+        Matrix2Df psi_src = psi_src_in;
         ++live_maps;
         peak_live_maps = std::max(peak_live_maps, live_maps);
 
@@ -158,7 +80,7 @@ SourceQualityMapResult compute_source_quality_maps(
           for (int i = 0; i < artifact_masked.size(); ++i)
             if (!finite_f(psi.data()[i]))
               artifact_masked.data()[i] = nan_value();
-          result.artifact_confidence = upsample_to_source(
+          result.artifact_confidence = metrics::upsample_scale_to_source(
               artifact_masked, source_width, source_height, downsample_factor);
           captured_artifact = true;
         }

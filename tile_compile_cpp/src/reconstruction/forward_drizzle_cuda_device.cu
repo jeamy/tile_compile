@@ -158,19 +158,23 @@ __device__ double d_clampd(double v, double lo, double hi) {
 __global__ void k_affine_frame_contribs(
     double a0, double a1, double a2, double a3, double a4, double a5, double sc,
     double half, int y_begin, int rows, int W, int band_sy0, int band_sy1,
-    int source_w, const float *src_band, int bayer, int ox, int oy, int mono,
+    int band_sx0, int band_sx1, int source_w, const float *src_band,
+    int bayer, int ox, int oy, int mono,
     int max_cells, CudaDrizzleContribRecord *recs, long long cap,
     unsigned long long *count, int *overflow) {
   const long long tid =
       static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
   const long long band_rows = band_sy1 - band_sy0;
-  const long long total = band_rows * source_w;
+  const long long band_cols = band_sx1 - band_sx0;
+  const long long total = band_rows * band_cols;
   if (tid >= total) return;
-  const long long row_in_band = tid / source_w;
+  const long long row_in_band = tid / band_cols;
   const int sy = band_sy0 + static_cast<int>(row_in_band);
-  const int sx = static_cast<int>(tid % source_w);
-  // `src_band` starts at source row band_sy0 (band-local buffer, not full image).
-  const double v = static_cast<double>(src_band[row_in_band * source_w + sx]);
+  const int sx = band_sx0 + static_cast<int>(tid % band_cols);
+  // `src_band` is the band-local buffer: row 0 == source row band_sy0,
+  // column 0 == source col band_sx0 (T5 X+Y windowing).
+  const double v = static_cast<double>(src_band[row_in_band * band_cols +
+                                                (sx - band_sx0)]);
   if (!isfinite(v)) return;
   const int ch = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
 
@@ -303,7 +307,8 @@ bool forward_drizzle_cuda_affine_leaf_corners_batch(const double affine6[6],
 
 bool forward_drizzle_cuda_affine_frame_contributions(
     const double affine6[6], int internal_scale, double half, int y_begin,
-    int rows, int canvas_w_internal, int band_sy0, int band_sy1, int source_w,
+    int rows, int canvas_w_internal, int band_sy0, int band_sy1,
+    int band_sx0, int band_sx1, int source_w,
     int source_h, const float *source_values, int bayer_pattern,
     int cfa_origin_x, int cfa_origin_y, bool mono, int max_cells_per_pixel,
     CudaDrizzleContribRecord *records_out, long long records_capacity,
@@ -314,8 +319,11 @@ bool forward_drizzle_cuda_affine_frame_contributions(
     return false;
   band_sy0 = band_sy0 < 0 ? 0 : band_sy0;
   band_sy1 = band_sy1 > source_h ? source_h : band_sy1;
+  band_sx0 = band_sx0 < 0 ? 0 : band_sx0;
+  band_sx1 = band_sx1 > source_w ? source_w : band_sx1;
   *out_written = 0;
-  if (band_sy1 <= band_sy0 || rows <= 0) return true;  // empty band, no records
+  if (band_sy1 <= band_sy0 || band_sx1 <= band_sx0 || rows <= 0)
+    return true;  // empty band, no records
 
   int dev = 0;
   if (cudaGetDeviceCount(&dev) != cudaSuccess || dev <= 0) {
@@ -325,7 +333,8 @@ bool forward_drizzle_cuda_affine_frame_contributions(
   CudaScopedError clear_on_exit;
 
   const long long band_rows = band_sy1 - band_sy0;
-  const long long total_threads = band_rows * source_w;
+  const long long band_cols = band_sx1 - band_sx0;
+  const long long total_threads = band_rows * band_cols;
   const long long grid_ll = (total_threads + 127) / 128;
   if (grid_ll > 2000000000LL) return false;  // absurd band; caller uses CPU
 
@@ -333,11 +342,12 @@ bool forward_drizzle_cuda_affine_frame_contributions(
   CudaDrizzleContribRecord *d_recs = nullptr;
   unsigned long long *d_count = nullptr;
   int *d_overflow = nullptr;
-  // `source_values` is already the band-local buffer (row 0 == source row
-  // band_sy0), sized band_rows * source_w --- the caller never copies the whole
-  // image.
+  // `source_values` is the band-local buffer (row 0 == source row band_sy0,
+  // column 0 == source col band_sx0), sized band_rows * band_cols (T5 X+Y
+  // windowing). The caller never copies the whole image.
   const size_t src_bytes =
-      static_cast<size_t>(band_rows) * source_w * sizeof(float);
+      static_cast<size_t>(band_rows) * static_cast<size_t>(band_cols) *
+      sizeof(float);
   const size_t rec_bytes =
       static_cast<size_t>(records_capacity) * sizeof(CudaDrizzleContribRecord);
   // §30.81 step-5 baseline: coarse device-phase timers, gated by
@@ -370,9 +380,9 @@ bool forward_drizzle_cuda_affine_frame_contributions(
     k_affine_frame_contribs<<<static_cast<unsigned>(grid_ll), 128>>>(
         affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
         static_cast<double>(internal_scale), half, y_begin, rows,
-        canvas_w_internal, band_sy0, band_sy1, source_w, d_src, bayer_pattern,
-        cfa_origin_x, cfa_origin_y, mono ? 1 : 0, max_cells_per_pixel, d_recs,
-        records_capacity, d_count, d_overflow);
+        canvas_w_internal, band_sy0, band_sy1, band_sx0, band_sx1, source_w,
+        d_src, bayer_pattern, cfa_origin_x, cfa_origin_y, mono ? 1 : 0,
+        max_cells_per_pixel, d_recs, records_capacity, d_count, d_overflow);
     ok = cudaGetLastError() == cudaSuccess &&
          cudaDeviceSynchronize() == cudaSuccess;
     cadd(forward_drizzle_cuda_profile().dev_kernel_s, t_phase);

@@ -1,8 +1,10 @@
 #include "tile_compile/reconstruction/source_quality_artifact.hpp"
 #include "tile_compile/reconstruction/source_quality_map_cache.hpp"
 #include "tile_compile/reconstruction/multiband_fusion.hpp"
+#include "tile_compile/reconstruction/global_quality.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/io/fits_io.hpp"
+#include "tile_compile/metrics/metrics.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <array>
@@ -131,6 +133,63 @@ QualityFrameWeightPlan persist_source_quality_artifact(
   resolve_quality_frame_weights(plan,sampling,cfg,mb);
   json artifact={{"schema_version",1},{"normalized_cache_hash",cache.manifest_hash()},
                  {"quality_plan",json::parse(serialize_quality_frame_weight_plan(plan))}};
+  core::write_text_atomic(path,artifact.dump(2));
+  return plan;
+}
+
+// T3: load pre-computed metrics from SOURCE_QUALITY_MAPS and compute weights
+// without reloading/re-running compute_source_quality_proxy_v1 per frame.
+QualityFrameWeightPlan persist_source_quality_artifact(
+    const fs::path &path,const registration::RegistrationSamplingPlan &sampling,
+    VerifiedNormalizedSourceCache &cache,const GlobalQualityConfig &cfg,
+    const fs::path &metrics_path,
+    size_t mb,int workers) {
+  preflight(sampling,cfg,mb);
+  validate_sampling(sampling);
+  if (!cache.matches(sampling)) throw std::invalid_argument("SOURCE_QUALITY_CACHE_CONTEXT_MISMATCH");
+
+  // Load the metrics artifact. The config hash is NOT validated here because
+  // the SQM config hash (compute_scale_quality_config_hash) differs from the
+  // GQ config hash (compute_source_quality_config_hash). The GQ config is
+  // validated separately through the QualityFrameWeightPlan. The identity
+  // and cache hash are sufficient to ensure the metrics are from the same
+  // source data.
+  SourceQualityMetricsArtifact ma;
+  std::string merr;
+  if (!load_source_quality_metrics(metrics_path,
+      compute_source_quality_identity_hash(sampling,cache.manifest_hash()),
+      /*expected_config_hash=*/"",
+      cache.manifest_hash(),ma,merr))
+    throw std::runtime_error("SOURCE_QUALITY_METRICS_UNUSABLE: "+merr);
+
+  // Map metrics to plan frame order (by source_index slot).
+  std::size_t slots=0;
+  for (const auto &f:sampling.frames)
+    slots=std::max(slots,f.source_index+1);
+  std::vector<FrameMetrics> frame_metrics(slots);
+  std::vector<metrics::FrameStarMetrics> star_metrics(slots);
+  // Build a lookup by source_index.
+  std::map<std::size_t,std::size_t> by_idx;
+  for (std::size_t i=0;i<ma.frames.size();++i)
+    by_idx[ma.frames[i].source_index]=i;
+  for (const auto &f:sampling.frames) {
+    auto it=by_idx.find(f.source_index);
+    if (it==by_idx.end())
+      throw std::invalid_argument("SOURCE_QUALITY_METRICS_FRAME_MISSING");
+    const auto &fm=ma.frames[it->second];
+    frame_metrics[f.source_index]={fm.background,fm.noise,
+        fm.gradient_energy,fm.sky_gradient,fm.quality_score};
+    star_metrics[f.source_index]={fm.fwhm,fm.fwhm_x,fm.fwhm_y,
+        fm.roundness,fm.wfwhm,fm.star_count};
+  }
+
+  const auto weights=compute_global_quality_weights_from_metrics(
+      frame_metrics,star_metrics,cfg);
+  auto plan=build_quality_frame_weight_plan(sampling,weights,compute_source_quality_config_hash(cfg));
+  resolve_quality_frame_weights(plan,sampling,cfg,mb);
+  json artifact={{"schema_version",1},{"normalized_cache_hash",cache.manifest_hash()},
+                 {"quality_plan",json::parse(serialize_quality_frame_weight_plan(plan))},
+                 {"metrics_source",metrics_path.filename().string()}};
   core::write_text_atomic(path,artifact.dump(2));
   return plan;
 }

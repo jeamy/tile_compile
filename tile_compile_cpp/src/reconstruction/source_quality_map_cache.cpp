@@ -2,6 +2,7 @@
 
 #include "tile_compile/core/atomic_output.hpp"
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/reconstruction/source_quality_maps.hpp"
 #include "tile_compile/reconstruction/source_quality_proxy.hpp"
 
@@ -25,6 +26,8 @@ namespace tile_compile::reconstruction {
 using json = nlohmann::json;
 
 namespace {
+
+using tile_compile::core::nan_value;
 
 constexpr char kBinMagic[4] = {'S', 'Q', 'M', '1'};
 // Schema 2: body is n little-endian uint16 value cells followed by n uint8
@@ -64,7 +67,6 @@ struct ByteSink {
 bool finite_f(float v) {
   return (std::bit_cast<uint32_t>(v) & 0x7f800000u) != 0x7f800000u;
 }
-float nan_value() { return std::numeric_limits<float>::quiet_NaN(); }
 
 int storage_dim(int source_dim, int divisor) {
   return (source_dim + divisor - 1) / divisor;
@@ -239,7 +241,11 @@ std::string cache_manifest_hash(const SourceQualityCacheMetadata &m) {
     s.str(fe.stream);
     s.u64(fe.source_index);
     s.str(fe.name);
-    s.str(fe.sha256);
+    // T1: v1 manifests hash the sha256 field; v2 manifests hash the bytes field.
+    if (m.schema_version >= 2)
+      s.u64(fe.bytes);
+    else
+      s.str(fe.sha256);
   }
   return core::sha256_bytes(s.bytes);
 }
@@ -386,7 +392,7 @@ void SourceQualityMapCacheWriter::put(const std::string &stream,
   e.stream = stream;
   e.source_index = source_index;
   e.name = name;
-  e.sha256 = core::sha256_file(target);
+  e.bytes = fs::file_size(target);  // T1: size only, no SHA-256
   {
     std::lock_guard<std::mutex> lk(files_mu_);
     files_.erase(std::remove_if(files_.begin(), files_.end(),
@@ -401,7 +407,7 @@ void SourceQualityMapCacheWriter::put(const std::string &stream,
 
 SourceQualityCacheMetadata SourceQualityMapCacheWriter::commit() {
   SourceQualityCacheMetadata m;
-  m.schema_version = 1;
+  m.schema_version = 2;  // T1: trusted-run schema (no per-file SHA-256)
   m.coordinate_space = "source_cfa";
   m.source_width = source_width_;
   m.source_height = source_height_;
@@ -447,7 +453,7 @@ SourceQualityCacheMetadata SourceQualityMapCacheWriter::commit() {
     j["files"].push_back({{"stream", fe.stream},
                           {"source_index", fe.source_index},
                           {"name", fe.name},
-                          {"sha256", fe.sha256}});
+                          {"bytes", fe.bytes}});
 
   core::write_text_atomic(root_ / "metadata.json", j.dump(2));
   return m;
@@ -491,11 +497,19 @@ SourceQualityMapCacheReader::SourceQualityMapCacheReader(
       e.stream = fe.at("stream").get<std::string>();
       e.source_index = fe.at("source_index").get<std::size_t>();
       e.name = fe.at("name").get<std::string>();
-      e.sha256 = fe.at("sha256").get<std::string>();
+      // T1: v1 has sha256, v2 has bytes. Parse whichever is present.
+      if (fe.contains("sha256"))
+        e.sha256 = fe.at("sha256").get<std::string>();
+      if (fe.contains("bytes"))
+        e.bytes = fe.at("bytes").get<std::uintmax_t>();
+      else if (fs::is_regular_file(root_ / e.name))
+        e.bytes = fs::file_size(root_ / e.name);
       meta_.files.push_back(std::move(e));
     }
 
-    if (meta_.schema_version != 1) { error_ = "SQM_CACHE_BAD_SCHEMA"; return; }
+    if (meta_.schema_version != 1 && meta_.schema_version != 2) {
+      error_ = "SQM_CACHE_BAD_SCHEMA"; return;
+    }
     if (meta_.dtype != "uint16") { error_ = "SQM_CACHE_BAD_DTYPE"; return; }
     if (!expected_identity_hash.empty() &&
         meta_.source_identity_hash != expected_identity_hash) {
@@ -511,12 +525,22 @@ SourceQualityMapCacheReader::SourceQualityMapCacheReader(
       error_ = "SQM_CACHE_MANIFEST_HASH_MISMATCH";
       return;
     }
+    // T1: size check only (trusted run). v1 caches with sha256 are accepted
+    // without re-hashing; a truncated or missing file still fails closed.
     for (const auto &fe : meta_.files) {
       const fs::path p = root_ / fe.name;
-      if (!fs::is_regular_file(p) || core::sha256_file(p) != fe.sha256) {
+      if (!fs::is_regular_file(p) || fs::file_size(p) != fe.bytes) {
         error_ = "SQM_CACHE_FILE_CORRUPT: " + fe.name;
         return;
       }
+    }
+    // T2: build the O(1) lookup index. meta_.files order is preserved for
+    // deterministic metadata identity; the index maps (stream, source_index)
+    // to the position in meta_.files.
+    file_index_.reserve(meta_.files.size());
+    for (std::size_t i = 0; i < meta_.files.size(); ++i) {
+      const auto &fe = meta_.files[i];
+      file_index_[{fe.stream, fe.source_index}] = i;
     }
     usable_ = true;
   } catch (const std::exception &e) {
@@ -527,17 +551,17 @@ SourceQualityMapCacheReader::SourceQualityMapCacheReader(
 
 bool SourceQualityMapCacheReader::has(const std::string &stream,
                                       std::size_t source_index) const {
-  for (const auto &fe : meta_.files)
-    if (fe.stream == stream && fe.source_index == source_index) return true;
-  return false;
+  // T2: O(1) lookup via the constructor-built index.
+  return file_index_.find({stream, source_index}) != file_index_.end();
 }
 
 fs::path SourceQualityMapCacheReader::file_path(
     const std::string &stream, std::size_t source_index) const {
-  for (const auto &fe : meta_.files)
-    if (fe.stream == stream && fe.source_index == source_index)
-      return root_ / fe.name;
-  throw std::runtime_error("SQM_CACHE_STREAM_FRAME_ABSENT: " + stream);
+  // T2: O(1) lookup via the constructor-built index.
+  const auto it = file_index_.find({stream, source_index});
+  if (it == file_index_.end())
+    throw std::runtime_error("SQM_CACHE_STREAM_FRAME_ABSENT: " + stream);
+  return root_ / meta_.files[it->second].name;
 }
 
 Matrix2Df SourceQualityMapCacheReader::read_region(const std::string &stream,
@@ -619,6 +643,11 @@ SourceQualityMapsBuildResult build_source_quality_map_cache(
   const int nf = static_cast<int>(valid.size());
   int nw = std::max(1, std::min(workers, nf));
 
+  // T3: per-frame metrics collection (optional, when star_max_corners > 0).
+  const bool compute_metrics = cache_cfg.star_max_corners > 0;
+  std::vector<SourceQualityFrameMetrics> all_metrics;
+  if (compute_metrics) all_metrics.resize(nf);
+
   int max_scales = 0;
   // `failed` is the lock-free fast-path check; `worker_error` is only ever
   // touched inside the sqm_error critical section. A plain read of
@@ -657,11 +686,36 @@ SourceQualityMapsBuildResult build_source_quality_map_cache(
     pending.emplace_back("artifact", maps.artifact_confidence);
 
     // writer.put is internally thread-safe (plan §30.72 R4): the heavy
-    // downsample/quantize/write/sha256 runs concurrently; only the file-list
+    // downsample/quantize/write runs concurrently; only the file-list
     // update is briefly locked. Only the tiny scalar reduction needs a
     // critical here.
     for (const auto &[stream, mtx] : pending)
       writer.put(stream, f.source_index, mtx);
+
+    // T3: compute per-frame metrics from the already-computed proxy.
+    // FrameStarMetrics.wfwhm is computed with ref_star_count=0 (=> wfwhm=fwhm);
+    // the weight calculation does not use wfwhm, so this is safe.
+    if (compute_metrics) {
+      const auto fm = metrics::calculate_frame_metrics(analysis);
+      const auto sm = metrics::measure_frame_stars(
+          analysis, /*ref_star_count=*/0, cache_cfg.star_max_corners,
+          cache_cfg.star_patch_radius);
+      SourceQualityFrameMetrics &out = all_metrics[static_cast<size_t>(idx)];
+      out.source_index = f.source_index;
+      out.frame_id = f.frame_id;
+      out.background = fm.background;
+      out.noise = fm.noise;
+      out.gradient_energy = fm.gradient_energy;
+      out.sky_gradient = fm.sky_gradient;
+      out.quality_score = fm.quality_score;
+      out.fwhm = sm.fwhm;
+      out.fwhm_x = sm.fwhm_x;
+      out.fwhm_y = sm.fwhm_y;
+      out.roundness = sm.roundness;
+      out.wfwhm = sm.wfwhm;
+      out.star_count = sm.star_count;
+    }
+
 #pragma omp critical(sqm_reduce)
     {
       max_scales = std::max(max_scales, maps.diagnostics.computed_scales);
@@ -713,7 +767,133 @@ SourceQualityMapsBuildResult build_source_quality_map_cache(
   r.source_quality_cache_hash = meta.source_quality_cache_hash;
   r.streams = meta.streams;
   r.computed_scales = max_scales;
+
+  // T3: write the metrics artifact sorted by source_index.
+  if (compute_metrics) {
+    std::sort(all_metrics.begin(), all_metrics.end(),
+              [](const SourceQualityFrameMetrics &a,
+                 const SourceQualityFrameMetrics &b) {
+                return a.source_index < b.source_index;
+              });
+    SourceQualityMetricsArtifact ma;
+    ma.schema_version = 1;
+    ma.source_identity_hash = r.source_identity_hash;
+    ma.source_quality_config_hash = r.source_quality_config_hash;
+    ma.normalized_cache_hash = normalized_cache_hash;
+    ma.frames = std::move(all_metrics);
+    write_source_quality_metrics(cache_root / "source_quality_metrics-v1.json", ma);
+  }
+
   return r;
+}
+
+// --- T3: metrics artifact ---------------------------------------------------
+
+void write_source_quality_metrics(
+    const fs::path &path,
+    const SourceQualityMetricsArtifact &artifact) {
+  json j;
+  j["schema_version"] = artifact.schema_version;
+  j["source_identity_hash"] = artifact.source_identity_hash;
+  j["source_quality_config_hash"] = artifact.source_quality_config_hash;
+  j["normalized_cache_hash"] = artifact.normalized_cache_hash;
+  json frames = json::array();
+  for (const auto &f : artifact.frames) {
+    frames.push_back({
+        {"source_index", f.source_index},
+        {"frame_id", f.frame_id},
+        {"background", f.background},
+        {"noise", f.noise},
+        {"gradient_energy", f.gradient_energy},
+        {"sky_gradient", f.sky_gradient},
+        {"quality_score", f.quality_score},
+        {"fwhm", f.fwhm},
+        {"fwhm_x", f.fwhm_x},
+        {"fwhm_y", f.fwhm_y},
+        {"roundness", f.roundness},
+        {"wfwhm", f.wfwhm},
+        {"star_count", f.star_count},
+    });
+  }
+  j["frames"] = frames;
+  core::write_text_atomic(path, j.dump(2));
+}
+
+bool load_source_quality_metrics(
+    const fs::path &path,
+    const std::string &expected_identity_hash,
+    const std::string &expected_config_hash,
+    const std::string &expected_normalized_cache_hash,
+    SourceQualityMetricsArtifact &artifact,
+    std::string &error) {
+  try {
+    if (!fs::is_regular_file(fs::symlink_status(path))) {
+      error = "SQM_METRICS_MISSING";
+      return false;
+    }
+    if (fs::file_size(path) > 64u * 1024u * 1024u) {
+      error = "SQM_METRICS_TOO_LARGE";
+      return false;
+    }
+    std::ifstream f(path);
+    json j = json::parse(f);
+    artifact.schema_version = j.at("schema_version").get<int>();
+    if (artifact.schema_version != 1) {
+      error = "SQM_METRICS_BAD_SCHEMA";
+      return false;
+    }
+    artifact.source_identity_hash =
+        j.at("source_identity_hash").get<std::string>();
+    artifact.source_quality_config_hash =
+        j.at("source_quality_config_hash").get<std::string>();
+    artifact.normalized_cache_hash =
+        j.at("normalized_cache_hash").get<std::string>();
+    if (!expected_identity_hash.empty() &&
+        artifact.source_identity_hash != expected_identity_hash) {
+      error = "SQM_METRICS_IDENTITY_MISMATCH";
+      return false;
+    }
+    if (!expected_config_hash.empty() &&
+        artifact.source_quality_config_hash != expected_config_hash) {
+      error = "SQM_METRICS_CONFIG_MISMATCH";
+      return false;
+    }
+    if (!expected_normalized_cache_hash.empty() &&
+        artifact.normalized_cache_hash != expected_normalized_cache_hash) {
+      error = "SQM_METRICS_CACHE_MISMATCH";
+      return false;
+    }
+    artifact.frames.clear();
+    for (const auto &fj : j.at("frames")) {
+      SourceQualityFrameMetrics fm;
+      fm.source_index = fj.at("source_index").get<std::size_t>();
+      fm.frame_id = fj.at("frame_id").get<std::string>();
+      fm.background = fj.at("background").get<float>();
+      fm.noise = fj.at("noise").get<float>();
+      fm.gradient_energy = fj.at("gradient_energy").get<float>();
+      fm.sky_gradient = fj.at("sky_gradient").get<float>();
+      fm.quality_score = fj.at("quality_score").get<float>();
+      fm.fwhm = fj.at("fwhm").get<float>();
+      fm.fwhm_x = fj.at("fwhm_x").get<float>();
+      fm.fwhm_y = fj.at("fwhm_y").get<float>();
+      fm.roundness = fj.at("roundness").get<float>();
+      fm.wfwhm = fj.at("wfwhm").get<float>();
+      fm.star_count = fj.at("star_count").get<int>();
+      artifact.frames.push_back(std::move(fm));
+    }
+    // Verify sorted by source_index (deterministic identity).
+    for (std::size_t i = 1; i < artifact.frames.size(); ++i) {
+      if (artifact.frames[i].source_index <=
+          artifact.frames[i - 1].source_index) {
+        error = "SQM_METRICS_NOT_SORTED";
+        return false;
+      }
+    }
+    return true;
+  } catch (const std::exception &e) {
+    error = std::string("SQM_METRICS_PARSE: ") + e.what();
+    return false;
+  }
 }
 
 }  // namespace tile_compile::reconstruction

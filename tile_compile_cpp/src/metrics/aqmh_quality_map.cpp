@@ -38,14 +38,14 @@
 namespace tile_compile::metrics {
 namespace {
 
+using tile_compile::core::nan_value;
+
 // IEEE-754 exponent test is branch-free and vectorizes without enabling
 // -ffast-math (which would invalidate AQMH NaN/canvas semantics).
 #pragma omp declare simd notinbranch
 bool finite(float v) {
   return (std::bit_cast<uint32_t>(v) & 0x7f800000u) != 0x7f800000u;
 }
-
-float nan_value() { return std::numeric_limits<float>::quiet_NaN(); }
 
 bool mask_valid(const std::vector<uint8_t> &mask, int w, int h, int x, int y) {
   if (x < 0 || y < 0 || x >= w || y >= h)
@@ -90,18 +90,6 @@ struct WindowBuf {
   const float *end() const { return data.data() + n; }
 };
 
-float median_of(std::vector<float> values) {
-  if (values.empty())
-    return nan_value();
-  const size_t mid = values.size() / 2;
-  std::nth_element(values.begin(), values.begin() + mid, values.end());
-  float med = values[mid];
-  if (values.size() % 2 == 0) {
-    med = 0.5f * (med + *std::max_element(values.begin(), values.begin() + mid));
-  }
-  return med;
-}
-
 float median_buf(WindowBuf &buf) {
   if (buf.empty())
     return nan_value();
@@ -124,16 +112,8 @@ float mad_buf(WindowBuf &buf, float center, WindowBuf &tmp) {
   return median_buf(tmp);
 }
 
-float finite_median(const Matrix2Df &m) { return median_of(finite_values(m)); }
-
-float mad_of(const std::vector<float> &values, float center) {
-  if (values.empty() || !finite(center))
-    return nan_value();
-  std::vector<float> dev;
-  dev.reserve(values.size());
-  for (float v : values)
-    dev.push_back(std::abs(v - center));
-  return median_of(std::move(dev));
+float finite_median(const Matrix2Df &m) {
+  return core::median_of_or_nan(finite_values(m));
 }
 
 void fill_window(const Matrix2Df &m, int cx, int cy, int r, WindowBuf &buf) {
@@ -817,30 +797,81 @@ Matrix2Df robust_zscore(const Matrix2Df &m) {
   return out;
 }
 
-void accumulate_upsampled_log_psi(
-    const Matrix2Df &src, int out_w, int out_h, int factor,
-    Matrix2Dd &log_sum, std::vector<uint8_t> &veto) {
+// Cheap fold of an ALREADY-upsampled scale map into the log-sum/veto
+// accumulators (no interpolation --- see upsample_scale_to_source below,
+// called once per scale by the caller).
+void accumulate_log_psi(const Matrix2Df &psi_src, Matrix2Dd &log_sum,
+                        std::vector<uint8_t> &veto) {
+  const int out_w = static_cast<int>(psi_src.cols());
+  const int out_h = static_cast<int>(psi_src.rows());
+#pragma omp parallel for collapse(2) schedule(static)
+  for (int y = 0; y < out_h; ++y) {
+    for (int x = 0; x < out_w; ++x) {
+      const size_t idx =
+          static_cast<size_t>(y) * static_cast<size_t>(out_w) +
+          static_cast<size_t>(x);
+      if (veto[idx] != 0u) continue;
+      const float value = psi_src(y, x);
+      // upsample_scale_to_source already encodes both "no finite
+      // support" and "value <= 0" as NaN, so a single finite() test
+      // reproduces the old inline veto decision exactly.
+      if (!finite(value)) {
+        veto[idx] = 1u;
+      } else {
+        log_sum(y, x) += std::log(static_cast<double>(value));
+      }
+    }
+  }
+}
+
+Matrix2Df compute_psi(const Matrix2Df &sharp, const Matrix2Df &snr,
+                      const Matrix2Df &artifact,
+                      const config::AqmhPyramidConfig &cfg) {
+  const Matrix2Df z_sharp = robust_zscore(sharp);
+  const Matrix2Df z_snr = robust_zscore(snr);
+  Matrix2Df out(sharp.rows(), sharp.cols());
+  out.setConstant(nan_value());
+#pragma omp parallel for collapse(2) schedule(static)
+  for (int y = 0; y < out.rows(); ++y) {
+    for (int x = 0; x < out.cols(); ++x) {
+      if (!finite(z_sharp(y, x)) || !finite(z_snr(y, x)) ||
+          !finite(artifact(y, x)))
+        continue;
+      const float score = cfg.score_scale *
+          (cfg.w_sharp * z_sharp(y, x) + cfg.w_snr * z_snr(y, x));
+      const float sigmoid = 1.0f / (1.0f + std::exp(-score));
+      out(y, x) = std::clamp(sigmoid * artifact(y, x), 0.0f, 1.0f);
+    }
+  }
+  return out;
+}
+
+} // namespace
+
+// Was previously run TWICE per scale whenever a per_scale_hook was attached:
+// once folded straight into log_sum/veto inside accumulate_log_psi's old
+// inline form, and once more, byte-for-byte identically, inside the hook
+// consumer (reconstruction's SourceQualityMapCache writer, via its own
+// private upsample_to_source) to get a full-resolution copy of the same map.
+// Same LUT construction, same half-pixel-centred sample position, same
+// 4-point support-weighted bilinear --- the second pass produced nothing the
+// first didn't already compute. Hoisted out to public linkage so
+// compute_aqmh_quality_map can run it ONCE per scale and hand the result to
+// both the hook and accumulate_log_psi.
+Matrix2Df upsample_scale_to_source(const Matrix2Df &src, int out_w,
+                                   int out_h, int factor) {
   const int rows = static_cast<int>(src.rows());
   const int cols = static_cast<int>(src.cols());
+  Matrix2Df out(out_h, out_w);
 
   if (factor <= 1 && rows == out_h && cols == out_w) {
 #pragma omp parallel for collapse(2) schedule(static)
-    for (int y = 0; y < out_h; ++y) {
+    for (int y = 0; y < out_h; ++y)
       for (int x = 0; x < out_w; ++x) {
-        const float value = src(y, x);
-        const size_t idx =
-            static_cast<size_t>(y) * static_cast<size_t>(out_w) +
-            static_cast<size_t>(x);
-        if (veto[idx] != 0u)
-          continue;
-        if (!finite(value) || value <= 0.0f) {
-          veto[idx] = 1u;
-        } else {
-          log_sum(y, x) += std::log(static_cast<double>(value));
-        }
+        const float v = src(y, x);
+        out(y, x) = (finite(v) && v > 0.0f) ? v : nan_value();
       }
-    }
-    return;
+    return out;
   }
 
   // Precompute 1D interpolation LUTs for X and Y to eliminate all floor, clamp,
@@ -879,13 +910,9 @@ void accumulate_upsampled_log_psi(
     const auto &yl = y_lut[static_cast<size_t>(y)];
     const float *r0 = src.data() + static_cast<size_t>(yl.idx0) * static_cast<size_t>(cols);
     const float *r1 = src.data() + static_cast<size_t>(yl.idx1) * static_cast<size_t>(cols);
-    double *log_row = log_sum.data() + static_cast<size_t>(y) * static_cast<size_t>(out_w);
-    uint8_t *veto_row = veto.data() + static_cast<size_t>(y) * static_cast<size_t>(out_w);
+    float *out_row = out.data() + static_cast<size_t>(y) * static_cast<size_t>(out_w);
 
     for (int x = 0; x < out_w; ++x) {
-      if (veto_row[x] != 0u)
-        continue;
-
       const auto &xl = x_lut[static_cast<size_t>(x)];
       const float s00 = r0[xl.idx0];
       const float s01 = r0[xl.idx1];
@@ -905,43 +932,16 @@ void accumulate_upsampled_log_psi(
       if (w11 > 0.0f && finite(s11)) { num += w11 * s11; den += w11; }
 
       if (den <= 0.0) {
-        veto_row[x] = 1u;
+        out_row[x] = nan_value();
         continue;
       }
 
       const float val = static_cast<float>(num / den);
-      if (!finite(val) || val <= 0.0f) {
-        veto_row[x] = 1u;
-      } else {
-        log_row[x] += std::log(static_cast<double>(val));
-      }
-    }
-  }
-}
-
-Matrix2Df compute_psi(const Matrix2Df &sharp, const Matrix2Df &snr,
-                      const Matrix2Df &artifact,
-                      const config::AqmhPyramidConfig &cfg) {
-  const Matrix2Df z_sharp = robust_zscore(sharp);
-  const Matrix2Df z_snr = robust_zscore(snr);
-  Matrix2Df out(sharp.rows(), sharp.cols());
-  out.setConstant(nan_value());
-#pragma omp parallel for collapse(2) schedule(static)
-  for (int y = 0; y < out.rows(); ++y) {
-    for (int x = 0; x < out.cols(); ++x) {
-      if (!finite(z_sharp(y, x)) || !finite(z_snr(y, x)) ||
-          !finite(artifact(y, x)))
-        continue;
-      const float score = cfg.score_scale *
-          (cfg.w_sharp * z_sharp(y, x) + cfg.w_snr * z_snr(y, x));
-      const float sigmoid = 1.0f / (1.0f + std::exp(-score));
-      out(y, x) = std::clamp(sigmoid * artifact(y, x), 0.0f, 1.0f);
+      out_row[x] = (finite(val) && val > 0.0f) ? val : nan_value();
     }
   }
   return out;
 }
-
-} // namespace
 
 Matrix2Df compute_aqmh_local_variance(const Matrix2Df &image, int radius) {
   return local_variance_linear(image, radius);
@@ -1043,10 +1043,14 @@ AqmhQualityMapResult compute_aqmh_quality_map(
 
     const auto psi_accumulate_start = std::chrono::steady_clock::now();
     const Matrix2Df psi = compute_psi(sharp, snr, artifact, cfg);
+    // Upsample ONCE per scale; both the hook (if attached) and the
+    // log-accumulation below consume this same array instead of each
+    // re-running the identical bilinear interpolation.
+    const Matrix2Df psi_src =
+        upsample_scale_to_source(psi, frame.cols(), frame.rows(), factor);
     if (per_scale_hook)
-      per_scale_hook(s, factor, psi, artifact);
-    accumulate_upsampled_log_psi(
-        psi, frame.cols(), frame.rows(), factor, log_sum, veto);
+      per_scale_hook(s, factor, psi, psi_src, artifact);
+    accumulate_log_psi(psi_src, log_sum, veto);
     result.diagnostics.timing_psi_accumulate_seconds +=
         elapsed_since(psi_accumulate_start);
     ++computed_scales;

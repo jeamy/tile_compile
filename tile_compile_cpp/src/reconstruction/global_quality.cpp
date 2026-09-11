@@ -12,6 +12,23 @@
 
 namespace tile_compile::reconstruction {
 
+namespace {
+
+// The exact, documented bounding transform: w/(1+w) = sigmoid(k*Q). See
+// global_quality.hpp for why this is necessary and why it is the minimal fix.
+// Applied identically in both compute_global_quality_weights and
+// compute_global_quality_weights_from_metrics.
+VectorXf apply_sigmoid_bounding(const VectorXf& raw) {
+  VectorXf out(raw.size());
+  for (long i = 0; i < raw.size(); ++i) {
+    const float w = raw[i];
+    out[i] = w / (1.0f + w);
+  }
+  return out;
+}
+
+}  // namespace
+
 VectorXf compute_global_quality_weights(
     size_t n, const SourceImageProvider &source_of, ColorMode color_mode,
     BayerPattern bayer_pattern, int cfa_origin_x, int cfa_origin_y,
@@ -84,13 +101,7 @@ VectorXf compute_global_quality_weights(
       cfg.w_roundness, cfg.w_star_count, cfg.clamp_lo, cfg.clamp_hi, cfg.adaptive_weights,
       cfg.weight_exponent_scale);
 
-  // The exact, documented bounding transform: w/(1+w) = sigmoid(k*Q). See
-  // the header for why this is necessary and why it is the minimal fix.
-  for (size_t i = 0; i < n; ++i) {
-    const float w = raw[static_cast<int>(i)];
-    g_quality[static_cast<int>(i)] = w / (1.0f + w);
-  }
-  return g_quality;
+  return apply_sigmoid_bounding(raw);
 }
 
 VectorXf compute_global_quality_weights(const std::vector<Matrix2Df> &sources,
@@ -100,6 +111,24 @@ VectorXf compute_global_quality_weights(const std::vector<Matrix2Df> &sources,
   return compute_global_quality_weights(
       sources.size(), [&](size_t i) -> const Matrix2Df & { return sources.at(i); },
       color_mode, bayer_pattern, cfa_origin_x, cfa_origin_y, cfg);
+}
+
+VectorXf compute_global_quality_weights_from_metrics(
+    const std::vector<FrameMetrics> &frame_metrics,
+    const std::vector<metrics::FrameStarMetrics> &star_metrics,
+    const GlobalQualityConfig &cfg) {
+  const size_t n = frame_metrics.size();
+  VectorXf g_quality(static_cast<int>(n));
+  if (n == 0) return g_quality;
+  if (star_metrics.size() != n)
+    throw std::invalid_argument("GLOBAL_QUALITY_METRICS_SIZE_MISMATCH");
+
+  const VectorXf raw = metrics::calculate_global_weights_with_stars(
+      frame_metrics, star_metrics, cfg.w_bg, cfg.w_noise, cfg.w_grad,
+      cfg.w_fwhm, cfg.w_roundness, cfg.w_star_count, cfg.clamp_lo, cfg.clamp_hi,
+      cfg.adaptive_weights, cfg.weight_exponent_scale);
+
+  return apply_sigmoid_bounding(raw);
 }
 
 }  // namespace tile_compile::reconstruction

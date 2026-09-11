@@ -58,7 +58,7 @@ void write_forward_downstream_inputs(const fs::path &dir,
           throw std::runtime_error("FORWARD_OUTPUT_PHOTOMETRY_OVERFLOW");
       }
     }
-    inputs[c] = {{"sha256",core::sha256_file(path)}, {"scale",scale}, {"background",background}};
+    inputs[c] = {{"bytes",fs::file_size(path)}, {"scale",scale}, {"background",background}};
     planes.push_back(std::move(plane));
   }
   const auto mask_path = dir / "artifacts/sampling_geometry_analysis_common_mask.fits";
@@ -90,7 +90,7 @@ void write_forward_downstream_inputs(const fs::path &dir,
   }
   header.set("FDSPACE",std::string("RESTORED_LINEAR"));
   header.set("FDSCALE",drizzle.output_scale);
-  header.set("FDNORM",core::sha256_file(normalization_path));
+  header.set("FDNORM",std::to_string(fs::file_size(normalization_path)));  // T1: size, no SHA
   core::AtomicOutput generation(dir / "artifacts/forward_downstream_inputs");
   fs::create_directories(generation.path());
   const auto stage = generation.path();
@@ -105,13 +105,13 @@ void write_forward_downstream_inputs(const fs::path &dir,
   io::write_fits_mask_rows(stage / "common_overlap_mask.fits",analysis,h,w,header);
   core::json files=core::json::object();
   for (const auto &entry : fs::directory_iterator(stage)) {
-    files[entry.path().filename().string()]=core::sha256_file(entry.path());
+    files[entry.path().filename().string()]=fs::file_size(entry.path());
     core::AtomicOutput target(outputs / entry.path().filename());
     fs::copy_file(entry.path(),target.path());
     target.commit();
   }
   core::write_text_atomic(dir / "artifacts/forward_downstream_inputs.json",
-      core::json({{"version",1},{"normalization_sha256",core::sha256_file(normalization_path)},
+      core::json({{"version",2},{"normalization_bytes",fs::file_size(normalization_path)},
         {"source_profiles",inputs},{"files",files},{"width",w},{"height",h},
         {"crop_x",0},{"crop_y",0},{"photometry_applied_once",true}}).dump(2));
 }

@@ -55,6 +55,14 @@ struct ForwardDrizzleDiagnostics {
   // combined cases. This field is reserved for a future runtime
   // self-check/artifact field, not a currently-active diagnostic.
   double max_affine_area_relative_error = 0.0;
+  // T4c: per-band source/Q band cache stats. Zero when no caching or no
+  // quality/source provider. Counted per accumulate_pair_impl call (one band).
+  long long q_band_cache_hits = 0;
+  long long q_band_cache_misses = 0;
+  long long q_bytes_read = 0;
+  long long source_band_cache_hits = 0;
+  long long source_band_cache_misses = 0;
+  long long source_bytes_read = 0;
 };
 
 struct ForwardDrizzleUniformResult {

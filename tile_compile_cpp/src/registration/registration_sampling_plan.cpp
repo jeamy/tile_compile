@@ -26,12 +26,6 @@ std::string sampling_warp_convention_to_string(SamplingWarpConvention c) {
   return "canvas_to_source";
 }
 
-SamplingWarpConvention string_to_sampling_warp_convention(const std::string& s) {
-  // Only one convention exists; anything else is a hard error at parse time.
-  if (s == "canvas_to_source") return SamplingWarpConvention::canvas_to_source;
-  return SamplingWarpConvention::canvas_to_source;
-}
-
 // ---------------------------------------------------------------------------
 // affine inversion (plan section 7.2)
 // ---------------------------------------------------------------------------

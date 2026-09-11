@@ -33,6 +33,7 @@
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -116,12 +117,22 @@ struct GeometryCacheBuildResult {
 // reference regardless of the worker count or scheduling. The per-worker
 // footprint is one source row of leaf records (independent of frame count and
 // canvas height).
+// Progress callback: called once after each COMPLETED (variant, frame) task
+// that was actually a local-warp frame (the cheap non-local tasks are not
+// reported --- there can be hundreds of them and they finish instantly).
+// `done`/`total` count present tasks only. Called under an internal lock, so
+// it is safe to write to a shared log/emitter without its own locking.
+using GeometryCacheProgressFn =
+    std::function<void(std::size_t done, std::size_t total,
+                       const std::string &detail)>;
+
 GeometryCacheBuildResult build_drizzle_geometry_cache(
     const fs::path &root, const registration::RegistrationSamplingPlan &plan,
     const config::ReconstructionDrizzleConfig &cfg,
     const std::vector<GeometryVariant> &variants,
     const ForwardDrizzleSubdivisionParams &subdivision,
-    std::uint64_t memory_budget_bytes, int max_workers = 1);
+    std::uint64_t memory_budget_bytes, int max_workers = 1,
+    const GeometryCacheProgressFn &on_progress = nullptr);
 
 // Verified reader over ONE committed generation.
 //

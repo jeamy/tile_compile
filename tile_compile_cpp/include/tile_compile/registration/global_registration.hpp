@@ -131,7 +131,7 @@ SingleFrameRegResult register_single_frame(
     const std::vector<StarPoint>* ref_stars = nullptr);
 
 // Sub-functions (canonical implementations — do NOT duplicate in runner)
-Matrix2Df downsample2x2_mean(const Matrix2Df& in);
+// downsample2x2_mean moved to core::downsample2x2_mean (core/utils.hpp)
 WarpMatrix scale_translation_warp(const WarpMatrix& w, float scale);
 std::vector<StarPoint> detect_stars_simple(
     const Matrix2Df& img, int topk,

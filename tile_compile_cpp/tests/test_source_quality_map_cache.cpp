@@ -322,15 +322,11 @@ TEST_CASE("cache writer + fail-closed reader round-trip with a zero-veto "
     REQUIRE(rd.error() == "SQM_CACHE_IDENTITY_MISMATCH");
   }
 
-  SECTION("tampered .bin payload -> fail closed on checksum") {
+  SECTION("tampered .bin payload -> fail closed on size check (trusted run)") {
     const fs::path bin = root / "composite" / "source_quality_composite_000000.bin";
     REQUIRE(fs::exists(bin));
-    {
-      std::fstream f(bin, std::ios::in | std::ios::out | std::ios::binary);
-      f.seekp(-2, std::ios::end);
-      const char poke[2] = {0x7f, 0x33};
-      f.write(poke, 2);
-    }
+    // T1 trusted run: size check only. Truncate the file to change its size.
+    fs::resize_file(bin, fs::file_size(bin) - 2);  // truncate by 2 bytes
     SourceQualityMapCacheReader rd(root, identity, cfghash);
     REQUIRE_FALSE(rd.usable());
     REQUIRE(rd.error().rfind("SQM_CACHE_FILE_CORRUPT", 0) == 0);
@@ -428,7 +424,7 @@ TEST_CASE("build_source_quality_map_cache orchestrates proxy -> streamed "
 }
 
 // Plan §30.72 O3: the parallel per-frame build commits byte-identical bytes ---
-// same source_quality_cache_hash and same per-file sha256 --- at every worker
+// same source_quality_cache_hash and same per-file bytes --- at every worker
 // count, because writer.commit() sorts its file list.
 TEST_CASE("build_source_quality_map_cache is byte-identical across worker counts",
           "[source-quality-parallel]") {
@@ -456,7 +452,7 @@ TEST_CASE("build_source_quality_map_cache is byte-identical across worker counts
 
   config::AqmhPyramidConfig pyr;
   std::string ref_hash;
-  std::vector<std::string> ref_files;  // "name=sha256" sorted
+  std::vector<std::string> ref_files;  // "name=bytes" sorted
   for (int workers : {1, 2, 3, 6}) {
     const fs::path sqm_root =
         tmp.path / ("sqm_w" + std::to_string(workers));
@@ -470,7 +466,7 @@ TEST_CASE("build_source_quality_map_cache is byte-identical across worker counts
     REQUIRE(rd.usable());
     std::vector<std::string> files;
     for (const auto &fe : rd.metadata().files)
-      files.push_back(fe.name + "=" + fe.sha256);
+      files.push_back(fe.name + "=" + std::to_string(fe.bytes));
     std::sort(files.begin(), files.end());
 
     if (workers == 1) {
@@ -521,4 +517,116 @@ TEST_CASE("cache preserves an exact Q=0 hard veto through storage even when "
     for (int x = 4; x < 6; ++x)
       if (std::isfinite(full(y, x)) && full(y, x) > 0.0f) any_positive = true;
   REQUIRE(any_positive);
+}
+
+// T2: the reader builds an O(1) lookup index keyed by (stream, source_index).
+// has() and file_path() must find present entries and miss absent ones without
+// scanning meta_.files linearly.
+TEST_CASE("SourceQualityMapCacheReader has()/file_path() use O(1) index",
+          "[source-quality-cache][t2-index]") {
+  TempDir tmp;
+  const fs::path root = tmp.path / "source_quality_maps";
+  const int w = 8, h = 8;
+  const auto plan = make_plan(w, h);
+  config::AqmhPyramidConfig pyr;
+  SourceQualityMapCacheConfig ccfg;
+
+  std::string id, cfgh;
+  {
+    SourceQualityMapCacheWriter wr(root, plan, "nch", pyr, ccfg);
+    id = wr.identity_hash();
+    cfgh = wr.config_hash();
+    wr.put("composite", 0, block_map(w, h, 0.5f));
+    wr.put("composite", 3, block_map(w, h, 0.7f));
+    wr.put("scale_0", 0, block_map(w, h, 0.3f));
+    wr.commit();
+  }
+  SourceQualityMapCacheReader rd(root, id, cfgh);
+  REQUIRE(rd.usable());
+
+  // Present entries.
+  REQUIRE(rd.has("composite", 0));
+  REQUIRE(rd.has("composite", 3));
+  REQUIRE(rd.has("scale_0", 0));
+
+  // Absent entries.
+  REQUIRE_FALSE(rd.has("composite", 1));
+  REQUIRE_FALSE(rd.has("composite", 2));
+  REQUIRE_FALSE(rd.has("scale_0", 3));
+  REQUIRE_FALSE(rd.has("scale_1", 0));
+  REQUIRE_FALSE(rd.has("nonexistent_stream", 0));
+
+  // file_path() is private; test via read_full() which uses it internally.
+  // Present entries do not throw.
+  REQUIRE_NOTHROW(rd.read_full("composite", 0));
+  REQUIRE_NOTHROW(rd.read_full("composite", 3));
+  REQUIRE_NOTHROW(rd.read_full("scale_0", 0));
+
+  // Absent entries throw via file_path().
+  REQUIRE_THROWS_AS(rd.read_full("composite", 1), std::runtime_error);
+  REQUIRE_THROWS_AS(rd.read_full("scale_1", 0), std::runtime_error);
+}
+
+// T3: when star_max_corners > 0, build_source_quality_map_cache() also writes
+// source_quality_metrics-v1.json with per-frame FrameMetrics and
+// FrameStarMetrics, sorted by source_index.
+TEST_CASE("build_source_quality_map_cache writes metrics artifact (T3)",
+          "[source-quality-cache][t3-metrics]") {
+  TempDir tmp;
+  const int w = 96, h = 72;
+  const int nframes = 4;
+  auto plan = make_plan(w, h);
+  plan.color_mode = ColorMode::MONO;
+  plan.source_identity_hash = "mono-metrics-identity";
+  plan.frames.clear();
+  for (int i = 0; i < nframes; ++i) {
+    FrameSamplingTransform f;
+    f.frame_id = "frame-" + std::to_string(i);
+    f.source_index = static_cast<std::size_t>(i);
+    f.valid = true;
+    plan.frames.push_back(f);
+  }
+
+  const fs::path ncache_root = tmp.path / "normalized_frames";
+  fs::create_directories(ncache_root);
+  for (int i = 0; i < nframes; ++i)
+    write_raw_frame(ncache_root / (std::to_string(i) + ".raw"), w, h,
+                    2.0f * static_cast<float>(i));
+  reconstruction::publish_normalized_source_manifest(ncache_root, plan);
+
+  reconstruction::VerifiedNormalizedSourceCache ncache(ncache_root, plan);
+  const fs::path sqm_root = tmp.path / "source_quality_maps";
+  config::AqmhPyramidConfig pyr;
+  SourceQualityMapCacheConfig ccfg;
+  ccfg.star_max_corners = 400;  // T3: enable metrics
+  ccfg.star_patch_radius = 10;
+
+  const auto built = reconstruction::build_source_quality_map_cache(
+      sqm_root, plan, ncache, pyr, ccfg, 2);
+  REQUIRE(built.frames == nframes);
+
+  // The metrics artifact must exist.
+  const fs::path metrics_path = sqm_root / "source_quality_metrics-v1.json";
+  REQUIRE(fs::exists(metrics_path));
+
+  // Load and validate.
+  reconstruction::SourceQualityMetricsArtifact ma;
+  std::string error;
+  REQUIRE(reconstruction::load_source_quality_metrics(
+      metrics_path, built.source_identity_hash,
+      built.source_quality_config_hash, ncache.manifest_hash(), ma, error));
+  REQUIRE(error.empty());
+  REQUIRE(ma.frames.size() == static_cast<std::size_t>(nframes));
+  // Sorted by source_index.
+  for (std::size_t i = 1; i < ma.frames.size(); ++i)
+    REQUIRE(ma.frames[i].source_index > ma.frames[i - 1].source_index);
+  // Frame IDs match.
+  for (int i = 0; i < nframes; ++i)
+    REQUIRE(ma.frames[static_cast<std::size_t>(i)].frame_id ==
+            "frame-" + std::to_string(i));
+
+  // Identity mismatch fails.
+  REQUIRE_FALSE(reconstruction::load_source_quality_metrics(
+      metrics_path, "wrong-identity", "", "", ma, error));
+  REQUIRE(error == "SQM_METRICS_IDENTITY_MISMATCH");
 }

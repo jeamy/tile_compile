@@ -1503,7 +1503,7 @@ Matrix2Df build_registration_proxy(const Matrix2Df &img, ColorMode detected_mode
   }
   return (detected_mode == ColorMode::OSC)
              ? image::cfa_green_proxy_downsample2x2(img, detected_bayer_str)
-             : registration::downsample2x2_mean(img);
+             : core::downsample2x2_mean(img);
 }
 
 /// @brief Implements bge diag to json.

@@ -321,8 +321,8 @@ TEST_CASE("plan 11.14 P3/P4: geometry-cache scaling ladder --- bit-exact, "
       mfs >> mf;
       for (const auto &v : mf.at("variants"))
         for (const auto &fj : v.at("frames"))
-          shas.emplace_back(fj.at("rows_sha256").get<std::string>(),
-                            fj.at("leaves_sha256").get<std::string>());
+          shas.emplace_back(std::to_string(fj.at("rows_bytes").get<std::uintmax_t>()),
+                            std::to_string(fj.at("leaves_bytes").get<std::uintmax_t>()));
     }
     if (w == 1)
       ref_shas = shas;

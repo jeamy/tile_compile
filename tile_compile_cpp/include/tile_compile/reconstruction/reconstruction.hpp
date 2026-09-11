@@ -23,14 +23,6 @@ struct WeightedTileResult {
   float effective_weight_sum = 0.0f;
 };
 
-struct RGBSharedSigmaClipResult {
-  Matrix2Df R;
-  Matrix2Df G;
-  Matrix2Df B;
-  bool fallback_used = false;
-  float effective_weight_sum = 0.0f;
-};
-
 // Configuration for the parallel reconstruction phase.
 struct ReconstructionConfig {
     int    parallel_workers                    = 1;
@@ -84,17 +76,6 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
 WeightedTileResult sigma_clip_weighted_tile_with_fallback(
     const std::vector<Matrix2Df>& tiles, const std::vector<float>& weights,
     float sigma_low, float sigma_high, int max_iters, float min_fraction,
-    float eps_weight);
-
-RGBSharedSigmaClipResult sigma_clip_weighted_rgb_tile_shared_mask(
-    const std::vector<Matrix2Df>& tiles_r,
-    const std::vector<Matrix2Df>& tiles_g,
-    const std::vector<Matrix2Df>& tiles_b,
-    const std::vector<float>& weights,
-    float sigma_low,
-    float sigma_high,
-    int max_iters,
-    float min_fraction,
     float eps_weight);
 
 // Highpass + Soft-Threshold denoising for a single tile (Methodik 3.1E §3.3.1)

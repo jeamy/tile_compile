@@ -53,7 +53,7 @@ bool forward_drizzle_cuda_affine_leaf_corners_batch(const double *, int, double,
   return false;
 }
 bool forward_drizzle_cuda_affine_frame_contributions(
-    const double *, int, double, int, int, int, int, int, int, int,
+    const double *, int, double, int, int, int, int, int, int, int, int, int,
     const float *, int, int, int, bool, int, CudaDrizzleContribRecord *,
     long long, long long *out_written) {
   if (out_written) *out_written = 0;

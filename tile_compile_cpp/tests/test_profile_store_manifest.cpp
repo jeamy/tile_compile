@@ -63,11 +63,12 @@ TEST_CASE("profile store manifest: build + verify a complete store succeeds") {
 TEST_CASE("profile store manifest: a corrupted plane file is caught, store "
           "not usable (audit A6 --- Uniform fallback path)") {
   TempDir dir;
-  write_file(dir.path / "R_value.fits", "original bytes");
+  write_file(dir.path / "R_value.fits", "original bytes here");
   auto manifest = build_profile_store_manifest("raw", 10, 10, dir.path, {"R_value"});
   REQUIRE(verify_profile_store(dir.path, manifest).usable);
 
-  write_file(dir.path / "R_value.fits", "TAMPERED bytes");  // same name, different content
+  // T1 trusted run: size check only. Use a different-sized replacement.
+  write_file(dir.path / "R_value.fits", "TAMPERED");  // shorter -> size mismatch
   auto v = verify_profile_store(dir.path, manifest);
   REQUIRE_FALSE(v.usable);
   REQUIRE(v.corrupt.size() == 1);
@@ -104,11 +105,14 @@ TEST_CASE("profile store manifest: round-trips through JSON and re-validates "
   REQUIRE(parsed.manifest_hash == manifest.manifest_hash);
   REQUIRE(parsed.planes.size() == 1);
 
-  // Flip a checksum digit without touching manifest_hash.
+  // T1 v2: tamper the bytes field (change the number) without touching
+  // manifest_hash. The recomputed hash will not match.
   std::string tampered = js;
-  const auto pos = tampered.find(manifest.planes[0].sha256);
+  const auto pos = tampered.find("\"bytes\"");
   REQUIRE(pos != std::string::npos);
-  tampered[pos] = (tampered[pos] == 'a') ? 'b' : 'a';
+  const auto num_start = tampered.find_first_of("0123456789", pos);
+  REQUIRE(num_start != std::string::npos);
+  tampered[num_start] = (tampered[num_start] == '9') ? '8' : '9';
   ProfileStoreManifest bad;
   REQUIRE_FALSE(parse_profile_store_manifest(tampered, bad, error));
   REQUIRE_FALSE(error.empty());
@@ -144,7 +148,7 @@ TEST_CASE("profile store manifest: rehashed malformed stores are never usable", 
     if (kind == 1) bad.planes[0].name = "../L_value";
     if (kind == 2) bad.planes.push_back(bad.planes[0]);
     if (kind == 3) bad.planes[0].width = 0;
-    if (kind == 4) bad.planes[0].sha256.clear();
+    if (kind == 4) bad.planes[0].bytes = 0;  // T1 v2: invalid size
     bad.manifest_hash = compute_profile_store_manifest_hash(bad);
     ProfileStoreManifest parsed;
     std::string error;

@@ -378,40 +378,6 @@ void warn_if_gain_mismatch(const std::vector<fs::path> &light_frames,
       log_file);
 }
 
-bool require_gain_match(const std::vector<fs::path> &light_frames,
-                        const std::vector<fs::path> &calibration_frames,
-                        const std::string &calibration_label,
-                        core::json &artifact_step,
-                        std::string &error_out) {
-  const auto light_gain =
-      sample_header_median(light_frames, 10, extract_gain_value);
-  const auto calibration_gain =
-      sample_header_median(calibration_frames, 10, extract_gain_value);
-  if (!light_gain) {
-    error_out = "Calibration " + calibration_label +
-                " rejected: light GAIN header is missing";
-    return false;
-  }
-  if (!calibration_gain) {
-    error_out = "Calibration " + calibration_label +
-                " rejected: calibration GAIN header is missing";
-    artifact_step["light_gain"] = *light_gain;
-    return false;
-  }
-  artifact_step["light_gain"] = *light_gain;
-  artifact_step["calibration_gain"] = *calibration_gain;
-  const double diff = std::fabs(*light_gain - *calibration_gain);
-  if (diff <= kCalibrationGainMatchTolerance) {
-    return true;
-  }
-  artifact_step["gain_mismatch_error"] = true;
-  error_out = "Calibration " + calibration_label +
-              " rejected: lights use GAIN " + std::to_string(*light_gain) +
-              ", calibration uses GAIN " +
-              std::to_string(*calibration_gain);
-  return false;
-}
-
 /// @brief Resolves config path.
 /// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,

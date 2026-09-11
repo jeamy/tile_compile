@@ -171,8 +171,8 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     const auto artifacts=dir/"artifacts";
     const bool downstream_requested = cfg.astrometry.enabled || cfg.bge.method != "none" ||
         cfg.pcc.enabled || cfg.hypermetric_stretch.enabled;
-    const std::string normalization_hash = downstream_requested
-        ? core::sha256_file(artifacts/"normalization.json") : std::string();
+    const std::string normalization_id = downstream_requested
+        ? std::to_string(fs::file_size(artifacts/"normalization.json")) : std::string();
     const auto cache_dir=dir/"cache/normalized_frames";
     const auto checkpoint_path=artifacts/"forward_drizzle_checkpoint.json";
     const auto geometry_hash=registration::compute_coverage_geometry_hash(
@@ -245,15 +245,20 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         geom_workers=std::min<int>(geom_workers,
             std::max<std::size_t>(1,geom_local_indices.size()*geom_variants.size()));
         const auto gc0=std::chrono::steady_clock::now();
+        const auto geom_progress=[&](std::size_t done,std::size_t total,const std::string &detail){
+          const float progress = total ? static_cast<float>(done)/static_cast<float>(total) : 1.0f;
+          emitter.phase_progress(run_id,Phase::SAMPLING_GEOMETRY,progress,detail,log);
+        };
         const auto built=reconstruction::build_drizzle_geometry_cache(
             geom_cache_root,sampling,drizzle,geom_variants,geom_sub,
-            static_cast<std::uint64_t>(drizzle.memory_budget_mb)<<20,geom_workers);
+            static_cast<std::uint64_t>(drizzle.memory_budget_mb)<<20,geom_workers,
+            geom_progress);
         geometry_cache_seconds=
             std::chrono::duration<double>(std::chrono::steady_clock::now()-gc0).count();
         open_geometry_cache(false);
         json gc;
         gc["generation"]=built.generation_dir.filename().string();
-        gc["manifest_sha256"]=core::sha256_file(built.generation_dir/"manifest.json");
+        gc["manifest_bytes"]=fs::file_size(built.generation_dir/"manifest.json");
         gc["local_source_indices"]=geom_local_indices;
         gc["variants"]=json::array();
         for (size_t i=0;i<geom_variants.size();++i)
@@ -277,9 +282,14 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         const int v=std::atoi(e);
         if (v>=1) cov_workers=v;
       }
+      const auto coverage_progress=[&](std::size_t done,std::size_t total,const std::string &detail){
+        const float progress = total ? static_cast<float>(done)/static_cast<float>(total) : 1.0f;
+        emitter.phase_progress(run_id,Phase::SAMPLING_GEOMETRY,progress,detail,log);
+      };
       auto coverage=registration::compute_geometric_coverage(sampling,drizzle.internal_scale,
           drizzle.pixfrac,reconstruction_cfg.coverage_gate,
-          reconstruction_cfg.common_overlap_required_fraction,cov_workers,drizzle,false);
+          reconstruction_cfg.common_overlap_required_fraction,cov_workers,drizzle,false,
+          coverage_progress);
       io::FitsHeader header;
       header.set("MASKTYPE",std::string("SAMPLING_GEOMETRY"));
       io::write_fits_mask_rows(artifacts/geometry_files[2],coverage.analysis_common_mask,
@@ -311,15 +321,15 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         {"config_sha256",provenance.at("config").at("sha256")},
         {"sampling_plan_hash",sampling.plan_hash},{"geometry_hash",geometry_hash},
         {"cache_manifest_hash",cache.manifest_hash()},{"artifacts",json::object()}};
-      for (const auto &name:geometry_files) checkpoint["artifacts"][name]=core::sha256_file(artifacts/name);
+      for (const auto &name:geometry_files) checkpoint["artifacts"][name]=fs::file_size(artifacts/name);
       if (!checkpoint_geometry_cache.is_null())
         checkpoint["geometry_cache"]=checkpoint_geometry_cache;
-      if (downstream_requested) checkpoint["normalization_sha256"]=normalization_hash;
+      if (downstream_requested) checkpoint["normalization_bytes"]=normalization_id;
       core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
       end();
     } else {
       checkpoint=checked_json(checkpoint_path);
-      if (downstream_requested && checkpoint.value("normalization_sha256",std::string())!=normalization_hash)
+      if (downstream_requested && checkpoint.value("normalization_bytes",std::string())!=normalization_id)
         throw std::runtime_error("FORWARD_STAGE_NORMALIZATION_PREDECESSOR_MISMATCH");
       if (checkpoint.at("schema_version")!=1 || checkpoint.at("execution_scope")!=scope ||
           checkpoint.at("config_sha256")!=provenance.at("config").at("sha256") ||
@@ -327,7 +337,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           checkpoint.at("artifacts").size()!=geometry_files.size())
         throw std::runtime_error("FORWARD_STAGE_CHECKPOINT_MISMATCH");
       for (const auto &name:geometry_files)
-        if (checkpoint.at("artifacts").at(name)!=core::sha256_file(artifacts/name))
+        if (checkpoint.at("artifacts").at(name)!=fs::file_size(artifacts/name))
           throw std::runtime_error("FORWARD_STAGE_PREDECESSOR_CORRUPT: "+name);
       // Plan 11.14: re-open + verify the local-warp geometry cache before any
       // resumable phase that consumes it. The reader re-checks identity,
@@ -353,16 +363,18 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         const fs::path gen_dir=
             geom_cache_root/gc.at("generation").get<std::string>();
         if (!fs::is_regular_file(gen_dir/"manifest.json") ||
-            core::sha256_file(gen_dir/"manifest.json")!=
-                gc.at("manifest_sha256").get<std::string>())
+            fs::file_size(gen_dir/"manifest.json")!=
+                gc.at("manifest_bytes").get<std::uintmax_t>())
           throw std::runtime_error("FORWARD_STAGE_GEOMETRY_CACHE_MANIFEST_CHANGED");
       }
     }
     reconstruction::VerifiedNormalizedSourceCache cache(cache_dir,sampling,drizzle.memory_budget_mb);
     if (checkpoint.at("cache_manifest_hash")!=cache.manifest_hash())
       throw std::runtime_error("FORWARD_STAGE_CACHE_MANIFEST_CHANGED");
-    // Check every retained source before announcing a resumable phase start.
-    for (const auto &f:sampling.frames) cache.load(f.source_index);
+    // T1: the pre-phase full-source retention scan is removed. In the trusted-
+    // run model the cache is sealed and unchanged; SQM/GQ load on demand. The
+    // parallel SQM workers use independent cache clones that would not see
+    // these pre-loaded entries anyway.
     const auto qcfg=quality_config(cfg);
     const auto sqm_cache_root=dir/"cache/source_quality_maps";
     if (resume_from.empty()) {
@@ -377,8 +389,13 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         const int v=std::atoi(e);
         if (v>=1) sqm_workers=v;
       }
+      // T3: pass star detection parameters so SQM also computes per-frame
+      // metrics and writes source_quality_metrics-v1.json.
+      reconstruction::SourceQualityMapCacheConfig sqm_cfg;
+      sqm_cfg.star_max_corners=qcfg.star_max_corners;
+      sqm_cfg.star_patch_radius=qcfg.star_patch_radius;
       const auto sqm=reconstruction::build_source_quality_map_cache(
-          sqm_cache_root,sampling,cache,cfg.aqmh.pyramid,{},sqm_workers);
+          sqm_cache_root,sampling,cache,cfg.aqmh.pyramid,sqm_cfg,sqm_workers);
       checkpoint["source_quality_identity_hash"]=sqm.source_identity_hash;
       checkpoint["source_quality_config_hash"]=sqm.source_quality_config_hash;
       checkpoint["source_quality_cache_hash"]=sqm.source_quality_cache_hash;
@@ -409,8 +426,12 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         const int v=std::atoi(e);
         if (v>=1) gq_workers=v;
       }
+      // T3: use the pre-computed metrics from SOURCE_QUALITY_MAPS instead of
+      // reloading and re-running compute_source_quality_proxy_v1 per frame.
+      const auto metrics_path=sqm_cache_root/"source_quality_metrics-v1.json";
       const auto quality=reconstruction::persist_source_quality_artifact(
-          quality_path,sampling,cache,qcfg,drizzle.memory_budget_mb,gq_workers);
+          quality_path,sampling,cache,qcfg,metrics_path,
+          drizzle.memory_budget_mb,gq_workers);
       checkpoint["quality_plan_hash"]=quality.plan_hash;
       core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
       end({{"quality_plan_hash",quality.plan_hash}});
@@ -487,7 +508,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           profiles_root,quality_path,sampling,cache,qcfg,
           drizzle,reconstruction_cfg.clipping,{},sqm_cache_root,fd_workers);
     }
-    checkpoint["profiles_current_sha256"]=core::sha256_file(profiles_root/"current.json");
+    checkpoint["profiles_current_bytes"]=fs::file_size(profiles_root/"current.json");
     checkpoint["forward_drizzle_backend"]=fd_backend_used;
     // P3 Teil 2: resolved CPU-reduction worker count (informational; the store
     // commit hash is invariant to it, so it is NOT resume-validated). On the
@@ -518,20 +539,15 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
               drizzle.pixfrac,drizzle.internal_scale)}};
       if (!fd_cuda_fallback_reason.empty())
         extra["cuda_fallback_reason"]=fd_cuda_fallback_reason;
-      // §30.81 step 3a-3 baseline instrumentation: whole-frame source-LRU
-      // behaviour across this FORWARD_DRIZZLE pass (SQM/GLOBAL_QUALITY share the
-      // instance only when NOT resumed; on `resume_from=FORWARD_DRIZZLE` these
-      // reflect the drizzle pass alone plus the pre-phase retention check).
+      // T1: source-cache diagnostics (trusted run, no SHA counters).
       extra["source_cache"]={
         {"capacity_frames",cache.capacity_frames()},
         {"frames",sampling.frames.size()},
         {"memory_budget_mb",drizzle.memory_budget_mb},
         {"load_calls",cache.load_call_count()},
         {"lru_hits",cache.lru_hit_count()},
-        {"verify_and_insert",cache.hash_computation_count()},
         {"evictions",cache.eviction_count()},
-        {"bytes_read",cache.bytes_read()},
-        {"whole_file_sha_seconds",cache.whole_file_sha_seconds()}};
+        {"bytes_read",cache.bytes_read()}};
       end(extra);
     }
 
@@ -583,7 +599,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       const auto pixels=reconstruction::fuse_multiband_store_to_image(
           profiles_root,mb_identity,mb_internal,reconstruction_cfg.multiband,
           drizzle.chunk_rows,drizzle.memory_budget_mb,&cand,&spool,&mem_plan);
-      checkpoint["final_image_sha256"]=core::sha256_file(mb_internal);
+      checkpoint["final_image_bytes"]=fs::file_size(mb_internal);
 
       // Plan 16.4: per-band alpha-confidence summary. `cand.alpha_final_by_band`
       // is freed with the luma buffers below (line ~`cand={}`), so the summary
@@ -676,8 +692,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       json out_list=json::array();
       auto record=[&](const fs::path &p){
         out_list.push_back({{"path","outputs/"+p.filename().string()},
-                            {"size",static_cast<long long>(fs::file_size(p))},
-                            {"sha256",core::sha256_file(p)}});
+                            {"size",static_cast<long long>(fs::file_size(p))}});
       };
       // Plan 11.13(2): each delivered plane is read back from the spool one at a
       // time (peak = one plane), written straight to FITS, then freed.
@@ -703,7 +718,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       }
       checkpoint["outputs"]=json::object();
       for (const auto &o:out_list)
-        checkpoint["outputs"][o.at("path").get<std::string>()]=o.at("sha256");
+        checkpoint["outputs"][o.at("path").get<std::string>()]=o.at("size");
 
       auto metric_json=[](const reconstruction::ValidationMetric &m){
         // A non-applicable metric serialises value:null uniformly, so a
@@ -1004,7 +1019,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         fs::path hms_path(cfg.hypermetric_stretch.output_rgb);
         if (hms_path.is_relative()) hms_path=dir/"outputs"/hms_path;
         checkpoint["final_output"]={{"path",hms_path.string()},
-            {"sha256",core::sha256_file(hms_path)}};
+            {"bytes",fs::file_size(hms_path)}};
       }
       core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
     }

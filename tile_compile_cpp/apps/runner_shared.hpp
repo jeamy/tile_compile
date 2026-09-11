@@ -269,55 +269,6 @@ inline float common_overlap_invalid_value() {
   return std::numeric_limits<float>::quiet_NaN();
 }
 
-/// Apply the COMMON_OVERLAP mask to one tile in-place.
-///
-/// Pixels outside the global common-overlap mask are written as NaN so later
-/// metrics/reconstruction paths can ignore them without maintaining a separate
-/// mask per tile. The helper is deliberately inline because it is used in hot
-/// loops across local metrics, reconstruction, and diagnostics.
-inline void apply_common_overlap_to_tile_inplace(
-    Matrix2Df &tile, const Tile &t, const std::vector<uint8_t> &common_valid_mask,
-    int common_mask_width, int common_mask_height) {
-  if (tile.rows() != t.height || tile.cols() != t.width)
-    return;
-  if (common_mask_width <= 0 || common_mask_height <= 0 ||
-      common_valid_mask.empty()) {
-    return;
-  }
-
-  const int tile_cols = static_cast<int>(tile.cols());
-  const size_t mask_size = common_valid_mask.size();
-  float *tile_data = tile.data();
-  const float invalid = common_overlap_invalid_value();
-
-  for (int yy = 0; yy < t.height; ++yy) {
-    const int gy = t.y + yy;
-    const size_t tile_row_off =
-        static_cast<size_t>(yy) * static_cast<size_t>(tile_cols);
-    if (gy < 0 || gy >= common_mask_height) {
-      for (int xx = 0; xx < t.width; ++xx) {
-        tile_data[tile_row_off + static_cast<size_t>(xx)] = invalid;
-      }
-      continue;
-    }
-
-    const size_t row_off =
-        static_cast<size_t>(gy) * static_cast<size_t>(common_mask_width);
-
-    for (int xx = 0; xx < t.width; ++xx) {
-      const int gx = t.x + xx;
-      if (gx < 0 || gx >= common_mask_width) {
-        tile_data[tile_row_off + static_cast<size_t>(xx)] = invalid;
-        continue;
-      }
-      const size_t mask_idx = row_off + static_cast<size_t>(gx);
-      if (mask_idx >= mask_size || common_valid_mask[mask_idx] == 0) {
-        tile_data[tile_row_off + static_cast<size_t>(xx)] = invalid;
-      }
-    }
-  }
-}
-
 /// Apply a common-overlap mask to a tile and report whether finite data remains.
 inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
     Matrix2Df &tile, const Tile &t, const std::vector<uint8_t> &common_valid_mask,
@@ -363,39 +314,6 @@ inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
         continue;
       }
       if (std::isfinite(v)) {
-        any_valid = true;
-      }
-    }
-  }
-  return any_valid;
-}
-
-/// Apply the common-overlap mask to a full mono/luma frame in-place.
-inline bool apply_common_overlap_to_frame_inplace_and_check_nonzero(
-    Matrix2Df &frame, const std::vector<uint8_t> &common_valid_mask,
-    int common_mask_width, int common_mask_height) {
-  if (frame.rows() != common_mask_height || frame.cols() != common_mask_width) {
-    return false;
-  }
-  if (common_mask_width <= 0 || common_mask_height <= 0 ||
-      common_valid_mask.empty()) {
-    return false;
-  }
-
-  const size_t mask_size = common_valid_mask.size();
-  float *frame_data = frame.data();
-  bool any_valid = false;
-  const float invalid = common_overlap_invalid_value();
-  for (int y = 0; y < common_mask_height; ++y) {
-    const size_t row_off =
-        static_cast<size_t>(y) * static_cast<size_t>(common_mask_width);
-    for (int x = 0; x < common_mask_width; ++x) {
-      const size_t idx = row_off + static_cast<size_t>(x);
-      if (idx >= mask_size || common_valid_mask[idx] == 0) {
-        frame_data[idx] = invalid;
-        continue;
-      }
-      if (std::isfinite(frame_data[idx])) {
         any_valid = true;
       }
     }

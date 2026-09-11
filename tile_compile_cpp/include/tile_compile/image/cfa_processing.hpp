@@ -7,11 +7,6 @@
 namespace tile_compile::image {
 
 /**
- * Create green mask for CFA pattern.
- */
-Matrix2Df cfa_green_mask(int height, int width, const std::string& bayer_pattern);
-
-/**
  * Compute green proxy from CFA mosaic (interpolate non-green pixels).
  */
 Matrix2Df cfa_green_proxy(const Matrix2Df& mosaic, const std::string& bayer_pattern);
@@ -144,15 +139,6 @@ DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
                                BayerPattern pattern,
                                int origin_x,
                                int origin_y);
-
-DebayerResult debayer_bilinear_region(const float* mosaic,
-                                       int mosaic_height,
-                                       int mosaic_width,
-                                       int region_x,
-                                       int region_y,
-                                       int region_width,
-                                       int region_height,
-                                       BayerPattern pattern);
 
 // Edge-directed demosaicing via OpenCV (VNG; ahd=true selects AHD/EA).
 // origin_x/origin_y define the Bayer parity of the mosaic's top-left pixel,

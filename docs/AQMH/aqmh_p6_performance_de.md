@@ -671,19 +671,24 @@ darf deshalb nicht ohne Gesamtbilanz ein größerer Source-Cache zugesagt werden
 - Source-Provider um Rechteck-/Zeilenansichten mit absolutem Ursprung erweitern.
   Nur die für R1 erforderlichen Rohdaten lesen; Source-Indizes im Clipping-Key
   bleiben absolut. Kein Crop mit stillschweigend verschobenem CFA-Ursprung.
-- `SourceQualityMapCacheReader::read_region` muss echtes Range-I/O erhalten:
-  derzeit lädt es mit `read_bin` die gesamte Datei und expandiert erst danach
-  die gewünschten Zeilen. Werte- und Vetoebene liegen getrennt in der Datei;
-  deren Offsets und Speicherzeilen separat lesen und validieren.
-- Noch günstiger: vorhandene uint16-Werte und Veto-Bytes direkt über einen
+- `SourceQualityMapCacheReader::read_rect` hat echtes Range-I/O: es liest nur
+  die überdeckten Speicherzellen mittels `read_bin_window`. Werte- und
+  Vetoebene bleiben getrennt und werden mit absoluten Koordinaten dekodiert.
+  Offen ist ihre Wiederverwendung über Kacheln desselben Frame-Bands.
+- Noch günstiger als die aktuelle Rechteck-Expansion: vorhandene uint16-Werte
+  und Veto-Bytes direkt über einen
   unveränderlichen Karten-View adressieren. `dequantize_quality`, `y/divisor`,
   `x/divisor` und Hard-Veto→NaN müssen exakt dieselben Ergebnisse liefern.
   Das vermeidet die wiederholte volle Float-Expansion, ohne neue Quantisierung.
-- Hashes nicht einfach streichen. Entweder verifizierte unveränderliche
-  Generationen mit klarer Besitz-/Mutationsregel, oder verifizierbare Blöcke
-  mit an das Manifest gebundenen Digests. Bei Schemaänderung Version/Identität
-  und Resume-Vertrag anpassen. Ein offener Dateideskriptor verhindert allein
-  keine In-place-Schreibzugriffe; Größe+mtime allein garantiert keine Integrität.
+- **Beschlossene Betriebsregel:** Ein AQMH-Lauf besitzt seine Eingaben und
+  Zwischenartefakte. Änderungen durch den Benutzer während eines Laufs sind
+  außerhalb des Rechenvertrags. Deshalb keine SHA-256-Prüfung im Hot Path:
+  weder für normalisierte Quellen noch für Q- oder Profilcache-Dateien.
+  Laufidentität bindet weiterhin Konfiguration, kanonische Eingabeliste,
+  Geometrie und Generationenamen; Dateigröße und erwartete Struktur bleiben
+  als günstige Fehlermeldung erhalten. Eine vollständige Integritätsprüfung
+  ist ein expliziter Offline-/Diagnosemodus, niemals Voraussetzung eines
+  normalen Rekonstruktionslaufs. Tests dürfen weiterhin Bytes hashen.
 - Zielzähler: physische und logische Reads getrennt, gelesene/expandierte Pixel,
   Hash-Bytes, Source-/Q-Treffer, Band-/Kachelzahl, Host-/Device-Peaks und
   `source_pixels_loaded / (N*P)`. Schranken aus tatsächlich geschnittenen
@@ -751,6 +756,42 @@ Footprint-Pass 47,6 s → 3,5 s (13,6×), Coverage gesamt 87,2 s → 42,8 s (2,0
 
 ### 6.5 R4: Vorlauf und Qualität gezielt verkürzen
 
+#### 6.5.1 Befund 2026-09-11: konkrete Wiederholungen und Hash-Hot-Paths
+
+Der vollständige Umsetzungs-, Migrations- und Testvertrag steht in
+[aqmh_p6_trusted_run_implementierung_de.md](aqmh_p6_trusted_run_implementierung_de.md).
+
+Die folgende Liste ist aus den Aufrufpfaden im Source abgeleitet. Sie trennt
+gleichartige Datenarbeit von einmaligen Commit-/Test-Hashes. Die auf dieser
+Maschine gemessenen **17,2 ms für einen 33,18-MB-Frame-SHA** bedeuten allein
+pro vollständigem 600-Frame-Pass 10,32 s CPU-Zeit; diese Zahl enthält noch
+nicht Lesen, Kopieren oder die weiteren Block-Digests.
+
+| Priorität | Aufrufpfad | Tatsächliche Wiederholung | Folge | Schnitt |
+|---|---|---|---|---|
+| 1 | `runner_forward_drizzle.cpp`: `for (f) cache.load(f.source_index)` vor `SOURCE_QUALITY_MAPS` | alle Quellen werden vollständig gelesen und verifiziert, obwohl `VerifiedNormalizedSourceCache` ihre Größe bereits beim Öffnen prüft | ungetimte Vorlaufzeit; pro Frame Ganzdatei-SHA **und** Block-SHAs | Vollscan entfernen; die normalisierte Generation ist Eigentum des laufenden Runners |
+| 1 | `VerifiedNormalizedSourceCache::verify_and_insert` | Ganzdatei-SHA über das geladene Bild, danach `digest_blocks()` über dieselben Bytes | mindestens zwei vollständige Digest-Durchläufe je LRU-Miss; nur der erste ist zeitlich sichtbar | im Normalmodus weder Ganzdatei- noch Block-SHA; Blockindex nur im Offline-Prüfmodus |
+| 1 | SQM- und Global-Quality-Worker-Klone | jeder Klon startet mit leerem LRU und leerem Blockindex; beide Phasen laden dieselben 600 Quellen | mindestens zwei zusätzliche Vollbildpässe; bisher nicht in den Cache-Zählern des Basisobjekts | Phaseübergreifenden Frame-Job bauen; SQM liefert die Global-Quality-Metriken mit |
+| 1 | `compute_source_quality_proxy_v1` in SQM und Global Quality | derselbe Vollbild-Proxy pro Quelle zweimal | zweiter kompletter Proxy-, Metrik- und Quellenpass; GQ allein 67 s gemessen | Frame-Metriken und Sternmetriken beim SQM-Proxy berechnen, als kleines Artefakt publizieren; GQ reduziert nur Skalare |
+| 1 | CUDA-Forward-Drizzle vor Schedule 3 | kachel-außen/frame-innen; bei zu kleinem LRU werden dieselben Quellen je Kachel erneut geladen | Verstärkung mit Kachelzahl; erklärt weder Coverage noch SQM, kann aber FORWARD_DRIZZLE dominieren | Schedule 3: Quellband je Frame-Fenster einmal lesen und über alle Kacheln des Fensters halten |
+| 1 | `SourceQualityMapCacheReader::has` und `file_path` | beide durchsuchen `meta_.files` linear; der Q-Provider ruft sie pro Frame und Kachel mehrfach auf | Lookup-Komplexität `O(B·T·F·E)` statt `O(B·T·F)`; bei 600 Frames und mehreren Q-Streams können Milliarden Metadatenvergleiche entstehen | beim Reader-Aufbau Index `(stream, source_index) → Pfad` anlegen; `has` und `read_rect` erhalten O(1)-Lookup |
+| 2 | `SourceQualityMapCacheWriter::put` | jede gerade geschriebene `.bin` wird unmittelbar wieder vollständig mit `sha256_file` gelesen | zusätzlicher Read+SHA pro ausgegebener Q-Karte | Hash aus Normalmodus entfernen; Atomarität und Metadaten behalten |
+| 2 | `SourceQualityMapCacheReader`-Konstruktor | hasht jede Q-Cache-Datei beim Öffnen vor FORWARD_DRIZZLE erneut | kompletter zusätzlicher Q-Cache-Pass vor der Rekonstruktion | nur Metadaten/Größe/Schema im Normalmodus; Offline-Verifikation optional |
+| 2 | `run_phase_registration_prewarp`, nur bei `auto_engine` | bis zu vier Probe-Frames erhalten erneut einen Registration-Proxy; je bewegtem Probe-Frame laufen Stern- und ECC-Registrierung, später baut der reguläre Pfad den Proxy nochmals | kleine, aber reale Doppelarbeit vor der eigentlichen Registrierung; nicht Erklärung für 218 s allein | Probe-Proxys/-Sternlisten in den vorhandenen Frame-Cache übernehmen oder Probe-Metriken als reguläre Vorarbeit verwenden |
+| 2 | `accumulate_pair_impl` / CUDA-Producer | Produktions- und Sortierarbeit war je Kachel wiederholt; 3a-1 begrenzt CPU-Records, CUDA produziert jedoch noch vollbreit | Gerätearbeit und Transfers skalieren mit Kachelzahl, bis der Kernel ein echtes X+Y-Fenster erhält | CUDA-Quellrechteck und Upload begrenzen; danach mit Schedule 3 gemeinsam messen |
+| 3 | `compute_geometric_coverage` | CFA-Pass rastert pro Frame exakte Polygon-Schnitte; der spätere Drizzle braucht verwandte, aber nicht direkt wiederverwendbare Beiträge | 1513 s enthalten **keinen** Source-SHA; dies ist der größte unabhängige Algorithmusblock | GPU-/affin beschleunigten, paritätsgeprüften Coverage-Pfad entwickeln; kein riesiger Leaf-/Kandidaten-Spool |
+| 3 | `compute_geometric_coverage::run_band` | je Frame werden die CFA-Akkumulatoren gelöscht, gerastert und kanvasweit reduziert; danach folgt der Footprint- und Zählpass | mehrere volle Speicherpässe pro Frame zusätzlich zu den Polygon-Clips | nach dem GPU-/affinen Clip-Pfad getrennt profilieren; erst dann CFA-/Footprint-Schleifen fusionieren oder Zellenlisten einsetzen |
+| 3 | Output-/Profil- und Geometrie-Manifeste | Hash beim Commit, bei Resume oder expliziter Prüfung | einmalig je Generation, kein innerer Pixel-Loop | im Normalmodus nur bei explizitem Resume-Prüfmodus aktivieren; Tests behalten Byte-Hashes |
+
+Die vorhandene Laufzeittelemetrie reicht für eine SHA-Anteilszahl noch nicht:
+`whole_file_sha_seconds` misst nur den ersten SHA in `load()`. Sie lässt
+`digest_blocks()`, den region-first EVP-SHA, `read_rect`-Block-SHAs,
+Dateilesezeit sowie sämtliche Worker-Klone aus. Vor dem nächsten Messlauf
+müssen deshalb je Phase `read_seconds`, `whole_sha_seconds`,
+`block_sha_seconds`, `write_seconds`, Byte-Zähler und die Summe aller
+Worker-Caches erfasst werden. Das ist Diagnose, keine weitere Prüfung im
+Rechenpfad.
+
 - `runner_pipeline.cpp`, Kalibrierungsschleife über `input_frames`: derzeit
   sequenzielles Lesen, Bias/Dark/Flat und FITS-Schreiben. Frames mit begrenzten
   I/O-Workern verarbeiten, Ausgabepfade/Ergebnisvektor nach Index festlegen,
@@ -761,10 +802,11 @@ Footprint-Pass 47,6 s → 3,5 s (13,6×), Coverage gesamt 87,2 s → 42,8 s (2,0
   Lesen, Hintergrundschätzung, Normalisierung, Cache-Schreiben und Proxybau
   einzeln messen. Doppelte Arbeit nur bei identischen Inputs/Definitionen
   wiederverwenden. Registrierungsmetriken dürfen nicht als AQMH-Gewichte dienen.
-- `source_quality_map_cache.cpp`: O3 hat eine serielle `writer.put`-Sektion
-  einschließlich Serialisierung/Hash/Write; ca. 6× ist bisher eine Erwartung.
-  Unabhängige Dateien parallel vorbereiten, nur Metadatenaufnahme/Commit
-  serialisieren. SQM-Working-Set pro Worker einschließlich `pending` budgetieren.
+- `source_quality_map_cache.cpp`: `writer.put` schreibt unterschiedliche
+  Dateien bereits parallel; Quantisierung, Schreiben und der anschließende
+  Datei-SHA laufen jedoch je Stream. Nach Wegfall des Hashes verbleiben
+  Quantisierung und Write als getrennt zu messende SQM-Anteile. SQM-Working-Set
+  pro Worker einschließlich `pending` budgetieren.
   Nebenbefund vor Ausbau beheben: `worker_error` wird außerhalb von `critical`
   gelesen und darin geschrieben; das ist ein ungeschützter gemeinsamer Zugriff.
   Ein atomarer Fehlerindikator bzw. ausschließlich synchronisierte Zugriffe

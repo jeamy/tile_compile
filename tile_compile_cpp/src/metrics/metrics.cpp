@@ -294,7 +294,7 @@ VectorXf calculate_global_weights_impl(
     float w_bg, float w_noise, float w_grad, float w_fwhm,
     float w_roundness, float w_star_count, float clamp_lo, float clamp_hi,
     bool adaptive_weights, float weight_exponent_scale) {
-    int n = metrics.size();
+    int n = static_cast<int>(metrics.size());
     VectorXf weights(n);
     
     VectorXf bg(n), noise(n), grad(n);

@@ -155,14 +155,6 @@ float sorted_quantile(const std::vector<float> &sorted_values, float q) {
   return sorted_values[idx];
 }
 
-/// @brief Implements robust mad.
-/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-float robust_mad(const std::vector<float> &values, float center) {
-  return tile_compile::core::mad_of(std::vector<float>(values), center);
-}
-
 float robust_mean(const std::vector<float> &values) {
   if (values.empty())
     return 0.0f;
@@ -181,7 +173,7 @@ std::vector<float> sigma_clipped_values(std::vector<float> values,
   for (int iter = 0; iter < max_iters && values.size() >= 8; ++iter) {
     std::vector<float> work = values;
     const float center = robust_median_inplace(work);
-    const float scale = core::kMadToSigma * robust_mad(values, center);
+    const float scale = core::kMadToSigma * core::mad_of(values, center);
     if (!(std::isfinite(scale) && scale > kTiny))
       break;
     const float limit = sigma * scale;
@@ -206,7 +198,7 @@ float biweight_location(std::vector<float> values) {
     return std::numeric_limits<float>::quiet_NaN();
   std::vector<float> work = values;
   const float m = robust_median_inplace(work);
-  const float mad = robust_mad(values, m);
+  const float mad = core::mad_of(values, m);
   const float scale = 9.0f * std::max(mad, kTiny);
   double num = 0.0;
   double den = 0.0;
@@ -403,7 +395,7 @@ float estimate_structure_noise_scale(const TileMetrics &tm,
   if (!bg_pixels.empty()) {
     std::vector<float> tmp = bg_pixels;
     const float med = robust_median_inplace(tmp);
-    const float sigma = core::kMadToSigma * robust_mad(bg_pixels, med);
+    const float sigma = core::kMadToSigma * core::mad_of(bg_pixels, med);
     if (std::isfinite(sigma) && sigma > kTiny) {
       return sigma;
     }
@@ -1063,7 +1055,7 @@ build_modeled_foreground_mask(const Matrix2Df &luma, const BGEConfig &config,
     return out_mask;
 
   const float med = robust_median_inplace(sample_vals);
-  const float sigma = std::max(1.0e-6f, core::kMadToSigma * robust_mad(sample_vals, med));
+  const float sigma = std::max(1.0e-6f, core::kMadToSigma * core::mad_of(sample_vals, med));
   const float thresh = med + 0.8f * sigma;
   if (out_threshold)
     *out_threshold = thresh;
@@ -1117,7 +1109,7 @@ float robust_mesh_background_estimate(std::vector<float> values) {
     return std::numeric_limits<float>::quiet_NaN();
   for (int iter = 0; iter < 4; ++iter) {
     const float med = robust_median_inplace(values);
-    const float sigma = core::kMadToSigma * robust_mad(values, med);
+    const float sigma = core::kMadToSigma * core::mad_of(values, med);
     if (!(std::isfinite(sigma) && sigma > 1.0e-6f))
       break;
     const float clip = 2.5f * sigma;
@@ -1888,7 +1880,7 @@ extract_autotune_prepared_tile_samples(
       scratch.dog_vals[i] = scratch.blur_small[i] - scratch.blur_large[i];
     }
     const float dog_med = robust_median_inplace(scratch.dog_vals);
-    const float dog_mad = robust_mad(scratch.dog_vals, dog_med);
+    const float dog_mad = core::mad_of(scratch.dog_vals, dog_med);
     const float dog_thresh =
         dog_med + 3.0f * std::max(core::kMadToSigma * dog_mad, 1.0e-6f);
     const float bright_thresh =
@@ -2059,7 +2051,7 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
   bool have_bg_guard = false;
   if (valid_bg_values.size() >= 16) {
     bg_med = robust_median_inplace(valid_bg_values);
-    const float mad = robust_mad(valid_bg_values, bg_med);
+    const float mad = core::mad_of(valid_bg_values, bg_med);
     bg_sigma = core::kMadToSigma * mad;
     have_bg_guard = std::isfinite(bg_sigma) && bg_sigma > kTiny;
   }
@@ -2399,7 +2391,7 @@ Matrix2Df render_bicubic_mesh_surface(const std::vector<GridCell> &grid_cells,
 /// artifact, and error-handling semantics expected by callers.
 bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
                      const BGEConfig &config, RBFModelState *out) {
-  const int M = grid_cells.size();
+  const int M = static_cast<int>(grid_cells.size());
   if (M < 3) {
     std::cout << "[BGE] Too few grid cells for RBF: " << M << std::endl;
     return false;
@@ -2516,7 +2508,7 @@ bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
   // Dynamic lambda adaptation: test/adjust/test and prefer the smoothest
   // (highest lambda) model that still fits grid samples well enough.
   const float bg_med = robust_median_inplace(bg_values);
-  const float bg_sigma = core::kMadToSigma * robust_mad(bg_values, bg_med);
+  const float bg_sigma = core::kMadToSigma * core::mad_of(bg_values, bg_med);
   const float residual_limit =
       std::max(0.15f, 0.20f * std::max(bg_sigma, kTiny));
 
@@ -2659,7 +2651,7 @@ bool solve_polynomial_model(const std::vector<GridCell> &grid_cells,
                             int image_width, int image_height,
                             const BGEConfig &config,
                             PolynomialModelState *out) {
-  const int M = grid_cells.size();
+  const int M = static_cast<int>(grid_cells.size());
   const int order = config.fit.polynomial_order;
 
   // Number of polynomial terms: (order+1)*(order+2)/2

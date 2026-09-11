@@ -848,6 +848,26 @@ bool run_phase_registration_prewarp(
     PhaseRegistrationContext &out, bool registration_only) {
   config::RegistrationConfig registration_cfg = cfg.registration;
 
+  // T7: registration/normalization subtimers. Wall-clock accumulators for the
+  // main sub-phases, reported in global_reg_extra["diag"]["subtimers"].
+  struct RegistrationSubtimers {
+    double probe_s = 0, fits_read_s = 0, proxy_build_s = 0,
+           star_detection_s = 0, registration_s = 0, anchor_selection_s = 0,
+           affine_refinement_s = 0, local_refinement_s = 0;
+  } reg_subtimers;
+  using reg_clock = std::chrono::steady_clock;
+  auto reg_timer = [&](double &slot) {
+    struct ScopedTimer {
+      double &s;
+      reg_clock::time_point t0;
+      ScopedTimer(double &slot) : s(slot), t0(reg_clock::now()) {}
+      ~ScopedTimer() {
+        s += std::chrono::duration<double>(reg_clock::now() - t0).count();
+      }
+    };
+    return ScopedTimer(slot);
+  };
+
   // Auto-engine: detect conditions where the configured engine would fail and
   // override with triangle_star_matching. Two triggers:
   //   1) Strong field rotation (Alt/Az mount): median |rotation| per frame
@@ -859,6 +879,7 @@ bool run_phase_registration_prewarp(
   // Triggered when auto_engine=true AND the configured engine is one that
   // cannot handle rotation or dominant bright objects well.
   if (registration_cfg.auto_engine && frames.size() >= 3) {
+    auto _probe_timer = reg_timer(reg_subtimers.probe_s);
     const bool engine_rotation_blind =
         (registration_cfg.engine == "robust_phase_ecc" ||
          registration_cfg.engine == "hybrid_phase_ecc");
@@ -887,6 +908,11 @@ bool run_phase_registration_prewarp(
           frame_cache->store_normalized(static_cast<size_t>(probe_ref_idx), img);
         }
         probe_ref = build_registration_proxy(img, detected_mode, detected_bayer_str);
+        // T7: store the probe reference proxy in the regular cache so the later
+        // registration pass can reuse it instead of rebuilding from scratch.
+        if (frame_cache && probe_ref.size() > 0)
+          frame_cache->store_registration_proxy(
+              static_cast<size_t>(probe_ref_idx), probe_ref);
       } catch (...) {
         std::cerr << "[REGISTRATION] Warning: auto_engine probe reference frame processing failed" << std::endl;
       }
@@ -918,6 +944,10 @@ bool run_phase_registration_prewarp(
               frame_cache->store_normalized(fi, img);
             }
             Matrix2Df probe_mov = build_registration_proxy(img, detected_mode, detected_bayer_str);
+            // T7: store the probe frame proxy in the regular cache so the later
+            // registration pass can reuse it instead of rebuilding from scratch.
+            if (frame_cache && probe_mov.size() > 0)
+              frame_cache->store_registration_proxy(fi, probe_mov);
             if (probe_mov.size() <= 0 ||
                 probe_mov.rows() != probe_ref.rows() ||
                 probe_mov.cols() != probe_ref.cols()) {
@@ -1027,6 +1057,7 @@ bool run_phase_registration_prewarp(
     if (frame_cache && frame_cache->has_normalized(frame_index)) {
       return frame_cache->load_normalized(frame_index);
     }
+    auto _t = reg_timer(reg_subtimers.fits_read_s);
     Matrix2Df img = io::read_fits_pixels_float(frames[frame_index]);
     image::apply_normalization_inplace(img, norm_scales[frame_index],
                                        detected_mode, detected_bayer_str, 0, 0);
@@ -1052,6 +1083,7 @@ bool run_phase_registration_prewarp(
         }
       }
       Matrix2Df img = load_frame_normalized(frame_index);
+      auto _t = reg_timer(reg_subtimers.proxy_build_s);
       Matrix2Df proxy =
           build_registration_proxy(img, detected_mode, detected_bayer_str);
       if (frame_cache && proxy.size() > 0) {
@@ -1069,6 +1101,7 @@ bool run_phase_registration_prewarp(
     std::call_once(star_list_init_flags[frame_index], [&]() {
       const Matrix2Df proxy = load_registration_proxy(frame_index);
       if (proxy.size() > 0) {
+        auto _t = reg_timer(reg_subtimers.star_detection_s);
         in_memory_star_lists[frame_index] = registration::detect_stars_simple(
             proxy, registration_cfg.star_topk,
             registration_cfg.enable_local_background_subtraction);
@@ -1359,6 +1392,7 @@ bool run_phase_registration_prewarp(
   // temporally distributed. Long Alt/Az sessions often cannot be matched
   // robustly against a single late-session reference frame.
   if (!frame_metrics.empty()) {
+    auto _anchor_timer = reg_timer(reg_subtimers.anchor_selection_s);
     struct RefCandidate {
       int idx = 0;
       float score = 0.0f;
@@ -1612,10 +1646,16 @@ bool run_phase_registration_prewarp(
         global_reg_status = "error";
         global_reg_extra["error"] = "ref_frame_empty";
       } else {
+        // T7: registration_s covers the whole direct/sequential/temporal
+        // registration solve (SECTIONS 1-3 below). RAII timer: it accumulates
+        // on scope exit, including via exception unwinding into the
+        // enclosing catch, so a failed registration still gets its elapsed
+        // time counted.
+        auto _reg_timer = reg_timer(reg_subtimers.registration_s);
         Matrix2Df ref_reg = (detected_mode == ColorMode::OSC)
                                 ? image::cfa_green_proxy_downsample2x2(
                                       ref_full, detected_bayer_str)
-                                : registration::downsample2x2_mean(ref_full);
+                                : core::downsample2x2_mean(ref_full);
         global_reg_scale = 1.0f;
         if (ref_reg.rows() > 0) {
           int full_h2 = ref_full.rows() - (ref_full.rows() % 2);
@@ -4394,9 +4434,12 @@ bool run_phase_registration_prewarp(
             } else {
               refinement.attempted = true;
               ++reg_affine_correction_attempted;
-              refinement.fit = registration::estimate_affine_star_refinement(
-                  ref_stars, warped_stars, ref_proxy.rows(), ref_proxy.cols(),
-                  3.0f);
+              {
+                auto _t = reg_timer(reg_subtimers.affine_refinement_s);
+                refinement.fit = registration::estimate_affine_star_refinement(
+                    ref_stars, warped_stars, ref_proxy.rows(), ref_proxy.cols(),
+                    3.0f);
+              }
               refinement.reason = refinement.fit.rejection_reason;
 
               if (refinement.fit.valid) {
@@ -4485,10 +4528,13 @@ bool run_phase_registration_prewarp(
             } else {
               local_refinement.attempted = true;
               ++reg_local_correction_attempted;
-              local_refinement.fit =
-                  registration::estimate_smooth_local_star_refinement(
-                      ref_stars, warped_stars, ref_proxy.rows(),
-                      ref_proxy.cols(), 3.0f);
+              {
+                auto _t = reg_timer(reg_subtimers.local_refinement_s);
+                local_refinement.fit =
+                    registration::estimate_smooth_local_star_refinement(
+                        ref_stars, warped_stars, ref_proxy.rows(),
+                        ref_proxy.cols(), 3.0f);
+              }
               local_refinement.reason =
                   local_refinement.fit.rejection_reason;
 
@@ -4721,6 +4767,19 @@ bool run_phase_registration_prewarp(
       write_global_registration_artifact(global_reg_scale);
     } catch (...) {
     }
+  }
+
+  // T7: report registration/normalization subtimers.
+  {
+    auto &st = global_reg_extra["diag"]["subtimers"];
+    st["probe_s"] = reg_subtimers.probe_s;
+    st["fits_read_s"] = reg_subtimers.fits_read_s;
+    st["proxy_build_s"] = reg_subtimers.proxy_build_s;
+    st["star_detection_s"] = reg_subtimers.star_detection_s;
+    st["registration_s"] = reg_subtimers.registration_s;
+    st["anchor_selection_s"] = reg_subtimers.anchor_selection_s;
+    st["affine_refinement_s"] = reg_subtimers.affine_refinement_s;
+    st["local_refinement_s"] = reg_subtimers.local_refinement_s;
   }
 
   if (!registration_only)

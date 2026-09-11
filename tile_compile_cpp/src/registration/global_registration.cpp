@@ -24,32 +24,6 @@
 
 namespace tile_compile::registration {
 
-/// @brief Implements downsample2x2 mean.
-/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-Matrix2Df downsample2x2_mean(const Matrix2Df &in) {
-  const int h = in.rows();
-  const int w = in.cols();
-  const int h2 = h - (h % 2);
-  const int w2 = w - (w % 2);
-  const int out_h = std::max(1, h2 / 2);
-  const int out_w = std::max(1, w2 / 2);
-  Matrix2Df out(out_h, out_w);
-  for (int y = 0; y < out_h; ++y) {
-    for (int x = 0; x < out_w; ++x) {
-      const int sy = y * 2;
-      const int sx = x * 2;
-      const float a = in(sy, sx);
-      const float b = in(sy, sx + 1);
-      const float c = in(sy + 1, sx);
-      const float d = in(sy + 1, sx + 1);
-      out(y, x) = 0.25f * (a + b + c + d);
-    }
-  }
-  return out;
-}
-
 /// @brief Implements scale translation warp.
 /// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -1662,8 +1636,8 @@ RegistrationResult robust_phase_ecc(const Matrix2Df &mov,
 
   // Build 2 pyramid levels
   for (int level = 0; level < 2; ++level) {
-    mov_pyr.push_back(downsample2x2_mean(mov_pyr.back()));
-    ref_pyr.push_back(downsample2x2_mean(ref_pyr.back()));
+    mov_pyr.push_back(core::downsample2x2_mean(mov_pyr.back()));
+    ref_pyr.push_back(core::downsample2x2_mean(ref_pyr.back()));
   }
 
   // Start from coarsest level
@@ -1745,8 +1719,8 @@ RegistrationResult robust_phase_ecc_seeded(const Matrix2Df &mov,
   std::vector<Matrix2Df> mov_pyr = {mov_grad};
   std::vector<Matrix2Df> ref_pyr = {ref_grad};
   for (int level = 0; level < 2; ++level) {
-    mov_pyr.push_back(downsample2x2_mean(mov_pyr.back()));
-    ref_pyr.push_back(downsample2x2_mean(ref_pyr.back()));
+    mov_pyr.push_back(core::downsample2x2_mean(mov_pyr.back()));
+    ref_pyr.push_back(core::downsample2x2_mean(ref_pyr.back()));
   }
 
   WarpMatrix current_warp = init_warp;
@@ -2758,7 +2732,7 @@ register_frames_to_reference(const std::vector<Matrix2Df> &frames_fullres,
       proxy.push_back(tile_compile::image::cfa_green_proxy_downsample2x2(
           frames_fullres[i], tile_compile::bayer_pattern_to_string(bayer)));
     } else {
-      proxy.push_back(downsample2x2_mean(frames_fullres[i]));
+      proxy.push_back(core::downsample2x2_mean(frames_fullres[i]));
     }
   }
   out.downsample_scale = 2.0f;

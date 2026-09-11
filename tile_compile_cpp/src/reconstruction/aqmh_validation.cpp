@@ -44,18 +44,6 @@ float percentile(std::vector<float> values, float q) {
   return values[idx];
 }
 
-float median_inplace(std::vector<float> &values) {
-  if (values.empty()) return std::numeric_limits<float>::quiet_NaN();
-  const size_t mid = values.size() / 2;
-  std::nth_element(values.begin(), values.begin() + mid, values.end());
-  const float upper = values[mid];
-  if (values.size() % 2 != 0)
-    return upper;
-  const float lower =
-      *std::max_element(values.begin(), values.begin() + mid);
-  return 0.5f * (lower + upper);
-}
-
 struct RobustFiniteStats {
   float median = 0.0f;
   float mad = 0.0f;
@@ -65,17 +53,17 @@ struct RobustFiniteStats {
 RobustFiniteStats robust_finite_stats_inplace(std::vector<float> &values) {
   RobustFiniteStats out;
   if (values.empty()) return out;
-  out.median = median_inplace(values);
+  out.median = tile_compile::core::median_of_or_nan_inplace(values);
 
   thread_local std::vector<float> work;
   work.resize(values.size());
   for (size_t i = 0; i < values.size(); ++i)
     work[i] = std::abs(values[i] - out.median);
-  out.mad = median_inplace(work);
+  out.mad = tile_compile::core::median_of_or_nan_inplace(work);
 
   for (size_t i = 0; i < values.size(); ++i)
     work[i] = std::abs(values[i]);
-  const float median_abs = median_inplace(work);
+  const float median_abs = tile_compile::core::median_of_or_nan_inplace(work);
   out.eps = std::max(std::nextafter(0.0f, 1.0f),
                      metrics::aqmh_eps_rel *
                          std::max(median_abs, out.mad));
@@ -85,10 +73,10 @@ RobustFiniteStats robust_finite_stats_inplace(std::vector<float> &values) {
 float robust_noise_from_differences_inplace(
     std::vector<float> &differences) {
   if (differences.empty()) return 0.0f;
-  const float median = median_inplace(differences);
+  const float median = tile_compile::core::median_of_or_nan_inplace(differences);
   for (float &value : differences)
     value = std::abs(value - median);
-  const float mad = median_inplace(differences);
+  const float mad = tile_compile::core::median_of_or_nan_inplace(differences);
   return tile_compile::core::kMadToSigma * mad;
 }
 

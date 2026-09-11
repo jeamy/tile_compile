@@ -28,6 +28,7 @@
 // the separate, explicit Q=0 veto semantics (plan 11.9).
 
 #include "tile_compile/core/types.hpp"
+#include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
 
 #include <functional>
@@ -74,5 +75,17 @@ VectorXf compute_global_quality_weights(const std::vector<Matrix2Df> &sources,
                                         ColorMode color_mode, BayerPattern bayer_pattern,
                                         int cfa_origin_x, int cfa_origin_y,
                                         const GlobalQualityConfig &cfg);
+
+// T3: compute weights from pre-computed FrameMetrics and FrameStarMetrics
+// (e.g. loaded from source_quality_metrics-v1.json). This avoids reloading
+// and re-running compute_source_quality_proxy_v1 per frame. The metrics
+// must be in the same order as the plan's frames (by source_index slot).
+// ref_star_count is taken from star_metrics[0].star_count, matching the
+// legacy convention; wfwhm is not used by the weight formula, so the
+// ref_star_count=0 used during SQM collection is safe.
+VectorXf compute_global_quality_weights_from_metrics(
+    const std::vector<FrameMetrics> &frame_metrics,
+    const std::vector<metrics::FrameStarMetrics> &star_metrics,
+    const GlobalQualityConfig &cfg);
 
 }  // namespace tile_compile::reconstruction
