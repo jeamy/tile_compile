@@ -23,10 +23,11 @@ Schema, Dimensionen, Frame-Indizes, Konfigurations- und Geometrieidentität
 bleiben erhalten. Sie erkennen unvollständige oder falsch zugeordnete
 Artefakte ohne einen Vollscan der Nutzdaten.
 
-Eine vollständige Inhaltsprüfung bleibt als expliziter Offline-Befehl
-`verify-artifacts` erhalten. Sie ist Diagnose vor einem Resume aus fremdem
-oder unklarem Verzeichnis, nicht Teil von `run` oder `resume-reconstruction`.
-Tests dürfen weiterhin jede relevante Ausgabe hashen.
+Es gibt keinen Inhaltsprüfer und keinen `verify-artifacts`-Befehl. Ein
+unbekanntes oder manuell verändertes Verzeichnis wird nicht als Resume-Basis
+unterstützt; dafür wird ein neuer Lauf gestartet. Tests dürfen relevante
+Ausgaben weiterhin byteweise vergleichen oder hashen, weil dies nicht Teil
+des Produktpfads ist.
 
 ## 2. Gemessene Ausgangslage
 
@@ -44,6 +45,8 @@ Referenzmaschine 17,2 ms. Ein vollständiger 600-Frame-Durchlauf kostet somit
 | Coverage dauert 1513 s | `compute_geometric_coverage()` nutzt keine normalisierten Quellen | SHA-Entfernung löst diesen Hauptblock nicht |
 | `SourceQualityMapCacheWriter::put()` hasht jede geschriebene `.bin` sofort nach dem Schreiben | `source_quality_map_cache.cpp:389`, `e.sha256 = core::sha256_file(target)` | bei 610 Frames × ~6 Streams ≈ 11,4 s, eingebettet in die gemessenen 522,9 s SOURCE_QUALITY_MAPS |
 | `SourceQualityMapCacheReader` hasht beim Öffnen jede `.bin` einmal komplett, UND wird pro vollem Durchlauf **zwei- bis dreimal** konstruiert | `source_quality_map_cache.cpp:514-519` (Verifikationsschleife im Konstruktor); Konstruktionsstellen: `runner_forward_drizzle.cpp:390` (Resume-Validierung vor GLOBAL_QUALITY), `source_quality_artifact.cpp:176`/`284` (Single-Band- bzw. Multiband-FORWARD_DRIZZLE) | je Konstruktion ≈11,4 s bei einem 22-GB-Cache (610 Frames); ein reiner FORWARD_DRIZZLE-Resume bezahlt das **zweimal** (Validierung + eigentlicher Reader), nicht einmal |
+| Quellen im Forward Drizzle | `persist_forward_drizzle_multiband()` verarbeitet alle Frames erneut für jedes Zielband; `source_of()` ruft `cache.load()` | bei 22 Bändern und einem LRU unterhalb aller 600 Frames bis zu 22 Ganzbild-Ladevorgänge je Frame | ein Kachelcache allein löst die Wiederholung über Bandgrenzen nicht |
+| Q-Maps im gekachelten Forward Drizzle | `reduce_window()` ruft `quality_of()` im Frame-Loop auf; die Provider-Lambda führt jedes Mal `read_rect()` aus | pro `(Band, Kachel, Frame)` werden überlappende Q-Zellen erneut dekodiert | Q-Bandansichten müssen für alle Kacheln eines Framefensters gepinnt bleiben |
 
 Die gemeldeten Phasen ergeben bereits vor Forward Drizzle etwa 40,7 min.
 Trusted Run entfernt unnötige I/O- und CPU-Arbeit, ist aber keine Ersatzlösung
@@ -76,6 +79,9 @@ Entfernen im Trusted-Run-Pfad:
    `read_rect()` dürfen im Trusted-Run-Pfad keine Digest-Kontexte erzeugen.
 4. Der Vollscan `for (const auto &f : sampling.frames) cache.load(...)` vor
    `SOURCE_QUALITY_MAPS` entfällt vollständig.
+   Bei parallelem SQM ist er nicht nur teuer: Die Worker verwenden eigene,
+   zunächst leere Cache-Klone und können die dabei geladenen LRU-Einträge nicht
+   sehen. Er hat daher keinen Nutzwert für den Produktionspfad.
 
 Behalten:
 
@@ -100,8 +106,8 @@ Neues Manifest-Schema `normalized-source-v2`:
 
 `manifest_identity` hasht nur JSON-Metadaten und bleibt für Resume- und
 Vorgängeridentität zulässig. Er ist kein Dateiinhaltsnachweis. Schema v1 darf
-im Trusted Run gelesen werden, ohne seine Dateihashes zu prüfen; der Offline-
-Prüfer versteht v1 und v2 und führt bei v1 die historische Vollprüfung aus.
+im Trusted Run gelesen werden, ohne seine Dateihashes zu prüfen. Unbekannte
+Schema-Versionen werden abgelehnt.
 
 ### 3.2 Q-Map-Cache
 
@@ -141,8 +147,7 @@ Vollfile-SHAs aus:
 
 Nicht entfernen: atomare Generationswechsel, fsync/rename, vollständige
 Ebenenliste, Größen-/Offsetgrenzen des Geometriecaches und die fachlichen
-Predecessor-Identitäten. Der Offline-Prüfer berechnet weiterhin die bisherigen
-Dateihashes und vergleicht sie mit Schema-v1-Manifests.
+Predecessor-Identitäten. Es gibt keinen nachträglichen Inhaltsvergleich.
 
 ## 4. Datenarbeit, die tatsächlich doppelt ist
 
@@ -193,7 +198,7 @@ Abnahme: jeder vorhandene und fehlende Stream/Frame-Fall liefert exakt
 dieselbe Antwort oder Fehlerkennung; der Reader zählt zusätzlich
 `metadata_lookup_calls` und `metadata_linear_scans` (letzterer muss null sein).
 
-### 4.3 Quellzugriff im gekachelten Forward Drizzle
+### 4.3 Quell- und Q-Residenz im gekachelten Forward Drizzle
 
 Der aktuelle Tiled-Zweig von `accumulate_pair_impl()` ruft pro Zielkachel
 `produce_sorted()` und damit pro Frame `source_of(source_index)` auf. Im
@@ -201,15 +206,36 @@ CUDA-Producer wird die volle Sourcebreite in `src_buf` kopiert und der Kernel
 produziert vollbreit; erst danach werden Records außerhalb der Zielkachel
 verworfen.
 
-Umsetzung in zwei getrennten Schritten:
+Die bisherige Aussage „einmal pro Frame“ war zu weit: Ein Framefenster kann
+die Wiederholung **zwischen Kacheln desselben Zielbandes** beseitigen. Es kann
+nicht zugleich die Wiederholung zwischen 22 Zielbändern beseitigen, ohne alle
+Framebänder oder alle noch nicht reduzierten Beiträge resident zu halten. Das
+wäre wieder die verworfene Kandidatenwand beziehungsweise ein Spool.
 
-1. **Schedule 3:** pro Band ein budgetiertes Framefenster `K` aufbauen.
-   Jedes Sourceband wird für einen Frame genau einmal gelesen und bleibt für
-   alle Kacheln dieses Fensters resident. Kandidaten bleiben framegeordnet;
-   die robuste Reduktion erhält unverändert die Reihenfolge je Zielzelle.
-   `K` wird aus dem gemeinsamen Hostbudget für Kandidaten, Quellbänder,
-   Q-Rechtecke, Records, Stripe-Reassembly und Scratch abgeleitet.
-2. **CUDA X+Y-Fenster:** aus der Zielkachel konservativ das affine
+Die Umsetzung ist deshalb in vier überprüfbare Teile getrennt:
+
+1. **T4a, Bandfenster:** pro Zielband ein budgetiertes Framefenster `K`
+   aufbauen. Für jeden Frame lädt ein `SourceBandView` das konservative
+   Source-Y-Band genau einmal und hält es über alle Zielkacheln des Fensters
+   fest. Die Ansicht liefert einen gepinnten Besitzgriff (`shared_ptr` oder
+   gleichwertig), keinen ungeschützten LRU-Referenzwert; eine nebenläufige
+   Eviction darf keine noch verwendete Matrix invalidieren.
+2. **T4b, Q-Bandansichten:** mit demselben Framefenster je benötigtem
+   Q-Stream ein konservatives Source-Y-Rechteck einmal dekodieren und über
+   alle Kacheln wiederverwenden. `quality_of()` darf für einen bereits
+   gepinnten `(source_index, stream, source_y_band)` keine weitere
+   `read_rect()`-Dateioperation ausführen. Der Provider rebaset nur noch
+   X/Y-Offsets; Veto- und NaN-Semantik bleiben identisch.
+3. **T4c, Bandgrenzen ehrlich messen:** Der Pool darf Einträge über
+   benachbarte Zielbänder behalten, soweit sein gemeinsames Budget reicht.
+   Er darf aber keinen falschen Anspruch „einmal pro gesamtem Lauf“ erheben.
+   Es sind getrennt `source_bytes_read`, `source_band_cache_hits/misses`,
+   `q_bytes_read` und `q_band_cache_hits/misses` je Zielband zu zählen.
+   Erst diese Messung entscheidet, ob überlappende Nachbarbänder ausreichend
+   Lokalität liefern. Eine source-frame-äußere globale Reihenfolge wäre nur
+   mit einem budgetierten Zwischenformat für noch nicht reduzierte Zielbänder
+   möglich und bleibt wegen dessen I/O-Volumen außerhalb dieses Schnitts.
+4. **CUDA X+Y-Fenster:** aus der Zielkachel konservativ das affine
    Quellrechteck bestimmen, nur dieses in `src_buf` kopieren und an den Kernel
    übergeben. Der Kernel enumeriert nur diese Quelle und emittiert nur
    In-Fenster-Records. Ränder, Rotation, Scherung, Skalierung und lokale
@@ -221,8 +247,45 @@ und verschiebt den Engpass auf NVMe-I/O.
 
 Abnahme: CPU- und CUDA-Profile, alle Multibandebenen und Alpha-Maps sind für
 Kachelbreiten, Bandhöhen und Framefenster bitidentisch. Zähler erfassen
-Sourcebytes, Q-Zellen, Producer-Aufrufe, Kernelstarts, Records vor/nach
-Fensterung und reale Host-/Device-Peaks.
+Source- und Q-Bytes, Bandcache-Treffer/Misses, Producer-Aufrufe, Kernelstarts,
+Records vor/nach Fensterung und reale Host-/Device-Peaks. Ein Test mit mehr
+Kacheln muss bei festem Zielband konstante Source- und Q-Readbytes zeigen.
+
+### 4.4 `prepare_drizzle_frames()` ist bandinvariant, wird aber pro Band neu gebaut (neuer Fund, 2026-09-11)
+
+`accumulate_pair_impl()` (`forward_drizzle_contrib_list.cpp:410`) ruft
+`prepare_drizzle_frames(plan, cfg, subdivision)` bei **jedem** Aufruf neu auf.
+`persist_forward_drizzle_multiband()` ruft `accumulate_pair_by_frame_cuda()`
+(→ `accumulate_pair_impl()`) einmal **pro Zielband** — bei Produktionsgeometrie
+bis zu 22 Bänder (§30.81, `[drizzle-store]`-Testtabelle: 600 Frames → 22
+Bänder bei enger Speicherdecke). `prepare_drizzle_frames()` hängt nur von
+`plan`/`cfg`/`subdivision` ab, nicht vom Zielband — sein Ergebnis
+(`PreparedDrizzleFrames::frames`, die gültigkeits- und ausschlussgefilterte,
+nach `source_index` sortierte Frameliste) ist über alle Bänder **identisch**.
+Es wird trotzdem bei jedem Bandaufruf neu aus `plan.frames` gebaut
+(`std::set`-Eindeutigkeitsprüfung über alle Frames, Sortierung, und — falls
+für ein lokales-Warp-Frame `active_geometry_cache()->frame_stats(...)`
+`present=false` liefert — ein voller `O(source_width*source_height)`-
+`sample_leaves`-Sweep dieses Frames, siehe die
+`kPrepareExclusionScan`-Instrumentierung).
+
+**Gegenprobe, dass das vermeidbar ist:** `compute_geometric_coverage()`
+(`sampling_geometry.cpp:332`) ruft `prepare_drizzle_frames()` genau **einmal**
+für den gesamten Coverage-Lauf und reicht das Ergebnis per Referenz an die
+`run_band`-Lambda für alle Bänder durch (`sampling_geometry.cpp:450/467`) —
+die dort korrekt vermiedene Wiederholung ist in `accumulate_pair_impl()`
+vorhanden. Gleiche Datenklasse wie §4.3 (bandweise wiederholte Arbeit), aber
+eine **abgeleitete Struktur**, kein Rohdaten-Read — insofern ergänzt dieser
+Fund §4.3, ersetzt ihn nicht.
+
+Umsetzung (mit T4 zusammenlegen, da dieselbe Aufrufkette betroffen ist):
+`prepare_drizzle_frames()` einmal vor der Bandschleife in
+`persist_forward_drizzle_multiband()` aufrufen und das Ergebnis per Referenz
+in `accumulate_pair_impl()`/`accumulate_pair_by_frame[_cuda]()` durchreichen,
+statt es intern neu zu bauen. Abnahme: `PreparedDrizzleFrames`-Aufrufzähler
+sinkt von `n_bands` auf 1 je Lauf; Store-Bytes bitidentisch (reine
+Wiederverwendung einer bereits deterministisch berechneten Struktur, keine
+Reihenfolgeänderung).
 
 ## 5. Eigenständige Algorithmenprobleme
 
@@ -267,7 +330,7 @@ Proxybau, Sterndetektion, Paarzuordnung, ECC, Ankerwahl und lokale Verfeinerung.
 | T1 | Trusted-Run-Schema; Source-, Q-, Profil- und Geometrie-Hot-Path-SHAs entfernen | keine Pixeländerung | `NORMALIZED_CACHE` minus etwa 10,32 s; keine Digestbytes im Run |
 | T2 | Q-Reader-Index | keine | lineare Metadatenscans = 0 |
 | T3 | SQM erzeugt Global-Quality-Metriken | Gewichte bytegleich | kein zweiter Proxy-/Sourcepass |
-| T4 | Schedule 3 und gemeinsames Hostbudget | Profile bytegleich | begrenzte Sourcebytes je Band/Fenster |
+| T4 | Gepinnte Source- und Q-Bandansichten, gemeinsames Hostbudget, `prepare_drizzle_frames()` einmal statt je Band (§4.4) | Profile bytegleich | Readbytes je Band unabhängig von Kachelzahl; Bandgrenzen separat gemessen; `PreparedDrizzleFrames`-Aufrufe je Lauf statt je Band |
 | T5 | CUDA-X+Y-Provider und Kernel | CPU/CUDA-Parität | Producer-, Transfer- und Kernelarbeit skaliert mit Fenster |
 | T6 | Coverage-Subtimer und beschleunigter affiner Pfad | Coveragebits gleich | Coverage unter eigenes Budget bringen |
 | T7 | Registrierungs-/Normalisierungsoptimierung nach Subtimern | Phasenartefakte gleich | Restbudget schließen |
@@ -318,8 +381,11 @@ Für jede Schema-v2-Änderung gelten:
 
 - neue Trusted-Run-Tests: normale v2-Artefakte werden ohne Inhalts-Hash
   verwendet;
-- Offline-Tests: absichtlich geänderte Dateien werden vom Prüfbefehl erkannt;
-- Migrationsfälle: v1 strikt prüfen, v2 anhand Struktur und Größe öffnen;
+- Trusted-Run-Tests: absichtlich geänderte Payload bei gleicher Größe wird
+  nicht als Inhaltsfehler klassifiziert; fehlende, kurze oder strukturell
+  falsche Dateien werden weiter abgelehnt;
+- Migrationsfälle: v1 und v2 anhand Struktur und Größe öffnen; unbekannte
+  Schema-Versionen ablehnen;
 - Resume-Fälle: fehlende, zu kurze, falsch dimensionierte oder falsch
   zugeordnete Artefakte lehnen weiterhin ab;
 - numerische Fälle: Bytegleichheit über Worker, Bandhöhe, Kachelbreite,
@@ -333,4 +399,3 @@ Für jede Schema-v2-Änderung gelten:
 - Block-SHA im normalen Kachelpfad als vermeintliche Bereichsoptimierung;
 - mehr Parallelität ohne gemeinsame Speicherbilanz;
 - Behauptungen über Registrierung oder Normalisierung ohne deren Subtimer.
-
