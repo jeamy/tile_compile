@@ -469,6 +469,53 @@ prepare_drizzle_frames(const RegistrationSamplingPlan &plan,
   return result;
 }
 
+DrizzleSourceScanBox drizzle_source_scan_box(
+    const RegistrationSamplingPlan &plan, const FrameSamplingTransform &f,
+    int scale, int y_begin, int rows, int x_begin, int cols) {
+  const int W_full = plan.canvas_width_native * scale;
+  const int xb = std::clamp(x_begin, 0, W_full);
+  const int xe = cols < 0 ? W_full : std::clamp(x_begin + cols, xb, W_full);
+  DrizzleSourceScanBox box{0, plan.source_height, 0, plan.source_width};
+  if (f.has_smooth_local_model) return box;
+  // Inverse-map the destination-stripe rectangle back into the source, in
+  // BOTH axes (plus a one-source-pixel droplet margin). A source pixel
+  // outside this box maps entirely outside the stripe, so sample_leaves
+  // there would only ever produce leaves whose y/x bbox clamps empty and the
+  // cell sink is never called --- skipping it is bit-identical. This is the
+  // same argument the Y bound already relied on, now extended to X so a frame
+  // that covers only part of the canvas width (rotation, shear, a smaller
+  // frame) does not rescan full source rows.
+  WarpMatrix inverse;
+  if (!registration::invert_affine_2x3(f.source_to_canvas, 1e-12f, 1e12f,
+                                     inverse))
+    throw std::invalid_argument("DRIZZLE_SINGULAR_TRANSFORM");
+  double lo = std::numeric_limits<double>::infinity(), hi = -lo;
+  double xlo = lo, xhi = hi;
+  // §30.81: inverse-map the TARGET-COLUMN-WINDOW rectangle (not the full
+  // canvas width) so a narrow tile only scans the source pixels that can
+  // reach it. xb/xe collapse to 0/W for the default window.
+  for (double x : {static_cast<double>(xb) / scale,
+                   static_cast<double>(xe) / scale})
+    for (double y : {static_cast<double>(y_begin) / scale,
+                     static_cast<double>(y_begin + rows) / scale}) {
+      const double sx = inverse(0, 0) * x + inverse(0, 1) * y + inverse(0, 2);
+      const double sy = inverse(1, 0) * x + inverse(1, 1) * y + inverse(1, 2);
+      lo = std::min(lo, sy);
+      hi = std::max(hi, sy);
+      xlo = std::min(xlo, sx);
+      xhi = std::max(xhi, sx);
+    }
+  box.y0 = static_cast<int>(std::clamp(
+      std::floor(lo - 1), 0.0, static_cast<double>(plan.source_height)));
+  box.y1 = static_cast<int>(std::clamp(
+      std::ceil(hi + 1), 0.0, static_cast<double>(plan.source_height)));
+  box.x0 = static_cast<int>(std::clamp(
+      std::floor(xlo - 1), 0.0, static_cast<double>(plan.source_width)));
+  box.x1 = static_cast<int>(std::clamp(
+      std::ceil(xhi + 1), 0.0, static_cast<double>(plan.source_width)));
+  return box;
+}
+
 void enumerate_drizzle_stripe_leaf_cells(
     const RegistrationSamplingPlan &plan, const FrameSamplingTransform &f,
     int scale, float pixfrac, int y_begin, int rows,
@@ -512,46 +559,13 @@ void enumerate_drizzle_stripe_leaf_cells(
     }
   }
 
-  int source_y0 = 0, source_y1 = plan.source_height;
-  int source_x0 = 0, source_x1 = plan.source_width;
-  if (!f.has_smooth_local_model) {
-    // Inverse-map the destination-stripe rectangle back into the source, in
-    // BOTH axes (plus a one-source-pixel droplet margin). A source pixel
-    // outside this box maps entirely outside the stripe, so sample_leaves
-    // there would only ever produce leaves whose y/x bbox clamps empty and the
-    // cell sink is never called --- skipping it is bit-identical. This is the
-    // same argument the Y bound already relied on, now extended to X so a frame
-    // that covers only part of the canvas width (rotation, shear, a smaller
-    // frame) does not rescan full source rows.
-    WarpMatrix inverse;
-    if (!registration::invert_affine_2x3(f.source_to_canvas, 1e-12f, 1e12f,
-                                         inverse))
-      throw std::invalid_argument("DRIZZLE_SINGULAR_TRANSFORM");
-    double lo = std::numeric_limits<double>::infinity(), hi = -lo;
-    double xlo = lo, xhi = hi;
-    // §30.81: inverse-map the TARGET-COLUMN-WINDOW rectangle (not the full
-    // canvas width) so a narrow tile only scans the source pixels that can
-    // reach it. xb/xe collapse to 0/W for the default window.
-    for (double x : {static_cast<double>(xb) / scale,
-                     static_cast<double>(xe) / scale})
-      for (double y : {static_cast<double>(y_begin) / scale,
-                       static_cast<double>(y_begin + rows) / scale}) {
-        const double sx = inverse(0, 0) * x + inverse(0, 1) * y + inverse(0, 2);
-        const double sy = inverse(1, 0) * x + inverse(1, 1) * y + inverse(1, 2);
-        lo = std::min(lo, sy);
-        hi = std::max(hi, sy);
-        xlo = std::min(xlo, sx);
-        xhi = std::max(xhi, sx);
-      }
-    source_y0 = static_cast<int>(std::clamp(
-        std::floor(lo - 1), 0.0, static_cast<double>(plan.source_height)));
-    source_y1 = static_cast<int>(std::clamp(
-        std::ceil(hi + 1), 0.0, static_cast<double>(plan.source_height)));
-    source_x0 = static_cast<int>(std::clamp(
-        std::floor(xlo - 1), 0.0, static_cast<double>(plan.source_width)));
-    source_x1 = static_cast<int>(std::clamp(
-        std::ceil(xhi + 1), 0.0, static_cast<double>(plan.source_width)));
-  }
+  // The scanned source box is shared with every banded source/quality read
+  // (A1): drizzle_source_scan_box reproduces the exact inverse-mapped box the
+  // scan below uses (full extent for local-warp frames).
+  const auto scan_box =
+      drizzle_source_scan_box(plan, f, scale, y_begin, rows, x_begin, cols);
+  const int source_y0 = scan_box.y0, source_y1 = scan_box.y1;
+  const int source_x0 = scan_box.x0, source_x1 = scan_box.x1;
   if (instrument) {
     auto &c = gs::registry().cur();
     ++c.enumerate_calls;
@@ -858,7 +872,8 @@ ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
     const RegistrationSamplingPlan &plan, const SourceImageProvider &source_of,
     const config::ReconstructionDrizzleConfig &cfg,
     const UniformStripeSink &sink,
-    const ForwardDrizzleSubdivisionParams &subdivision, size_t retained_bytes) {
+    const ForwardDrizzleSubdivisionParams &subdivision, size_t retained_bytes,
+    const SourceImageRectProvider &source_rect_of) {
   const int channels = plan.color_mode == ColorMode::MONO ? 1 : 3;
   const auto memory = plan_drizzle_memory(
       plan, cfg, channels * (5 * sizeof(double) + 13), retained_bytes);
@@ -884,6 +899,11 @@ ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
   // below reuse each vector's already-grown capacity across stripes instead
   // of reallocating. Bit-identical: same values assigned, same n per stripe.
   std::array<std::vector<double>, 3> wx, w, w2, A, B;
+  // D3: the stripe result object is reused across stripes (sinks consume it
+  // synchronously and may not retain it); ProfilePlane::allocate assigns, so
+  // the plane vectors keep their grown capacity instead of reallocating per
+  // stripe.
+  ForwardDrizzleUniformResult stripe;
   for (int y = 0; y < memory.height; y += memory.rows) {
     const int rows = std::min(memory.rows, memory.height - y);
     const size_t n = static_cast<size_t>(memory.width) * rows;
@@ -895,10 +915,31 @@ ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
       B[c].assign(n, 0);
     }
     for (const auto *f : prepared.frames) {
-      const Matrix2Df &source = source_of(f->source_index);
-      if (source.rows() != plan.source_height ||
-          source.cols() != plan.source_width)
-        throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
+      // A3: with a banded source provider only the stripe's inverse-mapped
+      // source box is read; without it the historical full-frame load runs.
+      Matrix2Df src_rect;
+      const Matrix2Df *src_p = nullptr;
+      int src_yo = 0, src_xo = 0;
+      if (source_rect_of) {
+        const auto box = drizzle_source_scan_box(
+            plan, *f, cfg.internal_scale, y, rows, 0, -1);
+        if (box.y1 <= box.y0 || box.x1 <= box.x0)
+          continue;  // no scanned source pixels -> no contributions
+        src_rect = source_rect_of(f->source_index, box.y0, box.y1, box.x0,
+                                  box.x1);
+        if (src_rect.rows() != box.y1 - box.y0 ||
+            src_rect.cols() != box.x1 - box.x0)
+          throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
+        src_yo = box.y0;
+        src_xo = box.x0;
+        src_p = &src_rect;
+      } else {
+        src_p = &source_of(f->source_index);
+        if (src_p->rows() != plan.source_height ||
+            src_p->cols() != plan.source_width)
+          throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
+      }
+      const Matrix2Df &source = *src_p;
       for (int c = 0; c < channels; ++c) {
         std::fill(A[c].begin(), A[c].end(), 0);
         std::fill(B[c].begin(), B[c].end(), 0);
@@ -910,7 +951,7 @@ ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
         rasterize_drizzle_stripe(
             plan, *f, cfg.internal_scale, cfg.pixfrac, y, rows,
             [&](int sx, int sy, int c, int /*leaf*/, size_t i, double k) {
-              const double v = source(sy, sx);
+              const double v = source(sy - src_yo, sx - src_xo);
               if (std::isfinite(v)) {
                 A[c][i] += k * v;
                 B[c][i] += k;
@@ -926,7 +967,6 @@ ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
             w2[c][i] += B[c][i] * B[c][i];
           }
     }
-    ForwardDrizzleUniformResult stripe;
     stripe.color_mode = plan.color_mode;
     stripe.internal_width = memory.width;
     stripe.internal_height = rows;
@@ -953,7 +993,8 @@ ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
 ForwardDrizzleUniformResult compute_forward_drizzle_uniform(
     const RegistrationSamplingPlan &plan, const SourceImageProvider &source_of,
     const config::ReconstructionDrizzleConfig &cfg,
-    const ForwardDrizzleSubdivisionParams &subdivision) {
+    const ForwardDrizzleSubdivisionParams &subdivision,
+    const SourceImageRectProvider &source_rect_of) {
   // Budget the materialized output before allocating it. Production diagnostics
   // use stream_forward_drizzle_uniform and retain no full profile planes.
   const auto initial = plan_drizzle_memory(plan, cfg, 1);
@@ -994,7 +1035,7 @@ ForwardDrizzleUniformResult compute_forward_drizzle_uniform(
         copy(result.B, stripe.B);
         copy(result.L, stripe.L);
       },
-      subdivision, retained);
+      subdivision, retained, source_rect_of);
   return result;
 }
 
@@ -1259,8 +1300,11 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff_by_source_index, size_t retained_bytes,
     const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
-    int workers, int target_x_begin, int target_cols) {
-  if ((mb.emit_fine || mb.emit_medium || mb.emit_alpha_confidence) && !quality_of)
+    int workers, int target_x_begin, int target_cols,
+    const SourceImageRectProvider &source_rect_of,
+    const FrameQualityRectProvider &quality_rect_of) {
+  if ((mb.emit_fine || mb.emit_medium || mb.emit_alpha_confidence) &&
+      !quality_of && !quality_rect_of)
     throw std::invalid_argument("DRIZZLE_MULTIBAND_REQUIRES_QUALITY_PROVIDER");
   const bool need_q0 = mb.emit_fine;
   const bool need_q1 = mb.emit_medium;
@@ -1280,17 +1324,30 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
   // wants Fine/Medium weighted but Raw left as B*G_eff). This pre-scan only
   // null-checks the returned pointers --- it never retains or dereferences
   // one, so it does not clash with the "valid until the next call" contract.
+  //
+  // N5: when a rect provider is wired, the pre-scan uses its pure existence
+  // probe (empty rect, no decode). The contribution-list path already does
+  // exactly this (accumulate_pair_impl); before, the full provider's probe
+  // decoded every stream of every frame just for the null check.
+  const FrameQualityRectProvider q_probe =
+      quality_rect_of ? quality_rect_of : to_rect_provider(quality_of);
   bool need_qc = false;
-  if (quality_of)
+  if (q_probe)
     for (const auto &f : plan.frames)
-      if (quality_of(f.source_index).composite) { need_qc = true; break; }
+      if (q_probe(f.source_index, 0, 0, 0, 0).composite) {
+        need_qc = true;
+        break;
+      }
   if (need_qa) {
     if (!need_qc)
       throw std::invalid_argument(
           "DRIZZLE_ALPHA_CONFIDENCE_REQUIRES_COMPOSITE_MAP");
     bool any_artifact = false;
     for (const auto &f : plan.frames)
-      if (quality_of(f.source_index).artifact) { any_artifact = true; break; }
+      if (q_probe(f.source_index, 0, 0, 0, 0).artifact) {
+        any_artifact = true;
+        break;
+      }
     if (!any_artifact)
       throw std::invalid_argument(
           "DRIZZLE_ALPHA_CONFIDENCE_REQUIRES_ARTIFACT_MAP");
@@ -1506,11 +1563,16 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
   std::vector<DrizzleClipScratch> band_clip_scratch(
       static_cast<size_t>(req_workers));
 
+  // D3: the per-stripe result is reused across stripes (sinks consume it
+  // synchronously and may not retain it); ProfilePlane::allocate and the
+  // .assign calls reuse already-grown vector capacity instead of
+  // reallocating every stripe.
+  ForwardDrizzleUniformAndRawResult result;
   for (int y = 0; y < memory.height;) {
     auto prof_ts = prof_now();
     const int rows = std::min(memory.rows, memory.height - y);
     const size_t n = static_cast<size_t>(win_w) * rows;
-    ForwardDrizzleUniformAndRawResult result;
+    result.clipping = ForwardDrizzleClippingDiagnostics{};
     auto init_profile = [&](ForwardDrizzleUniformResult &p) {
       p.color_mode = plan.color_mode;
       p.internal_width = win_w;
@@ -1612,11 +1674,59 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     prof_add(prof_alloc, prof_ts);
     prof_ts = prof_now();
     for (const auto *f : prepared.frames) {
-      const Matrix2Df &source = source_of(f->source_index);
-      if (source.rows() != plan.source_height || source.cols() != plan.source_width)
-        throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
+      // A1/A2: with banded providers wired, each (stripe, frame) reads only
+      // the source box this stripe window can touch (the exact box the
+      // rasterizer scans, via the shared drizzle_source_scan_box) instead of
+      // the full frame / full-extent quality maps.
+      Matrix2Df src_rect;
+      const Matrix2Df *src_p = nullptr;
+      int src_yo = 0, src_xo = 0;
       FrameQualityMaps qm;
-      if (quality_of) {
+      int q_yo = 0, q_xo = 0;
+      if (source_rect_of || quality_rect_of) {
+        const auto box =
+            drizzle_source_scan_box(plan, *f, cfg.internal_scale, y, rows,
+                                    win_x0, win_w);
+        if (box.y1 <= box.y0 || box.x1 <= box.x0)
+          continue;  // no scanned source pixels -> no contributions
+        if (source_rect_of) {
+          src_rect = source_rect_of(f->source_index, box.y0, box.y1, box.x0,
+                                    box.x1);
+          if (src_rect.rows() != box.y1 - box.y0 ||
+              src_rect.cols() != box.x1 - box.x0)
+            throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
+          src_yo = box.y0;
+          src_xo = box.x0;
+          src_p = &src_rect;
+        }
+        if (quality_rect_of) {
+          qm = quality_rect_of(f->source_index, box.y0, box.y1, box.x0,
+                               box.x1);
+          // Coverage check, not an exact-shape check: a real rect provider
+          // returns exactly the box with y_origin/x_origin = box.y0/box.x0,
+          // while to_rect_provider adapts a full-source provider (origin 0,
+          // map dims = source dims). Both rebase identically in map_at.
+          auto check_shape = [&](const Matrix2Df *m) {
+            if (m && (box.y0 < qm.y_origin || box.x0 < qm.x_origin ||
+                      m->rows() < box.y1 - qm.y_origin ||
+                      m->cols() < box.x1 - qm.x_origin))
+              throw std::invalid_argument("DRIZZLE_QUALITY_SHAPE_MISMATCH");
+          };
+          check_shape(qm.composite);
+          check_shape(qm.scale0);
+          check_shape(qm.scale1);
+          check_shape(qm.artifact);
+          q_yo = qm.y_origin;
+          q_xo = qm.x_origin;
+        }
+      }
+      if (!src_p) {
+        src_p = &source_of(f->source_index);
+        if (src_p->rows() != plan.source_height ||
+            src_p->cols() != plan.source_width)
+          throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
+      }
+      if (!quality_rect_of && quality_of) {
         qm = quality_of(f->source_index);
         auto check_shape = [&](const Matrix2Df *m) {
           if (m && (m->rows() != plan.source_height ||
@@ -1628,6 +1738,7 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
         check_shape(qm.scale1);
         check_shape(qm.artifact);
       }
+      const Matrix2Df &source = *src_p;
       const Matrix2Df *qc = need_qc ? qm.composite : nullptr;
       const Matrix2Df *q0 = need_q0 ? qm.scale0 : nullptr;
       const Matrix2Df *q1 = need_q1 ? qm.scale1 : nullptr;
@@ -1672,16 +1783,17 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
               // `i` is relative to the (y + r0, win_x0) window origin and
               // `win_w`-strided; re-base it into the stripe-wide accumulators.
               const size_t gi = i + bi0;
-              const double v = source(sy, sx);
+              const double v = source(sy - src_yo, sx - src_xo);
               if (!std::isfinite(v)) return;
               A[c][gi] += k * v;
               B[c][gi] += k;
               // Plan 11.9: a NaN / <= 0 source Q contributes 0 to the K-average
               // (a missing Q-map is not an unweighted fallback; Q=0 is an
-              // explicit per-sample veto).
+              // explicit per-sample veto). (sy, sx) rebase by the quality
+              // maps' rect origins (0,0 for a full-extent provider).
               auto acc = [&](const Matrix2Df *m, std::vector<double> &dst) {
                 if (!m) return;
-                const double qv = (*m)(sy, sx);
+                const double qv = (*m)(sy - q_yo, sx - q_xo);
                 dst[gi] += k * (std::isfinite(qv) && qv > 0.0 ? qv : 0.0);
               };
               acc(qc, QA[c]);
@@ -1689,7 +1801,7 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
               acc(q1, QA1[c]);
               acc(qa, QAA[c]);
               if (qa) {
-                const double av = (*qa)(sy, sx);
+                const double av = (*qa)(sy - q_yo, sx - q_xo);
                 if (std::isfinite(av)) QAF[c][gi] += k;  // real artifact datum
               }
             },
@@ -1790,7 +1902,8 @@ ForwardDrizzleUniformAndRawResult compute_forward_drizzle_uniform_and_raw(
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff_by_source_index,
     const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
-    int workers) {
+    int workers, const SourceImageRectProvider &source_rect_of,
+    const FrameQualityRectProvider &quality_rect_of) {
   const auto dimensions = plan_drizzle_memory(plan, cfg, 1);
   const int channels = plan.color_mode == ColorMode::MONO ? 1 : 3;
   const size_t retained = checked_product(
@@ -1842,7 +1955,8 @@ ForwardDrizzleUniformAndRawResult compute_forward_drizzle_uniform_and_raw(
                     stripe.alpha_confidence_support.end(),
                     result.alpha_confidence_support.begin() + off);
         }
-      }, subdivision, g_eff_by_source_index, retained, quality_of, mb, workers);
+      }, subdivision, g_eff_by_source_index, retained, quality_of, mb, workers,
+      0, -1, source_rect_of, quality_rect_of);
   result.diagnostics = summary.diagnostics;
   result.uniform.diagnostics = summary.diagnostics;
   result.raw.diagnostics = summary.diagnostics;

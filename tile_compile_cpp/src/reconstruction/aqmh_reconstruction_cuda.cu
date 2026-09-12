@@ -1455,6 +1455,65 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   }
 #undef CUDA_CHECK_ALLOC
 
+  // N4 (redundant-reload analysis): without region loaders the host feed
+  // reloads every full frame + mask per chunk. When the whole set fits in a
+  // quarter of the memory budget, keep frames and masks resident and serve
+  // synthesized region loaders from them --- each is then loaded exactly once.
+  // The feed loop is omp-parallel over fi; each fi slot is filled by exactly
+  // one iteration, so the check-then-fill needs no locking.
+  const size_t cu_total_pixels =
+      static_cast<size_t>(width) * static_cast<size_t>(height);
+  std::vector<Matrix2Df> cu_frame_stash;
+  std::vector<std::vector<uint8_t>> cu_mask_stash;
+  std::vector<uint8_t> cu_frame_stash_valid, cu_mask_stash_valid;
+  AqmhFrameRegionLoader eff_frame_region = load_frame_region;
+  AqmhMaskRegionLoader eff_mask_region = load_frame_valid_mask_region;
+  const size_t cu_stash_budget =
+      (static_cast<size_t>(cfg.memory_budget_mb) << 20) / 4;
+  const size_t cu_stash_per_frame =
+      cu_total_pixels * (sizeof(float) + sizeof(uint8_t));
+  const bool cu_stash_active =
+      (!eff_frame_region || !eff_mask_region) && frame_count > 0 &&
+      cu_stash_per_frame <= cu_stash_budget &&
+      frame_count <= cu_stash_budget / cu_stash_per_frame;
+  if (cu_stash_active) {
+    cu_frame_stash.resize(frame_count);
+    cu_mask_stash.resize(frame_count);
+    cu_frame_stash_valid.assign(frame_count, 0u);
+    cu_mask_stash_valid.assign(frame_count, 0u);
+    if (!eff_frame_region) {
+      eff_frame_region = [&](size_t fi, int ry0, int rrows,
+                             Matrix2Df &out) -> bool {
+        if (fi >= frame_count || ry0 < 0 || rrows <= 0) return false;
+        if (cu_frame_stash_valid[fi] == 0u) {
+          if (!load_frame(fi, cu_frame_stash[fi])) return false;
+          cu_frame_stash_valid[fi] = 1u;
+        }
+        const Matrix2Df &m = cu_frame_stash[fi];
+        if (m.cols() != width || m.rows() != height) return false;
+        out = m.block(ry0, 0, rrows, width);
+        return true;
+      };
+    }
+    if (!eff_mask_region && load_frame_valid_mask) {
+      eff_mask_region = [&](size_t fi, int ry0, int rrows,
+                            std::vector<uint8_t> &out) -> bool {
+        if (fi >= frame_count || ry0 < 0 || rrows <= 0) return false;
+        if (cu_mask_stash_valid[fi] == 0u) {
+          if (!load_frame_valid_mask(fi, cu_mask_stash[fi])) return false;
+          cu_mask_stash_valid[fi] = 1u;
+        }
+        const auto &m = cu_mask_stash[fi];
+        if (m.size() != cu_total_pixels) return false;
+        const size_t first = static_cast<size_t>(ry0) * width;
+        const size_t count = static_cast<size_t>(rrows) * width;
+        out.assign(m.begin() + static_cast<std::ptrdiff_t>(first),
+                   m.begin() + static_cast<std::ptrdiff_t>(first + count));
+        return true;
+      };
+    }
+  }
+
   // Prepare the next frame regions while the current chunk is executing on
   // the device.  The loader owns the returned matrices, so the current chunk
   // remains immutable until its host packing has completed.  This is a
@@ -1463,12 +1522,12 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
   std::future<std::vector<Matrix2Df>> next_frame_prefetch;
   bool have_prefetched_frames = false;
   std::vector<Matrix2Df> prefetched_frames;
-  const bool can_prefetch_frames = static_cast<bool>(load_frame_region);
+  const bool can_prefetch_frames = static_cast<bool>(eff_frame_region);
   auto launch_frame_prefetch = [&](int next_y0, int next_rows) {
     return std::async(std::launch::async, [&, next_y0, next_rows]() {
       std::vector<Matrix2Df> frames(frame_count);
       for (size_t fi = 0; fi < frame_count; ++fi) {
-        load_frame_region(fi, next_y0, next_rows, frames[fi]);
+        eff_frame_region(fi, next_y0, next_rows, frames[fi]);
       }
       return frames;
     });
@@ -1584,7 +1643,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
     // when available (avoids loading full W×H frames per chunk — only rows
     // rows are needed, cutting I/O by ~height/chunk_rows×).
     // Parallelized across frames with OpenMP for I/O overlap.
-    const bool use_region = static_cast<bool>(load_frame_region);
+    const bool use_region = static_cast<bool>(eff_frame_region);
     const int num_host_threads = std::min(
         static_cast<int>(frame_count),
         std::max(1, static_cast<int>(std::thread::hardware_concurrency())));
@@ -1608,7 +1667,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
         frame_ok = frame_region.size() > 0;
       } else {
         frame_ok = use_region
-            ? load_frame_region(fi, y0, rows, frame_region)
+            ? eff_frame_region(fi, y0, rows, frame_region)
             : load_frame(fi, frame_region);
       }
       frame_read_worker_seconds +=
@@ -1646,9 +1705,11 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
 
       std::vector<uint8_t> fm;
       bool mask_ok = true;
+      const bool use_region_mask =
+          static_cast<bool>(eff_mask_region) && use_region;
       const auto mask_read_start = std::chrono::steady_clock::now();
-      if (load_frame_valid_mask_region && use_region) {
-        mask_ok = load_frame_valid_mask_region(fi, y0, rows, fm);
+      if (use_region_mask) {
+        mask_ok = eff_mask_region(fi, y0, rows, fm);
       } else if (load_frame_valid_mask) {
         mask_ok = load_frame_valid_mask(fi, fm);
       }
@@ -1657,7 +1718,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
               std::chrono::steady_clock::now() - mask_read_start)
               .count();
       const size_t expected_mask_size =
-          (load_frame_valid_mask_region && use_region)
+          use_region_mask
               ? static_cast<size_t>(width) * rows
               : (load_frame_valid_mask
                      ? static_cast<size_t>(width) * height
@@ -1690,7 +1751,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_cuda(
           if (fm.empty()) {
             cur_h_masks[idx] = 1u;
           } else {
-            const size_t mask_i = use_region ? local_i : full_i;
+            const size_t mask_i = use_region_mask ? local_i : full_i;
             cur_h_masks[idx] = fm[mask_i];
             if (fm[mask_i] == 0u) continue;
           }
@@ -2075,6 +2136,15 @@ struct AqmhCudaReconstructionSession::Impl {
   const std::vector<uint8_t>* canvas_mask = nullptr;
   VectorXf global_weights_stored;  // stored for run_plane() forwarding
 
+  // N4 (redundant-reload analysis): whole-set stash so a session whose caller
+  // supplied only full-frame loaders still loads each mask/frame exactly once
+  // instead of once per chunk. Populated lazily by the synthesized region
+  // loaders; bounded by a quarter of cfg.memory_budget_mb.
+  std::vector<std::vector<uint8_t>> mask_stash;
+  std::vector<uint8_t> mask_stash_valid;
+  std::vector<Matrix2Df> frame_stash;
+  std::vector<uint8_t> frame_stash_valid;
+
   // GPU device pointers
   float*               d_global_weights     = nullptr;
   unsigned long long*  d_unsupported_pixels = nullptr;
@@ -2161,6 +2231,38 @@ bool AqmhCudaReconstructionSession::init(
   I.load_mask_region = load_mask_region;
   I.canvas_mask    = &canvas_mask;
   I.global_weights_stored = global_weights;
+
+  // N4: when no region mask loader was supplied and the whole mask set fits
+  // in a quarter of the memory budget, keep masks resident and synthesize a
+  // region loader --- the chunk feed then loads each mask exactly once
+  // instead of once per (chunk, fi).
+  const size_t mask_bytes =
+      static_cast<size_t>(width) * static_cast<size_t>(height);
+  const size_t stash_budget =
+      (static_cast<size_t>(cfg.memory_budget_mb) << 20) / 4;
+  if (!I.load_mask_region && I.load_mask && mask_bytes > 0 &&
+      mask_bytes <= stash_budget &&
+      frame_count <= stash_budget / mask_bytes) {
+    I.mask_stash.assign(frame_count, {});
+    I.mask_stash_valid.assign(frame_count, 0u);
+    I.load_mask_region = [this](size_t fi, int ry0, int rrows,
+                                std::vector<uint8_t>& out) -> bool {
+      Impl& J = *impl_;
+      if (fi >= J.frame_count || ry0 < 0 || rrows <= 0) return false;
+      if (J.mask_stash_valid[fi] == 0u) {
+        if (!J.load_mask(fi, J.mask_stash[fi])) return false;
+        J.mask_stash_valid[fi] = 1u;
+      }
+      const auto& m = J.mask_stash[fi];
+      const size_t first = static_cast<size_t>(ry0) * J.width;
+      const size_t count = static_cast<size_t>(rrows) * J.width;
+      if (m.size() != static_cast<size_t>(J.width) * J.height ||
+          first + count > m.size()) return false;
+      out.assign(m.begin() + static_cast<std::ptrdiff_t>(first),
+                 m.begin() + static_cast<std::ptrdiff_t>(first + count));
+      return true;
+    };
+  }
 
   I.cherry_enabled = cfg.cherry_pick &&
       static_cast<int>(frame_count) >= cfg.cherry_pick_k_min_required;
@@ -2334,7 +2436,6 @@ std::vector<AqmhReconstructionResult> AqmhCudaReconstructionSession::run_planes_
 
   const int frame_count = static_cast<int>(I.frame_count);
   const int width = I.width, height = I.height, chunk_rows = I.chunk_rows;
-  const size_t chunk_pixels = static_cast<size_t>(chunk_rows) * width;
   const dim3 block(32, 8);
   const dim3 grid((width + 31) / 32, (chunk_rows + 7) / 8);
 
@@ -2678,19 +2779,50 @@ AqmhReconstructionResult AqmhCudaReconstructionSession::run_plane(
     return r;
   }
   // Wrap load_frame as a region loader if no region loader provided.
+  // N4: when the whole frame set fits in a quarter of the memory budget,
+  // back the synthesized region loader by the session stash so each frame is
+  // loaded from disk exactly once across all chunks (the previous wrapper
+  // re-loaded the full frame for every chunk).
   AqmhFrameRegionLoader effective_region_loader = load_frame_region;
   if (!effective_region_loader && load_frame) {
-    effective_region_loader = [lf = load_frame](size_t fi, int y0, int rows,
-                                                Matrix2Df& out) -> bool {
-      Matrix2Df full;
-      if (!lf(fi, full)) return false;
-      const int h = static_cast<int>(full.rows());
-      const int w = static_cast<int>(full.cols());
-      if (y0 < 0 || y0 + rows > h || rows <= 0) return false;
-      out = full.middleRows(y0, rows);
-      (void)w;
-      return true;
-    };
+    Impl& I = *impl_;
+    const size_t frame_bytes = static_cast<size_t>(I.width) * I.height *
+                               sizeof(float);
+    const size_t stash_budget =
+        (static_cast<size_t>(I.cfg.memory_budget_mb) << 20) / 4;
+    if (frame_bytes > 0 && frame_bytes <= stash_budget &&
+        I.frame_count <= stash_budget / frame_bytes) {
+      if (I.frame_stash.empty()) {
+        I.frame_stash.assign(I.frame_count, {});
+        I.frame_stash_valid.assign(I.frame_count, 0u);
+      }
+      effective_region_loader = [this, lf = load_frame](
+          size_t fi, int y0, int rows, Matrix2Df& out) -> bool {
+        Impl& J = *impl_;
+        if (fi >= J.frame_count || y0 < 0 || rows <= 0) return false;
+        if (J.frame_stash_valid[fi] == 0u) {
+          if (!lf(fi, J.frame_stash[fi])) return false;
+          J.frame_stash_valid[fi] = 1u;
+        }
+        const Matrix2Df& m = J.frame_stash[fi];
+        if (m.cols() != J.width || m.rows() != J.height ||
+            y0 + rows > J.height) return false;
+        out = m.block(y0, 0, rows, J.width);
+        return true;
+      };
+    } else {
+      effective_region_loader = [lf = load_frame](size_t fi, int y0, int rows,
+                                                  Matrix2Df& out) -> bool {
+        Matrix2Df full;
+        if (!lf(fi, full)) return false;
+        const int h = static_cast<int>(full.rows());
+        const int w = static_cast<int>(full.cols());
+        if (y0 < 0 || y0 + rows > h || rows <= 0) return false;
+        out = full.middleRows(y0, rows);
+        (void)w;
+        return true;
+      };
+    }
   }
   auto results = run_planes_rgb({effective_region_loader},
                                 {compute_uniform_control_plane}, progress);

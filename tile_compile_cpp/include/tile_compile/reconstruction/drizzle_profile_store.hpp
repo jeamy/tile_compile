@@ -124,7 +124,9 @@ DrizzleStoreResult persist_forward_drizzle_uniform(
     const fs::path &root, const registration::RegistrationSamplingPlan &plan,
     const SourceImageProvider &source_of,
     const config::ReconstructionDrizzleConfig &cfg,
-    const ForwardDrizzleSubdivisionParams &subdivision = {});
+    const ForwardDrizzleSubdivisionParams &subdivision = {},
+    // A1: banded source reads (see persist_forward_drizzle_multiband).
+    const SourceImageRectProvider &source_rect_of = {});
 DrizzleStoreResult persist_forward_drizzle_uniform_and_raw(
     const fs::path &root, const registration::RegistrationSamplingPlan &plan,
     const SourceImageProvider &source_of,
@@ -137,7 +139,12 @@ DrizzleStoreResult persist_forward_drizzle_uniform_and_raw(
     // Plan 11.14.5 P3 Teil 2: output-row-band workers for the CPU streaming
     // reduction. Forwarded verbatim to stream_forward_drizzle_uniform_and_raw();
     // bit-identical (store commit hash included) to `workers == 1` (default).
-    int workers = 1);
+    int workers = 1,
+    // A1/A2: banded providers, forwarded verbatim to the stream call. When
+    // `quality_rect_of` is wired it replaces `quality_of` (banded reads +
+    // cheap existence probes).
+    const SourceImageRectProvider &source_rect_of = {},
+    const FrameQualityRectProvider &quality_rect_of = {});
 
 // M6: uniform + raw + fine + (medium, when levels >= 2) profile planes plus
 // the four channel-min alpha-confidence maps (alpha_separation / alpha_artifact
@@ -170,7 +177,13 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     // usable device) has its own device-band chunking and ignores this; on a
     // CUDA->CPU restart the CPU path picks it up. Bit-identical (store commit
     // hash included) to `workers == 1` (default).
-    int workers = 1);
+    int workers = 1,
+    // A1/A2: when wired, the CUDA producer's band fills and the CPU streaming
+    // path's per-(stripe, frame) reads use this source-rectangle provider
+    // instead of a full-frame `source_of` decode, and `quality_of` is used
+    // as the streaming path's rect provider directly (banded Q reads
+    // instead of full-extent decodes).
+    const SourceImageRectProvider &source_rect_of = {});
 
 // Convenience overload for callers that only have a full-source-geometry
 // FrameQualityProvider (tests, non-cache paths): adapts it via
@@ -185,11 +198,12 @@ inline DrizzleStoreResult persist_forward_drizzle_multiband(
     const ForwardDrizzleSubdivisionParams &subdivision = {},
     const std::vector<float> &g_eff = {},
     const DrizzleStorePredecessors &predecessors = {},
-    const ForwardDrizzleCudaOptions &cuda = {}, int workers = 1) {
+    const ForwardDrizzleCudaOptions &cuda = {}, int workers = 1,
+    const SourceImageRectProvider &source_rect_of = {}) {
   return persist_forward_drizzle_multiband(
       root, plan, source_of, cfg, clipping, multiband,
       to_rect_provider(quality_of), subdivision, g_eff, predecessors, cuda,
-      workers);
+      workers, source_rect_of);
 }
 
 struct DrizzleStoreValidation {

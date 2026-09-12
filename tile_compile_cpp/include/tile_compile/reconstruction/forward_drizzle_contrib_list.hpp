@@ -188,7 +188,13 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
     const PairTileSink *tile_sink = nullptr, int tile_cols = 0,
     // §4.4 / T4: when non-null, skip the internal prepare_drizzle_frames() call
     // and reuse the caller-supplied prepared frames (band-invariant).
-    const PreparedDrizzleFrames *prepared_frames = nullptr);
+    const PreparedDrizzleFrames *prepared_frames = nullptr,
+    // A1/A2: banded providers. When `source_rect_of` is wired, the record
+    // producer reads only the tile window's inverse-mapped source box per
+    // (frame, tile). When `quality_rect_of` is wired it replaces the adapted
+    // `quality_of` (cheaper empty-rect existence probes + rect reads).
+    const SourceImageRectProvider &source_rect_of = {},
+    const FrameQualityRectProvider &quality_rect_of = {});
 
 // The CUDA counterpart of accumulate_pair_by_frame: the per-frame contribution
 // records are produced by the device affine rasterizer
@@ -234,6 +240,10 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     // §30.81 step-5 (B): per-band memo + column-tile replay; see
     // accumulate_pair_by_frame.
     const PairTileSink *tile_sink = nullptr, int tile_cols = 0,
-    const PreparedDrizzleFrames *prepared_frames = nullptr);
+    const PreparedDrizzleFrames *prepared_frames = nullptr,
+    // A1: banded source reads for the record producer (the band-cache miss
+    // path reads the band rows instead of a full-frame decode; the
+    // local-warp hybrid path reads the full extent through it).
+    const SourceImageRectProvider &source_rect_of = {});
 
 }  // namespace tile_compile::reconstruction

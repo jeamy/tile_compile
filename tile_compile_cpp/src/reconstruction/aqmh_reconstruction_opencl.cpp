@@ -682,6 +682,64 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_opencl(
   std::vector<float> h_frames(all_pixels, 0.0f);
   std::vector<float> h_q_maps(all_pixels, 0.0f);
   std::vector<uint8_t> h_masks(all_pixels, 0u);
+
+  // N3 (redundant-reload analysis): the chunk-outer/frame-inner host feed
+  // reloads every frame and mask per chunk when no region loaders are wired.
+  // Same fix as the CPU path: when the whole set fits in a quarter of the
+  // memory budget, keep frames and masks resident and serve synthesized
+  // region loaders from them so each is loaded exactly once.
+  const size_t ocl_total_pixels =
+      static_cast<size_t>(width) * static_cast<size_t>(height);
+  std::vector<Matrix2Df> ocl_frame_stash;
+  std::vector<std::vector<uint8_t>> ocl_mask_stash;
+  std::vector<uint8_t> ocl_frame_stash_valid, ocl_mask_stash_valid;
+  AqmhFrameRegionLoader eff_frame_region = load_frame_region;
+  AqmhMaskRegionLoader eff_mask_region = load_frame_valid_mask_region;
+  const size_t ocl_stash_budget =
+      (static_cast<size_t>(cfg.memory_budget_mb) << 20) / 4;
+  const size_t ocl_stash_per_frame =
+      ocl_total_pixels * (sizeof(float) + sizeof(uint8_t));
+  const bool ocl_stash_active =
+      (!eff_frame_region || !eff_mask_region) && frame_count > 0 &&
+      ocl_stash_per_frame <= ocl_stash_budget &&
+      frame_count <= ocl_stash_budget / ocl_stash_per_frame;
+  if (ocl_stash_active) {
+    ocl_frame_stash.resize(frame_count);
+    ocl_mask_stash.resize(frame_count);
+    ocl_frame_stash_valid.assign(frame_count, 0u);
+    ocl_mask_stash_valid.assign(frame_count, 0u);
+    if (!eff_frame_region) {
+      eff_frame_region = [&](size_t fi, int ry0, int rrows,
+                             Matrix2Df &out) -> bool {
+        if (fi >= frame_count || ry0 < 0 || rrows <= 0) return false;
+        if (ocl_frame_stash_valid[fi] == 0u) {
+          if (!load_frame(fi, ocl_frame_stash[fi])) return false;
+          ocl_frame_stash_valid[fi] = 1u;
+        }
+        const Matrix2Df &m = ocl_frame_stash[fi];
+        if (m.cols() != width || m.rows() != height) return false;
+        out = m.block(ry0, 0, rrows, width);
+        return true;
+      };
+    }
+    if (!eff_mask_region && load_frame_valid_mask) {
+      eff_mask_region = [&](size_t fi, int ry0, int rrows,
+                            std::vector<uint8_t> &out) -> bool {
+        if (fi >= frame_count || ry0 < 0 || rrows <= 0) return false;
+        if (ocl_mask_stash_valid[fi] == 0u) {
+          if (!load_frame_valid_mask(fi, ocl_mask_stash[fi])) return false;
+          ocl_mask_stash_valid[fi] = 1u;
+        }
+        const auto &m = ocl_mask_stash[fi];
+        if (m.size() != ocl_total_pixels) return false;
+        const size_t first = static_cast<size_t>(ry0) * width;
+        const size_t count = static_cast<size_t>(rrows) * width;
+        out.assign(m.begin() + static_cast<std::ptrdiff_t>(first),
+                   m.begin() + static_cast<std::ptrdiff_t>(first + count));
+        return true;
+      };
+    }
+  }
   std::vector<uint8_t> h_canvas_mask(chunk_pixels, 0u);
   std::vector<float> h_output(chunk_pixels, 0.0f);
   std::vector<float> h_weight_sum(chunk_pixels, 0.0f);
@@ -711,14 +769,15 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_opencl(
     cv::Mat(1, static_cast<int>(rows * width), CV_8U, h_canvas_mask.data())
         .copyTo(u_canvas_mask);
 
-    const bool use_region = static_cast<bool>(load_frame_region);
+    const bool use_region = static_cast<bool>(eff_frame_region);
+    const bool use_region_mask = static_cast<bool>(eff_mask_region);
     for (size_t fi = 0; fi < frame_count; ++fi) {
       Matrix2Df frame_region;
       const bool frame_ok = use_region
-          ? load_frame_region(fi, y0, rows, frame_region)
+          ? eff_frame_region(fi, y0, rows, frame_region)
           : load_frame(fi, frame_region);
-      if (!frame_ok || frame_region.rows() != rows ||
-          frame_region.cols() != width) {
+      if (!frame_ok || frame_region.cols() != width ||
+          frame_region.rows() != (use_region ? rows : height)) {
         result.missing_map_samples += static_cast<uint64_t>(rows) * width;
         continue;
       }
@@ -731,8 +790,8 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_opencl(
       }
       std::vector<uint8_t> fm;
       bool mask_ok = true;
-      if (load_frame_valid_mask_region && use_region) {
-        mask_ok = load_frame_valid_mask_region(fi, y0, rows, fm);
+      if (use_region_mask) {
+        mask_ok = eff_mask_region(fi, y0, rows, fm);
         if (!mask_ok || fm.size() != static_cast<size_t>(width * rows)) {
           result.missing_map_samples += static_cast<uint64_t>(rows) * width;
           continue;
@@ -744,18 +803,19 @@ AqmhReconstructionResult reconstruct_aqmh_weighted_opencl(
           continue;
         }
       }
+      const int frame_src_y0 = use_region ? 0 : y0;
       for (int yy = 0; yy < rows; ++yy) {
         const int y = y0 + yy;
         for (int x = 0; x < width; ++x) {
           const size_t full_i = static_cast<size_t>(y) * width + x;
           const size_t local_i = static_cast<size_t>(yy) * width + x;
           const size_t idx = fi * chunk_rows * width + local_i;
-          h_frames[idx] = frame_region(yy, x);
+          h_frames[idx] = frame_region(frame_src_y0 + yy, x);
           h_q_maps[idx] = q(yy, x);
           if (fm.empty()) {
             h_masks[idx] = 1u;
           } else {
-            const size_t mask_i = use_region ? local_i : full_i;
+            const size_t mask_i = use_region_mask ? local_i : full_i;
             h_masks[idx] = fm[mask_i];
             if (fm[mask_i] == 0u) continue;
           }

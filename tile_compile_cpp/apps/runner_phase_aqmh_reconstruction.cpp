@@ -719,6 +719,54 @@ bool run_phase_aqmh_reconstruction(
 #endif
 
     if (!rgb_ok) {
+      // B1 (redundant-reload analysis): the three sequential plane passes read
+      // the same Q maps and frame-valid masks. Q maps already share
+      // aqmh_cache's resident LRU; keep the whole mask set resident across the
+      // three calls too, when it fits within a quarter of the plane memory
+      // budget. Mask loaders are only ever invoked for a given fi from a
+      // single parallel-loop iteration at a time, so the check-then-fill below
+      // needs no locking.
+      const size_t rgb_mask_bytes =
+          static_cast<size_t>(canvas_width) * static_cast<size_t>(canvas_height);
+      const size_t rgb_stash_budget =
+          (static_cast<size_t>(plane_cfg.memory_budget_mb) << 20) / 4;
+      const bool rgb_mask_stash_active =
+          rgb_mask_bytes > 0 && rgb_mask_bytes <= rgb_stash_budget &&
+          frames.size() <= rgb_stash_budget / rgb_mask_bytes;
+      std::vector<std::vector<uint8_t>> rgb_mask_stash(
+          rgb_mask_stash_active ? frames.size() : 0);
+      std::vector<uint8_t> rgb_mask_stash_valid(
+          rgb_mask_stash_active ? frames.size() : 0, 0u);
+      auto stashed_mask_loader =
+          [&](size_t fi, std::vector<uint8_t> &output) -> bool {
+        if (!rgb_mask_stash_active) return aqmh_mask_loader(fi, output);
+        if (fi >= rgb_mask_stash.size()) return false;
+        if (rgb_mask_stash_valid[fi] == 0u) {
+          if (!aqmh_mask_loader(fi, rgb_mask_stash[fi])) return false;
+          rgb_mask_stash_valid[fi] = 1u;
+        }
+        output = rgb_mask_stash[fi];
+        return true;
+      };
+      auto stashed_mask_region_loader =
+          [&](size_t fi, int y0, int rows,
+              std::vector<uint8_t> &output) -> bool {
+        if (!rgb_mask_stash_active)
+          return aqmh_mask_region_loader(fi, y0, rows, output);
+        if (fi >= rgb_mask_stash.size() || y0 < 0 || rows <= 0) return false;
+        if (rgb_mask_stash_valid[fi] == 0u) {
+          if (!aqmh_mask_loader(fi, rgb_mask_stash[fi])) return false;
+          rgb_mask_stash_valid[fi] = 1u;
+        }
+        const auto &mask = rgb_mask_stash[fi];
+        const size_t first = static_cast<size_t>(y0) * canvas_width;
+        const size_t count = static_cast<size_t>(rows) * canvas_width;
+        if (mask.size() != rgb_mask_bytes || first + count > mask.size())
+          return false;
+        output.assign(mask.begin() + static_cast<std::ptrdiff_t>(first),
+                      mask.begin() + static_cast<std::ptrdiff_t>(first + count));
+        return true;
+      };
       auto reconstruct_rgb_plane =
           [&](const DiskCacheFrameStore &plane_store, Matrix2Df &plane_out,
               const char *channel_name, int channel_index) -> bool {
@@ -763,8 +811,9 @@ bool run_phase_aqmh_reconstruction(
         auto plane_recon = aqmh_reconstruction_ops.reconstruct_aqmh(
             frames.size(), frame_loader, aqmh_cache.get(),
             effective_aqmh_global_weights, reconstruction_valid_mask,
-            canvas_width, canvas_height, plane_cfg, nullptr, aqmh_mask_loader,
-            frame_region_loader, aqmh_mask_region_loader, plane_progress);
+            canvas_width, canvas_height, plane_cfg, nullptr,
+            stashed_mask_loader, frame_region_loader,
+            stashed_mask_region_loader, plane_progress);
         plane_out = std::move(plane_recon.output);
         return plane_out.rows() == canvas_height &&
                plane_out.cols() == canvas_width;

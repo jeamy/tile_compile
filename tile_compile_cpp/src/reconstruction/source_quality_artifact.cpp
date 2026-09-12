@@ -230,6 +230,7 @@ DrizzleStoreResult persist_forward_drizzle_from_predecessors(
   // (Fine/Medium's scale_0/scale_1 streams are wired in a later M6 batch.)
   DrizzleStorePredecessors predecessors{cache.manifest_hash(),quality.plan_hash,{}};
   FrameQualityProvider quality_of;  // null => Q_composite = 1.0 (unchanged Raw)
+  FrameQualityRectProvider quality_rect_of;  // banded variant (A2)
   std::unique_ptr<SourceQualityMapCacheReader> qreader;
   if (!source_quality_cache_root.empty()) {
     qreader=std::make_unique<SourceQualityMapCacheReader>(
@@ -250,11 +251,34 @@ DrizzleStoreResult persist_forward_drizzle_from_predecessors(
       }
       return FrameQualityMaps{&buf,nullptr,nullptr};
     };
+    // A2: same composite stream, rectangle reads (the rect is the frame's
+    // scan box; an empty rect is a pure existence probe).
+    quality_rect_of=[reader=qreader.get(),buf=Matrix2Df()](
+        std::size_t si,int y0,int y1,int x0,int x1) mutable
+        -> FrameQualityMaps {
+      const int sh=reader->metadata().source_height;
+      const int sw=reader->metadata().source_width;
+      if (y1<0) y1=sh;
+      if (x1<0) x1=sw;
+      y0=std::clamp(y0,0,sh); y1=std::clamp(y1,y0,sh);
+      x0=std::clamp(x0,0,sw); x1=std::clamp(x1,x0,sw);
+      buf=reader->read_rect("composite",si,y0,y1,x0,x1);
+      FrameQualityMaps m{&buf,nullptr,nullptr,nullptr};
+      m.y_origin=y0;
+      m.x_origin=x0;
+      return m;
+    };
   }
 
+  // A1: banded source reads through the verified cache's read_rect.
+  const SourceImageRectProvider source_rect_of=
+      [&cache](std::size_t index,int y0,int y1,int x0,int x1) {
+        return cache.read_rect(index,y0,y1,x0,x1);
+      };
   return persist_forward_drizzle_uniform_and_raw(store_root,sampling,
       [&](size_t index)->const Matrix2Df & { return cache.load(index); },
-      drizzle_cfg,clipping_cfg,subdivision,weights,predecessors,quality_of,workers);
+      drizzle_cfg,clipping_cfg,subdivision,weights,predecessors,quality_of,
+      workers,source_rect_of,quality_rect_of);
 }
 
 MultibandStoreContract multiband_store_contract_from_config(
@@ -316,6 +340,55 @@ void combine_luma(const std::vector<const std::vector<float> *> &vals,
     }
     if (ok) { luma[i]=static_cast<float>(acc); sup[i]=1u; }
   }
+}
+// N6 (redundant-reload analysis): helpers for the rolling fusion window.
+// fuse_multiband_store_to_image reads [y0-halo, y1+halo) per chunk, so the
+// 2*halo border rows of every stream are decoded twice per boundary. The
+// helpers below slide a buffered window: drop the rows before the new start,
+// read only the missing tail rows, append them --- each stored row is read
+// exactly once.
+void profile_plane_drop_rows(ProfilePlane &p,int drop) {
+  if (drop<=0||p.empty()) return;
+  const std::size_t n=static_cast<std::size_t>(drop)*static_cast<std::size_t>(p.width);
+  auto shift=[&](auto &v){
+    if (v.size()<n){ v.clear(); return; }
+    std::move(v.begin()+static_cast<std::ptrdiff_t>(n),v.end(),v.begin());
+    v.resize(v.size()-n);
+  };
+  shift(p.value); shift(p.weight_sum); shift(p.n_eff); shift(p.support);
+  p.height=std::max(0,p.height-drop);
+}
+void profile_plane_append_rows(ProfilePlane &p,const ProfilePlane &tail) {
+  if (tail.empty()) return;
+  auto app=[](auto &dst,const auto &src){ dst.insert(dst.end(),src.begin(),src.end()); };
+  app(p.value,tail.value); app(p.weight_sum,tail.weight_sum);
+  app(p.n_eff,tail.n_eff); app(p.support,tail.support);
+  p.width=tail.width;
+  p.height+=tail.height;
+}
+void uniform_result_drop_rows(ForwardDrizzleUniformResult &r,int drop) {
+  if (drop<=0) return;
+  if (r.color_mode==ColorMode::MONO) profile_plane_drop_rows(r.L,drop);
+  else { profile_plane_drop_rows(r.R,drop); profile_plane_drop_rows(r.G,drop);
+         profile_plane_drop_rows(r.B,drop); }
+  r.internal_height=std::max(0,r.internal_height-drop);
+}
+void uniform_result_append_rows(ForwardDrizzleUniformResult &r,
+                                const ForwardDrizzleUniformResult &tail) {
+  if (tail.internal_height<=0) return;
+  if (r.color_mode==ColorMode::MONO) profile_plane_append_rows(r.L,tail.L);
+  else { profile_plane_append_rows(r.R,tail.R); profile_plane_append_rows(r.G,tail.G);
+         profile_plane_append_rows(r.B,tail.B); }
+  r.color_mode=tail.color_mode;
+  r.internal_width=tail.internal_width;
+  r.internal_height+=tail.internal_height;
+}
+void flat_rows_drop(std::vector<float> &v,int drop,int w) {
+  if (drop<=0) return;
+  const std::size_t n=static_cast<std::size_t>(drop)*static_cast<std::size_t>(w);
+  if (v.size()<n){ v.clear(); return; }
+  std::move(v.begin()+static_cast<std::ptrdiff_t>(n),v.end(),v.begin());
+  v.resize(v.size()-n);
 }
 }  // namespace
 
@@ -383,10 +456,18 @@ MultibandStoreBuildResult persist_multiband_store_from_predecessors(
   };
 
   const auto source_of=[&](size_t index)->const Matrix2Df & { return cache.load(index); };
+  // A1: banded source reads. VerifiedNormalizedSourceCache::read_rect loads
+  // only the covering rows, so each (stripe/band, frame) touches just its
+  // inverse-mapped scan box instead of decoding the full frame.
+  const SourceImageRectProvider source_rect_of=
+      [&cache](std::size_t index,int y0,int y1,int x0,int x1) {
+        return cache.read_rect(index,y0,y1,x0,x1);
+      };
   const auto build=[&](const ForwardDrizzleCudaOptions &cuda){
     return persist_forward_drizzle_multiband(
         store_root,sampling,source_of,drizzle_cfg,clipping_cfg,contract,
-        quality_of,subdivision,weights,predecessors,cuda,workers);
+        quality_of,subdivision,weights,predecessors,cuda,workers,
+        source_rect_of);
   };
 
   MultibandStoreBuildResult out;
@@ -634,19 +715,49 @@ long long fuse_multiband_store_to_image(
       }
   }
 
+  // N6: rolling window over the profile/alpha streams. Consecutive chunks
+  // overlap by 2*halo rows; instead of re-reading the halo band per chunk,
+  // slide the buffered window --- drop the rows before ys and read only the
+  // missing tail [buf_y1, ye). Every stored row is decoded exactly once.
+  ForwardDrizzleUniformResult U,R,F,M;
+  std::vector<float> a_sep,a_art,a_reg;
+  int buf_y0=0,buf_y1=0;   // rows [buf_y0, buf_y1) currently buffered
   for (int y0=0;y0<H;y0+=chunk) {
     const int y1=std::min(H,y0+chunk);
     const int ys=std::max(0,y0-halo), ye=std::min(H,y1+halo);
     const int sub_h=ye-ys;
-    const auto U=read_store_profile_region(gen,identity,"uniform",ys,ye,budget);
-    const auto R=read_store_profile_region(gen,identity,"raw",ys,ye,budget);
-    const auto F=read_store_profile_region(gen,identity,"fine",ys,ye,budget);
-    const auto M=need_medium
-        ? read_store_profile_region(gen,identity,"medium",ys,ye,budget)
-        : ForwardDrizzleUniformResult{};
-    const auto a_sep=read_store_alpha_map_region(gen,identity,"alpha_separation",ys,ye,budget);
-    const auto a_art=read_store_alpha_map_region(gen,identity,"alpha_artifact",ys,ye,budget);
-    const auto a_reg=read_store_alpha_map_region(gen,identity,"alpha_registration",ys,ye,budget);
+    const bool window_empty=(buf_y1<=buf_y0);
+    if (window_empty || ys<buf_y0 || ys>buf_y1) {
+      U=read_store_profile_region(gen,identity,"uniform",ys,ye,budget);
+      R=read_store_profile_region(gen,identity,"raw",ys,ye,budget);
+      F=read_store_profile_region(gen,identity,"fine",ys,ye,budget);
+      M=need_medium
+          ? read_store_profile_region(gen,identity,"medium",ys,ye,budget)
+          : ForwardDrizzleUniformResult{};
+      a_sep=read_store_alpha_map_region(gen,identity,"alpha_separation",ys,ye,budget);
+      a_art=read_store_alpha_map_region(gen,identity,"alpha_artifact",ys,ye,budget);
+      a_reg=read_store_alpha_map_region(gen,identity,"alpha_registration",ys,ye,budget);
+    } else {
+      const int drop=ys-buf_y0;
+      uniform_result_drop_rows(U,drop); uniform_result_drop_rows(R,drop);
+      uniform_result_drop_rows(F,drop); uniform_result_drop_rows(M,drop);
+      flat_rows_drop(a_sep,drop,W); flat_rows_drop(a_art,drop,W);
+      flat_rows_drop(a_reg,drop,W);
+      if (ye>buf_y1) {
+        uniform_result_append_rows(U,read_store_profile_region(gen,identity,"uniform",buf_y1,ye,budget));
+        uniform_result_append_rows(R,read_store_profile_region(gen,identity,"raw",buf_y1,ye,budget));
+        uniform_result_append_rows(F,read_store_profile_region(gen,identity,"fine",buf_y1,ye,budget));
+        if (need_medium)
+          uniform_result_append_rows(M,read_store_profile_region(gen,identity,"medium",buf_y1,ye,budget));
+        const auto t_sep=read_store_alpha_map_region(gen,identity,"alpha_separation",buf_y1,ye,budget);
+        const auto t_art=read_store_alpha_map_region(gen,identity,"alpha_artifact",buf_y1,ye,budget);
+        const auto t_reg=read_store_alpha_map_region(gen,identity,"alpha_registration",buf_y1,ye,budget);
+        a_sep.insert(a_sep.end(),t_sep.begin(),t_sep.end());
+        a_art.insert(a_art.end(),t_art.begin(),t_art.end());
+        a_reg.insert(a_reg.end(),t_reg.begin(),t_reg.end());
+      }
+    }
+    buf_y0=ys; buf_y1=ye;
 
     const auto sub=fuse_multiband(U,R,F,M,identity.color_mode,W,sub_h,fcfg,
                                   contract.alpha,contract.guard,a_sep,a_art,a_reg,{});

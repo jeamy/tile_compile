@@ -46,17 +46,32 @@ StripeGeom stripe_geom(const RegistrationSamplingPlan &plan,
   return g;
 }
 
-// Materialise one frame's contributions for this stripe: pre-count with the
-// finite-source filter (overflow-safe), reserve exactly, then fill. NOT sorted
-// here --- the caller sorts (once globally, or per frame).
+// Materialise one frame's contributions for this stripe. `src` covers the
+// source rectangle [src_y_origin, src_y_origin + src.rows()) x
+// [src_x_origin, src_x_origin + src.cols()) --- a full frame for (0, 0)
+// origins, or a banded rect-provider read (A1). It must contain the stripe's
+// scan box. E1: single-pass fill --- the old two-pass form rasterized the
+// whole stripe twice (count, then fill). The running bound enforces the same
+// DRIZZLE_CONTRIB_LIST_BUDGET contract before `out` can exceed it, and every
+// emitted record is stored, so the former predicted-count drift check is
+// subsumed. NOT sorted here --- the caller sorts (once globally, or per
+// frame).
 std::vector<DrizzleContrib> build_frame_records(
     const RegistrationSamplingPlan &plan,
     const registration::FrameSamplingTransform &f, std::uint32_t frame_order,
-    const Matrix2Df &src, const config::ReconstructionDrizzleConfig &cfg,
+    const Matrix2Df &src, int src_y_origin, int src_x_origin,
+    const config::ReconstructionDrizzleConfig &cfg,
     const StripeGeom &g, int y_begin, int rows,
     const ForwardDrizzleSubdivisionParams &sub, std::size_t mem_budget_bytes,
     int x_begin = 0, int cols = -1) {
-  if (src.rows() != plan.source_height || src.cols() != plan.source_width)
+  // The buffer must cover exactly what the rasterizer will scan. For a
+  // full-frame buffer (origins 0) this is the historical shape check; for a
+  // banded rect it is the coverage check.
+  const auto scan_box = drizzle_source_scan_box(plan, f, g.scale, y_begin,
+                                                rows, x_begin, cols);
+  if (src_y_origin > scan_box.y0 || src_x_origin > scan_box.x0 ||
+      src_y_origin + src.rows() < scan_box.y1 ||
+      src_x_origin + src.cols() < scan_box.x1)
     throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
 
   // §30.81 step 3a: the rasterizer sink indexes the window row-major (`win_w`
@@ -65,26 +80,20 @@ std::vector<DrizzleContrib> build_frame_records(
   const int win_w = cols < 0 ? g.W : std::clamp(x_begin + cols, xb, g.W) - xb;
   if (win_w <= 0) return {};
 
-  unsigned long long count = 0;
-  const unsigned long long kCountCeiling =
-      static_cast<unsigned long long>(std::numeric_limits<std::size_t>::max() /
-                                      sizeof(DrizzleContrib));
-  {
-    geomstats::ScopedVariant _v(geomstats::Variant::kContribCount, cfg.pixfrac);
-    geomstats::ScopedGeometryTimer _t;
-    rasterize_drizzle_stripe(
-        plan, f, g.scale, cfg.pixfrac, y_begin, rows,
-        [&](int sx, int sy, int, int, std::size_t, double) {
-          if (std::isfinite(static_cast<double>(src(sy, sx)))) ++count;
-        },
-        sub, xb, win_w);
-  }
-  if (count >= kCountCeiling ||
-      static_cast<std::size_t>(count) * sizeof(DrizzleContrib) > mem_budget_bytes)
-    throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
+  // E1: the two-pass budget contract, enforced incrementally. The old form
+  // counted first and rejected when `count >= kCountCeiling ||
+  // count * sizeof(DrizzleContrib) > mem_budget_bytes`; the single-pass form
+  // therefore permits at most
+  //   min(kCountCeiling - 1, mem_budget_bytes / sizeof(DrizzleContrib))
+  // records and throws on the next one --- the identical bound.
+  const std::size_t kRecordLimit = static_cast<std::size_t>(std::min(
+      std::numeric_limits<unsigned long long>::max() /
+          static_cast<unsigned long long>(sizeof(DrizzleContrib)) -
+          1,
+      static_cast<unsigned long long>(
+          mem_budget_bytes / sizeof(DrizzleContrib))));
 
   std::vector<DrizzleContrib> out;
-  out.reserve(static_cast<std::size_t>(count));
   const auto Wwin = static_cast<std::size_t>(win_w);
   const auto xb_u = static_cast<std::uint32_t>(xb);
   geomstats::ScopedVariant _v(geomstats::Variant::kContribFill, cfg.pixfrac);
@@ -92,8 +101,11 @@ std::vector<DrizzleContrib> build_frame_records(
   rasterize_drizzle_stripe(
       plan, f, g.scale, cfg.pixfrac, y_begin, rows,
       [&](int sx, int sy, int c, int leaf, std::size_t i, double k) {
-        const double v = static_cast<double>(src(sy, sx));
+        const double v = static_cast<double>(
+            src(sy - src_y_origin, sx - src_x_origin));
         if (!std::isfinite(v)) return;
+        if (out.size() >= kRecordLimit)
+          throw std::runtime_error("DRIZZLE_CONTRIB_LIST_BUDGET");
         DrizzleContrib rec;
         rec.key.frame_order = frame_order;
         rec.key.channel = static_cast<std::uint32_t>(c);
@@ -107,8 +119,6 @@ std::vector<DrizzleContrib> build_frame_records(
         out.push_back(rec);
       },
       sub, xb, win_w);
-  if (out.size() != static_cast<std::size_t>(count))
-    throw std::runtime_error("DRIZZLE_CONTRIB_LIST_COUNT_DRIFT");
   return out;
 }
 
@@ -307,8 +317,8 @@ DrizzleContribList build_uniform_contrib_list(
   for (std::size_t fo = 0; fo < prepared.frames.size(); ++fo) {
     const auto &f = *prepared.frames[fo];
     auto recs = build_frame_records(
-        plan, f, static_cast<std::uint32_t>(fo), source_of(f.source_index), cfg,
-        g, y_begin, rows, subdivision, mem_budget_bytes);
+        plan, f, static_cast<std::uint32_t>(fo), source_of(f.source_index), 0,
+        0, cfg, g, y_begin, rows, subdivision, mem_budget_bytes);
     // The running total must also respect the budget (whole-stripe form).
     if ((list.records.size() + recs.size()) * sizeof(DrizzleContrib) >
         mem_budget_bytes)
@@ -358,8 +368,8 @@ DrizzleUniformAccum accumulate_uniform_by_frame(
   for (std::size_t fo = 0; fo < prepared.frames.size(); ++fo) {
     const auto &f = *prepared.frames[fo];
     auto recs = build_frame_records(
-        plan, f, static_cast<std::uint32_t>(fo), source_of(f.source_index), cfg,
-        g, y_begin, rows, subdivision, per_frame_mem_budget_bytes);
+        plan, f, static_cast<std::uint32_t>(fo), source_of(f.source_index), 0,
+        0, cfg, g, y_begin, rows, subdivision, per_frame_mem_budget_bytes);
     std::sort(recs.begin(), recs.end(),
               [](const DrizzleContrib &a, const DrizzleContrib &b) {
                 return contrib_key_less(a.key, b.key);
@@ -569,14 +579,29 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
   std::vector<CachedQMaps> q_cache;
   long long q_hits = 0, q_misses = 0, q_bytes = 0;
 
-  // Reduce one target-column window [wx0, wx0+ww) into a fresh result of that
+  // D4: reusable reduce scratch. The tiled path calls reduce_window once per
+  // column tile; before, every call reallocated the result planes, the flat
+  // ClipCandidate buffer, the per-cell counts, the alpha scratch and the clip
+  // scratch. All are pure per-window scratch and the tile sink consumes the
+  // result synchronously, so capacity is retained across windows. `reduce_out`
+  // must NOT be retained by callers/sinks.
+  ForwardDrizzleUniformAndRawResult reduce_out;
+  std::vector<double> ac_sep, ac_art, ac_reg;
+  std::vector<std::vector<ClipCandidate>> cand;
+  std::vector<std::vector<std::size_t>> counts;
+  DrizzleClipScratch clip_scratch;
+
+  // Reduce one target-column window [wx0, wx0+ww) into `reduce_out` of that
   // width. `get_recs(fo)` yields frame fo's already-sorted records as a live
   // reference (the memo entry, or a reused scratch on the single-window path).
   // Bit-identical to the pre-step-5 body over the same window --- the only
   // change is that the produce + sort moved into `get_recs`.
   auto reduce_window =
       [&](int wx0, int ww,
-          const auto &get_recs) -> ForwardDrizzleUniformAndRawResult {
+          const auto &get_recs) -> ForwardDrizzleUniformAndRawResult & {
+    ForwardDrizzleUniformAndRawResult &r = reduce_out;
+    r.clipping = ForwardDrizzleClippingDiagnostics{};
+    r.diagnostics = ForwardDrizzleDiagnostics{};
     const std::size_t n =
         static_cast<std::size_t>(ww) * static_cast<std::size_t>(rows);
     {  // fail closed before the flat ClipCandidate buffer allocation
@@ -602,7 +627,6 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     const std::uint32_t wxe_u = static_cast<std::uint32_t>(wx0 + ww);
     const auto Wsz = static_cast<std::size_t>(ww);
 
-    ForwardDrizzleUniformAndRawResult r;
     auto init_profile = [&](ForwardDrizzleUniformResult &p, bool on) {
       p.color_mode = plan.color_mode;
       p.internal_width = ww;
@@ -620,7 +644,6 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     init_profile(r.raw, true);
     init_profile(r.fine, mb.emit_fine);
     init_profile(r.medium, mb.emit_medium);
-    std::vector<double> ac_sep, ac_art, ac_reg;
     if (need_qa) {
       r.a_separation.assign(n, std::numeric_limits<float>::quiet_NaN());
       r.a_artifact.assign(n, std::numeric_limits<float>::quiet_NaN());
@@ -635,8 +658,8 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     const auto fp = planes_of(r.fine);
     const auto mp = planes_of(r.medium);
 
-    std::vector<std::vector<ClipCandidate>> cand(channels);
-    std::vector<std::vector<std::size_t>> counts(channels);
+    cand.resize(channels);
+    counts.resize(channels);
     for (int c = 0; c < channels; ++c) {
       cand[c].resize(n * frame_count);
       counts[c].assign(n, 0);
@@ -729,8 +752,8 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
       }
     }
 
-    // Priority 2 (§30.79): reused clip scratch; serial per window.
-    DrizzleClipScratch clip_scratch;
+    // Priority 2 (§30.79): reused clip scratch; serial per window. D4: shared
+    // across windows --- reserve_for only grows.
     clip_scratch.reserve_for(frame_count, need_qa);
     const auto tp_reduce = cnow();
     for (int c = 0; c < channels; ++c)
@@ -816,7 +839,9 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
       const int tw = std::min(tile_cols, g.W - wx0);
       cur_x0 = wx0;
       cur_w = tw;
-      auto tile = reduce_window(wx0, tw, from_window);
+      // D4: `tile` aliases the shared `reduce_out` --- valid only until the
+      // next reduce_window call; the sink consumes it synchronously.
+      const auto &tile = reduce_window(wx0, tw, from_window);
       agg.clipping.pixel_channel_evaluations +=
           tile.clipping.pixel_channel_evaluations;
       agg.clipping.pixel_channel_rejected +=
@@ -845,26 +870,42 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     scratch = produce_sorted(fo, xb, win_w);
     return scratch;
   };
-  auto result = reduce_window(xb, win_w, from_producer);
+  auto &result = reduce_window(xb, win_w, from_producer);
   result.diagnostics.q_band_cache_hits = q_hits;
   result.diagnostics.q_band_cache_misses = q_misses;
   result.diagnostics.q_bytes_read = q_bytes;
-  return result;
+  return std::move(result);
 }
 
 // The CPU record producer: the plan-19.6 reference rasterizer.
+// A1: when `source_rect_of` is non-null, each call reads only the tile
+// window's inverse-mapped source box (drizzle_source_scan_box --- the exact
+// box the rasterizer scans) instead of the full frame.
 PairFrameRecordProducer cpu_pair_producer(
     const RegistrationSamplingPlan &plan, const SourceImageProvider &source_of,
     const config::ReconstructionDrizzleConfig &cfg,
     const ForwardDrizzleSubdivisionParams &subdivision, int y_begin, int rows,
-    std::size_t mem_budget_bytes) {
-  return [&plan, &source_of, &cfg, &subdivision, y_begin, rows,
-          mem_budget_bytes](std::size_t fo,
-                            const registration::FrameSamplingTransform &f,
-                            const StripeGeom &g, int x_begin, int cols) {
+    std::size_t mem_budget_bytes,
+    const SourceImageRectProvider &source_rect_of = {}) {
+  return [&plan, &source_of, &source_rect_of, &cfg, &subdivision, y_begin,
+          rows, mem_budget_bytes](std::size_t fo,
+                                  const registration::FrameSamplingTransform &f,
+                                  const StripeGeom &g, int x_begin, int cols) {
+    if (source_rect_of) {
+      const auto box = drizzle_source_scan_box(plan, f, g.scale, y_begin, rows,
+                                               x_begin, cols);
+      if (box.y1 <= box.y0 || box.x1 <= box.x0)
+        return std::vector<DrizzleContrib>{};
+      Matrix2Df src = source_rect_of(f.source_index, box.y0, box.y1, box.x0,
+                                     box.x1);
+      return build_frame_records(plan, f, static_cast<std::uint32_t>(fo), src,
+                                 box.y0, box.x0, cfg, g, y_begin, rows,
+                                 subdivision, mem_budget_bytes, x_begin, cols);
+    }
     return build_frame_records(plan, f, static_cast<std::uint32_t>(fo),
-                               source_of(f.source_index), cfg, g, y_begin, rows,
-                               subdivision, mem_budget_bytes, x_begin, cols);
+                               source_of(f.source_index), 0, 0, cfg, g,
+                               y_begin, rows, subdivision, mem_budget_bytes,
+                               x_begin, cols);
   };
 }
 
@@ -875,6 +916,15 @@ struct SourceBandCacheStats {
   long long hits = 0;
   long long misses = 0;
   long long bytes_read = 0;
+};
+
+// D5: producer scratch buffers shared across (frame, tile) calls. The
+// producer lambda is invoked sequentially, so capacity is reused instead of
+// reallocating per call.
+struct CudaProducerScratch {
+  std::vector<float> src_buf_local;
+  std::vector<float> src_buf_narrowed;
+  std::vector<CudaDrizzleContribRecord> raw;
 };
 
 // The CUDA record producer. Affine frames -> the device affine rasterizer.
@@ -891,13 +941,20 @@ PairFrameRecordProducer cuda_pair_producer(
     const ForwardDrizzleSubdivisionParams &subdivision, int y_begin, int rows,
     int max_cells_per_pixel, std::size_t mem_budget_bytes,
     std::size_t max_batch_items, HybridPathStats *hybrid_stats,
-    SourceBandCacheStats *src_cache_stats) {
+    SourceBandCacheStats *src_cache_stats,
+    const SourceImageRectProvider &source_rect_of = {}) {
   // T4a: per-frame source band cache, shared across tile window calls.
   auto src_cache = std::make_shared<
       std::unordered_map<std::size_t, CachedSourceBand>>();
-  return [&plan, &source_of, &cfg, &subdivision, y_begin, rows,
-          max_cells_per_pixel, mem_budget_bytes, max_batch_items, hybrid_stats,
-          src_cache, src_cache_stats](
+  // E3: per-frame affine inverse, shared across tile window calls (was
+  // re-inverted per (frame, tile) call).
+  auto inv_cache =
+      std::make_shared<std::unordered_map<std::size_t, WarpMatrix>>();
+  // D5: producer scratch buffers, shared across (frame, tile) calls.
+  auto scratch = std::make_shared<CudaProducerScratch>();
+  return [&plan, &source_of, &source_rect_of, &cfg, &subdivision, y_begin,
+          rows, max_cells_per_pixel, mem_budget_bytes, max_batch_items,
+          hybrid_stats, src_cache, inv_cache, scratch, src_cache_stats](
              std::size_t fo, const registration::FrameSamplingTransform &f,
              const StripeGeom &g, int x_begin,
              int cols) -> std::vector<DrizzleContrib> {
@@ -921,9 +978,24 @@ PairFrameRecordProducer cuda_pair_producer(
               v.end());
     };
     if (f.has_smooth_local_model) {
+      // Local-warp frames need the full source extent (the inverse map is
+      // nonlinear; the scan box is the whole frame). A1: when a rect
+      // provider is wired, the full-extent rect read goes through it
+      // instead of the full-frame provider.
+      Matrix2Df src_rect;
+      const Matrix2Df *src_p = nullptr;
+      if (source_rect_of) {
+        src_rect =
+            source_rect_of(f.source_index, 0,
+                           static_cast<int>(plan.source_height), 0,
+                           static_cast<int>(plan.source_width));
+        src_p = &src_rect;
+      } else {
+        src_p = &source_of(f.source_index);
+      }
       auto recs = build_frame_records_hybrid_local(
-          plan, f, static_cast<std::uint32_t>(fo), source_of(f.source_index),
-          cfg, g, y_begin, rows, subdivision, mem_budget_bytes, max_batch_items,
+          plan, f, static_cast<std::uint32_t>(fo), *src_p, cfg, g, y_begin,
+          rows, subdivision, mem_budget_bytes, max_batch_items,
           hybrid_stats);
       clip_to_window(recs);
       return recs;
@@ -931,10 +1003,10 @@ PairFrameRecordProducer cuda_pair_producer(
     if (!f.source_to_canvas_affine_valid)
       throw ForwardDrizzleCudaError(
           "forward_drizzle CUDA: frame has no valid affine");
-    const Matrix2Df &src = source_of(f.source_index);
+    // E2: the source provider is only called when the frame's band is
+    // actually needed (cache miss or no cache). Previously it ran eagerly
+    // per (frame, tile) call, which is a full-frame read on an LRU miss.
     const int sw = plan.source_width, sh = plan.source_height;
-    if (src.rows() != sh || src.cols() != sw)
-      throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
 
     // Source-row band for this stripe, derived exactly like the CPU path
     // (rasterize_drizzle_stripe): inverse-map the destination stripe corners
@@ -950,9 +1022,16 @@ PairFrameRecordProducer cuda_pair_producer(
     // narrowed rectangle — one source load per frame per band (T4a), one
     // narrowed upload per (frame, tile) (T5).
     const auto &s2c = f.source_to_canvas;
-    WarpMatrix inv;
-    if (!registration::invert_affine_2x3(s2c, 1e-12f, 1e12f, inv))
-      throw ForwardDrizzleCudaError("forward_drizzle CUDA: singular affine");
+    // E3: inverse per frame, cached across tile windows (singular frames
+    // throw before caching, so only valid inverses are stored).
+    auto it_inv = inv_cache->find(fo);
+    if (it_inv == inv_cache->end()) {
+      WarpMatrix inv_new;
+      if (!registration::invert_affine_2x3(s2c, 1e-12f, 1e12f, inv_new))
+        throw ForwardDrizzleCudaError("forward_drizzle CUDA: singular affine");
+      it_inv = inv_cache->emplace(fo, inv_new).first;
+    }
+    const WarpMatrix &inv = it_inv->second;
 
     // Full-width source-Y band (T4a cache key).
     double sy_lo = std::numeric_limits<double>::infinity(),
@@ -1011,9 +1090,32 @@ PairFrameRecordProducer cuda_pair_producer(
 
     // BAND-LOCAL source buffer (full source-X width, T4a cache). The whole
     // image is never copied per frame. T4a: use cached buffer when available.
+    // E2/A1: the provider is only touched on a genuine miss; when a rect
+    // provider is wired the miss reads just the band rows (no full-frame
+    // decode). D5: the uncached scratch buffer is shared across calls.
     const int band_h = band1 - band0;
     const float *src_buf_full = nullptr;
-    std::vector<float> src_buf_local;
+    // Fills `dst` (band_h x sw, row-major) from band rows [band0, band1).
+    auto fill_band = [&](std::vector<float> &dst) {
+      dst.resize(static_cast<std::size_t>(band_h) * sw);
+      if (source_rect_of) {
+        Matrix2Df rect =
+            source_rect_of(f.source_index, band0, band1, 0, sw);
+        if (rect.rows() != band_h || rect.cols() != sw)
+          throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
+        for (int yy = 0; yy < band_h; ++yy)
+          std::copy_n(rect.row(yy).data(), static_cast<std::size_t>(sw),
+                      dst.data() + static_cast<std::size_t>(yy) * sw);
+      } else {
+        const Matrix2Df &src = source_of(f.source_index);
+        if (src.rows() != sh || src.cols() != sw)
+          throw std::invalid_argument("DRIZZLE_SOURCE_SHAPE_MISMATCH");
+        for (int yy = 0; yy < band_h; ++yy)
+          for (int xx = 0; xx < sw; ++xx)
+            dst[static_cast<std::size_t>(yy) * sw + xx] =
+                src(band0 + yy, xx);
+      }
+    };
     if (src_cache_stats) {
       auto it = src_cache->find(fo);
       if (it != src_cache->end() && it->second.band0 == band0 &&
@@ -1024,31 +1126,25 @@ PairFrameRecordProducer cuda_pair_producer(
         auto &entry = (*src_cache)[fo];
         entry.band0 = band0;
         entry.band1 = band1;
-        entry.buf.resize(static_cast<std::size_t>(band_h) * sw);
-        for (int yy = 0; yy < band_h; ++yy)
-          for (int xx = 0; xx < sw; ++xx)
-            entry.buf[static_cast<std::size_t>(yy) * sw + xx] =
-                src(band0 + yy, xx);
+        fill_band(entry.buf);
         src_buf_full = entry.buf.data();
         ++src_cache_stats->misses;
         src_cache_stats->bytes_read +=
             static_cast<long long>(band_h) * sw * sizeof(float);
       }
     } else {
-      src_buf_local.resize(static_cast<std::size_t>(band_h) * sw);
-      for (int yy = 0; yy < band_h; ++yy)
-        for (int xx = 0; xx < sw; ++xx)
-          src_buf_local[static_cast<std::size_t>(yy) * sw + xx] =
-              src(band0 + yy, xx);
-      src_buf_full = src_buf_local.data();
+      fill_band(scratch->src_buf_local);
+      src_buf_full = scratch->src_buf_local.data();
     }
 
     // T5: slice the full-width cached buffer to the narrowed source rectangle
     // [sx0, sx1) x [tsy0, tsy1). This is the buffer uploaded to the kernel.
+    // D5: shared scratch --- the buffer is consumed before the next call.
     const int tile_band_h = tsy1 - tsy0;
     const int tile_band_w = sx1 - sx0;
-    std::vector<float> src_buf_narrowed(
-        static_cast<std::size_t>(tile_band_h) * tile_band_w);
+    auto &src_buf_narrowed = scratch->src_buf_narrowed;
+    src_buf_narrowed.resize(static_cast<std::size_t>(tile_band_h) *
+                            tile_band_w);
     for (int yy = 0; yy < tile_band_h; ++yy)
       for (int xx = 0; xx < tile_band_w; ++xx)
         src_buf_narrowed[static_cast<std::size_t>(yy) * tile_band_w + xx] =
@@ -1069,7 +1165,10 @@ PairFrameRecordProducer cuda_pair_producer(
     const long long cap =
         static_cast<long long>(tile_band_h) * tile_band_w *
         static_cast<long long>(max_cells_per_pixel);
-    std::vector<CudaDrizzleContribRecord> raw(static_cast<std::size_t>(cap));
+    // D5: shared scratch --- the kernel fills [0, written) before the next
+    // call reads it.
+    auto &raw = scratch->raw;
+    raw.resize(static_cast<std::size_t>(cap));
     long long written = 0;
     if (!forward_drizzle_cuda_affine_frame_contributions(
             affine6, cfg.internal_scale, half, y_begin, rows, g.W,
@@ -1112,12 +1211,15 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
     const FrameQualityProvider &quality_of, const MultibandProfileParams &mb,
     std::size_t mem_budget_bytes, int target_x_begin, int target_cols,
     const PairTileSink *tile_sink, int tile_cols,
-    const PreparedDrizzleFrames *prepared_frames) {
+    const PreparedDrizzleFrames *prepared_frames,
+    const SourceImageRectProvider &source_rect_of,
+    const FrameQualityRectProvider &quality_rect_of) {
   return accumulate_pair_impl(
       plan, cfg, clip_cfg, y_begin, rows, subdivision, g_eff_by_source_index,
-      to_rect_provider(quality_of), mb, mem_budget_bytes,
+      quality_rect_of ? quality_rect_of : to_rect_provider(quality_of), mb,
+      mem_budget_bytes,
       cpu_pair_producer(plan, source_of, cfg, subdivision, y_begin, rows,
-                        mem_budget_bytes),
+                        mem_budget_bytes, source_rect_of),
       target_x_begin, target_cols, tile_sink, tile_cols, prepared_frames);
 }
 
@@ -1131,7 +1233,8 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     std::size_t mem_budget_bytes, int max_cells_per_pixel,
     std::size_t max_batch_items, HybridPathStats *hybrid_stats,
     int target_x_begin, int target_cols, const PairTileSink *tile_sink,
-    int tile_cols, const PreparedDrizzleFrames *prepared_frames) {
+    int tile_cols, const PreparedDrizzleFrames *prepared_frames,
+    const SourceImageRectProvider &source_rect_of) {
   // T4a: source band cache stats — populated by the CUDA producer, read after
   // the band pass to fill ForwardDrizzleDiagnostics.
   SourceBandCacheStats src_stats;
@@ -1140,7 +1243,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
       quality_of, mb, mem_budget_bytes,
       cuda_pair_producer(plan, source_of, cfg, subdivision, y_begin, rows,
                          max_cells_per_pixel, mem_budget_bytes, max_batch_items,
-                         hybrid_stats, &src_stats),
+                         hybrid_stats, &src_stats, source_rect_of),
       target_x_begin, target_cols, tile_sink, tile_cols, prepared_frames);
   result.diagnostics.source_band_cache_hits = src_stats.hits;
   result.diagnostics.source_band_cache_misses = src_stats.misses;

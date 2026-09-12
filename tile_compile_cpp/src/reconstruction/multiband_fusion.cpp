@@ -130,23 +130,32 @@ std::array<const ProfilePlane *, 3> chans(const ForwardDrizzleUniformResult &p,
   return {&p.R, &p.G, &p.B};
 }
 
-// Luminance-combined detail for band j (0-based) of a profile: MONO -> D_L,j,
-// OSC -> 0.25 D_R,j + 0.5 D_G,j + 0.25 D_B,j (plan 14.5). Valid only where
-// every contributing channel band is valid.
-void luma_band(const ForwardDrizzleUniformResult &profile, ColorMode mode,
-               int w, int h, int levels, int band0,
-               std::vector<float> &out_detail,
+// B2: decompose each profile's channels ONCE per fusion call; the per-band
+// luminance combination below then only gathers band `band0` from the cached
+// decompositions instead of re-running atrous_decompose for every band.
+std::array<AtrousDecomposition, 3> decompose_channels(
+    const ForwardDrizzleUniformResult &profile, ColorMode mode, int w, int h,
+    int levels) {
+  std::array<AtrousDecomposition, 3> dec;
+  const auto ch = chans(profile, mode);
+  const int nch = mode == ColorMode::MONO ? 1 : 3;
+  for (int c = 0; c < nch; ++c)
+    dec[c] = atrous_decompose(ch[c]->value, ch[c]->support, w, h, levels);
+  return dec;
+}
+
+// Luminance-combined detail for band j (0-based) of pre-decomposed channel
+// decompositions: MONO -> D_L,j, OSC -> 0.25 D_R,j + 0.5 D_G,j + 0.25 D_B,j
+// (plan 14.5). Valid only where every contributing channel band is valid.
+void luma_band(const std::array<AtrousDecomposition, 3> &dec, ColorMode mode,
+               int w, int h, int band0, std::vector<float> &out_detail,
                std::vector<uint8_t> &out_support) {
   const std::size_t n = static_cast<std::size_t>(w) * h;
   out_detail.assign(n, std::numeric_limits<float>::quiet_NaN());
   out_support.assign(n, 0u);
-  const auto ch = chans(profile, mode);
   const int nch = mode == ColorMode::MONO ? 1 : 3;
   const double wgt[3] = {mode == ColorMode::MONO ? 1.0 : kWorkingLumaWeightsOsc[0],
                          kWorkingLumaWeightsOsc[1], kWorkingLumaWeightsOsc[2]};
-  std::array<AtrousDecomposition, 3> dec;
-  for (int c = 0; c < nch; ++c)
-    dec[c] = atrous_decompose(ch[c]->value, ch[c]->support, w, h, levels);
   for (std::size_t i = 0; i < n; ++i) {
     double acc = 0.0;
     bool ok = true;
@@ -187,16 +196,22 @@ MultibandResult fuse_multiband(
                                       a_registration);
 
   // 2. energy guard + 3. B3 smoothing, per Fine/Medium band, on luma.
+  // B2: decompose each profile once; the band loop below only combines.
+  const auto raw_dec = decompose_channels(raw, mode, width, height, L);
+  const auto fine_dec = decompose_channels(fine, mode, width, height, L);
+  const auto medium_dec =
+      L >= 2 ? decompose_channels(medium, mode, width, height, L)
+             : std::array<AtrousDecomposition, 3>{};
   MultibandResult out;
   out.alpha_final.assign(static_cast<std::size_t>(L), {});
   for (int j = 1; j <= L; ++j) {
     const std::size_t bj = static_cast<std::size_t>(j - 1);
     if (alpha[bj].empty()) continue;  // Raw-sourced band
-    const ForwardDrizzleUniformResult &profile = (j == 1) ? fine : medium;
+    const auto &profile_dec = (j == 1) ? fine_dec : medium_dec;
     std::vector<float> dr_luma, dp_luma;
     std::vector<uint8_t> sr, sp;
-    luma_band(raw, mode, width, height, L, j - 1, dr_luma, sr);
-    luma_band(profile, mode, width, height, L, j - 1, dp_luma, sp);
+    luma_band(raw_dec, mode, width, height, j - 1, dr_luma, sr);
+    luma_band(profile_dec, mode, width, height, j - 1, dp_luma, sp);
     std::vector<uint8_t> support(sr.size(), 0u);
     for (std::size_t i = 0; i < support.size(); ++i)
       support[i] = (sr[i] && sp[i]) ? 1u : 0u;

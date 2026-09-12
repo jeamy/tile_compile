@@ -63,7 +63,10 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw_2x2(
     // output-row-band parallelism, bit-identical to `workers == 1` (default).
     // The 2x2 -> 1x fold is downstream of the (still in-order, one-per-stripe)
     // inner sink, so it is unaffected.
-    int workers = 1);
+    int workers = 1,
+    // A1/A2: banded providers, forwarded verbatim to the inner stream call.
+    const SourceImageRectProvider &source_rect_of = {},
+    const FrameQualityRectProvider &quality_rect_of = {});
 
 // The same row-buffered 2x2 -> 1x fold that stream_forward_drizzle_uniform_and_raw_2x2
 // uses internally, exposed for callers that own their own internal-row stripe

@@ -388,7 +388,8 @@ DrizzleStoreIdentity make_drizzle_store_identity(
 DrizzleStoreResult persist_forward_drizzle_uniform(
     const fs::path &root, const registration::RegistrationSamplingPlan &plan,
     const SourceImageProvider &source_of, const config::ReconstructionDrizzleConfig &cfg,
-    const ForwardDrizzleSubdivisionParams &subdivision) {
+    const ForwardDrizzleSubdivisionParams &subdivision,
+    const SourceImageRectProvider &source_rect_of) {
   if (cfg.internal_scale == 2 && cfg.output_scale == 1)
     throw std::invalid_argument(
         "DRIZZLE_STORE_UNIFORM_ONLY_2_1_UNSUPPORTED: use "
@@ -398,7 +399,7 @@ DrizzleStoreResult persist_forward_drizzle_uniform(
   DrizzleStoreResult result;
   result.diagnostics = stream_forward_drizzle_uniform(plan, source_of, cfg,
       [&](int y, const ForwardDrizzleUniformResult &stripe) { writer.stripe(y, stripe); },
-      subdivision, writer_reserve(identity));
+      subdivision, writer_reserve(identity), source_rect_of);
   result.generation_dir = writer.finish();
   result.identity = identity;
   return result;
@@ -409,7 +410,9 @@ DrizzleStoreResult persist_forward_drizzle_uniform_and_raw(
     const config::ReconstructionClippingConfig &clipping,
     const ForwardDrizzleSubdivisionParams &subdivision, const std::vector<float> &g_eff,
     const DrizzleStorePredecessors &predecessors,
-    const FrameQualityProvider &quality_of, int workers) {
+    const FrameQualityProvider &quality_of, int workers,
+    const SourceImageRectProvider &source_rect_of,
+    const FrameQualityRectProvider &quality_rect_of) {
   const auto identity = make_drizzle_store_identity(plan, cfg, subdivision, &clipping, g_eff, predecessors);
   StoreWriter writer(root, identity);
   DrizzleStoreResult result;
@@ -422,11 +425,13 @@ DrizzleStoreResult persist_forward_drizzle_uniform_and_raw(
     // to output (1x) resolution --- never a full internal-resolution image.
     summary = stream_forward_drizzle_uniform_and_raw_2x2(plan, source_of, cfg, clipping, sink,
                                                          subdivision, g_eff, writer_reserve(identity),
-                                                         quality_of, {}, workers);
+                                                         quality_of, {}, workers, source_rect_of,
+                                                         quality_rect_of);
   } else {
     summary = stream_forward_drizzle_uniform_and_raw(plan, source_of, cfg, clipping, sink,
                                                      subdivision, g_eff, writer_reserve(identity),
-                                                     quality_of, {}, workers);
+                                                     quality_of, {}, workers, 0, -1,
+                                                     source_rect_of, quality_rect_of);
   }
   result.diagnostics = summary.diagnostics;
   result.clipping = summary.clipping;
@@ -444,7 +449,8 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::vector<float> &g_eff,
     const DrizzleStorePredecessors &predecessors,
-    const ForwardDrizzleCudaOptions &cuda, int workers) {
+    const ForwardDrizzleCudaOptions &cuda, int workers,
+    const SourceImageRectProvider &source_rect_of) {
   if (!multiband.enabled)
     throw std::invalid_argument("DRIZZLE_STORE_MULTIBAND_NOT_ENABLED");
   if (!quality_of)
@@ -715,12 +721,13 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
           }
 
           const auto t0 = store_clock::now();
-          // §30.81 step-5 (B): a single call produces + sorts each frame ONCE
-          // per band, then reduces `tile_w`-wide column tiles from that per-band
-          // memo. Each reduced tile is blitted into the full-width band stripe
-          // here. This removes the per-tile produce + sort repetition (the
-          // baseline in §30.81 step 5 showed the sort scaled exactly with the
-          // tile count).
+          // §30.81 step 3a: NO per-band record memo lives here. Each
+          // `tile_w`-wide column tile is produced + sorted + reduced inside
+          // accumulate_pair_by_frame_cuda, scoped to that tile's target window
+          // (see the tiled branch comment in forward_drizzle_contrib_list.cpp),
+          // and the finished tile is blitted into the full-width band stripe
+          // below. The producer's per-tile source band is cached across tiles
+          // (T4c) so the source/Q data is still read once per band.
           auto blit = [&](ForwardDrizzleUniformResult &dst,
                           const ForwardDrizzleUniformResult &s, int xb, int tw) {
             auto planes = [&](ForwardDrizzleUniformResult &r) {
@@ -798,7 +805,8 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
                 /*max_batch_items=*/static_cast<std::size_t>(1) << 20,
                 &hybrid_stats, /*target_x_begin=*/0, /*target_cols=*/-1,
                 &tile_sink, tile_w,
-                prepared_frames ? &*prepared_frames : nullptr);
+                prepared_frames ? &*prepared_frames : nullptr,
+                source_rect_of);
           } catch (const std::runtime_error &e) {
             // The per-band record memo or a tile's candidate buffer exceeded the
             // host ceiling -> ask run_cuda_chunked for a shorter band (plan 19.4
@@ -887,11 +895,16 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
     // confidence maps via 2x2 min + AND support (plan 14.4).
     summary = stream_forward_drizzle_uniform_and_raw_2x2(
         plan, source_of, cfg, clipping, sink, subdivision, g_eff,
-        writer_reserve(identity), quality_full, mb, workers);
+        writer_reserve(identity), quality_full, mb, workers, source_rect_of,
+        quality_of);
   } else {
+    // A1/A2: `source_rect_of` scopes each (stripe, frame) source read to the
+    // banded scan box; `quality_of` (the rect provider) scopes the Q reads
+    // and serves the existence probes without a decode.
     summary = stream_forward_drizzle_uniform_and_raw(
         plan, source_of, cfg, clipping, sink, subdivision, g_eff,
-        writer_reserve(identity), quality_full, mb, workers);
+        writer_reserve(identity), quality_full, mb, workers, 0, -1,
+        source_rect_of, quality_of);
   }
   result.diagnostics = summary.diagnostics;
   result.clipping = summary.clipping;

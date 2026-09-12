@@ -34,6 +34,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <sstream>
@@ -485,6 +486,76 @@ bool write_registration_sampling_plan(
   return true;
 }
 
+// N7 (redundant-reload analysis): the stripe-outer/frame-inner drizzle
+// stream revisits every normalized source per stripe, and the single-slot
+// cache below then re-decodes N frames per stripe. When the whole set fits
+// in a quarter of the drizzle memory budget, keep it resident so each frame
+// is decoded exactly once and serve banded rect reads from the stash;
+// otherwise retain the previous single-slot behaviour.
+struct NormalizedSourceProviders {
+  reconstruction::SourceImageProvider source_of;
+  reconstruction::SourceImageRectProvider source_rect_of;
+};
+
+NormalizedSourceProviders make_normalized_source_providers(
+    const registration::RegistrationSamplingPlan &plan,
+    const std::function<Matrix2Df(size_t)> &load_frame_normalized,
+    size_t memory_budget_mb) {
+  struct Stash {
+    std::vector<Matrix2Df> frames;
+    std::vector<uint8_t> valid;
+    Matrix2Df single_slot;
+    std::optional<size_t> single_idx;
+  };
+  auto stash = std::make_shared<Stash>();
+  const size_t frame_bytes =
+      static_cast<size_t>(std::max(0, plan.source_width)) *
+      static_cast<size_t>(std::max(0, plan.source_height)) * sizeof(float);
+  const size_t budget_bytes =
+      (static_cast<size_t>(memory_budget_mb ? memory_budget_mb : 512) << 20) /
+      4;
+  const bool stash_active =
+      frame_bytes > 0 && frame_bytes <= budget_bytes &&
+      plan.frames.size() <= budget_bytes / frame_bytes;
+  if (stash_active) {
+    stash->frames.resize(plan.frames.size());
+    stash->valid.assign(plan.frames.size(), 0u);
+  }
+
+  NormalizedSourceProviders out;
+  out.source_of = [stash, &load_frame_normalized](std::size_t idx)
+      -> const Matrix2Df & {
+    if (!stash->frames.empty() && idx < stash->frames.size()) {
+      if (stash->valid[idx] == 0u) {
+        stash->frames[idx] = load_frame_normalized(idx);
+        stash->valid[idx] = 1u;
+      }
+      return stash->frames[idx];
+    }
+    if (!stash->single_idx.has_value() || *stash->single_idx != idx) {
+      stash->single_slot = load_frame_normalized(idx);
+      stash->single_idx = idx;
+    }
+    return stash->single_slot;
+  };
+  if (stash_active) {
+    out.source_rect_of = [stash, &load_frame_normalized](
+        std::size_t idx, int y0, int y1, int x0, int x1) -> Matrix2Df {
+      if (idx >= stash->frames.size() || y1 <= y0 || x1 <= x0)
+        return Matrix2Df();
+      if (stash->valid[idx] == 0u) {
+        stash->frames[idx] = load_frame_normalized(idx);
+        stash->valid[idx] = 1u;
+      }
+      const Matrix2Df &m = stash->frames[idx];
+      if (y0 < 0 || y1 > m.rows() || x0 < 0 || x1 > m.cols())
+        return Matrix2Df();
+      return m.block(y0, x0, y1 - y0, x1 - x0);
+    };
+  }
+  return out;
+}
+
 // M2 (plan section 11) diagnostic-only preview of the CFA-forward-drizzle
 // Uniform-Control kernel. Gated behind
 // reconstruction.diagnostics.preview_forward_drizzle_uniform (default off,
@@ -504,28 +575,19 @@ void run_forward_drizzle_uniform_preview(
   try {
     const auto t0 = std::chrono::steady_clock::now();
 
-    // Streaming revisits sources per stripe in fixed frame order. A single
-    // cache slot bounds the decoded source working set independently of N.
-    std::optional<size_t> cached_index;
-    Matrix2Df cached_image;
-    reconstruction::SourceImageProvider source_of =
-        [&](std::size_t idx) -> const Matrix2Df & {
-      if (!cached_index.has_value() || *cached_index != idx) {
-        cached_image.resize(0, 0);
-        cached_index.reset();
-        cached_image = load_frame_normalized(idx);
-        cached_index = idx;
-      }
-      return cached_image;
-    };
+    // N7: stash-backed providers decode each normalized source at most once
+    // when the set fits the budget; otherwise the single-slot fallback inside
+    // keeps the previous bounded working set.
+    auto providers = make_normalized_source_providers(
+        plan, load_frame_normalized, drizzle_cfg.memory_budget_mb);
 
     std::array<size_t,4> supported{};
     const auto diagnostics = reconstruction::stream_forward_drizzle_uniform(
-        plan,source_of,drizzle_cfg,[&](int,const reconstruction::ForwardDrizzleUniformResult& stripe) {
+        plan,providers.source_of,drizzle_cfg,[&](int,const reconstruction::ForwardDrizzleUniformResult& stripe) {
           const std::array<const reconstruction::ProfilePlane*,4> planes={&stripe.R,&stripe.G,&stripe.B,&stripe.L};
           for(size_t c=0;c<planes.size();++c)
             supported[c]+=std::count(planes[c]->support.begin(),planes[c]->support.end(),uint8_t{1});
-        });
+        },{},0,providers.source_rect_of);
     const int internal_width=plan.canvas_width_native*drizzle_cfg.internal_scale;
     const int internal_height=plan.canvas_height_native*drizzle_cfg.internal_scale;
     auto coverage_fraction=[&](size_t c) {
@@ -596,22 +658,15 @@ void write_forward_drizzle_uniform_store(
     const std::string &run_id, std::ostream &log_file) {
   try {
     const auto t0 = std::chrono::steady_clock::now();
-    std::optional<size_t> cached_index;
-    Matrix2Df cached_image;
-    reconstruction::SourceImageProvider source_of =
-        [&](std::size_t idx) -> const Matrix2Df & {
-      if (!cached_index.has_value() || *cached_index != idx) {
-        cached_image.resize(0, 0);
-        cached_index.reset();
-        cached_image = load_frame_normalized(idx);
-        cached_index = idx;
-      }
-      return cached_image;
-    };
+    // N7: same stash-backed providers as the preview path --- each normalized
+    // source is decoded at most once when the set fits the budget.
+    auto providers = make_normalized_source_providers(
+        plan, load_frame_normalized, drizzle_cfg.memory_budget_mb);
 
     const fs::path store_dir = run_dir / "artifacts" / "forward_drizzle_uniform_store";
     const auto result = reconstruction::persist_forward_drizzle_uniform(
-        store_dir, plan, source_of, drizzle_cfg);
+        store_dir, plan, providers.source_of, drizzle_cfg,
+        {}, providers.source_rect_of);
     std::cout << "[FORWARD_DRIZZLE_STORE] committed " << result.generation_dir.string()
               << " estimated_peak_bytes=" << result.diagnostics.estimated_peak_bytes
               << " chunk_rows=" << result.diagnostics.resolved_chunk_rows

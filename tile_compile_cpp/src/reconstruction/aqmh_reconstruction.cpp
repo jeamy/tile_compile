@@ -70,66 +70,92 @@ AqmhUniformControlResult compute_aqmh_uniform_control(
       canvas_valid_flat[i] = canvas_mask[i] != 0u ? 1u : 0u;
   }
 
-  constexpr int control_chunk_rows = 128;
-  const int chunk_count = (height + control_chunk_rows - 1) / control_chunk_rows;
-
-#if defined(_OPENMP)
-#pragma omp parallel for schedule(dynamic, 1)
-#endif
-  for (int chunk_idx = 0; chunk_idx < chunk_count; ++chunk_idx) {
-    const int y0 = chunk_idx * control_chunk_rows;
-    const int rows = std::min(control_chunk_rows, height - y0);
-    const size_t pixel_count = static_cast<size_t>(rows) * width;
-    std::vector<double> sums(pixel_count, 0.0);
-    std::vector<uint32_t> counts(pixel_count, 0u);
-    for (size_t fi = 0; fi < frame_count; ++fi) {
-      Matrix2Df frame;
-      const bool frame_ok = load_frame_region
-          ? load_frame_region(fi, y0, rows, frame)
-          : load_frame(fi, frame);
-      if (!frame_ok || frame.cols() != width ||
-          frame.rows() != (load_frame_region ? rows : height)) {
-        continue;
-      }
-      std::vector<uint8_t> frame_mask;
-      const bool use_region_mask = static_cast<bool>(load_frame_valid_mask_region);
-      const bool mask_ok = use_region_mask
-          ? load_frame_valid_mask_region(fi, y0, rows, frame_mask)
-          : (!load_frame_valid_mask || load_frame_valid_mask(fi, frame_mask));
-      const size_t expected_mask = static_cast<size_t>(width) *
-                                   (use_region_mask ? rows : height);
-      if ((load_frame_valid_mask || use_region_mask) &&
-          (!mask_ok || frame_mask.size() != expected_mask)) {
-        continue;
-      }
-      for (int yy = 0; yy < rows; ++yy) {
-        const int y = y0 + yy;
-        for (int x = 0; x < width; ++x) {
-          const size_t local_i = static_cast<size_t>(yy * width + x);
-          const size_t mask_i = use_region_mask
-              ? local_i : static_cast<size_t>(y * width + x);
-          const int source_y = load_frame_region ? yy : y;
-          const float value = frame(source_y, x);
-          const size_t full_i = static_cast<size_t>(y) * width + x;
-          if (canvas_valid_flat[full_i] == 0u ||
-              (!frame_mask.empty() && frame_mask[mask_i] == 0u) ||
-              !std::isfinite(value)) {
-            continue;
-          }
-          sums[local_i] += value;
-          ++counts[local_i];
+  // N1 (redundant-reload analysis): iterate frames outermost so every frame
+  // and mask is loaded exactly once for the whole image. The previous
+  // chunk-outer/frame-inner order reloaded every frame and mask per 128-row
+  // chunk. Accumulators are full-image; the inner pixel loop parallelizes
+  // over rows, which write disjoint cells, so per-pixel accumulation order
+  // and results are identical to the serial accumulation.
+  std::vector<double> sums(total_pixels, 0.0);
+  std::vector<uint32_t> counts(total_pixels, 0u);
+  constexpr int mask_slab_rows = 128;
+  for (size_t fi = 0; fi < frame_count; ++fi) {
+    Matrix2Df frame;
+    bool frame_ok;
+    if (load_frame_region) {
+      // Same source the old chunk loop used: assemble the full frame
+      // band-wise so each row is read exactly once.
+      frame = Matrix2Df::Zero(height, width);
+      frame_ok = true;
+      for (int ry = 0; ry < height && frame_ok; ry += mask_slab_rows) {
+        const int rrows = std::min(mask_slab_rows, height - ry);
+        Matrix2Df slab;
+        if (!load_frame_region(fi, ry, rrows, slab) ||
+            slab.cols() != width || slab.rows() != rrows) {
+          frame_ok = false;
+          break;
         }
+        frame.block(ry, 0, rrows, width) = slab;
+      }
+    } else {
+      frame_ok = load_frame(fi, frame);
+    }
+    if (!frame_ok || frame.cols() != width || frame.rows() != height) {
+      continue;
+    }
+    std::vector<uint8_t> frame_mask;
+    if (load_frame_valid_mask_region) {
+      // Region loader preferred (matches the old chunk loop): assemble the
+      // full mask band-wise, each row read exactly once.
+      frame_mask.assign(total_pixels, 0u);
+      bool mask_ok = true;
+      for (int ry = 0; ry < height; ry += mask_slab_rows) {
+        const int rrows = std::min(mask_slab_rows, height - ry);
+        std::vector<uint8_t> slab;
+        if (!load_frame_valid_mask_region(fi, ry, rrows, slab) ||
+            slab.size() != static_cast<size_t>(rrows) * width) {
+          mask_ok = false;
+          break;
+        }
+        std::copy(slab.begin(), slab.end(),
+                  frame_mask.begin() +
+                      static_cast<std::ptrdiff_t>(ry) * width);
+      }
+      if (!mask_ok) continue;
+    } else if (load_frame_valid_mask) {
+      if (!load_frame_valid_mask(fi, frame_mask) ||
+          frame_mask.size() != total_pixels) {
+        continue;
       }
     }
-    for (int yy = 0; yy < rows; ++yy) {
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+    for (int y = 0; y < height; ++y) {
+      const size_t row_base = static_cast<size_t>(y) * width;
       for (int x = 0; x < width; ++x) {
-        const size_t local_i = static_cast<size_t>(yy * width + x);
-        if (counts[local_i] == 0u) continue;
-        const int y = y0 + yy;
-        result.output(y, x) = static_cast<float>(
-            sums[local_i] / static_cast<double>(counts[local_i]));
-        result.valid_mask[static_cast<size_t>(y * width + x)] = 1u;
+        const size_t full_i = row_base + static_cast<size_t>(x);
+        const float value = frame(y, x);
+        if (canvas_valid_flat[full_i] == 0u ||
+            (!frame_mask.empty() && frame_mask[full_i] == 0u) ||
+            !std::isfinite(value)) {
+          continue;
+        }
+        sums[full_i] += value;
+        ++counts[full_i];
       }
+    }
+  }
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      const size_t full_i = static_cast<size_t>(y) * width + x;
+      if (counts[full_i] == 0u) continue;
+      result.output(y, x) =
+          static_cast<float>(sums[full_i] / static_cast<double>(counts[full_i]));
+      result.valid_mask[full_i] = 1u;
     }
   }
   return result;
@@ -157,25 +183,6 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
   if (!load_frame || !q_map_cache || frame_count == 0 || width <= 0 || height <= 0)
     return result;
 
-  // Validate each full M_f digest once. The previous slab loop re-read and
-  // re-hashed a full mask for every frame and every slab.
-  // §8-G: Parallelized — SHA-256 is embarrassingly parallel across frames.
-  std::vector<uint8_t> frame_mask_compatible(frame_count, 1u);
-  if (load_frame_valid_mask) {
-    #if defined(_OPENMP)
-    #pragma omp parallel for schedule(dynamic, 1)
-    #endif
-    for (ptrdiff_t fi_ptr = 0; fi_ptr < static_cast<ptrdiff_t>(frame_count); ++fi_ptr) {
-      const size_t fi = static_cast<size_t>(fi_ptr);
-      std::vector<uint8_t> full_mask;
-      frame_mask_compatible[fi] =
-          load_frame_valid_mask(fi, full_mask) &&
-          full_mask.size() == static_cast<size_t>(width * height) &&
-          q_map_cache->source_mask_hash(fi) ==
-              tile_compile::core::sha256_bytes(full_mask);
-    }
-  }
-
   // §8-A: Pre-materialize a flat bool array from canvas_mask for O(1) lookup
   // in the innermost pixel loop, eliminating per-pixel bounds checks.
   const size_t total_pixels = static_cast<size_t>(width) * static_cast<size_t>(height);
@@ -185,87 +192,184 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
       canvas_valid_flat[i] = canvas_mask[i] != 0u ? 1u : 0u;
   }
 
+  // C7 (redundant-reload analysis): global_weight() was re-evaluated for the
+  // same fi in the gate pass, the non-region gate and the per-chunk fill.
+  // weights is invariant for the whole call --- evaluate once per frame.
+  std::vector<float> gw_by_fi(frame_count, 0.0f);
+  for (size_t fi = 0; fi < frame_count; ++fi)
+    gw_by_fi[fi] = global_weight(global_weights, fi);
+
+  // A4 (fallback path): when no region loaders are wired, the chunk-outer /
+  // frame-inner loop reloads every full frame + mask per chunk. When the
+  // whole set fits comfortably in the memory budget, keep frames and masks
+  // resident and serve synthesized region loaders from them: each frame and
+  // mask is then loaded from disk exactly once, whichever pass asks.
+  // Sizing: <= 25 % of memory_budget_mb for the stash (the sample buffers
+  // already reserve ~budget/2). With region loaders present (production) the
+  // stash stays off and everything behaves as before.
+  std::vector<Matrix2Df> frame_stash;
+  std::vector<std::vector<uint8_t>> mask_stash;
+  std::vector<uint8_t> frame_stash_valid, mask_stash_valid;
+  AqmhFrameRegionLoader eff_frame_region = load_frame_region;
+  AqmhMaskRegionLoader eff_mask_region = load_frame_valid_mask_region;
+  const size_t stash_budget_bytes =
+      (static_cast<size_t>(cfg.memory_budget_mb) << 20) / 4;
+  const size_t stash_bytes_per_frame =
+      total_pixels * (sizeof(float) + sizeof(uint8_t));
+  const bool stash_active =
+      (!eff_frame_region || !eff_mask_region) &&
+      frame_count > 0 &&
+      stash_bytes_per_frame <= stash_budget_bytes &&
+      frame_count <= stash_budget_bytes / stash_bytes_per_frame;
+  if (stash_active) {
+    frame_stash.resize(frame_count);
+    mask_stash.resize(frame_count);
+    frame_stash_valid.assign(frame_count, 0u);
+    mask_stash_valid.assign(frame_count, 0u);
+    if (!eff_frame_region) {
+      eff_frame_region = [&](size_t fi, int ry0, int rrows,
+                             Matrix2Df &out) -> bool {
+        if (fi >= frame_count || rrows <= 0) return false;
+        if (!frame_stash_valid[fi]) {
+          if (!load_frame(fi, frame_stash[fi])) return false;
+          frame_stash_valid[fi] = 1u;
+        }
+        const Matrix2Df &m = frame_stash[fi];
+        if (m.cols() != width || m.rows() != height) return false;
+        out = m.block(ry0, 0, rrows, width);
+        return true;
+      };
+    }
+    if (!eff_mask_region && load_frame_valid_mask) {
+      eff_mask_region = [&](size_t fi, int ry0, int rrows,
+                            std::vector<uint8_t> &out) -> bool {
+        if (fi >= frame_count || rrows <= 0) return false;
+        if (!mask_stash_valid[fi]) {
+          if (!load_frame_valid_mask(fi, mask_stash[fi])) return false;
+          mask_stash_valid[fi] = 1u;
+        }
+        const auto &m = mask_stash[fi];
+        if (m.size() != total_pixels) return false;
+        const size_t first = static_cast<size_t>(ry0) * width;
+        const size_t count = static_cast<size_t>(rrows) * width;
+        out.assign(m.begin() + static_cast<std::ptrdiff_t>(first),
+                   m.begin() + static_cast<std::ptrdiff_t>(first + count));
+        return true;
+      };
+    }
+  }
+
+  // Validate each full M_f digest once. The previous slab loop re-read and
+  // re-hashed a full mask for every frame and every slab.
+  // §8-G: Parallelized — SHA-256 is embarrassingly parallel across frames.
+  // A6: when the stash is active the validated mask is kept --- the main
+  // pass's mask reads then come from memory instead of a second disk sweep.
+  std::vector<uint8_t> frame_mask_compatible(frame_count, 1u);
+  if (load_frame_valid_mask) {
+    #if defined(_OPENMP)
+    #pragma omp parallel for schedule(dynamic, 1)
+    #endif
+    for (ptrdiff_t fi_ptr = 0; fi_ptr < static_cast<ptrdiff_t>(frame_count); ++fi_ptr) {
+      const size_t fi = static_cast<size_t>(fi_ptr);
+      std::vector<uint8_t> full_mask;
+      const bool ok =
+          load_frame_valid_mask(fi, full_mask) &&
+          full_mask.size() == static_cast<size_t>(width * height) &&
+          q_map_cache->source_mask_hash(fi) ==
+              tile_compile::core::sha256_bytes(full_mask);
+      frame_mask_compatible[fi] = ok ? 1u : 0u;
+      if (ok && stash_active && !mask_stash_valid[fi]) {
+        mask_stash[fi] = std::move(full_mask);
+        mask_stash_valid[fi] = 1u;
+      }
+    }
+  }
+
   bool cherry_enabled = cfg.cherry_pick;
   // Hoisted (redundant-reload analysis C1): cfg.cherry_pick_mode is invariant
   // for this whole call; avoid re-comparing the string per pixel.
   const bool is_auto_reject = cfg.cherry_pick_mode == "auto_reject";
   if (cherry_enabled) {
+    // A5/A6: single frame-outer gate sweep. Each frame contributes its q map
+    // and mask exactly once; read_cached() leaves the q map resident in the
+    // LRU so the main pass's region reads decode it at most once whenever the
+    // cache can hold the working set, and the mask stash (when active) serves
+    // every later read from memory.
+    // The semantic mode is fixed by the *caller's* loaders: only when both
+    // region loaders were passed do we skip the per-pixel isfinite(frame)
+    // check, matching the previous region gate exactly.
     std::vector<float> nominal_values;
-    nominal_values.reserve(static_cast<size_t>(width * height));
-    if (load_frame_region && load_frame_valid_mask_region) {
-      constexpr int gate_rows = 128;
-      for (int y0 = 0; y0 < height; y0 += gate_rows) {
-        const int rows = std::min(gate_rows, height - y0);
-        const size_t count = static_cast<size_t>(rows) * width;
-        std::vector<uint16_t> rankable(count, 0u);
-        #if defined(_OPENMP)
-        #pragma omp parallel for schedule(dynamic, 4)
-        #endif
-        for (ptrdiff_t fi_ptr = 0; fi_ptr < static_cast<ptrdiff_t>(frame_count); ++fi_ptr) {
-          const size_t fi = static_cast<size_t>(fi_ptr);
-          if (frame_mask_compatible[fi] == 0u ||
-              !(global_weight(global_weights, fi) > 0.0f)) continue;
-          Matrix2Df q = q_map_cache->read_region(fi, y0, rows);
+    nominal_values.reserve(total_pixels);
+    std::vector<uint32_t> rankable(total_pixels, 0u);
+    const bool gate_region_mode =
+        static_cast<bool>(load_frame_region) &&
+        static_cast<bool>(load_frame_valid_mask_region);
+    constexpr int gate_rows = 128;
+    #if defined(_OPENMP)
+    #pragma omp parallel for schedule(dynamic, 1)
+    #endif
+    for (ptrdiff_t fi_ptr = 0; fi_ptr < static_cast<ptrdiff_t>(frame_count); ++fi_ptr) {
+      const size_t fi = static_cast<size_t>(fi_ptr);
+      if (frame_mask_compatible[fi] == 0u || !(gw_by_fi[fi] > 0.0f)) continue;
+      Matrix2Df q = q_map_cache->read_cached(fi);
+      if (q.rows() != height || q.cols() != width) continue;
+      Matrix2Df frame;
+      if (!gate_region_mode) {
+        // Preserve the legacy non-region semantics: only the full loaders
+        // count here. eff_* is used solely when the stash synthesized it from
+        // those same loaders, so the data source is unchanged.
+        const bool fok = (stash_active && eff_frame_region)
+            ? eff_frame_region(fi, 0, height, frame)
+            : load_frame(fi, frame);
+        if (!fok || frame.rows() != height || frame.cols() != width) continue;
+      }
+      if (gate_region_mode) {
+        for (int gy = 0; gy < height; gy += gate_rows) {
+          const int rows = std::min(gate_rows, height - gy);
+          const size_t count = static_cast<size_t>(rows) * width;
+          const size_t base = static_cast<size_t>(gy) * width;
           std::vector<uint8_t> fm;
-          if (q.rows() != rows || q.cols() != width ||
-              !load_frame_valid_mask_region(fi, y0, rows, fm) ||
-              fm.size() != count) continue;
+          if (!eff_mask_region(fi, gy, rows, fm) || fm.size() != count) break;
+          const float *q_ptr = q.data() + base;
           for (size_t i = 0; i < count; ++i)
-            if (fm[i] != 0u && q.data()[i] > 0.0f) {
+            if (fm[i] != 0u && q_ptr[i] > 0.0f) {
               #if defined(_OPENMP)
               #pragma omp atomic
               #endif
-              rankable[i] += 1u;
+              rankable[base + i] += 1u;
             }
         }
-        for (size_t i = 0; i < count; ++i) {
-          const size_t full_i = static_cast<size_t>(y0) * width + i;
-          if (!canvas_mask.empty() && canvas_mask[full_i] == 0u) continue;
-          const int n = rankable[i];
-          nominal_values.push_back(is_auto_reject
-              ? static_cast<float>(n)
-              : static_cast<float>(aqmh_k_nominal(
-                    n, aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
-                                             cfg.tiered_k_frac))));
-        }
-      }
-    } else {
-      Matrix2Df rankable = Matrix2Df::Zero(height, width);
-      for (size_t fi = 0; fi < frame_count; ++fi) {
-        if (frame_mask_compatible[fi] == 0u) continue;
-        Matrix2Df frame;
-        if (!load_frame(fi, frame) || frame.rows() != height ||
-            frame.cols() != width) continue;
-        Matrix2Df q = q_map_cache->read_cached(fi);
-        if (q.rows() != height || q.cols() != width) continue;
+      } else {
         std::vector<uint8_t> fm;
-        if (load_frame_valid_mask && !load_frame_valid_mask(fi, fm)) continue;
-        const float gw = global_weight(global_weights, fi);
-        for (int y = 0; y < height; ++y)
-          for (int x = 0; x < width; ++x) {
-            const size_t i = static_cast<size_t>(y * width + x);
-            // Direct flat-array lookup (redundant-reload analysis C2): x/y
-            // are already loop-bounded, so canvas_valid's bounds check is
-            // redundant here, and canvas_valid_flat[i] (built above) is the
-            // same condition as canvas_valid(canvas_mask, ...) without the
-            // re-derivation of mask.empty()/mask.size() every pixel.
-            if (canvas_valid_flat[i] != 0u &&
-                (fm.empty() || fm[i] != 0u) && std::isfinite(frame(y, x)) &&
-                q(y, x) > 0.0f && gw > 0.0f) rankable(y, x) += 1.0f;
+        if (stash_active && eff_mask_region) {
+          if (!eff_mask_region(fi, 0, height, fm)) continue;
+        } else if (load_frame_valid_mask) {
+          if (!load_frame_valid_mask(fi, fm)) continue;
+        }
+        if (!fm.empty() && fm.size() != total_pixels) continue;
+        for (size_t i = 0; i < total_pixels; ++i) {
+          // Direct flat-array lookup (redundant-reload analysis C2):
+          // canvas_valid_flat[i] is the same condition as canvas_valid()
+          // without re-deriving mask.empty()/mask.size() every pixel.
+          if ((fm.empty() || fm[i] != 0u) && std::isfinite(frame.data()[i]) &&
+              q.data()[i] > 0.0f) {
+            #if defined(_OPENMP)
+            #pragma omp atomic
+            #endif
+            rankable[i] += 1u;
           }
-      }
-      for (int y = 0; y < height; ++y)
-        for (int x = 0; x < width; ++x) {
-          const size_t i = static_cast<size_t>(y * width + x);
-          if (canvas_valid_flat[i] == 0u) continue;
-          const int n = static_cast<int>(rankable(y, x));
-          nominal_values.push_back(is_auto_reject
-              ? static_cast<float>(n)
-              : static_cast<float>(aqmh_k_nominal(
-                    n, aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
-                                             cfg.tiered_k_frac))));
         }
       }
+    }
+    for (size_t i = 0; i < total_pixels; ++i) {
+      if (canvas_valid_flat[i] == 0u) continue;
+      const int n = static_cast<int>(rankable[i]);
+      nominal_values.push_back(is_auto_reject
+          ? static_cast<float>(n)
+          : static_cast<float>(aqmh_k_nominal(
+                n, aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
+                                         cfg.tiered_k_frac))));
+    }
     result.k_nominal_median = quantile(std::move(nominal_values), 0.5f);
     if (result.k_nominal_median < cfg.cherry_pick_k_min_required) {
       cherry_enabled = false;
@@ -300,7 +404,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
   }
   result.chunk_rows = chunk_rows;
   result.chunk_count = (height + chunk_rows - 1) / chunk_rows;
-  result.region_streaming_used = static_cast<bool>(load_frame_region);
+  result.region_streaming_used = static_cast<bool>(eff_frame_region);
 
   for (int y0 = 0; y0 < height; y0 += chunk_rows) {
     const int rows = std::min(chunk_rows, height - y0);
@@ -366,15 +470,15 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
           continue;
         }
         Matrix2Df frame;
-        const bool frame_ok = load_frame_region
-            ? load_frame_region(fi, y0, rows, frame)
+        const bool frame_ok = eff_frame_region
+            ? eff_frame_region(fi, y0, rows, frame)
             : load_frame(fi, frame);
         if (!frame_ok || frame.cols() != width ||
-            frame.rows() != (load_frame_region ? rows : height)) continue;
-        Matrix2Df q = load_frame_region
+            frame.rows() != (eff_frame_region ? rows : height)) continue;
+        Matrix2Df q = eff_frame_region
             ? q_map_cache->read_region(fi, y0, rows)
             : q_map_cache->read_cached(fi);
-        if (q.cols() != width || q.rows() != (load_frame_region ? rows : height)) {
+        if (q.cols() != width || q.rows() != (eff_frame_region ? rows : height)) {
 #if defined(_OPENMP)
 #pragma omp atomic
 #endif
@@ -382,9 +486,9 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
           continue;
         }
         std::vector<uint8_t> fm;
-        const bool use_region_mask = static_cast<bool>(load_frame_valid_mask_region);
+        const bool use_region_mask = static_cast<bool>(eff_mask_region);
         const bool mask_ok = use_region_mask
-            ? load_frame_valid_mask_region(fi, y0, rows, fm)
+            ? eff_mask_region(fi, y0, rows, fm)
             : (!load_frame_valid_mask || load_frame_valid_mask(fi, fm));
         const size_t expected_mask = static_cast<size_t>(width) *
                                      (use_region_mask ? rows : height);
@@ -396,7 +500,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
           result.missing_map_samples += static_cast<uint64_t>(rows) * width;
           continue;
         }
-        const float gw = global_weight(global_weights, fi);
+        const float gw = gw_by_fi[fi];
         const float *frame_ptr = frame.data();
         const float *q_ptr = q.data();
         for (int yy = 0; yy < rows; ++yy) {

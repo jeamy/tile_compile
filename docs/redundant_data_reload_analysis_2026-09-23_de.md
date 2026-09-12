@@ -22,77 +22,80 @@ und **A2** (Q-Map-Reload pro Stripe ohne In-Memory-Cache).
 
 ---
 
-## Umsetzungsstatus (Nachtrag 2026-09-12)
+## Umsetzungsstatus (Nachtrag 2026-09-12, final)
 
-Alle 28 Funde wurden gegen den aktuellen Code verifiziert (Zeilennummern sind
-seit Erstellung leicht gedriftet, die beschriebenen Muster sind identisch
-nachweisbar). Die behobenen Punkte liegen als Worktree-Änderungen vor;
-Verifikation: Build grün, 549/549 Catch2-Tests, 2.756.148 Assertions
-unverändert.
+Alle 28 Funde plus die Neufunde N1-N9 wurden gegen den aktuellen Code
+verifiziert und -- bis auf die als Fehleinschätzung klassifizierten Punkte --
+vollständig umgesetzt. Die Arbeiten erfolgten in zwei Runden: zuerst die
+lokalen Invarianten/Allokationen (C1-C8, D2, D6), dann die strukturellen
+Loop-/Pass-Umbauten (A1-A6, B1-B3, C7, D3-D5, E1-E3, N1-N9). Verifikation
+nach der zweiten Runde: Build gruen (tile_compile_runner, tests,
+web_backend_cpp), 549/549 Catch2-Tests, 2.756.148 Assertions -- exakt die
+Baseline vor den Umbauten.
 
-| Fund | Status | Aktuelle Position / Bemerkung |
-|------|--------|-------------------------------|
-| A1 | zurückgestellt | `forward_drizzle.cpp` ~1509/1614-1620, Loop-Order unverändert; 2/1-Pfad delegiert an dieselbe Funktion (`output_scale.cpp:389-393`) |
-| A2 | zurückgestellt (teilweise gemildert) | Reader weiterhin ohne In-Memory-Cache; getilter CUDA-Pfad hat T4b-Q-Cache (1 Read pro Frame pro Band, `forward_drizzle_contrib_list.cpp:794-813`); CPU-Stream-Pfad dekodiert weiterhin pro (Stripe × Frame) via Full-Extent-Adapter (`drizzle_profile_store.cpp:455-456, 892-894`) |
-| A3 | zurückgestellt | `forward_drizzle.cpp:887-898`; nur Diagnose-/Coverage-Pfad |
-| A4 | zurückgestellt | real, aber Produktionspfad übergibt immer Region-Loader (`runner_phase_aqmh_reconstruction.cpp:534-545`); Worst-Case (volle Frame-Reloads) trifft nur den Test-Fallback. Gleiches Muster auch im OpenCL-/CUDA-Host-Feed (Neufunde N3/N4) |
-| A5 | zurückgestellt | real: Pre-Pass (`aqmh_reconstruction.cpp:197-231`) + Haupt-Pass (374-388) laden dieselben (fi, y0); Fix erfordert Pass-Fusion |
-| A6 | zurückgestellt | reduziert auf 1× pro Frame (vorher pro Slab); Laden->Verwerfen->Neuladen bleibt |
-| B1 | zurückgestellt | CPU-Fallback sequenziell (`runner_phase_aqmh_reconstruction.cpp:772-775`); CUDA-Pfad nutzt `run_planes_rgb` in einem Sweep |
-| B2 | zurückgestellt | unverändert (`multiband_fusion.cpp:136-163, 198-199`) |
-| B3 | zurückgestellt | unverändert (`alpha_guard.cpp:176-217`, `masked_num` 2×) |
-| B4 | Fehleinschätzung (veraltet) | `compute_global_quality_weights_from_metrics` + `load_source_quality_metrics` existieren und sind verdrahtet (`source_quality_artifact.cpp:142-195`, `runner_forward_drizzle.cpp:431-434`); `preflight` erzwingt `star_max_corners >= 1`, das Metrics-Artefakt existiert daher immer |
+| Fund | Status | Umsetzung / Bemerkung |
+|------|--------|------------------------|
+| A1 | umgesetzt | `drizzle_source_scan_box` (in den Rasterizer extrahiert, identische Bounds) liefert pro (Stripe, Frame) die inverse-gemappte Source-Box; `SourceImageRectProvider` liest nur diese Box banded (`forward_drizzle.cpp`), verdrahtet ueber `VerifiedNormalizedSourceCache::read_rect` (`source_quality_artifact.cpp`) und den Runner-Stash (`runner_phase_registration.cpp`) |
+| A2 | umgesetzt | `FrameQualityRectProvider` liest nur die Scan-Box via `read_rect`; die Stream-Funktionen nehmen den Rect-Provider direkt entgegen (Existenz-Probes via Leer-Rect, s. N5). Der Full-Provider bleibt als Adapter-Fallback (`to_rect_provider`) |
+| A3 | umgesetzt | `stream_forward_drizzle_uniform` nutzt denselben `source_rect_of`-Pfad; der Diagnose-Pfad im Runner teilt den Whole-Set-/Single-Slot-Stash (`make_normalized_source_providers`) |
+| A4 | umgesetzt | `reconstruct_aqmh_weighted` haelt im Non-Region-Fallback einen budget-geprueften Frame/Mask-Stash (`frame_stash`/`mask_stash`); der Cherry-Pick-Gate ist frame-aeusser organisiert, Hauptpass nutzt `eff_frame_region`/`eff_mask_region` |
+| A5 | umgesetzt | Der Gate-Pass fuehrt pro Frame genau einen `q_map_cache->read_cached(fi)`-Zugriff aus (LRU-resident fuer den Hauptpass); Masken/Frames kommen bei aktivem Stash daraus |
+| A6 | umgesetzt | Die Mask-Validierung befuellt den Stash direkt; validierte Masken werden im Hauptpass wiederverwendet statt erneut geladen |
+| B1 | umgesetzt | Sequenzieller RGB-Fallback im Runner teilt einen Mask-Stash (`rgb_mask_stash`) und denselben `aqmh_cache` ueber die drei Plane-Calls; Frame-Pixeldaten bleiben bewusst plane-spezifisch |
+| B2 | umgesetzt | `multiband_fusion.cpp`: Profile werden einmal dekomponiert, Baender aus den Profil-Ebenen kombiniert (kein `luma_band`-Redekomponieren pro Band) |
+| B3 | umgesetzt | `smooth_alpha_b3`: Zaehler und Nenner in einer fus einzigen separablen Faltung (identische Geometrie, ein Pass statt zwei) |
+| B4 | Fehleinschätzung (veraltet) | `compute_global_quality_weights_from_metrics` + `load_source_quality_metrics` existieren und sind verdrahtet (`source_quality_artifact.cpp`, `runner_forward_drizzle.cpp`); `preflight` erzwingt `star_max_corners >= 1`, das Metrics-Artefakt existiert daher immer |
 | B5 | Fehleinschätzung | keine Redundanz: R/G/B/L sind unterschiedliche Daten, kein doppeltes Lesen derselben Bytes; One-Plane-Peak-Memory ist bewusstes Spool-Design |
-| C1 | umgesetzt | `is_auto_reject` hoisted (`aqmh_reconstruction.cpp:191, 225, 262, 531`) |
-| C2 | umgesetzt | `canvas_valid_flat`-Array; `canvas_valid()` komplett entfernt (`aqmh_reconstruction.cpp:66-71, 114, 182-186, 252, 260`) |
-| C3 | umgesetzt | `band_src_by_level`/`band_profile_by_level` (`multiband_fusion.cpp:80-86`) |
-| C4 | umgesetzt | 2×2-LUT `build_cfa_channel_2x2_lut` (`source_quality_proxy.cpp:14-29, 140, 151, 172`) |
-| C5 | umgesetzt | `is_osc`/`bayer_pattern`/`cfa_origin_*` hoisted (`forward_drizzle.cpp:566-581`) |
-| C6 | umgesetzt | `emit_fine`/`emit_medium`/Exponenten hoisted (`forward_drizzle.cpp:1197-1211`) |
-| C7 | zurückgestellt | `global_weight` weiterhin an 3 Stellen (`aqmh_reconstruction.cpp:207, 243, 399`) |
-| C8 | umgesetzt | `dx`/`dy` hoisted (`alpha_guard.cpp:150-153`) |
-| D1 | teilweise; Lösungsansatz Fehleinschätzung | Caller-Buffer `dr_vals`/`dp_vals`/`mix` hoisted (`alpha_guard.cpp:65-70`); der vorgeschlagene by-ref/move-Fix ist nicht tragfähig, da `mad_sigma` die eigene destruktible Kopie für den In-Place-Median zwingend braucht. Interne `dev`-Allokation bleibt |
-| D2 | umgesetzt | `wx`/`w`/`w2`/`A`/`B` hoisted (`forward_drizzle.cpp:880-886`) |
-| D3 | zurückgestellt | unverändert: `result` + Profil-Ebenen pro Stripe (`forward_drizzle.cpp:1513-1529`) |
-| D4 | zurückgestellt | unverändert: `reduce_window` allokiert `r`/`cand`/`counts` pro Tile (`forward_drizzle_contrib_list.cpp:605-643`) |
-| D5 | zurückgestellt | unverändert (`forward_drizzle_contrib_list.cpp:1050, 1072`) |
-| D6 | umgesetzt | `reserve` für `local_effective_k`/`local_margins` (`aqmh_reconstruction.cpp:485-488`) |
-| E1 | zurückgestellt | unverändert: Count+Fill-Rasterisierung (`forward_drizzle_contrib_list.cpp:75-109`) |
-| E2 | zurückgestellt | real; Kosten-Nuance siehe unten |
-| E3 | zurückgestellt | unverändert: `invert_affine_2x3` + Band pro Tile (`forward_drizzle_contrib_list.cpp:952-973`) |
+| C1 | umgesetzt | `is_auto_reject` hoisted (`aqmh_reconstruction.cpp`) |
+| C2 | umgesetzt | `canvas_valid_flat`-Array; `canvas_valid()` komplett entfernt |
+| C3 | umgesetzt | `band_src_by_level`/`band_profile_by_level` (`multiband_fusion.cpp`) |
+| C4 | umgesetzt | 2×2-LUT `build_cfa_channel_2x2_lut` (`source_quality_proxy.cpp`) |
+| C5 | umgesetzt | `is_osc`/`bayer_pattern`/`cfa_origin_*` hoisted (`forward_drizzle.cpp`) |
+| C6 | umgesetzt | `emit_fine`/`emit_medium`/Exponenten hoisted (`forward_drizzle.cpp`) |
+| C7 | umgesetzt | `gw_by_fi`: `global_weight` wird einmal pro Frame vorberechnet (`aqmh_reconstruction.cpp`) |
+| C8 | umgesetzt | `dx`/`dy` hoisted (`alpha_guard.cpp`) |
+| D1 | umgesetzt (mit Korrektur des Ansatzes) | `mad_sigma` braucht die by-value-Kopie fuer den In-Place-Median (urspruenglicher Fix nicht tragfaehig); stattdessen `mad_sigma_mutate` mit gehisstem `dev`-Scratch dort, wo die Eingabe mutiert werden darf (`alpha_guard.cpp:27-48, 83, 124`) |
+| D2 | umgesetzt | `wx`/`w`/`w2`/`A`/`B` hoisted (`forward_drizzle.cpp`) |
+| D3 | umgesetzt | `result` + Profil-Ebenen + Arbeitsbuffer werden ueber Stripes wiederverwendet; nur das genutzte `[0, n)`-Prefix wird zurueckgesetzt (`forward_drizzle.cpp`) |
+| D4 | umgesetzt | `reduce_window` schreibt in caller-seitige, ueber Tiles wiederverwendete Ergebnis-/Scratch-Buffer (`forward_drizzle_contrib_list.cpp`) |
+| D5 | umgesetzt | `CudaProducerScratch`: `src_buf_narrowed`/`raw` u. a. werden pro Frame einmal allokiert und ueber Tiles wiederverwendet (`forward_drizzle_contrib_list.cpp`) |
+| D6 | umgesetzt | `reserve` fuer `local_effective_k`/`local_margins` (`aqmh_reconstruction.cpp`) |
+| E1 | umgesetzt | `build_frame_records` befuellt die Contrib-Listen in einem einzigen Raster-Pass (Count+Fill fusioniert, `forward_drizzle_contrib_list.cpp`) |
+| E2 | umgesetzt | `cuda_pair_producer` laedt die Source erst nach dem Band-Cache-Miss (lazy statt vor dem Lookup) |
+| E3 | umgesetzt | Affine Inverse werden pro Frame gecacht und ueber Tiles wiederverwendet (`forward_drizzle_contrib_list.cpp`) |
 
-### Anmerkungen zur Einschätzung der zurückgestellten Funde
+### Anmerkungen zu den strukturellen Umbauten (Runde 2)
 
-- **A3** ist derselbe Stripe-außen/Frame-innen-Pattern wie A1, aber in
-  `stream_forward_drizzle_uniform` -- laut Analyse nur für Diagnose/Coverage
-  genutzt, nicht die Hauptrekonstruktion.
-- **A4/A5/A6** sind real: Die Chunk-außen/Frame-innen-Schleife von
-  `reconstruct_aqmh_weighted` lädt ohne Region-Loader volle Frames pro Chunk
-  neu (A4); Cherry-Pick-Vorpass und Haupt-Chunk-Pass rufen beide
-  `q_map_cache->read_region`/`load_frame_valid_mask_region` für dieselben
-  (fi, y0) auf (A5) -- bei LRU-Kapazität < frame_count echtes doppeltes I/O.
-  Verifiziert: Der Produktionspfad übergibt die Region-Loader immer
-  (`runner_phase_aqmh_reconstruction.cpp:534-545`, `region_streaming=yes`);
-  A4s Worst-Case trifft also nur den Test-Fallback-Pfad. Ein Fix von A5/A6
-  erfordert die Fusion der beiden Pässe -- dieselbe Risikoklasse wie
-  A1/A2/E1/B1-B3: strukturelle Änderung an einer korrektheitskritischen
-  Funktion, ohne Messung, die den Aufwand rechtfertigt.
-- **E2** ist real, aber mit einer Kostennuance: `source_of` ist im Store-Build
-  `VerifiedNormalizedSourceCache::load` (`source_quality_artifact.cpp:385`).
-  Ein LRU-Hit kostet nur zwei Stat-Syscalls (`normalized_source_cache.cpp:
-  140-153`), ein LRU-Miss dagegen einen vollen Frame-Read
-  (`verify_and_insert`). Da die Tiled-Schleife pro Tile alle Frames in
-  aufsteigender Reihenfolge iteriert, dominieren bei
-  `frame_count > LRU-Kapazität` (Default 512 MB -> ~15 Frames bei 4K)
-  Misses: der `source_of`-Aufruf vor dem Band-Cache-Lookup ist dann ein
-  echter Disk-Read pro (Frame, Tile) -- nicht nur ein Funktionsaufruf.
-  Die Zurückstellung bleibt vertretbar (dieselbe filigrane
-  CUDA-Hybrid-Closure wie D5/E3), aber die Einschätzung "niedrigwertig"
-  gilt nur für `frame_count <= LRU-Kapazität`.
+- **A1/A2 (Loop-Order):** Statt die Stripe-aeussere Loop umzudrehen (grosse
+  Semantik-/Parallelisierungs-Aenderung), wurde die gelesene Datenmenge pro
+  (Stripe, Frame) auf die tatsaechlich gescannte Source-Box reduziert:
+  `drizzle_source_scan_box` ist die exakt dieselbe Box, die der Rasterizer
+  enumeriert (aus dem Enumerator extrahiert, keine zweite Implementierung).
+  Banded `read_rect`-Zugriffe auf `VerifiedNormalizedSourceCache` (mmap-nahe
+  Zeilen-Reads) und `SourceQualityMapCacheReader` machen den
+  Stripe-Factor fuer Source- und Q-Map-I/O faktisch 1x -- ohne die
+  Akkumulationsordnung zu aendern. Bit-identisch (549/549 Tests).
+- **A4/A5/A6:** Die Pass-Fusion wurde als Budget-gepruefter Stash geloest:
+  passt das Frame-/Mask-Set in das konfigurierte Memory-Budget, werden die
+  bei der Validierung geladenen Masken und die Frames resident gehalten und
+  Gate + Hauptpass lesen ausschliesslich daraus. Ueberschreitet das Set das
+  Budget, bleibt das bisherige Verhalten (Region-Loader bevorzugt,
+  `read_cached` fuer Q-Maps) unveraendert aktiv.
+- **E2-Nuance (bestaetigt und adressiert):** `source_of` ist im Store-Build
+  `VerifiedNormalizedSourceCache::load` -- bei LRU-Miss ein voller
+  Frame-Read. Die lazy Ordnung (Band-Cache-Check zuerst) eliminiert den
+  Aufruf auf dem Hit-Pfad vollstaendig; auf dem Miss-Pfad wird zusaetzlich
+  banded via `source_rect_of` gelesen, wenn verdrahtet.
 - **B5** ist keine Redundanz im eigentlichen Sinn: R/G/B/L sind
-  unterschiedliche Daten, kein zweifaches Lesen derselben Bytes. Das Dokument
-  benennt selbst "das Spool-Design ist für One-Plane-At-A-Time Peak-Memory" --
-  sequentielles, aber notwendiges I/O. Kein Fix nötig.
+  unterschiedliche Daten, kein zweifaches Lesen derselben Bytes. Das
+  Spool-Design (One-Plane-At-A-Time Peak-Memory) ist bewusst sequenziell.
+  Kein Fix noetig.
+- **Verbliebene Grenzen:** Der CPU-Stream-Pfad iteriert weiterhin
+  Stripe-aeusser/Frame-innen -- die Reload-Kosten sind durch banded reads
+  beseitigt, die Enumerations-Reihenfolge bleibt wie zuvor. Bei nicht
+  verdrahteten Rect-Providern (reine `source_of`-Aufrufer) faellt der Pfad
+  auf die Full-Frame-Semantik zurueck (Coverage-Check statt Exakt-Shape, da
+  `to_rect_provider` volle Maps mit Origin 0 liefert).
 
 ### Zusätzlich behoben (gleiche Musterklasse, nicht in der Ursprungsliste)
 
@@ -114,9 +117,15 @@ unverändert.
 
 ### A1: Source-Frame wird pro Stripe neu geladen (Stream-Forward-Drizzle)
 
-**Status (2026-09-12):** zurückgestellt -- Loop-Order unverändert (jetzt
-`forward_drizzle.cpp` ~1509/1614-1620); der 2/1-Pfad delegiert an dieselbe
-Funktion (`output_scale.cpp:389-393`).
+**Status (2026-09-12, Runde 2):** umgesetzt -- statt die Loop-Order
+umzudrehen wird die gelesene Datenmenge reduziert: `drizzle_source_scan_box`
+(aus dem Enumerator extrahiert, identische Bounds) liefert pro
+(Stripe, Frame) die inverse-gemappte Source-Box; `source_rect_of` liest nur
+diese Box banded (`VerifiedNormalizedSourceCache::read_rect`). Verdrahtet in
+`persist_multiband_store_from_predecessors`,
+`persist_forward_drizzle_from_predecessors` und dem Runner-Stash
+(`make_normalized_source_providers`). Der 2/1-Pfad delegiert an dieselbe
+Funktion und profitiert mit.
 
 **Datei:** `src/reconstruction/forward_drizzle.cpp:1489-1600`
 **Funktion:** `stream_forward_drizzle_uniform_and_raw`
@@ -171,11 +180,14 @@ redundantes I/O.
 
 ### A2: Q-Map wird pro Stripe neu von Disk gelesen (kein In-Memory-Cache)
 
-**Status (2026-09-12):** zurückgestellt, teilweise gemildert --
-`SourceQualityMapCacheReader` hat weiterhin keinen In-Memory-Cache und der
-CPU-Stream-Pfad dekodiert weiterhin pro (Stripe × Frame) via
-Full-Extent-Adapter; der getilte CUDA-Pfad hat dagegen den T4b-Q-Cache
-(1 `read_rect` pro Frame pro Band, `forward_drizzle_contrib_list.cpp:794-813`).
+**Status (2026-09-12, Runde 2):** umgesetzt -- die Stream-Funktionen nehmen
+`FrameQualityRectProvider` direkt entgegen und lesen nur die per-Stripe
+Scan-Box via `read_rect` (kein Full-Extent-Adapter mehr auf dem verdrahteten
+Pfad; `to_rect_provider` bleibt als Fallback). `SourceQualityMapCacheReader`
+hat weiterhin bewusst keinen In-Memory-Cache -- der banded Zugriff
+reduziert die dekodierte Datenmenge auf die Box, ein Cache ist nicht mehr
+noetig. Der getilte CUDA-Pfad behaelt den T4b-Q-Cache
+(1 `read_rect` pro Frame pro Band).
 
 **Datei:** `src/reconstruction/source_quality_artifact.cpp:359-383`
 **Funktion:** `quality_of` Lambda in `persist_multiband_store_from_predecessors`
@@ -217,8 +229,11 @@ analog zu `QualityMapCache::read_cached()`, oder Prefetch-Thread analog zu
 
 ### A3: Source-Frame und Q-Map werden im `stream_forward_drizzle_uniform` pro Stripe geladen
 
-**Status (2026-09-12):** zurückgestellt -- unverändert
-(`forward_drizzle.cpp:887-898`), aber nur Diagnose-/Coverage-Pfad.
+**Status (2026-09-12, Runde 2):** umgesetzt --
+`stream_forward_drizzle_uniform` nutzt denselben
+`source_rect_of`-Banded-Read-Pfad; beide Runner-Diagnose-Call-Sites teilen
+`make_normalized_source_providers` (Whole-Set-Stash bei Budget, sonst
+Single-Slot). Nur Diagnose-/Coverage-Pfad.
 
 **Datei:** `src/reconstruction/forward_drizzle.cpp:872-914`
 **Funktion:** `stream_forward_drizzle_uniform`
@@ -245,11 +260,12 @@ wird für diagnostische Zwecke aufgerufen, nicht für die Hauptrekonstruktion.
 
 ### A4: AQMH-Reconstruction lädt Frame/Mask/Q-Map pro y0-Chunk neu
 
-**Status (2026-09-12):** zurückgestellt -- real, aber der Produktionspfad
-übergibt immer die Region-Loader (`runner_phase_aqmh_reconstruction.cpp:
-534-545`); der Worst-Case (volle Frame-Reloads pro Chunk) trifft nur den
-Test-Fallback-Pfad. Dasselbe Muster existiert zusätzlich im OpenCL- und
-CUDA-Host-Feed (Neufunde N3/N4).
+**Status (2026-09-12, Runde 2):** umgesetzt -- im Non-Region-Fallback haelt
+`reconstruct_aqmh_weighted` einen budget-geprueften Frame/Mask-Stash
+(`frame_stash`/`mask_stash`, Gate: Gesamt-Set <= konfiguriertes Budget);
+Region-Loader bleiben bevorzugt und laufen ueber `eff_frame_region`/
+`eff_mask_region`. Dasselbe Muster im OpenCL-/CUDA-Host-Feed wurde
+mitgefuehrt (N3/N4).
 
 **Datei:** `src/reconstruction/aqmh_reconstruction.cpp:355-379`
 **Funktion:** `reconstruct_aqmh_weighted`
@@ -283,9 +299,11 @@ Single-Frame-Cache wie in `runner_phase_registration.cpp:509-520`.
 
 ### A5: Cherry-Pick-Pre-Pass und Haupt-Pass laden dieselben Q-Maps/Masks doppelt
 
-**Status (2026-09-12):** zurückgestellt -- real (Pre-Pass
-`aqmh_reconstruction.cpp:197-231`, Haupt-Pass 374-388); ein Fix erfordert die
-Fusion beider Pässe (strukturell, korrektheitskritisch).
+**Status (2026-09-12, Runde 2):** umgesetzt -- der Cherry-Pick-Gate wurde
+als frame-aeusserer Pass umgebaut: pro Frame genau ein
+`q_map_cache->read_cached(fi)` (LRU-resident fuer den Hauptpass) und --
+bei aktivem Stash -- Masken/Frames aus dem Stash statt erneuten Loads.
+Keine doppelten (fi, y0)-Reads mehr zwischen Gate und Hauptpass.
 
 **Datei:** `src/reconstruction/aqmh_reconstruction.cpp:188-224` (Cherry-Pick)
 und `aqmh_reconstruction.cpp:361-375` (Haupt-Pass)
@@ -304,9 +322,9 @@ Q-Map/Mask-Daten zwischen den Pässen.
 
 ### A6: Mask-Validierung lädt Mask, verwirft sie, lädt sie im Haupt-Pass neu
 
-**Status (2026-09-12):** zurückgestellt -- die Validierung wurde bereits auf
-1× pro Frame reduziert (vorher pro Slab), aber Laden->Verwerfen->Neuladen im
-Hauptpass bleibt bestehen.
+**Status (2026-09-12, Runde 2):** umgesetzt -- die Mask-Validierung befuellt
+den Stash direkt; der Hauptpass verwendet die validierten Masken wieder
+statt sie neu zu laden.
 
 **Datei:** `src/reconstruction/aqmh_reconstruction.cpp:164-173` (Validierung)
 und `aqmh_reconstruction.cpp:371-375` (Haupt-Pass)
@@ -324,9 +342,12 @@ plus die Per-Chunk-Reloads aus A4.
 
 ### B1: AQMH CPU-Fallback rekonstruiert R, G, B sequenziell mit gleichen Q-Maps/Masks
 
-**Status (2026-09-12):** zurückgestellt -- unverändert
-(`runner_phase_aqmh_reconstruction.cpp:772-775`); der CUDA-Pfad nutzt
-`run_planes_rgb` bereits in einem Sweep.
+**Status (2026-09-12, Runde 2):** umgesetzt -- der sequenzielle RGB-Fallback
+teilt einen Mask-Stash (`rgb_mask_stash`, Budget: ein Viertel des
+konfigurierten Limits) und denselben `aqmh_cache` ueber die drei
+Plane-Calls; Q-Maps/Masken werden hoechstens einmal dekodiert.
+Frame-Pixeldaten bleiben bewusst plane-spezifisch (R/G/B sind verschiedene
+Daten, vgl. B5). CUDA-Pfad unveraendert `run_planes_rgb`.
 
 **Datei:** `apps/runner_phase_aqmh_reconstruction.cpp:720-775`
 
@@ -367,8 +388,10 @@ zwischenspeichern.
 
 ### B2: `luma_band` dekomponiert `raw`/`fine`/`medium` für jedes Band neu
 
-**Status (2026-09-12):** zurückgestellt -- unverändert
-(`multiband_fusion.cpp:136-163, 198-199`).
+**Status (2026-09-12, Runde 2):** umgesetzt -- die Profile (`raw`/`fine`/
+`medium`) werden einmal pro Kanal dekomponiert und die Baender aus den
+Profil-Dekompositionen kombiniert; `luma_band` fuehrt keine eigene
+Voll-Dekomposition pro Band mehr aus (`multiband_fusion.cpp`).
 
 **Datei:** `src/reconstruction/multiband_fusion.cpp:125-152`
 **Aufgerufen von:** `fuse_multiband:186-188`
@@ -411,8 +434,9 @@ Die Dekompositionen aus `fuse_multiband_channel` an `luma_band` weiterreichen.
 
 ### B3: `smooth_alpha_b3` führt B3-Faltung zweimal für identische Geometrie aus
 
-**Status (2026-09-12):** zurückgestellt -- unverändert
-(`alpha_guard.cpp:176-217`, `masked_num` 2×).
+**Status (2026-09-12, Runde 2):** umgesetzt -- Zaehler- und Nenner-Faltung
+laufen fusioniert in einer separablen `conv_axis`-Runde (identische
+Geometrie/Labels, ein Pass statt zwei).
 
 **Datei:** `src/reconstruction/alpha_guard.cpp:174-215`
 
@@ -616,7 +640,8 @@ Struct-Reads sind im hot path.
 
 ### C7: `global_weight(global_weights, fi)` mehrfach für denselben `fi`
 
-**Status (2026-09-12):** zurückgestellt -- unverändert, Aufrufe an
+**Status (2026-09-12, Runde 2):** umgesetzt -- `gw_by_fi` berechnet
+`global_weight` einmal pro Frame; die bisherigen Aufrufe an
 `aqmh_reconstruction.cpp:207, 243, 399`.
 
 **Datei:** `src/reconstruction/aqmh_reconstruction.cpp:200, 236, 386`
@@ -650,13 +675,14 @@ werden bei jedem Stack-Pop neu deklariert.
 
 ### D1: `mad_sigma` kopiert Vektor by-value und allokiert `dev` pro Aufruf
 
-**Status (2026-09-12):** teilweise umgesetzt; Lösungsansatz war eine
-Fehleinschätzung -- die Caller-seitigen Buffer `dr_vals`/`dp_vals`/`mix`
-wurden hoisted (`alpha_guard.cpp:65-70`), aber der vorgeschlagene
-by-ref/move-Fix ist nicht tragfähig: `mad_sigma` braucht die eigene
-destruktible Kopie für den In-Place-Median zwingend (siehe auch den
-Code-Kommentar an `ratio_at`). Die interne `dev`-Allokation pro Aufruf
-bleibt bestehen.
+**Status (2026-09-12, Runde 2):** umgesetzt mit korrigiertem Ansatz -- der
+vorgeschlagene by-ref/move-Fix ist nicht tragfaehig, da `mad_sigma` die
+eigene destruktible Kopie fuer den In-Place-Median zwingend braucht.
+Stattdessen: `mad_sigma_mutate(values, dev)` mit gehisstem `dev`-Scratch
+dort, wo die Eingabe mutiert werden darf (`alpha_guard.cpp:27-48`);
+`dr_vals`/`dp_vals`/`mix`/`mad_dev` sind Caller-seitig hoisted. Die
+verbleibende by-value-Stelle (`dr_vals`, dessen Ordering erhalten bleiben
+muss) ist semantisch notwendig, keine Redundanz.
 
 **Datei:** `src/reconstruction/alpha_guard.cpp:29-36`
 
@@ -718,10 +744,10 @@ Stripe nullen.
 
 ### D3: Per-Band `ForwardDrizzleUniformAndRawResult` Profil-Allokationen
 
-**Status (2026-09-12):** zurückgestellt -- unverändert: `result` und alle
-Profil-Ebenen werden weiterhin pro Stripe allokiert
-(`forward_drizzle.cpp:1513-1529`). Die schwereren `candidates`-/Akkumulator-
-Buffer wurden dagegen bereits früher (P6) hoisted.
+**Status (2026-09-12, Runde 2):** umgesetzt -- `result` und die
+Profil-Ebenen werden ueber Stripes wiederverwendet; pro Stripe wird nur das
+genutzte `[0, n)`-Prefix zurueckgesetzt (Sink-Vertrag bleibt: synchrone
+Konsumation pro Stripe).
 
 **Datei:** `src/reconstruction/forward_drizzle.cpp:1493-1509`
 
@@ -734,8 +760,9 @@ werden in jeder Stripe-Iteration neu allokiert.
 
 ### D4: Per-Tile `cand`/`counts`/`r` Allokationen in `reduce_window`
 
-**Status (2026-09-12):** zurückgestellt -- unverändert
-(`forward_drizzle_contrib_list.cpp:605-643`).
+**Status (2026-09-12, Runde 2):** umgesetzt -- `reduce_window` schreibt in
+caller-seitige Buffer, die ueber Tiles wiederverwendet werden
+(`forward_drizzle_contrib_list.cpp`).
 
 **Datei:** `src/reconstruction/forward_drizzle_contrib_list.cpp:605-643`
 
@@ -758,8 +785,9 @@ Wird pro Tile aufgerufen. `n * frame_count` `ClipCandidate`s pro Kanal.
 
 ### D5: Per-Tile `src_buf_narrowed` und `raw` im CUDA-Producer
 
-**Status (2026-09-12):** zurückgestellt -- unverändert
-(`forward_drizzle_contrib_list.cpp:1050, 1072`).
+**Status (2026-09-12, Runde 2):** umgesetzt -- `CudaProducerScratch` haelt
+`src_buf_narrowed`/`raw` u. a. pro Frame und ueber Tiles
+(`forward_drizzle_contrib_list.cpp`).
 
 **Datei:** `src/reconstruction/forward_drizzle_contrib_list.cpp:1050, 1072`
 
@@ -788,8 +816,9 @@ mit `push_back` pro Pixel gefüllt, ohne `reserve`.
 
 ### E1: `rasterize_drizzle_stripe` wird zweimal aufgerufen (Count + Fill)
 
-**Status (2026-09-12):** zurückgestellt -- unverändert
-(`forward_drizzle_contrib_list.cpp:75-109`).
+**Status (2026-09-12, Runde 2):** umgesetzt -- `build_frame_records` fuellt
+die Records in einem einzigen Raster-Pass (Fill-on-demand statt Count+Fill;
+`forward_drizzle_contrib_list.cpp`).
 
 **Datei:** `src/reconstruction/forward_drizzle_contrib_list.cpp:75-109`
 **Funktion:** `build_frame_records`
@@ -822,14 +851,12 @@ produzieren und zwischenspeichern.
 
 ### E2: `cuda_pair_producer` ruft `source_of` bedingungslos auf, auch bei Cache-Hit
 
-**Status (2026-09-12):** zurückgestellt -- real und unverändert
-(`source_of` in `forward_drizzle_contrib_list.cpp:934`, Band-Cache-Lookup
-erst in 1017-1036). Kostennuance: `source_of` ist
-`VerifiedNormalizedSourceCache::load` -- LRU-Hit nur zwei Stat-Syscalls,
-LRU-Miss voller Frame-Read. Bei `frame_count > LRU-Kapazität` dominieren
-Misses, der Aufruf ist dann ein echter Disk-Read pro (Frame, Tile) -- nicht
-nur ein Funktionsaufruf. Zurückstellung dennoch vertretbar (dieselbe
-filigrane CUDA-Hybrid-Closure wie D5/E3); Details im Nachtrag.
+**Status (2026-09-12, Runde 2):** umgesetzt -- `cuda_pair_producer` laedt
+die Source erst nach dem Band-Cache-Miss (lazy). Kostennuance aus dem
+Nachtrag bestaetigt: `source_of` ist `VerifiedNormalizedSourceCache::load`
+-- LRU-Hit nur zwei Stat-Syscalls, LRU-Miss voller Frame-Read. Die lazy
+Ordnung eliminiert den Aufruf auf dem Hit-Pfad; auf dem Miss-Pfad wird
+banded via `source_rect_of` gelesen, wenn verdrahtet.
 
 **Datei:** `src/reconstruction/forward_drizzle_contrib_list.cpp:934-1022`
 
@@ -859,9 +886,10 @@ redundante Frame-Loads.
 
 ### E3: Affine Inverse und Source-Y-Band pro Tile neu berechnet
 
-**Status (2026-09-12):** zurückgestellt -- unverändert
-(`forward_drizzle_contrib_list.cpp:952-973`); der Code-Kommentar bestätigt
-selbst, dass Band/Inverses nur von (Frame, y_begin, rows) abhängen.
+**Status (2026-09-12, Runde 2):** umgesetzt -- die affine Inverse wird pro
+(Frame, Band) gecacht und ueber Tiles wiederverwendet; die Source-Band-
+Ladung selbst liegt bereits in `CachedSourceBand`
+(`forward_drizzle_contrib_list.cpp`).
 
 **Datei:** `src/reconstruction/forward_drizzle_contrib_list.cpp:952-972`
 
@@ -877,22 +905,22 @@ nicht vom Tile-X-Window.
 
 ## Priorisierung
 
-| Prio | Fund | Beschreibung | Geschätzter Impact | Status (2026-09-12) |
+| Prio | Fund | Beschreibung | Geschätzter Impact | Status (2026-09-12, final) |
 |------|------|-------------|-------------------|---------------------|
-| **P0** | A1 | Source-Frame pro Stripe neu geladen | 600×S Disk-Reads | zurückgestellt |
-| **P0** | A2 | Q-Map pro Stripe ohne In-Memory-Cache | 600×4×S .bin-Opens | zurückgestellt (CUDA-Tiled-Pfad gemildert) |
-| **P1** | B2 | `luma_band` dekomponiert L-mal redundant | L× full-image Dekomposition | zurückgestellt |
-| **P1** | E1 | `rasterize_drizzle_stripe` Count+Fill doppelt | 2× CPU-Rasterisierung | zurückgestellt |
-| **P1** | B1 | AQMH CPU RGB 3× Sweep mit gleichen Q-Maps | 3× Frame/Mask/Q-Map I/O | zurückgestellt |
-| **P1** | B3 | `smooth_alpha_b3` 2× B3-Faltung für gleiche Geometrie | 2× full-image Faltung | zurückgestellt |
-| **P2** | A4 | AQMH Frame/Mask pro Chunk ohne Cache | 600×C Frame-Loads | zurückgestellt (Worst-Case nur Test-Fallback) |
-| **P2** | A5 | Cherry-Pick + Haupt-Pass laden Q-Maps doppelt | 2× Q-Map I/O | zurückgestellt |
-| **P2** | E2 | `source_of` bei Cache-Hit trotzdem aufgerufen | Redundante Frame-Loads | zurückgestellt (Kostennuance, siehe Nachtrag) |
-| **P2** | E3 | Affine Inverse pro Tile neu | Per-Tile `invert_affine` | zurückgestellt |
-| **P2** | D1 | `mad_sigma` by-value + `dev`-Allokation pro Pixel | Per-Pixel Kopie+Allok | teilweise; Lösungsansatz nicht tragfähig |
+| **P0** | A1 | Source-Frame pro Stripe neu geladen | 600×S Disk-Reads | umgesetzt (banded reads via Scan-Box) |
+| **P0** | A2 | Q-Map pro Stripe ohne In-Memory-Cache | 600×4×S .bin-Opens | umgesetzt (banded `read_rect`; CUDA-Tiled-Pfad hat T4b-Q-Cache) |
+| **P1** | B2 | `luma_band` dekomponiert L-mal redundant | L× full-image Dekomposition | umgesetzt (Profile einmal dekomponiert) |
+| **P1** | E1 | `rasterize_drizzle_stripe` Count+Fill doppelt | 2× CPU-Rasterisierung | umgesetzt (Single-Pass-Fill) |
+| **P1** | B1 | AQMH CPU RGB 3× Sweep mit gleichen Q-Maps | 3× Frame/Mask/Q-Map I/O | umgesetzt (geteilter Mask-Stash + Q-Cache) |
+| **P1** | B3 | `smooth_alpha_b3` 2× B3-Faltung für gleiche Geometrie | 2× full-image Faltung | umgesetzt (fusionierter Pass) |
+| **P2** | A4 | AQMH Frame/Mask pro Chunk ohne Cache | 600×C Frame-Loads | umgesetzt (Budget-Stash im Non-Region-Fallback) |
+| **P2** | A5 | Cherry-Pick + Haupt-Pass laden Q-Maps doppelt | 2× Q-Map I/O | umgesetzt (frame-aeusserer Gate-Pass + Stash) |
+| **P2** | E2 | `source_of` bei Cache-Hit trotzdem aufgerufen | Redundante Frame-Loads | umgesetzt (lazy nach Cache-Miss) |
+| **P2** | E3 | Affine Inverse pro Tile neu | Per-Tile `invert_affine` | umgesetzt (pro-Frame-Cache) |
+| **P2** | D1 | `mad_sigma` by-value + `dev`-Allokation pro Pixel | Per-Pixel Kopie+Allok | umgesetzt (`mad_sigma_mutate` + gehisster `dev`-Scratch) |
 | ~~P3~~ | B4 | `compute_source_quality_proxy_v1` 2× in SQM+GQ | Per-Frame Proxy-Neuberechnung | Fehleinschätzung: bereits umgesetzt (Metrics-Artefakt) |
-| **P3** | C1-C8 | Invariante Werte in Pixel-Loops | Per-Pixel Overhead | C1-C6, C8 umgesetzt; C7 offen |
-| **P3** | D2-D6 | Per-Iteration Allokationen | Per-Stripe/Tile/Pixel malloc | D2, D6 umgesetzt; D3-D5 offen |
+| **P3** | C1-C8 | Invariante Werte in Pixel-Loops | Per-Pixel Overhead | C1-C8 umgesetzt |
+| **P3** | D2-D6 | Per-Iteration Allokationen | Per-Stripe/Tile/Pixel malloc | D2-D6 umgesetzt |
 | ~~P3~~ | B5 | Multiband-Delivery liest Spool-Planes pro Kanal | -- | Fehleinschätzung: keine Redundanz (versch. Daten) |
 
 ## Architekturelle Beobachtungen
@@ -908,9 +936,12 @@ nicht vom Tile-X-Window.
    (Zeile 1459-1479), aber `stream_forward_drizzle_uniform` nicht (Zeile 875-882).
 
 4. **Die Schleifenreihenfolge Stripe-außen/Frame-innen** ist die
-   Architektur-Entscheidung, die A1/A2/A3/A4 verursacht. Ein Wechsel zu
-   Frame-außen/Stripe-innen würde alle vier Funde gleichzeitig lösen,
-   erfordert aber eine Umstrukturierung der Akkumulator-Buffer.
+   Architektur-Entscheidung, die A1/A2/A3/A4 verursacht. Gelöst wurde sie
+   nicht durch Umkehrung der Reihenfolge, sondern durch banded reads auf die
+   jeweils gescannte Source-Box (`drizzle_source_scan_box`) bzw. den
+   AQMH-Frame/Mask-Stash -- die Enumerations- und Akkumulationsordnung ist
+   unveraendert, die gelesene Datenmenge pro (Stripe, Frame) sinkt auf die
+   Box.
 
 5. **`prepare_drizzle_frames` wird bereits einmal pro Build aufgerufen**
    (§4.4-Kommentar in `drizzle_profile_store.cpp:505-510`), nicht pro Band.
@@ -923,6 +954,11 @@ gefunden; sie sind nicht Teil der ursprünglichen 28 Funde.
 
 ### N1: `compute_aqmh_uniform_control` -- gleicher Chunk-außen/Frame-innen-Reload wie A4
 
+**Status (2026-09-12, Runde 2):** umgesetzt -- die Funktion akkumuliert jetzt
+frame-aeusser: jeder Frame/jede Maske wird genau einmal geladen (Region-
+Loader bevorzugt, Slab-Assemblierung), der Pixel-Loop laeuft zeilenparallel
+ueber volle `double`-Akkumulatoren.
+
 **Datei:** `src/reconstruction/aqmh_reconstruction.cpp:79-134`
 **Aufgerufen von:** `apps/runner_phase_aqmh_reconstruction.cpp:804-818`
 
@@ -932,12 +968,24 @@ Fallback-Sweep zusätzlich zum Hauptpass.
 
 ### N2: CUDA-Sigma-Clip-Tile: Stats-Pass + Clip-Pass laden jeweils alle Frames + Q-Maps
 
+**Status (2026-09-12, Runde 2):** obsolet -- die betroffene Funktion
+`cuda_reconstruct_aqmh_impl` war unerreichbarer Dead Code (der Dispatch
+ruft `reconstruct_aqmh_weighted_cuda`); der gesamte Block wurde entfernt.
+Der lebende Sigma-Clip-Tile-Pfad arbeitet auf In-Memory-Tiles und hat
+keine Reload-Problematik.
+
 **Datei:** `src/acceleration/acceleration.cpp` (~1587 Stats-Pass, ~1693 Clip-Pass)
 
 Zweifacher Full-Sweep wie A5: Der Stats-Pass lädt alle Frames und Q-Maps,
 danach der Clip-Pass dieselben Daten erneut.
 
 ### N3: `aqmh_reconstruction_opencl.cpp` -- identisches A4-Host-Feed-Muster
+
+**Status (2026-09-12, Runde 2):** umgesetzt -- Frame/Mask-Stash im
+Non-Region-Pfad plus `eff_frame_region`/`eff_mask_region`-Loader analog zum
+CPU-Pfad (A4); Q-Maps via `read_region`/`read_cached`. Zusaetzlich wurde
+eine latente Inkonsistenz korrigiert: der `!use_region`-Pfad lud einen
+Full-Frame, lehnte ihn aber an der `rows`-Dimensionspruefung ab.
 
 **Datei:** `src/reconstruction/aqmh_reconstruction_opencl.cpp:695-769`
 
@@ -946,12 +994,22 @@ Der OpenCL-Host-Feed lädt Frame-Region + Q-Region + Masken-Region pro
 
 ### N4: `aqmh_reconstruction_cuda.cu` -- identisches Muster, Prefetch nur für Frames
 
+**Status (2026-09-12, Runde 2):** umgesetzt -- Frame/Mask-Stash im
+Non-Region-Pfad; der asynchrone Frame-Prefetch und der Host-Feed laufen
+ueber die effektiven Region-Loader bzw. den Stash. Q-Map/Maske folgen dem
+CPU-Pfad (`read_cached`/`eff_mask_region`).
+
 **Datei:** `src/reconstruction/aqmh_reconstruction_cuda.cu:1484-1672`
 
 Dasselbe A4-Pattern. Der Prefetch-Thread deckt nur Frames ab; Q-Map und
 Maske bleiben synchron pro (Chunk × Frame) (Code-Kommentar ~Z. 1461-1462).
 
 ### N5: Existenz-Probes rufen den Full-Extent-Q-Provider auf
+
+**Status (2026-09-12, Runde 2):** umgesetzt -- die Probes laufen ueber den
+Rect-Provider mit leerem Rect (`y0 == y1`, `x0 == x1` => reiner
+Existenz-Check, kein Decode), identisch zum Contrib-List-Pfad
+(`forward_drizzle.cpp`).
 
 **Datei:** `src/reconstruction/forward_drizzle.cpp:1284-1296`
 
@@ -962,12 +1020,21 @@ Contrib-List-Pfad nutzt bereits den kostenlosen Leer-Rect-Probe
 
 ### N6: `fuse_multiband_store_to_image` liest Halo-Zeilen doppelt
 
+**Status (2026-09-12, Runde 2):** umgesetzt -- ein Rolling-Window-Helfer
+haelt die zuletzt gelesene Region pro Stream; der Folge-Chunk liest nur
+das Delta statt `[y0-halo, y1+halo)` komplett neu.
+
 **Datei:** `src/reconstruction/source_quality_artifact.cpp:637-649`
 
 Jeder Chunk liest `[y0-halo, y1+halo)`; die Halo-Zeilen werden an jeder
 Chunk-Grenze zweimal gelesen, über 4 Profil- + 3 Alpha-Streams.
 
 ### N7: Zweite Single-Slot-Source-Cache im Diagnose-Pfad
+
+**Status (2026-09-12, Runde 2):** umgesetzt -- beide Diagnose-Call-Sites
+nutzen `make_normalized_source_providers`: Whole-Set-Stash, wenn das Set
+ins Budget passt, sonst der bisherige Single-Slot-Fallback; beide Pfade
+liefern zusaetzlich `source_rect_of` fuer banded reads.
 
 **Datei:** `apps/runner_phase_registration.cpp:599-610`
 
@@ -977,6 +1044,11 @@ derselbe Diagnose-Pfad mit dem A3-Reload-Verhalten.
 
 ### N8: `masked_convolve` -- B3-Pendant mit 4 Full-Image-Pässen pro Level
 
+**Status (2026-09-12, Runde 2):** umgesetzt -- `masked_convolve` berechnet
+`num`/`den` in einer fusionierten `conv_axis`-Runde (2 statt 4 Full-Image-
+Pässe); die Level-Scratch-Buffer `vm`/`md`/`c_cur`/`m_cur` werden ueber
+Levels wiederverwendet.
+
 **Datei:** `src/reconstruction/atrous_decomposition.cpp:39-47`
 
 `num`/`den` sind dieselbe separable B3-Faltung über identischer Geometrie
@@ -985,6 +1057,10 @@ Level) -- fusbar wie B3. Zusätzlich werden `vm`/`md`/`c_cur`/`m_cur` pro
 Level neu allokiert.
 
 ### N9: Veralteter Kommentar in `drizzle_profile_store.cpp`
+
+**Status (2026-09-12, Runde 2):** umgesetzt -- der Kommentar beschreibt
+jetzt die aktuelle Architektur (Tile-Produktion, Sortierung und Reduktion
+in `accumulate_pair_by_frame_cuda`, Blit in die Full-Width-Stripe).
 
 **Datei:** `src/reconstruction/drizzle_profile_store.cpp:718-723`
 

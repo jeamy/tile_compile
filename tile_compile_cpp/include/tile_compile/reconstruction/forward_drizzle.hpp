@@ -91,6 +91,15 @@ struct ForwardDrizzleSubdivisionParams {
 using SourceImageProvider =
     std::function<const Matrix2Df &(std::size_t source_index)>;
 
+// A1 (redundant-reload analysis): a source provider that reads only the
+// source rectangle [y0, y1) x [x0, x1) a stripe's scan box touches, instead
+// of the whole frame. The returned matrix must be exactly (y1 - y0) x
+// (x1 - x0); callers rebase absolute source coordinates by (y0, x0). When a
+// rect provider is wired the full-frame provider is only still consulted by
+// paths that genuinely need the whole source (hybrid local-warp geometry).
+using SourceImageRectProvider = std::function<Matrix2Df(
+    std::size_t source_index, int y0, int y1, int x0, int x1)>;
+
 // Supplies a frame's frame-local source quality maps (plan sections 13/14, M5
 // + M6) in SOURCE geometry: same dimensions as the normalized source, value
 // in (0,1] where quality is known, NaN/<=0 where it is a hard veto or has no
@@ -150,7 +159,8 @@ ForwardDrizzleUniformResult compute_forward_drizzle_uniform(
     const registration::RegistrationSamplingPlan &plan,
     const SourceImageProvider &source_of,
     const config::ReconstructionDrizzleConfig &drizzle_cfg,
-    const ForwardDrizzleSubdivisionParams &subdivision_params = {});
+    const ForwardDrizzleSubdivisionParams &subdivision_params = {},
+    const SourceImageRectProvider &source_rect_of = {});
 
 // Sinks consume a complete stripe synchronously; they must not retain its
 // buffers. SourceImageProvider may be called again for the next stripe and
@@ -163,7 +173,11 @@ ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
     const config::ReconstructionDrizzleConfig &cfg,
     const UniformStripeSink &sink,
     const ForwardDrizzleSubdivisionParams &subdivision = {},
-    size_t retained_bytes = 0);
+    size_t retained_bytes = 0,
+    // A3 (redundant-reload analysis): when non-null, only the per-stripe
+    // inverse-mapped source box is read through this provider instead of the
+    // full frame via `source_of` (see drizzle_source_scan_box). Bit-identical.
+    const SourceImageRectProvider &source_rect_of = {});
 
 struct DrizzleMemoryPlan {
   int width = 0, height = 0, rows = 0;
@@ -226,6 +240,21 @@ void enumerate_drizzle_stripe_leaf_cells(
     float pixfrac, int y_begin, int rows, const DrizzleLeafCellSink &sink,
     const ForwardDrizzleSubdivisionParams &subdivision = {}, int x_begin = 0,
     int cols = -1);
+
+// A1 (redundant-reload analysis): the exact source-pixel box the stripe
+// enumerator scans for `frame` over the target window [x_begin, x_begin +
+// cols) x [y_begin, y_begin + rows) --- full source extent for local-warp
+// frames, the ±1-source-pixel-margined inverse-mapped box for affine frames.
+// Throws DRIZZLE_SINGULAR_TRANSFORM for a singular affine, exactly as the
+// enumerator does. Shared by the enumerator and every banded source/quality
+// read so a rect provider can never under-serve a scanned pixel.
+struct DrizzleSourceScanBox {
+  int y0 = 0, y1 = 0, x0 = 0, x1 = 0;
+};
+DrizzleSourceScanBox drizzle_source_scan_box(
+    const registration::RegistrationSamplingPlan &plan,
+    const registration::FrameSamplingTransform &frame, int internal_scale,
+    int y_begin, int rows, int x_begin = 0, int cols = -1);
 
 // One accepted leaf of a (possibly subdivided) source-pixel droplet: a convex
 // quadrilateral in internal-canvas coordinates. Exported for the plan-11.14
@@ -486,7 +515,16 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     // `ForwardDrizzleUniformResult::internal_width` reports the window width; the
     // sink's `y_begin` is still the absolute internal row and the caller owns
     // re-inserting the tile at column `target_x_begin`.
-    int target_x_begin = 0, int target_cols = -1);
+    int target_x_begin = 0, int target_cols = -1,
+    // A1/A2/N5 (redundant-reload analysis): when `source_rect_of` is non-null
+    // each (stripe, frame) reads only the inverse-mapped source box through
+    // it instead of the full frame via `source_of`; when `quality_rect_of`
+    // is non-null the same box scopes the quality-map reads AND the
+    // need_qc/need_qa existence pre-scan uses the provider's pure-probe
+    // contract (empty rect, no decode) instead of full-extent decodes.
+    // Bit-identical either way.
+    const SourceImageRectProvider &source_rect_of = {},
+    const FrameQualityRectProvider &quality_rect_of = {});
 
 ForwardDrizzleUniformAndRawResult compute_forward_drizzle_uniform_and_raw(
     const registration::RegistrationSamplingPlan &plan,
@@ -497,7 +535,9 @@ ForwardDrizzleUniformAndRawResult compute_forward_drizzle_uniform_and_raw(
     const std::vector<float> &g_eff_by_source_index = {},
     const FrameQualityProvider &quality_of = {},
     const MultibandProfileParams &multiband = {},
-    int workers = 1);
+    int workers = 1,
+    const SourceImageRectProvider &source_rect_of = {},
+    const FrameQualityRectProvider &quality_rect_of = {});
 
 // --- exposed for unit tests (plan section 11.6 geometry) -------------------
 

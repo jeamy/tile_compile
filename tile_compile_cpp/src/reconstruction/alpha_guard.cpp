@@ -24,6 +24,19 @@ double median_inplace(std::vector<float> &v) {
 constexpr double kB3[5] = {1.0 / 16.0, 4.0 / 16.0, 6.0 / 16.0, 4.0 / 16.0,
                            1.0 / 16.0};
 
+// D1 remainder: mad_sigma's by-value signature copies its input because the
+// in-place median permutes it. Callers that own a mutable scratch buffer and
+// no longer need its ordering (e.g. the bisection's rebuilt `mix`) avoid both
+// the copy and the per-call `dev` allocation through this helper.
+double mad_sigma_mutate(std::vector<float> &values, std::vector<float> &dev) {
+  if (values.empty()) return std::numeric_limits<double>::quiet_NaN();
+  const double med = median_inplace(values);
+  dev.resize(values.size());
+  for (std::size_t k = 0; k < values.size(); ++k)
+    dev[k] = static_cast<float>(std::abs(values[k] - med));
+  return 1.4826 * median_inplace(dev);
+}
+
 }  // namespace
 
 double mad_sigma(std::vector<float> values) {
@@ -67,7 +80,7 @@ std::vector<float> apply_energy_guard(const std::vector<float> &alpha_pre,
   // every pixel, and `mix` was reallocated on every ratio_at() call within
   // the bisection (1 + bisection_iters times per pixel). Reusing capacity via
   // .clear()/.resize() instead of re-declaring avoids that malloc/free churn.
-  std::vector<float> dr_vals, dp_vals, mix;
+  std::vector<float> dr_vals, dp_vals, mix, mad_dev;
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
       const std::size_t i = static_cast<std::size_t>(y) * width + x;
@@ -97,18 +110,18 @@ std::vector<float> apply_energy_guard(const std::vector<float> &alpha_pre,
       const double mad_r = mad_sigma(dr_vals);
       const double scale_raw = std::max(mad_r, background_floor);
       auto ratio_at = [&](double a) -> double {
-        // Reuses the hoisted `mix` buffer's capacity across bisection
-        // iterations (resize only grows/shrinks the logical size, no
-        // reallocation once the largest window size seen is reached).
-        // Not moved into mad_sigma: mad_sigma takes its argument by value
-        // regardless (it needs its own destructible copy for the in-place
-        // median), so moving here would only empty `mix` and force the next
-        // iteration's resize() to reallocate from scratch.
+        // Reuses the hoisted `mix`/`mad_dev` buffers' capacity across
+        // bisection iterations (resize only grows/shrinks the logical size,
+        // no reallocation once the largest window size seen is reached).
+        // mad_sigma_mutate permutes `mix` in place for the median — legal
+        // here because `mix` is rebuilt from dr_vals/dp_vals on every call.
+        // dr_vals keeps the by-value mad_sigma call: its ordering must
+        // survive to stay paired with dp_vals.
         mix.resize(dr_vals.size());
         for (std::size_t k = 0; k < dr_vals.size(); ++k)
           mix[k] = static_cast<float>(dr_vals[k] +
                                       a * (dp_vals[k] - dr_vals[k]));
-        const double mad_mix = mad_sigma(mix);
+        const double mad_mix = mad_sigma_mutate(mix, mad_dev);
         return scale_raw > 0.0 ? mad_mix / scale_raw
                                : (mad_mix > 0.0 ? std::numeric_limits<double>::infinity()
                                                 : 0.0);
@@ -173,48 +186,45 @@ std::vector<float> smooth_alpha_b3(const std::vector<float> &alpha_guarded,
     ++next;
   }
 
-  auto masked_num = [&](bool weighted) {
-    // separable B3 over (alpha*support) if weighted else support, restricted
-    // to the centre pixel's component.
-    std::vector<double> src(n, 0.0);
-    for (std::size_t i = 0; i < n; ++i)
-      if (support[i])
-        src[i] = weighted ? std::max(0.0f, alpha_guarded[i]) : 1.0;
-    std::vector<double> hx(n, 0.0);
-    for (int y = 0; y < height; ++y)
-      for (int x = 0; x < width; ++x) {
-        const std::size_t i = static_cast<std::size_t>(y) * width + x;
-        if (label[i] < 0) continue;
-        double acc = 0.0;
-        for (int t = -2; t <= 2; ++t) {
-          const int xx = x + t;
-          if (xx < 0 || xx >= width) continue;
-          const std::size_t j = static_cast<std::size_t>(y) * width + xx;
-          if (label[j] != label[i]) continue;
-          acc += kB3[t + 2] * src[j];
-        }
-        hx[i] = acc;
+  // B3: the numerator (alpha*support) and denominator (support) convolutions
+  // share the same component-restricted stencil, so one fused separable pass
+  // accumulates both instead of running the machinery twice. Unlabelled taps
+  // (label < 0) can never match label[i] >= 0, so they contribute nothing —
+  // identical to the previous src-prefill form.
+  std::vector<double> hx_num(n, 0.0), hx_den(n, 0.0);
+  for (int y = 0; y < height; ++y)
+    for (int x = 0; x < width; ++x) {
+      const std::size_t i = static_cast<std::size_t>(y) * width + x;
+      if (label[i] < 0) continue;
+      double acc_n = 0.0, acc_d = 0.0;
+      for (int t = -2; t <= 2; ++t) {
+        const int xx = x + t;
+        if (xx < 0 || xx >= width) continue;
+        const std::size_t j = static_cast<std::size_t>(y) * width + xx;
+        if (label[j] != label[i]) continue;
+        acc_n += kB3[t + 2] * std::max(0.0f, alpha_guarded[j]);
+        acc_d += kB3[t + 2];
       }
-    std::vector<double> out(n, 0.0);
-    for (int y = 0; y < height; ++y)
-      for (int x = 0; x < width; ++x) {
-        const std::size_t i = static_cast<std::size_t>(y) * width + x;
-        if (label[i] < 0) continue;
-        double acc = 0.0;
-        for (int t = -2; t <= 2; ++t) {
-          const int yy = y + t;
-          if (yy < 0 || yy >= height) continue;
-          const std::size_t j = static_cast<std::size_t>(yy) * width + x;
-          if (label[j] != label[i]) continue;
-          acc += kB3[t + 2] * hx[j];
-        }
-        out[i] = acc;
+      hx_num[i] = acc_n;
+      hx_den[i] = acc_d;
+    }
+  std::vector<double> num(n, 0.0), den(n, 0.0);
+  for (int y = 0; y < height; ++y)
+    for (int x = 0; x < width; ++x) {
+      const std::size_t i = static_cast<std::size_t>(y) * width + x;
+      if (label[i] < 0) continue;
+      double acc_n = 0.0, acc_d = 0.0;
+      for (int t = -2; t <= 2; ++t) {
+        const int yy = y + t;
+        if (yy < 0 || yy >= height) continue;
+        const std::size_t j = static_cast<std::size_t>(yy) * width + x;
+        if (label[j] != label[i]) continue;
+        acc_n += kB3[t + 2] * hx_num[j];
+        acc_d += kB3[t + 2] * hx_den[j];
       }
-    return out;
-  };
-
-  const auto num = masked_num(true);
-  const auto den = masked_num(false);
+      num[i] = acc_n;
+      den[i] = acc_d;
+    }
 
   std::vector<float> final_(n, nanf_());
   for (std::size_t i = 0; i < n; ++i) {

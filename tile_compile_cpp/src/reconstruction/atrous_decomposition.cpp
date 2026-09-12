@@ -12,38 +12,49 @@ constexpr double kW[5] = {1.0 / 16.0, 4.0 / 16.0, 6.0 / 16.0, 4.0 / 16.0,
                           1.0 / 16.0};
 float nanf_() { return std::numeric_limits<float>::quiet_NaN(); }
 
-// One separable pass with the dilated B3 kernel. `src` is a full field; taps
-// that fall outside [0, len) simply do not contribute. `horizontal` selects
-// the axis; `dilation` is the a-trous hole spacing (1 << (level-1)).
-std::vector<double> conv_axis(const std::vector<double> &src, int width,
-                              int height, int dilation, bool horizontal) {
-  std::vector<double> out(src.size(), 0.0);
+// One separable pass with the dilated B3 kernel over TWO channels that share
+// the same geometry (redundant-reload analysis N8): bounds checks and index
+// math run once for both accumulators instead of twice. `src` is a full
+// field; taps that fall outside [0, len) simply do not contribute.
+// `horizontal` selects the axis; `dilation` is the a-trous hole spacing
+// (1 << (level-1)).
+void conv_axis_pair(const std::vector<double> &src_a,
+                    const std::vector<double> &src_b, int width, int height,
+                    int dilation, bool horizontal,
+                    std::vector<double> &out_a, std::vector<double> &out_b) {
+  out_a.assign(src_a.size(), 0.0);
+  out_b.assign(src_b.size(), 0.0);
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
-      double acc = 0.0;
+      double acc_a = 0.0, acc_b = 0.0;
       for (int t = -2; t <= 2; ++t) {
         const int xx = horizontal ? x + t * dilation : x;
         const int yy = horizontal ? y : y + t * dilation;
         if (xx < 0 || xx >= width || yy < 0 || yy >= height) continue;
-        acc += kW[t + 2] * src[static_cast<std::size_t>(yy) * width + xx];
+        const std::size_t j = static_cast<std::size_t>(yy) * width + xx;
+        acc_a += kW[t + 2] * src_a[j];
+        acc_b += kW[t + 2] * src_b[j];
       }
-      out[static_cast<std::size_t>(y) * width + x] = acc;
+      const std::size_t i = static_cast<std::size_t>(y) * width + x;
+      out_a[i] = acc_a;
+      out_b[i] = acc_b;
     }
   }
-  return out;
 }
 
 // 2D masked convolution as two separable passes of the SAME kernel (linear,
 // so separable application == the 2D convolution the plan writes). Returns
-// den (convolved mask) and num (convolved value*mask).
+// den (convolved mask) and num (convolved value*mask). hx_* are caller-owned
+// scratch (N8: reused across decomposition levels instead of per-level
+// allocations).
 void masked_convolve(const std::vector<double> &value_times_mask,
                      const std::vector<double> &mask, int width, int height,
-                     int dilation, std::vector<double> &num,
+                     int dilation, std::vector<double> &hx_num,
+                     std::vector<double> &hx_den, std::vector<double> &num,
                      std::vector<double> &den) {
-  auto nx = conv_axis(value_times_mask, width, height, dilation, true);
-  num = conv_axis(nx, width, height, dilation, false);
-  auto dx = conv_axis(mask, width, height, dilation, true);
-  den = conv_axis(dx, width, height, dilation, false);
+  conv_axis_pair(value_times_mask, mask, width, height, dilation, true,
+                 hx_num, hx_den);
+  conv_axis_pair(hx_num, hx_den, width, height, dilation, false, num, den);
 }
 
 }  // namespace
@@ -77,18 +88,19 @@ AtrousDecomposition atrous_decompose(const std::vector<float> &value,
   d.levels = levels;
   d.bands.resize(static_cast<std::size_t>(levels));
 
+  // N8: per-level scratch is hoisted; every level rewrites each buffer fully
+  // (masked_convolve assigns; c_cur is only read at entries m_cur marked this
+  // level).
+  std::vector<double> vm(n), md(n), hx_num, hx_den, num, den, c_cur(n);
+  std::vector<uint8_t> m_cur(n);
   for (int j = 1; j <= levels; ++j) {
     const int dilation = 1 << (j - 1);
-    std::vector<double> vm(n), md(n);
     for (std::size_t i = 0; i < n; ++i) {
       md[i] = m_prev[i] ? 1.0 : 0.0;
       vm[i] = m_prev[i] ? c_prev[i] : 0.0;
     }
-    std::vector<double> num, den;
-    masked_convolve(vm, md, width, height, dilation, num, den);
-
-    std::vector<double> c_cur(n, 0.0);
-    std::vector<uint8_t> m_cur(n, 0u);
+    masked_convolve(vm, md, width, height, dilation, hx_num, hx_den, num,
+                    den);
     auto &band = d.bands[static_cast<std::size_t>(j - 1)];
     band.level = j;
     band.detail.assign(n, nanf_());
