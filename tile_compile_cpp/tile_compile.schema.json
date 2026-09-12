@@ -1511,6 +1511,11 @@
               "type": "number",
               "minimum": 1,
               "default": 3.0
+            },
+            "guard_fallback": {
+              "type": "boolean",
+              "default": false,
+              "description": "When the min_fraction/min_n_eff veto (plan 11.8 step 8) fails, use the sigma-clip survivors (or, if none survived, every original candidate unclipped) instead of leaving the pixel/channel unsupported. Default false preserves the exact reviewed 8-step procedure."
             }
           }
         },

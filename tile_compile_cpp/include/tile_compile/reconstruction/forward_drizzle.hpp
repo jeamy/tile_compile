@@ -367,6 +367,9 @@ struct DrizzleClipScratch {
   std::vector<std::size_t> active;     // per-pass valid subset of `order`
   std::vector<std::size_t> dev_order;  // |x - median| order of `active`
   std::vector<AlphaFactorContribution> alpha_contribs;
+  // P1.5: reused across compute_alpha_confidence_channel calls instead of
+  // five fresh heap allocations per pixel/channel.
+  AlphaConfidenceScratch alpha_confidence_scratch;
   std::uint64_t growth_count = 0;      // capacity-growing reserve_for calls
 
   // Grow-only capacity reservation; counts calls that grow any buffer.
@@ -416,6 +419,9 @@ struct ForwardDrizzleClippingDiagnostics {
   long long pixel_channel_evaluations = 0;
   long long pixel_channel_rejected = 0;   // plan 11.8 step 8 veto
   long long candidate_contributions_clipped = 0;  // total false entries across all pixels
+  // P0.1: counted separately from pixel_channel_rejected -- these pixels were
+  // NOT erased. DrizzleProfileReduceConfig::guard_fallback == true only.
+  long long pixel_channel_guard_fallback = 0;
 };
 
 // Plan 11.8 / 11.9 / 14.4: the per-(channel, target cell) reduction that turns
@@ -438,6 +444,9 @@ struct DrizzleProfileReduceConfig {
   float fine_quality_exponent = 4.0f;
   float medium_quality_exponent = 2.0f;
   AlphaConfidenceParams alpha_confidence{};
+  // P0.1 (config::ReconstructionClippingConfig::guard_fallback): see
+  // ForwardDrizzleClippingDiagnostics::pixel_channel_guard_fallback.
+  bool guard_fallback = false;
 };
 
 // `candidates` MUST be in ascending frame order (plan 19.6 step 4's

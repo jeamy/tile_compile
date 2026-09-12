@@ -396,6 +396,15 @@ struct ReconstructionClippingConfig {
   float clip_sigma_high = 3.0f;     // > 0
   float min_fraction = 0.4f;        // (0, 1]
   float min_n_eff = 3.0f;           // >= 1
+  // P0.1 (redundant_data_reload_analysis §"schwarze Artefakte"): default
+  // false preserves the exact plan-11.8 8-step procedure (step 8's
+  // min_fraction/min_n_eff veto rejects the pixel/channel outright, no
+  // fallback value). When true, a pixel/channel that fails step 8 is NOT
+  // erased: the sigma-clip-survivor set is used anyway (or, if the clip
+  // rejected every candidate, every original candidate is used unclipped) --
+  // trading the veto's noise guarantee for never leaving a geometrically
+  // covered pixel black. See robust_clip_core in forward_drizzle.cpp.
+  bool guard_fallback = false;
 };
 
 struct ReconstructionCoverageGateConfig {

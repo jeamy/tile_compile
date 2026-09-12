@@ -1,6 +1,7 @@
 #include "tile_compile/reconstruction/alpha_confidence.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <numeric>
@@ -57,19 +58,84 @@ double weighted_percentile(std::span<const double> values,
   return values[idx.back()];
 }
 
+std::vector<double> weighted_percentiles(std::span<const double> values,
+                                         std::span<const double> weights,
+                                         std::span<const double> ps) {
+  if (values.size() != weights.size())
+    throw std::invalid_argument("WEIGHTED_PERCENTILE_SIZE");
+  std::vector<double> out(ps.size(), std::numeric_limits<double>::quiet_NaN());
+  if (values.empty()) return out;
+
+  std::vector<std::size_t> idx(values.size());
+  std::iota(idx.begin(), idx.end(), std::size_t{0});
+  std::sort(idx.begin(), idx.end(),
+            [&](std::size_t a, std::size_t b) { return values[a] < values[b]; });
+
+  double total = 0.0;
+  for (double w : weights) {
+    if (!(w >= 0.0)) throw std::invalid_argument("WEIGHTED_PERCENTILE_WEIGHT");
+    total += w;
+  }
+  if (!(total > 0.0)) {
+    std::fill(out.begin(), out.end(), values[idx.front()]);
+    return out;
+  }
+
+  // Resolve requests in ascending p order -- cdf is non-decreasing in k, so
+  // each request's answer is found at or after the previous one's k, exactly
+  // matching what an independent weighted_percentile(values, weights, p)
+  // call would find on its own walk from k=0.
+  std::vector<std::size_t> order(ps.size());
+  std::iota(order.begin(), order.end(), std::size_t{0});
+  std::sort(order.begin(), order.end(),
+            [&](std::size_t a, std::size_t b) { return ps[a] < ps[b]; });
+
+  double cum = 0.0, prev_cdf = 0.0, prev_val = values[idx.front()];
+  std::size_t req = 0;
+  for (std::size_t k = 0; k < idx.size() && req < order.size(); ++k) {
+    const double w = weights[idx[k]];
+    cum += w;
+    const double cdf = (cum - 0.5 * w) / total;
+    const double val = values[idx[k]];
+    while (req < order.size()) {
+      const double p = std::clamp(ps[order[req]], 0.0, 1.0);
+      if (p > cdf) break;
+      if (k == 0 || cdf <= prev_cdf) {
+        out[order[req]] = val;
+      } else {
+        const double frac = (p - prev_cdf) / (cdf - prev_cdf);
+        out[order[req]] = prev_val + std::clamp(frac, 0.0, 1.0) * (val - prev_val);
+      }
+      ++req;
+    }
+    prev_cdf = cdf;
+    prev_val = val;
+  }
+  while (req < order.size()) {
+    out[order[req]] = values[idx.back()];
+    ++req;
+  }
+  return out;
+}
+
 AlphaConfidenceFactors compute_alpha_confidence_channel(
     std::span<const AlphaFactorContribution> accepted,
     const AlphaConfidenceParams &params) {
+  AlphaConfidenceScratch scratch;
+  return compute_alpha_confidence_channel(accepted, params, scratch);
+}
+
+AlphaConfidenceFactors compute_alpha_confidence_channel(
+    std::span<const AlphaFactorContribution> accepted,
+    const AlphaConfidenceParams &params, AlphaConfidenceScratch &scratch) {
   AlphaConfidenceFactors out;
   if (accepted.empty()) return out;
 
-  std::vector<double> b, q, resid;
-  b.reserve(accepted.size());
-  q.reserve(accepted.size());
-  resid.reserve(accepted.size());
-  std::vector<double> art_v, art_w;
-  art_v.reserve(accepted.size());
-  art_w.reserve(accepted.size());
+  auto &b = scratch.b; b.clear();
+  auto &q = scratch.q; q.clear();
+  auto &resid = scratch.resid; resid.clear();
+  auto &art_v = scratch.art_v; art_v.clear();
+  auto &art_w = scratch.art_w; art_w.clear();
   double b_total = 0.0, b_direct = 0.0;
   for (const auto &c : accepted) {
     if (!(c.b > 0.0)) continue;
@@ -85,9 +151,10 @@ AlphaConfidenceFactors compute_alpha_confidence_channel(
   }
   if (b.empty()) return out;
 
-  // A_separation.
-  const double q_p50 = weighted_percentile(q, b, 0.50);
-  const double q_p90 = weighted_percentile(q, b, 0.90);
+  // A_separation. P1.6: q_p50/q_p90 share (q, b) -- one sort, one CDF walk.
+  const auto q_pcts = weighted_percentiles(q, b, std::array{0.50, 0.90});
+  const double q_p50 = q_pcts[0];
+  const double q_p90 = q_pcts[1];
   out.a_separation = smoothstep(params.min_quality_separation,
                                 params.full_quality_separation,
                                 std::max(0.0, q_p90 - q_p50));

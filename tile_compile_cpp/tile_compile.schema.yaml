@@ -1157,6 +1157,7 @@ properties:
           clip_sigma_high: {type: number, exclusiveMinimum: 0, default: 3.0}
           min_fraction: {type: number, exclusiveMinimum: 0, maximum: 1, default: 0.4}
           min_n_eff: {type: number, minimum: 1, default: 3.0}
+          guard_fallback: {type: boolean, default: false, description: "When the min_fraction/min_n_eff veto (plan 11.8 step 8) fails, use the sigma-clip survivors (or, if none survived, every original candidate unclipped) instead of leaving the pixel/channel unsupported. Default false preserves the exact reviewed 8-step procedure."}
       coverage_gate:
         type: object
         properties:

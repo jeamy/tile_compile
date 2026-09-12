@@ -13,6 +13,10 @@
 #include <unordered_map>
 #include <vector>
 
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
+
 namespace tile_compile::reconstruction {
 
 namespace {
@@ -475,7 +479,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
     const FrameQualityRectProvider &quality_of, const MultibandProfileParams &mb,
     std::size_t mem_budget_bytes, const PairFrameRecordProducer &produce,
     int x_begin, int cols, const PairTileSink *tile_sink, int tile_cols,
-    const PreparedDrizzleFrames *prepared_frames) {
+    const PreparedDrizzleFrames *prepared_frames, int workers) {
   const StripeGeom g = stripe_geom(plan, cfg, y_begin, rows);
   // §4.4: prepare_drizzle_frames() is band-invariant. When the caller supplies
   // a pre-built PreparedDrizzleFrames (built once before the band loop), reuse
@@ -531,7 +535,8 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
       clip_cfg.min_fraction,       clip_cfg.min_n_eff,
       mb.emit_fine,                mb.emit_medium,
       need_qa,                     mb.fine_quality_exponent,
-      mb.medium_quality_exponent,  mb.alpha_confidence};
+      mb.medium_quality_exponent,  mb.alpha_confidence,
+      clip_cfg.guard_fallback};
 
   // §30.81 step-5 baseline timers (see forward_drizzle_cuda.hpp). Zero cost
   // unless TC_FD_CUDA_PROFILE.
@@ -589,7 +594,16 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
   std::vector<double> ac_sep, ac_art, ac_reg;
   std::vector<std::vector<ClipCandidate>> cand;
   std::vector<std::vector<std::size_t>> counts;
-  DrizzleClipScratch clip_scratch;
+  // P1.4 (redundant-reload analysis): the reduce step below used one shared
+  // DrizzleClipScratch and ran fully serially, regardless of `workers` --
+  // the CUDA store path's own diagnostics reported workers_used: 0 for
+  // exactly this reason (stream_forward_drizzle_uniform_and_raw's for_each_band
+  // already parallelizes the equivalent reduce on the CPU streaming path;
+  // this mirrors that pattern). One scratch per band-worker, persisted
+  // across reduce_window calls like the other D4 scratch above.
+  const int req_workers = std::max(1, workers);
+  std::vector<DrizzleClipScratch> band_clip_scratch(
+      static_cast<std::size_t>(req_workers));
 
   // Reduce one target-column window [wx0, wx0+ww) into `reduce_out` of that
   // width. `get_recs(fo)` yields frame fo's already-sorted records as a live
@@ -752,23 +766,74 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
       }
     }
 
-    // Priority 2 (§30.79): reused clip scratch; serial per window. D4: shared
-    // across windows --- reserve_for only grows.
-    clip_scratch.reserve_for(frame_count, need_qa);
+    // P1.4: row-band partition of this window, mirroring
+    // stream_forward_drizzle_uniform_and_raw's for_each_band --- band b owns
+    // rows [band_lo(b), band_lo(b+1)) of the window, gap-free and
+    // non-overlapping, so unioning per-band reduce over the bands reproduces
+    // the whole-window result exactly. One DrizzleClipScratch per band; each
+    // pixel's ClipCandidate span is independent, so this is embarrassingly
+    // parallel. `nb == 1` on the default/serial path (req_workers == 1 or
+    // rows == 1).
+    const int nb = std::max(1, std::min(req_workers, rows));
+    auto band_lo = [&](int b) {
+      return static_cast<int>((static_cast<long long>(b) * rows) / nb);
+    };
+    for (auto &s : band_clip_scratch) s.reserve_for(frame_count, need_qa);
     const auto tp_reduce = cnow();
-    for (int c = 0; c < channels; ++c)
-      for (std::size_t i = 0; i < n; ++i) {
-        if (!counts[c][i]) continue;
-        const std::span<const ClipCandidate> pixel(
-            cand[c].data() + i * frame_count, counts[c][i]);
-        reduce_pixel_profiles(pixel, reduce_cfg, g_eff_for, reg_by_source, i,
-                              up[c], rp[c], mb.emit_fine ? fp[c] : nullptr,
-                              mb.emit_medium ? mp[c] : nullptr,
-                              need_qa ? &ac_sep[i] : nullptr,
-                              need_qa ? &ac_art[i] : nullptr,
-                              need_qa ? &ac_reg[i] : nullptr, r.clipping,
-                              &clip_scratch);
+    std::vector<ForwardDrizzleClippingDiagnostics> band_clip(nb);
+    auto reduce_band = [&](int b) {
+      const int r0 = band_lo(b), r1 = band_lo(b + 1);
+      if (r1 <= r0) return;
+      const std::size_t bi0 = static_cast<std::size_t>(r0) * Wsz;
+      const std::size_t bn = static_cast<std::size_t>(r1 - r0) * Wsz;
+      ForwardDrizzleClippingDiagnostics lc;
+      auto &band_scratch = band_clip_scratch[static_cast<std::size_t>(b)];
+      for (int c = 0; c < channels; ++c)
+        for (std::size_t i = bi0; i < bi0 + bn; ++i) {
+          if (!counts[c][i]) continue;
+          const std::span<const ClipCandidate> pixel(
+              cand[c].data() + i * frame_count, counts[c][i]);
+          reduce_pixel_profiles(pixel, reduce_cfg, g_eff_for, reg_by_source, i,
+                                up[c], rp[c], mb.emit_fine ? fp[c] : nullptr,
+                                mb.emit_medium ? mp[c] : nullptr,
+                                need_qa ? &ac_sep[i] : nullptr,
+                                need_qa ? &ac_art[i] : nullptr,
+                                need_qa ? &ac_reg[i] : nullptr, lc,
+                                &band_scratch);
+        }
+      band_clip[static_cast<std::size_t>(b)] = lc;
+    };
+#if defined(_OPENMP)
+    if (nb > 1) {
+      std::exception_ptr eptr;
+#pragma omp parallel num_threads(nb)
+      {
+#pragma omp for schedule(static, 1)
+        for (int b = 0; b < nb; ++b) {
+          try {
+            reduce_band(b);
+          } catch (...) {
+#pragma omp critical
+            if (!eptr) eptr = std::current_exception();
+          }
+        }
       }
+      if (eptr) std::rethrow_exception(eptr);
+    } else
+#endif
+    {
+      for (int b = 0; b < nb; ++b) reduce_band(b);
+    }
+    // Integer counters --- order-independent, so the summed result is
+    // identical to the serial single-accumulator path (same reasoning as
+    // stream_forward_drizzle_uniform_and_raw's band merge).
+    for (const auto &lc : band_clip) {
+      r.clipping.pixel_channel_evaluations += lc.pixel_channel_evaluations;
+      r.clipping.pixel_channel_rejected += lc.pixel_channel_rejected;
+      r.clipping.candidate_contributions_clipped +=
+          lc.candidate_contributions_clipped;
+      r.clipping.pixel_channel_guard_fallback += lc.pixel_channel_guard_fallback;
+    }
     cadd(cp.reduce_s, tp_reduce);
 
     if (need_qa)
@@ -848,6 +913,8 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_impl(
           tile.clipping.pixel_channel_rejected;
       agg.clipping.candidate_contributions_clipped +=
           tile.clipping.candidate_contributions_clipped;
+      agg.clipping.pixel_channel_guard_fallback +=
+          tile.clipping.pixel_channel_guard_fallback;
       (*tile_sink)(wx0, tw, tile);
     }
     agg.diagnostics.q_band_cache_hits = q_hits;
@@ -1213,14 +1280,15 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
     const PairTileSink *tile_sink, int tile_cols,
     const PreparedDrizzleFrames *prepared_frames,
     const SourceImageRectProvider &source_rect_of,
-    const FrameQualityRectProvider &quality_rect_of) {
+    const FrameQualityRectProvider &quality_rect_of, int workers) {
   return accumulate_pair_impl(
       plan, cfg, clip_cfg, y_begin, rows, subdivision, g_eff_by_source_index,
       quality_rect_of ? quality_rect_of : to_rect_provider(quality_of), mb,
       mem_budget_bytes,
       cpu_pair_producer(plan, source_of, cfg, subdivision, y_begin, rows,
                         mem_budget_bytes, source_rect_of),
-      target_x_begin, target_cols, tile_sink, tile_cols, prepared_frames);
+      target_x_begin, target_cols, tile_sink, tile_cols, prepared_frames,
+      workers);
 }
 
 ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
@@ -1234,7 +1302,7 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     std::size_t max_batch_items, HybridPathStats *hybrid_stats,
     int target_x_begin, int target_cols, const PairTileSink *tile_sink,
     int tile_cols, const PreparedDrizzleFrames *prepared_frames,
-    const SourceImageRectProvider &source_rect_of) {
+    const SourceImageRectProvider &source_rect_of, int workers) {
   // T4a: source band cache stats — populated by the CUDA producer, read after
   // the band pass to fill ForwardDrizzleDiagnostics.
   SourceBandCacheStats src_stats;
@@ -1244,7 +1312,8 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
       cuda_pair_producer(plan, source_of, cfg, subdivision, y_begin, rows,
                          max_cells_per_pixel, mem_budget_bytes, max_batch_items,
                          hybrid_stats, &src_stats, source_rect_of),
-      target_x_begin, target_cols, tile_sink, tile_cols, prepared_frames);
+      target_x_begin, target_cols, tile_sink, tile_cols, prepared_frames,
+      workers);
   result.diagnostics.source_band_cache_hits = src_stats.hits;
   result.diagnostics.source_band_cache_misses = src_stats.misses;
   result.diagnostics.source_bytes_read = src_stats.bytes_read;

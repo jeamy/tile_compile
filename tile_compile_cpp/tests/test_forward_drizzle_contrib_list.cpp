@@ -553,6 +553,51 @@ TEST_CASE("plan-19.6 pair list: stripe splitting leaves the clipped profiles, "
           stitched.clipping.candidate_contributions_clipped);
 }
 
+TEST_CASE("P1.4: the reduce step's row-band worker parallelism is "
+          "bit-identical to the serial (workers=1) reduce",
+          "[forward-drizzle][contrib-list]") {
+  const PairCase k = make_pair_case(ColorMode::OSC, /*local=*/true,
+                                    BayerPattern::GRBG, /*edge=*/true);
+  const int H = k.plan.canvas_height_native * k.cfg.internal_scale;
+
+  const auto serial = accumulate_pair_by_frame(
+      k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(), k.mb,
+      static_cast<std::size_t>(1) << 32, /*target_x_begin=*/0,
+      /*target_cols=*/-1, /*tile_sink=*/nullptr, /*tile_cols=*/0,
+      /*prepared_frames=*/nullptr, /*source_rect_of=*/{},
+      /*quality_rect_of=*/{}, /*workers=*/1);
+  const auto parallel = accumulate_pair_by_frame(
+      k.plan, k.src(), k.cfg, k.clip, 0, H, k.sub, k.g_eff, k.quality(), k.mb,
+      static_cast<std::size_t>(1) << 32, /*target_x_begin=*/0,
+      /*target_cols=*/-1, /*tile_sink=*/nullptr, /*tile_cols=*/0,
+      /*prepared_frames=*/nullptr, /*source_rect_of=*/{},
+      /*quality_rect_of=*/{}, /*workers=*/4);
+
+  auto planes = [](const ForwardDrizzleUniformResult &r) {
+    return std::vector<const ProfilePlane *>{&r.R, &r.G, &r.B};
+  };
+  for (auto pr : {std::pair{&serial.uniform, &parallel.uniform},
+                  std::pair{&serial.raw, &parallel.raw},
+                  std::pair{&serial.fine, &parallel.fine},
+                  std::pair{&serial.medium, &parallel.medium}}) {
+    const auto sp = planes(*pr.first), pp = planes(*pr.second);
+    for (int c = 0; c < 3; ++c) require_plane_identical(*sp[c], *pp[c]);
+  }
+  require_float_vec_identical(serial.a_separation, parallel.a_separation);
+  require_float_vec_identical(serial.a_artifact, parallel.a_artifact);
+  require_float_vec_identical(serial.a_registration, parallel.a_registration);
+  REQUIRE(serial.alpha_confidence_support == parallel.alpha_confidence_support);
+  REQUIRE(serial.clipping.pixel_channel_evaluations ==
+          parallel.clipping.pixel_channel_evaluations);
+  REQUIRE(serial.clipping.pixel_channel_rejected ==
+          parallel.clipping.pixel_channel_rejected);
+  REQUIRE(serial.clipping.candidate_contributions_clipped ==
+          parallel.clipping.candidate_contributions_clipped);
+  // Non-vacuous: this fixture actually engages clipping (per the sibling test
+  // above), so the comparison exercises real reduce work, not an empty pass.
+  REQUIRE(serial.clipping.candidate_contributions_clipped > 0);
+}
+
 TEST_CASE("§30.81 pair list: 2D row-band x column-tile splitting leaves the "
           "clipped profiles, alpha maps and clipping counters bit-identical",
           "[forward-drizzle][contrib-list][fd-tile-window]") {

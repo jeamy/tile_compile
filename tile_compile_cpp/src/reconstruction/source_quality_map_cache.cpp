@@ -839,20 +839,27 @@ bool load_source_quality_metrics(
       return false;
     }
     artifact.frames.clear();
+    // NaN metric values (§1.5 "invalid", e.g. sky_gradient with <4 valid
+    // quadrants or fwhm on star-less frames) serialize to JSON null; read
+    // them back as NaN instead of failing the whole artifact.
+    auto jfloat = [](const json &v) -> float {
+      return v.is_null() ? std::numeric_limits<float>::quiet_NaN()
+                         : v.get<float>();
+    };
     for (const auto &fj : j.at("frames")) {
       SourceQualityFrameMetrics fm;
       fm.source_index = fj.at("source_index").get<std::size_t>();
       fm.frame_id = fj.at("frame_id").get<std::string>();
-      fm.background = fj.at("background").get<float>();
-      fm.noise = fj.at("noise").get<float>();
-      fm.gradient_energy = fj.at("gradient_energy").get<float>();
-      fm.sky_gradient = fj.at("sky_gradient").get<float>();
-      fm.quality_score = fj.at("quality_score").get<float>();
-      fm.fwhm = fj.at("fwhm").get<float>();
-      fm.fwhm_x = fj.at("fwhm_x").get<float>();
-      fm.fwhm_y = fj.at("fwhm_y").get<float>();
-      fm.roundness = fj.at("roundness").get<float>();
-      fm.wfwhm = fj.at("wfwhm").get<float>();
+      fm.background = jfloat(fj.at("background"));
+      fm.noise = jfloat(fj.at("noise"));
+      fm.gradient_energy = jfloat(fj.at("gradient_energy"));
+      fm.sky_gradient = jfloat(fj.at("sky_gradient"));
+      fm.quality_score = jfloat(fj.at("quality_score"));
+      fm.fwhm = jfloat(fj.at("fwhm"));
+      fm.fwhm_x = jfloat(fj.at("fwhm_x"));
+      fm.fwhm_y = jfloat(fj.at("fwhm_y"));
+      fm.roundness = jfloat(fj.at("roundness"));
+      fm.wfwhm = jfloat(fj.at("wfwhm"));
       fm.star_count = fj.at("star_count").get<int>();
       artifact.frames.push_back(std::move(fm));
     }

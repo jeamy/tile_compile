@@ -62,16 +62,42 @@ struct AlphaConfidenceFactors {
   bool artifact_applicable = false;  // >= min_artifact_contributors valid a_f
 };
 
+// P1.5 (redundant-reload analysis): the b/q/resid/art_v/art_w buffers
+// compute_alpha_confidence_channel needs internally, reusable across the
+// per-pixel/per-channel calls a hot reduction loop makes instead of five
+// fresh heap allocations per call. Grow-only, like DrizzleClipScratch.
+struct AlphaConfidenceScratch {
+  std::vector<double> b, q, resid, art_v, art_w;
+};
+
 // One channel, one target pixel. `accepted` is the post-clipping accepted
 // frame contribution set (each b > 0). An empty set yields all-zero factors.
 AlphaConfidenceFactors compute_alpha_confidence_channel(
     std::span<const AlphaFactorContribution> accepted,
     const AlphaConfidenceParams &params = {});
 
+// Identical result, reusing `scratch`'s buffer capacity instead of
+// allocating b/q/resid/art_v/art_w fresh. Hot-path callers (reduce_pixel_profiles)
+// should use this overload with a scratch that outlives the reduction loop.
+AlphaConfidenceFactors compute_alpha_confidence_channel(
+    std::span<const AlphaFactorContribution> accepted,
+    const AlphaConfidenceParams &params, AlphaConfidenceScratch &scratch);
+
 // Weighted percentile in [0,1]: values sorted ascending, running weight, the
 // value at which the cumulative weight first reaches `p * total_weight`
 // (linear interpolation between the bracketing samples). Exposed for tests.
 double weighted_percentile(std::span<const double> values,
                            std::span<const double> weights, double p);
+
+// P1.6 (redundant-reload analysis): resolves several percentiles of the SAME
+// (values, weights) pair from one sort and one forward CDF walk, instead of
+// calling weighted_percentile once per p (which independently re-sorts and
+// re-walks the identical sequence). Bit-identical to calling
+// weighted_percentile(values, weights, ps[k]) for each k -- see the proof in
+// alpha_confidence.cpp: results are resolved at the exact same walk position
+// with the exact same prev_cdf/prev_val state either way.
+std::vector<double> weighted_percentiles(std::span<const double> values,
+                                         std::span<const double> weights,
+                                         std::span<const double> ps);
 
 }  // namespace tile_compile::reconstruction

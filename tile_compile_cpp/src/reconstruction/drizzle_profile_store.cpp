@@ -806,7 +806,7 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
                 &hybrid_stats, /*target_x_begin=*/0, /*target_cols=*/-1,
                 &tile_sink, tile_w,
                 prepared_frames ? &*prepared_frames : nullptr,
-                source_rect_of);
+                source_rect_of, workers);
           } catch (const std::runtime_error &e) {
             // The per-band record memo or a tile's candidate buffer exceeded the
             // host ceiling -> ask run_cuda_chunked for a shorter band (plan 19.4
@@ -846,6 +846,8 @@ DrizzleStoreResult persist_forward_drizzle_multiband(
               stripe.clipping.pixel_channel_rejected;
           clip_total.candidate_contributions_clipped +=
               stripe.clipping.candidate_contributions_clipped;
+          clip_total.pixel_channel_guard_fallback +=
+              stripe.clipping.pixel_channel_guard_fallback;
           // `last_diag` is set per column tile inside the loop above (all tiles
           // of a band carry the same frame-level diagnostics).
         }, &chunk_stats);

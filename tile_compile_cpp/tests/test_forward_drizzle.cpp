@@ -1446,6 +1446,88 @@ TEST_CASE("uniform+raw: min_fraction veto rejects the pixel in both "
   }
 }
 
+TEST_CASE("uniform+raw: P0.1 guard_fallback uses the sigma-clip survivors "
+          "instead of rejecting when min_fraction fails (redundant-reload "
+          "analysis, 'schwarze Artefakte')") {
+  auto plan = five_identical_frames_plan({10, 10, 10, 10, 100});
+  std::vector<Matrix2Df> images;
+  for (float v : {10.0f, 10.0f, 10.0f, 10.0f, 100.0f}) {
+    Matrix2Df img(1, 1);
+    img(0, 0) = v;
+    images.push_back(img);
+  }
+  SourceImageProvider source_of = [&](std::size_t idx) -> const Matrix2Df & {
+    return images[idx];
+  };
+
+  config::ReconstructionDrizzleConfig drizzle_cfg;
+  drizzle_cfg.internal_scale = 1;
+  drizzle_cfg.pixfrac = 0.8f;
+  drizzle_cfg.min_clip_contributors = 5;
+  config::ReconstructionClippingConfig clip_cfg;
+  clip_cfg.min_fraction = 0.9f;  // 4/5 = 0.8 accepted after clipping < 0.9
+  clip_cfg.guard_fallback = true;
+
+  auto result =
+      compute_forward_drizzle_uniform_and_raw(plan, source_of, drizzle_cfg, clip_cfg);
+  REQUIRE(result.clipping.pixel_channel_rejected == 0);
+  REQUIRE(result.clipping.pixel_channel_guard_fallback == 1);
+  // The 100-outlier is still sigma-clipped away; the guard only stops the
+  // pixel/channel from being erased -- the accepted set (four 10s) is
+  // unchanged, so the value is still exactly 10, not the unclipped mean.
+  for (size_t i = 0; i < result.uniform.L.support.size(); ++i) {
+    if (!result.uniform.L.support[i]) continue;
+    REQUIRE(result.uniform.L.value[i] == Approx(10.0).epsilon(1e-3));
+    REQUIRE(result.raw.L.value[i] == Approx(10.0).epsilon(1e-3));
+  }
+}
+
+TEST_CASE("uniform+raw: P0.1 guard_fallback accepts a single sigma-clip "
+          "survivor when min_n_eff (not min_fraction) is what fails") {
+  // Four distinct, evenly spread values with a zero sigma bound: the
+  // algorithm's weighted median is always one of the actual candidate values
+  // (never interpolated, step 4), and that value always self-satisfies
+  // [median, median], so exactly one candidate (20) survives -- fraction
+  // 1/4 = 0.25 clears a lax min_fraction, but n_eff collapses to 1.0 for a
+  // single survivor, which is what trips the guard here.
+  auto plan = five_identical_frames_plan({10, 20, 30, 40});
+  std::vector<Matrix2Df> images;
+  for (float v : {10.0f, 20.0f, 30.0f, 40.0f}) {
+    Matrix2Df img(1, 1);
+    img(0, 0) = v;
+    images.push_back(img);
+  }
+  SourceImageProvider source_of = [&](std::size_t idx) -> const Matrix2Df & {
+    return images[idx];
+  };
+
+  config::ReconstructionDrizzleConfig drizzle_cfg;
+  drizzle_cfg.internal_scale = 1;
+  drizzle_cfg.pixfrac = 0.8f;
+  drizzle_cfg.min_clip_contributors = 4;
+  config::ReconstructionClippingConfig clip_cfg;
+  clip_cfg.clip_sigma_low = 0.0f;
+  clip_cfg.clip_sigma_high = 0.0f;
+  clip_cfg.min_fraction = 0.1f;  // 1/4 = 0.25 clears this
+  clip_cfg.min_n_eff = 3.0f;     // a single survivor (n_eff 1.0) fails this
+  clip_cfg.guard_fallback = true;
+
+  auto result =
+      compute_forward_drizzle_uniform_and_raw(plan, source_of, drizzle_cfg, clip_cfg);
+  REQUIRE(result.clipping.pixel_channel_rejected == 0);
+  REQUIRE(result.clipping.pixel_channel_guard_fallback == 1);
+  double peak_u = 0.0;
+  float peak_weight = 0.0f;
+  for (size_t i = 0; i < result.uniform.L.value.size(); ++i)
+    if (result.uniform.L.support[i] && result.uniform.L.weight_sum[i] > peak_weight) {
+      peak_weight = result.uniform.L.weight_sum[i];
+      peak_u = result.uniform.L.value[i];
+    }
+  // The sole sigma-clip survivor's own value -- the guard accepts it as-is,
+  // it does not revert to the unclipped set (accepted_count was not 0).
+  REQUIRE(peak_u == Approx(20.0).epsilon(1e-3));
+}
+
 TEST_CASE("uniform+raw: MONO fills only L in both profiles (plan 11.4)") {
   auto plan = five_identical_frames_plan({1, 2, 3});
   std::vector<Matrix2Df> images;

@@ -194,7 +194,10 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
     // (frame, tile). When `quality_rect_of` is wired it replaces the adapted
     // `quality_of` (cheaper empty-rect existence probes + rect reads).
     const SourceImageRectProvider &source_rect_of = {},
-    const FrameQualityRectProvider &quality_rect_of = {});
+    const FrameQualityRectProvider &quality_rect_of = {},
+    // P1.4: row-band parallel reduce (see accumulate_pair_by_frame_cuda).
+    // Default 1 keeps every existing (test) caller byte-for-byte serial.
+    int workers = 1);
 
 // The CUDA counterpart of accumulate_pair_by_frame: the per-frame contribution
 // records are produced by the device affine rasterizer
@@ -244,6 +247,16 @@ ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
     // A1: banded source reads for the record producer (the band-cache miss
     // path reads the band rows instead of a full-frame decode; the
     // local-warp hybrid path reads the full extent through it).
-    const SourceImageRectProvider &source_rect_of = {});
+    const SourceImageRectProvider &source_rect_of = {},
+    // P1.4 (redundant-reload analysis): the reduce step (sort/clip/profile,
+    // shared host code -- see the comment above) is parallelized over row
+    // bands of the window, one DrizzleClipScratch per band, the same pattern
+    // stream_forward_drizzle_uniform_and_raw already uses on the CPU
+    // streaming path. Only the reduce is parallelized, not the device
+    // rasterization or the frame-ordered candidate gather (which must stay
+    // serial: candidates must be frame-ordered). Default 1 keeps every
+    // existing (test) caller byte-for-byte serial; the production CUDA store
+    // path in drizzle_profile_store.cpp passes the phase's real worker count.
+    int workers = 1);
 
 }  // namespace tile_compile::reconstruction

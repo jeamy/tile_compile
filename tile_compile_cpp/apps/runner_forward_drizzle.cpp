@@ -796,7 +796,9 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           {"pixel_channel_evaluations",result.clipping.pixel_channel_evaluations},
           {"pixel_channel_rejected",result.clipping.pixel_channel_rejected},
           {"candidate_contributions_clipped",
-           result.clipping.candidate_contributions_clipped}}},
+           result.clipping.candidate_contributions_clipped},
+          {"pixel_channel_guard_fallback",
+           result.clipping.pixel_channel_guard_fallback}}},
         {"local_warp",local_warp},
         {"pixels_supported",pixels},
         {"acceleration",{
@@ -994,7 +996,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           (!cfg.pcc.enabled || !cfg.astrometry.enabled))
         throw std::runtime_error("FORWARD_HMS_REQUIRES_ASTROMETRY_AND_PCC");
       begin(Phase::STACKING);
-      write_forward_downstream_inputs(dir,sampling,drizzle);
+      write_forward_downstream_inputs(dir,sampling,drizzle,&emitter,run_id,&log);
       end({{"mode","forward_drizzle_pass_through"},
            {"photometry_applied_once",true},{"output_scale",drizzle.output_scale}});
       checkpoint["downstream_status"]="running";

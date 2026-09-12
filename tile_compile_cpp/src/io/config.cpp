@@ -880,6 +880,8 @@ Config Config::from_yaml(const YAML::Node &node) {
         rc.clipping.min_fraction = c["min_fraction"].as<float>();
       if (yaml_has_value(c["min_n_eff"]))
         rc.clipping.min_n_eff = c["min_n_eff"].as<float>();
+      if (yaml_has_value(c["guard_fallback"]))
+        rc.clipping.guard_fallback = c["guard_fallback"].as<bool>();
     }
     if (yaml_has_value(r["coverage_gate"])) {
       auto g = r["coverage_gate"];
@@ -1683,6 +1685,7 @@ YAML::Node Config::to_yaml() const {
     r["clipping"]["clip_sigma_high"] = rc.clipping.clip_sigma_high;
     r["clipping"]["min_fraction"] = rc.clipping.min_fraction;
     r["clipping"]["min_n_eff"] = rc.clipping.min_n_eff;
+    r["clipping"]["guard_fallback"] = rc.clipping.guard_fallback;
     r["coverage_gate"]["min_frames"] = rc.coverage_gate.min_frames;
     r["coverage_gate"]["min_supported_fraction"] =
         rc.coverage_gate.min_supported_fraction;

@@ -1052,6 +1052,14 @@ void DrizzleClipScratch::reserve_for(std::size_t capacity, bool with_alpha) {
     alpha_contribs.reserve(capacity);
     grew = true;
   }
+  if (with_alpha) {
+    auto &s = alpha_confidence_scratch;
+    if (s.b.capacity() < capacity) { s.b.reserve(capacity); grew = true; }
+    if (s.q.capacity() < capacity) { s.q.reserve(capacity); grew = true; }
+    if (s.resid.capacity() < capacity) { s.resid.reserve(capacity); grew = true; }
+    if (s.art_v.capacity() < capacity) { s.art_v.reserve(capacity); grew = true; }
+    if (s.art_w.capacity() < capacity) { s.art_w.reserve(capacity); grew = true; }
+  }
   if (grew) ++growth_count;
 }
 
@@ -1067,7 +1075,9 @@ bool robust_clip_core(std::span<const ClipCandidate> candidates,
                       int min_clip_contributors, int robust_passes,
                       float clip_sigma_low, float clip_sigma_high,
                       float min_fraction, float min_n_eff,
-                      DrizzleClipScratch &scratch) {
+                      DrizzleClipScratch &scratch,
+                      bool guard_fallback = false,
+                      bool *fallback_used = nullptr) {
   if (min_clip_contributors < 1 || robust_passes < 0 ||
       !std::isfinite(clip_sigma_low) || clip_sigma_low < 0 ||
       !std::isfinite(clip_sigma_high) || clip_sigma_high < 0 ||
@@ -1174,8 +1184,19 @@ bool robust_clip_core(std::span<const ClipCandidate> candidates,
   }
   const double fraction = static_cast<double>(accepted_count) / static_cast<double>(n);
   const double n_eff = sum_w2 > 0.0 ? (sum_w * sum_w) / sum_w2 : 0.0;
-  return fraction < static_cast<double>(min_fraction) ||
-         n_eff < static_cast<double>(min_n_eff);
+  const bool guard_failed = fraction < static_cast<double>(min_fraction) ||
+                            n_eff < static_cast<double>(min_n_eff);
+  if (!guard_failed) return false;
+  if (!guard_fallback) return true;  // exact plan-11.8 step-8 behaviour, unchanged
+  // P0.1: never erase a geometrically covered pixel/channel. Use the
+  // sigma-clip survivors even though they fell short of the guard; if the
+  // clip rejected every candidate (accepted_count == 0, only reachable via
+  // the sigma-clip passes above -- the n < min_clip_contributors bypass
+  // never touches `accepted`), fall back one step further and use every
+  // original candidate unclipped rather than divide by a zero weight sum.
+  if (accepted_count == 0) std::fill(accepted.begin(), accepted.end(), std::uint8_t{1});
+  if (fallback_used) *fallback_used = true;
+  return false;
 }
 
 } // namespace
@@ -1218,10 +1239,13 @@ void reduce_pixel_profiles(
   DrizzleClipScratch &clip_scratch = scratch ? *scratch : fallback;
   clip_scratch.reserve_for(pixel.size(), cfg.emit_alpha);
   const auto &accepted = clip_scratch.accepted;
+  bool fallback_used = false;
   const bool pixel_rejected =
       robust_clip_core(pixel, cfg.min_clip_contributors, cfg.robust_passes,
                        cfg.clip_sigma_low, cfg.clip_sigma_high,
-                       cfg.min_fraction, cfg.min_n_eff, clip_scratch);
+                       cfg.min_fraction, cfg.min_n_eff, clip_scratch,
+                       cfg.guard_fallback, &fallback_used);
+  if (fallback_used) ++diag.pixel_channel_guard_fallback;
   for (std::uint8_t a : accepted)
     if (!a) ++diag.candidate_contributions_clipped;
   if (pixel_rejected) {
@@ -1280,8 +1304,8 @@ void reduce_pixel_profiles(
       contribs.push_back({cd.b, cd.q, art_conf, rg.first != 0u,
                           static_cast<double>(rg.second)});
     }
-    const auto fac =
-        compute_alpha_confidence_channel(contribs, cfg.alpha_confidence);
+    const auto fac = compute_alpha_confidence_channel(
+        contribs, cfg.alpha_confidence, clip_scratch.alpha_confidence_scratch);
     *ac_sep = std::min(*ac_sep, fac.a_separation);
     *ac_art = std::min(*ac_art, fac.a_artifact);
     *ac_reg = std::min(*ac_reg, fac.a_registration);
@@ -1388,7 +1412,8 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
       clip_cfg.min_fraction,       clip_cfg.min_n_eff,
       mb.emit_fine,                mb.emit_medium,
       need_qa,                     mb.fine_quality_exponent,
-      mb.medium_quality_exponent,  mb.alpha_confidence};
+      mb.medium_quality_exponent,  mb.alpha_confidence,
+      clip_cfg.guard_fallback};
   // Worst case: every frame contributes at every pixel. Use flat, exactly
   // sized storage; no vector growth or per-pixel heap allocations.
   const size_t quality_bytes = checked_product(g_eff_by_source_index.size(), sizeof(float));
@@ -1866,6 +1891,7 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
       result.clipping.pixel_channel_rejected += lc.pixel_channel_rejected;
       result.clipping.candidate_contributions_clipped +=
           lc.candidate_contributions_clipped;
+      result.clipping.pixel_channel_guard_fallback += lc.pixel_channel_guard_fallback;
     }
     prof_add(prof_reduce, prof_ts);
     prof_ts = prof_now();
@@ -1875,6 +1901,7 @@ ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
     summary.clipping.pixel_channel_evaluations += result.clipping.pixel_channel_evaluations;
     summary.clipping.pixel_channel_rejected += result.clipping.pixel_channel_rejected;
     summary.clipping.candidate_contributions_clipped += result.clipping.candidate_contributions_clipped;
+    summary.clipping.pixel_channel_guard_fallback += result.clipping.pixel_channel_guard_fallback;
     y += rows;
   }
   if (fd_profile) {

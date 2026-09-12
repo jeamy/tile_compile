@@ -9,7 +9,8 @@
 namespace tile_compile::runner {
 void write_forward_downstream_inputs(const fs::path &dir,
     const registration::RegistrationSamplingPlan &sampling,
-    const config::ReconstructionDrizzleConfig &drizzle) {
+    const config::ReconstructionDrizzleConfig &drizzle,
+    core::EventEmitter *emitter, const std::string &run_id, std::ostream *log) {
   const bool mono = sampling.color_mode == ColorMode::MONO;
   const auto normalization_path = dir / "artifacts/normalization.json";
   const auto normalization = core::json::parse(core::read_text(normalization_path));
@@ -66,13 +67,44 @@ void write_forward_downstream_inputs(const fs::path &dir,
   const int ratio = drizzle.internal_scale / drizzle.output_scale;
   if (ratio < 1 || mask.rows() != h * ratio || mask.cols() != w * ratio)
     throw std::runtime_error("FORWARD_OUTPUT_MASK_SHAPE");
+  // P0.2/P0.3: `geom_ok` is the geometric-coverage check alone (unchanged from
+  // before); `analysis[i]`/common_overlap_mask.fits keeps its existing
+  // support-AND-geometry meaning bit-identically. The new count below is
+  // purely additive diagnostics -- distinguishing "never geometrically
+  // covered" (geom_ok false) from "clipped away after full coverage"
+  // (geom_ok true but support[i] false), which canvas_mask alone conflates.
+  size_t geometric_but_unsupported = 0, geometric_covered = 0;
   for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
     const size_t i = static_cast<size_t>(y) * w + x;
-    bool ok = support[i];
+    bool geom_ok = true;
     for (int dy = 0; dy < ratio; ++dy) for (int dx = 0; dx < ratio; ++dx)
-      ok = ok && std::isfinite(mask(y*ratio+dy,x*ratio+dx)) && mask(y*ratio+dy,x*ratio+dx) > 0;
-    analysis[i] = ok;
+      geom_ok = geom_ok && std::isfinite(mask(y*ratio+dy,x*ratio+dx)) &&
+                mask(y*ratio+dy,x*ratio+dx) > 0;
+    analysis[i] = support[i] && geom_ok;
+    if (geom_ok) {
+      ++geometric_covered;
+      if (!support[i]) ++geometric_but_unsupported;
+    }
     if (!support[i]) for (auto &plane : planes) plane(y,x) = 0;
+  }
+  const double geometric_but_unsupported_fraction =
+      geometric_covered > 0
+          ? static_cast<double>(geometric_but_unsupported) / static_cast<double>(geometric_covered)
+          : 0.0;
+  // Warn, do not fail: with config::ReconstructionClippingConfig::guard_fallback
+  // at its default (false), a nontrivial fraction here is expected on thin
+  // R/B CFA channels at low frame counts (plan 11.8 step 8) -- this is
+  // visibility, not a new gate. A hard fail-closed only becomes safe once
+  // guard_fallback (or an equivalent) is the default (see P0.1).
+  if (emitter && geometric_but_unsupported_fraction > 0.01 && log) {
+    emitter->warning(run_id,
+        "FORWARD_OUTPUT_GEOMETRIC_COVERAGE_LOST: " +
+            std::to_string(geometric_but_unsupported) + "/" +
+            std::to_string(geometric_covered) + " geometrically covered pixels (" +
+            std::to_string(geometric_but_unsupported_fraction * 100.0) +
+            "%) were zeroed by post-clip support loss, not missing geometry -- "
+            "see forward_downstream_inputs.json:geometric_but_unsupported_fraction",
+        *log);
   }
   io::FitsHeader header;
   // Copy only pointing/instrument metadata, never a source-frame WCS onto a
@@ -113,6 +145,9 @@ void write_forward_downstream_inputs(const fs::path &dir,
   core::write_text_atomic(dir / "artifacts/forward_downstream_inputs.json",
       core::json({{"version",2},{"normalization_bytes",fs::file_size(normalization_path)},
         {"source_profiles",inputs},{"files",files},{"width",w},{"height",h},
-        {"crop_x",0},{"crop_y",0},{"photometry_applied_once",true}}).dump(2));
+        {"crop_x",0},{"crop_y",0},{"photometry_applied_once",true},
+        {"geometric_but_unsupported_pixels",geometric_but_unsupported},
+        {"geometric_covered_pixels",geometric_covered},
+        {"geometric_but_unsupported_fraction",geometric_but_unsupported_fraction}}).dump(2));
 }
 }
