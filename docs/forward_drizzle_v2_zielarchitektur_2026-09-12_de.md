@@ -1,23 +1,73 @@
-# Forward Drizzle v2: Zielarchitektur als AQMH-Ersatz
+# Forward Drizzle v2: Entscheidungs- und Implementierungsplan als AQMH-Ersatz
 
-**Stand:** 2026-09-12  
-**Status:** Architekturvorschlag  
-**Scope:** Vollständiger Ersatz der aktuellen Record-/Sort-/Clip-Pipeline; keine Zwischenoptimierung des bestehenden Pfads
+**Stand:** 2026-09-12
+**Status:** Vorimplementierungsplan; Architekturentscheidungen werden erst nach den in diesem Dokument definierten Oracle-, Prototyp- und Mess-Gates freigegeben
+**Scope:** Vollständiger Ersatz der Record-/Sort-/Kandidatenarchitektur; keine lokale Optimierung des bestehenden Pfads wird als v2-Zielerfüllung gewertet
 
-## 1. Ziel
+## 1. Ziel und Abgrenzung
 
-Forward Drizzle v2 soll AQMH als produktive Rekonstruktionsmethode vollständig ersetzen. Dafür muss die Rekonstruktion gleichzeitig:
+Forward Drizzle v2 soll AQMH als einzige produktive Rekonstruktionsmethode ersetzen. Die neue Rekonstruktion muss:
 
 - CFA-Samples ohne vorheriges Debayering flusserhaltend auf das Zielraster abbilden;
 - helle Sterne, Nebelgradienten, negative normalisierte Hintergründe und sparse R/B-CFA-Abdeckung korrekt behandeln;
 - Cosmic Rays, Hotpixel, Satellitenspuren und einzelne fehlerhafte Frames robust unterdrücken;
-- innerhalb geometrisch vorhandener Abdeckung keine schwarzen Löcher oder NaN-Inseln erzeugen;
+- geometrische Abdeckung, radiometrische Verwendbarkeit, Schätzer-Support und Profil-Support sauber trennen;
+- innerhalb radiometrisch verwendbarer Abdeckung keine statistisch erzeugten schwarzen Löcher produzieren;
 - mit der Framezahl asymptotisch linear skalieren;
-- den verfügbaren RAM und VRAM strikt begrenzen;
-- GPU und CPU nach demselben mathematischen Vertrag ausführen;
-- Coverage, Rekonstruktion, Confidence und Multiband ohne redundante Geometriesweeps erzeugen.
+- RAM, VRAM und temporären Speicher gemeinsam und fail-closed planen;
+- CPU und GPU nach demselben mathematischen Vertrag ausführen;
+- Coverage, Rekonstruktion, Confidence und Multiband ohne redundante exakte Geometriesweeps erzeugen;
+- den bestehenden Trusted-Run-, Resume- und Atomic-Commit-Vertrag erhalten;
+- das verbindliche Produktionszeitgate erfüllen.
 
-Die bestehende Architektur wird nicht durch zusätzliche lokale Caches, größere Tiles oder weitere CPU-Threads konserviert. Contribution-Records, hostseitige Frame-Sortierungen pro Pixel und die framezahlabhängige Kandidatenmatrix entfallen vollständig.
+Die strategischen Ziele sind:
+
+```text
+keine Host-Contribution-Records
+keine per-Pixel-Sortierung über alle Frames
+kein Pixel×Frame-Kandidatenspeicher
+keine Device-Allokation im Frame-/Tile-Hotpath
+keine statistisch erzeugten Supportlöcher
+keine doppelte exakte CFA-Geometrierasterisierung
+```
+
+Noch **nicht** vorentschieden sind:
+
+```text
+Target-Gather oder dichter Device-Scatter
+bounded-memory Robustschätzer und seine Parameter
+Fallbackalgorithmus
+numerischer FP32/FP64-Vertrag
+volle Bandbreite oder X-Tiling
+lokale Warp-Inversion und Grid-Lebensdauer
+Multiband-Ringbuffer
+Resume-Granularität
+```
+
+Diese Entscheidungen werden durch die unten definierten Gates getroffen. Das Dokument behauptet nicht mehr, dass Target-Gather, `K=15`, ein 2×2-Support-AND oder vollständiger Verzicht auf X-Tiles bereits bewiesen seien.
+
+### 1.1 Verbindliche Umsetzungsreihenfolge
+
+Die Gates stehen nicht nur im hinteren Arbeitsteil, sondern bilden die
+verbindliche Reihenfolge der gesamten Umsetzung:
+
+| Gate | Inhalt | Implementierungsergebnis |
+|---:|---|---|
+| 0 | Evidenz und Oracles | reproduzierbare Referenz, begrenzte Oracles und vorab festgelegte Abnahmeschwellen |
+| 1 | affine Enumeration | gemessene Entscheidung zwischen Target-Gather und dichtem Device-Scatter |
+| 2 | Support und Scale-Fold | vier Supportebenen und framekorrekter Zähler-/Nenner-/Quadratgewicht-Fold |
+| 3 | Robustschätzer | ausgewähltes bounded-memory Verfahren und vollständige Fallbackzustandsmaschine |
+| 4 | Rauschmodell, Confidence und Numerik | verfügbare Eingänge, Rechentypen und CPU/GPU-Toleranzen |
+| 5 | gemeinsamer Speicher- und I/O-Plan | RAM, VRAM, Temp, Tileplan, Readerlebensdauer und Read-Amplification |
+| 6 | affiner unpublizierter Prototypkern | recordfreier Kern mit persistentem Workspace und vollständiger Telemetrie |
+| 7 | Transaktion und Resume | versionierte Artefakte, Checkpoint und Atomic Commit |
+| 8 | lokale Warps | geprüfte inverse Repräsentation und recordfreier lokaler Pfad |
+| 9 | Streaming-Multiband | Halo, Ringbuffer, Confidence-Kalibrierung und validierte Fusion |
+| 10 | Cutover | vollständige Produktionsabnahme; anschließend Entfernung des alten Pfads |
+
+Der Source-Quality-Pack aus §16 ist ein Vorgängerschnitt für Gate 6. Seine
+Reader-, Metrik- und Publikationsverträge müssen spätestens mit Gate 5
+geschlossen und vor dem affinen Prototypkern implementiert sein.
 
 ## 2. Empirischer Ausgangspunkt: `m42-test1`
 
@@ -63,205 +113,425 @@ Der aktuelle CUDA-Pfad führt nur die Polygonrasterisierung auf der GPU aus. All
 3. Kandidatenmatrix `Kanal × Pixel × Frame` befüllen;
 4. pro Pixel/Kanal Median und MAD wiederholt sortieren;
 5. Alpha-Quantile mit weiteren Sortierungen berechnen;
-6. Uniform, Raw, Fine und Medium seriell reduzieren.
+6. Uniform, Raw, Fine und Medium reduzieren.
 
 Jeder Frame/Tile-Aufruf allokiert und löscht Devicebuffer, synchronisiert das gesamte Device und lädt Records zurück. Die Reduktion verwendete während des Runs effektiv ungefähr einen CPU-Kern.
 
-## 3. Nichtziele
+### 2.3 Grenzen des Evidenzlaufs
 
-Folgende Maßnahmen sind ausdrücklich **nicht** die Zielarchitektur:
+`m42-test1` ist ein belastbarer Fehlernachweis, aber keine freigabefähige wissenschaftliche oder Performance-Referenz:
+
+- dirty Worktree und kein an einen sauberen Commit gebundenes Binary;
+- anfänglicher `GLOBAL_QUALITY`-Fehler und anschließender Resume;
+- kein vollständiger Kaltlauf in einem Prozess;
+- Lauf ohne Darks;
+- nur 60 Frames;
+- keine lokalen Warp-Modelle (`local_model_samples_total = 0`);
+- null effektive Multiband-FWHM-Sterne;
+- kein aktiviertes detailliertes CUDA-Unterphasenprofil;
+- keine CPU/GPU-Paritätsmessung dieses Runs.
+
+Der Lauf belegt:
+
+- die statistisch erzeugten Supportlöcher;
+- deren R/B-Dominanz und Helligkeitsabhängigkeit;
+- die Verstärkung durch Output-Support und Downstream-Nullsetzung;
+- die Phasenanteile dieses konkreten Builds;
+- Band-/X-Tile-Struktur und Producer-Aufrufzahl;
+- praktisch deaktiviertes Fine-/Medium-Alpha.
+
+Er belegt nicht:
+
+- Produktionsdurchsatz für 600 Frames;
+- lokale-Warp-Korrektheit oder -Performance;
+- wissenschaftliche Überlegenheit eines neuen Robustschätzers;
+- Gather-vs-Scatter;
+- CPU/GPU-Numerikvertrag.
+
+## 3. Nichtziele und bestehende taktische Änderungen
+
+Folgende Maßnahmen sind ausdrücklich keine v2-Zielarchitektur:
 
 - nur `min_fraction` oder `min_n_eff` absenken;
 - Supportlöcher nachträglich interpolieren;
 - fehlende Kanäle erst im Downstream inpainten;
 - den seriellen Record-Reducer lediglich mit OpenMP versehen;
-- bestehende per-Pixel-Sortierungen nur durch schnelleres Scratch-Reuse beschleunigen;
+- bestehende per-Pixel-Sortierungen nur durch Scratch-Reuse beschleunigen;
 - größere Kandidatentiles durch mehr RAM oder VRAM erzwingen;
 - Contribution-Records weiterhin GPU→CPU übertragen;
 - einen separaten vollständigen `SAMPLING_GEOMETRY`-Sweep beibehalten;
 - Multiband unverändert mit `Q_p90-Q_p50` als zwingender Confidence-Bedingung betreiben.
 
-Diese Änderungen könnten Symptome reduzieren, würden aber die falsche Skalierung und die fachliche Vermischung von Support und Statistik erhalten.
+Die aktuellen Änderungen für `guard_fallback`, row-band-parallele Hostreduktion und wiederverwendeten Alpha-Scratch sind sinnvolle Stabilisierung und Messhilfe für den bestehenden Pfad. Sie lösen jedoch nicht:
 
-## 4. Verbindliche Invarianten
+- Contribution-Records;
+- framezahlabhängige Kandidatenmatrix;
+- vollständige Frame-Sortierungen pro Pixel;
+- X-Tile-Vervielfachung;
+- synchrone CUDA-Kleinstjobs;
+- doppelte Coverage-Geometrie;
+- 2×2-Fold-Vertrag;
+- lokale Warp-Inversion.
 
-### 4.1 Support
+Sie werden daher nicht als v2-Meilensteine gezählt.
 
-Geometrischer Support und statistische Confidence sind getrennte Größen:
+## 4. Reproduzierbare Referenz und Oracles
 
-```text
-geometric_support(pixel, channel)
-    := mindestens ein geometrisch gültiger CFA-Beitrag existiert
+Vor jeder v2-Implementierung werden Referenzlauf und Oracles eingefroren.
 
-statistical_confidence(pixel, channel)
-    := Zuverlässigkeit des robusten Schätzers
+### 4.1 Referenzbindung
 
-profile_confidence(pixel)
-    := zulässige Detailstärke für Fine/Medium/Multiband
-```
+Jeder Evidenz- oder Abnahmelauf bindet:
 
-Es muss immer gelten:
+- Git-Commit und Dirty-Tree-Status;
+- Build-ID und Git-Commit;
+- Compiler-, CUDA-, Treiber- und Buildprofil;
+- CPU, GPU, RAM, SSD und Workerzahl;
+- unveränderlichen Config-Snapshot und dessen Run-ID;
+- Inputmanifest und stabile Frameidentitäten;
+- reproduzierbar definiertes Kalt-/Warmlaufprotokoll für den OS-Dateicache;
+- frisches Runverzeichnis;
+- vollständige Phase- und Unterphasentelemetrie.
 
-```text
-geometric_support(pixel, channel)
-    => isfinite(uniform(pixel, channel))
-```
+Ein Run mit vorherigem Fehler und Resume ist als Diagnose zulässig, aber keine Kaltlauf-Performancebaseline.
 
-Statistisches Clipping oder Confidence dürfen `geometric_support` niemals löschen.
+### 4.2 Getrennte Oracles
 
-### 4.2 Robuster Fallback
+Der bisherige finale Recordpfad ist wegen seiner Lochsemantik nicht als Ganzes das Oracle. Stattdessen gelten getrennte Referenzen:
 
-Wenn der robuste Schätzer keine belastbare Teilmenge bestimmen kann, wird nicht NaN ausgegeben. Stattdessen wird aus allen geometrisch gültigen Gruppen ein begrenzter robuster Fallback gebildet. Der Fehler reduziert Confidence, nicht Support.
+1. **Geometrie-Oracle**
+   Bestehender exakter Source-Scatter vor Clipping: vollständige positive Overlaps mit stabiler Source-/Leaf-Reihenfolge.
 
-### 4.3 Flusserhaltung
+2. **Frame-Kandidaten-Oracle**
+   Exakte `A`, `B`, Q- und Artifact-Summen je Frame, Zielpixel und Kanal vor statistischer Reduktion.
 
-Für konstante Quellen und affine Transformationen muss die Summe aus Droplet-Overlap und Zielwerten dem definierten quadratischen Kernel entsprechen. `internal_scale=2, output_scale=1` bleibt ein deterministisches 2×2-Flächenintegral.
+3. **Statistik-Oracle**
+   Vollständige frameweise robuste Auswertung ohne bounded-memory Approximation. Sie darf bei Source-Support keinen NaN-Supportverlust erzeugen.
 
-### 4.4 Skalierung
+4. **Fold-Oracle**
+   Exakt spezifizierte Faltung der Profilzähler, Profilnenner und quadratischen Gewichte von Internal- zu Output-Scale.
 
-Für `N` Frames, `P` Zielpixel und eine feste robuste Gruppenzahl `K` gilt:
+5. **Support-Oracle**
+   Die vier in §5 definierten Supportebenen.
 
-```text
-Laufzeit: O(N × P)
-Speicher: O(K × Bandpixel), unabhängig von N
-```
+6. **Multiband-Oracle**
+   Uniform, Raw und Multiband werden auf identischen Samples, Masken und matched star positions verglichen.
 
-Es darf keinen `Pixel × Frame`-Kandidatenspeicher und keine `N log N`-Sortierung pro Pixel geben.
+Die Frame-Kandidaten- und Statistik-Oracles werden nicht als vollständiger
+`Frame × Pixel × Kanal`-Store für einen 600-Frame-Canvas materialisiert.
+Vollständige Oracles gelten für kleine synthetische Bilder; reale Daten werden
+über alle Frames, aber nur für deterministisch ausgewählte Tiles, Randfälle,
+Helligkeitsklassen und Problemregionen gestreamt ausgewertet. Damit bleibt der
+Oracle unabhängig vom zu prüfenden bounded-memory Verfahren, ohne selbst einen
+mehrere Terabyte großen Kandidatenstore einzuführen.
 
-## 5. Neuer Gesamtdatenfluss
+### 4.3 Vorab festgelegte Abnahmeschwellen
 
-```text
-SCAN / NORMALIZATION / REGISTRATION
-                  │
-                  ▼
-SOURCE QUALITY PACK
-  pro Frame genau einmal berechnen und persistieren
-                  │
-                  ▼
-FUSED COVERAGE + FORWARD DRIZZLE
-  pro Y-Band:
-    Frames in stabiler Reihenfolge
-    Source-/Quality-Rect asynchron laden
-    deterministischer Target-Gather
-    robuste Gruppenakkumulatoren aktualisieren
-    Coverage + Profile + Confidence reduzieren
-    internen 2×2-Fold auf GPU ausführen
-                  │
-                  ▼
-STREAMING GPU MULTIBAND
-  Band N+1 rekonstruieren
-  Band N fusionieren
-  Band N-1 schreiben
-                  │
-                  ▼
-VALIDATION
-  Support, Numerik, Flux, matched stars, Background, Seam
-                  │
-                  ▼
-ATOMIC COMMIT
-```
+Vor jedem Prototypvergleich werden die zulässigen Grenzen für fehlende oder
+zusätzliche Overlaps, Fluxfehler, Surface-Brightness-Fehler, Bias zum
+Frame-Oracle, False Rejection, Ausreißerrest, CPU/GPU-Abweichung, Speicher und
+Laufzeit festgeschrieben. Sie werden nicht nach Sichtung der Kandidatenergebnisse
+angepasst. Nichtanwendbare Metriken erhalten eine begründete, persistierte
+Nichtanwendbarkeit und gelten nicht als bestanden.
 
-## 6. Deterministischer Target-Gather statt Contribution-Records
+## 5. Vierstufiges Supportmodell
 
-### 6.1 Ownership
-
-Ein GPU-Thread besitzt ein Paar:
+### 5.1 Geometry-Support
 
 ```text
-(frame, target_pixel)
+geometry_support(pixel, channel)
 ```
 
-Er bestimmt über die inverse Abbildung eine konservative kleine Source-Nachbarschaft. Für diese Source-Samples berechnet er in fester Reihenfolge den exakten quadratischen Droplet-/Zellüberlapp.
+Mindestens ein CFA-Droplet besitzt einen positiven geometrischen Overlap mit der Zielzelle. Sourcewert, Sensormaske und Profilgewicht werden hier nicht betrachtet.
 
-Pro Farbkanal entstehen direkt die hinreichenden Statistiken:
-
-```cpp
-struct FrameSufficientStats {
-  float value_sum;        // sum(K * source_value)
-  float geometry_sum;     // sum(K)
-  float q_composite_sum;  // sum(K * Q_composite)
-  float q_fine_sum;       // sum(K * Q_scale0)
-  float q_medium_sum;     // sum(K * Q_scale1)
-  float artifact_sum;     // sum(K * artifact_confidence)
-};
-```
-
-Ein Framekandidat ist nur gültig, wenn `geometry_sum > 0`. Sein Wert ist `value_sum / geometry_sum`.
-
-### 6.2 Affine Frames
-
-Für affine Transformationen wird die Zielzelle über die gecachte inverse 2×3-Matrix in Source-Geometrie abgebildet. Die konservative Source-Bounding-Box erhält einen mathematisch begründeten Droplet-Rand. Kandidaten werden in aufsteigender `(source_y, source_x)`-Reihenfolge verarbeitet.
-
-### 6.3 Lokale Warp-Modelle
-
-Für lokale Modelle wird pro Frame ein inverses Deformationsgitter mit konservativen Jacobian-Grenzen erzeugt. Der Target-Gather verwendet:
-
-1. inverse Gitterinterpolation als Startwert;
-2. begrenzte Newton-Verfeinerung;
-3. konservative Source-Nachbarschaft;
-4. exakte Vorwärtsprüfung jedes Kandidatenblatts gegen die Zielzelle.
-
-Kann die inverse Begrenzung nicht garantiert werden, wird der Frame fail-closed zurückgewiesen. Es gibt keinen dauerhaften Rückfall auf den alten Recordpfad.
-
-### 6.4 Determinismus
-
-- ein Zielpixel wird nur von einem Thread geschrieben;
-- Source-Nachbarn haben feste Reihenfolge;
-- Frames werden in stabiler Planreihenfolge akkumuliert;
-- keine atomaren Scatter-Summen;
-- CPU und GPU verwenden denselben Nachbarschafts- und Overlap-Vertrag.
-
-## 7. Speicherbegrenzte robuste Gruppenstatistik
-
-### 7.1 Gruppenzuordnung
-
-Für große Datensätze werden Frames deterministisch auf `K=15` robuste Gruppen verteilt:
+### 5.2 Source-Support
 
 ```text
-group = stable_hash(frame_id) mod 15
+source_support(pixel, channel)
 ```
 
-Der stabile Hash verhindert, dass zeitlich benachbarte Frames oder Ditherblöcke systematisch in derselben Gruppe landen. Für Datensätze mit weniger als 15 Frames wird eine ungerade Gruppenzahl gewählt, sodass jede Gruppe mindestens einen Frame enthält; sehr kleine Datensätze werden direkt als feste Kandidatenmenge auf dem Device reduziert.
+Mindestens ein Beitrag erfüllt gleichzeitig:
 
-### 7.2 Akkumulatoren
+- positiver geometrischer Overlap;
+- endlicher Sourcewert;
+- gültige Sensormaske;
+- kein radiometrischer Hard-Veto des Source-Samples.
 
-Pro Bandpixel, Kanal und Gruppe werden ausschließlich hinreichende Summen gehalten:
+Verbindliche Invariante:
 
-```cpp
-struct GroupAccumulator {
-  Accum uniform;
-  Accum raw;
-  Accum fine;
-  Accum medium;
-
-  float geometry_w;
-  float geometry_w2;
-  float q_wx;
-  float artifact_wx;
-  float registration_wx;
-  uint16_t contributors;
-};
-
-struct Accum {
-  float wx;
-  float w;
-};
+```text
+source_support(pixel, channel)
+    => finite(uniform(pixel, channel))
 ```
 
-Die GPU-Version verwendet eine dokumentierte, deterministische Akkumulationsreihenfolge. Die CPU-Referenz verwendet FP64; die GPU verwendet mindestens kompensierte FP32-Summen oder FP64, falls der definierte Fehlervertrag sonst nicht eingehalten wird. Die Abnahme erfolgt über Flux- und ULP-/Relativfehlerschranken, nicht über eine künstliche Byte-Identitätsforderung, sofern die Hardwarearithmetik diese nicht garantiert.
+Statistische Robustheit darf Source-Support nicht löschen.
 
-### 7.3 Robuste Reduktion
+### 5.3 Estimator-Support
 
-Nach dem letzten Frame:
+```text
+estimator_support(pixel, channel)
+```
 
-1. Gruppenmittel `mu_g = uniform.wx / uniform.w` bilden;
-2. gewichteten Gruppenmedian bestimmen;
-3. gewichtete Gruppen-MAD bestimmen;
-4. erwartete Streuungsuntergrenze aus Messrauschen und lokaler Bildgeometrie berechnen;
-5. Gruppenresiduen mit einer begrenzten Einflussfunktion gewichten;
-6. dieselben Robustgewichte auf Uniform, Raw, Fine und Medium anwenden.
+Die radiometrisch gültigen Beiträge reichen für den spezifizierten robusten Primärschätzer. Fehlt Estimator-Support, wird der exakt definierte Fallback verwendet; Source-Support und Uniform bleiben bestehen.
 
-Die robuste Skala erhält eine gradientenabhängige Untergrenze:
+### 5.4 Profile-Support
+
+```text
+profile_support(profile, pixel, channel)
+```
+
+Der profilspezifische Nenner ist positiv und endlich. Für Raw/Fine/Medium können Q-Veto oder Nullgewicht Profile-Support verhindern, obwohl Uniform gültig bleibt.
+
+Es gilt:
+
+```text
+profile_denominator > 0
+    => finite(profile_value)
+```
+
+### 5.5 Downstream-Vertrag
+
+Der Downstream darf nicht still alle RGB-Kanäle nullen, wenn ein unerwarteter interner Profile-Support-Defekt innerhalb gültigen Source-Supports auftritt. Eine solche Verletzung blockiert den Commit und wird mit Kanal, Pixelzahl und Ursache berichtet.
+
+## 6. Scale-Fold als Zähler-/Nenner-Algebra
+
+Ein pauschales 2×2-Support-AND und der Mittelwert bereits normalisierter Subpixel sind nicht als flusserhaltend vorausgesetzt.
+
+### 6.1 Profilsummen
+
+Für jedes interne Subpixel `j` und Profil `p` existieren:
+
+```text
+A_p,j  = gewichtete Wertsumme
+B_p,j  = Gewichtsumme
+B2_p,j = Summe quadrierter framebezogener Beitragsgewichte
+```
+
+Der native Outputpixel wird aus den Summen gebildet:
+
+```text
+A_p,out = Σ area_j × A_p,j
+B_p,out = Σ area_j × B_p,j
+value_p,out = A_p,out / B_p,out
+```
+
+Für vier gleich große interne Zellen ist `area_j` identisch. Die Faktoren können algebraisch gekürzt werden, müssen aber im Vertrag explizit bleiben.
+
+Für `n_eff` reicht die Summe der bereits zusammengefassten `B2_p,j` nicht aus,
+weil derselbe Frame oder dieselbe robuste Schätzereinheit mehrere interne
+Subpixel beitragen kann. Mit dem effektiven framebezogenen Gewicht `b_p,f,j`
+gilt:
+
+```text
+b_p,f,out = Σ_j area_j × b_p,f,j
+B2_p,out  = Σ_f b_p,f,out²
+          = Σ_f (Σ_j area_j × b_p,f,j)²
+n_eff_p,out = B_p,out² / B2_p,out
+```
+
+Die Kreuzterme zwischen internen Subpixeln dürfen nicht verloren gehen. Das
+bounded-memory Verfahren muss daher die vier Subpixel je Frame beziehungsweise
+je robuster Schätzereinheit vor der abschließenden `B²`-Reduktion falten oder
+äquivalente Kreuzsummen führen. Aus `Σ_j area_j² × B2_p,j` darf `B2_p,out`
+nicht rekonstruiert werden.
+
+Nicht zulässig als allgemeine Definition ist:
+
+```text
+mean(A_p,j / B_p,j)
+```
+
+### 6.2 Fehlende interne Teilflächen
+
+Vor Implementierung wird für 1/4, 2/4, 3/4 und 4/4 Source-Support entschieden:
+
+- Mindestflächenabdeckung;
+- Renormalisierung oder explizite Nichtabdeckung;
+- Profile-Support je Profil;
+- Confidence-Absenkung;
+- CFA-Kanalkonsistenz;
+- Flux- und Surface-Brightness-Semantik.
+
+Diese Entscheidung wird gegen konstante Felder, analytische Gradienten und Punktquellen validiert. Ein einzelnes fehlendes internes Subpixel darf nicht ohne mathematischen Vertrag den vollständigen nativen Pixel verwerfen.
+
+### 6.3 Fold-Gate
+
+Vor Freigabe müssen gelten:
+
+- konstantes Feld bleibt konstant;
+- integrierter Punktquellenflux bleibt innerhalb der definierten Toleranz;
+- Chunk-/Tile-Grenzen ändern das Ergebnis nicht;
+- CPU und GPU besitzen identische Supportentscheidungen;
+- 2/1 erzeugt keine statistisch verursachten Einzelpixellöcher.
+
+## 7. Affine Enumeration: Gather-vs-Scatter-Entscheidung
+
+### 7.1 Keine Vorentscheidung für Target-Gather
+
+Die v2-Invariante lautet:
+
+```text
+keine Hostrecords
+keine N-Frame-Sortierung pro Pixel
+keine Pixel×Frame-Kandidatenmatrix
+```
+
+Ob sie durch Target-Gather oder dichten Device-Scatter erfüllt wird, entscheidet ein Prototypvergleich.
+
+### 7.2 Reale Gather-Komplexität
+
+Für Target-Gather gilt:
+
+```text
+O(N × P_target × C_neighbours)
+```
+
+`C_neighbours` hängt von Pixfrac, Transformation, Jacobian, lokaler Verzerrung, interner Skalierung und konservativer Bounding-Box ab.
+
+Für `m42-test1`:
+
+```text
+P_internal = 7868 × 4540 ≈ 35,7 Mio.
+N × P_internal ≈ 2,14 Mrd. Frame-/Zielpixel-Paare
+```
+
+Dem stehen ungefähr 497,7 Mio. Source-Samples im Source-Scatter gegenüber. Gather wird daher nicht allein aufgrund entfallender Records als schneller angenommen.
+
+### 7.3 Konservative affine Kandidatenmenge
+
+Für Zielzelle `T`, affine Abbildung `A` und Source-Droplet `D` muss die Kandidatenmenge eine konservative Minkowski-Grenze erfüllen:
+
+```text
+S_candidates ⊇ A⁻¹(T) ⊕ D_reflected
+```
+
+Jeder Kandidat wird danach durch exakte Vorwärtsprojektion und Polygon-/Zellintersektion geprüft.
+
+Die Spezifikation muss enthalten:
+
+- offene/geschlossene Zellgrenzen;
+- Droplet-Mittelpunkt und Pixfrac-Radius;
+- Rundung von ganzzahligen Source-Bounds;
+- Rotation, Skalierung und Shear;
+- fast singuläre Matrizen;
+- internen Scale-Faktor;
+- numerische Sicherheitsmarge mit Beweis oder Oracle-Evidenz.
+
+Akzeptanz:
+
+- kein positiver Oracle-Overlap fehlt;
+- keine zusätzliche Kandidatenprüfung verändert A/B;
+- Flux und Support entsprechen dem Geometrie-Oracle;
+- Kandidatenmenge bleibt praktisch begrenzt.
+
+### 7.4 Zu vergleichende affine Prototypen
+
+**Prototyp G – Target-Gather**
+
+- ein Thread pro Frame/Zielpixel;
+- inverse konservative Nachbarschaft;
+- exakte Vorwärtsprüfung;
+- direkte lokale hinreichende Statistik.
+
+**Prototyp S – dichter Device-Scatter**
+
+- ein Thread pro Source-Sample;
+- direkte Device-Akkumulation in dichte Frame-/Gruppensummen;
+- keine Hostrecords;
+- deterministische Reduktionsstrategie oder dokumentierter Numerikvertrag.
+
+Gemessen werden auf realer Canvasgröße:
+
+- vollständige Kernelzeit;
+- Nachbar- beziehungsweise Overlapprüfungen;
+- Atomic-Contention;
+- RAM/VRAM;
+- H2D/D2H;
+- Kernelstarts;
+- Flux-/Support-Parität;
+- Skalierung mit Pixfrac, Rotation und Shear.
+
+Erst dieses Gate legt Gather oder Scatter fest.
+
+## 8. Bounded-memory Robustschätzer: Auswahl statt Vorfestlegung
+
+### 8.1 Kein festes `K=15`
+
+Median-of-Means ist ein Kandidat, nicht der bereits gewählte Algorithmus. Ein Cosmic Ray kann ein Gruppenmittel kontaminieren; das Verwerfen der Gruppe entfernt zugleich gute Frames. Ungleichmäßige CFA-Abdeckung verändert Gruppengröße und Gewicht pixelweise. Eine bloße Zuordnung aus der Frame-ID garantiert keine ausgeglichene Belegung.
+
+### 8.2 Kandidatenverfahren
+
+Mindestens folgende Verfahren werden gegen das vollständige Frame-Oracle geprüft:
+
+- deterministisch balanciertes Median-of-Means;
+- Huber-/Catoni-M-Schätzer;
+- winsorisierte Framewerte;
+- gewichtete Quantilhistogramme;
+- feste Quantilskizzen;
+- blockweise exakte Kandidatenreduktion;
+- Hybrid aus exaktem Pilotquantil und bounded Einflussfunktion.
+
+### 8.3 Adversariale Testmatrix
+
+- einzelner Hotpixel;
+- persistenter Sensor-Hotpixel mit Dither;
+- einzelner Cosmic Ray;
+- mehrere Cosmic Rays in verschiedenen Frames;
+- Satellitenspur;
+- Defokus-/Seeing-Ausreißer;
+- Registrierungsfehler;
+- helle Sternkante;
+- ausgedehnter Nebelgradient;
+- negative normalisierte Hintergründe;
+- sparse R/B-CFA-Abdeckung;
+- ungleiche geometrische Gewichte;
+- ungleich verteilte Profile-Q-Gewichte;
+- zeitlich korrelierte Ausreißer.
+
+### 8.4 Vergleichsmetriken
+
+Für jeden Pixel/Kanal und jedes Verfahren:
+
+- Bias zum Frame-Oracle;
+- absoluter und relativer Fehler;
+- Fluxfehler;
+- Ausreißerrest;
+- Supportentscheidung;
+- false rejection guter Daten;
+- Verhalten an Gradienten;
+- Speicher pro Pixel;
+- Operationen und Laufzeit;
+- CPU/GPU-Reproduzierbarkeit.
+
+### 8.5 Exakter Fallbackvertrag
+
+Das gewählte Verfahren erhält eine vollständige Zustandsmaschine. Vor Implementierung werden für jeden Fall exakt festgelegt:
+
+```text
+Primärschätzer erfolgreich
+Degenerierte Skala bei identischen Werten
+Guard unterschritten
+Zu wenige gültige Kandidaten oder Gruppen
+Kein Source-Support
+Kein profilspezifischer Nenner
+```
+
+Für jeden Zustand sind verbindlich:
+
+- akzeptierte beziehungsweise begrenzte Werte;
+- Profilzähler und Profilnenner;
+- `weight_sum`, `weight_sum_squared`, `n_eff`;
+- Uniform/Raw/Fine/Medium;
+- Confidence;
+- Supportebene;
+- Diagnostic Counter;
+- CPU/GPU-Reihenfolge.
+
+Formulierungen wie „winsorisieren oder Median verwenden oder alle Gruppen verwenden“ sind nicht implementierbar und in der freigegebenen Spezifikation unzulässig.
+
+## 9. Rausch-, Gradienten- und Registrierungsmodell
+
+Das bisher skizzierte Modell
 
 ```text
 sigma_model² = sigma_noise²
@@ -269,383 +539,764 @@ sigma_model² = sigma_noise²
              + sigma_sampling²
 ```
 
-Damit werden reale Unterschiede an Sternkanten und Nebelgradienten nicht als Cosmic Rays behandelt.
+ist nur eine Hypothese. Die benötigten Eingänge existieren noch nicht vollständig.
 
-### 7.4 Kein Supportverlust
+### 9.1 Registrierung
 
-Sind MAD oder robuste Gruppengewichte degeneriert:
+`FrameSamplingTransform` enthält Residual- und Prediction-Faktoren, aber keine Kovarianz. Zu entscheiden sind:
 
-- bei identischen Gruppenwerten werden alle Gruppen verwendet;
-- bei unzureichender Stabilität werden Werte winsorisiert oder auf den Gruppenmedian begrenzt;
-- bei zu wenigen belastbaren Gruppen wird auf alle geometrisch gültigen Gruppen zurückgefallen;
-- `statistical_confidence` wird reduziert;
-- `geometric_support` und Uniform bleiben erhalten.
+- affine Parameterkovarianz oder lokale 2×2-Ortskovarianz;
+- Koordinatensystem und Einheit;
+- Ableitung aus Inlier-Residualen;
+- Verhalten bei vorhergesagten Modellen;
+- Verhalten bei lokalen Warps;
+- Persistenz, Versionierung und Identitätsfelder im Sampling-Plan-Schema.
 
-## 8. Coverage in die Rekonstruktion integrieren
+Ein skalarer `registration_residual_factor` darf nicht still als Kovarianz interpretiert werden.
 
-Der separate vollständige `SAMPLING_GEOMETRY`-Rasterlauf entfällt.
+### 9.2 Rauschen
 
-Der Target-Gather akkumuliert gleichzeitig:
+Zu spezifizieren sind:
+
+- Herkunft von `sigma_noise`;
+- Sensor-/Readnoise gegenüber lokalem Hintergrund-MAD;
+- Behandlung normalisierter negativer Werte;
+- Kanalabhängigkeit;
+- Skalierung mit geometrischem Gewicht und Gruppengröße.
+
+### 9.3 Gradient und Sampling
+
+Zu spezifizieren sind:
+
+- Bildquelle des Gradienten;
+- Skala und Glättung;
+- Randbehandlung;
+- Vermeidung eines zirkulären Schätzers, der vom bereits geclippten Ergebnis abhängt;
+- Definition von `sigma_sampling` für CFA, Pixfrac und interne Skalierung.
+
+### 9.4 Numerikentscheidung
+
+Für jede Operation wird ein Typ festgelegt und gemessen:
+
+| Operation | zu entscheidende Typen |
+|---|---|
+| affine/inverse Geometrie | FP32 / FP64 |
+| Polygonoverlap | FP32 / FP64 |
+| Zähler-/Nennerakkumulation | FP32 / compensated FP32 / FP64 |
+| robuste Statistik | FP32 / FP64 |
+| Scale-Fold | FP32 / FP64 |
+| CPU-Oracle | FP64 |
+
+Auf der GTX 1660 Ti wird FP64 nicht ohne Messung als Standard angenommen. Die Entscheidung erfolgt über wissenschaftliche Fehlerschranke und Produktionsgate.
+
+## 10. Gemeinsame RAM-/VRAM-Planung und Tiling
+
+### 10.1 Keine unbelegte Full-Width-Annahme
+
+Ein Gruppenakkumulator mit ungefähr 56 Byte ergäbe bei 3 Kanälen und 15 Gruppen rund 2520 Byte pro internem Pixel beziehungsweise etwa 19,8 MiB pro interner Zeile bei 7868 Spalten – vor Source-, Q-, Output-, Confidence-, Halo- und Multibandpuffern.
+
+Volle Breite ist daher nur zulässig, wenn die gemeinsame Rechnung sie belegt.
+
+### 10.2 Verbindliche Speicherformel
+
+Für jede Kandidatenarchitektur wird vor Implementierung aufgestellt:
 
 ```text
-sum(B)
-sum(B²)
-contributors
-channel_support
-frame_footprint_support
+VRAM =
+  robust_accumulators(tile)
++ geometry_accumulators(tile)
++ source_device_slots
++ quality_device_slots
++ inverse_geometry
++ output_profile_slots
++ confidence_slots
++ fold_scratch
++ multiband_halo_and_ring
++ CUDA reserve
+
+RAM =
+  pinned_source_slots
++ pinned_quality_slots
++ source_reader_cache
++ quality_reader_cache
++ output_staging
++ resume/index metadata
++ filesystem/codec scratch
++ margin
 ```
 
-Daraus entstehen:
+Alle Multiplikationen werden overflow-geprüft. Host- und Devicebudget werden getrennt geplant; der kleinere zulässige Tileplan gewinnt.
+
+### 10.3 X-Tile-Fallback
+
+Wenn selbst die minimale Full-Width-Bandhöhe nicht passt, ist X-Tiling erlaubt. Es muss jedoch:
+
+- unabhängig von `frame_count` dimensioniert werden;
+- konservative Source-/Quality-Halos besitzen;
+- gepinnte Source-/Q-Bänder über benachbarte X-Tiles wiederverwenden;
+- keine Inhaltsprüfung oder dafür erforderliche Zusatzlektüre ausführen;
+- Read-Amplification messen;
+- identische Fold-/Supportergebnisse zu Full-Width liefern.
+
+Nicht zulässig ist ein Tileplan, dessen Breite mit wachsendem `N` gegen wenige Pixel kollabiert.
+
+## 11. Lokale Warp-Architektur
+
+Lokale Warps sind ein eigenes Freigabe-Gate und dürfen nicht aus affinen Ergebnissen extrapoliert werden.
+
+### 11.1 Zu spezifizierende Größen
+
+- Auflösung des inversen Deformationsgitters;
+- Interpolationsfehler;
+- Jacobian- und Krümmungsgrenzen;
+- Newton-Start, -Iteration und -Abbruch;
+- konservative Kandidatenbox;
+- nicht invertierbare Regionen;
+- Grid-Bauzeit;
+- Grid-RAM/VRAM;
+- Persistenz- und Resumeformat;
+- Wiederverwendung über Y- und X-Tiles.
+
+### 11.2 Lebensdauerkandidaten
+
+1. alle Framegrids persistent – einfacher Zugriff, aber Speicher wächst mit `N`;
+2. Grid pro Band neu – speicherarm, aber redundante Berechnung;
+3. Grid pro Frame disk-/mmap-backed mit begrenzter GPU-Residenz – bounded, aber komplexer;
+4. kompakte lokale Modellkoeffizienten plus on-device Inversion – kein volles Grid, aber höhere Kernelkosten.
+
+Die Entscheidung erfolgt durch Speicherformel, Oracle-Parität und lokalen 600-Frame-Prototyp. Der alte Record-Hybridpfad ist kein langfristiger v2-Fallback.
+
+## 12. Coverage-Fusion mit zwei Geometrievarianten
+
+CFA-Droplet-Support und dichter Frame-Footprint sind fachlich getrennt.
+
+### 12.1 Früher günstiger Preflight
+
+Vor teurer Rekonstruktion werden offensichtliche Fehler über eine konservative günstige Prüfung erkannt:
+
+- transformierte Framepolygone;
+- Dither-/CFA-Phasenverteilung;
+- sichere Obergrenzen der maximal erreichbaren Kanalabdeckung für frühe
+  Ablehnung und optional sichere Untergrenzen für reine Diagnose;
+- ungültige oder nicht invertierbare Frames;
+- erwartete Analysis-Region.
+
+Der Preflight ersetzt nicht das exakte Gate. Wegen zu geringer Coverage darf er
+nur ablehnen, wenn eine konservative Obergrenze bereits unter dem erforderlichen
+Mindestwert liegt. Eine niedrige Untergrenze beweist keine unzureichende
+Coverage.
+
+### 12.2 Exakte integrierte Coverage
+
+Während der Rekonstruktion werden getrennt akkumuliert:
 
 ```text
-n_eff = sum(B)² / sum(B²)
+CFA geometry:
+  sum_f(B_f,c), sum_f(B_f,c²), contributors_c, channel_support_c
+
+dense footprint:
+  frame_footprint_count, dense_common_overlap
 ```
 
-sowie die vorhandenen Coverage-Gate-Metriken. Die vollständige Rekonstruktionsgeneration bleibt bis zum Abschluss aller Bänder unveröffentlicht. Erst dann werden geprüft:
+Die beiden Zustände dürfen nicht aus demselben Droplet-Supportbit abgeleitet werden.
+`B_f,c` ist dabei zuerst über alle Droplets desselben Frames, Zielpixels und
+Kanals zu aggregieren. Erst dieser Framewert wird quadriert. Das Quadrieren
+einzelner Droplet-Overlaps würde eine andere und unzulässige `n_eff`-Semantik
+erzeugen.
 
-- unterstützter Anteil je Kanal;
+### 12.3 Commit-Gate
+
+Die Rekonstruktionsgeneration bleibt unveröffentlicht, bis global geprüft sind:
+
+- Source-Support je Kanal;
 - p10-`n_eff` je Kanal;
 - Analysis-Pixelzahl;
+- dichte Common-Overlap-Maske;
 - interne geometrische Lochkomponenten;
-- numerische Invarianten.
+- unerwartete Nonfinite-Pixel innerhalb Source-Support;
+- Fold- und Numerikinvarianten.
 
-Bei Gate-Fehler wird die gesamte temporäre Generation verworfen. Damit bleibt der Fail-Closed-Vertrag erhalten, ohne die Geometrie zweimal zu berechnen.
+Damit wird kein zweiter vollständiger exakter CFA-Sweep benötigt. Der frühe Preflight verhindert, dass offensichtliche Coverage-Fehler erst nach der gesamten Rekonstruktion erkannt werden.
 
-## 9. Persistenter GPU-Workspace
+## 13. Persistenter GPU-Workspace und Ausführungsmodell
 
-### 9.1 Lebensdauer
+### 13.1 Workspace
 
-Device- und pinned Hostbuffer werden einmal pro Phase auf die maximale geplante Bandgröße allokiert und über alle Bänder und Frames wiederverwendet:
-
-```cpp
-struct ForwardDrizzleGpuWorkspace {
-  DeviceBuffer source[2];
-  DeviceBuffer quality[2];
-  DeviceBuffer inverse_geometry;
-  DeviceBuffer group_accumulators;
-  DeviceBuffer profile_output[2];
-  DeviceBuffer confidence_output[2];
-
-  PinnedBuffer host_source[2];
-  PinnedBuffer host_quality[2];
-  PinnedBuffer host_output[2];
-
-  CudaStream upload;
-  CudaStream compute;
-  CudaStream download;
-  CudaEvent slots_ready[2];
-};
-```
-
-Innerhalb des Frame-/Band-Loops sind `cudaMalloc`, `cudaFree` und globales `cudaDeviceSynchronize` verboten.
-
-### 9.2 Überlappung
-
-Double Buffering:
+Nach Entscheidung von Gather/Scatter, Robustschätzer und Tileplan wird ein exakter Workspace definiert. Mindestens enthalten sind:
 
 ```text
-Slot 0: GPU berechnet Frame N
-Slot 1: Host liest und lädt Frame N+1
-Host:   schreibt fertiges Band N-1
+Source-Device-Slots
+Quality-Device-Slots
+inverse Geometrie oder Modellparameter
+robuste/Profil-Akkumulatoren
+Coverage-Akkumulatoren
+Output-/Fold-Scratch
+Multiband-Ringbuffer
+pinned Host-Slots
+CUDA-Streams und Events
 ```
 
-Abhängigkeiten werden ausschließlich über Stream-Events synchronisiert. Ein Device-weites Synchronisieren ist nur am Phasenabschluss oder bei einem harten Fehler zulässig.
+Innerhalb des Frame-/Tile-Hotpaths sind verboten:
 
-### 9.3 Keine X-Tiles
+- `cudaMalloc`;
+- `cudaFree`;
+- globales `cudaDeviceSynchronize`;
+- wiederholte Reader-Konstruktion;
+- Inhaltsprüfung von Source-, Q-, Geometrie- oder Profilnutzdaten;
+- Host-Download von Contribution-Records.
 
-Die Gruppenspeichergröße ist unabhängig von `frame_count`. Deshalb wird über volle Breite und budgetierte Y-Bänder gearbeitet. Die jetzigen bis zu 40 X-Tiles pro Band entfallen.
+### 13.2 Pipeline
 
-## 10. 2×2→1×-Fold auf dem Device
+Source-I/O, Quality-I/O, Upload, Compute, Output-Download und Store-Write werden mit mehreren Slots überlappt. Die genaue Slotzahl folgt aus der Lebensdauertabelle; Double Buffering wird nicht ohne Abhängigkeitsanalyse als ausreichend angenommen.
 
-Bei `internal_scale=2, output_scale=1` werden vier interne Subpixel vollständig rekonstruiert. Direkt nach der robusten Reduktion führt ein GPU-Kernel aus:
-
-- 2×2-Flächenmittel der Profilwerte;
-- konservative Kombination von `n_eff` und Confidence;
-- geometrisches Support-AND über die vier internen Zellen;
-- Ausgabe genau eines nativen Pixels.
-
-Nur Output-Scale-Daten werden zum Host übertragen und persistiert. Interne 2×-Profilbilder werden nicht als vollständige Hostbuffer materialisiert.
-
-Da robustes Clipping den geometrischen Support nicht mehr löschen darf, verstärkt das konservative 2×2-Support-AND keine statistischen Einzelpixel mehr zu schwarzen Löchern.
-
-## 11. Neues Confidence-Modell
-
-### 11.1 Fehler des bisherigen Modells
-
-Das bisherige `A_separation` basiert auf:
+Jeder Slot besitzt einen expliziten Zustand:
 
 ```text
-Q_p90 - Q_p50
+FREE
+HOST_FILLING
+READY_FOR_UPLOAD
+UPLOADING
+COMPUTING
+READY_FOR_DOWNLOAD
+DOWNLOADING
+READY_FOR_WRITE
+WRITING
 ```
 
-Sind alle Frames ähnlich gut, ist die Differenz klein und Confidence fällt auf null. Im Testlauf lagen die mittleren Detail-Alphas bei `2,98e-10` und `7,32e-8`; Fine/Medium wurden damit praktisch vollständig deaktiviert.
+CUDA-Events und Host-Futures definieren die Übergänge. Globales Synchronisieren ist nur am Phasenabschluss oder bei hartem Fehler zulässig.
 
-### 11.2 Neue Faktoren
+## 14. Streaming-Multiband und Halo-Vertrag
 
-Confidence wird aus unabhängigen, bereits in den Gruppenakkumulatoren vorhandenen Größen gebildet:
+### 14.1 À-trous-Radius
+
+Für einen B3-Kernel mit Radius 2 und Dilatationen `1,2,4,...` beträgt der kumulative reine À-trous-Radius bis Level `L`:
 
 ```text
-C_quality       = Funktion des robusten absoluten Q-Niveaus
-C_stability     = Funktion der normierten Gruppenstreuung
-C_samples       = Funktion von n_eff
-C_artifact      = robuste Artifact-Confidence
-C_registration  = robuste Registration-Confidence
+R_atrous(L) = 2 × (2^L - 1)
 ```
 
-Verbindliche Eigenschaft:
+Der Gesamthalo ist nicht automatisch `R_atrous`. Hinzu kommen abhängig vom finalen Algorithmus:
+
+- Alpha-/Confidence-Smoothing;
+- Energy-Guard-Fenster;
+- weitere lokale Validierungsfilter;
+- Fold-Randbedarf.
+
+Die Filterverkettung bestimmt, ob Radien addiert oder als Maximum kombiniert werden.
+
+### 14.2 Verbindliche Festlegungen
+
+Vor Implementierung werden spezifiziert:
+
+- Inputhalo je Profil und Level;
+- Randregel (Mirror, Clamp, Invalid oder andere definierte Regel);
+- gültiger Bandkern;
+- erste/letzte Bildzeile;
+- Anzahl gleichzeitig residenter Vorgänger-/Folgebänder;
+- Ringbuffergröße;
+- Zeitpunkt, ab dem ein Outputband unveränderlich ist;
+- Wechselwirkung mit X-Tiles;
+- Resume-Grenze.
+
+Die Formel muss beweisen, dass der Bandoutput bit- beziehungsweise toleranzidentisch zur Full-Image-Referenz ist.
+
+### 14.3 Producer-/Consumer-Pipeline
+
+Erst nach der Haloanalyse wird die Pipeline festgelegt. Eine bloße Beschreibung `N+1/N/N-1` beweist nicht, dass zwei Outputslots genügen. Die Ringgröße ergibt sich aus Filterradius, Bandkern, asynchronen I/O-Slots und Commitgrenze.
+
+## 15. Confidence-Modell
+
+### 15.1 Fehler des bisherigen Modells
+
+Das bisherige `A_separation` basiert auf `Q_p90-Q_p50`. Sind alle Frames ähnlich gut, fällt die Differenz auf nahezu null. In `m42-test1` lagen die mittleren Detail-Alphas bei `2,98e-10` und `7,32e-8`; Fine/Medium waren damit praktisch deaktiviert.
+
+### 15.2 Anforderungen an den Ersatz
+
+Confidence muss mindestens unterscheiden:
 
 ```text
-alle Frames ähnlich gut => hohe C_quality und hohe C_stability
+absolute Qualität
+Schätzerstabilität
+effektive Stichprobengröße
+Artifact-Confidence
+Registration-Confidence
+Profile-Support
 ```
 
-Eine mögliche konservative Kombination ist:
+Verbindlich:
 
 ```text
-confidence = C_samples
-           × C_stability
-           × min(C_quality, C_artifact, C_registration)
+alle Frames ähnlich gut
+    => nicht allein deshalb Confidence 0
 ```
 
-Die genaue Kalibrierung wird mit synthetischen und realen Referenzfällen festgelegt. `Q_p90-Q_p50` darf höchstens ein Zusatzsignal sein, nie eine zwingende Voraussetzung für Detailübernahme.
+Eine konkrete Formel wird erst nach Wahl des Robustschätzers und des Rausch-/Registrierungsmodells festgelegt. Sie muss aus bounded-memory Statistiken berechenbar sein und darf keine per-Pixel-Heap-Allokationen oder mehrfachen Sortierungen derselben Wertereihe benötigen.
 
-### 11.3 Keine per-Pixel-Allokationen
+### 15.3 Multiband-Abnahme
 
-Alle Quantile werden auf höchstens 15 Gruppenwerten mit einem festen Sorting-Network oder einer festen lokalen Arraystruktur auf dem Device berechnet. Es gibt keine `std::vector`-Allokation und keine mehrfachen Sortierungen derselben Wertereihe.
+- Uniform bleibt immutable control;
+- Raw bleibt immutable weighted baseline;
+- Multiband wird gegen beide verglichen;
+- matched star positions sind verpflichtend;
+- null effektive Sterne blockieren eine positive Multiband-Auswahl;
+- global praktisch nulles Alpha wird als eigene Diagnose und nicht als unauffälliger Erfolg gemeldet;
+- Objektklasse darf Sicherheitsgates nicht dynamisch aufweichen.
 
-## 12. Streaming-Multiband
+## 16. Source-Quality-Pack
 
-Forward Drizzle und Multiband werden als Producer-/Consumer-Pipeline verbunden:
+Source Quality bleibt ein frameweiser Vorgänger der Rekonstruktion. Seine
+Artefakte werden einmal erzeugt und danach ausschließlich gelesen.
+
+Verbindlich sind:
+
+- Source-Proxy pro Frame genau einmal berechnen;
+- Pyramidenskalen gemeinsam aufbauen und jede Skala genau einmal auswerten;
+- Composite und Global-Quality-Metriken im selben Framejob erzeugen;
+- Q-Maps und Global-Quality-Metriken gemeinsam atomar publizieren;
+- nur tatsächlich von Raw, Fine, Medium, Artifact oder Confidence konsumierte
+  Streams persistieren;
+- `(stream, source_index)` über einen einmal aufgebauten Readerindex in O(1)
+  auflösen;
+- NaN, unendlich und fachlich nicht anwendbar im Artefaktschema eindeutig
+  unterscheiden;
+- Reader zwischen Global Quality und Forward Drizzle wiederverwenden;
+- pro `(Frame, Y-Band, Stream)` eine Q-Bandansicht höchstens einmal dekodieren
+  und über alle zugehörigen X-Tiles gepinnt halten;
+- Source- und Q-Ansichten unter einem gemeinsamen RAM-Budget führen.
+
+Ein Commit der Q-Map-Generation ohne die dazugehörigen vollständigen Metriken
+ist unzulässig. Ein Resume akzeptiert nur eine vollständig publizierte und zur
+Sampling-Plan-Generation passende Source-Quality-Generation.
+
+## 17. Trusted-Run- und Read-Amplification-Vertrag
+
+### 17.1 Trusted Run
+
+Im normalen Run gelten Inputs, normalisierter Cache und Artefaktverzeichnis während der Phase als unverändert. Der Produktlauf prüft:
+
+- Schema und Metadaten;
+- Run-, Generation- und Algorithmuskennungen;
+- Dateiexistenz;
+- erwartete Größe und Geometrie;
+- Generation-/Checkpoint-Zuordnung.
+
+Er prüft keine Nutzdateninhalte von Source-, Q-, Geometrie-, Profil- oder
+Outputdateien. Es gibt dafür weder einen automatischen Prüflauf noch einen
+separaten Prüfbefehl. Änderungen an vorhandenen Nutzdaten liegen in der
+Verantwortung des Benutzers. Unbekannte Schema-Versionen, Größenänderungen,
+fehlende Dateien und unpassende Generationen bleiben fail-closed.
+
+### 17.2 Pflichtzähler
 
 ```text
-Forward rekonstruiert Band N+1
-Multiband fusioniert Band N inklusive Halo
-Host persistiert Band N-1
+logical_source_bytes
+application_source_bytes
+storage_source_bytes
+logical_quality_bytes
+application_quality_bytes
+storage_quality_bytes
+application_source_read_amplification
+storage_source_read_amplification
+application_quality_read_amplification
+storage_quality_read_amplification
+source_halo_bytes
+quality_halo_bytes
+source_reused_bytes
+quality_reused_bytes
+reader_constructions
 ```
 
-Die À-trous-Fusion verwendet:
+Definition:
 
-- Uniform als unveränderliche Sicherheitsreferenz;
-- Raw/Fine/Medium aus denselben Robustgruppen;
-- das neue Confidence-Modell;
-- geometrischen Support, nicht statistischen Clip-Support.
+```text
+application_read_amplification = application_bytes / logical_useful_bytes
+storage_read_amplification = storage_bytes / logical_useful_bytes
+```
 
-Ein vollständiger U/R/F/M-Profilspeicher wird nur erzeugt, wenn die Resume-Konfiguration ihn verlangt. Ohne Resume-Anforderung werden ausschließlich der transaktionale finale Output und kompakte Validierungs-/Diagnoseartefakte persistiert.
+Dabei werden drei Ebenen unterschieden:
 
-## 13. CPU-Referenz
+```text
+logical_*_bytes       fachlich tatsächlich benötigte Nutzbytes
+application_*_bytes   von Readern angeforderte oder gemappte Bytes
+storage_*_bytes       nachweislich vom Speichermedium gelieferte Bytes
+```
 
-Der CPU-Pfad implementiert denselben Target-Gather- und Robustgruppenalgorithmus. Der alte Contribution-Record-Pfad bleibt nicht als dauerhafter Fallback erhalten.
+Page-Cache-Treffer erhöhen die Anwendungsbytes, aber nicht zwingend die
+Storagebytes. Die Zähler werden getrennt nach Y-Band, X-Tile, Frame und Stream
+aggregiert. Ein Bytezähler ohne logischen Nenner genügt nicht. Für jeden
+Tileplan werden maximale Source- und Quality-Read-Amplification vorab als Gate
+festgelegt.
 
-Parallelisierung:
+Die Reader-Lebensdauer ist Teil des Vertrags:
 
-- Y-Bänder oder Pixelzeilen statisch über Worker verteilen;
-- ein Pixel gehört genau einem Worker;
-- Frames innerhalb eines Pixels in stabiler Reihenfolge;
-- keine parallele Reduktion desselben Pixels;
-- Scratch pro Worker oder feste Stackarrays.
+- pro `(Frame, Y-Band)` wird die benötigte Source-Ansicht höchstens einmal von
+  der Anwendung gelesen und über alle zugehörigen X-Tiles gepinnt;
+- pro `(Frame, Y-Band, Q-Stream)` wird die Q-Ansicht höchstens einmal dekodiert
+  und über alle zugehörigen X-Tiles gepinnt;
+- überlappende Zeilen benachbarter Y-Bänder werden innerhalb des gemeinsamen
+  Budgets wiederverwendet;
+- Worker erhalten keine unabhängigen leeren Readercaches, wenn dadurch
+  dieselben Daten erneut gelesen werden;
+- eine Eviction darf keine noch verwendete Ansicht invalidieren.
 
-CPU und GPU teilen:
+Kann ein Kandidatenplan diese Lebensdauer nicht einhalten, muss seine gemessene
+Verstärkung innerhalb der vorab festgelegten Grenze bleiben; andernfalls fällt
+er am Speicher-/I/O-Gate durch.
 
-- inverse Bounding-Regeln;
-- Source-Nachbarreihenfolge;
-- Polygon-/Zelloverlap;
-- Gruppenzuordnung;
-- robuste Einflussfunktion;
-- Confidence-Formeln;
-- Support- und Fallback-Invarianten.
+## 18. Resume- und Atomic-Commit-Schema
 
-## 14. Source-Quality-Phase
+### 18.1 Versionierte Artefakte
 
-Source Quality bleibt ein eigener frameweiser Vorlauf, da alle Output-Bänder dieselben Qualitätskarten benötigen. Sie wird jedoch bereinigt:
+V2 erhält eigene, versionsgebundene Artefakte, beispielsweise:
 
-- Source-Proxy pro Frame genau einmal;
-- jede Pyramidenskala genau einmal;
-- Composite während desselben Scale-Laufs akkumulieren;
-- nur tatsächlich konsumierte Einzel-Skalen persistieren;
-- Artifact und Registration zusammen mit ihrem Gültigkeitsstatus speichern;
-- keine NaN→JSON-null-Deserialisierungsfehler;
-- Accelerator-Telemetrie muss dem tatsächlich verwendeten Backend entsprechen;
-- Quality-Rect-Reads erfolgen bandweise und werden mit Source-Reads überlappt.
+```text
+forward_drizzle_v2_plan.json
+forward_drizzle_v2_geometry.json
+forward_drizzle_v2_checkpoint.json
+forward_drizzle_v2_generation/
+```
 
-## 15. Pflichttelemetrie
+Der Plan bindet:
 
-Performanceinstrumentierung ist nicht optional und hängt nicht von einer Environment-Variable ab. Pro Run werden mindestens ausgegeben:
+- Pipeline- und Algorithmusversion;
+- Inputmanifest;
+- Config-Snapshot-ID;
+- Sampling-Plan-Generation;
+- Source-Quality-Generation;
+- Numerikmodus;
+- Gather-/Scatter-Variante;
+- Robustschätzervertrag;
+- Support-/Fold-Vertrag;
+- Tile-/Bandplan;
+- lokale Warp-Repräsentation;
+- Trusted-Run-Modus.
+
+### 18.2 Resume-Granularität
+
+Vor Implementierung wird genau eine Semantik gewählt:
+
+1. vollständiger Neustart von Forward Drizzle; oder
+2. Resume ausschließlich an atomar abgeschlossenen Band-/Tilegrenzen.
+
+Bei Band-Resume müssen persistiert sein:
+
+- vollständiger Bandoutput oder vollständige weiterverwendbare Akkumulatoren;
+- Coverage-Zwischenzustand;
+- Common-Overlap-Zustand;
+- Multiband-Halo-/Ringzustand oder eine sichere Wiederanlaufüberlappung;
+- Größen, Metadaten und Generationen;
+- Commitmarke erst nach fsync-/AtomicOutput-Vertrag.
+
+Teilweise beschriebene Bänder werden verworfen. Ein Phase-Event allein begründet keine Resumierbarkeit.
+
+### 18.3 Publikation
+
+- alle Writes erfolgen in einer unpublizierten Generation;
+- Coverage-, Support-, Numerik- und Qualitätsgates laufen vor Publikation;
+- Fehler verwerfen die Generation;
+- `current.json` beziehungsweise der äquivalente Zeiger wird als letzter atomarer Schritt gesetzt;
+- historische Runs werden nicht migriert oder überschrieben.
+
+## 19. Pflichttelemetrie
+
+Performanceinstrumentierung ist Bestandteil des Vertrags und nicht von einer Environment-Variable abhängig. Pro Run werden mindestens ausgegeben:
 
 ```text
 source_io_seconds
 quality_io_seconds
 host_to_device_seconds
-gather_kernel_seconds
-group_reduce_seconds
+geometry_seconds
+gather_or_scatter_kernel_seconds
+robust_reduce_seconds
 confidence_seconds
-fold_2x2_seconds
+fold_seconds
 multiband_seconds
 device_to_host_seconds
 store_write_seconds
+coverage_finalize_seconds
 frames_processed
 bands_processed
-source_bytes_read
-quality_bytes_read
+x_tiles_processed
+source_samples_or_target_pairs
+neighbour_tests
+overlap_tests
 kernel_launches
+device_allocations_in_hotpath
 fallback_pixels_by_channel
-geometric_support_pixels_by_channel
-nonfinite_pixels_inside_geometric_support
+geometry_support_pixels_by_channel
+source_support_pixels_by_channel
+estimator_support_pixels_by_channel
+profile_support_pixels_by_profile_channel
+nonfinite_pixels_inside_source_support
 ```
 
 Zusätzlich:
 
-- effektive GPU-Auslastung;
+- GPU-Auslastung;
 - CPU-Worker-Auslastung;
 - Peak-RAM und Peak-VRAM;
-- Durchsatz in Source-Samples/s und Output-Pixel-Frames/s;
-- getrennte Zähler für robuste Downweightings und echte geometrische Nichtabdeckung.
+- Temp-Disk;
+- Read-Amplification aus §17;
+- getrennte Zähler für robuste Downweightings, Fallbacks, Profile-Vetos und echte Nichtabdeckung.
 
-Ein erfolgreicher Commit mit `nonfinite_pixels_inside_geometric_support > 0` ist unzulässig.
+Ein erfolgreicher Commit mit `nonfinite_pixels_inside_source_support > 0` ist unzulässig.
 
-## 16. Validierungsmatrix
+## 20. Absolutes Produktionsgate
 
-### 16.1 Geometrie und Flux
+### 20.1 End-to-End-Gate
+
+Verbindliche bestehende Produktanforderung:
+
+- Zielbereich 1800–2400 s;
+- harte Obergrenze 2400 s;
+- 600 Frames à 3840×2160 OSC;
+- `internal_scale=2`, `output_scale=1`;
+- vom angenommenen Runstart bis zum Commit der finalen HMS-Ausgabe;
+- enthalten: Scan, Kalibration mit vorhandenen gültigen Masters, Normalisierung, Registrierung, Geometrie, Q-Maps, Drizzle, Multiband, Ausgabe, erforderliche Astrometrie, BGE, PCC, HMS, Transfers, zulässige Prüfungen und I/O.
+
+Fehlende Mastererzeugung oder externe Downloads werden separat ausgewiesen; keine benötigte Runphase wird aus der End-to-End-Zeit ausgeklammert.
+
+### 20.2 Rekonstruktions-Teilgate
+
+Zusätzlich gilt für einen Kaltstart bis zur committed Rekonstruktionsausgabe:
+
+- unter 1800 s;
+- 600 Frames à 3840×2160 OSC;
+- affine und lokale Datensätze;
+- Astrometrie, BGE, PCC und HMS ausdrücklich deaktiviert;
+- keine Wiederverwendung runabhängiger Normalized-/Q-/Geometrie-/Profilcaches;
+- kein Resume;
+- keine künstliche Frame- oder Auflösungsreduktion.
+
+### 20.3 Referenzklassen
+
+Mindestens:
+
+- ein realer affiner 600-Frame-Datensatz;
+- ein realer lokal verzerrter 600-Frame-Datensatz;
+- je Datenklasse zwei vollständige frische Runs, die sowohl das jeweils
+  anwendbare Rekonstruktions-Teilgate als auch das End-to-End-Gate erfüllen;
+- Rotationswinkel, lokale-Modell-Anteil und verworfene Frames mit Gründen ausweisen.
+
+Duplizierte Frames sind nur als gekennzeichneter Lasttest zulässig und ersetzen keinen realen Datensatz.
+
+### 20.4 Eingefrorene Umgebung
+
+Vor Messung werden konkrete CPU/GPU, RAM, SSD, Worker, Treiber, Compiler, Binary, Config und Inputmanifest eingefroren. Ein Hardwarewechsel erzeugt eine neue gekennzeichnete Baseline. Das Produktionsgate ist eine Abnahmeforderung, keine theoretische Hochrechnung.
+
+## 21. Validierungsmatrix
+
+### 21.1 Geometrie und Flux
 
 - Identity-Affine;
 - ganzzahlige und gebrochene Translation;
 - Rotation, Skalierung und Shear;
+- fast singuläre affine Matrizen;
 - lokale Warp-Modelle;
 - alle Bayer-Patterns und CFA-Origins;
-- `pixfrac`-Grenzwerte;
-- `internal/output` 1/1, 2/2 und 2/1;
+- Pixfrac-Grenzwerte;
+- 1/1, 2/2 und 2/1;
 - konstantes Feld;
 - linearer Gradient;
-- Punktquelle mit analytischem Flux.
+- Punktquelle mit analytischem Flux;
+- Tile-/Band-Grenzen.
 
-### 16.2 Robustheit
+### 21.2 Robustheit
 
-- einzelner Hotpixel;
-- wiederkehrender Sensor-Hotpixel bei Dither;
-- Cosmic Ray in einem Frame;
-- Satellitenspur über mehrere Pixel;
-- einzelne defokussierte Frames;
+- Hotpixel;
+- persistenter Sensor-Hotpixel mit Dither;
+- Cosmic Ray;
+- Satellitenspur;
+- defokussierte Frames;
 - Registrierungs-Ausreißer;
-- negative normalisierte Hintergrundwerte;
+- negative normalisierte Hintergründe;
 - gesättigte Sterne;
 - helle Nebelgradienten;
-- sparse R/B-CFA-Abdeckung.
+- sparse R/B-CFA-Abdeckung;
+- korrelierte Ausreißer und ungleiche Gewichte.
 
-### 16.3 Support
-
-Für alle Tests:
+### 21.3 Support und Fold
 
 ```text
-geometric support => finite Uniform
-geometric support + ausreichende Profileingabe => finite Raw/Fine/Medium
+source_support => finite Uniform
+profile_denominator > 0 => finite Profilwert
 kein statistisch erzeugtes Loch
-R/G/B-Ausgabesupport konsistent
-2×2-Fold erzeugt keine Einzelpixelmaske aus Statistik
+kein stilles kanalübergreifendes Nullsetzen
+Fold entspricht Zähler-/Nenner-Oracle
+R/G/B-Supportentscheidung entspricht dem Vertrag
 ```
 
-### 16.4 CPU/GPU
+### 21.4 CPU/GPU
 
-- identische Gruppenzuordnung;
-- identische Supportmasken;
-- identische Fallbackentscheidungen;
+- gleiche Geometriekandidaten;
+- gleiche Supportebenen;
+- gleiche Fallbackzustände;
 - Profilwerte innerhalb dokumentierter absoluter/relativer Toleranzen;
 - deterministische Wiederholung auf demselben Backend;
-- GPU-Fehler verwirft die gesamte uncommittete Generation;
-- CPU-Neustart erzeugt denselben fachlichen Outputvertrag.
+- GPU-Fehler verwirft die uncommittete Generation;
+- CPU-Neustart erfüllt denselben fachlichen Vertrag.
 
-### 16.5 Skalierung
+### 21.5 Skalierung
 
-Die Messmatrix umfasst verschiedene Framezahlen bis einschließlich des vollständigen M42-Datensatzes. Nachgewiesen werden muss:
+- verschiedene Framezahlen bis 600/610;
+- affine und lokale Modelle;
+- linearer Verlauf der frameabhängigen Arbeit;
+- bounded Speicher unabhängig von `N`;
+- kein `N log N` pro Pixel;
+- keine mit `N` kollabierende Tilebreite;
+- keine Device-Allokation im Hotpath;
+- keine doppelte vollständige CFA-Geometrierasterisierung;
+- Read-Amplification innerhalb des festgelegten Gates;
+- absolutes Produktionsgate aus §20.
 
-- linearer Verlauf der Gather-Arbeit mit `N`;
-- konstante robuste Gruppenspeichergröße;
-- keine `N log N`-Pixelreduktion;
-- keine mit `N` schrumpfende X-Tile-Breite;
-- keine per-Frame-/per-Tile-Deviceallokation;
-- keine separate vollständige Geometrierasterisierung.
+## 22. Entscheidungs- und Implementierungsreihenfolge
 
-## 17. Implementierungsreihenfolge der Zielarchitektur
+### Gate 0: Evidenz einfrieren
 
-Die Reihenfolge bildet eine neue vertikale Pipeline; der alte Pfad wird nicht schrittweise zur Zielarchitektur erklärt.
+- sauberer Commit;
+- reproduzierbare affine und lokale Referenzläufe;
+- vollständige Artefakt-/Hardwarebindung;
+- Oracle-Captures und Pflichttelemetrie.
 
-### Phase A: mathematischer Vertrag
+**Exit:** Die Ausgangslage ist reproduzierbar; `m42-test1` bleibt nur Diagnosebeleg.
 
-1. Target-Gather-Nachbarschaft für affine Transformationen spezifizieren.
-2. Flux-, Support- und Determinismusinvarianten festlegen.
-3. Robustgruppenverfahren einschließlich Gradient-/Registrierungs-Skala spezifizieren.
-4. neues Confidence-Modell festlegen.
-5. CPU/GPU-Toleranzvertrag definieren.
+### Gate 1: Affine Enumeration
 
-### Phase B: unabhängiger Referenzkern
+- Minkowski-/Bounding-Vertrag formulieren;
+- Target-Gather und dichten Device-Scatter prototypisieren;
+- gegen Geometrie- und Frame-Kandidaten-Oracle prüfen;
+- auf realer Canvasgröße messen.
 
-1. neuen CPU-Target-Gather implementieren;
-2. Gruppenakkumulatoren und robuste Reduktion implementieren;
-3. integrierte Coverage implementieren;
-4. 2×2-Fold und Supportvertrag implementieren;
-5. synthetische Validierungsmatrix vollständig grün stellen.
+**Exit:** Gather oder Scatter ist durch Korrektheit, Speicher und Laufzeit gewählt.
 
-Dieser Kern verwendet keine alten Contribution-Records und keine alte per-Frame-Kandidatenmatrix.
+### Gate 2: Support und Scale-Fold
 
-### Phase C: vollständiger GPU-Kern
+- vier Supportebenen festlegen;
+- Zähler-/Nenner-/W²-Fold definieren;
+- Teilflächenregel festlegen;
+- konstante Felder, Gradienten und Punktflux validieren.
 
-1. persistenten Workspace implementieren;
-2. affinen Gather-Kernel implementieren;
-3. Gruppenakkumulation auf Device implementieren;
-4. robuste Gruppenreduktion und Confidence auf Device implementieren;
-5. 2×2-Fold auf Device implementieren;
-6. async Source-/Quality-Pipeline implementieren;
-7. CPU/GPU-Parität verifizieren.
+**Exit:** Kein mathematisch offener 2×2- oder Supportfall bleibt.
 
-### Phase D: lokale Warps
+### Gate 3: Robustschätzer
 
-1. inverses Deformationsgitter spezifizieren;
-2. konservative Bounds beweisen und testen;
-3. lokalen Gather implementieren;
-4. affine und lokale Frames durch denselben Gruppenreducer führen.
+- vollständiges Frame-Oracle erzeugen;
+- Kandidatenverfahren auf adversarialen Fällen vergleichen;
+- bounded-memory Verfahren auswählen;
+- exakte Fallbackzustandsmaschine spezifizieren.
 
-### Phase E: Multiband und Transaktion
+**Exit:** Schätzer erreicht die festgelegten Qualitäts-/Robustheitsgrenzen ohne Supportverlust.
 
-1. Streaming-GPU-Multiband anbinden;
-2. integriertes Coverage-Gate vor Commit anbinden;
-3. Resume-Artefakte und Profilspeichervertrag aktualisieren;
-4. Pflichttelemetrie und Report aktualisieren;
-5. End-to-End-Abnahme auf realen Datensätzen durchführen.
+### Gate 4: Rauschmodell und Numerik
 
-### Phase F: Umschaltung
+- Noise-, Gradient-, Sampling- und Registrierungseingänge definieren;
+- Sampling-Plan-Schema gegebenenfalls erweitern;
+- bounded berechenbare Confidence-Formel und ihre hinreichenden Statistiken
+  festlegen;
+- FP32/compensated-FP32/FP64 messen;
+- CPU/GPU-Toleranzen festlegen.
 
-Der neue Pfad wird erst produktiv, wenn alle Korrektheits-, Robustheits-, Support-, Paritäts- und Skalierungs-Gates erfüllt sind. Danach wird der alte Record-/Sort-Pfad entfernt; er bleibt nicht als langfristiger Alternativmodus bestehen.
+**Exit:** Jede Formel besitzt verfügbare Eingänge und einen numerischen Typ;
+alle für Confidence benötigten Buffer gehen in Gate 5 ein.
 
-## 18. Entscheidende Architekturänderungen im Überblick
+### Gate 5: Gemeinsamer Speicherplan
 
-| Heute | Forward Drizzle v2 |
+- exakte RAM-/VRAM-/Temp-Formel;
+- Full-Width- und X-Tile-Pläne;
+- Halo-/Ringbuffer-Lebensdauer;
+- Trusted-Read-Amplification.
+
+**Exit:** Jede Buffergröße, Lebensdauer und Fallbacktilegröße ist berechnet und getestet.
+
+### Gate 6: Minimaler affiner, unpublizierter Prototypkern
+
+- persistenter GPU-Workspace;
+- keine Hostrecords;
+- keine Hotpath-Allokationen;
+- integrierte CFA-Coverage und dichter Footprint;
+- vollständige Telemetrie;
+- reale Canvasgröße.
+
+**Exit:** Der noch nicht in den produktiven Runner publizierte affine Kern
+besteht Oracle-, Support-, Flux-, Speicher- und das vorab festgelegte
+Teilzeitgate.
+
+### Gate 7: Transaktion und Resume
+
+- v2-Artefaktschema;
+- Checkpointidentitäten;
+- Resume-Granularität;
+- Atomic-Commit;
+- Fehler- und Restartmatrix.
+
+**Exit:** Kein teilweise publizierter oder semantisch nicht gebundener Zustand ist möglich.
+
+### Gate 8: Lokale Warps
+
+- inverse Repräsentation wählen;
+- konservative Bounds beweisen;
+- Lebensdauer und Speicher messen;
+- lokalen realen Datensatz gegen Oracle prüfen.
+
+**Exit:** Lokale Modelle erfüllen dieselben Verträge und Zeitgates wie affine Modelle.
+
+### Gate 9: Streaming-Multiband
+
+- Kalibrierung des in Gate 4 definierten Confidence-Modells;
+- Halo- und Ringbuffervertrag;
+- GPU-/CPU-Fusion;
+- matched-star-Validierung;
+- Raw/Uniform-Fallbackvertrag.
+
+**Exit:** Multiband ist fachlich wirksam, erzeugt keine Supportänderung und besteht Qualitätsgates.
+
+### Gate 10: Cutover
+
+- zwei frische affine und zwei frische lokale Produktionsläufe;
+- vollständige 600-Frame-Gates;
+- Resume- und Fehlerfälle;
+- Dokumentation, Schema und Report konsistent.
+
+**Exit:** Erst danach wird der alte Record-/Sort-/Kandidatenpfad entfernt. Er bleibt nicht als langfristiger Alternativmodus bestehen.
+
+## 23. Architekturvergleich
+
+| Bestehender Pfad | V2-Anforderung |
 |---|---|
-| Source-Scatter erzeugt Records | Target-Gather erzeugt direkte Statistik |
-| Records GPU→CPU | nur fertige Output-Bänder GPU→CPU |
+| Source-Scatter erzeugt Hostrecords | direkte bounded Device-Statistik, Gather oder Scatter nach Gate 1 |
+| Records GPU→CPU | nur Profil-/Outputdaten GPU→CPU |
 | Sortierung pro Frame/Tile | keine Recordsortierung |
-| Sortierung über alle Frames pro Pixel | feste Reduktion über 15 Gruppen |
-| Kandidatenmatrix skaliert mit Framezahl | Speicher skaliert mit Bandpixeln × K |
-| bis zu 40 X-Tiles | volle Breite, budgetierte Y-Bänder |
+| Sortierung über alle Frames pro Pixel | ausgewählter bounded-memory Robustschätzer |
+| Kandidatenmatrix skaliert mit Framezahl | Speicher skaliert mit Tilepixeln und fester Schätzerstruktur |
+| Tilebreite kollabiert mit N | Tileplan unabhängig von N |
 | `cudaMalloc/free` pro Kleinstjob | persistenter Workspace |
-| `cudaDeviceSynchronize` pro Job | Stream-Events und Double Buffering |
-| Coverage als zweiter Geometriesweep | Coverage im Gather integriert |
-| Clipping kann Support löschen | Statistik beeinflusst nur Confidence |
-| `Q_p90-Q_p50` kann Alpha nullen | absolute Qualität + Stabilität + n_eff |
-| Multiband nach vollständigem Store | Streaming-Multiband-Pipeline |
-| Laufzeit enthält `N log N` pro Pixel | Laufzeit linear in N |
+| `cudaDeviceSynchronize` pro Job | Stream-Events und berechnete Slotpipeline |
+| Coverage als zweiter CFA-Sweep | günstiger Preflight + exakte integrierte Coverage |
+| CFA-Support und dichter Footprint vermischt | zwei getrennte Geometriezustände |
+| Clipping kann Support löschen | Statistik reduziert Confidence, nicht Source-Support |
+| 2×2-Mittel normalisierter Werte + AND | Zähler-/Nenner-/W²-Fold mit Teilflächenvertrag |
+| `Q_p90-Q_p50` kann Alpha nullen | validiertes absolutes Quality-/Stability-Modell |
+| redundante Reader- und Inhaltsprüfungen | Trusted-Run-Vertrag und Read-Amplification |
+| unklarer Resume nach Phasenumbau | versioniertes v2-Artefakt- und Checkpointschema |
+| nur relative Skalierungsforderung | absolutes 600-Frame-Produktionsgate |
 
-## 19. Abschlusskriterium
+## 24. Abschlusskriterium
 
-Forward Drizzle v2 gilt als AQMH-Ersatz, wenn:
+Forward Drizzle v2 gilt als implementierungsreif, wenn Gates 0–5 abgeschlossen sind. Es gilt als AQMH-Ersatz, wenn Gates 6–10 bestanden sind.
 
-1. der vollständige mathematische und transaktionale Vertrag implementiert ist;
-2. innerhalb geometrischer Coverage keine schwarzen Löcher entstehen;
-3. helle Sterne und Nebelgradienten robust bleiben;
-4. Ausreißer ohne Supportverlust unterdrückt werden;
-5. CPU und GPU denselben fachlichen Output liefern;
-6. die Laufzeit linear mit der Framezahl skaliert;
-7. Coverage-Geometrie nicht doppelt berechnet wird;
-8. keine Contribution-Records oder framezahlabhängigen Kandidatenmatrizen mehr existieren;
-9. Multiband eine fachlich sinnvolle Confidence erhält und nicht global auf null fällt;
-10. der alte Record-/Sort-Pfad anschließend entfernt wird.
+Vor Gate 6 müssen insbesondere entschieden sein:
 
-Die Kernentscheidung lautet:
+1. Gather oder dichter Device-Scatter;
+2. konservative affine Kandidatengrenze;
+3. vierstufiger Supportvertrag;
+4. Zähler-/Nenner-/W²-Fold;
+5. bounded-memory Robustschätzer;
+6. exakter Fallbackalgorithmus;
+7. Noise-/Gradient-/Registrierungsmodell;
+8. FP32/FP64-Vertrag;
+9. gemeinsame RAM-/VRAM-/Temp-Formel;
+10. Full-Width-/X-Tile- und Read-Amplification-Vertrag.
 
-> Forward Drizzle v2 wird als deterministische, bandweise Target-Gather-Pipeline mit robuster Gruppenstatistik, integrierter Coverage, persistentem GPU-Workspace und GPU-seitiger Multibandfusion neu aufgebaut. Die bestehende Record-/Sort-/Clip-Architektur wird nicht weiterentwickelt, sondern ersetzt.
+Die Kernentscheidung bleibt:
+
+> Die bestehende Record-/Sort-/Kandidatenarchitektur wird ersetzt. Welche recordfreie GPU-Geometrie und welcher bounded-memory Robustschätzer verwendet werden, wird nicht vorab behauptet, sondern durch exakte Oracles, adversariale Qualitätsfälle, vollständige Speicherrechnung und Messung auf realer Canvasgröße entschieden.
