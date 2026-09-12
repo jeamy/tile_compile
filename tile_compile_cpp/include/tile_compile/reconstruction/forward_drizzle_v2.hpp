@@ -61,6 +61,9 @@ bool gather_affine_uniform_v2_cuda(
 // terms required by B2_out = sum_f(sum_j area_j*B_f,j)^2.
 struct ForwardDrizzleV2FrameSubpixel {
   std::size_t frame_order = 0;
+  double geometry_b = 0.0;
+  double source_b = 0.0;
+  double estimator_b = 0.0;
   double a = 0.0;
   double b = 0.0;
 };
@@ -71,22 +74,37 @@ struct ForwardDrizzleV2FoldResult {
   double b2 = 0.0;
   double value = 0.0;
   double n_eff = 0.0;
-  double supported_area_fraction = 0.0;
+  double geometry_area_fraction = 0.0;
+  double source_area_fraction = 0.0;
+  double estimator_area_fraction = 0.0;
+  double profile_area_fraction = 0.0;
+  bool geometry_support = false;
   bool source_support = false;
+  bool estimator_support = false;
   bool profile_support = false;
 };
 
-// Experimental candidate primitive for the native-pixel fold; the fold gate
-// (Gate 2) is not closed and this is not a selected production component.
+// Gate-2-decided scalar native-pixel fold reference. The production batch
+// fold over the device-resident scatter planes is Gate 6 scope; this function
+// is the exact CPU contract that batch kernel must reproduce.
 // `subpixels_by_frame` is flattened frame-major and must contain
-// frame_count*subpixels_per_native entries.  `area` contains the corresponding
-// native-pixel area factors and normally sums to one.  Missing subpixels have
-// b=0; available area is renormalized by A/B rather than by an all-subpixel
-// support AND.  The returned supported_area_fraction records the lost area for
-// confidence and diagnostics.
+// frame_count*subpixels_per_native entries. `area` contains the corresponding
+// native-pixel area factors. geometry/source/estimator/profile support remain
+// distinct; their positive denominators must imply one another in that order.
+// Missing profile subpixels have b=0; available area is normalized by folded
+// A/B rather than by an all-subpixel support AND. Four area fractions retain
+// the lost-area information for later confidence and delivery decisions.
 ForwardDrizzleV2FoldResult fold_native_pixel_v2(
     std::span<const ForwardDrizzleV2FrameSubpixel> subpixels_by_frame,
     std::size_t frame_count, std::span<const double> area);
+
+// Gate-2 CUDA arithmetic oracle for the same scalar fold contract. This is not
+// the production batch kernel selected later by Gate 6; it proves that the
+// frame-before-square and four-support-layer algebra ports to the device.
+bool fold_native_pixel_v2_cuda(
+    std::span<const ForwardDrizzleV2FrameSubpixel> subpixels_by_frame,
+    std::size_t frame_count, std::span<const double> area,
+    ForwardDrizzleV2FoldResult &out);
 
 struct ForwardDrizzleV2RobustCandidate {
   std::size_t frame_order = 0;

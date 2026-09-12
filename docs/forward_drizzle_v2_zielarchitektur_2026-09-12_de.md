@@ -80,7 +80,7 @@ Gate-Abschluss, wenn alle Exit-Kriterien des jeweiligen Gates erfüllt sind.
 |---:|---|---|
 | 0 | kleine deterministische affine Record-Oracles über Scale 1/2, MONO/OSC, alle Bayer-Patterns, zwei Origins, drei Pixfrac-Werte und fünf affine Transformationen; sauber gebundener 60-Frame-M42-Kaltlauf; persistierte Gate-1-Schwellen | **bestanden**; lokale Referenz wird erst in Gate 8 nach Auswahl der lokalen Repräsentation erzeugt und in Gate 10 produktiv abgenommen |
 | 1 | CPU-/CUDA-Target-Gather und CUDA-Dense-Scatter; 21 Fälle auf 3840×2160 → 7868×4540, sieben Transformationen und Pixfrac 0,2/0,8/1,0 | **bestanden: Dense Device Scatter ausgewählt**; alle festen Korrektheits-, Flux-, Repeatability- und 0,75-s-Schwellen erfüllt |
-| 2 | framekorrekter A/B/B²-Fold als isoliertes Primitiv | teilweise: vier Supportebenen, Profile, Teilflächenregel, Flux-/Gradientmatrix und CUDA-Fold fehlen |
+| 2 | vierstufiger Support-/Fold-Vertrag, exakter CPU-Fold, CUDA-Paritätsoracle, Flux-/Teilflächenmatrix | **bestanden**; Chunk-/Tile-Grenzen des späteren Batch-Folds bleiben Gate-6-Abnahmekriterium |
 | 3 | experimenteller zweipassiger winsorisierter Gruppen-Schätzer | nicht ausgewählt: kein Verfahrenvergleich; zweiter Replay-Pass ist noch nicht mit dem recordfreien I/O-/Geometrievertrag vereinbar |
 | 4 | keine v2-Implementierung | offen |
 | 5 | vereinfachter experimenteller RAM-/VRAM-Planner | nicht bestanden: Bufferrollen sind vor Gate 3/4 angenommen; Host-Lebensdauer verwendet Framezahl statt aktiver Slots; der isolierte Arithmetiktest ist grün, validiert aber noch nicht die reale Bufferformel |
@@ -413,16 +413,26 @@ mean(A_p,j / B_p,j)
 
 ### 6.2 Fehlende interne Teilflächen
 
-Vor Implementierung wird für 1/4, 2/4, 3/4 und 4/4 Source-Support entschieden:
+**Entschieden in Gate 2** (Spec und Entscheidung versioniert in
+`forward_drizzle_v2_gate2_support_fold_spec_2026-09-12.json` und
+`forward_drizzle_v2_gate2_support_fold_decision_2026-09-12.json`):
 
-- Mindestflächenabdeckung;
-- Renormalisierung oder explizite Nichtabdeckung;
-- Profile-Support je Profil;
-- Confidence-Absenkung;
-- CFA-Kanalkonsistenz;
-- Flux- und Surface-Brightness-Semantik.
+- es gibt keine Mindestflächenabdeckung im Fold: solange `B_p,out > 0` ist,
+  gilt `value = A/B` über der vorhandenen Fläche;
+- vier unabhängige Flächenfraktionen (Geometry, Source, Estimator, Profile)
+  bewahren die verlorene Teilflächeninformation für Confidence und spätere
+  Delivery-Entscheidungen;
+- die Supportimplikationen `profile => estimator => source => geometry`
+  sind Pflicht; Verletzungen sind `invalid_argument`, keine stille
+  Hochstufung;
+- ein endlicher Teilflächenwert wird nicht gelöscht; eine endgültige
+  Delivery-Mindestabdeckung bleibt ein separater, noch zu fassender Vertrag.
 
-Diese Entscheidung wird gegen konstante Felder, analytische Gradienten und Punktquellen validiert. Ein einzelnes fehlendes internes Subpixel darf nicht ohne mathematischen Vertrag den vollständigen nativen Pixel verwerfen.
+Validiert gegen konstante Felder (volle und partielle Fläche), einen
+gewichteten linearen Gradienten mit ungleichen Frame- und Profilgewichten,
+eine einzelne Punktquelle, alle vier isolierten Supportebenen, ungültige
+Implikationen und nichtendliche positive Zähler. Ein einzelnes fehlendes
+internes Subpixel verwirft den nativen Pixel nicht.
 
 ### 6.3 Fold-Gate
 
@@ -1284,7 +1294,14 @@ abgenommen werden.
 - Teilflächenregel festlegen;
 - konstante Felder, Gradienten und Punktflux validieren.
 
-**Exit:** Kein mathematisch offener 2×2- oder Supportfall bleibt.
+**Exit (bestanden 2026-09-12):** Vierstufiger Supportvertrag mit verbindlichen
+Implikationen, framebezogener B²-Fold mit Kreuztermen, `value = A/B` über
+Teilflächen ohne Subpixel-AND und vier unabhängige Flächenfraktionen sind
+festgelegt, exakt auf CPU implementiert und durch ein Single-Thread-
+CUDA-Paritätsoracle verifiziert. Die Punkte `estimator_b` pro Eintrag,
+Produktions-Batch-Fold und eine mögliche Delivery-Mindestabdeckung sind
+explizit an Gate 3 beziehungsweise Gate 6 delegiert; alle Gate-2-Testfälle
+bestehen (12 Testfälle, 7.415 Assertions).
 
 ### Gate 3: Robustschätzer
 

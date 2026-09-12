@@ -250,8 +250,10 @@ ForwardDrizzleV2FoldResult fold_native_pixel_v2(
     throw std::invalid_argument("FORWARD_DRIZZLE_V2_INVALID_FOLD_AREA");
 
   ForwardDrizzleV2FoldResult out;
-  double supported_area = 0.0;
-  std::vector<unsigned char> subpixel_supported(area.size(), 0);
+  std::vector<std::uint8_t> geometry_supported(area.size(), 0u);
+  std::vector<std::uint8_t> source_supported(area.size(), 0u);
+  std::vector<std::uint8_t> estimator_supported(area.size(), 0u);
+  std::vector<std::uint8_t> profile_supported(area.size(), 0u);
   for (std::size_t f = 0; f < frame_count; ++f) {
     double af = 0.0;
     double bf = 0.0;
@@ -259,10 +261,26 @@ ForwardDrizzleV2FoldResult fold_native_pixel_v2(
       const auto &v = entries[f * area.size() + j];
       if (v.frame_order != f)
         throw std::invalid_argument("FORWARD_DRIZZLE_V2_FOLD_FRAME_ORDER");
-      if (!(v.b > 0.0) || !std::isfinite(v.a) || !std::isfinite(v.b)) continue;
+      const auto valid_weight = [](double w) {
+        return std::isfinite(w) && w >= 0.0;
+      };
+      if (!valid_weight(v.geometry_b) || !valid_weight(v.source_b) ||
+          !valid_weight(v.estimator_b) || !valid_weight(v.b))
+        throw std::invalid_argument("FORWARD_DRIZZLE_V2_FOLD_INVALID_WEIGHT");
+      if ((v.source_b > 0.0 && !(v.geometry_b > 0.0)) ||
+          (v.estimator_b > 0.0 && !(v.source_b > 0.0)) ||
+          (v.b > 0.0 && !(v.estimator_b > 0.0)))
+        throw std::invalid_argument("FORWARD_DRIZZLE_V2_FOLD_SUPPORT_ORDER");
+      if (v.b > 0.0 && !std::isfinite(v.a))
+        throw std::invalid_argument("FORWARD_DRIZZLE_V2_FOLD_NONFINITE_VALUE");
+      geometry_supported[j] |= static_cast<std::uint8_t>(v.geometry_b > 0.0);
+      source_supported[j] |= static_cast<std::uint8_t>(v.source_b > 0.0);
+      estimator_supported[j] |=
+          static_cast<std::uint8_t>(v.estimator_b > 0.0);
+      profile_supported[j] |= static_cast<std::uint8_t>(v.b > 0.0);
+      if (!(v.b > 0.0)) continue;
       af += area[j] * v.a;
       bf += area[j] * v.b;
-      subpixel_supported[j] = 1;
     }
     if (bf > 0.0) {
       out.a += af;
@@ -270,19 +288,38 @@ ForwardDrizzleV2FoldResult fold_native_pixel_v2(
       out.b2 += bf * bf;
     }
   }
-  for (std::size_t j = 0; j < area.size(); ++j)
-    if (subpixel_supported[j]) supported_area += area[j];
-  out.supported_area_fraction =
-      std::clamp(supported_area / total_area, 0.0, 1.0);
-  out.source_support = out.b > 0.0 && std::isfinite(out.a) &&
-                       std::isfinite(out.b) && std::isfinite(out.b2);
-  out.profile_support = out.source_support;
-  if (out.source_support) {
+  auto area_fraction = [&](const std::vector<std::uint8_t> &supported) {
+    double sum = 0.0;
+    for (std::size_t j = 0; j < area.size(); ++j)
+      if (supported[j]) sum += area[j];
+    return std::clamp(sum / total_area, 0.0, 1.0);
+  };
+  out.geometry_area_fraction = area_fraction(geometry_supported);
+  out.source_area_fraction = area_fraction(source_supported);
+  out.estimator_area_fraction = area_fraction(estimator_supported);
+  out.profile_area_fraction = area_fraction(profile_supported);
+  out.geometry_support = out.geometry_area_fraction > 0.0;
+  out.source_support = out.source_area_fraction > 0.0;
+  out.estimator_support = out.estimator_area_fraction > 0.0;
+  out.profile_support = out.b > 0.0 && std::isfinite(out.a) &&
+                        std::isfinite(out.b) && std::isfinite(out.b2);
+  if (out.profile_support) {
     out.value = out.a / out.b;
     out.n_eff = out.b2 > 0.0 ? out.b * out.b / out.b2 : 0.0;
   }
   return out;
 }
+
+#if !TILE_COMPILE_WITH_CUDA
+// CUDA-free build: the device oracle is defined in
+// forward_drizzle_cuda_device.cu when CUDA is compiled in. Here it always
+// reports unavailable and never touches `out`.
+bool fold_native_pixel_v2_cuda(
+    std::span<const ForwardDrizzleV2FrameSubpixel>, std::size_t,
+    std::span<const double>, ForwardDrizzleV2FoldResult &) {
+  return false;
+}
+#endif
 
 namespace {
 

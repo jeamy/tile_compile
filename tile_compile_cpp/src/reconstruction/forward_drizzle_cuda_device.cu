@@ -13,6 +13,7 @@
 // real now (it only queries) and is what the auto-chunk planner will consume.
 
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_v2.hpp"
 
 #if TILE_COMPILE_WITH_CUDA
 
@@ -830,6 +831,160 @@ bool ForwardDrizzleV2CudaWorkspace::run_dense_scatter(
   stats_.kernel_seconds += std::chrono::duration<double>(t2 - t1).count();
   stats_.download_seconds += std::chrono::duration<double>(t3 - t2).count();
   return true;
+}
+
+// Gate-2 test oracle: single-thread device port of the CPU
+// fold_native_pixel_v2 algebra (src/reconstruction/forward_drizzle_v2.cpp).
+// One thread owns the whole scalar fold so the per-frame and per-subpixel
+// evaluation order is identical to the CPU reference. It proves the
+// frame-before-square and four-support-layer arithmetic on the device; it is
+// NOT the production batch kernel that Gate 6 selects later.
+// Error codes mirror the CPU invalid_argument cases:
+//   1 shape, 2 area, 3 frame order, 4 weight, 5 support order,
+//   6 nonfinite numerator with positive denominator.
+__global__ void k_fold_native_pixel_v2(
+    const ForwardDrizzleV2FrameSubpixel *entries, unsigned long long frame_count,
+    const double *area, unsigned long long subpixels,
+    ForwardDrizzleV2FoldResult *out, int *error) {
+  if (frame_count == 0 || subpixels == 0) { *error = 1; return; }
+  double total_area = 0.0;
+  for (unsigned long long j = 0; j < subpixels; ++j) {
+    const double a = area[j];
+    if (!isfinite(a) || a < 0.0) { *error = 2; return; }
+    total_area += a;
+  }
+  if (!(total_area > 0.0)) { *error = 2; return; }
+
+  ForwardDrizzleV2FoldResult r;
+  for (unsigned long long f = 0; f < frame_count; ++f) {
+    double af = 0.0;
+    double bf = 0.0;
+    for (unsigned long long j = 0; j < subpixels; ++j) {
+      const ForwardDrizzleV2FrameSubpixel &v =
+          entries[f * subpixels + j];
+      if (v.frame_order != f) { *error = 3; return; }
+      const bool bad_weight =
+          !isfinite(v.geometry_b) || v.geometry_b < 0.0 ||
+          !isfinite(v.source_b) || v.source_b < 0.0 ||
+          !isfinite(v.estimator_b) || v.estimator_b < 0.0 ||
+          !isfinite(v.b) || v.b < 0.0;
+      if (bad_weight) { *error = 4; return; }
+      if ((v.source_b > 0.0 && !(v.geometry_b > 0.0)) ||
+          (v.estimator_b > 0.0 && !(v.source_b > 0.0)) ||
+          (v.b > 0.0 && !(v.estimator_b > 0.0))) {
+        *error = 5;
+        return;
+      }
+      if (v.b > 0.0 && !isfinite(v.a)) { *error = 6; return; }
+      if (!(v.b > 0.0)) continue;
+      af += area[j] * v.a;
+      bf += area[j] * v.b;
+    }
+    if (bf > 0.0) {
+      r.a += af;
+      r.b += bf;
+      r.b2 += bf * bf;
+    }
+  }
+
+  // Per-internal-subpixel support: count area[j] when at least one frame
+  // carries the respective positive denominator there.
+  double geometry_area = 0.0, source_area = 0.0, estimator_area = 0.0,
+         profile_area = 0.0;
+  for (unsigned long long j = 0; j < subpixels; ++j) {
+    bool geo = false, src = false, est = false, prof = false;
+    for (unsigned long long f = 0; f < frame_count; ++f) {
+      const ForwardDrizzleV2FrameSubpixel &v =
+          entries[f * subpixels + j];
+      geo |= v.geometry_b > 0.0;
+      src |= v.source_b > 0.0;
+      est |= v.estimator_b > 0.0;
+      prof |= v.b > 0.0;
+    }
+    if (geo) geometry_area += area[j];
+    if (src) source_area += area[j];
+    if (est) estimator_area += area[j];
+    if (prof) profile_area += area[j];
+  }
+  r.geometry_area_fraction = fmin(fmax(geometry_area / total_area, 0.0), 1.0);
+  r.source_area_fraction = fmin(fmax(source_area / total_area, 0.0), 1.0);
+  r.estimator_area_fraction =
+      fmin(fmax(estimator_area / total_area, 0.0), 1.0);
+  r.profile_area_fraction = fmin(fmax(profile_area / total_area, 0.0), 1.0);
+  r.geometry_support = r.geometry_area_fraction > 0.0;
+  r.source_support = r.source_area_fraction > 0.0;
+  r.estimator_support = r.estimator_area_fraction > 0.0;
+  r.profile_support = r.b > 0.0 && isfinite(r.a) && isfinite(r.b) &&
+                      isfinite(r.b2);
+  if (r.profile_support) {
+    r.value = r.a / r.b;
+    r.n_eff = r.b2 > 0.0 ? r.b * r.b / r.b2 : 0.0;
+  }
+  *out = r;
+}
+
+bool fold_native_pixel_v2_cuda(
+    std::span<const ForwardDrizzleV2FrameSubpixel> entries,
+    std::size_t frame_count, std::span<const double> area,
+    ForwardDrizzleV2FoldResult &out) {
+  // Host-side shape guard: same shape contract as the CPU reference; any
+  // violation (or overflow while sizing) leaves `out` untouched.
+  constexpr std::size_t kMax = std::numeric_limits<std::size_t>::max();
+  if (frame_count == 0 || area.empty() ||
+      frame_count > kMax / area.size() ||
+      entries.size() != frame_count * area.size() ||
+      entries.size() > kMax / sizeof(ForwardDrizzleV2FrameSubpixel) ||
+      area.size() > kMax / sizeof(double))
+    return false;
+  int devices = 0;
+  if (cudaGetDeviceCount(&devices) != cudaSuccess || devices <= 0) {
+    cudaGetLastError();
+    return false;
+  }
+  CudaScopedError clear_on_exit;
+
+  const std::size_t entries_bytes =
+      entries.size() * sizeof(ForwardDrizzleV2FrameSubpixel);
+  const std::size_t area_bytes = area.size() * sizeof(double);
+  ForwardDrizzleV2FrameSubpixel *d_entries = nullptr;
+  double *d_area = nullptr;
+  ForwardDrizzleV2FoldResult *d_out = nullptr;
+  int *d_error = nullptr;
+  bool ok =
+      cudaMalloc(&d_entries, entries_bytes) == cudaSuccess &&
+      cudaMalloc(&d_area, area_bytes) == cudaSuccess &&
+      cudaMalloc(&d_out, sizeof(ForwardDrizzleV2FoldResult)) == cudaSuccess &&
+      cudaMalloc(&d_error, sizeof(int)) == cudaSuccess;
+  if (ok)
+    ok = cudaMemcpy(d_entries, entries.data(), entries_bytes,
+                    cudaMemcpyHostToDevice) == cudaSuccess &&
+         cudaMemcpy(d_area, area.data(), area_bytes,
+                    cudaMemcpyHostToDevice) == cudaSuccess &&
+         cudaMemset(d_error, 0, sizeof(int)) == cudaSuccess;
+  if (ok) {
+    k_fold_native_pixel_v2<<<1, 1>>>(
+        d_entries, static_cast<unsigned long long>(frame_count), d_area,
+        static_cast<unsigned long long>(area.size()), d_out, d_error);
+    ok = cudaGetLastError() == cudaSuccess &&
+         cudaDeviceSynchronize() == cudaSuccess;
+  }
+  int error = 1;
+  ForwardDrizzleV2FoldResult result;
+  if (ok)
+    ok = cudaMemcpy(&error, d_error, sizeof(int), cudaMemcpyDeviceToHost) ==
+         cudaSuccess;
+  if (ok && error == 0)
+    ok = cudaMemcpy(&result, d_out, sizeof(result),
+                    cudaMemcpyDeviceToHost) == cudaSuccess;
+  cudaFree(d_entries);
+  cudaFree(d_area);
+  cudaFree(d_out);
+  cudaFree(d_error);
+  if (ok && error == 0) {
+    out = result;
+    return true;
+  }
+  return false;
 }
 
 CudaDeviceMemory forward_drizzle_cuda_device_memory() {

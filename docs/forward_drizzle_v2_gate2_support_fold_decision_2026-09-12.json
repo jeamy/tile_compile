@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "gate": 2,
+  "status": "passed",
+  "spec": {
+    "path": "docs/forward_drizzle_v2_gate2_support_fold_spec_2026-09-12.json",
+    "status_at_implementation": "frozen_before_implementation"
+  },
+  "decisions": {
+    "support_layers": ["geometry", "source", "estimator", "profile"],
+    "support_implications": [
+      "profile_support => estimator_support",
+      "estimator_support => source_support",
+      "source_support => geometry_support"
+    ],
+    "violation_policy": "invalid_argument, no silent promotion",
+    "fold_order": "frame-internal fold to a_f/b_f first; b2 uses b_f^2 to preserve same-frame cross terms",
+    "partial_area_rule": "value = A/B over supported area only; four independent area fractions retain lost-area information; no all-subpixel AND",
+    "area_fractions": [
+      "geometry_area_fraction",
+      "source_area_fraction",
+      "estimator_area_fraction",
+      "profile_area_fraction"
+    ],
+    "delivery_threshold": "deferred; Gate 2 deliberately does not define a minimum delivery coverage fraction"
+  },
+  "validated_cases": {
+    "cpu_exact": [
+      "same-frame cross terms: b2 = 2.5^2 + 2.5^2 = 12.5, n_eff = 2.0",
+      "constant field full and partial area",
+      "single point contribution: one subpixel of one frame",
+      "all four support layers independently distinct",
+      "profile absent while estimator present",
+      "completely absent geometry support",
+      "invalid support implications rejected",
+      "nonfinite positive-weight numerator rejected",
+      "invalid weights and frame order rejected"
+    ],
+    "cpu_approx": [
+      "weighted linear gradient, two frames, unequal weights and areas: a/b/b2/value/n_eff within 1e-15"
+    ],
+    "cuda_parity": [
+      "single-thread device oracle reproduces CPU result within 1e-12 for a, b, b2, value, n_eff and all four area fractions; support bools identical"
+    ]
+  },
+  "forbidden_equations_confirmed_absent": [
+    "mean of per-subpixel ratios",
+    "b2_out = sum_j area_j^2 * sum_f b_fj^2",
+    "profile support as AND over all internal subpixels"
+  ],
+  "evidence": {
+    "test_filter": "[forward-drizzle-v2]",
+    "result": "12 test cases, 7415 assertions, all passed",
+    "cuda_available": true
+  },
+  "chunk_boundary_criterion": "per-native-pixel scalar fold has no chunking; chunk- and tile-boundary invariance is already proven at enumeration level by Gate-1 stripe tests and remains a Gate-6 acceptance criterion for the batch fold kernel",
+  "carried_forward_to_later_gates": [
+    "Gate 3 must supply estimator_b per frame/subpixel or document the fallback mapping estimator_b = source_b",
+    "the production batch fold kernel is Gate 6 scope; the single-thread CUDA path is a parity oracle only",
+    "confidence may consume the four area fractions; delivery thresholds are undecided",
+    "all four profiles reuse this algebra with their own a/b denominators"
+  ]
+}

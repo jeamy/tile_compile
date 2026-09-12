@@ -232,8 +232,10 @@ TEST_CASE("forward drizzle v2 native fold retains same-frame cross terms",
   const std::vector<double> area{0.25, 0.25, 0.25, 0.25};
   std::vector<ForwardDrizzleV2FrameSubpixel> v;
   for (std::size_t f = 0; f < 2; ++f)
-    for (int j = 0; j < 4; ++j)
-      v.push_back({f, (10.0 + f) * (1.0 + j), 1.0 + j});
+    for (int j = 0; j < 4; ++j) {
+      const double b = 1.0 + j;
+      v.push_back({f, b, b, b, (10.0 + f) * b, b});
+    }
   const auto got = fold_native_pixel_v2(v, 2, area);
   REQUIRE(got.a == 52.5);
   REQUIRE(got.b == 5.0);
@@ -242,19 +244,172 @@ TEST_CASE("forward drizzle v2 native fold retains same-frame cross terms",
   REQUIRE(got.b2 == 12.5);
   REQUIRE(got.n_eff == 2.0);
   REQUIRE(got.value == 10.5);
-  REQUIRE(got.supported_area_fraction == 1.0);
+  REQUIRE(got.geometry_area_fraction == 1.0);
+  REQUIRE(got.source_area_fraction == 1.0);
+  REQUIRE(got.estimator_area_fraction == 1.0);
+  REQUIRE(got.profile_area_fraction == 1.0);
+  REQUIRE(got.geometry_support);
   REQUIRE(got.source_support);
+  REQUIRE(got.estimator_support);
+  REQUIRE(got.profile_support);
 }
 
 TEST_CASE("forward drizzle v2 partial fold preserves supported surface value",
           "[forward-drizzle-v2][fold]") {
   const std::vector<double> area{0.25, 0.25, 0.25, 0.25};
   const std::vector<ForwardDrizzleV2FrameSubpixel> v{
-      {0, 7.0, 1.0}, {0, 0.0, 0.0}, {0, 21.0, 3.0}, {0, 0.0, 0.0}};
+      {0, 1.0, 1.0, 1.0, 7.0, 1.0},
+      {0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {0, 3.0, 3.0, 3.0, 21.0, 3.0},
+      {0, 0.0, 0.0, 0.0, 0.0, 0.0}};
   const auto got = fold_native_pixel_v2(v, 1, area);
+  REQUIRE(got.geometry_support);
   REQUIRE(got.source_support);
+  REQUIRE(got.estimator_support);
+  REQUIRE(got.profile_support);
   REQUIRE(got.value == 7.0);
-  REQUIRE(got.supported_area_fraction == 0.5);
+  REQUIRE(got.geometry_area_fraction == 0.5);
+  REQUIRE(got.source_area_fraction == 0.5);
+  REQUIRE(got.estimator_area_fraction == 0.5);
+  REQUIRE(got.profile_area_fraction == 0.5);
+}
+
+TEST_CASE("forward drizzle v2 fold keeps four support layers distinct",
+          "[forward-drizzle-v2][fold][support]") {
+  const std::vector<double> area{0.25, 0.25, 0.25, 0.25};
+  const std::vector<ForwardDrizzleV2FrameSubpixel> v{
+      {0, 1.0, 0.0, 0.0, 0.0, 0.0},
+      {0, 1.0, 1.0, 0.0, 0.0, 0.0},
+      {0, 1.0, 1.0, 1.0, 0.0, 0.0},
+      {0, 1.0, 1.0, 1.0, 5.0, 1.0}};
+  const auto got = fold_native_pixel_v2(v, 1, area);
+  REQUIRE(got.geometry_support);
+  REQUIRE(got.source_support);
+  REQUIRE(got.estimator_support);
+  REQUIRE(got.profile_support);
+  REQUIRE(got.geometry_area_fraction == 1.0);
+  REQUIRE(got.source_area_fraction == 0.75);
+  REQUIRE(got.estimator_area_fraction == 0.5);
+  REQUIRE(got.profile_area_fraction == 0.25);
+  REQUIRE(got.value == 5.0);
+  REQUIRE(got.n_eff == 1.0);
+
+  const std::vector<ForwardDrizzleV2FrameSubpixel> no_profile{
+      {0, 1.0, 1.0, 1.0, 0.0, 0.0},
+      {0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {0, 0.0, 0.0, 0.0, 0.0, 0.0}};
+  const auto absent = fold_native_pixel_v2(no_profile, 1, area);
+  REQUIRE(absent.geometry_support);
+  REQUIRE(absent.source_support);
+  REQUIRE(absent.estimator_support);
+  REQUIRE_FALSE(absent.profile_support);
+  REQUIRE(absent.profile_area_fraction == 0.0);
+
+  const std::vector<ForwardDrizzleV2FrameSubpixel> point{
+      {0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {0, 2.0, 2.0, 2.0, 14.0, 2.0},
+      {0, 0.0, 0.0, 0.0, 0.0, 0.0}};
+  const auto point_result = fold_native_pixel_v2(point, 1, area);
+  REQUIRE(point_result.geometry_area_fraction == 0.25);
+  REQUIRE(point_result.profile_area_fraction == 0.25);
+  REQUIRE(point_result.a == 3.5);
+  REQUIRE(point_result.value == 7.0);
+  REQUIRE(point_result.b2 == Catch::Approx(0.25).margin(1e-15));
+  REQUIRE(point_result.n_eff == Catch::Approx(1.0).margin(1e-15));
+
+  const std::vector<ForwardDrizzleV2FrameSubpixel> empty(4);
+  const auto none = fold_native_pixel_v2(empty, 1, area);
+  REQUIRE_FALSE(none.geometry_support);
+  REQUIRE_FALSE(none.source_support);
+  REQUIRE_FALSE(none.estimator_support);
+  REQUIRE_FALSE(none.profile_support);
+  REQUIRE(none.b == 0.0);
+  REQUIRE(none.value == 0.0);
+}
+
+TEST_CASE("forward drizzle v2 fold rejects invalid support implications",
+          "[forward-drizzle-v2][fold][support]") {
+  const std::vector<double> area{1.0};
+  REQUIRE_THROWS_AS(fold_native_pixel_v2(
+                        std::vector<ForwardDrizzleV2FrameSubpixel>{
+                            {0, 0.0, 1.0, 0.0, 0.0, 0.0}},
+                        1, area),
+                    std::invalid_argument);
+  REQUIRE_THROWS_AS(fold_native_pixel_v2(
+                        std::vector<ForwardDrizzleV2FrameSubpixel>{
+                            {0, 1.0, 1.0, 0.0, 2.0, 1.0}},
+                        1, area),
+                    std::invalid_argument);
+  REQUIRE_THROWS_AS(fold_native_pixel_v2(
+                        std::vector<ForwardDrizzleV2FrameSubpixel>{
+                            {0, 1.0, 1.0, 1.0,
+                             std::numeric_limits<double>::quiet_NaN(), 1.0}},
+                        1, area),
+                    std::invalid_argument);
+}
+
+TEST_CASE("forward drizzle v2 fold preserves weighted gradient algebra",
+          "[forward-drizzle-v2][fold][flux]") {
+  const std::vector<double> area{0.1, 0.2, 0.3, 0.4};
+  const double values[4] = {1.0, 2.0, 3.0, 4.0};
+  const double weights[2][4] = {{1.0, 2.0, 1.0, 2.0},
+                                {2.0, 1.0, 2.0, 1.0}};
+  std::vector<ForwardDrizzleV2FrameSubpixel> v;
+  for (std::size_t f = 0; f < 2; ++f)
+    for (std::size_t j = 0; j < 4; ++j) {
+      const double b = weights[f][j];
+      v.push_back({f, b, b, b, b * values[j], b});
+    }
+  const auto got = fold_native_pixel_v2(v, 2, area);
+  REQUIRE(got.a == Catch::Approx(9.0).margin(1e-15));
+  REQUIRE(got.b == Catch::Approx(3.0).margin(1e-15));
+  REQUIRE(got.b2 == Catch::Approx(4.52).margin(1e-15));
+  REQUIRE(got.value == Catch::Approx(3.0).margin(1e-15));
+  REQUIRE(got.n_eff == Catch::Approx(9.0 / 4.52).margin(1e-15));
+  REQUIRE(got.geometry_area_fraction == 1.0);
+  REQUIRE(got.source_area_fraction == 1.0);
+  REQUIRE(got.estimator_area_fraction == 1.0);
+  REQUIRE(got.profile_area_fraction == 1.0);
+}
+
+TEST_CASE("forward drizzle v2 CUDA fold matches all support layers",
+          "[forward-drizzle-v2][fold][cuda-parity]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  const std::vector<double> area{0.1, 0.2, 0.3, 0.4};
+  const std::vector<ForwardDrizzleV2FrameSubpixel> v{
+      {0, 1.0, 1.0, 1.0, 2.0, 1.0},
+      {0, 2.0, 2.0, 0.0, 0.0, 0.0},
+      {0, 3.0, 0.0, 0.0, 0.0, 0.0},
+      {0, 4.0, 4.0, 4.0, 20.0, 4.0},
+      {1, 1.5, 1.5, 1.5, 4.5, 1.5},
+      {1, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {1, 2.5, 2.5, 2.5, 10.0, 2.5},
+      {1, 3.5, 3.5, 0.0, 0.0, 0.0}};
+  const auto cpu = fold_native_pixel_v2(v, 2, area);
+  ForwardDrizzleV2FoldResult gpu;
+  REQUIRE(fold_native_pixel_v2_cuda(v, 2, area, gpu));
+  REQUIRE(gpu.a == Catch::Approx(cpu.a).margin(1e-12));
+  REQUIRE(gpu.b == Catch::Approx(cpu.b).margin(1e-12));
+  REQUIRE(gpu.b2 == Catch::Approx(cpu.b2).margin(1e-12));
+  REQUIRE(gpu.value == Catch::Approx(cpu.value).margin(1e-12));
+  REQUIRE(gpu.n_eff == Catch::Approx(cpu.n_eff).margin(1e-12));
+  REQUIRE(gpu.geometry_area_fraction ==
+          Catch::Approx(cpu.geometry_area_fraction).margin(1e-12));
+  REQUIRE(gpu.source_area_fraction ==
+          Catch::Approx(cpu.source_area_fraction).margin(1e-12));
+  REQUIRE(gpu.estimator_area_fraction ==
+          Catch::Approx(cpu.estimator_area_fraction).margin(1e-12));
+  REQUIRE(gpu.profile_area_fraction ==
+          Catch::Approx(cpu.profile_area_fraction).margin(1e-12));
+  REQUIRE(gpu.geometry_support == cpu.geometry_support);
+  REQUIRE(gpu.source_support == cpu.source_support);
+  REQUIRE(gpu.estimator_support == cpu.estimator_support);
+  REQUIRE(gpu.profile_support == cpu.profile_support);
 }
 
 TEST_CASE("forward drizzle v2 robust reducer is bounded and never deletes support",
