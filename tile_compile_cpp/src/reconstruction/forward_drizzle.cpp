@@ -563,14 +563,22 @@ void enumerate_drizzle_stripe_leaf_cells(
   }
   std::vector<Leaf> leaves;
   leaves.reserve(16);
+  // Hoisted out of the per-source-pixel loop (redundant-reload analysis C5):
+  // invariant for the whole call. `sink` is an opaque std::function the
+  // compiler cannot assume leaves `plan` (a const-ref alias) unmodified
+  // across the call, so without this it must re-read every iteration.
+  const bool is_osc = plan.color_mode == ColorMode::OSC;
+  const BayerPattern bayer_pattern = plan.bayer_pattern;
+  const int cfa_origin_x = plan.cfa_origin_x;
+  const int cfa_origin_y = plan.cfa_origin_y;
   for (int sy = source_y0; sy < source_y1; ++sy)
     for (int sx = source_x0; sx < source_x1; ++sx) {
       if (!sample_leaves(plan, f, sx, sy, scale, pixfrac, p, leaves))
         continue;
       int c = 0;
-      if (plan.color_mode == ColorMode::OSC) {
+      if (is_osc) {
         const auto channel = cfa_channel_for_source_pixel(
-            sx, sy, plan.bayer_pattern, plan.cfa_origin_x, plan.cfa_origin_y);
+            sx, sy, bayer_pattern, cfa_origin_x, cfa_origin_y);
         c = channel == CfaChannel::R ? 0 : channel == CfaChannel::G ? 1 : 2;
       }
       for (size_t li = 0; li < leaves.size(); ++li) {
@@ -869,10 +877,16 @@ ForwardDrizzleDiagnostics stream_forward_drizzle_uniform(
                              memory.rows, memory.height,
                              static_cast<int>(prepared.frames.size()), local_n);
   }
+  // Hoisted out of the stripe loop (redundant-reload analysis D2): these were
+  // previously declared fresh every stripe iteration, forcing a malloc/free
+  // per stripe per array. `n` shrinks only for the final (possibly partial)
+  // stripe, so hoisting the std::array<vector> declarations lets .assign(n,0)
+  // below reuse each vector's already-grown capacity across stripes instead
+  // of reallocating. Bit-identical: same values assigned, same n per stripe.
+  std::array<std::vector<double>, 3> wx, w, w2, A, B;
   for (int y = 0; y < memory.height; y += memory.rows) {
     const int rows = std::min(memory.rows, memory.height - y);
     const size_t n = static_cast<size_t>(memory.width) * rows;
-    std::array<std::vector<double>, 3> wx, w, w2, A, B;
     for (int c = 0; c < channels; ++c) {
       wx[c].assign(n, 0);
       w[c].assign(n, 0);
@@ -1180,16 +1194,22 @@ void reduce_pixel_profiles(
   auto add = [](Accum &a, double w, double x) {
     a.wx += w * x; a.w += w; a.w2 += w * w;
   };
+  // Hoisted out of the per-candidate loop (redundant-reload analysis C6):
+  // these are invariant for the whole call.
+  const bool emit_fine = cfg.emit_fine;
+  const bool emit_medium = cfg.emit_medium;
+  const double fine_quality_exponent = cfg.fine_quality_exponent;
+  const double medium_quality_exponent = cfg.medium_quality_exponent;
   for (size_t k = 0; k < pixel.size(); ++k) {
     if (!accepted[k]) continue;
     const auto &cd = pixel[k];
     const double g = g_eff_for(cd.frame_index);
     add(au, cd.b, cd.x);
     add(ar, cd.b * g * cd.q, cd.x);
-    if (cfg.emit_fine)
-      add(af, cd.b * g * std::pow(cd.q0, cfg.fine_quality_exponent), cd.x);
-    if (cfg.emit_medium)
-      add(am, cd.b * g * std::pow(cd.q1, cfg.medium_quality_exponent), cd.x);
+    if (emit_fine)
+      add(af, cd.b * g * std::pow(cd.q0, fine_quality_exponent), cd.x);
+    if (emit_medium)
+      add(am, cd.b * g * std::pow(cd.q1, medium_quality_exponent), cd.x);
   }
   auto write = [&](ProfilePlane *p, const Accum &a) {
     if (!p || a.w <= 0.0) return;

@@ -180,30 +180,6 @@ core::json make_run_provenance(
         {"sha256", core::sha256_bytes(manifest_bytes)}}}};
 }
 
-image::HyperMetricStretchConfig to_image_hms_config(
-    const tile_compile::config::HyperMetricStretchConfig &src) {
-  image::HyperMetricStretchConfig dst;
-  dst.enabled = src.enabled;
-  dst.require_successful_pcc = src.require_successful_pcc;
-  dst.mode = src.mode;
-  dst.sensor_profile = src.sensor_profile;
-  dst.fallback_profile = src.fallback_profile;
-  dst.adaptive_anchor = src.adaptive_anchor;
-  dst.target_bg = src.target_bg;
-  dst.protect_b = src.protect_b;
-  dst.convergence_power = src.convergence_power;
-  dst.log_d_mode = src.log_d_mode;
-  dst.fixed_log_d = src.fixed_log_d;
-  dst.color_strategy = src.color_strategy;
-  dst.fixed_color_strategy = src.fixed_color_strategy;
-  dst.color_grip = src.color_grip;
-  dst.shadow_convergence = src.shadow_convergence;
-  dst.linear_expansion = src.linear_expansion;
-  dst.write_channels = src.write_channels;
-  dst.output_rgb = src.output_rgb;
-  return dst;
-}
-
 constexpr float kTileNormBoundaryRegressionFactor = 8.0f;
 constexpr float kTileNormBoundaryRegressionAbsP95 = 0.25f;
 constexpr float kCalibrationFlatFloor = 1.0e-6f;
@@ -3561,7 +3537,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               }
             }
             boundary_input_tiles[ti] =
-                0.25f * diag_r + 0.5f * diag_g + 0.25f * diag_b;
+                image::rgb_to_luma(diag_r, diag_g, diag_b);
           } else {
             Matrix2Df diag_tile = reconstructed_tiles[ti];
             if (normalized) {
@@ -3797,7 +3773,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
 
       // Keep a luminance proxy for validation + downstream metrics.
-      recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
+      recon = image::rgb_to_luma(recon_R, recon_G, recon_B);
     } else {
       if (!overlap_normalized_on_device) {
         for (int i = 0; i < recon.size(); ++i) {
@@ -5129,7 +5105,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             recon_G = std::move(wr_g.tile);
             recon_B = std::move(wr_b.tile);
           }
-          recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
+          recon = image::rgb_to_luma(recon_R, recon_G, recon_B);
         } else {
           if (!use_quality_weighting && cfg.stacking.method == "rej") {
             recon = stacking_ops.sigma_clip_stack(
@@ -5181,7 +5157,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         recon_B.size() == recon.size() && recon_R.size() > 0) {
       reconstruction::chroma_denoise_rgb_inplace(
           recon_R, recon_G, recon_B, cfg.chroma_denoise);
-      recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
+      recon = image::rgb_to_luma(recon_R, recon_G, recon_B);
     }
 
 	    auto write_stacking_outputs = [&](const Matrix2Df &stack_luma) -> bool {
@@ -6767,7 +6743,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     } else {
       try {
         image::HyperMetricStretchConfig hms_cfg =
-            to_image_hms_config(cfg.hypermetric_stretch);
+            runner::to_image_hms_config(cfg.hypermetric_stretch);
         const int hms_rows = static_cast<int>(R_out.rows());
         const int hms_cols = static_cast<int>(R_out.cols());
         const size_t hms_pixels =

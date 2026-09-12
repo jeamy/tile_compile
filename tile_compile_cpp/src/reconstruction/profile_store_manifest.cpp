@@ -1,5 +1,6 @@
 #include "tile_compile/reconstruction/profile_store_manifest.hpp"
 
+#include "tile_compile/core/byte_sink.hpp"
 #include "tile_compile/core/utils.hpp"
 
 #include <nlohmann/json.hpp>
@@ -15,24 +16,7 @@ using json = nlohmann::json;
 
 namespace {
 
-struct ByteSink {
-  std::vector<uint8_t> bytes;
-  void u32(uint32_t v) {
-    bytes.push_back(static_cast<uint8_t>(v & 0xff));
-    bytes.push_back(static_cast<uint8_t>((v >> 8) & 0xff));
-    bytes.push_back(static_cast<uint8_t>((v >> 16) & 0xff));
-    bytes.push_back(static_cast<uint8_t>((v >> 24) & 0xff));
-  }
-  void i32(int32_t v) { u32(static_cast<uint32_t>(v)); }
-  void u64(uint64_t v) {
-    u32(static_cast<uint32_t>(v & 0xffffffffu));
-    u32(static_cast<uint32_t>((v >> 32) & 0xffffffffu));
-  }
-  void str(const std::string& s) {
-    u64(s.size());
-    bytes.insert(bytes.end(), s.begin(), s.end());
-  }
-};
+using tile_compile::core::ByteSink;
 
 bool valid_manifest_shape(const ProfileStoreManifest &m) {
   if (m.profile.empty() || m.internal_width <= 0 || m.internal_height <= 0 || m.planes.empty())

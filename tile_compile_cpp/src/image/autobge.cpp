@@ -112,7 +112,9 @@ float patch_estimate(const Matrix2Df& img, int cx, int cy, int patch_size,
   if (estimator != "sigma_clipped_median")
     return tile_compile::core::median_of(std::move(vals));
 
-  const float med = tile_compile::core::median_of(vals);
+  // vals already known non-empty above; the reorder from the in-place
+  // variant is harmless since the loop below only needs the same values.
+  const float med = tile_compile::core::median_of_or_nan_inplace(vals);
   std::vector<float> dev;
   dev.reserve(vals.size());
   for (float v : vals)

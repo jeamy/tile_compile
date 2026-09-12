@@ -2,6 +2,7 @@
 #include "tile_compile/core/utils.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -9,6 +10,22 @@
 namespace tile_compile::reconstruction {
 
 namespace {
+
+// cfa_channel_for_source_pixel's result depends only on (sx & 1, sy & 1) for
+// a fixed (bayer, cfa_origin_x, cfa_origin_y) --- the origin only shifts
+// parity, never the period. Building this 2x2 lookup once (redundant-reload
+// analysis C4) instead of re-deriving it from the Bayer-offset switch every
+// pixel is exact, not an approximation: it enumerates the same 4 inputs the
+// per-pixel calls would ever see.
+std::array<std::array<CfaChannel, 2>, 2> build_cfa_channel_2x2_lut(
+    BayerPattern bayer, int cfa_origin_x, int cfa_origin_y) {
+  std::array<std::array<CfaChannel, 2>, 2> lut{};
+  for (int py = 0; py < 2; ++py)
+    for (int px = 0; px < 2; ++px)
+      lut[py][px] = cfa_channel_for_source_pixel(px, py, bayer, cfa_origin_x,
+                                                  cfa_origin_y);
+  return lut;
+}
 
 // Separable [1,4,6,4,1]/16 pass along one axis, clamp-to-edge boundary.
 void b3_pass_rows(const Matrix2Df &in, Matrix2Df &out) {
@@ -120,6 +137,7 @@ SourceQualityProxyResult compute_source_quality_proxy_v1(const Matrix2Df &source
   }
 
   // --- Quad-Green grid (plan 13.2 step 1) ---
+  const auto cfa_lut = build_cfa_channel_2x2_lut(bayer_pattern, cfa_origin_x, cfa_origin_y);
   const int qw = W / 2, qh = H / 2;
   result.quad_width = qw;
   result.quad_height = qh;
@@ -130,8 +148,9 @@ SourceQualityProxyResult compute_source_quality_proxy_v1(const Matrix2Df &source
       double green_sum = 0.0;
       for (int dy = 0; dy < 2; ++dy) {
         for (int dx = 0; dx < 2; ++dx) {
-          if (cfa_channel_for_source_pixel(sx + dx, sy + dy, bayer_pattern, cfa_origin_x,
-                                           cfa_origin_y) == CfaChannel::G) {
+          // sx is always even, so (sx+dx)&1 == dx (and likewise sy/dy):
+          // the lookup key reduces to (dy, dx) directly.
+          if (cfa_lut[dy][dx] == CfaChannel::G) {
             green_sum += source(sy + dy, sx + dx);
           }
         }
@@ -150,8 +169,7 @@ SourceQualityProxyResult compute_source_quality_proxy_v1(const Matrix2Df &source
   result.proxy_full.resize(H, W);
   for (int y = 0; y < H; ++y) {
     for (int x = 0; x < W; ++x) {
-      const CfaChannel c = cfa_channel_for_source_pixel(x, y, bayer_pattern, cfa_origin_x,
-                                                        cfa_origin_y);
+      const CfaChannel c = cfa_lut[y & 1][x & 1];
       result.proxy_full(y, x) =
           (c == CfaChannel::G) ? source(y, x) : edge_aware_green_at(source, x, y, W, H);
     }

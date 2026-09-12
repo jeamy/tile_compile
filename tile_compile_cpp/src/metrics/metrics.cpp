@@ -30,7 +30,10 @@ cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame, float k_sigma, 
         }
     }
 
-    float mu = core::median_of(vals);
+    // median_of_or_nan_inplace avoids copying the whole frame just to find
+    // mu; it reorders `vals` (nth_element) but robust_sigma_mad below only
+    // needs the same multiset of values, not their order.
+    float mu = core::median_of_or_nan_inplace(vals);
     float sigma = core::robust_sigma_mad(vals);
     if (!(sigma > 0.0f)) {
         return cv::Mat1b(h, w, uint8_t(1));

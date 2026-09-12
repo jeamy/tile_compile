@@ -56,25 +56,6 @@ using tile_compile::runner::WarpBounds;
 using tile_compile::runner::compute_warps_bounds;
 namespace runner = tile_compile::runner;
 
-/// @brief Implements shell quote.
-/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::string shell_quote(const std::string &s) {
-  std::string out;
-  out.reserve(s.size() + 2);
-  out.push_back(static_cast<char>(39));
-  for (char c : s) {
-    if (c == static_cast<char>(39)) {
-      out += "'\\''";
-    } else {
-      out.push_back(c);
-    }
-  }
-  out.push_back(static_cast<char>(39));
-  return out;
-}
-
 /// @brief Normalizes phase name.
 /// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -455,12 +436,12 @@ int rerun_existing_run_in_place(const fs::path &run_dir,
 
   const fs::path exe_path = current_executable_path();
   std::ostringstream cmd;
-  cmd << shell_quote(exe_path.string()) << " run"
-      << " --config " << shell_quote(rerun_config_path.string())
-      << " --input-dir " << shell_quote(*input_dir)
-      << " --runs-dir " << shell_quote(run_dir.parent_path().string())
-      << " --project-root " << shell_quote(fs::current_path().string())
-      << " --run-id " << shell_quote(run_id);
+  cmd << runner::shell_quote(exe_path.string()) << " run"
+      << " --config " << runner::shell_quote(rerun_config_path.string())
+      << " --input-dir " << runner::shell_quote(*input_dir)
+      << " --runs-dir " << runner::shell_quote(run_dir.parent_path().string())
+      << " --project-root " << runner::shell_quote(fs::current_path().string())
+      << " --run-id " << runner::shell_quote(run_id);
 
   {
     std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl",
@@ -499,30 +480,6 @@ int rerun_existing_run_in_place(const fs::path &run_dir,
   }
 
   return (ret == 0) ? 0 : 1;
-}
-
-tile_compile::image::HyperMetricStretchConfig to_image_hms_config(
-    const tile_compile::config::HyperMetricStretchConfig &src) {
-  tile_compile::image::HyperMetricStretchConfig dst;
-  dst.enabled = src.enabled;
-  dst.require_successful_pcc = src.require_successful_pcc;
-  dst.mode = src.mode;
-  dst.sensor_profile = src.sensor_profile;
-  dst.fallback_profile = src.fallback_profile;
-  dst.adaptive_anchor = src.adaptive_anchor;
-  dst.target_bg = src.target_bg;
-  dst.protect_b = src.protect_b;
-  dst.convergence_power = src.convergence_power;
-  dst.log_d_mode = src.log_d_mode;
-  dst.fixed_log_d = src.fixed_log_d;
-  dst.color_strategy = src.color_strategy;
-  dst.fixed_color_strategy = src.fixed_color_strategy;
-  dst.color_grip = src.color_grip;
-  dst.shadow_convergence = src.shadow_convergence;
-  dst.linear_expansion = src.linear_expansion;
-  dst.write_channels = src.write_channels;
-  dst.output_rgb = src.output_rgb;
-  return dst;
 }
 
 }  // namespace
@@ -788,7 +745,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
 
     image::HyperMetricStretchConfig hms_cfg =
-        to_image_hms_config(cfg.hypermetric_stretch);
+        runner::to_image_hms_config(cfg.hypermetric_stretch);
     hms_cfg.enabled = true;
     auto hms_diag = image::run_hypermetric_stretch_rgb(
         R, G, B, hms_cfg, statistics_mask_ptr, mask_rows, mask_cols,
@@ -1486,7 +1443,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         recon_G = std::move(wr_g.tile);
         recon_B = std::move(wr_b.tile);
       }
-      recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
+      recon = image::rgb_to_luma(recon_R, recon_G, recon_B);
     } else {
       if (!use_quality_weighting && cfg.stacking.method == "rej") {
         recon = stacking_ops.sigma_clip_stack(
@@ -1526,7 +1483,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         recon_R.size() == recon.size()) {
       reconstruction::chroma_denoise_rgb_inplace(
           recon_R, recon_G, recon_B, cfg.chroma_denoise);
-      recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
+      recon = image::rgb_to_luma(recon_R, recon_G, recon_B);
     }
 
     emitter.phase_progress(run_id, Phase::STACKING, 0.75f,

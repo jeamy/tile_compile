@@ -1137,18 +1137,6 @@ PreprocessStackResult run_preprocess_stacking(
   return result;
 }
 
-std::string shell_quote(const std::string& s) {
-  std::string out;
-  out.reserve(s.size() + 2);
-  out.push_back(static_cast<char>(39));
-  for (char c : s) {
-    if (c == static_cast<char>(39)) out += "'\\''";
-    else out.push_back(c);
-  }
-  out.push_back(static_cast<char>(39));
-  return out;
-}
-
 void add_phase_result(json& phases,
                       const std::string& phase,
                       const std::string& status,

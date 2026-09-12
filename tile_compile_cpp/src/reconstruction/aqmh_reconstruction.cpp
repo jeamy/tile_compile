@@ -17,14 +17,6 @@
 namespace tile_compile::reconstruction {
 namespace {
 
-bool canvas_valid(const std::vector<uint8_t> &mask, int width, int height,
-                  int x, int y) {
-  if (x < 0 || y < 0 || x >= width || y >= height) return false;
-  return mask.empty() ||
-         (mask.size() == static_cast<size_t>(width * height) &&
-          mask[static_cast<size_t>(y * width + x)] != 0u);
-}
-
 float global_weight(const VectorXf &weights, size_t fi) {
   if (fi >= static_cast<size_t>(weights.size())) return 0.0f;
   const float value = weights[static_cast<Eigen::Index>(fi)];
@@ -33,10 +25,19 @@ float global_weight(const VectorXf &weights, size_t fi) {
 
 float quantile(std::vector<float> values, float q) {
   if (values.empty()) return 0.0f;
-  std::sort(values.begin(), values.end());
   const double pos = std::clamp<double>(q, 0.0, 1.0) * (values.size() - 1);
   const size_t lo = static_cast<size_t>(std::floor(pos));
   const size_t hi = static_cast<size_t>(std::ceil(pos));
+  // Only ranks lo and hi are needed for the interpolation below, not a full
+  // ordering: two nth_element calls place both correctly (the second, on the
+  // [lo, end) sub-range nth_element already partitioned, finds hi's value
+  // among exactly the elements >= values[lo]) without sorting the rest.
+  std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(lo),
+                   values.end());
+  if (hi != lo)
+    std::nth_element(values.begin() + static_cast<std::ptrdiff_t>(lo),
+                     values.begin() + static_cast<std::ptrdiff_t>(hi),
+                     values.end());
   const float t = static_cast<float>(pos - lo);
   return values[lo] * (1.0f - t) + values[hi] * t;
 }
@@ -56,6 +57,17 @@ AqmhUniformControlResult compute_aqmh_uniform_control(
                            0u);
   if (!load_frame || frame_count == 0 || width <= 0 || height <= 0) {
     return result;
+  }
+
+  // Pre-materialize a flat bool array from canvas_mask for O(1) lookup in the
+  // innermost pixel loop below (redundant-reload analysis C2), same pattern
+  // as reconstruct_aqmh_weighted's canvas_valid_flat. Read-only once built,
+  // so sharing it across the parallel chunk loop is safe.
+  const size_t total_pixels = static_cast<size_t>(width) * static_cast<size_t>(height);
+  std::vector<uint8_t> canvas_valid_flat(total_pixels, 1u);
+  if (!canvas_mask.empty() && canvas_mask.size() == total_pixels) {
+    for (size_t i = 0; i < total_pixels; ++i)
+      canvas_valid_flat[i] = canvas_mask[i] != 0u ? 1u : 0u;
   }
 
   constexpr int control_chunk_rows = 128;
@@ -98,7 +110,8 @@ AqmhUniformControlResult compute_aqmh_uniform_control(
               ? local_i : static_cast<size_t>(y * width + x);
           const int source_y = load_frame_region ? yy : y;
           const float value = frame(source_y, x);
-          if (!canvas_valid(canvas_mask, width, height, x, y) ||
+          const size_t full_i = static_cast<size_t>(y) * width + x;
+          if (canvas_valid_flat[full_i] == 0u ||
               (!frame_mask.empty() && frame_mask[mask_i] == 0u) ||
               !std::isfinite(value)) {
             continue;
@@ -173,6 +186,9 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
   }
 
   bool cherry_enabled = cfg.cherry_pick;
+  // Hoisted (redundant-reload analysis C1): cfg.cherry_pick_mode is invariant
+  // for this whole call; avoid re-comparing the string per pixel.
+  const bool is_auto_reject = cfg.cherry_pick_mode == "auto_reject";
   if (cherry_enabled) {
     std::vector<float> nominal_values;
     nominal_values.reserve(static_cast<size_t>(width * height));
@@ -206,7 +222,7 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
           const size_t full_i = static_cast<size_t>(y0) * width + i;
           if (!canvas_mask.empty() && canvas_mask[full_i] == 0u) continue;
           const int n = rankable[i];
-          nominal_values.push_back(cfg.cherry_pick_mode == "auto_reject"
+          nominal_values.push_back(is_auto_reject
               ? static_cast<float>(n)
               : static_cast<float>(aqmh_k_nominal(
                     n, aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
@@ -228,16 +244,22 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         for (int y = 0; y < height; ++y)
           for (int x = 0; x < width; ++x) {
             const size_t i = static_cast<size_t>(y * width + x);
-            if (canvas_valid(canvas_mask, width, height, x, y) &&
+            // Direct flat-array lookup (redundant-reload analysis C2): x/y
+            // are already loop-bounded, so canvas_valid's bounds check is
+            // redundant here, and canvas_valid_flat[i] (built above) is the
+            // same condition as canvas_valid(canvas_mask, ...) without the
+            // re-derivation of mask.empty()/mask.size() every pixel.
+            if (canvas_valid_flat[i] != 0u &&
                 (fm.empty() || fm[i] != 0u) && std::isfinite(frame(y, x)) &&
                 q(y, x) > 0.0f && gw > 0.0f) rankable(y, x) += 1.0f;
           }
       }
       for (int y = 0; y < height; ++y)
         for (int x = 0; x < width; ++x) {
-          if (!canvas_valid(canvas_mask, width, height, x, y)) continue;
+          const size_t i = static_cast<size_t>(y * width + x);
+          if (canvas_valid_flat[i] == 0u) continue;
           const int n = static_cast<int>(rankable(y, x));
-          nominal_values.push_back(cfg.cherry_pick_mode == "auto_reject"
+          nominal_values.push_back(is_auto_reject
               ? static_cast<float>(n)
               : static_cast<float>(aqmh_k_nominal(
                     n, aqmh_effective_k_frac(n, cfg.cherry_pick_k_frac,
@@ -456,6 +478,13 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
       std::vector<float> local_effective_k;
       std::vector<float> local_margins;
       samples.reserve(frame_count);
+      // Heuristic upper-ish bound (redundant-reload analysis D6): only a
+      // fraction of this thread's pixels end up cherry-picked, so this is not
+      // exact, but reserve() never changes correctness -- it only avoids
+      // repeated growth reallocation as the dynamic OpenMP schedule assigns
+      // roughly pixel_count/num_threads pixels to each thread.
+      local_effective_k.reserve(pixel_count / static_cast<size_t>(num_threads));
+      local_margins.reserve(pixel_count / static_cast<size_t>(num_threads));
 #if defined(_OPENMP)
 #pragma omp for schedule(dynamic, 64)
 #endif
@@ -499,7 +528,12 @@ AqmhReconstructionResult reconstruct_aqmh_weighted(
         if (cherry_enabled) {
           int nominal = 0;
           float margin = -1.0f;
-          auto selected = cfg.cherry_pick_mode == "auto_reject"
+          // NOTE: aqmh_select_* can legitimately return {} (e.g. all scores
+          // invalid, or n < k_min_required) while leaving `samples` as the
+          // fallback the code below still needs -- so this copy (the ternary
+          // takes `samples` by value) cannot be replaced with a move; the
+          // original must survive the call for that empty-`selected` case.
+          auto selected = is_auto_reject
               ? aqmh_select_auto_reject(
                     samples, cfg.cherry_pick_k_min_required,
                     cfg.cherry_pick_reject_below_best_fraction,

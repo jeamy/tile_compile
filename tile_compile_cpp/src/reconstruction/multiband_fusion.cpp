@@ -74,6 +74,17 @@ MultibandChannelResult fuse_multiband_channel(
     return std::isfinite(v) ? std::clamp(v, 0.0, 1.0) : 0.0;
   };
 
+  // Hoisted out of the per-pixel loop (redundant-reload analysis C3):
+  // band_source(j, L) and the fine/medium profile choice depend only on
+  // (j, L), which are invariant across pixels.
+  std::array<BandSource, 4> band_src_by_level{};
+  std::array<const AtrousDecomposition *, 4> band_profile_by_level{};
+  for (int j = 1; j <= L; ++j) {
+    band_src_by_level[j - 1] = band_source(j, L);
+    band_profile_by_level[j - 1] =
+        band_src_by_level[j - 1] == BandSource::kFine ? &df : &dm;
+  }
+
   for (std::size_t i = 0; i < n; ++i) {
     // Missing Raw coarse or any Raw band => whole multi-band pixel invalid
     // (plan 14.2). Uniform coarse must also be valid (it supplies C_U,L).
@@ -87,12 +98,12 @@ MultibandChannelResult fuse_multiband_channel(
     for (int j = 1; j <= L; ++j) {
       const std::size_t bj = static_cast<std::size_t>(j - 1);
       const double d_r = dr.bands[bj].detail[i];
-      const BandSource src = band_source(j, L);
+      const BandSource src = band_src_by_level[bj];
       if (src == BandSource::kRaw) {
         x += d_r;  // alpha ineffective for R bands (plan 14.3)
         continue;
       }
-      const AtrousDecomposition &pd = src == BandSource::kFine ? df : dm;
+      const AtrousDecomposition &pd = *band_profile_by_level[bj];
       double alpha = alpha_at(j - 1, i);
       double d_p = d_r;  // default: invalid detail profile => alpha 0
       if (pd.bands[bj].support[i] && std::isfinite(pd.bands[bj].detail[i]))

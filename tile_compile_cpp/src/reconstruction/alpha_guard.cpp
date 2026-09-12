@@ -62,6 +62,12 @@ std::vector<float> apply_energy_guard(const std::vector<float> &alpha_pre,
 
   std::vector<float> out(n, 0.0f);
   std::vector<float> win_r, win_mix;
+  // Hoisted out of the per-pixel loop (same reasoning as win_r/win_mix
+  // above): dr_vals/dp_vals were previously fresh std::vector allocations
+  // every pixel, and `mix` was reallocated on every ratio_at() call within
+  // the bisection (1 + bisection_iters times per pixel). Reusing capacity via
+  // .clear()/.resize() instead of re-declaring avoids that malloc/free churn.
+  std::vector<float> dr_vals, dp_vals, mix;
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
       const std::size_t i = static_cast<std::size_t>(y) * width + x;
@@ -73,7 +79,8 @@ std::vector<float> apply_energy_guard(const std::vector<float> &alpha_pre,
 
       win_r.clear();
       win_mix.clear();  // filled per candidate alpha below
-      std::vector<float> dr_vals, dp_vals;
+      dr_vals.clear();
+      dp_vals.clear();
       for (int yy = std::max(0, y - window_radius);
            yy <= std::min(height - 1, y + window_radius); ++yy)
         for (int xx = std::max(0, x - window_radius);
@@ -90,11 +97,18 @@ std::vector<float> apply_energy_guard(const std::vector<float> &alpha_pre,
       const double mad_r = mad_sigma(dr_vals);
       const double scale_raw = std::max(mad_r, background_floor);
       auto ratio_at = [&](double a) -> double {
-        std::vector<float> mix(dr_vals.size());
+        // Reuses the hoisted `mix` buffer's capacity across bisection
+        // iterations (resize only grows/shrinks the logical size, no
+        // reallocation once the largest window size seen is reached).
+        // Not moved into mad_sigma: mad_sigma takes its argument by value
+        // regardless (it needs its own destructible copy for the in-place
+        // median), so moving here would only empty `mix` and force the next
+        // iteration's resize() to reallocate from scratch.
+        mix.resize(dr_vals.size());
         for (std::size_t k = 0; k < dr_vals.size(); ++k)
           mix[k] = static_cast<float>(dr_vals[k] +
                                       a * (dp_vals[k] - dr_vals[k]));
-        const double mad_mix = mad_sigma(std::move(mix));
+        const double mad_mix = mad_sigma(mix);
         return scale_raw > 0.0 ? mad_mix / scale_raw
                                : (mad_mix > 0.0 ? std::numeric_limits<double>::infinity()
                                                 : 0.0);
@@ -133,6 +147,10 @@ std::vector<float> smooth_alpha_b3(const std::vector<float> &alpha_guarded,
   std::vector<int> label(n, -1);
   int next = 0;
   std::vector<std::size_t> stack;
+  // Hoisted out of the per-stack-pop loop body (redundant-reload analysis
+  // C8): these are compile-time-constant per BFS, not per pop.
+  const int dx[4] = {-1, 1, 0, 0};
+  const int dy[4] = {0, 0, -1, 1};
   for (std::size_t s = 0; s < n; ++s) {
     if (!support[s] || label[s] >= 0) continue;
     label[s] = next;
@@ -142,8 +160,6 @@ std::vector<float> smooth_alpha_b3(const std::vector<float> &alpha_guarded,
       stack.pop_back();
       const int px = static_cast<int>(p % width);
       const int py = static_cast<int>(p / width);
-      const int dx[4] = {-1, 1, 0, 0};
-      const int dy[4] = {0, 0, -1, 1};
       for (int k = 0; k < 4; ++k) {
         const int nx = px + dx[k], ny = py + dy[k];
         if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;

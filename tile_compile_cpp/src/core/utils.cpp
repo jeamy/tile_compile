@@ -470,7 +470,12 @@ float stddev_of(const std::vector<float>& v) {
 /// artifact, and error-handling semantics expected by callers.
 float robust_sigma_mad(std::vector<float>& pixels) {
     if (pixels.empty()) return 0.0f;
-    float med = median_of(pixels);
+    // Already known non-empty above, so the NaN-vs-0.0f empty-input
+    // difference between median_of_or_nan_inplace and median_of never
+    // triggers here; using the in-place variant just avoids copying the
+    // whole vector for this first pass (pixels is about to be overwritten
+    // in-place by the loop below regardless).
+    float med = median_of_or_nan_inplace(pixels);
     for (float& x : pixels) x = std::fabs(x - med);
     float mad = median_of(std::move(pixels));
     return kMadToSigma * mad;

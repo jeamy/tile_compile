@@ -3,6 +3,7 @@
 #include "tile_compile/config/legacy_config_migration.hpp"
 #include "tile_compile/core/build_info.hpp"
 #include "tile_compile/core/errors.hpp"
+#include "tile_compile/core/utils.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
 #include "tile_compile/metrics/metrics.hpp"
@@ -67,23 +68,29 @@ static void print_json(const json& j) {
 /// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+/// @details Duplicated core::read_text except for error handling: that one
+/// throws when the file can't be opened, while every caller here wants a
+/// silent "" for a state/config file that may not exist yet. Delegate and
+/// preserve that contract.
 static std::string read_file_text(const fs::path& p) {
-    std::ifstream ifs(p);
-    if (!ifs) return "";
-    std::ostringstream ss;
-    ss << ifs.rdbuf();
-    return ss.str();
+    try {
+        return tile_compile::core::read_text(p);
+    } catch (const std::exception&) {
+        return "";
+    }
 }
 
-/// @brief Writes file text.
-/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
+/// @details Duplicated core::write_text except for error handling: that one
+/// throws, while every caller here checks a bool. Delegate and preserve the
+/// bool contract (and the non-atomic write --- core::write_text_atomic is a
+/// different, stricter contract this helper never had).
 static bool write_file_text(const fs::path& p, const std::string& content) {
-    std::ofstream ofs(p);
-    if (!ofs) return false;
-    ofs << content;
-    return true;
+    try {
+        tile_compile::core::write_text(p, content);
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
 }
 
 /// @brief Reads stdin.
@@ -198,41 +205,17 @@ static void round_yaml_numeric_scalars_inplace(YAML::Node node) {
 }
 
 /// @brief Computes sha256 file.
-/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
+/// @details Duplicated core::sha256_file (src/core/utils.cpp) except for
+/// error handling: core::sha256_file throws on any I/O/OpenSSL failure,
+/// while this call site (FITS directory scan) wants a best-effort "" for one
+/// unreadable frame rather than aborting the whole scan. Delegate to the
+/// canonical implementation and preserve that "" -on-failure contract here.
 static std::string compute_sha256_file(const fs::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return "";
-
-    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    if (!ctx) return "";
-    if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1) {
-        EVP_MD_CTX_free(ctx);
+    try {
+        return tile_compile::core::sha256_file(path);
+    } catch (const std::exception&) {
         return "";
     }
-
-    char buffer[8192];
-    while (file.read(buffer, sizeof(buffer)) || file.gcount() > 0) {
-        if (EVP_DigestUpdate(ctx, buffer, static_cast<size_t>(file.gcount())) != 1) {
-            EVP_MD_CTX_free(ctx);
-            return "";
-        }
-    }
-
-    unsigned char hash[EVP_MAX_MD_SIZE];
-    unsigned int hash_len = 0;
-    if (EVP_DigestFinal_ex(ctx, hash, &hash_len) != 1) {
-        EVP_MD_CTX_free(ctx);
-        return "";
-    }
-    EVP_MD_CTX_free(ctx);
-
-    std::ostringstream oss;
-    for (unsigned int i = 0; i < hash_len; ++i) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
-    }
-    return oss.str();
 }
 
 struct FitsHeaderInfo {

@@ -1551,6 +1551,11 @@ std::vector<fs::path> sample_evenly(const std::vector<fs::path>& files, size_t m
     return sampled;
 }
 
+// Forward declaration: shares its per-pixel float32/uint16/uint8
+// decode-and-scale switch with read_aqmh_cache_map below (definition further
+// down, next to its other caller aggregate_aqmh_maps_streamed).
+bool read_aqmh_value(std::ifstream& in, const std::string& dtype, double& out);
+
 std::optional<std::vector<double>> read_aqmh_cache_map(const fs::path& path, int width, int height, const std::string& dtype) {
     if (width <= 0 || height <= 0) return std::nullopt;
     std::ifstream in(path, std::ios::binary);
@@ -1558,24 +1563,9 @@ std::optional<std::vector<double>> read_aqmh_cache_map(const fs::path& path, int
     std::vector<double> out;
     out.reserve(static_cast<size_t>(width * height));
     for (int i = 0; i < width * height; ++i) {
-        if (dtype == "float32") {
-            float v = 0.0f;
-            in.read(reinterpret_cast<char*>(&v), sizeof(float));
-            if (!in) return std::nullopt;
-            out.push_back(std::clamp(static_cast<double>(v), 0.0, 1.0));
-        } else if (dtype == "uint16") {
-            uint16_t v = 0;
-            in.read(reinterpret_cast<char*>(&v), sizeof(uint16_t));
-            if (!in) return std::nullopt;
-            out.push_back(static_cast<double>(v) / 65535.0);
-        } else if (dtype == "uint8") {
-            uint8_t v = 0;
-            in.read(reinterpret_cast<char*>(&v), sizeof(uint8_t));
-            if (!in) return std::nullopt;
-            out.push_back(static_cast<double>(v) / 255.0);
-        } else {
-            return std::nullopt;
-        }
+        double v = 0.0;
+        if (!read_aqmh_value(in, dtype, v)) return std::nullopt;
+        out.push_back(v);
     }
     return out;
 }

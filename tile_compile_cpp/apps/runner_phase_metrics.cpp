@@ -3,6 +3,7 @@
 
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
+#include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/metrics.hpp"
 
@@ -594,7 +595,7 @@ bool run_phase_channel_split_normalization_global_metrics(
           // (pre-normalization) background estimate from the normalization
           // stage.
           if (detected_mode == ColorMode::OSC) {
-            const float b_raw = 0.25f * B_r[i] + 0.5f * B_g[i] + 0.25f * B_b[i];
+            const float b_raw = image::rgb_to_luma(B_r[i], B_g[i], B_b[i]);
             if (std::isfinite(b_raw))
               m.background = b_raw;
           } else {

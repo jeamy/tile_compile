@@ -1,5 +1,6 @@
 #include "tile_compile/reconstruction/quality_frame_weight_plan.hpp"
 
+#include "tile_compile/core/byte_sink.hpp"
 #include "tile_compile/core/utils.hpp"
 
 #include <nlohmann/json.hpp>
@@ -16,34 +17,7 @@ using json = nlohmann::json;
 
 namespace {
 
-// Byte-exact canonical encoder --- same convention as
-// registration_sampling_plan.cpp's ByteSink (little endian, IEEE-754 float
-// bit patterns, NaN payload normalized).
-struct ByteSink {
-  std::vector<uint8_t> bytes;
-  void u32(uint32_t v) {
-    bytes.push_back(static_cast<uint8_t>(v & 0xff));
-    bytes.push_back(static_cast<uint8_t>((v >> 8) & 0xff));
-    bytes.push_back(static_cast<uint8_t>((v >> 16) & 0xff));
-    bytes.push_back(static_cast<uint8_t>((v >> 24) & 0xff));
-  }
-  void i32(int32_t v) { u32(static_cast<uint32_t>(v)); }
-  void u64(uint64_t v) {
-    u32(static_cast<uint32_t>(v & 0xffffffffu));
-    u32(static_cast<uint32_t>((v >> 32) & 0xffffffffu));
-  }
-  void f32(float v) {
-    if (std::isnan(v)) v = std::numeric_limits<float>::quiet_NaN();
-    uint32_t bits = 0;
-    std::memcpy(&bits, &v, sizeof(bits));
-    u32(bits);
-  }
-  void b(bool v) { bytes.push_back(v ? 1 : 0); }
-  void str(const std::string& s) {
-    u64(s.size());
-    bytes.insert(bytes.end(), s.begin(), s.end());
-  }
-};
+using tile_compile::core::ByteSink;
 
 void validate_weights(const QualityFrameWeightPlan &plan) {
   std::set<std::string> ids;

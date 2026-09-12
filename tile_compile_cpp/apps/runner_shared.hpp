@@ -7,6 +7,7 @@
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/image/background_extraction.hpp"
+#include "tile_compile/image/hypermetric_stretch.hpp"
 
 #include <cstdint>
 #include <cmath>
@@ -146,6 +147,12 @@ int default_parallel_workers(size_t items, int requested_workers = 0);
 
 /// Platform-aware shell quoting for external commands.
 std::string shell_quote(const std::string &s);
+
+/// Convert config::HyperMetricStretchConfig to image::HyperMetricStretchConfig
+/// (field-for-field, no logic). Was duplicated identically in
+/// runner_pipeline.cpp, runner_downstream.cpp, and runner_resume.cpp.
+image::HyperMetricStretchConfig to_image_hms_config(
+    const config::HyperMetricStretchConfig &src);
 
 /// Wrap a command for execution via std::system (cmd /c "..." on Windows).
 std::string system_cmd(const std::string &cmd);

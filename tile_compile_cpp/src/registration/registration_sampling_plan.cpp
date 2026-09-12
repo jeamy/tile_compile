@@ -1,6 +1,7 @@
 #include <set>
 #include "tile_compile/registration/registration_sampling_plan.hpp"
 
+#include "tile_compile/core/byte_sink.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/reconstruction/drizzle_geometry_stats.hpp"
 
@@ -399,38 +400,15 @@ bool parse_from_json_string(const std::string& text,RegistrationSamplingPlan& ou
 
 namespace {
 
-struct ByteSink {
-  std::vector<uint8_t> bytes;
+using tile_compile::core::ByteSink;
 
-  void u32(uint32_t v) {
-    bytes.push_back(static_cast<uint8_t>(v & 0xff));
-    bytes.push_back(static_cast<uint8_t>((v >> 8) & 0xff));
-    bytes.push_back(static_cast<uint8_t>((v >> 16) & 0xff));
-    bytes.push_back(static_cast<uint8_t>((v >> 24) & 0xff));
-  }
-  void i32(int32_t v) { u32(static_cast<uint32_t>(v)); }
-  void u64(uint64_t v) {
-    u32(static_cast<uint32_t>(v & 0xffffffffu));
-    u32(static_cast<uint32_t>((v >> 32) & 0xffffffffu));
-  }
-  void f32(float v) {
-    // bit-exact IEEE-754; normalize the two NaN payloads so a NaN never makes
-    // the hash unstable.
-    if (std::isnan(v)) v = std::numeric_limits<float>::quiet_NaN();
-    uint32_t bits = 0;
-    std::memcpy(&bits, &v, sizeof(bits));
-    u32(bits);
-  }
-  void b(bool v) { bytes.push_back(v ? 1 : 0); }
-  void str(const std::string& s) {
-    u64(s.size());
-    bytes.insert(bytes.end(), s.begin(), s.end());
-  }
-  void warp(const WarpMatrix& m) {
-    f32(m(0, 0)); f32(m(0, 1)); f32(m(0, 2));
-    f32(m(1, 0)); f32(m(1, 1)); f32(m(1, 2));
-  }
-};
+// Domain-specific extension kept local to this file (WarpMatrix isn't a
+// core/ type): encode the 6 affine coefficients in the same order the old
+// ByteSink::warp() member did.
+void write_warp(ByteSink &s, const WarpMatrix& m) {
+  s.f32(m(0, 0)); s.f32(m(0, 1)); s.f32(m(0, 2));
+  s.f32(m(1, 0)); s.f32(m(1, 1)); s.f32(m(1, 2));
+}
 
 }  // namespace
 
@@ -462,8 +440,8 @@ std::string compute_plan_hash(const RegistrationSamplingPlan& plan) {
     s.str(f.frame_id);
     s.u64(f.source_index);
     s.b(f.valid);
-    s.warp(f.canvas_to_source);
-    s.warp(f.source_to_canvas);
+    write_warp(s, f.canvas_to_source);
+    write_warp(s, f.source_to_canvas);
     s.b(f.source_to_canvas_affine_valid);
     s.b(f.has_smooth_local_model);
     s.b(f.smooth_local_model.valid);

@@ -1282,6 +1282,30 @@ CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+image::HyperMetricStretchConfig to_image_hms_config(
+    const config::HyperMetricStretchConfig &src) {
+  image::HyperMetricStretchConfig dst;
+  dst.enabled = src.enabled;
+  dst.require_successful_pcc = src.require_successful_pcc;
+  dst.mode = src.mode;
+  dst.sensor_profile = src.sensor_profile;
+  dst.fallback_profile = src.fallback_profile;
+  dst.adaptive_anchor = src.adaptive_anchor;
+  dst.target_bg = src.target_bg;
+  dst.protect_b = src.protect_b;
+  dst.convergence_power = src.convergence_power;
+  dst.log_d_mode = src.log_d_mode;
+  dst.fixed_log_d = src.fixed_log_d;
+  dst.color_strategy = src.color_strategy;
+  dst.fixed_color_strategy = src.fixed_color_strategy;
+  dst.color_grip = src.color_grip;
+  dst.shadow_convergence = src.shadow_convergence;
+  dst.linear_expansion = src.linear_expansion;
+  dst.write_channels = src.write_channels;
+  dst.output_rgb = src.output_rgb;
+  return dst;
+}
+
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   image::BGEConfig dst;
   // config::BGEConfig has no `enabled` field of its own (method == "none"

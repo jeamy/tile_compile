@@ -5,6 +5,22 @@
 
 namespace tile_compile::reconstruction {
 
+namespace {
+
+// Shared by aqmh_select_top_k and aqmh_select_auto_reject: drop samples with
+// a non-positive or non-finite score before ranking.
+bool aqmh_score_invalid(const AqmhWeightedSample &s) {
+  return !(s.score > 0.0f) || !std::isfinite(s.score);
+}
+
+// Shared ranking order: higher score first, frame_index as a deterministic
+// tie-break.
+bool aqmh_score_cmp(const AqmhWeightedSample &a, const AqmhWeightedSample &b) {
+  return a.score != b.score ? a.score > b.score : a.frame_index < b.frame_index;
+}
+
+} // namespace
+
 float aqmh_effective_k_frac(
     int n_rankable, float base,
     const std::vector<config::AqmhCherryPickConfig::Tier> &tiers) {
@@ -24,9 +40,8 @@ std::vector<AqmhWeightedSample> aqmh_select_top_k(
     float fraction,
     const std::vector<config::AqmhCherryPickConfig::Tier> &tiers,
     int *nominal_k, float *rank_margin) {
-  samples.erase(std::remove_if(samples.begin(), samples.end(), [](const auto &s) {
-                  return !(s.score > 0.0f) || !std::isfinite(s.score);
-                }), samples.end());
+  samples.erase(std::remove_if(samples.begin(), samples.end(), aqmh_score_invalid),
+               samples.end());
   const int n = static_cast<int>(samples.size());
   const float effective = aqmh_effective_k_frac(n, fraction, tiers);
   const int nominal = aqmh_k_nominal(n, effective);
@@ -34,14 +49,11 @@ std::vector<AqmhWeightedSample> aqmh_select_top_k(
   if (rank_margin) *rank_margin = -1.0f;
   if (n < k_min_required) return {};
   const int k = std::min(n, std::max(k_min_required, nominal));
-  auto score_cmp = [](const auto &a, const auto &b) {
-    return a.score != b.score ? a.score > b.score : a.frame_index < b.frame_index;
-  };
   // Partition around the k-th element: O(N) average instead of O(N log N) sort.
   std::nth_element(samples.begin(), samples.begin() + k - 1,
-                   samples.end(), score_cmp);
+                   samples.end(), aqmh_score_cmp);
   // Sort just the top-k for deterministic ordering: O(k log k).
-  std::sort(samples.begin(), samples.begin() + k, score_cmp);
+  std::sort(samples.begin(), samples.begin() + k, aqmh_score_cmp);
   if (rank_margin && k < n && samples.front().score > 0.0f) {
     // The element at position k is the best of the remaining partition.
     const float kth_score = samples[static_cast<size_t>(k - 1)].score;
@@ -58,19 +70,15 @@ std::vector<AqmhWeightedSample> aqmh_select_auto_reject(
     std::vector<AqmhWeightedSample> samples, int k_min_required,
     float reject_below_best_fraction, float min_keep_fraction,
     float margin_min, int *nominal_k, float *rank_margin) {
-  samples.erase(std::remove_if(samples.begin(), samples.end(), [](const auto &s) {
-                  return !(s.score > 0.0f) || !std::isfinite(s.score);
-                }), samples.end());
+  samples.erase(std::remove_if(samples.begin(), samples.end(), aqmh_score_invalid),
+               samples.end());
   const int n = static_cast<int>(samples.size());
   if (nominal_k) *nominal_k = n;
   if (rank_margin) *rank_margin = -1.0f;
   if (n <= 0) return {};
   if (n < k_min_required) return samples;
 
-  auto score_cmp = [](const auto &a, const auto &b) {
-    return a.score != b.score ? a.score > b.score : a.frame_index < b.frame_index;
-  };
-  std::sort(samples.begin(), samples.end(), score_cmp);
+  std::sort(samples.begin(), samples.end(), aqmh_score_cmp);
 
   const float best = samples.front().score;
   if (!(best > 0.0f) || !std::isfinite(best)) return samples;
