@@ -69,6 +69,51 @@ Der Source-Quality-Pack aus §16 ist ein Vorgängerschnitt für Gate 6. Seine
 Reader-, Metrik- und Publikationsverträge müssen spätestens mit Gate 5
 geschlossen und vor dem affinen Prototypkern implementiert sein.
 
+### 1.2 Implementierungsstand und Freigabestatus (2026-09-12)
+
+Die vorhandene v2-Implementierung ist ausschließlich ein isolierter
+Explorationsstand. Keine v2-Funktion wird vom produktiven Runner aufgerufen.
+Die Prototypen dürfen Evidenz für ein Gate erzeugen, gelten aber erst dann als
+Gate-Abschluss, wenn alle Exit-Kriterien des jeweiligen Gates erfüllt sind.
+
+| Gate | Vorhandener Stand | Freigabe |
+|---:|---|---|
+| 0 | kleine deterministische affine Record-Oracles über Scale 1/2, MONO/OSC, alle Bayer-Patterns, zwei Origins, drei Pixfrac-Werte und fünf affine Transformationen | nicht bestanden: kein sauber gebundener Realreferenzlauf, keine persistierten Oracle-Captures, Schwellenmatrix unvollständig |
+| 1 | CPU-/CUDA-Target-Gather und CUDA-Dense-Scatter; erster nativer Benchmark | nicht entschieden: keine reale M42-Canvas, unvollständige Transformmatrix, Atomic-Repeatability nicht bewiesen |
+| 2 | framekorrekter A/B/B²-Fold als isoliertes Primitiv | teilweise: vier Supportebenen, Profile, Teilflächenregel, Flux-/Gradientmatrix und CUDA-Fold fehlen |
+| 3 | experimenteller zweipassiger winsorisierter Gruppen-Schätzer | nicht ausgewählt: kein Verfahrenvergleich; zweiter Replay-Pass ist noch nicht mit dem recordfreien I/O-/Geometrievertrag vereinbar |
+| 4 | keine v2-Implementierung | offen |
+| 5 | vereinfachter experimenteller RAM-/VRAM-Planner | nicht bestanden: Bufferrollen sind vor Gate 3/4 angenommen; Host-Lebensdauer verwendet Framezahl statt aktiver Slots; der isolierte Arithmetiktest ist grün, validiert aber noch nicht die reale Bufferformel |
+| 6 | persistente Source-/A-/B-Devicebuffer für den Scatter-Spike | nicht bestanden: synchron, keine Q-/Robust-/Coverage-/Fold-/Stream-Pipeline und keine vollständige Telemetrie |
+| 7–10 | keine v2-Implementierung | offen |
+
+Der erste native affine Vergleich auf einem 1920×1080-Sourcefixture ergab:
+
+| Zielcanvas | Gather | Scatter | Parität |
+|---|---:|---:|---|
+| 1920×1080 | 0,128 s | 0,051–0,060 s | A/B exakt, Support identisch, zwei Scatter-Läufe bytegleich |
+| 3840×2160 | 0,384 s | 0,131–0,132 s | A/B exakt, Support identisch, zwei Scatter-Läufe bytegleich |
+
+Diese Messung ist nur explorativ: Sie wurde nicht auf der realen
+7868×4540-M42-Canvas, nicht über die vollständige Transform-/Pixfrac-Matrix
+und nicht gegen vorab festgelegte Laufzeitschwellen ausgeführt. Sie ist ein
+Signal zugunsten des dichten Scatter, aber keine Gate-1-Entscheidung.
+
+Vor weiterer Gate-6-Arbeit ist die Reihenfolge wiederherzustellen:
+
+1. Gate 0 mit reproduzierbarer Evidenz und Schwellen abschließen;
+2. Gate 1 auf realer Canvas und vollständiger affiner Matrix entscheiden;
+3. Gate 2 vollständig spezifizieren und validieren;
+4. Gate 3 als Kandidatenvergleich durchführen;
+5. Gate 4 entscheiden;
+6. erst daraus Gate 5 und den tatsächlichen Gate-6-Workspace ableiten.
+
+Bestehende taktische Änderungen des alten Pfads (`guard_fallback`, parallele
+Hostreduktion, Alpha-Scratch) bleiben davon getrennt. Insbesondere ist
+`guard_fallback` standardmäßig `false`; die historische Lochsemantik ist damit
+im Produktionsdefault noch nicht beseitigt und die Änderung zählt nicht als
+v2-Supportvertrag.
+
 ## 2. Empirischer Ausgangspunkt: `m42-test1`
 
 Der 60-Frame-Run `/media/tc_500/m42-test1` auf 3840×2160-OSC-Daten zeigte:

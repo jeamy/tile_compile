@@ -205,6 +205,81 @@ bool forward_drizzle_cuda_affine_frame_contributions(
     CudaDrizzleContribRecord *records_out, long long records_capacity,
     long long *out_written);
 
+// Forward-Drizzle-v2 Gate-1 prototype G: record-free affine target gather for
+// one frame and one target rectangle.  One CUDA thread owns one target cell,
+// scans its conservative inverse-affine source neighbourhood in canonical
+// (source_y, source_x) order and writes dense frame-local A/B planes.  Output
+// layout is channel-major [channel][row][column], with 1 channel for MONO and
+// 3 for OSC.  This prototype intentionally owns its temporary allocations;
+// Gate 6 replaces them with a persistent workspace after Gate 1 chooses the
+// enumeration.
+bool forward_drizzle_cuda_affine_target_gather(
+    const double affine6[6], const double inverse6[6], int internal_scale,
+    double half, int target_x_begin, int target_y_begin, int target_cols,
+    int target_rows, int source_w, int source_h, const float *source_values,
+    int bayer_pattern, int cfa_origin_x, int cfa_origin_y, bool mono,
+    double *out_a, double *out_b, unsigned long long *out_source_candidates,
+    unsigned long long *out_positive_overlaps);
+
+// Gate-1 prototype S: one thread per source sample scatters directly into
+// dense frame-local A/B target planes with device atomics.  It creates no
+// records and uses memory independent of frame_count.  Repeatability and
+// numerical drift are measured against target gather before either prototype
+// can be selected for Gate 6.
+bool forward_drizzle_cuda_affine_dense_scatter(
+    const double affine6[6], int internal_scale, double half,
+    int target_x_begin, int target_y_begin, int target_cols, int target_rows,
+    int source_w, int source_h, const float *source_values, int bayer_pattern,
+    int cfa_origin_x, int cfa_origin_y, bool mono, double *out_a,
+    double *out_b, unsigned long long *out_positive_overlaps);
+
+struct ForwardDrizzleV2CudaWorkspaceStats {
+  std::uint64_t allocations = 0;
+  std::uint64_t calls = 0;
+  std::uint64_t source_bytes_uploaded = 0;
+  std::uint64_t result_bytes_downloaded = 0;
+  std::uint64_t positive_overlaps = 0;
+  std::size_t reserved_device_bytes = 0;
+  double upload_seconds = 0.0;
+  double kernel_seconds = 0.0;
+  double download_seconds = 0.0;
+};
+
+// Experimental Gate-1 persistent-buffer spike for dense scatter. It proves
+// allocation reuse only; it does not select scatter or satisfy Gate 6 (no
+// streams, Q data, robust reduction, coverage, fold or transaction yet).
+// reserve() is called before entering the frame loop; run_dense_scatter()
+// performs no cudaMalloc/cudaFree and exposes the transfer/kernel split
+// unconditionally through stats().
+class ForwardDrizzleV2CudaWorkspace {
+ public:
+  ForwardDrizzleV2CudaWorkspace();
+  ~ForwardDrizzleV2CudaWorkspace();
+  ForwardDrizzleV2CudaWorkspace(const ForwardDrizzleV2CudaWorkspace &) = delete;
+  ForwardDrizzleV2CudaWorkspace &operator=(
+      const ForwardDrizzleV2CudaWorkspace &) = delete;
+
+  bool reserve(std::size_t source_elements, std::size_t target_plane_elements,
+               int channels);
+  bool run_dense_scatter(
+      const double affine6[6], int internal_scale, double half,
+      int target_x_begin, int target_y_begin, int target_cols, int target_rows,
+      int source_w, int source_h, const float *source_values,
+      int bayer_pattern, int cfa_origin_x, int cfa_origin_y, bool mono,
+      double *out_a, double *out_b);
+  const ForwardDrizzleV2CudaWorkspaceStats &stats() const { return stats_; }
+
+ private:
+  void *device_source_ = nullptr;
+  void *device_a_ = nullptr;
+  void *device_b_ = nullptr;
+  void *device_overlaps_ = nullptr;
+  std::size_t source_capacity_ = 0;
+  std::size_t plane_capacity_ = 0;
+  int channel_capacity_ = 0;
+  ForwardDrizzleV2CudaWorkspaceStats stats_;
+};
+
 // §30.81 step-5 baseline instrumentation. Coarse wall-clock accumulators for
 // the affine CUDA pair path, split so the per-tile repetition factor is
 // attributable (producer / device phases vs the host sort + reduce). Enabled

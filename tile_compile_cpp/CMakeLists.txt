@@ -452,6 +452,7 @@ set(LIB_SOURCES
     src/registration/registration_sampling_plan.cpp
     src/registration/sampling_geometry.cpp
     src/reconstruction/forward_drizzle.cpp
+    src/reconstruction/forward_drizzle_v2.cpp
     src/reconstruction/forward_drizzle_contrib_list.cpp
     src/reconstruction/drizzle_geometry_stats.cpp
     src/reconstruction/drizzle_geometry_cache.cpp
@@ -526,6 +527,7 @@ endif()
 if(NOT MSVC)
     set_source_files_properties(
         src/reconstruction/forward_drizzle.cpp
+        src/reconstruction/forward_drizzle_v2.cpp
         src/reconstruction/forward_drizzle_contrib_list.cpp
         src/reconstruction/forward_drizzle_cuda.cpp
         # P0 geometry instrumentation: integer counters + diagnostic timers
@@ -537,6 +539,7 @@ if(NOT MSVC)
         # The parity tests re-implement the CPU reference inline; they must be
         # pinned identically to the path they validate.
         tests/test_forward_drizzle.cpp
+        tests/test_forward_drizzle_v2.cpp
         tests/test_forward_drizzle_contrib_list.cpp
         PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
@@ -735,6 +738,7 @@ if(BUILD_TESTS)
             tests/test_reconstruction_config.cpp
             tests/test_sampling_geometry.cpp
             tests/test_forward_drizzle.cpp
+            tests/test_forward_drizzle_v2.cpp
             tests/test_forward_drizzle_contrib_list.cpp
             tests/test_forward_drizzle_synthetic_quality.cpp
             tests/test_forward_drizzle_geometry_scaling.cpp

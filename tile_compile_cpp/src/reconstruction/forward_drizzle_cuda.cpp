@@ -59,6 +59,27 @@ bool forward_drizzle_cuda_affine_frame_contributions(
   if (out_written) *out_written = 0;
   return false;
 }
+bool forward_drizzle_cuda_affine_target_gather(
+    const double *, const double *, int, double, int, int, int, int, int, int,
+    const float *, int, int, int, bool, double *, double *,
+    unsigned long long *, unsigned long long *) {
+  return false;
+}
+bool forward_drizzle_cuda_affine_dense_scatter(
+    const double *, int, double, int, int, int, int, int, int, const float *,
+    int, int, int, bool, double *, double *, unsigned long long *) {
+  return false;
+}
+ForwardDrizzleV2CudaWorkspace::ForwardDrizzleV2CudaWorkspace() = default;
+ForwardDrizzleV2CudaWorkspace::~ForwardDrizzleV2CudaWorkspace() = default;
+bool ForwardDrizzleV2CudaWorkspace::reserve(std::size_t, std::size_t, int) {
+  return false;
+}
+bool ForwardDrizzleV2CudaWorkspace::run_dense_scatter(
+    const double *, int, double, int, int, int, int, int, int, const float *,
+    int, int, int, bool, double *, double *) {
+  return false;
+}
 #endif
 
 CudaChunkPlan plan_cuda_chunking(std::size_t free_bytes,

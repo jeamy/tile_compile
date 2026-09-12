@@ -19,7 +19,9 @@
 #include <cuda_runtime.h>
 
 #include <chrono>
+#include <cfloat>
 #include <cstdlib>
+#include <limits>
 
 namespace tile_compile::reconstruction {
 
@@ -149,6 +151,79 @@ __device__ double d_clampd(double v, double lo, double hi) {
   return fmin(fmax(v, lo), hi);
 }
 
+__global__ void k_affine_target_gather(
+    double a00, double a01, double a02, double a10, double a11, double a12,
+    double i00, double i01, double i02, double i10, double i11, double i12,
+    int internal_scale, double half, int tx0, int ty0, int cols, int rows,
+    int source_w, int source_h, const float *source, int bayer, int ox, int oy,
+    bool mono, double *out_a, double *out_b,
+    unsigned long long *source_candidates,
+    unsigned long long *positive_overlaps) {
+  const int local = blockIdx.x * blockDim.x + threadIdx.x;
+  const int n = cols * rows;
+  if (local >= n) return;
+  const int lx = local % cols;
+  const int ly = local / cols;
+  const int tx = tx0 + lx;
+  const int ty = ty0 + ly;
+  const double sc = static_cast<double>(internal_scale);
+
+  double minx = DBL_MAX, maxx = -DBL_MAX;
+  double miny = DBL_MAX, maxy = -DBL_MAX;
+  for (int cy = 0; cy < 2; ++cy) {
+    for (int cx = 0; cx < 2; ++cx) {
+      const double x = static_cast<double>(tx + cx) / sc;
+      const double y = static_cast<double>(ty + cy) / sc;
+      const double sx = i00 * x + i01 * y + i02;
+      const double sy = i10 * x + i11 * y + i12;
+      minx = fmin(minx, sx); maxx = fmax(maxx, sx);
+      miny = fmin(miny, sy); maxy = fmax(maxy, sy);
+    }
+  }
+  const int sx0 = max(0, static_cast<int>(floor(minx - half - 0.5)) - 1);
+  const int sx1 = min(source_w,
+                      static_cast<int>(ceil(maxx + half - 0.5)) + 2);
+  const int sy0 = max(0, static_cast<int>(floor(miny - half - 0.5)) - 1);
+  const int sy1 = min(source_h,
+                      static_cast<int>(ceil(maxy + half - 0.5)) + 2);
+
+  double A[3] = {0.0, 0.0, 0.0};
+  double B[3] = {0.0, 0.0, 0.0};
+  unsigned long long candidates = 0, overlaps = 0;
+  for (int sy = sy0; sy < sy1; ++sy) {
+    for (int sx = sx0; sx < sx1; ++sx) {
+      ++candidates;
+      const double value = static_cast<double>(source[sy * source_w + sx]);
+      if (!isfinite(value)) continue;
+      const double centre_x = static_cast<double>(sx) + 0.5;
+      const double centre_y = static_cast<double>(sy) + 0.5;
+      const double px[4] = {centre_x - half, centre_x + half,
+                            centre_x + half, centre_x - half};
+      const double py[4] = {centre_y - half, centre_y - half,
+                            centre_y + half, centre_y + half};
+      double qx[4], qy[4];
+      for (int k = 0; k < 4; ++k) {
+        qx[k] = (a00 * px[k] + a01 * py[k] + a02) * sc;
+        qy[k] = (a10 * px[k] + a11 * py[k] + a12) * sc;
+      }
+      const double area = d_polygon_rect_area(qx, qy, tx, ty, tx + 1.0,
+                                               ty + 1.0);
+      if (!(area > 0.0)) continue;
+      ++overlaps;
+      const int c = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
+      A[c] += area * value;
+      B[c] += area;
+    }
+  }
+  const int channels = mono ? 1 : 3;
+  for (int c = 0; c < channels; ++c) {
+    out_a[static_cast<long long>(c) * n + local] = A[c];
+    out_b[static_cast<long long>(c) * n + local] = B[c];
+  }
+  if (candidates) atomicAdd(source_candidates, candidates);
+  if (overlaps) atomicAdd(positive_overlaps, overlaps);
+}
+
 // 1:1 with build_affine_leaf + the rasterize_drizzle_stripe bbox/area loop.
 // One thread per source pixel of the band. Contributions are appended at a
 // dense atomic offset --- the ORDER is arbitrary, which is fine: the host sorts
@@ -222,6 +297,55 @@ __global__ void k_affine_frame_contribs(
         ++emitted;
       }
     }
+}
+
+__global__ void k_affine_dense_scatter(
+    double a0, double a1, double a2, double a3, double a4, double a5,
+    double sc, double half, int tx_begin, int ty_begin, int cols, int rows,
+    int source_w, int source_h, const float *source, int bayer, int ox, int oy,
+    int mono, double *out_a, double *out_b,
+    unsigned long long *positive_overlaps) {
+  const long long tid =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const long long source_n = static_cast<long long>(source_w) * source_h;
+  if (tid >= source_n) return;
+  const int sy = static_cast<int>(tid / source_w);
+  const int sx = static_cast<int>(tid % source_w);
+  const double value = static_cast<double>(source[tid]);
+  if (!isfinite(value)) return;
+  const int channel = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
+  const double x = sx + 0.5, y = sy + 0.5;
+  const double px[4] = {x - half, x + half, x + half, x - half};
+  const double py[4] = {y - half, y - half, y + half, y + half};
+  double qx[4], qy[4];
+  double minx = DBL_MAX, maxx = -DBL_MAX;
+  double miny = DBL_MAX, maxy = -DBL_MAX;
+  for (int k = 0; k < 4; ++k) {
+    qx[k] = (a0 * px[k] + a1 * py[k] + a2) * sc;
+    qy[k] = (a3 * px[k] + a4 * py[k] + a5) * sc;
+    minx = fmin(minx, qx[k]); maxx = fmax(maxx, qx[k]);
+    miny = fmin(miny, qy[k]); maxy = fmax(maxy, qy[k]);
+  }
+  const int x0 = max(tx_begin, static_cast<int>(floor(minx)));
+  const int x1 = min(tx_begin + cols, static_cast<int>(ceil(maxx)));
+  const int y0 = max(ty_begin, static_cast<int>(floor(miny)));
+  const int y1 = min(ty_begin + rows, static_cast<int>(ceil(maxy)));
+  unsigned long long overlaps = 0;
+  const long long plane_n = static_cast<long long>(cols) * rows;
+  for (int ty = y0; ty < y1; ++ty) {
+    for (int tx = x0; tx < x1; ++tx) {
+      const double area =
+          d_polygon_rect_area(qx, qy, tx, ty, tx + 1.0, ty + 1.0);
+      if (!(area > 0.0)) continue;
+      const long long out = static_cast<long long>(channel) * plane_n +
+                            static_cast<long long>(ty - ty_begin) * cols +
+                            (tx - tx_begin);
+      atomicAdd(out_a + out, area * value);
+      atomicAdd(out_b + out, area);
+      ++overlaps;
+    }
+  }
+  if (overlaps) atomicAdd(positive_overlaps, overlaps);
 }
 
 }  // namespace
@@ -410,6 +534,276 @@ bool forward_drizzle_cuda_affine_frame_contributions(
   cudaFree(d_count);
   cudaFree(d_overflow);
   return ok;
+}
+
+bool forward_drizzle_cuda_affine_target_gather(
+    const double affine6[6], const double inverse6[6], int internal_scale,
+    double half, int target_x_begin, int target_y_begin, int target_cols,
+    int target_rows, int source_w, int source_h, const float *source_values,
+    int bayer_pattern, int cfa_origin_x, int cfa_origin_y, bool mono,
+    double *out_a, double *out_b, unsigned long long *out_source_candidates,
+    unsigned long long *out_positive_overlaps) {
+  if (!affine6 || !inverse6 || !source_values || !out_a || !out_b ||
+      internal_scale <= 0 || target_cols <= 0 || target_rows <= 0 ||
+      source_w <= 0 || source_h <= 0)
+    return false;
+  int devices = 0;
+  if (cudaGetDeviceCount(&devices) != cudaSuccess || devices <= 0) {
+    cudaGetLastError();
+    return false;
+  }
+  CudaScopedError clear_on_exit;
+  const int channels = mono ? 1 : 3;
+  const long long cells = static_cast<long long>(target_cols) * target_rows;
+  if (cells <= 0 || cells > 2000000000LL) return false;
+  const std::size_t src_bytes = static_cast<std::size_t>(source_w) * source_h *
+                                sizeof(float);
+  const std::size_t plane_bytes = static_cast<std::size_t>(channels) * cells *
+                                  sizeof(double);
+  float *d_source = nullptr;
+  double *d_a = nullptr, *d_b = nullptr;
+  unsigned long long *d_candidates = nullptr, *d_overlaps = nullptr;
+  bool ok = cudaMalloc(&d_source, src_bytes) == cudaSuccess &&
+            cudaMalloc(&d_a, plane_bytes) == cudaSuccess &&
+            cudaMalloc(&d_b, plane_bytes) == cudaSuccess &&
+            cudaMalloc(&d_candidates, sizeof(unsigned long long)) ==
+                cudaSuccess &&
+            cudaMalloc(&d_overlaps, sizeof(unsigned long long)) == cudaSuccess;
+  if (ok)
+    ok = cudaMemcpy(d_source, source_values, src_bytes,
+                    cudaMemcpyHostToDevice) == cudaSuccess &&
+         cudaMemset(d_candidates, 0, sizeof(unsigned long long)) ==
+             cudaSuccess &&
+         cudaMemset(d_overlaps, 0, sizeof(unsigned long long)) == cudaSuccess;
+  if (ok) {
+    const int block = 128;
+    const int grid = (static_cast<int>(cells) + block - 1) / block;
+    k_affine_target_gather<<<grid, block>>>(
+        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
+        inverse6[0], inverse6[1], inverse6[2], inverse6[3], inverse6[4],
+        inverse6[5], internal_scale, half, target_x_begin, target_y_begin,
+        target_cols, target_rows, source_w, source_h, d_source, bayer_pattern,
+        cfa_origin_x, cfa_origin_y, mono, d_a, d_b, d_candidates, d_overlaps);
+    ok = cudaGetLastError() == cudaSuccess &&
+         cudaDeviceSynchronize() == cudaSuccess;
+  }
+  unsigned long long candidates = 0, overlaps = 0;
+  if (ok)
+    ok = cudaMemcpy(out_a, d_a, plane_bytes, cudaMemcpyDeviceToHost) ==
+             cudaSuccess &&
+         cudaMemcpy(out_b, d_b, plane_bytes, cudaMemcpyDeviceToHost) ==
+             cudaSuccess &&
+         cudaMemcpy(&candidates, d_candidates, sizeof(candidates),
+                    cudaMemcpyDeviceToHost) == cudaSuccess &&
+         cudaMemcpy(&overlaps, d_overlaps, sizeof(overlaps),
+                    cudaMemcpyDeviceToHost) == cudaSuccess;
+  cudaFree(d_source);
+  cudaFree(d_a);
+  cudaFree(d_b);
+  cudaFree(d_candidates);
+  cudaFree(d_overlaps);
+  if (ok) {
+    if (out_source_candidates) *out_source_candidates = candidates;
+    if (out_positive_overlaps) *out_positive_overlaps = overlaps;
+  }
+  return ok;
+}
+
+bool forward_drizzle_cuda_affine_dense_scatter(
+    const double affine6[6], int internal_scale, double half,
+    int target_x_begin, int target_y_begin, int target_cols, int target_rows,
+    int source_w, int source_h, const float *source_values, int bayer_pattern,
+    int cfa_origin_x, int cfa_origin_y, bool mono, double *out_a,
+    double *out_b, unsigned long long *out_positive_overlaps) {
+  if (!affine6 || !source_values || !out_a || !out_b || internal_scale <= 0 ||
+      target_cols <= 0 || target_rows <= 0 || source_w <= 0 || source_h <= 0)
+    return false;
+  int devices = 0;
+  if (cudaGetDeviceCount(&devices) != cudaSuccess || devices <= 0) {
+    cudaGetLastError();
+    return false;
+  }
+  CudaScopedError clear_on_exit;
+  const int channels = mono ? 1 : 3;
+  const long long source_n = static_cast<long long>(source_w) * source_h;
+  const long long target_n = static_cast<long long>(target_cols) * target_rows;
+  if (source_n <= 0 || target_n <= 0 || source_n > 2000000000LL ||
+      target_n > 2000000000LL)
+    return false;
+  const std::size_t src_bytes = static_cast<std::size_t>(source_n) * sizeof(float);
+  const std::size_t plane_bytes =
+      static_cast<std::size_t>(channels) * target_n * sizeof(double);
+  float *d_source = nullptr;
+  double *d_a = nullptr, *d_b = nullptr;
+  unsigned long long *d_overlaps = nullptr;
+  bool ok = cudaMalloc(&d_source, src_bytes) == cudaSuccess &&
+            cudaMalloc(&d_a, plane_bytes) == cudaSuccess &&
+            cudaMalloc(&d_b, plane_bytes) == cudaSuccess &&
+            cudaMalloc(&d_overlaps, sizeof(unsigned long long)) == cudaSuccess;
+  if (ok)
+    ok = cudaMemcpy(d_source, source_values, src_bytes,
+                    cudaMemcpyHostToDevice) == cudaSuccess &&
+         cudaMemset(d_a, 0, plane_bytes) == cudaSuccess &&
+         cudaMemset(d_b, 0, plane_bytes) == cudaSuccess &&
+         cudaMemset(d_overlaps, 0, sizeof(unsigned long long)) == cudaSuccess;
+  if (ok) {
+    const int block = 128;
+    const int grid = (static_cast<int>(source_n) + block - 1) / block;
+    k_affine_dense_scatter<<<grid, block>>>(
+        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
+        static_cast<double>(internal_scale), half, target_x_begin,
+        target_y_begin, target_cols, target_rows, source_w, source_h, d_source,
+        bayer_pattern, cfa_origin_x, cfa_origin_y, mono ? 1 : 0, d_a, d_b,
+        d_overlaps);
+    ok = cudaGetLastError() == cudaSuccess &&
+         cudaDeviceSynchronize() == cudaSuccess;
+  }
+  unsigned long long overlaps = 0;
+  if (ok)
+    ok = cudaMemcpy(out_a, d_a, plane_bytes, cudaMemcpyDeviceToHost) ==
+             cudaSuccess &&
+         cudaMemcpy(out_b, d_b, plane_bytes, cudaMemcpyDeviceToHost) ==
+             cudaSuccess &&
+         cudaMemcpy(&overlaps, d_overlaps, sizeof(overlaps),
+                    cudaMemcpyDeviceToHost) == cudaSuccess;
+  cudaFree(d_source);
+  cudaFree(d_a);
+  cudaFree(d_b);
+  cudaFree(d_overlaps);
+  if (ok && out_positive_overlaps) *out_positive_overlaps = overlaps;
+  return ok;
+}
+
+ForwardDrizzleV2CudaWorkspace::ForwardDrizzleV2CudaWorkspace() = default;
+
+ForwardDrizzleV2CudaWorkspace::~ForwardDrizzleV2CudaWorkspace() {
+  cudaFree(device_source_);
+  cudaFree(device_a_);
+  cudaFree(device_b_);
+  cudaFree(device_overlaps_);
+}
+
+bool ForwardDrizzleV2CudaWorkspace::reserve(std::size_t source_elements,
+                                            std::size_t target_plane_elements,
+                                            int channels) {
+  if (source_elements == 0 || target_plane_elements == 0 ||
+      (channels != 1 && channels != 3))
+    return false;
+  if (source_elements <= source_capacity_ &&
+      target_plane_elements <= plane_capacity_ &&
+      channels <= channel_capacity_)
+    return true;
+
+  // Fail closed on any std::size_t overflow before a single byte is
+  // allocated: an undersized buffer would silently corrupt the kernel's
+  // dense-plane writes.
+  constexpr std::size_t kMax = std::numeric_limits<std::size_t>::max();
+  if (source_elements > kMax / sizeof(float) ||
+      target_plane_elements >
+          kMax / static_cast<std::size_t>(channels))
+    return false;
+  const std::size_t source_bytes = source_elements * sizeof(float);
+  const std::size_t plane_values = target_plane_elements *
+                                   static_cast<std::size_t>(channels);
+  if (plane_values > kMax / sizeof(double)) return false;
+  const std::size_t plane_bytes = plane_values * sizeof(double);
+  if (plane_bytes > (kMax - sizeof(unsigned long long)) / 2 ||
+      source_bytes > kMax - 2 * plane_bytes - sizeof(unsigned long long))
+    return false;
+  const std::size_t reserved_bytes = source_bytes + 2 * plane_bytes +
+                                     sizeof(unsigned long long);
+
+  void *new_source = nullptr, *new_a = nullptr, *new_b = nullptr,
+       *new_overlaps = nullptr;
+  bool ok = cudaMalloc(&new_source, source_bytes) == cudaSuccess &&
+            cudaMalloc(&new_a, plane_bytes) == cudaSuccess &&
+            cudaMalloc(&new_b, plane_bytes) == cudaSuccess &&
+            cudaMalloc(&new_overlaps, sizeof(unsigned long long)) == cudaSuccess;
+  if (!ok) {
+    cudaFree(new_source);
+    cudaFree(new_a);
+    cudaFree(new_b);
+    cudaFree(new_overlaps);
+    cudaGetLastError();
+    return false;
+  }
+  cudaFree(device_source_);
+  cudaFree(device_a_);
+  cudaFree(device_b_);
+  cudaFree(device_overlaps_);
+  device_source_ = new_source;
+  device_a_ = new_a;
+  device_b_ = new_b;
+  device_overlaps_ = new_overlaps;
+  source_capacity_ = source_elements;
+  plane_capacity_ = target_plane_elements;
+  channel_capacity_ = channels;
+  ++stats_.allocations;
+  stats_.reserved_device_bytes = reserved_bytes;
+  return true;
+}
+
+bool ForwardDrizzleV2CudaWorkspace::run_dense_scatter(
+    const double affine6[6], int internal_scale, double half,
+    int target_x_begin, int target_y_begin, int target_cols, int target_rows,
+    int source_w, int source_h, const float *source_values, int bayer_pattern,
+    int cfa_origin_x, int cfa_origin_y, bool mono, double *out_a,
+    double *out_b) {
+  if (!affine6 || !source_values || !out_a || !out_b || internal_scale <= 0 ||
+      target_cols <= 0 || target_rows <= 0 || source_w <= 0 || source_h <= 0)
+    return false;
+  const int channels = mono ? 1 : 3;
+  const std::size_t source_n = static_cast<std::size_t>(source_w) * source_h;
+  const std::size_t target_n =
+      static_cast<std::size_t>(target_cols) * target_rows;
+  if (source_n > source_capacity_ || target_n > plane_capacity_ ||
+      channels > channel_capacity_ || source_n > 2000000000ULL)
+    return false;
+  const std::size_t src_bytes = source_n * sizeof(float);
+  const std::size_t plane_bytes =
+      static_cast<std::size_t>(channels) * target_n * sizeof(double);
+  using clock = std::chrono::steady_clock;
+  auto t0 = clock::now();
+  bool ok = cudaMemcpy(device_source_, source_values, src_bytes,
+                       cudaMemcpyHostToDevice) == cudaSuccess &&
+            cudaMemset(device_a_, 0, plane_bytes) == cudaSuccess &&
+            cudaMemset(device_b_, 0, plane_bytes) == cudaSuccess &&
+            cudaMemset(device_overlaps_, 0, sizeof(unsigned long long)) ==
+                cudaSuccess;
+  auto t1 = clock::now();
+  if (ok) {
+    const int block = 128;
+    const int grid = (static_cast<int>(source_n) + block - 1) / block;
+    k_affine_dense_scatter<<<grid, block>>>(
+        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
+        static_cast<double>(internal_scale), half, target_x_begin,
+        target_y_begin, target_cols, target_rows, source_w, source_h,
+        static_cast<const float *>(device_source_), bayer_pattern, cfa_origin_x,
+        cfa_origin_y, mono ? 1 : 0, static_cast<double *>(device_a_),
+        static_cast<double *>(device_b_),
+        static_cast<unsigned long long *>(device_overlaps_));
+    ok = cudaGetLastError() == cudaSuccess &&
+         cudaDeviceSynchronize() == cudaSuccess;
+  }
+  auto t2 = clock::now();
+  unsigned long long overlaps = 0;
+  if (ok)
+    ok = cudaMemcpy(out_a, device_a_, plane_bytes, cudaMemcpyDeviceToHost) ==
+             cudaSuccess &&
+         cudaMemcpy(out_b, device_b_, plane_bytes, cudaMemcpyDeviceToHost) ==
+             cudaSuccess &&
+         cudaMemcpy(&overlaps, device_overlaps_, sizeof(overlaps),
+                    cudaMemcpyDeviceToHost) == cudaSuccess;
+  auto t3 = clock::now();
+  if (!ok) return false;
+  ++stats_.calls;
+  stats_.source_bytes_uploaded += src_bytes;
+  stats_.result_bytes_downloaded += 2 * plane_bytes;
+  stats_.positive_overlaps += overlaps;
+  stats_.upload_seconds += std::chrono::duration<double>(t1 - t0).count();
+  stats_.kernel_seconds += std::chrono::duration<double>(t2 - t1).count();
+  stats_.download_seconds += std::chrono::duration<double>(t3 - t2).count();
+  return true;
 }
 
 CudaDeviceMemory forward_drizzle_cuda_device_memory() {
