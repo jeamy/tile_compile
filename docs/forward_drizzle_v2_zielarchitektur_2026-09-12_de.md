@@ -82,7 +82,7 @@ Gate-Abschluss, wenn alle Exit-Kriterien des jeweiligen Gates erfüllt sind.
 | 1 | CPU-/CUDA-Target-Gather und CUDA-Dense-Scatter; 21 Fälle auf 3840×2160 → 7868×4540, sieben Transformationen und Pixfrac 0,2/0,8/1,0 | **bestanden: Dense Device Scatter ausgewählt**; alle festen Korrektheits-, Flux-, Repeatability- und 0,75-s-Schwellen erfüllt |
 | 2 | vierstufiger Support-/Fold-Vertrag, exakter CPU-Fold, CUDA-Paritätsoracle, Flux-/Teilflächenmatrix | **bestanden**; Chunk-/Tile-Grenzen des späteren Batch-Folds bleiben Gate-6-Abnahmekriterium |
 | 3 | Produktions-Clip-Oracle, MoM-Kandidaten (K 17/41) und deterministisches Hash-Reservoir; 21-Fall-Adversarialmatrix inkl. Produktions-N=600 | **bestanden: reservoir_sigma_clip (R=64) ausgewählt**; worst-vs-oracle 0,036 bei eingefrorener Schranke 2,0; bit-identisch zum Oracle für N≤64; kein Replay, kein Supportverlust |
-| 4 | keine v2-Implementierung | offen |
+| 4 | Sigma-Modell `noise² + (gx²+gy²)·σ_reg² + half²/3`, Confidence `S_c²/(S_c²+C_c)` mit `fallback_n_eff`, Degraded-Zählung, FP64-Akkumulatoren gemessen | **bestanden**; FP32 und Neumaier-FP32 scheitern an der 1e-12-Schranke, FP64 ausgewählt; Provider-Schema und GPU-Confidence-Parität an Gate 7/6 delegiert |
 | 5 | vereinfachter experimenteller RAM-/VRAM-Planner | nicht bestanden: Bufferrollen sind vor Gate 3/4 angenommen; Host-Lebensdauer verwendet Framezahl statt aktiver Slots; der isolierte Arithmetiktest ist grün, validiert aber noch nicht die reale Bufferformel |
 | 6 | persistente Source-/A-/B-Devicebuffer für den Scatter-Spike | nicht bestanden: synchron, keine Q-/Robust-/Coverage-/Fold-/Stream-Pipeline und keine vollständige Telemetrie |
 | 7–10 | keine v2-Implementierung | offen |
@@ -1340,8 +1340,40 @@ device-seitige Reservoir-Akkumulation und Per-Pixel-Clip-Kernel sind Gate 6.
 - FP32/compensated-FP32/FP64 messen;
 - CPU/GPU-Toleranzen festlegen.
 
-**Exit:** Jede Formel besitzt verfügbare Eingänge und einen numerischen Typ;
-alle für Confidence benötigten Buffer gehen in Gate 5 ein.
+**Exit (bestanden 2026-09-12):** Das Rauschmodell ist festgelegt als
+`sigma² = sigma_noise_f² + (gx² + gy²)·sigma_reg_f² + half²/3`
+(`forward_drizzle_v2_sigma2_model`, FP64); nichtendliche oder negative
+Eingänge liefern NaN, werden als `conf_degraded` gezählt und tragen
+`sigma2 = 0` bei — niemals ein Wurf im Hotpath. `sigma_reg_f` ist eine
+providergelieferte isotrope 1σ-Lageunsicherheit in Source-Pixeln;
+`registration_residual_factor`/`model_prediction_factor` sind
+Qualitätsfaktoren und werden nicht als Varianzen konsumiert. Die
+Plan-Schema-Erweiterung (Providerfelder `sigma_noise_f`/`sigma_reg_f` im
+persistierten `FrameSamplingTransform`) ist ausdrücklich an Gate 7 delegiert,
+weil sie den Resume-Vertrag berührt.
+
+Confidence folgt `S_c²/(S_c² + C_c)` über den effektiven Satz des Schätzers
+(`B_c`, `S_c`, `C_c` = Σb, Σb·σ, Σb²·σ²; drei Doubles plus Zähler je
+Pixel/Kanal, O(1)). Effektiver Satz je Schätzer: Reservoir = clip-akzeptierte
+Reservoir-Member (innerhalb des Clip-Aufrufs), uniform/median = alle gültigen
+Kandidaten, winsorized = alle Gruppen, trimmed = überlebende Gruppen,
+Fallbacks = voller gültiger Strom. Fehlt jede σ-Information (`C_c = 0`),
+gilt `confidence = n_eff/(n_eff+1)` mit Zustand `fallback_n_eff`; ohne
+Support `no_source_support` und 0. Confidence ist ein Diagnosescalar und kann
+Support/B/B²/n_eff nie verändern — per Test belegt.
+
+Numerik: gemessen auf fünf Akkumulationssequenzen. Plain-FP32 scheitert
+deutlich (rel. Fehler bis 0,996 bei Kancellation, 1,8e-5 auf 1e5-Termen),
+Neumaier-FP32 scheitert an der 1e-12-Schranke auf dem Langstrom (1,8e-10).
+Ausgewählt ist **FP64 für alle pixelweisen Akkumulatoren** (A/B/B² wie
+B_c/S_c/C_c), konsistent zu Fold und Clip; Geometrie, Polygonclip und
+Reservoir-Clip bleiben FP64. CPU/GPU-Toleranzen: Fold-Parität 1e-12
+(gemessen 0), Confidence-Parität 1e-12 reserviert — ein GPU-Confidence-Kernel
+ist Gate-6-Batch-Fold-Gegenstand. Artefakte:
+`forward_drizzle_v2_gate4_confidence_numerics_spec_2026-09-12.json`,
+`..._results_2026-09-12.jsonl`, `..._decision_2026-09-12.json`.
+Gate-5-Eingang: drei Confidence-Doubles plus Degraded-Zähler je
+Pixel/Kanal; Tests: 15 V2-Fälle / 7.470 Assertions.
 
 ### Gate 5: Gemeinsamer Speicherplan
 

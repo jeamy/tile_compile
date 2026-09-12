@@ -1255,3 +1255,210 @@ TEST_CASE("forward drizzle v2 Gate-3 robust estimator adversarial matrix",
   // Symmetric contamination must be handled at least as well as the oracle.
   REQUIRE(dev_oracle[winner]["symmetric_heavy_tail"] <= 0.25);
 }
+
+namespace {
+
+constexpr const char *kGate4SpecSha =
+    "808d98db7862130e9aa59ffa0c33d8d10c9c2991f789feba0a2f8c966e454bfe";
+
+struct SumFP32 {
+  float v = 0.0f;
+  void add(double x) { v += static_cast<float>(x); }
+  double get() const { return v; }
+};
+
+// Neumaier compensated summation in FP32.
+struct SumNeu32 {
+  float s = 0.0f, c = 0.0f;
+  void add(double xd) {
+    const float x = static_cast<float>(xd);
+    const float t = s + x;
+    if (std::fabs(s) >= std::fabs(x)) c += (s - t) + x;
+    else c += (x - t) + s;
+    s = t;
+  }
+  double get() const { return static_cast<double>(s) + c; }
+};
+
+struct SumFP64 {
+  double v = 0.0;
+  void add(double x) { v += x; }
+  double get() const { return v; }
+};
+
+const char *g4_conf_state_name(ForwardDrizzleV2ConfidenceState s) {
+  switch (s) {
+    case ForwardDrizzleV2ConfidenceState::no_source_support:
+      return "no_source_support";
+    case ForwardDrizzleV2ConfidenceState::fallback_n_eff:
+      return "fallback_n_eff";
+    case ForwardDrizzleV2ConfidenceState::modeled:
+      return "modeled";
+  }
+  return "unknown";
+}
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 gate-4 sigma model and confidence states",
+          "[forward-drizzle-v2][gate4]") {
+  // sigma2 = sn^2 + (gx^2+gy^2)*sr^2 + half^2/3
+  REQUIRE(forward_drizzle_v2_sigma2_model(1.0, 0.0, 0.0, 0.5, 0.6) ==
+          Catch::Approx(1.0 + 0.0 + 0.36 / 3.0));
+  REQUIRE(forward_drizzle_v2_sigma2_model(0.0, 3.0, 4.0, 0.5, 0.6) ==
+          Catch::Approx(6.25 + 0.36 / 3.0));
+  REQUIRE(std::isnan(
+      forward_drizzle_v2_sigma2_model(-1.0, 0.0, 0.0, 0.5, 0.5)));
+  REQUIRE(std::isnan(forward_drizzle_v2_sigma2_model(
+      1.0, std::numeric_limits<double>::infinity(), 0.0, 0.5, 0.5)));
+  REQUIRE(std::isnan(
+      forward_drizzle_v2_sigma2_model(1.0, 0.0, 0.0, -0.1, 0.5)));
+
+  std::vector<ForwardDrizzleV2RobustCandidate> c;
+  for (std::size_t f = 0; f < 40; ++f)
+    c.push_back({f, 100.0 + g3_noise(f), 1.0});
+  std::vector<double> s2(c.size(), 1.0);
+
+  // Modeled confidence with constant sigma equals n_eff/(n_eff+1) over the
+  // effective set.
+  const auto modeled = robust_reduce_candidates_v2(
+      c, ForwardDrizzleV2Estimator::reservoir_sigma_clip, {}, 0, s2);
+  REQUIRE(modeled.conf_state == ForwardDrizzleV2ConfidenceState::modeled);
+  REQUIRE(modeled.conf_b >= 35.0);
+  REQUIRE(modeled.conf_b <= 40.0);
+  REQUIRE(modeled.confidence ==
+          Catch::Approx(modeled.conf_b / (modeled.conf_b + 1.0))
+              .epsilon(1e-12));
+  REQUIRE(modeled.conf_degraded == 0);
+
+  // Missing sigma inputs fall back to the n_eff formula; support untouched.
+  const auto fb = robust_reduce_candidates_v2(
+      c, ForwardDrizzleV2Estimator::reservoir_sigma_clip);
+  REQUIRE(fb.conf_state == ForwardDrizzleV2ConfidenceState::fallback_n_eff);
+  REQUIRE(fb.confidence == Catch::Approx(fb.n_eff / (fb.n_eff + 1.0)));
+  REQUIRE(fb.b == 40.0);
+
+  // Partially invalid sigma inputs are degraded, not fatal.
+  std::vector<double> s2d(c.size(), 1.0);
+  s2d[3] = std::numeric_limits<double>::quiet_NaN();
+  s2d[9] = -2.0;
+  const auto deg = robust_reduce_candidates_v2(
+      c, ForwardDrizzleV2Estimator::reservoir_sigma_clip, {}, 0, s2d);
+  REQUIRE(deg.conf_degraded == 2);
+  REQUIRE(deg.conf_state == ForwardDrizzleV2ConfidenceState::modeled);
+  REQUIRE(deg.conf_b >= 35.0);
+
+  // sigma2 span of wrong size is a contract violation.
+  std::vector<double> wrong(3, 1.0);
+  REQUIRE_THROWS_AS(
+      robust_reduce_candidates_v2(
+          c, ForwardDrizzleV2Estimator::reservoir_sigma_clip, {}, 0, wrong),
+      std::invalid_argument);
+  REQUIRE_THROWS_AS(
+      robust_frame_oracle_v2(c, 5, 3, 3.0, 3.0, wrong), std::invalid_argument);
+
+  // No support: no confidence at all.
+  std::vector<ForwardDrizzleV2RobustCandidate> empty;
+  const auto none = robust_reduce_candidates_v2(
+      empty, ForwardDrizzleV2Estimator::reservoir_sigma_clip);
+  REQUIRE(none.conf_state ==
+          ForwardDrizzleV2ConfidenceState::no_source_support);
+  REQUIRE(none.confidence == 0.0);
+}
+
+TEST_CASE("forward drizzle v2 Gate-4 numerics measurement",
+          "[.][forward-drizzle-v2-gate4]") {
+  struct Seq {
+    const char *name;
+    std::vector<double> terms;
+  };
+  std::vector<Seq> seqs;
+  {
+    Seq s{"equal_weights_600", {}};
+    for (int i = 0; i < 600; ++i) s.terms.push_back(1.0);
+    seqs.push_back(std::move(s));
+  }
+  {
+    Seq s{"wide_weights", {}};
+    for (int i = -8; i <= 8; ++i)
+      for (int j = 0; j < 37; ++j)
+        s.terms.push_back(std::pow(10.0, i) * (1.0 + 0.01 * j));
+    seqs.push_back(std::move(s));
+  }
+  {
+    Seq s{"alternating_magnitude", {}};
+    for (int i = 0; i < 512; ++i)
+      s.terms.push_back(i % 2 == 0 ? 1.0e6 : 1.0e-6);
+    seqs.push_back(std::move(s));
+  }
+  {
+    Seq s{"cancellation", {}};
+    for (int i = 0; i < 256; ++i) {
+      s.terms.push_back(1.0e8);
+      s.terms.push_back(-1.0e8);
+      s.terms.push_back(1.0);
+    }
+    seqs.push_back(std::move(s));
+  }
+  {
+    Seq s{"long_stream_1e5", {}};
+    for (int i = 0; i < 100000; ++i)
+      s.terms.push_back(1.0 + 0.001 * (i % 97));
+    seqs.push_back(std::move(s));
+  }
+
+  for (const auto &s : seqs) {
+    SumFP32 f32;
+    SumNeu32 neu;
+    SumFP64 f64;
+    for (double t : s.terms) {
+      f32.add(t);
+      neu.add(t);
+      f64.add(t);
+    }
+    const double ref = f64.get();
+    const auto rel = [&](double v) {
+      return ref != 0.0 ? std::abs(v - ref) / std::abs(ref)
+                        : std::abs(v - ref);
+    };
+    std::printf(
+        "{\"gate\":4,\"spec_sha256\":\"%s\",\"sequence\":\"%s\","
+        "\"n\":%zu,\"ref_fp64\":%.17g,\"fp32\":%.17g,"
+        "\"fp32_rel_err\":%.17g,\"neumaier_fp32\":%.17g,"
+        "\"neumaier_rel_err\":%.17g,\"fp64\":%.17g}\n",
+        kGate4SpecSha, s.name, s.terms.size(), ref, f32.get(), rel(f32.get()),
+        neu.get(), rel(neu.get()), f64.get());
+  }
+
+  // Confidence over the gate-3 adversarial matrix with per-candidate sigma2
+  // inputs derived from the sigma model (frame-dependent gradient).
+  const auto cases = g3_cases();
+  for (const auto &k : cases) {
+    std::vector<double> s2(k.c.size());
+    for (std::size_t i = 0; i < k.c.size(); ++i)
+      s2[i] = forward_drizzle_v2_sigma2_model(
+          1.0, 0.1 * std::sin(0.3 * static_cast<double>(k.c[i].frame_order)),
+          0.1 * std::cos(0.2 * static_cast<double>(k.c[i].frame_order)), 0.5,
+          0.4);
+    const auto r = robust_reduce_candidates_v2(
+        k.c, ForwardDrizzleV2Estimator::reservoir_sigma_clip, {}, 0, s2);
+    if (r.b <= 0.0) {
+      std::printf(
+          "{\"gate\":4,\"spec_sha256\":\"%s\",\"case\":\"%s\","
+          "\"state\":\"no_source_support\"}\n",
+          kGate4SpecSha, k.name);
+      continue;
+    }
+    REQUIRE(std::isfinite(r.confidence));
+    REQUIRE(r.confidence > 0.0);
+    REQUIRE(r.confidence <= 1.0);
+    std::printf(
+        "{\"gate\":4,\"spec_sha256\":\"%s\",\"case\":\"%s\","
+        "\"conf_state\":\"%s\",\"confidence\":%.17g,\"conf_b\":%.17g,"
+        "\"conf_s\":%.17g,\"conf_c\":%.17g,\"conf_degraded\":%llu,"
+        "\"value\":%.17g,\"n_eff\":%.17g}\n",
+        kGate4SpecSha, k.name, g4_conf_state_name(r.conf_state), r.confidence,
+        r.conf_b, r.conf_s, r.conf_c,
+        static_cast<unsigned long long>(r.conf_degraded), r.value, r.n_eff);
+  }
+}

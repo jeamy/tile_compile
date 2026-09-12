@@ -157,6 +157,12 @@ struct ForwardDrizzleV2RobustConfig {
   double oracle_sigma_high = 3.0;
 };
 
+enum class ForwardDrizzleV2ConfidenceState {
+  no_source_support,
+  fallback_n_eff,
+  modeled
+};
+
 struct ForwardDrizzleV2RobustResult {
   ForwardDrizzleV2RobustState state =
       ForwardDrizzleV2RobustState::no_source_support;
@@ -169,7 +175,26 @@ struct ForwardDrizzleV2RobustResult {
   double scale = 0.0;
   std::uint64_t candidates = 0;
   std::uint64_t groups_used = 0;
+  // Gate-4 confidence sufficient statistics over the estimator's effective
+  // set: conf_b = sum b, conf_s = sum b*sigma, conf_c = sum b^2*sigma2.
+  // confidence = conf_s^2 / (conf_s^2 + conf_c) when conf_c > 0, else the
+  // n_eff/(n_eff+1) fallback.  Never changes support.
+  double conf_b = 0.0;
+  double conf_s = 0.0;
+  double conf_c = 0.0;
+  std::uint64_t conf_degraded = 0;
+  double confidence = 0.0;
+  ForwardDrizzleV2ConfidenceState conf_state =
+      ForwardDrizzleV2ConfidenceState::no_source_support;
 };
+
+// Gate-4 per-candidate noise model, all inputs in normalized source units:
+// sigma2 = sigma_noise^2 + (gx^2 + gy^2) * sigma_reg_px^2 + half^2/3.
+// Returns a non-finite value when any input is non-finite or negative; the
+// caller maps that to the degraded-sigma contract (sigma2 = 0 + counter).
+double forward_drizzle_v2_sigma2_model(double sigma_noise, double grad_x,
+                                       double grad_y, double sigma_reg_px,
+                                       double droplet_half);
 
 // Gate-3 quality reference, NOT the selected estimator.  A replayable stream
 // supplies candidates twice without retaining N values per pixel.  Pass 1
@@ -203,17 +228,21 @@ ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
     std::span<const ForwardDrizzleV2RobustCandidate> candidates,
     ForwardDrizzleV2Estimator estimator,
     const ForwardDrizzleV2RobustConfig &cfg = {},
-    std::uint64_t stream_length = 0);
+    std::uint64_t stream_length = 0,
+    std::span<const double> candidate_sigma2 = {});
 
 // Gate-3 full-list oracle mirroring the production iterative weighted
 // median/MAD sigma-clip: deterministic (value, frame_order) order, weighted
 // median, weighted MAD, asymmetric clip bounds, early stop when the mask no
 // longer changes, no epsilon padding of a zero MAD. The surviving candidates
-// are combined as the weighted Uniform estimate.
+// are combined as the weighted Uniform estimate. `candidate_sigma2` (empty or
+// parallel to candidates) feeds the Gate-4 confidence statistics over the
+// accepted set.
 ForwardDrizzleV2RobustResult robust_frame_oracle_v2(
     std::span<const ForwardDrizzleV2RobustCandidate> candidates,
     int min_clip_contributors = 5, int robust_passes = 3,
-    double sigma_low = 3.0, double sigma_high = 3.0);
+    double sigma_low = 3.0, double sigma_high = 3.0,
+    std::span<const double> candidate_sigma2 = {});
 
 struct ForwardDrizzleV2MemoryInputs {
   int target_width = 0;

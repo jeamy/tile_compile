@@ -354,6 +354,35 @@ bool checked_add(std::size_t a, std::size_t b, std::size_t &out) {
   return true;
 }
 
+// Gate-4: sigma2 for candidate i; absent or invalid input contributes 0 and
+// is counted as degraded. Never throws.
+double conf_sigma2_of(std::span<const double> sigma2, std::size_t i,
+                      std::uint64_t &degraded) {
+  if (sigma2.empty()) return 0.0;
+  const double v = sigma2[i];
+  if (!std::isfinite(v) || v < 0.0) {
+    ++degraded;
+    return 0.0;
+  }
+  return v;
+}
+
+void finalize_confidence(ForwardDrizzleV2RobustResult &out) {
+  if (!(out.conf_b > 0.0)) {
+    out.confidence = 0.0;
+    out.conf_state = ForwardDrizzleV2ConfidenceState::no_source_support;
+    return;
+  }
+  if (out.conf_c > 0.0 && std::isfinite(out.conf_c)) {
+    out.confidence = (out.conf_s * out.conf_s) /
+                     (out.conf_s * out.conf_s + out.conf_c);
+    out.conf_state = ForwardDrizzleV2ConfidenceState::modeled;
+    return;
+  }
+  out.confidence = out.n_eff > 0.0 ? out.n_eff / (out.n_eff + 1.0) : 0.0;
+  out.conf_state = ForwardDrizzleV2ConfidenceState::fallback_n_eff;
+}
+
 }  // namespace
 
 ForwardDrizzleV2RobustResult robust_reduce_v2(
@@ -387,6 +416,8 @@ ForwardDrizzleV2RobustResult robust_reduce_v2(
   if (out.candidates < static_cast<std::uint64_t>(cfg.min_candidates)) {
     out.state = ForwardDrizzleV2RobustState::too_few_candidates_fallback;
     finish_uniform_fallback(out, uniform_a, uniform_b, uniform_b2);
+    out.conf_b = uniform_b;
+    finalize_confidence(out);
     return out;
   }
 
@@ -398,6 +429,8 @@ ForwardDrizzleV2RobustResult robust_reduce_v2(
   if (means.size() < static_cast<std::size_t>(cfg.min_groups)) {
     out.state = ForwardDrizzleV2RobustState::too_few_groups_fallback;
     finish_uniform_fallback(out, uniform_a, uniform_b, uniform_b2);
+    out.conf_b = uniform_b;
+    finalize_confidence(out);
     return out;
   }
 
@@ -413,6 +446,8 @@ ForwardDrizzleV2RobustResult robust_reduce_v2(
     // full influence.  The mathematically defined degenerate solution is the
     // common robust centre with the original geometric support weights.
     finish_uniform_fallback(out, out.center * uniform_b, uniform_b, uniform_b2);
+    out.conf_b = uniform_b;
+    finalize_confidence(out);
     return out;
   }
 
@@ -428,6 +463,8 @@ ForwardDrizzleV2RobustResult robust_reduce_v2(
   out.value = out.a / out.b;
   out.n_eff = out.b2 > 0.0 ? out.b * out.b / out.b2 : 0.0;
   out.state = ForwardDrizzleV2RobustState::primary_winsorized_mom;
+  out.conf_b = out.b;
+  finalize_confidence(out);
   return out;
 }
 
@@ -437,6 +474,8 @@ struct GroupSlot {
   double a = 0.0;
   double b = 0.0;
   double b2 = 0.0;
+  double s = 0.0;  // Gate-4: sum b*sigma
+  double c = 0.0;  // Gate-4: sum b^2*sigma2
 };
 
 std::uint64_t splitmix64(std::uint64_t x) {
@@ -469,19 +508,37 @@ double weighted_median_of(std::span<const double> values,
 
 }  // namespace
 
+double forward_drizzle_v2_sigma2_model(double sigma_noise, double grad_x,
+                                       double grad_y, double sigma_reg_px,
+                                       double droplet_half) {
+  if (!std::isfinite(sigma_noise) || sigma_noise < 0.0 ||
+      !std::isfinite(grad_x) || !std::isfinite(grad_y) ||
+      !std::isfinite(sigma_reg_px) || sigma_reg_px < 0.0 ||
+      !std::isfinite(droplet_half) || !(droplet_half > 0.0))
+    return std::numeric_limits<double>::quiet_NaN();
+  const double g2 = grad_x * grad_x + grad_y * grad_y;
+  return sigma_noise * sigma_noise + g2 * sigma_reg_px * sigma_reg_px +
+         droplet_half * droplet_half / 3.0;
+}
+
 ForwardDrizzleV2RobustResult robust_frame_oracle_v2(
     std::span<const ForwardDrizzleV2RobustCandidate> candidates,
     int min_clip_contributors, int robust_passes, double sigma_low,
-    double sigma_high) {
+    double sigma_high, std::span<const double> candidate_sigma2) {
   if (min_clip_contributors < 1 || robust_passes < 1 ||
       !std::isfinite(sigma_low) || !std::isfinite(sigma_high) ||
-      sigma_low <= 0.0 || sigma_high <= 0.0)
+      sigma_low <= 0.0 || sigma_high <= 0.0 ||
+      (!candidate_sigma2.empty() &&
+       candidate_sigma2.size() != candidates.size()))
     throw std::invalid_argument("FORWARD_DRIZZLE_V2_INVALID_ORACLE_CONFIG");
   ForwardDrizzleV2RobustResult out;
   std::vector<ForwardDrizzleV2RobustCandidate> valid;
-  for (const auto &v : candidates) {
+  std::vector<std::size_t> valid_index;
+  for (std::size_t i = 0; i < candidates.size(); ++i) {
+    const auto &v = candidates[i];
     if (!std::isfinite(v.x) || !std::isfinite(v.b) || !(v.b > 0.0)) continue;
     valid.push_back(v);
+    valid_index.push_back(i);
   }
   out.candidates = valid.size();
   if (valid.empty()) return out;
@@ -554,23 +611,33 @@ ForwardDrizzleV2RobustResult robust_frame_oracle_v2(
     a += valid[i].b * valid[i].x;
     b += valid[i].b;
     b2 += valid[i].b * valid[i].b;
+    out.conf_b += valid[i].b;
+    const double s2 =
+        conf_sigma2_of(candidate_sigma2, valid_index[i], out.conf_degraded);
+    if (s2 > 0.0) {
+      out.conf_s += valid[i].b * std::sqrt(s2);
+      out.conf_c += valid[i].b * valid[i].b * s2;
+    }
   }
   out.state = ForwardDrizzleV2RobustState::oracle_sigma_clip;
   out.center = b > 0.0 ? a / b : 0.0;
   finish_uniform_fallback(out, a, b, b2);
   out.state = ForwardDrizzleV2RobustState::oracle_sigma_clip;
+  finalize_confidence(out);
   return out;
 }
 
 ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
     std::span<const ForwardDrizzleV2RobustCandidate> candidates,
     ForwardDrizzleV2Estimator estimator, const ForwardDrizzleV2RobustConfig &cfg,
-    std::uint64_t stream_length) {
+    std::uint64_t stream_length, std::span<const double> candidate_sigma2) {
   if (estimator == ForwardDrizzleV2Estimator::two_pass_winsorized_frames ||
       cfg.groups < 3 || (cfg.groups % 2) == 0 || cfg.min_candidates < 1 ||
       cfg.min_groups < 1 || cfg.min_groups > cfg.groups ||
       !std::isfinite(cfg.winsor_sigma) || cfg.winsor_sigma <= 0.0 ||
-      cfg.reservoir_size < 1)
+      cfg.reservoir_size < 1 ||
+      (!candidate_sigma2.empty() &&
+       candidate_sigma2.size() != candidates.size()))
     throw std::invalid_argument("FORWARD_DRIZZLE_V2_INVALID_ROBUST_CONFIG");
 
   if (estimator == ForwardDrizzleV2Estimator::reservoir_sigma_clip) {
@@ -586,19 +653,30 @@ ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
         (static_cast<unsigned __int128>(cfg.reservoir_size) << 64) / n_stream);
     ForwardDrizzleV2RobustResult out;
     std::vector<ForwardDrizzleV2RobustCandidate> reservoir;
+    std::vector<double> reservoir_sigma2;
     if (keep_all) reservoir.reserve(candidates.size());
     else reservoir.reserve(static_cast<std::size_t>(cfg.reservoir_size) +
                            static_cast<std::size_t>(cfg.reservoir_size) / 4);
     double uniform_a = 0.0, uniform_b = 0.0, uniform_b2 = 0.0;
-    for (const auto &v : candidates) {
+    double stream_s = 0.0, stream_c = 0.0;
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+      const auto &v = candidates[i];
       if (!std::isfinite(v.x) || !std::isfinite(v.b) || !(v.b > 0.0)) continue;
       ++out.candidates;
       uniform_a += v.b * v.x;
       uniform_b += v.b;
       uniform_b2 += v.b * v.b;
+      const double s2 =
+          conf_sigma2_of(candidate_sigma2, i, out.conf_degraded);
+      if (s2 > 0.0) {
+        stream_s += v.b * std::sqrt(s2);
+        stream_c += v.b * v.b * s2;
+      }
       if (keep_all || splitmix64(v.frame_order ^ cfg.reservoir_seed) <
-                          threshold)
+                          threshold) {
         reservoir.push_back(v);
+        reservoir_sigma2.push_back(s2);
+      }
     }
     if (!(uniform_b > 0.0)) return out;
     if (out.candidates < static_cast<std::uint64_t>(cfg.min_candidates) ||
@@ -606,19 +684,29 @@ ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
             static_cast<std::size_t>(cfg.oracle_min_clip_contributors)) {
       out.state = ForwardDrizzleV2RobustState::too_few_candidates_fallback;
       finish_uniform_fallback(out, uniform_a, uniform_b, uniform_b2);
+      out.conf_b = uniform_b;
+      out.conf_s = stream_s;
+      out.conf_c = stream_c;
+      finalize_confidence(out);
       return out;
     }
     const auto clipped = robust_frame_oracle_v2(
         reservoir, cfg.oracle_min_clip_contributors, cfg.oracle_passes,
-        cfg.oracle_sigma_low, cfg.oracle_sigma_high);
+        cfg.oracle_sigma_low, cfg.oracle_sigma_high, reservoir_sigma2);
     // The reservoir decides the value; B/B2 cover the full stream so support
-    // and effective-N reflect every contributing frame.
+    // and effective-N reflect every contributing frame. Confidence uses the
+    // clip-accepted reservoir members (its sigma inputs were already
+    // validated above, so the oracle's degraded count stays zero there).
     out.state = ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip;
     out.center = clipped.center;
     out.scale = clipped.scale;
     out.groups_used = reservoir.size();
     finish_uniform_fallback(out, clipped.value * uniform_b, uniform_b,
                             uniform_b2);
+    out.conf_b = clipped.conf_b;
+    out.conf_s = clipped.conf_s;
+    out.conf_c = clipped.conf_c;
+    finalize_confidence(out);
     return out;
   }
 
@@ -626,39 +714,59 @@ ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
   std::vector<GroupSlot> groups(k);
   ForwardDrizzleV2RobustResult out;
   double uniform_a = 0.0, uniform_b = 0.0, uniform_b2 = 0.0;
-  for (const auto &v : candidates) {
+  double stream_s = 0.0, stream_c = 0.0;
+  for (std::size_t i = 0; i < candidates.size(); ++i) {
+    const auto &v = candidates[i];
     if (!std::isfinite(v.x) || !std::isfinite(v.b) || !(v.b > 0.0)) continue;
     ++out.candidates;
     uniform_a += v.b * v.x;
     uniform_b += v.b;
     uniform_b2 += v.b * v.b;
+    const double s2 = conf_sigma2_of(candidate_sigma2, i, out.conf_degraded);
+    const double s = s2 > 0.0 ? std::sqrt(s2) : 0.0;
+    stream_s += v.b * s;
+    stream_c += v.b * v.b * s2;
     GroupSlot &g = groups[v.frame_order % k];
     g.a += v.b * v.x;
     g.b += v.b;
     g.b2 += v.b * v.b;
+    g.s += v.b * s;
+    g.c += v.b * v.b * s2;
   }
 
   if (!(uniform_b > 0.0)) return out;
   if (out.candidates < static_cast<std::uint64_t>(cfg.min_candidates)) {
     out.state = ForwardDrizzleV2RobustState::too_few_candidates_fallback;
     finish_uniform_fallback(out, uniform_a, uniform_b, uniform_b2);
+    out.conf_b = uniform_b;
+    out.conf_s = stream_s;
+    out.conf_c = stream_c;
+    finalize_confidence(out);
     return out;
   }
 
-  std::vector<double> means, weights, group_b2;
+  std::vector<double> means, weights, group_b2, group_s, group_c;
   means.reserve(k);
   weights.reserve(k);
   group_b2.reserve(k);
+  group_s.reserve(k);
+  group_c.reserve(k);
   for (const auto &g : groups) {
     if (!(g.b > 0.0)) continue;
     means.push_back(g.a / g.b);
     weights.push_back(g.b);
     group_b2.push_back(g.b2);
+    group_s.push_back(g.s);
+    group_c.push_back(g.c);
   }
   out.groups_used = means.size();
   if (means.size() < static_cast<std::size_t>(cfg.min_groups)) {
     out.state = ForwardDrizzleV2RobustState::too_few_groups_fallback;
     finish_uniform_fallback(out, uniform_a, uniform_b, uniform_b2);
+    out.conf_b = uniform_b;
+    out.conf_s = stream_s;
+    out.conf_c = stream_c;
+    finalize_confidence(out);
     return out;
   }
   out.center = median_sorted(means);
@@ -671,6 +779,10 @@ ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
     case ForwardDrizzleV2Estimator::uniform:
       out.state = ForwardDrizzleV2RobustState::primary_uniform;
       finish_uniform_fallback(out, uniform_a, uniform_b, uniform_b2);
+      out.conf_b = uniform_b;
+      out.conf_s = stream_s;
+      out.conf_c = stream_c;
+      finalize_confidence(out);
       return out;
 
     case ForwardDrizzleV2Estimator::mom_median: {
@@ -680,6 +792,10 @@ ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
       // value is the weighted median of the group means.
       finish_uniform_fallback(out, value * uniform_b, uniform_b, uniform_b2);
       out.center = value;
+      out.conf_b = uniform_b;
+      out.conf_s = stream_s;
+      out.conf_c = stream_c;
+      finalize_confidence(out);
       return out;
     }
 
@@ -689,13 +805,17 @@ ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
         out.state = ForwardDrizzleV2RobustState::degenerate_scale;
         finish_uniform_fallback(out, out.center * uniform_b, uniform_b,
                                 uniform_b2);
+        out.conf_b = uniform_b;
+        out.conf_s = stream_s;
+        out.conf_c = stream_c;
+        finalize_confidence(out);
         return out;
       }
       const double lo = out.center - cfg.winsor_sigma * out.scale;
       const double hi = out.center + cfg.winsor_sigma * out.scale;
       const bool trimmed =
           estimator == ForwardDrizzleV2Estimator::mom_trimmed_groups;
-      double a = 0.0, b = 0.0, b2 = 0.0;
+      double a = 0.0, b = 0.0, b2 = 0.0, cb = 0.0, cs = 0.0, cc = 0.0;
       for (std::size_t g = 0; g < means.size(); ++g) {
         if (trimmed) {
           if (!(means[g] >= lo && means[g] <= hi)) continue;
@@ -705,17 +825,28 @@ ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
         }
         b += weights[g];
         b2 += group_b2[g];
+        cb += weights[g];
+        cs += group_s[g];
+        cc += group_c[g];
       }
       if (!(b > 0.0)) {
         out.state = ForwardDrizzleV2RobustState::degenerate_scale;
         finish_uniform_fallback(out, out.center * uniform_b, uniform_b,
                                 uniform_b2);
+        out.conf_b = uniform_b;
+        out.conf_s = stream_s;
+        out.conf_c = stream_c;
+        finalize_confidence(out);
         return out;
       }
       out.state = trimmed
                       ? ForwardDrizzleV2RobustState::primary_mom_trimmed_groups
                       : ForwardDrizzleV2RobustState::primary_mom_winsorized_groups;
       finish_uniform_fallback(out, a, b, b2);
+      out.conf_b = cb;
+      out.conf_s = cs;
+      out.conf_c = cc;
+      finalize_confidence(out);
       return out;
     }
 
