@@ -169,9 +169,10 @@ struct ForwardDrizzleV2MemoryPlan {
   bool feasible = false;
 };
 
-// Experimental checked RAM/VRAM planner candidate for a fixed-group
-// enumeration scheme. Gate 5 is not closed: Gates 1, 3 and 4 have not selected
-// geometry, reducer or numerics, so this models a candidate layout only.
+// Experimental checked RAM/VRAM planner candidate for dense scatter with a
+// fixed-group reducer. Gate 1 selected affine dense scatter, but Gate 5 is not
+// closed: Gates 3 and 4 have not selected reducer or numerics, so this models
+// a candidate layout only.
 // Device pixel storage consists of frame A/B, group A/B, robust A/B/B2,
 // centre/scale, support/confidence and output staging. It is independent of N.
 // Frame count only limits band_rows through pinned source/Q views; it never

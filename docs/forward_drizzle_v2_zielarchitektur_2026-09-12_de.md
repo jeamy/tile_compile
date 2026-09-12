@@ -79,7 +79,7 @@ Gate-Abschluss, wenn alle Exit-Kriterien des jeweiligen Gates erfüllt sind.
 | Gate | Vorhandener Stand | Freigabe |
 |---:|---|---|
 | 0 | kleine deterministische affine Record-Oracles über Scale 1/2, MONO/OSC, alle Bayer-Patterns, zwei Origins, drei Pixfrac-Werte und fünf affine Transformationen; sauber gebundener 60-Frame-M42-Kaltlauf; persistierte Gate-1-Schwellen | **bestanden**; lokale Referenz wird erst in Gate 8 nach Auswahl der lokalen Repräsentation erzeugt und in Gate 10 produktiv abgenommen |
-| 1 | CPU-/CUDA-Target-Gather und CUDA-Dense-Scatter; erster nativer Benchmark | nicht entschieden: keine reale M42-Canvas, unvollständige Transformmatrix, Atomic-Repeatability nicht bewiesen |
+| 1 | CPU-/CUDA-Target-Gather und CUDA-Dense-Scatter; 21 Fälle auf 3840×2160 → 7868×4540, sieben Transformationen und Pixfrac 0,2/0,8/1,0 | **bestanden: Dense Device Scatter ausgewählt**; alle festen Korrektheits-, Flux-, Repeatability- und 0,75-s-Schwellen erfüllt |
 | 2 | framekorrekter A/B/B²-Fold als isoliertes Primitiv | teilweise: vier Supportebenen, Profile, Teilflächenregel, Flux-/Gradientmatrix und CUDA-Fold fehlen |
 | 3 | experimenteller zweipassiger winsorisierter Gruppen-Schätzer | nicht ausgewählt: kein Verfahrenvergleich; zweiter Replay-Pass ist noch nicht mit dem recordfreien I/O-/Geometrievertrag vereinbar |
 | 4 | keine v2-Implementierung | offen |
@@ -436,7 +436,7 @@ Vor Freigabe müssen gelten:
 
 ## 7. Affine Enumeration: Gather-vs-Scatter-Entscheidung
 
-### 7.1 Keine Vorentscheidung für Target-Gather
+### 7.1 Entscheidung: Dense Device Scatter
 
 Die v2-Invariante lautet:
 
@@ -446,7 +446,18 @@ keine N-Frame-Sortierung pro Pixel
 keine Pixel×Frame-Kandidatenmatrix
 ```
 
-Ob sie durch Target-Gather oder dichten Device-Scatter erfüllt wird, entscheidet ein Prototypvergleich.
+Gate 1 hat Dense Device Scatter für die affine Enumeration ausgewählt.
+Target-Gather bleibt ein unabhängiges Produktionsgrößen-Oracle, wird aber
+nicht zum Ausführungskern. Die Entscheidung ist versioniert in:
+
+- `forward_drizzle_v2_gate1_affine_benchmark_spec_2026-09-12.json`;
+- `forward_drizzle_v2_gate1_affine_results_2026-09-12.jsonl`;
+- `forward_drizzle_v2_gate1_affine_decision_2026-09-12.json`.
+
+Der Scatter schreibt frame-lokale A/B-Planes auf dem Device. Diese Planes
+dürfen im späteren Produktionspfad nicht pro Frame zum Host geladen werden;
+sie werden in Gate 3/6 auf dem Device in die ausgewählte bounded-memory
+Statistik weitergeführt.
 
 ### 7.2 Reale Gather-Komplexität
 
@@ -521,7 +532,21 @@ Gemessen werden auf realer Canvasgröße:
 - Flux-/Support-Parität;
 - Skalierung mit Pixfrac, Rotation und Shear.
 
-Erst dieses Gate legt Gather oder Scatter fest.
+**Gate-1-Ergebnis (bestanden 2026-09-12):** Alle 21 Fälle erfüllten
+Korrektheit und Repeatability mit 0 A/B-Fehler, 0 Supportabweichungen und
+identischer positiver Overlapzahl. Konstantes Feld hatte 0 relativen Fehler;
+der Punktquellenfehler lag bei `5,24e-10` und damit unter `1e-9`. Dense
+Scatter benötigte einschließlich Source-Upload und Kernel zwischen 0,060 und
+0,715 s pro Frame; der vorab fixierte Worst-Case-Grenzwert war 0,75 s. Es
+gab 0 globale Device-Synchronisationen und 0 Hotpath-Bufferallokationen.
+Target-Gather benötigte für denselben Korrektheitsvergleich 1,088 bis 2,194 s.
+
+Die erste explorative Messung hatte fälschlich den vollständigen D2H-Download
+der frame-lokalen A/B-Planes zur steady-state Enumeration gezählt. Spec v2
+dokumentiert diese Methodenkorrektur vor dem entscheidenden Clean-Build-Lauf;
+der numerische Grenzwert 0,75 s blieb unverändert. Die Downloads bleiben nur
+für den vollständigen Oraclevergleich im Harness und sind im gewählten
+Produktionsdatenfluss verboten.
 
 ## 8. Bounded-memory Robustschätzer: Auswahl statt Vorfestlegung
 
@@ -1244,7 +1269,13 @@ bleibt Bestandteil der Gate-10-Produktionsabnahme.
 - gegen Geometrie- und Frame-Kandidaten-Oracle prüfen;
 - auf realer Canvasgröße messen.
 
-**Exit:** Gather oder Scatter ist durch Korrektheit, Speicher und Laufzeit gewählt.
+**Exit (bestanden 2026-09-12):** Dense Device Scatter ist für affine Frames
+ausgewählt. Der Clean-Build `e65dbda1` bestand die 21 Fälle der eingefrorenen
+Produktionsmatrix und alle Flux-/Support-/Repeatability-/Performance-Gates.
+Target-Gather bleibt Oracle. Vollständige Rohdaten und Entscheidung stehen in
+den drei Gate-1-Artefakten aus §7.1. Die Atomic-Repeatability ist an die
+getestete GTX 1660 Ti gebunden und muss bei einer neuen GPU-Architektur erneut
+abgenommen werden.
 
 ### Gate 2: Support und Scale-Fold
 

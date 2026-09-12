@@ -247,9 +247,9 @@ struct ForwardDrizzleV2CudaWorkspaceStats {
   double download_seconds = 0.0;
 };
 
-// Experimental Gate-1 persistent-buffer spike for dense scatter. It proves
-// allocation reuse only; it does not select scatter or satisfy Gate 6 (no
-// overlapped slot pipeline, Q data, robust reduction, coverage, fold or
+// Gate-1 selected dense-scatter persistent-buffer spike. It proves allocation
+// reuse and the selected affine enumeration only; it does not satisfy Gate 6
+// (no overlapped slot pipeline, Q data, robust reduction, coverage, fold or
 // transaction yet).
 // reserve() is called before entering the frame loop; run_dense_scatter()
 // performs no cudaMalloc/cudaFree and exposes the transfer/kernel split
