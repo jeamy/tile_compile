@@ -6,6 +6,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <chrono>
 #include <cstdio>
@@ -401,4 +403,204 @@ TEST_CASE("forward drizzle v2 affine enumeration benchmark",
     REQUIRE(so0 == so1);
     REQUIRE(support_mismatch == 0);
   }
+}
+
+TEST_CASE("forward drizzle v2 Gate-1 production affine matrix",
+          "[.][forward-drizzle-v2-gate1-production]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+
+  constexpr char kSpecSha[] =
+      "9be00e5a367b2ec4e3d15dc23a49270fa1c2cd0e2455fc2f03a5506809b5b149";
+  constexpr int sw = 3840, sh = 2160, tw = 7868, th = 4540;
+  constexpr double kMaxAbs = 1e-10;
+  constexpr double kMaxRel = 1e-12;
+  constexpr double kMaxSteadySeconds = 0.75;
+  constexpr double kConstantFluxRel = 1e-10;
+  constexpr double kPointFluxRel = 1e-9;
+  constexpr std::array<double, 3> pixfracs{0.2, 0.8, 1.0};
+
+  struct TransformCase {
+    const char *id;
+    std::array<double, 6> m;
+  };
+  const std::array<TransformCase, 7> transforms{{
+      {"m42_reference_frame_29", {1.0, 0.0, 32.0, 0.0, 1.0, 50.0}},
+      {"m42_positive_rotation_frame_0",
+       {0.9998640418052673, -0.016167480498552322, 35.636409759521484,
+        0.01610037311911583, 0.9999631643295288, 46.23441696166992}},
+      {"m42_negative_rotation_frame_59",
+       {0.9998466372489929, 0.017386717721819878, 55.92152404785156,
+        -0.01743965968489647, 0.9998936057090759, 68.48160552978516}},
+      {"m42_max_condition_frame_25",
+       {0.9999858140945435, -0.0024168870877474546, 31.47933578491211,
+        0.0021460296120494604, 1.000150442123413, 56.29893493652344}},
+      {"m42_scale_extreme_frame_17",
+       {1.0000033378601074, -0.006749980617314577, 28.21784782409668,
+        0.006637410260736942, 1.0002058744430542, 58.95621871948242}},
+      {"stress_shear_scale_a",
+       {0.84, 0.22, 420.0, -0.16, 1.11, 380.0}},
+      {"stress_shear_scale_b",
+       {1.13, -0.18, 510.0, 0.09, 0.88, 430.0}},
+  }};
+
+  auto inverse = [](const std::array<double, 6> &m) {
+    const double det = m[0] * m[4] - m[1] * m[3];
+    REQUIRE(std::isfinite(det));
+    REQUIRE(std::abs(det) > 1e-12);
+    return std::array<double, 6>{
+        m[4] / det, -m[1] / det,
+        -(m[4] * m[2] - m[1] * m[5]) / det,
+        -m[3] / det, m[0] / det,
+        -(-m[3] * m[2] + m[0] * m[5]) / det};
+  };
+  auto rel_error = [](double a, double b) {
+    return std::abs(a - b) / std::max(1.0, std::abs(a));
+  };
+
+  Matrix2Df source(sh, sw);
+  for (int y = 0; y < sh; ++y)
+    for (int x = 0; x < sw; ++x)
+      source(y, x) = static_cast<float>(
+          100.0 + 0.001 * x + 0.002 * y +
+          0.01 * ((17 * x + 31 * y) % 29));
+
+  const std::size_t plane_n = static_cast<std::size_t>(tw) * th;
+  const std::size_t n = 3 * plane_n;
+  using clock = std::chrono::steady_clock;
+  for (const auto &tc : transforms) {
+    const auto inv = inverse(tc.m);
+    for (double pixfrac : pixfracs) {
+      std::vector<double> ga(n), gb(n), sa0(n), sb0(n), sa1(n), sb1(n);
+      unsigned long long candidates = 0, gather_overlaps = 0;
+      const auto gather_begin = clock::now();
+      REQUIRE(forward_drizzle_cuda_affine_target_gather(
+          tc.m.data(), inv.data(), 2, 0.5 * pixfrac, 0, 0, tw, th, sw, sh,
+          source.data(), static_cast<int>(BayerPattern::GBRG), 0, 0, false,
+          ga.data(), gb.data(), &candidates, &gather_overlaps));
+      const double gather_seconds =
+          std::chrono::duration<double>(clock::now() - gather_begin).count();
+
+      ForwardDrizzleV2CudaWorkspace workspace;
+      REQUIRE(workspace.reserve(source.size(), plane_n, 3));
+      REQUIRE(workspace.run_dense_scatter(
+          tc.m.data(), 2, 0.5 * pixfrac, 0, 0, tw, th, sw, sh,
+          source.data(), static_cast<int>(BayerPattern::GBRG), 0, 0, false,
+          sa0.data(), sb0.data()));
+      const auto first_stats = workspace.stats();
+      REQUIRE(workspace.run_dense_scatter(
+          tc.m.data(), 2, 0.5 * pixfrac, 0, 0, tw, th, sw, sh,
+          source.data(), static_cast<int>(BayerPattern::GBRG), 0, 0, false,
+          sa1.data(), sb1.data()));
+      const auto final_stats = workspace.stats();
+
+      double max_abs = 0.0, max_rel = 0.0;
+      double repeat_abs = 0.0, repeat_rel = 0.0;
+      std::uint64_t support_mismatches = 0;
+      for (std::size_t i = 0; i < n; ++i) {
+        max_abs = std::max({max_abs, std::abs(ga[i] - sa0[i]),
+                            std::abs(gb[i] - sb0[i])});
+        max_rel = std::max({max_rel, rel_error(ga[i], sa0[i]),
+                            rel_error(gb[i], sb0[i])});
+        repeat_abs = std::max({repeat_abs, std::abs(sa0[i] - sa1[i]),
+                               std::abs(sb0[i] - sb1[i])});
+        repeat_rel = std::max({repeat_rel, rel_error(sa0[i], sa1[i]),
+                               rel_error(sb0[i], sb1[i])});
+        support_mismatches +=
+            static_cast<std::uint64_t>((gb[i] > 0.0) != (sb0[i] > 0.0));
+      }
+      const double first_upload = first_stats.upload_seconds;
+      const double first_kernel = first_stats.kernel_seconds;
+      const double first_download = first_stats.download_seconds;
+      const double second_upload =
+          final_stats.upload_seconds - first_stats.upload_seconds;
+      const double second_kernel =
+          final_stats.kernel_seconds - first_stats.kernel_seconds;
+      const double second_download =
+          final_stats.download_seconds - first_stats.download_seconds;
+      // Gate-1 steady state ends with frame-local A/B resident on device. The
+      // full A/B D2H below exists only so this correctness harness can compare
+      // every cell; v2's selected pipeline reduces those planes on device.
+      const double first_steady = first_upload + first_kernel;
+      const double second_steady = second_upload + second_kernel;
+
+      std::printf(
+          "{\"gate\":1,\"spec_sha256\":\"%s\",\"case\":\"%s\","
+          "\"pixfrac\":%.1f,\"gather_correctness_seconds\":%.9f,"
+          "\"scatter_first_upload_seconds\":%.9f,"
+          "\"scatter_first_kernel_seconds\":%.9f,"
+          "\"scatter_first_download_seconds\":%.9f,"
+          "\"scatter_first_steady_seconds\":%.9f,"
+          "\"scatter_second_upload_seconds\":%.9f,"
+          "\"scatter_second_kernel_seconds\":%.9f,"
+          "\"scatter_second_download_seconds\":%.9f,"
+          "\"scatter_second_steady_seconds\":%.9f,\"candidates\":%llu,"
+          "\"overlaps\":%llu,\"max_abs_error\":%.17g,"
+          "\"max_relative_error\":%.17g,\"repeat_max_abs_error\":%.17g,"
+          "\"repeat_max_relative_error\":%.17g,"
+          "\"support_mismatches\":%llu,\"global_syncs\":%llu,"
+          "\"stream_syncs\":%llu}\n",
+          kSpecSha, tc.id, pixfrac, gather_seconds, first_upload, first_kernel,
+          first_download, first_steady, second_upload, second_kernel,
+          second_download, second_steady, candidates, gather_overlaps, max_abs,
+          max_rel, repeat_abs, repeat_rel,
+          static_cast<unsigned long long>(support_mismatches),
+          static_cast<unsigned long long>(
+              final_stats.device_global_synchronizations),
+          static_cast<unsigned long long>(final_stats.stream_synchronizations));
+
+      CHECK(final_stats.positive_overlaps == 2 * gather_overlaps);
+      CHECK(support_mismatches == 0);
+      CHECK(max_abs <= kMaxAbs);
+      CHECK(max_rel <= kMaxRel);
+      CHECK(repeat_abs <= kMaxAbs);
+      CHECK(repeat_rel <= kMaxRel);
+      CHECK(first_steady <= kMaxSteadySeconds);
+      CHECK(second_steady <= kMaxSteadySeconds);
+      CHECK(final_stats.allocations == 1);
+      CHECK(final_stats.device_global_synchronizations == 0);
+    }
+  }
+
+  const std::array<double, 6> identity{1.0, 0.0, 32.0, 0.0, 1.0, 50.0};
+  std::vector<double> a(n), b(n);
+  ForwardDrizzleV2CudaWorkspace flux_workspace;
+  REQUIRE(flux_workspace.reserve(source.size(), plane_n, 3));
+
+  source.setConstant(7.0f);
+  REQUIRE(flux_workspace.run_dense_scatter(
+      identity.data(), 2, 0.4, 0, 0, tw, th, sw, sh, source.data(),
+      static_cast<int>(BayerPattern::GBRG), 0, 0, false, a.data(), b.data()));
+  double constant_max_rel = 0.0;
+  for (std::size_t i = 0; i < n; ++i)
+    if (b[i] > 0.0)
+      constant_max_rel =
+          std::max(constant_max_rel, std::abs(a[i] / b[i] - 7.0) / 7.0);
+  CHECK(constant_max_rel <= kConstantFluxRel);
+
+  source.setConstant(std::numeric_limits<float>::quiet_NaN());
+  const int point_x = sw / 2, point_y = sh / 2;
+  source(point_y, point_x) = 100.0f;
+  REQUIRE(flux_workspace.run_dense_scatter(
+      identity.data(), 2, 0.4, 0, 0, tw, th, sw, sh, source.data(),
+      static_cast<int>(BayerPattern::GBRG), 0, 0, false, a.data(), b.data()));
+  double point_a = 0.0, point_b = 0.0;
+  for (std::size_t i = 0; i < n; ++i) {
+    point_a += a[i];
+    point_b += b[i];
+  }
+  const double expected_b = 0.8 * 0.8 * 2.0 * 2.0;
+  const double expected_a = 100.0 * expected_b;
+  CHECK(std::abs(point_b - expected_b) / expected_b <= kPointFluxRel);
+  CHECK(std::abs(point_a - expected_a) / expected_a <= kPointFluxRel);
+  std::printf(
+      "{\"gate\":1,\"spec_sha256\":\"%s\",\"flux\":true,"
+      "\"constant_max_relative_error\":%.17g,"
+      "\"point_a_relative_error\":%.17g,"
+      "\"point_b_relative_error\":%.17g}\n",
+      kSpecSha, constant_max_rel,
+      std::abs(point_a - expected_a) / expected_a,
+      std::abs(point_b - expected_b) / expected_b);
 }

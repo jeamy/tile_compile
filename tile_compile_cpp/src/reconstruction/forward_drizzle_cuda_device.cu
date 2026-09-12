@@ -79,17 +79,17 @@ __device__ int d_clip_plane(const double *ix_, const double *iy_, int in_n,
 __device__ double d_polygon_rect_area(const double *qx, const double *qy,
                                       double rx0, double ry0, double rx1,
                                       double ry1) {
-  double bx[8], by[8], cx[8], cy[8];
+  double ax[8], ay[8], bx[8], by[8];
   int n = 4;
-  for (int i = 0; i < 4; ++i) { bx[i] = qx[i]; by[i] = qy[i]; }
-  n = d_clip_plane(bx, by, n, 0, rx0, cx, cy);
-  for (int i = 0; i < n; ++i) { bx[i] = cx[i]; by[i] = cy[i]; }
-  n = d_clip_plane(bx, by, n, 1, rx1, cx, cy);
-  for (int i = 0; i < n; ++i) { bx[i] = cx[i]; by[i] = cy[i]; }
-  n = d_clip_plane(bx, by, n, 2, ry0, cx, cy);
-  for (int i = 0; i < n; ++i) { bx[i] = cx[i]; by[i] = cy[i]; }
-  n = d_clip_plane(bx, by, n, 3, ry1, cx, cy);
-  return d_shoelace_area(cx, cy, n);
+  for (int i = 0; i < 4; ++i) {
+    ax[i] = qx[i];
+    ay[i] = qy[i];
+  }
+  n = d_clip_plane(ax, ay, n, 0, rx0, bx, by);
+  n = d_clip_plane(bx, by, n, 1, rx1, ax, ay);
+  n = d_clip_plane(ax, ay, n, 2, ry0, bx, by);
+  n = d_clip_plane(bx, by, n, 3, ry1, ax, ay);
+  return d_shoelace_area(ax, ay, n);
 }
 
 __global__ void k_polygon_rect_area_batch(const double *quad_xy,
@@ -677,10 +677,14 @@ bool forward_drizzle_cuda_affine_dense_scatter(
 ForwardDrizzleV2CudaWorkspace::ForwardDrizzleV2CudaWorkspace() = default;
 
 ForwardDrizzleV2CudaWorkspace::~ForwardDrizzleV2CudaWorkspace() {
+  // No device-wide sync here: the stream only carries this workspace's own
+  // operations, and destroying it implicitly waits for its queued work.
   cudaFree(device_source_);
   cudaFree(device_a_);
   cudaFree(device_b_);
   cudaFree(device_overlaps_);
+  if (stream_ != nullptr)
+    cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 bool ForwardDrizzleV2CudaWorkspace::reserve(std::size_t source_elements,
@@ -689,6 +693,19 @@ bool ForwardDrizzleV2CudaWorkspace::reserve(std::size_t source_elements,
   if (source_elements == 0 || target_plane_elements == 0 ||
       (channels != 1 && channels != 3))
     return false;
+  if (stream_ == nullptr) {
+    // One non-blocking stream per workspace, created once before first use.
+    // It is queue plumbing, not a hotpath buffer, so it is not counted in
+    // stats_.allocations.
+    cudaStream_t stream = nullptr;
+    if (cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) !=
+        cudaSuccess) {
+      cudaGetLastError();
+      return false;
+    }
+    stream_ = stream;
+  }
+
   if (source_elements <= source_capacity_ &&
       target_plane_elements <= plane_capacity_ &&
       channels <= channel_capacity_)
@@ -762,19 +779,24 @@ bool ForwardDrizzleV2CudaWorkspace::run_dense_scatter(
   const std::size_t src_bytes = source_n * sizeof(float);
   const std::size_t plane_bytes =
       static_cast<std::size_t>(channels) * target_n * sizeof(double);
+  cudaStream_t stream = static_cast<cudaStream_t>(stream_);
   using clock = std::chrono::steady_clock;
   auto t0 = clock::now();
-  bool ok = cudaMemcpy(device_source_, source_values, src_bytes,
-                       cudaMemcpyHostToDevice) == cudaSuccess &&
-            cudaMemset(device_a_, 0, plane_bytes) == cudaSuccess &&
-            cudaMemset(device_b_, 0, plane_bytes) == cudaSuccess &&
-            cudaMemset(device_overlaps_, 0, sizeof(unsigned long long)) ==
-                cudaSuccess;
+  bool ok = cudaMemcpyAsync(device_source_, source_values, src_bytes,
+                            cudaMemcpyHostToDevice, stream) == cudaSuccess &&
+            cudaMemsetAsync(device_a_, 0, plane_bytes, stream) ==
+                cudaSuccess &&
+            cudaMemsetAsync(device_b_, 0, plane_bytes, stream) ==
+                cudaSuccess &&
+            cudaMemsetAsync(device_overlaps_, 0, sizeof(unsigned long long),
+                            stream) == cudaSuccess;
+  ++stats_.stream_synchronizations;
+  ok = cudaStreamSynchronize(stream) == cudaSuccess && ok;
   auto t1 = clock::now();
   if (ok) {
     const int block = 128;
     const int grid = (static_cast<int>(source_n) + block - 1) / block;
-    k_affine_dense_scatter<<<grid, block>>>(
+    k_affine_dense_scatter<<<grid, block, 0, stream>>>(
         affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
         static_cast<double>(internal_scale), half, target_x_begin,
         target_y_begin, target_cols, target_rows, source_w, source_h,
@@ -782,18 +804,22 @@ bool ForwardDrizzleV2CudaWorkspace::run_dense_scatter(
         cfa_origin_y, mono ? 1 : 0, static_cast<double *>(device_a_),
         static_cast<double *>(device_b_),
         static_cast<unsigned long long *>(device_overlaps_));
-    ok = cudaGetLastError() == cudaSuccess &&
-         cudaDeviceSynchronize() == cudaSuccess;
+    ok = cudaGetLastError() == cudaSuccess;
+    ++stats_.stream_synchronizations;
+    ok = cudaStreamSynchronize(stream) == cudaSuccess && ok;
   }
   auto t2 = clock::now();
   unsigned long long overlaps = 0;
-  if (ok)
-    ok = cudaMemcpy(out_a, device_a_, plane_bytes, cudaMemcpyDeviceToHost) ==
-             cudaSuccess &&
-         cudaMemcpy(out_b, device_b_, plane_bytes, cudaMemcpyDeviceToHost) ==
-             cudaSuccess &&
-         cudaMemcpy(&overlaps, device_overlaps_, sizeof(overlaps),
-                    cudaMemcpyDeviceToHost) == cudaSuccess;
+  if (ok) {
+    ok = cudaMemcpyAsync(out_a, device_a_, plane_bytes,
+                         cudaMemcpyDeviceToHost, stream) == cudaSuccess &&
+         cudaMemcpyAsync(out_b, device_b_, plane_bytes,
+                         cudaMemcpyDeviceToHost, stream) == cudaSuccess &&
+         cudaMemcpyAsync(&overlaps, device_overlaps_, sizeof(overlaps),
+                         cudaMemcpyDeviceToHost, stream) == cudaSuccess;
+    ++stats_.stream_synchronizations;
+    ok = cudaStreamSynchronize(stream) == cudaSuccess && ok;
+  }
   auto t3 = clock::now();
   if (!ok) return false;
   ++stats_.calls;

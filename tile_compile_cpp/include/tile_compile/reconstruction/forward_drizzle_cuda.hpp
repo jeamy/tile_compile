@@ -239,6 +239,8 @@ struct ForwardDrizzleV2CudaWorkspaceStats {
   std::uint64_t source_bytes_uploaded = 0;
   std::uint64_t result_bytes_downloaded = 0;
   std::uint64_t positive_overlaps = 0;
+  std::uint64_t device_global_synchronizations = 0;
+  std::uint64_t stream_synchronizations = 0;
   std::size_t reserved_device_bytes = 0;
   double upload_seconds = 0.0;
   double kernel_seconds = 0.0;
@@ -247,7 +249,8 @@ struct ForwardDrizzleV2CudaWorkspaceStats {
 
 // Experimental Gate-1 persistent-buffer spike for dense scatter. It proves
 // allocation reuse only; it does not select scatter or satisfy Gate 6 (no
-// streams, Q data, robust reduction, coverage, fold or transaction yet).
+// overlapped slot pipeline, Q data, robust reduction, coverage, fold or
+// transaction yet).
 // reserve() is called before entering the frame loop; run_dense_scatter()
 // performs no cudaMalloc/cudaFree and exposes the transfer/kernel split
 // unconditionally through stats().
@@ -274,6 +277,7 @@ class ForwardDrizzleV2CudaWorkspace {
   void *device_a_ = nullptr;
   void *device_b_ = nullptr;
   void *device_overlaps_ = nullptr;
+  void *stream_ = nullptr;
   std::size_t source_capacity_ = 0;
   std::size_t plane_capacity_ = 0;
   int channel_capacity_ = 0;
