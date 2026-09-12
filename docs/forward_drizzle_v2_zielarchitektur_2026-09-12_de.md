@@ -78,7 +78,7 @@ Gate-Abschluss, wenn alle Exit-Kriterien des jeweiligen Gates erfüllt sind.
 
 | Gate | Vorhandener Stand | Freigabe |
 |---:|---|---|
-| 0 | kleine deterministische affine Record-Oracles über Scale 1/2, MONO/OSC, alle Bayer-Patterns, zwei Origins, drei Pixfrac-Werte und fünf affine Transformationen | nicht bestanden: kein sauber gebundener Realreferenzlauf, keine persistierten Oracle-Captures, Schwellenmatrix unvollständig |
+| 0 | kleine deterministische affine Record-Oracles über Scale 1/2, MONO/OSC, alle Bayer-Patterns, zwei Origins, drei Pixfrac-Werte und fünf affine Transformationen; sauber gebundener 60-Frame-M42-Kaltlauf; persistierte Gate-1-Schwellen | **bestanden**; lokale Referenz wird erst in Gate 8 nach Auswahl der lokalen Repräsentation erzeugt und in Gate 10 produktiv abgenommen |
 | 1 | CPU-/CUDA-Target-Gather und CUDA-Dense-Scatter; erster nativer Benchmark | nicht entschieden: keine reale M42-Canvas, unvollständige Transformmatrix, Atomic-Repeatability nicht bewiesen |
 | 2 | framekorrekter A/B/B²-Fold als isoliertes Primitiv | teilweise: vier Supportebenen, Profile, Teilflächenregel, Flux-/Gradientmatrix und CUDA-Fold fehlen |
 | 3 | experimenteller zweipassiger winsorisierter Gruppen-Schätzer | nicht ausgewählt: kein Verfahrenvergleich; zweiter Replay-Pass ist noch nicht mit dem recordfreien I/O-/Geometrievertrag vereinbar |
@@ -86,6 +86,31 @@ Gate-Abschluss, wenn alle Exit-Kriterien des jeweiligen Gates erfüllt sind.
 | 5 | vereinfachter experimenteller RAM-/VRAM-Planner | nicht bestanden: Bufferrollen sind vor Gate 3/4 angenommen; Host-Lebensdauer verwendet Framezahl statt aktiver Slots; der isolierte Arithmetiktest ist grün, validiert aber noch nicht die reale Bufferformel |
 | 6 | persistente Source-/A-/B-Devicebuffer für den Scatter-Spike | nicht bestanden: synchron, keine Q-/Robust-/Coverage-/Fold-/Stream-Pipeline und keine vollständige Telemetrie |
 | 7–10 | keine v2-Implementierung | offen |
+
+Die affine Gate-0-Referenz ist versioniert in
+`docs/forward_drizzle_v2_gate0_affine_reference_2026-09-12.json`. Sie bindet
+den frischen Kaltlauf `/media/tc_500/m42-gate0-ref60` an:
+
+- Git-Commit `5c1d977cce4571d928a13c7442f22366bf0fc679`, `git_dirty=false`;
+- Build-ID `9be255713401b6585c2bf2fd411da300aa5908710e49bc54454df1bf1345d120`;
+- Binary-SHA-256 `d62644c394c8307fa825c26d48ff5f4d6b6ab58df3673b7d37d00d543e48fc8b`;
+- Config-SHA-256 `b19e15be463e11ad5a1a798f53e517b5c36bc3faea9285ed335a4e198a34222e`;
+- Inputmanifest-SHA-256 `e81c79695fd18b23008f5ff4f72ecbbb3f0dd9533c6722576cbba3920c70088c`;
+- 60 Frames, 3840×2160 OSC, internal/output 2/1, Pixfrac 0,8;
+- `guard_fallback=true`, 2.276.618 Fallbacks, 0 verworfene Pixel/Kanäle;
+- 0 Nonfinite-Pixel in geometrischer Analyse- und Supportfläche;
+- 0 verlorene Canvaspixel und 0 Lochkomponenten in der Analysefläche;
+- vollständigen erfolgreichen Kaltlauf ohne Resume in 1285,079 s.
+
+Das Referenzartefakt friert außerdem vor dem nächsten Gate-1-Vergleich die
+Korrektheits-, Flux-, Support-, Performance-, Speicher- und
+Read-Amplification-Schwellen ein. Gate 0 ist damit für die affine
+Ausgangsarchitektur geschlossen. Der Lauf enthält
+`local_model_samples_total=0`; dies ist kein lokaler Nachweis. Eine lokale
+Referenz vor Gate 8 wäre nicht aussagekräftig, weil inverse Repräsentation,
+Bounds und Lebensdauer dort erst ausgewählt werden. Gate 8 erzeugt deshalb
+die sauber gebundene lokale Referenz; Gate 10 verlangt weiterhin die
+vollständige affine und lokale Produktionsabnahme.
 
 Der erste native affine Vergleich auf einem 1920×1080-Sourcefixture ergab:
 
@@ -1199,11 +1224,18 @@ R/G/B-Supportentscheidung entspricht dem Vertrag
 ### Gate 0: Evidenz einfrieren
 
 - sauberer Commit;
-- reproduzierbare affine und lokale Referenzläufe;
+- reproduzierbarer affiner Referenzlauf auf der aktuellen Architektur;
 - vollständige Artefakt-/Hardwarebindung;
-- Oracle-Captures und Pflichttelemetrie.
+- kleine vollständige synthetische Oracles;
+- begrenzte reale Oracle-Strategie;
+- vorab persistierte Gate-1-Abnahmeschwellen.
 
-**Exit:** Die Ausgangslage ist reproduzierbar; `m42-test1` bleibt nur Diagnosebeleg.
+**Exit (bestanden 2026-09-12):** Die affine Ausgangslage ist über
+`m42-gate0-ref60` und
+`forward_drizzle_v2_gate0_affine_reference_2026-09-12.json`
+reproduzierbar gebunden; `m42-test1` bleibt nur Diagnosebeleg. Die lokale
+Referenz wird nach Auswahl der lokalen Repräsentation in Gate 8 erzeugt und
+bleibt Bestandteil der Gate-10-Produktionsabnahme.
 
 ### Gate 1: Affine Enumeration
 
