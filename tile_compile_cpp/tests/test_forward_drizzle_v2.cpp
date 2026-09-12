@@ -1061,6 +1061,36 @@ TEST_CASE("forward drizzle v2 gate-3 fallback state machine preserves support",
       std::invalid_argument);
 }
 
+TEST_CASE("forward drizzle v2 fold and scatter reject overflowing/nonfinite inputs",
+          "[forward-drizzle-v2][robust][gate3]") {
+  // Review fix: frame_count * area.size() must not overflow before the shape
+  // check, and the device scatter must reject non-finite affine/pixfrac
+  // parameters (floor(NaN) to int is undefined behaviour on device).
+  std::vector<ForwardDrizzleV2FrameSubpixel> e(1);
+  std::vector<double> area{1.0};
+  REQUIRE_THROWS_AS(
+      fold_native_pixel_v2(e, std::numeric_limits<std::size_t>::max(), area),
+      std::invalid_argument);
+
+  if (forward_drizzle_cuda_runtime_available()) {
+    double bad[6] = {1, 0, 0, 0, 1, std::numeric_limits<double>::quiet_NaN()};
+    ForwardDrizzleV2CudaWorkspace ws;
+    REQUIRE(ws.reserve(64, 64, 1));
+    std::vector<float> src(64, 1.0f);
+    std::vector<double> a(64, 0.0), b(64, 0.0);
+    REQUIRE_FALSE(ws.run_dense_scatter(bad, 1, 0.5, 0, 0, 8, 8, 8, 8,
+                                       src.data(), 0, 0, 0, true, a.data(),
+                                       b.data()));
+    double good[6] = {1, 0, 0, 0, 1, 0};
+    REQUIRE_FALSE(ws.run_dense_scatter(good, 1,
+                                       std::numeric_limits<double>::quiet_NaN(),
+                                       0, 0, 8, 8, 8, 8, src.data(), 0, 0, 0,
+                                       true, a.data(), b.data()));
+    REQUIRE(ws.run_dense_scatter(good, 1, 0.5, 0, 0, 8, 8, 8, 8, src.data(), 0,
+                                 0, 0, true, a.data(), b.data()));
+  }
+}
+
 TEST_CASE("forward drizzle v2 Gate-3 robust estimator adversarial matrix",
           "[.][forward-drizzle-v2-gate3]") {
   const auto cases = g3_cases();

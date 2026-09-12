@@ -239,6 +239,7 @@ ForwardDrizzleV2FoldResult fold_native_pixel_v2(
     std::span<const ForwardDrizzleV2FrameSubpixel> entries,
     std::size_t frame_count, std::span<const double> area) {
   if (frame_count == 0 || area.empty() ||
+      frame_count > std::numeric_limits<std::size_t>::max() / area.size() ||
       entries.size() != frame_count * area.size())
     throw std::invalid_argument("FORWARD_DRIZZLE_V2_INVALID_FOLD_SHAPE");
   double total_area = 0.0;
@@ -579,7 +580,7 @@ ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
     const std::uint64_t n_stream =
         stream_length > 0 ? stream_length
                           : static_cast<std::uint64_t>(candidates.size());
-    const std::uint64_t keep_all =
+    const bool keep_all =
         n_stream <= static_cast<std::uint64_t>(cfg.reservoir_size);
     const std::uint64_t threshold = keep_all ? 0 : static_cast<std::uint64_t>(
         (static_cast<unsigned __int128>(cfg.reservoir_size) << 64) / n_stream);

@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <cfloat>
+#include <cmath>
 #include <cstdlib>
 #include <limits>
 
@@ -442,6 +443,9 @@ bool forward_drizzle_cuda_affine_frame_contributions(
       internal_scale <= 0 || source_w <= 0 || source_h <= 0 ||
       max_cells_per_pixel <= 0 || records_capacity <= 0)
     return false;
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  if (!std::isfinite(half) || !(half > 0.0)) return false;
   band_sy0 = band_sy0 < 0 ? 0 : band_sy0;
   band_sy1 = band_sy1 > source_h ? source_h : band_sy1;
   band_sx0 = band_sx0 < 0 ? 0 : band_sx0;
@@ -619,6 +623,11 @@ bool forward_drizzle_cuda_affine_dense_scatter(
   if (!affine6 || !source_values || !out_a || !out_b || internal_scale <= 0 ||
       target_cols <= 0 || target_rows <= 0 || source_w <= 0 || source_h <= 0)
     return false;
+  // Reject non-finite transform/pixfrac parameters before the kernel:
+  // floor(NaN) cast to int is undefined behaviour on device.
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  if (!std::isfinite(half) || !(half > 0.0)) return false;
   int devices = 0;
   if (cudaGetDeviceCount(&devices) != cudaSuccess || devices <= 0) {
     cudaGetLastError();
@@ -770,6 +779,11 @@ bool ForwardDrizzleV2CudaWorkspace::run_dense_scatter(
   if (!affine6 || !source_values || !out_a || !out_b || internal_scale <= 0 ||
       target_cols <= 0 || target_rows <= 0 || source_w <= 0 || source_h <= 0)
     return false;
+  // Reject non-finite transform/pixfrac parameters before the kernel:
+  // floor(NaN) cast to int is undefined behaviour on device.
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  if (!std::isfinite(half) || !(half > 0.0)) return false;
   const int channels = mono ? 1 : 3;
   const std::size_t source_n = static_cast<std::size_t>(source_w) * source_h;
   const std::size_t target_n =
