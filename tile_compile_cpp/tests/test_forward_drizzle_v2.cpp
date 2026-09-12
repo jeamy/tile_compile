@@ -10,9 +10,12 @@
 #include <array>
 #include <cmath>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <map>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -758,4 +761,467 @@ TEST_CASE("forward drizzle v2 Gate-1 production affine matrix",
       kSpecSha, constant_max_rel,
       std::abs(point_a - expected_a) / expected_a,
       std::abs(point_b - expected_b) / expected_b);
+}
+
+namespace {
+
+constexpr const char *kGate3SpecSha =
+    "b7d7e1311695fa10aec4dae43e48995a1b9699672a8eb95a9925215b01241c53";
+
+// Deterministic splitmix-style noise in [0,1); stable across platforms because
+// it only uses integer arithmetic.
+double g3_unit_noise(std::uint64_t i) {
+  std::uint64_t h = i * 6364136223846793005ULL + 1442695040888963407ULL;
+  h ^= h >> 33;
+  h *= 0xff51afd7ed558ccdULL;
+  h ^= h >> 33;
+  h *= 0xc4ceb9fe1a85ec53ULL;
+  h ^= h >> 33;
+  return static_cast<double>(h >> 11) * (1.0 / 9007199254740992.0);
+}
+
+// Roughly unit-variance noise built from three uniforms.
+double g3_noise(std::uint64_t f) {
+  return 2.0 * (g3_unit_noise(f * 3) + g3_unit_noise(f * 3 + 1) +
+                g3_unit_noise(f * 3 + 2) - 1.5);
+}
+
+struct G3Case {
+  const char *name;
+  double truth = 0.0;
+  std::vector<ForwardDrizzleV2RobustCandidate> c;
+};
+
+std::vector<G3Case> g3_cases() {
+  std::vector<G3Case> cases;
+  const auto clean = [](int n) {
+    G3Case k;
+    k.name = "clean_gauss";
+    k.truth = 100.0;
+    for (std::size_t f = 0; f < static_cast<std::size_t>(n); ++f)
+      k.c.push_back({f, 100.0 + g3_noise(f), 1.0});
+    return k;
+  };
+
+  cases.push_back(clean(40));
+
+  {
+    G3Case k = clean(40);
+    k.name = "cosmic_ray_single";
+    k.c[20].x += 200.0;
+    cases.push_back(k);
+  }
+  {
+    G3Case k = clean(40);
+    k.name = "cosmic_ray_single_edge_frame";
+    k.c[0].x += 200.0;
+    cases.push_back(k);
+  }
+  {
+    G3Case k = clean(40);
+    k.name = "extreme_outlier_dominated_weight";
+    k.c[7].x += 200.0;
+    k.c[7].b = 10.0;
+    cases.push_back(k);
+  }
+  {
+    G3Case k;
+    k.name = "all_identical";
+    k.truth = 100.0;
+    for (std::size_t f = 0; f < 40; ++f) k.c.push_back({f, 100.0, 1.0});
+    cases.push_back(k);
+  }
+  {
+    G3Case k;
+    k.name = "sparse_5_rb";
+    k.truth = 100.0;
+    const double xs[] = {99.0, 100.0, 101.0, 99.5, 100.5};
+    for (std::size_t f = 0; f < 5; ++f) k.c.push_back({f, xs[f], 1.0});
+    cases.push_back(k);
+  }
+  {
+    G3Case k = clean(40);
+    k.name = "satellite_trail";
+    for (std::size_t f = 15; f <= 19; ++f) k.c[f].x += 30.0;
+    cases.push_back(k);
+  }
+  {
+    G3Case k = clean(40);
+    k.name = "grouped_contamination_30pct";
+    for (std::size_t f = 0; f < k.c.size(); ++f)
+      if (f % 10 < 3) k.c[f].x += 8.0;
+    cases.push_back(k);
+  }
+  {
+    G3Case k = clean(40);
+    k.name = "symmetric_heavy_tail";
+    int sign = 1;
+    for (std::size_t f = 0; f < k.c.size(); ++f)
+      if (f % 5 == 0) {
+        k.c[f].x += 50.0 * sign;
+        sign = -sign;
+      }
+    cases.push_back(k);
+  }
+  {
+    G3Case k = clean(40);
+    k.name = "same_group_outliers";
+    k.c[8].x += 50.0;
+    k.c[25].x += 50.0;  // 8 and 25 share group 8 for K=17
+    cases.push_back(k);
+  }
+  {
+    G3Case k;
+    k.name = "alternating_amplitude";
+    k.truth = 100.0;
+    for (std::size_t f = 0; f < 40; ++f)
+      k.c.push_back(
+          {f, 100.0 + (f % 2 == 0 ? g3_noise(f) : 5.0 * g3_noise(f)), 1.0});
+    cases.push_back(k);
+  }
+  {
+    G3Case k;
+    k.name = "monotone_drift";
+    k.truth = 109.75;
+    for (std::size_t f = 0; f < 40; ++f) k.c.push_back({f, 100.0 + 0.5 * f, 1.0});
+    cases.push_back(k);
+  }
+  {
+    G3Case k;
+    k.name = "bimodal";
+    k.truth = 100.0;
+    for (std::size_t f = 0; f < 40; ++f)
+      k.c.push_back({f, f < 20 ? 98.0 : 102.0, 1.0});
+    cases.push_back(k);
+  }
+  {
+    G3Case k;
+    k.name = "mad_zero_one_outlier";
+    k.truth = 100.0;
+    for (std::size_t f = 0; f < 40; ++f) k.c.push_back({f, 100.0, 1.0});
+    k.c[13].x = 150.0;
+    cases.push_back(k);
+  }
+  {
+    G3Case k;
+    k.name = "sparse_3";
+    k.truth = 42.0;
+    k.c = {{0, 41.0, 1.0}, {1, 42.0, 1.0}, {2, 43.0, 1.0}};
+    cases.push_back(k);
+  }
+  {
+    G3Case k;
+    k.name = "single";
+    k.truth = 77.0;
+    k.c = {{0, 77.0, 1.0}};
+    cases.push_back(k);
+  }
+  {
+    G3Case k = clean(40);
+    k.name = "unequal_weights";
+    for (std::size_t f = 0; f < k.c.size(); ++f)
+      k.c[f].b = 0.05 + 9.95 * g3_unit_noise(0x9000 + f);
+    cases.push_back(k);
+  }
+  {
+    G3Case k = clean(40);
+    k.name = "nonfinite";
+    k.c[10].x = std::numeric_limits<double>::quiet_NaN();
+    k.c[20].b = 0.0;
+    k.c[21].b = -1.0;
+    k.c[22].x = std::numeric_limits<double>::infinity();
+    cases.push_back(k);
+  }
+  {
+    G3Case k;
+    k.name = "empty";
+    k.truth = 0.0;
+    cases.push_back(k);
+  }
+  {
+    G3Case k = clean(600);
+    k.name = "clean_gauss_N600";
+    cases.push_back(k);
+  }
+  {
+    G3Case k = clean(600);
+    k.name = "grouped_contamination_30pct_N600";
+    for (std::size_t f = 0; f < k.c.size(); ++f)
+      if (f % 10 < 3) k.c[f].x += 8.0;
+    cases.push_back(k);
+  }
+  return cases;
+}
+
+const char *g3_estimator_name(ForwardDrizzleV2Estimator e) {
+  switch (e) {
+    case ForwardDrizzleV2Estimator::uniform:
+      return "uniform";
+    case ForwardDrizzleV2Estimator::mom_median:
+      return "mom_weighted_median";
+    case ForwardDrizzleV2Estimator::mom_winsorized_groups:
+      return "mom_winsorized_groups";
+    case ForwardDrizzleV2Estimator::mom_trimmed_groups:
+      return "mom_trimmed_groups";
+    case ForwardDrizzleV2Estimator::reservoir_sigma_clip:
+      return "reservoir_sigma_clip";
+    case ForwardDrizzleV2Estimator::two_pass_winsorized_frames:
+      return "two_pass_winsorized_frames";
+  }
+  return "unknown";
+}
+
+const char *g3_state_name(ForwardDrizzleV2RobustState s) {
+  switch (s) {
+    case ForwardDrizzleV2RobustState::no_source_support:
+      return "no_source_support";
+    case ForwardDrizzleV2RobustState::too_few_candidates_fallback:
+      return "too_few_candidates_fallback";
+    case ForwardDrizzleV2RobustState::too_few_groups_fallback:
+      return "too_few_groups_fallback";
+    case ForwardDrizzleV2RobustState::degenerate_scale:
+      return "degenerate_scale";
+    case ForwardDrizzleV2RobustState::primary_winsorized_mom:
+      return "primary_winsorized_mom";
+    case ForwardDrizzleV2RobustState::primary_mom_median:
+      return "primary_mom_median";
+    case ForwardDrizzleV2RobustState::primary_mom_winsorized_groups:
+      return "primary_mom_winsorized_groups";
+    case ForwardDrizzleV2RobustState::primary_mom_trimmed_groups:
+      return "primary_mom_trimmed_groups";
+    case ForwardDrizzleV2RobustState::primary_uniform:
+      return "primary_uniform";
+    case ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip:
+      return "primary_reservoir_sigma_clip";
+    case ForwardDrizzleV2RobustState::oracle_sigma_clip:
+      return "oracle_sigma_clip";
+  }
+  return "unknown";
+}
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 gate-3 fallback state machine preserves support",
+          "[forward-drizzle-v2][robust][gate3]") {
+  ForwardDrizzleV2RobustConfig cfg;
+  std::vector<ForwardDrizzleV2RobustCandidate> empty;
+  const auto none = robust_reduce_candidates_v2(
+      empty, ForwardDrizzleV2Estimator::mom_winsorized_groups, cfg);
+  REQUIRE(none.state == ForwardDrizzleV2RobustState::no_source_support);
+  REQUIRE(none.b == 0.0);
+
+  std::vector<ForwardDrizzleV2RobustCandidate> sparse{
+      {0, 41.0, 1.0}, {1, 42.0, 1.0}, {2, 43.0, 1.0}};
+  const auto few = robust_reduce_candidates_v2(
+      sparse, ForwardDrizzleV2Estimator::mom_winsorized_groups, cfg);
+  REQUIRE(few.state ==
+          ForwardDrizzleV2RobustState::too_few_candidates_fallback);
+  REQUIRE(few.value == 42.0);
+  REQUIRE(few.b == 3.0);
+
+  std::vector<ForwardDrizzleV2RobustCandidate> few_groups{
+      {0, 41.0, 1.0}, {1, 42.0, 1.0}, {17, 43.0, 1.0},
+      {18, 44.0, 1.0}, {34, 45.0, 1.0}};
+  const auto fg = robust_reduce_candidates_v2(
+      few_groups, ForwardDrizzleV2Estimator::mom_winsorized_groups, cfg);
+  REQUIRE(fg.state == ForwardDrizzleV2RobustState::too_few_groups_fallback);
+  REQUIRE(fg.value == Catch::Approx(43.0));
+  REQUIRE(fg.b == 5.0);
+
+  std::vector<ForwardDrizzleV2RobustCandidate> flat;
+  for (std::size_t f = 0; f < 40; ++f) flat.push_back({f, 100.0, 1.0});
+  flat[13].x = 150.0;
+  const auto deg = robust_reduce_candidates_v2(
+      flat, ForwardDrizzleV2Estimator::mom_winsorized_groups, cfg);
+  REQUIRE(deg.state == ForwardDrizzleV2RobustState::degenerate_scale);
+  REQUIRE(deg.value == 100.0);
+  REQUIRE(deg.b == 40.0);
+  const auto deg_median = robust_reduce_candidates_v2(
+      flat, ForwardDrizzleV2Estimator::mom_median, cfg);
+  REQUIRE(deg_median.state == ForwardDrizzleV2RobustState::primary_mom_median);
+  REQUIRE(deg_median.value == 100.0);
+
+  std::vector<ForwardDrizzleV2RobustCandidate> mixed;
+  for (std::size_t f = 0; f < 40; ++f) mixed.push_back({f, 100.0 + f, 1.0});
+  mixed[10].x = std::numeric_limits<double>::quiet_NaN();
+  mixed[20].b = -2.0;
+  for (auto est : {ForwardDrizzleV2Estimator::uniform,
+                   ForwardDrizzleV2Estimator::mom_median,
+                   ForwardDrizzleV2Estimator::mom_winsorized_groups,
+                   ForwardDrizzleV2Estimator::mom_trimmed_groups}) {
+    const auto r = robust_reduce_candidates_v2(mixed, est, cfg);
+    REQUIRE(r.candidates == 38);
+    REQUIRE(std::isfinite(r.value));
+    REQUIRE(r.b == 38.0);
+    REQUIRE(r.n_eff == Catch::Approx(38.0));
+  }
+  REQUIRE_THROWS_AS(
+      robust_reduce_candidates_v2(
+          mixed, ForwardDrizzleV2Estimator::two_pass_winsorized_frames, cfg),
+      std::invalid_argument);
+}
+
+TEST_CASE("forward drizzle v2 Gate-3 robust estimator adversarial matrix",
+          "[.][forward-drizzle-v2-gate3]") {
+  const auto cases = g3_cases();
+  const ForwardDrizzleV2Estimator grouped[] = {
+      ForwardDrizzleV2Estimator::uniform,
+      ForwardDrizzleV2Estimator::mom_median,
+      ForwardDrizzleV2Estimator::mom_winsorized_groups,
+      ForwardDrizzleV2Estimator::mom_trimmed_groups};
+  const int ks[] = {17, 41};
+  // Cases excluded from the absolute vs-oracle bound per the frozen spec.
+  const auto oracle_gated = [](const char *name) {
+    return std::string(name) != "bimodal" &&
+           std::string(name) != "clean_gauss_N600";
+  };
+
+  // tag -> case -> result
+  std::map<std::string, std::map<std::string, ForwardDrizzleV2RobustResult>>
+      results;
+  std::map<std::string, std::map<std::string, double>> dev_oracle, dev_truth;
+
+  const auto run = [&](const G3Case &k, const std::string &tag,
+                       ForwardDrizzleV2Estimator est,
+                       const ForwardDrizzleV2RobustConfig &cfg) {
+    const auto r = robust_reduce_candidates_v2(k.c, est, cfg);
+    const auto r2 = robust_reduce_candidates_v2(k.c, est, cfg);
+    // Determinism: identical inputs produce bit-identical outputs.
+    REQUIRE(r.value == r2.value);
+    REQUIRE(r.b == r2.b);
+    REQUIRE(r.b2 == r2.b2);
+    REQUIRE(r.n_eff == r2.n_eff);
+    REQUIRE(r.state == r2.state);
+    results[tag][k.name] = r;
+    return r;
+  };
+
+  for (const auto &k : cases) {
+    const auto oracle = robust_frame_oracle_v2(k.c);
+    const auto oracle2 = robust_frame_oracle_v2(k.c);
+    REQUIRE(oracle.value == oracle2.value);
+    REQUIRE(oracle.b == oracle2.b);
+    REQUIRE(oracle.n_eff == oracle2.n_eff);
+    const bool empty = oracle.b <= 0.0;
+
+    std::vector<std::pair<std::string, ForwardDrizzleV2RobustResult>> rows;
+    for (auto est : grouped)
+      for (int groups : ks) {
+        ForwardDrizzleV2RobustConfig cfg;
+        cfg.groups = groups;
+        const std::string tag = std::string(g3_estimator_name(est)) + "/K" +
+                                std::to_string(groups);
+        rows.emplace_back(tag, run(k, tag, est, cfg));
+      }
+    {
+      ForwardDrizzleV2RobustConfig cfg;
+      const std::string tag =
+          std::string("reservoir_sigma_clip/R") +
+          std::to_string(cfg.reservoir_size);
+      rows.emplace_back(tag, run(k, tag,
+                                 ForwardDrizzleV2Estimator::reservoir_sigma_clip,
+                                 cfg));
+    }
+    // Two-pass quality reference (not selectable): K=17.
+    {
+      ForwardDrizzleV2RobustConfig cfg;
+      const auto tp = robust_reduce_v2(
+          [&](const ForwardDrizzleV2CandidateSink &sink) {
+            for (const auto &v : k.c) sink(v);
+          },
+          cfg);
+      const auto tp2 = robust_reduce_v2(
+          [&](const ForwardDrizzleV2CandidateSink &sink) {
+            for (const auto &v : k.c) sink(v);
+          },
+          cfg);
+      REQUIRE(tp.value == tp2.value);
+      rows.emplace_back("two_pass_winsorized_frames/K17", tp);
+      results["two_pass_winsorized_frames/K17"][k.name] = tp;
+    }
+
+    for (const auto &[tag, r] : rows) {
+      if (empty) {
+        REQUIRE(r.state == ForwardDrizzleV2RobustState::no_source_support);
+        std::printf(
+            "{\"gate\":3,\"spec_sha256\":\"%s\",\"case\":\"%s\","
+            "\"estimator\":\"%s\",\"state\":\"%s\"}\n",
+            kGate3SpecSha, k.name, tag.c_str(), g3_state_name(r.state));
+        continue;
+      }
+      // Support preservation: the estimator never deletes source support
+      // and never produces nonfinite outputs.
+      REQUIRE(r.b > 0.0);
+      REQUIRE(std::isfinite(r.value));
+      REQUIRE(std::isfinite(r.n_eff));
+      REQUIRE(r.n_eff > 0.0);
+      const double do_ = std::abs(r.value - oracle.value);
+      const double dt_ = std::abs(r.value - k.truth);
+      dev_oracle[tag][k.name] = do_;
+      dev_truth[tag][k.name] = dt_;
+      std::printf(
+          "{\"gate\":3,\"spec_sha256\":\"%s\",\"case\":\"%s\","
+          "\"estimator\":\"%s\",\"state\":\"%s\",\"value\":%.17g,"
+          "\"b\":%.17g,\"b2\":%.17g,\"n_eff\":%.17g,\"center\":%.17g,"
+          "\"scale\":%.17g,\"oracle_value\":%.17g,\"dev_oracle\":%.17g,"
+          "\"dev_truth\":%.17g}\n",
+          kGate3SpecSha, k.name, tag.c_str(), g3_state_name(r.state),
+          r.value, r.b, r.b2, r.n_eff, r.center, r.scale, oracle.value, do_,
+          dt_);
+    }
+  }
+
+  // Selection rule: lowest worst-case absolute deviation from the oracle over
+  // the gated cases among selectable single-pass candidates; tie-broken by
+  // worst-case deviation from truth.
+  std::map<std::string, double> worst_o, worst_t;
+  for (const auto &[tag, per_case] : dev_oracle) {
+    double wo = 0.0, wt = 0.0;
+    for (const auto &[cname, d] : per_case) {
+      if (oracle_gated(cname.c_str())) wo = std::max(wo, d);
+      wt = std::max(wt, dev_truth[tag][cname]);
+    }
+    worst_o[tag] = wo;
+    worst_t[tag] = wt;
+    std::printf(
+        "{\"gate\":3,\"spec_sha256\":\"%s\",\"summary\":true,"
+        "\"estimator\":\"%s\",\"worst_vs_oracle\":%.17g,"
+        "\"worst_vs_truth\":%.17g}\n",
+        kGate3SpecSha, tag.c_str(), wo, wt);
+  }
+
+  std::string winner;
+  double winner_wo = std::numeric_limits<double>::infinity();
+  double winner_wt = std::numeric_limits<double>::infinity();
+  for (const auto &[tag, wo] : worst_o) {
+    if (tag.rfind("uniform", 0) == 0 ||
+        tag.rfind("two_pass", 0) == 0)
+      continue;  // not selectable as primary
+    if (wo < winner_wo - 1e-15 ||
+        (std::abs(wo - winner_wo) <= 1e-15 && worst_t[tag] < winner_wt)) {
+      winner = tag;
+      winner_wo = wo;
+      winner_wt = worst_t[tag];
+    }
+  }
+  REQUIRE_FALSE(winner.empty());
+  std::printf(
+      "{\"gate\":3,\"spec_sha256\":\"%s\",\"selection\":true,"
+      "\"estimator\":\"%s\",\"worst_vs_oracle\":%.17g,"
+      "\"worst_vs_truth\":%.17g}\n",
+      kGate3SpecSha, winner.c_str(), winner_wo, winner_wt);
+
+  // The selected estimator must satisfy every frozen threshold.
+  REQUIRE(winner_wo <= 2.0);
+  REQUIRE(dev_oracle[winner]["clean_gauss"] <= 0.25);
+  REQUIRE(results[winner]["mad_zero_one_outlier"].value == 100.0);
+  REQUIRE(std::abs(results[winner]["bimodal"].value - 100.0) <= 2.0);
+  for (const char *cr : {"cosmic_ray_single",
+                         "cosmic_ray_single_edge_frame"}) {
+    const double uni_dev =
+        std::abs(results["uniform/K17"][cr].value - 100.0);
+    REQUIRE(dev_truth[winner][cr] <= uni_dev);
+  }
+  // Symmetric contamination must be handled at least as well as the oracle.
+  REQUIRE(dev_oracle[winner]["symmetric_heavy_tail"] <= 0.25);
 }

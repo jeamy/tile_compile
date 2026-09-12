@@ -117,7 +117,27 @@ enum class ForwardDrizzleV2RobustState {
   too_few_candidates_fallback,
   too_few_groups_fallback,
   degenerate_scale,
-  primary_winsorized_mom
+  primary_winsorized_mom,
+  primary_mom_median,
+  primary_mom_winsorized_groups,
+  primary_mom_trimmed_groups,
+  primary_uniform,
+  primary_reservoir_sigma_clip,
+  oracle_sigma_clip
+};
+
+// Gate-3 estimator candidates. All selectable candidates must be single-pass
+// over the frame stream with O(groups) per-pixel state: the dense scatter
+// emits each frame-local plane exactly once. `two_pass_winsorized_frames`
+// needs a second pass over the identical candidate stream and is a quality
+// reference only.
+enum class ForwardDrizzleV2Estimator {
+  uniform,
+  mom_median,
+  mom_winsorized_groups,
+  mom_trimmed_groups,
+  reservoir_sigma_clip,
+  two_pass_winsorized_frames
 };
 
 struct ForwardDrizzleV2RobustConfig {
@@ -125,6 +145,16 @@ struct ForwardDrizzleV2RobustConfig {
   int min_candidates = 5;
   int min_groups = 3;
   double winsor_sigma = 4.5;
+  // reservoir_sigma_clip: deterministic hash reservoir size and seed. Frames
+  // are kept iff splitmix64(frame_order ^ seed) < floor(2^64 * R / N) where N
+  // is the known stream length (sampling-plan frame count); for N <= R every
+  // frame is kept and the result is the exact oracle.
+  int reservoir_size = 64;
+  std::uint64_t reservoir_seed = 0x9e3779b97f4a7c15ULL;
+  int oracle_min_clip_contributors = 5;
+  int oracle_passes = 3;
+  double oracle_sigma_low = 3.0;
+  double oracle_sigma_high = 3.0;
 };
 
 struct ForwardDrizzleV2RobustResult {
@@ -141,17 +171,15 @@ struct ForwardDrizzleV2RobustResult {
   std::uint64_t groups_used = 0;
 };
 
-// Experimental candidate primitive for robust reduction; Gate 3 is not closed
-// and no reducer has been selected.  A replayable stream supplies candidates
-// twice without retaining N values per pixel.  Pass 1 builds a fixed number of
-// deterministic balanced group means; pass 2 winsorizes frame values around
-// median(group means) and its MAD.  This two-pass replay is the unresolved
-// conflict of this candidate: every upstream enumeration must be able to emit
-// the identical candidate stream twice, which a single-pass scatter or a
-// record-free gather cannot do without a second sweep.  The fallback always
-// returns the weighted Uniform estimate when source support exists, so
-// statistical robustness cannot create a hole.  Memory is O(groups) and
-// independent of the frame count.
+// Gate-3 quality reference, NOT the selected estimator.  A replayable stream
+// supplies candidates twice without retaining N values per pixel.  Pass 1
+// builds a fixed number of deterministic balanced group means; pass 2
+// winsorizes frame values around median(group means) and its MAD.  Gate 3
+// rejected it: it needs a second identical replay that single-pass dense
+// scatter cannot provide, and it fails the frozen adversarial bound on
+// grouped contamination.  Retained only as a measurable reference.  The
+// fallback always returns the weighted Uniform estimate when source support
+// exists, so statistical robustness cannot create a hole.
 using ForwardDrizzleV2CandidateSink =
     std::function<void(const ForwardDrizzleV2RobustCandidate &)>;
 using ForwardDrizzleV2CandidateReplay =
@@ -160,6 +188,32 @@ using ForwardDrizzleV2CandidateReplay =
 ForwardDrizzleV2RobustResult robust_reduce_v2(
     const ForwardDrizzleV2CandidateReplay &replay,
     const ForwardDrizzleV2RobustConfig &cfg = {});
+
+// Gate-3 selected estimator and candidates over a materialized candidate
+// list.  Selected: `reservoir_sigma_clip` — a single pass accumulates the
+// uniform A/B/B2 totals and a deterministic hash reservoir of at most R=64
+// candidates, then the exact production oracle clip runs on the reservoir.
+// For N <= R it is bit-identical to the full-list oracle; worst measured
+// deviation at production N=600 is 0.036 against the oracle (frozen bound
+// 2.0).  The MoM group candidates perform exactly one accumulation pass into
+// K group (a,b,b2) slots but failed the grouped-contamination bound; they are
+// retained for evidence and possible reuse.  `estimator` must not be
+// two_pass_winsorized_frames (that reference lives in robust_reduce_v2).
+ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
+    std::span<const ForwardDrizzleV2RobustCandidate> candidates,
+    ForwardDrizzleV2Estimator estimator,
+    const ForwardDrizzleV2RobustConfig &cfg = {},
+    std::uint64_t stream_length = 0);
+
+// Gate-3 full-list oracle mirroring the production iterative weighted
+// median/MAD sigma-clip: deterministic (value, frame_order) order, weighted
+// median, weighted MAD, asymmetric clip bounds, early stop when the mask no
+// longer changes, no epsilon padding of a zero MAD. The surviving candidates
+// are combined as the weighted Uniform estimate.
+ForwardDrizzleV2RobustResult robust_frame_oracle_v2(
+    std::span<const ForwardDrizzleV2RobustCandidate> candidates,
+    int min_clip_contributors = 5, int robust_passes = 3,
+    double sigma_low = 3.0, double sigma_high = 3.0);
 
 struct ForwardDrizzleV2MemoryInputs {
   int target_width = 0;

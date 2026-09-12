@@ -81,7 +81,7 @@ Gate-Abschluss, wenn alle Exit-Kriterien des jeweiligen Gates erfüllt sind.
 | 0 | kleine deterministische affine Record-Oracles über Scale 1/2, MONO/OSC, alle Bayer-Patterns, zwei Origins, drei Pixfrac-Werte und fünf affine Transformationen; sauber gebundener 60-Frame-M42-Kaltlauf; persistierte Gate-1-Schwellen | **bestanden**; lokale Referenz wird erst in Gate 8 nach Auswahl der lokalen Repräsentation erzeugt und in Gate 10 produktiv abgenommen |
 | 1 | CPU-/CUDA-Target-Gather und CUDA-Dense-Scatter; 21 Fälle auf 3840×2160 → 7868×4540, sieben Transformationen und Pixfrac 0,2/0,8/1,0 | **bestanden: Dense Device Scatter ausgewählt**; alle festen Korrektheits-, Flux-, Repeatability- und 0,75-s-Schwellen erfüllt |
 | 2 | vierstufiger Support-/Fold-Vertrag, exakter CPU-Fold, CUDA-Paritätsoracle, Flux-/Teilflächenmatrix | **bestanden**; Chunk-/Tile-Grenzen des späteren Batch-Folds bleiben Gate-6-Abnahmekriterium |
-| 3 | experimenteller zweipassiger winsorisierter Gruppen-Schätzer | nicht ausgewählt: kein Verfahrenvergleich; zweiter Replay-Pass ist noch nicht mit dem recordfreien I/O-/Geometrievertrag vereinbar |
+| 3 | Produktions-Clip-Oracle, MoM-Kandidaten (K 17/41) und deterministisches Hash-Reservoir; 21-Fall-Adversarialmatrix inkl. Produktions-N=600 | **bestanden: reservoir_sigma_clip (R=64) ausgewählt**; worst-vs-oracle 0,036 bei eingefrorener Schranke 2,0; bit-identisch zum Oracle für N≤64; kein Replay, kein Supportverlust |
 | 4 | keine v2-Implementierung | offen |
 | 5 | vereinfachter experimenteller RAM-/VRAM-Planner | nicht bestanden: Bufferrollen sind vor Gate 3/4 angenommen; Host-Lebensdauer verwendet Framezahl statt aktiver Slots; der isolierte Arithmetiktest ist grün, validiert aber noch nicht die reale Bufferformel |
 | 6 | persistente Source-/A-/B-Devicebuffer für den Scatter-Spike | nicht bestanden: synchron, keine Q-/Robust-/Coverage-/Fold-/Stream-Pipeline und keine vollständige Telemetrie |
@@ -1310,7 +1310,26 @@ bestehen (12 Testfälle, 7.415 Assertions).
 - bounded-memory Verfahren auswählen;
 - exakte Fallbackzustandsmaschine spezifizieren.
 
-**Exit:** Schätzer erreicht die festgelegten Qualitäts-/Robustheitsgrenzen ohne Supportverlust.
+**Exit (bestanden 2026-09-12):** `reservoir_sigma_clip` mit R=64 ist als
+Primärschätzer ausgewählt. Ein einziger Stream-Pass akkumuliert die uniformen
+A/B/B²-Summen und füllt ein deterministisches Hash-Reservoir
+(`splitmix64(frame_order ^ seed) < ⌊2⁶⁴·R/N⌋`, N = bekannte Stream-Länge aus
+dem Samplingplan); beim Fold läuft exakt der Produktions-Sigma-Clip
+(gewichteter Median/MAD, asymmetrische 3σ-Grenzen, 3 Pässe) auf höchstens R
+Datensätzen. Für N ≤ R ist das Ergebnis bit-identisch zum Voll-Listen-Oracle;
+auf der adversarialen 21-Fall-Matrix beträgt die größte Abweichung vom Oracle
+0,036 (Schranke 2,0). Alle Median-of-Means-Kandidaten scheitern an
+periodischer 30-%-Kontamination (worst 2,32–2,75), der Zweipass-Winsorizer
+zusätzlich am Single-Pass-Gebot — beide bleiben als dokumentierte Referenzen
+im Code. `estimator_b = source_b` für alle Frames; B/B² decken den
+vollständigen Strom ab, Support kann nie durch Robustheit verloren gehen.
+Fallbackzustände: `no_source_support`, `too_few_candidates_fallback`,
+`primary_reservoir_sigma_clip`; ein degeneriertes MAD kollabiert die
+Clip-Grenzen auf den Median statt zu fehlschlagen. Artefakte:
+`forward_drizzle_v2_gate3_robust_estimator_spec_2026-09-12.json`,
+`..._results_2026-09-12.jsonl`, `..._decision_2026-09-12.json`. Offene
+Delegationen: Reservoir-Ebenen (≤ 64×24 B je Pixel/Kanal) gehen in Gate 5 ein;
+device-seitige Reservoir-Akkumulation und Per-Pixel-Clip-Kernel sind Gate 6.
 
 ### Gate 4: Rauschmodell und Numerik
 

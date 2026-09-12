@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <numeric>
 #include <stdexcept>
 #include <tuple>
 #include <vector>
@@ -427,6 +428,300 @@ ForwardDrizzleV2RobustResult robust_reduce_v2(
   out.n_eff = out.b2 > 0.0 ? out.b * out.b / out.b2 : 0.0;
   out.state = ForwardDrizzleV2RobustState::primary_winsorized_mom;
   return out;
+}
+
+namespace {
+
+struct GroupSlot {
+  double a = 0.0;
+  double b = 0.0;
+  double b2 = 0.0;
+};
+
+std::uint64_t splitmix64(std::uint64_t x) {
+  x += 0x9e3779b97f4a7c15ULL;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+  return x ^ (x >> 31);
+}
+
+double weighted_median_of(std::span<const double> values,
+                          std::span<const double> weights) {
+  // Deterministic (value, index) order; cumulative weight reaching half of
+  // the total selects the value, matching the production clip semantics.
+  std::vector<std::size_t> order(values.size());
+  std::iota(order.begin(), order.end(), std::size_t{0});
+  std::sort(order.begin(), order.end(), [&](std::size_t i, std::size_t j) {
+    if (values[i] != values[j]) return values[i] < values[j];
+    return i < j;
+  });
+  double total_w = 0.0;
+  for (double w : weights) total_w += w;
+  if (!(total_w > 0.0)) return values.empty() ? 0.0 : values[order.back()];
+  double cum = 0.0;
+  for (std::size_t i : order) {
+    cum += weights[i];
+    if (cum >= total_w / 2.0) return values[i];
+  }
+  return values[order.back()];
+}
+
+}  // namespace
+
+ForwardDrizzleV2RobustResult robust_frame_oracle_v2(
+    std::span<const ForwardDrizzleV2RobustCandidate> candidates,
+    int min_clip_contributors, int robust_passes, double sigma_low,
+    double sigma_high) {
+  if (min_clip_contributors < 1 || robust_passes < 1 ||
+      !std::isfinite(sigma_low) || !std::isfinite(sigma_high) ||
+      sigma_low <= 0.0 || sigma_high <= 0.0)
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_INVALID_ORACLE_CONFIG");
+  ForwardDrizzleV2RobustResult out;
+  std::vector<ForwardDrizzleV2RobustCandidate> valid;
+  for (const auto &v : candidates) {
+    if (!std::isfinite(v.x) || !std::isfinite(v.b) || !(v.b > 0.0)) continue;
+    valid.push_back(v);
+  }
+  out.candidates = valid.size();
+  if (valid.empty()) return out;
+
+  const std::size_t n = valid.size();
+  std::vector<std::uint8_t> accepted(n, std::uint8_t{1});
+  if (n >= static_cast<std::size_t>(min_clip_contributors)) {
+    std::vector<std::size_t> order(n);
+    std::iota(order.begin(), order.end(), std::size_t{0});
+    std::sort(order.begin(), order.end(), [&](std::size_t i, std::size_t j) {
+      if (valid[i].x != valid[j].x) return valid[i].x < valid[j].x;
+      return valid[i].frame_order < valid[j].frame_order;
+    });
+    std::vector<std::size_t> active;
+    std::vector<std::size_t> dev_order;
+    for (int pass = 0; pass < robust_passes; ++pass) {
+      active.clear();
+      for (std::size_t idx : order)
+        if (accepted[idx]) active.push_back(idx);
+      if (active.empty()) break;
+      double total_w = 0.0;
+      for (std::size_t idx : active) total_w += valid[idx].b;
+      double median = valid[active.back()].x;
+      if (total_w > 0.0) {
+        double cum = 0.0;
+        for (std::size_t idx : active) {
+          cum += valid[idx].b;
+          if (cum >= total_w / 2.0) {
+            median = valid[idx].x;
+            break;
+          }
+        }
+      }
+      dev_order = active;
+      std::sort(dev_order.begin(), dev_order.end(),
+                [&](std::size_t i, std::size_t j) {
+                  const double di = std::abs(valid[i].x - median);
+                  const double dj = std::abs(valid[j].x - median);
+                  if (di != dj) return di < dj;
+                  return valid[i].frame_order < valid[j].frame_order;
+                });
+      double mad = std::abs(valid[dev_order.back()].x - median);
+      if (total_w > 0.0) {
+        double cum = 0.0;
+        for (std::size_t idx : dev_order) {
+          cum += valid[idx].b;
+          if (cum >= total_w / 2.0) {
+            mad = std::abs(valid[idx].x - median);
+            break;
+          }
+        }
+      }
+      const double lower = median - sigma_low * mad;
+      const double upper = median + sigma_high * mad;
+      bool changed = false;
+      for (std::size_t idx : active) {
+        const double x = valid[idx].x;
+        if (!(x >= lower && x <= upper)) {
+          accepted[idx] = 0;
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+  }
+
+  double a = 0.0, b = 0.0, b2 = 0.0;
+  for (std::size_t i = 0; i < n; ++i) {
+    if (!accepted[i]) continue;
+    a += valid[i].b * valid[i].x;
+    b += valid[i].b;
+    b2 += valid[i].b * valid[i].b;
+  }
+  out.state = ForwardDrizzleV2RobustState::oracle_sigma_clip;
+  out.center = b > 0.0 ? a / b : 0.0;
+  finish_uniform_fallback(out, a, b, b2);
+  out.state = ForwardDrizzleV2RobustState::oracle_sigma_clip;
+  return out;
+}
+
+ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
+    std::span<const ForwardDrizzleV2RobustCandidate> candidates,
+    ForwardDrizzleV2Estimator estimator, const ForwardDrizzleV2RobustConfig &cfg,
+    std::uint64_t stream_length) {
+  if (estimator == ForwardDrizzleV2Estimator::two_pass_winsorized_frames ||
+      cfg.groups < 3 || (cfg.groups % 2) == 0 || cfg.min_candidates < 1 ||
+      cfg.min_groups < 1 || cfg.min_groups > cfg.groups ||
+      !std::isfinite(cfg.winsor_sigma) || cfg.winsor_sigma <= 0.0 ||
+      cfg.reservoir_size < 1)
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_INVALID_ROBUST_CONFIG");
+
+  if (estimator == ForwardDrizzleV2Estimator::reservoir_sigma_clip) {
+    // Single pass: the hash keep predicate only needs the known stream
+    // length, so a production stream can push kept frames into the reservoir
+    // while accumulating the uniform totals; no replay is required.
+    const std::uint64_t n_stream =
+        stream_length > 0 ? stream_length
+                          : static_cast<std::uint64_t>(candidates.size());
+    const std::uint64_t keep_all =
+        n_stream <= static_cast<std::uint64_t>(cfg.reservoir_size);
+    const std::uint64_t threshold = keep_all ? 0 : static_cast<std::uint64_t>(
+        (static_cast<unsigned __int128>(cfg.reservoir_size) << 64) / n_stream);
+    ForwardDrizzleV2RobustResult out;
+    std::vector<ForwardDrizzleV2RobustCandidate> reservoir;
+    if (keep_all) reservoir.reserve(candidates.size());
+    else reservoir.reserve(static_cast<std::size_t>(cfg.reservoir_size) +
+                           static_cast<std::size_t>(cfg.reservoir_size) / 4);
+    double uniform_a = 0.0, uniform_b = 0.0, uniform_b2 = 0.0;
+    for (const auto &v : candidates) {
+      if (!std::isfinite(v.x) || !std::isfinite(v.b) || !(v.b > 0.0)) continue;
+      ++out.candidates;
+      uniform_a += v.b * v.x;
+      uniform_b += v.b;
+      uniform_b2 += v.b * v.b;
+      if (keep_all || splitmix64(v.frame_order ^ cfg.reservoir_seed) <
+                          threshold)
+        reservoir.push_back(v);
+    }
+    if (!(uniform_b > 0.0)) return out;
+    if (out.candidates < static_cast<std::uint64_t>(cfg.min_candidates) ||
+        reservoir.size() <
+            static_cast<std::size_t>(cfg.oracle_min_clip_contributors)) {
+      out.state = ForwardDrizzleV2RobustState::too_few_candidates_fallback;
+      finish_uniform_fallback(out, uniform_a, uniform_b, uniform_b2);
+      return out;
+    }
+    const auto clipped = robust_frame_oracle_v2(
+        reservoir, cfg.oracle_min_clip_contributors, cfg.oracle_passes,
+        cfg.oracle_sigma_low, cfg.oracle_sigma_high);
+    // The reservoir decides the value; B/B2 cover the full stream so support
+    // and effective-N reflect every contributing frame.
+    out.state = ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip;
+    out.center = clipped.center;
+    out.scale = clipped.scale;
+    out.groups_used = reservoir.size();
+    finish_uniform_fallback(out, clipped.value * uniform_b, uniform_b,
+                            uniform_b2);
+    return out;
+  }
+
+  const std::size_t k = static_cast<std::size_t>(cfg.groups);
+  std::vector<GroupSlot> groups(k);
+  ForwardDrizzleV2RobustResult out;
+  double uniform_a = 0.0, uniform_b = 0.0, uniform_b2 = 0.0;
+  for (const auto &v : candidates) {
+    if (!std::isfinite(v.x) || !std::isfinite(v.b) || !(v.b > 0.0)) continue;
+    ++out.candidates;
+    uniform_a += v.b * v.x;
+    uniform_b += v.b;
+    uniform_b2 += v.b * v.b;
+    GroupSlot &g = groups[v.frame_order % k];
+    g.a += v.b * v.x;
+    g.b += v.b;
+    g.b2 += v.b * v.b;
+  }
+
+  if (!(uniform_b > 0.0)) return out;
+  if (out.candidates < static_cast<std::uint64_t>(cfg.min_candidates)) {
+    out.state = ForwardDrizzleV2RobustState::too_few_candidates_fallback;
+    finish_uniform_fallback(out, uniform_a, uniform_b, uniform_b2);
+    return out;
+  }
+
+  std::vector<double> means, weights, group_b2;
+  means.reserve(k);
+  weights.reserve(k);
+  group_b2.reserve(k);
+  for (const auto &g : groups) {
+    if (!(g.b > 0.0)) continue;
+    means.push_back(g.a / g.b);
+    weights.push_back(g.b);
+    group_b2.push_back(g.b2);
+  }
+  out.groups_used = means.size();
+  if (means.size() < static_cast<std::size_t>(cfg.min_groups)) {
+    out.state = ForwardDrizzleV2RobustState::too_few_groups_fallback;
+    finish_uniform_fallback(out, uniform_a, uniform_b, uniform_b2);
+    return out;
+  }
+  out.center = median_sorted(means);
+  std::vector<double> deviations;
+  deviations.reserve(means.size());
+  for (double x : means) deviations.push_back(std::abs(x - out.center));
+  out.scale = 1.482602218505602 * median_sorted(std::move(deviations));
+
+  switch (estimator) {
+    case ForwardDrizzleV2Estimator::uniform:
+      out.state = ForwardDrizzleV2RobustState::primary_uniform;
+      finish_uniform_fallback(out, uniform_a, uniform_b, uniform_b2);
+      return out;
+
+    case ForwardDrizzleV2Estimator::mom_median: {
+      out.state = ForwardDrizzleV2RobustState::primary_mom_median;
+      const double value = weighted_median_of(means, weights);
+      // No frame weight is dropped: B/B2 keep the uniform totals while the
+      // value is the weighted median of the group means.
+      finish_uniform_fallback(out, value * uniform_b, uniform_b, uniform_b2);
+      out.center = value;
+      return out;
+    }
+
+    case ForwardDrizzleV2Estimator::mom_winsorized_groups:
+    case ForwardDrizzleV2Estimator::mom_trimmed_groups: {
+      if (!(out.scale > 0.0) || !std::isfinite(out.scale)) {
+        out.state = ForwardDrizzleV2RobustState::degenerate_scale;
+        finish_uniform_fallback(out, out.center * uniform_b, uniform_b,
+                                uniform_b2);
+        return out;
+      }
+      const double lo = out.center - cfg.winsor_sigma * out.scale;
+      const double hi = out.center + cfg.winsor_sigma * out.scale;
+      const bool trimmed =
+          estimator == ForwardDrizzleV2Estimator::mom_trimmed_groups;
+      double a = 0.0, b = 0.0, b2 = 0.0;
+      for (std::size_t g = 0; g < means.size(); ++g) {
+        if (trimmed) {
+          if (!(means[g] >= lo && means[g] <= hi)) continue;
+          a += means[g] * weights[g];
+        } else {
+          a += std::clamp(means[g], lo, hi) * weights[g];
+        }
+        b += weights[g];
+        b2 += group_b2[g];
+      }
+      if (!(b > 0.0)) {
+        out.state = ForwardDrizzleV2RobustState::degenerate_scale;
+        finish_uniform_fallback(out, out.center * uniform_b, uniform_b,
+                                uniform_b2);
+        return out;
+      }
+      out.state = trimmed
+                      ? ForwardDrizzleV2RobustState::primary_mom_trimmed_groups
+                      : ForwardDrizzleV2RobustState::primary_mom_winsorized_groups;
+      finish_uniform_fallback(out, a, b, b2);
+      return out;
+    }
+
+    case ForwardDrizzleV2Estimator::two_pass_winsorized_frames:
+      break;
+  }
+  throw std::invalid_argument("FORWARD_DRIZZLE_V2_INVALID_ROBUST_CONFIG");
 }
 
 ForwardDrizzleV2MemoryPlan plan_forward_drizzle_v2_memory(
