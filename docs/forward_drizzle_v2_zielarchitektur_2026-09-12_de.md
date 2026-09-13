@@ -1487,14 +1487,47 @@ kein teilweise publizierter Zustand ist möglich. Artefakte:
 `forward_drizzle_v2_gate7_transaction_resume_spec_2026-09-12.json`,
 `..._results_2026-09-12.jsonl`, `..._decision_2026-09-12.json`.
 
-### Gate 8: Lokale Warps
+### Gate 8: Lokale Warps — **bestanden**
 
-- inverse Repräsentation wählen;
-- konservative Bounds beweisen;
-- Lebensdauer und Speicher messen;
-- lokalen realen Datensatz gegen Oracle prüfen.
+Gewählte Repräsentation: **kompakte Koeffizienten + On-Device-Inversion**.
+Der persistierte `SmoothLocalWarpModel`-Satz (4×4 normalisierte
+Gauß-Basis, σ=0,28, 8%-Smoothstep-Taper, ~144 B/Frame) wird unverändert
+auf das Device übergeben; es wird kein Deformationsgitter materialisiert
+und kein zusätzlicher per-Frame-Speicher resident gehalten.
 
-**Exit:** Lokale Modelle erfüllen dieselben Verträge und Zeitgates wie affine Modelle.
+- Inversion: fp32-Fixpunkt `q_{n+1} = u − d(q_n)`, affiner Seed,
+  `max_iter=6`, `tol=0,001 px`, Sicherheitsmarge 64 px — exakter Port von
+  `invert_local_source_to_canvas`.
+- Subdivision: impliziter 21-Knoten-Baum (1+4+16), 3×3-Inversionen pro
+  Knoten, Tiefe ≤2, `position_epsilon=0,05` interne px,
+  `area_relative_epsilon=0,005` — exakter Port von `subdivide_local`.
+- All-or-nothing: jeder Inversions-/Subdivisionsfehler verwirft das
+  gesamte Source-Sample inklusive bereits akzeptierter Blätter; ungültige
+  Modelle verwerfen pro Sample (CPU-Semantik), schlagen nicht den Call
+  fehl.
+- Telemetrie: `scalars[2]`/`stats().local_samples_discarded`.
+- Parität: diskrete Entscheidungen (Zustände, Contributoren, Masken,
+  Discards) exakt; Magnituden ≤1e-5 rel. wegen fp32-Inversionsinterna.
+
+**Implementierungsbefund (behoben):** `native_rows` des Workspace ist die
+Bandhöhe, die Inversions-Bounds des Orakels gelten aber für die **volle
+Canvas-Höhe** — die erste Übergabe verwarf ~97% der Samples eines Top-Bands.
+`ForwardDrizzleV2KernelConfig.canvas_{width,height}_native` trägt jetzt die
+volle Canvas-Geometrie (0 = Band deckt das ganze Canvas).
+
+**Geometrie-Einsicht:** Ein canvas-gefittetes 4×4-Modell hat immer
+Knotenabstand ~nc/3 (~1311 px) — Tiefe-2-Subdivision ist auf
+Produktionsgeometrie nur über komprimierte Modelldomänen erreichbar.
+Die Produktionsmatrix deckt sie deshalb mit einer 13×13-px-Domain-Patch
+im Band plus einem Max-Iterations-Inversionsstress-Modell ab; strukturelle
+Depth-2-Akzeptanz beweist die Kleincanvas-Matrix (kalibriertes
+Schachbrett, `max_leaves>4`).
+
+Messung (7868×4540 intern, Band 59 Zeilen, 60 Frames): max 0,091 s/Frame
+(Grenze 0,75 s), 1 Allokation, 0 globale Syncs, 13.090 B/Pixel ≤ Plan.
+Artefakte:
+`forward_drizzle_v2_gate8_local_warp_spec_2026-09-12.json`,
+`..._results_2026-09-12.jsonl`, `..._decision_2026-09-12.json`.
 
 ### Gate 9: Streaming-Multiband
 

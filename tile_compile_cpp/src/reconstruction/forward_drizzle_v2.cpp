@@ -521,6 +521,20 @@ double forward_drizzle_v2_sigma2_model(double sigma_noise, double grad_x,
          droplet_half * droplet_half / 3.0;
 }
 
+double forward_drizzle_v2_local_displacement_bound(
+    std::span<const float> coeff_x, std::span<const float> coeff_y) {
+  if (coeff_x.size() != coeff_y.size() || coeff_x.size() > 16)
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_INVALID_WARP_SPAN");
+  double bound = 0.0;
+  for (std::size_t i = 0; i < coeff_x.size(); ++i) {
+    const double cx = coeff_x[i], cy = coeff_y[i];
+    if (!std::isfinite(cx) || !std::isfinite(cy))
+      return std::numeric_limits<double>::quiet_NaN();
+    bound = std::max(bound, std::hypot(cx, cy));
+  }
+  return bound;
+}
+
 ForwardDrizzleV2RobustResult robust_frame_oracle_v2(
     std::span<const ForwardDrizzleV2RobustCandidate> candidates,
     int min_clip_contributors, int robust_passes, double sigma_low,

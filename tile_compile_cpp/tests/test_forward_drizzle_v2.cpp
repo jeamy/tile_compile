@@ -2588,3 +2588,801 @@ TEST_CASE("forward drizzle v2 store fails closed on unbound or corrupt state",
     REQUIRE(!fs::exists(fx.root / "current.json"));
   }
 }
+
+// --- Gate 8: local warp -----------------------------------------------------
+
+namespace {
+
+registration::SmoothLocalWarpModel
+v2_local_model(int rows, int cols, const float cx[16], const float cy[16]) {
+  registration::SmoothLocalWarpModel m;
+  m.valid = true;
+  m.image_rows = rows;
+  m.image_cols = cols;
+  for (int i = 0; i < 16; ++i) {
+    m.coeff_x[i] = cx[i];
+    m.coeff_y[i] = cy[i];
+  }
+  return m;
+}
+
+FrameSamplingTransform v2_local_frame(const FrameSamplingTransform &base,
+                                      const registration::SmoothLocalWarpModel &m,
+                                      float coord_scale = 1.0f,
+                                      float off_x = 0.0f, float off_y = 0.0f) {
+  FrameSamplingTransform f = base;
+  f.has_smooth_local_model = true;
+  f.smooth_local_model = m;
+  f.model_coordinate_scale = coord_scale;
+  f.model_offset_x = off_x;
+  f.model_offset_y = off_y;
+  return f;
+}
+
+ForwardDrizzleV2LocalWarp
+v2_warp_descriptor(const FrameSamplingTransform &f,
+                   const ForwardDrizzleSubdivisionParams &sub = {}) {
+  ForwardDrizzleV2LocalWarp w;
+  const auto &m = f.smooth_local_model;
+  for (int i = 0; i < 16; ++i) {
+    w.coeff_x[i] = m.coeff_x[i];
+    w.coeff_y[i] = m.coeff_y[i];
+  }
+  w.image_rows = m.image_rows;
+  w.image_cols = m.image_cols;
+  w.model_valid = m.valid ? 1 : 0;
+  w.model_coordinate_scale = f.model_coordinate_scale;
+  w.model_offset_x = f.model_offset_x;
+  w.model_offset_y = f.model_offset_y;
+  w.position_epsilon_internal_px = sub.position_epsilon_internal_px;
+  w.max_subdivision_depth = sub.max_subdivision_depth;
+  w.area_relative_epsilon = sub.area_relative_epsilon;
+  return w;
+}
+
+// CPU leaf-replay oracle for one frame: sample_leaves plus the production
+// bbox clamp and polygon_rectangle_intersection_area accumulation into
+// channel-major internal planes --- the exact semantics k_scatter_v2_local
+// reproduces on device. `s2w` accumulates area*sigma2 over finite samples.
+struct Gate8FramePlanes {
+  std::vector<double> a, bs, bg, s2w;
+  std::uint64_t overlaps = 0;
+  std::uint64_t discarded = 0;
+};
+
+Gate8FramePlanes v2_frame_planes_cpu(
+    const RegistrationSamplingPlan &plan, const FrameSamplingTransform &frame,
+    const Matrix2Df &img, int scale, float pixfrac, int channels,
+    BayerPattern pattern, int ox, int oy,
+    const ForwardDrizzleSubdivisionParams &sub = {},
+    const float *sigma2 = nullptr) {
+  const int ic = plan.canvas_width_native * scale;
+  const int ir = plan.canvas_height_native * scale;
+  const std::size_t iplane = static_cast<std::size_t>(ic) * ir;
+  Gate8FramePlanes p;
+  p.a.assign(channels * iplane, 0.0);
+  p.bs.assign(channels * iplane, 0.0);
+  p.bg.assign(channels * iplane, 0.0);
+  if (sigma2 != nullptr) p.s2w.assign(channels * iplane, 0.0);
+  std::vector<Leaf> leaves;
+  for (int sy = 0; sy < plan.source_height; ++sy)
+    for (int sx = 0; sx < plan.source_width; ++sx) {
+      if (!sample_leaves(plan, frame, sx, sy, scale, pixfrac, sub, leaves)) {
+        ++p.discarded;
+        continue;
+      }
+      const float v = img(sy, sx);
+      const bool finite = std::isfinite(v);
+      const double s2 =
+          sigma2 != nullptr
+              ? static_cast<double>(
+                    sigma2[static_cast<std::size_t>(sy) * plan.source_width +
+                           sx])
+              : 0.0;
+      const int c =
+          channels == 1
+              ? 0
+              : static_cast<int>(cfa_channel_for_source_pixel(
+                    sx, sy, pattern, ox, oy));
+      for (const auto &leaf : leaves) {
+        const double minx =
+            *std::min_element(leaf.x, leaf.x + 4);
+        const double maxx =
+            *std::max_element(leaf.x, leaf.x + 4);
+        const double miny =
+            *std::min_element(leaf.y, leaf.y + 4);
+        const double maxy =
+            *std::max_element(leaf.y, leaf.y + 4);
+        const int x0 = static_cast<int>(
+            std::clamp(std::floor(minx), 0.0, static_cast<double>(ic)));
+        const int x1 = static_cast<int>(
+            std::clamp(std::ceil(maxx), 0.0, static_cast<double>(ic)));
+        const int y0 = static_cast<int>(
+            std::clamp(std::floor(miny), 0.0, static_cast<double>(ir)));
+        const int y1 = static_cast<int>(
+            std::clamp(std::ceil(maxy), 0.0, static_cast<double>(ir)));
+        for (int ty = y0; ty < y1; ++ty)
+          for (int tx = x0; tx < x1; ++tx) {
+            const double k = polygon_rectangle_intersection_area(
+                leaf.x, leaf.y, tx, ty, tx + 1.0, ty + 1.0);
+            if (!(k > 0.0)) continue;
+            const std::size_t o =
+                static_cast<std::size_t>(c) * iplane +
+                static_cast<std::size_t>(ty) * ic + tx;
+            p.bg[o] += k;
+            if (finite) {
+              p.a[o] += k * v;
+              p.bs[o] += k;
+              if (sigma2 != nullptr) p.s2w[o] += k * s2;
+            }
+            ++p.overlaps;
+          }
+      }
+    }
+  return p;
+}
+
+// fp32 inversion internals quantize leaf corners (~1e-7 relative); decisions
+// and support masks must be exact, magnitudes within a small margin.
+void require_gate8_plane_parity(const Gate8FramePlanes &ref,
+                                const std::vector<double> &da,
+                                const std::vector<double> &dbs,
+                                const std::vector<double> &dbg, double tol) {
+  REQUIRE(da.size() == ref.a.size());
+  REQUIRE(dbs.size() == ref.bs.size());
+  REQUIRE(dbg.size() == ref.bg.size());
+  for (std::size_t i = 0; i < ref.a.size(); ++i) {
+    REQUIRE((dbg[i] > 0.0) == (ref.bg[i] > 0.0));
+    REQUIRE((dbs[i] > 0.0) == (ref.bs[i] > 0.0));
+    REQUIRE(da[i] == Catch::Approx(ref.a[i]).margin(tol));
+    REQUIRE(dbs[i] == Catch::Approx(ref.bs[i]).margin(tol));
+    REQUIRE(dbg[i] == Catch::Approx(ref.bg[i]).margin(tol));
+  }
+}
+
+struct Gate8DevicePlanes {
+  std::vector<double> a, bs, bg;
+  unsigned long long overlaps = 0;
+  unsigned long long discarded = 0;
+};
+
+Gate8DevicePlanes v2_local_scatter_device(
+    const double a6[6], const ForwardDrizzleV2LocalWarp &w, int scale,
+    float pixfrac, int ic, int ir, const Matrix2Df &img, int channels,
+    BayerPattern pattern, int ox, int oy, int canvas_w, int canvas_h) {
+  Gate8DevicePlanes p;
+  const std::size_t n = static_cast<std::size_t>(channels) * ic * ir;
+  p.a.assign(n, -1.0);
+  p.bs.assign(n, -1.0);
+  p.bg.assign(n, -1.0);
+  REQUIRE(forward_drizzle_cuda_local_dense_scatter(
+      a6, w, scale, 0.5 * static_cast<double>(pixfrac), ic, ir,
+      static_cast<int>(img.cols()), static_cast<int>(img.rows()), img.data(),
+      static_cast<int>(pattern), ox, oy, channels == 1, canvas_w, canvas_h,
+      p.a.data(), p.bs.data(), p.bg.data(), &p.overlaps, &p.discarded));
+  return p;
+}
+
+// Gate-8 variant of require_gate6_parity: the device reproduces the CPU
+// oracle's fp32 inversion internals only up to expf/FMA contraction
+// differences (~few ulp on the corner positions), so magnitudes are
+// checked at a documented tolerance while every discrete decision
+// (states, contributor counts, masks, discards) stays exact.
+void require_gate8_parity(const Gate6CpuRef &ref,
+                          const std::vector<ForwardDrizzleV2PixelResult> &gpu,
+                          int ncols, int nrows, int channels) {
+  const std::size_t nplane = static_cast<std::size_t>(ncols) * nrows;
+  for (std::size_t pc = 0; pc < nplane * channels; ++pc) {
+    const auto &e = ref.results[pc];
+    const auto &g = gpu[pc];
+    REQUIRE(g.robust_state == static_cast<std::uint8_t>(e.state));
+    REQUIRE(g.confidence_state == static_cast<std::uint8_t>(e.conf_state));
+    REQUIRE(g.contributors == e.candidates);
+    REQUIRE(g.conf_degraded == e.conf_degraded);
+    REQUIRE(g.value == Catch::Approx(e.value).epsilon(1e-5).margin(1e-9));
+    REQUIRE(g.b == Catch::Approx(e.b).epsilon(1e-5).margin(1e-9));
+    REQUIRE(g.n_eff == Catch::Approx(e.n_eff).epsilon(1e-5).margin(1e-9));
+    REQUIRE(g.confidence ==
+            Catch::Approx(e.confidence).epsilon(1e-5).margin(1e-9));
+  }
+}
+
+// Full-band CPU reference for the mixed affine+local stream: identical to
+// gate6_cpu_reference but every frame's planes come from the leaf replay,
+// which covers both affine (build_affine_leaf) and local (subdivide_local)
+// frames with the same fold/reservoir semantics downstream.
+Gate6CpuRef gate8_cpu_reference(
+    const Fixture &f, const std::vector<float> &sigma2_or_empty,
+    const ForwardDrizzleV2KernelConfig &kcfg,
+    const ForwardDrizzleSubdivisionParams &sub = {}) {
+  const int scale = kcfg.internal_scale;
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const int ic = nc * scale;
+  const int ir = nr * scale;
+  const int channels = kcfg.mono ? 1 : 3;
+  const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+  const std::size_t iplane = static_cast<std::size_t>(ic) * ir;
+  const double inv_s2 = 1.0 / (static_cast<double>(scale) * scale);
+  const std::size_t n_frames = f.plan.frames.size();
+
+  Gate6CpuRef ref;
+  ref.results.assign(nplane * channels, ForwardDrizzleV2RobustResult{});
+  ref.masks.assign(nplane * channels, 0);
+  ref.footprint.assign(nplane, 0);
+  std::vector<std::vector<ForwardDrizzleV2RobustCandidate>> cands(
+      nplane * channels);
+  std::vector<std::vector<double>> s2v(nplane * channels);
+
+  const std::size_t n_src = static_cast<std::size_t>(f.plan.source_width) *
+                            f.plan.source_height;
+  for (std::size_t fr = 0; fr < n_frames; ++fr) {
+    const float *s2 = sigma2_or_empty.empty() ? nullptr
+                                              : sigma2_or_empty.data();
+    const auto planes = v2_frame_planes_cpu(
+        f.plan, f.plan.frames[fr], f.images[fr], scale, f.cfg.pixfrac,
+        channels, f.plan.bayer_pattern, f.plan.cfa_origin_x,
+        f.plan.cfa_origin_y, sub, s2);
+    (void)n_src;
+    for (std::size_t px = 0; px < nplane; ++px) {
+      const int nx = static_cast<int>(px % nc);
+      const int ny = static_cast<int>(px / nc);
+      bool any_geo = false;
+      for (int c = 0; c < channels; ++c) {
+        const std::size_t pc = static_cast<std::size_t>(c) * nplane + px;
+        double a = 0.0, bs = 0.0, bg = 0.0, sw = 0.0;
+        unsigned int geo_bits = 0, src_bits = 0;
+        for (int iy = 0; iy < scale; ++iy)
+          for (int ix = 0; ix < scale; ++ix) {
+            const int j = iy * scale + ix;
+            const std::size_t ii =
+                static_cast<std::size_t>(c) * iplane +
+                static_cast<std::size_t>(ny * scale + iy) * ic + nx * scale +
+                ix;
+            a += inv_s2 * planes.a[ii];
+            bs += inv_s2 * planes.bs[ii];
+            bg += inv_s2 * planes.bg[ii];
+            if (sigma2_or_empty.empty() == false) sw += inv_s2 * planes.s2w[ii];
+            if (planes.bg[ii] > 0.0) geo_bits |= 1u << j;
+            if (planes.bs[ii] > 0.0) src_bits |= 1u << j;
+          }
+        ref.masks[pc] |=
+            static_cast<unsigned short>(geo_bits | (src_bits << 4));
+        if (bg > 0.0) any_geo = true;
+        if (!(bs > 0.0)) continue;
+        cands[pc].push_back({fr, a / bs, bs});
+        if (!sigma2_or_empty.empty()) s2v[pc].push_back(sw / bs);
+      }
+      if (any_geo) ++ref.footprint[px];
+    }
+  }
+
+  ForwardDrizzleV2RobustConfig rcfg;
+  rcfg.reservoir_size = kcfg.reservoir_size;
+  rcfg.reservoir_seed = kcfg.reservoir_seed;
+  rcfg.oracle_min_clip_contributors = kcfg.min_clip_contributors;
+  rcfg.oracle_passes = kcfg.robust_passes;
+  rcfg.oracle_sigma_low = kcfg.sigma_low;
+  rcfg.oracle_sigma_high = kcfg.sigma_high;
+  rcfg.min_candidates = kcfg.min_candidates;
+  for (std::size_t pc = 0; pc < nplane * channels; ++pc) {
+    if (cands[pc].empty()) continue;
+    ref.results[pc] = robust_reduce_candidates_v2(
+        cands[pc], ForwardDrizzleV2Estimator::reservoir_sigma_clip, rcfg,
+        static_cast<std::uint64_t>(n_frames), s2v[pc]);
+  }
+  for (std::size_t px = 0; px < nplane; ++px)
+    if (ref.footprint[px] == n_frames && n_frames > 0) ++ref.dense_overlap;
+  return ref;
+}
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 gate8 local scatter matches the CPU oracle",
+          "[forward-drizzle-v2][cuda-parity][gate8]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  const double tol = 2.0e-3;
+  for (int scale : {1, 2}) {
+    auto f = make_fixture(ColorMode::OSC, BayerPattern::GBRG, 0, 0, scale);
+    const int nc = f.plan.canvas_width_native;
+    const int nr = f.plan.canvas_height_native;
+    const int ic = nc * scale, ir = nr * scale;
+    const auto &base = f.plan.frames[0];
+    const auto &m = base.source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                          m(1, 0), m(1, 1), m(1, 2)};
+    const auto run_case = [&](const FrameSamplingTransform &fr,
+                              const ForwardDrizzleSubdivisionParams &sub =
+                                  {}) {
+      const auto ref = v2_frame_planes_cpu(
+          f.plan, fr, f.images[0], scale, f.cfg.pixfrac, 3,
+          f.plan.bayer_pattern, f.plan.cfa_origin_x, f.plan.cfa_origin_y, sub);
+      const auto got =
+          v2_local_scatter_device(a6, v2_warp_descriptor(fr, sub), scale,
+                                  f.cfg.pixfrac, ic, ir, f.images[0], 3,
+                                  f.plan.bayer_pattern, f.plan.cfa_origin_x,
+                                  f.plan.cfa_origin_y, nc, nr);
+      REQUIRE(got.discarded == ref.discarded);
+      REQUIRE(got.overlaps == ref.overlaps);
+      require_gate8_plane_parity(ref, got.a, got.bs, got.bg, tol);
+      return ref;
+    };
+
+    SECTION("zero coefficients reproduce the affine droplet") {
+      const float z[16] = {};
+      const auto fr =
+          v2_local_frame(base, v2_local_model(nr, nc, z, z));
+      const auto ref = run_case(fr);
+      REQUIRE(ref.discarded == 0);
+      // The affine kernel computes the droplet in fp64 while the local
+      // path --- like the production CPU oracle --- inverts in fp32. A
+      // knife-edge boundary cell may therefore differ; the overlap counts
+      // agree up to that boundary quantization.
+      std::vector<double> aa(3 * static_cast<std::size_t>(ic) * ir),
+          ab(aa.size());
+      unsigned long long aov = 0;
+      REQUIRE(forward_drizzle_cuda_affine_dense_scatter(
+          a6, scale, 0.5 * static_cast<double>(f.cfg.pixfrac), 0, 0, ic, ir,
+          f.plan.source_width, f.plan.source_height, f.images[0].data(),
+          static_cast<int>(f.plan.bayer_pattern), f.plan.cfa_origin_x,
+          f.plan.cfa_origin_y, false, aa.data(), ab.data(), &aov));
+      REQUIRE(std::abs(static_cast<long long>(aov) -
+                       static_cast<long long>(ref.overlaps)) <= 4);
+    }
+
+    SECTION("mild single bump") {
+      float cx[16] = {}, cy[16] = {};
+      cx[5] = 1.5f;   // one interior knot
+      cy[9] = -1.0f;
+      run_case(v2_local_frame(base, v2_local_model(nr, nc, cx, cy)));
+    }
+
+    SECTION("strong curvature forces depth-2 nodes") {
+      float cx[16] = {}, cy[16] = {};
+      // Checkerboard saddle on a compressed 4x4 model domain (knot
+      // spacing ~4.3 render px). Calibrated amplitude: strong enough to
+      // force depth-2 subdivision on some samples, with the rest failing
+      // inversion/subdivision all-or-nothing (discard parity is asserted).
+      cx[5] = 4.0f;
+      cx[6] = -4.0f;
+      cx[9] = -4.0f;
+      cx[10] = 4.0f;
+      cy[5] = -4.0f;
+      cy[6] = 4.0f;
+      cy[9] = 4.0f;
+      cy[10] = -4.0f;
+      const auto fr = v2_local_frame(base, v2_local_model(4, 4, cx, cy),
+                                     3.0f / 13.0f);
+      // Prove the case actually exercises depth-2 acceptance: some sample
+      // must emit more leaves than the 4 depth-1 nodes alone could.
+      std::vector<Leaf> leaves;
+      std::size_t max_leaves = 0;
+      for (int sy = 0; sy < f.plan.source_height; ++sy)
+        for (int sx = 0; sx < f.plan.source_width; ++sx)
+          if (sample_leaves(f.plan, fr, sx, sy, scale, f.cfg.pixfrac, {},
+                            leaves))
+            max_leaves = std::max(max_leaves, leaves.size());
+      REQUIRE(max_leaves > 4);
+      run_case(fr);
+    }
+
+    SECTION("boundary taper") {
+      float cx[16] = {}, cy[16] = {};
+      for (int i : {0, 1, 4, 5, 10, 11, 14, 15}) {
+        cx[i] = 4.0f;
+        cy[i] = -3.0f;
+      }
+      run_case(v2_local_frame(base, v2_local_model(nr, nc, cx, cy)));
+    }
+
+    SECTION("partial discards: max_iter too small to converge") {
+      float cx[16] = {}, cy[16] = {};
+      cx[5] = 0.8f;
+      cx[6] = -0.6f;
+      auto fr = v2_local_frame(base, v2_local_model(nr, nc, cx, cy));
+      auto w = v2_warp_descriptor(fr);
+      w.max_iter = 1;  // cannot converge wherever d != 0
+      // No oracle parity here: sample_leaves always uses the default
+      // LocalInversionParams, so only the discard accounting is checked.
+      const auto got =
+          v2_local_scatter_device(a6, w, scale, f.cfg.pixfrac, ic, ir,
+                                  f.images[0], 3, f.plan.bayer_pattern,
+                                  f.plan.cfa_origin_x, f.plan.cfa_origin_y,
+                                  nc, nr);
+      REQUIRE(got.discarded > 0);
+      REQUIRE(got.discarded <=
+              static_cast<std::uint64_t>(f.plan.source_width) *
+                  f.plan.source_height);
+    }
+
+    SECTION("invalid model discards every sample") {
+      float cx[16] = {}, cy[16] = {};
+      cx[5] = 1.0f;
+      auto m = v2_local_model(nr, nc, cx, cy);
+      m.valid = false;
+      const auto fr = v2_local_frame(base, m);
+      const auto got =
+          v2_local_scatter_device(a6, v2_warp_descriptor(fr), scale,
+                                  f.cfg.pixfrac, ic, ir, f.images[0], 3,
+                                  f.plan.bayer_pattern, f.plan.cfa_origin_x,
+                                  f.plan.cfa_origin_y, nc, nr);
+      const std::uint64_t n_src = static_cast<std::uint64_t>(
+          f.plan.source_width) * f.plan.source_height;
+      REQUIRE(got.discarded == n_src);
+      REQUIRE(got.overlaps == 0);
+      for (double v : got.bg) REQUIRE(v == 0.0);
+    }
+
+    SECTION("nonfinite coefficient discards every sample") {
+      float cx[16] = {}, cy[16] = {};
+      cx[5] = std::numeric_limits<float>::quiet_NaN();
+      const auto fr =
+          v2_local_frame(base, v2_local_model(nr, nc, cx, cy));
+      const auto got =
+          v2_local_scatter_device(a6, v2_warp_descriptor(fr), scale,
+                                  f.cfg.pixfrac, ic, ir, f.images[0], 3,
+                                  f.plan.bayer_pattern, f.plan.cfa_origin_x,
+                                  f.plan.cfa_origin_y, nc, nr);
+      const std::uint64_t n_src = static_cast<std::uint64_t>(
+          f.plan.source_width) * f.plan.source_height;
+      REQUIRE(got.discarded == n_src);
+      REQUIRE(got.overlaps == 0);
+    }
+
+    SECTION("subdivision depth beyond the tree rejects the call") {
+      float cx[16] = {}, cy[16] = {};
+      const auto fr =
+          v2_local_frame(base, v2_local_model(nr, nc, cx, cy));
+      auto w = v2_warp_descriptor(fr);
+      w.max_subdivision_depth = 3;
+      std::vector<double> dummy(3 * static_cast<std::size_t>(ic) * ir);
+      REQUIRE_FALSE(forward_drizzle_cuda_local_dense_scatter(
+          a6, w, scale, 0.4, ic, ir, f.plan.source_width,
+          f.plan.source_height, f.images[0].data(),
+          static_cast<int>(f.plan.bayer_pattern), f.plan.cfa_origin_x,
+          f.plan.cfa_origin_y, false, nc, nr, dummy.data(), dummy.data(),
+          dummy.data(), nullptr, nullptr));
+    }
+
+    SECTION("translated M42 affine seed plus mild model") {
+      const double m42[6] = {0.9998640418052673, -0.016167480498552322,
+                             2.6364097595214844, 0.01610037311911583,
+                             0.9999631643295288, 2.2344169616699219};
+      float cx[16] = {}, cy[16] = {};
+      cx[5] = 1.2f;
+      cx[10] = -0.9f;
+      cy[6] = 0.7f;
+      const auto fr =
+          v2_local_frame(base, v2_local_model(nr, nc, cx, cy));
+      // Swap the fixture affine for the M42 seed on both sides.
+      auto fr2 = fr;
+      fr2.source_to_canvas = affine(m42[0], m42[1], m42[2], m42[3], m42[4],
+                                    m42[5]);
+      const auto ref2 = v2_frame_planes_cpu(
+          f.plan, fr2, f.images[0], scale, f.cfg.pixfrac, 3,
+          f.plan.bayer_pattern, f.plan.cfa_origin_x, f.plan.cfa_origin_y);
+      const auto got =
+          v2_local_scatter_device(m42, v2_warp_descriptor(fr2), scale,
+                                  f.cfg.pixfrac, ic, ir, f.images[0], 3,
+                                  f.plan.bayer_pattern, f.plan.cfa_origin_x,
+                                  f.plan.cfa_origin_y, nc, nr);
+      REQUIRE(got.discarded == ref2.discarded);
+      REQUIRE(got.overlaps == ref2.overlaps);
+      require_gate8_plane_parity(ref2, got.a, got.bs, got.bg, tol);
+    }
+
+    SECTION("mono path maps every sample to channel 0") {
+      auto mf = make_fixture(ColorMode::MONO, BayerPattern::RGGB, 0, 0, scale);
+      const auto &mbase = mf.plan.frames[0];
+      const auto &mm = mbase.source_to_canvas;
+      const double ma6[6] = {mm(0, 0), mm(0, 1), mm(0, 2),
+                             mm(1, 0), mm(1, 1), mm(1, 2)};
+      float cx[16] = {}, cy[16] = {};
+      cx[5] = 1.4f;
+      cy[10] = 0.8f;
+      const auto fr =
+          v2_local_frame(mbase, v2_local_model(nr, nc, cx, cy));
+      const auto ref = v2_frame_planes_cpu(
+          mf.plan, fr, mf.images[0], scale, mf.cfg.pixfrac, 1,
+          mf.plan.bayer_pattern, mf.plan.cfa_origin_x, mf.plan.cfa_origin_y);
+      const auto got =
+          v2_local_scatter_device(ma6, v2_warp_descriptor(fr), scale,
+                                  mf.cfg.pixfrac, ic, ir, mf.images[0], 1,
+                                  mf.plan.bayer_pattern, mf.plan.cfa_origin_x,
+                                  mf.plan.cfa_origin_y, nc, nr);
+      REQUIRE(got.discarded == ref.discarded);
+      REQUIRE(got.overlaps == ref.overlaps);
+      require_gate8_plane_parity(ref, got.a, got.bs, got.bg, tol);
+    }
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate8 displacement bound is conservative",
+          "[forward-drizzle-v2][gate8]") {
+  float cx[16] = {}, cy[16] = {};
+  cx[5] = 1.5f;
+  cx[9] = -2.0f;
+  cy[5] = 0.5f;
+  cy[9] = 1.0f;
+  const double bound = forward_drizzle_v2_local_displacement_bound(
+      std::span<const float>(cx, 16), std::span<const float>(cy, 16));
+  REQUIRE(bound == Catch::Approx(std::hypot(2.0, 1.0)));
+  const auto model = v2_local_model(13, 14, cx, cy);
+  // Dense sweep: |d_model(q)| <= bound everywhere the model is defined.
+  double observed = 0.0;
+  for (int iy = 0; iy <= 60; ++iy)
+    for (int ix = 0; ix <= 60; ++ix) {
+      const float mx = static_cast<float>(ix) * 13.0f / 60.0f;
+      const float my = static_cast<float>(iy) * 12.0f / 60.0f;
+      const auto d = registration::evaluate_smooth_local_displacement(
+          model, mx, my);
+      observed = std::max(observed,
+                          std::hypot(static_cast<double>(d.x),
+                                     static_cast<double>(d.y)));
+    }
+  REQUIRE(observed <= bound + 1e-6);
+  // Invalid inputs fail closed: span-shape violations throw, nonfinite
+  // coefficients yield a nonfinite bound.
+  REQUIRE_THROWS_AS(forward_drizzle_v2_local_displacement_bound(
+                        std::span<const float>(cx, 16),
+                        std::span<const float>(cy, 8)),
+                    std::invalid_argument);
+  float bad[16] = {};
+  bad[3] = std::numeric_limits<float>::quiet_NaN();
+  REQUIRE(!std::isfinite(forward_drizzle_v2_local_displacement_bound(
+      std::span<const float>(bad, 16), std::span<const float>(cy, 16))));
+}
+
+TEST_CASE("forward drizzle v2 gate8 mixed affine/local stream parity",
+          "[forward-drizzle-v2][cuda-parity][gate8]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  for (int scale : {1, 2}) {
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+      auto f = make_fixture(mode, BayerPattern::GBRG, 0, 0, scale);
+      const int nc = f.plan.canvas_width_native;
+      const int nr = f.plan.canvas_height_native;
+      const int channels = mode == ColorMode::MONO ? 1 : 3;
+      const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+      const std::size_t n_src = static_cast<std::size_t>(
+          f.plan.source_width) * f.plan.source_height;
+      std::vector<float> s2(n_src);
+      for (std::size_t i = 0; i < n_src; ++i)
+        s2[i] = 0.01f + 0.0001f * static_cast<float>(i % 97);
+
+      // Interleave local models on frames 1 and 3.
+      float cx1[16] = {}, cy1[16] = {}, cx3[16] = {}, cy3[16] = {};
+      cx1[5] = 1.3f;
+      cy1[6] = -0.8f;
+      cx3[9] = -1.7f;
+      cy3[10] = 1.1f;
+      f.plan.frames[1] = v2_local_frame(
+          f.plan.frames[1], v2_local_model(nr, nc, cx1, cy1));
+      f.plan.frames[3] = v2_local_frame(
+          f.plan.frames[3], v2_local_model(nr, nc, cx3, cy3));
+
+      ForwardDrizzleV2KernelConfig kcfg;
+      kcfg.internal_scale = scale;
+      kcfg.stream_length = f.plan.frames.size();
+      kcfg.half = 0.5 * f.cfg.pixfrac;
+      kcfg.bayer_pattern = static_cast<int>(f.plan.bayer_pattern);
+      kcfg.cfa_origin_x = f.plan.cfa_origin_x;
+      kcfg.cfa_origin_y = f.plan.cfa_origin_y;
+      kcfg.mono = mode == ColorMode::MONO;
+
+      // Reference: same fold on the leaf-replay planes; also count oracle
+      // discards for the stats check.
+      const auto ref = gate8_cpu_reference(f, s2, kcfg);
+      std::uint64_t expected_discards = 0;
+      for (const auto &fr : f.plan.frames) {
+        if (!fr.has_smooth_local_model) continue;
+        expected_discards += v2_frame_planes_cpu(
+                                 f.plan, fr, f.images[fr.source_index],
+                                 scale, f.cfg.pixfrac, channels,
+                                 f.plan.bayer_pattern, f.plan.cfa_origin_x,
+                                 f.plan.cfa_origin_y)
+                                 .discarded;
+      }
+
+      ForwardDrizzleV2CudaPrototypeKernel kernel;
+      REQUIRE(kernel.reserve(nc, nr, f.plan.source_width,
+                             f.plan.source_height, kcfg));
+      for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+        const auto &frame = f.plan.frames[fr];
+        const auto &m = frame.source_to_canvas;
+        const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                              m(1, 0), m(1, 1), m(1, 2)};
+        if (frame.has_smooth_local_model) {
+          REQUIRE(kernel.accumulate_frame_local(
+              a6, v2_warp_descriptor(frame), f.images[fr].data(),
+              s2.data(), fr));
+        } else {
+          REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(),
+                                          s2.data(), fr));
+        }
+      }
+      std::vector<ForwardDrizzleV2PixelResult> got(nplane * channels);
+      std::uint64_t dense = 0;
+      REQUIRE(kernel.finalize(got.data(), &dense));
+      require_gate8_parity(ref, got, nc, nr, channels);
+      REQUIRE(dense == ref.dense_overlap);
+      REQUIRE(kernel.stats().local_samples_discarded == expected_discards);
+      REQUIRE(kernel.stats().allocations == 1);
+      REQUIRE(kernel.stats().stream_synchronizations == 1);
+    }
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate8 local production geometry",
+          "[.][forward-drizzle-v2-gate8-production]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  constexpr char kSpecSha[] =
+      "2fa20cd7e3b5293e391fa869b2972de8a9d8c3220935ade6a47c0ff8fbd6094b";
+  constexpr int sw = 3840, sh = 2160;
+  constexpr int nc = 3934, nr = 2270;
+  constexpr double kMaxSteadySeconds = 0.75;
+
+  const auto mem = forward_drizzle_cuda_device_memory();
+  ForwardDrizzleV2MemoryInputs in;
+  in.target_width = nc;
+  in.target_height = nr;
+  in.channels = 3;
+  in.frame_count = 60;
+  in.internal_scale = 2;
+  in.source_device_slots = 2;
+  in.source_slot_device_bytes = std::size_t{sw} * sh * sizeof(float);
+  in.quality_device_slots = 1;
+  in.quality_slot_device_bytes = std::size_t{sw} * sh * sizeof(float);
+  in.device_reserve_bytes = std::size_t{256} << 20;
+  in.device_budget_bytes =
+      static_cast<std::size_t>(static_cast<double>(mem.free_bytes) * 0.8);
+  in.host_budget_bytes = std::size_t{8} << 30;
+  const auto plan = plan_forward_drizzle_v2_memory(in);
+  REQUIRE(plan.feasible);
+  REQUIRE(plan.tile_cols == nc);
+  const int band_rows = plan.band_rows;
+
+  Matrix2Df source(sh, sw);
+  for (int y = 0; y < sh; ++y)
+    for (int x = 0; x < sw; ++x)
+      source(y, x) = static_cast<float>(
+          100.0 + 0.001 * x + 0.002 * y + 0.01 * ((17 * x + 31 * y) % 29));
+
+  const std::array<std::array<double, 6>, 5> base{{
+      {1.0, 0.0, 32.0, 0.0, 1.0, 50.0},
+      {0.9998640418052673, -0.016167480498552322, 35.636409759521484,
+       0.01610037311911583, 0.9999631643295288, 46.23441696166992},
+      {0.9998466372489929, 0.017386717721819878, 55.92152404785156,
+       -0.01743965968489647, 0.9998936057090759, 68.48160552978516},
+      {0.9999858140945435, -0.0024168870877474546, 31.47933578491211,
+       0.0021460296120494604, 1.000150442123413, 56.29893493652344},
+      {1.0000033378601074, -0.006749980617314577, 28.21784782409668,
+       0.006637410260736942, 1.0002058744430542, 58.95621871948242},
+  }};
+
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = 2;
+  kcfg.stream_length = 60;
+  kcfg.half = 0.4;
+  kcfg.bayer_pattern = static_cast<int>(BayerPattern::GBRG);
+  kcfg.mono = false;
+  kcfg.canvas_width_native = nc;
+  kcfg.canvas_height_native = nr;
+
+  struct LocalCase {
+    const char *name;
+    registration::SmoothLocalWarpModel model;
+    float coord_scale;
+    float off_x, off_y;
+  };
+  // Model image in reference-image dimensions mapped onto the native
+  // canvas: scale = (image_cols - 1) / canvas_cols, like production models
+  // estimated in source-image coordinates.
+  const float mscale = static_cast<float>(sw - 1) / static_cast<float>(nc);
+  auto make_case = [&](const char *name, float amp, bool checker, int mr,
+                       int mc, float cs, float ox = 0.0f, float oy = 0.0f) {
+    float cx[16] = {}, cy[16] = {};
+    if (checker) {
+      cx[5] = amp;
+      cx[6] = -amp;
+      cx[9] = -amp;
+      cx[10] = amp;
+      cy[5] = -amp;
+      cy[6] = amp;
+      cy[9] = amp;
+      cy[10] = -amp;
+    } else {
+      cx[5] = amp;
+      cx[10] = -0.6f * amp;
+      cy[6] = 0.7f * amp;
+      cy[9] = -0.4f * amp;
+    }
+    return LocalCase{name, v2_local_model(mr, mc, cx, cy), cs, ox, oy};
+  };
+  const LocalCase cases[] = {
+      // Realistic mild model on the full canvas (production-shaped).
+      make_case("mild_realistic", 1.6f, false, sh, sw, mscale),
+      // Inversion stress: displacement gradient near the contraction
+      // limit forces the full max-iteration path per node.
+      make_case("inversion_stress", 500.0f, true, sh, sw, mscale),
+      // Compressed 13x13 native-px model domain inside the band
+      // (canvas x in [1000,1013], y in [50,63]): the only way a 4x4
+      // Gaussian model produces depth-2 subdivision on production
+      // geometry, since canvas-fitted knot spacing is ~nc/3.
+      make_case("depth2_patch", 4.0f, true, 4, 4, 3.0f / 13.0f, 1000.0f,
+                50.0f),
+  };
+
+  for (const auto &lc : cases) {
+    FrameSamplingTransform proto;
+    proto.has_smooth_local_model = true;
+    proto.smooth_local_model = lc.model;
+    proto.model_coordinate_scale = lc.coord_scale;
+    proto.model_offset_x = lc.off_x;
+    proto.model_offset_y = lc.off_y;
+    const auto warp = v2_warp_descriptor(proto);
+
+    ForwardDrizzleV2CudaPrototypeKernel kernel;
+    REQUIRE(kernel.reserve(nc, band_rows, sw, sh, kcfg));
+    for (std::uint64_t f = 0; f < 60; ++f) {
+      auto m = base[f % base.size()];
+      m[2] += 0.05 * static_cast<double>(f);
+      m[5] += 0.03 * static_cast<double>(f);
+      REQUIRE(kernel.accumulate_frame_local(m.data(), warp, source.data(),
+                                            nullptr, f));
+    }
+    const std::size_t n_out =
+        static_cast<std::size_t>(nc) * band_rows * 3;
+    std::vector<ForwardDrizzleV2PixelResult> results(n_out);
+    std::uint64_t dense = 0;
+    REQUIRE(kernel.finalize(results.data(), &dense));
+    const auto &st = kernel.stats();
+    std::uint64_t supported = 0;
+    for (const auto &r : results) {
+      if (r.contributors == 0) continue;
+      ++supported;
+      REQUIRE(std::isfinite(r.value));
+      REQUIRE(std::isfinite(r.b));
+    }
+    std::printf(
+        "{\"gate\":8,\"spec_sha256\":\"%s\",\"case\":\"%s\","
+        "\"native_cols\":%d,\"band_rows\":%d,\"frames\":60,"
+        "\"reserved_bytes\":%llu,\"per_px_device\":%llu,"
+        "\"per_px_plan\":%llu,\"max_frame_s\":%.6f,"
+        "\"mean_frame_s\":%.6f,\"positive_overlaps\":%llu,"
+        "\"discarded\":%llu,\"dense_overlap\":%llu,\"supported\":%llu,"
+        "\"allocations\":%llu,\"global_syncs\":%llu,"
+        "\"stream_syncs\":%llu}\n",
+        kSpecSha, lc.name, nc, band_rows,
+        static_cast<unsigned long long>(st.reserved_device_bytes),
+        static_cast<unsigned long long>(
+            kernel.device_bytes_per_native_pixel()),
+        static_cast<unsigned long long>(plan.device_bytes_per_target_pixel),
+        st.max_frame_seconds,
+        (st.upload_seconds + st.kernel_seconds) / 60.0,
+        st.positive_overlaps, st.local_samples_discarded,
+        static_cast<unsigned long long>(dense),
+        static_cast<unsigned long long>(supported),
+        static_cast<unsigned long long>(st.allocations),
+        static_cast<unsigned long long>(
+            st.device_global_synchronizations),
+        static_cast<unsigned long long>(st.stream_synchronizations));
+    REQUIRE(supported > 0);
+    REQUIRE(st.allocations == 1);
+    REQUIRE(st.device_global_synchronizations == 0);
+    REQUIRE(st.stream_synchronizations == 1);
+    REQUIRE(st.frames_processed == 60);
+    REQUIRE(st.max_frame_seconds <= kMaxSteadySeconds);
+    REQUIRE(st.reserved_device_bytes <= plan.device_peak_bytes);
+    REQUIRE(kernel.device_bytes_per_native_pixel() <=
+            plan.device_bytes_per_target_pixel);
+  }
+}

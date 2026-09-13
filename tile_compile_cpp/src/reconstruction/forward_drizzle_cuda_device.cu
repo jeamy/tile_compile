@@ -430,6 +430,308 @@ __global__ void k_scatter_v2(
   if (overlaps) atomicAdd(positive_overlaps, overlaps);
 }
 
+// --- Gate-8 device port of the production local-warp contract -------------
+//
+// 1:1 ports of smooth_local_basis / evaluate_smooth_local_displacement /
+// local_displacement_render_units / invert_local_source_to_canvas /
+// subdivide_local from the CPU oracle (global_registration.cpp,
+// registration_sampling_plan.cpp, forward_drizzle.cpp). Inversion internals
+// run in fp32 like the oracle; geometry, errors and areas in fp64.
+
+// d(q) in render units. Port of local_displacement_render_units +
+// evaluate_smooth_local_displacement + smooth_local_basis: an invalid
+// model or a non-positive/non-finite coordinate scale fails (the caller
+// turns it into a per-sample discard, exactly like the CPU oracle); an
+// out-of-image query is a true zero displacement.
+__device__ bool d_local_displacement_render(
+    const ForwardDrizzleV2LocalWarp &w, float qx, float qy, float &out_dx,
+    float &out_dy) {
+  out_dx = 0.0f;
+  out_dy = 0.0f;
+  if (!w.model_valid) return false;
+  const float scale = w.model_coordinate_scale;
+  if (!(scale > 0.0f) || !isfinite(scale)) return false;
+  const float qmx = (qx - w.model_offset_x) * scale;
+  const float qmy = (qy - w.model_offset_y) * scale;
+  // smooth_local_basis: outside the model image the displacement is 0.
+  if (w.image_rows <= 1 || w.image_cols <= 1 || qmx < 0.0f || qmy < 0.0f ||
+      qmx > static_cast<float>(w.image_cols - 1) ||
+      qmy > static_cast<float>(w.image_rows - 1)) {
+    return true;
+  }
+  const float nx = qmx / static_cast<float>(w.image_cols - 1);
+  const float ny = qmy / static_cast<float>(w.image_rows - 1);
+  // std::min({nx, 1-nx, ny, 1-ny}) order of the oracle: the first element
+  // stays unless a strictly smaller one is found (NaN in nx propagates).
+  float edge = nx;
+  if (1.0f - nx < edge) edge = 1.0f - nx;
+  if (ny < edge) edge = ny;
+  if (1.0f - ny < edge) edge = 1.0f - ny;
+  const float v = edge / 0.08f;
+  // std::clamp(v, 0, 1) semantics: NaN passes through unchanged.
+  const float tt = (v < 0.0f) ? 0.0f : (1.0f < v ? 1.0f : v);
+  const float taper = tt * tt * (3.0f - 2.0f * tt);
+  if (taper <= 0.0f) return true;
+  const float inv_two_sigma_sq = 1.0f / (2.0f * 0.28f * 0.28f);
+  float basis[16];
+  float sum = 0.0f;
+  int index = 0;
+  for (int gy = 0; gy < 4; ++gy) {
+    const float cy = static_cast<float>(gy) / 3.0f;
+    for (int gx = 0; gx < 4; ++gx, ++index) {
+      const float cx = static_cast<float>(gx) / 3.0f;
+      const float ddx = nx - cx, ddy = ny - cy;
+      const float value = expf(-(ddx * ddx + ddy * ddy) * inv_two_sigma_sq);
+      basis[index] = value;
+      sum += value;
+    }
+  }
+  // The oracle scales by taper/sum only for a usable sum; a degenerate sum
+  // leaves the raw basis weights in place.
+  const float factor = (sum > 1.0e-8f) ? taper / sum : 1.0f;
+  float mx = 0.0f, my = 0.0f;
+  for (int i = 0; i < 16; ++i) {
+    const float b = basis[i] * factor;
+    mx += b * w.coeff_x[i];
+    my += b * w.coeff_y[i];
+  }
+  const float inv_scale = 1.0f / scale;
+  out_dx = mx * inv_scale;
+  out_dy = my * inv_scale;
+  return isfinite(out_dx) && isfinite(out_dy);
+}
+
+// Port of invert_local_source_to_canvas: u = affine(s) in fp32, then the
+// bounded fixed-point iteration q_{n+1} = u - d(q_n).
+__device__ bool d_invert_local(const ForwardDrizzleV2LocalWarp &w,
+                               const double a[6], float sx, float sy,
+                               int canvas_w_native, int canvas_h_native,
+                               float &out_qx, float &out_qy) {
+  const float a00 = static_cast<float>(a[0]), a01 = static_cast<float>(a[1]),
+              a02 = static_cast<float>(a[2]), a10 = static_cast<float>(a[3]),
+              a11 = static_cast<float>(a[4]), a12 = static_cast<float>(a[5]);
+  const float ux = a00 * sx + a01 * sy + a02;
+  const float uy = a10 * sx + a11 * sy + a12;
+  if (!isfinite(ux) || !isfinite(uy)) return false;
+  const float margin = w.safety_margin_px;
+  const float cw = static_cast<float>(canvas_w_native);
+  const float ch = static_cast<float>(canvas_h_native);
+  if (ux < -margin || uy < -margin || ux > cw + margin || uy > ch + margin)
+    return false;
+  float qx = ux, qy = uy;
+  bool converged = false;
+  const int max_iter = w.max_iter > 0 ? w.max_iter : 1;
+  for (int n = 0; n < max_iter; ++n) {
+    float dx = 0.0f, dy = 0.0f;
+    if (!d_local_displacement_render(w, qx, qy, dx, dy)) return false;
+    const float nx = ux - dx, ny = uy - dy;
+    if (!isfinite(nx) || !isfinite(ny)) return false;
+    if (nx < -margin || ny < -margin || nx > cw + margin || ny > ch + margin)
+      return false;
+    const float step = fmaxf(fabsf(nx - qx), fabsf(ny - qy));
+    qx = nx;
+    qy = ny;
+    if (step < w.tol_px) {
+      converged = true;
+      break;
+    }
+  }
+  if (!converged) return false;
+  out_qx = qx;
+  out_qy = qy;
+  return true;
+}
+
+// Node bounds of the implicit subdivision tree. `id` enumerates 1+4+16
+// nodes: 0 = root droplet box, 1..4 = depth-1 children (c = j*2+i of the
+// parent's 2x2 split), 5..20 = depth-2 grandchildren.
+__device__ void d_local_node_bounds(int id, double x0, double y0, double x1,
+                                    double y1, double &nx0, double &ny0,
+                                    double &nx1, double &ny1) {
+  nx0 = x0;
+  ny0 = y0;
+  nx1 = x1;
+  ny1 = y1;
+  if (id >= 5) {
+    const int p = (id - 5) / 4;  // depth-1 parent index
+    const double mx = x0 + (x1 - x0) * 0.5, my = y0 + (y1 - y0) * 0.5;
+    if (p & 1) nx0 = mx; else nx1 = mx;
+    if (p & 2) ny0 = my; else ny1 = my;
+    const int c = (id - 5) % 4;
+    const double qx0 = nx0, qy0 = ny0, qx1 = nx1, qy1 = ny1;
+    const double hx = qx0 + (qx1 - qx0) * 0.5;
+    const double hy = qy0 + (qy1 - qy0) * 0.5;
+    if (c & 1) nx0 = hx; else nx1 = hx;
+    if (c & 2) ny0 = hy; else ny1 = hy;
+  } else if (id >= 1) {
+    const int c = id - 1;
+    const double mx = x0 + (x1 - x0) * 0.5, my = y0 + (y1 - y0) * 0.5;
+    if (c & 1) nx0 = mx; else nx1 = mx;
+    if (c & 2) ny0 = my; else ny1 = my;
+  }
+}
+
+// Port of subdivide_local's per-node evaluation: 3x3 inversions, parent
+// quad, bilinear error and child-area tests. Returns 0 = accepted,
+// 1 = rejected (subdivide), 2 = failure (discard the whole sample).
+__device__ int d_eval_local_node(const ForwardDrizzleV2LocalWarp &w,
+                                 const double a[6], double x0, double y0,
+                                 double x1, double y1, int depth,
+                                 int canvas_w_native, int canvas_h_native,
+                                 double sc) {
+  double gx[3][3], gy[3][3];
+  for (int j = 0; j < 3; ++j)
+    for (int i = 0; i < 3; ++i) {
+      float qx = 0.0f, qy = 0.0f;
+      if (!d_invert_local(w, a,
+                          static_cast<float>(x0 + (x1 - x0) * i / 2),
+                          static_cast<float>(y0 + (y1 - y0) * j / 2),
+                          canvas_w_native, canvas_h_native, qx, qy))
+        return 2;
+      gx[j][i] = static_cast<double>(qx) * sc;
+      gy[j][i] = static_cast<double>(qy) * sc;
+    }
+  const double px[4] = {gx[0][0], gx[0][2], gx[2][2], gx[2][0]};
+  const double py[4] = {gy[0][0], gy[0][2], gy[2][2], gy[2][0]};
+  double error = 0.0, child_area = 0.0;
+  for (int j = 0; j < 3; ++j)
+    for (int i = 0; i < 3; ++i) {
+      const double u = i / 2.0, v = j / 2.0;
+      const double bx = (1 - u) * (1 - v) * px[0] + u * (1 - v) * px[1] +
+                        u * v * px[2] + (1 - u) * v * px[3];
+      const double by = (1 - u) * (1 - v) * py[0] + u * (1 - v) * py[1] +
+                        u * v * py[2] + (1 - u) * v * py[3];
+      error = fmax(error, hypot(gx[j][i] - bx, gy[j][i] - by));
+    }
+  for (int j = 0; j < 2; ++j)
+    for (int i = 0; i < 2; ++i) {
+      const double cx[4] = {gx[j][i], gx[j][i + 1], gx[j + 1][i + 1],
+                            gx[j + 1][i]};
+      const double cy[4] = {gy[j][i], gy[j][i + 1], gy[j + 1][i + 1],
+                            gy[j + 1][i]};
+      child_area += d_shoelace_area(cx, cy, 4);
+    }
+  const double area = d_shoelace_area(px, py, 4);
+  if (area > 0.0 && error <= w.position_epsilon_internal_px &&
+      fabs(child_area - area) / area <= w.area_relative_epsilon)
+    return 0;
+  if (depth >= w.max_subdivision_depth) return 2;
+  return 1;
+}
+
+// One thread per source sample, local-warp variant of k_scatter_v2: runs
+// the implicit 21-node subdivision, then scatters every accepted leaf
+// through the identical polygon-clip accumulation. All-or-nothing per
+// sample exactly like the CPU oracle (a failure discards accepted leaves
+// too). `discarded` counts failed samples.
+__global__ void k_scatter_v2_local(
+    double a0, double a1, double a2, double a3, double a4, double a5,
+    ForwardDrizzleV2LocalWarp w, double sc, double half, int cols, int rows,
+    int source_w, int source_h, const float *source, const float *sigma2,
+    int bayer, int ox, int oy, int mono, int canvas_w_native,
+    int canvas_h_native, double *fa, double *fbs, double *fbg, double *fs2,
+    unsigned long long *positive_overlaps, unsigned long long *discarded) {
+  const long long tid =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const long long source_n = static_cast<long long>(source_w) * source_h;
+  if (tid >= source_n) return;
+  const int sy = static_cast<int>(tid / source_w);
+  const int sx = static_cast<int>(tid % source_w);
+  const double a[6] = {a0, a1, a2, a3, a4, a5};
+  const double x = sx + 0.5, y = sy + 0.5;
+  const double bx0 = x - half, by0 = y - half, bx1 = x + half,
+               by1 = y + half;
+
+  unsigned int visited = 0, accepted = 0;
+  bool fail = false;
+  for (int id = 0; id < 21 && !fail; ++id) {
+    const int level = id == 0 ? 0 : (id < 5 ? 1 : 2);
+    if (level > 0) {
+      const int parent = level == 1 ? 0 : 1 + (id - 5) / 4;
+      if (!((visited >> parent) & 1u) || ((accepted >> parent) & 1u))
+        continue;  // parent accepted or never evaluated: node not visited
+    }
+    double nx0, ny0, nx1, ny1;
+    d_local_node_bounds(id, bx0, by0, bx1, by1, nx0, ny0, nx1, ny1);
+    const int status =
+        d_eval_local_node(w, a, nx0, ny0, nx1, ny1, level, canvas_w_native,
+                          canvas_h_native, sc);
+    if (status == 2) {
+      fail = true;
+      break;
+    }
+    visited |= 1u << id;
+    if (status == 0)
+      accepted |= 1u << id;
+    else if (level == 2)
+      fail = true;  // rejected at max depth: whole sample discarded
+  }
+  if (fail || accepted == 0) {
+    atomicAdd(discarded, 1ULL);
+    return;
+  }
+
+  const double value = static_cast<double>(source[tid]);
+  const bool finite_value = isfinite(value);
+  const double s2 = sigma2 != nullptr ? static_cast<double>(sigma2[tid]) : 0.0;
+  const int channel = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
+  const long long plane_n = static_cast<long long>(cols) * rows;
+  unsigned long long overlaps = 0;
+  for (int id = 0; id < 21; ++id) {
+    if (!((accepted >> id) & 1u)) continue;
+    double nx0, ny0, nx1, ny1;
+    d_local_node_bounds(id, bx0, by0, bx1, by1, nx0, ny0, nx1, ny1);
+    // Re-evaluate only the four corner inversions of the accepted node;
+    // deterministic, so the corners equal the ones the evaluator saw.
+    const double csx[4] = {nx0, nx1, nx1, nx0};
+    const double csy[4] = {ny0, ny0, ny1, ny1};
+    double qx[4], qy[4];
+    double minx = DBL_MAX, maxx = -DBL_MAX;
+    double miny = DBL_MAX, maxy = -DBL_MAX;
+    for (int k = 0; k < 4; ++k) {
+      float fq = 0.0f, fq2 = 0.0f;
+      if (!d_invert_local(w, a, static_cast<float>(csx[k]),
+                          static_cast<float>(csy[k]), canvas_w_native,
+                          canvas_h_native, fq, fq2)) {
+        fail = true;
+        break;
+      }
+      qx[k] = static_cast<double>(fq) * sc;
+      qy[k] = static_cast<double>(fq2) * sc;
+      minx = fmin(minx, qx[k]);
+      maxx = fmax(maxx, qx[k]);
+      miny = fmin(miny, qy[k]);
+      maxy = fmax(maxy, qy[k]);
+    }
+    if (fail) break;
+    const int x0 = max(0, static_cast<int>(floor(minx)));
+    const int x1 = min(cols, static_cast<int>(ceil(maxx)));
+    const int y0 = max(0, static_cast<int>(floor(miny)));
+    const int y1 = min(rows, static_cast<int>(ceil(maxy)));
+    for (int ty = y0; ty < y1; ++ty) {
+      for (int tx = x0; tx < x1; ++tx) {
+        const double area =
+            d_polygon_rect_area(qx, qy, tx, ty, tx + 1.0, ty + 1.0);
+        if (!(area > 0.0)) continue;
+        const long long out = static_cast<long long>(channel) * plane_n +
+                              static_cast<long long>(ty) * cols + tx;
+        atomicAdd(fbg + out, area);
+        if (finite_value) {
+          atomicAdd(fa + out, area * value);
+          atomicAdd(fbs + out, area);
+          if (fs2 != nullptr) atomicAdd(fs2 + out, area * s2);
+        }
+        ++overlaps;
+      }
+    }
+  }
+  if (fail) {
+    atomicAdd(discarded, 1ULL);
+    return;
+  }
+  if (overlaps) atomicAdd(positive_overlaps, overlaps);
+}
+
 // One thread per NATIVE pixel of the band: folds the scale^2 frame-plane
 // subpixels per channel into per-frame candidates and accumulates the
 // full-stream statistics, coverage, support masks and the bounded hash
@@ -708,6 +1010,15 @@ __global__ void k_finalize_v2(
       ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip);
   finish_conf(cb, cs, cc);
   out[pc] = r;
+}
+
+// Host-side executability contract of a local-warp descriptor. Everything
+// the CPU oracle can express (invalid model, non-finite values, negative
+// margin or depth) degrades on device to the oracle's own per-sample
+// failure path; only a subdivision depth beyond the implicit 21-node tree
+// is not executable and rejected here.
+bool local_warp_valid(const ForwardDrizzleV2LocalWarp &w) {
+  return w.max_subdivision_depth <= 2;
 }
 
 }  // namespace
@@ -1041,6 +1352,89 @@ bool forward_drizzle_cuda_affine_dense_scatter(
   cudaFree(d_b);
   cudaFree(d_overlaps);
   if (ok && out_positive_overlaps) *out_positive_overlaps = overlaps;
+  return ok;
+}
+
+bool forward_drizzle_cuda_local_dense_scatter(
+    const double affine6[6], const ForwardDrizzleV2LocalWarp &warp,
+    int internal_scale, double half, int target_cols, int target_rows,
+    int source_w, int source_h, const float *source_values, int bayer_pattern,
+    int cfa_origin_x, int cfa_origin_y, bool mono, int canvas_w_native,
+    int canvas_h_native, double *out_a, double *out_b_src, double *out_b_geo,
+    unsigned long long *out_positive_overlaps,
+    unsigned long long *out_discarded) {
+  if (!affine6 || !source_values || !out_a || !out_b_src || !out_b_geo ||
+      internal_scale <= 0 || target_cols <= 0 || target_rows <= 0 ||
+      source_w <= 0 || source_h <= 0 || canvas_w_native <= 0 ||
+      canvas_h_native <= 0)
+    return false;
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  if (!std::isfinite(half) || !(half > 0.0)) return false;
+  if (!local_warp_valid(warp)) return false;
+  int devices = 0;
+  if (cudaGetDeviceCount(&devices) != cudaSuccess || devices <= 0) {
+    cudaGetLastError();
+    return false;
+  }
+  CudaScopedError clear_on_exit;
+  const int channels = mono ? 1 : 3;
+  const long long source_n = static_cast<long long>(source_w) * source_h;
+  const long long target_n = static_cast<long long>(target_cols) * target_rows;
+  if (source_n <= 0 || target_n <= 0 || source_n > 2000000000LL ||
+      target_n > 2000000000LL)
+    return false;
+  const std::size_t src_bytes = static_cast<std::size_t>(source_n) * sizeof(float);
+  const std::size_t plane_bytes =
+      static_cast<std::size_t>(channels) * target_n * sizeof(double);
+  float *d_source = nullptr;
+  double *d_a = nullptr, *d_bs = nullptr, *d_bg = nullptr;
+  unsigned long long *d_scalars = nullptr;
+  bool ok = cudaMalloc(&d_source, src_bytes) == cudaSuccess &&
+            cudaMalloc(&d_a, plane_bytes) == cudaSuccess &&
+            cudaMalloc(&d_bs, plane_bytes) == cudaSuccess &&
+            cudaMalloc(&d_bg, plane_bytes) == cudaSuccess &&
+            cudaMalloc(&d_scalars, 2 * sizeof(unsigned long long)) ==
+                cudaSuccess;
+  if (ok)
+    ok = cudaMemcpy(d_source, source_values, src_bytes,
+                    cudaMemcpyHostToDevice) == cudaSuccess &&
+         cudaMemset(d_a, 0, plane_bytes) == cudaSuccess &&
+         cudaMemset(d_bs, 0, plane_bytes) == cudaSuccess &&
+         cudaMemset(d_bg, 0, plane_bytes) == cudaSuccess &&
+         cudaMemset(d_scalars, 0, 2 * sizeof(unsigned long long)) ==
+             cudaSuccess;
+  if (ok) {
+    const int block = 128;
+    const int grid = (static_cast<int>(source_n) + block - 1) / block;
+    k_scatter_v2_local<<<grid, block>>>(
+        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
+        warp, static_cast<double>(internal_scale), half, target_cols,
+        target_rows, source_w, source_h, d_source, nullptr, bayer_pattern,
+        cfa_origin_x, cfa_origin_y, mono ? 1 : 0, canvas_w_native,
+        canvas_h_native, d_a, d_bs, d_bg, nullptr, d_scalars, d_scalars + 1);
+    ok = cudaGetLastError() == cudaSuccess &&
+         cudaDeviceSynchronize() == cudaSuccess;
+  }
+  unsigned long long scalars[2] = {0, 0};
+  if (ok)
+    ok = cudaMemcpy(out_a, d_a, plane_bytes, cudaMemcpyDeviceToHost) ==
+             cudaSuccess &&
+         cudaMemcpy(out_b_src, d_bs, plane_bytes, cudaMemcpyDeviceToHost) ==
+             cudaSuccess &&
+         cudaMemcpy(out_b_geo, d_bg, plane_bytes, cudaMemcpyDeviceToHost) ==
+             cudaSuccess &&
+         cudaMemcpy(scalars, d_scalars, sizeof(scalars),
+                    cudaMemcpyDeviceToHost) == cudaSuccess;
+  cudaFree(d_source);
+  cudaFree(d_a);
+  cudaFree(d_bs);
+  cudaFree(d_bg);
+  cudaFree(d_scalars);
+  if (ok) {
+    if (out_positive_overlaps) *out_positive_overlaps = scalars[0];
+    if (out_discarded) *out_discarded = scalars[1];
+  }
   return ok;
 }
 
@@ -1409,7 +1803,8 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
   unsigned int *footprint = nullptr;
   unsigned short *supp = nullptr;
   unsigned long long *degraded = nullptr;
-  unsigned long long *scalars = nullptr;  // [0] overlaps, [1] dense overlap
+  unsigned long long *scalars =
+      nullptr;  // [0] overlaps, [1] dense overlap, [2] local discards
   V2ReservoirRecord *res = nullptr;
   ForwardDrizzleV2PixelResult *out = nullptr;
   std::vector<cudaEvent_t> ev_up0, ev_up1, ev_k0, ev_k1;
@@ -1595,7 +1990,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
            cudaSuccess &&
        cudaMalloc(&im->degraded, pc_elems * sizeof(unsigned long long)) ==
            cudaSuccess &&
-       cudaMalloc(&im->scalars, 2 * sizeof(unsigned long long)) ==
+       cudaMalloc(&im->scalars, 3 * sizeof(unsigned long long)) ==
            cudaSuccess &&
        cudaMalloc(&im->res, pc_elems * static_cast<std::size_t>(res_slots) *
                               sizeof(V2ReservoirRecord)) == cudaSuccess &&
@@ -1631,7 +2026,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
                        im->stream) == cudaSuccess &&
        cudaMemsetAsync(im->degraded, 0, pc_elems * sizeof(unsigned long long),
                        im->stream) == cudaSuccess &&
-       cudaMemsetAsync(im->scalars, 0, 2 * sizeof(unsigned long long),
+       cudaMemsetAsync(im->scalars, 0, 3 * sizeof(unsigned long long),
                        im->stream) == cudaSuccess;
   if (!ok) {
     delete im;
@@ -1650,14 +2045,13 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
   return true;
 }
 
-bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame(
-    const double affine6[6], const float *source, const float *sigma2_or_null,
+// Shared frame pipeline for the affine and the gate-8 local-warp scatter:
+// upload, plane clear, geometry scatter, fold+accumulate. `warp == nullptr`
+// selects the affine kernel. All work is queued on the workspace stream.
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
+    const double affine6[6], const ForwardDrizzleV2LocalWarp *warp,
+    const float *source, const float *sigma2_or_null,
     std::uint64_t frame_order) {
-  if (impl_ == nullptr || affine6 == nullptr || source == nullptr ||
-      impl_->finalized || impl_->frames >= impl_->cfg.stream_length)
-    return false;
-  for (int i = 0; i < 6; ++i)
-    if (!std::isfinite(affine6[i])) return false;
   Impl &im = *impl_;
   cudaStream_t st = im.stream;
   const std::size_t src_bytes =
@@ -1699,13 +2093,32 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame(
         static_cast<long long>(im.source_w) * im.source_h;
     const unsigned int grid =
         static_cast<unsigned int>((source_n + block - 1) / block);
-    k_scatter_v2<<<grid, block, 0, st>>>(
-        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
-        static_cast<double>(im.cfg.internal_scale), im.cfg.half, im.icols,
-        im.irows, im.source_w, im.source_h, im.src,
-        im.fs2 ? im.s2 : nullptr, im.cfg.bayer_pattern, im.cfg.cfa_origin_x,
-        im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0, im.fa, im.fbs, im.fbg,
-        im.fs2, im.scalars);
+    if (warp != nullptr) {
+      // The inversion bounds check uses the FULL native canvas, not the
+      // band height the workspace planes were reserved for.
+      const int canvas_w = im.cfg.canvas_width_native > 0
+                               ? im.cfg.canvas_width_native
+                               : im.ncols;
+      const int canvas_h = im.cfg.canvas_height_native > 0
+                               ? im.cfg.canvas_height_native
+                               : im.nrows;
+      k_scatter_v2_local<<<grid, block, 0, st>>>(
+          affine6[0], affine6[1], affine6[2], affine6[3], affine6[4],
+          affine6[5], *warp,
+          static_cast<double>(im.cfg.internal_scale), im.cfg.half, im.icols,
+          im.irows, im.source_w, im.source_h, im.src,
+          im.fs2 ? im.s2 : nullptr, im.cfg.bayer_pattern, im.cfg.cfa_origin_x,
+          im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0, canvas_w, canvas_h,
+          im.fa, im.fbs, im.fbg, im.fs2, im.scalars, im.scalars + 2);
+    } else {
+      k_scatter_v2<<<grid, block, 0, st>>>(
+          affine6[0], affine6[1], affine6[2], affine6[3], affine6[4],
+          affine6[5], static_cast<double>(im.cfg.internal_scale), im.cfg.half,
+          im.icols, im.irows, im.source_w, im.source_h, im.src,
+          im.fs2 ? im.s2 : nullptr, im.cfg.bayer_pattern, im.cfg.cfa_origin_x,
+          im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0, im.fa, im.fbs, im.fbg,
+          im.fs2, im.scalars);
+    }
   }
   {
     const int block = 128;
@@ -1732,6 +2145,32 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame(
   return true;
 }
 
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame(
+    const double affine6[6], const float *source, const float *sigma2_or_null,
+    std::uint64_t frame_order) {
+  if (impl_ == nullptr || affine6 == nullptr || source == nullptr ||
+      impl_->finalized || impl_->frames >= impl_->cfg.stream_length)
+    return false;
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  return accumulate_frame_impl(affine6, nullptr, source, sigma2_or_null,
+                               frame_order);
+}
+
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_local(
+    const double affine6[6], const ForwardDrizzleV2LocalWarp &warp,
+    const float *source, const float *sigma2_or_null,
+    std::uint64_t frame_order) {
+  if (impl_ == nullptr || affine6 == nullptr || source == nullptr ||
+      impl_->finalized || impl_->frames >= impl_->cfg.stream_length)
+    return false;
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  if (!local_warp_valid(warp)) return false;
+  return accumulate_frame_impl(affine6, &warp, source, sigma2_or_null,
+                               frame_order);
+}
+
 bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
     ForwardDrizzleV2PixelResult *results, std::uint64_t *dense_overlap_count) {
   if (impl_ == nullptr || results == nullptr || impl_->finalized) return false;
@@ -1750,7 +2189,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
       im.accB, im.accB2, im.confS, im.confC, im.contrib, im.kept, im.footprint,
       im.supp, im.degraded, im.res, im.out, im.scalars + 1);
   if (cudaGetLastError() != cudaSuccess) return false;
-  unsigned long long h_scalars[2] = {0, 0};
+  unsigned long long h_scalars[3] = {0, 0, 0};
   std::vector<unsigned int> h_kept(n_pc), h_contrib(n_pc);
   const std::size_t out_bytes = n_pc * sizeof(ForwardDrizzleV2PixelResult);
   const std::size_t cnt_bytes = n_pc * sizeof(unsigned int);
@@ -1786,6 +2225,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
   }
   stats_.positive_overlaps = h_scalars[0];
   if (dense_overlap_count) *dense_overlap_count = h_scalars[1];
+  stats_.local_samples_discarded = h_scalars[2];
   std::uint64_t kept_sum = 0, cand_sum = 0;
   for (std::size_t i = 0; i < n_pc; ++i) {
     kept_sum += h_kept[i];

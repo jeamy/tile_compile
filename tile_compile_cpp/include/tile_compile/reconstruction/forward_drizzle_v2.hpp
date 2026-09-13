@@ -248,6 +248,14 @@ ForwardDrizzleV2RobustResult robust_frame_oracle_v2(
     double sigma_low = 3.0, double sigma_high = 3.0,
     std::span<const double> candidate_sigma2 = {});
 
+// Gate-8 conservative displacement bound for the smooth local model, in
+// MODEL units: |d(q)| <= max_i ||(coeff_x[i], coeff_y[i])|| because the
+// normalized basis weights are non-negative and sum to the taper <= 1.
+// The render-unit bound is bound / model_coordinate_scale. Used by
+// preflight coverage bounds; spans must have equal length <= 16.
+double forward_drizzle_v2_local_displacement_bound(
+    std::span<const float> coeff_x, std::span<const float> coeff_y);
+
 // Gate-5 buffer role table, amended by Gate 6: accumulator roles are per
 // NATIVE target pixel per channel; frame planes live at internal resolution
 // (internal_scale^2 subpixels per native pixel). Every role is explicit so

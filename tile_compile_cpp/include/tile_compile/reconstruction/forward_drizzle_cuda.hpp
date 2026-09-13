@@ -233,6 +233,51 @@ bool forward_drizzle_cuda_affine_dense_scatter(
     int cfa_origin_x, int cfa_origin_y, bool mono, double *out_a,
     double *out_b, unsigned long long *out_positive_overlaps);
 
+// --- Forward-Drizzle-v2 Gate-8: local warp descriptor ---------------------
+//
+// The persisted SmoothLocalWarpModel plus the frozen inversion/subdivision
+// contract (LocalInversionParams + ForwardDrizzleSubdivisionParams of the
+// production CPU oracle). ~144 bytes per frame; passed by value into the
+// device scatter kernel, which performs the bounded fixed-point inversion
+// q_{n+1} = u - d(q_n) and the adaptive 3x3 subdivision on device. No
+// deformation grid is ever materialized (spec 11.2 option 4).
+struct ForwardDrizzleV2LocalWarp {
+  float coeff_x[16] = {};
+  float coeff_y[16] = {};
+  int image_rows = 0;             // model image dims
+  int image_cols = 0;
+  int model_valid = 1;            // SmoothLocalWarpModel::valid
+  float model_coordinate_scale = 1.0f;
+  float model_offset_x = 0.0f;
+  float model_offset_y = 0.0f;
+  // LocalInversionParams of the CPU oracle.
+  int max_iter = 6;
+  float tol_px = 1.0e-3f;
+  float safety_margin_px = 64.0f;
+  // ForwardDrizzleSubdivisionParams of the CPU oracle.
+  float position_epsilon_internal_px = 0.05f;
+  int max_subdivision_depth = 2;
+  float area_relative_epsilon = 0.005f;
+};
+
+// Gate-8 debug/parity scatter: one local-warp frame scattered into dense
+// frame-local internal planes (channel-major [c][row][col]), mirroring
+// forward_drizzle_cuda_affine_dense_scatter but running the on-device
+// fixed-point inversion + adaptive subdivision per source sample. Returns
+// A (area-weighted value), B_src (finite-value geometry) and B_geo (all
+// geometry) planes plus positive overlap and discarded-sample counts.
+// Returns false on a CUDA-free build, no device, invalid warp or any CUDA
+// error; the caller falls back to the CPU leaf oracle.
+bool forward_drizzle_cuda_local_dense_scatter(
+    const double affine6[6], const ForwardDrizzleV2LocalWarp &warp,
+    int internal_scale, double half, int target_cols, int target_rows,
+    int source_w, int source_h, const float *source_values,
+    int bayer_pattern, int cfa_origin_x, int cfa_origin_y, bool mono,
+    int canvas_w_native, int canvas_h_native, double *out_a,
+    double *out_b_src, double *out_b_geo,
+    unsigned long long *out_positive_overlaps,
+    unsigned long long *out_discarded);
+
 struct ForwardDrizzleV2CudaWorkspaceStats {
   std::uint64_t allocations = 0;
   std::uint64_t calls = 0;
@@ -314,6 +359,13 @@ struct ForwardDrizzleV2KernelConfig {
   // When false, no sigma2 frame plane is allocated and every candidate
   // contributes zero sigma (CPU "no candidate_sigma2" semantics).
   bool sigma2_plane = true;
+  // Full native target-canvas dimensions for the gate-8 local-warp
+  // inversion bounds check. The workspace band can be shorter than the
+  // canvas (reserve()'s native_rows is the band height), while
+  // invert_local_source_to_canvas must bound against the full canvas.
+  // 0 = the band covers the whole canvas (use the band dims).
+  int canvas_width_native = 0;
+  int canvas_height_native = 0;
 };
 
 // Per-native-pixel per-channel band result (AoS record, downloaded once).
@@ -343,6 +395,10 @@ struct ForwardDrizzleV2PrototypeStats {
   std::uint64_t candidates_streamed = 0;
   std::uint64_t reservoir_kept_total = 0;
   std::uint64_t slot_transitions = 0;
+  // Gate-8: source samples discarded all-or-nothing by local-warp
+  // inversion/subdivision failure across all processed local frames. The
+  // driver applies the per-frame exclusion policy to this count.
+  std::uint64_t local_samples_discarded = 0;
   std::size_t reserved_device_bytes = 0;
   double upload_seconds = 0.0;   // event-timed
   double kernel_seconds = 0.0;
@@ -371,6 +427,20 @@ class ForwardDrizzleV2CudaPrototypeKernel {
   bool accumulate_frame(const double affine6[6], const float *source,
                         const float *sigma2_or_null,
                         std::uint64_t frame_order);
+  // Gate-8 local-warp variant: same contract as accumulate_frame but the
+  // per-sample geometry runs the on-device fixed-point inversion +
+  // adaptive subdivision instead of the single affine leaf. affine6 remains
+  // the affine seed. CPU-oracle failure semantics are preserved: an
+  // invalid model, non-finite coefficients/scale or a failed inversion
+  // discards the affected samples (model_valid == 0 discards every
+  // sample); only a subdivision depth > 2 (not executable by the implicit
+  // 21-node tree) rejects the call. Discards are counted in
+  // stats().local_samples_discarded.
+  bool accumulate_frame_local(const double affine6[6],
+                              const ForwardDrizzleV2LocalWarp &warp,
+                              const float *source,
+                              const float *sigma2_or_null,
+                              std::uint64_t frame_order);
   // Band end: finalize kernel + single stream sync + result download.
   // results must hold native_cols*native_rows*channels entries
   // (channel-major). dense_overlap_count receives the number of native
@@ -383,6 +453,13 @@ class ForwardDrizzleV2CudaPrototypeKernel {
   }
 
  private:
+  // Shared frame pipeline of accumulate_frame/accumulate_frame_local:
+  // warp == nullptr selects the affine scatter kernel.
+  bool accumulate_frame_impl(const double affine6[6],
+                             const ForwardDrizzleV2LocalWarp *warp,
+                             const float *source,
+                             const float *sigma2_or_null,
+                             std::uint64_t frame_order);
   struct Impl;
   Impl *impl_ = nullptr;
   ForwardDrizzleV2PrototypeStats stats_;

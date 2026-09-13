@@ -70,6 +70,12 @@ bool forward_drizzle_cuda_affine_dense_scatter(
     int, int, int, bool, double *, double *, unsigned long long *) {
   return false;
 }
+bool forward_drizzle_cuda_local_dense_scatter(
+    const double *, const ForwardDrizzleV2LocalWarp &, int, double, int, int,
+    int, int, const float *, int, int, int, bool, int, int, double *,
+    double *, double *, unsigned long long *, unsigned long long *) {
+  return false;
+}
 ForwardDrizzleV2CudaWorkspace::ForwardDrizzleV2CudaWorkspace() = default;
 ForwardDrizzleV2CudaWorkspace::~ForwardDrizzleV2CudaWorkspace() = default;
 bool ForwardDrizzleV2CudaWorkspace::reserve(std::size_t, std::size_t, int) {
@@ -92,6 +98,11 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame(const double *,
                                                            const float *,
                                                            const float *,
                                                            std::uint64_t) {
+  return false;
+}
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_local(
+    const double *, const ForwardDrizzleV2LocalWarp &, const float *,
+    const float *, std::uint64_t) {
   return false;
 }
 bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
