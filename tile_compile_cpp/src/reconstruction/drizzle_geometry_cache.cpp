@@ -53,6 +53,7 @@
 #include <mutex>
 #include <random>
 #include <stdexcept>
+#include <type_traits>
 #include <vector>
 
 namespace tile_compile::reconstruction {
@@ -583,6 +584,8 @@ struct DrizzleGeometryCacheReader::Impl {
   // reduction (plan 11.14.5 P3 Teil 2) can assert the cache is still being
   // consulted at workers > 1 without racing.
   std::atomic<std::uint64_t> enumerate_calls{0};
+  // Exact LeafRecord payload bytes read by read_stripe_leaves_into.
+  std::atomic<std::uint64_t> leaf_record_bytes{0};
 
   const VariantData *find_variant(float pixfrac) const {
     for (const auto &v : variants)
@@ -819,6 +822,136 @@ void DrizzleGeometryCacheReader::enumerate_stripe(
                x, y, rec.x, rec.y);
     }
   }
+}
+
+void DrizzleGeometryCacheReader::read_stripe_leaves_into(
+    float pixfrac, std::size_t source_index, int scale, int y_begin, int rows,
+    DrizzleCachedLeafWindow &out) const {
+  impl_->enumerate_calls.fetch_add(1, std::memory_order_relaxed);
+  const auto *v = impl_->find_variant(pixfrac);
+  if (!v) throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_UNKNOWN_VARIANT");
+  auto it = v->frames.find(source_index);
+  if (it == v->frames.end())
+    throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_UNKNOWN_FRAME");
+  const auto &fd = it->second;
+  if (scale != v->internal_scale)
+    throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_SCALE_MISMATCH");
+  const double y_lo = static_cast<double>(y_begin);
+  const double y_hi = static_cast<double>(y_begin + rows);
+
+  out.leaves.clear();
+  out.source_x0 = out.source_y0 = out.source_x1 = out.source_y1 = 0;
+  out.unique_source_samples = 0;
+
+  std::ifstream in(fd.leaves_path, std::ios::binary);
+  if (!in) throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_LEAVES_OPEN");
+  // Raw on-disk row blocks stage through out.io_scratch; each record is
+  // memcpy'd into an aligned LeafRecord before its fields are read.
+  std::vector<std::uint8_t> &block = out.io_scratch;
+
+  std::uint64_t prev_sx = 0, prev_sy = 0;
+  bool have_any = false;
+  std::uint64_t bytes_read = 0;
+  for (int sy = 0; sy < fd.source_height; ++sy) {
+    const RowEntry &re = fd.rows[static_cast<std::size_t>(sy)];
+    if (re.record_count == 0) continue;
+    if (!(re.canvas_ymin < y_hi && re.canvas_ymax > y_lo)) continue;
+
+    block.resize(static_cast<std::size_t>(re.record_count) *
+                 sizeof(LeafRecord));
+    in.seekg(static_cast<std::streamoff>(re.record_offset));
+    in.read(reinterpret_cast<char *>(block.data()),
+            static_cast<std::streamsize>(re.record_count * sizeof(LeafRecord)));
+    if (!in) throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_STRIPE_READ");
+    bytes_read += re.record_count * sizeof(LeafRecord);
+
+    for (std::uint64_t ri = 0; ri < re.record_count; ++ri) {
+      LeafRecord rec;
+      static_assert(std::is_trivially_copyable_v<LeafRecord>);
+      std::memcpy(&rec, block.data() + ri * sizeof(LeafRecord),
+                  sizeof(LeafRecord));
+      const double ymin = *std::min_element(rec.y, rec.y + 4);
+      const double ymax = *std::max_element(rec.y, rec.y + 4);
+      if (!(ymin < y_hi && ymax > y_lo)) continue;
+      DrizzleCachedLeaf leaf;
+      leaf.source_x = rec.source_x;
+      leaf.source_y = static_cast<std::uint32_t>(sy);
+      leaf.channel = rec.channel;
+      leaf.leaf_order = rec.leaf_order;
+      for (int i = 0; i < 4; ++i) {
+        leaf.x[i] = rec.x[i];
+        leaf.y[i] = rec.y[i];
+      }
+      out.leaves.push_back(leaf);
+      // Canonical (sy, sx, leaf_order) order: a (sy, sx) transition marks a
+      // new covered source sample.
+      if (!have_any || rec.source_x != prev_sx ||
+          static_cast<std::uint64_t>(sy) != prev_sy) {
+        ++out.unique_source_samples;
+        prev_sx = rec.source_x;
+        prev_sy = static_cast<std::uint64_t>(sy);
+      }
+      have_any = true;
+      out.source_x0 = out.leaves.size() == 1
+                          ? static_cast<int>(rec.source_x)
+                          : std::min(out.source_x0,
+                                     static_cast<int>(rec.source_x));
+      out.source_x1 =
+          std::max(out.source_x1, static_cast<int>(rec.source_x) + 1);
+      out.source_y0 = out.leaves.size() == 1
+                          ? sy
+                          : std::min(out.source_y0, sy);
+      out.source_y1 = std::max(out.source_y1, sy + 1);
+    }
+  }
+  if (!have_any) {
+    out.source_x0 = out.source_y0 = out.source_x1 = out.source_y1 = 0;
+    out.unique_source_samples = 0;
+  }
+  impl_->leaf_record_bytes.fetch_add(bytes_read, std::memory_order_relaxed);
+}
+
+std::uint64_t DrizzleGeometryCacheReader::max_stripe_leaf_records(
+    float pixfrac, int stripe_rows) const {
+  const auto *v = impl_->find_variant(pixfrac);
+  if (!v || stripe_rows <= 0) return 0;
+  std::uint64_t bound = 0;
+  for (const auto &[sidx, fd] : v->frames) {
+    (void)sidx;
+    if (fd.excluded) continue;
+    // A stripe [y0, y0+S) intersects a source row iff
+    // row.canvas_ymin < y0+S && row.canvas_ymax > y0, i.e. iff the stripe
+    // start lies in (row.ymin - S, row.ymax). The intersecting set only
+    // changes when y0 crosses one of those endpoints, so sweeping them
+    // gives the exact maximum intersecting record count for this frame.
+    std::vector<std::pair<double, std::int64_t>> ev;
+    ev.reserve(fd.rows.size() * 2);
+    for (const RowEntry &re : fd.rows) {
+      if (re.record_count == 0) continue;
+      ev.emplace_back(re.canvas_ymin - stripe_rows,
+                      static_cast<std::int64_t>(re.record_count));
+      ev.emplace_back(re.canvas_ymax,
+                      -static_cast<std::int64_t>(re.record_count));
+    }
+    // Conservative tie order: opens before closes at equal positions.
+    std::sort(ev.begin(), ev.end(),
+              [](const auto &a, const auto &b) {
+                return a.first < b.first ||
+                       (a.first == b.first && a.second > b.second);
+              });
+    std::int64_t cur = 0, best = 0;
+    for (const auto &[pos, delta] : ev) {
+      (void)pos;
+      cur += delta;
+      best = std::max(best, cur);
+    }
+    bound = std::max(bound, static_cast<std::uint64_t>(best));
+  }
+  return bound;
+}
+
+std::uint64_t DrizzleGeometryCacheReader::leaf_record_bytes_read() const {
+  return impl_->leaf_record_bytes.load(std::memory_order_relaxed);
 }
 
 const std::vector<std::pair<std::string, double>> &

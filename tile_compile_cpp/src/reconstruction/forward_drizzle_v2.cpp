@@ -509,6 +509,29 @@ double weighted_median_of(std::span<const double> values,
 
 }  // namespace
 
+std::vector<std::uint64_t> forward_drizzle_v2_selected_frame_orders(
+    std::uint64_t stream_length, int reservoir_size,
+    std::uint64_t reservoir_seed) {
+  if (stream_length == 0 || reservoir_size < 1)
+    throw std::invalid_argument(
+        "FORWARD_DRIZZLE_V2_INVALID_RESERVOIR_STREAM");
+  const bool keep_all =
+      stream_length <= static_cast<std::uint64_t>(reservoir_size);
+  const std::uint64_t threshold =
+      keep_all ? 0 : static_cast<std::uint64_t>(
+                         (static_cast<unsigned __int128>(reservoir_size)
+                          << 64) /
+                         stream_length);
+  std::vector<std::uint64_t> selected;
+  selected.reserve(keep_all ? static_cast<std::size_t>(stream_length)
+                            : static_cast<std::size_t>(reservoir_size) + 8);
+  for (std::uint64_t order = 0; order < stream_length; ++order) {
+    if (keep_all || splitmix64(order ^ reservoir_seed) < threshold)
+      selected.push_back(order);
+  }
+  return selected;
+}
+
 double forward_drizzle_v2_sigma2_model(double sigma_noise, double grad_x,
                                        double grad_y, double sigma_reg_px,
                                        double droplet_half) {

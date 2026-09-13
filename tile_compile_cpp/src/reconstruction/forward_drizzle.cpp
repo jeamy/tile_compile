@@ -516,6 +516,95 @@ DrizzleSourceScanBox drizzle_source_scan_box(
   return box;
 }
 
+void drizzle_affine_source_spans_into(
+    const RegistrationSamplingPlan &plan, const FrameSamplingTransform &f,
+    float pixfrac, int band_y_begin_native, int band_rows_native,
+    std::vector<DrizzleAffineSourceSpan> &out) {
+  out.clear();
+  if (!f.valid || f.has_smooth_local_model ||
+      !f.source_to_canvas_affine_valid || !std::isfinite(pixfrac) ||
+      pixfrac <= 0.0f || band_rows_native <= 0 || band_y_begin_native < 0 ||
+      band_y_begin_native + band_rows_native > plan.canvas_height_native)
+    return;
+  const int sw = plan.source_width, sh = plan.source_height;
+  const double W = static_cast<double>(plan.canvas_width_native);
+  const double y0 = static_cast<double>(band_y_begin_native);
+  const double y1 = y0 + static_cast<double>(band_rows_native);
+  const double a0 = f.source_to_canvas(0, 0), a1 = f.source_to_canvas(0, 1);
+  const double a2 = f.source_to_canvas(0, 2), a3 = f.source_to_canvas(1, 0);
+  const double a4 = f.source_to_canvas(1, 1), a5 = f.source_to_canvas(1, 2);
+  const double half = 0.5 * static_cast<double>(pixfrac);
+  const double rx = half * (std::abs(a0) + std::abs(a1));
+  const double ry = half * (std::abs(a3) + std::abs(a4));
+  const double inf = std::numeric_limits<double>::infinity();
+  for (int sy = 0; sy < sh; ++sy) {
+    const double syc = static_cast<double>(sy) + 0.5;
+    // covers() is the exact per-pixel membership predicate: the four strict
+    // droplet-bbox inequalities evaluated on integer source coordinates.
+    auto covers = [&](int sx) {
+      const double sxc = static_cast<double>(sx) + 0.5;
+      const double qx = a0 * sxc + a1 * syc + a2;
+      const double qy = a3 * sxc + a4 * syc + a5;
+      return qx + rx > 0.0 && qx - rx < W && qy + ry > y0 && qy - ry < y1;
+    };
+    // Analytic interval: each inequality is linear in sx' = sx + 0.5 and is
+    // rewritten as  coef * sx' > rhs.
+    double lo = -inf, hi = inf;
+    bool impossible = false;
+    auto add = [&](double coef, double rhs) {
+      if (coef > 0.0)
+        lo = std::max(lo, rhs / coef);
+      else if (coef < 0.0)
+        hi = std::min(hi, rhs / coef);
+      else if (!(0.0 > rhs))
+        impossible = true;
+    };
+    add(a0, -(a1 * syc + a2 + rx));      // qx_max > 0
+    add(-a0, a1 * syc + a2 - rx - W);    // qx_min < W
+    add(a3, y0 - ry - a4 * syc - a5);    // qy_max > y0
+    add(-a3, a4 * syc + a5 - ry - y1);   // qy_min < y1
+    if (impossible) continue;
+    // sx+0.5 in (lo, hi) -> sx in (lo-.5, hi-.5); pad 3 px against rounding,
+    // then covers() decides the true edges (shrink failing boundary pixels,
+    // extend while membership holds).
+    int x0 = std::isinf(lo) ? 0
+                            : static_cast<int>(std::floor(lo - 0.5)) - 3;
+    int x1 = std::isinf(hi) ? sw
+                            : static_cast<int>(std::ceil(hi - 0.5)) + 3;
+    x0 = std::clamp(x0, 0, sw);
+    x1 = std::clamp(x1, 0, sw);
+    if (x0 >= x1) {
+      // Degenerate (near-)empty analytic interval: probe the bound positions
+      // and midpoint before declaring the row inactive.
+      for (double px : {lo, hi, 0.5 * (lo + hi)}) {
+        if (!std::isfinite(px)) continue;
+        const int p = std::clamp(
+            static_cast<int>(std::lround(px - 0.5)), 0, sw - 1);
+        if (covers(p)) {
+          x0 = p;
+          x1 = p + 1;
+          break;
+        }
+      }
+      if (x0 >= x1) continue;
+    }
+    while (x0 < x1 && !covers(x0)) ++x0;
+    while (x1 > x0 && !covers(x1 - 1)) --x1;
+    while (x0 > 0 && covers(x0 - 1)) --x0;
+    while (x1 < sw && covers(x1)) ++x1;
+    if (x0 < x1) out.push_back({sy, x0, x1});
+  }
+}
+
+std::vector<DrizzleAffineSourceSpan> drizzle_affine_source_spans(
+    const RegistrationSamplingPlan &plan, const FrameSamplingTransform &f,
+    float pixfrac, int band_y_begin_native, int band_rows_native) {
+  std::vector<DrizzleAffineSourceSpan> out;
+  drizzle_affine_source_spans_into(plan, f, pixfrac, band_y_begin_native,
+                                   band_rows_native, out);
+  return out;
+}
+
 void enumerate_drizzle_stripe_leaf_cells(
     const RegistrationSamplingPlan &plan, const FrameSamplingTransform &f,
     int scale, float pixfrac, int y_begin, int rows,

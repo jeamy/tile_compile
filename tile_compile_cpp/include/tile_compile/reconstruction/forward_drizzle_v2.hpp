@@ -108,6 +108,18 @@ bool fold_native_pixel_v2_cuda(
     std::size_t frame_count, std::span<const double> area,
     ForwardDrizzleV2FoldResult &out);
 
+// Exact deterministic reservoir keep set for a stream of `stream_length`
+// frames under the shared splitmix64 predicate: with
+// stream_length <= reservoir_size every order is kept; otherwise order o is
+// kept iff splitmix64(o ^ reservoir_seed) <
+// (reservoir_size << 64) / stream_length. Returns the kept orders in
+// ascending order. Throws std::invalid_argument for stream_length == 0 or
+// reservoir_size < 1. Kernels and the production planner derive the
+// reservoir slot count and the quality gating from this set.
+std::vector<std::uint64_t> forward_drizzle_v2_selected_frame_orders(
+    std::uint64_t stream_length, int reservoir_size,
+    std::uint64_t reservoir_seed);
+
 struct ForwardDrizzleV2RobustCandidate {
   std::size_t frame_order = 0;
   double x = 0.0;

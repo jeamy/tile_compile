@@ -1,0 +1,66 @@
+{
+    "gate": 10,
+    "spec_sha256": "af6381e4cc223c3c2401a94ca9358b90c7beb38695312fe327d27dc69ccd557a",
+    "decision": "rejected_first_cutover_reopened_for_input_amplification_fix",
+    "decided_at": "2026-09-13",
+    "scope": "production cutover of forward drizzle v2: runner wiring, host CPU fallback port, band-level resume through the gate-7 store, real production runs; legacy record/sort/candidate path removal only after acceptance",
+    "selection": {
+        "mechanism": "TC_FORWARD_DRIZZLE_V2=1 selects the v2 producer in FORWARD_DRIZZLE; the choice is recorded in the v2 run plan and run provenance; the phase checkpoint carries forward_drizzle_v2 + plan_hash so a resume keeps the originally selected producer",
+        "default": "env unset keeps the legacy producer until the removal commit"
+    },
+    "store_contract": {
+        "root": "artifacts/forward_drizzle_v2",
+        "layout": "plan.json + band-%04d.bin + band-%04d.profiles.bin + checkpoint.json + commit.json + current.json per generation",
+        "profile_records": "80 B ForwardDrizzleV2ProfileResult, channel-major, same order as pixel records; committed atomically with the band transaction",
+        "publication": "current.json published only after the commit gate passes; nonfinite_pixels_inside_source_support == 0 required"
+    },
+    "band_geometry": {
+        "origin_convention": "affine6 stays the persisted canvas source_to_canvas transform; band_origin_*_native shifts only emission; local-warp inversion evaluates in canvas coordinates (oracle-exact)",
+        "band_rows": "derived from the nominal deterministic device budget and the gate-5 memory plan; plan geometry never depends on transient free VRAM; reserve() validates real capacity per band"
+    },
+    "cpu_fallback": {
+        "contract": "same artifacts, same band store, bit-identical discrete decisions, magnitudes within documented tolerance",
+        "restart": "any device error discards the unpublished generation and restarts the entire phase on the host CPU port",
+        "test_hook": "TILE_COMPILE_FD_V2_CUDA_FAULT_AFTER_BANDS forces a device fault mid-phase"
+    },
+    "resume": {
+        "prefix_reuse": "inspect_forward_drizzle_v2_store + adopt() reuse the committed band prefix verbatim; partially written band artifacts are unverifiable and recomputed",
+        "fail_closed": "corrupt band artifacts, non-contiguous checkpoints, foreign plans and ambiguous generations all reject adoption"
+    },
+    "failed_cutover_evidence": {
+        "run_id": "a2_m42_affine",
+        "completed_bands_before_abort": 7,
+        "band_count": 72,
+        "median_band_seconds": 298.39,
+        "projected_forward_drizzle_seconds": 21484.08,
+        "root_cause": "the v2 driver executed 610 full-frame provider/decode/sigma/H2D/scatter operations for every 47-row band; the Gate-9 ring was a test-only accounting model and no source/Q reuse was wired into production",
+        "verdict": "production acceptance rejected by user; run stopped"
+    },
+    "revised_acceptance": {
+        "source_read_amplification_max": 1.1,
+        "quality_read_amplification_max": 1.1,
+        "source_samples_launched_amplification_max": 1.1,
+        "a2_forward_drizzle_seconds_max": 2148.408,
+        "minimum_speedup_vs_failed_v2": 10.0,
+        "legacy_comparison": "v2 must be strictly faster on identical input/config/hardware",
+        "preproduction": "real-provider all-band benchmark must pass before restarting A1/A2/L1/L2"
+    },
+    "preproduction_result": {
+        "run_id": "bench_m42_v2_spans",
+        "forward_drizzle_seconds": 28.93,
+        "speedup_vs_old_v2": 14.573453162806775,
+        "speedup_vs_identical_input_legacy": 19.53518838575873,
+        "source_read_amplification": 1.0067556674784595,
+        "quality_read_amplification": 1.01560159063143,
+        "source_samples_launched_amplification": 1.0067556674784595,
+        "workspace_reservations": 1,
+        "hotpath_allocations": 0,
+        "device_global_synchronizations": 0,
+        "checkpoint_and_rgb_identity": "bit-identical to rectangular and tiled optimized runs",
+        "status": "pass"
+    },
+    "production_runs": "UNBLOCKED — A1/A2/L1/L2 remain pending",
+    "acceptance_gates": "PREPRODUCTION PASSED; production matrix pending",
+    "legacy_removal": "BLOCKED — final commit only after A1/A2/L1/L2 acceptance",
+    "results": "docs/forward_drizzle_v2_gate10_cutover_results_2026-09-12.jsonl"
+}

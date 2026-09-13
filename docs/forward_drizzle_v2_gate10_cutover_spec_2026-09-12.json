@@ -1,8 +1,44 @@
 {
   "schema_version": 1,
   "gate": 10,
-  "status": "frozen_before_implementation",
-  "scope": "production cutover of forward drizzle v2: runner wiring, host CPU fallback port, band-level resume through the gate-7 store, real production runs, then removal of the legacy record/sort/candidate path. Ends the unpublished-prototype phase.",
+  "status": "reopened_after_failed_production_performance",
+  "scope": "production cutover of forward drizzle v2: runner wiring, host CPU fallback port, band-level resume through the gate-7 store, real production runs, then removal of the legacy record/sort/candidate path. The first A2 attempt exposed band_count-fold full-frame input work and did not pass production performance acceptance; the gate is reopened until the revised input-amplification and end-to-end requirements pass.",
+  "performance_reanalysis": {
+    "failed_run": {
+      "run_id": "a2_m42_affine",
+      "frames": 610,
+      "source_geometry": [3840, 2160],
+      "canvas_native": [4526, 3370],
+      "band_rows": 47,
+      "band_count": 72,
+      "completed_bands_before_abort": 7,
+      "median_completed_band_seconds": 298.39,
+      "median_frame_band_seconds": 0.48916393442622946,
+      "projected_forward_drizzle_seconds": 21484.08,
+      "verdict": "failed; measured cost is band_count * frame_count * full_source_pixels and the prior per-frame-per-band gate did not constrain complete-phase work"
+    },
+    "required_architecture": {
+      "loop_order": "band outer / frame inner remains permitted only with exact band-aware source windows; inverting the loops and spilling all band states is forbidden",
+      "source_window": "affine frames use the existing drizzle_source_scan_box contract; only source pixels capable of intersecting the band may be read, uploaded and launched",
+      "reservoir_selection": "the SplitMix keep set is precomputed from frame_count/reservoir_seed before reserve; allocate max(1,min(selected_count,2R)) slots so the historical >2R overflow fallback is preserved; quality planes are read and processed only for selected frames",
+      "sigma2": "compute from the band-local source window with the required one-pixel gradient halo; a full source-size sigma2 allocation or upload per band is forbidden",
+      "quality": "read only the selected frame's band-local storage-grid window; full source-resolution float expansion per band is forbidden",
+      "local_geometry": "reuse the committed DrizzleGeometryCacheReader leaves for local frames; FORWARD_DRIZZLE must not repeat whole-source local inversion/subdivision per band",
+      "workspace": "reserve one maximum-band workspace per backend attempt and reset/rebind it across bands; per-band stream, bulk cudaMalloc and O(frame_count) event recreation are forbidden"
+    },
+    "frozen_acceptance": {
+      "actual_source_read_amplification_max": 1.1,
+      "actual_quality_read_amplification_max": 1.1,
+      "source_samples_launched_amplification_max": 1.1,
+      "hotpath_host_allocations": 0,
+      "hotpath_device_allocations": 0,
+      "device_global_synchronizations": 0,
+      "a2_forward_drizzle_seconds_max": 2148.408,
+      "minimum_speedup_vs_failed_a2_v2": 10.0,
+      "legacy_comparison": "on identical input/config/hardware, complete FORWARD_DRIZZLE v2 wall time must be strictly lower than the legacy producer; otherwise cutover is rejected",
+      "preproduction_gate": "an all-band production-geometry benchmark with real normalized-source and quality-cache providers must satisfy the byte/sample amplification gates and project the 610-frame phase below a2_forward_drizzle_seconds_max before any A1/A2/L1/L2 restart"
+    }
+  },
   "wiring_contract": {
     "selection": "env var TC_FORWARD_DRIZZLE_V2=1 selects the v2 producer in the FORWARD_DRIZZLE phase during acceptance; the choice is recorded in the v2 run plan and run provenance. After acceptance the legacy path is removed unconditionally and no user-facing switch remains.",
     "store": "the durable artifact is the gate-7 v2 store (forward_drizzle_v2 store root inside artifacts): plan.json + band-%04d.bin pixel records + band-%04d.profiles.bin profile records + checkpoint.json + commit.json + current.json. No legacy FITS profile store is written by v2 runs.",
@@ -35,8 +71,8 @@
   },
   "acceptance_gates": {
     "store": "every v2 run ends with a published current.json; verify via inspect_forward_drizzle_v2_store == complete; commit gate nonfinite_pixels_inside_source_support == 0",
-    "scaling": "frame-dependent work linear in N; reserved device bytes constant across N; no N log N per pixel; RA <= 1.1 with reuse accounting reported per run",
-    "telemetry": "0 hotpath allocations, 0 global device synchronizations, max_frame_seconds < 0.75 on production geometry",
+    "scaling": "frame-dependent work is linear in N and in the union of source pixels that can intersect output bands, not N*band_count*full_source_pixels; reserved device bytes are constant across N; no N log N per pixel; measured source/Q byte RA and launched-source-sample amplification are each <= 1.1",
+    "telemetry": "report complete-phase wall time plus provider source/Q/sigma time and bytes, actual H2D bytes including quality, GPU upload/scatter/fold/finalize time, workspace/event creation, commit time and measured amplification; 0 host/device hotpath allocations and 0 global device synchronizations; the A2 phase must be >=10x faster than the failed baseline and strictly faster than legacy",
     "validation": "matched-star selection runs on v2 outputs; uniform and raw remain immutable controls; multiband promotion still requires strict improvement over raw",
     "cpu_fallback": "a forced device failure mid-phase produces a CPU-restarted run whose committed band records match the CUDA run's discrete state bit-for-bit and magnitudes within 1e-12",
     "resume": "SIGKILL mid-FORWARD_DRIZZLE then resume: the run completes, band artifacts at/after the kill point are recomputed, committed prefix reused verbatim (checkpoint_hash equality against the uninterrupted run where the plan binds it)",

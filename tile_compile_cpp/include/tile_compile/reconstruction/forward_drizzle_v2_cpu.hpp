@@ -29,6 +29,12 @@ class ForwardDrizzleV2Kernel {
   virtual bool reserve(int native_cols, int native_rows, int source_w,
                        int source_h,
                        const ForwardDrizzleV2KernelConfig &cfg) = 0;
+  // Rebind the reserved workspace to the next band (active rows <= the
+  // reserved maximum) without allocating; clears all per-band state.
+  // Allowed right after reserve() (before any frame) or after a successful
+  // finalize(); only native_rows and band_origin_y_native may change.
+  virtual bool begin_band(
+      int native_rows, const ForwardDrizzleV2KernelConfig &cfg) = 0;
   virtual bool accumulate_frame(
       const double affine6[6], const float *source, const float *sigma2_or_null,
       std::uint64_t frame_order,
@@ -39,6 +45,79 @@ class ForwardDrizzleV2Kernel {
       const float *source, const float *sigma2_or_null,
       std::uint64_t frame_order,
       const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) = 0;
+  // Window variants: `source` is a packed row-major buffer of
+  // window.width*window.height (absolute origin x_begin/y_begin, optional
+  // halo); only the ACTIVE rect (window.active_*, all-zero = whole buffer)
+  // is iterated. Float sigma2/Q planes are packed over the ACTIVE rect and
+  // indexed by the active-local tid; packed Q descriptors decode by absolute
+  // (sx, sy). sigma2_or_null and an ENABLED sigma2_model_or_null are
+  // mutually exclusive. The window buffer must be positive and contained in
+  // the reserved full source extent.
+  virtual bool accumulate_frame_window(
+      const double affine6[6], const ForwardDrizzleV2SourceWindow &window,
+      const float *source, const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) = 0;
+  virtual bool accumulate_frame_local_window(
+      const double affine6[6], const ForwardDrizzleV2LocalWarp &warp,
+      const ForwardDrizzleV2SourceWindow &window, const float *source,
+      const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) = 0;
+  // Geometry-cache variant (tranche 6): the frame's geometry is
+  // `leaf_count` committed cache leaves (raw internal canvas coordinates,
+  // canonical order); leaf source coordinates must lie inside the ACTIVE
+  // window rect. affine6 is validated but not applied. Requires
+  // leaf_count <= cfg.cached_leaf_capacity.
+  virtual bool accumulate_frame_cached_leaves(
+      const double affine6[6], const ForwardDrizzleV2SourceWindow &window,
+      const float *source, const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      const ForwardDrizzleV2CachedLeaf *leaves, std::size_t leaf_count,
+      std::uint64_t unique_source_samples, std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) = 0;
+  // Tranche 8 canonical affine path: one-shot full-target frame fed by the
+  // ragged source-sample list (canonical ascending (y,x) order, all
+  // coordinates in the reserved source extent, count <= source_w*source_h).
+  // sigma2_present=false reproduces the absent-sigma semantics. Quality is
+  // the aligned packed contract (presence bit => code array, null veto =>
+  // no veto; code 0 or veto decodes to NaN).
+  virtual bool accumulate_frame_affine_samples(
+      const double affine6[6], const ForwardDrizzleV2SourceSample *samples,
+      std::size_t sample_count, bool sigma2_present,
+      const ForwardDrizzleV2AlignedQuality *quality_or_null,
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) = 0;
+  // Affine target-tile piece lifecycle (tranche 7): one affine frame may be
+  // emitted as several target-x pieces; each piece scatters+folds only the
+  // internal x columns [target_x_begin*scale, (begin+cols)*scale) so
+  // overlapping source scan boxes never double-count. Pieces must be
+  // ordered by target x and non-overlapping, and the frame's quality
+  // stream presence must be identical on every piece. The local-warp and
+  // cached-geometry paths are always single-call and must not interleave
+  // with an open piece frame.
+  virtual bool begin_affine_frame(
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) = 0;
+  virtual bool accumulate_affine_piece(
+      const double affine6[6], int target_x_begin_native,
+      int target_cols_native,
+      const ForwardDrizzleV2SourceWindow &window, const float *source,
+      const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr) = 0;
+  virtual bool finish_affine_frame(std::uint64_t frame_order) = 0;
+  // Frame whose source window is empty for this band: advances stream
+  // bookkeeping (and the meta row when profiles are enabled) without
+  // scatter/fold.
+  virtual bool skip_frame(
+      std::uint64_t frame_order,
       const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) = 0;
   virtual bool finalize(ForwardDrizzleV2PixelResult *results,
                         ForwardDrizzleV2ProfileResult *profiles_or_null,
@@ -63,6 +142,8 @@ class ForwardDrizzleV2CpuKernel final : public ForwardDrizzleV2Kernel {
 
   bool reserve(int native_cols, int native_rows, int source_w, int source_h,
                const ForwardDrizzleV2KernelConfig &cfg) override;
+  bool begin_band(int native_rows,
+                  const ForwardDrizzleV2KernelConfig &cfg) override;
   bool accumulate_frame(
       const double affine6[6], const float *source, const float *sigma2_or_null,
       std::uint64_t frame_order,
@@ -74,6 +155,50 @@ class ForwardDrizzleV2CpuKernel final : public ForwardDrizzleV2Kernel {
       std::uint64_t frame_order,
       const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
       const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) override;
+  bool accumulate_frame_window(
+      const double affine6[6], const ForwardDrizzleV2SourceWindow &window,
+      const float *source, const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) override;
+  bool accumulate_frame_local_window(
+      const double affine6[6], const ForwardDrizzleV2LocalWarp &warp,
+      const ForwardDrizzleV2SourceWindow &window, const float *source,
+      const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) override;
+  bool accumulate_frame_cached_leaves(
+      const double affine6[6], const ForwardDrizzleV2SourceWindow &window,
+      const float *source, const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      const ForwardDrizzleV2CachedLeaf *leaves, std::size_t leaf_count,
+      std::uint64_t unique_source_samples, std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) override;
+  bool accumulate_frame_affine_samples(
+      const double affine6[6], const ForwardDrizzleV2SourceSample *samples,
+      std::size_t sample_count, bool sigma2_present,
+      const ForwardDrizzleV2AlignedQuality *quality_or_null,
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) override;
+  bool begin_affine_frame(
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) override;
+  bool accumulate_affine_piece(
+      const double affine6[6], int target_x_begin_native,
+      int target_cols_native,
+      const ForwardDrizzleV2SourceWindow &window, const float *source,
+      const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      const ForwardDrizzleV2FrameQuality *quality_or_null =
+          nullptr) override;
+  bool finish_affine_frame(std::uint64_t frame_order) override;
+  bool skip_frame(std::uint64_t frame_order,
+                  const ForwardDrizzleV2FrameMeta *meta_or_null =
+                      nullptr) override;
   bool finalize(ForwardDrizzleV2PixelResult *results,
                 ForwardDrizzleV2ProfileResult *profiles_or_null,
                 std::uint64_t *dense_overlap_count) override;
@@ -89,14 +214,34 @@ class ForwardDrizzleV2CpuKernel final : public ForwardDrizzleV2Kernel {
  private:
   bool accumulate_frame_impl(
       const double affine6[6], const ForwardDrizzleV2LocalWarp *warp,
+      const ForwardDrizzleV2SourceWindow &window,
       const float *source, const float *sigma2_or_null,
-      std::uint64_t frame_order,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      const ForwardDrizzleV2CachedLeaf *leaves, std::size_t leaf_count,
+      std::uint64_t unique_source_samples, std::uint64_t frame_order,
       const ForwardDrizzleV2FrameQuality *quality_or_null,
       const ForwardDrizzleV2FrameMeta *meta_or_null);
+  // Fold of the frame planes into the band accumulators for native target
+  // columns [nx0, nx1) only (all rows/channels) --- shared by the one-shot
+  // calls (full width) and the affine piece path.
+  void fold_native_range(int nx0, int nx1, bool q_frame,
+                         unsigned int qmask, std::uint64_t frame_order,
+                         bool keep_all, std::uint64_t threshold);
   struct Impl;
   Impl *impl_ = nullptr;
   ForwardDrizzleV2PrototypeStats stats_;
   std::size_t bytes_per_native_pixel_ = 0;
+  std::size_t capacity_bytes_ = 0;
+  // True until the first begin_band consumes the reservation reported by
+  // stats() so the driver sums exactly one workspace reservation.
+  bool pending_reservation_ = false;
+  // Open affine-piece frame state (tranche 7).
+  bool frame_open_ = false;
+  std::uint64_t open_order_ = 0;
+  int open_pieces_ = 0;
+  int open_tx_end_ = 0;          // lowest target x the next piece may start
+  unsigned int open_qmask_ = 0;  // stream presence fixed on piece 1
+  bool open_qframe_ = false;
 };
 
 // Device adapter: forwards the prototype kernel through the same boundary so
@@ -107,6 +252,10 @@ class ForwardDrizzleV2CudaKernel final : public ForwardDrizzleV2Kernel {
   bool reserve(int native_cols, int native_rows, int source_w, int source_h,
                const ForwardDrizzleV2KernelConfig &cfg) override {
     return kernel_.reserve(native_cols, native_rows, source_w, source_h, cfg);
+  }
+  bool begin_band(int native_rows,
+                  const ForwardDrizzleV2KernelConfig &cfg) override {
+    return kernel_.begin_band(native_rows, cfg);
   }
   bool accumulate_frame(
       const double affine6[6], const float *source, const float *sigma2_or_null,
@@ -126,6 +275,78 @@ class ForwardDrizzleV2CudaKernel final : public ForwardDrizzleV2Kernel {
     return kernel_.accumulate_frame_local(affine6, warp, source,
                                           sigma2_or_null, frame_order,
                                           quality_or_null, meta_or_null);
+  }
+  bool accumulate_frame_window(
+      const double affine6[6], const ForwardDrizzleV2SourceWindow &window,
+      const float *source, const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) override {
+    return kernel_.accumulate_frame_window(affine6, window, source,
+                                           sigma2_or_null,
+                                           sigma2_model_or_null, frame_order,
+                                           quality_or_null, meta_or_null);
+  }
+  bool accumulate_frame_local_window(
+      const double affine6[6], const ForwardDrizzleV2LocalWarp &warp,
+      const ForwardDrizzleV2SourceWindow &window, const float *source,
+      const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) override {
+    return kernel_.accumulate_frame_local_window(
+        affine6, warp, window, source, sigma2_or_null, sigma2_model_or_null,
+        frame_order, quality_or_null, meta_or_null);
+  }
+  bool accumulate_frame_cached_leaves(
+      const double affine6[6], const ForwardDrizzleV2SourceWindow &window,
+      const float *source, const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      const ForwardDrizzleV2CachedLeaf *leaves, std::size_t leaf_count,
+      std::uint64_t unique_source_samples, std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) override {
+    return kernel_.accumulate_frame_cached_leaves(
+        affine6, window, source, sigma2_or_null, sigma2_model_or_null,
+        leaves, leaf_count, unique_source_samples, frame_order,
+        quality_or_null, meta_or_null);
+  }
+  bool accumulate_frame_affine_samples(
+      const double affine6[6], const ForwardDrizzleV2SourceSample *samples,
+      std::size_t sample_count, bool sigma2_present,
+      const ForwardDrizzleV2AlignedQuality *quality_or_null,
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) override {
+    return kernel_.accumulate_frame_affine_samples(
+        affine6, samples, sample_count, sigma2_present, quality_or_null,
+        frame_order, meta_or_null);
+  }
+  bool begin_affine_frame(
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) override {
+    return kernel_.begin_affine_frame(frame_order, meta_or_null);
+  }
+  bool accumulate_affine_piece(
+      const double affine6[6], int target_x_begin_native,
+      int target_cols_native,
+      const ForwardDrizzleV2SourceWindow &window, const float *source,
+      const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      const ForwardDrizzleV2FrameQuality *quality_or_null =
+          nullptr) override {
+    return kernel_.accumulate_affine_piece(
+        affine6, target_x_begin_native, target_cols_native, window, source,
+        sigma2_or_null, sigma2_model_or_null, quality_or_null);
+  }
+  bool finish_affine_frame(std::uint64_t frame_order) override {
+    return kernel_.finish_affine_frame(frame_order);
+  }
+  bool skip_frame(std::uint64_t frame_order,
+                  const ForwardDrizzleV2FrameMeta *meta_or_null =
+                      nullptr) override {
+    return kernel_.skip_frame(frame_order, meta_or_null);
   }
   bool finalize(ForwardDrizzleV2PixelResult *results,
                 ForwardDrizzleV2ProfileResult *profiles_or_null,

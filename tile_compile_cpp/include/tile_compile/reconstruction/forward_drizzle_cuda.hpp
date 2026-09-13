@@ -377,6 +377,11 @@ struct ForwardDrizzleV2KernelConfig {
   // for every band. 0 = the band starts at the canvas origin.
   int band_origin_x_native = 0;
   int band_origin_y_native = 0;
+  // Gate-10 tranche 6: reserved device capacity (records) for the committed
+  // geometry-cache leaf path of accumulate_frame_cached_leaves. 0 disables
+  // the cached-leaf path (calls with leaf_count > 0 then fail). Fixed across
+  // begin_band.
+  std::uint64_t cached_leaf_capacity = 0;
   // Gate-9: profile production. When true, reserve() additionally allocates
   // the five quality frame planes (Q_c, Q_0, Q_1, Q_a, Q_aflag), the float4
   // reservoir side array, the per-frame meta table and the profile result
@@ -387,16 +392,111 @@ struct ForwardDrizzleV2KernelConfig {
   float medium_quality_exponent = 2.0f;
 };
 
-// Gate-9 optional per-frame quality source planes (source resolution,
-// row-major float, same extent as `source`). A null pointer marks an absent
-// stream: its folded candidate mean is 1.0 and the artifact stream reports
-// qa_has_data=false. Per-sample NaN/<=0 contributes 0 to the area-weighted
-// mean (explicit veto, matching the CPU contract).
+// One uploaded source buffer and its active launch rect. `source` points at
+// a packed row-major width*height buffer whose element (0,0) is absolute
+// source coordinate (x_begin, y_begin); the buffer may include a one-pixel
+// halo when a sigma2 model needs the neighbour ring. Only the active rect
+// (active_x/active_y offset inside the buffer, active_width*active_height)
+// is iterated; geometry keeps absolute source coordinates
+// (x_begin+active_x+lx, y_begin+active_y+ly). All four active fields zero
+// resolves to the whole buffer (backward compatibility).
+struct ForwardDrizzleV2SourceWindow {
+  int x_begin = 0;
+  int y_begin = 0;
+  int width = 0;
+  int height = 0;
+  int active_x = 0;
+  int active_y = 0;
+  int active_width = 0;
+  int active_height = 0;
+};
+
+// Optional per-frame sigma2 model: when `enabled`, the kernels compute the
+// sigma2 value for each active sample inline from the uploaded source buffer
+// with exactly forward_drizzle_v2_sigma2_plane semantics (missing neighbour
+// = true source border, central/one-sided difference, sigma model
+// noise^2 + (gx^2+gy^2)*reg^2 + half^2/3). Mutually exclusive with an
+// explicit packed sigma2 plane.
+struct ForwardDrizzleV2Sigma2FrameModel {
+  bool enabled = false;
+  double sigma_noise = 0.0;
+  double sigma_reg_px = 0.0;
+  double droplet_half = 0.0;
+};
+
+// Non-owning view of a raw storage-grid quality window (compact path): the
+// quantised uint16 cell values and the veto bitmap, exactly as decoded by
+// SourceQualityMapCacheReader::read_packed_rect. Sample (sx,sy) in absolute
+// source coordinates maps to cell
+// (sx/storage_divisor - storage_x_begin, sy/storage_divisor - storage_y_begin);
+// a vetoed or zero cell is the same NaN/veto the float path reports.
+struct ForwardDrizzleV2PackedQualityPlane {
+  const std::uint16_t *cells = nullptr;
+  const std::uint8_t *veto = nullptr;
+  int storage_x_begin = 0;
+  int storage_y_begin = 0;
+  int storage_width = 0;
+  int storage_height = 0;
+  int storage_divisor = 1;
+};
+
+// Device-facing POD carrying the committed geometry-cache leaf record
+// fields (callers convert DrizzleCachedLeaf field-by-field): one accepted
+// local-warp leaf of one source sample with the exact double corner bits in
+// RAW internal canvas coordinates. The kernels subtract band_origin_*_native *
+// internal_scale to get band-local internal coordinates; no inversion or
+// subdivision is ever re-run for cached geometry.
+struct ForwardDrizzleV2CachedLeaf {
+  std::uint32_t source_x = 0;
+  std::uint32_t source_y = 0;
+  std::uint16_t channel = 0;
+  std::uint16_t leaf_order = 0;
+  double x[4]{};
+  double y[4]{};
+};
+
+// Tranche 8: one active source sample of the canonical ragged affine path.
+// Canonical order is ascending (source_y, source_x); sigma2 is the
+// float-quantized oracle value precomputed on the host (or unused when the
+// frame's sigma2 stream is absent).
+struct ForwardDrizzleV2SourceSample {
+  std::uint32_t source_x = 0;
+  std::uint32_t source_y = 0;
+  float value = 0.0f;
+  float sigma2 = 0.0f;
+};
+
+// Packed quality codes/veto aligned 1:1 with the sample list (still
+// quantized uint16 codes + veto bytes; never expanded floats). Array length
+// is sample_count for every stream whose presence_mask bit is set; an unset
+// bit means the stream is absent (composite/scale default 1, artifact N/A).
+// A set bit requires the code pointer; a null veto pointer means no veto.
+// code == 0 or veto != 0 decodes to NaN/veto, matching the packed storage
+// grid decode.
+struct ForwardDrizzleV2AlignedQuality {
+  const std::uint16_t *qc = nullptr, *q0 = nullptr, *q1 = nullptr,
+                      *qa = nullptr;
+  const std::uint8_t *vc = nullptr, *v0 = nullptr, *v1 = nullptr,
+                     *va = nullptr;
+  std::uint32_t presence_mask = 0;
+};
+
+// Gate-9 optional per-frame quality source planes. The FLOAT pointers are
+// source-resolution row-major planes packed over the active window rect
+// (compatibility path); the PACKED descriptors are the compact storage-grid
+// windows. A stream supplies float OR packed, never both; a stream with both
+// pointers null is absent (folded candidate mean 1.0, artifact stream
+// reports qa_has_data=false). Per-sample NaN/<=0/veto contributes 0 to the
+// area-weighted mean (explicit veto, matching the CPU contract).
 struct ForwardDrizzleV2FrameQuality {
   const float *q_composite = nullptr;
   const float *q_scale0 = nullptr;
   const float *q_scale1 = nullptr;
   const float *q_artifact = nullptr;
+  ForwardDrizzleV2PackedQualityPlane qc_packed{};
+  ForwardDrizzleV2PackedQualityPlane q0_packed{};
+  ForwardDrizzleV2PackedQualityPlane q1_packed{};
+  ForwardDrizzleV2PackedQualityPlane qa_packed{};
 };
 
 // Per-native-pixel per-channel band result (AoS record, downloaded once).
@@ -431,6 +531,35 @@ struct ForwardDrizzleV2PrototypeStats {
   // driver applies the per-frame exclusion policy to this count.
   std::uint64_t local_samples_discarded = 0;
   std::size_t reserved_device_bytes = 0;
+  // Honest per-stream counters: source elements actually launched, quality
+  // plane bytes actually uploaded (device) / consumed (host), and frames
+  // whose reservoir keep predicate selected them (only those process
+  // quality).
+  std::uint64_t quality_bytes_uploaded = 0;
+  std::uint64_t source_samples_launched = 0;
+  std::uint64_t quality_frames_processed = 0;
+  // Frames whose source window was empty for the band (bookkeeping only:
+  // no scatter/fold, no source/Q bytes, still a slot transition).
+  std::uint64_t frames_skipped_empty_window = 0;
+  // Storage-grid cells expanded to float by the quality reader (compact
+  // path leaves this at 0). Provider-reported, not kernel-derived.
+  std::uint64_t quality_expanded_floats = 0;
+  // Persistent workspace accounting: workspace_reservations is 1 for the
+  // first band's stats() delta and 0 afterwards; band_resets counts
+  // begin_band calls (current-band delta).
+  std::uint64_t workspace_reservations = 0;
+  std::uint64_t band_resets = 0;
+  // Geometry-cache path accounting: leaf records actually scattered and
+  // leaf payload bytes uploaded to the device (cached path only).
+  std::uint64_t cached_leaf_records_launched = 0;
+  std::uint64_t cached_leaf_bytes_uploaded = 0;
+  // Affine target-tile pieces scattered+folded (tranche 7). One frame may
+  // consist of several pieces; frames_processed still counts frames.
+  std::uint64_t affine_pieces_processed = 0;
+  // Tranche 8 canonical ragged affine path: active source samples scattered
+  // and the distinct span rows they came from.
+  std::uint64_t affine_samples_processed = 0;
+  std::uint64_t affine_span_rows = 0;
   double upload_seconds = 0.0;   // event-timed
   double kernel_seconds = 0.0;
   double download_seconds = 0.0;
@@ -448,11 +577,20 @@ class ForwardDrizzleV2CudaPrototypeKernel {
   ForwardDrizzleV2CudaPrototypeKernel &operator=(
       const ForwardDrizzleV2CudaPrototypeKernel &) = delete;
 
-  // Reserve every role for one band: native window cols x rows, internal
-  // planes at internal_scale resolution, full source frame + optional sigma2
-  // slot. Counted as the single allowed allocation batch.
+  // Reserve every role for the MAXIMUM band height: native window cols x
+  // rows, internal planes at internal_scale resolution, full source frame +
+  // optional sigma2 slot. Counted as the single allowed allocation batch;
+  // the workspace is immediately usable as the first band.
   bool reserve(int native_cols, int native_rows, int source_w, int source_h,
                const ForwardDrizzleV2KernelConfig &cfg);
+  // Rebind the workspace to the next band without allocating: sets the
+  // active row count (<= the reserved maximum), the band origin and clears
+  // every per-band accumulator/support/reservoir/meta role on the existing
+  // stream. Fixed config fields must match reserve(); only
+  // band_origin_y_native and the active row count may differ. Allowed right
+  // after reserve() (before any frame) or after a successful finalize();
+  // rejected mid-band.
+  bool begin_band(int native_rows, const ForwardDrizzleV2KernelConfig &cfg);
   // One frame: upload source (+sigma2, +quality planes when profiles are
   // enabled), scatter, fold+accumulate. All async on the workspace stream;
   // no allocations, no sync. `affine6` is the persisted source->canvas
@@ -484,6 +622,89 @@ class ForwardDrizzleV2CudaPrototypeKernel {
                                   nullptr,
                               const ForwardDrizzleV2FrameMeta *meta_or_null =
                                   nullptr);
+  // Window variants: identical semantics to the full-source calls, but
+  // `source` points at a packed row-major buffer of
+  // window.width*window.height (absolute origin window.x_begin/y_begin,
+  // optional halo) and only the ACTIVE rect
+  // (window.active_*; all-zero = whole buffer) is uploaded-iterated.
+  // sigma2_or_null is packed over the ACTIVE rect; alternatively
+  // sigma2_model_or_null computes sigma2 inline from the source buffer ---
+  // passing both (explicit plane AND an enabled model) fails the call. The
+  // window buffer must be positive and contained in the reserved full
+  // source extent.
+  bool accumulate_frame_window(
+      const double affine6[6], const ForwardDrizzleV2SourceWindow &window,
+      const float *source, const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr);
+  bool accumulate_frame_local_window(
+      const double affine6[6], const ForwardDrizzleV2LocalWarp &warp,
+      const ForwardDrizzleV2SourceWindow &window, const float *source,
+      const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr);
+  // Geometry-cache variant (tranche 6): same contract as the window calls,
+  // but the frame's geometry comes from `leaf_count` committed cache leaves
+  // (raw internal canvas coordinates, canonical order) instead of a
+  // transform evaluation. One thread/iteration per leaf; leaf source
+  // coordinates must lie inside the ACTIVE window rect. affine6 is accepted
+  // for provenance/interface validation only. `unique_source_samples`
+  // becomes the source_samples_launched contribution (the discarded-sample
+  // work was finalised by the cache build, so nothing is added to
+  // local_samples_discarded). Requires leaf_count <=
+  // cfg.cached_leaf_capacity (reserve allocates the leaf buffer).
+  bool accumulate_frame_cached_leaves(
+      const double affine6[6], const ForwardDrizzleV2SourceWindow &window,
+      const float *source, const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      const ForwardDrizzleV2CachedLeaf *leaves, std::size_t leaf_count,
+      std::uint64_t unique_source_samples, std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr);
+  // Tranche 8 canonical affine path: one-shot full-target frame fed by the
+  // ragged source-sample list (canonical ascending (y,x) order, every
+  // coordinate inside the reserved source extent, count <=
+  // source_w*source_h) with per-sample sigma2 and aligned packed quality.
+  // sigma2_present=false reproduces the absent-sigma semantics (the record's
+  // sigma2 field is ignored). Not interleavable with an open affine piece
+  // frame.
+  bool accumulate_frame_affine_samples(
+      const double affine6[6], const ForwardDrizzleV2SourceSample *samples,
+      std::size_t sample_count, bool sigma2_present,
+      const ForwardDrizzleV2AlignedQuality *quality_or_null,
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr);
+  // Affine target-tile piece lifecycle (tranche 7): one affine frame is
+  // emitted as one-or-more target-x pieces so rotated/sheared scan boxes do
+  // not inflate source/Q reads. begin_affine_frame validates stream order,
+  // uploads the meta row once and records the frame-start event; each
+  // accumulate_affine_piece uploads/scatters/folds only the internal x
+  // columns [target_x_begin*scale, (target_x_begin+target_cols)*scale) of
+  // the band so overlapping source scan boxes never double-count; finish
+  // closes the frame's bookkeeping. Pieces must be ordered by target x and
+  // non-overlapping; the frame's quality stream presence (qmask) must be
+  // identical on every piece. The local-warp and cached-geometry paths are
+  // always single-call and must not be interleaved with an open frame.
+  bool begin_affine_frame(
+      std::uint64_t frame_order,
+      const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr);
+  bool accumulate_affine_piece(
+      const double affine6[6], int target_x_begin_native,
+      int target_cols_native,
+      const ForwardDrizzleV2SourceWindow &window, const float *source,
+      const float *sigma2_or_null,
+      const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+      const ForwardDrizzleV2FrameQuality *quality_or_null = nullptr);
+  bool finish_affine_frame(std::uint64_t frame_order);
+  // Frame whose source window is empty for this band: advances the stream
+  // bookkeeping (and the meta row when profiles are enabled) without any
+  // upload/scatter/fold. Counted in stats().frames_skipped_empty_window.
+  bool skip_frame(std::uint64_t frame_order,
+                  const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr);
   // Band end: finalize kernel + single stream sync + result download.
   // results must hold native_cols*native_rows*channels entries
   // (channel-major); when cfg.emit_profiles is set, profiles_or_null must
@@ -499,12 +720,18 @@ class ForwardDrizzleV2CudaPrototypeKernel {
   }
 
  private:
-  // Shared frame pipeline of accumulate_frame/accumulate_frame_local:
+  // Shared frame pipeline of the accumulate_* calls:
   // warp == nullptr selects the affine scatter kernel.
   bool accumulate_frame_impl(const double affine6[6],
                              const ForwardDrizzleV2LocalWarp *warp,
+                             const ForwardDrizzleV2SourceWindow &window,
                              const float *source,
                              const float *sigma2_or_null,
+                             const ForwardDrizzleV2Sigma2FrameModel *
+                                 sigma2_model_or_null,
+                             const ForwardDrizzleV2CachedLeaf *leaves,
+                             std::size_t leaf_count,
+                             std::uint64_t unique_source_samples,
                              std::uint64_t frame_order,
                              const ForwardDrizzleV2FrameQuality *quality_or_null,
                              const ForwardDrizzleV2FrameMeta *meta_or_null);
@@ -512,6 +739,18 @@ class ForwardDrizzleV2CudaPrototypeKernel {
   Impl *impl_ = nullptr;
   ForwardDrizzleV2PrototypeStats stats_;
   std::size_t bytes_per_native_pixel_ = 0;
+  std::size_t capacity_bytes_ = 0;
+  // True until the first begin_band consumes the reservation reported by
+  // stats() so the driver sums exactly one workspace reservation.
+  bool pending_reservation_ = false;
+  // Open affine-piece frame state (tranche 7): frame_open gates the
+  // one-shot accumulate calls, skip_frame, begin_band and finalize.
+  bool frame_open_ = false;
+  std::uint64_t open_order_ = 0;
+  int open_pieces_ = 0;
+  int open_tx_end_ = 0;          // lowest target x the next piece may start
+  unsigned int open_qmask_ = 0;  // stream presence fixed on piece 1
+  bool open_qframe_ = false;
 };
 
 // §30.81 step-5 baseline instrumentation. Coarse wall-clock accumulators for

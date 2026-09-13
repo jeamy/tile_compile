@@ -71,10 +71,11 @@ geschlossen und vor dem affinen Prototypkern implementiert sein.
 
 ### 1.2 Implementierungsstand und Freigabestatus (2026-09-12)
 
-Die vorhandene v2-Implementierung ist ausschließlich ein isolierter
-Explorationsstand. Keine v2-Funktion wird vom produktiven Runner aufgerufen.
-Die Prototypen dürfen Evidenz für ein Gate erzeugen, gelten aber erst dann als
-Gate-Abschluss, wenn alle Exit-Kriterien des jeweiligen Gates erfüllt sind.
+Gates 0–9 sind abgeschlossen. Gate 10 verdrahtet v2 im produktiven Runner
+während der Abnahme über `TC_FORWARD_DRIZZLE_V2=1`; der Legacy-Pfad bleibt bis
+zum Abschluss der Produktionsmatrix erhalten. Ein Gate gilt erst dann als
+abgeschlossen, wenn alle Exit-Kriterien einschließlich der vollständigen
+End-to-End-Performance erfüllt sind.
 
 | Gate | Vorhandener Stand | Freigabe |
 |---:|---|---|
@@ -88,7 +89,7 @@ Gate-Abschluss, wenn alle Exit-Kriterien des jeweiligen Gates erfüllt sind.
 | 7 | v2-Artefaktschema mit `band_boundary_resume`, Atomic-Commit, fail-closed Inspection | **bestanden**; 21-Fall-Fehlermatrix, resume = memcmp-identisch zum Dauerlauf |
 | 8 | kompakte Koeffizienten + On-Device-Inversion, exakte `invert/subdivide`-Ports | **bestanden**; Depth-2/Inversionsstress/Discard-Parität nachgewiesen, 0,091 s/Frame |
 | 9 | Profilproduktion U/R/F/M über geteilter Clip-Maske, Quality-Side-Array, Ring-/Halo-Vertrag, CPU-Fusion auf committeten Bändern | **bestanden**; Device-Parität zum Orakel, RA ≤ 1,1 auf Produktionsplan, 19.954 B/px ≤ amendierter Plan, matched-star-Fallbacks |
-| 10 | Cutover (Produktionsläufe, 600-Frame-Gates, Runner-Verdrahtung) | offen |
+| 10 | Runner-/Store-/Fusion-Cutover, Host-Fallback und beschleunigter bandbegrenzter Inputpfad | **Preproduction bestanden**; 24-Frame-Realprovider: 28,930 s, 19,54× schneller als Legacy, Source/Q/Sample-RA 1,0068/1,0156/1,0068; A1/A2/L1/L2 noch ausstehend |
 
 Die affine Gate-0-Referenz ist versioniert in
 `docs/forward_drizzle_v2_gate0_affine_reference_2026-09-12.json`. Sie bindet
@@ -1593,14 +1594,63 @@ Levels 1–4 und Memory-Amendment. Artefakte:
 `forward_drizzle_v2_gate9_streaming_multiband_spec_2026-09-12.json`,
 `..._results_2026-09-12.jsonl`, `..._decision_2026-09-12.json`.
 
-### Gate 10: Cutover
+### Gate 10: Cutover — **Preproduction bestanden, Produktionsmatrix offen**
+
+Der erste A2-Versuch wurde nach sieben von 72 Bändern abgebrochen. Der Median
+lag bei 298,390 s/Band; der vollständige FORWARD_DRIZZLE wäre aus den gemessenen
+Intervallen mit 21.484,08 s zu erwarten gewesen. Ursache war nicht der robuste
+Kernel selbst, sondern die Produktionsverdrahtung: für jedes Band wurden alle
+610 vollständigen Source-/Sigma²-/Q-Ebenen erneut gelesen, expandiert,
+übertragen und über alle Source-Pixel gestartet. Die frühere Schranke
+`< 0,75 s/(Frame,Band)` begrenzte diesen Bandfaktor nicht und wurde deshalb als
+Cutover-Nachweis verworfen.
+
+Der neu geöffnete Performancepfad beseitigt den Faktor strukturell:
+
+- die globale SplitMix-Reservoirauswahl wird vorab berechnet; für A2 werden 58
+  statt 128 Slots reserviert, während der historische `>2R`-Overflow-Fallback
+  erhalten bleibt;
+- Q-Daten werden nur für ausgewählte Frames und als kompakte uint16/Veto-Daten
+  gelesen und übertragen; keine Source-aufgelöste Float-Expansion;
+- affine Frames verwenden analytische kanonische Source-Zeilenspannen. Source,
+  Sigma²-Nachbarschaft und Q-Zellen werden nur für tatsächlich bandfähige
+  Samples gelesen; auch Rotationen um etwa 10° bleiben unter RA 1,1;
+- Sigma² wird aus einmal gelesenen Sparse-Source-Nachbarschaften erzeugt; ein
+  vollständiger Sigma²-Recompute und -Upload pro Band entfällt;
+- lokale Frames konsumieren die committeten Geometry-Cache-Leaves direkt;
+  FORWARD_DRIZZLE wiederholt keine lokale Inversion/Subdivision;
+- ein CPU-/CUDA-Workspace, Stream und Eventset wird über alle Bänder
+  wiederverwendet; Host-Provider- und Driver-Hotpaths wachsen nach Pre-Reserve
+  nicht mehr;
+- die Telemetrie trennt Provider-I/O, Q-Zellen, H2D, Device-Zeit, Commit-Zeit,
+  tatsächliche Read-/Sample-Amplifikation und Workspace-Reservationen.
+
+Der identische 24-Frame-Realprovider-Vergleich auf M42 ergab:
+
+| Pfad | FORWARD_DRIZZLE |
+|---|---:|
+| altes v2 | 421,610 s |
+| Legacy CUDA | 565,153 s |
+| neues v2, kanonische Spans | **28,930 s** |
+
+Damit ist das neue v2 14,57× schneller als das alte v2 und 19,54× schneller
+als Legacy. Source-RA = 1,0068, Q-RA = 1,0156 und gestartete
+Sample-Amplifikation = 1,0068; beide Hotpath-Allokationszähler und globale
+Device-Synchronisationen sind 0, Workspace-Reservationen = 1. Der
+`checkpoint_hash` sowie die rekonstruierten R/G/B-Dateien sind gegenüber den
+rechteckigen und X-gekachelten optimierten Kontrollpfaden bitidentisch. Die
+konservative A2-Projektion beträgt 1.320,01 s und liegt unter der vorab
+eingefrorenen 2.148,408-s-Schranke.
+
+Noch erforderlich:
 
 - zwei frische affine und zwei frische lokale Produktionsläufe;
-- vollständige 600-Frame-Gates;
-- Resume- und Fehlerfälle;
-- Dokumentation, Schema und Report konsistent.
+- vollständige 600-Frame-Gates einschließlich realer lokaler Cache-Nutzung;
+- Resume- und Fehlerfälle auf dem finalen Produktionspfad;
+- Dokumentation, Schema und Report konsistent abschließen.
 
-**Exit:** Erst danach wird der alte Record-/Sort-/Kandidatenpfad entfernt. Er bleibt nicht als langfristiger Alternativmodus bestehen.
+**Exit:** Erst danach wird der alte Record-/Sort-/Kandidatenpfad entfernt. Er
+bleibt nicht als langfristiger Alternativmodus bestehen.
 
 ## 23. Architekturvergleich
 

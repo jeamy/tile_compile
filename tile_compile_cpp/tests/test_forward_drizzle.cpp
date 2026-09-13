@@ -1889,3 +1889,134 @@ TEST_CASE("plan-19.5 parity: CUDA affine leaf corners == CPU reference",
   INFO("bit-exact " << bit_exact << " / " << (n * 4));
   REQUIRE(bit_exact == n * 4);
 }
+
+namespace {
+
+// Brute-force oracle for drizzle_affine_source_spans: source pixel (sx,sy)
+// is active iff its transformed pixfrac droplet bounding box intersects the
+// full native target width and the band's native y interval.
+bool g8_brute_active(const WarpMatrix &m, float pixfrac, int sw, int sh,
+                     int canvas_w, int band_y0, int band_y1, int sx, int sy) {
+  const double a0 = m(0, 0), a1 = m(0, 1), a2 = m(0, 2);
+  const double a3 = m(1, 0), a4 = m(1, 1), a5 = m(1, 2);
+  const double half = pixfrac / 2.0;
+  const double rx = half * (std::fabs(a0) + std::fabs(a1));
+  const double ry = half * (std::fabs(a3) + std::fabs(a4));
+  const double qx = a0 * (sx + 0.5) + a1 * (sy + 0.5) + a2;
+  const double qy = a3 * (sx + 0.5) + a4 * (sy + 0.5) + a5;
+  (void)sw;
+  (void)sh;
+  return qx + rx > 0.0 && qx - rx < static_cast<double>(canvas_w) &&
+         qy + ry > static_cast<double>(band_y0) &&
+         qy - ry < static_cast<double>(band_y1);
+}
+
+}  // namespace
+
+TEST_CASE("affine source spans: analytic intervals equal brute-force droplet "
+          "membership (tranche 8)",
+          "[affine-spans]") {
+  const int sw = 24, sh = 18;
+  const double th = 10.0 * M_PI / 180.0;
+  const std::vector<WarpMatrix> mats = {
+      make_source_to_canvas(1, 0, 0, 0, 1, 0),                       // identity
+      make_source_to_canvas(std::cos(th), -std::sin(th), 5.0,
+                            std::sin(th), std::cos(th), 3.0),       // +10 deg
+      make_source_to_canvas(std::cos(th), std::sin(th), 5.0,
+                            -std::sin(th), std::cos(th), 3.0),      // -10 deg
+      make_source_to_canvas(1, 0.25, 2.0, 0.1, 1, 1.0),             // shear
+      make_source_to_canvas(1.4, 0, -3.0, 0, 0.7, 4.0),             // scale
+      make_source_to_canvas(1, 0, 11.5, 0, 1, -4.5),                // translation
+      make_source_to_canvas(std::cos(th), -std::sin(th), 30.0,
+                            std::sin(th), std::cos(th), -6.0),      // edge clip
+  };
+  for (std::size_t mi = 0; mi < mats.size(); ++mi) {
+    for (float pf : {0.2f, 0.8f, 1.0f}) {
+      RegistrationSamplingPlan plan;
+      plan.source_width = sw;
+      plan.source_height = sh;
+      plan.canvas_width_native = 40;
+      plan.canvas_height_native = 30;
+      plan.color_mode = ColorMode::MONO;
+      plan.frames.push_back(
+          make_affine_frame("f" + std::to_string(mi), 0, mats[mi]));
+      const std::vector<std::pair<int, int>> bands = {
+          {0, 30}, {0, 7}, {9, 5}, {14, 2}, {27, 3}, {29, 1}};
+      for (const auto &band : bands) {
+        const auto spans =
+            drizzle_affine_source_spans(plan, plan.frames[0], pf, band.first,
+                                        band.second);
+        // Spans are ascending sy with non-empty half-open x intervals and
+        // membership identical to the oracle at every coordinate.
+        int prev_y = -1;
+        for (const auto &s : spans) {
+          REQUIRE(s.source_y > prev_y);
+          REQUIRE(s.x_begin < s.x_end);
+          REQUIRE(s.x_begin >= 0);
+          REQUIRE(s.x_end <= sw);
+          prev_y = s.source_y;
+        }
+        std::size_t si = 0;
+        for (int sy = 0; sy < sh; ++sy) {
+          const bool row_active =
+              si < spans.size() && spans[si].source_y == sy;
+          for (int sx = 0; sx < sw; ++sx) {
+            const bool expect =
+                g8_brute_active(mats[mi], pf, sw, sh,
+                                plan.canvas_width_native, band.first,
+                                band.first + band.second, sx, sy);
+            const bool got =
+                row_active && sx >= spans[si].x_begin && sx < spans[si].x_end;
+            INFO("mat=" << mi << " pf=" << pf << " band=" << band.first
+                        << "/" << band.second << " sx=" << sx << " sy=" << sy);
+            REQUIRE(got == expect);
+          }
+          if (row_active) ++si;
+        }
+        REQUIRE(si == spans.size());
+      }
+    }
+  }
+}
+
+TEST_CASE("affine source spans: invalid inputs and caller-owned output "
+          "capacity",
+          "[affine-spans]") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 8;
+  plan.source_height = 8;
+  plan.canvas_width_native = 16;
+  plan.canvas_height_native = 16;
+  plan.color_mode = ColorMode::MONO;
+  plan.frames.push_back(
+      make_affine_frame("f", 0, make_source_to_canvas(1, 0, 0, 0, 1, 0)));
+  FrameSamplingTransform local = plan.frames[0];
+  local.has_smooth_local_model = true;
+  std::vector<DrizzleAffineSourceSpan> out;
+  drizzle_affine_source_spans_into(plan, local, 1.0f, 0, 16, out);
+  REQUIRE(out.empty());
+  drizzle_affine_source_spans_into(plan, plan.frames[0], 0.0f, 0, 16, out);
+  REQUIRE(out.empty());
+  drizzle_affine_source_spans_into(plan, plan.frames[0], 1.0f, -1, 4, out);
+  REQUIRE(out.empty());
+  drizzle_affine_source_spans_into(plan, plan.frames[0], 1.0f, 0, 0, out);
+  REQUIRE(out.empty());
+  drizzle_affine_source_spans_into(plan, plan.frames[0], 1.0f, 14, 4, out);
+  REQUIRE(out.empty());
+  // Caller-owned output: capacity is preserved across fills.
+  out.reserve(64);
+  const DrizzleAffineSourceSpan *p0 = out.data();
+  const std::size_t c0 = out.capacity();
+  drizzle_affine_source_spans_into(plan, plan.frames[0], 1.0f, 0, 16, out);
+  REQUIRE(out.size() == 8);
+  REQUIRE(out.data() == p0);
+  REQUIRE(out.capacity() == c0);
+  drizzle_affine_source_spans_into(plan, plan.frames[0], 1.0f, 4, 4, out);
+  REQUIRE(out.data() == p0);
+  // Band fully below the transform's reach: empty, not a throw.
+  RegistrationSamplingPlan plan2 = plan;
+  plan2.frames[0] =
+      make_affine_frame("g", 0, make_source_to_canvas(1, 0, 100, 0, 1, 100));
+  drizzle_affine_source_spans_into(plan2, plan2.frames[0], 1.0f, 0, 16, out);
+  REQUIRE(out.empty());
+}

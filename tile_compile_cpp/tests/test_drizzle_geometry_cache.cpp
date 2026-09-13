@@ -622,3 +622,161 @@ TEST_CASE("geometry cache: band-parallel reduction (workers 1/2/4) is "
     }
   }
 }
+
+TEST_CASE("geometry cache: read_stripe_leaves_into replays records, bounds "
+          "capacity and counts exact payload bytes (tranche 6)",
+          "[geometry-cache]") {
+  const int sw = 18, sh = 18, cw = 36, ch = 36, scale = 1;
+  const RegistrationSamplingPlan plan = local_plan(sw, sh, cw, ch, 1.0f, 2);
+  const float pf = 0.8f;
+  config::ReconstructionDrizzleConfig cfg;
+  cfg.internal_scale = scale;
+  cfg.pixfrac = pf;
+  const fs::path root = scratch_root("leafread");
+  const auto built = build_drizzle_geometry_cache(root, plan, cfg, {{pf}}, {},
+                                                  64ull << 20);
+  DrizzleGeometryCacheReader reader(root, built.identities, indices(2));
+  REQUIRE(built.frames.size() == 2u);
+  for (const auto &fs : built.frames) REQUIRE_FALSE(fs.excluded);
+
+  const int H = ch * scale, Wi = cw * scale;
+  // First, middle and last (short) stripes.
+  const int stripes[3][2] = {{0, 7}, {13, 9}, {H - 5, 5}};
+  std::uint64_t cap = 0;
+  for (const auto &st : stripes)
+    cap = std::max(cap, reader.max_stripe_leaf_records(pf, st[1]));
+  // The whole-canvas read below must also stay inside the reserve.
+  cap = std::max(cap, reader.max_stripe_leaf_records(pf, H));
+  REQUIRE(cap > 0);
+  // The legacy enumerator keeps its own row-block I/O contract: it must
+  // not run through (or be billed to) the v2 leaf-record reader.
+  {
+    const std::uint64_t lb0 = reader.leaf_record_bytes_read();
+    const std::uint64_t ec0 = reader.enumerate_call_count();
+    std::size_t emitted = 0;
+    reader.enumerate_stripe(
+        pf, plan.frames[0].source_index, scale, 0, H,
+        [&](int, int, int, int, int, int, const double *, const double *) {
+          ++emitted;
+        });
+    REQUIRE(emitted > 0);
+    REQUIRE(reader.enumerate_call_count() == ec0 + 1);
+    REQUIRE(reader.leaf_record_bytes_read() == lb0);
+  }
+
+  DrizzleCachedLeafWindow win;
+  win.leaves.reserve(static_cast<std::size_t>(cap));
+  // Row-block I/O scratch: one on-disk record block at a time.
+  win.io_scratch.reserve(
+      static_cast<std::size_t>(reader.max_row_record_count()) * 72u);
+  const DrizzleCachedLeaf *stable = win.leaves.data();
+  const std::uint8_t *stable_io = win.io_scratch.data();
+  const std::size_t leaves_cap = win.leaves.capacity();
+  const std::size_t io_cap = win.io_scratch.capacity();
+  REQUIRE(io_cap > 0);
+
+  for (int fi = 0; fi < 2; ++fi) {
+    const auto &f = plan.frames[static_cast<std::size_t>(fi)];
+    for (const auto &st : stripes) {
+      const int y0 = st[0], rows = st[1];
+      const auto ref = reference_stripe(plan, f, scale, pf, y0, rows);
+      const std::uint64_t b0 = reader.leaf_record_bytes_read();
+      reader.read_stripe_leaves_into(pf, f.source_index, scale, y0, rows,
+                                   win);
+      // Pre-reserved capacity is reused, never replaced.
+      REQUIRE(win.leaves.data() == stable);
+      REQUIRE(win.io_scratch.data() == stable_io);
+      REQUIRE(win.leaves.capacity() == leaves_cap);
+      REQUIRE(win.io_scratch.capacity() == io_cap);
+      // The row-index bound covers every stripe's retained count.
+      REQUIRE(reader.max_stripe_leaf_records(pf, rows) >= win.leaves.size());
+
+      // Replay enumerate_stripe's cell emission over the leaf records and
+      // compare it field-for-field to the legacy enumerator's output.
+      std::vector<Cell> cells;
+      std::vector<std::pair<std::uint32_t, std::uint32_t>> samples;
+      int bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
+      for (const DrizzleCachedLeaf &rec : win.leaves) {
+        samples.emplace_back(rec.source_x, rec.source_y);
+        const double xmin = *std::min_element(rec.x, rec.x + 4);
+        const double xmax = *std::max_element(rec.x, rec.x + 4);
+        const double ymin = *std::min_element(rec.y, rec.y + 4);
+        const double ymax = *std::max_element(rec.y, rec.y + 4);
+        const int x0 = static_cast<int>(std::clamp(
+            std::floor(xmin), 0.0, static_cast<double>(Wi)));
+        const int x1 = static_cast<int>(std::clamp(
+            std::ceil(xmax), 0.0, static_cast<double>(Wi)));
+        const int cy0 = static_cast<int>(
+            std::clamp(std::floor(ymin), static_cast<double>(y0),
+                       static_cast<double>(y0 + rows)));
+        const int cy1 = static_cast<int>(
+            std::clamp(std::ceil(ymax), static_cast<double>(y0),
+                       static_cast<double>(y0 + rows)));
+        for (int y = cy0; y < cy1; ++y)
+          for (int x = x0; x < x1; ++x) {
+            Cell cell{static_cast<int>(rec.source_x),
+                      static_cast<int>(rec.source_y),
+                      static_cast<int>(rec.channel),
+                      static_cast<int>(rec.leaf_order), x, y, {}, {}};
+            for (int i = 0; i < 4; ++i) {
+              cell.lx[i] = rec.x[i];
+              cell.ly[i] = rec.y[i];
+            }
+            cells.push_back(cell);
+          }
+        const int sx = static_cast<int>(rec.source_x);
+        if (samples.size() == 1) {
+          bx0 = sx;
+          by0 = static_cast<int>(rec.source_y);
+          bx1 = sx + 1;
+          by1 = static_cast<int>(rec.source_y) + 1;
+        } else {
+          bx0 = std::min(bx0, sx);
+          by0 = std::min(by0, static_cast<int>(rec.source_y));
+          bx1 = std::max(bx1, sx + 1);
+          by1 = std::max(by1, static_cast<int>(rec.source_y) + 1);
+        }
+      }
+      INFO("frame=" << fi << " stripe=" << y0 << "+" << rows
+                    << " leaves=" << win.leaves.size()
+                    << " ref=" << ref.size());
+      REQUIRE(cells.size() == ref.size());
+      for (std::size_t i = 0; i < ref.size(); ++i)
+        REQUIRE(cells[i] == ref[i]);
+
+      // Half-open source bbox over the retained records.
+      if (win.leaves.empty()) {
+        REQUIRE(win.source_x0 == 0);
+        REQUIRE(win.source_y0 == 0);
+        REQUIRE(win.source_x1 == 0);
+        REQUIRE(win.source_y1 == 0);
+        REQUIRE(win.unique_source_samples == 0);
+      } else {
+        REQUIRE(win.source_x0 == bx0);
+        REQUIRE(win.source_y0 == by0);
+        REQUIRE(win.source_x1 == bx1);
+        REQUIRE(win.source_y1 == by1);
+        std::sort(samples.begin(), samples.end());
+        const auto nu = static_cast<std::uint64_t>(
+            std::unique(samples.begin(), samples.end()) - samples.begin());
+        REQUIRE(win.unique_source_samples == nu);
+      }
+
+      // Payload-byte counter counts whole intersecting row blocks only.
+      const std::uint64_t delta = reader.leaf_record_bytes_read() - b0;
+      REQUIRE(delta % sizeof(double) == 0);
+      REQUIRE(delta % 72u == 0u);
+      REQUIRE(delta >= win.leaves.size() * 72u);
+    }
+
+    // A whole-canvas stripe reads every record block of the frame ---
+    // exactly leaves_written * 72 payload bytes.
+    const std::uint64_t b0 = reader.leaf_record_bytes_read();
+    reader.read_stripe_leaves_into(pf, f.source_index, scale, 0, H, win);
+    const auto &fst = built.frames[static_cast<std::size_t>(fi)];
+    REQUIRE(reader.leaf_record_bytes_read() - b0 ==
+            fst.leaves_written * 72u);
+    REQUIRE(win.unique_source_samples ==
+            fst.samples_total - fst.samples_discarded);
+  }
+}

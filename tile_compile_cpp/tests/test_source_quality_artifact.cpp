@@ -1,4 +1,6 @@
 #include "tile_compile/reconstruction/source_quality_artifact.hpp"
+#include "tile_compile/reconstruction/forward_drizzle.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_v2_production.hpp"
 #include "tile_compile/core/atomic_output.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/io/fits_io.hpp"
@@ -13,6 +15,8 @@
 #include <functional>
 #include <fstream>
 #include <vector>
+#include <algorithm>
+#include <cmath>
 using namespace tile_compile;
 using namespace tile_compile::reconstruction;
 using json=nlohmann::json;
@@ -329,4 +333,162 @@ TEST_CASE("quality artifact: extreme source indices cannot cause unbounded weigh
   const auto quality=build_quality_frame_weight_plan(f.plan,q,compute_source_quality_config_hash(cfg));
   REQUIRE_THROWS_WITH(resolve_quality_frame_weights(quality,f.plan,cfg,8),
       "SOURCE_QUALITY_WEIGHT_VECTOR_MEMORY_BUDGET");
+}
+
+TEST_CASE("source cache: read_rect_into fills reusable buffers with exact "
+          "window reads",
+          "[source-predecessors][cache-regions]") {
+  const int W = 37, H = 29;  // odd dims; rects non-aligned to anything
+  BlkCacheDir dir("src-cache-rectinto", W, H, 2,
+                  [](size_t i, int y, int x) {
+                    return i * 0.25f + y * 100.0f + x;
+                  });
+  VerifiedNormalizedSourceCache cache(dir.root, dir.plan, 64);
+  const Matrix2Df full = cache.load(0);
+
+  const std::array<std::array<int, 4>, 8> rects{{
+      {{0, H, 0, W}},       // whole
+      {{3, 11, 5, 9}},      // interior, odd
+      {{0, 1, 0, 1}},       // 1x1 origin
+      {{H - 2, H, W - 3, W}},
+      {{7, 7, 0, W}},       // empty (y1<=y0)
+      {{0, H, 20, 20}},     // empty (x1<=x0)
+      {{-5, 8, -3, 6}},     // clamped at the origin
+      {{H - 4, H + 9, W - 6, W + 9}},  // clamped at the far edge
+  }};
+  std::vector<float> buf;
+  buf.reserve(static_cast<size_t>(W) * H);
+  const float *const buf_ptr = buf.data();
+  const std::size_t buf_cap = buf.capacity();
+  cache.reset_io_counters();
+  std::uint64_t expect_bytes = 0, expect_calls = 0;
+  for (const auto &r : rects) {
+    const int cy0 = std::max(0, r[0]), cy1 = std::min(H, r[1]);
+    const int cx0 = std::max(0, r[2]), cx1 = std::min(W, r[3]);
+    const Matrix2Df ref = cache.read_rect(0, r[0], r[1], r[2], r[3]);
+    const auto bytes0 = cache.bytes_read();
+    cache.read_rect_into(0, r[0], r[1], r[2], r[3], buf);
+    const int rows = std::max(0, cy1 - cy0), cols = std::max(0, cx1 - cx0);
+    REQUIRE(buf.size() == static_cast<size_t>(rows) * cols);
+    // Pre-reserved output must never reallocate across varying sizes.
+    REQUIRE(buf.data() == buf_ptr);
+    REQUIRE(buf.capacity() == buf_cap);
+    for (int y = 0; y < ref.rows(); ++y)
+      for (int x = 0; x < ref.cols(); ++x)
+        REQUIRE(same_bits(buf[static_cast<size_t>(y) * cols + x],
+                          ref(y, x)));
+    // Only the [x0,x1) span of each requested row is read (no full rows).
+    const std::uint64_t span =
+        static_cast<std::uint64_t>(rows) * cols * sizeof(float);
+    if (rows > 0 && cols > 0) ++expect_calls;
+    if (rows > 0 && cols > 0) expect_bytes += 2 * span;
+    REQUIRE(cache.bytes_read() - bytes0 ==
+            (rows > 0 && cols > 0 ? span : 0));
+  }
+  // Each non-empty rect counts once for the reference read_rect (which
+  // delegates to read_rect_into) and once for the direct call.
+  REQUIRE(cache.rect_read_calls() == 2 * expect_calls);
+  REQUIRE(cache.bytes_read() == expect_bytes);
+  // An unknown index fails closed exactly like read_rect.
+  REQUIRE_THROWS(cache.read_rect_into(9, 0, 1, 0, 1, buf));
+}
+
+TEST_CASE("source cache: read_row_intervals_into packs ragged rows exactly "
+          "(tranche 8)", "[source-predecessors]") {
+  BlkCacheDir dir("tc8-intervals", 24, 16, 1,
+                  [](size_t, int y, int x) {
+                    return static_cast<float>(y * 100 + x);
+                  });
+  VerifiedNormalizedSourceCache cache(dir.root, dir.plan, 8);
+  std::vector<DrizzleAffineSourceSpan> spans = {
+      {2, 3, 9}, {5, 0, 24}, {11, 7, 8}};
+  std::vector<float> out;
+  out.reserve(64);
+  const float *p0 = out.data();
+  cache.read_row_intervals_into(0, spans, out);
+  REQUIRE(out.size() == 6 + 24 + 1);
+  for (int i = 0; i < 6; ++i)
+    REQUIRE(out[i] == static_cast<float>(200 + 3 + i));
+  for (int i = 0; i < 24; ++i)
+    REQUIRE(out[6 + i] == static_cast<float>(500 + i));
+  REQUIRE(out[30] == static_cast<float>(1100 + 7));
+  // Exact byte accounting: sum of interval lengths x 4, one call.
+  REQUIRE(cache.bytes_read() == 31u * sizeof(float));
+  REQUIRE(cache.rect_read_calls() == 1);
+  // Capacity preserved across a second read; invalid inputs fail closed.
+  cache.read_row_intervals_into(0, spans, out);
+  REQUIRE(out.data() == p0);
+  REQUIRE(cache.rect_read_calls() == 2);
+  std::vector<DrizzleAffineSourceSpan> bad = {{20, 0, 4}};
+  REQUIRE_THROWS(cache.read_row_intervals_into(0, bad, out));
+  bad = {{2, 9, 3}};
+  REQUIRE_THROWS(cache.read_row_intervals_into(0, bad, out));
+  bad = {{2, 0, 25}};
+  REQUIRE_THROWS(cache.read_row_intervals_into(0, bad, out));
+  bad = {{5, 0, 4}, {3, 0, 4}};  // not ascending
+  REQUIRE_THROWS(cache.read_row_intervals_into(0, bad, out));
+}
+
+TEST_CASE("tranche 8 ragged samples: storage spans + sample builder equal "
+          "the whole-plane oracle bitwise",
+          "[source-predecessors]") {
+  const int sw = 20, sh = 14;
+  BlkCacheDir dir("tc8-samples", sw, sh, 1, [](size_t, int y, int x) {
+    return static_cast<float>(std::sin(0.37 * x + 0.11 * y) * 40 + y + x);
+  });
+  VerifiedNormalizedSourceCache cache(dir.root, dir.plan, 8);
+  Matrix2Df full(sh, sw);
+  for (int y = 0; y < sh; ++y)
+    for (int x = 0; x < sw; ++x)
+      full(y, x) = static_cast<float>(std::sin(0.37 * x + 0.11 * y) * 40 +
+                                      y + x);
+  const double sig_n = 0.05, sig_reg = 0.3, half = 0.4;
+  const auto oracle =
+      forward_drizzle_v2_sigma2_plane(full, sig_n, sig_reg, half);
+  // A rotated transform so the spans are genuinely ragged.
+  registration::FrameSamplingTransform f = dir.plan.frames[0];
+  const double th = 10.0 * M_PI / 180.0;
+  f.source_to_canvas(0, 0) = static_cast<float>(std::cos(th));
+  f.source_to_canvas(0, 1) = static_cast<float>(-std::sin(th));
+  f.source_to_canvas(0, 2) = 3.0f;
+  f.source_to_canvas(1, 0) = static_cast<float>(std::sin(th));
+  f.source_to_canvas(1, 1) = static_cast<float>(std::cos(th));
+  f.source_to_canvas(1, 2) = 2.0f;
+  std::vector<DrizzleAffineSourceSpan> active, storage;
+  std::vector<float> storage_vals;
+  std::vector<int> ra, rs;
+  std::vector<std::size_t> soff;
+  std::vector<ForwardDrizzleV2SourceSample> samples;
+  std::uint64_t total_storage_elems = 0;
+  for (int by = 0; by < dir.plan.canvas_height_native; by += 4) {
+    const int rows = std::min(4, dir.plan.canvas_height_native - by);
+    drizzle_affine_source_spans_into(dir.plan, f, 0.8f, by, rows, active);
+    if (active.empty()) continue;
+    forward_drizzle_v2_affine_storage_spans(active, sw, sh, true, ra, storage);
+    cache.read_row_intervals_into(0, storage, storage_vals);
+    for (const auto &s : storage)
+      total_storage_elems +=
+          static_cast<std::uint64_t>(s.x_end - s.x_begin);
+    forward_drizzle_v2_build_affine_samples(
+        active, storage, storage_vals, true, sig_n, sig_reg, half, sw, sh,
+        rs, soff, samples);
+    std::size_t prev = 0;
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+      const auto &smp = samples[i];
+      if (i > 0)
+        REQUIRE(smp.source_y * sw + smp.source_x > prev);
+      prev = smp.source_y * sw + smp.source_x;
+      const int sx = static_cast<int>(smp.source_x);
+      const int sy = static_cast<int>(smp.source_y);
+      REQUIRE(smp.value == full(sy, sx));
+      REQUIRE(smp.sigma2 ==
+              oracle[static_cast<std::size_t>(sy) * sw + sx]);
+    }
+  }
+  INFO("storage elems " << total_storage_elems << " vs " << sw * sh);
+  // sigma2 absent => sigma2 field is 0 and never read as present.
+  forward_drizzle_v2_build_affine_samples(
+      active, storage, storage_vals, false, sig_n, sig_reg, half, sw, sh,
+      rs, soff, samples);
+  for (const auto &smp : samples) REQUIRE(smp.sigma2 == 0.0f);
 }

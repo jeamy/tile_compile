@@ -159,6 +159,25 @@ struct SourceQualityFileKeyHash {
     return h;
   }
 };
+// Raw storage-grid window of one (stream, frame) without float expansion:
+// the uint16 cell values and veto flags covering the requested source rect,
+// plus the absolute storage-grid origin/dims/divisor needed to decode a
+// source pixel by (x / divisor - storage_x_begin, y / divisor -
+// storage_y_begin). The source_* fields record the clamped requested rect.
+struct SourceQualityPackedWindow {
+  int storage_x_begin = 0;
+  int storage_y_begin = 0;
+  int storage_width = 0;
+  int storage_height = 0;
+  int storage_divisor = 1;
+  int source_x_begin = 0;
+  int source_y_begin = 0;
+  int source_width = 0;
+  int source_height = 0;
+  std::vector<std::uint16_t> cells;   // storage_width*storage_height
+  std::vector<std::uint8_t> veto;     // same extent
+};
+
 class SourceQualityMapCacheReader {
  public:
   SourceQualityMapCacheReader(fs::path root,
@@ -190,6 +209,42 @@ class SourceQualityMapCacheReader {
   // clamped to the source geometry; an empty rect returns Matrix2Df(0, 0).
   Matrix2Df read_rect(const std::string &stream, std::size_t source_index,
                       int y0, int y1, int x0, int x1) const;
+
+  // Compact rectangle read: identical coverage/counters as read_rect
+  // (bin_loads, bin_cells_decoded) but returns the raw window cells/veto
+  // without materialising the float map --- expanded_floats is NOT
+  // incremented. Expanding the returned window per source pixel reproduces
+  // read_rect() exactly. An empty rect returns a zero-sized window.
+  SourceQualityPackedWindow read_packed_rect(const std::string &stream,
+                                             std::size_t source_index,
+                                             int y0, int y1, int x0,
+                                             int x1) const;
+
+  // Same contract as read_packed_rect, but fills a reusable caller window:
+  // metadata fields are reset and cells/veto are resized (capacity kept).
+  // Storage rows are read straight into the output spans --- no BinWindow,
+  // row scratch buffer, or returned-vector copy. Counters identical.
+  void read_packed_rect_into(const std::string &stream,
+                             std::size_t source_index, int y0, int y1,
+                             int x0, int x1,
+                             SourceQualityPackedWindow &out) const;
+
+  // Tranche 8: aligned sample read for the canonical ragged affine path.
+  // `spans` is the canonical ascending-source_y list of half-open row
+  // intervals (non-decreasing storage rows required). The .bin is opened
+  // once; for each touched storage row the union x interval covering every
+  // needed cell is seek-read exactly once into `scratch` (divisor-2
+  // duplicate source rows share the same storage row without a second
+  // read). `cells`/`veto` are filled 1:1 with the active samples in span
+  // order: sample (sx, sy) gets the cell at (sy/divisor, sx/divisor).
+  // expanded_floats stays untouched; bin_cells_decoded counts the unique
+  // storage cells read, not the aligned output length. All buffers keep
+  // capacity (pre-reserve for an allocation-free hot path).
+  void read_packed_samples_into(
+      const std::string &stream, std::size_t source_index,
+      const std::vector<DrizzleAffineSourceSpan> &spans,
+      std::vector<std::uint16_t> &cells, std::vector<std::uint8_t> &veto,
+      SourceQualityPackedWindow &scratch) const;
 
   // §30.81 step 3a-2 / 3a-2b: I/O accounting for the read_rect path.
   //   bin_loads        .bin files opened (one per non-empty read_rect call)

@@ -94,6 +94,10 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
     int, int, int, int, const ForwardDrizzleV2KernelConfig &) {
   return false;
 }
+bool ForwardDrizzleV2CudaPrototypeKernel::begin_band(
+    int, const ForwardDrizzleV2KernelConfig &) {
+  return false;
+}
 bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame(
     const double *, const float *, const float *, std::uint64_t,
     const ForwardDrizzleV2FrameQuality *,
@@ -104,6 +108,53 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_local(
     const double *, const ForwardDrizzleV2LocalWarp &, const float *,
     const float *, std::uint64_t, const ForwardDrizzleV2FrameQuality *,
     const ForwardDrizzleV2FrameMeta *) {
+  return false;
+}
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_window(
+    const double *, const ForwardDrizzleV2SourceWindow &, const float *,
+    const float *, const ForwardDrizzleV2Sigma2FrameModel *, std::uint64_t,
+    const ForwardDrizzleV2FrameQuality *,
+    const ForwardDrizzleV2FrameMeta *) {
+  return false;
+}
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_local_window(
+    const double *, const ForwardDrizzleV2LocalWarp &,
+    const ForwardDrizzleV2SourceWindow &, const float *, const float *,
+    const ForwardDrizzleV2Sigma2FrameModel *, std::uint64_t,
+    const ForwardDrizzleV2FrameQuality *,
+    const ForwardDrizzleV2FrameMeta *) {
+  return false;
+}
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_cached_leaves(
+    const double *, const ForwardDrizzleV2SourceWindow &, const float *,
+    const float *, const ForwardDrizzleV2Sigma2FrameModel *,
+    const ForwardDrizzleV2CachedLeaf *, std::size_t, std::uint64_t,
+    std::uint64_t, const ForwardDrizzleV2FrameQuality *,
+    const ForwardDrizzleV2FrameMeta *) {
+  return false;
+}
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_affine_samples(
+    const double *, const ForwardDrizzleV2SourceSample *, std::size_t, bool,
+    const ForwardDrizzleV2AlignedQuality *, std::uint64_t,
+    const ForwardDrizzleV2FrameMeta *) {
+  return false;
+}
+bool ForwardDrizzleV2CudaPrototypeKernel::begin_affine_frame(
+    std::uint64_t, const ForwardDrizzleV2FrameMeta *) {
+  return false;
+}
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_affine_piece(
+    const double *, int, int, const ForwardDrizzleV2SourceWindow &,
+    const float *, const float *, const ForwardDrizzleV2Sigma2FrameModel *,
+    const ForwardDrizzleV2FrameQuality *) {
+  return false;
+}
+bool ForwardDrizzleV2CudaPrototypeKernel::finish_affine_frame(
+    std::uint64_t) {
+  return false;
+}
+bool ForwardDrizzleV2CudaPrototypeKernel::skip_frame(
+    std::uint64_t, const ForwardDrizzleV2FrameMeta *) {
   return false;
 }
 bool ForwardDrizzleV2CudaPrototypeKernel::finalize(

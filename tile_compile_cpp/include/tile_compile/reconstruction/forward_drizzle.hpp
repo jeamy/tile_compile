@@ -256,6 +256,39 @@ DrizzleSourceScanBox drizzle_source_scan_box(
     const registration::FrameSamplingTransform &frame, int internal_scale,
     int y_begin, int rows, int x_begin = 0, int cols = -1);
 
+// Tranche 8: canonical ragged affine source-row span. One half-open source
+// x interval per active source row; the span list is ordered by ascending
+// source_y and is the tight (non-axis-aligned) analog of
+// drizzle_source_scan_box: a source pixel is in its row's interval iff its
+// pixfrac droplet BBOX (the four-corner box, not just the mapped center)
+// can intersect the full native target width x the native band y window.
+struct DrizzleAffineSourceSpan {
+  int source_y = 0;
+  int x_begin = 0;
+  int x_end = 0;  // half-open
+};
+
+// Returns the active spans for a pure-affine frame and native band
+// [band_y_begin_native, +band_rows_native) over the FULL native canvas
+// width. Only affine-valid frames produce spans; empty/local/invalid frames
+// return an empty list. Membership is exact: pixel (sx, sy) is included iff
+//   center_qx=a0*(sx+.5)+a1*(sy+.5)+a2, radius_x=half*(|a0|+|a1|) (same y),
+//   qx_max>0 && qx_min<canvas_width && qy_max>band_y0 && qy_min<band_y1
+// evaluated per integer source coordinate. Used by the v2 production
+// provider for exact ragged source/Q reads and launched-sample accounting.
+std::vector<DrizzleAffineSourceSpan> drizzle_affine_source_spans(
+    const registration::RegistrationSamplingPlan &plan,
+    const registration::FrameSamplingTransform &frame, float pixfrac,
+    int band_y_begin_native, int band_rows_native);
+
+// Same result written into caller-owned storage (capacity preserved across
+// calls) for allocation-free provider hot paths.
+void drizzle_affine_source_spans_into(
+    const registration::RegistrationSamplingPlan &plan,
+    const registration::FrameSamplingTransform &frame, float pixfrac,
+    int band_y_begin_native, int band_rows_native,
+    std::vector<DrizzleAffineSourceSpan> &out);
+
 // One accepted leaf of a (possibly subdivided) source-pixel droplet: a convex
 // quadrilateral in internal-canvas coordinates. Exported for the plan-11.14
 // geometry cache builder, which must produce byte-identical leaves.

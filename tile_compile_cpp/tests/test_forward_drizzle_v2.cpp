@@ -1,3 +1,4 @@
+#include "tile_compile/reconstruction/drizzle_geometry_cache.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_contrib_list.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2_cpu.hpp"
@@ -30,6 +31,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace tile_compile;
@@ -4997,6 +4999,83 @@ TEST_CASE("forward drizzle v2 gate10 host kernel reservoir sampling N > R",
   REQUIRE(kernel.stats().reservoir_kept_total > 0);
 }
 
+TEST_CASE("forward drizzle v2 selected frame orders are the exact keep set",
+          "[forward-drizzle-v2]") {
+  // Golden keep set for the shared splitmix64 predicate.
+  const std::vector<std::uint64_t> want{
+      9,   35,  46,  48,  54,  60,  71,  74,  89,  95,  104, 108, 109,
+      111, 115, 143, 152, 153, 163, 190, 205, 207, 219, 220, 234, 252,
+      254, 275, 290, 295, 302, 304, 306, 313, 314, 320, 331, 334, 343,
+      350, 355, 361, 373, 389, 390, 400, 401, 404, 409, 479, 492, 513,
+      519, 531, 545, 551, 596, 605};
+  REQUIRE(forward_drizzle_v2_selected_frame_orders(
+              610, 64, 11400714819323198485ULL) == want);
+
+  // N <= R selects every order, ascending.
+  const auto all = forward_drizzle_v2_selected_frame_orders(
+      5, 64, 0x9e3779b97f4a7c15ULL);
+  REQUIRE(all == std::vector<std::uint64_t>{0, 1, 2, 3, 4});
+
+  REQUIRE_THROWS_AS(forward_drizzle_v2_selected_frame_orders(0, 64, 0),
+                    std::invalid_argument);
+  REQUIRE_THROWS_AS(forward_drizzle_v2_selected_frame_orders(10, 0, 0),
+                    std::invalid_argument);
+}
+
+TEST_CASE("forward drizzle v2 keeps the historical 2R overflow fallback",
+          "[forward-drizzle-v2]") {
+  // Rare keep sets can exceed 2*R; the slot count must stay at the
+  // historical cap so the kept > slots overflow fallback survives.
+  // Bounded deterministic seed search for a (N=3, R=1) keep set > 2.
+  std::uint64_t seed = 0;
+  std::vector<std::uint64_t> sel;
+  for (; seed < 4096; ++seed) {
+    sel = forward_drizzle_v2_selected_frame_orders(3, 1, seed);
+    if (sel.size() > 2) break;
+  }
+  REQUIRE(sel.size() == 3);
+
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::RGGB, 0, 0, 1);
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = 1;
+  kcfg.reservoir_size = 1;
+  kcfg.reservoir_seed = seed;
+  kcfg.stream_length = 3;
+  kcfg.half = 0.5 * f.cfg.pixfrac;
+  kcfg.bayer_pattern = static_cast<int>(BayerPattern::RGGB);
+  kcfg.mono = true;
+  kcfg.sigma2_plane = false;
+
+  ForwardDrizzleV2CpuKernel kernel;
+  REQUIRE(kernel.reserve(nc, nr, f.plan.source_width, f.plan.source_height,
+                         kcfg));
+  // Planned slots remain the historical 2*R.
+  REQUIRE(kernel.host_bytes_per_native_pixel() ==
+          forward_drizzle_v2_cpu_bytes_per_native_pixel(1, 1, 2, false,
+                                                      false));
+  // Three identical frames: every covered pixel collects all three kept
+  // candidates and overflows the two slots.
+  const auto &m = f.plan.frames[0].source_to_canvas;
+  const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1), m(1, 2)};
+  for (std::uint64_t fr = 0; fr < 3; ++fr)
+    REQUIRE(kernel.accumulate_frame(a6, f.images[0].data(), nullptr, fr));
+  std::vector<ForwardDrizzleV2PixelResult> got(nplane);
+  std::uint64_t dense = 0;
+  REQUIRE(kernel.finalize(got.data(), nullptr, &dense));
+  bool saw_overflow = false;
+  for (const auto &r : got) {
+    if (r.contributors == 0) continue;
+    REQUIRE(r.robust_state ==
+            static_cast<std::uint8_t>(
+                ForwardDrizzleV2RobustState::reservoir_overflow_fallback));
+    saw_overflow = true;
+  }
+  REQUIRE(saw_overflow);
+}
+
 TEST_CASE("forward drizzle v2 gate10 host kernel mixed local stream parity",
           "[forward-drizzle-v2][gate10]") {
   for (int scale : {1, 2}) {
@@ -5464,6 +5543,17 @@ TEST_CASE("forward drizzle v2 gate10 host kernel matches the device",
     for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
       for (BayerPattern pattern : patterns) {
         auto f = make_fixture(mode, pattern, 1, -1, scale);
+        // N > R stream so the reservoir keep set is a strict subset.
+        const std::size_t keep_n = f.plan.frames.size();
+        for (std::size_t i = keep_n; i < 80; ++i) {
+          FrameSamplingTransform frame = f.plan.frames[i % keep_n];
+          frame.frame_id = "v2-extra-" + std::to_string(i);
+          frame.source_index = i;
+          frame.source_to_canvas(0, 2) +=
+              static_cast<float>(0.01 * (i - keep_n));
+          f.plan.frames.push_back(frame);
+          f.images.push_back(f.images[i % keep_n]);
+        }
         const int nc = f.plan.canvas_width_native;
         const int nr = f.plan.canvas_height_native;
         const int channels = mode == ColorMode::MONO ? 1 : 3;
@@ -5481,6 +5571,20 @@ TEST_CASE("forward drizzle v2 gate10 host kernel matches the device",
         cy[9] = -0.6f;
         f.plan.frames[1] = v2_local_frame(
             f.plan.frames[1], v2_local_model(nr, nc, cx, cy));
+
+        // Nontrivial quality: four streams present on every frame.
+        std::vector<float> qc(n_src), q0(n_src), q1(n_src), qa(n_src);
+        for (std::size_t i = 0; i < n_src; ++i) {
+          qc[i] = 0.5f + 0.25f * static_cast<float>(i % 7);
+          q0[i] = 0.8f;
+          q1[i] = 0.6f;
+          qa[i] = static_cast<float>(i % 11) * 0.1f;
+        }
+        ForwardDrizzleV2FrameQuality quality;
+        quality.q_composite = qc.data();
+        quality.q_scale0 = q0.data();
+        quality.q_scale1 = q1.data();
+        quality.q_artifact = qa.data();
 
         ForwardDrizzleV2KernelConfig kcfg;
         kcfg.internal_scale = scale;
@@ -5513,10 +5617,10 @@ TEST_CASE("forward drizzle v2 gate10 host kernel matches the device",
             if (frame.has_smooth_local_model)
               REQUIRE(kernel.accumulate_frame_local(
                   a6, v2_warp_descriptor(frame), f.images[fr].data(),
-                  s2.data(), fr, nullptr, &meta[fr]));
+                  s2.data(), fr, &quality, &meta[fr]));
             else
               REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(),
-                                              s2.data(), fr, nullptr,
+                                              s2.data(), fr, &quality,
                                               &meta[fr]));
           }
           std::uint64_t dense = 0;
@@ -5535,6 +5639,22 @@ TEST_CASE("forward drizzle v2 gate10 host kernel matches the device",
         REQUIRE(dense_c == dense_g);
         REQUIRE(cpu.stats().local_samples_discarded ==
                 gpu.stats().local_samples_discarded);
+        // Quality work ran exactly for the deterministic keep set on both
+        // backends.
+        const auto selected = forward_drizzle_v2_selected_frame_orders(
+            f.plan.frames.size(), kcfg.reservoir_size,
+            kcfg.reservoir_seed);
+        REQUIRE(selected.size() < f.plan.frames.size());
+        REQUIRE(cpu.stats().quality_frames_processed == selected.size());
+        REQUIRE(gpu.stats().quality_frames_processed == selected.size());
+        REQUIRE(cpu.stats().quality_bytes_uploaded ==
+                selected.size() * 4 * n_src * sizeof(float));
+        REQUIRE(gpu.stats().quality_bytes_uploaded ==
+                selected.size() * 4 * n_src * sizeof(float));
+        REQUIRE(cpu.stats().source_samples_launched ==
+                f.plan.frames.size() * n_src);
+        REQUIRE(gpu.stats().source_samples_launched ==
+                f.plan.frames.size() * n_src);
         for (std::size_t pc = 0; pc < nplane * channels; ++pc) {
           const auto &h = hc[pc];
           const auto &d = dev[pc];
@@ -5744,11 +5864,12 @@ ForwardDrizzleV2RunPlan g10_driver_plan(const Fixture &f, int band_rows,
 ForwardDrizzleV2FrameProvider g10_provider(const Fixture &f,
                                            const std::vector<float> &s2,
                                            const std::vector<ForwardDrizzleV2FrameMeta> *meta) {
-  return [&f, &s2, meta](std::uint64_t order,
-                         ForwardDrizzleV2FrameInput &out) {
+  return [&f, &s2, meta](int, int, std::uint64_t order,
+                         const ForwardDrizzleV2FramePieceSink &sink) {
     if (order >= f.plan.frames.size()) return false;
     const auto &frame = f.plan.frames[order];
     const auto &m = frame.source_to_canvas;
+    ForwardDrizzleV2FrameInput out;
     const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
                           m(1, 0), m(1, 1), m(1, 2)};
     std::copy_n(a6, 6, out.affine6);
@@ -5756,8 +5877,9 @@ ForwardDrizzleV2FrameProvider g10_provider(const Fixture &f,
     if (out.has_local_model) out.warp = v2_warp_descriptor(frame);
     out.source = f.images[order].data();
     out.sigma2 = s2.data();
+    out.source_window = {0, 0, f.plan.source_width, f.plan.source_height};
     if (meta) out.meta = (*meta)[order];
-    return true;
+    return sink(out);
   };
 }
 
@@ -6277,8 +6399,21 @@ TEST_CASE("forward drizzle v2 gate10 production plan binds predecessors",
   }
 
   SECTION("band geometry follows the deterministic budgets") {
+    // The planner sizes reservoir slots by the exact global keep set, not
+    // 2*R.
+    const auto selected = forward_drizzle_v2_selected_frame_orders(
+        f.plan.frames.size(), 64, 11400714819323198485ULL);
     const std::size_t bpp = forward_drizzle_v2_cpu_bytes_per_native_pixel(
-        1, 1, 64, true, true);
+        1, 1, static_cast<int>(std::max<std::size_t>(1, selected.size())),
+        true, true);
+    // N=610 keeps 58 slots; the old 2*R sizing reserved 128.
+    const auto sel610 = forward_drizzle_v2_selected_frame_orders(
+        610, 64, 11400714819323198485ULL);
+    REQUIRE(sel610.size() == 58);
+    REQUIRE(forward_drizzle_v2_cpu_bytes_per_native_pixel(
+                1, 1, static_cast<int>(sel610.size()), true, true) <
+            forward_drizzle_v2_cpu_bytes_per_native_pixel(1, 1, 128, true,
+                                                          true));
     const std::size_t row_bytes = bpp * base.native_width;
     // host_budget/2 bounds the band workspace (minus the meta table).
     REQUIRE(static_cast<std::size_t>(base.band_rows) * row_bytes <=
@@ -6581,5 +6716,2610 @@ TEST_CASE("forward drizzle v2 gate10 fusion fails closed",
         fuse_multiband_v2_store_to_image(fx.root, detected,
                                          fx.root / "o.fits", mb, 2, 256),
         std::runtime_error);
+  }
+}
+
+TEST_CASE("forward drizzle v2 sigma2 rect slices the whole-plane oracle",
+          "[forward-drizzle-v2]") {
+  const int sw = 9, sh = 7;
+  Matrix2Df src(sh, sw);
+  for (int y = 0; y < sh; ++y)
+    for (int x = 0; x < sw; ++x)
+      src(y, x) = static_cast<float>(5.0 + 0.9 * x + 1.1 * y +
+                                     std::sin(0.7 * x - 0.3 * y));
+  src(2, 3) = std::numeric_limits<float>::quiet_NaN();
+  src(0, 4) = std::numeric_limits<float>::quiet_NaN();
+  src(6, 0) = -1.0f;  // negative -> non-finite plane value
+  const auto whole = forward_drizzle_v2_sigma2_plane(src, 0.3, 0.05, 0.4);
+  REQUIRE(whole.size() == static_cast<std::size_t>(sw) * sh);
+
+  // Interior + every true source border + NaN-adjacent rects.
+  const int rects[][4] = {{2, 2, 4, 3}, {0, 0, 3, 2}, {6, 0, 3, 4},
+                          {0, 5, 4, 2}, {5, 4, 4, 3}, {0, 0, 9, 7},
+                          {1, 1, 4, 3}};
+  for (const auto &rc : rects) {
+    const int x0 = rc[0], y0 = rc[1], w = rc[2], h = rc[3];
+    const int hx0 = std::max(0, x0 - 1), hy0 = std::max(0, y0 - 1);
+    const int hx1 = std::min(sw, x0 + w + 1), hy1 = std::min(sh, y0 + h + 1);
+    Matrix2Df win(hy1 - hy0, hx1 - hx0);
+    for (int r = 0; r < win.rows(); ++r)
+      for (int c = 0; c < win.cols(); ++c)
+        win(r, c) = src(hy0 + r, hx0 + c);
+    const auto rect = forward_drizzle_v2_sigma2_rect(
+        win, hx0, hy0, x0, y0, w, h, sw, sh, 0.3, 0.05, 0.4);
+    REQUIRE(rect.size() == static_cast<std::size_t>(w) * h);
+    for (int r = 0; r < h; ++r)
+      for (int c = 0; c < w; ++c) {
+        const float want =
+            whole[static_cast<std::size_t>(y0 + r) * sw + x0 + c];
+        const float got = rect[static_cast<std::size_t>(r) * w + c];
+        REQUIRE(std::memcmp(&got, &want, sizeof(float)) == 0);
+      }
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 host kernel source windows match "
+          "full source",
+          "[forward-drizzle-v2][gate10]") {
+  const BayerPattern patterns[] = {BayerPattern::RGGB, BayerPattern::BGGR,
+                                   BayerPattern::GRBG, BayerPattern::GBRG};
+  for (int scale : {1, 2})
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC})
+      for (BayerPattern pattern : patterns) {
+        auto f = make_fixture(mode, pattern, 1, -1, scale);
+        const int nc = f.plan.canvas_width_native;
+        const int nr = f.plan.canvas_height_native;
+        const int channels = mode == ColorMode::MONO ? 1 : 3;
+        const int sw = f.plan.source_width, sh = f.plan.source_height;
+        const std::size_t n_src = static_cast<std::size_t>(sw) * sh;
+        std::vector<float> s2(n_src);
+        for (std::size_t i = 0; i < n_src; ++i)
+          s2[i] = 0.01f + 0.0001f * static_cast<float>(i % 97);
+
+        auto make_kcfg = [&](int y_begin) {
+          ForwardDrizzleV2KernelConfig k;
+          k.internal_scale = scale;
+          k.stream_length = f.plan.frames.size();
+          k.half = 0.5 * f.cfg.pixfrac;
+          k.bayer_pattern = static_cast<int>(pattern);
+          k.cfa_origin_x = f.plan.cfa_origin_x;
+          k.cfa_origin_y = f.plan.cfa_origin_y;
+          k.mono = mode == ColorMode::MONO;
+          k.canvas_width_native = nc;
+          k.canvas_height_native = nr;
+          k.band_origin_y_native = y_begin;
+          return k;
+        };
+        auto pack = [](const Matrix2Df &img, int x0, int y0, int w, int h) {
+          std::vector<float> out(static_cast<std::size_t>(w) * h);
+          for (int r = 0; r < h; ++r)
+            for (int c = 0; c < w; ++c)
+              out[static_cast<std::size_t>(r) * w + c] = img(y0 + r, x0 + c);
+          return out;
+        };
+        auto run = [&](int y_begin, int rows, bool windowed) {
+          ForwardDrizzleV2CpuKernel kernel;
+          REQUIRE(kernel.reserve(nc, rows, sw, sh, make_kcfg(y_begin)));
+          std::uint64_t skipped = 0;
+          for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+            const auto &m = f.plan.frames[fr].source_to_canvas;
+            const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                                  m(1, 0), m(1, 1), m(1, 2)};
+            if (!windowed) {
+              REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(),
+                                              s2.data(), fr));
+              continue;
+            }
+            const auto box = drizzle_source_scan_box(
+                f.plan, f.plan.frames[fr], scale, y_begin * scale,
+                rows * scale);
+            const int bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+            if (bw <= 0 || bh <= 0) {
+              REQUIRE(kernel.skip_frame(fr));
+              ++skipped;
+              continue;
+            }
+            const ForwardDrizzleV2SourceWindow w{box.x0, box.y0, bw, bh};
+            const auto src_w = pack(f.images[fr], box.x0, box.y0, bw, bh);
+            std::vector<float> s2w(static_cast<std::size_t>(bw) * bh);
+            for (int r = 0; r < bh; ++r)
+              for (int c = 0; c < bw; ++c)
+                s2w[static_cast<std::size_t>(r) * bw + c] =
+                    s2[static_cast<std::size_t>(box.y0 + r) * sw + box.x0 +
+                       c];
+            REQUIRE(kernel.accumulate_frame_window(a6, w, src_w.data(),
+                                                   s2w.data(), nullptr, fr));
+          }
+          std::vector<ForwardDrizzleV2PixelResult> out(
+              static_cast<std::size_t>(rows) * nc * channels);
+          std::uint64_t dense = 0;
+          REQUIRE(kernel.finalize(out.data(), nullptr, &dense));
+          REQUIRE(kernel.stats().frames_skipped_empty_window == skipped);
+          return std::pair{out, kernel.stats()};
+        };
+
+        for (int y0 = 0; y0 < nr; y0 += 5) {
+          const int rows = std::min(5, nr - y0);
+          const auto full = run(y0, rows, false);
+          const auto win = run(y0, rows, true);
+          // The exact scan box can only drop source pixels whose leaves
+          // clamp empty: CPU output is bit-identical.
+          for (std::size_t i = 0; i < full.first.size(); ++i)
+            REQUIRE(g10_bit_eq(full.first[i], win.first[i]));
+          REQUIRE(win.second.frames_processed + win.second
+                          .frames_skipped_empty_window ==
+                  f.plan.frames.size());
+          REQUIRE(win.second.slot_transitions == f.plan.frames.size());
+        }
+      }
+}
+
+TEST_CASE("forward drizzle v2 gate10 driver windowed provider contract",
+          "[forward-drizzle-v2][gate10][driver]") {
+  V2StoreFixture fx;
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  const std::size_t n_src = static_cast<std::size_t>(sw) * sh;
+  std::vector<float> s2(n_src, 0.02f);
+  std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+  for (std::size_t i = 0; i < meta.size(); ++i)
+    meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+
+  const auto plan = g10_driver_plan(f, 4, 1, true);
+  std::vector<std::pair<int, int>> bands_seen;
+  std::uint64_t expected_samples = 0, expected_skips = 0;
+  Matrix2Df win;
+  std::vector<float> s2w;
+  ForwardDrizzleV2FrameProvider provider =
+      [&](int band_y_begin, int band_rows, std::uint64_t order,
+          const ForwardDrizzleV2FramePieceSink &sink) -> bool {
+    if (order >= f.plan.frames.size()) return false;
+    bands_seen.emplace_back(band_y_begin, band_rows);
+    const auto &frame = f.plan.frames[order];
+    const auto &m = frame.source_to_canvas;
+    ForwardDrizzleV2FrameInput in;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1),
+                          m(1, 2)};
+    std::copy_n(a6, 6, in.affine6);
+    in.has_local_model = false;
+    in.quality = {};
+    in.skip = false;
+    in.meta = meta[order];
+    const auto box = drizzle_source_scan_box(
+        f.plan, frame, plan.internal_scale,
+        band_y_begin * plan.internal_scale,
+        band_rows * plan.internal_scale);
+    const int bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+    if (bw <= 0 || bh <= 0) {
+      in.skip = true;
+      ++expected_skips;
+      return sink(in);
+    }
+    in.source_window = {box.x0, box.y0, bw, bh};
+    win.resize(bh, bw);
+    s2w.resize(static_cast<std::size_t>(bw) * bh);
+    for (int r = 0; r < bh; ++r)
+      for (int c = 0; c < bw; ++c) {
+        win(r, c) = f.images[order](box.y0 + r, box.x0 + c);
+        s2w[static_cast<std::size_t>(r) * bw + c] =
+            s2[static_cast<std::size_t>(box.y0 + r) * sw + box.x0 + c];
+      }
+    in.source = win.data();
+    in.sigma2 = s2w.data();
+    expected_samples += static_cast<std::uint64_t>(bw) * bh;
+    return sink(in);
+  };
+
+  ForwardDrizzleV2DriverOptions opts;
+  opts.prefer_cuda = false;
+  const auto result =
+      run_forward_drizzle_v2(fx.root, plan, sw, sh, provider, opts);
+  REQUIRE(result.committed);
+  REQUIRE(result.backend_used == "cpu_v2");
+
+  // The provider observed every (band, frame) pair with the driver's band
+  // coordinates.
+  REQUIRE(bands_seen.size() ==
+          static_cast<std::size_t>(plan.band_count) * plan.frame_count);
+  for (std::size_t i = 0; i < bands_seen.size(); ++i) {
+    const int band = static_cast<int>(i / plan.frame_count);
+    REQUIRE(bands_seen[i].first == band * plan.band_rows);
+    REQUIRE(bands_seen[i].second ==
+            std::min(plan.band_rows, nr - band * plan.band_rows));
+  }
+
+  // Honest accounting: only nonempty windows launched samples; skips are
+  // counted separately and still advance the stream.
+  REQUIRE(result.totals.source_samples_launched == expected_samples);
+  REQUIRE(result.totals.frames_skipped_empty_window == expected_skips);
+  REQUIRE(expected_skips > 0);
+  REQUIRE(result.totals.frames_processed + expected_skips ==
+          plan.frame_count * static_cast<std::uint64_t>(plan.band_count));
+  REQUIRE(result.totals.slot_transitions ==
+          plan.frame_count * static_cast<std::uint64_t>(plan.band_count));
+
+  // Records must be bitwise identical to direct full-source per-band runs.
+  std::vector<ForwardDrizzleV2PixelResult> records;
+  g10_read_store(fx.root, plan, records, nullptr);
+  for (int band = 0; band < plan.band_count; ++band) {
+    const int y0 = band * plan.band_rows;
+    const int rows = std::min(plan.band_rows, nr - y0);
+    ForwardDrizzleV2KernelConfig k;
+    k.internal_scale = plan.internal_scale;
+    k.stream_length = plan.frame_count;
+    k.min_clip_contributors = plan.min_clip_contributors;
+    k.min_candidates = plan.min_candidates;
+    k.robust_passes = plan.robust_passes;
+    k.sigma_low = plan.sigma_low;
+    k.sigma_high = plan.sigma_high;
+    k.half = 0.5 * plan.pixfrac;
+    k.bayer_pattern = plan.bayer_pattern;
+    k.cfa_origin_x = plan.cfa_origin_x;
+    k.cfa_origin_y = plan.cfa_origin_y;
+    k.mono = true;
+    k.sigma2_plane = plan.sigma2_enabled;
+    k.canvas_width_native = nc;
+    k.canvas_height_native = nr;
+    k.band_origin_y_native = y0;
+    k.emit_profiles = true;
+    k.fine_quality_exponent = plan.fine_quality_exponent;
+    k.medium_quality_exponent = plan.medium_quality_exponent;
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, rows, sw, sh, k));
+    for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+      const auto &m = f.plan.frames[fr].source_to_canvas;
+      const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                            m(1, 0), m(1, 1), m(1, 2)};
+      REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), s2.data(),
+                                      fr, nullptr, &meta[fr]));
+    }
+    std::vector<ForwardDrizzleV2PixelResult> direct(
+        static_cast<std::size_t>(rows) * nc);
+    std::vector<ForwardDrizzleV2ProfileResult> directp(direct.size());
+    std::uint64_t dense = 0;
+    REQUIRE(kernel.finalize(direct.data(), directp.data(), &dense));
+    for (int r = 0; r < rows; ++r)
+      for (int x = 0; x < nc; ++x)
+        REQUIRE(g10_bit_eq(records[static_cast<std::size_t>(y0 + r) * nc + x],
+                           direct[static_cast<std::size_t>(r) * nc + x]));
+  }
+}
+
+TEST_CASE("forward drizzle v2 inline sigma2 model matches the explicit "
+          "plane over halo windows",
+          "[forward-drizzle-v2][gate10][kernel][sigma2-model]") {
+  // CPU bit-parity: a halo-extended source buffer + enabled sigma2 model
+  // must reproduce the explicit whole-plane sigma2 path exactly, including
+  // true-border one-sided fallbacks and NaN neighbours (the fixture plants
+  // one NaN per frame).
+  const BayerPattern patterns[] = {BayerPattern::RGGB, BayerPattern::BGGR,
+                                   BayerPattern::GRBG, BayerPattern::GBRG};
+  const double noise = 0.3, reg = 0.05;
+  for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC})
+    for (BayerPattern pattern : patterns)
+      for (int scale : {1, 2}) {
+        auto f = make_fixture(mode, pattern, 0, 0, scale);
+        const int sw = f.plan.source_width, sh = f.plan.source_height;
+        const int nc = f.plan.canvas_width_native,
+                  nr = f.plan.canvas_height_native;
+        const int channels = mode == ColorMode::MONO ? 1 : 3;
+        const double half = 0.5 * static_cast<double>(f.cfg.pixfrac);
+        std::vector<std::vector<float>> s2_full(f.plan.frames.size());
+        for (std::size_t i = 0; i < f.plan.frames.size(); ++i)
+          s2_full[i] = forward_drizzle_v2_sigma2_plane(f.images[i], noise,
+                                                     reg, half);
+        auto make_kcfg = [&](int y_begin) {
+          ForwardDrizzleV2KernelConfig k;
+          k.internal_scale = scale;
+          k.stream_length = f.plan.frames.size();
+          k.sigma2_plane = true;
+          k.half = half;
+          k.bayer_pattern = static_cast<int>(pattern);
+          k.cfa_origin_x = f.plan.cfa_origin_x;
+          k.cfa_origin_y = f.plan.cfa_origin_y;
+          k.mono = mode == ColorMode::MONO;
+          k.canvas_width_native = nc;
+          k.canvas_height_native = nr;
+          k.band_origin_y_native = y_begin;
+          return k;
+        };
+        auto run = [&](int y_begin, int rows, bool model_path) {
+          ForwardDrizzleV2CpuKernel kernel;
+          REQUIRE(kernel.reserve(nc, rows, sw, sh, make_kcfg(y_begin)));
+          for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+            const auto &m = f.plan.frames[fr].source_to_canvas;
+            const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                                  m(1, 0), m(1, 1), m(1, 2)};
+            if (!model_path) {
+              REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(),
+                                              s2_full[fr].data(), fr));
+              continue;
+            }
+            const auto box = drizzle_source_scan_box(
+                f.plan, f.plan.frames[fr], scale, y_begin * scale,
+                rows * scale);
+            const int bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+            if (bw <= 0 || bh <= 0) {
+              REQUIRE(kernel.skip_frame(fr));
+              continue;
+            }
+            // Halo buffer = box + one in-bounds pixel ring; the kernel's
+            // inline model reads the neighbours straight out of it.
+            const int hx0 = std::max(0, box.x0 - 1),
+                      hy0 = std::max(0, box.y0 - 1);
+            const int hx1 = std::min(sw, box.x1 + 1),
+                      hy1 = std::min(sh, box.y1 + 1);
+            const int hw = hx1 - hx0, hh = hy1 - hy0;
+            std::vector<float> buf(static_cast<std::size_t>(hw) * hh);
+            for (int r = 0; r < hh; ++r)
+              for (int c = 0; c < hw; ++c)
+                buf[static_cast<std::size_t>(r) * hw + c] =
+                    f.images[fr](hy0 + r, hx0 + c);
+            const ForwardDrizzleV2SourceWindow w{
+                hx0, hy0, hw, hh,
+                box.x0 - hx0, box.y0 - hy0, bw, bh};
+            const ForwardDrizzleV2Sigma2FrameModel s2m{true, noise, reg,
+                                                     half};
+            REQUIRE(kernel.accumulate_frame_window(a6, w, buf.data(),
+                                                   nullptr, &s2m, fr));
+          }
+          std::vector<ForwardDrizzleV2PixelResult> out(
+              static_cast<std::size_t>(rows) * nc * channels);
+          std::uint64_t dense = 0;
+          REQUIRE(kernel.finalize(out.data(), nullptr, &dense));
+          return std::pair{out, kernel.stats()};
+        };
+        for (int y0 = 0; y0 < nr; y0 += 5) {
+          const int rows = std::min(5, nr - y0);
+          const auto ref = run(y0, rows, false);
+          const auto mod = run(y0, rows, true);
+          for (std::size_t i = 0; i < ref.first.size(); ++i)
+            REQUIRE(g10_bit_eq(ref.first[i], mod.first[i]));
+          // Model mode uploads no explicit sigma2 plane: source bytes are
+          // exactly the halo buffers, launched samples the ACTIVE pixels.
+          std::uint64_t expect_src = 0, expect_act = 0;
+          for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+            const auto box = drizzle_source_scan_box(
+                f.plan, f.plan.frames[fr], scale, y0 * scale, rows * scale);
+            const int bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+            if (bw <= 0 || bh <= 0) continue;
+            const int hx0 = std::max(0, box.x0 - 1),
+                      hy0 = std::max(0, box.y0 - 1);
+            const int hx1 = std::min(sw, box.x1 + 1),
+                      hy1 = std::min(sh, box.y1 + 1);
+            expect_src += static_cast<std::uint64_t>(hx1 - hx0) *
+                          (hy1 - hy0) * sizeof(float);
+            expect_act += static_cast<std::uint64_t>(bw) * bh;
+          }
+          REQUIRE(mod.second.source_bytes_uploaded == expect_src);
+          REQUIRE(mod.second.source_samples_launched == expect_act);
+          REQUIRE(mod.second.frames_processed +
+                          mod.second.frames_skipped_empty_window ==
+                      f.plan.frames.size());
+        }
+      }
+}
+
+TEST_CASE("forward drizzle v2 compact quality windows match float planes",
+          "[forward-drizzle-v2][gate10][kernel][packed-quality]") {
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  const int nc = f.plan.canvas_width_native, nr = f.plan.canvas_height_native;
+  const std::size_t n_src = static_cast<std::size_t>(sw) * sh;
+  std::vector<float> s2(n_src, 0.02f);
+  std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+  for (std::size_t i = 0; i < meta.size(); ++i)
+    meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+
+  // Synthetic storage grid (divisor 2) for all four streams: quantised
+  // cells, one hard-veto cell and one zero (no-data) cell.
+  const int d = 2;
+  const int gw = (sw + d - 1) / d, gh = (sh + d - 1) / d;
+  const std::size_t gcells = static_cast<std::size_t>(gw) * gh;
+  std::vector<std::uint16_t> cells[4];
+  std::vector<std::uint8_t> veto[4];
+  for (int s = 0; s < 4; ++s) {
+    cells[s].resize(gcells);
+    veto[s].resize(gcells, 0);
+    for (std::size_t i = 0; i < gcells; ++i)
+      cells[s][i] = static_cast<std::uint16_t>(
+          1 + (i * 977 + s * 131) % 65534);
+    cells[s][gcells / 3] = 0;              // zero cell -> NaN
+    veto[s][(2 * gcells) / 3] = 1;         // hard veto -> NaN
+  }
+  // Float equivalent planes: decode cell by ABSOLUTE source coordinate.
+  auto float_plane = [&](int s) {
+    std::vector<float> out(n_src);
+    for (int y = 0; y < sh; ++y)
+      for (int x = 0; x < sw; ++x) {
+        const std::size_t i = static_cast<std::size_t>(y / d) * gw + x / d;
+        out[static_cast<std::size_t>(y) * sw + x] =
+            veto[s][i] ? std::numeric_limits<float>::quiet_NaN()
+                       : dequantize_quality(cells[s][i]);
+      }
+    return out;
+  };
+  std::vector<float> fq[4] = {float_plane(0), float_plane(1),
+                              float_plane(2), float_plane(3)};
+
+  // Non-divisor-aligned window {x=1,y=1,w=5,h=4}: covering storage cells
+  // are cx in [0,3), cy in [0,3).
+  const ForwardDrizzleV2SourceWindow win{1, 1, 5, 4};
+  const int cx0 = 1 / d, cy0 = 1 / d;
+  const int cx1 = (1 + 5 - 1) / d, cy1 = (1 + 4 - 1) / d;
+  const int pww = cx1 - cx0 + 1, pwh = cy1 - cy0 + 1;
+  std::vector<std::uint16_t> pcells[4];
+  std::vector<std::uint8_t> pveto[4];
+  for (int s = 0; s < 4; ++s)
+    for (int cy = cy0; cy <= cy1; ++cy)
+      for (int cx = cx0; cx <= cx1; ++cx) {
+        pcells[s].push_back(cells[s][static_cast<std::size_t>(cy) * gw + cx]);
+        pveto[s].push_back(veto[s][static_cast<std::size_t>(cy) * gw + cx]);
+      }
+
+  auto make_kcfg = [&] {
+    ForwardDrizzleV2KernelConfig k;
+    k.internal_scale = 1;
+    k.stream_length = f.plan.frames.size();
+    k.sigma2_plane = true;
+    k.emit_profiles = true;
+    k.half = 0.5 * f.cfg.pixfrac;
+    k.bayer_pattern = static_cast<int>(BayerPattern::GRBG);
+    k.canvas_width_native = nc;
+    k.canvas_height_native = nr;
+    k.mono = true;
+    return k;
+  };
+  auto run = [&](bool packed, std::vector<ForwardDrizzleV2PixelResult> &recs,
+                 std::vector<ForwardDrizzleV2ProfileResult> &profs) {
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, sw, sh, make_kcfg()));
+    for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+      const auto &m = f.plan.frames[fr].source_to_canvas;
+      const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                            m(1, 0), m(1, 1), m(1, 2)};
+      std::vector<float> src_w(20), s2w(20);
+      std::vector<float> qw[4];
+      ForwardDrizzleV2FrameQuality q;
+      for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 5; ++c) {
+          const std::size_t t = static_cast<std::size_t>(r) * 5 + c;
+          src_w[t] = f.images[fr](1 + r, 1 + c);
+          s2w[t] = s2[static_cast<std::size_t>(1 + r) * sw + 1 + c];
+          for (int s = 0; s < 4; ++s)
+            qw[s].push_back(fq[s][static_cast<std::size_t>(1 + r) * sw +
+                                  1 + c]);
+        }
+      if (packed) {
+        auto fill = [&](int s, ForwardDrizzleV2PackedQualityPlane &p) {
+          p.cells = pcells[s].data();
+          p.veto = pveto[s].data();
+          p.storage_x_begin = cx0;
+          p.storage_y_begin = cy0;
+          p.storage_width = pww;
+          p.storage_height = pwh;
+          p.storage_divisor = d;
+        };
+        fill(0, q.qc_packed);
+        fill(1, q.q0_packed);
+        fill(2, q.q1_packed);
+        fill(3, q.qa_packed);
+      } else {
+        q.q_composite = qw[0].data();
+        q.q_scale0 = qw[1].data();
+        q.q_scale1 = qw[2].data();
+        q.q_artifact = qw[3].data();
+      }
+      REQUIRE(kernel.accumulate_frame_window(a6, win, src_w.data(),
+                                             s2w.data(), nullptr, fr, &q,
+                                             &meta[fr]));
+    }
+    recs.assign(static_cast<std::size_t>(nc) * nr,
+                ForwardDrizzleV2PixelResult{});
+    profs.assign(recs.size(), ForwardDrizzleV2ProfileResult{});
+    std::uint64_t dense = 0;
+    REQUIRE(kernel.finalize(recs.data(), profs.data(), &dense));
+    return kernel.stats();
+  };
+  std::vector<ForwardDrizzleV2PixelResult> ra, rb;
+  std::vector<ForwardDrizzleV2ProfileResult> pa, pb;
+  const auto sa = run(false, ra, pa);
+  const auto sb = run(true, rb, pb);
+  for (std::size_t i = 0; i < ra.size(); ++i) {
+    REQUIRE(g10_bit_eq(ra[i], rb[i]));
+    REQUIRE(g10_bit_eq(pa[i], pb[i]));
+  }
+  // Compact accounting: 3 bytes per storage cell per present stream.
+  const std::uint64_t frame_cells =
+      static_cast<std::uint64_t>(pww) * pwh * 3u;
+  REQUIRE(sb.quality_bytes_uploaded ==
+          f.plan.frames.size() * 4 * frame_cells);
+  REQUIRE(sa.quality_bytes_uploaded ==
+          f.plan.frames.size() * 4 * 20 * sizeof(float));
+}
+
+TEST_CASE("forward drizzle v2 driver model+packed-Q accounting",
+          "[forward-drizzle-v2][gate10][driver]") {
+  V2StoreFixture fx;
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const int nc = f.plan.canvas_width_native,
+            nr = f.plan.canvas_height_native;
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  const auto plan = g10_driver_plan(f, 4, 1, true);
+  const int d = 2;
+  const int gw = (sw + d - 1) / d, gh = (sh + d - 1) / d;
+  const std::size_t gcells = static_cast<std::size_t>(gw) * gh;
+  std::vector<std::uint16_t> cells(gcells);
+  std::vector<std::uint8_t> veto(gcells, 0);
+  for (std::size_t i = 0; i < gcells; ++i)
+    cells[i] = static_cast<std::uint16_t>(1 + (i * 613) % 65534);
+  const double noise = 0.25, reg = 0.04,
+               half = 0.5 * static_cast<double>(f.cfg.pixfrac);
+  Matrix2Df buf;
+  std::uint64_t expect_halo_bytes = 0, expect_active = 0;
+  ForwardDrizzleV2FrameProvider provider =
+      [&](int band_y_begin, int band_rows, std::uint64_t order,
+          const ForwardDrizzleV2FramePieceSink &sink) -> bool {
+    if (order >= f.plan.frames.size()) return false;
+    const auto &frame = f.plan.frames[order];
+    const auto &m = frame.source_to_canvas;
+    ForwardDrizzleV2FrameInput in;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1),
+                          m(1, 2)};
+    std::copy_n(a6, 6, in.affine6);
+    in.has_local_model = false;
+    in.quality = {};
+    in.skip = false;
+    in.sigma2 = nullptr;
+    in.sigma2_model = {true, noise, reg, half};
+    in.meta = {0.9f, 0.8f, 1u, 0};
+    const auto box = drizzle_source_scan_box(
+        f.plan, frame, plan.internal_scale,
+        band_y_begin * plan.internal_scale,
+        band_rows * plan.internal_scale);
+    const int bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+    if (bw <= 0 || bh <= 0) {
+      in.skip = true;
+      return sink(in);
+    }
+    const int hx0 = std::max(0, box.x0 - 1), hy0 = std::max(0, box.y0 - 1);
+    const int hx1 = std::min(sw, box.x1 + 1), hy1 = std::min(sh, box.y1 + 1);
+    const int hw = hx1 - hx0, hh = hy1 - hy0;
+    buf.resize(hh, hw);
+    for (int r = 0; r < hh; ++r)
+      for (int c = 0; c < hw; ++c)
+        buf(r, c) = f.images[order](hy0 + r, hx0 + c);
+    in.source = buf.data();
+    in.source_window = {hx0, hy0, hw, hh,
+                        box.x0 - hx0, box.y0 - hy0, bw, bh};
+    expect_halo_bytes += static_cast<std::uint64_t>(hw) * hh * sizeof(float);
+    expect_active += static_cast<std::uint64_t>(bw) * bh;
+    // Full-grid packed Q for the composite stream only.
+    ForwardDrizzleV2PackedQualityPlane p;
+    p.cells = cells.data();
+    p.veto = veto.data();
+    p.storage_x_begin = 0;
+    p.storage_y_begin = 0;
+    p.storage_width = gw;
+    p.storage_height = gh;
+    p.storage_divisor = d;
+    in.quality.qc_packed = p;
+    return sink(in);
+  };
+  ForwardDrizzleV2DriverOptions opts;
+  opts.prefer_cuda = false;
+  const auto done = run_forward_drizzle_v2(fx.root, plan, sw, sh, provider,
+                                           opts);
+  REQUIRE(done.committed);
+  // No explicit sigma2 plane was ever supplied in model mode.
+  REQUIRE(done.totals.source_bytes_uploaded == expect_halo_bytes);
+  // Launched samples count ACTIVE pixels, never the halo ring.
+  REQUIRE(done.totals.source_samples_launched == expect_active);
+  // Compact Q bytes: 3 bytes per storage cell per present stream. Only the
+  // composite stream was present; non-selected frames upload nothing.
+  const auto selected = forward_drizzle_v2_selected_frame_orders(
+      plan.frame_count, plan.reservoir_size, plan.reservoir_seed);
+  // Quality work happens for selected frames only, and only where the
+  // frame's band window is non-empty (empty windows take skip_frame).
+  std::uint64_t expect_qframes = 0;
+  for (int band = 0; band < plan.band_count; ++band) {
+    const int by = band * plan.band_rows;
+    const int brows = std::min(plan.band_rows, nr - by);
+    for (std::uint64_t order : selected) {
+      const auto box = drizzle_source_scan_box(
+          f.plan, f.plan.frames[order], plan.internal_scale,
+          by * plan.internal_scale, brows * plan.internal_scale);
+      if (box.x1 > box.x0 && box.y1 > box.y0) ++expect_qframes;
+    }
+  }
+  REQUIRE(done.totals.quality_frames_processed == expect_qframes);
+  REQUIRE(done.totals.quality_bytes_uploaded ==
+          done.totals.quality_frames_processed * gcells * 3u);
+}
+
+TEST_CASE("forward drizzle v2 CUDA windowed scatter matches full-source",
+          "[forward-drizzle-v2][cuda-parity][gate10]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  const BayerPattern patterns[] = {BayerPattern::RGGB, BayerPattern::BGGR,
+                                   BayerPattern::GRBG, BayerPattern::GBRG};
+  const int scale = 2;
+  for (BayerPattern pattern : patterns) {
+    auto f = make_fixture(ColorMode::OSC, pattern, 0, 0, scale);
+    const int sw = f.plan.source_width, sh = f.plan.source_height;
+    const int nc = f.plan.canvas_width_native,
+              nr = f.plan.canvas_height_native;
+    const std::size_t n_src = static_cast<std::size_t>(sw) * sh;
+    const std::size_t nplane = static_cast<std::size_t>(nc) * nr * 3;
+    std::vector<float> s2(n_src, 0.02f);
+    auto make_kcfg = [&](int y_begin) {
+      ForwardDrizzleV2KernelConfig k;
+      k.internal_scale = scale;
+      k.stream_length = f.plan.frames.size();
+      k.sigma2_plane = true;
+      k.half = 0.5 * f.cfg.pixfrac;
+      k.bayer_pattern = static_cast<int>(pattern);
+      k.cfa_origin_x = f.plan.cfa_origin_x;
+      k.cfa_origin_y = f.plan.cfa_origin_y;
+      k.mono = false;
+      k.canvas_width_native = nc;
+      k.canvas_height_native = nr;
+      k.band_origin_y_native = y_begin;
+      return k;
+    };
+    auto run = [&](int y_begin, int rows, bool windowed) {
+      ForwardDrizzleV2CudaPrototypeKernel kernel;
+      REQUIRE(kernel.reserve(nc, rows, sw, sh, make_kcfg(y_begin)));
+      for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+        const auto &m = f.plan.frames[fr].source_to_canvas;
+        const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                              m(1, 0), m(1, 1), m(1, 2)};
+        if (!windowed) {
+          REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(),
+                                          s2.data(), fr));
+          continue;
+        }
+        const auto box = drizzle_source_scan_box(
+            f.plan, f.plan.frames[fr], scale, y_begin * scale,
+            rows * scale);
+        const int bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+        if (bw <= 0 || bh <= 0) {
+          REQUIRE(kernel.skip_frame(fr));
+          continue;
+        }
+        const ForwardDrizzleV2SourceWindow w{box.x0, box.y0, bw, bh};
+        std::vector<float> src_w(static_cast<std::size_t>(bw) * bh),
+            s2w(src_w.size());
+        for (int r = 0; r < bh; ++r)
+          for (int c = 0; c < bw; ++c) {
+            src_w[static_cast<std::size_t>(r) * bw + c] =
+                f.images[fr](box.y0 + r, box.x0 + c);
+            s2w[static_cast<std::size_t>(r) * bw + c] =
+                s2[static_cast<std::size_t>(box.y0 + r) * sw + box.x0 + c];
+          }
+        REQUIRE(kernel.accumulate_frame_window(a6, w, src_w.data(),
+                                               s2w.data(), nullptr, fr));
+      }
+      std::vector<ForwardDrizzleV2PixelResult> out(
+          static_cast<std::size_t>(rows) * nc * 3);
+      std::uint64_t dense = 0;
+      REQUIRE(kernel.finalize(out.data(), nullptr, &dense));
+      return std::pair{out, kernel.stats()};
+    };
+    const int y0 = 4, rows = 5;
+    const auto full = run(y0, rows, false);
+    const auto win = run(y0, rows, true);
+    REQUIRE(full.first.size() == win.first.size());
+    for (std::size_t i = 0; i < full.first.size(); ++i) {
+      const auto &a = full.first[i];
+      const auto &b = win.first[i];
+      // Discrete fields and fractions are device-exact; magnitudes use the
+      // established parity tolerance.
+      REQUIRE(a.geometry_fraction == b.geometry_fraction);
+      REQUIRE(a.source_fraction == b.source_fraction);
+      REQUIRE(a.estimator_fraction == b.estimator_fraction);
+      REQUIRE(a.profile_fraction == b.profile_fraction);
+      REQUIRE(a.contributors == b.contributors);
+      REQUIRE(a.robust_state == b.robust_state);
+      REQUIRE(a.confidence_state == b.confidence_state);
+      REQUIRE(a.conf_degraded == b.conf_degraded);
+      REQUIRE(a.value == Catch::Approx(b.value).epsilon(1e-9).margin(1e-9));
+      REQUIRE(a.b == Catch::Approx(b.b).epsilon(1e-9).margin(1e-9));
+      REQUIRE(a.n_eff == Catch::Approx(b.n_eff).epsilon(1e-9).margin(1e-9));
+      REQUIRE(a.confidence ==
+              Catch::Approx(b.confidence).epsilon(1e-9).margin(1e-9));
+    }
+    // Windowed launch: samples bounded by the exact scan boxes, never the
+    // full source per frame.
+    std::uint64_t expect_act = 0;
+    for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+      const auto box = drizzle_source_scan_box(
+          f.plan, f.plan.frames[fr], scale, y0 * scale, rows * scale);
+      const int bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+      if (bw > 0 && bh > 0)
+        expect_act += static_cast<std::uint64_t>(bw) * bh;
+    }
+    REQUIRE(win.second.source_samples_launched == expect_act);
+  }
+}
+
+TEST_CASE("forward drizzle v2 begin_band reuses one workspace across bands",
+          "[forward-drizzle-v2][gate10][kernel][persistent-workspace]") {
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  const int nc = f.plan.canvas_width_native, nr = f.plan.canvas_height_native;
+  const std::size_t n_src = static_cast<std::size_t>(sw) * sh;
+  std::vector<float> s2(n_src, 0.02f);
+  // One local-model frame exercises the local scatter under reset.
+  float lx[16] = {}, ly[16] = {};
+  auto lf = v2_local_frame(f.plan.frames[0], v2_local_model(sh, sw, lx, ly));
+  const auto lw = v2_warp_descriptor(lf);
+  std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+  for (std::size_t i = 0; i < meta.size(); ++i)
+    meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+  auto make_kcfg = [&](int y_begin) {
+    ForwardDrizzleV2KernelConfig k;
+    k.internal_scale = 1;
+    k.stream_length = f.plan.frames.size();
+    k.sigma2_plane = true;
+    k.emit_profiles = true;
+    k.half = 0.5 * f.cfg.pixfrac;
+    k.bayer_pattern = static_cast<int>(BayerPattern::GRBG);
+    k.canvas_width_native = nc;
+    k.canvas_height_native = nr;
+    k.band_origin_y_native = y_begin;
+    k.mono = true;
+    return k;
+  };
+  auto run_band = [&](ForwardDrizzleV2Kernel &kernel, int y_begin,
+                      int rows) {
+    for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+      const auto &m = f.plan.frames[fr].source_to_canvas;
+      const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                            m(1, 0), m(1, 1), m(1, 2)};
+      if (fr == 1 && y_begin >= 4) {
+        REQUIRE(kernel.skip_frame(fr, &meta[fr]));  // empty-window frame
+        continue;
+      }
+      if (fr == 0)
+        REQUIRE(kernel.accumulate_frame_local(a6, lw, f.images[fr].data(),
+                                              s2.data(), fr, nullptr,
+                                              &meta[fr]));
+      else
+        REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), s2.data(),
+                                        fr, nullptr, &meta[fr]));
+    }
+    std::vector<ForwardDrizzleV2PixelResult> recs(
+        static_cast<std::size_t>(rows) * nc);
+    std::vector<ForwardDrizzleV2ProfileResult> profs(recs.size());
+    std::uint64_t dense = 0;
+    REQUIRE(kernel.finalize(recs.data(), profs.data(), &dense));
+    return std::tuple{recs, profs, dense};
+  };
+
+  // Reference: one fresh kernel per band (the pre-tranche-5 shape).
+  std::vector<std::tuple<std::vector<ForwardDrizzleV2PixelResult>,
+                         std::vector<ForwardDrizzleV2ProfileResult>,
+                         std::uint64_t>>
+      ref;
+  for (int y0 = 0; y0 < nr; y0 += 5) {
+    const int rows = std::min(5, nr - y0);
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, rows, sw, sh, make_kcfg(y0)));
+    ref.push_back(run_band(kernel, y0, rows));
+  }
+
+  // Persistent: one reserve for the max band height, begin_band per band.
+  ForwardDrizzleV2CpuKernel kernel;
+  REQUIRE(kernel.reserve(nc, 5, sw, sh, make_kcfg(0)));
+  REQUIRE(kernel.stats().workspace_reservations == 1);
+  REQUIRE(kernel.stats().allocations == 1);
+  std::size_t band_i = 0;
+  for (int y0 = 0; y0 < nr; y0 += 5, ++band_i) {
+    const int rows = std::min(5, nr - y0);
+    REQUIRE(kernel.begin_band(rows, make_kcfg(y0)));
+    REQUIRE(kernel.stats().band_resets == 1);
+    REQUIRE(kernel.stats().workspace_reservations == (band_i == 0 ? 1 : 0));
+    auto got = run_band(kernel, y0, rows);
+    const auto &[rr, rp, rd] = ref[band_i];
+    const auto &[gr, gp, gd] = got;
+    REQUIRE(rd == gd);
+    REQUIRE(gr.size() == rr.size());
+    for (std::size_t i = 0; i < rr.size(); ++i) {
+      REQUIRE(g10_bit_eq(rr[i], gr[i]));
+      REQUIRE(g10_bit_eq(rp[i], gp[i]));
+    }
+  }
+
+  // Contract violations.
+  {
+    ForwardDrizzleV2CpuKernel fresh;
+    REQUIRE(fresh.reserve(nc, 5, sw, sh, make_kcfg(0)));
+    REQUIRE_FALSE(fresh.begin_band(6, make_kcfg(0)));        // oversized rows
+    REQUIRE_FALSE(fresh.begin_band(0, make_kcfg(0)));        // zero rows
+    auto bad = make_kcfg(0);
+    bad.band_origin_y_native = nr;                           // origin outside
+    REQUIRE_FALSE(fresh.begin_band(1, bad));
+    bad = make_kcfg(nr - 2);
+    bad.canvas_height_native = nr;  // origin + rows must fit the canvas
+    REQUIRE_FALSE(fresh.begin_band(5, bad));
+    bad = make_kcfg(0);
+    bad.reservoir_seed += 1;                                 // fixed field
+    REQUIRE_FALSE(fresh.begin_band(5, bad));
+    bad = make_kcfg(0);
+    bad.internal_scale = 2;
+    REQUIRE_FALSE(fresh.begin_band(5, bad));
+    bad = make_kcfg(0);
+    bad.band_origin_x_native = 1;                            // x is fixed
+    REQUIRE_FALSE(fresh.begin_band(5, bad));
+    // Mid-stream: begin_band after a frame but before finalize fails.
+    REQUIRE(fresh.begin_band(5, make_kcfg(0)));
+    const auto &m = f.plan.frames[0].source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1),
+                          m(1, 2)};
+    REQUIRE(fresh.accumulate_frame(a6, f.images[0].data(), s2.data(), 0,
+                                   nullptr, &meta[0]));
+    REQUIRE_FALSE(fresh.begin_band(5, make_kcfg(0)));
+    // ... but after finalize it rebinds fine.
+    std::vector<ForwardDrizzleV2PixelResult> recs(5ull * nc);
+    std::vector<ForwardDrizzleV2ProfileResult> profs(recs.size());
+    for (std::size_t fr = 1; fr < f.plan.frames.size(); ++fr) {
+      const auto &m2 = f.plan.frames[fr].source_to_canvas;
+      const double b6[6] = {m2(0, 0), m2(0, 1), m2(0, 2),
+                            m2(1, 0), m2(1, 1), m2(1, 2)};
+      REQUIRE(fresh.accumulate_frame(b6, f.images[fr].data(), s2.data(), fr,
+                                     nullptr, &meta[fr]));
+    }
+    std::uint64_t dense = 0;
+    REQUIRE(fresh.finalize(recs.data(), profs.data(), &dense));
+    REQUIRE(fresh.begin_band(3, make_kcfg(2)));
+    REQUIRE(fresh.stats().band_resets == 1);
+    REQUIRE(fresh.stats().workspace_reservations == 0);  // consumed earlier
+  }
+}
+
+TEST_CASE("forward drizzle v2 driver keeps one workspace per attempt",
+          "[forward-drizzle-v2][gate10][driver][persistent-workspace]") {
+  V2StoreFixture fx;
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  const auto plan = g10_driver_plan(f, 4, 1, true);
+  ForwardDrizzleV2FrameProvider provider =
+      [&](int, int, std::uint64_t order,
+          const ForwardDrizzleV2FramePieceSink &sink) -> bool {
+    if (order >= f.plan.frames.size()) return false;
+    const auto &m = f.plan.frames[order].source_to_canvas;
+    ForwardDrizzleV2FrameInput in;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1),
+                          m(1, 2)};
+    std::copy_n(a6, 6, in.affine6);
+    in.has_local_model = false;
+    in.quality = {};
+    in.skip = false;
+    in.source = f.images[order].data();
+    in.sigma2 = nullptr;
+    in.sigma2_model = {};
+    in.source_window = {0, 0, sw, sh};
+    in.meta = {0.9f, 0.8f, 1u, 0};
+    return sink(in);
+  };
+  ForwardDrizzleV2DriverOptions opts;
+  opts.prefer_cuda = false;
+  const auto done = run_forward_drizzle_v2(fx.root, plan, sw, sh, provider,
+                                           opts);
+  REQUIRE(done.committed);
+  // Exactly one workspace reservation and one logical allocation for the
+  // whole backend attempt; one begin_band per computed band.
+  REQUIRE(done.totals.workspace_reservations == 1);
+  REQUIRE(done.totals.allocations == 1);
+  REQUIRE(done.totals.band_resets ==
+          static_cast<std::uint64_t>(plan.band_count));
+  REQUIRE(done.driver_hotpath_allocations == 0);
+  REQUIRE(done.totals.reserved_device_bytes > 0);
+}
+
+TEST_CASE("forward drizzle v2 CUDA persistent workspace matches "
+          "independent kernels",
+          "[forward-drizzle-v2][cuda-parity][gate10][persistent-workspace]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  auto f = make_fixture(ColorMode::OSC, BayerPattern::RGGB, 0, 0, 1);
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  const int nc = f.plan.canvas_width_native, nr = f.plan.canvas_height_native;
+  const std::size_t n_src = static_cast<std::size_t>(sw) * sh;
+  std::vector<float> s2(n_src, 0.02f);
+  std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+  for (std::size_t i = 0; i < meta.size(); ++i)
+    meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+  auto make_kcfg = [&](int y_begin) {
+    ForwardDrizzleV2KernelConfig k;
+    k.internal_scale = 1;
+    k.stream_length = f.plan.frames.size();
+    k.sigma2_plane = true;
+    k.emit_profiles = true;
+    k.half = 0.5 * f.cfg.pixfrac;
+    k.bayer_pattern = static_cast<int>(BayerPattern::RGGB);
+    k.canvas_width_native = nc;
+    k.canvas_height_native = nr;
+    k.band_origin_y_native = y_begin;
+    k.mono = false;
+    return k;
+  };
+  auto run_band = [&](ForwardDrizzleV2CudaPrototypeKernel &kernel, int rows) {
+    for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+      const auto &m = f.plan.frames[fr].source_to_canvas;
+      const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                            m(1, 0), m(1, 1), m(1, 2)};
+      if (fr == 2) {  // skip-event case: no events recorded for this order
+        REQUIRE(kernel.skip_frame(fr, &meta[fr]));
+        continue;
+      }
+      REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), s2.data(), fr,
+                                      nullptr, &meta[fr]));
+    }
+    std::vector<ForwardDrizzleV2PixelResult> recs(
+        static_cast<std::size_t>(rows) * nc * 3);
+    std::vector<ForwardDrizzleV2ProfileResult> profs(recs.size());
+    std::uint64_t dense = 0;
+    REQUIRE(kernel.finalize(recs.data(), profs.data(), &dense));
+    return std::tuple{recs, profs, dense};
+  };
+  // Short last band (nr % 4 != 0 for the fixture canvas).
+  const std::vector<std::pair<int, int>> bands = {{0, 4}, {4, 4}, {8, 5}};
+  using BandOut = std::tuple<std::vector<ForwardDrizzleV2PixelResult>,
+                             std::vector<ForwardDrizzleV2ProfileResult>,
+                             std::uint64_t>;
+  std::vector<BandOut> ref;
+  for (const auto &[y0, rows] : bands) {
+    ForwardDrizzleV2CudaPrototypeKernel kernel;
+    REQUIRE(kernel.reserve(nc, rows, sw, sh, make_kcfg(y0)));
+    ref.push_back(run_band(kernel, rows));
+  }
+  ForwardDrizzleV2CudaPrototypeKernel kernel;
+  REQUIRE(kernel.reserve(nc, 5, sw, sh, make_kcfg(0)));
+  for (std::size_t b = 0; b < bands.size(); ++b) {
+    const auto &[y0, rows] = bands[b];
+    REQUIRE(kernel.begin_band(rows, make_kcfg(y0)));
+    REQUIRE(kernel.stats().band_resets == 1);
+    auto got = run_band(kernel, rows);
+    const auto &[rr, rp, rd] = ref[b];
+    const auto &[gr, gp, gd] = got;
+    REQUIRE(rd == gd);
+    for (std::size_t i = 0; i < rr.size(); ++i) {
+      // Discrete fields are device-exact; magnitudes use the established
+      // parity tolerance.
+      REQUIRE(gr[i].contributors == rr[i].contributors);
+      REQUIRE(gr[i].robust_state == rr[i].robust_state);
+      REQUIRE(gr[i].confidence_state == rr[i].confidence_state);
+      REQUIRE(gr[i].conf_degraded == rr[i].conf_degraded);
+      REQUIRE(gr[i].geometry_fraction == rr[i].geometry_fraction);
+      REQUIRE(gr[i].value ==
+              Catch::Approx(rr[i].value).epsilon(1e-9).margin(1e-9));
+      REQUIRE(gp[i].uniform.support == rp[i].uniform.support);
+      REQUIRE(std::isnan(gp[i].uniform.value) ==
+              std::isnan(rp[i].uniform.value));
+      if (std::isfinite(rp[i].uniform.value))
+        REQUIRE(gp[i].uniform.value ==
+                Catch::Approx(rp[i].uniform.value).epsilon(1e-9).margin(1e-9));
+    }
+  }
+  // Skipped order: event flags gate finalize timing; stats are per-band.
+  REQUIRE(kernel.stats().workspace_reservations == 0);
+}
+
+// --- Tranche 6: committed geometry-cache leaves drive local frames ---------
+
+namespace {
+
+// Provider that serves local frames from a DrizzleGeometryCacheReader
+// exactly like the production provider: stripe leaf window, skip on empty,
+// full-source upload window for simplicity (the kernel validates coverage
+// against the ACTIVE rect, which is the whole source here).
+ForwardDrizzleV2FrameProvider g10_cached_provider(
+    const Fixture &f, const DrizzleGeometryCacheReader &reader, float pixfrac,
+    int scale, const std::vector<float> &s2,
+    const std::vector<ForwardDrizzleV2FrameMeta> *meta,
+    DrizzleCachedLeafWindow &win,
+    std::vector<ForwardDrizzleV2CachedLeaf> &conv,
+    std::uint64_t *leaves_read = nullptr) {
+  return [&](int band_y0, int band_rows, std::uint64_t order,
+             const ForwardDrizzleV2FramePieceSink &sink) {
+    if (order >= f.plan.frames.size()) return false;
+    const auto &frame = f.plan.frames[static_cast<std::size_t>(order)];
+    const auto &m = frame.source_to_canvas;
+    ForwardDrizzleV2FrameInput in;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                          m(1, 0), m(1, 1), m(1, 2)};
+    std::copy_n(a6, 6, in.affine6);
+    in.has_local_model = false;
+    in.warp = ForwardDrizzleV2LocalWarp{};
+    in.has_cached_geometry = false;
+    in.cached_leaves = nullptr;
+    in.cached_leaf_count = 0;
+    in.cached_unique_source_samples = 0;
+    in.quality = {};
+    in.sigma2_model = {};
+    in.skip = false;
+    in.source = f.images[static_cast<std::size_t>(order)].data();
+    in.sigma2 = s2.data();
+    in.source_window = {0, 0, f.plan.source_width, f.plan.source_height};
+    if (meta) in.meta = (*meta)[static_cast<std::size_t>(order)];
+    if (!frame.has_smooth_local_model) return sink(in);
+    reader.read_stripe_leaves_into(
+        pixfrac, frame.source_index, scale, band_y0 * scale,
+        band_rows * scale, win);
+    if (leaves_read) *leaves_read += win.leaves.size();
+    if (win.leaves.empty()) {
+      in.skip = true;
+      return sink(in);
+    }
+    conv.resize(win.leaves.size());
+    for (std::size_t li = 0; li < win.leaves.size(); ++li) {
+      const DrizzleCachedLeaf &s = win.leaves[li];
+      ForwardDrizzleV2CachedLeaf &d = conv[li];
+      d.source_x = s.source_x;
+      d.source_y = s.source_y;
+      d.channel = s.channel;
+      d.leaf_order = s.leaf_order;
+      for (int k = 0; k < 4; ++k) {
+        d.x[k] = s.x[k];
+        d.y[k] = s.y[k];
+      }
+    }
+    in.has_cached_geometry = true;
+    in.cached_leaves = conv.data();
+    in.cached_leaf_count = conv.size();
+    in.cached_unique_source_samples = win.unique_source_samples;
+    return sink(in);
+  };
+}
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 driver replays committed cache leaves "
+          "bit-identically to the local-window path (tranche 6)",
+          "[forward-drizzle-v2][gate10][geometry-cache]") {
+  for (int scale : {1, 2}) {
+    auto f = make_fixture(ColorMode::OSC, BayerPattern::GBRG, 0, 0, scale);
+    const int nc = f.plan.canvas_width_native;
+    const int nr = f.plan.canvas_height_native;
+    const std::size_t n_src =
+        static_cast<std::size_t>(f.plan.source_width) * f.plan.source_height;
+    std::vector<float> s2(n_src, 0.02f);
+    std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+    for (std::size_t i = 0; i < meta.size(); ++i)
+      meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+    float cx1[16] = {}, cy1[16] = {}, cx3[16] = {}, cy3[16] = {};
+    cx1[5] = 1.3f;
+    cy1[6] = -0.8f;
+    cx3[9] = -1.7f;
+    cy3[10] = 1.1f;
+    f.plan.frames[1] = v2_local_frame(
+        f.plan.frames[1], v2_local_model(nr, nc, cx1, cy1));
+    f.plan.frames[3] = v2_local_frame(
+        f.plan.frames[3], v2_local_model(nr, nc, cx3, cy3));
+
+    // Commit the geometry cache for the two local frames.
+    config::ReconstructionDrizzleConfig dcfg;
+    dcfg.internal_scale = scale;
+    dcfg.pixfrac = f.cfg.pixfrac;
+    V2StoreFixture geom_fx;
+    const auto built = build_drizzle_geometry_cache(
+        geom_fx.root, f.plan, dcfg, {{f.cfg.pixfrac}}, {}, 64ull << 20);
+    DrizzleGeometryCacheReader greader(geom_fx.root, built.identities,
+                                       {1, 3});
+
+    const auto plan = g10_driver_plan(f, 4, 3, true);
+    const std::uint64_t cap = greader.max_stripe_leaf_records(
+        f.cfg.pixfrac, plan.band_rows * scale);
+    REQUIRE(cap > 0);
+
+    V2StoreFixture ref_fx;
+    ForwardDrizzleV2DriverOptions cpu_opts;
+    cpu_opts.prefer_cuda = false;
+    const auto ref = run_forward_drizzle_v2(
+        ref_fx.root, plan, f.plan.source_width, f.plan.source_height,
+        g10_provider(f, s2, &meta), cpu_opts);
+    REQUIRE(ref.committed);
+    std::vector<ForwardDrizzleV2PixelResult> ref_records;
+    std::vector<ForwardDrizzleV2ProfileResult> ref_profiles;
+    g10_read_store(ref_fx.root, plan, ref_records, &ref_profiles);
+
+    V2StoreFixture cx;
+    DrizzleCachedLeafWindow win;
+    win.leaves.reserve(static_cast<std::size_t>(cap));
+    std::vector<ForwardDrizzleV2CachedLeaf> conv;
+    conv.reserve(static_cast<std::size_t>(cap));
+    std::uint64_t leaves_read = 0;
+    ForwardDrizzleV2DriverOptions copts;
+    copts.prefer_cuda = false;
+    copts.cached_leaf_capacity = cap;
+    const auto got = run_forward_drizzle_v2(
+        cx.root, plan, f.plan.source_width, f.plan.source_height,
+        g10_cached_provider(f, greader, f.cfg.pixfrac, scale, s2, &meta,
+                            win, conv, &leaves_read),
+        copts);
+    REQUIRE(got.committed);
+    std::vector<ForwardDrizzleV2PixelResult> got_records;
+    std::vector<ForwardDrizzleV2ProfileResult> got_profiles;
+    g10_read_store(cx.root, plan, got_records, &got_profiles);
+
+    // Records and profiles are bit-identical: the cached scatter emits the
+    // same corner bits in the same canonical order as the direct local
+    // path (the internal band origin shift is exact for power-of-two
+    // scales).
+    REQUIRE(got_records.size() == ref_records.size());
+    for (std::size_t i = 0; i < ref_records.size(); ++i)
+      REQUIRE(g10_bit_eq(got_records[i], ref_records[i]));
+    REQUIRE(got_profiles.size() == ref_profiles.size());
+    for (std::size_t i = 0; i < ref_profiles.size(); ++i)
+      REQUIRE(g10_bit_eq(got_profiles[i], ref_profiles[i]));
+
+    // No inversion/subdivision discard work ran in the consume phase; the
+    // cache finalised it at build time.
+    REQUIRE(got.totals.cached_leaf_records_launched == leaves_read);
+    REQUIRE(got.totals.cached_leaf_records_launched > 0);
+    REQUIRE(got.local_samples_discarded == 0);
+    REQUIRE(got.totals.source_samples_launched <=
+            ref.totals.source_samples_launched);
+  }
+}
+
+TEST_CASE("forward drizzle v2 cached-leaf path fails closed on malformed "
+          "records (tranche 6)",
+          "[forward-drizzle-v2][gate10][geometry-cache]") {
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::RGGB, 0, 0, 1);
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  auto kcfg = [&] {
+    ForwardDrizzleV2KernelConfig k;
+    k.internal_scale = 1;
+    k.stream_length = 1;
+    k.half = 0.5 * f.cfg.pixfrac;
+    k.bayer_pattern = static_cast<int>(f.plan.bayer_pattern);
+    k.mono = true;
+    k.canvas_width_native = nc;
+    k.canvas_height_native = nr;
+    k.cached_leaf_capacity = 8;
+    return k;
+  };
+  const ForwardDrizzleV2SourceWindow full{0, 0, sw, sh};
+  const auto &m = f.plan.frames[0].source_to_canvas;
+  const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1), m(1, 2)};
+
+  // One valid leaf (absolute internal coords; scale 1 here).
+  ForwardDrizzleV2CachedLeaf good;
+  good.source_x = 1;
+  good.source_y = 1;
+  good.channel = 0;
+  good.leaf_order = 0;
+  for (int k = 0; k < 4; ++k) {
+    good.x[k] = 2.0 + (k == 1 || k == 2 ? 0.5 : -0.5);
+    good.y[k] = 2.0 + (k >= 2 ? 0.5 : -0.5);
+  }
+
+  SECTION("accepts a well-formed leaf") {
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, sw, sh, kcfg()));
+    REQUIRE(kernel.accumulate_frame_cached_leaves(
+        a6, full, f.images[0].data(), nullptr, nullptr, &good, 1, 1, 0));
+    REQUIRE(kernel.stats().cached_leaf_records_launched == 1);
+    REQUIRE(kernel.stats().source_samples_launched == 1);
+  }
+  SECTION("leaf_count over the reserved capacity fails") {
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, sw, sh, kcfg()));
+    std::vector<ForwardDrizzleV2CachedLeaf> many(9, good);
+    REQUIRE_FALSE(kernel.accumulate_frame_cached_leaves(
+        a6, full, f.images[0].data(), nullptr, nullptr, many.data(), 9, 9,
+        0));
+  }
+  SECTION("zero capacity disables the path") {
+    auto k = kcfg();
+    k.cached_leaf_capacity = 0;
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, sw, sh, k));
+    REQUIRE_FALSE(kernel.accumulate_frame_cached_leaves(
+        a6, full, f.images[0].data(), nullptr, nullptr, &good, 1, 1, 0));
+  }
+  SECTION("source coordinate outside the active window fails") {
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, sw, sh, kcfg()));
+    ForwardDrizzleV2CachedLeaf bad = good;
+    bad.source_x = static_cast<std::uint32_t>(sw);  // outside the source
+    REQUIRE_FALSE(kernel.accumulate_frame_cached_leaves(
+        a6, full, f.images[0].data(), nullptr, nullptr, &bad, 1, 1, 0));
+    bad = good;
+    bad.source_y = 0;
+    const ForwardDrizzleV2SourceWindow sub{2, 2, sw - 3, sh - 3};
+    REQUIRE_FALSE(kernel.accumulate_frame_cached_leaves(
+        a6, sub, f.images[0].data() + 2 * sw + 2, nullptr, nullptr, &bad, 1,
+        1, 0));
+  }
+  SECTION("channel out of range fails") {
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, sw, sh, kcfg()));
+    ForwardDrizzleV2CachedLeaf bad = good;
+    bad.channel = 1;  // MONO allows only channel 0
+    REQUIRE_FALSE(kernel.accumulate_frame_cached_leaves(
+        a6, full, f.images[0].data(), nullptr, nullptr, &bad, 1, 1, 0));
+  }
+  SECTION("nonfinite corners fail") {
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, sw, sh, kcfg()));
+    ForwardDrizzleV2CachedLeaf bad = good;
+    bad.x[2] = std::numeric_limits<double>::quiet_NaN();
+    REQUIRE_FALSE(kernel.accumulate_frame_cached_leaves(
+        a6, full, f.images[0].data(), nullptr, nullptr, &bad, 1, 1, 0));
+    bad = good;
+    bad.y[0] = std::numeric_limits<double>::infinity();
+    REQUIRE_FALSE(kernel.accumulate_frame_cached_leaves(
+        a6, full, f.images[0].data(), nullptr, nullptr, &bad, 1, 1, 0));
+  }
+  SECTION("empty leaf list is rejected (the provider's skip contract)") {
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, sw, sh, kcfg()));
+    REQUIRE_FALSE(kernel.accumulate_frame_cached_leaves(
+        a6, full, f.images[0].data(), nullptr, nullptr, &good, 0, 0, 0));
+  }
+}
+
+TEST_CASE("forward drizzle v2 CUDA cached-leaf path matches the CPU replay "
+          "across persistent bands (tranche 6)",
+          "[forward-drizzle-v2][gate10][geometry-cache][cuda-parity]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  const int scale = 2;
+  auto f = make_fixture(ColorMode::OSC, BayerPattern::GBRG, 0, 0, scale);
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const std::size_t n_src =
+      static_cast<std::size_t>(f.plan.source_width) * f.plan.source_height;
+  std::vector<float> s2(n_src);
+  for (std::size_t i = 0; i < n_src; ++i)
+    s2[i] = 0.01f + 0.0001f * static_cast<float>(i % 97);
+  float cx[16] = {}, cy[16] = {};
+  cx[5] = 1.2f;
+  cy[6] = -0.7f;
+  f.plan.frames[2] = v2_local_frame(
+      f.plan.frames[2], v2_local_model(nr, nc, cx, cy));
+
+  config::ReconstructionDrizzleConfig dcfg;
+  dcfg.internal_scale = scale;
+  dcfg.pixfrac = f.cfg.pixfrac;
+  V2StoreFixture geom_fx;
+  const auto built = build_drizzle_geometry_cache(
+      geom_fx.root, f.plan, dcfg, {{f.cfg.pixfrac}}, {}, 64ull << 20);
+  DrizzleGeometryCacheReader greader(geom_fx.root, built.identities, {2});
+
+  auto kcfg = [&](int y0) {
+    ForwardDrizzleV2KernelConfig k;
+    k.internal_scale = scale;
+    k.stream_length = f.plan.frames.size();
+    k.half = 0.5 * f.cfg.pixfrac;
+    k.bayer_pattern = static_cast<int>(f.plan.bayer_pattern);
+    k.cfa_origin_x = f.plan.cfa_origin_x;
+    k.cfa_origin_y = f.plan.cfa_origin_y;
+    k.canvas_width_native = nc;
+    k.canvas_height_native = nr;
+    k.band_origin_y_native = y0;
+    return k;
+  };
+  const int band_rows = 5;
+  const std::uint64_t cap = greader.max_stripe_leaf_records(
+      f.cfg.pixfrac, band_rows * scale);
+  REQUIRE(cap > 0);
+
+  // One persistent CUDA workspace over three bands (short last band);
+  // compare each band's records to the CPU cached path.
+  ForwardDrizzleV2CudaPrototypeKernel kernel;
+  auto rk = kcfg(0);
+  rk.cached_leaf_capacity = cap;
+  REQUIRE(kernel.reserve(nc, band_rows, f.plan.source_width,
+                         f.plan.source_height, rk));
+  DrizzleCachedLeafWindow win;
+  win.leaves.reserve(static_cast<std::size_t>(cap));
+  std::vector<ForwardDrizzleV2CachedLeaf> conv;
+  conv.reserve(static_cast<std::size_t>(cap));
+  std::uint64_t leaf_records_total = 0, leaf_bytes_total = 0;
+  int resets = 0;
+
+  for (int band = 0, y = 0; y < nr; ++band, y += band_rows) {
+    const int rows = std::min(band_rows, nr - y);
+    auto bk = kcfg(y);
+    bk.cached_leaf_capacity = cap;
+    REQUIRE(kernel.begin_band(rows, bk));
+
+    ForwardDrizzleV2CpuKernel cpu;
+    REQUIRE(cpu.reserve(nc, rows, f.plan.source_width, f.plan.source_height,
+                        bk));
+    for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+      const auto &frame = f.plan.frames[fr];
+      const auto &m = frame.source_to_canvas;
+      const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                            m(1, 0), m(1, 1), m(1, 2)};
+      const ForwardDrizzleV2SourceWindow full{0, 0, f.plan.source_width,
+                                              f.plan.source_height};
+      if (!frame.has_smooth_local_model) {
+        REQUIRE(kernel.accumulate_frame_window(
+            a6, full, f.images[fr].data(), s2.data(), nullptr, fr));
+        REQUIRE(cpu.accumulate_frame_window(
+            a6, full, f.images[fr].data(), s2.data(), nullptr, fr));
+        continue;
+      }
+      greader.read_stripe_leaves_into(f.cfg.pixfrac, frame.source_index,
+                                      scale, y * scale, rows * scale, win);
+      if (win.leaves.empty()) {
+        REQUIRE(kernel.skip_frame(fr));
+        REQUIRE(cpu.skip_frame(fr));
+        continue;
+      }
+      conv.resize(win.leaves.size());
+      std::memcpy(conv.data(), win.leaves.data(),
+                  win.leaves.size() * sizeof(ForwardDrizzleV2CachedLeaf));
+      REQUIRE(kernel.accumulate_frame_cached_leaves(
+          a6, full, f.images[fr].data(), s2.data(), nullptr, conv.data(),
+          conv.size(), win.unique_source_samples, fr));
+      REQUIRE(cpu.accumulate_frame_cached_leaves(
+          a6, full, f.images[fr].data(), s2.data(), nullptr, conv.data(),
+          conv.size(), win.unique_source_samples, fr));
+    }
+    const std::size_t n =
+        static_cast<std::size_t>(rows) * nc * 3;
+    std::vector<ForwardDrizzleV2PixelResult> gpu(n), ref(n);
+    std::uint64_t dense_g = 0, dense_r = 0;
+    REQUIRE(kernel.finalize(gpu.data(), nullptr, &dense_g));
+    REQUIRE(cpu.finalize(ref.data(), nullptr, &dense_r));
+    REQUIRE(dense_g == dense_r);
+    for (std::size_t i = 0; i < n; ++i) {
+      REQUIRE(gpu[i].contributors == ref[i].contributors);
+      REQUIRE(gpu[i].robust_state == ref[i].robust_state);
+      REQUIRE(gpu[i].confidence_state == ref[i].confidence_state);
+      REQUIRE(gpu[i].conf_degraded == ref[i].conf_degraded);
+      REQUIRE(gpu[i].geometry_fraction == ref[i].geometry_fraction);
+      REQUIRE(std::isnan(gpu[i].value) == std::isnan(ref[i].value));
+      if (std::isfinite(ref[i].value))
+        REQUIRE(gpu[i].value ==
+                Catch::Approx(ref[i].value).epsilon(1e-9).margin(1e-9));
+      REQUIRE(gpu[i].b ==
+              Catch::Approx(ref[i].b).epsilon(1e-9).margin(1e-9));
+      REQUIRE(gpu[i].n_eff ==
+              Catch::Approx(ref[i].n_eff).epsilon(1e-9).margin(1e-9));
+    }
+    // stats() is a per-band delta; accumulate the persistent-buffer proof.
+    leaf_records_total += kernel.stats().cached_leaf_records_launched;
+    leaf_bytes_total += kernel.stats().cached_leaf_bytes_uploaded;
+    resets += static_cast<int>(kernel.stats().band_resets);
+  }
+  // One workspace for the whole multi-band run; the leaf buffer was
+  // allocated once at reserve() and re-used on every band.
+  REQUIRE(resets == 3);
+  REQUIRE(leaf_records_total > 0);
+  REQUIRE(leaf_bytes_total ==
+          leaf_records_total * sizeof(ForwardDrizzleV2CachedLeaf));
+}
+
+// ---- tranche 7: affine target-X pieces ------------------------------------
+
+namespace {
+
+struct G7BandOut {
+  std::vector<ForwardDrizzleV2PixelResult> records;
+  std::vector<ForwardDrizzleV2ProfileResult> profiles;
+  ForwardDrizzleV2PrototypeStats stats;
+  std::uint64_t dense = 0;
+  std::uint64_t empty_tiles = 0;
+  std::uint64_t expected_launched = 0;
+};
+
+// Runs one band of `f` on `kernel` (already reserved for the band): every
+// frame is emitted either as a single full-width piece through the
+// compatibility wrapper (tile_cols == 0) or as ordered per-tile pieces of
+// `tile_cols` native columns through the begin/piece/finish lifecycle.
+// Empty tiles are omitted; a frame whose band box is empty is skipped.
+G7BandOut g7_run_band(ForwardDrizzleV2Kernel &kernel, const Fixture &f,
+                      const std::vector<float> &s2,
+                      const std::vector<ForwardDrizzleV2FrameMeta> &meta,
+                      bool profiles, int y_begin, int rows, int tile_cols,
+                      bool inline_sigma) {
+  const int nc = f.plan.canvas_width_native;
+  const int channels = f.plan.color_mode == ColorMode::MONO ? 1 : 3;
+  const int scale = f.cfg.internal_scale;
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  G7BandOut out;
+  std::vector<float> win_buf, s2w, qw;
+  for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+    const auto &frame = f.plan.frames[fr];
+    const auto &m = frame.source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                          m(1, 0), m(1, 1), m(1, 2)};
+    const auto band_box = drizzle_source_scan_box(
+        f.plan, frame, scale, y_begin * scale, rows * scale);
+    if (band_box.x1 <= band_box.x0 || band_box.y1 <= band_box.y0) {
+      REQUIRE(kernel.skip_frame(fr, profiles ? &meta[fr] : nullptr));
+      continue;
+    }
+    // Pack the source (+optional halo) and sigma2/quality planes for the
+    // given scan box, then dispatch either the one-shot wrapper or one
+    // affine piece.
+    auto emit = [&](const DrizzleSourceScanBox &box, int tx, int tw) {
+      const int bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+      REQUIRE(bw > 0);
+      REQUIRE(bh > 0);
+      out.expected_launched += static_cast<std::uint64_t>(bw) * bh;
+      const int hx0 = inline_sigma ? std::max(0, box.x0 - 1) : box.x0;
+      const int hy0 = inline_sigma ? std::max(0, box.y0 - 1) : box.y0;
+      const int hx1 = inline_sigma ? std::min(sw, box.x1 + 1) : box.x1;
+      const int hy1 = inline_sigma ? std::min(sh, box.y1 + 1) : box.y1;
+      const int hw = hx1 - hx0, hh = hy1 - hy0;
+      win_buf.assign(static_cast<std::size_t>(hw) * hh, 0.0f);
+      for (int r = 0; r < hh; ++r)
+        for (int c = 0; c < hw; ++c)
+          win_buf[static_cast<std::size_t>(r) * hw + c] =
+              f.images[fr](hy0 + r, hx0 + c);
+      ForwardDrizzleV2SourceWindow w{hx0, hy0, hw, hh,
+                                     box.x0 - hx0, box.y0 - hy0, bw, bh};
+      ForwardDrizzleV2Sigma2FrameModel sm{};
+      if (inline_sigma) {
+        sm.enabled = true;
+        sm.sigma_noise = 0.05;
+        sm.sigma_reg_px = 0.02;
+        sm.droplet_half = 0.5 * f.cfg.pixfrac;
+      } else {
+        s2w.assign(static_cast<std::size_t>(bw) * bh, 0.0f);
+        for (int r = 0; r < bh; ++r)
+          for (int c = 0; c < bw; ++c)
+            s2w[static_cast<std::size_t>(r) * bw + c] =
+                s2[static_cast<std::size_t>(box.y0 + r) * sw + box.x0 + c];
+      }
+      ForwardDrizzleV2FrameQuality q{};
+      if (profiles) {
+        qw.assign(static_cast<std::size_t>(bw) * bh, 0.0f);
+        for (int r = 0; r < bh; ++r)
+          for (int c = 0; c < bw; ++c)
+            qw[static_cast<std::size_t>(r) * bw + c] =
+                0.5f + 0.01f * static_cast<float>((box.x0 + c + box.y0 + r) %
+                                                  37);
+        q.q_composite = qw.data();
+      }
+      if (tile_cols == 0) {
+        return kernel.accumulate_frame_window(
+            a6, w, win_buf.data(), inline_sigma ? nullptr : s2w.data(),
+            inline_sigma ? &sm : nullptr, fr, profiles ? &q : nullptr,
+            profiles ? &meta[fr] : nullptr);
+      }
+      return kernel.accumulate_affine_piece(
+          a6, tx, tw, w, win_buf.data(),
+          inline_sigma ? nullptr : s2w.data(), inline_sigma ? &sm : nullptr,
+          profiles ? &q : nullptr);
+    };
+    if (tile_cols == 0) {
+      REQUIRE(emit(band_box, 0, nc));
+      continue;
+    }
+    // Pre-scan the tiles: a margin-inflated band box can be non-empty while
+    // every tile's inverse image clips out on different axes (some x-out,
+    // some y-out). Production emits one skip piece in exactly this case.
+    struct TilePiece {
+      int tx, tw;
+      DrizzleSourceScanBox box;
+    };
+    std::vector<TilePiece> tiles;
+    for (int tx = 0; tx < nc; tx += tile_cols) {
+      const int tw = std::min(tile_cols, nc - tx);
+      const auto box = drizzle_source_scan_box(f.plan, frame, scale,
+                                               y_begin * scale, rows * scale,
+                                               tx * scale, tw * scale);
+      if (box.x1 <= box.x0 || box.y1 <= box.y0) {
+        ++out.empty_tiles;
+        continue;
+      }
+      tiles.push_back({tx, tw, box});
+    }
+    if (tiles.empty()) {
+      REQUIRE(kernel.skip_frame(fr, profiles ? &meta[fr] : nullptr));
+      continue;
+    }
+    REQUIRE(kernel.begin_affine_frame(fr, profiles ? &meta[fr] : nullptr));
+    for (const auto &t : tiles) REQUIRE(emit(t.box, t.tx, t.tw));
+    REQUIRE(kernel.finish_affine_frame(fr));
+  }
+  const std::size_t np =
+      static_cast<std::size_t>(rows) * nc * channels;
+  out.records.assign(np, ForwardDrizzleV2PixelResult{});
+  if (profiles) out.profiles.assign(np, ForwardDrizzleV2ProfileResult{});
+  REQUIRE(kernel.finalize(out.records.data(),
+                          profiles ? out.profiles.data() : nullptr,
+                          &out.dense));
+  out.stats = kernel.stats();
+  return out;
+}
+
+ForwardDrizzleV2KernelConfig g7_kcfg(const Fixture &f, int scale,
+                                     ColorMode mode, BayerPattern pattern,
+                                     int y_begin, bool profiles) {
+  ForwardDrizzleV2KernelConfig k;
+  k.internal_scale = scale;
+  k.stream_length = f.plan.frames.size();
+  k.half = 0.5 * f.cfg.pixfrac;
+  k.bayer_pattern = static_cast<int>(pattern);
+  k.cfa_origin_x = f.plan.cfa_origin_x;
+  k.cfa_origin_y = f.plan.cfa_origin_y;
+  k.mono = mode == ColorMode::MONO;
+  k.canvas_width_native = f.plan.canvas_width_native;
+  k.canvas_height_native = f.plan.canvas_height_native;
+  k.band_origin_y_native = y_begin;
+  k.emit_profiles = profiles;
+  return k;
+}
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 CPU affine target-x pieces are bit-identical "
+          "to the full-width piece (tranche 7)",
+          "[forward-drizzle-v2][gate10][target-pieces]") {
+  const BayerPattern patterns[] = {BayerPattern::RGGB, BayerPattern::BGGR,
+                                   BayerPattern::GRBG, BayerPattern::GBRG};
+  const int nr = 13;
+  for (int scale : {1, 2})
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC})
+      for (BayerPattern pattern : patterns)
+        for (bool profiles : {false, true})
+          for (bool inline_sigma : {false, true}) {
+            auto f = make_fixture(mode, pattern, 1, -1, scale);
+            const int nc = f.plan.canvas_width_native;
+            const int sw = f.plan.source_width, sh = f.plan.source_height;
+            const std::size_t n_src = static_cast<std::size_t>(sw) * sh;
+            std::vector<float> s2(n_src);
+            for (std::size_t i = 0; i < n_src; ++i)
+              s2[i] = 0.01f + 0.0001f * static_cast<float>(i % 97);
+            std::vector<ForwardDrizzleV2FrameMeta> meta(
+                f.plan.frames.size());
+            for (std::size_t i = 0; i < meta.size(); ++i)
+              meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+            // First, middle and short last bands.
+            for (const auto band : {std::pair{0, 5}, std::pair{4, 5},
+                                    std::pair{9, 4}}) {
+              const int y0 = band.first, rows = band.second;
+              ForwardDrizzleV2CpuKernel ref;
+              REQUIRE(ref.reserve(nc, rows, sw, sh,
+                                  g7_kcfg(f, scale, mode, pattern, y0,
+                                          profiles)));
+              const auto full = g7_run_band(ref, f, s2, meta, profiles, y0,
+                                            rows, 0, inline_sigma);
+              for (int tile : {2, 3}) {
+                ForwardDrizzleV2CpuKernel tiled;
+                REQUIRE(tiled.reserve(
+                    nc, rows, sw, sh,
+                    g7_kcfg(f, scale, mode, pattern, y0, profiles)));
+                const auto got = g7_run_band(tiled, f, s2, meta, profiles,
+                                             y0, rows, tile, inline_sigma);
+                for (std::size_t i = 0; i < full.records.size(); ++i)
+                  REQUIRE(g10_bit_eq(full.records[i], got.records[i]));
+                for (std::size_t i = 0; i < full.profiles.size(); ++i)
+                  REQUIRE(g10_bit_eq(full.profiles[i], got.profiles[i]));
+                REQUIRE(got.dense == full.dense);
+                REQUIRE(got.stats.frames_processed ==
+                        full.stats.frames_processed);
+                REQUIRE(got.stats.slot_transitions ==
+                        full.stats.slot_transitions);
+                REQUIRE(got.stats.affine_pieces_processed >=
+                        got.stats.frames_processed);
+                // Launched samples are the exact per-piece window sums
+                // (overlapping tile windows may exceed one band box).
+                REQUIRE(got.stats.source_samples_launched ==
+                        got.expected_launched);
+                REQUIRE(full.stats.source_samples_launched ==
+                        full.expected_launched);
+              }
+            }
+          }
+  (void)nr;
+}
+
+TEST_CASE("forward drizzle v2 affine piece lifecycle rejects malformed "
+          "streams (tranche 7)",
+          "[forward-drizzle-v2][gate10][target-pieces]") {
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::RGGB, 0, 0, 1);
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  const std::size_t n_src = static_cast<std::size_t>(sw) * sh;
+  std::vector<float> s2(n_src, 0.02f);
+  std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+  for (std::size_t i = 0; i < meta.size(); ++i)
+    meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+  const auto &m = f.plan.frames[0].source_to_canvas;
+  const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1), m(1, 2)};
+  const ForwardDrizzleV2SourceWindow full{0, 0, sw, sh};
+  ForwardDrizzleV2FrameQuality q{};
+  std::vector<float> qv(n_src, 0.7f);
+  q.q_composite = qv.data();
+
+  SECTION("piece without begin, double begin, finish without piece") {
+    ForwardDrizzleV2CpuKernel k;
+    REQUIRE(k.reserve(nc, nr, sw, sh,
+                      g7_kcfg(f, 1, ColorMode::MONO, BayerPattern::RGGB, 0,
+                              true)));
+    REQUIRE_FALSE(k.accumulate_affine_piece(a6, 0, 4, full,
+                                            f.images[0].data(), s2.data(),
+                                            nullptr, &q));
+    REQUIRE(k.begin_affine_frame(0, &meta[0]));
+    REQUIRE_FALSE(k.begin_affine_frame(1, &meta[1]));  // frame still open
+    REQUIRE_FALSE(k.finish_affine_frame(0));           // no pieces yet
+    REQUIRE(k.accumulate_affine_piece(a6, 0, nc, full, f.images[0].data(),
+                                      s2.data(), nullptr, &q));
+    REQUIRE_FALSE(k.finish_affine_frame(1));  // wrong order
+    REQUIRE(k.finish_affine_frame(0));
+  }
+  SECTION("overlap, out-of-order and out-of-range pieces") {
+    ForwardDrizzleV2CpuKernel k;
+    REQUIRE(k.reserve(nc, nr, sw, sh,
+                      g7_kcfg(f, 1, ColorMode::MONO, BayerPattern::RGGB, 0,
+                              true)));
+    REQUIRE(k.begin_affine_frame(0, &meta[0]));
+    REQUIRE(k.accumulate_affine_piece(a6, 0, 8, full, f.images[0].data(),
+                                      s2.data(), nullptr, &q));
+    REQUIRE_FALSE(k.accumulate_affine_piece(a6, 4, 4, full,
+                                            f.images[0].data(), s2.data(),
+                                            nullptr, &q));  // overlaps [0,8)
+    REQUIRE_FALSE(k.accumulate_affine_piece(a6, nc, 1, full,
+                                            f.images[0].data(), s2.data(),
+                                            nullptr, &q));  // out of range
+    REQUIRE_FALSE(k.accumulate_affine_piece(a6, 8, nc, full,
+                                            f.images[0].data(), s2.data(),
+                                            nullptr, &q));  // 8+nc > nc
+    REQUIRE(k.accumulate_affine_piece(a6, 8, nc - 8, full,
+                                      f.images[0].data(), s2.data(), nullptr,
+                                      &q));
+    REQUIRE(k.finish_affine_frame(0));
+    // A later frame cannot backtrack either.
+    REQUIRE(k.begin_affine_frame(1, &meta[1]));
+    REQUIRE(k.accumulate_affine_piece(a6, 7, 4, full, f.images[1].data(),
+                                      s2.data(), nullptr, &q));
+    REQUIRE_FALSE(k.accumulate_affine_piece(a6, 0, 4, full,
+                                            f.images[1].data(), s2.data(),
+                                            nullptr, &q));  // out of order
+  }
+  SECTION("qmask mismatch across pieces") {
+    ForwardDrizzleV2CpuKernel k;
+    REQUIRE(k.reserve(nc, nr, sw, sh,
+                      g7_kcfg(f, 1, ColorMode::MONO, BayerPattern::RGGB, 0,
+                              true)));
+    REQUIRE(k.begin_affine_frame(0, &meta[0]));
+    REQUIRE(k.accumulate_affine_piece(a6, 0, 7, full, f.images[0].data(),
+                                      s2.data(), nullptr, &q));
+    ForwardDrizzleV2FrameQuality none{};
+    REQUIRE_FALSE(k.accumulate_affine_piece(a6, 7, nc - 7, full,
+                                            f.images[0].data(), s2.data(),
+                                            nullptr, &none));
+    REQUIRE(k.accumulate_affine_piece(a6, 7, nc - 7, full,
+                                      f.images[0].data(), s2.data(), nullptr,
+                                      &q));
+    REQUIRE(k.finish_affine_frame(0));
+  }
+  SECTION("one-shot calls, skip, begin_band and finalize reject an open "
+          "frame") {
+    ForwardDrizzleV2CpuKernel k;
+    const auto kcfg =
+        g7_kcfg(f, 1, ColorMode::MONO, BayerPattern::RGGB, 0, true);
+    REQUIRE(k.reserve(nc, nr, sw, sh, kcfg));
+    REQUIRE(k.begin_affine_frame(0, &meta[0]));
+    REQUIRE_FALSE(k.skip_frame(1, &meta[1]));
+    REQUIRE_FALSE(k.accumulate_frame(a6, f.images[1].data(), s2.data(), 1,
+                                     &q, &meta[1]));
+    REQUIRE_FALSE(k.accumulate_frame_window(a6, full, f.images[1].data(),
+                                            s2.data(), nullptr, 1, &q,
+                                            &meta[1]));
+    REQUIRE_FALSE(k.begin_band(4, kcfg));
+    std::vector<ForwardDrizzleV2PixelResult> junk(
+        static_cast<std::size_t>(nr) * nc);
+    std::vector<ForwardDrizzleV2ProfileResult> junkp(junk.size());
+    std::uint64_t dense = 0;
+    REQUIRE_FALSE(k.finalize(junk.data(), junkp.data(), &dense));
+    // The open frame can still be completed afterwards.
+    REQUIRE(k.accumulate_affine_piece(a6, 0, nc, full, f.images[0].data(),
+                                      s2.data(), nullptr, &q));
+    REQUIRE(k.finish_affine_frame(0));
+  }
+}
+
+TEST_CASE("forward drizzle v2 CUDA affine target-x pieces match the "
+          "full-width piece (tranche 7)",
+          "[forward-drizzle-v2][gate10][target-pieces][cuda-parity]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  for (int scale : {1, 2})
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+      auto f = make_fixture(mode, BayerPattern::GBRG, 1, -1, scale);
+      const int nc = f.plan.canvas_width_native;
+      const int nr = f.plan.canvas_height_native;
+      const int sw = f.plan.source_width, sh = f.plan.source_height;
+      const std::size_t n_src = static_cast<std::size_t>(sw) * sh;
+      std::vector<float> s2(n_src, 0.02f);
+      std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+      for (std::size_t i = 0; i < meta.size(); ++i)
+        meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+      // Persistent workspace across two bands, piece width 3 native cols.
+      ForwardDrizzleV2CudaKernel persistent;
+      const int max_rows = 5;
+      REQUIRE(persistent.reserve(
+          nc, max_rows, sw, sh,
+          g7_kcfg(f, scale, mode, BayerPattern::GBRG, 0, true)));
+      for (const auto band : {std::pair{0, 5}, std::pair{5, 5},
+                              std::pair{10, nr - 10}}) {
+        const int y0 = band.first, rows = band.second;
+        REQUIRE(persistent.begin_band(
+            rows, g7_kcfg(f, scale, mode, BayerPattern::GBRG, y0, true)));
+        const auto tiled = g7_run_band(persistent, f, s2, meta, true, y0,
+                                       rows, 3, false);
+        ForwardDrizzleV2CudaKernel ref;
+        REQUIRE(ref.reserve(
+            nc, rows, sw, sh,
+            g7_kcfg(f, scale, mode, BayerPattern::GBRG, y0, true)));
+        const auto full =
+            g7_run_band(ref, f, s2, meta, true, y0, rows, 0, false);
+        REQUIRE(tiled.records.size() == full.records.size());
+        for (std::size_t i = 0; i < tiled.records.size(); ++i) {
+          const auto &a = full.records[i];
+          const auto &b = tiled.records[i];
+          REQUIRE(a.contributors == b.contributors);
+          REQUIRE(a.robust_state == b.robust_state);
+          REQUIRE(a.confidence_state == b.confidence_state);
+          REQUIRE(a.conf_degraded == b.conf_degraded);
+          if (std::isfinite(a.value))
+            REQUIRE(b.value ==
+                    Catch::Approx(a.value).epsilon(1e-9).margin(1e-9));
+          REQUIRE(b.b == Catch::Approx(a.b).epsilon(1e-9).margin(1e-9));
+          REQUIRE(b.n_eff ==
+                  Catch::Approx(a.n_eff).epsilon(1e-9).margin(1e-9));
+        }
+        REQUIRE(tiled.dense == full.dense);
+        REQUIRE(tiled.stats.affine_pieces_processed >=
+                tiled.stats.frames_processed);
+      }
+    }
+}
+
+TEST_CASE("forward drizzle v2 driver replays multi-piece affine frames "
+          "bit-identically (tranche 7)",
+          "[forward-drizzle-v2][gate10][driver][target-pieces]") {
+  V2StoreFixture fx;
+  V2StoreFixture reference;
+  auto f = make_fixture(ColorMode::OSC, BayerPattern::GRBG, 0, 0, 1);
+  const int nc = f.plan.canvas_width_native;
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  const std::size_t n_src = static_cast<std::size_t>(sw) * sh;
+  std::vector<float> s2(n_src, 0.02f);
+  std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+  for (std::size_t i = 0; i < meta.size(); ++i)
+    meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+  // A local-warp frame exercises the single-piece path inside the same run.
+  float cx[16] = {}, cy[16] = {};
+  cx[5] = 1.2f;
+  cy[6] = -0.7f;
+  const auto plan0 = g10_driver_plan(f, 4, 1, true);
+  f.plan.frames[2] =
+      v2_local_frame(f.plan.frames[2],
+                     v2_local_model(plan0.native_height, nc, cx, cy));
+  const auto plan = g10_driver_plan(f, 4, 1, true);
+  ForwardDrizzleV2DriverOptions cpu;
+  cpu.prefer_cuda = false;
+
+  const auto ref =
+      run_forward_drizzle_v2(reference.root, plan, sw, sh,
+                             g10_provider(f, s2, &meta), cpu);
+  REQUIRE(ref.committed);
+
+  // Piece provider: affine frames are emitted as ordered 5-native-column
+  // pieces (empty tiles omitted); local frames stay one full-width piece.
+  const int tile = 5;
+  std::vector<float> win_buf, s2w;
+  ForwardDrizzleV2FrameProvider provider =
+      [&](int band_y0, int band_rows, std::uint64_t order,
+          const ForwardDrizzleV2FramePieceSink &sink) -> bool {
+    if (order >= f.plan.frames.size()) return false;
+    const auto &frame = f.plan.frames[order];
+    const auto &m = frame.source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                          m(1, 0), m(1, 1), m(1, 2)};
+    ForwardDrizzleV2FrameInput in;
+    std::copy_n(a6, 6, in.affine6);
+    in.meta = meta[order];
+    in.has_local_model = frame.has_smooth_local_model;
+    if (in.has_local_model) {
+      in.warp = v2_warp_descriptor(frame);
+      in.source = f.images[order].data();
+      in.sigma2 = s2.data();
+      in.source_window = {0, 0, sw, sh};
+      return sink(in);  // exactly one full-width piece
+    }
+    bool emitted = false;
+    for (int tx = 0; tx < nc; tx += tile) {
+      const int tw = std::min(tile, nc - tx);
+      const auto box = drizzle_source_scan_box(
+          f.plan, frame, plan.internal_scale, band_y0 * plan.internal_scale,
+          band_rows * plan.internal_scale, tx * plan.internal_scale,
+          tw * plan.internal_scale);
+      const int bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+      if (bw <= 0 || bh <= 0) continue;
+      win_buf.assign(static_cast<std::size_t>(bw) * bh, 0.0f);
+      s2w.assign(static_cast<std::size_t>(bw) * bh, 0.0f);
+      for (int r = 0; r < bh; ++r)
+        for (int c = 0; c < bw; ++c) {
+          win_buf[static_cast<std::size_t>(r) * bw + c] =
+              f.images[order](box.y0 + r, box.x0 + c);
+          s2w[static_cast<std::size_t>(r) * bw + c] =
+              s2[static_cast<std::size_t>(box.y0 + r) * sw + box.x0 + c];
+        }
+      in.source = win_buf.data();
+      in.sigma2 = s2w.data();
+      in.source_window = {box.x0, box.y0, bw, bh};
+      in.target_x_begin_native = tx;
+      in.target_cols_native = tw;
+      if (!sink(in)) return false;
+      emitted = true;
+    }
+    if (!emitted) {
+      in.skip = true;
+      return sink(in);
+    }
+    return true;
+  };
+  const auto got = run_forward_drizzle_v2(fx.root, plan, sw, sh, provider,
+                                          cpu);
+  REQUIRE(got.committed);
+  std::vector<ForwardDrizzleV2PixelResult> rr, gr;
+  std::vector<ForwardDrizzleV2ProfileResult> rp, gp;
+  g10_read_store(reference.root, plan, rr, &rp);
+  g10_read_store(fx.root, plan, gr, &gp);
+  REQUIRE(rr.size() == gr.size());
+  for (std::size_t i = 0; i < rr.size(); ++i)
+    REQUIRE(g10_bit_eq(rr[i], gr[i]));
+  for (std::size_t i = 0; i < rp.size(); ++i)
+    REQUIRE(g10_bit_eq(rp[i], gp[i]));
+  // One slot transition per frame per band; pieces add up beyond frames.
+  REQUIRE(got.totals.slot_transitions ==
+          static_cast<std::uint64_t>(plan.band_count) * plan.frame_count);
+  REQUIRE(got.totals.affine_pieces_processed >
+          got.totals.frames_processed);
+  REQUIRE(got.totals.source_samples_launched <=
+          ref.totals.source_samples_launched);
+}
+
+TEST_CASE("forward drizzle v2 driver rejects malformed piece streams "
+          "(tranche 7)",
+          "[forward-drizzle-v2][gate10][driver][target-pieces]") {
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const int nc = f.plan.canvas_width_native;
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  const std::size_t n_src = static_cast<std::size_t>(sw) * sh;
+  std::vector<float> s2(n_src, 0.02f);
+  const auto plan = g10_driver_plan(f, 4, 1, false);
+  ForwardDrizzleV2DriverOptions cpu;
+  cpu.prefer_cuda = false;
+  auto piece = [&](std::uint64_t order, int tx, int tw, bool skip) {
+    ForwardDrizzleV2FrameInput in;
+    const auto &m = f.plan.frames[order].source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                          m(1, 0), m(1, 1), m(1, 2)};
+    std::copy_n(a6, 6, in.affine6);
+    in.skip = skip;
+    in.source = f.images[order].data();
+    in.sigma2 = s2.data();
+    in.source_window = {0, 0, sw, sh};
+    in.target_x_begin_native = tx;
+    in.target_cols_native = tw;
+    return in;
+  };
+  auto expect_throw = [&](auto body) {
+    V2StoreFixture fx;
+    ForwardDrizzleV2FrameProvider p =
+        [&](int, int, std::uint64_t order,
+            const ForwardDrizzleV2FramePieceSink &sink) -> bool {
+      if (order != 0) {
+        ForwardDrizzleV2FrameInput in;
+        in.skip = true;
+        return sink(in);
+      }
+      return body(sink);
+    };
+    REQUIRE_THROWS_AS(
+        run_forward_drizzle_v2(fx.root, plan, sw, sh, p, cpu),
+        std::runtime_error);
+  };
+  expect_throw([&](const ForwardDrizzleV2FramePieceSink &) {
+    return true;  // zero emissions
+  });
+  expect_throw([&](const ForwardDrizzleV2FramePieceSink &s) {
+    if (!s(piece(0, 0, nc, true))) return false;  // skip ...
+    return s(piece(0, 0, nc, false));            // ... then a piece
+  });
+  expect_throw([&](const ForwardDrizzleV2FramePieceSink &s) {
+    if (!s(piece(0, 0, 8, false))) return false;
+    return s(piece(0, 4, 4, false));  // overlaps [0,8)
+  });
+  expect_throw([&](const ForwardDrizzleV2FramePieceSink &s) {
+    if (!s(piece(0, 7, 4, false))) return false;
+    return s(piece(0, 0, 4, false));  // out of order
+  });
+  expect_throw([&](const ForwardDrizzleV2FramePieceSink &s) {
+    return s(piece(0, nc - 2, 4, false));  // out of range
+  });
+  expect_throw([&](const ForwardDrizzleV2FramePieceSink &s) {
+    auto a = piece(0, 0, 7, false), b = piece(0, 7, nc - 7, false);
+    b.affine6[2] += 1.0;  // changed transform between pieces
+    if (!s(a)) return false;
+    return s(b);
+  });
+  expect_throw([&](const ForwardDrizzleV2FramePieceSink &s) {
+    auto local = piece(0, 0, 0, false);
+    local.has_local_model = true;
+    local.warp = ForwardDrizzleV2LocalWarp{};
+    if (!s(local)) return false;
+    return s(local);  // local frames are single-piece
+  });
+}
+
+TEST_CASE("forward drizzle v2 affine target tiles bound read amplification "
+          "(tranche 7, geometry only)",
+          "[forward-drizzle-v2][gate10][target-pieces]") {
+  // Synthetic ~4k source rotated ~1.7 deg + shear onto a 4526-wide canvas:
+  // per-band full-width union boxes over-read; 512-native-col tiles do not.
+  // (The per-tile axis-aligned bbox inflation of a rotated w x h rect is
+  // 1 + sin(2*theta)*(w/h + h/w)/2, so ~8 deg cannot reach <= 1.1 no matter
+  // the tile width; ~2 deg registration rotation is the realistic regime.)
+  RegistrationSamplingPlan sampling{};
+  sampling.source_width = 3840;
+  sampling.source_height = 2160;
+  sampling.canvas_width_native = 4526;
+  sampling.canvas_height_native = 2600;
+  FrameSamplingTransform fr;
+  fr.valid = true;
+  fr.source_to_canvas_affine_valid = true;
+  const double c = std::cos(0.03), s = std::sin(0.03);
+  const double m00 = c + 0.02 * s, m01 = -s + 0.02 * c;
+  const double m10 = s, m11 = c;
+  const double tx =
+      0.5 * 4526.0 - (m00 * 1920.0 + m01 * 1080.0);
+  const double ty = 0.5 * 2600.0 - (m10 * 1920.0 + m11 * 1080.0);
+  fr.source_to_canvas = affine(m00, m01, tx, m10, m11, ty);
+  const int scale = 2;
+  const int band_rows_native = 256;
+  std::uint64_t tiled_area = 0, untiled_area = 0;
+  for (int y = 0; y < sampling.canvas_height_native;
+       y += band_rows_native) {
+    const int rows =
+        std::min(band_rows_native, sampling.canvas_height_native - y);
+    const auto whole = drizzle_source_scan_box(sampling, fr, scale,
+                                               y * scale, rows * scale);
+    untiled_area += static_cast<std::uint64_t>(
+        std::max(0, whole.x1 - whole.x0)) *
+        std::max(0, whole.y1 - whole.y0);
+    for (int x = 0; x < sampling.canvas_width_native;
+         x += kAffineTargetTileColsNative) {
+      const int tw = std::min(kAffineTargetTileColsNative,
+                              sampling.canvas_width_native - x);
+      const auto box = drizzle_source_scan_box(
+          sampling, fr, scale, y * scale, rows * scale, x * scale,
+          tw * scale);
+      if (box.x1 <= box.x0 || box.y1 <= box.y0) continue;
+      tiled_area += static_cast<std::uint64_t>(box.x1 - box.x0) *
+                    (box.y1 - box.y0);
+    }
+  }
+  const double base = static_cast<double>(sampling.source_width) *
+                      sampling.source_height;
+  REQUIRE(tiled_area > 0);
+  REQUIRE(tiled_area / base <= 1.1);
+  REQUIRE(untiled_area / base > 1.1);
+  REQUIRE(tiled_area < untiled_area);
+}
+
+// ---- tranche 8: canonical ragged affine sample list ----------------------
+
+namespace {
+
+// Builds the canonical sample list + aligned packed quality for one frame/
+// band the same way the production provider does (spans -> storage spans ->
+// packed values -> samples; divisor-1 quality codes so the reference window
+// path can consume the identical quantized values through a packed
+// descriptor).
+struct G8Frame {
+  std::vector<DrizzleAffineSourceSpan> active, storage;
+  std::vector<float> storage_vals;
+  std::vector<ForwardDrizzleV2SourceSample> samples;
+  std::vector<std::uint16_t> qc;
+  std::vector<std::uint8_t> vc;
+  std::vector<std::uint16_t> cells_plane;
+  std::vector<std::uint8_t> veto_plane;
+  bool empty = false;
+};
+
+float g8_qvalue(int sx, int sy) {
+  return 0.5f + 0.01f * static_cast<float>((sx + sy) % 37);
+}
+bool g8_vetoed(int sx, int sy) { return (sx * 5 + sy * 3) % 29 == 0; }
+
+G8Frame g8_build_frame(const Fixture &f, std::size_t fr, float pixfrac,
+                       int y_begin, int rows, bool sigma_plane,
+                       bool profiles, int sw, int sh) {
+  G8Frame g;
+  const auto &frame = f.plan.frames[fr];
+  drizzle_affine_source_spans_into(f.plan, frame, pixfrac, y_begin, rows,
+                                   g.active);
+  if (g.active.empty()) {
+    g.empty = true;
+    return g;
+  }
+  std::vector<int> ra, rs;
+  std::vector<std::size_t> soff;
+  forward_drizzle_v2_affine_storage_spans(g.active, sw, sh, sigma_plane, ra,
+                                        g.storage);
+  // Equivalent of the packed interval reads, straight from the image.
+  for (const auto &s : g.storage)
+    for (int x = s.x_begin; x < s.x_end; ++x)
+      g.storage_vals.push_back(f.images[fr](s.source_y, x));
+  forward_drizzle_v2_build_affine_samples(
+      g.active, g.storage, g.storage_vals, sigma_plane, 0.05, 0.02,
+      0.5 * pixfrac, sw, sh, rs, soff, g.samples);
+  if (profiles) {
+    const std::size_t n = g.samples.size();
+    g.qc.resize(n);
+    g.vc.resize(n);
+    g.cells_plane.assign(static_cast<std::size_t>(sw) * sh, 0);
+    g.veto_plane.assign(static_cast<std::size_t>(sw) * sh, 0);
+    for (int y = 0; y < sh; ++y)
+      for (int x = 0; x < sw; ++x) {
+        const std::size_t i = static_cast<std::size_t>(y) * sw + x;
+        g.cells_plane[i] = quantize_quality(g8_qvalue(x, y));
+        g.veto_plane[i] = g8_vetoed(x, y) ? 1 : 0;
+      }
+    for (std::size_t i = 0; i < n; ++i) {
+      const std::size_t p =
+          static_cast<std::size_t>(g.samples[i].source_y) * sw +
+          g.samples[i].source_x;
+      g.qc[i] = g.cells_plane[p];
+      g.vc[i] = g.veto_plane[p];
+    }
+  }
+  return g;
+}
+
+// Runs one band on `kernel` through the canonical sample-list path.
+G7BandOut g8_run_band(ForwardDrizzleV2Kernel &kernel, const Fixture &f,
+                      const std::vector<ForwardDrizzleV2FrameMeta> &meta,
+                      bool profiles, int y_begin, int rows,
+                      bool sigma_plane) {
+  const int nc = f.plan.canvas_width_native;
+  const int channels = f.plan.color_mode == ColorMode::MONO ? 1 : 3;
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  G7BandOut out;
+  for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+    const auto &frame = f.plan.frames[fr];
+    const auto &m = frame.source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                          m(1, 0), m(1, 1), m(1, 2)};
+    G8Frame g = g8_build_frame(f, fr, f.cfg.pixfrac, y_begin, rows,
+                               sigma_plane, profiles, sw, sh);
+    if (g.empty) {
+      REQUIRE(kernel.skip_frame(fr, profiles ? &meta[fr] : nullptr));
+      continue;
+    }
+    ForwardDrizzleV2AlignedQuality aq{};
+    if (profiles) {
+      aq.qc = g.qc.data();
+      aq.vc = g.vc.data();
+      aq.presence_mask = 1u;
+    }
+    REQUIRE(kernel.accumulate_frame_affine_samples(
+        a6, g.samples.data(), g.samples.size(), sigma_plane,
+        profiles ? &aq : nullptr, fr, profiles ? &meta[fr] : nullptr));
+    out.expected_launched += g.samples.size();
+  }
+  const std::size_t np =
+      static_cast<std::size_t>(rows) * nc * channels;
+  out.records.assign(np, ForwardDrizzleV2PixelResult{});
+  if (profiles) out.profiles.assign(np, ForwardDrizzleV2ProfileResult{});
+  REQUIRE(kernel.finalize(out.records.data(),
+                          profiles ? out.profiles.data() : nullptr,
+                          &out.dense));
+  out.stats = kernel.stats();
+  return out;
+}
+
+// Full-window rectangle reference consuming the identical quantized quality
+// through a divisor-1 packed descriptor and the identical explicit sigma2
+// plane (the builder's oracle at every included coordinate).
+G7BandOut g8_ref_band(ForwardDrizzleV2Kernel &kernel, const Fixture &f,
+                      const std::vector<float> &s2,
+                      const std::vector<ForwardDrizzleV2FrameMeta> &meta,
+                      bool profiles, int y_begin, int rows,
+                      bool sigma_plane) {
+  const int nc = f.plan.canvas_width_native;
+  const int channels = f.plan.color_mode == ColorMode::MONO ? 1 : 3;
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  G7BandOut out;
+  for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+    const auto &frame = f.plan.frames[fr];
+    const auto &m = frame.source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                          m(1, 0), m(1, 1), m(1, 2)};
+    const auto band_box = drizzle_source_scan_box(
+        f.plan, frame, f.cfg.internal_scale, y_begin * f.cfg.internal_scale,
+        rows * f.cfg.internal_scale);
+    if (band_box.x1 <= band_box.x0 || band_box.y1 <= band_box.y0) {
+      REQUIRE(kernel.skip_frame(fr, profiles ? &meta[fr] : nullptr));
+      continue;
+    }
+    ForwardDrizzleV2SourceWindow w{0, 0, sw, sh, 0, 0, sw, sh};
+    ForwardDrizzleV2FrameQuality q{};
+    ForwardDrizzleV2PackedQualityPlane pk{};
+    std::vector<std::uint16_t> cells;
+    std::vector<std::uint8_t> veto;
+    if (profiles) {
+      cells.assign(static_cast<std::size_t>(sw) * sh, 0);
+      veto.assign(static_cast<std::size_t>(sw) * sh, 0);
+      for (int y = 0; y < sh; ++y)
+        for (int x = 0; x < sw; ++x) {
+          const std::size_t i = static_cast<std::size_t>(y) * sw + x;
+          cells[i] = quantize_quality(g8_qvalue(x, y));
+          veto[i] = g8_vetoed(x, y) ? 1 : 0;
+        }
+      pk.storage_x_begin = 0;
+      pk.storage_y_begin = 0;
+      pk.storage_width = sw;
+      pk.storage_height = sh;
+      pk.storage_divisor = 1;
+      pk.cells = cells.data();
+      pk.veto = veto.data();
+      q.qc_packed = pk;
+    }
+    out.expected_launched += static_cast<std::uint64_t>(sw) * sh;
+    REQUIRE(kernel.accumulate_frame_window(
+        a6, w, f.images[fr].data(), sigma_plane ? s2.data() : nullptr,
+        nullptr, fr, profiles ? &q : nullptr,
+        profiles ? &meta[fr] : nullptr));
+  }
+  const std::size_t np =
+      static_cast<std::size_t>(rows) * nc * channels;
+  out.records.assign(np, ForwardDrizzleV2PixelResult{});
+  if (profiles) out.profiles.assign(np, ForwardDrizzleV2ProfileResult{});
+  REQUIRE(kernel.finalize(out.records.data(),
+                          profiles ? out.profiles.data() : nullptr,
+                          &out.dense));
+  out.stats = kernel.stats();
+  return out;
+}
+
+// Numeric parity between two PixelResult vectors (CUDA vs CPU tolerance).
+void g8_near(const ForwardDrizzleV2PixelResult &e,
+             const ForwardDrizzleV2PixelResult &g) {
+  REQUIRE(g.robust_state == e.robust_state);
+  REQUIRE(g.confidence_state == e.confidence_state);
+  REQUIRE(g.contributors == e.contributors);
+  REQUIRE(g.conf_degraded == e.conf_degraded);
+  REQUIRE(g.value == Catch::Approx(e.value).epsilon(1e-5).margin(1e-9));
+  REQUIRE(g.b == Catch::Approx(e.b).epsilon(1e-5).margin(1e-9));
+  REQUIRE(g.n_eff == Catch::Approx(e.n_eff).epsilon(1e-5).margin(1e-9));
+  REQUIRE(g.confidence ==
+          Catch::Approx(e.confidence).epsilon(1e-5).margin(1e-9));
+}
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 CPU ragged affine sample list is bit-identical "
+          "to the full-source window path (tranche 8)",
+          "[forward-drizzle-v2][gate10][affine-samples]") {
+  const BayerPattern patterns[] = {BayerPattern::RGGB, BayerPattern::BGGR,
+                                   BayerPattern::GRBG, BayerPattern::GBRG};
+  for (int scale : {1, 2})
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC})
+      for (BayerPattern pattern : patterns)
+        for (bool profiles : {false, true})
+          for (bool sigma_plane : {false, true}) {
+            auto f = make_fixture(mode, pattern, 1, -1, scale);
+            const int nc = f.plan.canvas_width_native;
+            const int sw = f.plan.source_width, sh = f.plan.source_height;
+            const std::size_t n_src = static_cast<std::size_t>(sw) * sh;
+            std::vector<ForwardDrizzleV2FrameMeta> meta(
+                f.plan.frames.size());
+            for (std::size_t i = 0; i < meta.size(); ++i)
+              meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+            for (const auto band :
+                 {std::pair{0, 5}, std::pair{4, 5}, std::pair{9, 4}}) {
+              const int y0 = band.first, rows = band.second;
+              INFO("scale=" << scale << " mode=" << static_cast<int>(mode)
+                            << " pat=" << static_cast<int>(pattern)
+                            << " profiles=" << profiles
+                            << " sigma=" << sigma_plane << " band=" << y0
+                            << "/" << rows);
+              ForwardDrizzleV2KernelConfig k =
+                  g7_kcfg(f, scale, mode, pattern, y0, profiles);
+              k.sigma2_plane = sigma_plane;
+              ForwardDrizzleV2CpuKernel ref;
+              REQUIRE(ref.reserve(nc, rows, sw, sh, k));
+              // Reference: full window, per-frame explicit sigma2 plane and
+              // divisor-1 packed quality identical to the aligned arrays.
+              G7BandOut full;
+              const int channels = mode == ColorMode::MONO ? 1 : 3;
+              for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+                const auto &frame = f.plan.frames[fr];
+                const auto &m = frame.source_to_canvas;
+                const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                                      m(1, 0), m(1, 1), m(1, 2)};
+                const auto band_box = drizzle_source_scan_box(
+                    f.plan, frame, scale, y0 * scale, rows * scale);
+                if (band_box.x1 <= band_box.x0 || band_box.y1 <= band_box.y0) {
+                  REQUIRE(ref.skip_frame(fr,
+                                         profiles ? &meta[fr] : nullptr));
+                  continue;
+                }
+                const auto plane = forward_drizzle_v2_sigma2_plane(
+                    f.images[fr], 0.05, 0.02, 0.5 * f.cfg.pixfrac);
+                ForwardDrizzleV2SourceWindow w{0, 0, sw, sh, 0, 0, sw, sh};
+                ForwardDrizzleV2FrameQuality q{};
+                ForwardDrizzleV2PackedQualityPlane pk{};
+                std::vector<std::uint16_t> cells;
+                std::vector<std::uint8_t> veto;
+                if (profiles) {
+                  cells.assign(n_src, 0);
+                  veto.assign(n_src, 0);
+                  for (int y = 0; y < sh; ++y)
+                    for (int x = 0; x < sw; ++x) {
+                      const std::size_t i =
+                          static_cast<std::size_t>(y) * sw + x;
+                      cells[i] = quantize_quality(g8_qvalue(x, y));
+                      veto[i] = g8_vetoed(x, y) ? 1 : 0;
+                    }
+                  pk.storage_width = sw;
+                  pk.storage_height = sh;
+                  pk.storage_divisor = 1;
+                  pk.cells = cells.data();
+                  pk.veto = veto.data();
+                  q.qc_packed = pk;
+                }
+                REQUIRE(ref.accumulate_frame_window(
+                    a6, w, f.images[fr].data(),
+                    sigma_plane ? plane.data() : nullptr, nullptr, fr,
+                    profiles ? &q : nullptr,
+                    profiles ? &meta[fr] : nullptr));
+              }
+              full.records.assign(static_cast<std::size_t>(rows) * nc *
+                                      channels,
+                                  ForwardDrizzleV2PixelResult{});
+              if (profiles)
+                full.profiles.assign(full.records.size(),
+                                     ForwardDrizzleV2ProfileResult{});
+              REQUIRE(ref.finalize(full.records.data(),
+                                   profiles ? full.profiles.data() : nullptr,
+                                   &full.dense));
+              full.stats = ref.stats();
+              ForwardDrizzleV2CpuKernel smp;
+              REQUIRE(smp.reserve(nc, rows, sw, sh, k));
+              const auto got = g8_run_band(smp, f, meta, profiles, y0, rows,
+                                           sigma_plane);
+              for (std::size_t i = 0; i < full.records.size(); ++i)
+                REQUIRE(g10_bit_eq(full.records[i], got.records[i]));
+              for (std::size_t i = 0; i < full.profiles.size(); ++i)
+                REQUIRE(g10_bit_eq(full.profiles[i], got.profiles[i]));
+              REQUIRE(got.dense == full.dense);
+              // The ragged path may legitimately skip a frame whose
+              // margin-inflated band box was non-empty but whose true
+              // droplet coverage is empty (processed-but-zero-overlap on
+              // the rectangle path); every processed frame is bit-equal.
+              REQUIRE(got.stats.frames_processed <=
+                      full.stats.frames_processed);
+              // Skipped frames still consume a stream slot.
+              REQUIRE(got.stats.slot_transitions ==
+                      full.stats.slot_transitions);
+              REQUIRE(got.stats.source_samples_launched ==
+                      got.expected_launched);
+              REQUIRE(got.stats.affine_samples_processed ==
+                      got.stats.source_samples_launched);
+              REQUIRE((got.stats.affine_span_rows > 0) ==
+                      (got.stats.affine_samples_processed > 0));
+              REQUIRE(got.stats.source_samples_launched <=
+                      full.stats.source_samples_launched);
+            }
+          }
+}
+
+TEST_CASE("forward drizzle v2 CPU affine sample validation fails closed "
+          "(tranche 8)", "[forward-drizzle-v2][gate10][affine-samples]") {
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const int nc = f.plan.canvas_width_native;
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  auto k = g7_kcfg(f, 1, ColorMode::MONO, BayerPattern::GRBG, 0, true);
+  ForwardDrizzleV2CpuKernel kernel;
+  REQUIRE(kernel.reserve(nc, 4, sw, sh, k));
+  const double a6[6] = {1, 0, 2, 0, 1, 2};
+  std::vector<ForwardDrizzleV2SourceSample> s = {{0, 0, 1.0f, 0.0f},
+                                               {1, 0, 2.0f, 0.0f},
+                                               {0, 1, 3.0f, 0.0f}};
+  // Out of extent, duplicate and non-canonical order are rejected.
+  auto bad = s;
+  bad[2].source_x = static_cast<std::uint32_t>(sw);
+  REQUIRE_FALSE(kernel.accumulate_frame_affine_samples(
+      a6, bad.data(), bad.size(), false, nullptr, 0, nullptr));
+  bad = s;
+  bad[1].source_y = static_cast<std::uint32_t>(sh);
+  REQUIRE_FALSE(kernel.accumulate_frame_affine_samples(
+      a6, bad.data(), bad.size(), false, nullptr, 0, nullptr));
+  bad = s;
+  bad[1] = s[2];
+  bad[2] = s[1];
+  REQUIRE_FALSE(kernel.accumulate_frame_affine_samples(
+      a6, bad.data(), bad.size(), false, nullptr, 0, nullptr));
+  bad = s;
+  bad[1] = s[0];  // duplicate
+  REQUIRE_FALSE(kernel.accumulate_frame_affine_samples(
+      a6, bad.data(), bad.size(), false, nullptr, 0, nullptr));
+  REQUIRE_FALSE(kernel.accumulate_frame_affine_samples(
+      a6, nullptr, s.size(), false, nullptr, 0, nullptr));
+  REQUIRE_FALSE(kernel.accumulate_frame_affine_samples(
+      a6, s.data(), 0, false, nullptr, 0, nullptr));
+  // Non-finite affine rejected.
+  const double bad6[6] = {1, 0, std::numeric_limits<double>::infinity(),
+                          0, 1, 2};
+  REQUIRE_FALSE(kernel.accumulate_frame_affine_samples(
+      bad6, s.data(), s.size(), false, nullptr, 0, nullptr));
+  // Presence bit without the code array rejected.
+  ForwardDrizzleV2AlignedQuality aq{};
+  aq.presence_mask = 1u;
+  REQUIRE_FALSE(kernel.accumulate_frame_affine_samples(
+      a6, s.data(), s.size(), false, &aq, 0, nullptr));
+  // A valid frame then succeeds and the kernel stays consistent.
+  const ForwardDrizzleV2FrameMeta meta{0.9f, 0.8f, 1, 0};
+  REQUIRE(kernel.accumulate_frame_affine_samples(
+      a6, s.data(), s.size(), false, nullptr, 0, &meta));
+}
+
+TEST_CASE("forward drizzle v2 CUDA ragged affine sample list matches the CPU "
+          "sample path (tranche 8)", "[forward-drizzle-v2][gate10][cuda]") {
+  if (!forward_drizzle_cuda_runtime_available()) return;
+  for (int scale : {1, 2})
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC})
+      for (bool profiles : {false, true})
+        for (bool sigma_plane : {false, true}) {
+          auto f = make_fixture(mode, BayerPattern::GBRG, 1, -1, scale);
+          const int nc = f.plan.canvas_width_native;
+          const int sw = f.plan.source_width, sh = f.plan.source_height;
+          std::vector<ForwardDrizzleV2FrameMeta> meta(
+              f.plan.frames.size());
+          for (std::size_t i = 0; i < meta.size(); ++i)
+            meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+          for (const auto band : {std::pair{0, 5}, std::pair{9, 4}}) {
+            const int y0 = band.first, rows = band.second;
+            ForwardDrizzleV2KernelConfig k =
+                g7_kcfg(f, scale, mode, BayerPattern::GBRG, y0, profiles);
+            k.sigma2_plane = sigma_plane;
+            ForwardDrizzleV2CpuKernel cpu;
+            REQUIRE(cpu.reserve(nc, rows, sw, sh, k));
+            const auto ref =
+                g8_run_band(cpu, f, meta, profiles, y0, rows, sigma_plane);
+            ForwardDrizzleV2CudaKernel gpu;
+            REQUIRE(gpu.reserve(nc, rows, sw, sh, k));
+            const auto got =
+                g8_run_band(gpu, f, meta, profiles, y0, rows, sigma_plane);
+            REQUIRE(got.records.size() == ref.records.size());
+            for (std::size_t i = 0; i < ref.records.size(); ++i)
+              g8_near(ref.records[i], got.records[i]);
+            REQUIRE(got.dense == ref.dense);
+            REQUIRE(got.stats.source_samples_launched ==
+                    ref.stats.source_samples_launched);
+            REQUIRE(got.stats.affine_samples_processed ==
+                    ref.stats.affine_samples_processed);
+            REQUIRE(got.stats.affine_span_rows ==
+                    ref.stats.affine_span_rows);
+          }
+        }
+}
+
+TEST_CASE("forward drizzle v2 driver sample-list provider produces identical "
+          "store bytes to the rectangle path (tranche 8)",
+          "[forward-drizzle-v2][gate10][driver][affine-samples]") {
+  V2StoreFixture fx_rect, fx_smp;
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 2);
+  const int sw = f.plan.source_width, sh = f.plan.source_height;
+  std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+  for (std::size_t i = 0; i < meta.size(); ++i)
+    meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+  const auto plan = g10_driver_plan(f, 4, 1, true);
+  ForwardDrizzleV2DriverOptions opts;
+  opts.prefer_cuda = false;
+
+  // Rectangle reference with the same per-frame oracle sigma2 the sample
+  // builder computes (0.05 / 0.02 / half).
+  auto rect_provider =
+      [&f, &meta](int, int, std::uint64_t order,
+                  const ForwardDrizzleV2FramePieceSink &sink) {
+        if (order >= f.plan.frames.size()) return false;
+        const auto &frame = f.plan.frames[order];
+        const auto &m = frame.source_to_canvas;
+        ForwardDrizzleV2FrameInput in;
+        const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                              m(1, 0), m(1, 1), m(1, 2)};
+        std::copy_n(a6, 6, in.affine6);
+        in.meta = meta[order];
+        in.source = f.images[order].data();
+        in.source_window = {0, 0, f.plan.source_width,
+                            f.plan.source_height};
+        static thread_local std::vector<float> s2p;
+        s2p = forward_drizzle_v2_sigma2_plane(f.images[order], 0.05, 0.02,
+                                              0.5 * f.cfg.pixfrac);
+        in.sigma2 = s2p.data();
+        return sink(in);
+      };
+  const auto rect_result = run_forward_drizzle_v2(
+      fx_rect.root, plan, sw, sh, rect_provider, opts);
+  REQUIRE(rect_result.committed);
+
+  // Sample-list provider: canonical spans + samples per band, one
+  // full-target piece per affine frame.
+  auto sample_provider =
+      [&f, &meta](int y_begin, int rows, std::uint64_t order,
+                  const ForwardDrizzleV2FramePieceSink &sink) {
+        if (order >= f.plan.frames.size()) return false;
+        const auto &frame = f.plan.frames[order];
+        const int sw = f.plan.source_width, sh = f.plan.source_height;
+        ForwardDrizzleV2FrameInput in;
+        const auto &m = frame.source_to_canvas;
+        const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                              m(1, 0), m(1, 1), m(1, 2)};
+        std::copy_n(a6, 6, in.affine6);
+        in.meta = meta[order];
+        if (frame.has_smooth_local_model) {
+          // Compatibility fallback: the full-source rectangle path.
+          in.has_local_model = true;
+          in.warp = v2_warp_descriptor(frame);
+          in.source = f.images[order].data();
+          in.source_window = {0, 0, sw, sh};
+          return sink(in);
+        }
+        // The driver consumes the pointers synchronously inside sink().
+        G8Frame g = g8_build_frame(f, order, f.cfg.pixfrac, y_begin, rows,
+                                   true, false, sw, sh);
+        if (g.empty) {
+          in.skip = true;
+          return sink(in);
+        }
+        in.has_affine_samples = true;
+        in.affine_samples = g.samples.data();
+        in.affine_sample_count = g.samples.size();
+        in.sigma2_present = true;
+        return sink(in);
+      };
+  const auto smp_result = run_forward_drizzle_v2(
+      fx_smp.root, plan, sw, sh, sample_provider, opts);
+  REQUIRE(smp_result.committed);
+  // The ragged path legitimately skips band x frame combinations whose
+  // margin-inflated scan box was non-empty but whose true droplet coverage
+  // is empty; every processed frame is bit-identical.
+  REQUIRE(smp_result.totals.frames_processed <=
+          rect_result.totals.frames_processed);
+  REQUIRE(smp_result.totals.affine_samples_processed > 0);
+  REQUIRE(smp_result.totals.affine_span_rows > 0);
+  // Launched samples never exceed the rectangle path's per-frame full
+  // source launches.
+  REQUIRE(smp_result.totals.source_samples_launched <=
+          rect_result.totals.source_samples_launched);
+  std::vector<ForwardDrizzleV2PixelResult> ra, rb;
+  std::vector<ForwardDrizzleV2ProfileResult> pa, pb;
+  g10_read_store(fx_rect.root, plan, ra, &pa);
+  g10_read_store(fx_smp.root, plan, rb, &pb);
+  REQUIRE(ra.size() == rb.size());
+  REQUIRE(pa.size() == pb.size());
+  for (std::size_t i = 0; i < ra.size(); ++i)
+    REQUIRE(g10_bit_eq(ra[i], rb[i]));
+  for (std::size_t i = 0; i < pa.size(); ++i)
+    REQUIRE(g10_bit_eq(pa[i], pb[i]));
+}
+
+TEST_CASE("forward drizzle v2 ragged spans bound source launches under "
+          "rotation where bounding boxes cannot (tranche 8 gate)",
+          "[forward-drizzle-v2][gate10][affine-samples]") {
+  // Synthetic A2-like geometry: 3840x2160 source, ~10 deg rotation + shear
+  // on a 4526-wide canvas, band_rows 96. Ragged spans must keep the summed
+  // launched-sample count <=1.1x the full-source baseline; the axis-aligned
+  // band box of the SAME transform exceeds it.
+  const int sw = 3840, sh = 2160, cw = 4526, ch = 3200;
+  const double th = 10.0 * M_PI / 180.0;
+  RegistrationSamplingPlan plan;
+  plan.source_width = sw;
+  plan.source_height = sh;
+  plan.canvas_width_native = cw;
+  plan.canvas_height_native = ch;
+  plan.color_mode = ColorMode::MONO;
+  FrameSamplingTransform fr;
+  fr.frame_id = "a2-like";
+  fr.source_index = 0;
+  fr.valid = true;
+  fr.source_to_canvas = affine(std::cos(th) * 1.02, -std::sin(th) * 1.02,
+                               120.0, std::sin(th) * 0.98 + 0.01,
+                               std::cos(th) * 0.98, 60.0);
+  fr.source_to_canvas_affine_valid = true;
+  plan.frames.push_back(fr);
+  std::uint64_t launched = 0, box_elems = 0;
+  for (int y0 = 0; y0 < ch; y0 += 96) {
+    const int rows = std::min(96, ch - y0);
+    const auto spans =
+        drizzle_affine_source_spans(plan, fr, 0.8f, y0, rows);
+    for (const auto &s : spans)
+      launched += static_cast<std::uint64_t>(s.x_end - s.x_begin);
+    const auto box = drizzle_source_scan_box(plan, fr, 2, y0 * 2, rows * 2);
+    if (box.x1 > box.x0 && box.y1 > box.y0)
+      box_elems += static_cast<std::uint64_t>(box.x1 - box.x0) *
+                   (box.y1 - box.y0);
+  }
+  const double baseline = static_cast<double>(sw) * sh;
+  INFO("launched=" << launched << " baseline=" << baseline
+                   << " box=" << box_elems);
+  REQUIRE(static_cast<double>(launched) / baseline <= 1.1);
+  // The rotated band's full bounding box legitimately exceeds 1.1 (the
+  // inflation grows with canvas height, not with tile width) — this is the
+  // regression signal the ragged path removes.
+  REQUIRE(static_cast<double>(box_elems) / baseline > 1.1);
+
+  // Conditional real-artifact gate (A2 registration sampling): when the
+  // recorded run artifact exists, every affine transform's summed launched
+  // amplification over planned 96-row bands must be <=1.1.
+  const fs::path art =
+      "runs/gate10_v2/a2_m42_affine/artifacts/registration_sampling.json";
+  std::error_code ec;
+  if (fs::is_regular_file(fs::symlink_status(art, ec))) {
+    std::ifstream in(art);
+    const nlohmann::json j = nlohmann::json::parse(in);
+    RegistrationSamplingPlan rplan;
+    rplan.source_width = j.at("source_width").get<int>();
+    rplan.source_height = j.at("source_height").get<int>();
+    rplan.canvas_width_native = j.at("canvas_width_native").get<int>();
+    rplan.canvas_height_native = j.at("canvas_height_native").get<int>();
+    rplan.color_mode = ColorMode::MONO;
+    std::vector<FrameSamplingTransform> affs;
+    for (const auto &fj : j.at("frames")) {
+      FrameSamplingTransform tf;
+      tf.frame_id = fj.at("frame_id").get<std::string>();
+      tf.source_index = affs.size();
+      tf.valid = fj.value("valid", true);
+      const auto &m = fj.at("source_to_canvas");
+      tf.source_to_canvas = affine(m[0].get<double>(), m[1].get<double>(),
+                                   m[2].get<double>(), m[3].get<double>(),
+                                   m[4].get<double>(), m[5].get<double>());
+      tf.source_to_canvas_affine_valid =
+          fj.value("source_to_canvas_affine_valid", true);
+      tf.has_smooth_local_model = fj.value("has_smooth_local_model", false);
+      rplan.frames.push_back(tf);
+      if (tf.valid && tf.source_to_canvas_affine_valid &&
+          !tf.has_smooth_local_model)
+        affs.push_back(tf);
+    }
+    REQUIRE(affs.size() == 610);
+    std::uint64_t rlaunched = 0;
+    for (const auto &tf : affs)
+      for (int y0 = 0; y0 < rplan.canvas_height_native; y0 += 96) {
+        const int rows =
+            std::min(96, rplan.canvas_height_native - y0);
+        const auto spans =
+            drizzle_affine_source_spans(rplan, tf, 0.8f, y0, rows);
+        for (const auto &s : spans)
+          rlaunched += static_cast<std::uint64_t>(s.x_end - s.x_begin);
+      }
+    const double rbaseline =
+        static_cast<double>(affs.size()) * rplan.source_width *
+        rplan.source_height;
+    INFO("real A2 launched=" << rlaunched << " baseline=" << rbaseline);
+    REQUIRE(static_cast<double>(rlaunched) / rbaseline <= 1.1);
   }
 }

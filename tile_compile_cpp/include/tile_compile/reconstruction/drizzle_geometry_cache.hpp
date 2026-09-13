@@ -134,6 +134,36 @@ GeometryCacheBuildResult build_drizzle_geometry_cache(
     std::uint64_t memory_budget_bytes, int max_workers = 1,
     const GeometryCacheProgressFn &on_progress = nullptr);
 
+// Packed-independent public leaf record: one accepted local-warp leaf of
+// one source sample, with the exact double corner bits (ABSOLUTE internal
+// canvas coordinates, same convention as the on-disk LeafRecord --- the
+// internal scale is already applied) and the absolute source coordinate.
+// Forward Drizzle v2 consumes these directly --- no inversion or
+// subdivision is ever re-run on the read path.
+struct DrizzleCachedLeaf {
+  std::uint32_t source_x = 0;
+  std::uint32_t source_y = 0;
+  std::uint16_t channel = 0;      // CFA channel index (0 for MONO)
+  std::uint16_t leaf_order = 0;   // position inside the sample's leaf list
+  double x[4]{};
+  double y[4]{};
+};
+
+// Result window of read_stripe_leaves_into: every leaf of one local frame
+// whose canvas y-bbox intersects the requested internal stripe, in
+// canonical (source_y, source_x, leaf_order) order, plus the half-open
+// source bbox of the retained records and the count of distinct covered
+// source samples.
+struct DrizzleCachedLeafWindow {
+  std::vector<DrizzleCachedLeaf> leaves;
+  int source_x0 = 0, source_y0 = 0, source_x1 = 0, source_y1 = 0;
+  std::uint64_t unique_source_samples = 0;
+  // Reused raw row-block staging for the on-disk record bytes
+  // (max_row_record_count()*72 suffices). Cleared and refilled per row
+  // like `leaves`; capacity is preserved across calls.
+  std::vector<std::uint8_t> io_scratch;
+};
+
 // Verified reader over ONE committed generation.
 //
 // On open it loads and hashes only the per-frame ROW INDEX (`.rows`, a few tens
@@ -184,6 +214,28 @@ public:
   void enumerate_stripe(float pixfrac, std::size_t source_index, int scale,
                         int y_begin, int rows,
                         const DrizzleLeafCellSink &sink) const;
+
+  // Reads every leaf record of (pixfrac, source_index) whose canvas y-bbox
+  // intersects the internal stripe [y_begin, y_begin + rows) into `out`
+  // (canonical order, exact corner bits, source bbox + unique sample
+  // count). `out.leaves` is cleared and refilled --- its capacity is
+  // preserved, so a pre-reserved caller buffer is reused. Empty stripes
+  // yield zeroed bbox/counters. Throws on unknown variant/frame or a scale
+  // mismatch, exactly like enumerate_stripe.
+  void read_stripe_leaves_into(float pixfrac, std::size_t source_index,
+                               int scale, int y_begin, int rows,
+                               DrizzleCachedLeafWindow &out) const;
+
+  // Conservative record bound for ANY stripe of `stripe_rows` internal
+  // canvas rows over every non-excluded frame of the pixfrac variant,
+  // computed from the row indices only (no leaf payload reads). Suitable
+  // as the caller's pre-reservation capacity.
+  std::uint64_t max_stripe_leaf_records(float pixfrac,
+                                        int stripe_rows) const;
+
+  // Exact LeafRecord payload bytes read by read_stripe_leaves_into so far
+  // (process-lifetime of this reader). Thread-safe.
+  std::uint64_t leaf_record_bytes_read() const;
 
   // Frames excluded by subdivision-error rate, as finalised by the build.
   const std::vector<std::pair<std::string, double>> &excluded_frames() const;

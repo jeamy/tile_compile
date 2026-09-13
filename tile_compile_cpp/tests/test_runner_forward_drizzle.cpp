@@ -814,6 +814,102 @@ TEST_CASE("forward runner: TC_FORWARD_DRIZZLE_V2 selects the banded v2 path "
       fd_end.at("acceleration_backend").get<std::string>();
   REQUIRE((be == "cpu_v2" || be == "cuda_v2"));
 
+  // Honest aggregate telemetry contract (performance tranche 1): device
+  // frame timing, provider/enqueue wall timing and the Q/source counters.
+  for (const char *key : {"v2_max_frame_seconds",
+                          "v2_max_provider_enqueue_seconds",
+                          "v2_quality_bytes_uploaded",
+                          "v2_source_samples_launched",
+                          "v2_quality_frames_processed",
+                          "v2_upload_seconds", "v2_kernel_seconds",
+                          "v2_download_seconds", "v2_reserved_device_bytes",
+                          "v2_frames_skipped_empty_window",
+                          "v2_quality_expanded_floats",
+                          "v2_phase_wall_seconds", "v2_commit_seconds",
+                          "v2_provider_source_seconds",
+                          "v2_provider_quality_seconds",
+                          "v2_provider_source_bytes_read",
+                          "v2_provider_source_read_calls",
+                          "v2_provider_hotpath_allocations",
+                          "v2_workspace_reservations",
+                          "v2_band_resets",
+                          "v2_driver_hotpath_allocations",
+                          "v2_provider_quality_cells_read",
+                          "v2_provider_quality_expanded_floats",
+                          "v2_provider_quality_denominator_bytes",
+                          "v2_source_read_amplification",
+                          "v2_source_read_amplification_applicable",
+                          "v2_launched_sample_amplification",
+                          "v2_launched_sample_amplification_applicable",
+                          "v2_quality_read_amplification",
+                          "v2_quality_read_amplification_applicable",
+                          // Tranche-6 committed-geometry telemetry.
+                          "v2_geometry_leaf_records_read",
+                          "v2_geometry_leaf_record_bytes_read",
+                          "v2_geometry_unique_source_samples",
+                          "v2_geometry_cache_enumerations",
+                          "v2_cached_leaf_records_launched",
+                          "v2_cached_leaf_bytes_uploaded",
+                          // Tranche-7/8 affine telemetry.
+                          "v2_affine_pieces_processed",
+                          "v2_empty_affine_tiles",
+                          "v2_target_tile_cols_native",
+                          "v2_target_tile_cols_native_applicable",
+                          "v2_affine_samples_processed",
+                          "v2_affine_span_rows",
+                          "v2_affine_sample_path"})
+    REQUIRE(fd_end.contains(key));
+
+  // Tranche-2 band-aware source windows: launched source samples and the
+  // affine source/Q reads are bounded by the exact per-band scan boxes, never
+  // the full frame per band.
+  const std::uint64_t src_area = 32ull * 32ull;
+  const std::uint64_t full_baseline =
+      detected.frame_count *
+      static_cast<std::uint64_t>(detected.band_count) * src_area;
+  const std::uint64_t launched =
+      fd_end.at("v2_source_samples_launched").get<std::uint64_t>();
+  REQUIRE(launched > 0);
+  REQUIRE(launched <= full_baseline);
+  REQUIRE(fd_end.at("v2_frames_skipped_empty_window")
+              .get<std::uint64_t>() <=
+          detected.frame_count *
+              static_cast<std::uint64_t>(detected.band_count));
+  REQUIRE(fd_end.at("source_cache").at("bytes_read")
+              .get<std::uint64_t>() <= full_baseline * sizeof(float));
+  // Tranche-4 hot path: provider buffers are pre-reserved outside the calls,
+  // so no provider call may grow a reusable buffer.
+  REQUIRE(fd_end.at("v2_provider_hotpath_allocations")
+              .get<std::uint64_t>() == 0);
+  // Tranche-5 persistent workspace: exactly one reservation per backend
+  // attempt, one begin_band per computed band, no driver record-buffer
+  // growth.
+  REQUIRE(fd_end.at("v2_workspace_reservations").get<std::uint64_t>() == 1);
+  REQUIRE(fd_end.at("v2_reserve_allocations").get<std::uint64_t>() == 1);
+  REQUIRE(fd_end.at("v2_band_resets").get<std::uint64_t>() ==
+          static_cast<std::uint64_t>(detected.band_count));
+  REQUIRE(fd_end.at("v2_driver_hotpath_allocations")
+              .get<std::uint64_t>() == 0);
+  REQUIRE(fd_end.at("v2_provider_quality_expanded_floats")
+              .get<std::uint64_t>() == 0);
+  REQUIRE(fd_end.at("v2_provider_source_read_calls")
+              .get<std::uint64_t>() > 0);
+  // Tranche 8: production affine frames run through the canonical ragged
+  // sample list (one full-target piece per frame); the compatibility
+  // target-tile key is explicitly not applicable.
+  REQUIRE(fd_end.at("v2_affine_sample_path").get<bool>());
+  REQUIRE(fd_end.at("v2_target_tile_cols_native").is_null());
+  REQUIRE_FALSE(
+      fd_end.at("v2_target_tile_cols_native_applicable").get<bool>());
+  REQUIRE(fd_end.at("v2_affine_samples_processed").get<std::uint64_t>() >
+          0);
+  REQUIRE(fd_end.at("v2_affine_samples_processed")
+              .get<std::uint64_t>() <=
+          fd_end.at("v2_source_samples_launched").get<std::uint64_t>());
+  REQUIRE(fd_end.at("v2_affine_span_rows").get<std::uint64_t>() > 0);
+  REQUIRE(fd_end.at("v2_affine_pieces_processed").get<std::uint64_t>() ==
+          0);
+
   // The checkpoint carries the plan hash --- a plan/config change fails
   // closed on resume.
   const auto ck = core::json::parse(core::read_text(
@@ -838,4 +934,76 @@ TEST_CASE("forward runner: TC_FORWARD_DRIZZLE_V2 selects the banded v2 path "
   REQUIRE(legacy.execute(legacy_log));
   REQUIRE_FALSE(
       fs::exists(legacy.dir / "artifacts/forward_drizzle_v2/current.json"));
+}
+
+TEST_CASE("forward runner: v2 consumes the committed geometry cache for "
+          "local frames and fails closed without it (tranche 6)",
+          "[forward-runner][geometry-cache][gate10]") {
+  struct V2EnvGuard {
+    V2EnvGuard() { ::setenv("TC_FORWARD_DRIZZLE_V2", "1", 1); }
+    ~V2EnvGuard() { ::unsetenv("TC_FORWARD_DRIZZLE_V2"); }
+    V2EnvGuard(const V2EnvGuard &) = delete;
+    V2EnvGuard &operator=(const V2EnvGuard &) = delete;
+  } env;
+  // Keep the serial reduction path so the geomstats consumer counters are
+  // recorded honestly.
+  ForwardDrizzleWorkersEnvGuard workers("1");
+  LocalWarpFixture f;
+  std::ostringstream log;
+  const bool ok = f.execute(log);
+  INFO("log:\n" << log.str());
+  REQUIRE(ok);
+
+  // The v2 producer consumed committed cache leaves for all three local
+  // frames; no inversion/subdivision ran inside FORWARD_DRIZZLE.
+  core::json fd_end;
+  for (const auto &e : events(log.str()))
+    if (e["type"] == "phase_end" && e["phase_name"] == "FORWARD_DRIZZLE")
+      fd_end = e;
+  REQUIRE(fd_end.at("forward_drizzle_v2").get<bool>());
+  const std::uint64_t read =
+      fd_end.at("v2_geometry_leaf_records_read").get<std::uint64_t>();
+  const std::uint64_t launched =
+      fd_end.at("v2_cached_leaf_records_launched").get<std::uint64_t>();
+  REQUIRE(read > 0);
+  REQUIRE(read == launched);
+  REQUIRE(fd_end.at("v2_geometry_leaf_record_bytes_read")
+              .get<std::uint64_t>() >=
+          read * 72u);
+  REQUIRE(fd_end.at("v2_geometry_cache_enumerations").get<std::uint64_t>() >
+          0);
+  REQUIRE(fd_end.at("v2_geometry_unique_source_samples")
+              .get<std::uint64_t>() > 0);
+  REQUIRE(fd_end.at("v2_cached_leaf_bytes_uploaded").get<std::uint64_t>() >=
+          launched * 80u);
+  // The FORWARD_DRIZZLE phase never re-ran the local geometry: zero
+  // sample_leaves calls recorded for the stripe consumers.
+  const auto prof = core::json::parse(std::ifstream(
+      f.dir / "artifacts/forward_drizzle_geometry_profile.json"));
+  for (const char *name : {"production_uniform_raw", "coverage_cfa",
+                           "coverage_footprint"}) {
+    if (!prof.at("variants").contains(name)) continue;
+    INFO("variant " << name);
+    REQUIRE(prof.at("variants").at(name).at("top_level_sample_leaves_calls")
+                .get<long long>() == 0);
+    REQUIRE(prof.at("variants").at(name).at("invert_iterations")
+                .get<long long>() == 0);
+  }
+  // The store completed.
+  const auto v2_root = f.dir / "artifacts/forward_drizzle_v2";
+  reconstruction::ForwardDrizzleV2RunPlan detected;
+  std::string load_error;
+  REQUIRE(reconstruction::load_forward_drizzle_v2_published_plan(
+      v2_root, detected, load_error));
+  REQUIRE(reconstruction::inspect_forward_drizzle_v2_store(v2_root, detected)
+              .status ==
+          reconstruction::ForwardDrizzleV2StoreStatus::complete);
+
+  // Fail-closed: remove the committed cache; a resume must refuse before
+  // any phase starts (a local frame cannot be served without it).
+  fs::remove_all(f.dir / "artifacts/forward_drizzle_geometry");
+  std::ostringstream rejected;
+  REQUIRE_FALSE(f.execute(rejected, "FORWARD_DRIZZLE"));
+  for (const auto &e : events(rejected.str()))
+    REQUIRE(e["type"] != "phase_start");
 }

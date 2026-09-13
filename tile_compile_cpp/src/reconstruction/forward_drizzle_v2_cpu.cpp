@@ -58,35 +58,73 @@ bool cpu_checked_mul(std::size_t a, std::size_t b, std::size_t &out) {
   return true;
 }
 
+// Decode one quality sample of a stream: float plane indexed by the
+// active-local tid (compatibility path) or the compact storage-grid
+// descriptor decoded by the absolute source coordinate. Absent streams and
+// vetoed/zero cells yield NaN (the same veto the float path reports).
+float cpu_quality_sample(const float *plane,
+                         const ForwardDrizzleV2PackedQualityPlane &packed,
+                         std::size_t tid, int sx, int sy) {
+  if (packed.cells != nullptr) {
+    const std::size_t i =
+        static_cast<std::size_t>(sy / packed.storage_divisor -
+                                 packed.storage_y_begin) *
+            static_cast<std::size_t>(packed.storage_width) +
+        static_cast<std::size_t>(sx / packed.storage_divisor -
+                                 packed.storage_x_begin);
+    if (packed.veto != nullptr && packed.veto[i])
+      return std::numeric_limits<float>::quiet_NaN();
+    const std::uint16_t c = packed.cells[i];
+    return c == 0u ? std::numeric_limits<float>::quiet_NaN()
+                   : static_cast<float>(c) / 65535.0f;
+  }
+  return plane != nullptr ? plane[tid]
+                          : std::numeric_limits<float>::quiet_NaN();
+}
+
+// A packed quality descriptor is well-formed iff its storage window covers
+// every storage cell the active rect maps to (absolute coords, divisor).
+bool cpu_packed_q_covers(const ForwardDrizzleV2PackedQualityPlane &p,
+                         int abs_x0, int abs_y0, int aw, int ah) {
+  if (p.cells == nullptr) return true;  // absent stream
+  if (p.storage_width <= 0 || p.storage_height <= 0 || p.storage_divisor <= 0)
+    return false;
+  const int d = p.storage_divisor;
+  return p.storage_x_begin <= abs_x0 / d &&
+         p.storage_x_begin + p.storage_width > (abs_x0 + aw - 1) / d &&
+         p.storage_y_begin <= abs_y0 / d &&
+         p.storage_y_begin + p.storage_height > (abs_y0 + ah - 1) / d;
+}
+
 // Quality accumulation of one droplet/cell pair, gated on finite source
-// value by the caller (device d_scatter_quality port).
-void cpu_scatter_quality(const ForwardDrizzleV2FrameQuality &q,
-                         std::size_t out, double area, std::size_t tid,
+// value by the caller (device d_scatter_quality port). `qv` holds the
+// already-decoded per-stream sample values (NaN = veto/absent).
+void cpu_scatter_quality(const float qv[4], unsigned int qmask,
+                         std::size_t out, double area,
                          std::vector<double> &vqc, std::vector<double> &vq0,
                          std::vector<double> &vq1, std::vector<double> &vqa,
                          std::vector<double> &vqaf) {
-  auto acc = [](const float *src, std::vector<double> &dst, std::size_t o,
-                double k, std::size_t t) {
-    if (src == nullptr || dst.empty()) return;
-    const double v = static_cast<double>(src[t]);
-    dst[o] += k * (std::isfinite(v) && v > 0.0 ? v : 0.0);
+  auto acc = [](float v, std::vector<double> &dst, std::size_t o, double k) {
+    if (dst.empty()) return;
+    const double d = static_cast<double>(v);
+    dst[o] += k * (std::isfinite(d) && d > 0.0 ? d : 0.0);
   };
-  acc(q.q_composite, vqc, out, area, tid);
-  acc(q.q_scale0, vq0, out, area, tid);
-  acc(q.q_scale1, vq1, out, area, tid);
-  acc(q.q_artifact, vqa, out, area, tid);
-  if (q.q_artifact != nullptr &&
-      std::isfinite(static_cast<double>(q.q_artifact[tid])))
+  if (qmask & 1u) acc(qv[0], vqc, out, area);
+  if (qmask & 2u) acc(qv[1], vq0, out, area);
+  if (qmask & 4u) acc(qv[2], vq1, out, area);
+  if (qmask & 8u) acc(qv[3], vqa, out, area);
+  if ((qmask & 8u) && std::isfinite(static_cast<double>(qv[3])))
     vqaf[out] += area;
 }
 
 // Rasterize one accepted leaf quad (internal coordinates) into the frame
-// planes. Returns the number of positive-overlap cells.
+// planes, clipped to the internal x column range [tile_x0, tile_x1)
+// (tile_x1 <= cols). Returns the number of positive-overlap cells.
 std::uint64_t cpu_scatter_leaf(const double *qx, const double *qy, int cols,
                                int rows, int channel, double value,
                                bool finite_value, double s2,
-                               const ForwardDrizzleV2FrameQuality *q,
-                               bool qp, std::size_t tid, int iplane,
+                               const float *qv, unsigned int qmask,
+                               int iplane, int tile_x0, int tile_x1,
                                std::vector<double> &fa,
                                std::vector<double> &fbs,
                                std::vector<double> &fbg,
@@ -106,8 +144,10 @@ std::uint64_t cpu_scatter_leaf(const double *qx, const double *qy, int cols,
     miny = std::min(miny, qy[k]);
     maxy = std::max(maxy, qy[k]);
   }
-  const int x0 = std::max(0, static_cast<int>(std::floor(minx)));
-  const int x1 = std::min(cols, static_cast<int>(std::ceil(maxx)));
+  const int x0 =
+      std::max(tile_x0, std::max(0, static_cast<int>(std::floor(minx))));
+  const int x1 =
+      std::min(tile_x1, std::min(cols, static_cast<int>(std::ceil(maxx))));
   const int y0 = std::max(0, static_cast<int>(std::floor(miny)));
   const int y1 = std::min(rows, static_cast<int>(std::ceil(maxy)));
   std::uint64_t overlaps = 0;
@@ -124,8 +164,8 @@ std::uint64_t cpu_scatter_leaf(const double *qx, const double *qy, int cols,
         fa[out] += area * value;
         fbs[out] += area;
         if (!fs2.empty()) fs2[out] += area * s2;
-        if (qp && q != nullptr)
-          cpu_scatter_quality(*q, out, area, tid, fqc, fq0, fq1, fqa, fqaf);
+        if (qmask != 0u && qv != nullptr)
+          cpu_scatter_quality(qv, qmask, out, area, fqc, fq0, fq1, fqa, fqaf);
       }
       ++overlaps;
     }
@@ -231,6 +271,9 @@ bool cpu_collect_local_leaves(
 
 struct ForwardDrizzleV2CpuKernel::Impl {
   ForwardDrizzleV2KernelConfig cfg;
+  // max_nrows is the reserved capacity; nrows/irows/nplane/iplane/pc_elems
+  // are the ACTIVE band dimensions (<= reserved).
+  int max_nrows = 0;
   int ncols = 0, nrows = 0, icols = 0, irows = 0;
   int source_w = 0, source_h = 0, channels = 0, res_slots = 0;
   std::size_t nplane = 0, iplane = 0, pc_elems = 0;
@@ -287,7 +330,15 @@ bool ForwardDrizzleV2CpuKernel::reserve(int native_cols, int native_rows,
   const long long irows = static_cast<long long>(native_rows) * scale;
   if (icols > 0x7fffffffLL || irows > 0x7fffffffLL) return false;
   const int channels = cfg.mono ? 1 : 3;
-  const int res_slots = 2 * cfg.reservoir_size;
+  // Exact global keep set bounds the retained candidates per pixel; the
+  // historical 2*R cap is preserved so rare keep sets larger than 2R still
+  // drive the kept > res_slots overflow fallback at finalize.
+  const auto selected = forward_drizzle_v2_selected_frame_orders(
+      cfg.stream_length, cfg.reservoir_size, cfg.reservoir_seed);
+  const std::size_t historical_cap =
+      2 * static_cast<std::size_t>(cfg.reservoir_size);
+  const int res_slots = static_cast<int>(
+      std::max<std::size_t>(1, std::min(selected.size(), historical_cap)));
   std::size_t nplane = 0, iplane = 0, pc_elems = 0, frame_plane_elems = 0;
   if (!cpu_checked_mul(static_cast<std::size_t>(native_cols),
                        static_cast<std::size_t>(native_rows), nplane) ||
@@ -303,6 +354,7 @@ bool ForwardDrizzleV2CpuKernel::reserve(int native_cols, int native_rows,
 
   auto im = std::make_unique<Impl>();
   im->cfg = cfg;
+  im->max_nrows = native_rows;
   im->ncols = native_cols;
   im->nrows = native_rows;
   im->icols = static_cast<int>(icols);
@@ -379,22 +431,153 @@ bool ForwardDrizzleV2CpuKernel::reserve(int native_cols, int native_rows,
 
   stats_ = ForwardDrizzleV2PrototypeStats{};
   stats_.allocations = 1;
+  stats_.workspace_reservations = 1;
   stats_.reserved_device_bytes = total_bytes;
   bytes_per_native_pixel_ =
       nplane > 0 ? total_bytes / nplane : total_bytes;
+  capacity_bytes_ = total_bytes;
+  pending_reservation_ = true;
   impl_ = im.release();
+  return true;
+}
+
+// Fields begin_band may change: native_rows and band_origin_y_native. Every
+// other config field is part of the reserved workspace's fixed contract.
+static bool v2_fixed_cfg_equal(const ForwardDrizzleV2KernelConfig &a,
+                               const ForwardDrizzleV2KernelConfig &b) {
+  return a.internal_scale == b.internal_scale &&
+         a.reservoir_size == b.reservoir_size &&
+         a.reservoir_seed == b.reservoir_seed &&
+         a.stream_length == b.stream_length &&
+         a.min_clip_contributors == b.min_clip_contributors &&
+         a.min_candidates == b.min_candidates &&
+         a.robust_passes == b.robust_passes && a.sigma_low == b.sigma_low &&
+         a.sigma_high == b.sigma_high && a.half == b.half &&
+         a.bayer_pattern == b.bayer_pattern &&
+         a.cfa_origin_x == b.cfa_origin_x && a.cfa_origin_y == b.cfa_origin_y &&
+         a.mono == b.mono && a.sigma2_plane == b.sigma2_plane &&
+         a.emit_profiles == b.emit_profiles &&
+         a.fine_quality_exponent == b.fine_quality_exponent &&
+         a.medium_quality_exponent == b.medium_quality_exponent &&
+         a.canvas_width_native == b.canvas_width_native &&
+         a.canvas_height_native == b.canvas_height_native &&
+         a.band_origin_x_native == b.band_origin_x_native &&
+         a.cached_leaf_capacity == b.cached_leaf_capacity;
+}
+
+bool ForwardDrizzleV2CpuKernel::begin_band(
+    int native_rows, const ForwardDrizzleV2KernelConfig &cfg) {
+  if (impl_ == nullptr) return false;
+  Impl &im = *impl_;
+  // Legal only right after reserve() (frames==0, not yet finalized) or
+  // after a successful finalize(). A partial/failed frame stream cannot be
+  // rebound --- nor can a band end mid piece frame.
+  if (frame_open_ || (!im.finalized && im.frames != 0)) return false;
+  if (native_rows < 1 || native_rows > im.max_nrows ||
+      !v2_fixed_cfg_equal(im.cfg, cfg) || cfg.band_origin_y_native < 0 ||
+      (cfg.canvas_height_native > 0 &&
+       cfg.band_origin_y_native + native_rows > cfg.canvas_height_native) ||
+      (cfg.canvas_height_native == 0 && cfg.band_origin_y_native != 0))
+    return false;
+  const int scale = im.cfg.internal_scale;
+  im.cfg = cfg;
+  im.nrows = native_rows;
+  im.irows = native_rows * scale;
+  im.nplane = static_cast<std::size_t>(im.ncols) * im.nrows;
+  im.iplane = static_cast<std::size_t>(im.icols) * im.irows;
+  im.pc_elems = im.nplane * static_cast<std::size_t>(im.channels);
+  // Clear the active prefix of every per-band role; no vector is resized.
+  std::fill_n(im.accA.begin(), im.pc_elems, 0.0);
+  std::fill_n(im.accB.begin(), im.pc_elems, 0.0);
+  std::fill_n(im.accB2.begin(), im.pc_elems, 0.0);
+  std::fill_n(im.covB.begin(), im.pc_elems, 0.0);
+  std::fill_n(im.covB2.begin(), im.pc_elems, 0.0);
+  std::fill_n(im.confS.begin(), im.pc_elems, 0.0);
+  std::fill_n(im.confC.begin(), im.pc_elems, 0.0);
+  std::fill_n(im.contrib.begin(), im.pc_elems, 0u);
+  std::fill_n(im.kept.begin(), im.pc_elems, 0u);
+  std::fill_n(im.footprint.begin(), im.nplane, 0u);
+  std::fill_n(im.supp.begin(), im.pc_elems, 0u);
+  std::fill_n(im.degraded.begin(), im.pc_elems, 0ull);
+  if (cfg.emit_profiles)
+    std::fill(im.meta.begin(), im.meta.end(), ForwardDrizzleV2FrameMeta{});
+  im.frames = 0;
+  im.finalized = false;
+  // stats() is a current-band delta: the single workspace reservation is
+  // reported exactly once, by the first begin_band.
+  stats_ = ForwardDrizzleV2PrototypeStats{};
+  stats_.band_resets = 1;
+  if (pending_reservation_) {
+    stats_.workspace_reservations = 1;
+    stats_.allocations = 1;
+    pending_reservation_ = false;
+  }
+  stats_.reserved_device_bytes = capacity_bytes_;
   return true;
 }
 
 bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
     const double affine6[6], const ForwardDrizzleV2LocalWarp *warp,
+    const ForwardDrizzleV2SourceWindow &window,
     const float *source, const float *sigma2_or_null,
-    std::uint64_t frame_order,
+    const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+    const ForwardDrizzleV2CachedLeaf *leaves, std::size_t leaf_count,
+    std::uint64_t unique_source_samples, std::uint64_t frame_order,
     const ForwardDrizzleV2FrameQuality *quality_or_null,
     const ForwardDrizzleV2FrameMeta *meta_or_null) {
   Impl &im = *impl_;
   const std::uint64_t n = im.cfg.stream_length;
-  if (frame_order >= n) return false;
+  // The one-shot paths must not interleave with an open affine piece frame.
+  if (frame_open_ || frame_order >= n) return false;
+  // The window is a packed row-major buffer (optional halo) inside the
+  // reserved full source extent; only the ACTIVE rect is iterated and
+  // geometry keeps absolute source coordinates.
+  if (window.x_begin < 0 || window.y_begin < 0 || window.width <= 0 ||
+      window.height <= 0 ||
+      window.x_begin + window.width > im.source_w ||
+      window.y_begin + window.height > im.source_h)
+    return false;
+  int act_x = window.active_x, act_y = window.active_y;
+  int act_w = window.active_width, act_h = window.active_height;
+  if (act_w == 0 && act_h == 0 && act_x == 0 && act_y == 0) {
+    act_w = window.width;
+    act_h = window.height;
+  }
+  if (act_x < 0 || act_y < 0 || act_w <= 0 || act_h <= 0 ||
+      act_x + act_w > window.width || act_y + act_h > window.height)
+    return false;
+  const int abs_x0 = window.x_begin + act_x;
+  const int abs_y0 = window.y_begin + act_y;
+  // Cached-geometry path: the leaves carry the committed geometry; a local
+  // warp must not be combined with it, the count is bound by the reserved
+  // capacity, and every leaf's source sample must lie inside the ACTIVE
+  // rect (packed float sigma/Q planes index by active-local position).
+  if (leaves != nullptr) {
+    if (warp != nullptr || leaf_count == 0 ||
+        leaf_count > im.cfg.cached_leaf_capacity)
+      return false;
+    for (std::size_t li = 0; li < leaf_count; ++li) {
+      const ForwardDrizzleV2CachedLeaf &L = leaves[li];
+      if (L.source_x >= static_cast<std::uint32_t>(im.source_w) ||
+          L.source_y >= static_cast<std::uint32_t>(im.source_h) ||
+          L.channel >= static_cast<std::uint16_t>(im.channels))
+        return false;
+      const int sx = static_cast<int>(L.source_x);
+      const int sy = static_cast<int>(L.source_y);
+      if (sx < abs_x0 || sx >= abs_x0 + act_w || sy < abs_y0 ||
+          sy >= abs_y0 + act_h)
+        return false;
+      for (int k = 0; k < 4; ++k)
+        if (!std::isfinite(L.x[k]) || !std::isfinite(L.y[k])) return false;
+    }
+  }
+  // An explicit sigma2 plane and an enabled inline model are mutually
+  // exclusive (the compact model path reads the halo source buffer).
+  const ForwardDrizzleV2Sigma2FrameModel *s2m =
+      (sigma2_model_or_null != nullptr && sigma2_model_or_null->enabled)
+          ? sigma2_model_or_null
+          : nullptr;
+  if (sigma2_or_null != nullptr && s2m != nullptr) return false;
   if (im.cfg.emit_profiles) {
     if (meta_or_null == nullptr ||
         !std::isfinite(meta_or_null->g_eff) || meta_or_null->g_eff < 0.0f ||
@@ -410,18 +593,40 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
                       << 64) /
                      n);
   const bool qp = im.cfg.emit_profiles;
-  const float *h_qc =
-      qp && quality_or_null ? quality_or_null->q_composite : nullptr;
-  const float *h_q0 =
-      qp && quality_or_null ? quality_or_null->q_scale0 : nullptr;
-  const float *h_q1 =
-      qp && quality_or_null ? quality_or_null->q_scale1 : nullptr;
-  const float *h_qa =
-      qp && quality_or_null ? quality_or_null->q_artifact : nullptr;
-  const unsigned int qmask = (h_qc != nullptr ? 1u : 0u) |
-                             (h_q0 != nullptr ? 2u : 0u) |
-                             (h_q1 != nullptr ? 4u : 0u) |
-                             (h_qa != nullptr ? 8u : 0u);
+  // Quality work is relevant only for frames the reservoir keep set can
+  // retain; non-selected orders carry qmask = 0 and skip all Q planes.
+  const bool keep_frame =
+      keep_all ||
+      cpu_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold;
+  const bool q_frame = qp && keep_frame;
+  // Each stream supplies a float plane XOR a packed storage-grid window;
+  // both set or a malformed descriptor fails the call.
+  ForwardDrizzleV2FrameQuality q_in{};
+  if (q_frame && quality_or_null != nullptr) q_in = *quality_or_null;
+  const bool qc_ok = !(q_in.q_composite != nullptr &&
+                       q_in.qc_packed.cells != nullptr);
+  const bool q0_ok =
+      !(q_in.q_scale0 != nullptr && q_in.q0_packed.cells != nullptr);
+  const bool q1_ok =
+      !(q_in.q_scale1 != nullptr && q_in.q1_packed.cells != nullptr);
+  const bool qa_ok =
+      !(q_in.q_artifact != nullptr && q_in.qa_packed.cells != nullptr);
+  if (!qc_ok || !q0_ok || !q1_ok || !qa_ok ||
+      !cpu_packed_q_covers(q_in.qc_packed, abs_x0, abs_y0, act_w, act_h) ||
+      !cpu_packed_q_covers(q_in.q0_packed, abs_x0, abs_y0, act_w, act_h) ||
+      !cpu_packed_q_covers(q_in.q1_packed, abs_x0, abs_y0, act_w, act_h) ||
+      !cpu_packed_q_covers(q_in.qa_packed, abs_x0, abs_y0, act_w, act_h))
+    return false;
+  const unsigned int qmask =
+      ((q_in.q_composite != nullptr || q_in.qc_packed.cells != nullptr)
+           ? 1u
+           : 0u) |
+      ((q_in.q_scale0 != nullptr || q_in.q0_packed.cells != nullptr) ? 2u
+                                                                   : 0u) |
+      ((q_in.q_scale1 != nullptr || q_in.q1_packed.cells != nullptr) ? 4u
+                                                                   : 0u) |
+      ((q_in.q_artifact != nullptr || q_in.qa_packed.cells != nullptr) ? 8u
+                                                                     : 0u);
 
   if (qp && meta_or_null != nullptr) im.meta[frame_order] = *meta_or_null;
 
@@ -430,7 +635,7 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
   std::fill(im.fbs.begin(), im.fbs.end(), 0.0);
   std::fill(im.fbg.begin(), im.fbg.end(), 0.0);
   if (!im.fs2.empty()) std::fill(im.fs2.begin(), im.fs2.end(), 0.0);
-  if (qp) {
+  if (q_frame) {
     std::fill(im.fqc.begin(), im.fqc.end(), 0.0);
     std::fill(im.fq0.begin(), im.fq0.end(), 0.0);
     std::fill(im.fq1.begin(), im.fq1.end(), 0.0);
@@ -485,24 +690,116 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
     inv.safety_margin_px = warp->safety_margin_px;
   }
 
-  std::vector<Leaf> leaves;
+  std::vector<Leaf> local_leaves;
   std::uint64_t positive = 0, discarded = 0;
-  ForwardDrizzleV2FrameQuality q_for_scatter{};
-  if (qp && quality_or_null != nullptr) q_for_scatter = *quality_or_null;
-  const ForwardDrizzleV2FrameQuality *qs =
-      qp && quality_or_null != nullptr ? &q_for_scatter : nullptr;
   const std::size_t source_n =
-      static_cast<std::size_t>(im.source_w) * im.source_h;
+      static_cast<std::size_t>(act_w) * static_cast<std::size_t>(act_h);
+  // Inline sigma2 model: absolute-neighbour access against the uploaded
+  // (halo-extended) buffer; outside the true source extent counts as a
+  // missing neighbour, exactly like the whole-plane oracle.
+  auto sigma2_at = [&](int sx, int sy) -> double {
+    auto at = [&](int ax, int ay) -> float {
+      if (ax < 0 || ay < 0 || ax >= im.source_w || ay >= im.source_h)
+        return std::numeric_limits<float>::quiet_NaN();
+      const int bx = ax - window.x_begin, by = ay - window.y_begin;
+      if (bx < 0 || by < 0 || bx >= window.width || by >= window.height)
+        return std::numeric_limits<float>::quiet_NaN();
+      return source[static_cast<std::size_t>(by) * window.width + bx];
+    };
+    auto diff = [&](bool x_axis) -> float {
+      const float vm = at(sx - (x_axis ? 1 : 0), sy - (x_axis ? 0 : 1));
+      const float vp = at(sx + (x_axis ? 1 : 0), sy + (x_axis ? 0 : 1));
+      const bool fm = std::isfinite(vm), fp = std::isfinite(vp);
+      if (fm && fp) return (vp - vm) * 0.5f;
+      const float vc = at(sx, sy);
+      if (fp && std::isfinite(vc)) return vp - vc;
+      if (fm && std::isfinite(vc)) return vc - vm;
+      return 0.0f;
+    };
+    // The explicit-plane path quantises to float; mirror that so both
+    // sigma2 contracts are bit-identical.
+    return static_cast<double>(static_cast<float>(
+        forward_drizzle_v2_sigma2_model(s2m->sigma_noise, diff(true),
+                                        diff(false), s2m->sigma_reg_px,
+                                        s2m->droplet_half)));
+  };
+  if (leaves != nullptr) {
+    // Geometry-cache path: one iteration per committed leaf. Corners are
+    // absolute internal-canvas coordinates; subtracting the internal band
+    // origin (band_origin * sc) makes them band-local --- bit-identical to
+    // the local emit path's (native - band_origin) * sc because sc is a
+    // power of two. All validation ran in the preamble, so the
+    // buffer/sample indices below are provably in bounds.
+    for (std::size_t li = 0; li < leaf_count; ++li) {
+      const ForwardDrizzleV2CachedLeaf &L = leaves[li];
+      const int sx = static_cast<int>(L.source_x);
+      const int sy = static_cast<int>(L.source_y);
+      const std::size_t tid =
+          static_cast<std::size_t>(sy - abs_y0) *
+              static_cast<std::size_t>(act_w) +
+          static_cast<std::size_t>(sx - abs_x0);
+      const std::size_t bidx =
+          static_cast<std::size_t>(sy - window.y_begin) *
+              static_cast<std::size_t>(window.width) +
+          static_cast<std::size_t>(sx - window.x_begin);
+      const double value = static_cast<double>(source[bidx]);
+      const bool finite_value = std::isfinite(value);
+      const double s2 =
+          im.fs2.empty()
+              ? 0.0
+              : (sigma2_or_null != nullptr
+                     ? static_cast<double>(sigma2_or_null[tid])
+                     : (s2m != nullptr ? sigma2_at(sx, sy) : 0.0));
+      float qv[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+      if (qmask != 0u) {
+        qv[0] = cpu_quality_sample(q_in.q_composite, q_in.qc_packed, tid, sx,
+                                   sy);
+        qv[1] = cpu_quality_sample(q_in.q_scale0, q_in.q0_packed, tid, sx,
+                                   sy);
+        qv[2] = cpu_quality_sample(q_in.q_scale1, q_in.q1_packed, tid, sx,
+                                   sy);
+        qv[3] = cpu_quality_sample(q_in.q_artifact, q_in.qa_packed, tid, sx,
+                                   sy);
+      }
+      double ex[4], ey[4];
+      for (int k = 0; k < 4; ++k) {
+        ex[k] = L.x[k] - band_ox * sc;
+        ey[k] = L.y[k] - band_oy * sc;
+      }
+      positive += cpu_scatter_leaf(
+          ex, ey, cols, rows, static_cast<int>(L.channel), value,
+          finite_value, s2, qv, qmask, static_cast<int>(plane_n), 0, cols,
+          im.fa, im.fbs, im.fbg, im.fs2, im.fqc, im.fq0, im.fq1, im.fqa,
+          im.fqaf);
+    }
+    stats_.cached_leaf_records_launched += leaf_count;
+  } else
   for (std::size_t tid = 0; tid < source_n; ++tid) {
-    const int sy = static_cast<int>(tid / im.source_w);
-    const int sx = static_cast<int>(tid % im.source_w);
-    const double value = static_cast<double>(source[tid]);
+    const int lx = static_cast<int>(tid % static_cast<std::size_t>(act_w));
+    const int ly = static_cast<int>(tid / static_cast<std::size_t>(act_w));
+    const int sy = abs_y0 + ly;
+    const int sx = abs_x0 + lx;
+    const std::size_t bidx =
+        static_cast<std::size_t>(act_y + ly) *
+            static_cast<std::size_t>(window.width) +
+        static_cast<std::size_t>(act_x + lx);
+    const double value = static_cast<double>(source[bidx]);
     const bool finite_value = std::isfinite(value);
-    const double s2 = im.fs2.empty()
-                          ? 0.0
-                          : static_cast<double>(
-                                sigma2_or_null != nullptr ? sigma2_or_null[tid]
-                                                          : 0.0f);
+    const double s2 =
+        im.fs2.empty()
+            ? 0.0
+            : (sigma2_or_null != nullptr
+                   ? static_cast<double>(sigma2_or_null[tid])
+                   : (s2m != nullptr ? sigma2_at(sx, sy) : 0.0));
+    float qv[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    if (qmask != 0u) {
+      qv[0] = cpu_quality_sample(q_in.q_composite, q_in.qc_packed, tid, sx,
+                                 sy);
+      qv[1] = cpu_quality_sample(q_in.q_scale0, q_in.q0_packed, tid, sx, sy);
+      qv[2] = cpu_quality_sample(q_in.q_scale1, q_in.q1_packed, tid, sx, sy);
+      qv[3] = cpu_quality_sample(q_in.q_artifact, q_in.qa_packed, tid, sx,
+                                 sy);
+    }
     const int channel =
         mono ? 0
              : static_cast<int>(cfa_channel_for_source_pixel(
@@ -521,26 +818,26 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
                 sc;
       }
       positive += cpu_scatter_leaf(
-          qx, qy, cols, rows, channel, value, finite_value, s2, qs, qp, tid,
-          static_cast<int>(plane_n), im.fa, im.fbs, im.fbg, im.fs2, im.fqc,
-          im.fq0, im.fq1, im.fqa, im.fqaf);
+          qx, qy, cols, rows, channel, value, finite_value, s2, qv, qmask,
+          static_cast<int>(plane_n), 0, cols, im.fa, im.fbs, im.fbg,
+          im.fs2, im.fqc, im.fq0, im.fq1, im.fqa, im.fqaf);
     } else {
       // All-or-nothing subdivision, then scatter each accepted leaf. The
       // leaf corners are deterministic re-evaluations of the node corners
       // (same inversion call sites as the evaluator).
-      leaves.clear();
+      local_leaves.clear();
       if (!cpu_collect_local_leaves(ftrans, inv, *warp, x - half, y - half,
                                     x + half, y + half, 0, canvas_w,
-                                    canvas_h, sc, leaves)) {
+                                    canvas_h, sc, local_leaves)) {
         ++discarded;
         continue;
       }
-      if (leaves.empty()) {
+      if (local_leaves.empty()) {
         ++discarded;
         continue;
       }
       std::uint64_t ov = 0;
-      for (const auto &leaf : leaves) {
+      for (const auto &leaf : local_leaves) {
         // Leaf corners are raw canvas coordinates; the device emit path
         // applies (q - band_origin) * sc, mirrored here bit-exactly.
         double ex[4], ey[4];
@@ -549,9 +846,9 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
           ey[k] = (leaf.y[k] - band_oy) * sc;
         }
         ov += cpu_scatter_leaf(
-            ex, ey, cols, rows, channel, value, finite_value, s2, qs,
-            qp, tid, static_cast<int>(plane_n), im.fa, im.fbs, im.fbg,
-            im.fs2, im.fqc, im.fq0, im.fq1, im.fqa, im.fqaf);
+            ex, ey, cols, rows, channel, value, finite_value, s2, qv,
+            qmask, static_cast<int>(plane_n), 0, cols, im.fa, im.fbs,
+            im.fbg, im.fs2, im.fqc, im.fq0, im.fq1, im.fqa, im.fqaf);
       }
       positive += ov;
     }
@@ -560,14 +857,58 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
   stats_.local_samples_discarded += discarded;
 
   // --- fold: k-fold the frame planes into accumulators + reservoir --------
+  fold_native_range(0, im.ncols, q_frame, qmask, frame_order, keep_all,
+                    threshold);
+  ++im.frames;
+  ++stats_.frames_processed;
+  ++stats_.slot_transitions;
+  // Uploaded source bytes cover the whole buffer incl. halo; the explicit
+  // sigma2 compatibility plane is packed over the active rect only.
+  stats_.source_bytes_uploaded +=
+      static_cast<std::uint64_t>(window.width) * window.height *
+          sizeof(float) +
+      (sigma2_or_null != nullptr ? source_n * sizeof(float) : 0);
+  // Cached-geometry frames launch the cache-counted covered samples, not
+  // the dense active rect (the build-side discards are already final).
+  stats_.source_samples_launched +=
+      leaves != nullptr ? unique_source_samples : source_n;
+  if (q_frame) {
+    ++stats_.quality_frames_processed;
+    // Host-side equivalent of the device Q uploads: compact windows count
+    // cells+veto (3 bytes/storage cell), float planes the active rect.
+    const std::uint64_t qfb = source_n * sizeof(float);
+    auto qb = [&](const float *f,
+                  const ForwardDrizzleV2PackedQualityPlane &p)
+        -> std::uint64_t {
+      if (p.cells != nullptr)
+        return static_cast<std::uint64_t>(p.storage_width) *
+               p.storage_height * 3u;
+      return f != nullptr ? qfb : 0u;
+    };
+    stats_.quality_bytes_uploaded +=
+        qb(q_in.q_composite, q_in.qc_packed) +
+        qb(q_in.q_scale0, q_in.q0_packed) +
+        qb(q_in.q_scale1, q_in.q1_packed) +
+        qb(q_in.q_artifact, q_in.qa_packed);
+  }
+  return true;
+}
+
+// k-fold the frame planes into accumulators + reservoir for native target
+// columns [nx0, nx1) of the active band (every row, every channel).
+void ForwardDrizzleV2CpuKernel::fold_native_range(
+    int nx0, int nx1, bool q_frame, unsigned int qmask,
+    std::uint64_t frame_order, bool keep_all, std::uint64_t threshold) {
+  Impl &im = *impl_;
   const int scale = im.cfg.internal_scale;
   const double inv_s2 = 1.0 / (static_cast<double>(scale) * scale);
   const int ncols = im.ncols, nrows = im.nrows;
   const std::size_t np = im.nplane;
   const unsigned int slots = static_cast<unsigned int>(im.res_slots);
-  for (std::size_t px = 0; px < np; ++px) {
-    const int nx = static_cast<int>(px % ncols);
-    const int ny = static_cast<int>(px / ncols);
+  for (int ny = 0; ny < nrows; ++ny)
+   for (int nx = nx0; nx < nx1; ++nx) {
+    const std::size_t px =
+        static_cast<std::size_t>(ny) * ncols + static_cast<std::size_t>(nx);
     bool any_geo = false;
     for (int c = 0; c < im.channels; ++c) {
       const std::size_t pc = static_cast<std::size_t>(c) * np + px;
@@ -588,7 +929,7 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
           b_src += inv_s2 * bsj;
           b_geo += inv_s2 * bgj;
           if (!im.fs2.empty()) s2w += inv_s2 * im.fs2[idx];
-          if (qp) {
+          if (q_frame) {
             qc_s += inv_s2 * im.fqc[idx];
             q0_s += inv_s2 * im.fq0[idx];
             q1_s += inv_s2 * im.fq1[idx];
@@ -630,7 +971,7 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
           r.b = b_src;
           r.order = frame_order;
           r.sigma2 = s2c;
-          if (qp) {
+          if (q_frame) {
             CpuReservoirQuality &qv = im.resq[pc * slots + k];
             qv.qc = (qmask & 1u) ? static_cast<float>(qc_s / b_src) : 1.0f;
             qv.q0 = (qmask & 2u) ? static_cast<float>(q0_s / b_src) : 1.0f;
@@ -644,12 +985,6 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
     }
     if (any_geo) ++im.footprint[px];
   }
-  ++im.frames;
-  ++stats_.frames_processed;
-  ++stats_.slot_transitions;
-  stats_.source_bytes_uploaded +=
-      source_n * sizeof(float) * (sigma2_or_null != nullptr ? 2 : 1);
-  return true;
 }
 
 bool ForwardDrizzleV2CpuKernel::accumulate_frame(
@@ -657,18 +992,50 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame(
     std::uint64_t frame_order,
     const ForwardDrizzleV2FrameQuality *quality_or_null,
     const ForwardDrizzleV2FrameMeta *meta_or_null) {
-  if (impl_ == nullptr || affine6 == nullptr || source == nullptr ||
-      impl_->finalized || impl_->frames >= impl_->cfg.stream_length)
+  if (impl_ == nullptr) return false;
+  const ForwardDrizzleV2SourceWindow full{0, 0, impl_->source_w,
+                                        impl_->source_h};
+  return accumulate_frame_window(affine6, full, source, sigma2_or_null,
+                                 nullptr, frame_order, quality_or_null,
+                                 meta_or_null);
+}
+
+bool ForwardDrizzleV2CpuKernel::accumulate_frame_window(
+    const double affine6[6], const ForwardDrizzleV2SourceWindow &window,
+    const float *source, const float *sigma2_or_null,
+    const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+    std::uint64_t frame_order,
+    const ForwardDrizzleV2FrameQuality *quality_or_null,
+    const ForwardDrizzleV2FrameMeta *meta_or_null) {
+  // Affine one-shot: begin + one full-width piece + finish.
+  if (impl_ == nullptr) return false;
+  if (!begin_affine_frame(frame_order, meta_or_null)) return false;
+  if (!accumulate_affine_piece(affine6, 0, impl_->ncols, window, source,
+                               sigma2_or_null, sigma2_model_or_null,
+                               quality_or_null))
     return false;
-  for (int i = 0; i < 6; ++i)
-    if (!std::isfinite(affine6[i])) return false;
-  return accumulate_frame_impl(affine6, nullptr, source, sigma2_or_null,
-                               frame_order, quality_or_null, meta_or_null);
+  return finish_affine_frame(frame_order);
 }
 
 bool ForwardDrizzleV2CpuKernel::accumulate_frame_local(
     const double affine6[6], const ForwardDrizzleV2LocalWarp &warp,
     const float *source, const float *sigma2_or_null,
+    std::uint64_t frame_order,
+    const ForwardDrizzleV2FrameQuality *quality_or_null,
+    const ForwardDrizzleV2FrameMeta *meta_or_null) {
+  if (impl_ == nullptr) return false;
+  const ForwardDrizzleV2SourceWindow full{0, 0, impl_->source_w,
+                                        impl_->source_h};
+  return accumulate_frame_local_window(affine6, warp, full, source,
+                                       sigma2_or_null, nullptr, frame_order,
+                                       quality_or_null, meta_or_null);
+}
+
+bool ForwardDrizzleV2CpuKernel::accumulate_frame_local_window(
+    const double affine6[6], const ForwardDrizzleV2LocalWarp &warp,
+    const ForwardDrizzleV2SourceWindow &window, const float *source,
+    const float *sigma2_or_null,
+    const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
     std::uint64_t frame_order,
     const ForwardDrizzleV2FrameQuality *quality_or_null,
     const ForwardDrizzleV2FrameMeta *meta_or_null) {
@@ -678,15 +1045,492 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_local(
   for (int i = 0; i < 6; ++i)
     if (!std::isfinite(affine6[i])) return false;
   if (warp.max_subdivision_depth > 2) return false;
-  return accumulate_frame_impl(affine6, &warp, source, sigma2_or_null,
+  return accumulate_frame_impl(affine6, &warp, window, source, sigma2_or_null,
+                               sigma2_model_or_null, nullptr, 0, 0,
                                frame_order, quality_or_null, meta_or_null);
+}
+
+bool ForwardDrizzleV2CpuKernel::accumulate_frame_cached_leaves(
+    const double affine6[6], const ForwardDrizzleV2SourceWindow &window,
+    const float *source, const float *sigma2_or_null,
+    const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+    const ForwardDrizzleV2CachedLeaf *leaves, std::size_t leaf_count,
+    std::uint64_t unique_source_samples, std::uint64_t frame_order,
+    const ForwardDrizzleV2FrameQuality *quality_or_null,
+    const ForwardDrizzleV2FrameMeta *meta_or_null) {
+  if (impl_ == nullptr || affine6 == nullptr || source == nullptr ||
+      leaves == nullptr || impl_->finalized ||
+      impl_->frames >= impl_->cfg.stream_length)
+    return false;
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  return accumulate_frame_impl(affine6, nullptr, window, source,
+                               sigma2_or_null, sigma2_model_or_null, leaves,
+                               leaf_count, unique_source_samples, frame_order,
+                               quality_or_null, meta_or_null);
+}
+
+bool ForwardDrizzleV2CpuKernel::accumulate_frame_affine_samples(
+    const double affine6[6], const ForwardDrizzleV2SourceSample *samples,
+    std::size_t sample_count, bool sigma2_present,
+    const ForwardDrizzleV2AlignedQuality *quality_or_null,
+    std::uint64_t frame_order,
+    const ForwardDrizzleV2FrameMeta *meta_or_null) {
+  if (impl_ == nullptr || frame_open_ || impl_->finalized ||
+      impl_->frames >= impl_->cfg.stream_length ||
+      frame_order >= impl_->cfg.stream_length || affine6 == nullptr ||
+      sample_count == 0 || samples == nullptr)
+    return false;
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  Impl &im = *impl_;
+  const int sw = im.source_w, sh = im.source_h;
+  const int cols = im.icols, rows = im.irows;
+  if (sample_count > static_cast<std::size_t>(sw) * sh) return false;
+  // Canonical order (strictly increasing (y, x)) + in-extent coordinates;
+  // the same scan counts the distinct span rows.
+  std::uint64_t span_rows = 0;
+  std::uint32_t prev_y = 0, prev_x = 0;
+  for (std::size_t i = 0; i < sample_count; ++i) {
+    const ForwardDrizzleV2SourceSample &s = samples[i];
+    if (s.source_x >= static_cast<std::uint32_t>(sw) ||
+        s.source_y >= static_cast<std::uint32_t>(sh) ||
+        (i > 0 && (s.source_y < prev_y ||
+                   (s.source_y == prev_y && s.source_x <= prev_x))))
+      return false;
+    if (i == 0 || s.source_y != prev_y) ++span_rows;
+    prev_y = s.source_y;
+    prev_x = s.source_x;
+  }
+  const std::uint64_t n = im.cfg.stream_length;
+  if (im.cfg.emit_profiles) {
+    if (meta_or_null == nullptr ||
+        !std::isfinite(meta_or_null->g_eff) || meta_or_null->g_eff < 0.0f ||
+        !std::isfinite(meta_or_null->residual_factor))
+      return false;
+    im.meta[frame_order] = *meta_or_null;
+  }
+  const bool keep_all =
+      n <= static_cast<std::uint64_t>(im.cfg.reservoir_size);
+  const std::uint64_t threshold =
+      keep_all ? 0
+               : static_cast<std::uint64_t>(
+                     (static_cast<unsigned __int128>(im.cfg.reservoir_size)
+                      << 64) /
+                     n);
+  const bool qp = im.cfg.emit_profiles;
+  const bool keep_frame =
+      keep_all ||
+      cpu_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold;
+  const bool q_frame = qp && keep_frame;
+  const ForwardDrizzleV2AlignedQuality aq =
+      (q_frame && quality_or_null != nullptr)
+          ? *quality_or_null
+          : ForwardDrizzleV2AlignedQuality{};
+  const unsigned int qmask = q_frame ? aq.presence_mask : 0u;
+  // A set presence bit requires the code array; veto may stay null.
+  const std::uint16_t *aqc[4] = {aq.qc, aq.q0, aq.q1, aq.qa};
+  const std::uint8_t *aqv[4] = {aq.vc, aq.v0, aq.v1, aq.va};
+  for (int k = 0; k < 4; ++k)
+    if ((qmask & (1u << k)) != 0 && aqc[k] == nullptr) return false;
+  const double sc = static_cast<double>(im.cfg.internal_scale);
+  const double half = im.cfg.half;
+  const double band_ox =
+      static_cast<double>(im.cfg.band_origin_x_native);
+  const double band_oy =
+      static_cast<double>(im.cfg.band_origin_y_native);
+  const BayerPattern bayer =
+      static_cast<BayerPattern>(im.cfg.bayer_pattern);
+  const bool mono = im.cfg.mono;
+  const std::size_t plane_n = im.iplane;
+  // One-shot full-target frame: clear all frame planes, then droplet-
+  // rasterize every canonical sample over the whole band.
+  std::fill(im.fa.begin(), im.fa.end(), 0.0);
+  std::fill(im.fbs.begin(), im.fbs.end(), 0.0);
+  std::fill(im.fbg.begin(), im.fbg.end(), 0.0);
+  if (!im.fs2.empty()) std::fill(im.fs2.begin(), im.fs2.end(), 0.0);
+  if (q_frame) {
+    std::fill(im.fqc.begin(), im.fqc.end(), 0.0);
+    std::fill(im.fq0.begin(), im.fq0.end(), 0.0);
+    std::fill(im.fq1.begin(), im.fq1.end(), 0.0);
+    std::fill(im.fqa.begin(), im.fqa.end(), 0.0);
+    std::fill(im.fqaf.begin(), im.fqaf.end(), 0.0);
+  }
+  std::uint64_t positive = 0;
+  for (std::size_t i = 0; i < sample_count; ++i) {
+    const ForwardDrizzleV2SourceSample &s = samples[i];
+    const int sx = static_cast<int>(s.source_x);
+    const int sy = static_cast<int>(s.source_y);
+    const double value = static_cast<double>(s.value);
+    const bool finite_value = std::isfinite(value);
+    const double s2 = sigma2_present ? static_cast<double>(s.sigma2) : 0.0;
+    float qv[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    for (int k = 0; k < 4; ++k) {
+      if ((qmask & (1u << k)) == 0) continue;
+      qv[k] = ((aqv[k] != nullptr && aqv[k][i] != 0) || aqc[k][i] == 0)
+                  ? std::numeric_limits<float>::quiet_NaN()
+                  : static_cast<float>(aqc[k][i]) / 65535.0f;
+    }
+    const int channel =
+        mono ? 0
+             : static_cast<int>(cfa_channel_for_source_pixel(
+                   sx, sy, bayer, im.cfg.cfa_origin_x, im.cfg.cfa_origin_y));
+    const double x = sx + 0.5, y = sy + 0.5;
+    double qx[4], qy[4];
+    const double px[4] = {x - half, x + half, x + half, x - half};
+    const double py[4] = {y - half, y - half, y + half, y + half};
+    for (int k = 0; k < 4; ++k) {
+      qx[k] = (affine6[0] * px[k] + affine6[1] * py[k] + affine6[2] -
+               band_ox) *
+              sc;
+      qy[k] = (affine6[3] * px[k] + affine6[4] * py[k] + affine6[5] -
+               band_oy) *
+              sc;
+    }
+    positive += cpu_scatter_leaf(
+        qx, qy, cols, rows, channel, value, finite_value, s2, qv, qmask,
+        static_cast<int>(plane_n), 0, cols, im.fa, im.fbs, im.fbg, im.fs2,
+        im.fqc, im.fq0, im.fq1, im.fqa, im.fqaf);
+  }
+  stats_.positive_overlaps += positive;
+  fold_native_range(0, im.ncols, q_frame, qmask, frame_order, keep_all,
+                    threshold);
+  ++im.frames;
+  ++stats_.frames_processed;
+  ++stats_.slot_transitions;
+  stats_.source_samples_launched += sample_count;
+  stats_.affine_samples_processed += sample_count;
+  stats_.affine_span_rows += span_rows;
+  stats_.source_bytes_uploaded +=
+      static_cast<std::uint64_t>(sample_count) *
+      sizeof(ForwardDrizzleV2SourceSample);
+  if (q_frame) {
+    ++stats_.quality_frames_processed;
+    const std::uint64_t per_stream =
+        static_cast<std::uint64_t>(sample_count) * 3u;
+    for (int k = 0; k < 4; ++k)
+      if ((qmask & (1u << k)) != 0)
+        stats_.quality_bytes_uploaded += per_stream;
+  }
+  return true;
+}
+
+bool ForwardDrizzleV2CpuKernel::begin_affine_frame(
+    std::uint64_t frame_order, const ForwardDrizzleV2FrameMeta *meta_or_null) {
+  if (impl_ == nullptr || frame_open_ || impl_->finalized ||
+      impl_->frames >= impl_->cfg.stream_length ||
+      frame_order >= impl_->cfg.stream_length)
+    return false;
+  Impl &im = *impl_;
+  if (im.cfg.emit_profiles) {
+    if (meta_or_null == nullptr ||
+        !std::isfinite(meta_or_null->g_eff) || meta_or_null->g_eff < 0.0f ||
+        !std::isfinite(meta_or_null->residual_factor))
+      return false;
+    im.meta[frame_order] = *meta_or_null;
+  }
+  const std::uint64_t n = im.cfg.stream_length;
+  const bool keep_all =
+      n <= static_cast<std::uint64_t>(im.cfg.reservoir_size);
+  const std::uint64_t threshold =
+      keep_all ? 0
+               : static_cast<std::uint64_t>(
+                     (static_cast<unsigned __int128>(im.cfg.reservoir_size)
+                      << 64) /
+                     n);
+  frame_open_ = true;
+  open_order_ = frame_order;
+  open_pieces_ = 0;
+  open_tx_end_ = 0;
+  open_qmask_ = 0;
+  open_qframe_ =
+      im.cfg.emit_profiles &&
+      (keep_all || cpu_splitmix64(frame_order ^ im.cfg.reservoir_seed) <
+                       threshold);
+  return true;
+}
+
+bool ForwardDrizzleV2CpuKernel::accumulate_affine_piece(
+    const double affine6[6], int target_x_begin_native,
+    int target_cols_native, const ForwardDrizzleV2SourceWindow &window,
+    const float *source, const float *sigma2_or_null,
+    const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+    const ForwardDrizzleV2FrameQuality *quality_or_null) {
+  if (impl_ == nullptr || !frame_open_ || affine6 == nullptr ||
+      source == nullptr)
+    return false;
+  Impl &im = *impl_;
+  // Ordered, non-overlapping, in-bounds native target range.
+  if (target_x_begin_native < 0 || target_cols_native <= 0 ||
+      target_x_begin_native < open_tx_end_ ||
+      target_x_begin_native + target_cols_native > im.ncols)
+    return false;
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  // Same window contract as accumulate_frame_impl.
+  if (window.x_begin < 0 || window.y_begin < 0 || window.width <= 0 ||
+      window.height <= 0 ||
+      window.x_begin + window.width > im.source_w ||
+      window.y_begin + window.height > im.source_h)
+    return false;
+  int act_x = window.active_x, act_y = window.active_y;
+  int act_w = window.active_width, act_h = window.active_height;
+  if (act_w == 0 && act_h == 0 && act_x == 0 && act_y == 0) {
+    act_w = window.width;
+    act_h = window.height;
+  }
+  if (act_x < 0 || act_y < 0 || act_w <= 0 || act_h <= 0 ||
+      act_x + act_w > window.width || act_y + act_h > window.height)
+    return false;
+  const int abs_x0 = window.x_begin + act_x;
+  const int abs_y0 = window.y_begin + act_y;
+  const std::size_t source_n =
+      static_cast<std::size_t>(act_w) * static_cast<std::size_t>(act_h);
+  const ForwardDrizzleV2Sigma2FrameModel *s2m =
+      (sigma2_model_or_null != nullptr && sigma2_model_or_null->enabled)
+          ? sigma2_model_or_null
+          : nullptr;
+  if (sigma2_or_null != nullptr && s2m != nullptr) return false;
+  const std::uint64_t n = im.cfg.stream_length;
+  const bool keep_all =
+      n <= static_cast<std::uint64_t>(im.cfg.reservoir_size);
+  const std::uint64_t threshold =
+      keep_all ? 0
+               : static_cast<std::uint64_t>(
+                     (static_cast<unsigned __int128>(im.cfg.reservoir_size)
+                      << 64) /
+                     n);
+  const bool q_frame = open_qframe_;
+  ForwardDrizzleV2FrameQuality q_in{};
+  if (q_frame && quality_or_null != nullptr) q_in = *quality_or_null;
+  const bool qc_ok = !(q_in.q_composite != nullptr &&
+                       q_in.qc_packed.cells != nullptr);
+  const bool q0_ok =
+      !(q_in.q_scale0 != nullptr && q_in.q0_packed.cells != nullptr);
+  const bool q1_ok =
+      !(q_in.q_scale1 != nullptr && q_in.q1_packed.cells != nullptr);
+  const bool qa_ok =
+      !(q_in.q_artifact != nullptr && q_in.qa_packed.cells != nullptr);
+  if (!qc_ok || !q0_ok || !q1_ok || !qa_ok ||
+      !cpu_packed_q_covers(q_in.qc_packed, abs_x0, abs_y0, act_w, act_h) ||
+      !cpu_packed_q_covers(q_in.q0_packed, abs_x0, abs_y0, act_w, act_h) ||
+      !cpu_packed_q_covers(q_in.q1_packed, abs_x0, abs_y0, act_w, act_h) ||
+      !cpu_packed_q_covers(q_in.qa_packed, abs_x0, abs_y0, act_w, act_h))
+    return false;
+  const unsigned int qmask =
+      ((q_in.q_composite != nullptr || q_in.qc_packed.cells != nullptr)
+           ? 1u
+           : 0u) |
+      ((q_in.q_scale0 != nullptr || q_in.q0_packed.cells != nullptr) ? 2u
+                                                                   : 0u) |
+      ((q_in.q_scale1 != nullptr || q_in.q1_packed.cells != nullptr) ? 4u
+                                                                   : 0u) |
+      ((q_in.q_artifact != nullptr || q_in.qa_packed.cells != nullptr) ? 8u
+                                                                     : 0u);
+  // The stream presence is a per-frame contract: every piece must carry the
+  // same qmask.
+  if (open_pieces_ == 0) {
+    open_qmask_ = qmask;
+  } else if (qmask != open_qmask_) {
+    return false;
+  }
+
+  const int scale = im.cfg.internal_scale;
+  const double sc = static_cast<double>(scale);
+  const double half = im.cfg.half;
+  const double band_ox =
+      static_cast<double>(im.cfg.band_origin_x_native);
+  const double band_oy =
+      static_cast<double>(im.cfg.band_origin_y_native);
+  const int cols = im.icols, rows = im.irows;
+  const std::size_t plane_n = im.iplane;
+  const BayerPattern bayer =
+      static_cast<BayerPattern>(im.cfg.bayer_pattern);
+  const bool mono = im.cfg.mono;
+  // Internal x columns owned by this piece.
+  const int ix0 = target_x_begin_native * scale;
+  const int ix1 = (target_x_begin_native + target_cols_native) * scale;
+
+  // Clear ONLY this tile's internal columns of the frame planes.
+  for (int c = 0; c < im.channels; ++c) {
+    const std::size_t base = static_cast<std::size_t>(c) * plane_n;
+    for (int ty = 0; ty < rows; ++ty) {
+      const std::size_t off =
+          base + static_cast<std::size_t>(ty) * cols + ix0;
+      const int nw = ix1 - ix0;
+      std::fill_n(im.fa.begin() + static_cast<std::ptrdiff_t>(off), nw, 0.0);
+      std::fill_n(im.fbs.begin() + static_cast<std::ptrdiff_t>(off), nw, 0.0);
+      std::fill_n(im.fbg.begin() + static_cast<std::ptrdiff_t>(off), nw, 0.0);
+      if (!im.fs2.empty())
+        std::fill_n(im.fs2.begin() + static_cast<std::ptrdiff_t>(off), nw,
+                    0.0);
+      if (q_frame) {
+        std::fill_n(im.fqc.begin() + static_cast<std::ptrdiff_t>(off), nw,
+                    0.0);
+        std::fill_n(im.fq0.begin() + static_cast<std::ptrdiff_t>(off), nw,
+                    0.0);
+        std::fill_n(im.fq1.begin() + static_cast<std::ptrdiff_t>(off), nw,
+                    0.0);
+        std::fill_n(im.fqa.begin() + static_cast<std::ptrdiff_t>(off), nw,
+                    0.0);
+        std::fill_n(im.fqaf.begin() + static_cast<std::ptrdiff_t>(off), nw,
+                    0.0);
+      }
+    }
+  }
+
+  // Inline sigma2 model: absolute-neighbour access against the uploaded
+  // (halo-extended) buffer; identical semantics to the one-shot path.
+  auto sigma2_at = [&](int sx, int sy) -> double {
+    auto at = [&](int ax, int ay) -> float {
+      if (ax < 0 || ay < 0 || ax >= im.source_w || ay >= im.source_h)
+        return std::numeric_limits<float>::quiet_NaN();
+      const int bx = ax - window.x_begin, by = ay - window.y_begin;
+      if (bx < 0 || by < 0 || bx >= window.width || by >= window.height)
+        return std::numeric_limits<float>::quiet_NaN();
+      return source[static_cast<std::size_t>(by) * window.width + bx];
+    };
+    auto diff = [&](bool x_axis) -> float {
+      const float vm = at(sx - (x_axis ? 1 : 0), sy - (x_axis ? 0 : 1));
+      const float vp = at(sx + (x_axis ? 1 : 0), sy + (x_axis ? 0 : 1));
+      const bool fm = std::isfinite(vm), fp = std::isfinite(vp);
+      if (fm && fp) return (vp - vm) * 0.5f;
+      const float vc = at(sx, sy);
+      if (fp && std::isfinite(vc)) return vp - vc;
+      if (fm && std::isfinite(vc)) return vc - vm;
+      return 0.0f;
+    };
+    // The explicit-plane path quantises to float; mirror that so both
+    // sigma2 contracts are bit-identical.
+    return static_cast<double>(static_cast<float>(
+        forward_drizzle_v2_sigma2_model(s2m->sigma_noise, diff(true),
+                                        diff(false), s2m->sigma_reg_px,
+                                        s2m->droplet_half)));
+  };
+
+  // Scatter this piece's active source rect, clipped to the tile's
+  // internal x columns.
+  std::uint64_t positive = 0;
+  for (std::size_t tid = 0; tid < source_n; ++tid) {
+    const int lx = static_cast<int>(tid % static_cast<std::size_t>(act_w));
+    const int ly = static_cast<int>(tid / static_cast<std::size_t>(act_w));
+    const int sy = abs_y0 + ly;
+    const int sx = abs_x0 + lx;
+    const std::size_t bidx =
+        static_cast<std::size_t>(act_y + ly) *
+            static_cast<std::size_t>(window.width) +
+        static_cast<std::size_t>(act_x + lx);
+    const double value = static_cast<double>(source[bidx]);
+    const bool finite_value = std::isfinite(value);
+    const double s2 =
+        im.fs2.empty()
+            ? 0.0
+            : (sigma2_or_null != nullptr
+                   ? static_cast<double>(sigma2_or_null[tid])
+                   : (s2m != nullptr ? sigma2_at(sx, sy) : 0.0));
+    float qv[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    if (qmask != 0u) {
+      qv[0] = cpu_quality_sample(q_in.q_composite, q_in.qc_packed, tid, sx,
+                                 sy);
+      qv[1] = cpu_quality_sample(q_in.q_scale0, q_in.q0_packed, tid, sx, sy);
+      qv[2] = cpu_quality_sample(q_in.q_scale1, q_in.q1_packed, tid, sx, sy);
+      qv[3] = cpu_quality_sample(q_in.q_artifact, q_in.qa_packed, tid, sx,
+                                 sy);
+    }
+    const int channel =
+        mono ? 0
+             : static_cast<int>(cfa_channel_for_source_pixel(
+                   sx, sy, bayer, im.cfg.cfa_origin_x, im.cfg.cfa_origin_y));
+    const double x = sx + 0.5, y = sy + 0.5;
+    double qx[4], qy[4];
+    const double px[4] = {x - half, x + half, x + half, x - half};
+    const double py[4] = {y - half, y - half, y + half, y + half};
+    for (int k = 0; k < 4; ++k) {
+      qx[k] = (affine6[0] * px[k] + affine6[1] * py[k] + affine6[2] -
+               band_ox) *
+              sc;
+      qy[k] = (affine6[3] * px[k] + affine6[4] * py[k] + affine6[5] -
+               band_oy) *
+              sc;
+    }
+    positive += cpu_scatter_leaf(
+        qx, qy, cols, rows, channel, value, finite_value, s2, qv, qmask,
+        static_cast<int>(plane_n), ix0, ix1, im.fa, im.fbs, im.fbg, im.fs2,
+        im.fqc, im.fq0, im.fq1, im.fqa, im.fqaf);
+  }
+  stats_.positive_overlaps += positive;
+
+  // Fold only this tile's native columns; each output pixel is folded
+  // exactly once for the frame across its pieces.
+  fold_native_range(target_x_begin_native,
+                    target_x_begin_native + target_cols_native, q_frame,
+                    qmask, open_order_, keep_all, threshold);
+  ++open_pieces_;
+  open_tx_end_ = target_x_begin_native + target_cols_native;
+  ++stats_.affine_pieces_processed;
+  stats_.source_bytes_uploaded +=
+      static_cast<std::uint64_t>(window.width) * window.height *
+          sizeof(float) +
+      (sigma2_or_null != nullptr ? source_n * sizeof(float) : 0);
+  stats_.source_samples_launched += source_n;
+  if (q_frame) {
+    const std::uint64_t qfb = source_n * sizeof(float);
+    auto qb = [&](const float *f,
+                  const ForwardDrizzleV2PackedQualityPlane &p)
+        -> std::uint64_t {
+      if (p.cells != nullptr)
+        return static_cast<std::uint64_t>(p.storage_width) *
+               p.storage_height * 3u;
+      return f != nullptr ? qfb : 0u;
+    };
+    stats_.quality_bytes_uploaded +=
+        qb(q_in.q_composite, q_in.qc_packed) +
+        qb(q_in.q_scale0, q_in.q0_packed) +
+        qb(q_in.q_scale1, q_in.q1_packed) +
+        qb(q_in.q_artifact, q_in.qa_packed);
+  }
+  return true;
+}
+
+bool ForwardDrizzleV2CpuKernel::finish_affine_frame(
+    std::uint64_t frame_order) {
+  if (impl_ == nullptr || !frame_open_ || frame_order != open_order_ ||
+      open_pieces_ == 0)
+    return false;
+  frame_open_ = false;
+  ++impl_->frames;
+  ++stats_.frames_processed;
+  ++stats_.slot_transitions;
+  if (open_qframe_) ++stats_.quality_frames_processed;
+  return true;
+}
+
+bool ForwardDrizzleV2CpuKernel::skip_frame(
+    std::uint64_t frame_order, const ForwardDrizzleV2FrameMeta *meta_or_null) {
+  if (impl_ == nullptr || frame_open_ || impl_->finalized ||
+      impl_->frames >= impl_->cfg.stream_length ||
+      frame_order >= impl_->cfg.stream_length)
+    return false;
+  if (impl_->cfg.emit_profiles) {
+    if (meta_or_null == nullptr ||
+        !std::isfinite(meta_or_null->g_eff) || meta_or_null->g_eff < 0.0f ||
+        !std::isfinite(meta_or_null->residual_factor))
+      return false;
+    impl_->meta[frame_order] = *meta_or_null;
+  }
+  ++impl_->frames;
+  ++stats_.slot_transitions;
+  ++stats_.frames_skipped_empty_window;
+  return true;
 }
 
 bool ForwardDrizzleV2CpuKernel::finalize(
     ForwardDrizzleV2PixelResult *results,
     ForwardDrizzleV2ProfileResult *profiles_or_null,
     std::uint64_t *dense_overlap_count) {
-  if (impl_ == nullptr || results == nullptr || impl_->finalized) return false;
+  if (impl_ == nullptr || results == nullptr || impl_->finalized ||
+      frame_open_)
+    return false;
   Impl &im = *impl_;
   if (im.cfg.emit_profiles && profiles_or_null == nullptr) return false;
   const std::size_t np = im.nplane;

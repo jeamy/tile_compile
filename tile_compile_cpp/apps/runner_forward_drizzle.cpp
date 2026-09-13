@@ -597,10 +597,122 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         extra["v2_q_bin_cells_decoded"]=v2_result->q_bin_cells_decoded;
         extra["v2_local_samples_discarded"]=v2_result->local_model_samples_discarded;
         extra["v2_max_frame_seconds"]=v2_result->driver.max_frame_seconds;
-        // One reserve() allocation per computed band; the accumulate hot
-        // path allocates nothing by contract (the counter only moves in
-        // reserve()).
+        extra["v2_max_provider_enqueue_seconds"]=
+            v2_result->driver.max_provider_enqueue_seconds;
+        extra["v2_quality_bytes_uploaded"]=
+            v2_result->driver.totals.quality_bytes_uploaded;
+        extra["v2_source_samples_launched"]=
+            v2_result->driver.totals.source_samples_launched;
+        extra["v2_quality_frames_processed"]=
+            v2_result->driver.totals.quality_frames_processed;
+        extra["v2_upload_seconds"]=v2_result->driver.totals.upload_seconds;
+        extra["v2_kernel_seconds"]=v2_result->driver.totals.kernel_seconds;
+        extra["v2_download_seconds"]=v2_result->driver.totals.download_seconds;
+        extra["v2_reserved_device_bytes"]=
+            v2_result->driver.totals.reserved_device_bytes;
+        extra["v2_frames_skipped_empty_window"]=
+            v2_result->driver.totals.frames_skipped_empty_window;
+        extra["v2_quality_expanded_floats"]=
+            v2_result->driver.totals.quality_expanded_floats;
+        extra["v2_phase_wall_seconds"]=v2_result->driver.phase_wall_seconds;
+        extra["v2_commit_seconds"]=v2_result->driver.commit_seconds;
+        extra["v2_provider_source_seconds"]=
+            v2_result->provider_source_seconds;
+        extra["v2_provider_quality_seconds"]=
+            v2_result->provider_quality_seconds;
+        extra["v2_provider_source_bytes_read"]=
+            v2_result->provider_source_bytes_read;
+        extra["v2_provider_source_read_calls"]=
+            v2_result->provider_source_read_calls;
+        extra["v2_provider_hotpath_allocations"]=
+            v2_result->provider_hotpath_allocations;
+        extra["v2_provider_quality_cells_read"]=
+            v2_result->provider_quality_cells_read;
+        extra["v2_provider_quality_expanded_floats"]=
+            v2_result->provider_quality_expanded_floats;
+        extra["v2_provider_quality_denominator_bytes"]=
+            v2_result->provider_quality_denominator_bytes;
+        extra["v2_geometry_leaf_records_read"]=
+            v2_result->geometry_leaf_records_read;
+        extra["v2_geometry_leaf_record_bytes_read"]=
+            v2_result->geometry_leaf_record_bytes_read;
+        extra["v2_geometry_unique_source_samples"]=
+            v2_result->geometry_unique_source_samples;
+        extra["v2_geometry_cache_enumerations"]=
+            v2_result->geometry_cache_enumerations;
+        extra["v2_cached_leaf_records_launched"]=
+            v2_result->driver.totals.cached_leaf_records_launched;
+        extra["v2_cached_leaf_bytes_uploaded"]=
+            v2_result->driver.totals.cached_leaf_bytes_uploaded;
+        extra["v2_affine_pieces_processed"]=
+            v2_result->driver.totals.affine_pieces_processed;
+        extra["v2_empty_affine_tiles"]=v2_result->empty_affine_tiles;
+        // Tranche 8: the production affine path is the canonical ragged
+        // sample list (one full-target piece per frame); the rectangle
+        // target-tile keys are reported as not applicable rather than
+        // misleadingly implying 512-column pieces.
+        extra["v2_affine_samples_processed"]=
+            v2_result->driver.totals.affine_samples_processed;
+        extra["v2_affine_span_rows"]=
+            v2_result->driver.totals.affine_span_rows;
+        extra["v2_affine_sample_path"]=true;
+        extra["v2_target_tile_cols_native"]=nullptr;
+        extra["v2_target_tile_cols_native_applicable"]=false;
+        // Actual-vs-dense-baseline amplifications. Denominators:
+        // participating frames x full source frame for source bytes and
+        // launched samples; selected frames x present streams x full
+        // storage grid (3 B/cell) for quality. null + applicable=false when
+        // a denominator is zero.
+        {
+          const double frames =
+              static_cast<double>(v2_result->frames_participating);
+          const double src_px =
+              static_cast<double>(sampling.source_width) *
+              sampling.source_height;
+          const double src_den = frames * src_px * sizeof(float);
+          if (src_den > 0.0) {
+            extra["v2_source_read_amplification"]=
+                static_cast<double>(v2_result->provider_source_bytes_read) /
+                src_den;
+            extra["v2_source_read_amplification_applicable"]=true;
+          } else {
+            extra["v2_source_read_amplification"]=nullptr;
+            extra["v2_source_read_amplification_applicable"]=false;
+          }
+          const double launched_den = frames * src_px;
+          if (launched_den > 0.0) {
+            extra["v2_launched_sample_amplification"]=
+                static_cast<double>(
+                    v2_result->driver.totals.source_samples_launched) /
+                launched_den;
+            extra["v2_launched_sample_amplification_applicable"]=true;
+          } else {
+            extra["v2_launched_sample_amplification"]=nullptr;
+            extra["v2_launched_sample_amplification_applicable"]=false;
+          }
+          // Dense baseline computed by the provider: selected frames x
+          // present streams x full storage grid at 3 bytes/cell.
+          const double q_den = static_cast<double>(
+              v2_result->provider_quality_denominator_bytes);
+          if (q_den > 0.0) {
+            extra["v2_quality_read_amplification"]=
+                static_cast<double>(
+                    v2_result->provider_quality_cells_read) *
+                3.0 / q_den;
+            extra["v2_quality_read_amplification_applicable"]=true;
+          } else {
+            extra["v2_quality_read_amplification"]=nullptr;
+            extra["v2_quality_read_amplification_applicable"]=false;
+          }
+        }
+        // One workspace reservation per backend attempt (persistent across
+        // bands); the accumulate hot path allocates nothing by contract.
         extra["v2_reserve_allocations"]=v2_result->driver.totals.allocations;
+        extra["v2_workspace_reservations"]=
+            v2_result->driver.totals.workspace_reservations;
+        extra["v2_band_resets"]=v2_result->driver.totals.band_resets;
+        extra["v2_driver_hotpath_allocations"]=
+            v2_result->driver.driver_hotpath_allocations;
         extra["v2_device_global_syncs"]=
             v2_result->driver.totals.device_global_synchronizations;
       }

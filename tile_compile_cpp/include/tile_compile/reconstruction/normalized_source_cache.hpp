@@ -44,6 +44,7 @@ class VerifiedNormalizedSourceCache {
   std::unordered_map<size_t, std::list<Entry>::iterator> resident_;
   std::uint64_t load_calls_ = 0, lru_hits_ = 0, evictions_ = 0;
   std::uint64_t bytes_read_ = 0, expanded_floats_ = 0;
+  std::uint64_t rect_read_calls_ = 0;
   const Matrix2Df &verify_and_insert(size_t source_index);
 public:
   VerifiedNormalizedSourceCache(const fs::path &root,
@@ -60,6 +61,24 @@ public:
   // from disk (no SHA verification — trusted run). Ranges are clamped to the
   // frame; an empty range returns a 0x0 matrix. Not thread-safe (like load()).
   Matrix2Df read_rect(size_t source_index, int y0, int y1, int x0, int x1);
+  // Same contract as read_rect, but fills a reusable caller buffer: output
+  // is packed row-major (y1-y0)*(x1-x0) floats, resized (capacity kept).
+  // Each requested row reads only its [x0,x1) span straight into `out`;
+  // no covering-row buffer or Matrix is materialised.
+  void read_rect_into(size_t source_index, int y0, int y1, int x0, int x1,
+                      std::vector<float> &out);
+
+  // Tranche 8: ragged row-interval read. `intervals` is a list of
+  // (source_y, x_begin, x_end) half-open row intervals; the file is opened
+  // once and each interval is seek-read into `out` packed in list order
+  // (capacity preserved). Exact byte accounting: bytes_read counts only the
+  // interval payloads, rect_read_calls counts one call. Throws on an
+  // interval outside the frame or a reversed range.
+  void read_row_intervals_into(
+      size_t source_index,
+      const std::vector<DrizzleAffineSourceSpan> &intervals,
+      std::vector<float> &out);
+
   Matrix2Df read_region(size_t source_index, int y0, int y1) {
     return read_rect(source_index, y0, y1, 0, width_);
   }
@@ -67,7 +86,10 @@ public:
   // a load() whole-frame read and each read_rect window.
   std::uint64_t bytes_read() const { return bytes_read_; }
   std::uint64_t expanded_floats() const { return expanded_floats_; }
-  void reset_io_counters() { bytes_read_ = expanded_floats_ = 0; }
+  std::uint64_t rect_read_calls() const { return rect_read_calls_; }
+  void reset_io_counters() {
+    bytes_read_ = expanded_floats_ = rect_read_calls_ = 0;
+  }
 
   const std::string &manifest_hash() const { return manifest_hash_; }
   bool matches(const registration::RegistrationSamplingPlan &plan) const;

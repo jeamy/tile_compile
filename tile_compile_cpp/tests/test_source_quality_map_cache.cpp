@@ -630,3 +630,246 @@ TEST_CASE("build_source_quality_map_cache writes metrics artifact (T3)",
       metrics_path, "wrong-identity", "", "", ma, error));
   REQUIRE(error == "SQM_METRICS_IDENTITY_MISMATCH");
 }
+
+TEST_CASE("read_packed_rect expands bit-identically to read_rect",
+          "[source-quality-map-cache]") {
+  TempDir tmp;
+  const fs::path root = tmp.path / "source_quality_maps";
+  const int w = 11, h = 9;  // odd dims -> ragged storage grid at divisor 2
+  const auto plan = make_plan(w, h);
+  const std::string nch = "ncache-hash-packed";
+  config::AqmhPyramidConfig pyr;
+  SourceQualityMapCacheConfig ccfg;  // divisor 2, uint16
+
+  Matrix2Df composite = block_map(w, h, 0.4f);
+  // Exact Q=0 hard veto inside the 2x2 storage cell covering [4,6)x[2,4),
+  // plus a NaN-only (no support) area.
+  for (int y = 4; y < 6; ++y)
+    for (int x = 2; x < 4; ++x) composite(y, x) = 0.0f;
+  for (int y = 0; y < 2; ++y)
+    for (int x = 8; x < 11; ++x)
+      composite(y, x) = std::numeric_limits<float>::quiet_NaN();
+  Matrix2Df scale0 = block_map(w, h, 0.6f);
+
+  std::string identity, cfghash;
+  {
+    SourceQualityMapCacheWriter wr(root, plan, nch, pyr, ccfg);
+    identity = wr.identity_hash();
+    cfghash = wr.config_hash();
+    wr.put("composite", 0, composite);
+    wr.put("scale_0", 0, scale0);
+    (void)wr.commit();
+  }
+
+  SourceQualityMapCacheReader rd(root, identity, cfghash);
+  REQUIRE(rd.usable());
+
+  const std::array<std::array<int, 4>, 6> rects{{
+      {{0, h, 0, w}},           // whole
+      {{1, 5, 1, 4}},           // non-divisor-aligned origin/extent
+      {{4, 6, 2, 4}},           // inside the hard-veto storage cell
+      {{h - 1, h, w - 1, w}},   // 1x1 far corner (edge clamp)
+      {{0, 2, 8, 11}},          // NaN-only region
+      {{h - 3, h, w - 4, w}},   // ragged block on both far edges
+  }};
+  for (const char *stream : {"composite", "scale_0"}) {
+    for (const auto &r : rects) {
+      const int y0 = r[0], y1 = r[1], x0 = r[2], x1 = r[3];
+      const Matrix2Df ref = rd.read_rect(stream, 0, y0, y1, x0, x1);
+      const auto pw = rd.read_packed_rect(stream, 0, y0, y1, x0, x1);
+      REQUIRE(pw.source_width == ref.cols());
+      REQUIRE(pw.source_height == ref.rows());
+      REQUIRE(pw.storage_divisor == 2);
+      REQUIRE(static_cast<int>(pw.cells.size()) ==
+              pw.storage_width * pw.storage_height);
+      REQUIRE(pw.veto.size() == pw.cells.size());
+      const int d = pw.storage_divisor;
+      const int full_w = (w + d - 1) / d;
+      const int full_h = (h + d - 1) / d;
+      for (int y = 0; y < ref.rows(); ++y)
+        for (int x = 0; x < ref.cols(); ++x) {
+          const int ay = y0 + y, ax = x0 + x;
+          const int cy = std::min(full_h - 1, ay / d);
+          const int cx = std::min(full_w - 1, ax / d);
+          const std::size_t wi =
+              static_cast<std::size_t>(cy - pw.storage_y_begin) *
+                  pw.storage_width +
+              static_cast<std::size_t>(cx - pw.storage_x_begin);
+          const float manual =
+              pw.veto[wi] ? std::numeric_limits<float>::quiet_NaN()
+                          : dequantize_quality(pw.cells[wi]);
+          const float v = ref(y, x);
+          REQUIRE((std::isnan(manual) == std::isnan(v)));
+          if (std::isfinite(v)) REQUIRE(manual == v);
+        }
+    }
+  }
+  // Counter contract: packed reads count bin loads/cells but never expand.
+  rd.reset_io_counters();
+  (void)rd.read_packed_rect("composite", 0, 0, h, 0, w);
+  REQUIRE(rd.bin_loads() == 1);
+  REQUIRE(rd.expanded_floats() == 0);
+  const auto pw = rd.read_packed_rect("composite", 0, 0, h, 0, w);
+  REQUIRE(rd.bin_cells_decoded() ==
+          2u * static_cast<std::uint64_t>(pw.storage_width) *
+              pw.storage_height);
+}
+
+TEST_CASE("read_packed_rect_into reuses caller buffers with identical "
+          "payload",
+          "[source-quality-map-cache]") {
+  TempDir tmp;
+  const fs::path root = tmp.path / "source_quality_maps";
+  const int w = 11, h = 9;
+  const auto plan = make_plan(w, h);
+  config::AqmhPyramidConfig pyr;
+  SourceQualityMapCacheConfig ccfg;
+
+  Matrix2Df composite = block_map(w, h, 0.4f);
+  for (int y = 4; y < 6; ++y)
+    for (int x = 2; x < 4; ++x) composite(y, x) = 0.0f;
+  Matrix2Df scale0 = block_map(w, h, 0.6f);
+
+  std::string identity, cfghash;
+  {
+    SourceQualityMapCacheWriter wr(root, plan, "ncache-hash-packed2", pyr,
+                                   ccfg);
+    identity = wr.identity_hash();
+    cfghash = wr.config_hash();
+    wr.put("composite", 0, composite);
+    wr.put("scale_0", 0, scale0);
+    (void)wr.commit();
+  }
+  SourceQualityMapCacheReader rd(root, identity, cfghash);
+  REQUIRE(rd.usable());
+
+  const std::array<std::array<int, 4>, 6> rects{{
+      {{0, h, 0, w}}, {{1, 5, 1, 4}}, {{4, 6, 2, 4}},
+      {{h - 1, h, w - 1, w}}, {{0, 2, 8, 11}}, {{2, 2, 0, w}},
+  }};
+  SourceQualityPackedWindow pw;
+  // Pre-reserve to the full grid: no later read may grow the buffers.
+  const std::size_t grid = static_cast<std::size_t>(
+      ((w + 1) / 2) * ((h + 1) / 2));
+  pw.cells.reserve(grid);
+  pw.veto.reserve(grid);
+  const std::uint16_t *const cells_ptr = pw.cells.data();
+  const std::uint8_t *const veto_ptr = pw.veto.data();
+  rd.reset_io_counters();
+  std::uint64_t expect_cells = 0;
+  for (const char *stream : {"composite", "scale_0"}) {
+    for (const auto &r : rects) {
+      const auto ref =
+          rd.read_packed_rect(stream, 0, r[0], r[1], r[2], r[3]);
+      rd.read_packed_rect_into(stream, 0, r[0], r[1], r[2], r[3], pw);
+      REQUIRE(pw.storage_x_begin == ref.storage_x_begin);
+      REQUIRE(pw.storage_y_begin == ref.storage_y_begin);
+      REQUIRE(pw.storage_width == ref.storage_width);
+      REQUIRE(pw.storage_height == ref.storage_height);
+      REQUIRE(pw.storage_divisor == ref.storage_divisor);
+      REQUIRE(pw.source_x_begin == ref.source_x_begin);
+      REQUIRE(pw.source_y_begin == ref.source_y_begin);
+      REQUIRE(pw.source_width == ref.source_width);
+      REQUIRE(pw.source_height == ref.source_height);
+      REQUIRE(pw.cells == ref.cells);
+      REQUIRE(pw.veto == ref.veto);
+      if (!pw.cells.empty()) {
+        REQUIRE(pw.cells.data() == cells_ptr);
+        REQUIRE(pw.veto.data() == veto_ptr);
+        // One bin load + cells counted per non-empty read; the reference
+        // read_packed_rect above counted the same.
+        expect_cells += 2 * static_cast<std::uint64_t>(pw.storage_width) *
+                            pw.storage_height;
+      }
+    }
+  }
+  REQUIRE(rd.bin_loads() ==
+          std::count_if(rects.begin(), rects.end(),
+                        [&](const auto &r) {
+                          return r[1] > std::max(0, r[0]) &&
+                                 r[3] > std::max(0, r[2]);
+                        }) *
+              4);
+  REQUIRE(rd.bin_cells_decoded() == expect_cells);
+  REQUIRE(rd.expanded_floats() == 0);
+}
+
+TEST_CASE("read_packed_samples_into aligns cells/veto 1:1 with ragged spans "
+          "and counts unique storage cells",
+          "[source-quality-map-cache]") {
+  TempDir tmp;
+  const fs::path root = tmp.path / "source_quality_maps";
+  const int w = 11, h = 9;  // odd dims -> ragged storage grid at divisor 2
+  const auto plan = make_plan(w, h);
+  const std::string nch = "ncache-hash-samples";
+  config::AqmhPyramidConfig pyr;
+  SourceQualityMapCacheConfig ccfg;
+
+  Matrix2Df composite = block_map(w, h, 0.4f);
+  for (int y = 4; y < 6; ++y)
+    for (int x = 2; x < 4; ++x) composite(y, x) = 0.0f;  // hard veto cell
+  for (int y = 0; y < 2; ++y)
+    for (int x = 8; x < 11; ++x)
+      composite(y, x) = std::numeric_limits<float>::quiet_NaN();
+
+  std::string identity, cfghash;
+  {
+    SourceQualityMapCacheWriter wr(root, plan, nch, pyr, ccfg);
+    identity = wr.identity_hash();
+    cfghash = wr.config_hash();
+    wr.put("composite", 0, composite);
+    (void)wr.commit();
+  }
+  SourceQualityMapCacheReader rd(root, identity, cfghash);
+  REQUIRE(rd.usable());
+
+  // Ragged spans incl. divisor-2 row pairs sharing a storage row and a
+  // non-aligned x interval.
+  const std::vector<DrizzleAffineSourceSpan> spans = {
+      {1, 3, 7},   // storage row 0
+      {2, 3, 8},   // storage row 1 (pairs with row 3)
+      {3, 5, 9},   // storage row 1
+      {5, 0, 11},  // storage row 2, incl. veto cell and ragged edge
+      {8, 0, 2}};  // last (ragged) storage row
+  const Matrix2Df full = rd.read_rect("composite", 0, 0, h, 0, w);
+  rd.reset_io_counters();
+  std::vector<std::uint16_t> cells;
+  std::vector<std::uint8_t> veto;
+  cells.reserve(64);
+  veto.reserve(64);
+  SourceQualityPackedWindow scratch;
+  rd.read_packed_samples_into("composite", 0, spans, cells, veto, scratch);
+  std::size_t nsamples = 0;
+  for (const auto &s : spans)
+    nsamples += static_cast<std::size_t>(s.x_end - s.x_begin);
+  REQUIRE(cells.size() == nsamples);
+  REQUIRE(veto.size() == nsamples);
+  // Aligned values equal the cache float decode at every sample coordinate.
+  std::size_t i = 0;
+  for (const auto &s : spans)
+    for (int sx = s.x_begin; sx < s.x_end; ++sx, ++i) {
+      const float ref = full(s.source_y, sx);
+      const float got =
+          veto[i] ? std::numeric_limits<float>::quiet_NaN()
+                  : (cells[i] == 0 ? std::numeric_limits<float>::quiet_NaN()
+                                   : dequantize_quality(cells[i]));
+      REQUIRE((std::isnan(got) == std::isnan(ref)));
+      if (std::isfinite(ref)) REQUIRE(got == ref);
+    }
+  // Unique-cell accounting: storage rows 0..4 touched; x unions:
+  // row0 cells 1..3, row1 cells 1..4, row2 cells 0..5, row4 cell 0.
+  const std::uint64_t expect_cells = 3 + 4 + 6 + 1;
+  REQUIRE(rd.bin_cells_decoded() == expect_cells);
+  REQUIRE(rd.expanded_floats() == 0);
+  // Second call reuses capacity (no hot-path allocation).
+  const std::uint16_t *cp = cells.data();
+  const std::uint8_t *vp = veto.data();
+  rd.read_packed_samples_into("composite", 0, spans, cells, veto, scratch);
+  REQUIRE(cells.data() == cp);
+  REQUIRE(veto.data() == vp);
+  REQUIRE(rd.bin_cells_decoded() == 2 * expect_cells);
+  // Non-ascending rows fail closed.
+  const std::vector<DrizzleAffineSourceSpan> bad = {{3, 0, 4}, {1, 0, 4}};
+  REQUIRE_THROWS(
+      rd.read_packed_samples_into("composite", 0, bad, cells, veto, scratch));
+}

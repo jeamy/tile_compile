@@ -366,14 +366,29 @@ struct V2ReservoirRecord {
 // Hard device bound: slots = 2 * reservoir_size with reservoir_size <= 64.
 constexpr int kV2MaxResSlots = 128;
 
-// Gate-9 quality I/O bundle for the scatter kernels: source-resolution
-// quality planes (null = stream absent for this frame) and the five f64
-// frame accumulator planes (all null when profiles are disabled).
+// Compact quality stream on device: raw uint16 cells + veto bytes over a
+// storage-grid window (absolute storage coords). A stream supplies a float
+// plane XOR a packed window; cells == nullptr means the stream is absent.
+struct V2PackedQuality {
+  const unsigned short *cells = nullptr;
+  const unsigned char *veto = nullptr;
+  int x_begin = 0;
+  int y_begin = 0;
+  int width = 0;
+  int height = 0;
+  int divisor = 1;
+};
+
+// Gate-9 quality I/O bundle for the scatter kernels: float planes XOR
+// packed windows per stream (null = stream absent for this frame) and the
+// five f64 frame accumulator planes (all null when profiles are disabled).
 struct V2QualityIO {
   const float *qc = nullptr;
   const float *q0 = nullptr;
   const float *q1 = nullptr;
   const float *qa = nullptr;
+  V2PackedQuality qc_p, q0_p, q1_p, qa_p;
+  unsigned int qmask = 0;
   double *fqc = nullptr;
   double *fq0 = nullptr;
   double *fq1 = nullptr;
@@ -381,27 +396,116 @@ struct V2QualityIO {
   double *fqaf = nullptr;
 };
 
+// Decode one quality sample: float plane indexed by the active-local tid
+// (compatibility path) or the packed storage-grid window decoded by the
+// absolute source coordinate. Vetoed/zero cells yield NaN --- the same
+// veto the float path reports.
+__device__ inline float d_quality_sample(const float *plane,
+                                         const V2PackedQuality &p,
+                                         long long tid, int sx, int sy) {
+  if (p.cells != nullptr) {
+    const long long i =
+        static_cast<long long>(sy / p.divisor - p.y_begin) * p.width +
+        static_cast<long long>(sx / p.divisor - p.x_begin);
+    if (p.veto != nullptr && p.veto[i]) return nanf("");
+    const unsigned int c = p.cells[i];
+    return c == 0u ? nanf("") : static_cast<float>(c) / 65535.0f;
+  }
+  return plane != nullptr ? plane[tid] : nanf("");
+}
+
 // Per-droplet quality accumulation, gated on finite source value by the
 // caller (matching the CPU contract: the whole sample is skipped for
-// nonfinite values). A NaN/<=0 quality sample contributes 0 to the
-// area-weighted mean (explicit veto); fqaf collects the area weight of
-// finite artifact samples only (qa_has_data).
+// nonfinite values). `qv` holds the decoded per-stream sample values
+// (NaN = veto/absent): a NaN/<=0 sample contributes 0 to the area-weighted
+// mean; fqaf collects the area weight of finite artifact samples only.
 __device__ inline void d_scatter_quality(const V2QualityIO &q,
-                                         long long out, double area,
-                                         long long tid) {
-  auto acc = [](const float *src, double *dst, long long o, double k,
-                long long t) {
-    if (src == nullptr || dst == nullptr) return;
-    const double v = static_cast<double>(src[t]);
-    atomicAdd(dst + o, k * (isfinite(v) && v > 0.0 ? v : 0.0));
+                                         const float qv[4],
+                                         long long out, double area) {
+  auto acc = [](float v, double *dst, long long o, double k) {
+    if (dst == nullptr) return;
+    const double d = static_cast<double>(v);
+    atomicAdd(dst + o, k * (isfinite(d) && d > 0.0 ? d : 0.0));
   };
-  acc(q.qc, q.fqc, out, area, tid);
-  acc(q.q0, q.fq0, out, area, tid);
-  acc(q.q1, q.fq1, out, area, tid);
-  acc(q.qa, q.fqa, out, area, tid);
-  if (q.qa != nullptr && q.fqaf != nullptr &&
-      isfinite(static_cast<double>(q.qa[tid])))
+  if (q.qmask & 1u) acc(qv[0], q.fqc, out, area);
+  if (q.qmask & 2u) acc(qv[1], q.fq0, out, area);
+  if (q.qmask & 4u) acc(qv[2], q.fq1, out, area);
+  if (q.qmask & 8u) acc(qv[3], q.fqa, out, area);
+  if ((q.qmask & 8u) && q.fqaf != nullptr &&
+      isfinite(static_cast<double>(qv[3])))
     atomicAdd(q.fqaf + out, area);
+}
+
+// Uploaded source buffer descriptor: packed row-major buffer at absolute
+// origin (buf_x, buf_y), the ACTIVE rect (act_*) inside it that the launch
+// iterates, and the reserved full source extent (src_*) that bounds the
+// sigma-model halo reads.
+struct V2Window {
+  int buf_x = 0;
+  int buf_y = 0;
+  int buf_w = 0;
+  int buf_h = 0;
+  int act_x = 0;
+  int act_y = 0;
+  int act_w = 0;
+  int act_h = 0;
+  int src_w = 0;
+  int src_h = 0;
+};
+
+// Inline sigma2 model parameters (mirror of
+// ForwardDrizzleV2Sigma2FrameModel for kernel argument passing).
+struct V2Sigma2Model {
+  int enabled = 0;
+  double noise = 0.0;
+  double reg_px = 0.0;
+  double half = 0.0;
+};
+
+// One absolute source sample from the window buffer; NaN outside the true
+// source extent or outside the uploaded buffer (caller-provided halo makes
+// the latter coincide with true borders only).
+__device__ inline float d_window_at(const float *src, const V2Window &w,
+                                    int ax, int ay) {
+  if (ax < 0 || ay < 0 || ax >= w.src_w || ay >= w.src_h) return nanf("");
+  const int bx = ax - w.buf_x, by = ay - w.buf_y;
+  if (bx < 0 || by < 0 || bx >= w.buf_w || by >= w.buf_h) return nanf("");
+  return src[static_cast<long long>(by) * w.buf_w + bx];
+}
+
+// Device mirror of forward_drizzle_v2_sigma2_model (same double ops).
+__device__ inline double d_sigma2_model(double noise, double gx, double gy,
+                                        double reg_px, double half) {
+  if (!isfinite(noise) || noise < 0.0 || !isfinite(gx) || !isfinite(gy) ||
+      !isfinite(reg_px) || reg_px < 0.0 || !isfinite(half) || !(half > 0.0))
+    return nan("");
+  const double g2 = gx * gx + gy * gy;
+  return noise * noise + g2 * reg_px * reg_px + half * half / 3.0;
+}
+
+// Inline sigma2 at absolute (sx, sy) from the halo window buffer: central
+// difference where both absolute neighbours are finite, one-sided fallback
+// at true source borders or invalid neighbours, zero otherwise ---
+// identical semantics to forward_drizzle_v2_sigma2_plane.
+__device__ inline double d_sigma2_at(const float *src, const V2Window &w,
+                                     const V2Sigma2Model &m, int sx,
+                                     int sy) {
+  auto diff = [&](bool x_axis) -> float {
+    const float vm =
+        d_window_at(src, w, sx - (x_axis ? 1 : 0), sy - (x_axis ? 0 : 1));
+    const float vp =
+        d_window_at(src, w, sx + (x_axis ? 1 : 0), sy + (x_axis ? 0 : 1));
+    const bool fm = isfinite(vm), fp = isfinite(vp);
+    if (fm && fp) return (vp - vm) * 0.5f;
+    const float vc = d_window_at(src, w, sx, sy);
+    if (fp && isfinite(vc)) return vp - vc;
+    if (fm && isfinite(vc)) return vc - vm;
+    return 0.0f;
+  };
+  // The explicit-plane path quantises to float; mirror that so both
+  // sigma2 contracts agree bit for bit.
+  return static_cast<double>(static_cast<float>(
+      d_sigma2_model(m.noise, diff(true), diff(false), m.reg_px, m.half)));
 }
 
 // 16 B device row of ForwardDrizzleV2FrameMeta, indexed by frame order.
@@ -412,7 +516,7 @@ struct V2FrameMetaDev {
   unsigned int pad;
 };
 
-__device__ unsigned long long d_splitmix64(unsigned long long x) {
+__host__ __device__ unsigned long long d_splitmix64(unsigned long long x) {
   x += 0x9e3779b97f4a7c15ULL;
   x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
   x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
@@ -427,24 +531,208 @@ __device__ unsigned long long d_splitmix64(unsigned long long x) {
 // internal coordinate is (q - band_origin) * sc.
 __global__ void k_scatter_v2(
     double a0, double a1, double a2, double a3, double a4, double a5,
-    double sc, double half, int cols, int rows, int source_w, int source_h,
-    const float *source, const float *sigma2, int bayer, int ox, int oy,
-    int mono, double band_ox, double band_oy, double *fa, double *fbs,
+    double sc, double half, int cols, int rows, V2Window w,
+    const float *source, const float *sigma2, V2Sigma2Model s2m, int bayer,
+    int ox, int oy,
+    int mono, double band_ox, double band_oy, int tile_x0, int tile_x1,
+    double *fa, double *fbs,
     double *fbg, double *fs2,
     V2QualityIO qio, unsigned long long *positive_overlaps) {
   const long long tid =
       static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
-  const long long source_n = static_cast<long long>(source_w) * source_h;
+  const long long source_n =
+      static_cast<long long>(w.act_w) * w.act_h;
   if (tid >= source_n) return;
-  const int sy = static_cast<int>(tid / source_w);
-  const int sx = static_cast<int>(tid % source_w);
-  const double value = static_cast<double>(source[tid]);
+  // Packed-buffer indexing: tid iterates the ACTIVE rect inside the
+  // uploaded buffer (optional halo); geometry keeps absolute source
+  // coordinates and float sigma/Q planes are packed over the active rect.
+  const int lx = static_cast<int>(tid % w.act_w);
+  const int ly = static_cast<int>(tid / w.act_w);
+  const int sx = w.buf_x + w.act_x + lx;
+  const int sy = w.buf_y + w.act_y + ly;
+  const long long bidx =
+      static_cast<long long>(w.act_y + ly) * w.buf_w + (w.act_x + lx);
+  const double value = static_cast<double>(source[bidx]);
   const bool finite_value = isfinite(value);
-  const double s2 = sigma2 != nullptr ? static_cast<double>(sigma2[tid]) : 0.0;
+  const double s2 =
+      sigma2 != nullptr
+          ? static_cast<double>(sigma2[tid])
+          : (s2m.enabled ? d_sigma2_at(source, w, s2m, sx, sy) : 0.0);
+  float qv[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  if (qio.qmask != 0u) {
+    qv[0] = d_quality_sample(qio.qc, qio.qc_p, tid, sx, sy);
+    qv[1] = d_quality_sample(qio.q0, qio.q0_p, tid, sx, sy);
+    qv[2] = d_quality_sample(qio.q1, qio.q1_p, tid, sx, sy);
+    qv[3] = d_quality_sample(qio.qa, qio.qa_p, tid, sx, sy);
+  }
   const int channel = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
   const double x = sx + 0.5, y = sy + 0.5;
   const double px[4] = {x - half, x + half, x + half, x - half};
   const double py[4] = {y - half, y - half, y + half, y + half};
+  double qx[4], qy[4];
+  double minx = DBL_MAX, maxx = -DBL_MAX;
+  double miny = DBL_MAX, maxy = -DBL_MAX;
+  for (int k = 0; k < 4; ++k) {
+    qx[k] = (a0 * px[k] + a1 * py[k] + a2 - band_ox) * sc;
+    qy[k] = (a3 * px[k] + a4 * py[k] + a5 - band_oy) * sc;
+    minx = fmin(minx, qx[k]); maxx = fmax(maxx, qx[k]);
+    miny = fmin(miny, qy[k]); maxy = fmax(maxy, qy[k]);
+  }
+  // The affine piece path owns internal columns [tile_x0, tile_x1); the
+  // bbox clamp drops emissions outside the tile so overlapping source scan
+  // boxes never double-count.
+  const int x0 = max(tile_x0, max(0, static_cast<int>(floor(minx))));
+  const int x1 = min(tile_x1, min(cols, static_cast<int>(ceil(maxx))));
+  const int y0 = max(0, static_cast<int>(floor(miny)));
+  const int y1 = min(rows, static_cast<int>(ceil(maxy)));
+  unsigned long long overlaps = 0;
+  const long long plane_n = static_cast<long long>(cols) * rows;
+  for (int ty = y0; ty < y1; ++ty) {
+    for (int tx = x0; tx < x1; ++tx) {
+      const double area =
+          d_polygon_rect_area(qx, qy, tx, ty, tx + 1.0, ty + 1.0);
+      if (!(area > 0.0)) continue;
+      const long long out = static_cast<long long>(channel) * plane_n +
+                            static_cast<long long>(ty) * cols + tx;
+      atomicAdd(fbg + out, area);
+      if (finite_value) {
+        atomicAdd(fa + out, area * value);
+        atomicAdd(fbs + out, area);
+        if (fs2 != nullptr) atomicAdd(fs2 + out, area * s2);
+        if (qio.qmask != 0u) d_scatter_quality(qio, qv, out, area);
+      }
+      ++overlaps;
+    }
+  }
+  if (overlaps) atomicAdd(positive_overlaps, overlaps);
+}
+
+// Geometry-cache scatter (tranche 6): one thread per committed leaf.
+// Leaf corners are absolute internal canvas coordinates; subtracting the
+// internal band origin (band_origin * sc) makes them band-local ---
+// bit-identical to the local emit path's (native - band_origin) * sc since
+// sc is a power of two. No inversion or subdivision runs here --- the
+// cache build already finalised discards.
+__global__ void k_scatter_v2_cached(
+    const ForwardDrizzleV2CachedLeaf *leaves, long long leaf_count,
+    double sc, int cols, int rows, V2Window w,
+    const float *source, const float *sigma2, V2Sigma2Model s2m,
+    double band_ox, double band_oy, double *fa, double *fbs, double *fbg,
+    double *fs2, V2QualityIO qio, unsigned long long *positive_overlaps) {
+  const long long tid =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (tid >= leaf_count) return;
+  const ForwardDrizzleV2CachedLeaf &L = leaves[tid];
+  const int sx = static_cast<int>(L.source_x);
+  const int sy = static_cast<int>(L.source_y);
+  const long long bidx =
+      static_cast<long long>(sy - w.buf_y) * w.buf_w + (sx - w.buf_x);
+  // Float sigma/Q compatibility planes are packed over the ACTIVE rect;
+  // the host validated that every leaf lies inside it.
+  const long long tidx =
+      static_cast<long long>(sy - (w.buf_y + w.act_y)) * w.act_w +
+      (sx - (w.buf_x + w.act_x));
+  const double value = static_cast<double>(source[bidx]);
+  const bool finite_value = isfinite(value);
+  const double s2 =
+      sigma2 != nullptr
+          ? static_cast<double>(sigma2[tidx])
+          : (s2m.enabled ? d_sigma2_at(source, w, s2m, sx, sy) : 0.0);
+  float qv[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  if (qio.qmask != 0u) {
+    qv[0] = d_quality_sample(qio.qc, qio.qc_p, tidx, sx, sy);
+    qv[1] = d_quality_sample(qio.q0, qio.q0_p, tidx, sx, sy);
+    qv[2] = d_quality_sample(qio.q1, qio.q1_p, tidx, sx, sy);
+    qv[3] = d_quality_sample(qio.qa, qio.qa_p, tidx, sx, sy);
+  }
+  const int channel = static_cast<int>(L.channel);
+  double qx[4], qy[4];
+  double minx = DBL_MAX, maxx = -DBL_MAX;
+  double miny = DBL_MAX, maxy = -DBL_MAX;
+  for (int k = 0; k < 4; ++k) {
+    qx[k] = L.x[k] - band_ox * sc;
+    qy[k] = L.y[k] - band_oy * sc;
+    minx = fmin(minx, qx[k]); maxx = fmax(maxx, qx[k]);
+    miny = fmin(miny, qy[k]); maxy = fmax(maxy, qy[k]);
+  }
+  const int x0 = max(0, static_cast<int>(floor(minx)));
+  const int x1 = min(cols, static_cast<int>(ceil(maxx)));
+  const int y0 = max(0, static_cast<int>(floor(miny)));
+  const int y1 = min(rows, static_cast<int>(ceil(maxy)));
+  unsigned long long overlaps = 0;
+  const long long plane_n = static_cast<long long>(cols) * rows;
+  for (int ty = y0; ty < y1; ++ty) {
+    for (int tx = x0; tx < x1; ++tx) {
+      const double area =
+          d_polygon_rect_area(qx, qy, tx, ty, tx + 1.0, ty + 1.0);
+      if (!(area > 0.0)) continue;
+      const long long out = static_cast<long long>(channel) * plane_n +
+                            static_cast<long long>(ty) * cols + tx;
+      atomicAdd(fbg + out, area);
+      if (finite_value) {
+        atomicAdd(fa + out, area * value);
+        atomicAdd(fbs + out, area);
+        if (fs2 != nullptr) atomicAdd(fs2 + out, area * s2);
+        if (qio.qmask != 0u) d_scatter_quality(qio, qv, out, area);
+      }
+      ++overlaps;
+    }
+  }
+  if (overlaps) atomicAdd(positive_overlaps, overlaps);
+}
+
+// --- Tranche 8: canonical ragged affine sample list -----------------------
+
+// Device mirror of ForwardDrizzleV2AlignedQuality: per-sample quantized
+// codes/veto indexed by the sample's launch tid (never expanded floats).
+struct V2AlignedQualityDev {
+  const unsigned short *qc = nullptr, *q0 = nullptr, *q1 = nullptr,
+                       *qa = nullptr;
+  const unsigned char *vc = nullptr, *v0 = nullptr, *v1 = nullptr,
+                      *va = nullptr;
+  unsigned int qmask = 0;
+};
+
+__device__ inline float d_aligned_quality_sample(const unsigned short *codes,
+                                                 const unsigned char *veto,
+                                                 long long tid) {
+  if ((veto != nullptr && veto[tid] != 0) || codes[tid] == 0)
+    return nanf("");
+  return static_cast<float>(codes[tid]) / 65535.0f;
+}
+
+// One thread per active source sample; absolute (x, y) come from the
+// record, geometry is the same affine droplet as k_scatter_v2 with the
+// full-band x clamp (no target tiling on this path).
+__global__ void k_scatter_v2_samples(
+    const ForwardDrizzleV2SourceSample *samples, long long sample_count,
+    int sigma2_present, double a0, double a1, double a2, double a3,
+    double a4, double a5, double sc, double half, int cols, int rows,
+    int bayer, int ox, int oy, int mono, double band_ox, double band_oy,
+    double *fa, double *fbs, double *fbg, double *fs2,
+    V2AlignedQualityDev aq, V2QualityIO qio,
+    unsigned long long *positive_overlaps) {
+  const long long tid =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (tid >= sample_count) return;
+  const ForwardDrizzleV2SourceSample &s = samples[tid];
+  const int sx = static_cast<int>(s.source_x);
+  const int sy = static_cast<int>(s.source_y);
+  const double value = static_cast<double>(s.value);
+  const bool finite_value = isfinite(value);
+  const double s2 = sigma2_present ? static_cast<double>(s.sigma2) : 0.0;
+  float qv[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  if (aq.qmask != 0u) {
+    if ((aq.qmask & 1u) != 0u) qv[0] = d_aligned_quality_sample(aq.qc, aq.vc, tid);
+    if ((aq.qmask & 2u) != 0u) qv[1] = d_aligned_quality_sample(aq.q0, aq.v0, tid);
+    if ((aq.qmask & 4u) != 0u) qv[2] = d_aligned_quality_sample(aq.q1, aq.v1, tid);
+    if ((aq.qmask & 8u) != 0u) qv[3] = d_aligned_quality_sample(aq.qa, aq.va, tid);
+  }
+  const int channel = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
+  const double cx = static_cast<double>(sx) + 0.5;
+  const double cy = static_cast<double>(sy) + 0.5;
+  const double px[4] = {cx - half, cx + half, cx + half, cx - half};
+  const double py[4] = {cy - half, cy - half, cy + half, cy + half};
   double qx[4], qy[4];
   double minx = DBL_MAX, maxx = -DBL_MAX;
   double miny = DBL_MAX, maxy = -DBL_MAX;
@@ -472,7 +760,7 @@ __global__ void k_scatter_v2(
         atomicAdd(fa + out, area * value);
         atomicAdd(fbs + out, area);
         if (fs2 != nullptr) atomicAdd(fs2 + out, area * s2);
-        d_scatter_quality(qio, out, area, tid);
+        if (qio.qmask != 0u) d_scatter_quality(qio, qv, out, area);
       }
       ++overlaps;
     }
@@ -677,18 +965,25 @@ __device__ int d_eval_local_node(const ForwardDrizzleV2LocalWarp &w,
 __global__ void k_scatter_v2_local(
     double a0, double a1, double a2, double a3, double a4, double a5,
     ForwardDrizzleV2LocalWarp w, double sc, double half, int cols, int rows,
-    int source_w, int source_h, const float *source, const float *sigma2,
-    int bayer, int ox, int oy, int mono, int canvas_w_native,
+    V2Window win, const float *source,
+    const float *sigma2, V2Sigma2Model s2m, int bayer, int ox, int oy,
+    int mono,
+    int canvas_w_native,
     int canvas_h_native, double band_ox, double band_oy, double *fa,
     double *fbs, double *fbg, double *fs2,
     V2QualityIO qio, unsigned long long *positive_overlaps,
     unsigned long long *discarded) {
   const long long tid =
       static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
-  const long long source_n = static_cast<long long>(source_w) * source_h;
+  const long long source_n =
+      static_cast<long long>(win.act_w) * win.act_h;
   if (tid >= source_n) return;
-  const int sy = static_cast<int>(tid / source_w);
-  const int sx = static_cast<int>(tid % source_w);
+  const int lx = static_cast<int>(tid % win.act_w);
+  const int ly = static_cast<int>(tid / win.act_w);
+  const int sx = win.buf_x + win.act_x + lx;
+  const int sy = win.buf_y + win.act_y + ly;
+  const long long bidx =
+      static_cast<long long>(win.act_y + ly) * win.buf_w + (win.act_x + lx);
   const double a[6] = {a0, a1, a2, a3, a4, a5};
   const double x = sx + 0.5, y = sy + 0.5;
   const double bx0 = x - half, by0 = y - half, bx1 = x + half,
@@ -723,9 +1018,19 @@ __global__ void k_scatter_v2_local(
     return;
   }
 
-  const double value = static_cast<double>(source[tid]);
+  const double value = static_cast<double>(source[bidx]);
   const bool finite_value = isfinite(value);
-  const double s2 = sigma2 != nullptr ? static_cast<double>(sigma2[tid]) : 0.0;
+  const double s2 =
+      sigma2 != nullptr
+          ? static_cast<double>(sigma2[tid])
+          : (s2m.enabled ? d_sigma2_at(source, win, s2m, sx, sy) : 0.0);
+  float qv[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  if (qio.qmask != 0u) {
+    qv[0] = d_quality_sample(qio.qc, qio.qc_p, tid, sx, sy);
+    qv[1] = d_quality_sample(qio.q0, qio.q0_p, tid, sx, sy);
+    qv[2] = d_quality_sample(qio.q1, qio.q1_p, tid, sx, sy);
+    qv[3] = d_quality_sample(qio.qa, qio.qa_p, tid, sx, sy);
+  }
   const int channel = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
   const long long plane_n = static_cast<long long>(cols) * rows;
   unsigned long long overlaps = 0;
@@ -772,7 +1077,7 @@ __global__ void k_scatter_v2_local(
           atomicAdd(fa + out, area * value);
           atomicAdd(fbs + out, area);
           if (fs2 != nullptr) atomicAdd(fs2 + out, area * s2);
-          d_scatter_quality(qio, out, area, tid);
+          if (qio.qmask != 0u) d_scatter_quality(qio, qv, out, area);
         }
         ++overlaps;
       }
@@ -783,6 +1088,38 @@ __global__ void k_scatter_v2_local(
     return;
   }
   if (overlaps) atomicAdd(positive_overlaps, overlaps);
+}
+
+// Tranche-7 piece clear: zero the internal x columns [x0, x1) of every
+// channel x row of the frame planes owned by one affine piece. Nullable
+// planes are skipped (fs2 absent, Q planes when the frame is not
+// quality-selected).
+__global__ void k_clear_planes_x(
+    double *fa, double *fbs, double *fbg, double *fs2,
+    double *fqc, double *fq0, double *fq1, double *fqa, double *fqaf,
+    int icols, int irows, int channels, int x0, int x1) {
+  const long long t =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const long long w = x1 - x0;
+  const long long total =
+      static_cast<long long>(channels) * irows * w;
+  if (t >= total) return;
+  const int tx = x0 + static_cast<int>(t % w);
+  const long long rc = t / w;
+  const int ty = static_cast<int>(rc % irows);
+  const int c = static_cast<int>(rc / irows);
+  const long long idx =
+      static_cast<long long>(c) * icols * irows +
+      static_cast<long long>(ty) * icols + tx;
+  fa[idx] = 0.0;
+  fbs[idx] = 0.0;
+  fbg[idx] = 0.0;
+  if (fs2 != nullptr) fs2[idx] = 0.0;
+  if (fqc != nullptr) fqc[idx] = 0.0;
+  if (fq0 != nullptr) fq0[idx] = 0.0;
+  if (fq1 != nullptr) fq1[idx] = 0.0;
+  if (fqa != nullptr) fqa[idx] = 0.0;
+  if (fqaf != nullptr) fqaf[idx] = 0.0;
 }
 
 // One thread per NATIVE pixel of the band: folds the scale^2 frame-plane
@@ -797,6 +1134,7 @@ __global__ void k_fold_accumulate_v2(
     const double *fqc, const double *fq0, const double *fq1,
     const double *fqa, const double *fqaf, unsigned int qmask,
     int icols, int irows, int scale, int ncols, int nrows, int channels,
+    int nx_begin, int nx_count,
     unsigned long long order, int keep_all, unsigned long long threshold,
     int res_slots, unsigned long long seed,
     double *accA, double *accB, double *accB2,
@@ -804,12 +1142,16 @@ __global__ void k_fold_accumulate_v2(
     unsigned int *contrib, unsigned int *kept, unsigned int *footprint,
     unsigned short *supp, unsigned long long *degraded,
     V2ReservoirRecord *res, float4 *resq) {
-  const long long px =
+  // Threads cover native columns [nx_begin, nx_begin + nx_count) only; the
+  // one-shot path passes (0, ncols).
+  const long long t =
       static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
   const long long nplane = static_cast<long long>(ncols) * nrows;
-  if (px >= nplane) return;
-  const int nx = static_cast<int>(px % ncols);
-  const int ny = static_cast<int>(px / ncols);
+  const long long piece_n = static_cast<long long>(nx_count) * nrows;
+  if (t >= piece_n) return;
+  const int nx = nx_begin + static_cast<int>(t % nx_count);
+  const int ny = static_cast<int>(t / nx_count);
+  const long long px = static_cast<long long>(ny) * ncols + nx;
   const long long iplane = static_cast<long long>(icols) * irows;
   const double inv_s2 = 1.0 / (static_cast<double>(scale) * scale);
   bool any_geo = false;
@@ -1660,10 +2002,17 @@ bool forward_drizzle_cuda_local_dense_scatter(
   if (ok) {
     const int block = 128;
     const int grid = (static_cast<int>(source_n) + block - 1) / block;
+    V2Window win{};
+    win.buf_w = source_w;
+    win.buf_h = source_h;
+    win.act_w = source_w;
+    win.act_h = source_h;
+    win.src_w = source_w;
+    win.src_h = source_h;
     k_scatter_v2_local<<<grid, block>>>(
         affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
         warp, static_cast<double>(internal_scale), half, target_cols,
-        target_rows, source_w, source_h, d_source, nullptr, bayer_pattern,
+        target_rows, win, d_source, nullptr, V2Sigma2Model{}, bayer_pattern,
         cfa_origin_x, cfa_origin_y, mono ? 1 : 0, canvas_w_native,
         canvas_h_native, 0.0, 0.0, d_a, d_bs, d_bg, nullptr, V2QualityIO{},
         d_scalars, d_scalars + 1);
@@ -2045,6 +2394,20 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
   float *q0 = nullptr;
   float *q1 = nullptr;
   float *qa = nullptr;
+  // Compact Q windows: raw uint16 cells + veto bytes, full storage-grid
+  // upper bound (divisor >= 1 -> at most source_elems cells).
+  unsigned short *pqc = nullptr;
+  unsigned short *pq0 = nullptr;
+  unsigned short *pq1 = nullptr;
+  unsigned short *pqa = nullptr;
+  unsigned char *pvc = nullptr;
+  unsigned char *pv0 = nullptr;
+  unsigned char *pv1 = nullptr;
+  unsigned char *pva = nullptr;
+  // Geometry-cache leaf buffer (reserved to cfg.cached_leaf_capacity).
+  ForwardDrizzleV2CachedLeaf *dleaves = nullptr;
+  // Tranche-8 ragged affine sample list (reserved to source_w*source_h).
+  ForwardDrizzleV2SourceSample *dsamples = nullptr;
   double *fa = nullptr;
   double *fbs = nullptr;
   double *fbg = nullptr;
@@ -2074,6 +2437,13 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
   ForwardDrizzleV2PixelResult *out = nullptr;
   ForwardDrizzleV2ProfileResult *pout = nullptr;
   std::vector<cudaEvent_t> ev_up0, ev_up1, ev_k0, ev_k1;
+  // Host flag per frame order: the four events were recorded for a real
+  // accumulate in the CURRENT band (skip frames leave it false so stale
+  // prior-band timings never leak into finalize).
+  std::vector<char> event_recorded;
+  // max_nrows is the reserved capacity; nrows/irows/nplane/iplane are the
+  // ACTIVE band dimensions (<= reserved).
+  int max_nrows = 0;
   int ncols = 0, nrows = 0, icols = 0, irows = 0;
   int source_w = 0, source_h = 0, channels = 0, res_slots = 0;
   std::size_t nplane = 0, iplane = 0;
@@ -2088,6 +2458,16 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
     cudaFree(q0);
     cudaFree(q1);
     cudaFree(qa);
+    cudaFree(pqc);
+    cudaFree(pq0);
+    cudaFree(pq1);
+    cudaFree(pqa);
+    cudaFree(pvc);
+    cudaFree(pv0);
+    cudaFree(pv1);
+    cudaFree(pva);
+    cudaFree(dleaves);
+    cudaFree(dsamples);
     cudaFree(fa);
     cudaFree(fbs);
     cudaFree(fbg);
@@ -2127,6 +2507,31 @@ bool proto_checked_mul(std::size_t a, std::size_t b, std::size_t &out) {
   if (a != 0 && b > std::numeric_limits<std::size_t>::max() / a) return false;
   out = a * b;
   return true;
+}
+
+// Fields begin_band may change: native_rows and band_origin_y_native.
+// Every other config field is part of the reserved workspace's fixed
+// contract (same rule as the CPU port).
+bool v2_fixed_cfg_equal(const ForwardDrizzleV2KernelConfig &a,
+                        const ForwardDrizzleV2KernelConfig &b) {
+  return a.internal_scale == b.internal_scale &&
+         a.reservoir_size == b.reservoir_size &&
+         a.reservoir_seed == b.reservoir_seed &&
+         a.stream_length == b.stream_length &&
+         a.min_clip_contributors == b.min_clip_contributors &&
+         a.min_candidates == b.min_candidates &&
+         a.robust_passes == b.robust_passes && a.sigma_low == b.sigma_low &&
+         a.sigma_high == b.sigma_high && a.half == b.half &&
+         a.bayer_pattern == b.bayer_pattern &&
+         a.cfa_origin_x == b.cfa_origin_x && a.cfa_origin_y == b.cfa_origin_y &&
+         a.mono == b.mono && a.sigma2_plane == b.sigma2_plane &&
+         a.emit_profiles == b.emit_profiles &&
+         a.fine_quality_exponent == b.fine_quality_exponent &&
+         a.medium_quality_exponent == b.medium_quality_exponent &&
+         a.canvas_width_native == b.canvas_width_native &&
+         a.canvas_height_native == b.canvas_height_native &&
+         a.band_origin_x_native == b.band_origin_x_native &&
+         a.cached_leaf_capacity == b.cached_leaf_capacity;
 }
 
 }  // namespace
@@ -2182,7 +2587,16 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
   const long long irows = static_cast<long long>(native_rows) * scale;
   if (icols > 0x7fffffffLL || irows > 0x7fffffffLL) return false;
   const int channels = cfg.mono ? 1 : 3;
-  const int res_slots = 2 * cfg.reservoir_size;
+  // Exact global keep set bounds the retained candidates per pixel; the
+  // historical 2*R cap is preserved so rare keep sets larger than 2R still
+  // drive the kept > res_slots overflow fallback at finalize (2R <= 128 =
+  // kV2MaxResSlots always holds since reservoir_size <= 64).
+  const auto selected = forward_drizzle_v2_selected_frame_orders(
+      cfg.stream_length, cfg.reservoir_size, cfg.reservoir_seed);
+  const std::size_t historical_cap =
+      2 * static_cast<std::size_t>(cfg.reservoir_size);
+  const int res_slots = static_cast<int>(
+      std::max<std::size_t>(1, std::min(selected.size(), historical_cap)));
   std::size_t nplane = 0, iplane = 0, source_elems = 0, pc_elems = 0,
               frame_plane_elems = 0, total_bytes = 0, tmp = 0;
   if (!proto_checked_mul(static_cast<std::size_t>(native_cols),
@@ -2208,11 +2622,20 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
   };
   const std::size_t frame_plane_count =
       (cfg.sigma2_plane ? 4 : 3) + (cfg.emit_profiles ? 5 : 0);
+  std::size_t leaf_bytes = 0;
+  if (!mul(static_cast<std::size_t>(cfg.cached_leaf_capacity),
+           sizeof(ForwardDrizzleV2CachedLeaf), leaf_bytes))
+    return false;
   if (!mul(source_elems, sizeof(float), tmp) || !add_bytes(tmp) ||
+      // Tranche-8 canonical ragged affine sample list (full-source cap).
+      !mul(source_elems, sizeof(ForwardDrizzleV2SourceSample), tmp) ||
+      !add_bytes(tmp) ||
       (cfg.sigma2_plane &&
        (!mul(source_elems, sizeof(float), tmp) || !add_bytes(tmp))) ||
       (cfg.emit_profiles &&
-       (!mul(source_elems, sizeof(float) * 4, tmp) || !add_bytes(tmp))) ||
+       (!mul(source_elems, sizeof(float) * 4, tmp) || !add_bytes(tmp) ||
+        // Compact Q windows: uint16 cells + veto bytes per stream.
+        !mul(source_elems, 12u, tmp) || !add_bytes(tmp))) ||
       !mul(frame_plane_elems, sizeof(double) * frame_plane_count, tmp) ||
       !add_bytes(tmp) ||
       (cfg.emit_profiles &&
@@ -2238,12 +2661,14 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
       (cfg.emit_profiles &&
        (!mul(pc_elems, sizeof(ForwardDrizzleV2ProfileResult), tmp) ||
         !add_bytes(tmp))) ||
+      !add_bytes(leaf_bytes) ||
       !add_bytes(3 * sizeof(unsigned long long)))
     return false;
 
   Impl *im = new (std::nothrow) Impl();
   if (im == nullptr) return false;
   im->cfg = cfg;
+  im->max_nrows = native_rows;
   im->ncols = native_cols;
   im->nrows = native_rows;
   im->icols = static_cast<int>(icols);
@@ -2264,6 +2689,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
   im->ev_up1.resize(cfg.stream_length);
   im->ev_k0.resize(cfg.stream_length);
   im->ev_k1.resize(cfg.stream_length);
+  im->event_recorded.assign(cfg.stream_length, 0);
   bool ok = true;
   for (auto *v : {&im->ev_up0, &im->ev_up1, &im->ev_k0, &im->ev_k1})
     for (cudaEvent_t &e : *v)
@@ -2276,7 +2702,24 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
         (cudaMalloc(&im->qc, source_elems * sizeof(float)) == cudaSuccess &&
          cudaMalloc(&im->q0, source_elems * sizeof(float)) == cudaSuccess &&
          cudaMalloc(&im->q1, source_elems * sizeof(float)) == cudaSuccess &&
-         cudaMalloc(&im->qa, source_elems * sizeof(float)) == cudaSuccess)) &&
+         cudaMalloc(&im->qa, source_elems * sizeof(float)) == cudaSuccess &&
+         cudaMalloc(&im->pqc, source_elems * sizeof(unsigned short)) ==
+             cudaSuccess &&
+         cudaMalloc(&im->pq0, source_elems * sizeof(unsigned short)) ==
+             cudaSuccess &&
+         cudaMalloc(&im->pq1, source_elems * sizeof(unsigned short)) ==
+             cudaSuccess &&
+         cudaMalloc(&im->pqa, source_elems * sizeof(unsigned short)) ==
+             cudaSuccess &&
+         cudaMalloc(&im->pvc, source_elems) == cudaSuccess &&
+         cudaMalloc(&im->pv0, source_elems) == cudaSuccess &&
+         cudaMalloc(&im->pv1, source_elems) == cudaSuccess &&
+         cudaMalloc(&im->pva, source_elems) == cudaSuccess)) &&
+       (cfg.cached_leaf_capacity == 0 ||
+        cudaMalloc(&im->dleaves, leaf_bytes) == cudaSuccess) &&
+       cudaMalloc(&im->dsamples,
+                  source_elems * sizeof(ForwardDrizzleV2SourceSample)) ==
+           cudaSuccess &&
        cudaMalloc(&im->fa, frame_plane_elems * sizeof(double)) ==
            cudaSuccess &&
        cudaMalloc(&im->fbs, frame_plane_elems * sizeof(double)) ==
@@ -2367,7 +2810,10 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
   }
   impl_ = im;
   stats_.allocations = 1;
+  stats_.workspace_reservations = 1;
   stats_.reserved_device_bytes = total_bytes;
+  capacity_bytes_ = total_bytes;
+  pending_reservation_ = true;
   // Per-native-pixel footprint for the gate-5-plan comparison: everything
   // except the fixed pipeline slots (source + sigma2 + gate-9 quality
   // planes), the frame-meta table and scalars, divided by native pixels.
@@ -2375,6 +2821,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
       source_elems * sizeof(float) * (cfg.sigma2_plane ? 2 : 1);
   if (cfg.emit_profiles) {
     fixed_slot_bytes += source_elems * sizeof(float) * 4 +
+                        source_elems * 12u +
                         static_cast<std::size_t>(cfg.stream_length) *
                             sizeof(V2FrameMetaDev);
   }
@@ -2384,19 +2831,158 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
   return true;
 }
 
+// Rebind the workspace to the next band: recompute the ACTIVE dimensions
+// from native_rows, rezero every per-band role on the workspace stream over
+// the active byte ranges only, and clear the host event flags. No cudaMalloc
+// / cudaFree / event creation; all buffers and the stream persist.
+bool ForwardDrizzleV2CudaPrototypeKernel::begin_band(
+    int native_rows, const ForwardDrizzleV2KernelConfig &cfg) {
+  if (impl_ == nullptr) return false;
+  Impl &im = *impl_;
+  // Legal only right after reserve() (frames==0, not yet finalized) or
+  // after a successful finalize(); a partial/failed stream cannot rebound.
+  if (frame_open_ || (!im.finalized && im.frames != 0)) return false;
+  if (native_rows < 1 || native_rows > im.max_nrows ||
+      !v2_fixed_cfg_equal(im.cfg, cfg) || cfg.band_origin_y_native < 0 ||
+      (cfg.canvas_height_native > 0 &&
+       cfg.band_origin_y_native + native_rows > cfg.canvas_height_native) ||
+      (cfg.canvas_height_native == 0 && cfg.band_origin_y_native != 0))
+    return false;
+  CudaScopedError clear_on_exit;
+  im.cfg = cfg;
+  im.nrows = native_rows;
+  im.irows = native_rows * cfg.internal_scale;
+  im.nplane = static_cast<std::size_t>(im.ncols) * im.nrows;
+  im.iplane = static_cast<std::size_t>(im.icols) * im.irows;
+  const std::size_t pc_elems =
+      im.nplane * static_cast<std::size_t>(im.channels);
+  const bool ok =
+      cudaMemsetAsync(im.accA, 0, pc_elems * sizeof(double), im.stream) ==
+          cudaSuccess &&
+      cudaMemsetAsync(im.accB, 0, pc_elems * sizeof(double), im.stream) ==
+          cudaSuccess &&
+      cudaMemsetAsync(im.accB2, 0, pc_elems * sizeof(double), im.stream) ==
+          cudaSuccess &&
+      cudaMemsetAsync(im.covB, 0, pc_elems * sizeof(double), im.stream) ==
+          cudaSuccess &&
+      cudaMemsetAsync(im.covB2, 0, pc_elems * sizeof(double), im.stream) ==
+          cudaSuccess &&
+      cudaMemsetAsync(im.confS, 0, pc_elems * sizeof(double), im.stream) ==
+          cudaSuccess &&
+      cudaMemsetAsync(im.confC, 0, pc_elems * sizeof(double), im.stream) ==
+          cudaSuccess &&
+      cudaMemsetAsync(im.contrib, 0, pc_elems * sizeof(unsigned int),
+                      im.stream) == cudaSuccess &&
+      cudaMemsetAsync(im.kept, 0, pc_elems * sizeof(unsigned int),
+                      im.stream) == cudaSuccess &&
+      cudaMemsetAsync(im.footprint, 0, im.nplane * sizeof(unsigned int),
+                      im.stream) == cudaSuccess &&
+      cudaMemsetAsync(im.supp, 0, pc_elems * sizeof(unsigned short),
+                      im.stream) == cudaSuccess &&
+      cudaMemsetAsync(im.degraded, 0, pc_elems * sizeof(unsigned long long),
+                      im.stream) == cudaSuccess &&
+      cudaMemsetAsync(im.scalars, 0, 3 * sizeof(unsigned long long),
+                      im.stream) == cudaSuccess;
+  if (!ok) {
+    cudaGetLastError();
+    return false;
+  }
+  std::fill(im.event_recorded.begin(), im.event_recorded.end(), char{0});
+  im.frames = 0;
+  im.finalized = false;
+  // stats() is a current-band delta: the single workspace reservation is
+  // reported exactly once, by the first begin_band.
+  stats_ = ForwardDrizzleV2PrototypeStats{};
+  stats_.band_resets = 1;
+  if (pending_reservation_) {
+    stats_.workspace_reservations = 1;
+    stats_.allocations = 1;
+    pending_reservation_ = false;
+  }
+  stats_.reserved_device_bytes = capacity_bytes_;
+  return true;
+}
+
 // Shared frame pipeline for the affine and the gate-8 local-warp scatter:
 // upload, plane clear, geometry scatter, fold+accumulate. `warp == nullptr`
 // selects the affine kernel. All work is queued on the workspace stream.
 bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
     const double affine6[6], const ForwardDrizzleV2LocalWarp *warp,
+    const ForwardDrizzleV2SourceWindow &window,
     const float *source, const float *sigma2_or_null,
-    std::uint64_t frame_order,
+    const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+    const ForwardDrizzleV2CachedLeaf *leaves, std::size_t leaf_count,
+    std::uint64_t unique_source_samples, std::uint64_t frame_order,
     const ForwardDrizzleV2FrameQuality *quality_or_null,
     const ForwardDrizzleV2FrameMeta *meta_or_null) {
   Impl &im = *impl_;
   cudaStream_t st = im.stream;
+  // The one-shot paths must not interleave with an open affine piece frame.
+  if (frame_open_) return false;
+  // Packed buffer (optional halo) must lie inside the reserved full source
+  // extent; only the ACTIVE rect is launched.
+  if (window.x_begin < 0 || window.y_begin < 0 || window.width <= 0 ||
+      window.height <= 0 ||
+      window.x_begin + window.width > im.source_w ||
+      window.y_begin + window.height > im.source_h)
+    return false;
+  V2Window w;
+  w.buf_x = window.x_begin;
+  w.buf_y = window.y_begin;
+  w.buf_w = window.width;
+  w.buf_h = window.height;
+  w.act_x = window.active_x;
+  w.act_y = window.active_y;
+  w.act_w = window.active_width;
+  w.act_h = window.active_height;
+  if (w.act_w == 0 && w.act_h == 0 && w.act_x == 0 && w.act_y == 0) {
+    w.act_w = w.buf_w;
+    w.act_h = w.buf_h;
+  }
+  if (w.act_x < 0 || w.act_y < 0 || w.act_w <= 0 || w.act_h <= 0 ||
+      w.act_x + w.act_w > w.buf_w || w.act_y + w.act_h > w.buf_h)
+    return false;
+  const int abs_x0 = w.buf_x + w.act_x;
+  const int abs_y0 = w.buf_y + w.act_y;
+  w.src_w = im.source_w;
+  w.src_h = im.source_h;
+  // Cached-geometry path: leaves carry the committed geometry; a local warp
+  // must not be combined with it, the count is bound by the reserved
+  // capacity, and every leaf's source sample must lie inside the ACTIVE
+  // rect (float sigma/Q planes index by active-local position).
+  if (leaves != nullptr) {
+    if (warp != nullptr || leaf_count == 0 ||
+        leaf_count > im.cfg.cached_leaf_capacity)
+      return false;
+    for (std::size_t li = 0; li < leaf_count; ++li) {
+      const ForwardDrizzleV2CachedLeaf &L = leaves[li];
+      if (L.source_x >= static_cast<std::uint32_t>(im.source_w) ||
+          L.source_y >= static_cast<std::uint32_t>(im.source_h) ||
+          L.channel >= static_cast<std::uint16_t>(im.channels))
+        return false;
+      const int sx = static_cast<int>(L.source_x);
+      const int sy = static_cast<int>(L.source_y);
+      if (sx < abs_x0 || sx >= abs_x0 + w.act_w || sy < abs_y0 ||
+          sy >= abs_y0 + w.act_h)
+        return false;
+      for (int k = 0; k < 4; ++k)
+        if (!std::isfinite(L.x[k]) || !std::isfinite(L.y[k])) return false;
+    }
+  }
+  // An explicit sigma2 plane and an enabled inline model are mutually
+  // exclusive (the model reads the halo buffer on device).
+  V2Sigma2Model s2m{};
+  if (sigma2_model_or_null != nullptr && sigma2_model_or_null->enabled) {
+    s2m.enabled = 1;
+    s2m.noise = sigma2_model_or_null->sigma_noise;
+    s2m.reg_px = sigma2_model_or_null->sigma_reg_px;
+    s2m.half = sigma2_model_or_null->droplet_half;
+  }
+  if (sigma2_or_null != nullptr && s2m.enabled) return false;
   const std::size_t src_bytes =
-      static_cast<std::size_t>(im.source_w) * im.source_h * sizeof(float);
+      static_cast<std::size_t>(w.buf_w) * w.buf_h * sizeof(float);
+  const std::size_t act_bytes =
+      static_cast<std::size_t>(w.act_w) * w.act_h * sizeof(float);
   const std::size_t plane_bytes = im.iplane * sizeof(double) *
                                   static_cast<std::size_t>(im.channels);
   const std::uint64_t f = impl_->frames;
@@ -2420,14 +3006,45 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
                       << 64) /
                      n);
   const bool qp = im.cfg.emit_profiles;
-  const float *h_qc = qp && quality_or_null ? quality_or_null->q_composite : nullptr;
-  const float *h_q0 = qp && quality_or_null ? quality_or_null->q_scale0 : nullptr;
-  const float *h_q1 = qp && quality_or_null ? quality_or_null->q_scale1 : nullptr;
-  const float *h_qa = qp && quality_or_null ? quality_or_null->q_artifact : nullptr;
-  unsigned int qmask = (h_qc != nullptr ? 1u : 0u) |
-                       (h_q0 != nullptr ? 2u : 0u) |
-                       (h_q1 != nullptr ? 4u : 0u) |
-                       (h_qa != nullptr ? 8u : 0u);
+  // Quality work is relevant only for frames the reservoir keep set can
+  // retain; non-selected orders carry qmask = 0 and skip all Q uploads,
+  // clears and scatter work.
+  const bool keep_frame =
+      keep_all ||
+      d_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold;
+  const bool q_frame = qp && keep_frame;
+  // Each stream supplies a float plane XOR a packed storage-grid window;
+  // both set or a malformed descriptor fails the call. Packed descriptors
+  // must cover every storage cell the active rect maps to.
+  ForwardDrizzleV2FrameQuality h_q{};
+  if (q_frame && quality_or_null != nullptr) h_q = *quality_or_null;
+  auto pq_ok = [&](const ForwardDrizzleV2PackedQualityPlane &p,
+                   const float *f) {
+    if (p.cells == nullptr) return true;  // absent or float stream
+    if (f != nullptr) return false;  // never both
+    if (p.storage_width <= 0 || p.storage_height <= 0 ||
+        p.storage_divisor <= 0)
+      return false;
+    const int d = p.storage_divisor;
+    return p.storage_x_begin <= abs_x0 / d &&
+           p.storage_x_begin + p.storage_width > (abs_x0 + w.act_w - 1) / d &&
+           p.storage_y_begin <= abs_y0 / d &&
+           p.storage_y_begin + p.storage_height > (abs_y0 + w.act_h - 1) / d;
+  };
+  if (!pq_ok(h_q.qc_packed, h_q.q_composite) ||
+      !pq_ok(h_q.q0_packed, h_q.q_scale0) ||
+      !pq_ok(h_q.q1_packed, h_q.q_scale1) ||
+      !pq_ok(h_q.qa_packed, h_q.q_artifact))
+    return false;
+  const float *h_qc = h_q.q_composite;
+  const float *h_q0 = h_q.q_scale0;
+  const float *h_q1 = h_q.q_scale1;
+  const float *h_qa = h_q.q_artifact;
+  unsigned int qmask =
+      ((h_qc != nullptr || h_q.qc_packed.cells != nullptr) ? 1u : 0u) |
+      ((h_q0 != nullptr || h_q.q0_packed.cells != nullptr) ? 2u : 0u) |
+      ((h_q1 != nullptr || h_q.q1_packed.cells != nullptr) ? 4u : 0u) |
+      ((h_qa != nullptr || h_q.qa_packed.cells != nullptr) ? 8u : 0u);
   V2FrameMetaDev h_meta{};
   if (meta_or_null != nullptr) {
     h_meta.g_eff = meta_or_null->g_eff;
@@ -2436,19 +3053,40 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
   }
   auto upload = [&](float *dst, const float *src) {
     return src == nullptr ||
-           cudaMemcpyAsync(dst, src, src_bytes, cudaMemcpyHostToDevice, st) ==
+           cudaMemcpyAsync(dst, src, act_bytes, cudaMemcpyHostToDevice, st) ==
                cudaSuccess;
+  };
+  // Compact stream upload: only the covering storage cells + veto bytes.
+  auto upload_packed = [&](unsigned short *d_cells, unsigned char *d_veto,
+                           const ForwardDrizzleV2PackedQualityPlane &p) {
+    if (p.cells == nullptr) return true;
+    const std::size_t cn = static_cast<std::size_t>(p.storage_width) *
+                           p.storage_height;
+    return cudaMemcpyAsync(d_cells, p.cells, cn * sizeof(unsigned short),
+                           cudaMemcpyHostToDevice, st) == cudaSuccess &&
+           (p.veto == nullptr ||
+            cudaMemcpyAsync(d_veto, p.veto, cn, cudaMemcpyHostToDevice, st) ==
+                cudaSuccess);
   };
   bool ok = cudaEventRecord(im.ev_up0[f], st) == cudaSuccess &&
             cudaMemcpyAsync(im.src, source, src_bytes, cudaMemcpyHostToDevice,
                             st) == cudaSuccess &&
             (!im.s2 || !sigma2_or_null ||
-             cudaMemcpyAsync(im.s2, sigma2_or_null, src_bytes,
+             cudaMemcpyAsync(im.s2, sigma2_or_null, act_bytes,
                              cudaMemcpyHostToDevice, st) == cudaSuccess) &&
-            (!im.s2 || sigma2_or_null ||
-             cudaMemsetAsync(im.s2, 0, src_bytes, st) == cudaSuccess) &&
+            (!im.s2 || sigma2_or_null || s2m.enabled ||
+             cudaMemsetAsync(im.s2, 0, act_bytes, st) == cudaSuccess) &&
             upload(im.qc, h_qc) && upload(im.q0, h_q0) &&
             upload(im.q1, h_q1) && upload(im.qa, h_qa) &&
+            upload_packed(im.pqc, im.pvc, h_q.qc_packed) &&
+            upload_packed(im.pq0, im.pv0, h_q.q0_packed) &&
+            upload_packed(im.pq1, im.pv1, h_q.q1_packed) &&
+            upload_packed(im.pqa, im.pva, h_q.qa_packed) &&
+            (leaves == nullptr ||
+             cudaMemcpyAsync(im.dleaves, leaves,
+                             leaf_count *
+                                 sizeof(ForwardDrizzleV2CachedLeaf),
+                             cudaMemcpyHostToDevice, st) == cudaSuccess) &&
             (!qp ||
              cudaMemcpyAsync(im.meta + frame_order, &h_meta,
                              sizeof(V2FrameMetaDev), cudaMemcpyHostToDevice,
@@ -2459,7 +3097,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
             cudaMemsetAsync(im.fbg, 0, plane_bytes, st) == cudaSuccess &&
             (!im.fs2 ||
              cudaMemsetAsync(im.fs2, 0, plane_bytes, st) == cudaSuccess) &&
-            (!qp ||
+            (!q_frame ||
              (cudaMemsetAsync(im.fqc, 0, plane_bytes, st) == cudaSuccess &&
               cudaMemsetAsync(im.fq0, 0, plane_bytes, st) == cudaSuccess &&
               cudaMemsetAsync(im.fq1, 0, plane_bytes, st) == cudaSuccess &&
@@ -2471,11 +3109,28 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
     return false;
   }
   V2QualityIO qio;
-  if (qp) {
+  if (q_frame) {
     qio.qc = h_qc != nullptr ? im.qc : nullptr;
     qio.q0 = h_q0 != nullptr ? im.q0 : nullptr;
     qio.q1 = h_q1 != nullptr ? im.q1 : nullptr;
     qio.qa = h_qa != nullptr ? im.qa : nullptr;
+    auto set_packed = [](V2PackedQuality &d, unsigned short *cells,
+                         unsigned char *veto,
+                         const ForwardDrizzleV2PackedQualityPlane &p) {
+      if (p.cells == nullptr) return;
+      d.cells = cells;
+      d.veto = p.veto != nullptr ? veto : nullptr;
+      d.x_begin = p.storage_x_begin;
+      d.y_begin = p.storage_y_begin;
+      d.width = p.storage_width;
+      d.height = p.storage_height;
+      d.divisor = p.storage_divisor;
+    };
+    set_packed(qio.qc_p, im.pqc, im.pvc, h_q.qc_packed);
+    set_packed(qio.q0_p, im.pq0, im.pv0, h_q.q0_packed);
+    set_packed(qio.q1_p, im.pq1, im.pv1, h_q.q1_packed);
+    set_packed(qio.qa_p, im.pqa, im.pva, h_q.qa_packed);
+    qio.qmask = qmask;
     qio.fqc = im.fqc;
     qio.fq0 = im.fq0;
     qio.fq1 = im.fq1;
@@ -2485,10 +3140,22 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
   {
     const int block = 128;
     const long long source_n =
-        static_cast<long long>(im.source_w) * im.source_h;
+        static_cast<long long>(w.act_w) * w.act_h;
     const unsigned int grid =
         static_cast<unsigned int>((source_n + block - 1) / block);
-    if (warp != nullptr) {
+    const float *d_s2 =
+        (im.fs2 && !s2m.enabled) ? im.s2 : nullptr;
+    if (leaves != nullptr) {
+      const unsigned int lgrid = static_cast<unsigned int>(
+          (static_cast<long long>(leaf_count) + block - 1) / block);
+      k_scatter_v2_cached<<<lgrid, block, 0, st>>>(
+          im.dleaves, static_cast<long long>(leaf_count),
+          static_cast<double>(im.cfg.internal_scale), im.icols, im.irows, w,
+          im.src, d_s2, s2m,
+          static_cast<double>(im.cfg.band_origin_x_native),
+          static_cast<double>(im.cfg.band_origin_y_native),
+          im.fa, im.fbs, im.fbg, im.fs2, qio, im.scalars);
+    } else if (warp != nullptr) {
       // The inversion bounds check uses the FULL native canvas, not the
       // band height the workspace planes were reserved for.
       const int canvas_w = im.cfg.canvas_width_native > 0
@@ -2501,8 +3168,8 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
           affine6[0], affine6[1], affine6[2], affine6[3], affine6[4],
           affine6[5], *warp,
           static_cast<double>(im.cfg.internal_scale), im.cfg.half, im.icols,
-          im.irows, im.source_w, im.source_h, im.src,
-          im.fs2 ? im.s2 : nullptr, im.cfg.bayer_pattern, im.cfg.cfa_origin_x,
+          im.irows, w, im.src,
+          d_s2, s2m, im.cfg.bayer_pattern, im.cfg.cfa_origin_x,
           im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0, canvas_w, canvas_h,
           static_cast<double>(im.cfg.band_origin_x_native),
           static_cast<double>(im.cfg.band_origin_y_native),
@@ -2511,11 +3178,11 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
       k_scatter_v2<<<grid, block, 0, st>>>(
           affine6[0], affine6[1], affine6[2], affine6[3], affine6[4],
           affine6[5], static_cast<double>(im.cfg.internal_scale), im.cfg.half,
-          im.icols, im.irows, im.source_w, im.source_h, im.src,
-          im.fs2 ? im.s2 : nullptr, im.cfg.bayer_pattern, im.cfg.cfa_origin_x,
+          im.icols, im.irows, w, im.src,
+          d_s2, s2m, im.cfg.bayer_pattern, im.cfg.cfa_origin_x,
           im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0,
           static_cast<double>(im.cfg.band_origin_x_native),
-          static_cast<double>(im.cfg.band_origin_y_native),
+          static_cast<double>(im.cfg.band_origin_y_native), 0, im.icols,
           im.fa, im.fbs, im.fbg, im.fs2, qio, im.scalars);
     }
   }
@@ -2525,9 +3192,12 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
     const unsigned int grid =
         static_cast<unsigned int>((nplane + block - 1) / block);
     k_fold_accumulate_v2<<<grid, block, 0, st>>>(
-        im.fa, im.fbs, im.fbg, im.fs2, im.fqc, im.fq0, im.fq1, im.fqa,
-        im.fqaf, qmask, im.icols, im.irows,
-        im.cfg.internal_scale, im.ncols, im.nrows, im.channels, frame_order,
+        im.fa, im.fbs, im.fbg, im.fs2,
+        q_frame ? im.fqc : nullptr, q_frame ? im.fq0 : nullptr,
+        q_frame ? im.fq1 : nullptr, q_frame ? im.fqa : nullptr,
+        q_frame ? im.fqaf : nullptr, qmask, im.icols, im.irows,
+        im.cfg.internal_scale, im.ncols, im.nrows, im.channels, 0, im.ncols,
+        frame_order,
         keep_all ? 1 : 0, threshold, im.res_slots, im.cfg.reservoir_seed,
         im.accA, im.accB, im.accB2, im.covB, im.covB2, im.confS, im.confC,
         im.contrib, im.kept, im.footprint, im.supp, im.degraded, im.res,
@@ -2539,10 +3209,40 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
     cudaGetLastError();
     return false;
   }
+  // All four events of this frame were recorded in the current band;
+  // finalize only reads timings for flagged frames.
+  im.event_recorded[f] = 1;
   ++impl_->frames;
   ++stats_.frames_processed;
   ++stats_.slot_transitions;
-  stats_.source_bytes_uploaded += src_bytes * (sigma2_or_null ? 2 : 1);
+  stats_.source_bytes_uploaded +=
+      src_bytes + (sigma2_or_null != nullptr ? act_bytes : 0);
+  // Cached-geometry frames launch the cache-counted covered samples, not
+  // the dense active rect (the build-side discards are already final).
+  stats_.source_samples_launched +=
+      leaves != nullptr
+          ? unique_source_samples
+          : static_cast<std::uint64_t>(w.act_w) * w.act_h;
+  if (leaves != nullptr) {
+    stats_.cached_leaf_records_launched += leaf_count;
+    stats_.cached_leaf_bytes_uploaded +=
+        static_cast<std::uint64_t>(leaf_count) *
+        sizeof(ForwardDrizzleV2CachedLeaf);
+  }
+  if (q_frame) {
+    ++stats_.quality_frames_processed;
+    auto q_bytes = [&](const float *f,
+                       const ForwardDrizzleV2PackedQualityPlane &p)
+        -> std::uint64_t {
+      if (p.cells != nullptr)
+        return static_cast<std::uint64_t>(p.storage_width) *
+               p.storage_height * 3u;
+      return f != nullptr ? act_bytes : 0u;
+    };
+    stats_.quality_bytes_uploaded +=
+        q_bytes(h_qc, h_q.qc_packed) + q_bytes(h_q0, h_q.q0_packed) +
+        q_bytes(h_q1, h_q.q1_packed) + q_bytes(h_qa, h_q.qa_packed);
+  }
   return true;
 }
 
@@ -2551,18 +3251,50 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame(
     std::uint64_t frame_order,
     const ForwardDrizzleV2FrameQuality *quality_or_null,
     const ForwardDrizzleV2FrameMeta *meta_or_null) {
-  if (impl_ == nullptr || affine6 == nullptr || source == nullptr ||
-      impl_->finalized || impl_->frames >= impl_->cfg.stream_length)
+  if (impl_ == nullptr) return false;
+  const ForwardDrizzleV2SourceWindow full{0, 0, impl_->source_w,
+                                        impl_->source_h};
+  return accumulate_frame_window(affine6, full, source, sigma2_or_null,
+                                 nullptr, frame_order, quality_or_null,
+                                 meta_or_null);
+}
+
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_window(
+    const double affine6[6], const ForwardDrizzleV2SourceWindow &window,
+    const float *source, const float *sigma2_or_null,
+    const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+    std::uint64_t frame_order,
+    const ForwardDrizzleV2FrameQuality *quality_or_null,
+    const ForwardDrizzleV2FrameMeta *meta_or_null) {
+  // Affine one-shot: begin + one full-width piece + finish.
+  if (impl_ == nullptr) return false;
+  if (!begin_affine_frame(frame_order, meta_or_null)) return false;
+  if (!accumulate_affine_piece(affine6, 0, impl_->ncols, window, source,
+                               sigma2_or_null, sigma2_model_or_null,
+                               quality_or_null))
     return false;
-  for (int i = 0; i < 6; ++i)
-    if (!std::isfinite(affine6[i])) return false;
-  return accumulate_frame_impl(affine6, nullptr, source, sigma2_or_null,
-                               frame_order, quality_or_null, meta_or_null);
+  return finish_affine_frame(frame_order);
 }
 
 bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_local(
     const double affine6[6], const ForwardDrizzleV2LocalWarp &warp,
     const float *source, const float *sigma2_or_null,
+    std::uint64_t frame_order,
+    const ForwardDrizzleV2FrameQuality *quality_or_null,
+    const ForwardDrizzleV2FrameMeta *meta_or_null) {
+  if (impl_ == nullptr) return false;
+  const ForwardDrizzleV2SourceWindow full{0, 0, impl_->source_w,
+                                        impl_->source_h};
+  return accumulate_frame_local_window(affine6, warp, full, source,
+                                       sigma2_or_null, nullptr, frame_order,
+                                       quality_or_null, meta_or_null);
+}
+
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_local_window(
+    const double affine6[6], const ForwardDrizzleV2LocalWarp &warp,
+    const ForwardDrizzleV2SourceWindow &window, const float *source,
+    const float *sigma2_or_null,
+    const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
     std::uint64_t frame_order,
     const ForwardDrizzleV2FrameQuality *quality_or_null,
     const ForwardDrizzleV2FrameMeta *meta_or_null) {
@@ -2572,15 +3304,569 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_local(
   for (int i = 0; i < 6; ++i)
     if (!std::isfinite(affine6[i])) return false;
   if (!local_warp_valid(warp)) return false;
-  return accumulate_frame_impl(affine6, &warp, source, sigma2_or_null,
+  return accumulate_frame_impl(affine6, &warp, window, source, sigma2_or_null,
+                               sigma2_model_or_null, nullptr, 0, 0,
                                frame_order, quality_or_null, meta_or_null);
+}
+
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_cached_leaves(
+    const double affine6[6], const ForwardDrizzleV2SourceWindow &window,
+    const float *source, const float *sigma2_or_null,
+    const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+    const ForwardDrizzleV2CachedLeaf *leaves, std::size_t leaf_count,
+    std::uint64_t unique_source_samples, std::uint64_t frame_order,
+    const ForwardDrizzleV2FrameQuality *quality_or_null,
+    const ForwardDrizzleV2FrameMeta *meta_or_null) {
+  if (impl_ == nullptr || affine6 == nullptr || source == nullptr ||
+      leaves == nullptr || impl_->finalized ||
+      impl_->frames >= impl_->cfg.stream_length)
+    return false;
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  return accumulate_frame_impl(affine6, nullptr, window, source,
+                               sigma2_or_null, sigma2_model_or_null, leaves,
+                               leaf_count, unique_source_samples, frame_order,
+                               quality_or_null, meta_or_null);
+}
+
+// Tranche 8 canonical ragged affine path: one-shot full-target frame fed by
+// the per-sample list. Uploads only the sample records and (on selected
+// frames) the aligned packed quality arrays; the scatter kernel runs one
+// thread per sample with the full-band x clamp.
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_affine_samples(
+    const double affine6[6], const ForwardDrizzleV2SourceSample *samples,
+    std::size_t sample_count, bool sigma2_present,
+    const ForwardDrizzleV2AlignedQuality *quality_or_null,
+    std::uint64_t frame_order,
+    const ForwardDrizzleV2FrameMeta *meta_or_null) {
+  if (impl_ == nullptr || frame_open_ || impl_->finalized ||
+      impl_->frames >= impl_->cfg.stream_length ||
+      frame_order >= impl_->cfg.stream_length || affine6 == nullptr ||
+      sample_count == 0 || samples == nullptr)
+    return false;
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  Impl &im = *impl_;
+  cudaStream_t st = im.stream;
+  const std::size_t src_cap =
+      static_cast<std::size_t>(im.source_w) * im.source_h;
+  if (sample_count > src_cap) return false;
+  // Host-side canonical-order validation + span-row count (samples must be
+  // strictly increasing in (y, x) and inside the reserved source extent).
+  std::uint64_t span_rows = 0;
+  std::uint32_t prev_y = 0, prev_x = 0;
+  for (std::size_t i = 0; i < sample_count; ++i) {
+    const auto &s = samples[i];
+    if (s.source_x >= static_cast<std::uint32_t>(im.source_w) ||
+        s.source_y >= static_cast<std::uint32_t>(im.source_h) ||
+        (i > 0 && (s.source_y < prev_y ||
+                   (s.source_y == prev_y && s.source_x <= prev_x))))
+      return false;
+    if (i == 0 || s.source_y != prev_y) ++span_rows;
+    prev_y = s.source_y;
+    prev_x = s.source_x;
+  }
+  const std::uint64_t f = impl_->frames;
+  const std::uint64_t n = im.cfg.stream_length;
+  if (im.cfg.emit_profiles) {
+    if (meta_or_null == nullptr ||
+        !std::isfinite(meta_or_null->g_eff) || meta_or_null->g_eff < 0.0f ||
+        !std::isfinite(meta_or_null->residual_factor))
+      return false;
+  }
+  const bool keep_all =
+      n <= static_cast<std::uint64_t>(im.cfg.reservoir_size);
+  const std::uint64_t threshold =
+      keep_all ? 0
+               : static_cast<std::uint64_t>(
+                     (static_cast<unsigned __int128>(im.cfg.reservoir_size)
+                      << 64) /
+                     n);
+  const bool qp = im.cfg.emit_profiles;
+  const bool q_frame =
+      qp && (keep_all ||
+             d_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold);
+  const ForwardDrizzleV2AlignedQuality h_q =
+      (q_frame && quality_or_null != nullptr) ? *quality_or_null
+                                            : ForwardDrizzleV2AlignedQuality{};
+  const unsigned int qmask = q_frame ? h_q.presence_mask : 0u;
+  const std::uint16_t *aqc[4] = {h_q.qc, h_q.q0, h_q.q1, h_q.qa};
+  const std::uint8_t *avc[4] = {h_q.vc, h_q.v0, h_q.v1, h_q.va};
+  unsigned short *dpq[4] = {im.pqc, im.pq0, im.pq1, im.pqa};
+  unsigned char *dpv[4] = {im.pvc, im.pv0, im.pv1, im.pva};
+  for (int k = 0; k < 4; ++k)
+    if ((qmask & (1u << k)) != 0 && (aqc[k] == nullptr || dpq[k] == nullptr))
+      return false;
+  V2FrameMetaDev h_meta{};
+  if (meta_or_null != nullptr) {
+    h_meta.g_eff = meta_or_null->g_eff;
+    h_meta.residual_factor = meta_or_null->residual_factor;
+    h_meta.is_direct = meta_or_null->is_direct;
+  }
+  const std::size_t plane_bytes = im.iplane * sizeof(double) *
+                                  static_cast<std::size_t>(im.channels);
+  const std::size_t rec_bytes =
+      sample_count * sizeof(ForwardDrizzleV2SourceSample);
+  bool ok = cudaEventRecord(im.ev_up0[f], st) == cudaSuccess &&
+            cudaMemcpyAsync(im.dsamples, samples, rec_bytes,
+                            cudaMemcpyHostToDevice, st) == cudaSuccess;
+  if (ok && q_frame) {
+    for (int k = 0; k < 4 && ok; ++k) {
+      if ((qmask & (1u << k)) == 0) continue;
+      ok = cudaMemcpyAsync(dpq[k], aqc[k],
+                           sample_count * sizeof(unsigned short),
+                           cudaMemcpyHostToDevice, st) == cudaSuccess &&
+           (avc[k] == nullptr ||
+            cudaMemcpyAsync(dpv[k], avc[k], sample_count,
+                            cudaMemcpyHostToDevice, st) == cudaSuccess);
+    }
+  }
+  ok = ok &&
+       (!qp || cudaMemcpyAsync(im.meta + frame_order, &h_meta,
+                               sizeof(V2FrameMetaDev), cudaMemcpyHostToDevice,
+                               st) == cudaSuccess) &&
+       cudaEventRecord(im.ev_up1[f], st) == cudaSuccess &&
+       cudaMemsetAsync(im.fa, 0, plane_bytes, st) == cudaSuccess &&
+       cudaMemsetAsync(im.fbs, 0, plane_bytes, st) == cudaSuccess &&
+       cudaMemsetAsync(im.fbg, 0, plane_bytes, st) == cudaSuccess &&
+       (!im.fs2 ||
+        cudaMemsetAsync(im.fs2, 0, plane_bytes, st) == cudaSuccess) &&
+       (!q_frame ||
+        (cudaMemsetAsync(im.fqc, 0, plane_bytes, st) == cudaSuccess &&
+         cudaMemsetAsync(im.fq0, 0, plane_bytes, st) == cudaSuccess &&
+         cudaMemsetAsync(im.fq1, 0, plane_bytes, st) == cudaSuccess &&
+         cudaMemsetAsync(im.fqa, 0, plane_bytes, st) == cudaSuccess &&
+         cudaMemsetAsync(im.fqaf, 0, plane_bytes, st) == cudaSuccess)) &&
+       cudaEventRecord(im.ev_k0[f], st) == cudaSuccess;
+  if (!ok) {
+    cudaGetLastError();
+    return false;
+  }
+  V2AlignedQualityDev aq{};
+  V2QualityIO qio;
+  if (q_frame && qmask != 0u) {
+    aq.qc = (qmask & 1u) ? im.pqc : nullptr;
+    aq.q0 = (qmask & 2u) ? im.pq0 : nullptr;
+    aq.q1 = (qmask & 4u) ? im.pq1 : nullptr;
+    aq.qa = (qmask & 8u) ? im.pqa : nullptr;
+    aq.vc = ((qmask & 1u) && avc[0] != nullptr) ? im.pvc : nullptr;
+    aq.v0 = ((qmask & 2u) && avc[1] != nullptr) ? im.pv0 : nullptr;
+    aq.v1 = ((qmask & 4u) && avc[2] != nullptr) ? im.pv1 : nullptr;
+    aq.va = ((qmask & 8u) && avc[3] != nullptr) ? im.pva : nullptr;
+    aq.qmask = qmask;
+    qio.qmask = qmask;
+    qio.fqc = im.fqc;
+    qio.fq0 = im.fq0;
+    qio.fq1 = im.fq1;
+    qio.fqa = im.fqa;
+    qio.fqaf = im.fqaf;
+  }
+  const int block = 128;
+  const unsigned int grid = static_cast<unsigned int>(
+      (static_cast<long long>(sample_count) + block - 1) / block);
+  k_scatter_v2_samples<<<grid, block, 0, st>>>(
+      im.dsamples, static_cast<long long>(sample_count),
+      sigma2_present ? 1 : 0, affine6[0], affine6[1], affine6[2], affine6[3],
+      affine6[4], affine6[5], static_cast<double>(im.cfg.internal_scale),
+      im.cfg.half, im.icols, im.irows, im.cfg.bayer_pattern,
+      im.cfg.cfa_origin_x, im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0,
+      static_cast<double>(im.cfg.band_origin_x_native),
+      static_cast<double>(im.cfg.band_origin_y_native), im.fa, im.fbs,
+      im.fbg, im.fs2, aq, qio, im.scalars);
+  {
+    const long long nplane = static_cast<long long>(im.nplane);
+    const unsigned int fgrid =
+        static_cast<unsigned int>((nplane + block - 1) / block);
+    k_fold_accumulate_v2<<<fgrid, block, 0, st>>>(
+        im.fa, im.fbs, im.fbg, im.fs2,
+        q_frame ? im.fqc : nullptr, q_frame ? im.fq0 : nullptr,
+        q_frame ? im.fq1 : nullptr, q_frame ? im.fqa : nullptr,
+        q_frame ? im.fqaf : nullptr, qmask, im.icols, im.irows,
+        im.cfg.internal_scale, im.ncols, im.nrows, im.channels, 0, im.ncols,
+        frame_order, keep_all ? 1 : 0, threshold, im.res_slots,
+        im.cfg.reservoir_seed, im.accA, im.accB, im.accB2, im.covB, im.covB2,
+        im.confS, im.confC, im.contrib, im.kept, im.footprint, im.supp,
+        im.degraded, im.res, im.resq);
+  }
+  ok = cudaGetLastError() == cudaSuccess &&
+       cudaEventRecord(im.ev_k1[f], st) == cudaSuccess;
+  if (!ok) {
+    cudaGetLastError();
+    return false;
+  }
+  im.event_recorded[f] = 1;
+  ++impl_->frames;
+  ++stats_.frames_processed;
+  ++stats_.slot_transitions;
+  stats_.source_samples_launched += sample_count;
+  stats_.affine_samples_processed += sample_count;
+  stats_.affine_span_rows += span_rows;
+  stats_.source_bytes_uploaded += static_cast<std::uint64_t>(rec_bytes);
+  if (q_frame) {
+    ++stats_.quality_frames_processed;
+    const std::uint64_t per_stream =
+        static_cast<std::uint64_t>(sample_count) * 3u;
+    for (int k = 0; k < 4; ++k)
+      if ((qmask & (1u << k)) != 0) stats_.quality_bytes_uploaded += per_stream;
+  }
+  return true;
+}
+
+bool ForwardDrizzleV2CudaPrototypeKernel::begin_affine_frame(
+    std::uint64_t frame_order, const ForwardDrizzleV2FrameMeta *meta_or_null) {
+  if (impl_ == nullptr || frame_open_ || impl_->finalized ||
+      impl_->frames >= impl_->cfg.stream_length ||
+      frame_order >= impl_->cfg.stream_length)
+    return false;
+  Impl &im = *impl_;
+  const std::uint64_t f = im.frames;
+  if (im.cfg.emit_profiles) {
+    // Same meta contract as the one-shot path; the row is uploaded once at
+    // frame begin and timed by ev_up0 -> ev_up1.
+    if (meta_or_null == nullptr ||
+        !std::isfinite(meta_or_null->g_eff) || meta_or_null->g_eff < 0.0f ||
+        !std::isfinite(meta_or_null->residual_factor))
+      return false;
+    V2FrameMetaDev h_meta{};
+    h_meta.g_eff = meta_or_null->g_eff;
+    h_meta.residual_factor = meta_or_null->residual_factor;
+    h_meta.is_direct = meta_or_null->is_direct;
+    if (cudaEventRecord(im.ev_up0[f], im.stream) != cudaSuccess ||
+        cudaMemcpyAsync(im.meta + frame_order, &h_meta,
+                        sizeof(V2FrameMetaDev), cudaMemcpyHostToDevice,
+                        im.stream) != cudaSuccess) {
+      cudaGetLastError();
+      return false;
+    }
+  } else if (cudaEventRecord(im.ev_up0[f], im.stream) != cudaSuccess) {
+    cudaGetLastError();
+    return false;
+  }
+  const std::uint64_t n = im.cfg.stream_length;
+  const bool keep_all =
+      n <= static_cast<std::uint64_t>(im.cfg.reservoir_size);
+  const std::uint64_t threshold =
+      keep_all ? 0
+               : static_cast<std::uint64_t>(
+                     (static_cast<unsigned __int128>(im.cfg.reservoir_size)
+                      << 64) /
+                     n);
+  frame_open_ = true;
+  open_order_ = frame_order;
+  open_pieces_ = 0;
+  open_tx_end_ = 0;
+  open_qmask_ = 0;
+  open_qframe_ =
+      im.cfg.emit_profiles &&
+      (keep_all ||
+       d_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold);
+  return true;
+}
+
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_affine_piece(
+    const double affine6[6], int target_x_begin_native,
+    int target_cols_native, const ForwardDrizzleV2SourceWindow &window,
+    const float *source, const float *sigma2_or_null,
+    const ForwardDrizzleV2Sigma2FrameModel *sigma2_model_or_null,
+    const ForwardDrizzleV2FrameQuality *quality_or_null) {
+  if (impl_ == nullptr || !frame_open_ || affine6 == nullptr ||
+      source == nullptr)
+    return false;
+  Impl &im = *impl_;
+  cudaStream_t st = im.stream;
+  // Ordered, non-overlapping, in-bounds native target range.
+  if (target_x_begin_native < 0 || target_cols_native <= 0 ||
+      target_x_begin_native < open_tx_end_ ||
+      target_x_begin_native + target_cols_native > im.ncols)
+    return false;
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  // Same window contract as accumulate_frame_impl.
+  if (window.x_begin < 0 || window.y_begin < 0 || window.width <= 0 ||
+      window.height <= 0 ||
+      window.x_begin + window.width > im.source_w ||
+      window.y_begin + window.height > im.source_h)
+    return false;
+  V2Window w;
+  w.buf_x = window.x_begin;
+  w.buf_y = window.y_begin;
+  w.buf_w = window.width;
+  w.buf_h = window.height;
+  w.act_x = window.active_x;
+  w.act_y = window.active_y;
+  w.act_w = window.active_width;
+  w.act_h = window.active_height;
+  if (w.act_w == 0 && w.act_h == 0 && w.act_x == 0 && w.act_y == 0) {
+    w.act_w = w.buf_w;
+    w.act_h = w.buf_h;
+  }
+  if (w.act_x < 0 || w.act_y < 0 || w.act_w <= 0 || w.act_h <= 0 ||
+      w.act_x + w.act_w > w.buf_w || w.act_y + w.act_h > w.buf_h)
+    return false;
+  const int abs_x0 = w.buf_x + w.act_x;
+  const int abs_y0 = w.buf_y + w.act_y;
+  w.src_w = im.source_w;
+  w.src_h = im.source_h;
+  V2Sigma2Model s2m{};
+  if (sigma2_model_or_null != nullptr && sigma2_model_or_null->enabled) {
+    s2m.enabled = 1;
+    s2m.noise = sigma2_model_or_null->sigma_noise;
+    s2m.reg_px = sigma2_model_or_null->sigma_reg_px;
+    s2m.half = sigma2_model_or_null->droplet_half;
+  }
+  if (sigma2_or_null != nullptr && s2m.enabled) return false;
+  const std::size_t src_bytes =
+      static_cast<std::size_t>(w.buf_w) * w.buf_h * sizeof(float);
+  const std::size_t act_bytes =
+      static_cast<std::size_t>(w.act_w) * w.act_h * sizeof(float);
+  const std::uint64_t f = impl_->frames;
+  const bool q_frame = open_qframe_;
+  ForwardDrizzleV2FrameQuality h_q{};
+  if (q_frame && quality_or_null != nullptr) h_q = *quality_or_null;
+  auto pq_ok = [&](const ForwardDrizzleV2PackedQualityPlane &p,
+                   const float *fp) {
+    if (p.cells == nullptr) return true;
+    if (fp != nullptr) return false;
+    if (p.storage_width <= 0 || p.storage_height <= 0 ||
+        p.storage_divisor <= 0)
+      return false;
+    const int d = p.storage_divisor;
+    return p.storage_x_begin <= abs_x0 / d &&
+           p.storage_x_begin + p.storage_width >
+               (abs_x0 + w.act_w - 1) / d &&
+           p.storage_y_begin <= abs_y0 / d &&
+           p.storage_y_begin + p.storage_height >
+               (abs_y0 + w.act_h - 1) / d;
+  };
+  if (!pq_ok(h_q.qc_packed, h_q.q_composite) ||
+      !pq_ok(h_q.q0_packed, h_q.q_scale0) ||
+      !pq_ok(h_q.q1_packed, h_q.q_scale1) ||
+      !pq_ok(h_q.qa_packed, h_q.q_artifact))
+    return false;
+  const unsigned int qmask =
+      ((h_q.q_composite != nullptr || h_q.qc_packed.cells != nullptr) ? 1u
+                                                                    : 0u) |
+      ((h_q.q_scale0 != nullptr || h_q.q0_packed.cells != nullptr) ? 2u
+                                                                 : 0u) |
+      ((h_q.q_scale1 != nullptr || h_q.q1_packed.cells != nullptr) ? 4u
+                                                                 : 0u) |
+      ((h_q.q_artifact != nullptr || h_q.qa_packed.cells != nullptr) ? 8u
+                                                                   : 0u);
+  // The stream presence is a per-frame contract: every piece must carry the
+  // same qmask.
+  if (open_pieces_ == 0) {
+    open_qmask_ = qmask;
+  } else if (qmask != open_qmask_) {
+    return false;
+  }
+  auto upload = [&](float *dst, const float *src) {
+    return src == nullptr ||
+           cudaMemcpyAsync(dst, src, act_bytes, cudaMemcpyHostToDevice, st) ==
+               cudaSuccess;
+  };
+  auto upload_packed = [&](unsigned short *d_cells, unsigned char *d_veto,
+                           const ForwardDrizzleV2PackedQualityPlane &p) {
+    if (p.cells == nullptr) return true;
+    const std::size_t cn = static_cast<std::size_t>(p.storage_width) *
+                           p.storage_height;
+    return cudaMemcpyAsync(d_cells, p.cells, cn * sizeof(unsigned short),
+                           cudaMemcpyHostToDevice, st) == cudaSuccess &&
+           (p.veto == nullptr ||
+            cudaMemcpyAsync(d_veto, p.veto, cn, cudaMemcpyHostToDevice, st) ==
+                cudaSuccess);
+  };
+  bool ok =
+      cudaMemcpyAsync(im.src, source, src_bytes, cudaMemcpyHostToDevice,
+                      st) == cudaSuccess &&
+      (!im.s2 || !sigma2_or_null ||
+       cudaMemcpyAsync(im.s2, sigma2_or_null, act_bytes,
+                       cudaMemcpyHostToDevice, st) == cudaSuccess) &&
+      (!im.s2 || sigma2_or_null || s2m.enabled ||
+       cudaMemsetAsync(im.s2, 0, act_bytes, st) == cudaSuccess) &&
+      upload(im.qc, h_q.q_composite) && upload(im.q0, h_q.q_scale0) &&
+      upload(im.q1, h_q.q_scale1) && upload(im.qa, h_q.q_artifact) &&
+      upload_packed(im.pqc, im.pvc, h_q.qc_packed) &&
+      upload_packed(im.pq0, im.pv0, h_q.q0_packed) &&
+      upload_packed(im.pq1, im.pv1, h_q.q1_packed) &&
+      upload_packed(im.pqa, im.pva, h_q.qa_packed);
+  const int block = 128;
+  const int scale = im.cfg.internal_scale;
+  // Internal x columns owned by this piece.
+  const int ix0 = target_x_begin_native * scale;
+  const int ix1 = (target_x_begin_native + target_cols_native) * scale;
+  if (ok) {
+    // Clear ONLY this tile's internal columns of the frame planes.
+    const long long clear_n =
+        static_cast<long long>(im.channels) * im.irows * (ix1 - ix0);
+    const unsigned int clear_grid =
+        static_cast<unsigned int>((clear_n + block - 1) / block);
+    k_clear_planes_x<<<clear_grid, block, 0, st>>>(
+        im.fa, im.fbs, im.fbg, im.fs2,
+        q_frame ? im.fqc : nullptr, q_frame ? im.fq0 : nullptr,
+        q_frame ? im.fq1 : nullptr, q_frame ? im.fqa : nullptr,
+        q_frame ? im.fqaf : nullptr, im.icols, im.irows, im.channels, ix0,
+        ix1);
+    // Aggregate event quartet: upload-end/kernel-start only at the first
+    // piece; later pieces' uploads land inside kernel_seconds.
+    ok = cudaGetLastError() == cudaSuccess &&
+         (open_pieces_ > 0 ||
+          cudaEventRecord(im.ev_up1[f], st) == cudaSuccess) &&
+         (open_pieces_ > 0 ||
+          cudaEventRecord(im.ev_k0[f], st) == cudaSuccess);
+  }
+  if (ok) {
+    const long long source_n =
+        static_cast<long long>(w.act_w) * w.act_h;
+    const unsigned int grid =
+        static_cast<unsigned int>((source_n + block - 1) / block);
+    V2QualityIO qio;
+    if (q_frame) {
+      qio.qc = h_q.q_composite != nullptr ? im.qc : nullptr;
+      qio.q0 = h_q.q_scale0 != nullptr ? im.q0 : nullptr;
+      qio.q1 = h_q.q_scale1 != nullptr ? im.q1 : nullptr;
+      qio.qa = h_q.q_artifact != nullptr ? im.qa : nullptr;
+      auto set_packed = [](V2PackedQuality &d, unsigned short *cells,
+                           unsigned char *veto,
+                           const ForwardDrizzleV2PackedQualityPlane &p) {
+        if (p.cells == nullptr) return;
+        d.cells = cells;
+        d.veto = p.veto != nullptr ? veto : nullptr;
+        d.x_begin = p.storage_x_begin;
+        d.y_begin = p.storage_y_begin;
+        d.width = p.storage_width;
+        d.height = p.storage_height;
+        d.divisor = p.storage_divisor;
+      };
+      set_packed(qio.qc_p, im.pqc, im.pvc, h_q.qc_packed);
+      set_packed(qio.q0_p, im.pq0, im.pv0, h_q.q0_packed);
+      set_packed(qio.q1_p, im.pq1, im.pv1, h_q.q1_packed);
+      set_packed(qio.qa_p, im.pqa, im.pva, h_q.qa_packed);
+      qio.qmask = qmask;
+      qio.fqc = im.fqc;
+      qio.fq0 = im.fq0;
+      qio.fq1 = im.fq1;
+      qio.fqa = im.fqa;
+      qio.fqaf = im.fqaf;
+    }
+    const float *d_s2 =
+        (im.fs2 && !s2m.enabled) ? im.s2 : nullptr;
+    k_scatter_v2<<<grid, block, 0, st>>>(
+        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4],
+        affine6[5], static_cast<double>(scale), im.cfg.half, im.icols,
+        im.irows, w, im.src, d_s2, s2m, im.cfg.bayer_pattern,
+        im.cfg.cfa_origin_x, im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0,
+        static_cast<double>(im.cfg.band_origin_x_native),
+        static_cast<double>(im.cfg.band_origin_y_native), ix0, ix1, im.fa,
+        im.fbs, im.fbg, im.fs2, qio, im.scalars);
+    // Fold only this tile's native columns; each output pixel is folded
+    // exactly once for the frame across its pieces.
+    const long long fold_n =
+        static_cast<long long>(target_cols_native) * im.nrows;
+    const unsigned int fold_grid =
+        static_cast<unsigned int>((fold_n + block - 1) / block);
+    const std::uint64_t n = im.cfg.stream_length;
+    const bool keep_all =
+        n <= static_cast<std::uint64_t>(im.cfg.reservoir_size);
+    const std::uint64_t threshold =
+        keep_all ? 0
+                 : static_cast<std::uint64_t>(
+                       (static_cast<unsigned __int128>(im.cfg.reservoir_size)
+                        << 64) /
+                       n);
+    k_fold_accumulate_v2<<<fold_grid, block, 0, st>>>(
+        im.fa, im.fbs, im.fbg, im.fs2, q_frame ? im.fqc : nullptr,
+        q_frame ? im.fq0 : nullptr, q_frame ? im.fq1 : nullptr,
+        q_frame ? im.fqa : nullptr, q_frame ? im.fqaf : nullptr, qmask,
+        im.icols, im.irows, scale, im.ncols, im.nrows, im.channels,
+        target_x_begin_native, target_cols_native, open_order_,
+        keep_all ? 1 : 0, threshold, im.res_slots, im.cfg.reservoir_seed,
+        im.accA, im.accB, im.accB2, im.covB, im.covB2, im.confS, im.confC,
+        im.contrib, im.kept, im.footprint, im.supp, im.degraded, im.res,
+        im.resq);
+    ok = cudaGetLastError() == cudaSuccess &&
+         cudaEventRecord(im.ev_k1[f], st) == cudaSuccess;
+  }
+  if (!ok) {
+    cudaGetLastError();
+    return false;
+  }
+  im.event_recorded[f] = 1;
+  ++open_pieces_;
+  open_tx_end_ = target_x_begin_native + target_cols_native;
+  ++stats_.affine_pieces_processed;
+  const std::size_t source_n_sz =
+      static_cast<std::size_t>(w.act_w) * w.act_h;
+  stats_.source_bytes_uploaded += src_bytes +
+      (sigma2_or_null != nullptr ? act_bytes : 0);
+  stats_.source_samples_launched += source_n_sz;
+  if (q_frame) {
+    const std::uint64_t qfb =
+        static_cast<std::uint64_t>(w.act_w) * w.act_h * sizeof(float);
+    auto qb = [&](const float *fp,
+                  const ForwardDrizzleV2PackedQualityPlane &p)
+        -> std::uint64_t {
+      if (p.cells != nullptr)
+        return static_cast<std::uint64_t>(p.storage_width) *
+               p.storage_height * 3u;
+      return fp != nullptr ? qfb : 0u;
+    };
+    stats_.quality_bytes_uploaded +=
+        qb(h_q.q_composite, h_q.qc_packed) +
+        qb(h_q.q_scale0, h_q.q0_packed) +
+        qb(h_q.q_scale1, h_q.q1_packed) +
+        qb(h_q.q_artifact, h_q.qa_packed);
+  }
+  return true;
+}
+
+bool ForwardDrizzleV2CudaPrototypeKernel::finish_affine_frame(
+    std::uint64_t frame_order) {
+  if (impl_ == nullptr || !frame_open_ || frame_order != open_order_ ||
+      open_pieces_ == 0)
+    return false;
+  frame_open_ = false;
+  ++impl_->frames;
+  ++stats_.frames_processed;
+  ++stats_.slot_transitions;
+  if (open_qframe_) ++stats_.quality_frames_processed;
+  return true;
+}
+
+bool ForwardDrizzleV2CudaPrototypeKernel::skip_frame(
+    std::uint64_t frame_order, const ForwardDrizzleV2FrameMeta *meta_or_null) {
+  if (impl_ == nullptr || frame_open_ || impl_->finalized ||
+      impl_->frames >= impl_->cfg.stream_length ||
+      frame_order >= impl_->cfg.stream_length)
+    return false;
+  if (impl_->cfg.emit_profiles) {
+    if (meta_or_null == nullptr ||
+        !std::isfinite(meta_or_null->g_eff) || meta_or_null->g_eff < 0.0f ||
+        !std::isfinite(meta_or_null->residual_factor))
+      return false;
+    V2FrameMetaDev h_meta{};
+    h_meta.g_eff = meta_or_null->g_eff;
+    h_meta.residual_factor = meta_or_null->residual_factor;
+    h_meta.is_direct = meta_or_null->is_direct;
+    if (cudaMemcpyAsync(impl_->meta + frame_order, &h_meta,
+                        sizeof(V2FrameMetaDev), cudaMemcpyHostToDevice,
+                        impl_->stream) != cudaSuccess) {
+      cudaGetLastError();
+      return false;
+    }
+  }
+  ++impl_->frames;
+  ++stats_.slot_transitions;
+  ++stats_.frames_skipped_empty_window;
+  return true;
 }
 
 bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
     ForwardDrizzleV2PixelResult *results,
     ForwardDrizzleV2ProfileResult *profiles_or_null,
     std::uint64_t *dense_overlap_count) {
-  if (impl_ == nullptr || results == nullptr || impl_->finalized) return false;
+  if (impl_ == nullptr || results == nullptr || impl_->finalized ||
+      frame_open_)
+    return false;
   Impl &im = *impl_;
   if (im.cfg.emit_profiles && profiles_or_null == nullptr) return false;
   cudaStream_t st = im.stream;
@@ -2627,6 +3913,9 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
   }
   im.finalized = true;
   for (std::uint64_t f = 0; f < im.frames; ++f) {
+    // Skip frames and orders never recorded this band have no valid event
+    // pair; never read stale prior-band timings.
+    if (!im.event_recorded[f]) continue;
     float up_ms = 0.0f, k_ms = 0.0f;
     double frame_s = 0.0;
     if (cudaEventElapsedTime(&up_ms, im.ev_up0[f], im.ev_up1[f]) ==

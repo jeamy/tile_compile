@@ -129,8 +129,16 @@ struct BinWindow {
   std::vector<uint8_t> veto;
 };
 
-BinWindow read_bin_window(const fs::path &path, int cy0, int cy1, int cx0,
-                          int cx1) {
+// Same coverage as read_bin_window but fills caller-owned buffers in place
+// (resize, capacity preserved): each storage row is seek-read straight into
+// the cells/veto spans --- no row scratch buffer. Cells are stored LE; on a
+// big-endian host they are byteswapped in place after the read.
+void read_bin_window_into(const fs::path &path, int cy0, int cy1, int cx0,
+                          int cx1, int &storage_w, int &storage_h,
+                          int &divisor, int &win_cy0, int &win_cx0,
+                          int &win_h, int &win_w,
+                          std::vector<uint16_t> &cells,
+                          std::vector<uint8_t> &veto) {
   std::ifstream f(path, std::ios::binary);
   if (!f) throw std::runtime_error("SQM_CACHE_BIN_MISSING: " + path.string());
   const BinHeader h = read_bin_header(f, path);
@@ -138,40 +146,48 @@ BinWindow read_bin_window(const fs::path &path, int cy0, int cy1, int cx0,
   cy1 = std::clamp(cy1, cy0, h.storage_h - 1);
   cx0 = std::clamp(cx0, 0, h.storage_w - 1);
   cx1 = std::clamp(cx1, cx0, h.storage_w - 1);
-  BinWindow w;
-  w.storage_w = h.storage_w;
-  w.storage_h = h.storage_h;
-  w.divisor = h.divisor;
-  w.cy0 = cy0;
-  w.cx0 = cx0;
-  w.win_h = cy1 - cy0 + 1;
-  w.win_w = cx1 - cx0 + 1;
-  const std::size_t run = static_cast<std::size_t>(w.win_w);
-  const std::size_t total = run * static_cast<std::size_t>(w.win_h);
+  storage_w = h.storage_w;
+  storage_h = h.storage_h;
+  divisor = h.divisor;
+  win_cy0 = cy0;
+  win_cx0 = cx0;
+  win_h = cy1 - cy0 + 1;
+  win_w = cx1 - cx0 + 1;
+  const std::size_t run = static_cast<std::size_t>(win_w);
+  const std::size_t total = run * static_cast<std::size_t>(win_h);
   const std::streamoff n_cells = static_cast<std::streamoff>(h.storage_w) *
                                  static_cast<std::streamoff>(h.storage_h);
   const std::streamoff veto_base = kBinHeaderBytes + n_cells * 2;
-  w.cells.resize(total);
-  w.veto.resize(total);
-  std::vector<uint8_t> row(run * 2);
+  cells.resize(total);
+  veto.resize(total);
   for (int cy = cy0; cy <= cy1; ++cy) {
     const std::streamoff first =
         static_cast<std::streamoff>(cy) * h.storage_w + cx0;
     const std::size_t out = static_cast<std::size_t>(cy - cy0) * run;
     f.seekg(kBinHeaderBytes + first * 2, std::ios::beg);
-    f.read(reinterpret_cast<char *>(row.data()),
-           static_cast<std::streamsize>(row.size()));
-    if (static_cast<std::size_t>(f.gcount()) != row.size())
+    f.read(reinterpret_cast<char *>(cells.data() + out),
+           static_cast<std::streamsize>(run * 2));
+    if (static_cast<std::size_t>(f.gcount()) != run * 2)
       throw std::runtime_error("SQM_CACHE_BIN_TRUNCATED: " + path.string());
-    for (std::size_t i = 0; i < run; ++i)
-      w.cells[out + i] = static_cast<uint16_t>(row[2 * i]) |
-                         (static_cast<uint16_t>(row[2 * i + 1]) << 8);
+    if constexpr (std::endian::native == std::endian::big)
+      for (std::size_t i = 0; i < run; ++i) {
+        const uint16_t v = cells[out + i];
+        cells[out + i] = static_cast<uint16_t>((v >> 8) | (v << 8));
+      }
     f.seekg(veto_base + first, std::ios::beg);
-    f.read(reinterpret_cast<char *>(w.veto.data() + out),
+    f.read(reinterpret_cast<char *>(veto.data() + out),
            static_cast<std::streamsize>(run));
     if (static_cast<std::size_t>(f.gcount()) != run)
       throw std::runtime_error("SQM_CACHE_BIN_TRUNCATED_VETO: " + path.string());
   }
+}
+
+BinWindow read_bin_window(const fs::path &path, int cy0, int cy1, int cx0,
+                          int cx1) {
+  BinWindow w;
+  read_bin_window_into(path, cy0, cy1, cx0, cx1, w.storage_w, w.storage_h,
+                       w.divisor, w.cy0, w.cx0, w.win_h, w.win_w, w.cells,
+                       w.veto);
   return w;
 }
 
@@ -545,45 +561,183 @@ Matrix2Df SourceQualityMapCacheReader::read_region(const std::string &stream,
   return read_rect(stream, source_index, y0, y1, 0, meta_.source_width);
 }
 
-Matrix2Df SourceQualityMapCacheReader::read_rect(const std::string &stream,
-                                                 std::size_t source_index,
-                                                 int y0, int y1, int x0,
-                                                 int x1) const {
+void SourceQualityMapCacheReader::read_packed_rect_into(
+    const std::string &stream, std::size_t source_index, int y0, int y1,
+    int x0, int x1, SourceQualityPackedWindow &out) const {
   if (!usable_) throw std::runtime_error("SQM_CACHE_NOT_USABLE: " + error_);
   y0 = std::max(0, y0);
   y1 = std::min(meta_.source_height, y1);
   x0 = std::max(0, x0);
   x1 = std::min(meta_.source_width, x1);
-  if (y1 <= y0 || x1 <= x0) return Matrix2Df(0, 0);
+  out.storage_x_begin = 0;
+  out.storage_y_begin = 0;
+  out.storage_width = 0;
+  out.storage_height = 0;
+  out.storage_divisor = 1;
+  out.source_x_begin = 0;
+  out.source_y_begin = 0;
+  out.source_width = 0;
+  out.source_height = 0;
+  out.cells.clear();  // keep capacity for the caller's reusable window
+  out.veto.clear();
+  if (y1 <= y0 || x1 <= x0) return;
   const int d = meta_.storage_divisor;
-  // §30.81 step 3a-2b: seek-read only the storage cells covering the rect.
-  const BinWindow w = read_bin_window(
-      file_path(stream, source_index), y0 / d, (y1 - 1) / d, x0 / d,
-      (x1 - 1) / d);
-  if (w.divisor != d || w.storage_w != storage_dim(meta_.source_width, d) ||
-      w.storage_h != storage_dim(meta_.source_height, d))
+  // §30.81 step 3a-2b: seek-read only the storage cells covering the rect,
+  // straight into the caller's cells/veto spans.
+  int bin_w = 0, bin_h = 0, bin_d = 0;
+  read_bin_window_into(file_path(stream, source_index), y0 / d, (y1 - 1) / d,
+                       x0 / d, (x1 - 1) / d, bin_w, bin_h, bin_d,
+                       out.storage_y_begin, out.storage_x_begin,
+                       out.storage_height, out.storage_width, out.cells,
+                       out.veto);
+  if (bin_d != d || bin_w != storage_dim(meta_.source_width, d) ||
+      bin_h != storage_dim(meta_.source_height, d))
     throw std::runtime_error("SQM_CACHE_BIN_GEOMETRY_MISMATCH: " + stream);
   bin_loads_.fetch_add(1, std::memory_order_relaxed);
   bin_cells_decoded_.fetch_add(
-      static_cast<std::uint64_t>(w.win_h) * static_cast<std::uint64_t>(w.win_w),
+      static_cast<std::uint64_t>(out.storage_height) *
+          static_cast<std::uint64_t>(out.storage_width),
       std::memory_order_relaxed);
+  out.storage_divisor = d;
+  out.source_x_begin = x0;
+  out.source_y_begin = y0;
+  out.source_width = x1 - x0;
+  out.source_height = y1 - y0;
+}
+
+void SourceQualityMapCacheReader::read_packed_samples_into(
+    const std::string &stream, std::size_t source_index,
+    const std::vector<DrizzleAffineSourceSpan> &spans,
+    std::vector<std::uint16_t> &cells, std::vector<std::uint8_t> &veto,
+    SourceQualityPackedWindow &scratch) const {
+  if (!usable_) throw std::runtime_error("SQM_CACHE_NOT_USABLE: " + error_);
+  cells.clear();
+  veto.clear();
+  scratch.cells.clear();
+  scratch.veto.clear();
+  if (spans.empty()) return;
+  const int d = meta_.storage_divisor;
+  const int full_w = storage_dim(meta_.source_width, d);
+  const int full_h = storage_dim(meta_.source_height, d);
+  std::size_t total = 0;
+  int prev_sy = -1;
+  for (const auto &s : spans) {
+    // Canonical contract: strictly increasing source rows, in-extent,
+    // non-empty intervals.
+    if (s.source_y < 0 || s.source_y >= meta_.source_height ||
+        s.source_y <= prev_sy || s.x_begin < 0 ||
+        s.x_end > meta_.source_width || s.x_end <= s.x_begin)
+      throw std::invalid_argument("SQM_CACHE_INVALID_SPAN");
+    prev_sy = s.source_y;
+    total += static_cast<std::size_t>(s.x_end - s.x_begin);
+  }
+  cells.resize(total);  // resize keeps capacity for the reusable buffers
+  veto.resize(total);
+  const fs::path path = file_path(stream, source_index);
+  std::ifstream f(path, std::ios::binary);
+  if (!f) throw std::runtime_error("SQM_CACHE_BIN_MISSING: " + path.string());
+  const BinHeader h = read_bin_header(f, path);
+  if (h.divisor != d || h.storage_w != full_w || h.storage_h != full_h)
+    throw std::runtime_error("SQM_CACHE_BIN_GEOMETRY_MISMATCH: " + stream);
+  const std::streamoff n_cells = static_cast<std::streamoff>(h.storage_w) *
+                                 static_cast<std::streamoff>(h.storage_h);
+  const std::streamoff veto_base = kBinHeaderBytes + n_cells * 2;
+  std::uint64_t cells_read = 0;
+  std::size_t out_off = 0;
+  std::size_t i = 0;
+  while (i < spans.size()) {
+    // Group the consecutive spans sharing one storage row and seek-read its
+    // union cell interval exactly once.
+    const int cy = std::min(full_h - 1, spans[i].source_y / d);
+    int cx0 = std::min(full_w - 1, spans[i].x_begin / d);
+    int cx1 = std::min(full_w - 1, (spans[i].x_end - 1) / d);
+    std::size_t j = i + 1;
+    while (j < spans.size() &&
+           std::min(full_h - 1, spans[j].source_y / d) == cy) {
+      cx0 = std::min(cx0, std::min(full_w - 1, spans[j].x_begin / d));
+      cx1 = std::max(cx1, std::min(full_w - 1, (spans[j].x_end - 1) / d));
+      ++j;
+    }
+    const int run = cx1 - cx0 + 1;
+    scratch.cells.resize(static_cast<std::size_t>(run));
+    scratch.veto.resize(static_cast<std::size_t>(run));
+    const std::streamoff first =
+        static_cast<std::streamoff>(cy) * h.storage_w + cx0;
+    f.seekg(kBinHeaderBytes + first * 2, std::ios::beg);
+    f.read(reinterpret_cast<char *>(scratch.cells.data()),
+           static_cast<std::streamsize>(run) * 2);
+    if (f.gcount() != static_cast<std::streamsize>(run) * 2)
+      throw std::runtime_error("SQM_CACHE_BIN_TRUNCATED: " + path.string());
+    if constexpr (std::endian::native == std::endian::big)
+      for (int k = 0; k < run; ++k) {
+        const uint16_t v = scratch.cells[static_cast<std::size_t>(k)];
+        scratch.cells[static_cast<std::size_t>(k)] =
+            static_cast<uint16_t>((v >> 8) | (v << 8));
+      }
+    f.seekg(veto_base + first, std::ios::beg);
+    f.read(reinterpret_cast<char *>(scratch.veto.data()),
+           static_cast<std::streamsize>(run));
+    if (f.gcount() != static_cast<std::streamsize>(run))
+      throw std::runtime_error("SQM_CACHE_BIN_TRUNCATED_VETO: " +
+                               path.string());
+    cells_read += static_cast<std::uint64_t>(run);
+    for (std::size_t k = i; k < j; ++k) {
+      const auto &s = spans[k];
+      for (int sx = s.x_begin; sx < s.x_end; ++sx) {
+        const int cx = std::min(full_w - 1, sx / d);
+        cells[out_off] = scratch.cells[static_cast<std::size_t>(cx - cx0)];
+        veto[out_off] = scratch.veto[static_cast<std::size_t>(cx - cx0)];
+        ++out_off;
+      }
+    }
+    i = j;
+  }
+  bin_loads_.fetch_add(1, std::memory_order_relaxed);
+  bin_cells_decoded_.fetch_add(cells_read, std::memory_order_relaxed);
+}
+
+SourceQualityPackedWindow SourceQualityMapCacheReader::read_packed_rect(
+    const std::string &stream, std::size_t source_index, int y0, int y1,
+    int x0, int x1) const {
+  SourceQualityPackedWindow out;
+  read_packed_rect_into(stream, source_index, y0, y1, x0, x1, out);
+  return out;
+}
+
+Matrix2Df SourceQualityMapCacheReader::read_rect(const std::string &stream,
+                                                 std::size_t source_index,
+                                                 int y0, int y1, int x0,
+                                                 int x1) const {
+  const SourceQualityPackedWindow w =
+      read_packed_rect(stream, source_index, y0, y1, x0, x1);
+  if (w.source_width <= 0 || w.source_height <= 0) return Matrix2Df(0, 0);
+  const int x0c = w.source_x_begin, y0c = w.source_y_begin;
+  const int x1c = x0c + w.source_width, y1c = y0c + w.source_height;
+  const int d = w.storage_divisor;
+  // Full-grid dims for the absolute edge clamp, recomputed from the clamped
+  // window origin (storage cells per row of the full grid).
+  const int full_w = storage_dim(meta_.source_width, d);
+  const int full_h = storage_dim(meta_.source_height, d);
   expanded_floats_.fetch_add(
-      static_cast<std::uint64_t>(y1 - y0) * static_cast<std::uint64_t>(x1 - x0),
+      static_cast<std::uint64_t>(w.source_height) *
+          static_cast<std::uint64_t>(w.source_width),
       std::memory_order_relaxed);
 
-  Matrix2Df out(y1 - y0, x1 - x0);
-  for (int y = y0; y < y1; ++y) {
+  Matrix2Df out(w.source_height, w.source_width);
+  for (int y = y0c; y < y1c; ++y) {
     // Storage cell picked from the ABSOLUTE y (edge-clamp unchanged), then
     // rebased into the window that was actually read.
-    const int cy = std::min(w.storage_h - 1, y / d);
-    const std::size_t wy = static_cast<std::size_t>(cy - w.cy0) * w.win_w;
-    for (int x = x0; x < x1; ++x) {
-      const int cx = std::min(w.storage_w - 1, x / d);  // ABSOLUTE x
-      const std::size_t wi = wy + static_cast<std::size_t>(cx - w.cx0);
+    const int cy = std::min(full_h - 1, y / d);
+    const std::size_t wy =
+        static_cast<std::size_t>(cy - w.storage_y_begin) * w.storage_width;
+    for (int x = x0c; x < x1c; ++x) {
+      const int cx = std::min(full_w - 1, x / d);  // ABSOLUTE x
+      const std::size_t wi =
+          wy + static_cast<std::size_t>(cx - w.storage_x_begin);
       // Hard-veto cell forces NaN regardless of the value cell (plan 13.5).
-      out(y - y0, x - x0) = w.veto[wi]
-                                ? std::numeric_limits<float>::quiet_NaN()
-                                : dequantize_quality(w.cells[wi]);
+      out(y - y0c, x - x0c) =
+          w.veto[wi] ? std::numeric_limits<float>::quiet_NaN()
+                     : dequantize_quality(w.cells[wi]);
     }
   }
   return out;

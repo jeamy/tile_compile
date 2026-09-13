@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 #include <chrono>
 #include <algorithm>
+#include <cstring>
 #include <bit>
 #include <fstream>
 #include <limits>
@@ -197,32 +198,84 @@ const Matrix2Df &VerifiedNormalizedSourceCache::verify_and_insert(
   return lru_.front().image;
 }
 
-Matrix2Df VerifiedNormalizedSourceCache::read_rect(
-    size_t source_index,int y0,int y1,int x0,int x1) {
+void VerifiedNormalizedSourceCache::read_rect_into(
+    size_t source_index,int y0,int y1,int x0,int x1,
+    std::vector<float> &out) {
   y0=std::clamp(y0,0,height_); y1=std::clamp(y1,0,height_);
   x0=std::clamp(x0,0,width_);  x1=std::clamp(x1,0,width_);
-  if (y1<=y0 || x1<=x0) return Matrix2Df(0,0);
+  const int rows=y1-y0, cols=x1-x0;
+  if (rows<=0 || cols<=0) { out.clear(); return; }
   if (hashes_.find(source_index)==hashes_.end())
     throw std::invalid_argument("NORMALIZED_CACHE_UNKNOWN_FRAME");
+  out.resize(static_cast<size_t>(rows)*static_cast<size_t>(cols));
   const size_t row_bytes=static_cast<size_t>(width_)*sizeof(float);
-  const size_t span_off=static_cast<size_t>(y0)*row_bytes;
-  const size_t span_bytes=static_cast<size_t>(y1-y0)*row_bytes;
-  std::vector<unsigned char> buf(span_bytes);
-  {
-    const auto path=root_/(std::to_string(source_index)+".raw");
-    std::ifstream file(path,std::ios::binary);
-    file.seekg(static_cast<std::streamoff>(span_off));
-    file.read(reinterpret_cast<char *>(buf.data()),static_cast<std::streamsize>(span_bytes));
+  const size_t x_bytes=static_cast<size_t>(cols)*sizeof(float);
+  const auto path=root_/(std::to_string(source_index)+".raw");
+  std::ifstream file(path,std::ios::binary);
+  // Seek/read only the [x0,x1) span of each requested row directly into the
+  // output span; no covering source row is read.
+  for (int r=0;r<rows;++r) {
+    file.seekg(static_cast<std::streamoff>(
+        static_cast<size_t>(y0+r)*row_bytes+
+        static_cast<size_t>(x0)*sizeof(float)));
+    file.read(reinterpret_cast<char *>(
+                  out.data()+static_cast<size_t>(r)*cols),
+              static_cast<std::streamsize>(x_bytes));
     if (!file) throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
   }
-  bytes_read_+=span_bytes;
-  Matrix2Df out(y1-y0,x1-x0);
-  const auto *base=reinterpret_cast<const float *>(buf.data());
-  for (int y=y0;y<y1;++y) {
-    const float *row=base+(static_cast<size_t>(y)-static_cast<size_t>(y0))*static_cast<size_t>(width_);
-    for (int x=x0;x<x1;++x) out(y-y0,x-x0)=row[x];
+  ++rect_read_calls_;
+  bytes_read_+=static_cast<std::uint64_t>(rows)*x_bytes;
+  expanded_floats_+=static_cast<std::uint64_t>(rows)*static_cast<std::uint64_t>(cols);
+}
+
+void VerifiedNormalizedSourceCache::read_row_intervals_into(
+    size_t source_index, const std::vector<DrizzleAffineSourceSpan> &intervals,
+    std::vector<float> &out) {
+  out.clear();
+  if (hashes_.find(source_index)==hashes_.end())
+    throw std::invalid_argument("NORMALIZED_CACHE_UNKNOWN_FRAME");
+  size_t total=0;
+  int prev_row=-1;
+  for (const auto &s : intervals) {
+    if (s.source_y < 0 || s.source_y >= height_ || s.source_y <= prev_row ||
+        s.x_begin < 0 || s.x_end > width_ || s.x_end <= s.x_begin)
+      throw std::invalid_argument("NORMALIZED_CACHE_INVALID_INTERVAL");
+    prev_row=s.source_y;
+    total += static_cast<size_t>(s.x_end - s.x_begin);
   }
-  expanded_floats_+=static_cast<std::uint64_t>(y1-y0)*static_cast<std::uint64_t>(x1-x0);
+  out.resize(total);  // resize keeps capacity for the reusable buffer
+  if (intervals.empty()) return;
+  const size_t row_bytes=static_cast<size_t>(width_)*sizeof(float);
+  const auto path=root_/(std::to_string(source_index)+".raw");
+  std::ifstream file(path,std::ios::binary);
+  if (!file) throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+  size_t off=0;
+  for (const auto &s : intervals) {
+    const size_t n=static_cast<size_t>(s.x_end - s.x_begin);
+    file.seekg(static_cast<std::streamoff>(
+        static_cast<size_t>(s.source_y)*row_bytes+
+        static_cast<size_t>(s.x_begin)*sizeof(float)));
+    file.read(reinterpret_cast<char *>(out.data()+off),
+              static_cast<std::streamsize>(n*sizeof(float)));
+    if (!file) throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+    off += n;
+  }
+  ++rect_read_calls_;
+  bytes_read_+=static_cast<std::uint64_t>(total)*sizeof(float);
+  expanded_floats_+=static_cast<std::uint64_t>(total);
+}
+
+Matrix2Df VerifiedNormalizedSourceCache::read_rect(
+    size_t source_index,int y0,int y1,int x0,int x1) {
+  const int cy0=std::clamp(y0,0,height_), cy1=std::clamp(y1,0,height_);
+  const int cx0=std::clamp(x0,0,width_),  cx1=std::clamp(x1,0,width_);
+  const int rows=cy1-cy0, cols=cx1-cx0;
+  if (rows<=0 || cols<=0) return Matrix2Df(0,0);
+  std::vector<float> buf;
+  read_rect_into(source_index,cy0,cy1,cx0,cx1,buf);
+  Matrix2Df out(rows,cols);
+  std::memcpy(out.data(),buf.data(),
+              static_cast<size_t>(rows)*cols*sizeof(float));
   return out;
 }
 } // namespace tile_compile::reconstruction
