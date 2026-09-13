@@ -1,10 +1,14 @@
 #include "tile_compile/reconstruction/forward_drizzle_contrib_list.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_v2_store.hpp"
+#include "tile_compile/core/atomic_output.hpp"
+#include "tile_compile/core/utils.hpp"
 #include "tile_compile/registration/registration_sampling_plan.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <array>
@@ -13,6 +17,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <map>
 #include <stdexcept>
@@ -2181,4 +2187,404 @@ TEST_CASE("forward drizzle v2 gate6 production geometry pipeline",
   REQUIRE(st.reserved_device_bytes <= plan.device_peak_bytes);
   REQUIRE(kernel.device_bytes_per_native_pixel() <=
           plan.device_bytes_per_target_pixel);
+}
+
+namespace {
+
+struct V2StoreFixture {
+  core::AtomicOutput staging{fs::temp_directory_path() / "fdv2-store-test"};
+  fs::path root = staging.path();
+  V2StoreFixture() { fs::create_directories(root); }
+  ~V2StoreFixture() {
+    std::error_code ec;
+    fs::remove_all(root, ec);
+  }
+};
+
+ForwardDrizzleV2RunPlan v2_store_plan(int width = 8, int height = 12,
+                                    int band_rows = 4, int channels = 1) {
+  ForwardDrizzleV2RunPlan p;
+  p.source_identity_hash = "src-hash";
+  p.normalized_cache_hash = "cache-hash";
+  p.quality_plan_hash = "q-hash";
+  p.sampling_plan_hash = "sampling-hash";
+  p.config_snapshot_hash = "cfg-hash";
+  p.native_width = width;
+  p.native_height = height;
+  p.channels = channels;
+  p.internal_scale = 2;
+  p.color_mode = channels == 1 ? "MONO" : "OSC";
+  p.frame_count = 5;
+  p.band_rows = band_rows;
+  p.band_count = (height + band_rows - 1) / band_rows;
+  finalize_forward_drizzle_v2_run_plan(p);
+  return p;
+}
+
+std::vector<ForwardDrizzleV2PixelResult> v2_band_records(int rows, int cols,
+                                                       int channels,
+                                                       double seed) {
+  std::vector<ForwardDrizzleV2PixelResult> r(
+      static_cast<std::size_t>(rows) * cols * channels);
+  for (std::size_t i = 0; i < r.size(); ++i) {
+    r[i].value = seed + static_cast<double>(i) * 0.5;
+    r[i].b = 1.25;
+    r[i].n_eff = 4.0;
+    r[i].confidence = 0.5;
+    r[i].contributors = 5;
+    r[i].robust_state = static_cast<std::uint8_t>(
+        ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip);
+    r[i].confidence_state = static_cast<std::uint8_t>(
+        ForwardDrizzleV2ConfidenceState::modeled);
+  }
+  return r;
+}
+
+// Simulates a process crash: the writer is intentionally leaked so its
+// destructor (which would remove the unpublished generation) never runs.
+ForwardDrizzleV2StoreWriter *v2_crashed_writer(const fs::path &root,
+                                               ForwardDrizzleV2RunPlan plan,
+                                               int bands_to_commit) {
+  auto *writer = new ForwardDrizzleV2StoreWriter(root, std::move(plan));
+  writer->begin();
+  int y = 0;
+  for (int i = 0; i < bands_to_commit; ++i) {
+    const int rows =
+        std::min(writer->plan().band_rows, writer->plan().native_height - y);
+    writer->commit_band(i, y, rows,
+                        v2_band_records(rows, writer->plan().native_width,
+                                        writer->plan().channels, 100.0 + i),
+                        7 + i);
+    y += rows;
+  }
+  return writer;
+}
+
+void v2_commit_all_bands(ForwardDrizzleV2StoreWriter &writer, int from_band,
+                         double seed_base = 100.0) {
+  int y = 0;
+  for (int i = 0; i < from_band; ++i) {
+    const auto &p = writer.plan();
+    y += std::min(p.band_rows, p.native_height - y);
+  }
+  for (int i = from_band; i < writer.plan().band_count; ++i) {
+    const auto &p = writer.plan();
+    const int rows = std::min(p.band_rows, p.native_height - y);
+    writer.commit_band(i, y, rows,
+                       v2_band_records(rows, p.native_width, p.channels,
+                                       seed_base + i),
+                       7 + i);
+    y += rows;
+  }
+}
+
+ForwardDrizzleV2CommitGate v2_gate(std::uint64_t bands,
+                                 std::uint64_t nonfinite = 0) {
+  ForwardDrizzleV2CommitGate g;
+  g.bands_processed = bands;
+  g.nonfinite_pixels_inside_source_support = nonfinite;
+  g.telemetry_json = "{\"frames_processed\":5}";
+  return g;
+}
+
+std::string v2_file_text(const fs::path &path) {
+  std::ifstream f(path);
+  return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
+}
+
+fs::path v2_single_generation(const fs::path &root) {
+  for (const auto &e : fs::directory_iterator(root))
+    if (e.is_directory() &&
+        e.path().filename().string().rfind("forward_drizzle_v2_generation-",
+                                           0) == 0)
+      return e.path();
+  return {};
+}
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 store publishes only fully committed bands",
+          "[forward-drizzle-v2][gate7]") {
+  V2StoreFixture fx;
+  const auto plan = v2_store_plan();
+
+  {
+    ForwardDrizzleV2StoreWriter writer(fx.root, plan);
+    writer.begin();
+    v2_commit_all_bands(writer, 0);
+    REQUIRE(writer.committed_bands() == plan.band_count);
+    REQUIRE_NOTHROW(writer.finish(v2_gate(plan.band_count)));
+    REQUIRE(writer.published());
+  }
+  REQUIRE(fs::exists(fx.root / "current.json"));
+
+  const auto inspection = inspect_forward_drizzle_v2_store(fx.root, plan);
+  REQUIRE(inspection.status == ForwardDrizzleV2StoreStatus::complete);
+  REQUIRE(!inspection.commit_hash.empty());
+
+  // Band records round-trip byte-identically.
+  ForwardDrizzleV2Checkpoint cp;
+  std::string error;
+  REQUIRE(parse_forward_drizzle_v2_checkpoint(
+      v2_file_text(inspection.generation / "checkpoint.json"), cp, error));
+  REQUIRE(cp.bands.size() == static_cast<std::size_t>(plan.band_count));
+  const auto records = read_forward_drizzle_v2_band(inspection.generation,
+                                                    cp.bands.front());
+  const auto expected = v2_band_records(plan.band_rows, plan.native_width,
+                                        plan.channels, 100.0);
+  REQUIRE(records.size() == expected.size());
+  REQUIRE(std::memcmp(records.data(), expected.data(),
+                      records.size() * sizeof(records[0])) == 0);
+
+  // Writer contract violations are rejected before any mutation.
+  ForwardDrizzleV2StoreWriter bad(fx.root / "second", plan);
+  bad.begin();
+  REQUIRE_THROWS(bad.begin());
+  REQUIRE_THROWS(bad.commit_band(1, 0, plan.band_rows,
+                                 v2_band_records(plan.band_rows,
+                                                 plan.native_width,
+                                                 plan.channels, 0.0),
+                                 0));
+  REQUIRE_THROWS(bad.finish(v2_gate(plan.band_count)));
+}
+
+TEST_CASE("forward drizzle v2 store resume replays only the missing tail",
+          "[forward-drizzle-v2][gate7]") {
+  V2StoreFixture crashed;
+  V2StoreFixture reference;
+
+  // Reference: uninterrupted run.
+  std::string reference_checkpoint_hash;
+  {
+    ForwardDrizzleV2StoreWriter writer(reference.root, v2_store_plan());
+    writer.begin();
+    v2_commit_all_bands(writer, 0);
+    writer.finish(v2_gate(writer.plan().band_count));
+    nlohmann::json cp = nlohmann::json::parse(v2_file_text(
+        v2_single_generation(reference.root) / "checkpoint.json"));
+    reference_checkpoint_hash = cp.at("checkpoint_hash").get<std::string>();
+  }
+
+  // Crashed run: band 0 committed, process died before band 1.
+  auto *leaked = v2_crashed_writer(crashed.root, v2_store_plan(), 1);
+  (void)leaked;
+  const fs::path generation = v2_single_generation(crashed.root);
+  REQUIRE(!generation.empty());
+
+  // Residue of the interrupted band-1 write and a stale stage directory
+  // must be ignored: only checkpoint.json establishes resumability.
+  {
+    std::ofstream residue(generation / "band-0001.bin", std::ios::binary);
+    residue << "garbage";
+    fs::create_directories(generation / "band-0002.bin.stage-1");
+  }
+
+  auto inspection = inspect_forward_drizzle_v2_store(crashed.root,
+                                                     v2_store_plan());
+  REQUIRE(inspection.status == ForwardDrizzleV2StoreStatus::resumable);
+  REQUIRE(inspection.next_band == 1);
+  REQUIRE(inspection.committed.size() == 1);
+  REQUIRE(inspection.generation == generation);
+
+  {
+    ForwardDrizzleV2StoreWriter resumed(crashed.root, v2_store_plan());
+    resumed.adopt(inspection.generation, inspection.next_band,
+                  inspection.committed);
+    REQUIRE(resumed.committed_bands() == 1);
+    // The residue band-0001.bin is overwritten by the atomic rename.
+    v2_commit_all_bands(resumed, 1);
+    resumed.finish(v2_gate(resumed.plan().band_count));
+  }
+
+  const auto done =
+      inspect_forward_drizzle_v2_store(crashed.root, v2_store_plan());
+  REQUIRE(done.status == ForwardDrizzleV2StoreStatus::complete);
+
+  // Determinism: identical inputs produce identical band artifacts and the
+  // same checkpoint hash as the uninterrupted run.
+  nlohmann::json cp = nlohmann::json::parse(
+      v2_file_text(done.generation / "checkpoint.json"));
+  REQUIRE(cp.at("checkpoint_hash").get<std::string>() ==
+          reference_checkpoint_hash);
+  REQUIRE(cp.at("plan_hash").get<std::string>() ==
+          v2_store_plan().plan_hash);
+  for (const auto &band : cp.at("bands")) {
+    const auto records =
+        read_forward_drizzle_v2_band(done.generation,
+                                     [&band] {
+                                       ForwardDrizzleV2BandCommit b;
+                                       b.band_index = band.at("band_index");
+                                       b.y_begin = band.at("y_begin");
+                                       b.rows = band.at("rows");
+                                       b.native_cols = band.at("native_cols");
+                                       b.channels = band.at("channels");
+                                       b.dense_overlap_count =
+                                           band.at("dense_overlap_count");
+                                       b.artifact = band.at("artifact");
+                                       b.bytes = band.at("bytes");
+                                       b.sha256 = band.at("sha256");
+                                       return b;
+                                     }());
+    const int i = band.at("band_index").get<int>();
+    const auto expected =
+        v2_band_records(band.at("rows").get<int>(),
+                        band.at("native_cols").get<int>(),
+                        band.at("channels").get<int>(), 100.0 + i);
+    REQUIRE(std::memcmp(records.data(), expected.data(),
+                        records.size() * sizeof(records[0])) == 0);
+  }
+}
+
+TEST_CASE("forward drizzle v2 store fails closed on unbound or corrupt state",
+          "[forward-drizzle-v2][gate7]") {
+  const auto expect_corrupt = [](const fs::path &root,
+                                 const ForwardDrizzleV2RunPlan &plan) {
+    const auto s = inspect_forward_drizzle_v2_store(root, plan);
+    REQUIRE(s.status == ForwardDrizzleV2StoreStatus::corrupt);
+    REQUIRE(!s.error.empty());
+    return s.error;
+  };
+
+  SECTION("corrupt band artifact content") {
+    V2StoreFixture fx;
+    v2_crashed_writer(fx.root, v2_store_plan(), 1);
+    const auto gen = v2_single_generation(fx.root);
+    std::fstream f(gen / "band-0000.bin",
+                   std::ios::in | std::ios::out | std::ios::binary);
+    f.seekp(80);
+    f.put('X');
+    f.close();
+    expect_corrupt(fx.root, v2_store_plan());
+  }
+  SECTION("truncated band artifact") {
+    V2StoreFixture fx;
+    v2_crashed_writer(fx.root, v2_store_plan(), 1);
+    const auto gen = v2_single_generation(fx.root);
+    fs::resize_file(gen / "band-0000.bin", 40);
+    expect_corrupt(fx.root, v2_store_plan());
+  }
+  SECTION("checkpoint lists a missing artifact") {
+    V2StoreFixture fx;
+    v2_crashed_writer(fx.root, v2_store_plan(), 1);
+    const auto gen = v2_single_generation(fx.root);
+    fs::remove(gen / "band-0000.bin");
+    expect_corrupt(fx.root, v2_store_plan());
+  }
+  SECTION("non-contiguous checkpoint") {
+    V2StoreFixture fx;
+    v2_crashed_writer(fx.root, v2_store_plan(), 2);
+    const auto gen = v2_single_generation(fx.root);
+    nlohmann::json cp =
+        nlohmann::json::parse(v2_file_text(gen / "checkpoint.json"));
+    cp["bands"].erase(0);  // prefix now starts at index 1
+    cp.erase("checkpoint_hash");
+    const auto text = cp.dump();
+    cp["checkpoint_hash"] = core::sha256_bytes(
+        std::vector<std::uint8_t>(text.begin(), text.end()));
+    core::write_text_atomic(gen / "checkpoint.json", cp.dump(2));
+    expect_corrupt(fx.root, v2_store_plan());
+  }
+  SECTION("checkpoint plan hash mismatch") {
+    V2StoreFixture fx;
+    v2_crashed_writer(fx.root, v2_store_plan(), 1);
+    const auto gen = v2_single_generation(fx.root);
+    nlohmann::json cp =
+        nlohmann::json::parse(v2_file_text(gen / "checkpoint.json"));
+    cp["plan_hash"] = "different";
+    cp.erase("checkpoint_hash");
+    const auto text = cp.dump();
+    cp["checkpoint_hash"] = core::sha256_bytes(
+        std::vector<std::uint8_t>(text.begin(), text.end()));
+    core::write_text_atomic(gen / "checkpoint.json", cp.dump(2));
+    expect_corrupt(fx.root, v2_store_plan());
+  }
+  SECTION("checkpoint tampered without hash repair") {
+    V2StoreFixture fx;
+    v2_crashed_writer(fx.root, v2_store_plan(), 1);
+    const auto gen = v2_single_generation(fx.root);
+    nlohmann::json cp =
+        nlohmann::json::parse(v2_file_text(gen / "checkpoint.json"));
+    cp["band_count"] = 99;
+    core::write_text_atomic(gen / "checkpoint.json", cp.dump(2));
+    expect_corrupt(fx.root, v2_store_plan());
+  }
+  SECTION("tampered plan.json") {
+    V2StoreFixture fx;
+    v2_crashed_writer(fx.root, v2_store_plan(), 1);
+    const auto gen = v2_single_generation(fx.root);
+    nlohmann::json p = nlohmann::json::parse(v2_file_text(gen / "plan.json"));
+    p["pixfrac"] = 0.1;
+    core::write_text_atomic(gen / "plan.json", p.dump(2));
+    expect_corrupt(fx.root, v2_store_plan());
+  }
+  SECTION("plan schema_version mismatch") {
+    V2StoreFixture fx;
+    v2_crashed_writer(fx.root, v2_store_plan(), 1);
+    const auto gen = v2_single_generation(fx.root);
+    nlohmann::json p = nlohmann::json::parse(v2_file_text(gen / "plan.json"));
+    p["schema_version"] = 2;
+    p.erase("plan_hash");
+    const auto text = p.dump();
+    p["plan_hash"] = core::sha256_bytes(
+        std::vector<std::uint8_t>(text.begin(), text.end()));
+    core::write_text_atomic(gen / "plan.json", p.dump(2));
+    expect_corrupt(fx.root, v2_store_plan());
+  }
+  SECTION("expected plan differs from stored context") {
+    V2StoreFixture fx;
+    v2_crashed_writer(fx.root, v2_store_plan(), 1);
+    auto other = v2_store_plan();
+    other.config_snapshot_hash = "other-config";
+    finalize_forward_drizzle_v2_run_plan(other);
+    expect_corrupt(fx.root, other);
+  }
+  SECTION("ambiguous multiple generations") {
+    V2StoreFixture fx;
+    v2_crashed_writer(fx.root, v2_store_plan(), 1);
+    fs::create_directories(fx.root / "forward_drizzle_v2_generation-x");
+    expect_corrupt(fx.root, v2_store_plan());
+  }
+  SECTION("current.json points at missing generation") {
+    V2StoreFixture fx;
+    {
+      ForwardDrizzleV2StoreWriter writer(fx.root, v2_store_plan());
+      writer.begin();
+      v2_commit_all_bands(writer, 0);
+      writer.finish(v2_gate(writer.plan().band_count));
+    }
+    fs::remove_all(v2_single_generation(fx.root));
+    expect_corrupt(fx.root, v2_store_plan());
+  }
+  SECTION("unpublished writer removes its generation") {
+    V2StoreFixture fx;
+    fs::path generation;
+    {
+      ForwardDrizzleV2StoreWriter writer(fx.root, v2_store_plan());
+      writer.begin();
+      writer.commit_band(0, 0, writer.plan().band_rows,
+                         v2_band_records(writer.plan().band_rows,
+                                         writer.plan().native_width,
+                                         writer.plan().channels, 0.0),
+                         0);
+      generation = writer.generation();
+    }
+    REQUIRE(!fs::exists(generation));
+    const auto s = inspect_forward_drizzle_v2_store(fx.root, v2_store_plan());
+    REQUIRE(s.status == ForwardDrizzleV2StoreStatus::fresh);
+  }
+  SECTION("commit gate blocks publish") {
+    V2StoreFixture fx;
+    fs::path generation;
+    {
+      ForwardDrizzleV2StoreWriter writer(fx.root, v2_store_plan());
+      writer.begin();
+      v2_commit_all_bands(writer, 0);
+      generation = writer.generation();
+      REQUIRE_THROWS(writer.finish(v2_gate(writer.plan().band_count,
+                                           /*nonfinite=*/1)));
+      REQUIRE_THROWS(writer.finish(v2_gate(writer.plan().band_count - 1)));
+    }
+    REQUIRE(!fs::exists(generation));
+    REQUIRE(!fs::exists(fx.root / "current.json"));
+  }
 }

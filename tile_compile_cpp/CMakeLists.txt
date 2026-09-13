@@ -453,6 +453,7 @@ set(LIB_SOURCES
     src/registration/sampling_geometry.cpp
     src/reconstruction/forward_drizzle.cpp
     src/reconstruction/forward_drizzle_v2.cpp
+    src/reconstruction/forward_drizzle_v2_store.cpp
     src/reconstruction/forward_drizzle_contrib_list.cpp
     src/reconstruction/drizzle_geometry_stats.cpp
     src/reconstruction/drizzle_geometry_cache.cpp

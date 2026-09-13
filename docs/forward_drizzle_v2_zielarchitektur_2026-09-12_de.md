@@ -1461,7 +1461,31 @@ Artefakte:
 - Atomic-Commit;
 - Fehler- und Restartmatrix.
 
-**Exit:** Kein teilweise publizierter oder semantisch nicht gebundener Zustand ist möglich.
+**Exit (bestanden 2026-09-12):** §18.2 ist entschieden: Resume
+ausschließlich an atomar committeten Bandgrenzen
+(`band_boundary_resume`). Teilbänder werden verworfen und neu gerechnet;
+Reservoir-/Akkumulatorzustand ist transient und wird nie persistiert.
+`ForwardDrizzleV2StoreWriter` schreibt in eine unpublizierte
+`forward_drizzle_v2_generation-*`: `plan.json` (plan_hash über die
+kanonische Serialisierung aller Bindungsfelder), `band-%04d.bin`
+(selbstbeschreibender 64-B-Header + 64-B-Records), `checkpoint.json`
+kontiguous Präfix-Liste mit Bytes+SHA-256 je Band — atomar als **letzter**
+Schritt jeder Bandtransaktion aktualisiert. `finish()` verifiziert alle
+Artefakte (Größe + SHA-256), wertet die Commit-Gates aus
+(`nonfinite_pixels_inside_source_support == 0`, `bands_processed ==
+band_count`), schreibt `commit.json` und publiziert `current.json` als
+letzten atomaren Schritt. `inspect_forward_drizzle_v2_store` ist
+read-only und fail-closed: `complete` / `resumable(k)` / `fresh` /
+`corrupt` mit Fehlergrund. Die Fehler-/Restartmatrix (21 Fälle, Tag
+`[gate7]`) beweist: Absturz zwischen Bändern setzt exakt am verifizierten
+Präfix fort und erzeugt denselben `checkpoint_hash` und memcmp-identische
+Artefakte wie der ununterbrochene Lauf; jede Korruption
+(Artefakt-Bitflip, Trunkierung, fehlende Datei, nicht-kontigues oder
+manipuliertes Checkpoint, fremder Plankontext, Schema-Mismatch,
+mehrdeutige Generationen, Zeiger ins Leere) schlägt geschlossen fehl;
+kein teilweise publizierter Zustand ist möglich. Artefakte:
+`forward_drizzle_v2_gate7_transaction_resume_spec_2026-09-12.json`,
+`..._results_2026-09-12.jsonl`, `..._decision_2026-09-12.json`.
 
 ### Gate 8: Lokale Warps
 
