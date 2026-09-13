@@ -52,6 +52,12 @@ std::string band_artifact_name(int index) {
   return name;
 }
 
+std::string band_profiles_artifact_name(int index) {
+  char name[40];
+  std::snprintf(name, sizeof(name), "band-%04d.profiles.bin", index);
+  return name;
+}
+
 json plan_to_json(const ForwardDrizzleV2RunPlan &p, bool with_hash) {
   json j = {
       {"schema_version", p.schema_version},
@@ -76,6 +82,10 @@ json plan_to_json(const ForwardDrizzleV2RunPlan &p, bool with_hash) {
       {"sigma2_enabled", p.sigma2_enabled},
       {"local_warp_representation", p.local_warp_representation},
       {"trusted_run", p.trusted_run},
+      {"emit_profiles", p.emit_profiles},
+      {"multiband_levels", p.multiband_levels},
+      {"fine_quality_exponent", p.fine_quality_exponent},
+      {"medium_quality_exponent", p.medium_quality_exponent},
       {"native_width", p.native_width},
       {"native_height", p.native_height},
       {"channels", p.channels},
@@ -92,6 +102,10 @@ json plan_to_json(const ForwardDrizzleV2RunPlan &p, bool with_hash) {
       {"halo_rows", p.halo_rows},
       {"x_tiled", p.x_tiled},
   };
+  // Absent when empty so pre-field stores keep their stored plan_hash
+  // reproducible (the hash input then matches the old serialization).
+  if (!p.source_quality_cache_hash.empty())
+    j["source_quality_cache_hash"] = p.source_quality_cache_hash;
   if (with_hash) j["plan_hash"] = p.plan_hash;
   return j;
 }
@@ -107,6 +121,8 @@ ForwardDrizzleV2RunPlan plan_from_json(const json &j) {
   p.quality_plan_hash = j.value("quality_plan_hash", std::string{});
   p.sampling_plan_hash = j.at("sampling_plan_hash").get<std::string>();
   p.config_snapshot_hash = j.at("config_snapshot_hash").get<std::string>();
+  p.source_quality_cache_hash =
+      j.value("source_quality_cache_hash", std::string{});
   p.enumeration = j.at("enumeration").get<std::string>();
   p.estimator = j.at("estimator").get<std::string>();
   p.reservoir_size = j.at("reservoir_size").get<int>();
@@ -122,6 +138,10 @@ ForwardDrizzleV2RunPlan plan_from_json(const json &j) {
   p.local_warp_representation =
       j.at("local_warp_representation").get<std::string>();
   p.trusted_run = j.at("trusted_run").get<bool>();
+  p.emit_profiles = j.value("emit_profiles", false);
+  p.multiband_levels = j.value("multiband_levels", 0);
+  p.fine_quality_exponent = j.value("fine_quality_exponent", 4.0f);
+  p.medium_quality_exponent = j.value("medium_quality_exponent", 2.0f);
   p.native_width = j.at("native_width").get<int>();
   p.native_height = j.at("native_height").get<int>();
   p.channels = j.at("channels").get<int>();
@@ -157,6 +177,10 @@ void validate_plan_fields(const ForwardDrizzleV2RunPlan &p) {
       (p.channels == 1) != (p.color_mode == "MONO") ||
       (p.channels == 3) != (p.color_mode == "OSC") || !(p.pixfrac > 0.0) ||
       p.pixfrac > 1.0 || p.bayer_pattern < 0 || p.cfa_origin_x < 0 ||
+      p.multiband_levels < 0 || p.multiband_levels > 4 ||
+      (!p.emit_profiles && p.multiband_levels != 0) ||
+      !(p.fine_quality_exponent > 0.0f) ||
+      !(p.medium_quality_exponent > 0.0f) ||
       p.cfa_origin_y < 0 || p.frame_count == 0 || p.band_rows <= 0 ||
       p.band_count <= 0 || p.halo_rows < 0 ||
       // Bands tile [0, native_height) contiguously; the last band is
@@ -181,7 +205,10 @@ json checkpoint_to_json(const ForwardDrizzleV2Checkpoint &c, bool with_hash) {
                      {"dense_overlap_count", b.dense_overlap_count},
                      {"artifact", b.artifact},
                      {"bytes", b.bytes},
-                     {"sha256", b.sha256}});
+                     {"sha256", b.sha256},
+                     {"profiles_artifact", b.profiles_artifact},
+                     {"profiles_bytes", b.profiles_bytes},
+                     {"profiles_sha256", b.profiles_sha256}});
   }
   json j = {{"schema_version", c.schema_version},
             {"plan_hash", c.plan_hash},
@@ -207,6 +234,11 @@ ForwardDrizzleV2Checkpoint checkpoint_from_json(const json &j) {
     b.artifact = e.at("artifact").get<std::string>();
     b.bytes = e.at("bytes").get<std::uintmax_t>();
     b.sha256 = e.at("sha256").get<std::string>();
+    b.profiles_artifact =
+        e.value("profiles_artifact", std::string{});
+    b.profiles_bytes = e.value("profiles_bytes", std::uintmax_t{0});
+    b.profiles_sha256 =
+        e.value("profiles_sha256", std::string{});
     c.bands.push_back(std::move(b));
   }
   c.checkpoint_hash = j.value("checkpoint_hash", std::string{});
@@ -255,6 +287,21 @@ bool verify_band_artifact(const fs::path &generation,
     error = "sha256 mismatch on " + b.artifact;
     return false;
   }
+  if (b.profiles_artifact.empty()) return true;
+  const fs::path ppath = generation / b.profiles_artifact;
+  if (!fs::is_regular_file(fs::symlink_status(ppath, ec))) {
+    error = "missing band artifact " + b.profiles_artifact;
+    return false;
+  }
+  const auto psize = fs::file_size(ppath, ec);
+  if (ec || psize != b.profiles_bytes) {
+    error = "size mismatch on " + b.profiles_artifact;
+    return false;
+  }
+  if (core::sha256_file(ppath) != b.profiles_sha256) {
+    error = "sha256 mismatch on " + b.profiles_artifact;
+    return false;
+  }
   return true;
 }
 
@@ -265,14 +312,23 @@ bool verify_band_artifact(const fs::path &generation,
 bool verify_checkpoint_bands(const fs::path &generation,
                              const ForwardDrizzleV2Checkpoint &c,
                              int expected_cols, int native_height,
-                             std::string &error) {
+                             bool emit_profiles, std::string &error) {
   int y = 0;
   for (std::size_t i = 0; i < c.bands.size(); ++i) {
     const auto &b = c.bands[i];
+    const bool profiles_expected =
+        emit_profiles && !b.profiles_artifact.empty() &&
+        b.profiles_bytes > 0 && !b.profiles_sha256.empty() &&
+        b.profiles_artifact ==
+            band_profiles_artifact_name(b.band_index);
+    const bool profiles_absent = b.profiles_artifact.empty() &&
+                                 b.profiles_bytes == 0 &&
+                                 b.profiles_sha256.empty();
     if (b.band_index != static_cast<int>(i) || b.y_begin != y ||
         b.rows <= 0 || b.native_cols != expected_cols ||
         b.channels <= 0 || b.artifact != band_artifact_name(b.band_index) ||
-        b.sha256.empty() || y + b.rows > native_height) {
+        b.sha256.empty() || y + b.rows > native_height ||
+        (emit_profiles ? !profiles_expected : !profiles_absent)) {
       error = "non-contiguous or malformed checkpoint band " +
               std::to_string(i);
       return false;
@@ -390,6 +446,10 @@ void ForwardDrizzleV2StoreWriter::adopt(
     const auto &b = committed[i];
     if (b.band_index != static_cast<int>(i) || b.y_begin != y || b.rows <= 0)
       throw std::invalid_argument("FDV2_STORE_ADOPT_MISMATCH");
+    if (plan_.emit_profiles !=
+        (!b.profiles_artifact.empty() && b.profiles_bytes > 0 &&
+         !b.profiles_sha256.empty()))
+      throw std::invalid_argument("FDV2_STORE_ADOPT_MISMATCH");
     y += b.rows;
   }
   if (y > plan_.native_height)
@@ -403,6 +463,7 @@ void ForwardDrizzleV2StoreWriter::adopt(
 void ForwardDrizzleV2StoreWriter::commit_band(
     int band_index, int y_begin, int rows,
     std::span<const ForwardDrizzleV2PixelResult> results,
+    std::span<const ForwardDrizzleV2ProfileResult> profiles,
     std::uint64_t dense_overlap_count) {
   if (!begun_ || publish_attempted_)
     throw std::runtime_error("FDV2_STORE_BAND_ORDER");
@@ -417,6 +478,8 @@ void ForwardDrizzleV2StoreWriter::commit_band(
       record_count > (std::numeric_limits<std::uint64_t>::max() -
                       kBandHeaderBytes) /
                          sizeof(ForwardDrizzleV2PixelResult))
+    throw std::runtime_error("FDV2_STORE_INVALID_BAND");
+  if (plan_.emit_profiles != (profiles.size() == record_count))
     throw std::runtime_error("FDV2_STORE_INVALID_BAND");
 
   const auto name = band_artifact_name(band_index);
@@ -451,6 +514,35 @@ void ForwardDrizzleV2StoreWriter::commit_band(
   commit.bytes = kBandHeaderBytes +
                  record_count * sizeof(ForwardDrizzleV2PixelResult);
   commit.sha256 = core::sha256_file(generation_ / name);
+  if (plan_.emit_profiles) {
+    const auto pname = band_profiles_artifact_name(band_index);
+    core::AtomicOutput poutput(generation_ / pname);
+    {
+      BandHeader header;
+      header.band_index = band_index;
+      header.y_begin = y_begin;
+      header.rows = rows;
+      header.native_cols = expected_cols;
+      header.channels = plan_.channels;
+      header.record_bytes = sizeof(ForwardDrizzleV2ProfileResult);
+      header.record_count = record_count;
+      header.dense_overlap_count = dense_overlap_count;
+      std::ofstream file(poutput.path(), std::ios::binary | std::ios::trunc);
+      file.write(reinterpret_cast<const char *>(&header), sizeof(header));
+      file.write(reinterpret_cast<const char *>(profiles.data()),
+                 static_cast<std::streamsize>(
+                     record_count * sizeof(profiles[0])));
+      file.flush();
+      if (!file) throw std::runtime_error("FDV2_STORE_BAND_WRITE_FAILED");
+    }
+    poutput.commit();
+    commit.profiles_artifact = pname;
+    commit.profiles_bytes =
+        kBandHeaderBytes +
+        record_count * sizeof(ForwardDrizzleV2ProfileResult);
+    commit.profiles_sha256 =
+        core::sha256_file(generation_ / pname);
+  }
   bands_.push_back(std::move(commit));
   next_y_ += rows;
 
@@ -507,6 +599,38 @@ fs::path ForwardDrizzleV2StoreWriter::finish(
   return generation_;
 }
 
+bool load_forward_drizzle_v2_published_plan(
+    const fs::path &root, ForwardDrizzleV2RunPlan &out, std::string &error) {
+  error.clear();
+  std::error_code ec;
+  const fs::path current_path = root / "current.json";
+  if (!fs::is_regular_file(fs::symlink_status(current_path, ec)))
+    return false;
+  try {
+    const json current = read_small_json(current_path);
+    const auto generation_name = current.value("generation", std::string{});
+    if (generation_name.empty())
+      throw std::runtime_error("malformed current.json");
+    const fs::path generation = root / generation_name;
+    std::string parse_error;
+    if (!parse_forward_drizzle_v2_plan(
+            read_small_json(generation / "plan.json").dump(), out,
+            parse_error))
+      throw std::runtime_error("unparseable plan.json: " + parse_error);
+  } catch (const std::exception &e) {
+    throw std::runtime_error(std::string("FDV2_STORE_PLAN_LOAD: ") + e.what());
+  }
+  // The parse round-trip is structural only; the identity is verified by a
+  // following inspect() call (plan_hash recompute + commit chain).
+  ForwardDrizzleV2RunPlan reparsed;
+  std::string re_error;
+  if (!parse_forward_drizzle_v2_plan(
+          serialize_forward_drizzle_v2_plan(out), reparsed, re_error) ||
+      reparsed.plan_hash != out.plan_hash)
+    throw std::runtime_error("FDV2_STORE_PLAN_LOAD_ROUNDTRIP");
+  return true;
+}
+
 std::vector<ForwardDrizzleV2PixelResult> read_forward_drizzle_v2_band(
     const fs::path &generation, const ForwardDrizzleV2BandCommit &commit) {
   const fs::path path = generation / commit.artifact;
@@ -531,6 +655,39 @@ std::vector<ForwardDrizzleV2PixelResult> read_forward_drizzle_v2_band(
       header.dense_overlap_count != commit.dense_overlap_count)
     throw std::runtime_error("FDV2_STORE_BAND_HEADER_MISMATCH");
   std::vector<ForwardDrizzleV2PixelResult> records(header.record_count);
+  file.read(reinterpret_cast<char *>(records.data()),
+            static_cast<std::streamsize>(header.record_count *
+                                         sizeof(records[0])));
+  if (!file) throw std::runtime_error("FDV2_STORE_BAND_READ_FAILED");
+  return records;
+}
+
+std::vector<ForwardDrizzleV2ProfileResult>
+read_forward_drizzle_v2_band_profiles(
+    const fs::path &generation, const ForwardDrizzleV2BandCommit &commit) {
+  if (commit.profiles_artifact.empty())
+    throw std::runtime_error("FDV2_STORE_BAND_NO_PROFILES");
+  const fs::path path = generation / commit.profiles_artifact;
+  std::error_code ec;
+  if (!fs::is_regular_file(fs::symlink_status(path, ec)) ||
+      fs::file_size(path, ec) != commit.profiles_bytes)
+    throw std::runtime_error("FDV2_STORE_BAND_MISSING_OR_SIZED");
+  if (core::sha256_file(path) != commit.profiles_sha256)
+    throw std::runtime_error("FDV2_STORE_BAND_HASH_MISMATCH");
+  std::ifstream file(path, std::ios::binary);
+  BandHeader header;
+  file.read(reinterpret_cast<char *>(&header), sizeof(header));
+  if (!file || header.magic != kBandMagic ||
+      header.schema_version != 1 || header.band_index != commit.band_index ||
+      header.y_begin != commit.y_begin || header.rows != commit.rows ||
+      header.native_cols != commit.native_cols ||
+      header.channels != commit.channels ||
+      header.record_bytes != sizeof(ForwardDrizzleV2ProfileResult) ||
+      header.record_count !=
+          static_cast<std::uint64_t>(commit.rows) * commit.native_cols *
+              commit.channels)
+    throw std::runtime_error("FDV2_STORE_BAND_HEADER_MISMATCH");
+  std::vector<ForwardDrizzleV2ProfileResult> records(header.record_count);
   file.read(reinterpret_cast<char *>(records.data()),
             static_cast<std::streamsize>(header.record_count *
                                          sizeof(records[0])));
@@ -583,9 +740,34 @@ ForwardDrizzleV2StoreInspection inspect_forward_drizzle_v2_store(
     if (digest(committed) != commit_hash ||
         committed.value("plan_hash", std::string{}) != plan_hash)
       return fail("commit.json hash mismatch");
+    // The final checkpoint.json is hash-chained into commit.json via
+    // checkpoint_hash: parse and bind it so a complete-store consumer gets
+    // the same verified band list a resumable inspection exposes. Every
+    // band read still re-checks its sha256 against the commit entry.
+    ForwardDrizzleV2Checkpoint final_checkpoint;
+    std::string fc_parse_error;
+    try {
+      if (!parse_forward_drizzle_v2_checkpoint(
+              read_small_json(generation / "checkpoint.json").dump(),
+              final_checkpoint, fc_parse_error))
+        return fail("unparseable final checkpoint.json: " + fc_parse_error);
+    } catch (const std::exception &e) {
+      return fail(std::string("unreadable final checkpoint.json: ") +
+                  e.what());
+    }
+    if (final_checkpoint.schema_version !=
+            ForwardDrizzleV2Checkpoint::kSchemaVersion ||
+        digest(checkpoint_to_json(final_checkpoint, false)) !=
+            final_checkpoint.checkpoint_hash ||
+        final_checkpoint.plan_hash != expected_plan.plan_hash ||
+        final_checkpoint.band_count != expected_plan.band_count ||
+        final_checkpoint.checkpoint_hash !=
+            committed.value("checkpoint_hash", std::string{}))
+      return fail("final checkpoint.json binding mismatch");
     out.status = ForwardDrizzleV2StoreStatus::complete;
     out.generation = generation;
     out.commit_hash = commit_hash;
+    out.committed = std::move(final_checkpoint.bands);
     return out;
   }
 
@@ -639,7 +821,8 @@ ForwardDrizzleV2StoreInspection inspect_forward_drizzle_v2_store(
 
   std::string verify_error;
   if (!verify_checkpoint_bands(generation, checkpoint, expected_cols,
-                               expected_plan.native_height, verify_error))
+                               expected_plan.native_height,
+                               expected_plan.emit_profiles, verify_error))
     return fail(verify_error);
 
   out.status = ForwardDrizzleV2StoreStatus::resumable;

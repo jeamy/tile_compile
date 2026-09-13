@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "gate": 10,
+  "status": "frozen_before_implementation",
+  "scope": "production cutover of forward drizzle v2: runner wiring, host CPU fallback port, band-level resume through the gate-7 store, real production runs, then removal of the legacy record/sort/candidate path. Ends the unpublished-prototype phase.",
+  "wiring_contract": {
+    "selection": "env var TC_FORWARD_DRIZZLE_V2=1 selects the v2 producer in the FORWARD_DRIZZLE phase during acceptance; the choice is recorded in the v2 run plan and run provenance. After acceptance the legacy path is removed unconditionally and no user-facing switch remains.",
+    "store": "the durable artifact is the gate-7 v2 store (forward_drizzle_v2 store root inside artifacts): plan.json + band-%04d.bin pixel records + band-%04d.profiles.bin profile records + checkpoint.json + commit.json + current.json. No legacy FITS profile store is written by v2 runs.",
+    "band_artifact_extension": "commit_band gains a profiles payload: band-%04d.profiles.bin carries ForwardDrizzleV2ProfileResult records (80 B) in the same order as the pixel records; ForwardDrizzleV2BandCommit gains profiles_artifact/profiles_bytes/profiles_sha256; both files commit atomically inside the same band transaction before the checkpoint update. Stores without profiles remain readable (affine/uniform-only runs).",
+    "multiband_phase": "the MULTIBAND phase auto-detects the v2 store (current.json under the v2 store root) and drives fuse_multiband_streamed over committed band records adapted via forward_drizzle_v2_profiles_to_uniform_result; alpha planes come from forward_drizzle_v2_profile_alpha_plane with channel-min semantics; the stripe-boundary flood-fill caveat is unchanged.",
+    "resume": "mid-phase failure resumes at the committed band prefix via inspect_forward_drizzle_v2_store + adopt(); partially written band artifacts are unverifiable and recomputed; the phase checkpoint records the v2 plan_hash so a config/plan change fails closed.",
+    "fallback": "FORWARD_DRIZZLE_V2 runs CUDA when available; on a device error the uncommitted generation is discarded and the whole phase restarts on the host CPU port (section 21.4 contract: same artifacts, same band store, bit-identical discrete decisions, magnitudes within documented tolerance). The CPU port must be bounded-memory (same banding and reservoir caps as the device path).",
+    "inputs": {
+      "sources": "VerifiedNormalizedSourceCache rows via the existing rect provider contract",
+      "quality": "SourceQualityMapCacheReader supplies q_composite/q_scale0/q_scale1/q_artifact source-resolution planes per frame (missing streams fold to 1.0)",
+      "sigma2": "host-computed per source pixel via forward_drizzle_v2_sigma2_model: sigma_noise from FrameMetrics.noise (source quality metrics), sigma_reg from star_residuals rms_px (global registration), gradient = central differences of the normalized source; missing inputs produce an absent sigma2 stream (n_eff fallback)",
+      "frame_meta": "g_eff from the quality frame weight plan, is_direct = !model_predicted && model_prediction_factor==1.0, residual_factor = registration_residual_factor",
+      "geometry": "affine frames take source_to_canvas; has_smooth_local_model frames take accumulate_frame_local with the persisted SmoothLocalWarpModel; per-frame discard policy counts against local_samples_discarded"
+    },
+    "output_grid": "v2 stores at the native output grid; supported configs require output resolution == native canvas (internal_scale=2/output_scale=1 and 1/1); 2/2 is rejected at plan time"
+  },
+  "cpu_port_contract": {
+    "semantics": "host port of the device pipeline: per-source-sample warp evaluation (affine inverse or local model), polygon-rectangle droplet clip, b_src/b_geo/quality accumulation into the same plane roles, hash reservoir with identical keep predicate and 2R slot cap, deterministic overflow fallback, finalize = bit-identical clip/alpha/profile reduction to the device path",
+    "tolerance": "discrete decisions, support masks, kept sets, clip masks and profile support bit-identical to the device path; magnitudes within 1e-12 relative (no atomic-order drift on a serial host loop)",
+    "performance": "no bound: the fallback exists for contract survival on machines without a usable device, not for throughput; it must still be bounded-memory and stream frames sequentially"
+  },
+  "production_run_matrix": {
+    "runs": [
+      {"id": "A1", "dataset": "M31_ligths_all (645 frames)", "mode": "affine-only (local refinement disabled or naturally absent)", "frames": "full set"},
+      {"id": "A2", "dataset": "M42_02.2026_lights_all (610 frames)", "mode": "affine-only via smooth_local_refinement_enabled=false", "frames": "full set"},
+      {"id": "L1", "dataset": "M42_02.2026_lights_all (610 frames)", "mode": "local refinement enabled; acceptance requires local_model_samples_total > 0", "frames": "full set"},
+      {"id": "L2", "dataset": "M42_02.2026_lights_all (610 frames)", "mode": "local refinement enabled, distinct drizzle params (pixfrac 1.0 or levels=4)", "frames": "full set"}
+    ],
+    "notes": "every run is a complete cold pipeline (scan -> registration -> quality -> FORWARD_DRIZZLE -> MULTIBAND -> downstream); a run whose sampling plan yields zero local-model frames does not count as a local acceptance; if M42 stops producing local frames an alternate dataset with applied local models must be substituted"
+  },
+  "acceptance_gates": {
+    "store": "every v2 run ends with a published current.json; verify via inspect_forward_drizzle_v2_store == complete; commit gate nonfinite_pixels_inside_source_support == 0",
+    "scaling": "frame-dependent work linear in N; reserved device bytes constant across N; no N log N per pixel; RA <= 1.1 with reuse accounting reported per run",
+    "telemetry": "0 hotpath allocations, 0 global device synchronizations, max_frame_seconds < 0.75 on production geometry",
+    "validation": "matched-star selection runs on v2 outputs; uniform and raw remain immutable controls; multiband promotion still requires strict improvement over raw",
+    "cpu_fallback": "a forced device failure mid-phase produces a CPU-restarted run whose committed band records match the CUDA run's discrete state bit-for-bit and magnitudes within 1e-12",
+    "resume": "SIGKILL mid-FORWARD_DRIZZLE then resume: the run completes, band artifacts at/after the kill point are recomputed, committed prefix reused verbatim (checkpoint_hash equality against the uninterrupted run where the plan binds it)",
+    "errors": "corrupt band artifact (bit flip, truncation, missing file), non-contiguous checkpoint, foreign plan context, ambiguous generations all fail closed on resume"
+  },
+  "documentation_and_schema": {
+    "required": [
+      "configuration_reference.md/_en.md: record the v2 cutover state and the removed legacy path",
+      "methodology docs: architecture doc gate-10 section + gate table updated",
+      "report labels: runs record backend_used=cuda_v2/cpu_v2 and the v2 store identity",
+      "examples/README updated where they reference the reconstruction internals"
+    ]
+  },
+  "legacy_removal": {
+    "precondition": "all production runs passed and the decision artifact is written",
+    "removes": "the record/sort/candidate producer path (ClipCandidate streaming, per-pixel candidate lists, legacy CUDA stripe path, CPU streaming reduction, persist_forward_drizzle_* entry points) and the legacy FITS profile store writer once no consumer remains",
+    "keeps": "fuse_multiband*/multiband_validation machinery (shared), the normalized source cache, quality map cache, and everything upstream of FORWARD_DRIZZLE",
+    "constraint": "removal is the final commit of the gate; it is not part of the acceptance runs"
+  },
+  "test_matrix": {
+    "unit": "CPU port parity vs device on the small-canvas matrix (scale 1/2, MONO/OSC, all bayer patterns, local warps, N>R, invalid models); profile artifact round-trip; checkpoint schema with and without profiles",
+    "integration": "v2 store -> fuse_multiband_streamed parity against the gate-9 whole-frame oracle; band-resume mid-stream; commit-gate rejection; corrupt-artifact matrix on the extended band format",
+    "runner": "FORWARD_DRIZZLE phase with TC_FORWARD_DRIZZLE_V2=1 produces the v2 store; MULTIBAND auto-detects and fuses; phase checkpoint carries plan_hash; env unset keeps legacy path (until removal)"
+  }
+}

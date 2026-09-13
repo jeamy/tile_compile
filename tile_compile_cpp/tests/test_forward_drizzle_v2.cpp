@@ -1,7 +1,11 @@
 #include "tile_compile/reconstruction/forward_drizzle_contrib_list.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_v2_cpu.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_v2_driver.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_v2_production.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2_store.hpp"
+#include "tile_compile/reconstruction/source_quality_artifact.hpp"
 #include "tile_compile/reconstruction/multiband_fusion.hpp"
 #include "tile_compile/reconstruction/multiband_validation.hpp"
 #include "tile_compile/core/atomic_output.hpp"
@@ -2257,7 +2261,7 @@ ForwardDrizzleV2StoreWriter *v2_crashed_writer(const fs::path &root,
     writer->commit_band(i, y, rows,
                         v2_band_records(rows, writer->plan().native_width,
                                         writer->plan().channels, 100.0 + i),
-                        7 + i);
+                        {}, 7 + i);
     y += rows;
   }
   return writer;
@@ -2276,7 +2280,7 @@ void v2_commit_all_bands(ForwardDrizzleV2StoreWriter &writer, int from_band,
     writer.commit_band(i, y, rows,
                        v2_band_records(rows, p.native_width, p.channels,
                                        seed_base + i),
-                       7 + i);
+                       {}, 7 + i);
     y += rows;
   }
 }
@@ -2347,7 +2351,7 @@ TEST_CASE("forward drizzle v2 store publishes only fully committed bands",
                                  v2_band_records(plan.band_rows,
                                                  plan.native_width,
                                                  plan.channels, 0.0),
-                                 0));
+                                 {}, 0));
   REQUIRE_THROWS(bad.finish(v2_gate(plan.band_count)));
 }
 
@@ -2568,7 +2572,7 @@ TEST_CASE("forward drizzle v2 store fails closed on unbound or corrupt state",
                          v2_band_records(writer.plan().band_rows,
                                          writer.plan().native_width,
                                          writer.plan().channels, 0.0),
-                         0);
+                         {}, 0);
       generation = writer.generation();
     }
     REQUIRE(!fs::exists(generation));
@@ -4751,4 +4755,1802 @@ TEST_CASE("forward drizzle v2 gate9 production geometry profiled pipeline",
   rec["dense_overlap"] = dense;
   std::ofstream(results_path, std::ios::app)
       << rec.dump() << "\n";
+}
+
+TEST_CASE("forward drizzle v2 gate10 store persists profile artifacts",
+          "[gate10][store]") {
+  V2StoreFixture fx;
+  auto plan = v2_store_plan();
+  plan.emit_profiles = true;
+  plan.multiband_levels = 2;
+  finalize_forward_drizzle_v2_run_plan(plan);
+
+  auto make_profiles = [](std::size_t n, double seed) {
+    std::vector<ForwardDrizzleV2ProfileResult> r(n);
+    for (std::size_t i = 0; i < n; ++i) {
+      r[i].uniform.value = seed + static_cast<double>(i);
+      r[i].uniform.weight_sum = 1.0f;
+      r[i].uniform.n_eff = 1.0f;
+      r[i].uniform.support = 1;
+      r[i].raw.value = seed * 2.0f + static_cast<float>(i);
+      r[i].raw.weight_sum = 2.0f;
+      r[i].fine.value = seed * 0.5f;
+      r[i].fine.weight_sum = 0.5f;
+      r[i].medium.value = seed * 0.25f;
+      r[i].medium.weight_sum = 0.25f;
+      r[i].a_separation = 0.3f;
+      r[i].a_artifact = 0.2f;
+      r[i].a_registration = 0.9f;
+      r[i].artifact_applicable = true;
+    }
+    return r;
+  };
+
+  // Roundtrip: committed profile payloads hash-verify and read back
+  // identical; checkpoint and commit record both artifacts.
+  {
+    ForwardDrizzleV2StoreWriter writer(fx.root / "ok", plan);
+    writer.begin();
+    int y = 0;
+    for (int i = 0; i < plan.band_count; ++i) {
+      const int rows = std::min(plan.band_rows, plan.native_height - y);
+      const std::size_t n = static_cast<std::size_t>(rows) * plan.native_width *
+                            plan.channels;
+      const auto records = v2_band_records(rows, plan.native_width,
+                                           plan.channels, 10.0 + i);
+      const auto profiles = make_profiles(n, 1.0 + i);
+      writer.commit_band(i, y, rows, records, profiles, 3 + i);
+      const auto insp = inspect_forward_drizzle_v2_store(fx.root / "ok", plan);
+      REQUIRE(insp.status == ForwardDrizzleV2StoreStatus::resumable);
+      const auto &band = insp.committed.back();
+      REQUIRE(band.profiles_artifact ==
+              "band-" + std::string(4 - std::to_string(i).size(), '0') +
+                  std::to_string(i) + ".profiles.bin");
+      REQUIRE(band.profiles_bytes ==
+              64 + n * sizeof(ForwardDrizzleV2ProfileResult));
+      REQUIRE_FALSE(band.profiles_sha256.empty());
+      const auto back = read_forward_drizzle_v2_band_profiles(
+          writer.generation(), band);
+      REQUIRE(back.size() == n);
+      REQUIRE(std::memcmp(back.data(), profiles.data(),
+                          n * sizeof(profiles[0])) == 0);
+      y += rows;
+    }
+    writer.finish(v2_gate(plan.band_count));
+    const auto insp = inspect_forward_drizzle_v2_store(fx.root / "ok", plan);
+    REQUIRE(insp.status == ForwardDrizzleV2StoreStatus::complete);
+  }
+
+  // emit_profiles plan without payloads rejects the band.
+  {
+    ForwardDrizzleV2StoreWriter writer(fx.root / "mismatch", plan);
+    writer.begin();
+    REQUIRE_THROWS(writer.commit_band(
+        0, 0, plan.band_rows,
+        v2_band_records(plan.band_rows, plan.native_width, plan.channels, 0.0),
+        {}, 0));
+    // destructor cleans up the unpublished generation
+  }
+
+  // Crash after two profiled bands: resume is resumable, missing or
+  // tampered profile payload fails closed.
+  {
+    ForwardDrizzleV2StoreWriter *w = new ForwardDrizzleV2StoreWriter(
+        fx.root / "resumed2", plan);
+    w->begin();
+    int y = 0;
+    for (int i = 0; i < 2; ++i) {
+      const int rows = std::min(plan.band_rows, plan.native_height - y);
+      const std::size_t n = static_cast<std::size_t>(rows) * plan.native_width *
+                            plan.channels;
+      w->commit_band(i, y, rows,
+                     v2_band_records(rows, plan.native_width, plan.channels,
+                                     10.0 + i),
+                     make_profiles(n, 1.0 + i), 3 + i);
+      y += rows;
+    }
+    const auto generation = w->generation();
+    auto insp = inspect_forward_drizzle_v2_store(fx.root / "resumed2", plan);
+    REQUIRE(insp.status == ForwardDrizzleV2StoreStatus::resumable);
+    REQUIRE(insp.next_band == 2);
+
+    // Missing profile artifact fails closed.
+    fs::remove(generation / "band-0000.profiles.bin");
+    insp = inspect_forward_drizzle_v2_store(fx.root / "resumed2", plan);
+    REQUIRE(insp.status == ForwardDrizzleV2StoreStatus::corrupt);
+    delete w;
+  }
+
+  // Profile fields present while emit_profiles=false are rejected.
+  {
+    auto plain = v2_store_plan();
+    ForwardDrizzleV2StoreWriter *w = new ForwardDrizzleV2StoreWriter(
+        fx.root / "foreign", plain);
+    w->begin();
+    w->commit_band(0, 0, plain.band_rows,
+                   v2_band_records(plain.band_rows, plain.native_width,
+                                   plain.channels, 0.0),
+                   {}, 0);
+    auto insp = inspect_forward_drizzle_v2_store(fx.root / "foreign", plan);
+    REQUIRE(insp.status == ForwardDrizzleV2StoreStatus::corrupt);
+    delete w;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Gate 10: host CPU port of the v2 band kernel (forward_drizzle_v2_cpu)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("forward drizzle v2 gate10 host kernel affine parity",
+          "[forward-drizzle-v2][gate10]") {
+  const BayerPattern patterns[] = {BayerPattern::RGGB, BayerPattern::BGGR,
+                                   BayerPattern::GRBG, BayerPattern::GBRG};
+  for (int scale : {1, 2}) {
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+      for (BayerPattern pattern : patterns) {
+        auto f = make_fixture(mode, pattern, 1, -1, scale);
+        const int nc = f.plan.canvas_width_native;
+        const int nr = f.plan.canvas_height_native;
+        const int channels = mode == ColorMode::MONO ? 1 : 3;
+        const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+        const std::size_t n_src = static_cast<std::size_t>(
+            f.plan.source_width) * f.plan.source_height;
+        std::vector<float> s2(n_src);
+        for (std::size_t i = 0; i < n_src; ++i)
+          s2[i] = 0.01f + 0.0001f * static_cast<float>(i % 97);
+        s2[3] = -1.0f;  // degraded-confidence coverage
+        ForwardDrizzleV2KernelConfig kcfg;
+        kcfg.internal_scale = scale;
+        kcfg.stream_length = f.plan.frames.size();
+        kcfg.half = 0.5 * f.cfg.pixfrac;
+        kcfg.bayer_pattern = static_cast<int>(pattern);
+        kcfg.cfa_origin_x = f.plan.cfa_origin_x;
+        kcfg.cfa_origin_y = f.plan.cfa_origin_y;
+        kcfg.mono = mode == ColorMode::MONO;
+        kcfg.canvas_width_native = nc;
+        kcfg.canvas_height_native = nr;
+
+        const auto ref = gate6_cpu_reference(f, s2, kcfg);
+        ForwardDrizzleV2CpuKernel kernel;
+        REQUIRE(kernel.reserve(nc, nr, f.plan.source_width,
+                               f.plan.source_height, kcfg));
+        for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+          const auto &m = f.plan.frames[fr].source_to_canvas;
+          const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                                m(1, 0), m(1, 1), m(1, 2)};
+          REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), s2.data(),
+                                          fr));
+        }
+        std::vector<ForwardDrizzleV2PixelResult> got(nplane * channels);
+        std::uint64_t dense = 0;
+        REQUIRE(kernel.finalize(got.data(), nullptr, &dense));
+        require_gate6_parity(ref, got, nc, nr, channels);
+        REQUIRE(dense == ref.dense_overlap);
+        const double subpixels = static_cast<double>(scale) * scale;
+        for (std::size_t pc = 0; pc < nplane * channels; ++pc) {
+          const unsigned int m = ref.masks[pc];
+          const float geo = static_cast<float>(
+              static_cast<double>(__builtin_popcount(m & 0xFu)) / subpixels);
+          const float src = static_cast<float>(
+              static_cast<double>(__builtin_popcount((m >> 4) & 0xFu)) /
+              subpixels);
+          REQUIRE(got[pc].geometry_fraction == geo);
+          REQUIRE(got[pc].source_fraction == src);
+          REQUIRE(got[pc].estimator_fraction == src);
+          REQUIRE(got[pc].profile_fraction == src);
+        }
+        const auto &st = kernel.stats();
+        REQUIRE(st.allocations == 1);
+        REQUIRE(st.device_global_synchronizations == 0);
+        REQUIRE(st.stream_synchronizations == 1);
+        REQUIRE(st.frames_processed == f.plan.frames.size());
+        REQUIRE(st.positive_overlaps > 0);
+        REQUIRE(st.candidates_streamed > 0);
+        REQUIRE(st.reservoir_kept_total > 0);
+        REQUIRE(st.slot_transitions == f.plan.frames.size());
+        // Bounded-memory accounting: reserved host bytes per native pixel
+        // must fit the gate-5 plan budget comfortably.
+        REQUIRE(kernel.host_bytes_per_native_pixel() > 0);
+        REQUIRE(kernel.host_bytes_per_native_pixel() < 20000);
+      }
+    }
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 host kernel reservoir sampling N > R",
+          "[forward-drizzle-v2][gate10]") {
+  auto f = make_fixture(ColorMode::OSC, BayerPattern::GBRG, 0, 0, 2);
+  const std::size_t keep = f.plan.frames.size();
+  for (std::size_t i = keep; i < 80; ++i) {
+    FrameSamplingTransform frame = f.plan.frames[i % keep];
+    frame.frame_id = "v2-extra-" + std::to_string(i);
+    frame.source_index = i;
+    frame.source_to_canvas(0, 2) += static_cast<float>(0.01 * (i - keep));
+    f.plan.frames.push_back(frame);
+    f.images.push_back(f.images[i % keep]);
+  }
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = 2;
+  kcfg.stream_length = f.plan.frames.size();
+  kcfg.half = 0.5 * f.cfg.pixfrac;
+  kcfg.bayer_pattern = static_cast<int>(BayerPattern::GBRG);
+  kcfg.mono = false;
+  const auto ref = gate6_cpu_reference(f, {}, kcfg);
+  ForwardDrizzleV2CpuKernel kernel;
+  REQUIRE(kernel.reserve(nc, nr, f.plan.source_width, f.plan.source_height,
+                         kcfg));
+  for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+    const auto &m = f.plan.frames[fr].source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1), m(1, 2)};
+    REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), nullptr, fr));
+  }
+  std::vector<ForwardDrizzleV2PixelResult> got(nplane * 3);
+  std::uint64_t dense = 0;
+  REQUIRE(kernel.finalize(got.data(), nullptr, &dense));
+  require_gate6_parity(ref, got, nc, nr, 3);
+  REQUIRE(dense == ref.dense_overlap);
+  REQUIRE(kernel.stats().reservoir_kept_total <=
+          kernel.stats().candidates_streamed);
+  REQUIRE(kernel.stats().reservoir_kept_total > 0);
+}
+
+TEST_CASE("forward drizzle v2 gate10 host kernel mixed local stream parity",
+          "[forward-drizzle-v2][gate10]") {
+  for (int scale : {1, 2}) {
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+      auto f = make_fixture(mode, BayerPattern::GBRG, 0, 0, scale);
+      const int nc = f.plan.canvas_width_native;
+      const int nr = f.plan.canvas_height_native;
+      const int channels = mode == ColorMode::MONO ? 1 : 3;
+      const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+      const std::size_t n_src = static_cast<std::size_t>(
+          f.plan.source_width) * f.plan.source_height;
+      std::vector<float> s2(n_src);
+      for (std::size_t i = 0; i < n_src; ++i)
+        s2[i] = 0.01f + 0.0001f * static_cast<float>(i % 97);
+
+      float cx1[16] = {}, cy1[16] = {}, cx3[16] = {}, cy3[16] = {};
+      cx1[5] = 1.3f;
+      cy1[6] = -0.8f;
+      cx3[9] = -1.7f;
+      cy3[10] = 1.1f;
+      f.plan.frames[1] = v2_local_frame(
+          f.plan.frames[1], v2_local_model(nr, nc, cx1, cy1));
+      f.plan.frames[3] = v2_local_frame(
+          f.plan.frames[3], v2_local_model(nr, nc, cx3, cy3));
+
+      ForwardDrizzleV2KernelConfig kcfg;
+      kcfg.internal_scale = scale;
+      kcfg.stream_length = f.plan.frames.size();
+      kcfg.half = 0.5 * f.cfg.pixfrac;
+      kcfg.bayer_pattern = static_cast<int>(f.plan.bayer_pattern);
+      kcfg.cfa_origin_x = f.plan.cfa_origin_x;
+      kcfg.cfa_origin_y = f.plan.cfa_origin_y;
+      kcfg.mono = mode == ColorMode::MONO;
+      kcfg.canvas_width_native = nc;
+      kcfg.canvas_height_native = nr;
+
+      const auto ref = gate8_cpu_reference(f, s2, kcfg);
+      std::uint64_t expected_discards = 0;
+      for (const auto &fr : f.plan.frames) {
+        if (!fr.has_smooth_local_model) continue;
+        expected_discards += v2_frame_planes_cpu(
+                                 f.plan, fr, f.images[fr.source_index],
+                                 scale, f.cfg.pixfrac, channels,
+                                 f.plan.bayer_pattern, f.plan.cfa_origin_x,
+                                 f.plan.cfa_origin_y)
+                                 .discarded;
+      }
+
+      ForwardDrizzleV2CpuKernel kernel;
+      REQUIRE(kernel.reserve(nc, nr, f.plan.source_width,
+                             f.plan.source_height, kcfg));
+      for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+        const auto &frame = f.plan.frames[fr];
+        const auto &m = frame.source_to_canvas;
+        const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                              m(1, 0), m(1, 1), m(1, 2)};
+        if (frame.has_smooth_local_model) {
+          REQUIRE(kernel.accumulate_frame_local(
+              a6, v2_warp_descriptor(frame), f.images[fr].data(),
+              s2.data(), fr));
+        } else {
+          REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(),
+                                          s2.data(), fr));
+        }
+      }
+      std::vector<ForwardDrizzleV2PixelResult> got(nplane * channels);
+      std::uint64_t dense = 0;
+      REQUIRE(kernel.finalize(got.data(), nullptr, &dense));
+      // The host kernel runs the SAME inversion/subdivision functions as the
+      // oracle, so magnitudes match far tighter than the device tolerance.
+      require_gate6_parity(ref, got, nc, nr, channels);
+      REQUIRE(dense == ref.dense_overlap);
+      REQUIRE(kernel.stats().local_samples_discarded == expected_discards);
+      REQUIRE(kernel.stats().allocations == 1);
+    }
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 host kernel band windows compose",
+          "[forward-drizzle-v2][gate10]") {
+  // Banding contract: identical canvas-coords affine6 + band_origin selects
+  // the band window; per-band records must equal the whole-canvas run's
+  // rows (discrete fields bit-exact, magnitudes within 1e-12).
+  for (int scale : {1, 2}) {
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+      auto f = make_fixture(mode, BayerPattern::GRBG, 0, 0, scale);
+      const int nc = f.plan.canvas_width_native;
+      const int nr = f.plan.canvas_height_native;
+      const int channels = mode == ColorMode::MONO ? 1 : 3;
+      const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+      const std::size_t n_src = static_cast<std::size_t>(
+          f.plan.source_width) * f.plan.source_height;
+      std::vector<float> s2(n_src, 0.02f);
+
+      // One local frame so the band test covers the canvas-coords
+      // inversion + shifted emit path.
+      float cx[16] = {}, cy[16] = {};
+      cx[5] = 1.2f;
+      cy[6] = -0.7f;
+      f.plan.frames[2] = v2_local_frame(
+          f.plan.frames[2], v2_local_model(nr, nc, cx, cy));
+
+      auto make_kcfg = [&](int y_begin, int rows) {
+        ForwardDrizzleV2KernelConfig k;
+        k.internal_scale = scale;
+        k.stream_length = f.plan.frames.size();
+        k.half = 0.5 * f.cfg.pixfrac;
+        k.bayer_pattern = static_cast<int>(f.plan.bayer_pattern);
+        k.cfa_origin_x = f.plan.cfa_origin_x;
+        k.cfa_origin_y = f.plan.cfa_origin_y;
+        k.mono = mode == ColorMode::MONO;
+        k.canvas_width_native = nc;
+        k.canvas_height_native = nr;
+        k.band_origin_y_native = y_begin;
+        return k;
+      };
+      auto run = [&](int y_begin, int rows) {
+        ForwardDrizzleV2CpuKernel kernel;
+        REQUIRE(kernel.reserve(nc, rows, f.plan.source_width,
+                               f.plan.source_height,
+                               make_kcfg(y_begin, rows)));
+        for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+          const auto &frame = f.plan.frames[fr];
+          const auto &m = frame.source_to_canvas;
+          const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                                m(1, 0), m(1, 1), m(1, 2)};
+          if (frame.has_smooth_local_model)
+            REQUIRE(kernel.accumulate_frame_local(
+                a6, v2_warp_descriptor(frame), f.images[fr].data(),
+                s2.data(), fr));
+          else
+            REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(),
+                                            s2.data(), fr));
+        }
+        std::vector<ForwardDrizzleV2PixelResult> out(
+            static_cast<std::size_t>(rows) * nc * channels);
+        std::uint64_t dense = 0;
+        REQUIRE(kernel.finalize(out.data(), nullptr, &dense));
+        return out;
+      };
+
+      const auto whole = run(0, nr);
+      // Resume contract: recomputing the same band with the same plan
+      // yields bitwise-identical records (field-wise to skip padding).
+      const auto band1a = run(5, 5);
+      const auto band1b = run(5, 5);
+      auto bit_eq = [](const auto &a, const auto &b) {
+        return std::memcmp(&a, &b, sizeof(a)) == 0;
+      };
+      for (std::size_t i = 0; i < band1a.size(); ++i) {
+        const auto &a = band1a[i];
+        const auto &b = band1b[i];
+        REQUIRE(bit_eq(a.value, b.value));
+        REQUIRE(bit_eq(a.b, b.b));
+        REQUIRE(bit_eq(a.n_eff, b.n_eff));
+        REQUIRE(bit_eq(a.confidence, b.confidence));
+        REQUIRE(bit_eq(a.geometry_fraction, b.geometry_fraction));
+        REQUIRE(bit_eq(a.source_fraction, b.source_fraction));
+        REQUIRE(bit_eq(a.estimator_fraction, b.estimator_fraction));
+        REQUIRE(bit_eq(a.profile_fraction, b.profile_fraction));
+        REQUIRE(bit_eq(a.contributors, b.contributors));
+        REQUIRE(bit_eq(a.robust_state, b.robust_state));
+        REQUIRE(bit_eq(a.confidence_state, b.confidence_state));
+        REQUIRE(bit_eq(a.conf_degraded, b.conf_degraded));
+      }
+
+      // Whole-vs-band: all discrete fields bit-exact and the full-stream
+      // magnitudes within 1e-12. The clip-accepted mean `value` may flip a
+      // boundary candidate because the banded emit shifts corners before
+      // scaling (one ulp); count and bound those flips.
+      std::uint64_t compared = 0, flips = 0;
+      int y = 0;
+      int band_index = 0;
+      while (y < nr) {
+        const int rows = std::min(5, nr - y);
+        const auto band = run(y, rows);
+        for (int r = 0; r < rows; ++r)
+          for (int x = 0; x < nc; ++x)
+            for (int c = 0; c < channels; ++c) {
+              const std::size_t pband =
+                  static_cast<std::size_t>(c) * rows * nc +
+                  static_cast<std::size_t>(r) * nc + x;
+              const std::size_t pwhole =
+                  static_cast<std::size_t>(c) * nplane +
+                  static_cast<std::size_t>(y + r) * nc + x;
+              const auto &e = whole[pwhole];
+              const auto &g = band[pband];
+              ++compared;
+              // A clip-boundary candidate may flip because the banded emit
+              // shifts corners before scaling (one ulp). On a flip, both
+              // `value` and `confidence` (accepted-set Gate-4) move; all
+              // discrete fields and full-stream magnitudes must stay exact.
+              const double vd = std::fabs(static_cast<double>(g.value) -
+                                          static_cast<double>(e.value));
+              const double cd =
+                  std::fabs(static_cast<double>(g.confidence) -
+                            static_cast<double>(e.confidence));
+              const bool flip = vd > 1e-12 || cd > 1e-12;
+              if (flip)
+                INFO("clip flip band=" << band_index << " r=" << r
+                                       << " x=" << x << " c=" << c);
+              REQUIRE(g.robust_state == e.robust_state);
+              REQUIRE(g.confidence_state == e.confidence_state);
+              REQUIRE(g.contributors == e.contributors);
+              REQUIRE(g.conf_degraded == e.conf_degraded);
+              REQUIRE(g.geometry_fraction == e.geometry_fraction);
+              REQUIRE(g.source_fraction == e.source_fraction);
+              REQUIRE(g.b ==
+                      Catch::Approx(e.b).epsilon(1e-12).margin(1e-12));
+              REQUIRE(g.n_eff ==
+                      Catch::Approx(e.n_eff).epsilon(1e-12).margin(1e-12));
+              if (!flip) {
+                REQUIRE(g.value ==
+                        Catch::Approx(e.value).epsilon(1e-12).margin(1e-12));
+                REQUIRE(g.confidence ==
+                        Catch::Approx(e.confidence).epsilon(1e-12)
+                            .margin(1e-12));
+              } else {
+                REQUIRE(g.robust_state ==
+                        static_cast<std::uint8_t>(
+                            ForwardDrizzleV2RobustState::
+                                primary_reservoir_sigma_clip));
+                REQUIRE(vd <=
+                        0.1 * std::fabs(static_cast<double>(e.value)));
+                ++flips;
+              }
+            }
+        y += rows;
+        ++band_index;
+      }
+      REQUIRE(band_index == 3);
+      REQUIRE(flips <= compared / 200 + 1);
+    }
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 host kernel profile parity",
+          "[forward-drizzle-v2][gate10]") {
+  const BayerPattern patterns[] = {BayerPattern::GRBG, BayerPattern::GBRG};
+  for (int scale : {1, 2}) {
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+      for (BayerPattern pattern : patterns) {
+        auto f = make_fixture(mode, pattern, 1, -1, scale);
+        const std::size_t base_frames = f.plan.frames.size();
+        for (std::size_t i = base_frames; i < 12; ++i) {
+          FrameSamplingTransform frame = f.plan.frames[i % base_frames];
+          frame.frame_id = "v2-g10-" + std::to_string(i);
+          frame.source_index = i;
+          frame.source_to_canvas(0, 2) +=
+              static_cast<float>(0.011 * static_cast<double>(i - base_frames));
+          f.plan.frames.push_back(frame);
+          f.images.push_back(f.images[i % base_frames]);
+        }
+        const int nc = f.plan.canvas_width_native;
+        const int nr = f.plan.canvas_height_native;
+        const int channels = mode == ColorMode::MONO ? 1 : 3;
+        const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+        const int n_frames = static_cast<int>(f.plan.frames.size());
+
+        std::vector<Matrix2Df> qc(n_frames), q0(n_frames), q1(n_frames),
+            qa(n_frames);
+        std::vector<ForwardDrizzleV2FrameMeta> meta(n_frames);
+        for (int fr = 0; fr < n_frames; ++fr) {
+          qc[fr].resize(f.plan.source_height, f.plan.source_width);
+          q0[fr].resize(f.plan.source_height, f.plan.source_width);
+          q1[fr].resize(f.plan.source_height, f.plan.source_width);
+          qa[fr].resize(f.plan.source_height, f.plan.source_width);
+          for (int yy = 0; yy < f.plan.source_height; ++yy)
+            for (int xx = 0; xx < f.plan.source_width; ++xx) {
+              const std::size_t si =
+                  static_cast<std::size_t>(yy) * f.plan.source_width + xx;
+              const double s = static_cast<double>((si + 7 * fr) % 61) / 61.0;
+              qc[fr](yy, xx) = static_cast<float>(0.4 + 0.6 * s);
+              q0[fr](yy, xx) = static_cast<float>(0.3 + 0.7 * ((s * fr) -
+                                  std::floor(s * fr)));
+              q1[fr](yy, xx) = static_cast<float>(0.5 + 0.4 * s);
+              qa[fr](yy, xx) = static_cast<float>(0.2 + 0.6 * s);
+            }
+          qc[fr](0, 0) = std::numeric_limits<float>::quiet_NaN();
+          if (f.plan.source_width > 1) qc[fr](0, 1) = -1.0f;
+          qa[fr](1 % f.plan.source_height, 0) =
+              std::numeric_limits<float>::quiet_NaN();
+          meta[fr] = {static_cast<float>(0.6 + 0.05 * (fr % 5)),
+                      static_cast<float>(0.55 + 0.05 * fr),
+                      static_cast<std::uint8_t>(fr % 2), 0};
+        }
+
+        ForwardDrizzleV2KernelConfig kcfg;
+        kcfg.internal_scale = scale;
+        kcfg.stream_length = n_frames;
+        kcfg.half = 0.5 * f.cfg.pixfrac;
+        kcfg.bayer_pattern = static_cast<int>(pattern);
+        kcfg.cfa_origin_x = f.plan.cfa_origin_x;
+        kcfg.cfa_origin_y = f.plan.cfa_origin_y;
+        kcfg.mono = mode == ColorMode::MONO;
+        kcfg.emit_profiles = true;
+
+        ForwardDrizzleV2CpuKernel kernel;
+        REQUIRE(kernel.reserve(nc, nr, f.plan.source_width,
+                               f.plan.source_height, kcfg));
+        for (int fr = 0; fr < n_frames; ++fr) {
+          const auto &m = f.plan.frames[fr].source_to_canvas;
+          const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                                m(1, 0), m(1, 1), m(1, 2)};
+          ForwardDrizzleV2FrameQuality q;
+          q.q_composite = qc[fr].data();
+          q.q_scale0 = q0[fr].data();
+          q.q_scale1 = q1[fr].data();
+          q.q_artifact = fr == 2 ? nullptr : qa[fr].data();
+          REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), nullptr,
+                                          static_cast<std::uint64_t>(fr), &q,
+                                          &meta[fr]));
+        }
+        std::vector<ForwardDrizzleV2PixelResult> got(nplane * channels);
+        std::vector<ForwardDrizzleV2ProfileResult> gp(nplane * channels);
+        std::uint64_t dense = 0;
+        REQUIRE(kernel.finalize(got.data(), gp.data(), &dense));
+
+        const int ic = nc * scale, ir = nr * scale;
+        const double inv_s2 = 1.0 / (static_cast<double>(scale) * scale);
+        std::vector<std::vector<ForwardDrizzleV2ProfileCandidate>> cands(
+            nplane * channels);
+        std::vector<std::vector<ForwardDrizzleV2RobustCandidate>> rcands(
+            nplane * channels);
+        for (int fr = 0; fr < n_frames; ++fr) {
+          RegistrationSamplingPlan one = f.plan;
+          one.frames = {f.plan.frames[fr]};
+          const auto &img = f.images[fr];
+          auto real_of = [&](std::size_t) -> const Matrix2Df & { return img; };
+          const auto g_a =
+              gather_affine_uniform_v2(one, real_of, f.cfg, 0, ir);
+          Matrix2Df cqc(f.plan.source_height, f.plan.source_width),
+              cq0(f.plan.source_height, f.plan.source_width),
+              cq1(f.plan.source_height, f.plan.source_width),
+              cqa(f.plan.source_height, f.plan.source_width),
+              qaf(f.plan.source_height, f.plan.source_width);
+          for (int yy = 0; yy < f.plan.source_height; ++yy)
+            for (int xx = 0; xx < f.plan.source_width; ++xx) {
+              const bool finite_src = std::isfinite(img(yy, xx));
+              auto cl = [](float v) {
+                return std::isfinite(v) && v > 0.0f ? v : 0.0f;
+              };
+              cqc(yy, xx) = finite_src ? cl(qc[fr](yy, xx)) : 0.0f;
+              cq0(yy, xx) = finite_src ? cl(q0[fr](yy, xx)) : 0.0f;
+              cq1(yy, xx) = finite_src ? cl(q1[fr](yy, xx)) : 0.0f;
+              cqa(yy, xx) = finite_src ? cl(qa[fr](yy, xx)) : 0.0f;
+              qaf(yy, xx) =
+                  finite_src && std::isfinite(qa[fr](yy, xx)) ? 1.0f : 0.0f;
+            }
+          auto qc_of = [&](std::size_t) -> const Matrix2Df & { return cqc; };
+          auto q0_of = [&](std::size_t) -> const Matrix2Df & { return cq0; };
+          auto q1_of = [&](std::size_t) -> const Matrix2Df & { return cq1; };
+          auto qa_of = [&](std::size_t) -> const Matrix2Df & { return cqa; };
+          auto qaf_of = [&](std::size_t) -> const Matrix2Df & { return qaf; };
+          const auto g_qc = gather_affine_uniform_v2(one, qc_of, f.cfg, 0, ir);
+          const auto g_q0 = gather_affine_uniform_v2(one, q0_of, f.cfg, 0, ir);
+          const auto g_q1 = gather_affine_uniform_v2(one, q1_of, f.cfg, 0, ir);
+          const auto g_qa = gather_affine_uniform_v2(one, qa_of, f.cfg, 0, ir);
+          const auto g_qaf =
+              gather_affine_uniform_v2(one, qaf_of, f.cfg, 0, ir);
+          const bool qa_present = fr != 2;
+          for (std::size_t px = 0; px < nplane; ++px) {
+            const int nx = static_cast<int>(px % nc);
+            const int ny = static_cast<int>(px / nc);
+            for (int c = 0; c < channels; ++c) {
+              const std::size_t pc =
+                  static_cast<std::size_t>(c) * nplane + px;
+              double a = 0.0, bs = 0.0, sq = 0.0, s0 = 0.0, s1 = 0.0,
+                     sa = 0.0, saf = 0.0;
+              for (int iy = 0; iy < scale; ++iy)
+                for (int ix = 0; ix < scale; ++ix) {
+                  const std::size_t ii =
+                      static_cast<std::size_t>(ny * scale + iy) * ic +
+                      nx * scale + ix;
+                  a += inv_s2 * g_a.accum.wx[c][ii];
+                  bs += inv_s2 * g_a.accum.w[c][ii];
+                  sq += inv_s2 * g_qc.accum.wx[c][ii];
+                  s0 += inv_s2 * g_q0.accum.wx[c][ii];
+                  s1 += inv_s2 * g_q1.accum.wx[c][ii];
+                  sa += inv_s2 * g_qa.accum.wx[c][ii];
+                  saf += inv_s2 * g_qaf.accum.wx[c][ii];
+                }
+              if (!(bs > 0.0)) continue;
+              rcands[pc].push_back({static_cast<std::size_t>(fr), a / bs, bs});
+              ForwardDrizzleV2ProfileCandidate cd;
+              cd.frame_order = fr;
+              cd.x = a / bs;
+              cd.b = bs;
+              cd.q = sq / bs;
+              cd.q0 = s0 / bs;
+              cd.q1 = s1 / bs;
+              cd.qa = qa_present ? sa / bs : 1.0;
+              cd.qa_has_data = qa_present && saf > 0.0;
+              cands[pc].push_back(cd);
+            }
+          }
+        }
+
+        ForwardDrizzleV2RobustConfig rcfg;
+        rcfg.reservoir_size = kcfg.reservoir_size;
+        rcfg.reservoir_seed = kcfg.reservoir_seed;
+        rcfg.oracle_min_clip_contributors = kcfg.min_clip_contributors;
+        rcfg.oracle_passes = kcfg.robust_passes;
+        rcfg.oracle_sigma_low = kcfg.sigma_low;
+        rcfg.oracle_sigma_high = kcfg.sigma_high;
+        rcfg.min_candidates = kcfg.min_candidates;
+        ForwardDrizzleV2ProfileConfig pcfg;
+        pcfg.fine_quality_exponent = kcfg.fine_quality_exponent;
+        pcfg.medium_quality_exponent = kcfg.medium_quality_exponent;
+        bool saw_primary = false, saw_fallback = false,
+             saw_artifact_applicable = false;
+        for (std::size_t pc = 0; pc < nplane * channels; ++pc) {
+          const auto &r = got[pc];
+          if (r.robust_state ==
+              static_cast<std::uint8_t>(
+                  ForwardDrizzleV2RobustState::no_source_support)) {
+            REQUIRE(gp[pc].uniform.support == 0);
+            continue;
+          }
+          if (r.robust_state !=
+              static_cast<std::uint8_t>(
+                  ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip)) {
+            saw_fallback = true;
+            const float v = static_cast<float>(r.value);
+            for (const auto *o :
+                 {&gp[pc].uniform, &gp[pc].raw, &gp[pc].fine,
+                  &gp[pc].medium}) {
+              REQUIRE(o->support == 1);
+              REQUIRE(o->value == Catch::Approx(v).margin(1e-4));
+            }
+            REQUIRE(gp[pc].a_separation == 0.0f);
+            REQUIRE(gp[pc].a_artifact == 0.0f);
+            REQUIRE(gp[pc].a_registration == 0.0f);
+            continue;
+          }
+          saw_primary = true;
+          const auto mask = g9_clip_mask(
+              rcands[pc], kcfg.min_clip_contributors, kcfg.robust_passes,
+              kcfg.sigma_low, kcfg.sigma_high);
+          const auto ref = robust_reduce_candidates_v2(
+              rcands[pc], ForwardDrizzleV2Estimator::reservoir_sigma_clip,
+              rcfg, static_cast<std::uint64_t>(n_frames), {});
+          const auto expected = forward_drizzle_v2_profile_reduce(
+              cands[pc], mask, meta, pcfg, ref.confidence,
+              ref.candidates > 0 && ref.conf_degraded == ref.candidates);
+          require_g9_profile_parity(expected, gp[pc], pc);
+          if (gp[pc].artifact_applicable) saw_artifact_applicable = true;
+        }
+        REQUIRE(saw_primary);
+        REQUIRE(saw_fallback);
+        REQUIRE(saw_artifact_applicable);
+      }
+    }
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 host kernel matches the device",
+          "[forward-drizzle-v2][cuda-parity][gate10]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  const BayerPattern patterns[] = {BayerPattern::GRBG, BayerPattern::GBRG};
+  for (int scale : {1, 2}) {
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+      for (BayerPattern pattern : patterns) {
+        auto f = make_fixture(mode, pattern, 1, -1, scale);
+        const int nc = f.plan.canvas_width_native;
+        const int nr = f.plan.canvas_height_native;
+        const int channels = mode == ColorMode::MONO ? 1 : 3;
+        const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+        const std::size_t n_src = static_cast<std::size_t>(
+            f.plan.source_width) * f.plan.source_height;
+        std::vector<float> s2(n_src);
+        for (std::size_t i = 0; i < n_src; ++i)
+          s2[i] = 0.01f + 0.0001f * static_cast<float>(i % 97);
+        s2[3] = -1.0f;
+
+        // Local warp on one frame covers the CPU/device local path too.
+        float cx[16] = {}, cy[16] = {};
+        cx[5] = 1.1f;
+        cy[9] = -0.6f;
+        f.plan.frames[1] = v2_local_frame(
+            f.plan.frames[1], v2_local_model(nr, nc, cx, cy));
+
+        ForwardDrizzleV2KernelConfig kcfg;
+        kcfg.internal_scale = scale;
+        kcfg.stream_length = f.plan.frames.size();
+        kcfg.half = 0.5 * f.cfg.pixfrac;
+        kcfg.bayer_pattern = static_cast<int>(pattern);
+        kcfg.cfa_origin_x = f.plan.cfa_origin_x;
+        kcfg.cfa_origin_y = f.plan.cfa_origin_y;
+        kcfg.mono = mode == ColorMode::MONO;
+        kcfg.canvas_width_native = nc;
+        kcfg.canvas_height_native = nr;
+        kcfg.emit_profiles = true;
+
+        std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+        for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr)
+          meta[fr] = {0.8f + 0.05f * static_cast<float>(fr % 3),
+                      0.7f + 0.04f * static_cast<float>(fr),
+                      static_cast<std::uint8_t>(fr % 2), 0};
+
+        auto run = [&](ForwardDrizzleV2Kernel &kernel,
+                       std::vector<ForwardDrizzleV2PixelResult> &out,
+                       std::vector<ForwardDrizzleV2ProfileResult> &pout) {
+          REQUIRE(kernel.reserve(nc, nr, f.plan.source_width,
+                                 f.plan.source_height, kcfg));
+          for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+            const auto &frame = f.plan.frames[fr];
+            const auto &m = frame.source_to_canvas;
+            const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                                  m(1, 0), m(1, 1), m(1, 2)};
+            if (frame.has_smooth_local_model)
+              REQUIRE(kernel.accumulate_frame_local(
+                  a6, v2_warp_descriptor(frame), f.images[fr].data(),
+                  s2.data(), fr, nullptr, &meta[fr]));
+            else
+              REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(),
+                                              s2.data(), fr, nullptr,
+                                              &meta[fr]));
+          }
+          std::uint64_t dense = 0;
+          REQUIRE(kernel.finalize(out.data(), pout.data(), &dense));
+          return dense;
+        };
+
+        ForwardDrizzleV2CpuKernel cpu;
+        ForwardDrizzleV2CudaKernel gpu;
+        std::vector<ForwardDrizzleV2PixelResult> hc(nplane * channels),
+            dev(nplane * channels);
+        std::vector<ForwardDrizzleV2ProfileResult> hcp(nplane * channels),
+            devp(nplane * channels);
+        const auto dense_c = run(cpu, hc, hcp);
+        const auto dense_g = run(gpu, dev, devp);
+        REQUIRE(dense_c == dense_g);
+        REQUIRE(cpu.stats().local_samples_discarded ==
+                gpu.stats().local_samples_discarded);
+        for (std::size_t pc = 0; pc < nplane * channels; ++pc) {
+          const auto &h = hc[pc];
+          const auto &d = dev[pc];
+          // The cpu_fallback acceptance gate: discrete state bit-identical;
+          // magnitudes at the gate-8 local tolerance (both sides run fp32
+          // inversion; affine-only diffs are far tighter, proven at 1e-12
+          // against the fp64 oracle above).
+          REQUIRE(h.robust_state == d.robust_state);
+          REQUIRE(h.confidence_state == d.confidence_state);
+          REQUIRE(h.contributors == d.contributors);
+          REQUIRE(h.conf_degraded == d.conf_degraded);
+          REQUIRE(h.geometry_fraction == d.geometry_fraction);
+          REQUIRE(h.source_fraction == d.source_fraction);
+          REQUIRE(h.value ==
+                  Catch::Approx(d.value).epsilon(1e-5).margin(1e-9));
+          REQUIRE(h.b == Catch::Approx(d.b).epsilon(1e-5).margin(1e-9));
+          REQUIRE(h.n_eff ==
+                  Catch::Approx(d.n_eff).epsilon(1e-5).margin(1e-9));
+          REQUIRE(h.confidence ==
+                  Catch::Approx(d.confidence).epsilon(1e-5).margin(1e-9));
+          const auto &hp = hcp[pc];
+          const auto &dp = devp[pc];
+          for (const auto &pair :
+               {std::pair{&hp.uniform, &dp.uniform},
+                std::pair{&hp.raw, &dp.raw},
+                std::pair{&hp.fine, &dp.fine},
+                std::pair{&hp.medium, &dp.medium}}) {
+            REQUIRE(pair.first->support == pair.second->support);
+            if (!pair.first->support) continue;
+            REQUIRE(pair.first->value ==
+                    Catch::Approx(pair.second->value)
+                        .epsilon(1e-6)
+                        .margin(1e-6));
+            REQUIRE(pair.first->weight_sum ==
+                    Catch::Approx(pair.second->weight_sum)
+                        .epsilon(1e-6)
+                        .margin(1e-9));
+          }
+          REQUIRE(hp.a_separation ==
+                  Catch::Approx(dp.a_separation).margin(1e-6));
+          REQUIRE(hp.a_artifact ==
+                  Catch::Approx(dp.a_artifact).margin(1e-6));
+          REQUIRE(hp.a_registration ==
+                  Catch::Approx(dp.a_registration).margin(1e-6));
+          REQUIRE(hp.artifact_applicable == dp.artifact_applicable);
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 host kernel validation",
+          "[forward-drizzle-v2][gate10]") {
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::RGGB, 0, 0, 1);
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  auto base_cfg = [&] {
+    ForwardDrizzleV2KernelConfig k;
+    k.internal_scale = 1;
+    k.stream_length = f.plan.frames.size();
+    k.half = 0.4;
+    k.bayer_pattern = static_cast<int>(BayerPattern::RGGB);
+    k.mono = true;
+    k.canvas_width_native = nc;
+    k.canvas_height_native = nr;
+    return k;
+  };
+
+  SECTION("band origin must be contained in the canvas") {
+    auto k = base_cfg();
+    k.band_origin_y_native = -1;
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE_FALSE(kernel.reserve(nc, 4, f.plan.source_width,
+                                 f.plan.source_height, k));
+    k = base_cfg();
+    k.band_origin_y_native = nr - 2;
+    REQUIRE_FALSE(kernel.reserve(nc, 4, f.plan.source_width,
+                                 f.plan.source_height, k));
+    k = base_cfg();
+    k.band_origin_y_native = nr - 4;  // exactly fits
+    REQUIRE(kernel.reserve(nc, 4, f.plan.source_width,
+                           f.plan.source_height, k));
+  }
+  SECTION("band origin without canvas dims must be zero") {
+    auto k = base_cfg();
+    k.canvas_width_native = 0;
+    k.canvas_height_native = 0;
+    k.band_origin_y_native = 2;
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE_FALSE(kernel.reserve(nc, nr, f.plan.source_width,
+                                 f.plan.source_height, k));
+  }
+  SECTION("emit_profiles requires meta rows and a profile output") {
+    auto k = base_cfg();
+    k.emit_profiles = true;
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, f.plan.source_width,
+                           f.plan.source_height, k));
+    const auto &m = f.plan.frames[0].source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1),
+                          m(1, 2)};
+    REQUIRE_FALSE(kernel.accumulate_frame(a6, f.images[0].data(), nullptr,
+                                          0));
+    ForwardDrizzleV2FrameMeta meta{1.0f, 0.9f, 1, 0};
+    for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+      const auto &mm = f.plan.frames[fr].source_to_canvas;
+      const double aa[6] = {mm(0, 0), mm(0, 1), mm(0, 2),
+                            mm(1, 0), mm(1, 1), mm(1, 2)};
+      REQUIRE(kernel.accumulate_frame(aa, f.images[fr].data(), nullptr, fr,
+                                      nullptr, &meta));
+    }
+    const std::size_t n =
+        static_cast<std::size_t>(nc) * nr;
+    std::vector<ForwardDrizzleV2PixelResult> out(n);
+    std::uint64_t dense = 0;
+    REQUIRE_FALSE(kernel.finalize(out.data(), nullptr, &dense));
+    std::vector<ForwardDrizzleV2ProfileResult> pout(n);
+    REQUIRE(kernel.finalize(out.data(), pout.data(), &dense));
+  }
+  SECTION("malformed meta rows fail the call") {
+    auto k = base_cfg();
+    k.emit_profiles = true;
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, f.plan.source_width,
+                           f.plan.source_height, k));
+    const auto &m = f.plan.frames[0].source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1),
+                          m(1, 2)};
+    ForwardDrizzleV2FrameMeta meta{-1.0f, 1.0f, 0, 0};
+    REQUIRE_FALSE(kernel.accumulate_frame(a6, f.images[0].data(), nullptr,
+                                          0, nullptr, &meta));
+  }
+  SECTION("local depth beyond the implicit tree rejects the call") {
+    auto k = base_cfg();
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, f.plan.source_width,
+                           f.plan.source_height, k));
+    const auto &m = f.plan.frames[0].source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1),
+                          m(1, 2)};
+    auto w = v2_warp_descriptor(f.plan.frames[0]);
+    w.max_subdivision_depth = 3;
+    REQUIRE_FALSE(kernel.accumulate_frame_local(a6, w,
+                                                f.images[0].data(), nullptr,
+                                                0));
+  }
+  SECTION("double reserve / post-finalize accumulate fail") {
+    auto k = base_cfg();
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, f.plan.source_width,
+                           f.plan.source_height, k));
+    REQUIRE_FALSE(kernel.reserve(nc, nr, f.plan.source_width,
+                                 f.plan.source_height, k));
+    for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+      const auto &m = f.plan.frames[fr].source_to_canvas;
+      const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1),
+                            m(1, 2)};
+      REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), nullptr,
+                                      fr));
+    }
+    const auto &m = f.plan.frames[0].source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1),
+                          m(1, 2)};
+    // Stream-length cap.
+    REQUIRE_FALSE(kernel.accumulate_frame(a6, f.images[0].data(), nullptr,
+                                          f.plan.frames.size()));
+    std::vector<ForwardDrizzleV2PixelResult> out(
+        static_cast<std::size_t>(nc) * nr);
+    std::uint64_t dense = 0;
+    REQUIRE(kernel.finalize(out.data(), nullptr, &dense));
+    REQUIRE_FALSE(kernel.finalize(out.data(), nullptr, &dense));
+  }
+}
+
+namespace {
+
+// Builds a driver-ready run plan over the small fixture canvas.
+ForwardDrizzleV2RunPlan g10_driver_plan(const Fixture &f, int band_rows,
+                                        int channels, bool emit_profiles) {
+  ForwardDrizzleV2RunPlan p;
+  p.source_identity_hash = "src";
+  p.normalized_cache_hash = "cache";
+  p.quality_plan_hash = "q";
+  p.sampling_plan_hash = "sampling";
+  p.config_snapshot_hash = "cfg";
+  p.native_width = f.plan.canvas_width_native;
+  p.native_height = f.plan.canvas_height_native;
+  p.channels = channels;
+  p.internal_scale = f.cfg.internal_scale;
+  p.color_mode = channels == 1 ? "MONO" : "OSC";
+  p.pixfrac = f.cfg.pixfrac;
+  p.bayer_pattern = static_cast<int>(f.plan.bayer_pattern);
+  p.cfa_origin_x = f.plan.cfa_origin_x;
+  p.cfa_origin_y = f.plan.cfa_origin_y;
+  p.frame_count = f.plan.frames.size();
+  p.band_rows = band_rows;
+  p.band_count =
+      (p.native_height + band_rows - 1) / band_rows;
+  p.emit_profiles = emit_profiles;
+  p.multiband_levels = emit_profiles ? 3 : 0;
+  finalize_forward_drizzle_v2_run_plan(p);
+  return p;
+}
+
+// Frame provider over a Fixture: sigma2 plane + meta rows are constant
+// fixtures; local models are forwarded when present.
+ForwardDrizzleV2FrameProvider g10_provider(const Fixture &f,
+                                           const std::vector<float> &s2,
+                                           const std::vector<ForwardDrizzleV2FrameMeta> *meta) {
+  return [&f, &s2, meta](std::uint64_t order,
+                         ForwardDrizzleV2FrameInput &out) {
+    if (order >= f.plan.frames.size()) return false;
+    const auto &frame = f.plan.frames[order];
+    const auto &m = frame.source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                          m(1, 0), m(1, 1), m(1, 2)};
+    std::copy_n(a6, 6, out.affine6);
+    out.has_local_model = frame.has_smooth_local_model;
+    if (out.has_local_model) out.warp = v2_warp_descriptor(frame);
+    out.source = f.images[order].data();
+    out.sigma2 = s2.data();
+    if (meta) out.meta = (*meta)[order];
+    return true;
+  };
+}
+
+// Reads every committed band back and returns the whole-canvas record and
+// profile vectors (band rows stacked in order, channel-planar per band).
+void g10_read_store(const fs::path &root, const ForwardDrizzleV2RunPlan &plan,
+                    std::vector<ForwardDrizzleV2PixelResult> &records,
+                    std::vector<ForwardDrizzleV2ProfileResult> *profiles) {
+  const auto insp = inspect_forward_drizzle_v2_store(root, plan);
+  REQUIRE(insp.status == ForwardDrizzleV2StoreStatus::complete);
+  records.clear();
+  if (profiles) profiles->clear();
+  ForwardDrizzleV2Checkpoint cp;
+  std::string error;
+  REQUIRE(parse_forward_drizzle_v2_checkpoint(
+      v2_file_text(insp.generation / "checkpoint.json"), cp, error));
+  REQUIRE(cp.bands.size() == static_cast<std::size_t>(plan.band_count));
+  const std::size_t nplane = static_cast<std::size_t>(plan.native_width) *
+                             plan.native_height;
+  records.assign(nplane * plan.channels,
+                 ForwardDrizzleV2PixelResult{});
+  if (profiles)
+    profiles->assign(nplane * plan.channels,
+                     ForwardDrizzleV2ProfileResult{});
+  for (const auto &b : cp.bands) {
+    const auto band = read_forward_drizzle_v2_band(insp.generation, b);
+    REQUIRE(band.size() ==
+            static_cast<std::size_t>(b.rows) * b.native_cols * b.channels);
+    for (int c = 0; c < b.channels; ++c)
+      for (int r = 0; r < b.rows; ++r)
+        std::copy_n(band.data() + static_cast<std::size_t>(c) * b.rows *
+                                     b.native_cols + static_cast<std::size_t>(r) * b.native_cols,
+                    b.native_cols,
+                    records.data() +
+                        static_cast<std::size_t>(c) * nplane +
+                        static_cast<std::size_t>(b.y_begin + r) *
+                            b.native_cols);
+    if (profiles) {
+      const auto pb =
+          read_forward_drizzle_v2_band_profiles(insp.generation, b);
+      REQUIRE(pb.size() == band.size());
+      for (int c = 0; c < b.channels; ++c)
+        for (int r = 0; r < b.rows; ++r)
+          std::copy_n(pb.data() + static_cast<std::size_t>(c) * b.rows *
+                                      b.native_cols + static_cast<std::size_t>(r) * b.native_cols,
+                      b.native_cols,
+                      profiles->data() +
+                          static_cast<std::size_t>(c) * nplane +
+                          static_cast<std::size_t>(b.y_begin + r) *
+                              b.native_cols);
+    }
+  }
+}
+
+bool g10_bit_eq(const ForwardDrizzleV2PixelResult &a,
+                const ForwardDrizzleV2PixelResult &b) {
+  auto eq = [](const auto &x, const auto &y) {
+    return std::memcmp(&x, &y, sizeof(x)) == 0;
+  };
+  return eq(a.value, b.value) && eq(a.b, b.b) && eq(a.n_eff, b.n_eff) &&
+         eq(a.confidence, b.confidence) &&
+         eq(a.geometry_fraction, b.geometry_fraction) &&
+         eq(a.source_fraction, b.source_fraction) &&
+         eq(a.estimator_fraction, b.estimator_fraction) &&
+         eq(a.profile_fraction, b.profile_fraction) &&
+         eq(a.contributors, b.contributors) &&
+         eq(a.robust_state, b.robust_state) &&
+         eq(a.confidence_state, b.confidence_state) &&
+         eq(a.conf_degraded, b.conf_degraded);
+}
+
+bool g10_bit_eq(const ForwardDrizzleV2ProfileResult &a,
+                const ForwardDrizzleV2ProfileResult &b) {
+  auto eq = [](const auto &x, const auto &y) {
+    return std::memcmp(&x, &y, sizeof(x)) == 0;
+  };
+  for (const auto &pair :
+       {std::pair{&a.uniform, &b.uniform}, std::pair{&a.raw, &b.raw},
+        std::pair{&a.fine, &b.fine}, std::pair{&a.medium, &b.medium}}) {
+    if (!eq(pair.first->value, pair.second->value) ||
+        !eq(pair.first->weight_sum, pair.second->weight_sum) ||
+        !eq(pair.first->n_eff, pair.second->n_eff) ||
+        pair.first->support != pair.second->support)
+      return false;
+  }
+  return eq(a.a_separation, b.a_separation) &&
+         eq(a.a_artifact, b.a_artifact) &&
+         eq(a.a_registration, b.a_registration) &&
+         a.artifact_applicable == b.artifact_applicable;
+}
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 gate10 driver banded run round-trips",
+          "[forward-drizzle-v2][gate10][driver]") {
+  V2StoreFixture fx;
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const std::size_t n_src =
+      static_cast<std::size_t>(f.plan.source_width) * f.plan.source_height;
+  std::vector<float> s2(n_src, 0.02f);
+  std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+  for (std::size_t i = 0; i < meta.size(); ++i)
+    meta[i] = {0.9f, 0.8f, static_cast<std::uint8_t>(i % 2), 0};
+  float cx[16] = {}, cy[16] = {};
+  cx[5] = 1.2f;
+  cy[6] = -0.7f;
+  f.plan.frames[2] =
+      v2_local_frame(f.plan.frames[2], v2_local_model(nr, nc, cx, cy));
+
+  const auto plan = g10_driver_plan(f, 4, 1, true);
+  REQUIRE(plan.band_count == 4);  // 13 rows over 4-row bands
+  ForwardDrizzleV2DriverOptions opts;
+  opts.prefer_cuda = false;
+  std::vector<int> progressed;
+  opts.progress = [&](int band, int) { progressed.push_back(band); };
+  const auto result =
+      run_forward_drizzle_v2(fx.root, plan, f.plan.source_width,
+                             f.plan.source_height,
+                             g10_provider(f, s2, &meta), opts);
+  REQUIRE(result.committed);
+  REQUIRE(result.backend_used == "cpu_v2");
+  REQUIRE(result.bands_committed == plan.band_count);
+  REQUIRE(result.bands_reused == 0);
+  REQUIRE(progressed == std::vector<int>({0, 1, 2, 3}));
+  REQUIRE(result.totals.frames_processed == plan.frame_count *
+                                               plan.band_count);
+
+  std::vector<ForwardDrizzleV2PixelResult> records;
+  std::vector<ForwardDrizzleV2ProfileResult> profiles;
+  g10_read_store(fx.root, plan, records, &profiles);
+
+  // Records must be bitwise identical to direct per-band kernel runs.
+  for (int band = 0; band < plan.band_count; ++band) {
+    const int y0 = band * plan.band_rows;
+    const int rows = std::min(plan.band_rows, nr - y0);
+    ForwardDrizzleV2KernelConfig k;
+    k.internal_scale = plan.internal_scale;
+    k.stream_length = plan.frame_count;
+    k.min_clip_contributors = plan.min_clip_contributors;
+    k.min_candidates = plan.min_candidates;
+    k.robust_passes = plan.robust_passes;
+    k.sigma_low = plan.sigma_low;
+    k.sigma_high = plan.sigma_high;
+    k.half = 0.5 * plan.pixfrac;
+    k.bayer_pattern = plan.bayer_pattern;
+    k.cfa_origin_x = plan.cfa_origin_x;
+    k.cfa_origin_y = plan.cfa_origin_y;
+    k.mono = true;
+    k.sigma2_plane = plan.sigma2_enabled;
+    k.canvas_width_native = nc;
+    k.canvas_height_native = nr;
+    k.band_origin_y_native = y0;
+    k.emit_profiles = true;
+    k.fine_quality_exponent = plan.fine_quality_exponent;
+    k.medium_quality_exponent = plan.medium_quality_exponent;
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, rows, f.plan.source_width,
+                           f.plan.source_height, k));
+    for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+      const auto &frame = f.plan.frames[fr];
+      const auto &m = frame.source_to_canvas;
+      const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                            m(1, 0), m(1, 1), m(1, 2)};
+      if (frame.has_smooth_local_model)
+        REQUIRE(kernel.accumulate_frame_local(
+            a6, v2_warp_descriptor(frame), f.images[fr].data(), s2.data(),
+            fr, nullptr, &meta[fr]));
+      else
+        REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), s2.data(),
+                                        fr, nullptr, &meta[fr]));
+    }
+    std::vector<ForwardDrizzleV2PixelResult> direct(
+        static_cast<std::size_t>(rows) * nc);
+    std::vector<ForwardDrizzleV2ProfileResult> directp(direct.size());
+    std::uint64_t dense = 0;
+    REQUIRE(kernel.finalize(direct.data(), directp.data(), &dense));
+    for (int r = 0; r < rows; ++r)
+      for (int x = 0; x < nc; ++x) {
+        const std::size_t wb =
+            static_cast<std::size_t>(y0 + r) * nc + x;
+        const std::size_t rb = static_cast<std::size_t>(r) * nc + x;
+        REQUIRE(g10_bit_eq(records[wb], direct[rb]));
+        REQUIRE(g10_bit_eq(profiles[wb], directp[rb]));
+      }
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 driver resume reuses the prefix",
+          "[forward-drizzle-v2][gate10][driver]") {
+  V2StoreFixture crashed;
+  V2StoreFixture reference;
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const std::size_t n_src =
+      static_cast<std::size_t>(f.plan.source_width) * f.plan.source_height;
+  std::vector<float> s2(n_src, 0.02f);
+  const auto plan = g10_driver_plan(f, 4, 1, true);
+  const auto provider = g10_provider(f, s2, nullptr);
+
+  ForwardDrizzleV2DriverOptions cpu;
+  cpu.prefer_cuda = false;
+
+  const auto ref =
+      run_forward_drizzle_v2(reference.root, plan, f.plan.source_width,
+                             f.plan.source_height, provider, cpu);
+  REQUIRE(ref.committed);
+
+  ForwardDrizzleV2DriverOptions kill = cpu;
+  kill.simulate_kill_after_bands = 2;
+  REQUIRE_THROWS_AS(run_forward_drizzle_v2(crashed.root, plan,
+                                           f.plan.source_width,
+                                           f.plan.source_height, provider,
+                                           kill),
+                    ForwardDrizzleV2SimulatedKill);
+
+  const auto insp = inspect_forward_drizzle_v2_store(crashed.root, plan);
+  REQUIRE(insp.status == ForwardDrizzleV2StoreStatus::resumable);
+  REQUIRE(insp.next_band == 2);
+
+  const auto done =
+      run_forward_drizzle_v2(crashed.root, plan, f.plan.source_width,
+                             f.plan.source_height, provider, cpu);
+  REQUIRE(done.committed);
+  REQUIRE(done.bands_reused == 2);
+  REQUIRE(done.bands_committed == plan.band_count - 2);
+  REQUIRE(done.commit_hash == ref.commit_hash);
+
+  std::vector<ForwardDrizzleV2PixelResult> a, b;
+  std::vector<ForwardDrizzleV2ProfileResult> pa, pb;
+  g10_read_store(crashed.root, plan, a, &pa);
+  g10_read_store(reference.root, plan, b, &pb);
+  REQUIRE(a.size() == b.size());
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    REQUIRE(g10_bit_eq(a[i], b[i]));
+    REQUIRE(g10_bit_eq(pa[i], pb[i]));
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 cuda fault restarts on cpu",
+          "[forward-drizzle-v2][gate10][driver]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  V2StoreFixture fx;
+  V2StoreFixture reference;
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const std::size_t n_src =
+      static_cast<std::size_t>(f.plan.source_width) * f.plan.source_height;
+  std::vector<float> s2(n_src, 0.02f);
+  const auto plan = g10_driver_plan(f, 4, 1, true);
+  const auto provider = g10_provider(f, s2, nullptr);
+
+  ForwardDrizzleV2DriverOptions cpu;
+  cpu.prefer_cuda = false;
+  const auto ref =
+      run_forward_drizzle_v2(reference.root, plan, f.plan.source_width,
+                             f.plan.source_height, provider, cpu);
+
+  // The device attempt commits band 0, then fails: the whole phase
+  // restarts on CPU and the discarded band-0 artifact must not leak into
+  // the result.
+  set_forward_drizzle_v2_cuda_fault_after_bands(1);
+  ForwardDrizzleV2DriverOptions pref;
+  pref.prefer_cuda = true;
+  const auto done =
+      run_forward_drizzle_v2(fx.root, plan, f.plan.source_width,
+                             f.plan.source_height, provider, pref);
+  set_forward_drizzle_v2_cuda_fault_after_bands(-1);
+  REQUIRE(done.committed);
+  REQUIRE(done.backend_used == "cpu_v2");
+  REQUIRE(!done.cuda_fallback_reason.empty());
+  REQUIRE(done.bands_reused == 0);
+  REQUIRE(done.commit_hash == ref.commit_hash);
+
+  std::vector<ForwardDrizzleV2PixelResult> a, b;
+  std::vector<ForwardDrizzleV2ProfileResult> pa, pb;
+  g10_read_store(fx.root, plan, a, &pa);
+  g10_read_store(reference.root, plan, b, &pb);
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    REQUIRE(g10_bit_eq(a[i], b[i]));
+    REQUIRE(g10_bit_eq(pa[i], pb[i]));
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 driver fails closed on corruption",
+          "[forward-drizzle-v2][gate10][driver]") {
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const std::size_t n_src =
+      static_cast<std::size_t>(f.plan.source_width) * f.plan.source_height;
+  std::vector<float> s2(n_src, 0.02f);
+  const auto plan = g10_driver_plan(f, 4, 1, true);
+  const auto provider = g10_provider(f, s2, nullptr);
+  ForwardDrizzleV2DriverOptions cpu;
+  cpu.prefer_cuda = false;
+
+  // Corruption is detected on the resume inspection of an UNCOMMITTED
+  // generation; a complete store short-circuits via current.json (payload
+  // verification happens when a reader touches the artifacts).
+  auto crashed = [&](const fs::path &root) {
+    ForwardDrizzleV2DriverOptions kill = cpu;
+    kill.simulate_kill_after_bands = 3;
+    REQUIRE_THROWS_AS(run_forward_drizzle_v2(root, plan, f.plan.source_width,
+                                           f.plan.source_height, provider,
+                                           kill),
+                      ForwardDrizzleV2SimulatedKill);
+  };
+  auto reruns_throw = [&](const fs::path &root) {
+    REQUIRE_THROWS(run_forward_drizzle_v2(root, plan, f.plan.source_width,
+                                          f.plan.source_height, provider,
+                                          cpu));
+  };
+
+  // Bit flip inside a committed profile payload.
+  {
+    V2StoreFixture fx;
+    crashed(fx.root);
+    const auto gen = v2_single_generation(fx.root);
+    const auto file = gen / "band-0001.profiles.bin";
+    std::fstream io(file, std::ios::in | std::ios::out | std::ios::binary);
+    io.seekp(64);
+    char byte = 0;
+    io.read(&byte, 1);
+    byte ^= 0x40;
+    io.seekp(64);
+    io.write(&byte, 1);
+    io.close();
+    reruns_throw(fx.root);
+  }
+  // Truncated pixel band artifact.
+  {
+    V2StoreFixture fx;
+    crashed(fx.root);
+    const auto gen = v2_single_generation(fx.root);
+    fs::resize_file(gen / "band-0002.bin", 100);
+    reruns_throw(fx.root);
+  }
+  // Non-contiguous checkpoint.
+  {
+    V2StoreFixture fx;
+    crashed(fx.root);
+    const auto gen = v2_single_generation(fx.root);
+    auto cp = nlohmann::json::parse(
+        v2_file_text(gen / "checkpoint.json"));
+    cp["bands"].erase(cp["bands"].begin() + 1);
+    std::ofstream(gen / "checkpoint.json") << cp.dump(2);
+    reruns_throw(fx.root);
+  }
+  // A plan-hash mismatch (foreign context) is rejected the same way.
+  {
+    V2StoreFixture fx;
+    crashed(fx.root);
+    auto foreign = plan;
+    foreign.sigma_low = 2.5;
+    finalize_forward_drizzle_v2_run_plan(foreign);
+    REQUIRE_THROWS(run_forward_drizzle_v2(
+        fx.root, foreign, f.plan.source_width, f.plan.source_height,
+        provider, cpu));
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 store feeds streamed fusion",
+          "[forward-drizzle-v2][gate10][driver][fusion]") {
+  V2StoreFixture fx;
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const std::size_t n_src =
+      static_cast<std::size_t>(f.plan.source_width) * f.plan.source_height;
+  std::vector<float> s2(n_src, 0.02f);
+  std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+  for (std::size_t i = 0; i < meta.size(); ++i)
+    meta[i] = {1.0f, 0.75f, 1, 0};
+
+  const auto plan = g10_driver_plan(f, 3, 1, true);
+  ForwardDrizzleV2DriverOptions cpu;
+  cpu.prefer_cuda = false;
+  const auto done =
+      run_forward_drizzle_v2(fx.root, plan, f.plan.source_width,
+                             f.plan.source_height,
+                             g10_provider(f, s2, &meta), cpu);
+  REQUIRE(done.committed);
+
+  std::vector<ForwardDrizzleV2PixelResult> records;
+  std::vector<ForwardDrizzleV2ProfileResult> profiles;
+  g10_read_store(fx.root, plan, records, &profiles);
+  REQUIRE(profiles.size() ==
+          static_cast<std::size_t>(nc) * nr);
+
+  const auto uniform = forward_drizzle_v2_profiles_to_uniform_result(
+      profiles, nc, nr, 1, ColorMode::MONO, 0);
+  const auto raw = forward_drizzle_v2_profiles_to_uniform_result(
+      profiles, nc, nr, 1, ColorMode::MONO, 1);
+  const auto fine = forward_drizzle_v2_profiles_to_uniform_result(
+      profiles, nc, nr, 1, ColorMode::MONO, 2);
+  const auto medium = forward_drizzle_v2_profiles_to_uniform_result(
+      profiles, nc, nr, 1, ColorMode::MONO, 3);
+  const auto a_sep =
+      forward_drizzle_v2_profile_alpha_plane(profiles, nc, nr, 1, 0);
+  const auto a_art =
+      forward_drizzle_v2_profile_alpha_plane(profiles, nc, nr, 1, 1);
+  const auto a_reg =
+      forward_drizzle_v2_profile_alpha_plane(profiles, nc, nr, 1, 2);
+
+  // The committed store must feed the production streaming fusion: whole
+  // vs. streamed fusion stay identical on real v2 records.
+  for (int levels : {1, 2, 3}) {
+    config::ReconstructionMultibandConfig mb;
+    mb.levels = levels;
+    const auto whole =
+        fuse_multiband(uniform, raw, fine, medium, ColorMode::MONO, nc, nr,
+                       mb, {}, {}, a_sep, a_art, a_reg);
+    const auto streamed = fuse_multiband_streamed(
+        uniform, raw, fine, medium, ColorMode::MONO, nc, nr, mb, 2, {}, {},
+        a_sep, a_art, a_reg);
+    REQUIRE(streamed.L.size() == whole.L.size());
+    REQUIRE(streamed.support_L == whole.support_L);
+    for (std::size_t i = 0; i < whole.L.size(); ++i) {
+      const float sv = streamed.L[i], wv = whole.L[i];
+      REQUIRE((sv == wv || (std::isnan(sv) && std::isnan(wv))));
+      if (whole.support_L[i])
+        REQUIRE(uniform.L.support[i] == 1);
+    }
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 production plan binds predecessors",
+          "[forward-drizzle-v2][gate10][production]") {
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  f.plan.source_identity_hash = "src-id";
+  f.plan.plan_hash = "sampling-hash";
+  config::ReconstructionDrizzleConfig dc;
+  dc.internal_scale = 1;
+  dc.output_scale = 1;
+  dc.pixfrac = 0.8f;
+  config::ReconstructionClippingConfig cc;
+  config::ReconstructionMultibandConfig mc;
+  mc.enabled = true;
+  mc.levels = 3;
+
+  const auto base = make_forward_drizzle_v2_run_plan(
+      f.plan, dc, cc, mc, true,
+      static_cast<std::uint64_t>(f.plan.frames.size()), "cache-a", "q-a",
+      "sqc-a", "cfg-a", std::size_t{512} << 20);
+  REQUIRE(base.native_width == f.plan.canvas_width_native);
+  REQUIRE(base.native_height == f.plan.canvas_height_native);
+  REQUIRE(base.channels == 1);
+  REQUIRE(base.internal_scale == 1);
+  REQUIRE_FALSE(base.x_tiled);
+  REQUIRE(base.emit_profiles);
+  REQUIRE(base.multiband_levels == 3);
+  REQUIRE(base.halo_rows == multiband_fusion_halo_rows(3));
+  REQUIRE(base.band_rows >= 1);
+  REQUIRE(base.band_rows <= base.native_height);
+  REQUIRE(base.band_count * base.band_rows >= base.native_height);
+  REQUIRE(base.band_count == (base.native_height + base.band_rows - 1) /
+                                 base.band_rows);
+  REQUIRE(base.frame_count == f.plan.frames.size());
+  REQUIRE(base.min_clip_contributors == dc.min_clip_contributors);
+  REQUIRE(base.robust_passes == dc.robust_passes);
+  REQUIRE(base.sigma_low == Catch::Approx(cc.clip_sigma_low));
+  REQUIRE(base.sigma_high == Catch::Approx(cc.clip_sigma_high));
+  REQUIRE(base.fine_quality_exponent == Catch::Approx(mc.fine_quality_exponent));
+  REQUIRE(base.medium_quality_exponent == Catch::Approx(mc.medium_quality_exponent));
+  REQUIRE_FALSE(base.plan_hash.empty());
+  REQUIRE(base.local_warp_representation == "affine_only");
+
+  SECTION("every bound predecessor identity changes the hash") {
+    for (int which = 0; which < 5; ++which) {
+      std::array<std::string, 4> ids{"cache-a", "q-a", "sqc-a", "cfg-a"};
+      ids[which % 4] = "changed";
+      std::uint64_t frames = f.plan.frames.size();
+      if (which == 4) frames += 1;
+      const auto other = make_forward_drizzle_v2_run_plan(
+          f.plan, dc, cc, mc, true, frames, ids[0], ids[1], ids[2], ids[3],
+          std::size_t{512} << 20);
+      REQUIRE(other.plan_hash != base.plan_hash);
+    }
+    // Sampling identity is bound, too.
+    auto s2 = f.plan;
+    s2.plan_hash = "sampling-hash-changed";
+    const auto other = make_forward_drizzle_v2_run_plan(
+        s2, dc, cc, mc, true,
+        static_cast<std::uint64_t>(f.plan.frames.size()), "cache-a", "q-a",
+        "sqc-a", "cfg-a", std::size_t{512} << 20);
+    REQUIRE(other.plan_hash != base.plan_hash);
+  }
+
+  SECTION("band geometry follows the deterministic budgets") {
+    const std::size_t bpp = forward_drizzle_v2_cpu_bytes_per_native_pixel(
+        1, 1, 64, true, true);
+    const std::size_t row_bytes = bpp * base.native_width;
+    // host_budget/2 bounds the band workspace (minus the meta table).
+    REQUIRE(static_cast<std::size_t>(base.band_rows) * row_bytes <=
+            (std::size_t{512} << 20) / 2);
+    // A tighter nominal device bound shrinks band_rows deterministically.
+    const auto capped = make_forward_drizzle_v2_run_plan(
+        f.plan, dc, cc, mc, true,
+        static_cast<std::uint64_t>(f.plan.frames.size()), "cache-a", "q-a",
+        "sqc-a", "cfg-a", std::size_t{512} << 20, 4 * row_bytes);
+    REQUIRE(capped.band_rows <= 4);
+    // A budget that cannot fit one row fails closed.
+    REQUIRE_THROWS_AS(make_forward_drizzle_v2_run_plan(
+                          f.plan, dc, cc, mc, true,
+                          static_cast<std::uint64_t>(f.plan.frames.size()),
+                          "cache-a", "q-a", "sqc-a", "cfg-a",
+                          row_bytes - 1),
+                      std::invalid_argument);
+  }
+
+  SECTION("unsupported output grids reject") {
+    auto d22 = dc;
+    d22.internal_scale = 2;
+    d22.output_scale = 2;
+    REQUIRE_THROWS_AS(make_forward_drizzle_v2_run_plan(
+                          f.plan, d22, cc, mc, true, 5, "c", "q", "s", "g",
+                          std::size_t{512} << 20),
+                      std::invalid_argument);
+    auto d21 = dc;
+    d21.internal_scale = 2;  // 2/1 is supported (native output grid)
+    const auto p21 = make_forward_drizzle_v2_run_plan(
+        f.plan, d21, cc, mc, true, 5, "c", "q", "s", "g",
+        std::size_t{512} << 20);
+    REQUIRE(p21.internal_scale == 2);
+    REQUIRE(p21.native_width == f.plan.canvas_width_native);
+  }
+
+  SECTION("local warp presence binds the representation") {
+    auto s_local = f.plan;
+    float cx[16] = {}, cy[16] = {};
+    cx[5] = 0.4f;
+    s_local.frames[0] = v2_local_frame(
+        s_local.frames[0],
+        v2_local_model(f.plan.canvas_height_native,
+                       f.plan.canvas_width_native, cx, cy));
+    const auto local = make_forward_drizzle_v2_run_plan(
+        s_local, dc, cc, mc, true,
+        static_cast<std::uint64_t>(f.plan.frames.size()), "cache-a", "q-a",
+        "sqc-a", "cfg-a", std::size_t{512} << 20);
+    REQUIRE(local.local_warp_representation == "smooth_local_coefficients");
+    REQUIRE(local.plan_hash != base.plan_hash);
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 sigma2 plane follows the model",
+          "[forward-drizzle-v2][gate10][production]") {
+  // Linear ramp: central differences are exact, one-sided borders agree.
+  Matrix2Df ramp(4, 5);
+  for (int y = 0; y < 4; ++y)
+    for (int x = 0; x < 5; ++x) ramp(y, x) = static_cast<float>(x + 2 * y);
+  const auto s2 =
+      forward_drizzle_v2_sigma2_plane(ramp, 0.3, 0.05, 0.4 /*half*/);
+  REQUIRE(s2.size() == 20);
+  const double expect =
+      forward_drizzle_v2_sigma2_model(0.3, 1.0, 2.0, 0.05, 0.4);
+  for (float v : s2) REQUIRE(v == Catch::Approx(expect).epsilon(1e-6));
+
+  SECTION("non-finite or negative inputs degrade the whole plane") {
+    const auto bad = forward_drizzle_v2_sigma2_plane(ramp, -1.0, 0.05, 0.4);
+    for (float v : bad) REQUIRE_FALSE(std::isfinite(v));
+    const auto nan = forward_drizzle_v2_sigma2_plane(
+        ramp, std::numeric_limits<double>::quiet_NaN(), 0.05, 0.4);
+    for (float v : nan) REQUIRE_FALSE(std::isfinite(v));
+  }
+
+  SECTION("non-finite source neighbours degrade only their footprint") {
+    Matrix2Df img = ramp;
+    img(1, 2) = std::numeric_limits<float>::quiet_NaN();
+    const auto p = forward_drizzle_v2_sigma2_plane(img, 0.3, 0.05, 0.4);
+    REQUIRE(p.size() == 20);
+    // The NaN pixel itself keeps a finite sigma2 (its gradient is built from
+    // finite neighbours); the kernel treats a non-finite source as absent.
+    REQUIRE(std::isfinite(p[1 * 5 + 2]));
+    // All other pixels stay finite --- differences are one-sided at the
+    // hole rather than poisoning it.
+    for (float v : p) REQUIRE(std::isfinite(v));
+  }
+
+  SECTION("degenerate single-column source yields zero x-gradient") {
+    Matrix2Df col(4, 1);
+    for (int y = 0; y < 4; ++y) col(y, 0) = static_cast<float>(y);
+    const auto p = forward_drizzle_v2_sigma2_plane(col, 0.3, 0.05, 0.4);
+    const double e = forward_drizzle_v2_sigma2_model(0.3, 0.0, 1.0, 0.05, 0.4);
+    for (float v : p) REQUIRE(v == Catch::Approx(e).epsilon(1e-6));
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 v2 store fuses to the reference image",
+          "[forward-drizzle-v2][gate10][fusion][production]") {
+  V2StoreFixture fx;
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const std::size_t n_src =
+      static_cast<std::size_t>(f.plan.source_width) * f.plan.source_height;
+  std::vector<float> s2(n_src, 0.02f);
+  std::vector<ForwardDrizzleV2FrameMeta> meta(f.plan.frames.size());
+  for (std::size_t i = 0; i < meta.size(); ++i)
+    meta[i] = {1.0f, 0.9f, static_cast<std::uint8_t>(i % 2), 0};
+
+  // One fusion level: the atrous coarse support at level 3 needs a 14-pixel
+  // reach, which the 14x13 fixture canvas can never satisfy; level 1 keeps
+  // the full store -> adapter -> striped-fusion -> FITS/spool contract while
+  // still producing supported pixels.
+  auto plan = g10_driver_plan(f, 4, 1, true);
+  plan.multiband_levels = 1;
+  finalize_forward_drizzle_v2_run_plan(plan);
+  ForwardDrizzleV2DriverOptions opts;
+  opts.prefer_cuda = false;
+  const auto done =
+      run_forward_drizzle_v2(fx.root, plan, f.plan.source_width,
+                             f.plan.source_height,
+                             g10_provider(f, s2, &meta), opts);
+  REQUIRE(done.committed);
+
+  // Store autodetection: the published plan round-trips and binds.
+  ForwardDrizzleV2RunPlan detected;
+  std::string load_error;
+  REQUIRE(load_forward_drizzle_v2_published_plan(fx.root, detected,
+                                               load_error));
+  REQUIRE(detected.plan_hash == plan.plan_hash);
+  // A complete inspection now exposes the verified band list.
+  const auto insp = inspect_forward_drizzle_v2_store(fx.root, detected);
+  REQUIRE(insp.status == ForwardDrizzleV2StoreStatus::complete);
+  REQUIRE(insp.committed.size() ==
+          static_cast<std::size_t>(plan.band_count));
+
+  config::ReconstructionMultibandConfig mb;
+  mb.enabled = true;
+  mb.levels = 1;
+  const auto contract = multiband_store_contract_from_config(mb);
+
+  MultibandCandidateLuma cand;
+  MultibandCandidateSpool spool;
+  spool.dir = fx.root / "spool";
+  fs::create_directories(spool.dir);
+  MultibandFusionMemoryPlan mp;
+  ForwardDrizzleV2FusionStats stats;
+  const auto fits_path = fx.root / "reconstruction_multiband.fits";
+  const long long px = fuse_multiband_v2_store_to_image(
+      fx.root, detected, fits_path, mb, /*chunk_rows=*/2, 256, &cand, &spool,
+      &mp, &stats);
+  REQUIRE(px > 0);
+  REQUIRE(stats.bands_decoded ==
+          static_cast<std::uint64_t>(plan.band_count));
+  const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+  REQUIRE(stats.record_bytes_read ==
+          static_cast<std::uint64_t>(nplane) *
+              sizeof(ForwardDrizzleV2ProfileResult));
+  REQUIRE(stats.record_bytes_no_reuse > stats.record_bytes_read);
+  REQUIRE(mp.fits);
+  REQUIRE(spool.populated);
+  REQUIRE(fs::file_size(fits_path) > 0);
+  REQUIRE(cand.width == nc);
+  REQUIRE(cand.height == nr);
+
+  // Parity: the v2-adapted striped fusion must equal the whole-canvas
+  // fusion over the same committed profile records.
+  std::vector<ForwardDrizzleV2PixelResult> records;
+  std::vector<ForwardDrizzleV2ProfileResult> profiles;
+  g10_read_store(fx.root, plan, records, &profiles);
+  const auto U = forward_drizzle_v2_profiles_to_uniform_result(
+      profiles, nc, nr, 1, ColorMode::MONO, 0);
+  const auto R = forward_drizzle_v2_profiles_to_uniform_result(
+      profiles, nc, nr, 1, ColorMode::MONO, 1);
+  const auto F = forward_drizzle_v2_profiles_to_uniform_result(
+      profiles, nc, nr, 1, ColorMode::MONO, 2);
+  const auto M = forward_drizzle_v2_profiles_to_uniform_result(
+      profiles, nc, nr, 1, ColorMode::MONO, 3);
+  const auto a_sep =
+      forward_drizzle_v2_profile_alpha_plane(profiles, nc, nr, 1, 0);
+  const auto a_art =
+      forward_drizzle_v2_profile_alpha_plane(profiles, nc, nr, 1, 1);
+  const auto a_reg =
+      forward_drizzle_v2_profile_alpha_plane(profiles, nc, nr, 1, 2);
+  const auto whole =
+      fuse_multiband(U, R, F, M, ColorMode::MONO, nc, nr, mb, contract.alpha,
+                     contract.guard, a_sep, a_art, a_reg, {});
+  REQUIRE(cand.multiband_luma.size() == whole.L.size());
+  REQUIRE(cand.uniform_luma.size() == whole.L.size());
+  long long support_parity = 0;
+  for (std::size_t i = 0; i < whole.L.size(); ++i) {
+    const float mv = cand.multiband_luma[i], wv = whole.L[i];
+    REQUIRE((mv == wv || (std::isnan(mv) && std::isnan(wv))));
+    const float uv = cand.uniform_luma[i], uref = U.L.value[i];
+    REQUIRE((uv == uref || (std::isnan(uv) && std::isnan(uref))));
+    REQUIRE((cand.uniform_support[i] != 0) == (U.L.support[i] != 0));
+    if (cand.uniform_support[i]) ++support_parity;
+  }
+  REQUIRE(support_parity > 0);
+  // The spool's multiband plane carries the same fused values.
+  const auto mb_plane =
+      read_candidate_spool_plane(spool, "multiband", 0);
+  REQUIRE(mb_plane.size() == nplane);
+  const auto raw_plane = read_candidate_spool_plane(spool, "raw", 0);
+  for (std::size_t i = 0; i < nplane; ++i) {
+    const float sv = mb_plane[i], wv = whole.L[i];
+    REQUIRE((sv == wv || (std::isnan(sv) && std::isnan(wv))));
+    const float rv = raw_plane[i], rref = R.L.value[i];
+    REQUIRE((rv == rref || (std::isnan(rv) && std::isnan(rref))));
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate10 fusion fails closed",
+          "[forward-drizzle-v2][gate10][fusion][production]") {
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 0, 0, 1);
+  config::ReconstructionMultibandConfig mb;
+  mb.enabled = true;
+  mb.levels = 3;
+  const auto plan = g10_driver_plan(f, 4, 1, true);
+
+  SECTION("no published store") {
+    V2StoreFixture fx;
+    ForwardDrizzleV2RunPlan p;
+    std::string e;
+    REQUIRE_FALSE(load_forward_drizzle_v2_published_plan(fx.root, p, e));
+    REQUIRE_THROWS_AS(
+        fuse_multiband_v2_store_to_image(fx.root, plan, fx.root / "o.fits",
+                                         mb, 2, 256),
+        std::runtime_error);
+  }
+
+  SECTION("resumable-only store is not fused") {
+    V2StoreFixture fx;
+    const std::size_t n_src =
+        static_cast<std::size_t>(f.plan.source_width) * f.plan.source_height;
+    std::vector<float> s2(n_src, 0.02f);
+    ForwardDrizzleV2DriverOptions opts;
+    opts.prefer_cuda = false;
+    opts.simulate_kill_after_bands = 1;
+    try {
+      (void)run_forward_drizzle_v2(fx.root, plan, f.plan.source_width,
+                                   f.plan.source_height,
+                                   g10_provider(f, s2, nullptr), opts);
+      FAIL("expected simulated kill");
+    } catch (const ForwardDrizzleV2SimulatedKill &) {
+    }
+    ForwardDrizzleV2RunPlan p;
+    std::string e;
+    REQUIRE_FALSE(load_forward_drizzle_v2_published_plan(fx.root, p, e));
+    const auto insp = inspect_forward_drizzle_v2_store(fx.root, plan);
+    REQUIRE(insp.status == ForwardDrizzleV2StoreStatus::resumable);
+    REQUIRE_THROWS_AS(
+        fuse_multiband_v2_store_to_image(fx.root, plan, fx.root / "o.fits",
+                                         mb, 2, 256),
+        std::runtime_error);
+  }
+
+  SECTION("foreign plan rejected") {
+    V2StoreFixture fx;
+    const std::size_t n_src =
+        static_cast<std::size_t>(f.plan.source_width) * f.plan.source_height;
+    std::vector<float> s2(n_src, 0.02f);
+    ForwardDrizzleV2DriverOptions opts;
+    opts.prefer_cuda = false;
+    const auto done =
+        run_forward_drizzle_v2(fx.root, plan, f.plan.source_width,
+                               f.plan.source_height,
+                               g10_provider(f, s2, nullptr), opts);
+    REQUIRE(done.committed);
+    auto foreign = plan;
+    foreign.pixfrac = 0.5;
+    finalize_forward_drizzle_v2_run_plan(foreign);
+    REQUIRE_THROWS_AS(
+        fuse_multiband_v2_store_to_image(fx.root, foreign, fx.root / "o.fits",
+                                         mb, 2, 256),
+        std::runtime_error);
+  }
+
+  SECTION("corrupted profile payload rejected") {
+    V2StoreFixture fx;
+    const std::size_t n_src =
+        static_cast<std::size_t>(f.plan.source_width) * f.plan.source_height;
+    std::vector<float> s2(n_src, 0.02f);
+    ForwardDrizzleV2DriverOptions opts;
+    opts.prefer_cuda = false;
+    const auto done =
+        run_forward_drizzle_v2(fx.root, plan, f.plan.source_width,
+                               f.plan.source_height,
+                               g10_provider(f, s2, nullptr), opts);
+    REQUIRE(done.committed);
+    std::ofstream corrupt(done.generation_dir / "band-0000.profiles.bin",
+                          std::ios::binary | std::ios::app);
+    const char junk[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    corrupt.write(junk, 8);
+    corrupt.close();
+    ForwardDrizzleV2RunPlan detected;
+    std::string e;
+    REQUIRE(load_forward_drizzle_v2_published_plan(fx.root, detected, e));
+    REQUIRE_THROWS_AS(
+        fuse_multiband_v2_store_to_image(fx.root, detected,
+                                         fx.root / "o.fits", mb, 2, 256),
+        std::runtime_error);
+  }
 }

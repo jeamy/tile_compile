@@ -2,6 +2,7 @@
 #include "tile_compile/reconstruction/normalized_source_cache.hpp"
 #include "tile_compile/reconstruction/quality_frame_weight_plan.hpp"
 #include "tile_compile/reconstruction/drizzle_profile_store.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_v2_store.hpp"
 
 #include <array>
 #include <cstdint>
@@ -201,5 +202,30 @@ long long fuse_multiband_store_to_image(
     // When non-null, receives the pre-allocation working-set plan that gated the
     // phase (plan 11.13(4): reported separately from the measured RSS peak).
     MultibandFusionMemoryPlan *mem_plan_out = nullptr);
+
+// Gate-10 v2 counterpart of fuse_multiband_store_to_image: the v2 store's
+// committed band profile records are read with a rolling row window (every
+// band decoded once), each fusion stripe is adapted through
+// forward_drizzle_v2_profiles_to_uniform_result +
+// forward_drizzle_v2_profile_alpha_plane (channel-min alpha) and fused with
+// the shared fuse_multiband. `plan` binds the store; inspection must report
+// status complete or the call throws (fail closed). Same output products,
+// budget pre-plan and fail-closed semantics as the legacy variant.
+struct ForwardDrizzleV2FusionStats {
+  std::uint64_t bands_decoded = 0;         // distinct bands read from store
+  std::uint64_t record_bytes_read = 0;     // decoded profile bytes
+  std::uint64_t record_bytes_no_reuse = 0; // window bytes if re-read per stripe
+  double read_amplification = 1.0;         // read / logical store bytes
+  ForwardDrizzleV2AlphaDiagnostic alpha{};
+};
+long long fuse_multiband_v2_store_to_image(
+    const fs::path &store_root, const ForwardDrizzleV2RunPlan &plan,
+    const fs::path &final_image_path,
+    const config::ReconstructionMultibandConfig &multiband_cfg,
+    int chunk_rows = 0, size_t memory_budget_mb = 512,
+    MultibandCandidateLuma *candidates_out = nullptr,
+    MultibandCandidateSpool *spool_out = nullptr,
+    MultibandFusionMemoryPlan *mem_plan_out = nullptr,
+    ForwardDrizzleV2FusionStats *stats_out = nullptr);
 
 } // namespace tile_compile::reconstruction

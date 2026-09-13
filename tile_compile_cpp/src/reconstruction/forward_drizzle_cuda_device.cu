@@ -423,11 +423,14 @@ __device__ unsigned long long d_splitmix64(unsigned long long x) {
 // k_affine_dense_scatter the geometry weight is written for every positive
 // overlap BEFORE the value check: a nonfinite source sample still owns its
 // geometric support (footprint/B_geo), exactly like the CPU contract.
+// affine6 is the canvas-coordinate source->canvas transform; the emitted
+// internal coordinate is (q - band_origin) * sc.
 __global__ void k_scatter_v2(
     double a0, double a1, double a2, double a3, double a4, double a5,
     double sc, double half, int cols, int rows, int source_w, int source_h,
     const float *source, const float *sigma2, int bayer, int ox, int oy,
-    int mono, double *fa, double *fbs, double *fbg, double *fs2,
+    int mono, double band_ox, double band_oy, double *fa, double *fbs,
+    double *fbg, double *fs2,
     V2QualityIO qio, unsigned long long *positive_overlaps) {
   const long long tid =
       static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
@@ -446,8 +449,8 @@ __global__ void k_scatter_v2(
   double minx = DBL_MAX, maxx = -DBL_MAX;
   double miny = DBL_MAX, maxy = -DBL_MAX;
   for (int k = 0; k < 4; ++k) {
-    qx[k] = (a0 * px[k] + a1 * py[k] + a2) * sc;
-    qy[k] = (a3 * px[k] + a4 * py[k] + a5) * sc;
+    qx[k] = (a0 * px[k] + a1 * py[k] + a2 - band_ox) * sc;
+    qy[k] = (a3 * px[k] + a4 * py[k] + a5 - band_oy) * sc;
     minx = fmin(minx, qx[k]); maxx = fmax(maxx, qx[k]);
     miny = fmin(miny, qy[k]); maxy = fmax(maxy, qy[k]);
   }
@@ -676,7 +679,8 @@ __global__ void k_scatter_v2_local(
     ForwardDrizzleV2LocalWarp w, double sc, double half, int cols, int rows,
     int source_w, int source_h, const float *source, const float *sigma2,
     int bayer, int ox, int oy, int mono, int canvas_w_native,
-    int canvas_h_native, double *fa, double *fbs, double *fbg, double *fs2,
+    int canvas_h_native, double band_ox, double band_oy, double *fa,
+    double *fbs, double *fbg, double *fs2,
     V2QualityIO qio, unsigned long long *positive_overlaps,
     unsigned long long *discarded) {
   const long long tid =
@@ -744,8 +748,8 @@ __global__ void k_scatter_v2_local(
         fail = true;
         break;
       }
-      qx[k] = static_cast<double>(fq) * sc;
-      qy[k] = static_cast<double>(fq2) * sc;
+      qx[k] = (static_cast<double>(fq) - band_ox) * sc;
+      qy[k] = (static_cast<double>(fq2) - band_oy) * sc;
       minx = fmin(minx, qx[k]);
       maxx = fmax(maxx, qx[k]);
       miny = fmin(miny, qy[k]);
@@ -1661,8 +1665,8 @@ bool forward_drizzle_cuda_local_dense_scatter(
         warp, static_cast<double>(internal_scale), half, target_cols,
         target_rows, source_w, source_h, d_source, nullptr, bayer_pattern,
         cfa_origin_x, cfa_origin_y, mono ? 1 : 0, canvas_w_native,
-        canvas_h_native, d_a, d_bs, d_bg, nullptr, V2QualityIO{}, d_scalars,
-        d_scalars + 1);
+        canvas_h_native, 0.0, 0.0, d_a, d_bs, d_bg, nullptr, V2QualityIO{},
+        d_scalars, d_scalars + 1);
     ok = cudaGetLastError() == cudaSuccess &&
          cudaDeviceSynchronize() == cudaSuccess;
   }
@@ -2149,6 +2153,16 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
       !std::isfinite(cfg.sigma_high) || cfg.sigma_low <= 0.0 ||
       cfg.sigma_high <= 0.0 || !std::isfinite(cfg.half) ||
       !(cfg.half > 0.0) || cfg.bayer_pattern < 0 || cfg.bayer_pattern > 4 ||
+      cfg.band_origin_x_native < 0 || cfg.band_origin_y_native < 0 ||
+      // When the full canvas dims are supplied the band window must be
+      // contained in the canvas; a band origin without canvas dims is only
+      // meaningful as 0 (band == canvas).
+      (cfg.canvas_width_native > 0 &&
+       cfg.band_origin_x_native + native_cols > cfg.canvas_width_native) ||
+      (cfg.canvas_height_native > 0 &&
+       cfg.band_origin_y_native + native_rows > cfg.canvas_height_native) ||
+      (cfg.canvas_width_native == 0 && cfg.band_origin_x_native != 0) ||
+      (cfg.canvas_height_native == 0 && cfg.band_origin_y_native != 0) ||
       (cfg.emit_profiles &&
        (!std::isfinite(cfg.fine_quality_exponent) ||
         !std::isfinite(cfg.medium_quality_exponent) ||
@@ -2490,6 +2504,8 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
           im.irows, im.source_w, im.source_h, im.src,
           im.fs2 ? im.s2 : nullptr, im.cfg.bayer_pattern, im.cfg.cfa_origin_x,
           im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0, canvas_w, canvas_h,
+          static_cast<double>(im.cfg.band_origin_x_native),
+          static_cast<double>(im.cfg.band_origin_y_native),
           im.fa, im.fbs, im.fbg, im.fs2, qio, im.scalars, im.scalars + 2);
     } else {
       k_scatter_v2<<<grid, block, 0, st>>>(
@@ -2497,8 +2513,10 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
           affine6[5], static_cast<double>(im.cfg.internal_scale), im.cfg.half,
           im.icols, im.irows, im.source_w, im.source_h, im.src,
           im.fs2 ? im.s2 : nullptr, im.cfg.bayer_pattern, im.cfg.cfa_origin_x,
-          im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0, im.fa, im.fbs, im.fbg,
-          im.fs2, qio, im.scalars);
+          im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0,
+          static_cast<double>(im.cfg.band_origin_x_native),
+          static_cast<double>(im.cfg.band_origin_y_native),
+          im.fa, im.fbs, im.fbg, im.fs2, qio, im.scalars);
     }
   }
   {

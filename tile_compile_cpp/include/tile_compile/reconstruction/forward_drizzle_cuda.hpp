@@ -368,6 +368,15 @@ struct ForwardDrizzleV2KernelConfig {
   // 0 = the band covers the whole canvas (use the band dims).
   int canvas_width_native = 0;
   int canvas_height_native = 0;
+  // Gate-10 band window origin in native canvas pixels. The affine6
+  // argument of accumulate_* is ALWAYS the persisted source->canvas
+  // transform in canvas coordinates; emitted internal coordinates are
+  // (q - band_origin) * internal_scale. The local-warp inversion still
+  // runs in canvas coordinates (seed, model evaluation and bounds), so
+  // per-sample discard decisions are identical to the whole-canvas oracle
+  // for every band. 0 = the band starts at the canvas origin.
+  int band_origin_x_native = 0;
+  int band_origin_y_native = 0;
   // Gate-9: profile production. When true, reserve() additionally allocates
   // the five quality frame planes (Q_c, Q_0, Q_1, Q_a, Q_aflag), the float4
   // reservoir side array, the per-frame meta table and the profile result
@@ -446,7 +455,9 @@ class ForwardDrizzleV2CudaPrototypeKernel {
                const ForwardDrizzleV2KernelConfig &cfg);
   // One frame: upload source (+sigma2, +quality planes when profiles are
   // enabled), scatter, fold+accumulate. All async on the workspace stream;
-  // no allocations, no sync. When cfg.emit_profiles is set, `meta_or_null`
+  // no allocations, no sync. `affine6` is the persisted source->canvas
+  // transform in CANVAS coordinates; cfg.band_origin_*_native selects the
+  // band window. When cfg.emit_profiles is set, `meta_or_null`
   // must supply the frame's g_eff/is_direct/residual_factor row (the call
   // fails otherwise); without profiles both extras may stay null.
   bool accumulate_frame(const double affine6[6], const float *source,

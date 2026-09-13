@@ -6,6 +6,7 @@
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/reconstruction/normalized_source_cache.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_v2_store.hpp"
 #include "tile_compile/reconstruction/multiband_validation.hpp"
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
@@ -768,4 +769,69 @@ TEST_CASE("forward downstream normalization provenance is checked before resume 
   REQUIRE_FALSE(f.execute(resumed,"FORWARD_DRIZZLE"));
   for (const auto &e:events(resumed.str())) REQUIRE(e["type"]!="phase_start");
   REQUIRE(core::sha256_file(f.dir/"outputs/forward_drizzle_raw_L.fit")==raw);
+}
+
+TEST_CASE("forward runner: TC_FORWARD_DRIZZLE_V2 selects the banded v2 path "
+          "and MULTIBAND auto-detects the v2 store",
+          "[forward-runner][gate10]") {
+  // Gate-10 wiring contract: the env-selected v2 producer commits a Gate-7
+  // band store (artifacts/forward_drizzle_v2), the phase checkpoint binds its
+  // plan_hash, and MULTIBAND fuses it through the v2 adapter without any
+  // legacy profile store.
+  struct V2EnvGuard {
+    V2EnvGuard() { ::setenv("TC_FORWARD_DRIZZLE_V2", "1", 1); }
+    ~V2EnvGuard() { ::unsetenv("TC_FORWARD_DRIZZLE_V2"); }
+    V2EnvGuard(const V2EnvGuard &) = delete;
+    V2EnvGuard &operator=(const V2EnvGuard &) = delete;
+  } env;
+
+  Fixture f;
+  std::ostringstream log;
+  REQUIRE(f.execute(log));
+  REQUIRE(events(log.str()).back()["status"] == "final_image_ready");
+
+  // The v2 producer committed a published Gate-7 generation.
+  const auto v2_root = f.dir / "artifacts/forward_drizzle_v2";
+  reconstruction::ForwardDrizzleV2RunPlan detected;
+  std::string load_error;
+  REQUIRE(reconstruction::load_forward_drizzle_v2_published_plan(
+      v2_root, detected, load_error));
+  const auto insp =
+      reconstruction::inspect_forward_drizzle_v2_store(v2_root, detected);
+  REQUIRE(insp.status ==
+          reconstruction::ForwardDrizzleV2StoreStatus::complete);
+  REQUIRE(insp.committed.size() ==
+          static_cast<std::size_t>(detected.band_count));
+
+  // The FORWARD_DRIZZLE phase-end event records the selection + backend.
+  core::json fd_end;
+  for (const auto &event : events(log.str()))
+    if (event["type"] == "phase_end" &&
+        event["phase_name"] == "FORWARD_DRIZZLE")
+      fd_end = event;
+  REQUIRE(fd_end.at("forward_drizzle_v2").get<bool>());
+  const std::string be =
+      fd_end.at("acceleration_backend").get<std::string>();
+  REQUIRE((be == "cpu_v2" || be == "cuda_v2"));
+
+  // The checkpoint carries the plan hash --- a plan/config change fails
+  // closed on resume.
+  const auto ck = core::json::parse(core::read_text(
+      f.dir / "artifacts/forward_drizzle_checkpoint.json"));
+  REQUIRE(ck.at("forward_drizzle_v2").get<bool>());
+  REQUIRE(ck.at("forward_drizzle_v2_plan_hash").get<std::string>() ==
+          detected.plan_hash);
+
+  // MULTIBAND auto-detected the published store and fused the final image;
+  // no legacy profile store was produced.
+  REQUIRE(fs::exists(f.dir / "artifacts/reconstruction_multiband.fits"));
+  REQUIRE_FALSE(fs::exists(f.dir / "artifacts/forward_drizzle_profiles"));
+
+  // Env unset on a fresh run keeps the legacy producer path.
+  ::unsetenv("TC_FORWARD_DRIZZLE_V2");
+  Fixture legacy;
+  std::ostringstream legacy_log;
+  REQUIRE(legacy.execute(legacy_log));
+  REQUIRE_FALSE(
+      fs::exists(legacy.dir / "artifacts/forward_drizzle_v2/current.json"));
 }

@@ -5,6 +5,8 @@
 #include "tile_compile/reconstruction/source_quality_map_cache.hpp"
 #include "tile_compile/reconstruction/multiband_validation.hpp"
 #include "tile_compile/reconstruction/multiband_fusion.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_v2_production.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_v2_store.hpp"
 #include "tile_compile/reconstruction/output_scale.hpp"
 #include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/core/build_info.hpp"
@@ -490,9 +492,48 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
 
     begin(Phase::FORWARD_DRIZZLE);
     const auto profiles_root=artifacts/"forward_drizzle_profiles";
+    // Gate-10 cutover: TC_FORWARD_DRIZZLE_V2=1 selects the banded v2
+    // producer (artifacts/forward_drizzle_v2, Gate-7 transactional store).
+    // The v2 path writes no legacy profile store; MULTIBAND detects the v2
+    // store by its current.json. A checkpoint-recorded v2 plan_hash makes a
+    // config/plan change fail closed across a resume.
+    bool fd_v2=false;
+    if (const char *e=std::getenv("TC_FORWARD_DRIZZLE_V2"))
+      fd_v2=std::string(e)=="1";
+    if (!fd_v2 && checkpoint.value("forward_drizzle_v2",false))
+      fd_v2=true;  // resume honours the choice recorded at produce time
+    const auto v2_root=artifacts/"forward_drizzle_v2";
     reconstruction::DrizzleStoreIdentity mb_identity;
     reconstruction::DrizzleStoreResult result;
-    if (want_multiband) {
+    std::optional<reconstruction::ForwardDrizzleV2ProductionResult> v2_result;
+    if (fd_v2) {
+      if (!want_multiband)
+        throw std::invalid_argument("FORWARD_DRIZZLE_V2_REQUIRES_MULTIBAND");
+      const auto v2_progress=[&](int band,int band_count){
+        const float p=band_count>0?static_cast<float>(band)/band_count:1.0f;
+        emitter.phase_progress(run_id,Phase::FORWARD_DRIZZLE,p,
+            "band "+std::to_string(band)+"/"+std::to_string(band_count),log);
+      };
+      v2_result=reconstruction::persist_forward_drizzle_v2_from_predecessors(
+          v2_root,quality_path,sampling,cache,qcfg,drizzle,
+          reconstruction_cfg.clipping,reconstruction_cfg.multiband,
+          sqm_cache_root,
+          sqm_cache_root/"source_quality_metrics-v1.json",
+          artifacts/"global_registration.json",
+          geom_reader?&*geom_reader:nullptr,geom_sub,
+          provenance.at("config").at("sha256").get<std::string>(),
+          fd_backend,v2_progress);
+      fd_backend_used=v2_result->driver.backend_used;
+      fd_cuda_fallback_reason=v2_result->driver.cuda_fallback_reason;
+      checkpoint["forward_drizzle_v2"]=true;
+      checkpoint["forward_drizzle_v2_plan_hash"]=v2_result->plan.plan_hash;
+      checkpoint["forward_drizzle_v2_commit_hash"]=v2_result->driver.commit_hash;
+      checkpoint["multiband_levels"]=v2_result->plan.multiband_levels;
+      checkpoint["v2_frames_participating"]=v2_result->frames_participating;
+      checkpoint["v2_frames_skipped_invalid"]=v2_result->frames_skipped_invalid;
+      checkpoint["v2_bands_committed"]=v2_result->driver.bands_committed;
+      checkpoint["v2_bands_reused"]=v2_result->driver.bands_reused;
+    } else if (want_multiband) {
       auto built=reconstruction::persist_multiband_store_from_predecessors(
           profiles_root,quality_path,sampling,cache,qcfg,drizzle,
           reconstruction_cfg.clipping,reconstruction_cfg.multiband,sqm_cache_root,
@@ -508,35 +549,54 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           profiles_root,quality_path,sampling,cache,qcfg,
           drizzle,reconstruction_cfg.clipping,{},sqm_cache_root,fd_workers);
     }
-    checkpoint["profiles_current_bytes"]=fs::file_size(profiles_root/"current.json");
+    checkpoint["profiles_current_bytes"]=fs::file_size(
+        (fd_v2?v2_root:profiles_root)/"current.json");
     checkpoint["forward_drizzle_backend"]=fd_backend_used;
     // P3 Teil 2: resolved CPU-reduction worker count (informational; the store
     // commit hash is invariant to it, so it is NOT resume-validated). On the
     // CUDA stripe path the device band chunking runs instead --- the value then
-    // only applies to a CUDA->CPU restart.
+    // only applies to a CUDA->CPU restart. The v2 backends are named
+    // "cpu_v2"/"cuda_v2"; the CPU one is serial (the driver owns the band
+    // loop), so workers_used stays 0 on that path by construction.
     checkpoint["forward_drizzle_reduction_workers_requested"]=fd_workers;
-    const bool cpu_reduction=fd_backend_used=="cpu";
+    const bool cpu_reduction=fd_backend_used=="cpu"||fd_backend_used=="cpu_v2";
     checkpoint["forward_drizzle_reduction_workers"]=
-        cpu_reduction ? result.diagnostics.workers_used : 0;
+        (cpu_reduction&&!fd_v2) ? result.diagnostics.workers_used : 0;
     checkpoint["forward_drizzle_reduction_workers_budgeted"]=
-        cpu_reduction ? result.diagnostics.workers_budgeted : 0;
+        (cpu_reduction&&!fd_v2) ? result.diagnostics.workers_budgeted : 0;
     if (!fd_cuda_fallback_reason.empty())
       checkpoint["forward_drizzle_cuda_fallback_reason"]=fd_cuda_fallback_reason;
     core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
     {
-      json extra={{"generation",result.generation_dir.filename().string()},
+      json extra={{"generation",fd_v2?v2_result->driver.generation_dir.filename().string()
+                                   :result.generation_dir.filename().string()},
          {"estimated_peak_bytes",result.diagnostics.estimated_peak_bytes},
          {"internal_scale",drizzle.internal_scale},
          {"output_scale",drizzle.output_scale},
          {"output_scale_applied",applied_2x2},
          {"multiband",want_multiband},
          {"acceleration_backend",fd_backend_used},
+         {"forward_drizzle_v2",fd_v2},
          {"reduction_workers_requested",fd_workers},
-         {"reduction_workers",cpu_reduction ? result.diagnostics.workers_used : 0},
+         {"reduction_workers",(cpu_reduction&&!fd_v2) ? result.diagnostics.workers_used : 0},
          {"reduction_worker_scratch_bytes",result.diagnostics.worker_scratch_bytes},
          {"kernel_noise_sigma_factor",
           reconstruction::kernel_noise_correlation_sigma_factor(
               drizzle.pixfrac,drizzle.internal_scale)}};
+      if (fd_v2) {
+        extra["v2_plan_hash"]=v2_result->plan.plan_hash;
+        extra["v2_band_rows"]=v2_result->plan.band_rows;
+        extra["v2_band_count"]=v2_result->plan.band_count;
+        extra["v2_bands_committed"]=v2_result->driver.bands_committed;
+        extra["v2_bands_reused"]=v2_result->driver.bands_reused;
+        extra["v2_frames_participating"]=v2_result->frames_participating;
+        extra["v2_commit_hash"]=v2_result->driver.commit_hash;
+        extra["v2_frames_processed"]=v2_result->driver.totals.frames_processed;
+        extra["v2_reservoir_kept"]=v2_result->driver.totals.reservoir_kept_total;
+        extra["v2_q_bin_loads"]=v2_result->q_bin_loads;
+        extra["v2_q_bin_cells_decoded"]=v2_result->q_bin_cells_decoded;
+        extra["v2_local_samples_discarded"]=v2_result->local_model_samples_discarded;
+      }
       if (!fd_cuda_fallback_reason.empty())
         extra["cuda_fallback_reason"]=fd_cuda_fallback_reason;
       // T1: source-cache diagnostics (trusted run, no SHA counters).
@@ -596,9 +656,42 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         ~SpoolGuard() { std::error_code ec; fs::remove_all(dir,ec); }
       } spool_guard{spool.dir};
       reconstruction::MultibandFusionMemoryPlan mem_plan;
-      const auto pixels=reconstruction::fuse_multiband_store_to_image(
-          profiles_root,mb_identity,mb_internal,reconstruction_cfg.multiband,
-          drizzle.chunk_rows,drizzle.memory_budget_mb,&cand,&spool,&mem_plan);
+      // Gate-10 store autodetection: a published v2 store (current.json under
+      // artifacts/forward_drizzle_v2) is fused through the v2 adapter path;
+      // its committed plan is bound by the checkpoint's
+      // forward_drizzle_v2_plan_hash whenever the producer recorded one.
+      // Otherwise the legacy profile store is fused unchanged.
+      reconstruction::ForwardDrizzleV2RunPlan v2_store_plan;
+      std::string v2_plan_load_error;
+      const bool v2_store=
+          reconstruction::load_forward_drizzle_v2_published_plan(
+              v2_root,v2_store_plan,v2_plan_load_error);
+      long long pixels=0;
+      reconstruction::ForwardDrizzleV2FusionStats v2_fuse_stats;
+      if (v2_store) {
+        if (checkpoint.contains("forward_drizzle_v2_plan_hash") &&
+            checkpoint.at("forward_drizzle_v2_plan_hash").get<std::string>()!=
+                v2_store_plan.plan_hash)
+          throw std::runtime_error("FORWARD_STAGE_V2_PLAN_HASH_MISMATCH");
+        pixels=reconstruction::fuse_multiband_v2_store_to_image(
+            v2_root,v2_store_plan,mb_internal,reconstruction_cfg.multiband,
+            drizzle.chunk_rows,drizzle.memory_budget_mb,&cand,&spool,&mem_plan,
+            &v2_fuse_stats);
+        checkpoint["forward_drizzle_v2"]=true;
+        checkpoint["forward_drizzle_v2_plan_hash"]=v2_store_plan.plan_hash;
+        checkpoint["v2_fusion_bands_decoded"]=v2_fuse_stats.bands_decoded;
+        checkpoint["v2_fusion_record_bytes_read"]=v2_fuse_stats.record_bytes_read;
+        // Report identity: the v2 plan_hash IS the reconstruction identity;
+        // the "v2:" prefix keeps it unambiguous next to legacy store hashes.
+        mb_identity.width=v2_store_plan.native_width;
+        mb_identity.height=v2_store_plan.native_height;
+        mb_identity.multiband_levels=v2_store_plan.multiband_levels;
+        mb_identity.reconstruction_hash="v2:"+v2_store_plan.plan_hash;
+      } else {
+        pixels=reconstruction::fuse_multiband_store_to_image(
+            profiles_root,mb_identity,mb_internal,reconstruction_cfg.multiband,
+            drizzle.chunk_rows,drizzle.memory_budget_mb,&cand,&spool,&mem_plan);
+      }
       checkpoint["final_image_bytes"]=fs::file_size(mb_internal);
 
       // Plan 16.4: per-band alpha-confidence summary. `cand.alpha_final_by_band`
@@ -762,11 +855,16 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       const bool mb_growth_within_envelope=
           mb_phase_rss_growth_kb<=mb_envelope_kb;
       json local_warp={
-        {"local_model_samples_total",result.diagnostics.local_model_samples_total},
+        {"local_model_samples_total",
+         v2_result ? static_cast<long long>(v2_result->local_model_samples_total)
+                   : result.diagnostics.local_model_samples_total},
         {"local_model_samples_discarded",
-         result.diagnostics.local_model_samples_discarded}};
+         v2_result ? static_cast<long long>(v2_result->local_model_samples_discarded)
+                   : result.diagnostics.local_model_samples_discarded}};
       { json fx=json::array();
-        for (const auto &fr:result.diagnostics.frames_excluded_subdivision_error_rate)
+        for (const auto &fr:v2_result
+                ? v2_result->frames_excluded_subdivision_error_rate
+                : result.diagnostics.frames_excluded_subdivision_error_rate)
           fx.push_back({{"frame_id",fr.first},{"inversion_error_rate",fr.second}});
         local_warp["frames_excluded_subdivision_error_rate"]=fx; }
       json fwd={
@@ -970,6 +1068,30 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
              ? json(nullptr) : json(sel.reason)},
         {"outputs",out_list},
         {"commit_complete",true}};
+      if (v2_store) {
+        // Gate-10 v2 producer identity + fusion read accounting (the
+        // alpha_confidence_summary / validation blocks above already carry
+        // the fused v2 products unchanged).
+        fwd["forward_drizzle_v2"]={
+          {"store","forward_drizzle_v2"},
+          {"plan_hash",v2_store_plan.plan_hash},
+          {"band_rows",v2_store_plan.band_rows},
+          {"band_count",v2_store_plan.band_count},
+          {"emit_profiles",v2_store_plan.emit_profiles},
+          {"fusion",{
+            {"bands_decoded",static_cast<long long>(v2_fuse_stats.bands_decoded)},
+            {"record_bytes_read",
+             static_cast<long long>(v2_fuse_stats.record_bytes_read)},
+            {"record_bytes_no_reuse",
+             static_cast<long long>(v2_fuse_stats.record_bytes_no_reuse)},
+            {"read_amplification",v2_fuse_stats.read_amplification},
+            {"alpha_supported_pixels",
+             static_cast<long long>(v2_fuse_stats.alpha.supported_pixels)},
+            {"alpha_near_zero_pixels",
+             static_cast<long long>(v2_fuse_stats.alpha.near_zero_pixels)},
+            {"alpha_near_zero_fraction",v2_fuse_stats.alpha.near_zero_fraction},
+            {"alpha_global_near_zero",v2_fuse_stats.alpha.global_near_zero}}}};
+      }
       core::write_text_atomic(artifacts/"forward_drizzle.json",fwd.dump(2));
       // No checkpoint hash guard for forward_drizzle.json: MULTIBAND fully
       // regenerates it on every (re)run, so there is nothing to verify on

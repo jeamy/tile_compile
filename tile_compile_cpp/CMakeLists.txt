@@ -454,6 +454,9 @@ set(LIB_SOURCES
     src/reconstruction/forward_drizzle.cpp
     src/reconstruction/forward_drizzle_v2.cpp
     src/reconstruction/forward_drizzle_v2_store.cpp
+    src/reconstruction/forward_drizzle_v2_cpu.cpp
+    src/reconstruction/forward_drizzle_v2_driver.cpp
+    src/reconstruction/forward_drizzle_v2_production.cpp
     src/reconstruction/forward_drizzle_contrib_list.cpp
     src/reconstruction/drizzle_geometry_stats.cpp
     src/reconstruction/drizzle_geometry_cache.cpp
@@ -529,6 +532,11 @@ if(NOT MSVC)
     set_source_files_properties(
         src/reconstruction/forward_drizzle.cpp
         src/reconstruction/forward_drizzle_v2.cpp
+        src/reconstruction/forward_drizzle_v2_cpu.cpp
+        # Gate-10 production wiring: sigma2 gradients and transforms feed the
+        # kernel's clip/confidence decisions, so it shares the FP-contraction
+        # contract with the reference path.
+        src/reconstruction/forward_drizzle_v2_production.cpp
         src/reconstruction/forward_drizzle_contrib_list.cpp
         src/reconstruction/forward_drizzle_cuda.cpp
         # P0 geometry instrumentation: integer counters + diagnostic timers
