@@ -24,6 +24,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <new>
+#include <vector>
 
 namespace tile_compile::reconstruction {
 
@@ -348,6 +350,364 @@ __global__ void k_affine_dense_scatter(
     }
   }
   if (overlaps) atomicAdd(positive_overlaps, overlaps);
+}
+
+// --- Gate-6 prototype kernels ---------------------------------------------
+
+// Bounded per-(pixel, channel) reservoir record. sigma2 must persist to fold
+// time for the clip-accepted confidence contract (gate-6 role amendment).
+struct V2ReservoirRecord {
+  double x;
+  double b;
+  unsigned long long order;
+  double sigma2;
+};
+
+// Hard device bound: slots = 2 * reservoir_size with reservoir_size <= 64.
+constexpr int kV2MaxResSlots = 128;
+
+__device__ unsigned long long d_splitmix64(unsigned long long x) {
+  x += 0x9e3779b97f4a7c15ULL;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+  return x ^ (x >> 31);
+}
+
+// Dense scatter into the band-local internal planes. Unlike
+// k_affine_dense_scatter the geometry weight is written for every positive
+// overlap BEFORE the value check: a nonfinite source sample still owns its
+// geometric support (footprint/B_geo), exactly like the CPU contract.
+__global__ void k_scatter_v2(
+    double a0, double a1, double a2, double a3, double a4, double a5,
+    double sc, double half, int cols, int rows, int source_w, int source_h,
+    const float *source, const float *sigma2, int bayer, int ox, int oy,
+    int mono, double *fa, double *fbs, double *fbg, double *fs2,
+    unsigned long long *positive_overlaps) {
+  const long long tid =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const long long source_n = static_cast<long long>(source_w) * source_h;
+  if (tid >= source_n) return;
+  const int sy = static_cast<int>(tid / source_w);
+  const int sx = static_cast<int>(tid % source_w);
+  const double value = static_cast<double>(source[tid]);
+  const bool finite_value = isfinite(value);
+  const double s2 = sigma2 != nullptr ? static_cast<double>(sigma2[tid]) : 0.0;
+  const int channel = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
+  const double x = sx + 0.5, y = sy + 0.5;
+  const double px[4] = {x - half, x + half, x + half, x - half};
+  const double py[4] = {y - half, y - half, y + half, y + half};
+  double qx[4], qy[4];
+  double minx = DBL_MAX, maxx = -DBL_MAX;
+  double miny = DBL_MAX, maxy = -DBL_MAX;
+  for (int k = 0; k < 4; ++k) {
+    qx[k] = (a0 * px[k] + a1 * py[k] + a2) * sc;
+    qy[k] = (a3 * px[k] + a4 * py[k] + a5) * sc;
+    minx = fmin(minx, qx[k]); maxx = fmax(maxx, qx[k]);
+    miny = fmin(miny, qy[k]); maxy = fmax(maxy, qy[k]);
+  }
+  const int x0 = max(0, static_cast<int>(floor(minx)));
+  const int x1 = min(cols, static_cast<int>(ceil(maxx)));
+  const int y0 = max(0, static_cast<int>(floor(miny)));
+  const int y1 = min(rows, static_cast<int>(ceil(maxy)));
+  unsigned long long overlaps = 0;
+  const long long plane_n = static_cast<long long>(cols) * rows;
+  for (int ty = y0; ty < y1; ++ty) {
+    for (int tx = x0; tx < x1; ++tx) {
+      const double area =
+          d_polygon_rect_area(qx, qy, tx, ty, tx + 1.0, ty + 1.0);
+      if (!(area > 0.0)) continue;
+      const long long out = static_cast<long long>(channel) * plane_n +
+                            static_cast<long long>(ty) * cols + tx;
+      atomicAdd(fbg + out, area);
+      if (finite_value) {
+        atomicAdd(fa + out, area * value);
+        atomicAdd(fbs + out, area);
+        if (fs2 != nullptr) atomicAdd(fs2 + out, area * s2);
+      }
+      ++overlaps;
+    }
+  }
+  if (overlaps) atomicAdd(positive_overlaps, overlaps);
+}
+
+// One thread per NATIVE pixel of the band: folds the scale^2 frame-plane
+// subpixels per channel into per-frame candidates and accumulates the
+// full-stream statistics, coverage, support masks and the bounded hash
+// reservoir. Same algebra as fold_native_pixel_v2 + the gate-3 stream loop.
+// Support mask (u16, scale <= 2): bits 0..3 geometry, bits 4..7 source;
+// estimator/profile layers equal the source layer on this minimal kernel and
+// are derived at finalize.
+__global__ void k_fold_accumulate_v2(
+    const double *fa, const double *fbs, const double *fbg, const double *fs2,
+    int icols, int irows, int scale, int ncols, int nrows, int channels,
+    unsigned long long order, int keep_all, unsigned long long threshold,
+    int res_slots, unsigned long long seed,
+    double *accA, double *accB, double *accB2,
+    double *covB, double *covB2, double *confS, double *confC,
+    unsigned int *contrib, unsigned int *kept, unsigned int *footprint,
+    unsigned short *supp, unsigned long long *degraded,
+    V2ReservoirRecord *res) {
+  const long long px =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const long long nplane = static_cast<long long>(ncols) * nrows;
+  if (px >= nplane) return;
+  const int nx = static_cast<int>(px % ncols);
+  const int ny = static_cast<int>(px / ncols);
+  const long long iplane = static_cast<long long>(icols) * irows;
+  const double inv_s2 = 1.0 / (static_cast<double>(scale) * scale);
+  bool any_geo = false;
+  for (int c = 0; c < channels; ++c) {
+    const long long pc = static_cast<long long>(c) * nplane + px;
+    double a = 0.0, b_src = 0.0, b_geo = 0.0, s2w = 0.0;
+    unsigned int geo_bits = 0, src_bits = 0;
+    for (int iy = 0; iy < scale; ++iy) {
+      for (int ix = 0; ix < scale; ++ix) {
+        const int j = iy * scale + ix;
+        const long long ii =
+            static_cast<long long>(ny * scale + iy) * icols + nx * scale + ix;
+        const long long idx = static_cast<long long>(c) * iplane + ii;
+        const double aj = fa[idx];
+        const double bsj = fbs[idx];
+        const double bgj = fbg[idx];
+        a += inv_s2 * aj;
+        b_src += inv_s2 * bsj;
+        b_geo += inv_s2 * bgj;
+        if (fs2 != nullptr) s2w += inv_s2 * fs2[idx];
+        if (bgj > 0.0) geo_bits |= 1u << j;
+        if (bsj > 0.0) src_bits |= 1u << j;
+      }
+    }
+    supp[pc] |= static_cast<unsigned short>(geo_bits | (src_bits << 4));
+    if (b_geo > 0.0) {
+      covB[pc] += b_geo;
+      covB2[pc] += b_geo * b_geo;
+      any_geo = true;
+    }
+    if (!(b_src > 0.0)) continue;
+    const double x = a / b_src;
+    const double s2c = fs2 != nullptr ? s2w / b_src : 0.0;
+    accA[pc] += a;
+    accB[pc] += b_src;
+    accB2[pc] += b_src * b_src;
+    ++contrib[pc];
+    // Gate-4 stream confidence: mirrors conf_sigma2_of. A present-but-invalid
+    // sigma2 degrades; an absent plane contributes zero sigma silently.
+    if (fs2 != nullptr && (!isfinite(s2c) || s2c < 0.0)) {
+      ++degraded[pc];
+    } else if (s2c > 0.0) {
+      confS[pc] += b_src * sqrt(s2c);
+      confC[pc] += b_src * b_src * s2c;
+    }
+    if (keep_all || d_splitmix64(order ^ seed) < threshold) {
+      const unsigned int k = kept[pc]++;
+      if (k < static_cast<unsigned int>(res_slots)) {
+        V2ReservoirRecord r;
+        r.x = x;
+        r.b = b_src;
+        r.order = order;
+        r.sigma2 = s2c;
+        res[pc * res_slots + k] = r;
+      }
+    }
+  }
+  if (any_geo) ++footprint[px];
+}
+
+// Band-end finalize: per (pixel, channel) runs the bit-exact gate-3 clip on
+// the reservoir (identical evaluation order to robust_frame_oracle_v2:
+// (x, order) sort, cumulative-weight median at >= total/2, (|x-med|, order)
+// MAD order, asymmetric bounds, early stop on an unchanged mask) and maps the
+// gate-4 confidence states. kept > res_slots is the deterministic overflow
+// fallback: uniform stream value, support retained.
+__global__ void k_finalize_v2(
+    int ncols, int nrows, int channels, int subpixels, int res_slots,
+    unsigned long long frames_processed, int min_candidates, int min_clip,
+    int passes, double s_low, double s_high,
+    const double *accA, const double *accB, const double *accB2,
+    const double *confS, const double *confC,
+    const unsigned int *contrib, const unsigned int *kept,
+    const unsigned int *footprint, const unsigned short *supp,
+    const unsigned long long *degraded, const V2ReservoirRecord *res,
+    ForwardDrizzleV2PixelResult *out, unsigned long long *dense_overlap) {
+  const long long tid =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const long long nplane = static_cast<long long>(ncols) * nrows;
+  if (tid >= nplane * channels) return;
+  const long long pc = tid;
+  const long long px = tid % nplane;
+  const int c = static_cast<int>(tid / nplane);
+
+  ForwardDrizzleV2PixelResult r;
+  const double a_acc = accA[pc];
+  const double b_acc = accB[pc];
+  const double b2_acc = accB2[pc];
+  r.contributors = contrib[pc];
+  r.conf_degraded = degraded[pc];
+  r.b = b_acc;
+  r.n_eff = b2_acc > 0.0 ? b_acc * b_acc / b2_acc : 0.0;
+  const unsigned int mask = supp[pc];
+  r.geometry_fraction = static_cast<float>(
+      __popc(mask & 0xFu) / static_cast<double>(subpixels));
+  r.source_fraction = static_cast<float>(
+      __popc((mask >> 4) & 0xFu) / static_cast<double>(subpixels));
+  r.estimator_fraction = r.source_fraction;
+  r.profile_fraction = r.source_fraction;
+
+  if (c == 0 && footprint[px] == frames_processed && frames_processed > 0)
+    atomicAdd(dense_overlap, 1ULL);
+
+  const unsigned int n_kept = kept[pc];
+  auto finish_conf = [&](double cb, double cs, double cc) {
+    if (!(cb > 0.0)) {
+      r.confidence = 0.0;
+      r.confidence_state = static_cast<std::uint8_t>(
+          ForwardDrizzleV2ConfidenceState::no_source_support);
+      return;
+    }
+    if (cc > 0.0 && isfinite(cc)) {
+      r.confidence = (cs * cs) / (cs * cs + cc);
+      r.confidence_state =
+          static_cast<std::uint8_t>(ForwardDrizzleV2ConfidenceState::modeled);
+      return;
+    }
+    r.confidence = r.n_eff > 0.0 ? r.n_eff / (r.n_eff + 1.0) : 0.0;
+    r.confidence_state = static_cast<std::uint8_t>(
+        ForwardDrizzleV2ConfidenceState::fallback_n_eff);
+  };
+  auto finish_uniform = [&](ForwardDrizzleV2RobustState state) {
+    r.value = a_acc / b_acc;
+    r.robust_state = static_cast<std::uint8_t>(state);
+    finish_conf(b_acc, confS[pc], confC[pc]);
+  };
+
+  if (!(b_acc > 0.0)) {
+    r.robust_state = static_cast<std::uint8_t>(
+        ForwardDrizzleV2RobustState::no_source_support);
+    finish_conf(0.0, 0.0, 0.0);
+    out[pc] = r;
+    return;
+  }
+  if (n_kept > static_cast<unsigned int>(res_slots)) {
+    finish_uniform(ForwardDrizzleV2RobustState::reservoir_overflow_fallback);
+    out[pc] = r;
+    return;
+  }
+  if (r.contributors < static_cast<unsigned int>(min_candidates) ||
+      n_kept < static_cast<unsigned int>(min_clip)) {
+    finish_uniform(ForwardDrizzleV2RobustState::too_few_candidates_fallback);
+    out[pc] = r;
+    return;
+  }
+
+  // Load and insertion-sort the kept set by (x, order); identical ordering to
+  // the CPU oracle.
+  V2ReservoirRecord recs[kV2MaxResSlots];
+  for (unsigned int i = 0; i < n_kept; ++i) recs[i] = res[pc * res_slots + i];
+  for (unsigned int i = 1; i < n_kept; ++i) {
+    const V2ReservoirRecord v = recs[i];
+    unsigned int j = i;
+    while (j > 0 &&
+           (recs[j - 1].x > v.x ||
+            (recs[j - 1].x == v.x && recs[j - 1].order > v.order))) {
+      recs[j] = recs[j - 1];
+      --j;
+    }
+    recs[j] = v;
+  }
+  unsigned long long acc_lo = ~0ULL, acc_hi = ~0ULL;  // accepted bitmask
+  for (int pass = 0; pass < passes; ++pass) {
+    double total_w = 0.0;
+    unsigned int n_active = 0;
+    for (unsigned int i = 0; i < n_kept; ++i) {
+      const bool on = i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
+      if (on) {
+        total_w += recs[i].b;
+        ++n_active;
+      }
+    }
+    if (n_active == 0) break;
+    double median = 0.0;
+    {
+      double cum = 0.0;
+      unsigned int last_on = 0;
+      bool picked = false;
+      for (unsigned int i = 0; i < n_kept; ++i) {
+        const bool on =
+            i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
+        if (!on) continue;
+        last_on = i;
+        cum += recs[i].b;
+        if (total_w > 0.0 && cum >= total_w / 2.0) {
+          median = recs[i].x;
+          picked = true;
+          break;
+        }
+      }
+      if (!picked) median = recs[last_on].x;
+    }
+    // Deviation order over the active set: (|x - median|, order).
+    unsigned int ord[kV2MaxResSlots];
+    unsigned int m = 0;
+    for (unsigned int i = 0; i < n_kept; ++i) {
+      const bool on = i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
+      if (on) ord[m++] = i;
+    }
+    for (unsigned int i = 1; i < m; ++i) {
+      const unsigned int v = ord[i];
+      const double dv = fabs(recs[v].x - median);
+      unsigned int j = i;
+      while (j > 0) {
+        const unsigned int u = ord[j - 1];
+        const double du = fabs(recs[u].x - median);
+        if (du < dv || (du == dv && recs[u].order < recs[v].order)) break;
+        ord[j] = u;
+        --j;
+      }
+      ord[j] = v;
+    }
+    double mad = fabs(recs[ord[m - 1]].x - median);
+    if (total_w > 0.0) {
+      double cum = 0.0;
+      for (unsigned int i = 0; i < m; ++i) {
+        cum += recs[ord[i]].b;
+        if (cum >= total_w / 2.0) {
+          mad = fabs(recs[ord[i]].x - median);
+          break;
+        }
+      }
+    }
+    const double lower = median - s_low * mad;
+    const double upper = median + s_high * mad;
+    bool changed = false;
+    for (unsigned int i = 0; i < m; ++i) {
+      const unsigned int idx = ord[i];
+      const double x = recs[idx].x;
+      if (!(x >= lower && x <= upper)) {
+        if (idx < 64) acc_lo &= ~(1ULL << idx);
+        else acc_hi &= ~(1ULL << (idx - 64));
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  double ca = 0.0, cb = 0.0, cb2 = 0.0, cs = 0.0, cc = 0.0;
+  for (unsigned int i = 0; i < n_kept; ++i) {
+    const bool on = i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
+    if (!on) continue;
+    ca += recs[i].b * recs[i].x;
+    cb += recs[i].b;
+    cb2 += recs[i].b * recs[i].b;
+    const double s2 = recs[i].sigma2;
+    if (isfinite(s2) && s2 > 0.0) {
+      cs += recs[i].b * sqrt(s2);
+      cc += recs[i].b * recs[i].b * s2;
+    }
+  }
+  r.value = cb > 0.0 ? ca / cb : 0.0;
+  r.robust_state = static_cast<std::uint8_t>(
+      ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip);
+  finish_conf(cb, cs, cc);
+  out[pc] = r;
 }
 
 }  // namespace
@@ -1025,6 +1385,417 @@ bool forward_drizzle_cuda_runtime_available() {
   // persist_forward_drizzle_multiband still gates each attempt on
   // affine-only + not mode 2/1 and falls back to the CPU reference otherwise.
   return forward_drizzle_cuda_device_memory().free_bytes > 0;
+}
+
+// --- Gate-6 prototype workspace --------------------------------------------
+
+struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
+  cudaStream_t stream = nullptr;
+  float *src = nullptr;
+  float *s2 = nullptr;
+  double *fa = nullptr;
+  double *fbs = nullptr;
+  double *fbg = nullptr;
+  double *fs2 = nullptr;
+  double *accA = nullptr;
+  double *accB = nullptr;
+  double *accB2 = nullptr;
+  double *covB = nullptr;
+  double *covB2 = nullptr;
+  double *confS = nullptr;
+  double *confC = nullptr;
+  unsigned int *contrib = nullptr;
+  unsigned int *kept = nullptr;
+  unsigned int *footprint = nullptr;
+  unsigned short *supp = nullptr;
+  unsigned long long *degraded = nullptr;
+  unsigned long long *scalars = nullptr;  // [0] overlaps, [1] dense overlap
+  V2ReservoirRecord *res = nullptr;
+  ForwardDrizzleV2PixelResult *out = nullptr;
+  std::vector<cudaEvent_t> ev_up0, ev_up1, ev_k0, ev_k1;
+  int ncols = 0, nrows = 0, icols = 0, irows = 0;
+  int source_w = 0, source_h = 0, channels = 0, res_slots = 0;
+  std::size_t nplane = 0, iplane = 0;
+  ForwardDrizzleV2KernelConfig cfg;
+  std::uint64_t frames = 0;
+  bool finalized = false;
+
+  ~Impl() {
+    cudaFree(src);
+    cudaFree(s2);
+    cudaFree(fa);
+    cudaFree(fbs);
+    cudaFree(fbg);
+    cudaFree(fs2);
+    cudaFree(accA);
+    cudaFree(accB);
+    cudaFree(accB2);
+    cudaFree(covB);
+    cudaFree(covB2);
+    cudaFree(confS);
+    cudaFree(confC);
+    cudaFree(contrib);
+    cudaFree(kept);
+    cudaFree(footprint);
+    cudaFree(supp);
+    cudaFree(degraded);
+    cudaFree(scalars);
+    cudaFree(res);
+    cudaFree(out);
+    for (auto *v : {&ev_up0, &ev_up1, &ev_k0, &ev_k1})
+      for (cudaEvent_t e : *v) cudaEventDestroy(e);
+    if (stream) cudaStreamDestroy(stream);
+  }
+};
+
+namespace {
+
+bool proto_checked_mul(std::size_t a, std::size_t b, std::size_t &out) {
+  if (a != 0 && b > std::numeric_limits<std::size_t>::max() / a) return false;
+  out = a * b;
+  return true;
+}
+
+}  // namespace
+
+ForwardDrizzleV2CudaPrototypeKernel::ForwardDrizzleV2CudaPrototypeKernel() =
+    default;
+
+ForwardDrizzleV2CudaPrototypeKernel::~ForwardDrizzleV2CudaPrototypeKernel() {
+  delete impl_;
+}
+
+bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
+    int native_cols, int native_rows, int source_w, int source_h,
+    const ForwardDrizzleV2KernelConfig &cfg) {
+  if (impl_ != nullptr) return false;
+  // Support-mask layout holds 2 layers x scale^2 bits in a u16 -> scale <= 2.
+  // Local clip arrays bound reservoir_size to 64 (2*64 = kV2MaxResSlots).
+  if (native_cols <= 0 || native_rows <= 0 || source_w <= 0 ||
+      source_h <= 0 || cfg.internal_scale < 1 || cfg.internal_scale > 2 ||
+      cfg.reservoir_size < 1 || cfg.reservoir_size > 64 ||
+      cfg.stream_length == 0 || cfg.stream_length > 65536 ||
+      cfg.min_clip_contributors < 1 || cfg.min_candidates < 1 ||
+      cfg.robust_passes < 1 || !std::isfinite(cfg.sigma_low) ||
+      !std::isfinite(cfg.sigma_high) || cfg.sigma_low <= 0.0 ||
+      cfg.sigma_high <= 0.0 || !std::isfinite(cfg.half) ||
+      !(cfg.half > 0.0) || cfg.bayer_pattern < 0 || cfg.bayer_pattern > 4)
+    return false;
+  int devices = 0;
+  if (cudaGetDeviceCount(&devices) != cudaSuccess || devices <= 0) {
+    cudaGetLastError();
+    return false;
+  }
+  CudaScopedError clear_on_exit;
+
+  constexpr std::size_t kMax = std::numeric_limits<std::size_t>::max();
+  const int scale = cfg.internal_scale;
+  const long long icols = static_cast<long long>(native_cols) * scale;
+  const long long irows = static_cast<long long>(native_rows) * scale;
+  if (icols > 0x7fffffffLL || irows > 0x7fffffffLL) return false;
+  const int channels = cfg.mono ? 1 : 3;
+  const int res_slots = 2 * cfg.reservoir_size;
+  std::size_t nplane = 0, iplane = 0, source_elems = 0, pc_elems = 0,
+              frame_plane_elems = 0, total_bytes = 0, tmp = 0;
+  if (!proto_checked_mul(static_cast<std::size_t>(native_cols),
+                         static_cast<std::size_t>(native_rows), nplane) ||
+      !proto_checked_mul(static_cast<std::size_t>(icols),
+                         static_cast<std::size_t>(irows), iplane) ||
+      !proto_checked_mul(static_cast<std::size_t>(source_w),
+                         static_cast<std::size_t>(source_h), source_elems) ||
+      !proto_checked_mul(nplane, static_cast<std::size_t>(channels),
+                         pc_elems) ||
+      !proto_checked_mul(iplane, static_cast<std::size_t>(channels),
+                         frame_plane_elems) ||
+      pc_elems > kMax / static_cast<std::size_t>(res_slots))
+    return false;
+
+  auto add_bytes = [&](std::size_t v) {
+    if (v > kMax - total_bytes) { total_bytes = kMax; return false; }
+    total_bytes += v;
+    return true;
+  };
+  auto mul = [](std::size_t a, std::size_t b, std::size_t &o) {
+    return proto_checked_mul(a, b, o);
+  };
+  const std::size_t frame_plane_count = cfg.sigma2_plane ? 4 : 3;
+  if (!mul(source_elems, sizeof(float), tmp) || !add_bytes(tmp) ||
+      (cfg.sigma2_plane &&
+       (!mul(source_elems, sizeof(float), tmp) || !add_bytes(tmp))) ||
+      !mul(frame_plane_elems, sizeof(double) * frame_plane_count, tmp) ||
+      !add_bytes(tmp) ||
+      !mul(pc_elems, sizeof(double) * 7, tmp) ||  // accA/B/B2 covB/2 confS/C
+      !add_bytes(tmp) ||
+      !mul(pc_elems, sizeof(unsigned int) * 2, tmp) ||  // contrib, kept
+      !add_bytes(tmp) ||
+      !mul(nplane, sizeof(unsigned int), tmp) || !add_bytes(tmp) ||
+      !mul(pc_elems, sizeof(unsigned short), tmp) || !add_bytes(tmp) ||
+      !mul(pc_elems, sizeof(unsigned long long), tmp) || !add_bytes(tmp) ||
+      !mul(pc_elems * static_cast<std::size_t>(res_slots),
+           sizeof(V2ReservoirRecord), tmp) ||
+      !add_bytes(tmp) ||
+      !mul(pc_elems, sizeof(ForwardDrizzleV2PixelResult), tmp) ||
+      !add_bytes(tmp) ||
+      !add_bytes(2 * sizeof(unsigned long long)))
+    return false;
+
+  Impl *im = new (std::nothrow) Impl();
+  if (im == nullptr) return false;
+  im->cfg = cfg;
+  im->ncols = native_cols;
+  im->nrows = native_rows;
+  im->icols = static_cast<int>(icols);
+  im->irows = static_cast<int>(irows);
+  im->source_w = source_w;
+  im->source_h = source_h;
+  im->channels = channels;
+  im->res_slots = res_slots;
+  im->nplane = nplane;
+  im->iplane = iplane;
+  if (cudaStreamCreateWithFlags(&im->stream, cudaStreamNonBlocking) !=
+      cudaSuccess) {
+    cudaGetLastError();
+    delete im;
+    return false;
+  }
+  im->ev_up0.resize(cfg.stream_length);
+  im->ev_up1.resize(cfg.stream_length);
+  im->ev_k0.resize(cfg.stream_length);
+  im->ev_k1.resize(cfg.stream_length);
+  bool ok = true;
+  for (auto *v : {&im->ev_up0, &im->ev_up1, &im->ev_k0, &im->ev_k1})
+    for (cudaEvent_t &e : *v)
+      ok = ok && cudaEventCreateWithFlags(&e, cudaEventDefault) == cudaSuccess;
+  ok = ok &&
+       cudaMalloc(&im->src, source_elems * sizeof(float)) == cudaSuccess &&
+       (!cfg.sigma2_plane ||
+        cudaMalloc(&im->s2, source_elems * sizeof(float)) == cudaSuccess) &&
+       cudaMalloc(&im->fa, frame_plane_elems * sizeof(double)) ==
+           cudaSuccess &&
+       cudaMalloc(&im->fbs, frame_plane_elems * sizeof(double)) ==
+           cudaSuccess &&
+       cudaMalloc(&im->fbg, frame_plane_elems * sizeof(double)) ==
+           cudaSuccess &&
+       (!cfg.sigma2_plane ||
+        cudaMalloc(&im->fs2, frame_plane_elems * sizeof(double)) ==
+            cudaSuccess) &&
+       cudaMalloc(&im->accA, pc_elems * sizeof(double)) == cudaSuccess &&
+       cudaMalloc(&im->accB, pc_elems * sizeof(double)) == cudaSuccess &&
+       cudaMalloc(&im->accB2, pc_elems * sizeof(double)) == cudaSuccess &&
+       cudaMalloc(&im->covB, pc_elems * sizeof(double)) == cudaSuccess &&
+       cudaMalloc(&im->covB2, pc_elems * sizeof(double)) == cudaSuccess &&
+       cudaMalloc(&im->confS, pc_elems * sizeof(double)) == cudaSuccess &&
+       cudaMalloc(&im->confC, pc_elems * sizeof(double)) == cudaSuccess &&
+       cudaMalloc(&im->contrib, pc_elems * sizeof(unsigned int)) ==
+           cudaSuccess &&
+       cudaMalloc(&im->kept, pc_elems * sizeof(unsigned int)) == cudaSuccess &&
+       cudaMalloc(&im->footprint, nplane * sizeof(unsigned int)) ==
+           cudaSuccess &&
+       cudaMalloc(&im->supp, pc_elems * sizeof(unsigned short)) ==
+           cudaSuccess &&
+       cudaMalloc(&im->degraded, pc_elems * sizeof(unsigned long long)) ==
+           cudaSuccess &&
+       cudaMalloc(&im->scalars, 2 * sizeof(unsigned long long)) ==
+           cudaSuccess &&
+       cudaMalloc(&im->res, pc_elems * static_cast<std::size_t>(res_slots) *
+                              sizeof(V2ReservoirRecord)) == cudaSuccess &&
+       cudaMalloc(&im->out, pc_elems * sizeof(ForwardDrizzleV2PixelResult)) ==
+           cudaSuccess;
+  if (!ok) {
+    delete im;
+    cudaGetLastError();
+    return false;
+  }
+  // Queue zero-init on the workspace stream; ordered before any kernel.
+  ok = cudaMemsetAsync(im->accA, 0, pc_elems * sizeof(double), im->stream) ==
+           cudaSuccess &&
+       cudaMemsetAsync(im->accB, 0, pc_elems * sizeof(double), im->stream) ==
+           cudaSuccess &&
+       cudaMemsetAsync(im->accB2, 0, pc_elems * sizeof(double), im->stream) ==
+           cudaSuccess &&
+       cudaMemsetAsync(im->covB, 0, pc_elems * sizeof(double), im->stream) ==
+           cudaSuccess &&
+       cudaMemsetAsync(im->covB2, 0, pc_elems * sizeof(double), im->stream) ==
+           cudaSuccess &&
+       cudaMemsetAsync(im->confS, 0, pc_elems * sizeof(double), im->stream) ==
+           cudaSuccess &&
+       cudaMemsetAsync(im->confC, 0, pc_elems * sizeof(double), im->stream) ==
+           cudaSuccess &&
+       cudaMemsetAsync(im->contrib, 0, pc_elems * sizeof(unsigned int),
+                       im->stream) == cudaSuccess &&
+       cudaMemsetAsync(im->kept, 0, pc_elems * sizeof(unsigned int),
+                       im->stream) == cudaSuccess &&
+       cudaMemsetAsync(im->footprint, 0, nplane * sizeof(unsigned int),
+                       im->stream) == cudaSuccess &&
+       cudaMemsetAsync(im->supp, 0, pc_elems * sizeof(unsigned short),
+                       im->stream) == cudaSuccess &&
+       cudaMemsetAsync(im->degraded, 0, pc_elems * sizeof(unsigned long long),
+                       im->stream) == cudaSuccess &&
+       cudaMemsetAsync(im->scalars, 0, 2 * sizeof(unsigned long long),
+                       im->stream) == cudaSuccess;
+  if (!ok) {
+    delete im;
+    cudaGetLastError();
+    return false;
+  }
+  impl_ = im;
+  stats_.allocations = 1;
+  stats_.reserved_device_bytes = total_bytes;
+  // Per-native-pixel footprint for the gate-5-plan comparison: everything
+  // except the fixed source slot and scalars, divided by native pixels.
+  bytes_per_native_pixel_ =
+      (total_bytes - source_elems * sizeof(float) * (cfg.sigma2_plane ? 2 : 1) -
+       2 * sizeof(unsigned long long)) /
+      nplane;
+  return true;
+}
+
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame(
+    const double affine6[6], const float *source, const float *sigma2_or_null,
+    std::uint64_t frame_order) {
+  if (impl_ == nullptr || affine6 == nullptr || source == nullptr ||
+      impl_->finalized || impl_->frames >= impl_->cfg.stream_length)
+    return false;
+  for (int i = 0; i < 6; ++i)
+    if (!std::isfinite(affine6[i])) return false;
+  Impl &im = *impl_;
+  cudaStream_t st = im.stream;
+  const std::size_t src_bytes =
+      static_cast<std::size_t>(im.source_w) * im.source_h * sizeof(float);
+  const std::size_t plane_bytes = im.iplane * sizeof(double) *
+                                  static_cast<std::size_t>(im.channels);
+  const std::uint64_t f = impl_->frames;
+  const std::uint64_t n = im.cfg.stream_length;
+  const bool keep_all =
+      n <= static_cast<std::uint64_t>(im.cfg.reservoir_size);
+  const std::uint64_t threshold =
+      keep_all ? 0
+               : static_cast<std::uint64_t>(
+                     (static_cast<unsigned __int128>(im.cfg.reservoir_size)
+                      << 64) /
+                     n);
+  bool ok = cudaEventRecord(im.ev_up0[f], st) == cudaSuccess &&
+            cudaMemcpyAsync(im.src, source, src_bytes, cudaMemcpyHostToDevice,
+                            st) == cudaSuccess &&
+            (!im.s2 || !sigma2_or_null ||
+             cudaMemcpyAsync(im.s2, sigma2_or_null, src_bytes,
+                             cudaMemcpyHostToDevice, st) == cudaSuccess) &&
+            (!im.s2 || sigma2_or_null ||
+             cudaMemsetAsync(im.s2, 0, src_bytes, st) == cudaSuccess) &&
+            cudaEventRecord(im.ev_up1[f], st) == cudaSuccess &&
+            cudaMemsetAsync(im.fa, 0, plane_bytes, st) == cudaSuccess &&
+            cudaMemsetAsync(im.fbs, 0, plane_bytes, st) == cudaSuccess &&
+            cudaMemsetAsync(im.fbg, 0, plane_bytes, st) == cudaSuccess &&
+            (!im.fs2 ||
+             cudaMemsetAsync(im.fs2, 0, plane_bytes, st) == cudaSuccess) &&
+            cudaEventRecord(im.ev_k0[f], st) == cudaSuccess;
+  if (!ok) {
+    cudaGetLastError();
+    return false;
+  }
+  {
+    const int block = 128;
+    const long long source_n =
+        static_cast<long long>(im.source_w) * im.source_h;
+    const unsigned int grid =
+        static_cast<unsigned int>((source_n + block - 1) / block);
+    k_scatter_v2<<<grid, block, 0, st>>>(
+        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
+        static_cast<double>(im.cfg.internal_scale), im.cfg.half, im.icols,
+        im.irows, im.source_w, im.source_h, im.src,
+        im.fs2 ? im.s2 : nullptr, im.cfg.bayer_pattern, im.cfg.cfa_origin_x,
+        im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0, im.fa, im.fbs, im.fbg,
+        im.fs2, im.scalars);
+  }
+  {
+    const int block = 128;
+    const long long nplane = static_cast<long long>(im.nplane);
+    const unsigned int grid =
+        static_cast<unsigned int>((nplane + block - 1) / block);
+    k_fold_accumulate_v2<<<grid, block, 0, st>>>(
+        im.fa, im.fbs, im.fbg, im.fs2, im.icols, im.irows,
+        im.cfg.internal_scale, im.ncols, im.nrows, im.channels, frame_order,
+        keep_all ? 1 : 0, threshold, im.res_slots, im.cfg.reservoir_seed,
+        im.accA, im.accB, im.accB2, im.covB, im.covB2, im.confS, im.confC,
+        im.contrib, im.kept, im.footprint, im.supp, im.degraded, im.res);
+  }
+  ok = cudaGetLastError() == cudaSuccess &&
+       cudaEventRecord(im.ev_k1[f], st) == cudaSuccess;
+  if (!ok) {
+    cudaGetLastError();
+    return false;
+  }
+  ++impl_->frames;
+  ++stats_.frames_processed;
+  ++stats_.slot_transitions;
+  stats_.source_bytes_uploaded += src_bytes * (sigma2_or_null ? 2 : 1);
+  return true;
+}
+
+bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
+    ForwardDrizzleV2PixelResult *results, std::uint64_t *dense_overlap_count) {
+  if (impl_ == nullptr || results == nullptr || impl_->finalized) return false;
+  Impl &im = *impl_;
+  cudaStream_t st = im.stream;
+  const std::size_t n_pc = im.nplane * static_cast<std::size_t>(im.channels);
+  const int block = 128;
+  const long long total = static_cast<long long>(n_pc);
+  const unsigned int grid =
+      static_cast<unsigned int>((total + block - 1) / block);
+  k_finalize_v2<<<grid, block, 0, st>>>(
+      im.ncols, im.nrows, im.channels,
+      im.cfg.internal_scale * im.cfg.internal_scale, im.res_slots, im.frames,
+      im.cfg.min_candidates, im.cfg.min_clip_contributors,
+      im.cfg.robust_passes, im.cfg.sigma_low, im.cfg.sigma_high, im.accA,
+      im.accB, im.accB2, im.confS, im.confC, im.contrib, im.kept, im.footprint,
+      im.supp, im.degraded, im.res, im.out, im.scalars + 1);
+  if (cudaGetLastError() != cudaSuccess) return false;
+  unsigned long long h_scalars[2] = {0, 0};
+  std::vector<unsigned int> h_kept(n_pc), h_contrib(n_pc);
+  const std::size_t out_bytes = n_pc * sizeof(ForwardDrizzleV2PixelResult);
+  const std::size_t cnt_bytes = n_pc * sizeof(unsigned int);
+  bool ok =
+      cudaMemcpyAsync(results, im.out, out_bytes, cudaMemcpyDeviceToHost, st) ==
+          cudaSuccess &&
+      cudaMemcpyAsync(h_scalars, im.scalars, sizeof(h_scalars),
+                      cudaMemcpyDeviceToHost, st) == cudaSuccess &&
+      cudaMemcpyAsync(h_kept.data(), im.kept, cnt_bytes,
+                      cudaMemcpyDeviceToHost, st) == cudaSuccess &&
+      cudaMemcpyAsync(h_contrib.data(), im.contrib, cnt_bytes,
+                      cudaMemcpyDeviceToHost, st) == cudaSuccess;
+  ++stats_.stream_synchronizations;
+  ok = cudaStreamSynchronize(st) == cudaSuccess && ok;
+  if (!ok) {
+    cudaGetLastError();
+    return false;
+  }
+  im.finalized = true;
+  for (std::uint64_t f = 0; f < im.frames; ++f) {
+    float up_ms = 0.0f, k_ms = 0.0f;
+    double frame_s = 0.0;
+    if (cudaEventElapsedTime(&up_ms, im.ev_up0[f], im.ev_up1[f]) ==
+        cudaSuccess) {
+      stats_.upload_seconds += static_cast<double>(up_ms) * 1e-3;
+      frame_s += static_cast<double>(up_ms) * 1e-3;
+    }
+    if (cudaEventElapsedTime(&k_ms, im.ev_k0[f], im.ev_k1[f]) == cudaSuccess) {
+      stats_.kernel_seconds += static_cast<double>(k_ms) * 1e-3;
+      frame_s += static_cast<double>(k_ms) * 1e-3;
+    }
+    stats_.max_frame_seconds = std::max(stats_.max_frame_seconds, frame_s);
+  }
+  stats_.positive_overlaps = h_scalars[0];
+  if (dense_overlap_count) *dense_overlap_count = h_scalars[1];
+  std::uint64_t kept_sum = 0, cand_sum = 0;
+  for (std::size_t i = 0; i < n_pc; ++i) {
+    kept_sum += h_kept[i];
+    cand_sum += h_contrib[i];
+  }
+  stats_.reservoir_kept_total = kept_sum;
+  stats_.candidates_streamed = cand_sum;
+  stats_.result_bytes_downloaded += out_bytes + sizeof(h_scalars) +
+                                    2 * cnt_bytes;
+  return true;
 }
 
 }  // namespace tile_compile::reconstruction

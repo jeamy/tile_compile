@@ -284,6 +284,111 @@ class ForwardDrizzleV2CudaWorkspace {
   ForwardDrizzleV2CudaWorkspaceStats stats_;
 };
 
+// --- Forward-Drizzle-v2 Gate-6: minimal affine prototype kernel ------------
+//
+// Persistent device workspace implementing the frozen gates 1-5 pipeline per
+// output band: dense scatter into frame-local internal planes (A, B_src,
+// B_geo, optional S2), a fused per-frame fold+accumulate into native-pixel
+// accumulators (full-stream A/B/B2, coverage, support masks, footprint,
+// hash reservoir with per-candidate sigma2), and a band-end finalize kernel
+// running the bit-exact CPU-oracle clip on each pixel's reservoir.
+// No host contribution records, no cudaMalloc/cudaFree after reserve(), no
+// cudaDeviceSynchronize; the only stream sync is the band finalize.
+// Unpublished: nothing in the production runner calls this.
+
+struct ForwardDrizzleV2KernelConfig {
+  int internal_scale = 2;  // internal subpixels per native axis
+  int reservoir_size = 64;
+  std::uint64_t reservoir_seed = 0x9e3779b97f4a7c15ULL;
+  std::uint64_t stream_length = 0;  // N for the keep predicate (required > 0)
+  int min_clip_contributors = 5;
+  int min_candidates = 5;
+  int robust_passes = 3;
+  double sigma_low = 3.0;
+  double sigma_high = 3.0;
+  double half = 0.4;
+  int bayer_pattern = 1;
+  int cfa_origin_x = 0;
+  int cfa_origin_y = 0;
+  bool mono = false;
+  // When false, no sigma2 frame plane is allocated and every candidate
+  // contributes zero sigma (CPU "no candidate_sigma2" semantics).
+  bool sigma2_plane = true;
+};
+
+// Per-native-pixel per-channel band result (AoS record, downloaded once).
+struct ForwardDrizzleV2PixelResult {
+  double value = 0.0;          // clip center (or uniform fallback mean)
+  double b = 0.0;              // full-stream folded B
+  double n_eff = 0.0;
+  double confidence = 0.0;
+  float geometry_fraction = 0.0f;
+  float source_fraction = 0.0f;
+  float estimator_fraction = 0.0f;
+  float profile_fraction = 0.0f;
+  std::uint32_t contributors = 0;
+  std::uint8_t robust_state = 0;    // ForwardDrizzleV2RobustState
+  std::uint8_t confidence_state = 0;  // ForwardDrizzleV2ConfidenceState
+  std::uint64_t conf_degraded = 0;
+};
+
+struct ForwardDrizzleV2PrototypeStats {
+  std::uint64_t allocations = 0;
+  std::uint64_t device_global_synchronizations = 0;
+  std::uint64_t stream_synchronizations = 0;
+  std::uint64_t frames_processed = 0;
+  std::uint64_t source_bytes_uploaded = 0;
+  std::uint64_t result_bytes_downloaded = 0;
+  std::uint64_t positive_overlaps = 0;
+  std::uint64_t candidates_streamed = 0;
+  std::uint64_t reservoir_kept_total = 0;
+  std::uint64_t slot_transitions = 0;
+  std::size_t reserved_device_bytes = 0;
+  double upload_seconds = 0.0;   // event-timed
+  double kernel_seconds = 0.0;
+  double download_seconds = 0.0;
+  // Worst per-frame upload+kernel time (event deltas); the gate-1 bound is
+  // checked against this, not the mean.
+  double max_frame_seconds = 0.0;
+};
+
+class ForwardDrizzleV2CudaPrototypeKernel {
+ public:
+  ForwardDrizzleV2CudaPrototypeKernel();
+  ~ForwardDrizzleV2CudaPrototypeKernel();
+  ForwardDrizzleV2CudaPrototypeKernel(
+      const ForwardDrizzleV2CudaPrototypeKernel &) = delete;
+  ForwardDrizzleV2CudaPrototypeKernel &operator=(
+      const ForwardDrizzleV2CudaPrototypeKernel &) = delete;
+
+  // Reserve every role for one band: native window cols x rows, internal
+  // planes at internal_scale resolution, full source frame + optional sigma2
+  // slot. Counted as the single allowed allocation batch.
+  bool reserve(int native_cols, int native_rows, int source_w, int source_h,
+               const ForwardDrizzleV2KernelConfig &cfg);
+  // One frame: upload source (+sigma2), scatter, fold+accumulate. All async
+  // on the workspace stream; no allocations, no sync.
+  bool accumulate_frame(const double affine6[6], const float *source,
+                        const float *sigma2_or_null,
+                        std::uint64_t frame_order);
+  // Band end: finalize kernel + single stream sync + result download.
+  // results must hold native_cols*native_rows*channels entries
+  // (channel-major). dense_overlap_count receives the number of native
+  // pixels covered by every processed frame.
+  bool finalize(ForwardDrizzleV2PixelResult *results,
+                std::uint64_t *dense_overlap_count);
+  const ForwardDrizzleV2PrototypeStats &stats() const { return stats_; }
+  std::size_t device_bytes_per_native_pixel() const {
+    return bytes_per_native_pixel_;
+  }
+
+ private:
+  struct Impl;
+  Impl *impl_ = nullptr;
+  ForwardDrizzleV2PrototypeStats stats_;
+  std::size_t bytes_per_native_pixel_ = 0;
+};
+
 // §30.81 step-5 baseline instrumentation. Coarse wall-clock accumulators for
 // the affine CUDA pair path, split so the per-tile repetition factor is
 // attributable (producer / device phases vs the host sort + reduce). Enabled

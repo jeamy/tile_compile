@@ -80,6 +80,24 @@ bool ForwardDrizzleV2CudaWorkspace::run_dense_scatter(
     int, int, int, bool, double *, double *) {
   return false;
 }
+ForwardDrizzleV2CudaPrototypeKernel::ForwardDrizzleV2CudaPrototypeKernel() =
+    default;
+ForwardDrizzleV2CudaPrototypeKernel::~ForwardDrizzleV2CudaPrototypeKernel() =
+    default;
+bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
+    int, int, int, int, const ForwardDrizzleV2KernelConfig &) {
+  return false;
+}
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame(const double *,
+                                                           const float *,
+                                                           const float *,
+                                                           std::uint64_t) {
+  return false;
+}
+bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
+    ForwardDrizzleV2PixelResult *, std::uint64_t *) {
+  return false;
+}
 #endif
 
 CudaChunkPlan plan_cuda_chunking(std::size_t free_bytes,

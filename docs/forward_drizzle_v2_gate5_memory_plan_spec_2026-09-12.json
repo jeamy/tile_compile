@@ -17,16 +17,18 @@
     ]
   },
   "device_per_pixel_roles": {
-    "note": "per target pixel per channel unless marked per_pixel",
-    "reservoir": "reservoir_size x 24 B = 1536 B (R=64)",
-    "frame_planes": "2 doubles = 16 B (frame A/B of the in-flight frame)",
+    "note": "accumulator roles per NATIVE target pixel per channel; frame planes live at internal resolution (internal_scale^2 x native pixels)",
+    "reservoir": "reservoir_slot_factor x reservoir_size x 32 B = 4096 B (2x64 slots; record = x+b+frame_order+sigma2, amended by gate 6: sigma2 must persist to fold time; slot factor 2 absorbs the binomial hash-keep tail, overflow degrades to uniform)",
+    "reservoir_kept_count": "4 B",
+    "frame_planes": "3 (+1 optional sigma2) doubles per INTERNAL pixel per channel: A, B_src, B_geo",
     "robust": "3 doubles = 24 B (A, B, B2)",
-    "confidence": "3 doubles + 8 B counter = 32 B (B_c, S_c, C_c, conf_degraded)",
+    "confidence": "2 doubles + 8 B counter = 24 B (stream S_c/C_c; B_c reuses robust B)",
     "centre_scale": "2 doubles = 16 B",
     "fold_staging": "3 doubles = 24 B (folded A_out, B_out, B2_out per profile slot)",
-    "support_state_per_channel": "8 B (estimator/profile area fractions + state)",
-    "support_state_per_pixel": "8 B (geometry/source fractions, channel-independent)",
-    "total_default": "3*(1536+16+24+32+16+24+8) + 8 = 4976 B per OSC target pixel"
+    "coverage_per_channel": "contributors u32 + covB + covB2 + support mask u16 = 22 B",
+    "result_record_per_channel": "64 B compact AoS download record (gate-6 ForwardDrizzleV2PixelResult)",
+    "support_state_per_pixel": "footprint u32 = 4 B (channel-independent)",
+    "total_default_osc_native": "3*(4096+4+24+24+16+24+22+64) + 4 = 12826 B per native pixel; internal frame planes add scale^2 * 3(+1) * 8 B"
   },
   "device_fixed_roles": {
     "source_device_slots": "source_device_slots x source_slot_device_bytes (in-flight normalized source frames)",

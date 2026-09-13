@@ -1404,6 +1404,12 @@ Artefakte:
 `forward_drizzle_v2_gate5_memory_plan_spec_2026-09-12.json`,
 `..._results_2026-09-12.jsonl`, `..._decision_2026-09-12.json`.
 Tests: 15 V2-Fälle / 7.486 Assertions.
+**Nachträgliche Amendment (Gate 6):** Reservoir-Record 32 B (sigma2
+persistiert bis zur Faltung), Device-Slots 2·R = 128, Confidence-Stream
+S_c/C_c, +64 B Ergebnis-Record/Kanal → 12.826 B je OSC-Nativepixel +
+internal Frameplanes; die Gate-5-Ergebnisdatei dokumentiert weiterhin die
+Vor-Amendment-Messung (4.976 B), die Entscheidungsdatei führt die
+Amendment explizit.
 
 ### Gate 6: Minimaler affiner, unpublizierter Prototypkern
 
@@ -1414,9 +1420,38 @@ Tests: 15 V2-Fälle / 7.486 Assertions.
 - vollständige Telemetrie;
 - reale Canvasgröße.
 
-**Exit:** Der noch nicht in den produktiven Runner publizierte affine Kern
-besteht Oracle-, Support-, Flux-, Speicher- und das vorab festgelegte
-Teilzeitgate.
+**Exit (bestanden 2026-09-12):** `ForwardDrizzleV2CudaPrototypeKernel`
+implementiert die gefrorene Gates-1–5-Pipeline bandweise auf einem
+persistenten Device-Workspace: `reserve()` ist die einzige
+Allokationsphase (eine gezählte Allokation), `accumulate_frame()` reiht
+Upload, Plane-Clear, `k_scatter_v2` und `k_fold_accumulate_v2` vollständig
+asynchron auf dem Workspace-Stream ein (0 globale Synchronisationen, 0
+Hotpath-Allokationen), `finalize()` führt den bit-exakten
+Gate-3-Clip-Port `k_finalize_v2` aus, synchronisiert den Stream genau
+einmal und lädt nur die kompakten `ForwardDrizzleV2PixelResult`-Records.
+Der Scatter schreibt `B_geo` vor der Werteprüfung, sodass nichtendliche
+Samples ihren Geometrie-Support behalten; Fold, Full-Stream-A/B/B²,
+Coverage, Vier-Ebenen-Supportmaske (u16, Scale ≤ 2), Footprint und
+gebundenes Hash-Reservoir (Record 32 B mit sigma2; Slots = 2R = 128,
+deterministischer `reservoir_overflow_fallback` jenseits der Kappe)
+laufen fusioniert pro nativem Pixel.
+
+Nachweis: Small-Canvas-Paritätsmatrix (Scale 1/2 × MONO/OSC × alle vier
+Bayer-Patterns × Origins) ist zustands- und support-bitidentisch zum
+CPU-Oracle, Werte ≤ 1e-12 relativ; N=80 > R=64 Sampling korrekt;
+leeres Band, Einzelframe, Determinismus und Telemetrie verifiziert.
+Produktionsband (3934 native Spalten × 59 Zeilen, 60 M42-Affine,
+Pixfrac 0,8, OSC): **0,0164 s maximal pro Frame** (Grenze 0,75 s),
+3,05 GiB reserviert ≤ Plan-Peak, 13.090 B/Pixel ≤ amendierte
+Gate-5-Formel 13.210 B, 0 Reservoir-Überläufe, `dense_overlap` deckt sich
+mit dem unabhängigen CPU-Gather-Orakel (0 im oberen Band).
+
+Gate-5-Rollentabelle durch Gate 6 amendiert: Reservoir-Record 32 B
+(+sigma2), 2R-Slots, Confidence-Stream auf S_c/C_c reduziert
+(B_c = robustes B), +64 B Ergebnis-Record je Kanal.
+Artefakte:
+`forward_drizzle_v2_gate6_prototype_kernel_spec_2026-09-12.json`,
+`..._results_2026-09-12.jsonl`, `..._decision_2026-09-12.json`.
 
 ### Gate 7: Transaktion und Resume
 

@@ -123,7 +123,11 @@ enum class ForwardDrizzleV2RobustState {
   primary_mom_trimmed_groups,
   primary_uniform,
   primary_reservoir_sigma_clip,
-  oracle_sigma_clip
+  oracle_sigma_clip,
+  // Device-only gate-6 state: the bounded reservoir slot array (2*R) could
+  // not hold the whole hash-keep set; the pixel degrades to the uniform
+  // stream value while keeping its support.
+  reservoir_overflow_fallback
 };
 
 // Gate-3 estimator candidates. All selectable candidates must be single-pass
@@ -244,27 +248,45 @@ ForwardDrizzleV2RobustResult robust_frame_oracle_v2(
     double sigma_low = 3.0, double sigma_high = 3.0,
     std::span<const double> candidate_sigma2 = {});
 
-// Gate-5 buffer role table: per-target-pixel device storage for the selected
-// architecture (dense scatter + reservoir_sigma_clip + fp64 confidence).
-// Every role is explicit so the formula stays auditable; changing a role
-// changes the plan and its tests.
+// Gate-5 buffer role table, amended by Gate 6: accumulator roles are per
+// NATIVE target pixel per channel; frame planes live at internal resolution
+// (internal_scale^2 subpixels per native pixel). Every role is explicit so
+// the formula stays auditable; changing a role changes the plan and its
+// tests.
 struct ForwardDrizzleV2BufferRoles {
   int reservoir_size = 64;                     // Gate-3 R
-  std::size_t reservoir_candidate_bytes = 24;  // x + b + frame_order
-  int frame_plane_doubles = 2;                 // in-flight frame A/B
+  // Gate-6 amendment: record = x + b + frame_order + sigma2 (sigma2 must
+  // persist to fold time for the clip-accepted confidence contract).
+  std::size_t reservoir_candidate_bytes = 32;
+  // Device slot count = slot_factor * reservoir_size: the hash-keep set is
+  // Binomial(N, R/N) and can exceed R; the extra slots absorb the tail and
+  // a pixel beyond the cap degrades deterministically to the uniform value.
+  int reservoir_slot_factor = 2;
+  std::size_t reservoir_kept_bytes = 4;        // kept count
+  // In-flight frame planes at internal resolution: A, B_src, B_geo
+  // (+1 when a per-source-pixel sigma2 plane is enabled).
+  int frame_plane_doubles = 3;
+  bool sigma2_plane = true;
   int robust_doubles = 3;                      // A, B, B2
-  int confidence_doubles = 3;                  // B_c, S_c, C_c
+  // Stream S_c/C_c accumulators; B_c reuses the robust B accumulator.
+  int confidence_doubles = 2;
   std::size_t confidence_counter_bytes = 8;    // conf_degraded
   int centre_scale_doubles = 2;
   int fold_staging_doubles = 3;                // folded A/B/B2 per profile
-  std::size_t support_bytes_per_channel = 8;
-  std::size_t support_bytes_per_pixel = 8;     // channel-independent
+  // contributors u32 + covB + covB2 + 4-layer support mask u16.
+  std::size_t coverage_bytes_per_channel = 22;
+  // Compact AoS result record downloaded once at band end (gate-6
+  // ForwardDrizzleV2PixelResult).
+  std::size_t result_record_bytes = 64;
+  std::size_t support_bytes_per_pixel = 4;     // footprint u32
 };
 
 struct ForwardDrizzleV2MemoryInputs {
-  int target_width = 0;
-  int target_height = 0;
-  int channels = 0;  // 1 or 3
+  int target_width = 0;   // native output columns
+  int target_height = 0;  // native output rows
+  int channels = 0;       // 1 or 3
+  // Internal/native subpixel ratio per axis for the in-flight frame planes.
+  int internal_scale = 1;
   // Recorded for provenance only: by contract it must not enter the device
   // formula and must not shrink tile_cols.
   int frame_count = 0;

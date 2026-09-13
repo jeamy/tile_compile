@@ -35,6 +35,15 @@
     "gate 7: resume/index metadata sizes feed host_fixed_bytes",
     "gate 8: local warp grids are an additional device/host role not yet in the table"
   ],
+  "post_decision_amendments": [
+    {
+      "by_gate": 6,
+      "reason": "the clip-accepted confidence contract needs sigma2 per kept reservoir candidate at fold time, and the device reservoir needs a hard slot bound because the hash-keep set is Binomial(N, R/N) and can exceed R",
+      "changes": "reservoir record 24 -> 32 B (adds sigma2); device slots = 2*R = 128 (overflow degrades a pixel to the uniform value, support kept); stream confidence drops B_c (reuses robust B) so S_c/C_c = 2 doubles; explicit coverage roles covB/covB2/contributors; +64 B/ch compact result record (AoS download)",
+      "amended_osc_bytes_per_pixel": "3*(4096+4+24+24+16+24+22+64) + 4 = 12826 B native + scale^2*32 B frame planes (scale 2: +96 B) = 12922 B",
+      "note": "the results JSONL and measured_plans above reflect the pre-amendment 4976 B table; gate-6 telemetry re-verifies feasibility under the amended table"
+    }
+  ],
   "tests": {
     "v2_suite": "15 cases / 7486 assertions",
     "coverage": "role arithmetic, production plans, N-independence, host-slot bound, X-tile fallback, halo accounting, RA rejection, overflow and invalid inputs"

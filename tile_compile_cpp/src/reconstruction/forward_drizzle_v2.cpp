@@ -862,7 +862,9 @@ ForwardDrizzleV2MemoryPlan plan_forward_drizzle_v2_memory(
   const auto &r = in.roles;
   if (in.target_width <= 0 || in.target_height <= 0 ||
       (in.channels != 1 && in.channels != 3) || in.frame_count <= 0 ||
-      r.reservoir_size < 1 || r.reservoir_candidate_bytes == 0 ||
+      in.internal_scale < 1 ||
+      r.reservoir_size < 1 || r.reservoir_slot_factor < 1 ||
+      r.reservoir_candidate_bytes == 0 ||
       r.frame_plane_doubles < 0 || r.robust_doubles < 0 ||
       r.confidence_doubles < 0 || r.centre_scale_doubles < 0 ||
       r.fold_staging_doubles < 0 || in.source_device_slots < 0 ||
@@ -882,23 +884,41 @@ ForwardDrizzleV2MemoryPlan plan_forward_drizzle_v2_memory(
       (in.quality_slot_device_bytes > 0 && in.quality_device_slots < 1))
     return out;
 
-  // Per-pixel-per-channel device bytes from the frozen role table.
+  // Per-native-pixel-per-channel accumulator bytes from the frozen role
+  // table, plus frame planes at internal resolution (scale^2 subpixels).
   std::size_t per_channel = 0, tmp = 0, pixel_bytes = 0;
-  const std::size_t role_doubles =
-      static_cast<std::size_t>(r.frame_plane_doubles) +
+  const std::size_t acc_doubles =
       static_cast<std::size_t>(r.robust_doubles) +
       static_cast<std::size_t>(r.confidence_doubles) +
       static_cast<std::size_t>(r.centre_scale_doubles) +
       static_cast<std::size_t>(r.fold_staging_doubles);
+  const std::size_t frame_planes =
+      static_cast<std::size_t>(r.frame_plane_doubles) +
+      (r.sigma2_plane ? std::size_t{1} : std::size_t{0});
+  std::size_t internal_bytes = 0;
+  const std::size_t scale_sq =
+      static_cast<std::size_t>(in.internal_scale) *
+      static_cast<std::size_t>(in.internal_scale);
+  std::size_t reservoir_slots = 0;
   if (!checked_mul(static_cast<std::size_t>(r.reservoir_size),
+                   static_cast<std::size_t>(r.reservoir_slot_factor),
+                   reservoir_slots) ||
+      !checked_mul(reservoir_slots,
                    r.reservoir_candidate_bytes, per_channel) ||
-      !checked_mul(role_doubles, sizeof(double), tmp) ||
+      !checked_add(per_channel, r.reservoir_kept_bytes, per_channel) ||
+      !checked_mul(acc_doubles, sizeof(double), tmp) ||
       !checked_add(per_channel, tmp, per_channel) ||
       !checked_add(per_channel, r.confidence_counter_bytes, per_channel) ||
-      !checked_add(per_channel, r.support_bytes_per_channel, per_channel) ||
+      !checked_add(per_channel, r.coverage_bytes_per_channel, per_channel) ||
+      !checked_add(per_channel, r.result_record_bytes, per_channel) ||
       !checked_mul(per_channel, static_cast<std::size_t>(in.channels),
                    pixel_bytes) ||
-      !checked_add(pixel_bytes, r.support_bytes_per_pixel, pixel_bytes))
+      !checked_add(pixel_bytes, r.support_bytes_per_pixel, pixel_bytes) ||
+      !checked_mul(frame_planes, sizeof(double), internal_bytes) ||
+      !checked_mul(internal_bytes, static_cast<std::size_t>(in.channels),
+                   internal_bytes) ||
+      !checked_mul(internal_bytes, scale_sq, internal_bytes) ||
+      !checked_add(pixel_bytes, internal_bytes, pixel_bytes))
     return out;
   out.device_bytes_per_target_pixel = pixel_bytes;
 

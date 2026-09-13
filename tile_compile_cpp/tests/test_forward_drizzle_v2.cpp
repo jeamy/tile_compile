@@ -479,10 +479,12 @@ TEST_CASE("forward drizzle v2 memory plan is checked and N-independent in X",
   in.device_budget_bytes = std::size_t{5} << 30;
   in.host_budget_bytes = std::size_t{16} << 30;
 
-  // Exact per-pixel role arithmetic: reservoir 64*24 + (2+3+3+2+3)*8 +
-  // 8 counter + 8 support = 1536+104+8+8 = 1656 per channel; +8 per pixel.
+  // Exact per-pixel role arithmetic (gate-6 amended table, scale 1):
+  // reservoir 128 slots*32 + kept 4 + (3+2+2+3)*8 + 8 counter + 22 coverage
+  // + 64 result record = 4096+4+80+8+22+64 = 4274 per channel; +4 footprint
+  // per pixel; frame planes 4*8*3 = 96 per internal pixel (sigma2 plane on).
   const auto p40 = plan_forward_drizzle_v2_memory(in);
-  REQUIRE(p40.device_bytes_per_target_pixel == 3 * 1656 + 8);
+  REQUIRE(p40.device_bytes_per_target_pixel == 3 * 4274 + 4 + 96);
   REQUIRE(p40.feasible);
   REQUIRE(p40.tile_cols == 7868);
   REQUIRE_FALSE(p40.x_tiled);
@@ -1579,4 +1581,604 @@ TEST_CASE("forward drizzle v2 Gate-5 memory plan measurement",
         static_cast<unsigned long long>(p.host_peak_bytes),
         p.predicted_read_amplification);
   }
+}
+
+// --- Gate 6: minimal affine prototype kernel -------------------------------
+
+namespace {
+
+// CPU oracle for the gate-6 kernel: per-frame CPU gathers give the
+// frame-local internal planes (A, B_src via the finite-value image; B_geo via
+// an all-finite image; S2 via a sigma2-valued image masked to finite source
+// samples). The fold, stream confidence and reservoir clip are exactly the
+// gate-2/3/4 CPU contracts applied to the same candidates.
+struct Gate6CpuRef {
+  std::vector<ForwardDrizzleV2RobustResult> results;  // [c][px] channel-major
+  std::vector<unsigned short> masks;                  // geo|src<<4
+  std::vector<unsigned int> footprint;
+  std::uint64_t dense_overlap = 0;
+};
+
+Gate6CpuRef gate6_cpu_reference(
+    const Fixture &f, const std::vector<float> &sigma2_or_empty,
+    const ForwardDrizzleV2KernelConfig &kcfg) {
+  const int scale = kcfg.internal_scale;
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const int ic = nc * scale;
+  const int ir = nr * scale;
+  const int channels = kcfg.mono ? 1 : 3;
+  const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+  const std::size_t iplane = static_cast<std::size_t>(ic) * ir;
+  const double inv_s2 = 1.0 / (static_cast<double>(scale) * scale);
+  const std::size_t n_frames = f.plan.frames.size();
+
+  Matrix2Df geo_img(f.plan.source_height, f.plan.source_width);
+  geo_img.setConstant(1.0f);
+  std::vector<Matrix2Df> s2_img;
+  if (!sigma2_or_empty.empty()) {
+    s2_img.reserve(n_frames);
+    for (std::size_t i = 0; i < n_frames; ++i) {
+      Matrix2Df m(f.plan.source_height, f.plan.source_width);
+      for (int y = 0; y < m.rows(); ++y)
+        for (int x = 0; x < m.cols(); ++x) {
+          const std::size_t si = static_cast<std::size_t>(y) * m.cols() + x;
+          const float v = f.images[i](y, x);
+          m(y, x) = std::isfinite(v) ? sigma2_or_empty[si]
+                                     : std::numeric_limits<float>::quiet_NaN();
+        }
+      s2_img.push_back(std::move(m));
+    }
+  }
+
+  Gate6CpuRef ref;
+  ref.results.assign(nplane * channels, ForwardDrizzleV2RobustResult{});
+  ref.masks.assign(nplane * channels, 0);
+  ref.footprint.assign(nplane, 0);
+  std::vector<std::vector<ForwardDrizzleV2RobustCandidate>> cands(
+      nplane * channels);
+  std::vector<std::vector<double>> s2v(nplane * channels);
+
+  for (std::size_t fr = 0; fr < n_frames; ++fr) {
+    RegistrationSamplingPlan one = f.plan;
+    one.frames = {f.plan.frames[fr]};
+    const auto &img = f.images[fr];
+    auto real_of = [&](std::size_t) -> const Matrix2Df & { return img; };
+    auto geo_of = [&](std::size_t) -> const Matrix2Df & { return geo_img; };
+    const auto g_a = gather_affine_uniform_v2(one, real_of, f.cfg, 0, ir);
+    const auto g_g = gather_affine_uniform_v2(one, geo_of, f.cfg, 0, ir);
+    ForwardDrizzleV2UniformResult g_s;
+    if (!sigma2_or_empty.empty()) {
+      auto s2_of = [&](std::size_t) -> const Matrix2Df & {
+        return s2_img[fr];
+      };
+      g_s = gather_affine_uniform_v2(one, s2_of, f.cfg, 0, ir);
+    }
+    for (std::size_t px = 0; px < nplane; ++px) {
+      const int nx = static_cast<int>(px % nc);
+      const int ny = static_cast<int>(px / nc);
+      bool any_geo = false;
+      for (int c = 0; c < channels; ++c) {
+        const std::size_t pc = static_cast<std::size_t>(c) * nplane + px;
+        double a = 0.0, bs = 0.0, bg = 0.0, sw = 0.0;
+        unsigned int geo_bits = 0, src_bits = 0;
+        for (int iy = 0; iy < scale; ++iy)
+          for (int ix = 0; ix < scale; ++ix) {
+            const int j = iy * scale + ix;
+            const std::size_t ii =
+                static_cast<std::size_t>(ny * scale + iy) * ic + nx * scale +
+                ix;
+            // w[c]/wx[c] are already the per-channel planes of size iplane.
+            a += inv_s2 * g_a.accum.wx[c][ii];
+            bs += inv_s2 * g_a.accum.w[c][ii];
+            bg += inv_s2 * g_g.accum.w[c][ii];
+            if (!sigma2_or_empty.empty())
+              sw += inv_s2 * g_s.accum.wx[c][ii];
+            if (g_g.accum.w[c][ii] > 0.0) geo_bits |= 1u << j;
+            if (g_a.accum.w[c][ii] > 0.0) src_bits |= 1u << j;
+          }
+        ref.masks[pc] |=
+            static_cast<unsigned short>(geo_bits | (src_bits << 4));
+        if (bg > 0.0) any_geo = true;
+        if (!(bs > 0.0)) continue;
+        cands[pc].push_back({fr, a / bs, bs});
+        if (!sigma2_or_empty.empty()) s2v[pc].push_back(sw / bs);
+      }
+      if (any_geo) ++ref.footprint[px];
+    }
+  }
+
+  ForwardDrizzleV2RobustConfig rcfg;
+  rcfg.reservoir_size = kcfg.reservoir_size;
+  rcfg.reservoir_seed = kcfg.reservoir_seed;
+  rcfg.oracle_min_clip_contributors = kcfg.min_clip_contributors;
+  rcfg.oracle_passes = kcfg.robust_passes;
+  rcfg.oracle_sigma_low = kcfg.sigma_low;
+  rcfg.oracle_sigma_high = kcfg.sigma_high;
+  rcfg.min_candidates = kcfg.min_candidates;
+  for (std::size_t pc = 0; pc < nplane * channels; ++pc) {
+    if (cands[pc].empty()) continue;
+    ref.results[pc] = robust_reduce_candidates_v2(
+        cands[pc], ForwardDrizzleV2Estimator::reservoir_sigma_clip, rcfg,
+        static_cast<std::uint64_t>(n_frames), s2v[pc]);
+  }
+  for (std::size_t px = 0; px < nplane; ++px)
+    if (ref.footprint[px] == n_frames && n_frames > 0) ++ref.dense_overlap;
+  return ref;
+}
+
+void require_gate6_parity(const Gate6CpuRef &ref,
+                          const std::vector<ForwardDrizzleV2PixelResult> &gpu,
+                          int ncols, int nrows, int channels) {
+  const std::size_t nplane = static_cast<std::size_t>(ncols) * nrows;
+  for (std::size_t pc = 0; pc < nplane * channels; ++pc) {
+    const auto &e = ref.results[pc];
+    const auto &g = gpu[pc];
+    if (g.robust_state != static_cast<std::uint8_t>(e.state) ||
+        g.contributors != e.candidates)
+      std::fprintf(stderr,
+                   "gate6 mismatch pc=%llu dev(state=%u contrib=%u b=%.6g "
+                   "degraded=%llu) cpu(state=%d cand=%llu b=%.6g "
+                   "degraded=%llu)\n",
+                   (unsigned long long)pc, (unsigned)g.robust_state,
+                   g.contributors, g.b, (unsigned long long)g.conf_degraded,
+                   (int)e.state, (unsigned long long)e.candidates, e.b,
+                   (unsigned long long)e.conf_degraded);
+    REQUIRE(g.robust_state ==
+            static_cast<std::uint8_t>(e.state));
+    REQUIRE(g.confidence_state ==
+            static_cast<std::uint8_t>(e.conf_state));
+    REQUIRE(g.contributors == e.candidates);
+    REQUIRE(g.conf_degraded == e.conf_degraded);
+    REQUIRE(g.value == Catch::Approx(e.value).epsilon(1e-12).margin(1e-12));
+    REQUIRE(g.b == Catch::Approx(e.b).epsilon(1e-12).margin(1e-12));
+    REQUIRE(g.n_eff == Catch::Approx(e.n_eff).epsilon(1e-12).margin(1e-12));
+    REQUIRE(g.confidence ==
+            Catch::Approx(e.confidence).epsilon(1e-12).margin(1e-12));
+  }
+}
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 gate6 prototype kernel matches the CPU oracle",
+          "[forward-drizzle-v2][cuda-parity][gate6]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  const BayerPattern patterns[] = {BayerPattern::RGGB, BayerPattern::BGGR,
+                                   BayerPattern::GRBG, BayerPattern::GBRG};
+  for (int scale : {1, 2}) {
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+      for (BayerPattern pattern : patterns) {
+        auto f = make_fixture(mode, pattern, 1, -1, scale);
+        const int nc = f.plan.canvas_width_native;
+        const int nr = f.plan.canvas_height_native;
+        const int channels = mode == ColorMode::MONO ? 1 : 3;
+        const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+        const std::size_t n_src = static_cast<std::size_t>(
+            f.plan.source_width) * f.plan.source_height;
+        std::vector<float> s2(n_src);
+        for (std::size_t i = 0; i < n_src; ++i)
+          s2[i] = 0.01f + 0.0001f * static_cast<float>(i % 97);
+        s2[3] = -1.0f;  // degraded-confidence coverage on both paths
+        ForwardDrizzleV2KernelConfig kcfg;
+        kcfg.internal_scale = scale;
+        kcfg.stream_length = f.plan.frames.size();
+        kcfg.half = 0.5 * f.cfg.pixfrac;
+        kcfg.bayer_pattern = static_cast<int>(pattern);
+        kcfg.cfa_origin_x = f.plan.cfa_origin_x;
+        kcfg.cfa_origin_y = f.plan.cfa_origin_y;
+        kcfg.mono = mode == ColorMode::MONO;
+
+        const auto ref = gate6_cpu_reference(f, s2, kcfg);
+        ForwardDrizzleV2CudaPrototypeKernel kernel;
+        REQUIRE(kernel.reserve(nc, nr, f.plan.source_width,
+                               f.plan.source_height, kcfg));
+        for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+          const auto &m = f.plan.frames[fr].source_to_canvas;
+          const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                                m(1, 0), m(1, 1), m(1, 2)};
+          REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), s2.data(),
+                                          fr));
+        }
+        std::vector<ForwardDrizzleV2PixelResult> got(nplane * channels);
+        std::uint64_t dense = 0;
+        REQUIRE(kernel.finalize(got.data(), &dense));
+        require_gate6_parity(ref, got, nc, nr, channels);
+        REQUIRE(dense == ref.dense_overlap);
+        // Fractions must equal the CPU mask-derived values bit for bit.
+        const double subpixels = static_cast<double>(scale) * scale;
+        for (std::size_t pc = 0; pc < nplane * channels; ++pc) {
+          const unsigned int m = ref.masks[pc];
+          const float geo = static_cast<float>(
+              static_cast<double>(__builtin_popcount(m & 0xFu)) / subpixels);
+          const float src = static_cast<float>(
+              static_cast<double>(__builtin_popcount((m >> 4) & 0xFu)) /
+              subpixels);
+          REQUIRE(got[pc].geometry_fraction == geo);
+          REQUIRE(got[pc].source_fraction == src);
+          REQUIRE(got[pc].estimator_fraction == src);
+          REQUIRE(got[pc].profile_fraction == src);
+        }
+        const auto &st = kernel.stats();
+        REQUIRE(st.allocations == 1);
+        REQUIRE(st.device_global_synchronizations == 0);
+        REQUIRE(st.stream_synchronizations == 1);
+        REQUIRE(st.frames_processed == f.plan.frames.size());
+        REQUIRE(st.positive_overlaps > 0);
+        REQUIRE(st.candidates_streamed > 0);
+        REQUIRE(st.reservoir_kept_total > 0);
+        REQUIRE(st.slot_transitions == f.plan.frames.size());
+        REQUIRE(st.source_bytes_uploaded ==
+                2 * f.plan.frames.size() * n_src * sizeof(float));
+        REQUIRE(st.result_bytes_downloaded > 0);
+      }
+    }
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate6 kernel reservoir sampling N > R",
+          "[forward-drizzle-v2][cuda-parity][gate6]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  auto f = make_fixture(ColorMode::OSC, BayerPattern::GBRG, 0, 0, 2);
+  const std::size_t keep = f.plan.frames.size();
+  for (std::size_t i = keep; i < 80; ++i) {
+    FrameSamplingTransform frame = f.plan.frames[i % keep];
+    frame.frame_id = "v2-extra-" + std::to_string(i);
+    frame.source_index = i;
+    // Small deterministic transform perturbation per frame.
+    frame.source_to_canvas(0, 2) += static_cast<float>(0.01 * (i - keep));
+    f.plan.frames.push_back(frame);
+    f.images.push_back(f.images[i % keep]);
+  }
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+  const std::size_t n_src = static_cast<std::size_t>(f.plan.source_width) *
+                            f.plan.source_height;
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = 2;
+  kcfg.stream_length = f.plan.frames.size();
+  kcfg.half = 0.5 * f.cfg.pixfrac;
+  kcfg.bayer_pattern = static_cast<int>(BayerPattern::GBRG);
+  kcfg.mono = false;
+  const auto ref = gate6_cpu_reference(f, {}, kcfg);
+  ForwardDrizzleV2CudaPrototypeKernel kernel;
+  REQUIRE(kernel.reserve(nc, nr, f.plan.source_width, f.plan.source_height,
+                         kcfg));
+  for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+    const auto &m = f.plan.frames[fr].source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1), m(1, 2)};
+    REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), nullptr, fr));
+  }
+  std::vector<ForwardDrizzleV2PixelResult> got(nplane * 3);
+  std::uint64_t dense = 0;
+  REQUIRE(kernel.finalize(got.data(), &dense));
+  require_gate6_parity(ref, got, nc, nr, 3);
+  REQUIRE(dense == ref.dense_overlap);
+  // The kept set is a strict subset of the 80-frame stream on covered
+  // pixels, so reservoir_kept_total < candidates_streamed.
+  REQUIRE(kernel.stats().reservoir_kept_total <=
+          kernel.stats().candidates_streamed);
+  REQUIRE(kernel.stats().reservoir_kept_total > 0);
+  (void)n_src;
+}
+
+TEST_CASE("forward drizzle v2 gate6 kernel degenerate and repeatability",
+          "[forward-drizzle-v2][cuda-parity][gate6]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::RGGB, 0, 0, 2);
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = 2;
+  kcfg.stream_length = 4;
+  kcfg.half = 0.5 * f.cfg.pixfrac;
+  kcfg.mono = true;
+
+  // Empty band: no frames -> every result is no_source_support, dense 0.
+  {
+    ForwardDrizzleV2CudaPrototypeKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, f.plan.source_width, f.plan.source_height,
+                           kcfg));
+    std::vector<ForwardDrizzleV2PixelResult> got(nplane);
+    std::uint64_t dense = 999;
+    REQUIRE(kernel.finalize(got.data(), &dense));
+    REQUIRE(dense == 0);
+    for (const auto &r : got) {
+      REQUIRE(r.robust_state == static_cast<std::uint8_t>(
+                                  ForwardDrizzleV2RobustState::no_source_support));
+      REQUIRE(r.contributors == 0);
+      REQUIRE(r.b == 0.0);
+      REQUIRE(r.confidence == 0.0);
+    }
+    REQUIRE(kernel.stats().frames_processed == 0);
+    REQUIRE(kernel.stats().stream_synchronizations == 1);
+  }
+
+  // Single frame: N=1 <= R, uniform value, n_eff = 1 on covered pixels.
+  {
+    ForwardDrizzleV2KernelConfig one = kcfg;
+    one.stream_length = 1;
+    ForwardDrizzleV2CudaPrototypeKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, f.plan.source_width, f.plan.source_height,
+                           one));
+    const auto &m = f.plan.frames[0].source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1), m(1, 2)};
+    REQUIRE(kernel.accumulate_frame(a6, f.images[0].data(), nullptr, 0));
+    // A second frame must be rejected (stream_length reached).
+    REQUIRE_FALSE(kernel.accumulate_frame(a6, f.images[0].data(), nullptr, 1));
+    std::vector<ForwardDrizzleV2PixelResult> got(nplane);
+    std::uint64_t dense = 0;
+    REQUIRE(kernel.finalize(got.data(), &dense));
+    REQUIRE(dense > 0);
+    bool saw_supported = false;
+    for (const auto &r : got) {
+      if (r.contributors == 0) continue;
+      saw_supported = true;
+      REQUIRE(r.robust_state ==
+              static_cast<std::uint8_t>(
+                  ForwardDrizzleV2RobustState::too_few_candidates_fallback));
+      REQUIRE(r.n_eff == Catch::Approx(1.0).margin(1e-12));
+      REQUIRE(std::isfinite(r.value));
+    }
+    REQUIRE(saw_supported);
+  }
+
+  // Repeatability: two identical runs agree bit-exact on states/masks and to
+  // 1e-12 on values (atomic ordering is not a guaranteed contract).
+  {
+    auto run_once = [&] {
+      ForwardDrizzleV2CudaPrototypeKernel kernel;
+      REQUIRE(kernel.reserve(nc, nr, f.plan.source_width,
+                             f.plan.source_height, kcfg));
+      for (std::size_t fr = 0; fr < 4; ++fr) {
+        const auto &m = f.plan.frames[fr].source_to_canvas;
+        const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                              m(1, 0), m(1, 1), m(1, 2)};
+        REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), nullptr, fr));
+      }
+      std::vector<ForwardDrizzleV2PixelResult> got(nplane);
+      std::uint64_t dense = 0;
+      REQUIRE(kernel.finalize(got.data(), &dense));
+      return std::pair{got, dense};
+    };
+    const auto r1 = run_once();
+    const auto r2 = run_once();
+    REQUIRE(r1.second == r2.second);
+    for (std::size_t i = 0; i < nplane; ++i) {
+      REQUIRE(r1.first[i].robust_state == r2.first[i].robust_state);
+      REQUIRE(r1.first[i].confidence_state == r2.first[i].confidence_state);
+      REQUIRE(r1.first[i].contributors == r2.first[i].contributors);
+      REQUIRE(r1.first[i].geometry_fraction ==
+              r2.first[i].geometry_fraction);
+      REQUIRE(r1.first[i].source_fraction == r2.first[i].source_fraction);
+      REQUIRE(r1.first[i].value ==
+              Catch::Approx(r2.first[i].value).epsilon(1e-12).margin(1e-12));
+      REQUIRE(r1.first[i].b ==
+              Catch::Approx(r2.first[i].b).epsilon(1e-12).margin(1e-12));
+    }
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate6 workspace memory stays within the plan",
+          "[forward-drizzle-v2][cuda-parity][gate6]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = 2;
+  kcfg.stream_length = 4;
+  kcfg.mono = false;
+  ForwardDrizzleV2CudaPrototypeKernel kernel;
+  REQUIRE(kernel.reserve(64, 8, 32, 16, kcfg));
+  ForwardDrizzleV2MemoryInputs in;
+  in.target_width = 64;
+  in.target_height = 8;
+  in.channels = 3;
+  in.frame_count = 4;
+  in.internal_scale = 2;
+  in.source_device_slots = 1;
+  in.source_slot_device_bytes = std::size_t{32} * 16 * sizeof(float);
+  in.quality_device_slots = 1;
+  in.quality_slot_device_bytes = std::size_t{32} * 16 * sizeof(float);
+  in.device_reserve_bytes = 1 << 20;
+  in.device_budget_bytes = std::size_t{4} << 30;
+  in.host_budget_bytes = std::size_t{4} << 30;
+  const auto p = plan_forward_drizzle_v2_memory(in);
+  REQUIRE(p.feasible);
+  const std::size_t nplane = std::size_t{64} * 8;
+  // The workspace's per-native-pixel footprint must fit the gate-5 role
+  // budget for the same band (single frame plane set, no X-tiling).
+  REQUIRE(kernel.device_bytes_per_native_pixel() <=
+          p.device_bytes_per_target_pixel);
+  (void)nplane;
+}
+
+TEST_CASE("forward drizzle v2 gate6 production geometry pipeline",
+          "[.][forward-drizzle-v2-gate6-production]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  constexpr char kSpecSha[] =
+      "19e2fb471cd321781e36e963572f8fc6137f49c2202f575f2928bf236c17c749";
+  constexpr int sw = 3840, sh = 2160;      // source
+  constexpr int nc = 3934, nr = 2270;      // native canvas
+  constexpr double kMaxSteadySeconds = 0.75;
+
+  // Pick the band height through the gate-5 planner against the actual
+  // device budget (80% of free memory, role table defaults).
+  const auto mem = forward_drizzle_cuda_device_memory();
+  ForwardDrizzleV2MemoryInputs in;
+  in.target_width = nc;
+  in.target_height = nr;
+  in.channels = 3;
+  in.frame_count = 60;
+  in.internal_scale = 2;
+  in.source_device_slots = 2;
+  in.source_slot_device_bytes = std::size_t{sw} * sh * sizeof(float);
+  in.quality_device_slots = 1;
+  in.quality_slot_device_bytes = std::size_t{sw} * sh * sizeof(float);
+  in.device_reserve_bytes = std::size_t{256} << 20;
+  in.device_budget_bytes =
+      static_cast<std::size_t>(static_cast<double>(mem.free_bytes) * 0.8);
+  in.host_budget_bytes = std::size_t{8} << 30;
+  const auto plan = plan_forward_drizzle_v2_memory(in);
+  REQUIRE(plan.feasible);
+  REQUIRE(plan.tile_cols == nc);
+  const int band_rows = plan.band_rows;
+
+  Matrix2Df source(sh, sw);
+  for (int y = 0; y < sh; ++y)
+    for (int x = 0; x < sw; ++x)
+      source(y, x) = static_cast<float>(
+          100.0 + 0.001 * x + 0.002 * y + 0.01 * ((17 * x + 31 * y) % 29));
+
+  // 60 affine transforms from the five real M42 cases with a small
+  // deterministic dither. Mild transforms only: the shared footprint then
+  // keeps a nonempty dense-overlap core, which the telemetry check needs.
+  const std::array<std::array<double, 6>, 5> base{{
+      {1.0, 0.0, 32.0, 0.0, 1.0, 50.0},
+      {0.9998640418052673, -0.016167480498552322, 35.636409759521484,
+       0.01610037311911583, 0.9999631643295288, 46.23441696166992},
+      {0.9998466372489929, 0.017386717721819878, 55.92152404785156,
+       -0.01743965968489647, 0.9998936057090759, 68.48160552978516},
+      {0.9999858140945435, -0.0024168870877474546, 31.47933578491211,
+       0.0021460296120494604, 1.000150442123413, 56.29893493652344},
+      {1.0000033378601074, -0.006749980617314577, 28.21784782409668,
+       0.006637410260736942, 1.0002058744430542, 58.95621871948242},
+  }};
+
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = 2;
+  kcfg.stream_length = 60;
+  kcfg.half = 0.4;  // pixfrac 0.8
+  kcfg.bayer_pattern = static_cast<int>(BayerPattern::GBRG);
+  kcfg.mono = false;
+
+  ForwardDrizzleV2CudaPrototypeKernel kernel;
+  REQUIRE(kernel.reserve(nc, band_rows, sw, sh, kcfg));
+  const auto &st0 = kernel.stats();
+  REQUIRE(st0.allocations == 1);
+  for (std::uint64_t f = 0; f < 60; ++f) {
+    auto m = base[f % base.size()];
+    m[2] += 0.05 * static_cast<double>(f);  // deterministic dither
+    m[5] += 0.03 * static_cast<double>(f);
+    REQUIRE(kernel.accumulate_frame(m.data(), source.data(), nullptr, f));
+  }
+  // Independent dense-overlap oracle: CPU gather per frame over the same
+  // band, footprint = any positive B in the native pixel's subpixels.
+  RegistrationSamplingPlan cpu_plan;
+  cpu_plan.source_width = sw;
+  cpu_plan.source_height = sh;
+  cpu_plan.canvas_width_native = nc;
+  cpu_plan.canvas_height_native = nr;
+  cpu_plan.color_mode = ColorMode::OSC;
+  cpu_plan.bayer_pattern = BayerPattern::GBRG;
+  config::ReconstructionDrizzleConfig cpu_cfg;
+  cpu_cfg.internal_scale = 2;
+  cpu_cfg.pixfrac = 0.8f;
+  cpu_cfg.kernel = "square";
+  std::vector<unsigned int> fp_cpu(
+      static_cast<std::size_t>(nc) * band_rows, 0);
+  for (std::uint64_t f = 0; f < 60; ++f) {
+    auto m = base[f % base.size()];
+    m[2] += 0.05 * static_cast<double>(f);
+    m[5] += 0.03 * static_cast<double>(f);
+    RegistrationSamplingPlan one = cpu_plan;
+    FrameSamplingTransform fr;
+    fr.frame_id = "g6-" + std::to_string(f);
+    fr.source_index = 0;
+    fr.valid = true;
+    fr.source_to_canvas = affine(m[0], m[1], m[2], m[3], m[4], m[5]);
+    fr.source_to_canvas_affine_valid = true;
+    one.frames = {fr};
+    auto one_of = [&](std::size_t) -> const Matrix2Df & { return source; };
+    const auto g = gather_affine_uniform_v2(one, one_of, cpu_cfg, 0,
+                                            band_rows * 2);
+    const std::size_t icols = static_cast<std::size_t>(nc) * 2;
+    for (int ny = 0; ny < band_rows; ++ny)
+      for (int nx = 0; nx < nc; ++nx) {
+        bool any = false;
+        for (int c = 0; c < 3 && !any; ++c)
+          for (int iy = 0; iy < 2 && !any; ++iy)
+            for (int ix = 0; ix < 2 && !any; ++ix)
+              any = g.accum.w[c][static_cast<std::size_t>(ny * 2 + iy) *
+                                     icols + nx * 2 + ix] > 0.0;
+        if (any) ++fp_cpu[static_cast<std::size_t>(ny) * nc + nx];
+      }
+  }
+  std::uint64_t dense_cpu = 0;
+  for (unsigned int v : fp_cpu) dense_cpu += (v == 60);
+
+  const std::size_t n_out =
+      static_cast<std::size_t>(nc) * band_rows * 3;
+  std::vector<ForwardDrizzleV2PixelResult> results(n_out);
+  std::uint64_t dense = 0;
+  REQUIRE(kernel.finalize(results.data(), &dense));
+  const auto &st = kernel.stats();
+
+  std::uint64_t supported = 0, clipped = 0, fallbacks = 0;
+  for (const auto &r : results) {
+    if (r.contributors == 0) continue;
+    ++supported;
+    if (r.robust_state ==
+        static_cast<std::uint8_t>(
+            ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip))
+      ++clipped;
+    else if (r.robust_state == static_cast<std::uint8_t>(
+                 ForwardDrizzleV2RobustState::reservoir_overflow_fallback))
+      ++fallbacks;
+    REQUIRE(std::isfinite(r.value));
+    REQUIRE(std::isfinite(r.b));
+    REQUIRE(r.geometry_fraction > 0.0f);
+  }
+  std::printf(
+      "{\"gate\":6,\"spec_sha256\":\"%s\",\"case\":\"production_band\","
+      "\"native_cols\":%d,\"band_rows\":%d,\"frames\":60,"
+      "\"reserved_bytes\":%llu,\"planned_band_rows\":%d,"
+      "\"per_px_device\":%llu,\"per_px_plan\":%llu,"
+      "\"upload_s\":%.6f,\"kernel_s\":%.6f,\"max_frame_s\":%.6f,"
+      "\"mean_frame_s\":%.6f,\"positive_overlaps\":%llu,"
+      "\"candidates_streamed\":%llu,\"reservoir_kept\":%llu,"
+      "\"dense_overlap\":%llu,\"supported\":%llu,\"clipped\":%llu,"
+      "\"overflow_fallbacks\":%llu,\"allocations\":%llu,"
+      "\"global_syncs\":%llu,\"stream_syncs\":%llu}\n",
+      kSpecSha, nc, band_rows,
+      static_cast<unsigned long long>(st.reserved_device_bytes), band_rows,
+      static_cast<unsigned long long>(kernel.device_bytes_per_native_pixel()),
+      static_cast<unsigned long long>(plan.device_bytes_per_target_pixel),
+      st.upload_seconds, st.kernel_seconds, st.max_frame_seconds,
+      (st.upload_seconds + st.kernel_seconds) / 60.0,
+      st.positive_overlaps, st.candidates_streamed, st.reservoir_kept_total,
+      static_cast<unsigned long long>(dense),
+      static_cast<unsigned long long>(supported),
+      static_cast<unsigned long long>(clipped),
+      static_cast<unsigned long long>(fallbacks),
+      static_cast<unsigned long long>(st.allocations),
+      static_cast<unsigned long long>(st.device_global_synchronizations),
+      static_cast<unsigned long long>(st.stream_synchronizations));
+
+  REQUIRE(supported > 0);
+  REQUIRE(clipped > 0);
+  REQUIRE(fallbacks == 0);
+  REQUIRE(dense == dense_cpu);
+  REQUIRE(st.allocations == 1);
+  REQUIRE(st.device_global_synchronizations == 0);
+  REQUIRE(st.stream_synchronizations == 1);
+  REQUIRE(st.frames_processed == 60);
+  REQUIRE(st.max_frame_seconds <= kMaxSteadySeconds);
+  REQUIRE(st.reserved_device_bytes <= plan.device_peak_bytes);
+  REQUIRE(kernel.device_bytes_per_native_pixel() <=
+          plan.device_bytes_per_target_pixel);
 }
