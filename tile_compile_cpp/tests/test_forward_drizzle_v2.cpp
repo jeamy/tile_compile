@@ -5984,7 +5984,21 @@ TEST_CASE("forward drizzle v2 gate10 driver resume reuses the prefix",
   REQUIRE(done.committed);
   REQUIRE(done.bands_reused == 2);
   REQUIRE(done.bands_committed == plan.band_count - 2);
-  REQUIRE(done.commit_hash == ref.commit_hash);
+  // The commit hash binds the generation name, so it differs between runs;
+  // the deterministic content identity is the checkpoint hash.
+  REQUIRE(!done.commit_hash.empty());
+  REQUIRE(!ref.commit_hash.empty());
+  {
+    ForwardDrizzleV2Checkpoint cp_done, cp_ref;
+    std::string cp_error;
+    REQUIRE(parse_forward_drizzle_v2_checkpoint(
+        v2_file_text(done.generation_dir / "checkpoint.json"), cp_done,
+        cp_error));
+    REQUIRE(parse_forward_drizzle_v2_checkpoint(
+        v2_file_text(ref.generation_dir / "checkpoint.json"), cp_ref,
+        cp_error));
+    REQUIRE(cp_done.checkpoint_hash == cp_ref.checkpoint_hash);
+  }
 
   std::vector<ForwardDrizzleV2PixelResult> a, b;
   std::vector<ForwardDrizzleV2ProfileResult> pa, pb;
@@ -6032,7 +6046,22 @@ TEST_CASE("forward drizzle v2 gate10 cuda fault restarts on cpu",
   REQUIRE(done.backend_used == "cpu_v2");
   REQUIRE(!done.cuda_fallback_reason.empty());
   REQUIRE(done.bands_reused == 0);
-  REQUIRE(done.commit_hash == ref.commit_hash);
+  // The commit hash binds the generation name and backend telemetry, so it
+  // legitimately differs between runs; the deterministic content identity is
+  // the checkpoint hash (plan + committed band records).
+  REQUIRE(!done.commit_hash.empty());
+  REQUIRE(!ref.commit_hash.empty());
+  {
+    ForwardDrizzleV2Checkpoint cp_done, cp_ref;
+    std::string cp_error;
+    REQUIRE(parse_forward_drizzle_v2_checkpoint(
+        v2_file_text(done.generation_dir / "checkpoint.json"), cp_done,
+        cp_error));
+    REQUIRE(parse_forward_drizzle_v2_checkpoint(
+        v2_file_text(ref.generation_dir / "checkpoint.json"), cp_ref,
+        cp_error));
+    REQUIRE(cp_done.checkpoint_hash == cp_ref.checkpoint_hash);
+  }
 
   std::vector<ForwardDrizzleV2PixelResult> a, b;
   std::vector<ForwardDrizzleV2ProfileResult> pa, pb;

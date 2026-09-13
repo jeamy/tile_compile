@@ -74,6 +74,9 @@ struct ForwardDrizzleV2DriverResult {
   ForwardDrizzleV2PrototypeStats totals{};   // summed over computed bands
   std::uint64_t local_samples_discarded = 0;
   std::string commit_hash;        // commit.json hash (complete only)
+  // Spec telemetry gate: the slowest single (frame, band) provider +
+  // accumulate call, wall seconds. Computed bands only.
+  double max_frame_seconds = 0.0;
 };
 
 // Runs (or resumes/completes) the banded v2 production under `store_root`.

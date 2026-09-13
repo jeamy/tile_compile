@@ -821,6 +821,10 @@ TEST_CASE("forward runner: TC_FORWARD_DRIZZLE_V2 selects the banded v2 path "
   REQUIRE(ck.at("forward_drizzle_v2").get<bool>());
   REQUIRE(ck.at("forward_drizzle_v2_plan_hash").get<std::string>() ==
           detected.plan_hash);
+  REQUIRE_FALSE(
+      ck.at("forward_drizzle_v2_commit_hash").get<std::string>().empty());
+  REQUIRE(ck.at("forward_drizzle_v2_commit_hash").get<std::string>() ==
+          insp.commit_hash);
 
   // MULTIBAND auto-detected the published store and fused the final image;
   // no legacy profile store was produced.

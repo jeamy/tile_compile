@@ -4,11 +4,15 @@
 
 #include "tile_compile/reconstruction/forward_drizzle_v2_driver.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -142,6 +146,7 @@ bool attempt_backend(const fs::path &store_root,
       return false;
     }
     for (std::uint64_t fr = 0; fr < plan.frame_count; ++fr) {
+      const auto frame_t0 = std::chrono::steady_clock::now();
       if (!provider(fr, in) || in.source == nullptr)
         throw std::runtime_error("FDV2_DRIVER_FRAME_PROVIDER_FAILED");
       const bool ok =
@@ -159,6 +164,11 @@ bool attempt_backend(const fs::path &store_root,
         *device_failure = "accumulate() reported a device failure";
         return false;
       }
+      result.max_frame_seconds = std::max(
+          result.max_frame_seconds,
+          std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                        frame_t0)
+              .count());
     }
     const std::size_t nrec = static_cast<std::size_t>(rows) * cols *
                              static_cast<std::size_t>(plan.channels);
@@ -212,6 +222,13 @@ bool attempt_backend(const fs::path &store_root,
       ",\"local_samples_discarded\":" +
       std::to_string(result.local_samples_discarded) + "}";
   result.generation_dir = writer->finish(gate);
+  // Record the published commit hash for run provenance/checkpointing
+  // (the complete-resume path reads it back via inspect()).
+  {
+    std::ifstream commit_in(result.generation_dir / "commit.json");
+    result.commit_hash = nlohmann::json::parse(commit_in)
+                             .value("commit_hash", std::string{});
+  }
   result.committed = true;
   result.backend_used = cuda ? "cuda_v2" : "cpu_v2";
   return true;
@@ -263,6 +280,7 @@ ForwardDrizzleV2DriverResult run_forward_drizzle_v2(
     result.bands_reused = 0;
     result.totals = ForwardDrizzleV2PrototypeStats{};
     result.local_samples_discarded = 0;
+    result.max_frame_seconds = 0.0;
   }
 
   if (!attempt_backend(store_root, plan, source_width, source_height,

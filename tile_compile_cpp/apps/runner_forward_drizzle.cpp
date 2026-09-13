@@ -596,6 +596,13 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         extra["v2_q_bin_loads"]=v2_result->q_bin_loads;
         extra["v2_q_bin_cells_decoded"]=v2_result->q_bin_cells_decoded;
         extra["v2_local_samples_discarded"]=v2_result->local_model_samples_discarded;
+        extra["v2_max_frame_seconds"]=v2_result->driver.max_frame_seconds;
+        // One reserve() allocation per computed band; the accumulate hot
+        // path allocates nothing by contract (the counter only moves in
+        // reserve()).
+        extra["v2_reserve_allocations"]=v2_result->driver.totals.allocations;
+        extra["v2_device_global_syncs"]=
+            v2_result->driver.totals.device_global_synchronizations;
       }
       if (!fd_cuda_fallback_reason.empty())
         extra["cuda_fallback_reason"]=fd_cuda_fallback_reason;
