@@ -2,6 +2,8 @@
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2_store.hpp"
+#include "tile_compile/reconstruction/multiband_fusion.hpp"
+#include "tile_compile/reconstruction/multiband_validation.hpp"
 #include "tile_compile/core/atomic_output.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/registration/registration_sampling_plan.hpp"
@@ -21,6 +23,7 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -1790,7 +1793,7 @@ TEST_CASE("forward drizzle v2 gate6 prototype kernel matches the CPU oracle",
         }
         std::vector<ForwardDrizzleV2PixelResult> got(nplane * channels);
         std::uint64_t dense = 0;
-        REQUIRE(kernel.finalize(got.data(), &dense));
+        REQUIRE(kernel.finalize(got.data(), nullptr, &dense));
         require_gate6_parity(ref, got, nc, nr, channels);
         REQUIRE(dense == ref.dense_overlap);
         // Fractions must equal the CPU mask-derived values bit for bit.
@@ -1863,7 +1866,7 @@ TEST_CASE("forward drizzle v2 gate6 kernel reservoir sampling N > R",
   }
   std::vector<ForwardDrizzleV2PixelResult> got(nplane * 3);
   std::uint64_t dense = 0;
-  REQUIRE(kernel.finalize(got.data(), &dense));
+  REQUIRE(kernel.finalize(got.data(), nullptr, &dense));
   require_gate6_parity(ref, got, nc, nr, 3);
   REQUIRE(dense == ref.dense_overlap);
   // The kept set is a strict subset of the 80-frame stream on covered
@@ -1897,7 +1900,7 @@ TEST_CASE("forward drizzle v2 gate6 kernel degenerate and repeatability",
                            kcfg));
     std::vector<ForwardDrizzleV2PixelResult> got(nplane);
     std::uint64_t dense = 999;
-    REQUIRE(kernel.finalize(got.data(), &dense));
+    REQUIRE(kernel.finalize(got.data(), nullptr, &dense));
     REQUIRE(dense == 0);
     for (const auto &r : got) {
       REQUIRE(r.robust_state == static_cast<std::uint8_t>(
@@ -1924,7 +1927,7 @@ TEST_CASE("forward drizzle v2 gate6 kernel degenerate and repeatability",
     REQUIRE_FALSE(kernel.accumulate_frame(a6, f.images[0].data(), nullptr, 1));
     std::vector<ForwardDrizzleV2PixelResult> got(nplane);
     std::uint64_t dense = 0;
-    REQUIRE(kernel.finalize(got.data(), &dense));
+    REQUIRE(kernel.finalize(got.data(), nullptr, &dense));
     REQUIRE(dense > 0);
     bool saw_supported = false;
     for (const auto &r : got) {
@@ -1954,7 +1957,7 @@ TEST_CASE("forward drizzle v2 gate6 kernel degenerate and repeatability",
       }
       std::vector<ForwardDrizzleV2PixelResult> got(nplane);
       std::uint64_t dense = 0;
-      REQUIRE(kernel.finalize(got.data(), &dense));
+      REQUIRE(kernel.finalize(got.data(), nullptr, &dense));
       return std::pair{got, dense};
     };
     const auto r1 = run_once();
@@ -2131,7 +2134,7 @@ TEST_CASE("forward drizzle v2 gate6 production geometry pipeline",
       static_cast<std::size_t>(nc) * band_rows * 3;
   std::vector<ForwardDrizzleV2PixelResult> results(n_out);
   std::uint64_t dense = 0;
-  REQUIRE(kernel.finalize(results.data(), &dense));
+  REQUIRE(kernel.finalize(results.data(), nullptr, &dense));
   const auto &st = kernel.stats();
 
   std::uint64_t supported = 0, clipped = 0, fallbacks = 0;
@@ -3208,7 +3211,7 @@ TEST_CASE("forward drizzle v2 gate8 mixed affine/local stream parity",
       }
       std::vector<ForwardDrizzleV2PixelResult> got(nplane * channels);
       std::uint64_t dense = 0;
-      REQUIRE(kernel.finalize(got.data(), &dense));
+      REQUIRE(kernel.finalize(got.data(), nullptr, &dense));
       require_gate8_parity(ref, got, nc, nr, channels);
       REQUIRE(dense == ref.dense_overlap);
       REQUIRE(kernel.stats().local_samples_discarded == expected_discards);
@@ -3343,7 +3346,7 @@ TEST_CASE("forward drizzle v2 gate8 local production geometry",
         static_cast<std::size_t>(nc) * band_rows * 3;
     std::vector<ForwardDrizzleV2PixelResult> results(n_out);
     std::uint64_t dense = 0;
-    REQUIRE(kernel.finalize(results.data(), &dense));
+    REQUIRE(kernel.finalize(results.data(), nullptr, &dense));
     const auto &st = kernel.stats();
     std::uint64_t supported = 0;
     for (const auto &r : results) {
@@ -3385,4 +3388,1367 @@ TEST_CASE("forward drizzle v2 gate8 local production geometry",
     REQUIRE(kernel.device_bytes_per_native_pixel() <=
             plan.device_bytes_per_target_pixel);
   }
+}
+
+TEST_CASE("forward drizzle v2 gate9 profile candidate fold",
+          "[forward_drizzle_v2][gate9]") {
+  using reconstruction::ForwardDrizzleV2QualityFold;
+  const ForwardDrizzleV2QualityFold absent{};
+  SECTION("present streams fold to area-weighted means") {
+    const auto cd = reconstruction::forward_drizzle_v2_fold_profile_candidate(
+        7, 8.0, 4.0, ForwardDrizzleV2QualityFold{2.0, 4.0, true},
+        ForwardDrizzleV2QualityFold{1.0, 4.0, true},
+        ForwardDrizzleV2QualityFold{3.0, 4.0, true},
+        ForwardDrizzleV2QualityFold{1.2, 4.0, true});
+    REQUIRE(cd.frame_order == 7);
+    REQUIRE(cd.x == Catch::Approx(2.0));
+    REQUIRE(cd.b == Catch::Approx(4.0));
+    REQUIRE(cd.q == Catch::Approx(0.5));
+    REQUIRE(cd.q0 == Catch::Approx(0.25));
+    REQUIRE(cd.q1 == Catch::Approx(0.75));
+    REQUIRE(cd.qa == Catch::Approx(0.3));
+    REQUIRE(cd.qa_has_data);
+  }
+  SECTION("absent streams fold to 1.0 and artifact has no data") {
+    const auto cd = reconstruction::forward_drizzle_v2_fold_profile_candidate(
+        0, 5.0, 2.0, absent, absent, absent, absent);
+    REQUIRE(cd.q == Catch::Approx(1.0));
+    REQUIRE(cd.q0 == Catch::Approx(1.0));
+    REQUIRE(cd.q1 == Catch::Approx(1.0));
+    REQUIRE(cd.qa == Catch::Approx(1.0));
+    REQUIRE_FALSE(cd.qa_has_data);
+  }
+  SECTION("artifact stream present but all samples nonfinite") {
+    const auto cd = reconstruction::forward_drizzle_v2_fold_profile_candidate(
+        0, 5.0, 2.0, absent, absent, absent,
+        ForwardDrizzleV2QualityFold{0.0, 0.0, true});
+    REQUIRE(cd.qa == Catch::Approx(0.0));
+    REQUIRE_FALSE(cd.qa_has_data);
+  }
+  SECTION("zero geometric weight yields a zero-weight candidate") {
+    const auto cd = reconstruction::forward_drizzle_v2_fold_profile_candidate(
+        3, 0.0, 0.0, ForwardDrizzleV2QualityFold{1.0, 0.0, true}, absent,
+        absent, absent);
+    REQUIRE(cd.x == Catch::Approx(0.0));
+    REQUIRE(cd.b == Catch::Approx(0.0));
+    REQUIRE(cd.q == Catch::Approx(1.0));
+  }
+  SECTION("nonfinite accumulators throw") {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_fold_profile_candidate(
+            0, nan, 1.0, absent, absent, absent, absent),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_fold_profile_candidate(
+            0, 1.0, -1.0, absent, absent, absent, absent),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_fold_profile_candidate(
+            0, 1.0, 1.0, ForwardDrizzleV2QualityFold{nan, 0.0, true}, absent,
+            absent, absent),
+        std::invalid_argument);
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate9 profile reduce weights and mask",
+          "[forward_drizzle_v2][gate9]") {
+  using reconstruction::ForwardDrizzleV2FrameMeta;
+  using reconstruction::ForwardDrizzleV2ProfileCandidate;
+  std::vector<ForwardDrizzleV2ProfileCandidate> cands = {
+      {0, 10.0, 2.0, 1.0, 0.5, 0.8, 0.9, true},
+      {1, 20.0, 1.0, 0.5, 1.0, 0.5, 0.4, true},
+      {2, 999.0, 3.0, 1.0, 1.0, 1.0, 1.0, true}};
+  std::vector<ForwardDrizzleV2FrameMeta> meta = {
+      {2.0f, 0.9f, 1, 0}, {0.5f, 0.7f, 0, 0}, {1.0f, 1.0f, 1, 0}};
+
+  SECTION("weights follow the profile contract on the accepted set") {
+    std::vector<std::uint8_t> acc = {1, 1, 0};
+    const auto r = reconstruction::forward_drizzle_v2_profile_reduce(
+        cands, acc, meta);
+    // uniform: (2*10 + 1*20) / 3 = 13.33; raw: (4*10 + 0.25*20)/4.25;
+    // fine: (2*2*0.5^4 + 1*0.5*1^4) = 0.75;
+    // medium: (2*2*0.8^2 + 1*0.5*0.5^2) = 2.685
+    REQUIRE(r.uniform.value == Catch::Approx(40.0 / 3.0));
+    REQUIRE(r.uniform.weight_sum == Catch::Approx(3.0));
+    REQUIRE(r.raw.value == Catch::Approx(45.0 / 4.25).margin(1e-5));
+    REQUIRE(r.raw.weight_sum == Catch::Approx(4.25));
+    REQUIRE(r.fine.weight_sum == Catch::Approx(0.75).margin(1e-6));
+    REQUIRE(r.medium.weight_sum == Catch::Approx(2.685).margin(1e-5));
+    for (const auto *p : {&r.uniform, &r.raw, &r.fine, &r.medium}) {
+      REQUIRE(p->support == 1);
+      REQUIRE(p->n_eff > 0.0f);
+    }
+    // Rejected candidate 2 (x = 999) must not leak into any profile.
+    for (const auto *p : {&r.uniform, &r.raw, &r.fine, &r.medium})
+      REQUIRE(p->value < 100.0f);
+  }
+
+  SECTION("shared mask is external: high-q rejection removes the outlier") {
+    std::vector<std::uint8_t> acc_with_outlier = {1, 1, 1};
+    std::vector<std::uint8_t> acc_clipped = {1, 1, 0};
+    const auto with_outlier =
+        reconstruction::forward_drizzle_v2_profile_reduce(cands,
+                                                          acc_with_outlier,
+                                                          meta);
+    const auto clipped = reconstruction::forward_drizzle_v2_profile_reduce(
+        cands, acc_clipped, meta);
+    REQUIRE(with_outlier.uniform.value > 100.0f);
+    // Dropping the candidate by mask is bit-identical to dropping it from
+    // the stream entirely.
+    std::vector<ForwardDrizzleV2ProfileCandidate> two(cands.begin(),
+                                                      cands.begin() + 2);
+    std::vector<std::uint8_t> acc_two = {1, 1};
+    const auto r2 = reconstruction::forward_drizzle_v2_profile_reduce(
+        two, acc_two, meta);
+    REQUIRE(clipped.uniform.value == r2.uniform.value);
+    REQUIRE(clipped.raw.value == r2.raw.value);
+    REQUIRE(clipped.fine.weight_sum == r2.fine.weight_sum);
+  }
+
+  SECTION("empty stream yields unsupported NaN profiles") {
+    const auto r = reconstruction::forward_drizzle_v2_profile_reduce(
+        {}, {}, meta);
+    for (const auto *p : {&r.uniform, &r.raw, &r.fine, &r.medium}) {
+      REQUIRE(p->support == 0);
+      REQUIRE(std::isnan(p->value));
+      REQUIRE(p->weight_sum == 0.0f);
+    }
+  }
+
+  SECTION("zero-weight accepted candidates leave profiles unsupported") {
+    std::vector<ForwardDrizzleV2ProfileCandidate> zero = {
+        {0, 10.0, 0.0, 1.0, 1.0, 1.0, 1.0, true}};
+    std::vector<std::uint8_t> acc = {1};
+    const auto r = reconstruction::forward_drizzle_v2_profile_reduce(
+        zero, acc, meta);
+    REQUIRE(r.uniform.support == 0);
+    REQUIRE(std::isnan(r.uniform.value));
+  }
+
+  SECTION("malformed inputs throw invalid_argument") {
+    std::vector<std::uint8_t> acc = {1, 1, 0};
+    std::vector<std::uint8_t> short_mask = {1};
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_profile_reduce(cands, short_mask,
+                                                        meta),
+        std::invalid_argument);
+    std::vector<ForwardDrizzleV2FrameMeta> short_meta = {meta[0]};
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_profile_reduce(cands, acc,
+                                                          short_meta),
+        std::invalid_argument);
+    std::vector<ForwardDrizzleV2FrameMeta> bad_g = meta;
+    bad_g[0].g_eff = -1.0f;
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_profile_reduce(cands, acc, bad_g),
+        std::invalid_argument);
+    bad_g = meta;
+    bad_g[1].g_eff = std::numeric_limits<float>::quiet_NaN();
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_profile_reduce(cands, acc, bad_g),
+        std::invalid_argument);
+    std::vector<ForwardDrizzleV2ProfileCandidate> bad_cd = cands;
+    bad_cd[0].x = std::numeric_limits<double>::infinity();
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_profile_reduce(bad_cd, acc, meta),
+        std::invalid_argument);
+    bad_cd = cands;
+    bad_cd[1].q = -0.5;
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_profile_reduce(bad_cd, acc, meta),
+        std::invalid_argument);
+    bad_cd = cands;
+    bad_cd[0].qa_has_data = true;
+    bad_cd[0].qa = std::numeric_limits<double>::quiet_NaN();
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_profile_reduce(bad_cd, acc, meta),
+        std::invalid_argument);
+    // Rejected candidates are not validated: NaN in a clipped candidate ok.
+    bad_cd = cands;
+    bad_cd[2].x = std::numeric_limits<double>::quiet_NaN();
+    bad_cd[2].b = -1.0;
+    REQUIRE_NOTHROW(reconstruction::forward_drizzle_v2_profile_reduce(
+        bad_cd, acc, meta));
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate9 alpha factors match the oracle",
+          "[forward_drizzle_v2][gate9]") {
+  using reconstruction::ForwardDrizzleV2FrameMeta;
+  using reconstruction::ForwardDrizzleV2ProfileCandidate;
+  std::vector<ForwardDrizzleV2ProfileCandidate> cands;
+  std::vector<std::uint8_t> acc;
+  std::vector<ForwardDrizzleV2FrameMeta> meta(12);
+  std::vector<reconstruction::AlphaFactorContribution> oracle_contribs;
+  for (std::size_t f = 0; f < 12; ++f) {
+    const double q = 0.4 + 0.05 * static_cast<double>(f % 5);
+    const double qa = 0.2 + 0.06 * static_cast<double>(f % 7);
+    const double b = 1.0 + 0.1 * static_cast<double>(f % 3);
+    cands.push_back({f, 5.0 + static_cast<double>(f), b, q, q, q, qa, true});
+    acc.push_back(f == 11 ? 0 : 1);
+    meta[f] = {1.0f, 0.6f + 0.03f * static_cast<float>(f),
+               static_cast<std::uint8_t>(f % 2), 0};
+    if (f != 11)
+      oracle_contribs.push_back({b, q, qa, f % 2 != 0, meta[f].residual_factor});
+  }
+  const auto r = reconstruction::forward_drizzle_v2_profile_reduce(
+      cands, acc, meta);
+  const auto oracle = reconstruction::compute_alpha_confidence_channel(
+      oracle_contribs);
+  REQUIRE(r.a_separation == Catch::Approx(oracle.a_separation));
+  REQUIRE(r.a_artifact == Catch::Approx(oracle.a_artifact));
+  REQUIRE(r.a_registration == Catch::Approx(oracle.a_registration));
+  REQUIRE(r.artifact_applicable == oracle.artifact_applicable);
+  REQUIRE(r.artifact_applicable);
+
+  SECTION("fewer artifact contributors than the minimum is non-applicable") {
+    std::vector<ForwardDrizzleV2ProfileCandidate> few(cands.begin(),
+                                                      cands.begin() + 4);
+    std::vector<std::uint8_t> few_acc = {1, 1, 1, 1};
+    const auto rf = reconstruction::forward_drizzle_v2_profile_reduce(
+        few, few_acc, meta);
+    REQUIRE_FALSE(rf.artifact_applicable);
+    REQUIRE(rf.a_artifact == Catch::Approx(0.0));
+  }
+
+  SECTION("qa_has_data=false excludes the frame from the artifact pool") {
+    std::vector<ForwardDrizzleV2ProfileCandidate> no_qa(cands.begin(),
+                                                      cands.begin() + 11);
+    for (auto &c : no_qa) c.qa_has_data = false;
+    std::vector<std::uint8_t> a(11, 1);
+    const auto rn = reconstruction::forward_drizzle_v2_profile_reduce(
+        no_qa, a, meta);
+    REQUIRE_FALSE(rn.artifact_applicable);
+    REQUIRE(rn.a_artifact == Catch::Approx(0.0));
+  }
+
+  SECTION("emit_alpha_confidence=false leaves zero factors") {
+    reconstruction::ForwardDrizzleV2ProfileConfig cfg;
+    cfg.emit_alpha_confidence = false;
+    const auto rd = reconstruction::forward_drizzle_v2_profile_reduce(
+        cands, acc, meta, cfg);
+    REQUIRE(rd.a_separation == 0.0f);
+    REQUIRE(rd.a_artifact == 0.0f);
+    REQUIRE(rd.a_registration == 0.0f);
+    REQUIRE_FALSE(rd.artifact_applicable);
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate9 ring plan and streaming read amplification",
+          "[forward_drizzle_v2][gate9]") {
+  SECTION("ring plan matches the fusion halo contract") {
+    for (int l = 1; l <= 4; ++l) {
+      const auto p = reconstruction::forward_drizzle_v2_multiband_ring_plan(
+          4540, 59, l);
+      REQUIRE(p.levels == l);
+      REQUIRE(p.halo_rows ==
+              reconstruction::multiband_fusion_halo_rows(l));
+      REQUIRE(p.band_core_rows == 59);
+      REQUIRE(p.canvas_rows == 4540);
+      // floor(2*halo/core) + 2
+      REQUIRE(p.resident_bands == (2 * p.halo_rows) / 59 + 2);
+    }
+    const auto p4 = reconstruction::forward_drizzle_v2_multiband_ring_plan(
+        4540, 59, 4);
+    REQUIRE(p4.halo_rows == 64);
+    REQUIRE(p4.resident_bands == 4);
+  }
+  SECTION("invalid ring arguments throw") {
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_multiband_ring_plan(0, 59, 4),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_multiband_ring_plan(100, 0, 4),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_multiband_ring_plan(100, 10, 0),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_multiband_ring_plan(100, 10, 5),
+        std::invalid_argument);
+  }
+  SECTION("reuse-aware read amplification") {
+    // 4540 rows x 1 KB, halo 64, 37 bands (gate-5 production geometry).
+    const auto ra = reconstruction::forward_drizzle_v2_streaming_ra(
+        4540, 1024, 64, 37);
+    REQUIRE(ra.logical_bytes == 4540ull * 1024);
+    REQUIRE(ra.application_bytes_no_reuse ==
+            4540ull * 1024 + 2ull * 37 * 64 * 1024);
+    REQUIRE(ra.application_bytes_reuse ==
+            4540ull * 1024 + 2ull * 64 * 1024);
+    REQUIRE(ra.reused_bytes ==
+            ra.application_bytes_no_reuse - ra.application_bytes_reuse);
+    REQUIRE(ra.ra_no_reuse ==
+            Catch::Approx(1.0 + 2.0 * 37 * 64.0 / 4540.0));
+    REQUIRE(ra.ra_reuse == Catch::Approx(1.0 + 2.0 * 64.0 / 4540.0));
+    REQUIRE(ra.ra_reuse < 1.03);
+  }
+  SECTION("degenerate and overflowing streaming inputs throw") {
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_streaming_ra(0, 1024, 64, 37),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_streaming_ra(4540, 0, 64, 37),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_streaming_ra(4540, 1024, 64, 0),
+        std::invalid_argument);
+    const std::uint64_t huge = std::numeric_limits<std::uint64_t>::max();
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_streaming_ra(huge, 1024, 64, 37),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_streaming_ra(4540, 1024, huge, 2),
+        std::invalid_argument);
+  }
+}
+
+TEST_CASE("forward drizzle v2 gate9 profile adapter layout",
+          "[forward_drizzle_v2][gate9]") {
+  using reconstruction::ForwardDrizzleV2ProfileResult;
+  constexpr int nc = 4, nr = 3;
+  const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+
+  SECTION("OSC maps R/G/B record planes and selects the profile") {
+    std::vector<ForwardDrizzleV2ProfileResult> rec(3 * nplane);
+    for (int c = 0; c < 3; ++c)
+      for (std::size_t px = 0; px < nplane; ++px) {
+        auto &r = rec[static_cast<std::size_t>(c) * nplane + px];
+        r.uniform = {100.0f + static_cast<float>(10 * c + px), 2.0f, 1.5f, 1};
+        r.raw = {200.0f + static_cast<float>(10 * c + px), 3.0f, 1.2f, 1};
+        r.fine = {300.0f, 4.0f, 1.1f, 1};
+        r.medium = {400.0f, 5.0f, 1.0f, 1};
+      }
+    const auto u = reconstruction::forward_drizzle_v2_profiles_to_uniform_result(
+        rec, nc, nr, 3, ColorMode::OSC, 0);
+    REQUIRE(u.color_mode == ColorMode::OSC);
+    REQUIRE(u.internal_width == nc);
+    REQUIRE(u.internal_height == nr);
+    REQUIRE(u.R.value[0] == Catch::Approx(100.0));
+    REQUIRE(u.G.value[0] == Catch::Approx(110.0));
+    REQUIRE(u.B.value[nplane - 1] ==
+            Catch::Approx(100.0 + 20 + nplane - 1));
+    REQUIRE(u.G.support[5] == 1);
+    REQUIRE(u.G.weight_sum[5] == Catch::Approx(2.0));
+    REQUIRE(u.L.empty());
+    const auto raw = reconstruction::forward_drizzle_v2_profiles_to_uniform_result(
+        rec, nc, nr, 3, ColorMode::OSC, 1);
+    REQUIRE(raw.R.value[0] == Catch::Approx(200.0));
+    const auto med = reconstruction::forward_drizzle_v2_profiles_to_uniform_result(
+        rec, nc, nr, 3, ColorMode::OSC, 3);
+    REQUIRE(med.B.value[2] == Catch::Approx(400.0));
+    REQUIRE(med.B.n_eff[2] == Catch::Approx(1.0));
+  }
+
+  SECTION("MONO maps slot 0 and preserves no-support NaN") {
+    std::vector<ForwardDrizzleV2ProfileResult> rec(nplane);
+    for (std::size_t px = 0; px < nplane; ++px)
+      rec[px].uniform = {7.0f + static_cast<float>(px), 1.0f, 1.0f, 1};
+    rec[3].uniform = {0.0f, 0.0f, 0.0f, 0};
+    const auto m = reconstruction::forward_drizzle_v2_profiles_to_uniform_result(
+        rec, nc, nr, 1, ColorMode::MONO, 0);
+    REQUIRE(m.L.value[0] == Catch::Approx(7.0));
+    REQUIRE(m.L.value[3] == Catch::Approx(0.0));
+    REQUIRE(m.L.support[3] == 0);
+    REQUIRE(m.R.empty());
+    REQUIRE(m.G.empty());
+    REQUIRE(m.B.empty());
+  }
+
+  SECTION("adapter rejects malformed geometry and sizes") {
+    std::vector<ForwardDrizzleV2ProfileResult> rec(3 * nplane);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_profiles_to_uniform_result(
+            rec, 0, nr, 3, ColorMode::OSC, 0),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_profiles_to_uniform_result(
+            rec, nc, nr, 3, ColorMode::OSC, 4),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_profiles_to_uniform_result(
+            rec, nc, nr, 2, ColorMode::OSC, 0),
+        std::invalid_argument);
+    std::vector<ForwardDrizzleV2ProfileResult> short_rec(2 * nplane);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_profiles_to_uniform_result(
+            short_rec, nc, nr, 3, ColorMode::OSC, 0),
+        std::invalid_argument);
+    std::vector<ForwardDrizzleV2ProfileResult> mono_rec(nplane);
+    REQUIRE_THROWS_AS(
+        reconstruction::forward_drizzle_v2_profiles_to_uniform_result(
+            mono_rec, nc, nr, 3, ColorMode::MONO, 0),
+        std::invalid_argument);
+  }
+}
+
+namespace {
+
+// Gate-9 clip-mask oracle: replicates robust_frame_oracle_v2's accepted-mask
+// logic (valid filter, (x, order) sort, iterative weighted-MAD clip) so the
+// test can feed the shared mask into forward_drizzle_v2_profile_reduce.
+std::vector<std::uint8_t> g9_clip_mask(
+    const std::vector<ForwardDrizzleV2RobustCandidate> &cands,
+    int min_clip, int passes, double s_low, double s_high) {
+  std::vector<std::size_t> valid;
+  for (std::size_t i = 0; i < cands.size(); ++i)
+    if (std::isfinite(cands[i].x) && std::isfinite(cands[i].b) &&
+        cands[i].b > 0.0)
+      valid.push_back(i);
+  std::vector<std::uint8_t> mask(cands.size(), std::uint8_t{0});
+  for (std::size_t i : valid) mask[i] = 1;
+  if (valid.size() < static_cast<std::size_t>(min_clip)) return mask;
+  std::vector<std::size_t> order = valid;
+  std::sort(order.begin(), order.end(), [&](std::size_t i, std::size_t j) {
+    if (cands[i].x != cands[j].x) return cands[i].x < cands[j].x;
+    return cands[i].frame_order < cands[j].frame_order;
+  });
+  for (int pass = 0; pass < passes; ++pass) {
+    std::vector<std::size_t> active;
+    for (std::size_t idx : order)
+      if (mask[idx]) active.push_back(idx);
+    if (active.empty()) break;
+    double total_w = 0.0;
+    for (std::size_t idx : active) total_w += cands[idx].b;
+    double median = cands[active.back()].x;
+    if (total_w > 0.0) {
+      double cum = 0.0;
+      for (std::size_t idx : active) {
+        cum += cands[idx].b;
+        if (cum >= total_w / 2.0) {
+          median = cands[idx].x;
+          break;
+        }
+      }
+    }
+    std::vector<std::size_t> dev = active;
+    std::sort(dev.begin(), dev.end(), [&](std::size_t i, std::size_t j) {
+      const double di = std::abs(cands[i].x - median);
+      const double dj = std::abs(cands[j].x - median);
+      if (di != dj) return di < dj;
+      return cands[i].frame_order < cands[j].frame_order;
+    });
+    double mad = std::abs(cands[dev.back()].x - median);
+    if (total_w > 0.0) {
+      double cum = 0.0;
+      for (std::size_t idx : dev) {
+        cum += cands[idx].b;
+        if (cum >= total_w / 2.0) {
+          mad = std::abs(cands[idx].x - median);
+          break;
+        }
+      }
+    }
+    const double lower = median - s_low * mad;
+    const double upper = median + s_high * mad;
+    bool changed = false;
+    for (std::size_t idx : active) {
+      const double x = cands[idx].x;
+      if (!(x >= lower && x <= upper)) {
+        mask[idx] = 0;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return mask;
+}
+
+void require_g9_profile_parity(
+    const ForwardDrizzleV2ProfileResult &e,
+    const ForwardDrizzleV2ProfileResult &g, std::size_t pc) {
+  auto check = [&](const ForwardDrizzleV2ProfileOutput &ep,
+                   const ForwardDrizzleV2ProfileOutput &gp,
+                   const char *name) {
+    if (ep.support != gp.support ||
+        (ep.support && !std::isfinite(ep.value) != !std::isfinite(gp.value))) {
+      std::fprintf(stderr,
+                   "gate9 %s mismatch pc=%llu dev(sup=%u v=%g w=%g) "
+                   "cpu(sup=%u v=%g w=%g)\n",
+                   name, (unsigned long long)pc, (unsigned)gp.support,
+                   gp.value, gp.weight_sum, (unsigned)ep.support, ep.value,
+                   ep.weight_sum);
+    }
+    REQUIRE(gp.support == ep.support);
+    if (!ep.support) return;
+    if (std::abs(gp.weight_sum - ep.weight_sum) >
+        1e-5 + 1e-5 * std::abs(ep.weight_sum))
+      std::fprintf(stderr, "gate9 %s weight pc=%llu dev=%g cpu=%g\n", name,
+                   (unsigned long long)pc, gp.weight_sum, ep.weight_sum);
+    REQUIRE(gp.value == Catch::Approx(ep.value).epsilon(1e-5).margin(1e-5));
+    REQUIRE(gp.weight_sum ==
+            Catch::Approx(ep.weight_sum).epsilon(1e-5).margin(1e-5));
+    REQUIRE(gp.n_eff == Catch::Approx(ep.n_eff).epsilon(1e-4).margin(1e-4));
+  };
+  check(e.uniform, g.uniform, "uniform");
+  check(e.raw, g.raw, "raw");
+  check(e.fine, g.fine, "fine");
+  check(e.medium, g.medium, "medium");
+  REQUIRE(g.a_separation == Catch::Approx(e.a_separation).margin(1e-5));
+  REQUIRE(g.a_artifact == Catch::Approx(e.a_artifact).margin(1e-4));
+  REQUIRE(g.a_registration == Catch::Approx(e.a_registration).margin(1e-4));
+  REQUIRE(g.artifact_applicable == e.artifact_applicable);
+}
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 gate9 device profiles match the CPU oracle",
+          "[forward-drizzle-v2][cuda-parity][gate9]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  const BayerPattern patterns[] = {BayerPattern::GRBG, BayerPattern::GBRG};
+  for (int scale : {1, 2}) {
+    for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+      for (BayerPattern pattern : patterns) {
+        auto f = make_fixture(mode, pattern, 1, -1, scale);
+        // Extend to 12 frames: the artifact factor needs >= 8 accepted
+        // contributors and fallback coverage needs sparse pixels.
+        const std::size_t base_frames = f.plan.frames.size();
+        for (std::size_t i = base_frames; i < 12; ++i) {
+          FrameSamplingTransform frame = f.plan.frames[i % base_frames];
+          frame.frame_id = "v2-g9-" + std::to_string(i);
+          frame.source_index = i;
+          frame.source_to_canvas(0, 2) +=
+              static_cast<float>(0.011 * static_cast<double>(i - base_frames));
+          f.plan.frames.push_back(frame);
+          f.images.push_back(f.images[i % base_frames]);
+        }
+        const int nc = f.plan.canvas_width_native;
+        const int nr = f.plan.canvas_height_native;
+        const int channels = mode == ColorMode::MONO ? 1 : 3;
+        const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+        const std::size_t n_src = static_cast<std::size_t>(
+            f.plan.source_width) * f.plan.source_height;
+        const int n_frames = static_cast<int>(f.plan.frames.size());
+
+        // Deterministic per-frame quality maps with veto coverage.
+        std::vector<Matrix2Df> qc(n_frames), q0(n_frames), q1(n_frames),
+            qa(n_frames);
+        std::vector<ForwardDrizzleV2FrameMeta> meta(n_frames);
+        for (int fr = 0; fr < n_frames; ++fr) {
+          qc[fr].resize(f.plan.source_height, f.plan.source_width);
+          q0[fr].resize(f.plan.source_height, f.plan.source_width);
+          q1[fr].resize(f.plan.source_height, f.plan.source_width);
+          qa[fr].resize(f.plan.source_height, f.plan.source_width);
+          for (int y = 0; y < f.plan.source_height; ++y)
+            for (int x = 0; x < f.plan.source_width; ++x) {
+              const std::size_t si =
+                  static_cast<std::size_t>(y) * f.plan.source_width + x;
+              const double s = static_cast<double>((si + 7 * fr) % 61) / 61.0;
+              qc[fr](y, x) = static_cast<float>(0.4 + 0.6 * s);
+              q0[fr](y, x) = static_cast<float>(0.3 + 0.7 * ((s * fr) -
+                                  std::floor(s * fr)));
+              q1[fr](y, x) = static_cast<float>(0.5 + 0.4 * s);
+              qa[fr](y, x) = static_cast<float>(0.2 + 0.6 * s);
+            }
+          // Veto coverage: nonfinite / nonpositive samples per stream.
+          qc[fr](0, 0) = std::numeric_limits<float>::quiet_NaN();
+          if (f.plan.source_width > 1) qc[fr](0, 1) = -1.0f;
+          qa[fr](1 % f.plan.source_height, 0) =
+              std::numeric_limits<float>::quiet_NaN();
+          meta[fr] = {static_cast<float>(0.6 + 0.05 * (fr % 5)),
+                      static_cast<float>(0.55 + 0.05 * fr),
+                      static_cast<std::uint8_t>(fr % 2), 0};
+        }
+
+        ForwardDrizzleV2KernelConfig kcfg;
+        kcfg.internal_scale = scale;
+        kcfg.stream_length = n_frames;
+        kcfg.half = 0.5 * f.cfg.pixfrac;
+        kcfg.bayer_pattern = static_cast<int>(pattern);
+        kcfg.cfa_origin_x = f.plan.cfa_origin_x;
+        kcfg.cfa_origin_y = f.plan.cfa_origin_y;
+        kcfg.mono = mode == ColorMode::MONO;
+        kcfg.emit_profiles = true;
+
+        ForwardDrizzleV2CudaPrototypeKernel kernel;
+        REQUIRE(kernel.reserve(nc, nr, f.plan.source_width,
+                               f.plan.source_height, kcfg));
+        for (int fr = 0; fr < n_frames; ++fr) {
+          const auto &m = f.plan.frames[fr].source_to_canvas;
+          const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                                m(1, 0), m(1, 1), m(1, 2)};
+          ForwardDrizzleV2FrameQuality q;
+          q.q_composite = qc[fr].data();
+          q.q_scale0 = q0[fr].data();
+          q.q_scale1 = q1[fr].data();
+          // Frame 2 exercises an absent artifact stream (qa_has_data=false).
+          q.q_artifact = fr == 2 ? nullptr : qa[fr].data();
+          REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), nullptr,
+                                          static_cast<std::uint64_t>(fr), &q,
+                                          &meta[fr]));
+        }
+        std::vector<ForwardDrizzleV2PixelResult> got(nplane * channels);
+        std::vector<ForwardDrizzleV2ProfileResult> gp(nplane * channels);
+        std::uint64_t dense = 0;
+        REQUIRE(kernel.finalize(got.data(), gp.data(), &dense));
+
+        // CPU oracle: gather per-frame planes for value, quality sums and
+        // the finite-artifact weight; fold, clip-mask, profile reduce.
+        const int ic = nc * scale, ir = nr * scale;
+        const double inv_s2 = 1.0 / (static_cast<double>(scale) * scale);
+        std::vector<std::vector<ForwardDrizzleV2ProfileCandidate>> cands(
+            nplane * channels);
+        std::vector<std::vector<ForwardDrizzleV2RobustCandidate>> rcands(
+            nplane * channels);
+        for (int fr = 0; fr < n_frames; ++fr) {
+          RegistrationSamplingPlan one = f.plan;
+          one.frames = {f.plan.frames[fr]};
+          const auto &img = f.images[fr];
+          auto real_of = [&](std::size_t) -> const Matrix2Df & { return img; };
+          const auto g_a =
+              gather_affine_uniform_v2(one, real_of, f.cfg, 0, ir);
+          // Clamped images: nonfinite/<=0 samples contribute 0 to the
+          // area-weighted mean, and quality attaches only to samples whose
+          // source value is finite (the same population as b_src). The
+          // artifact-flag image carries 1.0 where finite artifact data
+          // exists, so its wx sum is the finite-artifact area weight.
+          Matrix2Df cqc(f.plan.source_height, f.plan.source_width),
+              cq0(f.plan.source_height, f.plan.source_width),
+              cq1(f.plan.source_height, f.plan.source_width),
+              cqa(f.plan.source_height, f.plan.source_width),
+              qaf(f.plan.source_height, f.plan.source_width);
+          for (int y = 0; y < f.plan.source_height; ++y)
+            for (int x = 0; x < f.plan.source_width; ++x) {
+              const bool finite_src = std::isfinite(img(y, x));
+              auto cl = [](float v) {
+                return std::isfinite(v) && v > 0.0f ? v : 0.0f;
+              };
+              cqc(y, x) = finite_src ? cl(qc[fr](y, x)) : 0.0f;
+              cq0(y, x) = finite_src ? cl(q0[fr](y, x)) : 0.0f;
+              cq1(y, x) = finite_src ? cl(q1[fr](y, x)) : 0.0f;
+              cqa(y, x) = finite_src ? cl(qa[fr](y, x)) : 0.0f;
+              qaf(y, x) =
+                  finite_src && std::isfinite(qa[fr](y, x)) ? 1.0f : 0.0f;
+            }
+          auto qc_of = [&](std::size_t) -> const Matrix2Df & { return cqc; };
+          auto q0_of = [&](std::size_t) -> const Matrix2Df & { return cq0; };
+          auto q1_of = [&](std::size_t) -> const Matrix2Df & { return cq1; };
+          auto qa_of = [&](std::size_t) -> const Matrix2Df & { return cqa; };
+          auto qaf_of = [&](std::size_t) -> const Matrix2Df & { return qaf; };
+          const auto g_qc = gather_affine_uniform_v2(one, qc_of, f.cfg, 0, ir);
+          const auto g_q0 = gather_affine_uniform_v2(one, q0_of, f.cfg, 0, ir);
+          const auto g_q1 = gather_affine_uniform_v2(one, q1_of, f.cfg, 0, ir);
+          const auto g_qa = gather_affine_uniform_v2(one, qa_of, f.cfg, 0, ir);
+          const auto g_qaf =
+              gather_affine_uniform_v2(one, qaf_of, f.cfg, 0, ir);
+          const bool qa_present = fr != 2;
+          for (std::size_t px = 0; px < nplane; ++px) {
+            const int nx = static_cast<int>(px % nc);
+            const int ny = static_cast<int>(px / nc);
+            for (int c = 0; c < channels; ++c) {
+              const std::size_t pc =
+                  static_cast<std::size_t>(c) * nplane + px;
+              double a = 0.0, bs = 0.0, sq = 0.0, s0 = 0.0, s1 = 0.0,
+                     sa = 0.0, saf = 0.0;
+              for (int iy = 0; iy < scale; ++iy)
+                for (int ix = 0; ix < scale; ++ix) {
+                  const std::size_t ii =
+                      static_cast<std::size_t>(ny * scale + iy) * ic +
+                      nx * scale + ix;
+                  a += inv_s2 * g_a.accum.wx[c][ii];
+                  bs += inv_s2 * g_a.accum.w[c][ii];
+                  sq += inv_s2 * g_qc.accum.wx[c][ii];
+                  s0 += inv_s2 * g_q0.accum.wx[c][ii];
+                  s1 += inv_s2 * g_q1.accum.wx[c][ii];
+                  sa += inv_s2 * g_qa.accum.wx[c][ii];
+                  saf += inv_s2 * g_qaf.accum.wx[c][ii];
+                }
+              if (!(bs > 0.0)) continue;
+              rcands[pc].push_back({static_cast<std::size_t>(fr), a / bs, bs});
+              ForwardDrizzleV2ProfileCandidate cd;
+              cd.frame_order = fr;
+              cd.x = a / bs;
+              cd.b = bs;
+              cd.q = sq / bs;
+              cd.q0 = s0 / bs;
+              cd.q1 = s1 / bs;
+              cd.qa = qa_present ? sa / bs : 1.0;
+              cd.qa_has_data = qa_present && saf > 0.0;
+              cands[pc].push_back(cd);
+            }
+          }
+        }
+
+        ForwardDrizzleV2RobustConfig rcfg;
+        rcfg.reservoir_size = kcfg.reservoir_size;
+        rcfg.reservoir_seed = kcfg.reservoir_seed;
+        rcfg.oracle_min_clip_contributors = kcfg.min_clip_contributors;
+        rcfg.oracle_passes = kcfg.robust_passes;
+        rcfg.oracle_sigma_low = kcfg.sigma_low;
+        rcfg.oracle_sigma_high = kcfg.sigma_high;
+        rcfg.min_candidates = kcfg.min_candidates;
+        ForwardDrizzleV2ProfileConfig pcfg;
+        pcfg.fine_quality_exponent = kcfg.fine_quality_exponent;
+        pcfg.medium_quality_exponent = kcfg.medium_quality_exponent;
+        bool saw_primary = false, saw_fallback = false,
+             saw_artifact_applicable = false;
+        for (std::size_t pc = 0; pc < nplane * channels; ++pc) {
+          const auto &r = got[pc];
+          if (r.robust_state ==
+              static_cast<std::uint8_t>(
+                  ForwardDrizzleV2RobustState::no_source_support)) {
+            REQUIRE(gp[pc].uniform.support == 0);
+            continue;
+          }
+          if (r.robust_state !=
+              static_cast<std::uint8_t>(
+                  ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip)) {
+            // Fallback contract: every profile carries the uniform stream
+            // value, alphas are zero.
+            saw_fallback = true;
+            const float v = static_cast<float>(r.value);
+            for (const auto *o :
+                 {&gp[pc].uniform, &gp[pc].raw, &gp[pc].fine,
+                  &gp[pc].medium}) {
+              REQUIRE(o->support == 1);
+              REQUIRE(o->value == Catch::Approx(v).margin(1e-4));
+            }
+            REQUIRE(gp[pc].a_separation == 0.0f);
+            REQUIRE(gp[pc].a_artifact == 0.0f);
+            REQUIRE(gp[pc].a_registration == 0.0f);
+            continue;
+          }
+          saw_primary = true;
+          const auto mask = g9_clip_mask(
+              rcands[pc], kcfg.min_clip_contributors, kcfg.robust_passes,
+              kcfg.sigma_low, kcfg.sigma_high);
+          const auto ref = robust_reduce_candidates_v2(
+              rcands[pc], ForwardDrizzleV2Estimator::reservoir_sigma_clip,
+              rcfg, static_cast<std::uint64_t>(n_frames), {});
+          const auto expected = forward_drizzle_v2_profile_reduce(
+              cands[pc], mask, meta, pcfg, ref.confidence,
+              ref.candidates > 0 && ref.conf_degraded == ref.candidates);
+          require_g9_profile_parity(expected, gp[pc], pc);
+          if (gp[pc].artifact_applicable) saw_artifact_applicable = true;
+        }
+        REQUIRE(saw_primary);
+        REQUIRE(saw_fallback);
+        REQUIRE(saw_artifact_applicable);
+        REQUIRE(kernel.stats().allocations == 1);
+        REQUIRE(kernel.stats().device_global_synchronizations == 0);
+        REQUIRE(kernel.stats().stream_synchronizations == 1);
+      }
+    }
+  }
+}
+
+namespace {
+
+// Deterministic synthetic star field for the gate-9 validation integration
+// test (same construction as test_multiband_validation.cpp's fixture).
+Matrix2Df g9_field(int w, int h, double sigma, double amp, double bg,
+                   uint32_t seed) {
+  Matrix2Df img(h, w);
+  std::mt19937 rng(seed);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x)
+      img(y, x) = static_cast<float>(
+          bg + 2.0 * std::sin(0.31 * x + 0.17 * y + seed));
+  const int r = static_cast<int>(std::ceil(4 * sigma));
+  for (int gy = 16; gy < h - 16; gy += 27)
+    for (int gx = 16; gx < w - 16; gx += 27)
+      for (int dy = -r; dy <= r; ++dy)
+        for (int dx = -r; dx <= r; ++dx) {
+          const double g =
+              amp * std::exp(-static_cast<double>(dx * dx + dy * dy) /
+                             (2 * sigma * sigma));
+          img(gy + dy, gx + dx) += static_cast<float>(g);
+        }
+  return img;
+}
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 gate9 ring immutability and reuse counters",
+          "[forward-drizzle-v2][gate9][ring]") {
+  const int H = 100, core = 10;
+  for (int levels : {1, 2, 4}) {
+    const auto plan =
+        forward_drizzle_v2_multiband_ring_plan(H, core, levels);
+    const int h = plan.halo_rows;
+    REQUIRE(h == multiband_fusion_halo_rows(levels));
+    REQUIRE(plan.resident_bands == 2 * h / core + 2);
+    const int nb = (H + core - 1) / core;
+    REQUIRE(plan.band_core_rows == core);
+    REQUIRE(plan.canvas_rows == H);
+
+    ForwardDrizzleV2MultibandRing ring(plan, 8, 4);
+    REQUIRE(ring.band_count() == nb);
+    std::vector<char> seen_immutable(nb, 0);
+    for (int b = 0; b < nb; ++b) {
+      const auto newly = ring.finalize_band(b);
+      for (int i : newly) seen_immutable[i] = 1;
+      REQUIRE(ring.resident_bands() <= plan.resident_bands);
+      // Core b may only be immutable once its full halo window is covered by
+      // finalized input bands.
+      for (int cb = 0; cb < nb; ++cb) {
+        if (!ring.core_immutable(cb)) continue;
+        const int lo = std::max(0, cb * core - h);
+        const int hi = std::min(H, (cb + 1) * core + h);
+        const int ilo = lo / core;
+        const int ihi = std::min(nb - 1, (hi - 1) / core);
+        for (int i = ilo; i <= ihi; ++i) REQUIRE(ring.band_finalized(i));
+      }
+    }
+    for (int cb = 0; cb < nb; ++cb) {
+      REQUIRE(seen_immutable[cb]);
+      REQUIRE(ring.core_immutable(cb));
+    }
+    // First and last edges: core 0 cannot be immutable before finalize(0)
+    // covers the upper edge; the last core becomes immutable only with the
+    // last band.
+    // Reuse accounting: every canvas row is read exactly once; the total
+    // padded demand minus fresh reads is the reused share.
+    REQUIRE(ring.source_read_bytes() ==
+            static_cast<std::uint64_t>(H) * 8);
+    REQUIRE(ring.quality_read_bytes() ==
+            static_cast<std::uint64_t>(H) * 4);
+    REQUIRE(ring.source_reused_bytes() > 0);
+    REQUIRE(ring.source_reused_bytes() ==
+            2 * ring.quality_reused_bytes());
+    // The recorded reuse rate matches the reuse-aware RA model; the <= 1.1
+    // bound applies to the selected tile plan (production-scale canvas, not
+    // this toy geometry).
+    const auto ra = forward_drizzle_v2_streaming_ra(H, 8, h, nb);
+    REQUIRE(ring.source_read_bytes() <= ra.application_bytes_reuse);
+    const auto ra_prod = forward_drizzle_v2_streaming_ra(
+        4540, 8, h, (4540 + 99) / 100);
+    REQUIRE(ra_prod.ra_reuse <= 1.1);
+    REQUIRE(ring.resident_bands() <= plan.resident_bands);
+  }
+  // Edge: band smaller than halo -> first bands cover the whole window
+  // neighbourhood before any core is immutable.
+  const auto plan = forward_drizzle_v2_multiband_ring_plan(20, 4, 4);
+  ForwardDrizzleV2MultibandRing ring(plan, 1, 1);
+  const auto n0 = ring.finalize_band(0);
+  REQUIRE(n0.empty());  // window of core 0 still needs later bands
+  // Double finalize and out-of-range are rejected.
+  REQUIRE_THROWS_AS(ring.finalize_band(0), std::invalid_argument);
+  REQUIRE_THROWS_AS(ring.finalize_band(-1), std::invalid_argument);
+  REQUIRE_THROWS_AS(ring.finalize_band(ring.band_count()),
+                    std::invalid_argument);
+  // Degenerate plan inputs throw.
+  REQUIRE_THROWS_AS(forward_drizzle_v2_multiband_ring_plan(0, 4, 2),
+                    std::invalid_argument);
+  REQUIRE_THROWS_AS(forward_drizzle_v2_multiband_ring_plan(20, 0, 2),
+                    std::invalid_argument);
+  REQUIRE_THROWS_AS(forward_drizzle_v2_multiband_ring_plan(20, 4, 0),
+                    std::invalid_argument);
+  REQUIRE_THROWS_AS(forward_drizzle_v2_multiband_ring_plan(20, 4, 5),
+                    std::invalid_argument);
+}
+
+TEST_CASE("forward drizzle v2 gate9 confidence calibration and alpha "
+          "diagnostics",
+          "[forward-drizzle-v2][gate9][confidence]") {
+  using reconstruction::ForwardDrizzleV2ProfileCandidate;
+  using reconstruction::ForwardDrizzleV2FrameMeta;
+  // 12 uniform candidates: clean modeled sigma2 => confidence ~12/13 >= 0.9.
+  std::vector<ForwardDrizzleV2ProfileCandidate> cands;
+  std::vector<ForwardDrizzleV2RobustCandidate> rcands;
+  std::vector<ForwardDrizzleV2FrameMeta> meta;
+  std::vector<double> sigma2;
+  for (int i = 0; i < 12; ++i) {
+    cands.push_back({static_cast<std::size_t>(i), 10.0 + 0.01 * i, 1.0, 1.0,
+                     1.0, 1.0, 0.8, true});
+    rcands.push_back(
+        {static_cast<std::size_t>(i), 10.0 + 0.01 * i, 1.0});
+    meta.push_back({1.0f, 0.8f, 1, 0});
+    sigma2.push_back(0.01);
+  }
+  ForwardDrizzleV2RobustConfig rcfg;
+  const auto rr = robust_reduce_candidates_v2(
+      rcands, ForwardDrizzleV2Estimator::reservoir_sigma_clip, rcfg, 12,
+      sigma2);
+  REQUIRE(rr.state ==
+          ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip);
+  REQUIRE(rr.confidence >= 0.9);
+  std::vector<std::uint8_t> acc(cands.size(), 1);
+  const auto clean = forward_drizzle_v2_profile_reduce(
+      cands, acc, meta, {}, rr.confidence);
+  REQUIRE(clean.a_separation >= 0.9f);
+
+  // Degraded: every contributor's sigma2 invalid -> a_separation collapses.
+  std::vector<double> bad_sigma(sigma2.size(),
+                                std::numeric_limits<double>::quiet_NaN());
+  const auto rbad = robust_reduce_candidates_v2(
+      rcands, ForwardDrizzleV2Estimator::reservoir_sigma_clip, rcfg, 12,
+      bad_sigma);
+  REQUIRE(rbad.conf_degraded == rbad.candidates);
+  const auto degraded = forward_drizzle_v2_profile_reduce(
+      cands, acc, meta, {}, rbad.confidence, true);
+  REQUIRE(degraded.a_separation <= 0.1f);
+
+  // Channel-min: per-pixel min over supported channels; a pixel without
+  // support stays NaN.
+  std::vector<ForwardDrizzleV2ProfileResult> recs(3 * 4);
+  recs[0 * 4 + 0] = clean;   // ch0 px0: sep ~0.92
+  recs[1 * 4 + 0] = degraded;  // ch1 px0: sep 0 -> channel min 0
+  recs[2 * 4 + 0] = clean;
+  const auto sep_plane =
+      forward_drizzle_v2_profile_alpha_plane(recs, 2, 2, 3, 0);
+  REQUIRE(sep_plane[0] == Catch::Approx(0.0f));
+  REQUIRE(std::isnan(sep_plane[1]));
+
+  // Near-zero diagnostic: the field above is globally near-zero at px0 only.
+  const auto diag =
+      forward_drizzle_v2_alpha_diagnostic(recs, 2, 2, 3);
+  REQUIRE(diag.supported_pixels == 1);
+  REQUIRE(diag.near_zero_pixels == 1);
+  REQUIRE(diag.global_near_zero);
+
+  // A field with finite nonzero alpha is not flagged.
+  std::vector<ForwardDrizzleV2ProfileResult> ok(3 * 4);
+  for (int c = 0; c < 3; ++c)
+    for (int px = 0; px < 4; ++px) {
+      auto r = clean;
+      r.a_artifact = 0.9f;
+      r.a_registration = 0.9f;
+      r.artifact_applicable = true;
+      ok[static_cast<std::size_t>(c) * 4 + px] = r;
+    }
+  const auto diag_ok = forward_drizzle_v2_alpha_diagnostic(ok, 2, 2, 3);
+  REQUIRE(diag_ok.supported_pixels == 4);
+  REQUIRE(diag_ok.near_zero_pixels == 0);
+  REQUIRE_FALSE(diag_ok.global_near_zero);
+
+  // Artifact not applicable folds in as 1: high sep/reg alone is not
+  // near-zero.
+  for (auto &r : ok) r.artifact_applicable = false;
+  const auto diag_na = forward_drizzle_v2_alpha_diagnostic(ok, 2, 2, 3);
+  REQUIRE(diag_na.near_zero_pixels == 0);
+}
+
+TEST_CASE("forward drizzle v2 gate9 fusion parity and support subset",
+          "[forward-drizzle-v2][gate9][fusion]") {
+  const int W = 40, H = 36;
+  const std::size_t n = static_cast<std::size_t>(W) * H;
+  // Synthetic profile records: uniform = smooth base, raw = base + high
+  // frequency, fine = base + fine detail, medium = base + mid detail.
+  std::vector<ForwardDrizzleV2ProfileResult> recs(n);
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < W; ++x) {
+      const std::size_t i = static_cast<std::size_t>(y) * W + x;
+      const float base = 100.0f + 0.5f * x + 0.3f * y;
+      auto set = [](ForwardDrizzleV2ProfileOutput &o, float v) {
+        o.value = v;
+        o.weight_sum = 4.0f;
+        o.n_eff = 3.0f;
+        o.support = 1;
+      };
+      auto &r = recs[i];
+      set(r.uniform, base);
+      set(r.raw, base + std::sin(0.7f * x) * std::cos(0.9f * y));
+      set(r.fine, base + 0.5f * std::sin(1.7f * x + 0.3f * y));
+      set(r.medium, base + 0.8f * std::sin(0.2f * x));
+      r.a_separation = 0.8f;
+      r.a_artifact = 0.9f;
+      r.a_registration = 0.95f;
+      r.artifact_applicable = true;
+    }
+  // A few unsupported pixels exercise the support-subset contract.
+  for (int x = 0; x < 5; ++x) {
+    auto &r = recs[x];
+    for (auto *o : {&r.uniform, &r.raw, &r.fine, &r.medium}) {
+      o->support = 0;
+      o->value = std::numeric_limits<float>::quiet_NaN();
+    }
+  }
+  const auto uniform = forward_drizzle_v2_profiles_to_uniform_result(
+      recs, W, H, 1, ColorMode::MONO, 0);
+  const auto raw = forward_drizzle_v2_profiles_to_uniform_result(
+      recs, W, H, 1, ColorMode::MONO, 1);
+  const auto fine = forward_drizzle_v2_profiles_to_uniform_result(
+      recs, W, H, 1, ColorMode::MONO, 2);
+  const auto medium = forward_drizzle_v2_profiles_to_uniform_result(
+      recs, W, H, 1, ColorMode::MONO, 3);
+  REQUIRE(uniform.internal_width == W);
+  REQUIRE(uniform.L.value.size() == n);
+  const auto a_sep =
+      forward_drizzle_v2_profile_alpha_plane(recs, W, H, 1, 0);
+  const auto a_art =
+      forward_drizzle_v2_profile_alpha_plane(recs, W, H, 1, 1);
+  const auto a_reg =
+      forward_drizzle_v2_profile_alpha_plane(recs, W, H, 1, 2);
+
+  for (int levels : {1, 2, 3, 4}) {
+    config::ReconstructionMultibandConfig mb_cfg;
+    mb_cfg.levels = levels;
+    const auto whole = fuse_multiband(uniform, raw, fine, medium,
+                                      ColorMode::MONO, W, H, mb_cfg, {}, {},
+                                      a_sep, a_art, a_reg);
+    const auto streamed =
+        fuse_multiband_streamed(uniform, raw, fine, medium, ColorMode::MONO,
+                                W, H, mb_cfg, 5, {}, {}, a_sep, a_art,
+                                a_reg);
+    REQUIRE(streamed.L.size() == whole.L.size());
+    REQUIRE(streamed.support_L == whole.support_L);
+    for (std::size_t i = 0; i < n; ++i) {
+      // Fused support is a subset of the uniform/raw support and the
+      // streamed result is identical on this fully connected field (NaN
+      // border pixels compare equal by position).
+      if (whole.support_L[i])
+        REQUIRE(uniform.L.support[i] == 1);
+      const float sv = streamed.L[i], wv = whole.L[i];
+      REQUIRE((sv == wv || (std::isnan(sv) && std::isnan(wv))));
+    }
+  }
+  // Support subset: a pixel unsupported in the uniform profile is
+  // unsupported in the fused output.
+  config::ReconstructionMultibandConfig mb_cfg;
+  mb_cfg.levels = 3;
+  const auto fused = fuse_multiband(uniform, raw, fine, medium,
+                                    ColorMode::MONO, W, H, mb_cfg, {}, {},
+                                    a_sep, a_art, a_reg);
+  for (int x = 0; x < 5; ++x) REQUIRE(fused.support_L[x] == 0);
+}
+
+TEST_CASE("forward drizzle v2 gate9 matched-star gates on v2-produced "
+          "images",
+          "[forward-drizzle-v2][gate9][validation]") {
+  const int W = 200, H = 180;
+  const auto U = g9_field(W, H, 2.4, 900.0, 100.0, 5);
+  const auto R = g9_field(W, H, 1.9, 900.0, 100.0, 5);
+  const std::size_t n = static_cast<std::size_t>(W) * H;
+
+  // Build v2 profile records: uniform/raw from the fields, fine/medium equal
+  // to raw so any nonzero alpha stays on the raw manifold.
+  std::vector<ForwardDrizzleV2ProfileResult> recs(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    auto set = [](ForwardDrizzleV2ProfileOutput &o, float v) {
+      o.value = v;
+      o.weight_sum = 8.0f;
+      o.n_eff = 7.0f;
+      o.support = 1;
+    };
+    set(recs[i].uniform, U(i / W, i % W));
+    set(recs[i].raw, R(i / W, i % W));
+    set(recs[i].fine, R(i / W, i % W));
+    set(recs[i].medium, R(i / W, i % W));
+  }
+  const auto uniform = forward_drizzle_v2_profiles_to_uniform_result(
+      recs, W, H, 1, ColorMode::MONO, 0);
+  const auto raw = forward_drizzle_v2_profiles_to_uniform_result(
+      recs, W, H, 1, ColorMode::MONO, 1);
+  const auto fine = forward_drizzle_v2_profiles_to_uniform_result(
+      recs, W, H, 1, ColorMode::MONO, 2);
+  const auto medium = forward_drizzle_v2_profiles_to_uniform_result(
+      recs, W, H, 1, ColorMode::MONO, 3);
+
+  // Case 1: alpha identically zero -> every band is raw-sourced -> the fused
+  // field is uniform-coarse plus raw detail and every star's
+  // multiband_effective flag is cleared by the empty alpha_final maps.
+  // Zero effective stars can never select Multiband -> Raw.
+  std::vector<float> zero_alpha(n, 0.0f);
+  config::ReconstructionMultibandConfig mb_cfg;
+  mb_cfg.levels = 3;
+  const auto fused0 = fuse_multiband(uniform, raw, fine, medium,
+                                     ColorMode::MONO, W, H, mb_cfg, {}, {},
+                                     zero_alpha, zero_alpha, zero_alpha);
+  Matrix2Df fused_img(H, W);
+  for (std::size_t i = 0; i < n; ++i) fused_img(i / W, i % W) = fused0.L[i];
+  const auto diag = forward_drizzle_v2_alpha_diagnostic(recs, W, H, 1);
+  // All alpha factors are 0 on the records (defaults) -> globally near-zero.
+  REQUIRE(diag.supported_pixels == n);
+  REQUIRE(diag.global_near_zero);
+
+  auto stars =
+      prepare_validation_samples(U, W, H, {}, fused0.alpha_final);
+  REQUIRE(stars.size() >= 20);
+  REQUIRE(std::none_of(stars.begin(), stars.end(), [](const ValidationStar &s) {
+    return s.multiband_effective;
+  }));
+  const auto sel0 = select_reconstruction_candidate(U, R, fused_img, W, H,
+                                                    stars);
+  INFO("reason: " << sel0.reason);
+  REQUIRE(sel0.stars_multiband_effective == 0);
+  REQUIRE(sel0.selected == SelectedCandidate::kDrizzleRaw);
+
+  // Case 2: multiband identical to raw (the alpha==0 end-to-end outcome) ->
+  // the FWHM ratio gate fails at equality -> Raw.
+  for (auto &s : stars) s.multiband_effective = true;
+  const auto sel1 = select_reconstruction_candidate(U, R, R, W, H, stars);
+  INFO("reason: " << sel1.reason);
+  REQUIRE(sel1.selected == SelectedCandidate::kDrizzleRaw);
+
+  // Case 3: raw fails an applicable safety gate (background RMS regresses
+  // vs. uniform) -> Uniform.
+  Matrix2Df raw_bad = R;
+  std::mt19937 rng(17);
+  std::normal_distribution<double> gn(0.0, 40.0);
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < W; ++x)
+      raw_bad(y, x) += static_cast<float>(gn(rng));
+  const auto sel2 = select_reconstruction_candidate(U, raw_bad, fused_img, W,
+                                                    H, stars);
+  INFO("reason: " << sel2.reason);
+  REQUIRE(sel2.selected == SelectedCandidate::kDrizzleUniform);
+}
+
+TEST_CASE("forward drizzle v2 gate9 memory plan profiled amendment",
+          "[forward-drizzle-v2][gate9][memory]") {
+  static_assert(sizeof(ForwardDrizzleV2ProfileResult) <= 80,
+                "profile record role bound");
+  ForwardDrizzleV2MemoryInputs in;
+  in.target_width = 7868;
+  in.target_height = 4540;
+  in.channels = 3;
+  in.internal_scale = 2;
+  in.frame_count = 60;
+  in.device_budget_bytes = 16ull << 30;
+  in.host_budget_bytes = 32ull << 30;
+  const auto base = plan_forward_drizzle_v2_memory(in);
+  REQUIRE(base.feasible);
+  in.emit_profiles = true;
+  in.frame_meta_slots = 64;
+  const auto prof = plan_forward_drizzle_v2_memory(in);
+  REQUIRE(prof.feasible);
+  // The amended per-pixel role table: base + reservoir quality side array +
+  // profile record + five quality frame planes, all per channel.
+  const auto &r = in.roles;
+  const std::size_t slots = static_cast<std::size_t>(r.reservoir_size) *
+                            r.reservoir_slot_factor;
+  const std::size_t expected = base.device_bytes_per_target_pixel +
+      in.channels * (slots * r.reservoir_quality_bytes_per_slot +
+                     r.profile_result_bytes +
+                     static_cast<std::size_t>(r.quality_frame_plane_doubles) *
+                         sizeof(double) * in.internal_scale *
+                         in.internal_scale);
+  REQUIRE(prof.device_bytes_per_target_pixel == expected);
+  // Gate-9 documented bound: ~14.6 KB/px estimate holds for the MONO,
+  // internal_scale-1 profiled plan; the OSC production plan is larger.
+  ForwardDrizzleV2MemoryInputs mono = in;
+  mono.channels = 1;
+  mono.internal_scale = 1;
+  const auto mono_plan = plan_forward_drizzle_v2_memory(mono);
+  REQUIRE(mono_plan.feasible);
+  REQUIRE(mono_plan.device_bytes_per_target_pixel <= 14600);
+  // Non-profiled mode is bit-identical to the Gate-6 footprint.
+  REQUIRE(base.device_bytes_per_target_pixel <
+          prof.device_bytes_per_target_pixel);
+  in.emit_profiles = false;
+  REQUIRE(plan_forward_drizzle_v2_memory(in)
+              .device_bytes_per_target_pixel ==
+          base.device_bytes_per_target_pixel);
+}
+
+TEST_CASE("forward drizzle v2 gate9 degraded sigma2 collapses device "
+          "separation",
+          "[forward-drizzle-v2][cuda-parity][gate9]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  auto f = make_fixture(ColorMode::MONO, BayerPattern::GRBG, 1, -1, 1);
+  const std::size_t base_frames = f.plan.frames.size();
+  for (std::size_t i = base_frames; i < 10; ++i) {
+    FrameSamplingTransform frame = f.plan.frames[i % base_frames];
+    frame.frame_id = "v2-g9d-" + std::to_string(i);
+    frame.source_index = i;
+    frame.source_to_canvas(0, 2) += 0.01f * static_cast<float>(i);
+    f.plan.frames.push_back(frame);
+    f.images.push_back(f.images[i % base_frames]);
+  }
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const int n_frames = static_cast<int>(f.plan.frames.size());
+  const std::size_t n_src =
+      static_cast<std::size_t>(f.plan.source_width) * f.plan.source_height;
+  const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+
+  // All-invalid sigma2 plane: every contributor degrades.
+  std::vector<float> bad_sigma(
+      n_src, std::numeric_limits<float>::quiet_NaN());
+  std::vector<ForwardDrizzleV2FrameMeta> meta(
+      n_frames, ForwardDrizzleV2FrameMeta{1.0f, 1.0f, 1, 0});
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = 1;
+  kcfg.stream_length = n_frames;
+  kcfg.half = 0.5 * f.cfg.pixfrac;
+  kcfg.bayer_pattern = static_cast<int>(BayerPattern::GRBG);
+  kcfg.mono = true;
+  kcfg.emit_profiles = true;
+  ForwardDrizzleV2CudaPrototypeKernel kernel;
+  REQUIRE(kernel.reserve(nc, nr, f.plan.source_width, f.plan.source_height,
+                         kcfg));
+  for (int fr = 0; fr < n_frames; ++fr) {
+    const auto &m = f.plan.frames[fr].source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1),
+                          m(1, 2)};
+    ForwardDrizzleV2FrameQuality q;  // all streams absent -> q = 1.0
+    REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(),
+                                    bad_sigma.data(),
+                                    static_cast<std::uint64_t>(fr), &q,
+                                    &meta[fr]));
+  }
+  std::vector<ForwardDrizzleV2PixelResult> got(nplane);
+  std::vector<ForwardDrizzleV2ProfileResult> gp(nplane);
+  REQUIRE(kernel.finalize(got.data(), gp.data(), nullptr));
+  int supported = 0, degraded_sep0 = 0;
+  for (std::size_t i = 0; i < nplane; ++i) {
+    if (got[i].robust_state ==
+        static_cast<std::uint8_t>(
+            ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip)) {
+      ++supported;
+      // Every contributor carried invalid sigma2: no separation evidence.
+      if (gp[i].a_separation == 0.0f) ++degraded_sep0;
+      // Missing quality streams fold to 1.0: raw == uniform * g_eff.
+      REQUIRE(gp[i].raw.value ==
+              Catch::Approx(gp[i].uniform.value).margin(1e-4));
+    }
+  }
+  REQUIRE(supported > 0);
+  REQUIRE(degraded_sep0 == supported);
+}
+
+TEST_CASE("forward drizzle v2 gate9 production geometry profiled pipeline",
+          "[.][forward-drizzle-v2-gate9-production]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  constexpr char kSpecSha[] =
+      "920206712ffef61310de397bf855b34b998100fb6c18c74e1b58fe2306ad2bdc";
+  constexpr int sw = 3840, sh = 2160;
+  constexpr int nc = 3934, nr = 2270;
+  constexpr double kMaxSteadySeconds = 0.75;
+  constexpr int n_frames = 60;
+
+  const auto mem = forward_drizzle_cuda_device_memory();
+  ForwardDrizzleV2MemoryInputs in;
+  in.target_width = nc;
+  in.target_height = nr;
+  in.channels = 3;
+  in.frame_count = n_frames;
+  in.internal_scale = 2;
+  in.emit_profiles = true;
+  in.frame_meta_slots = 128;
+  in.source_device_slots = 2;
+  in.source_slot_device_bytes = std::size_t{sw} * sh * sizeof(float);
+  in.quality_device_slots = 4;
+  in.quality_slot_device_bytes = std::size_t{sw} * sh * sizeof(float);
+  in.device_reserve_bytes = std::size_t{256} << 20;
+  in.device_budget_bytes =
+      static_cast<std::size_t>(static_cast<double>(mem.free_bytes) * 0.8);
+  in.host_budget_bytes = std::size_t{8} << 30;
+  const auto plan = plan_forward_drizzle_v2_memory(in);
+  REQUIRE(plan.feasible);
+  REQUIRE(plan.tile_cols == nc);
+  const int band_rows = plan.band_rows;
+
+  Matrix2Df source(sh, sw);
+  for (int y = 0; y < sh; ++y)
+    for (int x = 0; x < sw; ++x)
+      source(y, x) = static_cast<float>(
+          100.0 + 0.001 * x + 0.002 * y + 0.01 * ((17 * x + 31 * y) % 29));
+  Matrix2Df qplane(sh, sw);
+  for (int y = 0; y < sh; ++y)
+    for (int x = 0; x < sw; ++x)
+      qplane(y, x) = static_cast<float>(
+          0.6 + 0.3 * std::sin(0.01 * x) * std::cos(0.013 * y));
+
+  const std::array<std::array<double, 6>, 5> base{{
+      {1.0, 0.0, 32.0, 0.0, 1.0, 50.0},
+      {0.9998640418052673, -0.016167480498552322, 35.636409759521484,
+       0.01610037311911583, 0.9999631643295288, 46.23441696166992},
+      {0.9998466372489929, 0.017386717721819878, 55.92152404785156,
+       -0.01743965968489647, 0.9998936057090759, 68.48160552978516},
+      {0.9999858140945435, -0.0024168870877474546, 31.47933578491211,
+       0.0021460296120494604, 1.000150442123413, 56.29893493652344},
+      {1.0000033378601074, -0.006749980617314577, 28.21784782409668,
+       0.006637410260736942, 1.0002058744430542, 58.95621871948242},
+  }};
+
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = 2;
+  kcfg.stream_length = n_frames;
+  kcfg.half = 0.4;
+  kcfg.bayer_pattern = static_cast<int>(BayerPattern::GBRG);
+  kcfg.mono = false;
+  kcfg.emit_profiles = true;
+
+  ForwardDrizzleV2CudaPrototypeKernel kernel;
+  REQUIRE(kernel.reserve(nc, band_rows, sw, sh, kcfg));
+  for (std::uint64_t fr = 0; fr < static_cast<std::uint64_t>(n_frames);
+       ++fr) {
+    auto m = base[fr % base.size()];
+    m[2] += 0.05 * static_cast<double>(fr);
+    m[5] += 0.03 * static_cast<double>(fr);
+    ForwardDrizzleV2FrameQuality q;
+    q.q_composite = qplane.data();
+    q.q_scale0 = qplane.data();
+    q.q_scale1 = qplane.data();
+    q.q_artifact = qplane.data();
+    const ForwardDrizzleV2FrameMeta fm{0.9f, 0.8f,
+                                       static_cast<std::uint8_t>(fr % 2), 0};
+    REQUIRE(kernel.accumulate_frame(m.data(), source.data(), nullptr, fr,
+                                    &q, &fm));
+  }
+  const std::size_t n_out =
+      static_cast<std::size_t>(nc) * band_rows * 3;
+  std::vector<ForwardDrizzleV2PixelResult> results(n_out);
+  std::vector<ForwardDrizzleV2ProfileResult> profiles(n_out);
+  std::uint64_t dense = 0;
+  REQUIRE(kernel.finalize(results.data(), profiles.data(), &dense));
+  const auto &st = kernel.stats();
+
+  // Bounded-memory contract: the profiled footprint must fit the amended
+  // per-pixel plan bound.
+  const std::size_t bpp = kernel.device_bytes_per_native_pixel();
+  std::fprintf(stderr,
+               "gate9 production: bpp=%llu plan_bpp=%llu max_frame=%.4fs "
+               "allocs=%llu gsyncs=%llu\n",
+               (unsigned long long)bpp,
+               (unsigned long long)plan.device_bytes_per_target_pixel,
+               st.max_frame_seconds, (unsigned long long)st.allocations,
+               (unsigned long long)st.device_global_synchronizations);
+  REQUIRE(bpp <= plan.device_bytes_per_target_pixel);
+  REQUIRE(st.allocations == 1);
+  REQUIRE(st.device_global_synchronizations == 0);
+  REQUIRE(st.max_frame_seconds < kMaxSteadySeconds);
+
+  // Spot-check profile sanity on the dense core.
+  std::uint64_t supported = 0, raw_supported = 0, art_applicable = 0;
+  for (std::size_t i = 0; i < n_out; ++i) {
+    if (results[i].robust_state !=
+        static_cast<std::uint8_t>(
+            ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip))
+      continue;
+    ++supported;
+    const auto &p = profiles[i];
+    REQUIRE(p.uniform.support == 1);
+    if (p.raw.support) ++raw_supported;
+    if (p.artifact_applicable) ++art_applicable;
+    REQUIRE(std::isfinite(p.uniform.value));
+  }
+  REQUIRE(supported > 0);
+  REQUIRE(raw_supported > 0);
+  REQUIRE(art_applicable > 0);
+
+  // Persist the production measurement for the decision artifact.
+  const std::filesystem::path results_path =
+      std::filesystem::path("..") / "docs" /
+      "forward_drizzle_v2_gate9_streaming_multiband_results_2026-09-12."
+      "jsonl";
+  nlohmann::json rec;
+  rec["case"] = "production_geometry_profiled";
+  rec["spec_sha256"] = kSpecSha;
+  rec["canvas_native"] = {nc, nr};
+  rec["frames"] = n_frames;
+  rec["device_bytes_per_native_pixel"] = bpp;
+  rec["plan_bytes_per_native_pixel"] = plan.device_bytes_per_target_pixel;
+  rec["band_rows"] = band_rows;
+  rec["max_frame_seconds"] = st.max_frame_seconds;
+  rec["allocations"] = st.allocations;
+  rec["global_synchronizations"] = st.device_global_synchronizations;
+  rec["stream_synchronizations"] = st.stream_synchronizations;
+  rec["primary_pixels"] = supported;
+  rec["artifact_applicable_pixels"] = art_applicable;
+  rec["dense_overlap"] = dense;
+  std::ofstream(results_path, std::ios::app)
+      << rec.dump() << "\n";
 }

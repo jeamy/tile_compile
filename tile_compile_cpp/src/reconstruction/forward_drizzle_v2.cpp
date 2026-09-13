@@ -2,6 +2,7 @@
 
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
+#include "tile_compile/reconstruction/multiband_fusion.hpp"
 
 #include <algorithm>
 #include <array>
@@ -913,22 +914,35 @@ ForwardDrizzleV2MemoryPlan plan_forward_drizzle_v2_memory(
   const std::size_t scale_sq =
       static_cast<std::size_t>(in.internal_scale) *
       static_cast<std::size_t>(in.internal_scale);
+  // Gate-9 amendment: profiled mode adds the float4 quality side array per
+  // reservoir slot and the profile result record (per channel), plus the five
+  // quality frame planes at internal resolution.
+  const std::size_t slot_bytes =
+      r.reservoir_candidate_bytes +
+      (in.emit_profiles ? r.reservoir_quality_bytes_per_slot
+                        : std::size_t{0});
+  const std::size_t all_frame_planes =
+      frame_planes +
+      (in.emit_profiles
+           ? static_cast<std::size_t>(r.quality_frame_plane_doubles)
+           : std::size_t{0});
   std::size_t reservoir_slots = 0;
   if (!checked_mul(static_cast<std::size_t>(r.reservoir_size),
                    static_cast<std::size_t>(r.reservoir_slot_factor),
                    reservoir_slots) ||
-      !checked_mul(reservoir_slots,
-                   r.reservoir_candidate_bytes, per_channel) ||
+      !checked_mul(reservoir_slots, slot_bytes, per_channel) ||
       !checked_add(per_channel, r.reservoir_kept_bytes, per_channel) ||
       !checked_mul(acc_doubles, sizeof(double), tmp) ||
       !checked_add(per_channel, tmp, per_channel) ||
       !checked_add(per_channel, r.confidence_counter_bytes, per_channel) ||
       !checked_add(per_channel, r.coverage_bytes_per_channel, per_channel) ||
       !checked_add(per_channel, r.result_record_bytes, per_channel) ||
+      (in.emit_profiles &&
+       !checked_add(per_channel, r.profile_result_bytes, per_channel)) ||
       !checked_mul(per_channel, static_cast<std::size_t>(in.channels),
                    pixel_bytes) ||
       !checked_add(pixel_bytes, r.support_bytes_per_pixel, pixel_bytes) ||
-      !checked_mul(frame_planes, sizeof(double), internal_bytes) ||
+      !checked_mul(all_frame_planes, sizeof(double), internal_bytes) ||
       !checked_mul(internal_bytes, static_cast<std::size_t>(in.channels),
                    internal_bytes) ||
       !checked_mul(internal_bytes, scale_sq, internal_bytes) ||
@@ -936,10 +950,12 @@ ForwardDrizzleV2MemoryPlan plan_forward_drizzle_v2_memory(
     return out;
   out.device_bytes_per_target_pixel = pixel_bytes;
 
-  // Device fixed roles: pipeline slots and reserve.
+  // Device fixed roles: pipeline slots, frame-meta table and reserve.
   std::size_t device_fixed = 0;
   if (!checked_mul(static_cast<std::size_t>(in.source_device_slots),
                    in.source_slot_device_bytes, device_fixed) ||
+      !checked_mul(in.frame_meta_slots, r.frame_meta_bytes_per_slot, tmp) ||
+      !checked_add(device_fixed, tmp, device_fixed) ||
       !checked_mul(static_cast<std::size_t>(in.quality_device_slots),
                    in.quality_slot_device_bytes, tmp) ||
       !checked_add(device_fixed, tmp, device_fixed) ||
@@ -1024,6 +1040,404 @@ ForwardDrizzleV2MemoryPlan plan_forward_drizzle_v2_memory(
                  out.predicted_read_amplification <=
                      in.max_quality_read_amplification;
   return out;
+}
+
+// --- Gate 9: streaming multiband ----------------------------------------
+
+ForwardDrizzleV2ProfileCandidate forward_drizzle_v2_fold_profile_candidate(
+    std::size_t frame_order, double a, double b,
+    const ForwardDrizzleV2QualityFold &q,
+    const ForwardDrizzleV2QualityFold &q0,
+    const ForwardDrizzleV2QualityFold &q1,
+    const ForwardDrizzleV2QualityFold &qa) {
+  if (!std::isfinite(a) || !std::isfinite(b) || b < 0.0 ||
+      !std::isfinite(q.sum) || !std::isfinite(q0.sum) ||
+      !std::isfinite(q1.sum) || !std::isfinite(qa.sum) ||
+      !std::isfinite(q.weight_sum) || !std::isfinite(qa.weight_sum))
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_PROFILE_FOLD");
+  ForwardDrizzleV2ProfileCandidate out;
+  out.frame_order = frame_order;
+  out.b = b;
+  if (b > 0.0) out.x = a / b;
+  out.q = q.present && b > 0.0 ? q.sum / b : 1.0;
+  out.q0 = q0.present && b > 0.0 ? q0.sum / b : 1.0;
+  out.q1 = q1.present && b > 0.0 ? q1.sum / b : 1.0;
+  out.qa = qa.present && b > 0.0 ? qa.sum / b : 1.0;
+  out.qa_has_data = qa.present && qa.weight_sum > 0.0;
+  return out;
+}
+
+ForwardDrizzleV2ProfileResult forward_drizzle_v2_profile_reduce(
+    std::span<const ForwardDrizzleV2ProfileCandidate> candidates,
+    std::span<const std::uint8_t> accepted,
+    std::span<const ForwardDrizzleV2FrameMeta> frame_meta,
+    const ForwardDrizzleV2ProfileConfig &cfg, double confidence,
+    bool sigma_fully_degraded) {
+  if (accepted.size() != candidates.size())
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_PROFILE_MASK_SIZE");
+  if (!std::isfinite(cfg.fine_quality_exponent) ||
+      !std::isfinite(cfg.medium_quality_exponent) ||
+      cfg.fine_quality_exponent < 0.0f || cfg.medium_quality_exponent < 0.0f)
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_PROFILE_EXPONENT");
+
+  ForwardDrizzleV2ProfileResult out;
+  struct Accum {
+    double wx = 0.0, w = 0.0, w2 = 0.0;
+  } au, ar, af, am;
+  auto add = [](Accum &a, double w, double x) {
+    a.wx += w * x;
+    a.w += w;
+    a.w2 += w * w;
+  };
+  std::vector<AlphaFactorContribution> contribs;
+  for (std::size_t k = 0; k < candidates.size(); ++k) {
+    if (!accepted[k]) continue;
+    const auto &cd = candidates[k];
+    if (cd.frame_order >= frame_meta.size())
+      throw std::invalid_argument("FORWARD_DRIZZLE_V2_PROFILE_META_RANGE");
+    const auto &fm = frame_meta[cd.frame_order];
+    const double g = static_cast<double>(fm.g_eff);
+    if (!std::isfinite(g) || g < 0.0)
+      throw std::invalid_argument("FORWARD_DRIZZLE_V2_PROFILE_GEFF");
+    if (!std::isfinite(cd.x) || !std::isfinite(cd.b) || cd.b < 0.0 ||
+        !std::isfinite(cd.q) || cd.q < 0.0 || !std::isfinite(cd.q0) ||
+        cd.q0 < 0.0 || !std::isfinite(cd.q1) || cd.q1 < 0.0 ||
+        (cd.qa_has_data && !std::isfinite(cd.qa)))
+      throw std::invalid_argument("FORWARD_DRIZZLE_V2_PROFILE_CANDIDATE");
+    add(au, cd.b, cd.x);
+    add(ar, cd.b * g * cd.q, cd.x);
+    add(af, cd.b * g * std::pow(cd.q0, cfg.fine_quality_exponent), cd.x);
+    add(am, cd.b * g * std::pow(cd.q1, cfg.medium_quality_exponent), cd.x);
+    if (cfg.emit_alpha_confidence) {
+      contribs.push_back(
+          {cd.b, cd.q,
+           cd.qa_has_data ? cd.qa
+                          : std::numeric_limits<double>::quiet_NaN(),
+           fm.is_direct != 0, static_cast<double>(fm.residual_factor)});
+    }
+  }
+  auto write = [](ForwardDrizzleV2ProfileOutput &p, const Accum &a) {
+    if (!(a.w > 0.0)) return;
+    p.value = static_cast<float>(a.wx / a.w);
+    p.weight_sum = static_cast<float>(a.w);
+    p.n_eff = static_cast<float>(a.w2 > 0.0 ? (a.w * a.w) / a.w2 : 0.0);
+    p.support = 1;
+  };
+  write(out.uniform, au);
+  write(out.raw, ar);
+  write(out.fine, af);
+  write(out.medium, am);
+  if (cfg.emit_alpha_confidence) {
+    const auto fac = compute_alpha_confidence_channel(contribs, cfg.alpha);
+    // sigma_fully_degraded: every accepted contributor carried an invalid
+    // sigma2, so no noise model underwrites fine-scale separation.
+    out.a_separation = static_cast<float>(
+        sigma_fully_degraded
+            ? 0.0
+            : std::isfinite(confidence)
+                  ? std::clamp(confidence, 0.0, 1.0)
+                  : fac.a_separation);
+    out.a_artifact = static_cast<float>(fac.a_artifact);
+    out.a_registration = static_cast<float>(fac.a_registration);
+    out.artifact_applicable = fac.artifact_applicable;
+  }
+  return out;
+}
+
+ForwardDrizzleV2RingPlan forward_drizzle_v2_multiband_ring_plan(
+    int canvas_rows, int band_core_rows, int levels) {
+  if (canvas_rows <= 0 || band_core_rows <= 0 || levels < 1 || levels > 4)
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_RING_ARGS");
+  ForwardDrizzleV2RingPlan out;
+  out.levels = levels;
+  out.halo_rows = multiband_fusion_halo_rows(levels);
+  out.band_core_rows = band_core_rows;
+  out.canvas_rows = canvas_rows;
+  // Fusing band b needs finalized inputs on [b_lo - halo, b_hi + halo]; the
+  // window is band_core + 2*halo output rows wide and overlaps at most
+  // floor(2*halo/core) + 2 bands.
+  out.resident_bands =
+      (2 * out.halo_rows) / band_core_rows + 2;
+  return out;
+}
+
+ForwardDrizzleV2StreamingRA forward_drizzle_v2_streaming_ra(
+    std::uint64_t total_rows, std::uint64_t row_bytes, std::uint64_t halo_rows,
+    std::uint64_t band_count) {
+  if (total_rows == 0 || row_bytes == 0 || band_count == 0)
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_RA_ARGS");
+  ForwardDrizzleV2StreamingRA out;
+  const auto mul = [](std::uint64_t a, std::uint64_t b) {
+    if (b && a > std::numeric_limits<std::uint64_t>::max() / b)
+      throw std::invalid_argument("FORWARD_DRIZZLE_V2_RA_OVERFLOW");
+    return a * b;
+  };
+  out.logical_bytes = mul(total_rows, row_bytes);
+  // Without reuse every band pays both edge pads; with the ring, each pad
+  // row is read once (for the first band needing it) and reused by the
+  // next: the union of all padded windows is total + 2*halo rows.
+  const std::uint64_t pad = mul(halo_rows, row_bytes);
+  out.application_bytes_no_reuse =
+      out.logical_bytes + mul(mul(2, band_count), pad);
+  out.application_bytes_reuse = out.logical_bytes + mul(2, pad);
+  out.reused_bytes =
+      out.application_bytes_no_reuse - out.application_bytes_reuse;
+  out.ra_no_reuse = static_cast<double>(out.application_bytes_no_reuse) /
+                    static_cast<double>(out.logical_bytes);
+  out.ra_reuse = static_cast<double>(out.application_bytes_reuse) /
+                 static_cast<double>(out.logical_bytes);
+  return out;
+}
+
+ForwardDrizzleUniformResult forward_drizzle_v2_profiles_to_uniform_result(
+    std::span<const ForwardDrizzleV2ProfileResult> records, int ncols,
+    int nrows, int channels, ColorMode mode, int which) {
+  if (ncols <= 0 || nrows <= 0 || (channels != 1 && channels != 3) ||
+      which < 0 || which > 3)
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_PROFILE_ADAPT_ARGS");
+  const std::size_t nplane = static_cast<std::size_t>(ncols) * nrows;
+  if (records.size() != nplane * static_cast<std::size_t>(channels))
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_PROFILE_ADAPT_SIZE");
+  const int required_channels = mode == ColorMode::MONO ? 1 : 3;
+  if (channels != required_channels)
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_PROFILE_ADAPT_CHANNELS");
+
+  ForwardDrizzleUniformResult out;
+  out.color_mode = mode;
+  out.internal_width = ncols;
+  out.internal_height = nrows;
+  const int nch = mode == ColorMode::MONO ? 1 : 3;
+  ProfilePlane *planes[3] = {&out.R, &out.G, &out.B};
+  if (mode == ColorMode::MONO) planes[0] = &out.L;
+  for (int c = 0; c < nch; ++c) {
+    auto &pl = *planes[c];
+    pl.allocate(ncols, nrows);
+    for (std::size_t px = 0; px < nplane; ++px) {
+      const auto &r = records[static_cast<std::size_t>(c) * nplane + px];
+      const ForwardDrizzleV2ProfileOutput *p = nullptr;
+      switch (which) {
+        case 0: p = &r.uniform; break;
+        case 1: p = &r.raw; break;
+        case 2: p = &r.fine; break;
+        default: p = &r.medium; break;
+      }
+      pl.value[px] = p->value;
+      pl.weight_sum[px] = p->weight_sum;
+      pl.n_eff[px] = p->n_eff;
+      pl.support[px] = p->support;
+    }
+  }
+  return out;
+}
+
+std::vector<float> forward_drizzle_v2_profile_alpha_plane(
+    std::span<const ForwardDrizzleV2ProfileResult> records, int ncols,
+    int nrows, int channels, int which) {
+  if (ncols <= 0 || nrows <= 0 || (channels != 1 && channels != 3) ||
+      which < 0 || which > 2)
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_ALPHA_PLANE_ARGS");
+  const std::size_t nplane = static_cast<std::size_t>(ncols) * nrows;
+  if (records.size() != nplane * static_cast<std::size_t>(channels))
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_ALPHA_PLANE_SIZE");
+  std::vector<float> out(nplane, std::numeric_limits<float>::quiet_NaN());
+  for (std::size_t px = 0; px < nplane; ++px) {
+    double acc = std::numeric_limits<double>::quiet_NaN();
+    for (int c = 0; c < channels; ++c) {
+      const auto &r = records[static_cast<std::size_t>(c) * nplane + px];
+      if (!r.uniform.support) continue;
+      const double v = which == 0   ? static_cast<double>(r.a_separation)
+                       : which == 1 ? static_cast<double>(r.a_artifact)
+                                    : static_cast<double>(r.a_registration);
+      if (!std::isfinite(v)) continue;
+      acc = std::isfinite(acc) ? std::min(acc, v) : v;
+    }
+    if (std::isfinite(acc)) out[px] = static_cast<float>(acc);
+  }
+  return out;
+}
+
+ForwardDrizzleV2AlphaDiagnostic forward_drizzle_v2_alpha_diagnostic(
+    std::span<const ForwardDrizzleV2ProfileResult> records, int ncols,
+    int nrows, int channels, float eps) {
+  if (ncols <= 0 || nrows <= 0 || (channels != 1 && channels != 3) ||
+      !std::isfinite(eps) || eps < 0.0f)
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_ALPHA_DIAG_ARGS");
+  const std::size_t nplane = static_cast<std::size_t>(ncols) * nrows;
+  if (records.size() != nplane * static_cast<std::size_t>(channels))
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_ALPHA_DIAG_SIZE");
+  ForwardDrizzleV2AlphaDiagnostic out;
+  for (std::size_t px = 0; px < nplane; ++px) {
+    bool supported = false;
+    double amin = std::numeric_limits<double>::infinity();
+    for (int c = 0; c < channels; ++c) {
+      const auto &r = records[static_cast<std::size_t>(c) * nplane + px];
+      if (!r.uniform.support) continue;
+      supported = true;
+      const double art = r.artifact_applicable
+                             ? static_cast<double>(r.a_artifact)
+                             : 1.0;
+      const double a = static_cast<double>(r.a_separation) * art *
+                       static_cast<double>(r.a_registration);
+      amin = std::min(amin, a);
+    }
+    if (!supported) continue;
+    ++out.supported_pixels;
+    if (amin <= static_cast<double>(eps)) ++out.near_zero_pixels;
+  }
+  out.near_zero_fraction =
+      out.supported_pixels > 0
+          ? static_cast<double>(out.near_zero_pixels) /
+                static_cast<double>(out.supported_pixels)
+          : 0.0;
+  out.global_near_zero =
+      out.supported_pixels > 0 && out.near_zero_pixels == out.supported_pixels;
+  return out;
+}
+
+// --- Gate-9 ring state machine ------------------------------------------------
+//
+// Input band i covers rows [i*core, min((i+1)*core, H)) of the v2 output
+// grid; the fusion window of output band b is [b*core - h, (b+1)*core + h)
+// clamped to the canvas. Core b becomes immutable once every input band
+// intersecting its window is finalized; input band i stays resident until
+// every core whose window intersects it is immutable. The read model counts
+// each band's padded window once and credits the rows already covered by
+// resident windows as reused.
+
+struct ForwardDrizzleV2MultibandRing::Impl {
+  ForwardDrizzleV2RingPlan plan;
+  std::uint64_t src_row_bytes = 0;
+  std::uint64_t q_row_bytes = 0;
+  int nbands = 0;
+  std::vector<char> finalized;
+  std::vector<char> immutable;
+  std::vector<char> resident;
+  // Covered read windows: per-row coverage flags so out-of-order finalize
+  // still counts only rows never resident before.
+  std::vector<char> covered;
+  std::uint64_t src_reused = 0, q_reused = 0;
+  std::uint64_t src_read = 0, q_read = 0;
+
+  int win_lo(int band) const {
+    return std::max(0, band * plan.band_core_rows - plan.halo_rows);
+  }
+  int win_hi(int band) const {
+    return std::min(plan.canvas_rows,
+                    (band + 1) * plan.band_core_rows + plan.halo_rows);
+  }
+  // Input bands whose row extent intersects [lo, hi).
+  int input_lo(int lo) const {
+    return std::max(0, lo / plan.band_core_rows);
+  }
+  int input_hi(int hi) const {
+    // Last band index whose start row is < hi.
+    return std::min(nbands - 1, (hi - 1) / plan.band_core_rows);
+  }
+};
+
+ForwardDrizzleV2MultibandRing::ForwardDrizzleV2MultibandRing(
+    const ForwardDrizzleV2RingPlan &plan, std::uint64_t source_row_bytes,
+    std::uint64_t quality_row_bytes)
+    : impl_(std::make_unique<Impl>()) {
+  if (plan.levels < 1 || plan.levels > 4 || plan.canvas_rows <= 0 ||
+      plan.band_core_rows <= 0 || plan.halo_rows < 0)
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_RING_STATE_ARGS");
+  impl_->plan = plan;
+  impl_->src_row_bytes = source_row_bytes;
+  impl_->q_row_bytes = quality_row_bytes;
+  impl_->nbands =
+      (plan.canvas_rows + plan.band_core_rows - 1) / plan.band_core_rows;
+  impl_->finalized.assign(static_cast<std::size_t>(impl_->nbands), 0);
+  impl_->immutable.assign(static_cast<std::size_t>(impl_->nbands), 0);
+  impl_->resident.assign(static_cast<std::size_t>(impl_->nbands), 0);
+  impl_->covered.assign(static_cast<std::size_t>(plan.canvas_rows), 0);
+}
+
+ForwardDrizzleV2MultibandRing::~ForwardDrizzleV2MultibandRing() = default;
+
+std::vector<int> ForwardDrizzleV2MultibandRing::finalize_band(int band) {
+  Impl &im = *impl_;
+  if (band < 0 || band >= im.nbands || im.finalized[band])
+    throw std::invalid_argument("FORWARD_DRIZZLE_V2_RING_FINALIZE");
+  im.finalized[band] = 1;
+
+  // Read accounting: this band's padded window is read once; rows already
+  // covered by a resident predecessor window are reused, not re-read.
+  const int lo = im.win_lo(band), hi = im.win_hi(band);
+  std::uint64_t fresh = 0, reused = 0;
+  for (int r = lo; r < hi; ++r) {
+    if (im.covered[r]) ++reused;
+    else ++fresh;
+    im.covered[r] = 1;
+  }
+  im.src_read += fresh * im.src_row_bytes;
+  im.q_read += fresh * im.q_row_bytes;
+  im.src_reused += reused * im.src_row_bytes;
+  im.q_reused += reused * im.q_row_bytes;
+  im.resident[band] = 1;
+
+  std::vector<int> newly;
+  // A core becomes immutable once every input band overlapping its halo
+  // window is finalized.
+  for (int b = 0; b < im.nbands; ++b) {
+    if (im.immutable[b]) continue;
+    const int ilo = im.input_lo(im.win_lo(b));
+    const int ihi = im.input_hi(im.win_hi(b));
+    bool ready = true;
+    for (int i = ilo; i <= ihi; ++i)
+      if (!im.finalized[i]) {
+        ready = false;
+        break;
+      }
+    if (ready) {
+      im.immutable[b] = 1;
+      newly.push_back(b);
+    }
+  }
+  // Evict input bands no core still needs: every output band whose window
+  // overlaps band i must already be immutable.
+  for (int i = 0; i < im.nbands; ++i) {
+    if (!im.resident[i]) continue;
+    const int i_lo = i * im.plan.band_core_rows;
+    const int i_hi =
+        std::min(im.plan.canvas_rows, (i + 1) * im.plan.band_core_rows);
+    const int clo = im.input_lo(std::max(0, i_lo - im.plan.halo_rows));
+    const int chi =
+        im.input_hi(std::min(im.plan.canvas_rows, i_hi + im.plan.halo_rows));
+    bool needed = false;
+    for (int b = clo; b <= chi; ++b)
+      if (!im.immutable[b]) {
+        needed = true;
+        break;
+      }
+    if (!needed) im.resident[i] = 0;
+  }
+  return newly;
+}
+
+int ForwardDrizzleV2MultibandRing::band_count() const { return impl_->nbands; }
+bool ForwardDrizzleV2MultibandRing::band_finalized(int band) const {
+  return band >= 0 && band < impl_->nbands && impl_->finalized[band];
+}
+bool ForwardDrizzleV2MultibandRing::core_immutable(int band) const {
+  return band >= 0 && band < impl_->nbands && impl_->immutable[band];
+}
+int ForwardDrizzleV2MultibandRing::resident_bands() const {
+  int n = 0;
+  for (char r : impl_->resident) n += r;
+  return n;
+}
+std::uint64_t ForwardDrizzleV2MultibandRing::source_reused_bytes() const {
+  return impl_->src_reused;
+}
+std::uint64_t ForwardDrizzleV2MultibandRing::quality_reused_bytes() const {
+  return impl_->q_reused;
+}
+std::uint64_t ForwardDrizzleV2MultibandRing::source_read_bytes() const {
+  return impl_->src_read;
+}
+std::uint64_t ForwardDrizzleV2MultibandRing::quality_read_bytes() const {
+  return impl_->q_read;
 }
 
 }  // namespace tile_compile::reconstruction

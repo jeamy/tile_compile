@@ -94,19 +94,21 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
     int, int, int, int, const ForwardDrizzleV2KernelConfig &) {
   return false;
 }
-bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame(const double *,
-                                                           const float *,
-                                                           const float *,
-                                                           std::uint64_t) {
+bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame(
+    const double *, const float *, const float *, std::uint64_t,
+    const ForwardDrizzleV2FrameQuality *,
+    const ForwardDrizzleV2FrameMeta *) {
   return false;
 }
 bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_local(
     const double *, const ForwardDrizzleV2LocalWarp &, const float *,
-    const float *, std::uint64_t) {
+    const float *, std::uint64_t, const ForwardDrizzleV2FrameQuality *,
+    const ForwardDrizzleV2FrameMeta *) {
   return false;
 }
 bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
-    ForwardDrizzleV2PixelResult *, std::uint64_t *) {
+    ForwardDrizzleV2PixelResult *, ForwardDrizzleV2ProfileResult *,
+    std::uint64_t *) {
   return false;
 }
 #endif

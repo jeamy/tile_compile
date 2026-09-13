@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -287,6 +289,17 @@ struct ForwardDrizzleV2BufferRoles {
   // ForwardDrizzleV2PixelResult).
   std::size_t result_record_bytes = 64;
   std::size_t support_bytes_per_pixel = 4;     // footprint u32
+  // Gate-9 amendment (profiled mode only; non-profiled mode unchanged):
+  // float4 quality side array per reservoir slot.
+  std::size_t reservoir_quality_bytes_per_slot = 16;
+  // Five f64 frame planes at internal resolution: qc, q0, q1, qa, qaf.
+  int quality_frame_plane_doubles = 5;
+  // Per-frame meta table is a fixed slot cost (16 B per frame slot), not a
+  // per-pixel role.
+  std::size_t frame_meta_bytes_per_slot = 16;
+  // Gate-9 ForwardDrizzleV2ProfileResult downloaded with the pixel record
+  // (4 profile outputs a 16 B + 3 alpha floats + flags, padded).
+  std::size_t profile_result_bytes = 80;
 };
 
 struct ForwardDrizzleV2MemoryInputs {
@@ -298,9 +311,17 @@ struct ForwardDrizzleV2MemoryInputs {
   // Recorded for provenance only: by contract it must not enter the device
   // formula and must not shrink tile_cols.
   int frame_count = 0;
+  // Gate-9 profiled mode: reservoir quality side array, five quality frame
+  // planes, the frame-meta table and the profile output records are added to
+  // the per-pixel/slot roles. false keeps the Gate-6 footprint unchanged.
+  bool emit_profiles = false;
   ForwardDrizzleV2BufferRoles roles;
   // Device pipeline slots (fixed cost, independent of tile shape).
   int source_device_slots = 0;
+  // Frame-meta table slots (profiled mode only): fixed device cost sized to
+  // the stream length the runner plans for - kept a separate input so the
+  // per-pixel formula stays frame-count independent by contract.
+  std::size_t frame_meta_slots = 0;
   std::size_t source_slot_device_bytes = 0;
   int quality_device_slots = 0;
   std::size_t quality_slot_device_bytes = 0;
@@ -346,5 +367,231 @@ struct ForwardDrizzleV2MemoryPlan {
 // non-feasible plan on overflow or any violated bound.
 ForwardDrizzleV2MemoryPlan plan_forward_drizzle_v2_memory(
     const ForwardDrizzleV2MemoryInputs &in);
+
+// --- Gate 9: streaming multiband ---------------------------------------------
+//
+// Contract (forward_drizzle_v2_gate9_streaming_multiband_spec_2026-09-12.json):
+// all four profiles share ONE Gate-3 clip decision per (pixel, channel); the
+// per-candidate folded quality means never enter that clip.
+
+// Per-frame scalars indexed by frame order, needed at finalize time.
+struct ForwardDrizzleV2FrameMeta {
+  float g_eff = 1.0f;
+  float residual_factor = 1.0f;
+  std::uint8_t is_direct = 0;
+  std::uint8_t reserved = 0;
+};
+
+// One frame's candidate extended by the geometric K-averaged quality means
+// (plan 11.7): q/q0/q1 = sum(area * clamp(q_sample, 0, inf)) / b_src, a
+// missing stream yields 1.0; qa likewise with qa_has_data = at least one
+// finite artifact sample contributed. `order` equals the Gate-3 frame order.
+struct ForwardDrizzleV2ProfileCandidate {
+  std::size_t frame_order = 0;
+  double x = 0.0;
+  double b = 0.0;
+  double q = 1.0;
+  double q0 = 1.0;
+  double q1 = 1.0;
+  double qa = 1.0;
+  bool qa_has_data = false;
+};
+
+// Per-frame area-weighted quality accumulator for one quality stream. `sum`
+// collects k * max(q_sample, 0) over the frame's contributing subpixels (a
+// missing/nonfinite/nonpositive sample contributes 0); `weight_sum` collects
+// the k of finite samples (used by the artifact stream to decide
+// qa_has_data); `present` marks whether the stream exists for the frame at
+// all (absent => the folded mean is 1.0, matching the legacy contract).
+struct ForwardDrizzleV2QualityFold {
+  double sum = 0.0;
+  double weight_sum = 0.0;
+  bool present = false;
+};
+
+// CPU contract for folding one frame's per-native-pixel accumulators into a
+// profile candidate: x = a/b, b = b, q* = present ? sum/b : 1.0,
+// qa_has_data = present && weight_sum > 0. b <= 0 yields a zero-weight
+// candidate (x = 0); nonfinite a/b throw invalid_argument. This is the
+// reference the device fold kernel must reproduce.
+ForwardDrizzleV2ProfileCandidate forward_drizzle_v2_fold_profile_candidate(
+    std::size_t frame_order, double a, double b,
+    const ForwardDrizzleV2QualityFold &q,
+    const ForwardDrizzleV2QualityFold &q0,
+    const ForwardDrizzleV2QualityFold &q1,
+    const ForwardDrizzleV2QualityFold &qa);
+
+struct ForwardDrizzleV2ProfileConfig {
+  float fine_quality_exponent = 4.0f;
+  float medium_quality_exponent = 2.0f;
+  bool emit_alpha_confidence = true;
+  AlphaConfidenceParams alpha{};
+};
+
+struct ForwardDrizzleV2ProfileOutput {
+  float value = std::numeric_limits<float>::quiet_NaN();
+  float weight_sum = 0.0f;
+  float n_eff = 0.0f;
+  std::uint8_t support = 0;
+};
+
+// Per-(pixel, channel) profile reduction result. `value` of each profile is
+// the weighted mean over the clip-accepted candidate set with the profile
+// weight; support iff the profile weight sum is positive.
+struct ForwardDrizzleV2ProfileResult {
+  ForwardDrizzleV2ProfileOutput uniform;
+  ForwardDrizzleV2ProfileOutput raw;
+  ForwardDrizzleV2ProfileOutput fine;
+  ForwardDrizzleV2ProfileOutput medium;
+  float a_separation = 0.0f;
+  float a_artifact = 0.0f;
+  float a_registration = 0.0f;
+  bool artifact_applicable = false;
+};
+
+// Gate-9 shared profile reduction over the clip-accepted candidate set.
+// `accepted` must be parallel to `candidates` (the Gate-3 clip mask); both may
+// be empty only together. `frame_meta` is indexed by candidate.frame_order;
+// a meta index out of range or nonfinite/negative g_eff throws
+// invalid_argument (the stream contract requires a valid meta per kept
+// frame). Weights: uniform b; raw b*g_eff*q; fine b*g_eff*q0^fe; medium
+// b*g_eff*q1^me. Alpha factors follow compute_alpha_confidence_channel
+// semantics over the accepted set when cfg.emit_alpha_confidence, EXCEPT
+// a_separation: per the v2 contract it is clamp01(confidence) --- the Gate-4
+// per-pixel confidence --- when `confidence` is finite; NaN selects the
+// legacy quality-percentile separation (test/oracle use). When
+// `sigma_fully_degraded` is set (every accepted contributor carried invalid
+// sigma2), no separation evidence exists and a_separation collapses to 0 ---
+// the confidence formula itself stays Gate-4 (a supported pixel is always
+// >= 0.5, so the degraded calibration gate is defined at this boundary).
+ForwardDrizzleV2ProfileResult forward_drizzle_v2_profile_reduce(
+    std::span<const ForwardDrizzleV2ProfileCandidate> candidates,
+    std::span<const std::uint8_t> accepted,
+    std::span<const ForwardDrizzleV2FrameMeta> frame_meta,
+    const ForwardDrizzleV2ProfileConfig &cfg = {},
+    double confidence = std::numeric_limits<double>::quiet_NaN(),
+    bool sigma_fully_degraded = false);
+
+// Halo a multiband fusion needs of FINALIZED input rows on each side of a
+// committed core, measured in v2-output (native) rows. The fusion runs on the
+// v2 output grid because the Gate-2 fold produces one candidate set per
+// native pixel; at internal_scale 2 the same level count covers half the
+// physical frequency reach of the legacy internal-res fusion --- a
+// documented delta arbitrated by the matched-star validation gates.
+struct ForwardDrizzleV2RingPlan {
+  int levels = 0;
+  int halo_rows = 0;        // fusion input halo, v2 output rows
+  int band_core_rows = 0;   // committed output rows per band
+  int resident_bands = 0;   // worst-case finalized bands held in the ring
+  int canvas_rows = 0;
+};
+
+// Ring contract for v2 band streaming: the fused core of band b is immutable
+// once every finalized input band overlapping [b_lo - halo, b_hi + halo]
+// exists; the ring must hold at most `resident_bands` finalized bands. Throws
+// invalid_argument on nonpositive dims or out-of-range levels.
+ForwardDrizzleV2RingPlan forward_drizzle_v2_multiband_ring_plan(
+    int canvas_rows, int band_core_rows, int levels);
+
+// Reuse-aware application read amplification (section 17.2): without
+// band-edge reuse every band re-reads its own padded window; with the ring
+// retaining the predecessor tail, each pad row is read once for the first
+// band needing it and reused by the next.
+struct ForwardDrizzleV2StreamingRA {
+  std::uint64_t logical_bytes = 0;
+  std::uint64_t application_bytes_no_reuse = 0;
+  std::uint64_t application_bytes_reuse = 0;
+  std::uint64_t reused_bytes = 0;
+  double ra_no_reuse = 0.0;
+  double ra_reuse = 0.0;
+};
+
+// `total_rows`/`row_bytes` describe the logical source (or quality) extent the
+// stream consumes; `halo_rows` is the pad read at each band edge and
+// `band_count` the number of bands. Throws invalid_argument on degenerate
+// input (zero rows/bytes, negative halo, zero band count).
+ForwardDrizzleV2StreamingRA forward_drizzle_v2_streaming_ra(
+    std::uint64_t total_rows, std::uint64_t row_bytes, std::uint64_t halo_rows,
+    std::uint64_t band_count);
+
+// Adapter: extract one profile plane set from a finalized v2 profile-record
+// array (band-local internal geometry) into the legacy
+// ForwardDrizzleUniformResult shape consumed by fuse_multiband(_streamed).
+// `which` selects the profile: 0 = uniform, 1 = raw, 2 = fine, 3 = medium.
+// MONO maps every channel from slot 0; OSC uses R/G/B record order.
+ForwardDrizzleUniformResult forward_drizzle_v2_profiles_to_uniform_result(
+    std::span<const ForwardDrizzleV2ProfileResult> records, int ncols,
+    int nrows, int channels, ColorMode mode, int which);
+
+// Channel-min alpha plane for the fusion's pre-reduced maps (legacy takes the
+// conservative min over active channels; plan 14.6 shares one alpha across
+// R/G/B). `which`: 0 = a_separation, 1 = a_artifact, 2 = a_registration. A
+// pixel with no supported channel emits NaN (the fusion treats empty/NaN as
+// "not applicable"); a channel whose record is unsupported is skipped.
+std::vector<float> forward_drizzle_v2_profile_alpha_plane(
+    std::span<const ForwardDrizzleV2ProfileResult> records, int ncols,
+    int nrows, int channels, int which);
+
+// Global near-zero-alpha diagnostic (spec: globally near-zero alpha is its
+// own diagnostic, never a silent success). A pixel counts as supported when
+// at least one channel record has uniform support; its alpha is the
+// channel-min of the adaptive-alpha product a_separation*a_artifact*
+// a_registration (artifact folds in as 1 when not applicable). near-zero
+// means <= eps.
+struct ForwardDrizzleV2AlphaDiagnostic {
+  std::uint64_t supported_pixels = 0;
+  std::uint64_t near_zero_pixels = 0;
+  double near_zero_fraction = 0.0;
+  // True when at least one pixel is supported and EVERY supported pixel is
+  // near-zero: multiband would reduce to Raw everywhere.
+  bool global_near_zero = false;
+};
+
+ForwardDrizzleV2AlphaDiagnostic forward_drizzle_v2_alpha_diagnostic(
+    std::span<const ForwardDrizzleV2ProfileResult> records, int ncols,
+    int nrows, int channels, float eps = 1e-6f);
+
+// Gate-9 ring state machine implementing the immutability contract on top of
+// forward_drizzle_v2_multiband_ring_plan: the fused core of output band b is
+// immutable once every input band overlapping [b_lo - halo, b_hi + halo] is
+// finalized; input band i may be evicted once every output band whose fusion
+// window overlaps it is immutable. The ring also implements the reuse-aware
+// read accounting: the padded window of a newly finalized band is "read" once,
+// and rows still resident from retained predecessors count as reused (the
+// source_reused_bytes / quality_reused_bytes counters of the spec).
+class ForwardDrizzleV2MultibandRing {
+ public:
+  // `source_row_bytes` / `quality_row_bytes` are the per-row byte costs of the
+  // reused streams; either may be 0. Throws invalid_argument on a non-feasible
+  // plan (levels out of range, nonpositive geometry).
+  ForwardDrizzleV2MultibandRing(const ForwardDrizzleV2RingPlan &plan,
+                                std::uint64_t source_row_bytes,
+                                std::uint64_t quality_row_bytes);
+  ~ForwardDrizzleV2MultibandRing();
+  ForwardDrizzleV2MultibandRing(const ForwardDrizzleV2MultibandRing &) =
+      delete;
+  ForwardDrizzleV2MultibandRing &operator=(
+      const ForwardDrizzleV2MultibandRing &) = delete;
+
+  // Mark input band `band` finalized. Returns the output band cores that
+  // became immutable with this finalize. Throws invalid_argument on an
+  // out-of-range band index or a double finalize.
+  std::vector<int> finalize_band(int band);
+
+  int band_count() const;
+  bool band_finalized(int band) const;
+  bool core_immutable(int band) const;
+  // Finalized input bands still required by not-yet-immutable cores. Never
+  // exceeds plan.resident_bands.
+  int resident_bands() const;
+  std::uint64_t source_reused_bytes() const;
+  std::uint64_t quality_reused_bytes() const;
+  std::uint64_t source_read_bytes() const;    // logical + pad rows read once
+  std::uint64_t quality_read_bytes() const;
+
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
 
 }  // namespace tile_compile::reconstruction

@@ -366,6 +366,52 @@ struct V2ReservoirRecord {
 // Hard device bound: slots = 2 * reservoir_size with reservoir_size <= 64.
 constexpr int kV2MaxResSlots = 128;
 
+// Gate-9 quality I/O bundle for the scatter kernels: source-resolution
+// quality planes (null = stream absent for this frame) and the five f64
+// frame accumulator planes (all null when profiles are disabled).
+struct V2QualityIO {
+  const float *qc = nullptr;
+  const float *q0 = nullptr;
+  const float *q1 = nullptr;
+  const float *qa = nullptr;
+  double *fqc = nullptr;
+  double *fq0 = nullptr;
+  double *fq1 = nullptr;
+  double *fqa = nullptr;
+  double *fqaf = nullptr;
+};
+
+// Per-droplet quality accumulation, gated on finite source value by the
+// caller (matching the CPU contract: the whole sample is skipped for
+// nonfinite values). A NaN/<=0 quality sample contributes 0 to the
+// area-weighted mean (explicit veto); fqaf collects the area weight of
+// finite artifact samples only (qa_has_data).
+__device__ inline void d_scatter_quality(const V2QualityIO &q,
+                                         long long out, double area,
+                                         long long tid) {
+  auto acc = [](const float *src, double *dst, long long o, double k,
+                long long t) {
+    if (src == nullptr || dst == nullptr) return;
+    const double v = static_cast<double>(src[t]);
+    atomicAdd(dst + o, k * (isfinite(v) && v > 0.0 ? v : 0.0));
+  };
+  acc(q.qc, q.fqc, out, area, tid);
+  acc(q.q0, q.fq0, out, area, tid);
+  acc(q.q1, q.fq1, out, area, tid);
+  acc(q.qa, q.fqa, out, area, tid);
+  if (q.qa != nullptr && q.fqaf != nullptr &&
+      isfinite(static_cast<double>(q.qa[tid])))
+    atomicAdd(q.fqaf + out, area);
+}
+
+// 16 B device row of ForwardDrizzleV2FrameMeta, indexed by frame order.
+struct V2FrameMetaDev {
+  float g_eff;
+  float residual_factor;
+  unsigned int is_direct;
+  unsigned int pad;
+};
+
 __device__ unsigned long long d_splitmix64(unsigned long long x) {
   x += 0x9e3779b97f4a7c15ULL;
   x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -382,7 +428,7 @@ __global__ void k_scatter_v2(
     double sc, double half, int cols, int rows, int source_w, int source_h,
     const float *source, const float *sigma2, int bayer, int ox, int oy,
     int mono, double *fa, double *fbs, double *fbg, double *fs2,
-    unsigned long long *positive_overlaps) {
+    V2QualityIO qio, unsigned long long *positive_overlaps) {
   const long long tid =
       static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
   const long long source_n = static_cast<long long>(source_w) * source_h;
@@ -423,6 +469,7 @@ __global__ void k_scatter_v2(
         atomicAdd(fa + out, area * value);
         atomicAdd(fbs + out, area);
         if (fs2 != nullptr) atomicAdd(fs2 + out, area * s2);
+        d_scatter_quality(qio, out, area, tid);
       }
       ++overlaps;
     }
@@ -630,7 +677,8 @@ __global__ void k_scatter_v2_local(
     int source_w, int source_h, const float *source, const float *sigma2,
     int bayer, int ox, int oy, int mono, int canvas_w_native,
     int canvas_h_native, double *fa, double *fbs, double *fbg, double *fs2,
-    unsigned long long *positive_overlaps, unsigned long long *discarded) {
+    V2QualityIO qio, unsigned long long *positive_overlaps,
+    unsigned long long *discarded) {
   const long long tid =
       static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
   const long long source_n = static_cast<long long>(source_w) * source_h;
@@ -720,6 +768,7 @@ __global__ void k_scatter_v2_local(
           atomicAdd(fa + out, area * value);
           atomicAdd(fbs + out, area);
           if (fs2 != nullptr) atomicAdd(fs2 + out, area * s2);
+          d_scatter_quality(qio, out, area, tid);
         }
         ++overlaps;
       }
@@ -741,6 +790,8 @@ __global__ void k_scatter_v2_local(
 // are derived at finalize.
 __global__ void k_fold_accumulate_v2(
     const double *fa, const double *fbs, const double *fbg, const double *fs2,
+    const double *fqc, const double *fq0, const double *fq1,
+    const double *fqa, const double *fqaf, unsigned int qmask,
     int icols, int irows, int scale, int ncols, int nrows, int channels,
     unsigned long long order, int keep_all, unsigned long long threshold,
     int res_slots, unsigned long long seed,
@@ -748,7 +799,7 @@ __global__ void k_fold_accumulate_v2(
     double *covB, double *covB2, double *confS, double *confC,
     unsigned int *contrib, unsigned int *kept, unsigned int *footprint,
     unsigned short *supp, unsigned long long *degraded,
-    V2ReservoirRecord *res) {
+    V2ReservoirRecord *res, float4 *resq) {
   const long long px =
       static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
   const long long nplane = static_cast<long long>(ncols) * nrows;
@@ -761,6 +812,7 @@ __global__ void k_fold_accumulate_v2(
   for (int c = 0; c < channels; ++c) {
     const long long pc = static_cast<long long>(c) * nplane + px;
     double a = 0.0, b_src = 0.0, b_geo = 0.0, s2w = 0.0;
+    double qc_s = 0.0, q0_s = 0.0, q1_s = 0.0, qa_s = 0.0, qaf_s = 0.0;
     unsigned int geo_bits = 0, src_bits = 0;
     for (int iy = 0; iy < scale; ++iy) {
       for (int ix = 0; ix < scale; ++ix) {
@@ -775,6 +827,13 @@ __global__ void k_fold_accumulate_v2(
         b_src += inv_s2 * bsj;
         b_geo += inv_s2 * bgj;
         if (fs2 != nullptr) s2w += inv_s2 * fs2[idx];
+        if (resq != nullptr) {
+          if (fqc != nullptr) qc_s += inv_s2 * fqc[idx];
+          if (fq0 != nullptr) q0_s += inv_s2 * fq0[idx];
+          if (fq1 != nullptr) q1_s += inv_s2 * fq1[idx];
+          if (fqa != nullptr) qa_s += inv_s2 * fqa[idx];
+          if (fqaf != nullptr) qaf_s += inv_s2 * fqaf[idx];
+        }
         if (bgj > 0.0) geo_bits |= 1u << j;
         if (bsj > 0.0) src_bits |= 1u << j;
       }
@@ -809,10 +868,72 @@ __global__ void k_fold_accumulate_v2(
         r.order = order;
         r.sigma2 = s2c;
         res[pc * res_slots + k] = r;
+        if (resq != nullptr) {
+          // Folded quality means: present stream => sum/b_src, absent => 1.0;
+          // qa additionally encodes "no finite artifact datum" as -1.
+          float4 qv;
+          qv.x = (qmask & 1u) ? static_cast<float>(qc_s / b_src) : 1.0f;
+          qv.y = (qmask & 2u) ? static_cast<float>(q0_s / b_src) : 1.0f;
+          qv.z = (qmask & 4u) ? static_cast<float>(q1_s / b_src) : 1.0f;
+          const bool qa_data =
+              (qmask & 8u) != 0u && qaf_s > 0.0;
+          qv.w = qa_data ? static_cast<float>(qa_s / b_src) : -1.0f;
+          resq[pc * res_slots + k] = qv;
+        }
       }
     }
   }
   if (any_geo) ++footprint[px];
+}
+
+// Gate-9 device ports of the alpha-confidence helpers
+// (alpha_confidence.cpp): Hazen-plotting-position weighted percentile over
+// insertion-sorted (value, weight) pairs and the plan smoothstep. Explicit
+// comparisons preserve the host's NaN propagation (std::clamp keeps NaN,
+// fmin/fmax would drop it).
+__device__ double d_smoothstep(double e0, double e1, double x) {
+  if (!(e1 > e0)) return x >= e1 ? 1.0 : 0.0;
+  double t = (x - e0) / (e1 - e0);
+  if (t < 0.0) t = 0.0;
+  if (t > 1.0) t = 1.0;
+  return t * t * (3.0 - 2.0 * t);
+}
+
+__device__ double d_hazen_percentile(double *vals, double *wts, int n,
+                                     double p) {
+  for (int i = 1; i < n; ++i) {
+    const double v = vals[i], w = wts[i];
+    int j = i;
+    while (j > 0 && vals[j - 1] > v) {
+      vals[j] = vals[j - 1];
+      wts[j] = wts[j - 1];
+      --j;
+    }
+    vals[j] = v;
+    wts[j] = w;
+  }
+  double total = 0.0;
+  for (int i = 0; i < n; ++i) total += wts[i];
+  if (!(total > 0.0)) return vals[0];
+  if (p < 0.0) p = 0.0;
+  if (p > 1.0) p = 1.0;
+  double cum = 0.0, prev_cdf = 0.0, prev_val = vals[0];
+  for (int k = 0; k < n; ++k) {
+    const double w = wts[k];
+    cum += w;
+    const double cdf = (cum - 0.5 * w) / total;
+    const double val = vals[k];
+    if (p <= cdf) {
+      if (k == 0 || cdf <= prev_cdf) return val;
+      double frac = (p - prev_cdf) / (cdf - prev_cdf);
+      if (frac < 0.0) frac = 0.0;
+      if (frac > 1.0) frac = 1.0;
+      return prev_val + frac * (val - prev_val);
+    }
+    prev_cdf = cdf;
+    prev_val = val;
+  }
+  return vals[n - 1];
 }
 
 // Band-end finalize: per (pixel, channel) runs the bit-exact gate-3 clip on
@@ -820,16 +941,25 @@ __global__ void k_fold_accumulate_v2(
 // (x, order) sort, cumulative-weight median at >= total/2, (|x-med|, order)
 // MAD order, asymmetric bounds, early stop on an unchanged mask) and maps the
 // gate-4 confidence states. kept > res_slots is the deterministic overflow
-// fallback: uniform stream value, support retained.
+// fallback: uniform stream value, support retained. When `pout` is non-null
+// the same accepted mask additionally reduces the four gate-9 profiles
+// (uniform b; raw b*g_eff*q; fine b*g_eff*q0^fe; medium b*g_eff*q1^me) and
+// the v2 alpha factors (a_separation = clamp01(confidence); artifact /
+// registration from the percentile contract) --- the mask is shared by
+// construction.
 __global__ void k_finalize_v2(
     int ncols, int nrows, int channels, int subpixels, int res_slots,
-    unsigned long long frames_processed, int min_candidates, int min_clip,
+    unsigned long long frames_processed, unsigned long long meta_capacity,
+    int min_candidates, int min_clip,
     int passes, double s_low, double s_high,
     const double *accA, const double *accB, const double *accB2,
     const double *confS, const double *confC,
     const unsigned int *contrib, const unsigned int *kept,
     const unsigned int *footprint, const unsigned short *supp,
     const unsigned long long *degraded, const V2ReservoirRecord *res,
+    const float4 *resq, const V2FrameMetaDev *meta,
+    double fine_exp, double medium_exp, AlphaConfidenceParams alpha,
+    ForwardDrizzleV2ProfileResult *pout,
     ForwardDrizzleV2PixelResult *out, unsigned long long *dense_overlap) {
   const long long tid =
       static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
@@ -881,40 +1011,70 @@ __global__ void k_finalize_v2(
     r.robust_state = static_cast<std::uint8_t>(state);
     finish_conf(b_acc, confS[pc], confC[pc]);
   };
+  // Gate-9: every fallback profile carries the uniform stream value and zero
+  // alpha factors (spec profile_production_contract.fallback); without
+  // source support the profiles stay unsupported.
+  auto emit_fallback_profiles = [&]() {
+    if (pout == nullptr) return;
+    ForwardDrizzleV2ProfileResult pr;
+    if (b_acc > 0.0) {
+      const float v = static_cast<float>(a_acc / b_acc);
+      const float w = static_cast<float>(b_acc);
+      const float ne = static_cast<float>(r.n_eff);
+      for (auto *o : {&pr.uniform, &pr.raw, &pr.fine, &pr.medium}) {
+        o->value = v;
+        o->weight_sum = w;
+        o->n_eff = ne;
+        o->support = 1;
+      }
+    }
+    pout[pc] = pr;
+  };
 
   if (!(b_acc > 0.0)) {
     r.robust_state = static_cast<std::uint8_t>(
         ForwardDrizzleV2RobustState::no_source_support);
     finish_conf(0.0, 0.0, 0.0);
+    emit_fallback_profiles();
     out[pc] = r;
     return;
   }
   if (n_kept > static_cast<unsigned int>(res_slots)) {
     finish_uniform(ForwardDrizzleV2RobustState::reservoir_overflow_fallback);
+    emit_fallback_profiles();
     out[pc] = r;
     return;
   }
   if (r.contributors < static_cast<unsigned int>(min_candidates) ||
       n_kept < static_cast<unsigned int>(min_clip)) {
     finish_uniform(ForwardDrizzleV2RobustState::too_few_candidates_fallback);
+    emit_fallback_profiles();
     out[pc] = r;
     return;
   }
 
   // Load and insertion-sort the kept set by (x, order); identical ordering to
-  // the CPU oracle.
+  // the CPU oracle. The quality side array must move WITH the records: it is
+  // indexed by reservoir slot, not by sorted position.
   V2ReservoirRecord recs[kV2MaxResSlots];
-  for (unsigned int i = 0; i < n_kept; ++i) recs[i] = res[pc * res_slots + i];
+  float4 qvs[kV2MaxResSlots];
+  for (unsigned int i = 0; i < n_kept; ++i) {
+    recs[i] = res[pc * res_slots + i];
+    if (resq != nullptr) qvs[i] = resq[pc * res_slots + i];
+  }
   for (unsigned int i = 1; i < n_kept; ++i) {
     const V2ReservoirRecord v = recs[i];
+    const float4 qv = qvs[i];
     unsigned int j = i;
     while (j > 0 &&
            (recs[j - 1].x > v.x ||
             (recs[j - 1].x == v.x && recs[j - 1].order > v.order))) {
       recs[j] = recs[j - 1];
+      qvs[j] = qvs[j - 1];
       --j;
     }
     recs[j] = v;
+    qvs[j] = qv;
   }
   unsigned long long acc_lo = ~0ULL, acc_hi = ~0ULL;  // accepted bitmask
   for (int pass = 0; pass < passes; ++pass) {
@@ -1009,6 +1169,95 @@ __global__ void k_finalize_v2(
   r.robust_state = static_cast<std::uint8_t>(
       ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip);
   finish_conf(cb, cs, cc);
+
+  if (pout != nullptr) {
+    ForwardDrizzleV2ProfileResult pr;
+    double uwx = 0.0, uw = 0.0, uw2 = 0.0;
+    double rwx = 0.0, rw = 0.0, rw2 = 0.0;
+    double fwx = 0.0, fw = 0.0, fw2 = 0.0;
+    double mwx = 0.0, mw = 0.0, mw2 = 0.0;
+    double b_total = 0.0, b_direct = 0.0;
+    double art_v[kV2MaxResSlots], art_w[kV2MaxResSlots];
+    double res_v[kV2MaxResSlots], res_w[kV2MaxResSlots];
+    int n_art = 0, n_res = 0;
+    for (unsigned int i = 0; i < n_kept; ++i) {
+      const bool on =
+          i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
+      if (!on) continue;
+      const float4 qv = qvs[i];
+      V2FrameMetaDev m{};
+      if (meta != nullptr && recs[i].order < meta_capacity)
+        m = meta[recs[i].order];
+      double g = static_cast<double>(m.g_eff);
+      if (!(g >= 0.0)) g = 0.0;  // malformed meta: zero weight
+      const double b = recs[i].b;
+      const double x = recs[i].x;
+      const double wu = b;
+      const double wr = b * g * static_cast<double>(qv.x);
+      const double wf =
+          b * g * pow(static_cast<double>(qv.y), fine_exp);
+      const double wm =
+          b * g * pow(static_cast<double>(qv.z), medium_exp);
+      uwx += wu * x; uw += wu; uw2 += wu * wu;
+      rwx += wr * x; rw += wr; rw2 += wr * wr;
+      fwx += wf * x; fw += wf; fw2 += wf * wf;
+      mwx += wm * x; mw += wm; mw2 += wm * wm;
+      b_total += b;
+      if (m.is_direct != 0u) b_direct += b;
+      if (qv.w >= 0.0f) {
+        double av = static_cast<double>(qv.w);
+        if (av < 0.0) av = 0.0;
+        if (av > 1.0) av = 1.0;
+        art_v[n_art] = av;
+        art_w[n_art] = b;
+        ++n_art;
+      }
+      res_v[n_res] = static_cast<double>(m.residual_factor);
+      res_w[n_res] = b;
+      ++n_res;
+    }
+    auto write = [](ForwardDrizzleV2ProfileOutput &o, double wx, double w,
+                    double w2) {
+      if (!(w > 0.0)) return;
+      o.value = static_cast<float>(wx / w);
+      o.weight_sum = static_cast<float>(w);
+      o.n_eff = static_cast<float>(w2 > 0.0 ? (w * w) / w2 : 0.0);
+      o.support = 1;
+    };
+    write(pr.uniform, uwx, uw, uw2);
+    write(pr.raw, rwx, rw, rw2);
+    write(pr.fine, fwx, fw, fw2);
+    write(pr.medium, mwx, mw, mw2);
+    // v2 contract: a_separation is the gate-4 confidence, not the
+    // quality-percentile separation. When EVERY contributor carried an
+    // invalid sigma2 there is no noise model underwriting separation:
+    // collapse to 0 (the degraded calibration boundary).
+    double sep = r.confidence;
+    if (r.contributors > 0 && degraded[pc] == r.contributors) sep = 0.0;
+    if (sep < 0.0) sep = 0.0;
+    if (sep > 1.0) sep = 1.0;
+    pr.a_separation = static_cast<float>(sep);
+    if (n_art >= alpha.min_artifact_contributors) {
+      const double a_p10 = d_hazen_percentile(art_v, art_w, n_art, 0.10);
+      pr.a_artifact = static_cast<float>(
+          d_smoothstep(alpha.artifact_lo, alpha.artifact_hi, a_p10));
+      pr.artifact_applicable = true;
+    }
+    const double direct_fraction =
+        b_total > 0.0 ? b_direct / b_total : 0.0;
+    const double residual_p20 =
+        d_hazen_percentile(res_v, res_w, n_res, 0.20);
+    const double reg_dir =
+        d_smoothstep(alpha.direct_fraction_lo, alpha.direct_fraction_hi,
+                     direct_fraction);
+    const double reg_res =
+        d_smoothstep(alpha.residual_p20_lo, alpha.residual_p20_hi,
+                     residual_p20);
+    // std::min NaN semantics: (b < a) ? b : a.
+    pr.a_registration =
+        static_cast<float>(reg_res < reg_dir ? reg_res : reg_dir);
+    pout[pc] = pr;
+  }
   out[pc] = r;
 }
 
@@ -1412,7 +1661,8 @@ bool forward_drizzle_cuda_local_dense_scatter(
         warp, static_cast<double>(internal_scale), half, target_cols,
         target_rows, source_w, source_h, d_source, nullptr, bayer_pattern,
         cfa_origin_x, cfa_origin_y, mono ? 1 : 0, canvas_w_native,
-        canvas_h_native, d_a, d_bs, d_bg, nullptr, d_scalars, d_scalars + 1);
+        canvas_h_native, d_a, d_bs, d_bg, nullptr, V2QualityIO{}, d_scalars,
+        d_scalars + 1);
     ok = cudaGetLastError() == cudaSuccess &&
          cudaDeviceSynchronize() == cudaSuccess;
   }
@@ -1787,10 +2037,19 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
   cudaStream_t stream = nullptr;
   float *src = nullptr;
   float *s2 = nullptr;
+  float *qc = nullptr;
+  float *q0 = nullptr;
+  float *q1 = nullptr;
+  float *qa = nullptr;
   double *fa = nullptr;
   double *fbs = nullptr;
   double *fbg = nullptr;
   double *fs2 = nullptr;
+  double *fqc = nullptr;
+  double *fq0 = nullptr;
+  double *fq1 = nullptr;
+  double *fqa = nullptr;
+  double *fqaf = nullptr;
   double *accA = nullptr;
   double *accB = nullptr;
   double *accB2 = nullptr;
@@ -1806,7 +2065,10 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
   unsigned long long *scalars =
       nullptr;  // [0] overlaps, [1] dense overlap, [2] local discards
   V2ReservoirRecord *res = nullptr;
+  float4 *resq = nullptr;
+  V2FrameMetaDev *meta = nullptr;
   ForwardDrizzleV2PixelResult *out = nullptr;
+  ForwardDrizzleV2ProfileResult *pout = nullptr;
   std::vector<cudaEvent_t> ev_up0, ev_up1, ev_k0, ev_k1;
   int ncols = 0, nrows = 0, icols = 0, irows = 0;
   int source_w = 0, source_h = 0, channels = 0, res_slots = 0;
@@ -1818,10 +2080,19 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
   ~Impl() {
     cudaFree(src);
     cudaFree(s2);
+    cudaFree(qc);
+    cudaFree(q0);
+    cudaFree(q1);
+    cudaFree(qa);
     cudaFree(fa);
     cudaFree(fbs);
     cudaFree(fbg);
     cudaFree(fs2);
+    cudaFree(fqc);
+    cudaFree(fq0);
+    cudaFree(fq1);
+    cudaFree(fqa);
+    cudaFree(fqaf);
     cudaFree(accA);
     cudaFree(accB);
     cudaFree(accB2);
@@ -1836,7 +2107,10 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
     cudaFree(degraded);
     cudaFree(scalars);
     cudaFree(res);
+    cudaFree(resq);
+    cudaFree(meta);
     cudaFree(out);
+    cudaFree(pout);
     for (auto *v : {&ev_up0, &ev_up1, &ev_k0, &ev_k1})
       for (cudaEvent_t e : *v) cudaEventDestroy(e);
     if (stream) cudaStreamDestroy(stream);
@@ -1874,7 +2148,12 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
       cfg.robust_passes < 1 || !std::isfinite(cfg.sigma_low) ||
       !std::isfinite(cfg.sigma_high) || cfg.sigma_low <= 0.0 ||
       cfg.sigma_high <= 0.0 || !std::isfinite(cfg.half) ||
-      !(cfg.half > 0.0) || cfg.bayer_pattern < 0 || cfg.bayer_pattern > 4)
+      !(cfg.half > 0.0) || cfg.bayer_pattern < 0 || cfg.bayer_pattern > 4 ||
+      (cfg.emit_profiles &&
+       (!std::isfinite(cfg.fine_quality_exponent) ||
+        !std::isfinite(cfg.medium_quality_exponent) ||
+        cfg.fine_quality_exponent < 0.0f ||
+        cfg.medium_quality_exponent < 0.0f)))
     return false;
   int devices = 0;
   if (cudaGetDeviceCount(&devices) != cudaSuccess || devices <= 0) {
@@ -1913,12 +2192,19 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
   auto mul = [](std::size_t a, std::size_t b, std::size_t &o) {
     return proto_checked_mul(a, b, o);
   };
-  const std::size_t frame_plane_count = cfg.sigma2_plane ? 4 : 3;
+  const std::size_t frame_plane_count =
+      (cfg.sigma2_plane ? 4 : 3) + (cfg.emit_profiles ? 5 : 0);
   if (!mul(source_elems, sizeof(float), tmp) || !add_bytes(tmp) ||
       (cfg.sigma2_plane &&
        (!mul(source_elems, sizeof(float), tmp) || !add_bytes(tmp))) ||
+      (cfg.emit_profiles &&
+       (!mul(source_elems, sizeof(float) * 4, tmp) || !add_bytes(tmp))) ||
       !mul(frame_plane_elems, sizeof(double) * frame_plane_count, tmp) ||
       !add_bytes(tmp) ||
+      (cfg.emit_profiles &&
+       (!mul(static_cast<std::size_t>(cfg.stream_length),
+             sizeof(V2FrameMetaDev), tmp) ||
+        !add_bytes(tmp))) ||
       !mul(pc_elems, sizeof(double) * 7, tmp) ||  // accA/B/B2 covB/2 confS/C
       !add_bytes(tmp) ||
       !mul(pc_elems, sizeof(unsigned int) * 2, tmp) ||  // contrib, kept
@@ -1929,9 +2215,16 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
       !mul(pc_elems * static_cast<std::size_t>(res_slots),
            sizeof(V2ReservoirRecord), tmp) ||
       !add_bytes(tmp) ||
+      (cfg.emit_profiles &&
+       (!mul(pc_elems * static_cast<std::size_t>(res_slots),
+             sizeof(float4), tmp) ||
+        !add_bytes(tmp))) ||
       !mul(pc_elems, sizeof(ForwardDrizzleV2PixelResult), tmp) ||
       !add_bytes(tmp) ||
-      !add_bytes(2 * sizeof(unsigned long long)))
+      (cfg.emit_profiles &&
+       (!mul(pc_elems, sizeof(ForwardDrizzleV2ProfileResult), tmp) ||
+        !add_bytes(tmp))) ||
+      !add_bytes(3 * sizeof(unsigned long long)))
     return false;
 
   Impl *im = new (std::nothrow) Impl();
@@ -1965,6 +2258,11 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
        cudaMalloc(&im->src, source_elems * sizeof(float)) == cudaSuccess &&
        (!cfg.sigma2_plane ||
         cudaMalloc(&im->s2, source_elems * sizeof(float)) == cudaSuccess) &&
+       (!cfg.emit_profiles ||
+        (cudaMalloc(&im->qc, source_elems * sizeof(float)) == cudaSuccess &&
+         cudaMalloc(&im->q0, source_elems * sizeof(float)) == cudaSuccess &&
+         cudaMalloc(&im->q1, source_elems * sizeof(float)) == cudaSuccess &&
+         cudaMalloc(&im->qa, source_elems * sizeof(float)) == cudaSuccess)) &&
        cudaMalloc(&im->fa, frame_plane_elems * sizeof(double)) ==
            cudaSuccess &&
        cudaMalloc(&im->fbs, frame_plane_elems * sizeof(double)) ==
@@ -1974,6 +2272,17 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
        (!cfg.sigma2_plane ||
         cudaMalloc(&im->fs2, frame_plane_elems * sizeof(double)) ==
             cudaSuccess) &&
+       (!cfg.emit_profiles ||
+        (cudaMalloc(&im->fqc, frame_plane_elems * sizeof(double)) ==
+             cudaSuccess &&
+         cudaMalloc(&im->fq0, frame_plane_elems * sizeof(double)) ==
+             cudaSuccess &&
+         cudaMalloc(&im->fq1, frame_plane_elems * sizeof(double)) ==
+             cudaSuccess &&
+         cudaMalloc(&im->fqa, frame_plane_elems * sizeof(double)) ==
+             cudaSuccess &&
+         cudaMalloc(&im->fqaf, frame_plane_elems * sizeof(double)) ==
+             cudaSuccess)) &&
        cudaMalloc(&im->accA, pc_elems * sizeof(double)) == cudaSuccess &&
        cudaMalloc(&im->accB, pc_elems * sizeof(double)) == cudaSuccess &&
        cudaMalloc(&im->accB2, pc_elems * sizeof(double)) == cudaSuccess &&
@@ -1994,6 +2303,15 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
            cudaSuccess &&
        cudaMalloc(&im->res, pc_elems * static_cast<std::size_t>(res_slots) *
                               sizeof(V2ReservoirRecord)) == cudaSuccess &&
+       (!cfg.emit_profiles ||
+        (cudaMalloc(&im->resq,
+                    pc_elems * static_cast<std::size_t>(res_slots) *
+                        sizeof(float4)) == cudaSuccess &&
+         cudaMalloc(&im->meta, static_cast<std::size_t>(cfg.stream_length) *
+                                   sizeof(V2FrameMetaDev)) == cudaSuccess &&
+         cudaMalloc(&im->pout,
+                    pc_elems * sizeof(ForwardDrizzleV2ProfileResult)) ==
+             cudaSuccess)) &&
        cudaMalloc(&im->out, pc_elems * sizeof(ForwardDrizzleV2PixelResult)) ==
            cudaSuccess;
   if (!ok) {
@@ -2037,10 +2355,17 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
   stats_.allocations = 1;
   stats_.reserved_device_bytes = total_bytes;
   // Per-native-pixel footprint for the gate-5-plan comparison: everything
-  // except the fixed source slot and scalars, divided by native pixels.
+  // except the fixed pipeline slots (source + sigma2 + gate-9 quality
+  // planes), the frame-meta table and scalars, divided by native pixels.
+  std::size_t fixed_slot_bytes =
+      source_elems * sizeof(float) * (cfg.sigma2_plane ? 2 : 1);
+  if (cfg.emit_profiles) {
+    fixed_slot_bytes += source_elems * sizeof(float) * 4 +
+                        static_cast<std::size_t>(cfg.stream_length) *
+                            sizeof(V2FrameMetaDev);
+  }
   bytes_per_native_pixel_ =
-      (total_bytes - source_elems * sizeof(float) * (cfg.sigma2_plane ? 2 : 1) -
-       2 * sizeof(unsigned long long)) /
+      (total_bytes - fixed_slot_bytes - 3 * sizeof(unsigned long long)) /
       nplane;
   return true;
 }
@@ -2051,7 +2376,9 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
 bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
     const double affine6[6], const ForwardDrizzleV2LocalWarp *warp,
     const float *source, const float *sigma2_or_null,
-    std::uint64_t frame_order) {
+    std::uint64_t frame_order,
+    const ForwardDrizzleV2FrameQuality *quality_or_null,
+    const ForwardDrizzleV2FrameMeta *meta_or_null) {
   Impl &im = *impl_;
   cudaStream_t st = im.stream;
   const std::size_t src_bytes =
@@ -2060,6 +2387,16 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
                                   static_cast<std::size_t>(im.channels);
   const std::uint64_t f = impl_->frames;
   const std::uint64_t n = im.cfg.stream_length;
+  // The finalize kernel indexes the meta table by candidate order.
+  if (frame_order >= n) return false;
+  if (im.cfg.emit_profiles) {
+    // The profile contract requires a valid meta row per frame; an absent
+    // or malformed row fails the call (the CPU reduce throws).
+    if (meta_or_null == nullptr ||
+        !std::isfinite(meta_or_null->g_eff) || meta_or_null->g_eff < 0.0f ||
+        !std::isfinite(meta_or_null->residual_factor))
+      return false;
+  }
   const bool keep_all =
       n <= static_cast<std::uint64_t>(im.cfg.reservoir_size);
   const std::uint64_t threshold =
@@ -2068,6 +2405,26 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
                      (static_cast<unsigned __int128>(im.cfg.reservoir_size)
                       << 64) /
                      n);
+  const bool qp = im.cfg.emit_profiles;
+  const float *h_qc = qp && quality_or_null ? quality_or_null->q_composite : nullptr;
+  const float *h_q0 = qp && quality_or_null ? quality_or_null->q_scale0 : nullptr;
+  const float *h_q1 = qp && quality_or_null ? quality_or_null->q_scale1 : nullptr;
+  const float *h_qa = qp && quality_or_null ? quality_or_null->q_artifact : nullptr;
+  unsigned int qmask = (h_qc != nullptr ? 1u : 0u) |
+                       (h_q0 != nullptr ? 2u : 0u) |
+                       (h_q1 != nullptr ? 4u : 0u) |
+                       (h_qa != nullptr ? 8u : 0u);
+  V2FrameMetaDev h_meta{};
+  if (meta_or_null != nullptr) {
+    h_meta.g_eff = meta_or_null->g_eff;
+    h_meta.residual_factor = meta_or_null->residual_factor;
+    h_meta.is_direct = meta_or_null->is_direct;
+  }
+  auto upload = [&](float *dst, const float *src) {
+    return src == nullptr ||
+           cudaMemcpyAsync(dst, src, src_bytes, cudaMemcpyHostToDevice, st) ==
+               cudaSuccess;
+  };
   bool ok = cudaEventRecord(im.ev_up0[f], st) == cudaSuccess &&
             cudaMemcpyAsync(im.src, source, src_bytes, cudaMemcpyHostToDevice,
                             st) == cudaSuccess &&
@@ -2076,16 +2433,40 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
                              cudaMemcpyHostToDevice, st) == cudaSuccess) &&
             (!im.s2 || sigma2_or_null ||
              cudaMemsetAsync(im.s2, 0, src_bytes, st) == cudaSuccess) &&
+            upload(im.qc, h_qc) && upload(im.q0, h_q0) &&
+            upload(im.q1, h_q1) && upload(im.qa, h_qa) &&
+            (!qp ||
+             cudaMemcpyAsync(im.meta + frame_order, &h_meta,
+                             sizeof(V2FrameMetaDev), cudaMemcpyHostToDevice,
+                             st) == cudaSuccess) &&
             cudaEventRecord(im.ev_up1[f], st) == cudaSuccess &&
             cudaMemsetAsync(im.fa, 0, plane_bytes, st) == cudaSuccess &&
             cudaMemsetAsync(im.fbs, 0, plane_bytes, st) == cudaSuccess &&
             cudaMemsetAsync(im.fbg, 0, plane_bytes, st) == cudaSuccess &&
             (!im.fs2 ||
              cudaMemsetAsync(im.fs2, 0, plane_bytes, st) == cudaSuccess) &&
+            (!qp ||
+             (cudaMemsetAsync(im.fqc, 0, plane_bytes, st) == cudaSuccess &&
+              cudaMemsetAsync(im.fq0, 0, plane_bytes, st) == cudaSuccess &&
+              cudaMemsetAsync(im.fq1, 0, plane_bytes, st) == cudaSuccess &&
+              cudaMemsetAsync(im.fqa, 0, plane_bytes, st) == cudaSuccess &&
+              cudaMemsetAsync(im.fqaf, 0, plane_bytes, st) == cudaSuccess)) &&
             cudaEventRecord(im.ev_k0[f], st) == cudaSuccess;
   if (!ok) {
     cudaGetLastError();
     return false;
+  }
+  V2QualityIO qio;
+  if (qp) {
+    qio.qc = h_qc != nullptr ? im.qc : nullptr;
+    qio.q0 = h_q0 != nullptr ? im.q0 : nullptr;
+    qio.q1 = h_q1 != nullptr ? im.q1 : nullptr;
+    qio.qa = h_qa != nullptr ? im.qa : nullptr;
+    qio.fqc = im.fqc;
+    qio.fq0 = im.fq0;
+    qio.fq1 = im.fq1;
+    qio.fqa = im.fqa;
+    qio.fqaf = im.fqaf;
   }
   {
     const int block = 128;
@@ -2109,7 +2490,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
           im.irows, im.source_w, im.source_h, im.src,
           im.fs2 ? im.s2 : nullptr, im.cfg.bayer_pattern, im.cfg.cfa_origin_x,
           im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0, canvas_w, canvas_h,
-          im.fa, im.fbs, im.fbg, im.fs2, im.scalars, im.scalars + 2);
+          im.fa, im.fbs, im.fbg, im.fs2, qio, im.scalars, im.scalars + 2);
     } else {
       k_scatter_v2<<<grid, block, 0, st>>>(
           affine6[0], affine6[1], affine6[2], affine6[3], affine6[4],
@@ -2117,7 +2498,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
           im.icols, im.irows, im.source_w, im.source_h, im.src,
           im.fs2 ? im.s2 : nullptr, im.cfg.bayer_pattern, im.cfg.cfa_origin_x,
           im.cfg.cfa_origin_y, im.cfg.mono ? 1 : 0, im.fa, im.fbs, im.fbg,
-          im.fs2, im.scalars);
+          im.fs2, qio, im.scalars);
     }
   }
   {
@@ -2126,11 +2507,13 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
     const unsigned int grid =
         static_cast<unsigned int>((nplane + block - 1) / block);
     k_fold_accumulate_v2<<<grid, block, 0, st>>>(
-        im.fa, im.fbs, im.fbg, im.fs2, im.icols, im.irows,
+        im.fa, im.fbs, im.fbg, im.fs2, im.fqc, im.fq0, im.fq1, im.fqa,
+        im.fqaf, qmask, im.icols, im.irows,
         im.cfg.internal_scale, im.ncols, im.nrows, im.channels, frame_order,
         keep_all ? 1 : 0, threshold, im.res_slots, im.cfg.reservoir_seed,
         im.accA, im.accB, im.accB2, im.covB, im.covB2, im.confS, im.confC,
-        im.contrib, im.kept, im.footprint, im.supp, im.degraded, im.res);
+        im.contrib, im.kept, im.footprint, im.supp, im.degraded, im.res,
+        im.resq);
   }
   ok = cudaGetLastError() == cudaSuccess &&
        cudaEventRecord(im.ev_k1[f], st) == cudaSuccess;
@@ -2147,20 +2530,24 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
 
 bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame(
     const double affine6[6], const float *source, const float *sigma2_or_null,
-    std::uint64_t frame_order) {
+    std::uint64_t frame_order,
+    const ForwardDrizzleV2FrameQuality *quality_or_null,
+    const ForwardDrizzleV2FrameMeta *meta_or_null) {
   if (impl_ == nullptr || affine6 == nullptr || source == nullptr ||
       impl_->finalized || impl_->frames >= impl_->cfg.stream_length)
     return false;
   for (int i = 0; i < 6; ++i)
     if (!std::isfinite(affine6[i])) return false;
   return accumulate_frame_impl(affine6, nullptr, source, sigma2_or_null,
-                               frame_order);
+                               frame_order, quality_or_null, meta_or_null);
 }
 
 bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_local(
     const double affine6[6], const ForwardDrizzleV2LocalWarp &warp,
     const float *source, const float *sigma2_or_null,
-    std::uint64_t frame_order) {
+    std::uint64_t frame_order,
+    const ForwardDrizzleV2FrameQuality *quality_or_null,
+    const ForwardDrizzleV2FrameMeta *meta_or_null) {
   if (impl_ == nullptr || affine6 == nullptr || source == nullptr ||
       impl_->finalized || impl_->frames >= impl_->cfg.stream_length)
     return false;
@@ -2168,13 +2555,16 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_local(
     if (!std::isfinite(affine6[i])) return false;
   if (!local_warp_valid(warp)) return false;
   return accumulate_frame_impl(affine6, &warp, source, sigma2_or_null,
-                               frame_order);
+                               frame_order, quality_or_null, meta_or_null);
 }
 
 bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
-    ForwardDrizzleV2PixelResult *results, std::uint64_t *dense_overlap_count) {
+    ForwardDrizzleV2PixelResult *results,
+    ForwardDrizzleV2ProfileResult *profiles_or_null,
+    std::uint64_t *dense_overlap_count) {
   if (impl_ == nullptr || results == nullptr || impl_->finalized) return false;
   Impl &im = *impl_;
+  if (im.cfg.emit_profiles && profiles_or_null == nullptr) return false;
   cudaStream_t st = im.stream;
   const std::size_t n_pc = im.nplane * static_cast<std::size_t>(im.channels);
   const int block = 128;
@@ -2184,18 +2574,27 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
   k_finalize_v2<<<grid, block, 0, st>>>(
       im.ncols, im.nrows, im.channels,
       im.cfg.internal_scale * im.cfg.internal_scale, im.res_slots, im.frames,
+      im.cfg.stream_length,
       im.cfg.min_candidates, im.cfg.min_clip_contributors,
       im.cfg.robust_passes, im.cfg.sigma_low, im.cfg.sigma_high, im.accA,
       im.accB, im.accB2, im.confS, im.confC, im.contrib, im.kept, im.footprint,
-      im.supp, im.degraded, im.res, im.out, im.scalars + 1);
+      im.supp, im.degraded, im.res, im.resq, im.meta,
+      static_cast<double>(im.cfg.fine_quality_exponent),
+      static_cast<double>(im.cfg.medium_quality_exponent),
+      AlphaConfidenceParams{}, im.pout, im.out, im.scalars + 1);
   if (cudaGetLastError() != cudaSuccess) return false;
   unsigned long long h_scalars[3] = {0, 0, 0};
   std::vector<unsigned int> h_kept(n_pc), h_contrib(n_pc);
   const std::size_t out_bytes = n_pc * sizeof(ForwardDrizzleV2PixelResult);
+  const std::size_t prof_bytes =
+      im.cfg.emit_profiles ? n_pc * sizeof(ForwardDrizzleV2ProfileResult) : 0;
   const std::size_t cnt_bytes = n_pc * sizeof(unsigned int);
   bool ok =
       cudaMemcpyAsync(results, im.out, out_bytes, cudaMemcpyDeviceToHost, st) ==
           cudaSuccess &&
+      (!im.cfg.emit_profiles ||
+       cudaMemcpyAsync(profiles_or_null, im.pout, prof_bytes,
+                       cudaMemcpyDeviceToHost, st) == cudaSuccess) &&
       cudaMemcpyAsync(h_scalars, im.scalars, sizeof(h_scalars),
                       cudaMemcpyDeviceToHost, st) == cudaSuccess &&
       cudaMemcpyAsync(h_kept.data(), im.kept, cnt_bytes,
@@ -2233,8 +2632,8 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
   }
   stats_.reservoir_kept_total = kept_sum;
   stats_.candidates_streamed = cand_sum;
-  stats_.result_bytes_downloaded += out_bytes + sizeof(h_scalars) +
-                                    2 * cnt_bytes;
+  stats_.result_bytes_downloaded += out_bytes + prof_bytes +
+                                    sizeof(h_scalars) + 2 * cnt_bytes;
   return true;
 }
 

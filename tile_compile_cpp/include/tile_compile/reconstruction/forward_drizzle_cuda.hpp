@@ -25,6 +25,8 @@
 #include <functional>
 #include <stdexcept>
 
+#include "tile_compile/reconstruction/forward_drizzle_v2.hpp"
+
 namespace tile_compile::reconstruction {
 
 // Thrown when the CUDA forward-drizzle path cannot complete a chunk (real
@@ -366,6 +368,26 @@ struct ForwardDrizzleV2KernelConfig {
   // 0 = the band covers the whole canvas (use the band dims).
   int canvas_width_native = 0;
   int canvas_height_native = 0;
+  // Gate-9: profile production. When true, reserve() additionally allocates
+  // the five quality frame planes (Q_c, Q_0, Q_1, Q_a, Q_aflag), the float4
+  // reservoir side array, the per-frame meta table and the profile result
+  // buffer; finalize() then also emits ForwardDrizzleV2ProfileResult
+  // records. Exponents follow the plan-11.9 profile contract.
+  bool emit_profiles = false;
+  float fine_quality_exponent = 4.0f;
+  float medium_quality_exponent = 2.0f;
+};
+
+// Gate-9 optional per-frame quality source planes (source resolution,
+// row-major float, same extent as `source`). A null pointer marks an absent
+// stream: its folded candidate mean is 1.0 and the artifact stream reports
+// qa_has_data=false. Per-sample NaN/<=0 contributes 0 to the area-weighted
+// mean (explicit veto, matching the CPU contract).
+struct ForwardDrizzleV2FrameQuality {
+  const float *q_composite = nullptr;
+  const float *q_scale0 = nullptr;
+  const float *q_scale1 = nullptr;
+  const float *q_artifact = nullptr;
 };
 
 // Per-native-pixel per-channel band result (AoS record, downloaded once).
@@ -422,11 +444,17 @@ class ForwardDrizzleV2CudaPrototypeKernel {
   // slot. Counted as the single allowed allocation batch.
   bool reserve(int native_cols, int native_rows, int source_w, int source_h,
                const ForwardDrizzleV2KernelConfig &cfg);
-  // One frame: upload source (+sigma2), scatter, fold+accumulate. All async
-  // on the workspace stream; no allocations, no sync.
+  // One frame: upload source (+sigma2, +quality planes when profiles are
+  // enabled), scatter, fold+accumulate. All async on the workspace stream;
+  // no allocations, no sync. When cfg.emit_profiles is set, `meta_or_null`
+  // must supply the frame's g_eff/is_direct/residual_factor row (the call
+  // fails otherwise); without profiles both extras may stay null.
   bool accumulate_frame(const double affine6[6], const float *source,
-                        const float *sigma2_or_null,
-                        std::uint64_t frame_order);
+                        const float *sigma2_or_null, std::uint64_t frame_order,
+                        const ForwardDrizzleV2FrameQuality *quality_or_null =
+                            nullptr,
+                        const ForwardDrizzleV2FrameMeta *meta_or_null =
+                            nullptr);
   // Gate-8 local-warp variant: same contract as accumulate_frame but the
   // per-sample geometry runs the on-device fixed-point inversion +
   // adaptive subdivision instead of the single affine leaf. affine6 remains
@@ -440,12 +468,19 @@ class ForwardDrizzleV2CudaPrototypeKernel {
                               const ForwardDrizzleV2LocalWarp &warp,
                               const float *source,
                               const float *sigma2_or_null,
-                              std::uint64_t frame_order);
+                              std::uint64_t frame_order,
+                              const ForwardDrizzleV2FrameQuality *quality_or_null =
+                                  nullptr,
+                              const ForwardDrizzleV2FrameMeta *meta_or_null =
+                                  nullptr);
   // Band end: finalize kernel + single stream sync + result download.
   // results must hold native_cols*native_rows*channels entries
-  // (channel-major). dense_overlap_count receives the number of native
+  // (channel-major); when cfg.emit_profiles is set, profiles_or_null must
+  // hold the same number of ForwardDrizzleV2ProfileResult records (the call
+  // fails otherwise). dense_overlap_count receives the number of native
   // pixels covered by every processed frame.
   bool finalize(ForwardDrizzleV2PixelResult *results,
+                ForwardDrizzleV2ProfileResult *profiles_or_null,
                 std::uint64_t *dense_overlap_count);
   const ForwardDrizzleV2PrototypeStats &stats() const { return stats_; }
   std::size_t device_bytes_per_native_pixel() const {
@@ -459,7 +494,9 @@ class ForwardDrizzleV2CudaPrototypeKernel {
                              const ForwardDrizzleV2LocalWarp *warp,
                              const float *source,
                              const float *sigma2_or_null,
-                             std::uint64_t frame_order);
+                             std::uint64_t frame_order,
+                             const ForwardDrizzleV2FrameQuality *quality_or_null,
+                             const ForwardDrizzleV2FrameMeta *meta_or_null);
   struct Impl;
   Impl *impl_ = nullptr;
   ForwardDrizzleV2PrototypeStats stats_;

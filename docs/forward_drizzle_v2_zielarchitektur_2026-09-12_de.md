@@ -84,8 +84,11 @@ Gate-Abschluss, wenn alle Exit-Kriterien des jeweiligen Gates erfüllt sind.
 | 3 | Produktions-Clip-Oracle, MoM-Kandidaten (K 17/41) und deterministisches Hash-Reservoir; 21-Fall-Adversarialmatrix inkl. Produktions-N=600 | **bestanden: reservoir_sigma_clip (R=64) ausgewählt**; worst-vs-oracle 0,036 bei eingefrorener Schranke 2,0; bit-identisch zum Oracle für N≤64; kein Replay, kein Supportverlust |
 | 4 | Sigma-Modell `noise² + (gx²+gy²)·σ_reg² + half²/3`, Confidence `S_c²/(S_c²+C_c)` mit `fallback_n_eff`, Degraded-Zählung, FP64-Akkumulatoren gemessen | **bestanden**; FP32 und Neumaier-FP32 scheitern an der 1e-12-Schranke, FP64 ausgewählt; Provider-Schema und GPU-Confidence-Parität an Gate 7/6 delegiert |
 | 5 | exakte overflow-geprüfte RAM-/VRAM-Formel mit gefrorener Rollentabelle (Reservoir 64×24 B, FP64-Confidence), Slot-gebundene Host-Pinning-Lebensdauer, X-Tile-Fallback, RA-Schranke | **bestanden**; Full-Width auf Produktionsgeometrie bis ~2 GiB Device, N-unabhängig; große Halos (≥14 bei 5 GiB) verletzen die konservative RA-Schranke — Gate-9-Konsequenz dokumentiert |
-| 6 | persistente Source-/A-/B-Devicebuffer für den Scatter-Spike | nicht bestanden: synchron, keine Q-/Robust-/Coverage-/Fold-/Stream-Pipeline und keine vollständige Telemetrie |
-| 7–10 | keine v2-Implementierung | offen |
+| 6 | persistenter unpublizierter Prototypkern: eine Allokationsphase, asynchrone Stream-Pipeline, bit-exakter Gate-3-Clip-Port | **bestanden**; 0,016 s/Frame auf Produktionsband, 1 Allokation, 0 globale Syncs, 13.090 B/px ≤ Plan |
+| 7 | v2-Artefaktschema mit `band_boundary_resume`, Atomic-Commit, fail-closed Inspection | **bestanden**; 21-Fall-Fehlermatrix, resume = memcmp-identisch zum Dauerlauf |
+| 8 | kompakte Koeffizienten + On-Device-Inversion, exakte `invert/subdivide`-Ports | **bestanden**; Depth-2/Inversionsstress/Discard-Parität nachgewiesen, 0,091 s/Frame |
+| 9 | Profilproduktion U/R/F/M über geteilter Clip-Maske, Quality-Side-Array, Ring-/Halo-Vertrag, CPU-Fusion auf committeten Bändern | **bestanden**; Device-Parität zum Orakel, RA ≤ 1,1 auf Produktionsplan, 19.954 B/px ≤ amendierter Plan, matched-star-Fallbacks |
+| 10 | Cutover (Produktionsläufe, 600-Frame-Gates, Runner-Verdrahtung) | offen |
 
 Die affine Gate-0-Referenz ist versioniert in
 `docs/forward_drizzle_v2_gate0_affine_reference_2026-09-12.json`. Sie bindet
@@ -1529,15 +1532,66 @@ Artefakte:
 `forward_drizzle_v2_gate8_local_warp_spec_2026-09-12.json`,
 `..._results_2026-09-12.jsonl`, `..._decision_2026-09-12.json`.
 
-### Gate 9: Streaming-Multiband
+### Gate 9: Streaming-Multiband — **bestanden**
 
-- Kalibrierung des in Gate 4 definierten Confidence-Modells;
-- Halo- und Ringbuffervertrag;
-- GPU-/CPU-Fusion;
-- matched-star-Validierung;
-- Raw/Uniform-Fallbackvertrag.
+**Exit (bestanden 2026-09-12):** Vier Profile (Uniform `b`, Raw `b·g_eff·q_c`,
+Fine `b·g_eff·q0⁴`, Medium `b·g_eff·q1²`) werden device-seitig über **einer**
+geteilten Gate-3-Clip-Maske reduziert; Qualität geht nie in die
+Clip-Entscheidung ein. Der Quality-Fold mittelt pro Kandidat über exakt
+die Finite-Source-Population von `b_src`; fehlende Streams falten als 1,0,
+nichtpositive/NaN-Werte als 0 (Veto), Artefakt-Präsenz separat über die
+Finite-Fläche (`qaf`). Device-Layout: vier f32-Quality-Upload-Ebenen,
+fünf f64-Akkumulatorebenen (Qc/Q0/Q1/Qa/Qaf), `float4`-Reservoir-Side-Array
+pro Slot (mit den Records mitsortiert) und eine 16-B-Frame-Meta-Tabelle
+(`g_eff`, `is_direct`, `residual_factor`) — alles in der einzigen
+`reserve()`-Allokation, nur bei `emit_profiles`.
 
-**Exit:** Multiband ist fachlich wirksam, erzeugt keine Supportänderung und besteht Qualitätsgates.
+Alpha-Faktoren: `a_separation = clamp01(Gate-4-Confidence)` — eine
+vollständig degradierte Sigma-Population ist explizit „keine
+Separations-Evidenz" und kollabiert auf 0; `a_artifact` aus gewichtetem
+qa-p10 + Smoothstep, `a_registration` aus der Meta-Tabelle; OSC-Aggregation
+per Kanal-Minimum; globaler Near-Zero-Fall wird als eigene Diagnose
+gemeldet, nie stillschweigend als Erfolg.
+
+Ring/Halo: `ForwardDrizzleV2MultibandRing` erzwingt In-Order-Band-
+Finalisierung (Duplikate/außerhalb = Fehler), meldet den Immutabilitäts-
+punkt des Fusionskerns und hält residente Bänder ≤ ⌊2·halo/band_rows⌋+2.
+Reuse-aware Read-Amplification: die Anwendung liest jede benötigte
+Source-Zeile einmal plus Kanten-Halo; der Produktionsplan erreicht
+RA ≤ 1,1 (Halo 64), womit der Gate-5-Befund großer Halos aufgelöst ist.
+
+**Fusionsentscheidung:** CPU-Fusion auf committeten Band-Outputs
+(`fuse_multiband_streamed`), bit-identisch zur Whole-Frame-Fusion auf
+gestützten Pixeln (NaN-bewusster Vergleich); einzige Caveat bleibt die
+dokumentierte B3-Flood-Fill-Streifenkante. Fused-Support ⊆ Uniform-/Raw-
+Support. Ein Device-Fusions-Port kann in Gate 10 neu entschieden werden,
+falls die gemessene Fusionszeit das Budget verletzt.
+
+**Implementierungsbefunde (behoben):**
+- Records werden bei Finalize nach `(x, order)` insertion-sortiert — das
+  Quality-Side-Array muss mitwandern; die erste Fassung las `resq` im
+  sortierten Index und ordnete Quality-Mittel falsch zu.
+- `device_bytes_per_native_pixel` zählte Quality-Upload-Ebenen und die
+  Meta-Tabelle fälschlich als Per-Pixel-Zustand; sie sind feste
+  Pipeline-Slots wie src/sigma2 und werden jetzt abgezogen.
+- Spec-Schätzung 14.600 B/px unterschritt das Side-Array (16 B × 128
+  Slots = 2048 B/Kanal); bindend ist der amendierte Plan 20.074 B/px,
+  gemessen 19.954 B/px.
+
+Matched-star-Validierung läuft unverändert über
+`select_reconstruction_candidate`: null effektive Multiband-Sterne
+blockieren die Promotion, `multiband == raw` scheitert am
+Verbesserungsgate (Raw gewinnt), Raw-Safety-Regression fällt auf Uniform
+zurück; Uniform/Raw bleiben immutable Kontrollen an gematchten Positionen.
+
+Nachweis Produktionsgeometrie (60 Frames, OSC, Band 33 Zeilen): max
+0,043 s/Frame (Grenze 0,75 s), 1 Allokation, 0 globale Syncs,
+19.954 B/px ≤ Plan. Testmatrix: 12 Fälle, 31.984 Assertions (`[gate9]`),
+inkl. Device-Parität Scale 1/2 × MONO/OSC, Q-Veto, g_eff≠1,
+Overflow-Fallback, Degraded-Sigma-Device-Fall, Ring/RA, Fusionsparität
+Levels 1–4 und Memory-Amendment. Artefakte:
+`forward_drizzle_v2_gate9_streaming_multiband_spec_2026-09-12.json`,
+`..._results_2026-09-12.jsonl`, `..._decision_2026-09-12.json`.
 
 ### Gate 10: Cutover
 
