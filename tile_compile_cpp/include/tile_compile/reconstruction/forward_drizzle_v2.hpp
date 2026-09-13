@@ -244,40 +244,76 @@ ForwardDrizzleV2RobustResult robust_frame_oracle_v2(
     double sigma_low = 3.0, double sigma_high = 3.0,
     std::span<const double> candidate_sigma2 = {});
 
+// Gate-5 buffer role table: per-target-pixel device storage for the selected
+// architecture (dense scatter + reservoir_sigma_clip + fp64 confidence).
+// Every role is explicit so the formula stays auditable; changing a role
+// changes the plan and its tests.
+struct ForwardDrizzleV2BufferRoles {
+  int reservoir_size = 64;                     // Gate-3 R
+  std::size_t reservoir_candidate_bytes = 24;  // x + b + frame_order
+  int frame_plane_doubles = 2;                 // in-flight frame A/B
+  int robust_doubles = 3;                      // A, B, B2
+  int confidence_doubles = 3;                  // B_c, S_c, C_c
+  std::size_t confidence_counter_bytes = 8;    // conf_degraded
+  int centre_scale_doubles = 2;
+  int fold_staging_doubles = 3;                // folded A/B/B2 per profile
+  std::size_t support_bytes_per_channel = 8;
+  std::size_t support_bytes_per_pixel = 8;     // channel-independent
+};
+
 struct ForwardDrizzleV2MemoryInputs {
   int target_width = 0;
   int target_height = 0;
-  int channels = 0;
-  int robust_groups = 17;
+  int channels = 0;  // 1 or 3
+  // Recorded for provenance only: by contract it must not enter the device
+  // formula and must not shrink tile_cols.
   int frame_count = 0;
+  ForwardDrizzleV2BufferRoles roles;
+  // Device pipeline slots (fixed cost, independent of tile shape).
+  int source_device_slots = 0;
+  std::size_t source_slot_device_bytes = 0;
+  int quality_device_slots = 0;
+  std::size_t quality_slot_device_bytes = 0;
+  // Geometry params, fold scratch, streams/events, allocator reserve.
+  std::size_t device_reserve_bytes = 0;
+  // Host pinned slots: concurrently resident (frame, band) source/Q views,
+  // bounded by the pipeline slot counts - never by frame_count.
+  int pinned_source_slots = 0;
+  int pinned_quality_slots = 0;
+  std::size_t pinned_source_bytes_per_frame_row = 0;
+  std::size_t pinned_quality_bytes_per_frame_row = 0;
+  // Reader caches, output staging, resume/index metadata, codec scratch,
+  // margin.
+  std::size_t host_fixed_bytes = 0;
   std::size_t device_budget_bytes = 0;
   std::size_t host_budget_bytes = 0;
-  std::size_t device_fixed_bytes = 0;
-  std::size_t host_fixed_bytes = 0;
-  // Conservative host bytes pinned per frame and per target row. This folds
-  // source/Q row width, native/internal scale, transform spread and halo into
-  // one caller-proved upper bound.
-  std::size_t pinned_bytes_per_frame_target_row = 0;
+  // Halo rows added to each band edge (multiband; 0 until Gate 9 decides the
+  // radius). Padded rows are resident once, not re-read.
+  int halo_rows_per_band_edge = 0;
+  double max_source_read_amplification = 1.1;
+  double max_quality_read_amplification = 1.1;
 };
 
 struct ForwardDrizzleV2MemoryPlan {
   int tile_cols = 0;
-  int band_rows = 0;
+  int band_rows = 0;       // padded resident rows per band
+  int band_core_rows = 0;  // valid output rows per band (band_rows - 2*halo)
+  int band_count = 0;
   std::size_t device_bytes_per_target_pixel = 0;
+  std::size_t device_dynamic_bytes = 0;
   std::size_t device_peak_bytes = 0;
+  std::size_t host_pinned_bytes = 0;
   std::size_t host_peak_bytes = 0;
+  double predicted_read_amplification = 0.0;
   bool x_tiled = false;
   bool feasible = false;
 };
 
-// Experimental checked RAM/VRAM planner candidate for dense scatter with a
-// fixed-group reducer. Gate 1 selected affine dense scatter, but Gate 5 is not
-// closed: Gates 3 and 4 have not selected reducer or numerics, so this models
-// a candidate layout only.
-// Device pixel storage consists of frame A/B, group A/B, robust A/B/B2,
-// centre/scale, support/confidence and output staging. It is independent of N.
-// Frame count only limits band_rows through pinned source/Q views; it never
-// shrinks tile_cols.
+// Gate-5 checked RAM/VRAM planner for the selected architecture. Device
+// per-pixel bytes follow the frozen role table; host pinning is bounded by
+// pipeline slot counts (per (frame,band) views read once and pinned across
+// all X-tiles), so frame_count can never shrink tile_cols. Returns a
+// non-feasible plan on overflow or any violated bound.
 ForwardDrizzleV2MemoryPlan plan_forward_drizzle_v2_memory(
     const ForwardDrizzleV2MemoryInputs &in);
 

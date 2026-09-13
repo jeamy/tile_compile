@@ -83,7 +83,7 @@ Gate-Abschluss, wenn alle Exit-Kriterien des jeweiligen Gates erfüllt sind.
 | 2 | vierstufiger Support-/Fold-Vertrag, exakter CPU-Fold, CUDA-Paritätsoracle, Flux-/Teilflächenmatrix | **bestanden**; Chunk-/Tile-Grenzen des späteren Batch-Folds bleiben Gate-6-Abnahmekriterium |
 | 3 | Produktions-Clip-Oracle, MoM-Kandidaten (K 17/41) und deterministisches Hash-Reservoir; 21-Fall-Adversarialmatrix inkl. Produktions-N=600 | **bestanden: reservoir_sigma_clip (R=64) ausgewählt**; worst-vs-oracle 0,036 bei eingefrorener Schranke 2,0; bit-identisch zum Oracle für N≤64; kein Replay, kein Supportverlust |
 | 4 | Sigma-Modell `noise² + (gx²+gy²)·σ_reg² + half²/3`, Confidence `S_c²/(S_c²+C_c)` mit `fallback_n_eff`, Degraded-Zählung, FP64-Akkumulatoren gemessen | **bestanden**; FP32 und Neumaier-FP32 scheitern an der 1e-12-Schranke, FP64 ausgewählt; Provider-Schema und GPU-Confidence-Parität an Gate 7/6 delegiert |
-| 5 | vereinfachter experimenteller RAM-/VRAM-Planner | nicht bestanden: Bufferrollen sind vor Gate 3/4 angenommen; Host-Lebensdauer verwendet Framezahl statt aktiver Slots; der isolierte Arithmetiktest ist grün, validiert aber noch nicht die reale Bufferformel |
+| 5 | exakte overflow-geprüfte RAM-/VRAM-Formel mit gefrorener Rollentabelle (Reservoir 64×24 B, FP64-Confidence), Slot-gebundene Host-Pinning-Lebensdauer, X-Tile-Fallback, RA-Schranke | **bestanden**; Full-Width auf Produktionsgeometrie bis ~2 GiB Device, N-unabhängig; große Halos (≥14 bei 5 GiB) verletzen die konservative RA-Schranke — Gate-9-Konsequenz dokumentiert |
 | 6 | persistente Source-/A-/B-Devicebuffer für den Scatter-Spike | nicht bestanden: synchron, keine Q-/Robust-/Coverage-/Fold-/Stream-Pipeline und keine vollständige Telemetrie |
 | 7–10 | keine v2-Implementierung | offen |
 
@@ -1382,7 +1382,28 @@ Pixel/Kanal; Tests: 15 V2-Fälle / 7.470 Assertions.
 - Halo-/Ringbuffer-Lebensdauer;
 - Trusted-Read-Amplification.
 
-**Exit:** Jede Buffergröße, Lebensdauer und Fallbacktilegröße ist berechnet und getestet.
+**Exit (bestanden 2026-09-12):** Die Speicherformel ist gegen die gefrorene
+Rollentabelle geschlossen: `4976 B` je OSC-Zielpixel (Reservoir 64×24 B
+dominant, dazu FP64-Confidence `B_c/S_c/C_c` + Zähler, Frame-A/B, robuste
+A/B/B², Zentrum/Skala, Fold-Staging, Support) plus kanalunabhängige
+8 B/Pixel; MONO `1664 B`. Device-Fixkosten sind Slot-förmig
+(Source-/Quality-Device-Slots + Reserve), Host-Pinning ist über die
+Pipeline-Slotzahlen gebunden — `frame_count` ist reine Provenienz und ändert
+weder `tile_cols` noch `band_rows` (40- vs. 600-Frame-Pläne bitgleich
+getestet). Gemessen auf Produktionsgeometrie 7868×4540: Full-Width ohne
+X-Tiling bis ~2 GiB Device-Budget (126 Zeilen bei 5 GiB, 99 bei 4 GiB,
+44 bei 2 GiB; MONO 379); X-Tile-Fallback `tile_cols = ⌊max_pixels /
+min_padded⌋` verifiziert. Halo wird als `2h+1` gepolsterte Zeilen
+eingepreist; die konservative RA-Obergrenze
+`(H + 2h·bänder)/H` macht Halo 14 bei 5 GiB (RA 1,29) und Halo 62
+(RA 63, Kern kollabiert auf 2 Zeilen) infeasible — Gate 9 muss entweder die
+Bandkanten-Wiederverwendung nach §17.2 in ein reuse-aware RA-Modell
+überführen oder Multiband anders fusionieren. Alle Multiplikationen sind
+overflow-geprüft; Verletzungen erzeugen einen nicht-feasiblen Plan.
+Artefakte:
+`forward_drizzle_v2_gate5_memory_plan_spec_2026-09-12.json`,
+`..._results_2026-09-12.jsonl`, `..._decision_2026-09-12.json`.
+Tests: 15 V2-Fälle / 7.486 Assertions.
 
 ### Gate 6: Minimaler affiner, unpublizierter Prototypkern
 

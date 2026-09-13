@@ -460,38 +460,99 @@ TEST_CASE("forward drizzle v2 robust reducer is bounded and never deletes suppor
 }
 
 TEST_CASE("forward drizzle v2 memory plan is checked and N-independent in X",
-          "[forward-drizzle-v2][memory]") {
+          "[forward-drizzle-v2][memory][gate5]") {
   ForwardDrizzleV2MemoryInputs in;
-  in.target_width = 7680;
-  in.target_height = 4320;
+  in.target_width = 7868;
+  in.target_height = 4540;
   in.channels = 3;
-  in.robust_groups = 17;
-  in.device_budget_bytes = static_cast<std::size_t>(4) << 30;
-  in.host_budget_bytes = static_cast<std::size_t>(16) << 30;
-  in.device_fixed_bytes = static_cast<std::size_t>(512) << 20;
-  in.host_fixed_bytes = static_cast<std::size_t>(1) << 30;
-  in.pinned_bytes_per_frame_target_row = 3840 * 5 * sizeof(float) / 2;
   in.frame_count = 40;
+  in.source_device_slots = 2;
+  in.source_slot_device_bytes = std::size_t{3840} * 2160 * sizeof(float);
+  in.quality_device_slots = 2;
+  in.quality_slot_device_bytes = std::size_t{3840} * 2160 * sizeof(float);
+  in.device_reserve_bytes = std::size_t{256} << 20;
+  in.pinned_source_slots = 4;
+  in.pinned_quality_slots = 4;
+  in.pinned_source_bytes_per_frame_row = 3840 * 4 * sizeof(float);
+  in.pinned_quality_bytes_per_frame_row = 3840 * 4 * sizeof(float);
+  in.host_fixed_bytes = std::size_t{2} << 30;
+  in.device_budget_bytes = std::size_t{5} << 30;
+  in.host_budget_bytes = std::size_t{16} << 30;
+
+  // Exact per-pixel role arithmetic: reservoir 64*24 + (2+3+3+2+3)*8 +
+  // 8 counter + 8 support = 1536+104+8+8 = 1656 per channel; +8 per pixel.
   const auto p40 = plan_forward_drizzle_v2_memory(in);
+  REQUIRE(p40.device_bytes_per_target_pixel == 3 * 1656 + 8);
   REQUIRE(p40.feasible);
-  REQUIRE(p40.tile_cols == 7680);
+  REQUIRE(p40.tile_cols == 7868);
   REQUIRE_FALSE(p40.x_tiled);
+  REQUIRE(p40.band_core_rows == p40.band_rows);
+  REQUIRE(p40.predicted_read_amplification == Catch::Approx(1.0));
+  REQUIRE(p40.device_peak_bytes <= in.device_budget_bytes);
+  REQUIRE(p40.host_peak_bytes <= in.host_budget_bytes);
+
+  // frame_count must not change the plan at all.
   in.frame_count = 600;
   const auto p600 = plan_forward_drizzle_v2_memory(in);
   REQUIRE(p600.feasible);
   REQUIRE(p600.tile_cols == p40.tile_cols);
-  // The device limit may bind both plans; increasing N must never increase
-  // the resolved band height, but equality is valid in a device-bound case.
-  REQUIRE(p600.band_rows <= p40.band_rows);
-  REQUIRE(p600.device_peak_bytes <= in.device_budget_bytes);
-  REQUIRE(p600.host_peak_bytes <= in.host_budget_bytes);
+  REQUIRE(p600.band_rows == p40.band_rows);
+  REQUIRE(p600.device_peak_bytes == p40.device_peak_bytes);
 
-  in.device_budget_bytes = 1024;
-  REQUIRE_FALSE(plan_forward_drizzle_v2_memory(in).feasible);
-  in.device_budget_bytes = std::numeric_limits<std::size_t>::max();
-  in.pinned_bytes_per_frame_target_row =
+  // X-tile fallback: shrink the device budget below one full-width row.
+  ForwardDrizzleV2MemoryInputs xt = in;
+  xt.device_budget_bytes = xt.source_slot_device_bytes * 2 +
+                           xt.quality_slot_device_bytes * 2 +
+                           xt.device_reserve_bytes +
+                           p40.device_bytes_per_target_pixel * 2000;
+  const auto pxt = plan_forward_drizzle_v2_memory(xt);
+  REQUIRE(pxt.feasible);
+  REQUIRE(pxt.x_tiled);
+  REQUIRE(pxt.tile_cols == 2000);
+  REQUIRE(pxt.band_rows == 1);
+
+  // Halo accounting: padded rows charged, core rows reported, RA grows.
+  ForwardDrizzleV2MemoryInputs hh = in;
+  hh.halo_rows_per_band_edge = 2;
+  hh.device_budget_bytes = p40.device_peak_bytes;  // force tight bands
+  const auto ph = plan_forward_drizzle_v2_memory(hh);
+  REQUIRE(ph.feasible);
+  REQUIRE(ph.band_rows == ph.band_core_rows + 4);
+  REQUIRE(ph.band_count ==
+          (in.target_height + ph.band_core_rows - 1) / ph.band_core_rows);
+  REQUIRE(ph.predicted_read_amplification ==
+          Catch::Approx((in.target_height + 4.0 * ph.band_count) /
+                        in.target_height));
+
+  // RA bound rejection: tiny bound with nonzero halo must be infeasible when
+  // more than one band is required.
+  ForwardDrizzleV2MemoryInputs rb = hh;
+  rb.max_source_read_amplification = 1.0;
+  rb.device_budget_bytes =
+      rb.device_reserve_bytes + rb.source_slot_device_bytes * 2 +
+      rb.quality_slot_device_bytes * 2 +
+      p40.device_bytes_per_target_pixel * rb.target_width * 5;
+  const auto prb = plan_forward_drizzle_v2_memory(rb);
+  REQUIRE_FALSE(prb.feasible);
+
+  // Infeasible and overflow paths.
+  ForwardDrizzleV2MemoryInputs bad = in;
+  bad.device_budget_bytes = 1024;
+  REQUIRE_FALSE(plan_forward_drizzle_v2_memory(bad).feasible);
+  bad = in;
+  bad.device_budget_bytes = std::numeric_limits<std::size_t>::max();
+  bad.pinned_source_bytes_per_frame_row =
       std::numeric_limits<std::size_t>::max();
-  REQUIRE_FALSE(plan_forward_drizzle_v2_memory(in).feasible);
+  REQUIRE_FALSE(plan_forward_drizzle_v2_memory(bad).feasible);
+  bad = in;
+  bad.pinned_source_slots = 0;
+  REQUIRE_FALSE(plan_forward_drizzle_v2_memory(bad).feasible);
+  bad = in;
+  bad.channels = 2;
+  REQUIRE_FALSE(plan_forward_drizzle_v2_memory(bad).feasible);
+  bad = in;
+  bad.max_source_read_amplification = 0.5;
+  REQUIRE_FALSE(plan_forward_drizzle_v2_memory(bad).feasible);
 }
 
 TEST_CASE("forward drizzle v2 affine enumeration benchmark",
@@ -1460,5 +1521,62 @@ TEST_CASE("forward drizzle v2 Gate-4 numerics measurement",
         kGate4SpecSha, k.name, g4_conf_state_name(r.conf_state), r.confidence,
         r.conf_b, r.conf_s, r.conf_c,
         static_cast<unsigned long long>(r.conf_degraded), r.value, r.n_eff);
+  }
+}
+
+TEST_CASE("forward drizzle v2 Gate-5 memory plan measurement",
+          "[.][forward-drizzle-v2-gate5]") {
+  const char *sha =
+      "0f47490138ffb9de7a7308ce0e27a6cb20a4068074dc7952a69e346b2887dea4";
+  struct S {
+    const char *name;
+    int halo;
+    std::size_t dev_gib, host_gib;
+    int channels;
+  };
+  const S scenarios[] = {
+      {"production_osc_5gib_16gib", 0, 5, 16, 3},
+      {"production_osc_4gib_16gib", 0, 4, 16, 3},
+      {"production_osc_5gib_halo14", 14, 5, 16, 3},
+      {"production_osc_5gib_halo62", 62, 5, 16, 3},
+      {"production_mono_5gib_16gib", 0, 5, 16, 1},
+      {"production_osc_2gib_16gib", 0, 2, 16, 3},
+  };
+  for (const auto &s : scenarios) {
+    ForwardDrizzleV2MemoryInputs in;
+    in.target_width = 7868;
+    in.target_height = 4540;
+    in.channels = s.channels;
+    in.frame_count = 600;
+    in.source_device_slots = 2;
+    in.source_slot_device_bytes = std::size_t{3840} * 2160 * sizeof(float);
+    in.quality_device_slots = 2;
+    in.quality_slot_device_bytes = std::size_t{3840} * 2160 * sizeof(float);
+    in.device_reserve_bytes = std::size_t{256} << 20;
+    in.pinned_source_slots = 4;
+    in.pinned_quality_slots = 4;
+    in.pinned_source_bytes_per_frame_row = 3840 * 4 * sizeof(float);
+    in.pinned_quality_bytes_per_frame_row = 3840 * 4 * sizeof(float);
+    in.host_fixed_bytes = std::size_t{2} << 30;
+    in.device_budget_bytes = s.dev_gib << 30;
+    in.host_budget_bytes = s.host_gib << 30;
+    in.halo_rows_per_band_edge = s.halo;
+    const auto p = plan_forward_drizzle_v2_memory(in);
+    std::printf(
+        "{\"gate\":5,\"spec_sha256\":\"%s\",\"scenario\":\"%s\","
+        "\"feasible\":%s,\"tile_cols\":%d,\"x_tiled\":%s,"
+        "\"band_rows\":%d,\"band_core_rows\":%d,\"band_count\":%d,"
+        "\"bytes_per_pixel\":%llu,\"device_dynamic\":%llu,"
+        "\"device_peak\":%llu,\"host_pinned\":%llu,\"host_peak\":%llu,"
+        "\"predicted_ra\":%.6f}\n",
+        sha, s.name, p.feasible ? "true" : "false", p.tile_cols,
+        p.x_tiled ? "true" : "false", p.band_rows, p.band_core_rows,
+        p.band_count,
+        static_cast<unsigned long long>(p.device_bytes_per_target_pixel),
+        static_cast<unsigned long long>(p.device_dynamic_bytes),
+        static_cast<unsigned long long>(p.device_peak_bytes),
+        static_cast<unsigned long long>(p.host_pinned_bytes),
+        static_cast<unsigned long long>(p.host_peak_bytes),
+        p.predicted_read_amplification);
   }
 }

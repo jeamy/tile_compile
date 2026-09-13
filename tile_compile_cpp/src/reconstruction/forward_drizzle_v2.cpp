@@ -859,58 +859,136 @@ ForwardDrizzleV2RobustResult robust_reduce_candidates_v2(
 ForwardDrizzleV2MemoryPlan plan_forward_drizzle_v2_memory(
     const ForwardDrizzleV2MemoryInputs &in) {
   ForwardDrizzleV2MemoryPlan out;
+  const auto &r = in.roles;
   if (in.target_width <= 0 || in.target_height <= 0 ||
-      (in.channels != 1 && in.channels != 3) || in.robust_groups < 3 ||
-      in.frame_count <= 0 || in.device_budget_bytes <= in.device_fixed_bytes ||
-      in.host_budget_bytes <= in.host_fixed_bytes ||
-      in.pinned_bytes_per_frame_target_row == 0)
+      (in.channels != 1 && in.channels != 3) || in.frame_count <= 0 ||
+      r.reservoir_size < 1 || r.reservoir_candidate_bytes == 0 ||
+      r.frame_plane_doubles < 0 || r.robust_doubles < 0 ||
+      r.confidence_doubles < 0 || r.centre_scale_doubles < 0 ||
+      r.fold_staging_doubles < 0 || in.source_device_slots < 0 ||
+      in.quality_device_slots < 0 || in.pinned_source_slots < 0 ||
+      in.pinned_quality_slots < 0 || in.halo_rows_per_band_edge < 0 ||
+      !std::isfinite(in.max_source_read_amplification) ||
+      in.max_source_read_amplification < 1.0 ||
+      !std::isfinite(in.max_quality_read_amplification) ||
+      in.max_quality_read_amplification < 1.0)
+    return out;
+  // A nonzero per-row byte bound requires at least one resident slot.
+  if ((in.pinned_source_bytes_per_frame_row > 0 &&
+       in.pinned_source_slots < 1) ||
+      (in.pinned_quality_bytes_per_frame_row > 0 &&
+       in.pinned_quality_slots < 1) ||
+      (in.source_slot_device_bytes > 0 && in.source_device_slots < 1) ||
+      (in.quality_slot_device_bytes > 0 && in.quality_device_slots < 1))
     return out;
 
-  // Per channel: frame A/B (2), group A/B (2*K), robust A/B/B2 (3),
-  // centre/scale (2), folded/output staging (3) doubles plus support and state
-  // bytes. The CUDA implementation must reserve exactly these roles before
-  // Gate 6 can publish; changing a role changes this formula and its tests.
-  std::size_t doubles_per_channel =
-      static_cast<std::size_t>(2 * in.robust_groups + 10);
-  std::size_t per_channel_bytes = 0, pixel_bytes = 0;
-  if (!checked_mul(doubles_per_channel, sizeof(double), per_channel_bytes) ||
-      !checked_add(per_channel_bytes, 2, per_channel_bytes) ||
-      !checked_mul(per_channel_bytes, static_cast<std::size_t>(in.channels),
-                   pixel_bytes))
+  // Per-pixel-per-channel device bytes from the frozen role table.
+  std::size_t per_channel = 0, tmp = 0, pixel_bytes = 0;
+  const std::size_t role_doubles =
+      static_cast<std::size_t>(r.frame_plane_doubles) +
+      static_cast<std::size_t>(r.robust_doubles) +
+      static_cast<std::size_t>(r.confidence_doubles) +
+      static_cast<std::size_t>(r.centre_scale_doubles) +
+      static_cast<std::size_t>(r.fold_staging_doubles);
+  if (!checked_mul(static_cast<std::size_t>(r.reservoir_size),
+                   r.reservoir_candidate_bytes, per_channel) ||
+      !checked_mul(role_doubles, sizeof(double), tmp) ||
+      !checked_add(per_channel, tmp, per_channel) ||
+      !checked_add(per_channel, r.confidence_counter_bytes, per_channel) ||
+      !checked_add(per_channel, r.support_bytes_per_channel, per_channel) ||
+      !checked_mul(per_channel, static_cast<std::size_t>(in.channels),
+                   pixel_bytes) ||
+      !checked_add(pixel_bytes, r.support_bytes_per_pixel, pixel_bytes))
     return out;
   out.device_bytes_per_target_pixel = pixel_bytes;
-  const std::size_t device_usable =
-      in.device_budget_bytes - in.device_fixed_bytes;
-  const std::size_t max_pixels = device_usable / pixel_bytes;
-  if (max_pixels == 0) return out;
 
-  out.tile_cols = static_cast<int>(std::min<std::size_t>(
-      static_cast<std::size_t>(in.target_width), max_pixels));
-  out.x_tiled = out.tile_cols < in.target_width;
-  if (out.tile_cols <= 0) return out;
-  const std::size_t device_rows = max_pixels / out.tile_cols;
-
-  std::size_t pinned_per_row = 0;
-  if (!checked_mul(in.pinned_bytes_per_frame_target_row,
-                   static_cast<std::size_t>(in.frame_count), pinned_per_row) ||
-      pinned_per_row == 0)
+  // Device fixed roles: pipeline slots and reserve.
+  std::size_t device_fixed = 0;
+  if (!checked_mul(static_cast<std::size_t>(in.source_device_slots),
+                   in.source_slot_device_bytes, device_fixed) ||
+      !checked_mul(static_cast<std::size_t>(in.quality_device_slots),
+                   in.quality_slot_device_bytes, tmp) ||
+      !checked_add(device_fixed, tmp, device_fixed) ||
+      !checked_add(device_fixed, in.device_reserve_bytes, device_fixed) ||
+      device_fixed >= in.device_budget_bytes)
     return out;
-  const std::size_t host_usable = in.host_budget_bytes - in.host_fixed_bytes;
-  const std::size_t host_rows = host_usable / pinned_per_row;
-  const std::size_t rows = std::min(
-      {device_rows, host_rows, static_cast<std::size_t>(in.target_height)});
-  if (rows == 0) return out;
-  out.band_rows = static_cast<int>(rows);
-  std::size_t pixels = 0, device_dynamic = 0, host_dynamic = 0;
-  if (!checked_mul(static_cast<std::size_t>(out.tile_cols), rows, pixels) ||
-      !checked_mul(pixels, pixel_bytes, device_dynamic) ||
-      !checked_add(in.device_fixed_bytes, device_dynamic,
+  const std::size_t device_usable = in.device_budget_bytes - device_fixed;
+  const std::size_t max_pixels = device_usable / pixel_bytes;
+
+  // Minimum padded band height: one core row plus halo on both edges.
+  std::size_t min_padded = 0;
+  if (!checked_mul(static_cast<std::size_t>(in.halo_rows_per_band_edge), 2,
+                   min_padded) ||
+      !checked_add(min_padded, std::size_t{1}, min_padded))
+    return out;
+
+  // Full-width first; X-tiling only when one padded full-width row does not
+  // fit. tile_cols never depends on frame_count.
+  const std::size_t max_cols_for_band = max_pixels / min_padded;
+  out.tile_cols = static_cast<int>(std::min<std::size_t>(
+      static_cast<std::size_t>(in.target_width), max_cols_for_band));
+  if (out.tile_cols <= 0) return out;
+  out.x_tiled = out.tile_cols < in.target_width;
+  const std::size_t device_rows = max_pixels / static_cast<std::size_t>(out.tile_cols);
+
+  // Host pinned bytes per padded band row, bounded by slot counts.
+  std::size_t pinned_per_row = 0;
+  if (!checked_mul(static_cast<std::size_t>(in.pinned_source_slots),
+                   in.pinned_source_bytes_per_frame_row, pinned_per_row) ||
+      !checked_mul(static_cast<std::size_t>(in.pinned_quality_slots),
+                   in.pinned_quality_bytes_per_frame_row, tmp) ||
+      !checked_add(pinned_per_row, tmp, pinned_per_row))
+    return out;
+  std::size_t host_rows = std::numeric_limits<std::size_t>::max();
+  if (pinned_per_row > 0) {
+    if (in.host_fixed_bytes >= in.host_budget_bytes) return out;
+    host_rows = (in.host_budget_bytes - in.host_fixed_bytes) / pinned_per_row;
+  } else if (in.host_fixed_bytes > in.host_budget_bytes) {
+    return out;
+  }
+
+  const std::size_t halo2 =
+      2 * static_cast<std::size_t>(in.halo_rows_per_band_edge);
+  std::size_t needed_rows = 0;
+  if (!checked_add(static_cast<std::size_t>(in.target_height), halo2,
+                   needed_rows))
+    return out;
+  const std::size_t padded_rows =
+      std::min({device_rows, host_rows, needed_rows});
+  if (padded_rows < min_padded ||
+      padded_rows > static_cast<std::size_t>(
+                        std::numeric_limits<int>::max()))
+    return out;
+  out.band_rows = static_cast<int>(padded_rows);
+  out.band_core_rows = static_cast<int>(padded_rows - halo2);
+  out.band_count = static_cast<int>(
+      (static_cast<std::size_t>(in.target_height) +
+       static_cast<std::size_t>(out.band_core_rows) - 1) /
+      static_cast<std::size_t>(out.band_core_rows));
+  // Conservative bound: every band is charged its full halo even though the
+  // lifetime contract reuses shared edge rows.
+  out.predicted_read_amplification =
+      (static_cast<double>(in.target_height) +
+       2.0 * static_cast<double>(in.halo_rows_per_band_edge) *
+           static_cast<double>(out.band_count)) /
+      static_cast<double>(in.target_height);
+
+  std::size_t pixels = 0;
+  if (!checked_mul(static_cast<std::size_t>(out.tile_cols), padded_rows,
+                   pixels) ||
+      !checked_mul(pixels, pixel_bytes, out.device_dynamic_bytes) ||
+      !checked_add(device_fixed, out.device_dynamic_bytes,
                    out.device_peak_bytes) ||
-      !checked_mul(pinned_per_row, rows, host_dynamic) ||
-      !checked_add(in.host_fixed_bytes, host_dynamic, out.host_peak_bytes))
+      !checked_mul(pinned_per_row, padded_rows, out.host_pinned_bytes) ||
+      !checked_add(in.host_fixed_bytes, out.host_pinned_bytes,
+                   out.host_peak_bytes))
     return ForwardDrizzleV2MemoryPlan{};
   out.feasible = out.device_peak_bytes <= in.device_budget_bytes &&
-                 out.host_peak_bytes <= in.host_budget_bytes;
+                 out.host_peak_bytes <= in.host_budget_bytes &&
+                 out.predicted_read_amplification <=
+                     in.max_source_read_amplification &&
+                 out.predicted_read_amplification <=
+                     in.max_quality_read_amplification;
   return out;
 }
 

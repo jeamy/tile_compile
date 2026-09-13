@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "gate": 5,
+  "status": "frozen_decided",
+  "context": {
+    "purpose": "exact checked RAM/VRAM/temp formula, full-width and X-tile plans, buffer lifetime contract and pre-set read-amplification bounds for the selected v2 architecture",
+    "selected_inputs": {
+      "gate1": "dense_device_scatter",
+      "gate3": "reservoir_sigma_clip R=64, candidate = 24 B (x double, b double, frame_order uint64)",
+      "gate4": "fp64 accumulators; confidence adds B_c/S_c/C_c = 3 doubles + degraded counter per pixel/channel",
+      "gate2": "fold output + four independent area fractions + support flags per native output pixel"
+    },
+    "deferred": [
+      "multiband halo radius decided in gate 9; the plan exposes halo_rows_per_band_edge and reserves the role now",
+      "local warp grids are a gate-8 buffer role; not in this formula",
+      "resume/index metadata byte sizes are gate-7 inputs passed as host_fixed"
+    ]
+  },
+  "device_per_pixel_roles": {
+    "note": "per target pixel per channel unless marked per_pixel",
+    "reservoir": "reservoir_size x 24 B = 1536 B (R=64)",
+    "frame_planes": "2 doubles = 16 B (frame A/B of the in-flight frame)",
+    "robust": "3 doubles = 24 B (A, B, B2)",
+    "confidence": "3 doubles + 8 B counter = 32 B (B_c, S_c, C_c, conf_degraded)",
+    "centre_scale": "2 doubles = 16 B",
+    "fold_staging": "3 doubles = 24 B (folded A_out, B_out, B2_out per profile slot)",
+    "support_state_per_channel": "8 B (estimator/profile area fractions + state)",
+    "support_state_per_pixel": "8 B (geometry/source fractions, channel-independent)",
+    "total_default": "3*(1536+16+24+32+16+24+8) + 8 = 4976 B per OSC target pixel"
+  },
+  "device_fixed_roles": {
+    "source_device_slots": "source_device_slots x source_slot_device_bytes (in-flight normalized source frames)",
+    "quality_device_slots": "quality_device_slots x quality_slot_device_bytes",
+    "device_reserve": "geometry parameters, fold scratch, streams/events, CUDA allocator reserve - caller-proved bound"
+  },
+  "host_roles": {
+    "pinned_source": "pinned_source_slots x pinned_source_bytes_per_frame_row x band_rows_padded",
+    "pinned_quality": "pinned_quality_slots x pinned_quality_bytes_per_frame_row x band_rows_padded",
+    "lifetime_contract": "slot counts bound the concurrently resident (frame,band) views - NOT frame_count; a (frame,band) view is read once and pinned across all X-tiles (section 17.2)",
+    "host_fixed": "reader caches, output staging, resume/index metadata, codec scratch, margin"
+  },
+  "tile_plan": {
+    "order": "full-width band first; X-tiling only when the device cannot hold even one full-width padded row",
+    "n_independence": "tile_cols and device per-pixel bytes must not depend on frame_count; frame_count never enters the device formula and enters the host side only through caller-proved per-row byte bounds, not slot counts",
+    "band_rows": "min(device_rows, host_rows, target_height + 2*halo); band_rows >= 1 required",
+    "halo": "band core rows + 2*halo_rows_per_band_edge padded rows per band; halo adds padded rows, not re-reads",
+    "min_tile_cols": "a plan whose tile_cols shrinks with growing frame_count violates the contract; verified by a 40 vs 600 frame plan equality test"
+  },
+  "read_amplification": {
+    "counters_required": "section 17.2 counter set; the planner only computes the pre-set bound check",
+    "model": "source views read once per (frame,band) and pinned across X-tiles; predicted_application_ra = (target_height + 2*halo*n_bands) / target_height; X-tiling does not multiply source or quality reads",
+    "gates": {
+      "max_source_read_amplification": "caller-set bound, default 1.1",
+      "max_quality_read_amplification": "caller-set bound, default 1.1",
+      "violation": "predicted ra above the bound makes the plan infeasible"
+    }
+  },
+  "fallback_and_feasibility": {
+    "infeasible_when": [
+      "any overflow in checked arithmetic",
+      "device cannot hold one padded row at tile_cols >= 1",
+      "host cannot hold the pinned slots for one padded row",
+      "predicted read amplification exceeds its bound",
+      "invalid role or slot counts"
+    ],
+    "fallback_tile": "smallest feasible tile_cols x band_rows; feasibility never silently drops halo or slots"
+  },
+  "test_matrix": [
+    "role table arithmetic: exact per-pixel byte count for R=64/3ch and MONO",
+    "full-width plan on production geometry 7868x4540 vs known budgets",
+    "N-independence: identical tile_cols for 40 and 600 frames",
+    "host slots bound band_rows; frame_count does not shrink tile_cols",
+    "X-tile fallback when one full-width row exceeds device budget",
+    "overflow: SIZE_MAX budgets/inputs cannot wrap into a false feasible",
+    "read-amplification bound rejection when halo makes predicted ra exceed the bound",
+    "halo accounting: padded rows charged once, band core rows reported",
+    "infeasible inputs: zero slots, zero budgets, bad channels"
+  ]
+}

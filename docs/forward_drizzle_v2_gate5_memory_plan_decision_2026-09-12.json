@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "gate": 5,
+  "status": "passed",
+  "spec": "forward_drizzle_v2_gate5_memory_plan_spec_2026-09-12.json",
+  "spec_sha256": "0f47490138ffb9de7a7308ce0e27a6cb20a4068074dc7952a69e346b2887dea4",
+  "results": "forward_drizzle_v2_gate5_memory_plan_results_2026-09-12.jsonl",
+  "formula": {
+    "device_per_pixel_bytes": "channels*(R*24 + (frame_plane+robust+confidence+centre_scale+fold_staging)*8 + confidence_counter + support_per_channel) + support_per_pixel",
+    "default_osc": "3*(1536 + 104 + 8 + 8) + 8 = 4976 B",
+    "default_mono": "1*1656 + 8 = 1664 B",
+    "device_fixed": "source_device_slots*source_slot_bytes + quality_device_slots*quality_slot_bytes + device_reserve",
+    "host_pinned": "(pinned_source_slots*source_row_bytes + pinned_quality_slots*quality_row_bytes) * band_rows_padded",
+    "tile_rule": "full width while one padded row fits; else tile_cols = max_pixels/min_padded_rows; min_padded = 2*halo + 1",
+    "read_amplification_model": "(target_height + 2*halo*band_count)/target_height; conservative no-reuse upper bound; the section-17.2 lifetime contract (pin across X-tiles, reuse band-edge rows) is what permits approaching 1.0",
+    "n_independence": "frame_count is provenance only; tile_cols and device bytes are N-free; verified equal for 40 vs 600 frames"
+  },
+  "measured_plans": {
+    "production_osc_5gib_16gib": {"feasible": true, "tile_cols": 7868, "band_rows": 126, "band_count": 37, "device_peak_bytes": 5334193024, "host_peak_bytes": 2209415168, "predicted_ra": 1.0},
+    "production_osc_4gib_16gib": {"feasible": true, "tile_cols": 7868, "band_rows": 99, "band_count": 46, "device_peak_bytes": 4277111488, "predicted_ra": 1.0},
+    "production_osc_2gib_16gib": {"feasible": true, "tile_cols": 7868, "band_rows": 44, "band_count": 104, "device_peak_bytes": 2123797248, "predicted_ra": 1.0},
+    "production_mono_5gib_16gib": {"feasible": true, "tile_cols": 7868, "band_rows": 379, "band_count": 12, "device_peak_bytes": 5363147264, "predicted_ra": 1.0},
+    "production_osc_5gib_halo14": {"feasible": false, "reason": "predicted_ra 1.29 > bound 1.1 at band_core 98"},
+    "production_osc_5gib_halo62": {"feasible": false, "reason": "band_core collapses to 2 rows, predicted_ra 63"}
+  },
+  "findings": [
+    "full-width banding is feasible on a 5 GiB device budget down to ~2 GiB without X-tiling at production geometry; X-tile fallback verified (tile_cols follows max_pixels/min_padded)",
+    "reservoir (1536 B/ch/px) dominates the per-pixel cost: 4976 B OSC; it - not MoM groups - sets the band height",
+    "large multiband halos are the binding constraint: halo 62 needs band_core >= ~1260 rows for ra<=1.1, i.e. ~54 GiB device - infeasible; gate 9 must either keep band-edge rows resident via the reuse contract (then true application ra approaches 1.0 and this conservative bound must be revisited with a reuse-aware model) or fuse multiband differently",
+    "host pinning is slot-bounded (4+4 slots) not N-bounded: peak host pinned 62 MiB at 126-row bands, independent of frame_count"
+  ],
+  "deferred": [
+    "gate 6: workspace must allocate exactly these roles; telemetry must prove device_peak and host_pinned match the plan",
+    "gate 9: halo radius decision + reuse-aware RA model (the conservative bound overestimates when band-edge rows are reused)",
+    "gate 7: resume/index metadata sizes feed host_fixed_bytes",
+    "gate 8: local warp grids are an additional device/host role not yet in the table"
+  ],
+  "tests": {
+    "v2_suite": "15 cases / 7486 assertions",
+    "coverage": "role arithmetic, production plans, N-independence, host-slot bound, X-tile fallback, halo accounting, RA rejection, overflow and invalid inputs"
+  }
+}
