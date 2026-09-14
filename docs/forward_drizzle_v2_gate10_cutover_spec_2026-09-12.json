@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "gate": 10,
-  "status": "reopened_after_failed_production_performance",
-  "scope": "production cutover of forward drizzle v2: runner wiring, host CPU fallback port, band-level resume through the gate-7 store, real production runs, then removal of the legacy record/sort/candidate path. The first A2 attempt exposed band_count-fold full-frame input work and did not pass production performance acceptance; the gate is reopened until the revised input-amplification and end-to-end requirements pass.",
+  "status": "production_cutover_accepted_reference_cleanup_pending",
+  "scope": "production cutover of forward drizzle v2: runner wiring, host CPU fallback port, band-level resume through the gate-7 store, real production runs, then removal of the legacy production runner path. The first A2 attempt exposed band_count-fold full-frame input work; the corrected path passed the revised amplification, end-to-end, local-geometry and failure-contract requirements.",
   "performance_reanalysis": {
     "failed_run": {
       "run_id": "a2_m42_affine",
@@ -40,10 +40,10 @@
     }
   },
   "wiring_contract": {
-    "selection": "env var TC_FORWARD_DRIZZLE_V2=1 selects the v2 producer in the FORWARD_DRIZZLE phase during acceptance; the choice is recorded in the v2 run plan and run provenance. After acceptance the legacy path is removed unconditionally and no user-facing switch remains.",
+    "selection": "FORWARD_DRIZZLE unconditionally uses the v2 producer; MULTIBAND requires and verifies the published v2 store. No environment or user-facing producer switch remains.",
     "store": "the durable artifact is the gate-7 v2 store (forward_drizzle_v2 store root inside artifacts): plan.json + band-%04d.bin pixel records + band-%04d.profiles.bin profile records + checkpoint.json + commit.json + current.json. No legacy FITS profile store is written by v2 runs.",
     "band_artifact_extension": "commit_band gains a profiles payload: band-%04d.profiles.bin carries ForwardDrizzleV2ProfileResult records (80 B) in the same order as the pixel records; ForwardDrizzleV2BandCommit gains profiles_artifact/profiles_bytes/profiles_sha256; both files commit atomically inside the same band transaction before the checkpoint update. Stores without profiles remain readable (affine/uniform-only runs).",
-    "multiband_phase": "the MULTIBAND phase auto-detects the v2 store (current.json under the v2 store root) and drives fuse_multiband_streamed over committed band records adapted via forward_drizzle_v2_profiles_to_uniform_result; alpha planes come from forward_drizzle_v2_profile_alpha_plane with channel-min semantics; the stripe-boundary flood-fill caveat is unchanged.",
+    "multiband_phase": "the MULTIBAND phase requires the v2 store (current.json under the v2 store root) and drives fuse_multiband_streamed over committed band records adapted via forward_drizzle_v2_profiles_to_uniform_result; an absent or invalid v2 store fails closed; alpha planes come from forward_drizzle_v2_profile_alpha_plane with channel-min semantics; the stripe-boundary flood-fill caveat is unchanged.",
     "resume": "mid-phase failure resumes at the committed band prefix via inspect_forward_drizzle_v2_store + adopt(); partially written band artifacts are unverifiable and recomputed; the phase checkpoint records the v2 plan_hash so a config/plan change fails closed.",
     "fallback": "FORWARD_DRIZZLE_V2 runs CUDA when available; on a device error the uncommitted generation is discarded and the whole phase restarts on the host CPU port (section 21.4 contract: same artifacts, same band store, bit-identical discrete decisions, magnitudes within documented tolerance). The CPU port must be bounded-memory (same banding and reservoir caps as the device path).",
     "inputs": {
@@ -90,11 +90,12 @@
     "precondition": "all production runs passed and the decision artifact is written",
     "removes": "the record/sort/candidate producer path (ClipCandidate streaming, per-pixel candidate lists, legacy CUDA stripe path, CPU streaming reduction, persist_forward_drizzle_* entry points) and the legacy FITS profile store writer once no consumer remains",
     "keeps": "fuse_multiband*/multiband_validation machinery (shared), the normalized source cache, quality map cache, and everything upstream of FORWARD_DRIZZLE",
-    "constraint": "removal is the final commit of the gate; it is not part of the acceptance runs"
+    "constraint": "removal is the final commit of the gate; it is not part of the acceptance runs",
+    "status": "production runner and fusion fallback removed; low-level dev/regression oracle cleanup remains"
   },
   "test_matrix": {
     "unit": "CPU port parity vs device on the small-canvas matrix (scale 1/2, MONO/OSC, all bayer patterns, local warps, N>R, invalid models); profile artifact round-trip; checkpoint schema with and without profiles",
     "integration": "v2 store -> fuse_multiband_streamed parity against the gate-9 whole-frame oracle; band-resume mid-stream; commit-gate rejection; corrupt-artifact matrix on the extended band format",
-    "runner": "FORWARD_DRIZZLE phase with TC_FORWARD_DRIZZLE_V2=1 produces the v2 store; MULTIBAND auto-detects and fuses; phase checkpoint carries plan_hash; env unset keeps legacy path (until removal)"
+    "runner": "FORWARD_DRIZZLE unconditionally produces the v2 store; MULTIBAND requires and fuses it; phase checkpoint carries plan_hash; missing/invalid stores fail closed"
   }
 }

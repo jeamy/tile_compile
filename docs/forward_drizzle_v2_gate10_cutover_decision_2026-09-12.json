@@ -1,12 +1,12 @@
 {
     "gate": 10,
-    "spec_sha256": "e99366e1a30cd5be12cbb928cf15b1f00f37eb184e7c2604232058df71a4674b",
-    "decision": "rejected_first_cutover_reopened_for_input_amplification_fix",
-    "decided_at": "2026-09-13",
+    "spec_sha256": "bc3ebad041fef56260ca2742fe518b3f8bd1dcb192d0879ea7f7ac26a0c47143",
+    "decision": "production_matrix_and_a1_pcc_revalidation_passed",
+    "decided_at": "2026-09-14",
     "scope": "production cutover of forward drizzle v2: runner wiring, host CPU fallback port, band-level resume through the gate-7 store, real production runs; legacy record/sort/candidate path removal only after acceptance",
     "selection": {
-        "mechanism": "TC_FORWARD_DRIZZLE_V2=1 selects the v2 producer in FORWARD_DRIZZLE; the choice is recorded in the v2 run plan and run provenance; the phase checkpoint carries forward_drizzle_v2 + plan_hash so a resume keeps the originally selected producer",
-        "default": "env unset keeps the legacy producer until the removal commit"
+        "mechanism": "FORWARD_DRIZZLE unconditionally uses the v2 producer; the phase checkpoint carries forward_drizzle_v2 + plan_hash and MULTIBAND requires the published v2 store fail-closed",
+        "default": "v2 is the only production producer; TC_FORWARD_DRIZZLE_V2 and the legacy runner fallback were removed"
     },
     "store_contract": {
         "root": "artifacts/forward_drizzle_v2",
@@ -59,8 +59,14 @@
         "checkpoint_and_rgb_identity": "bit-identical to rectangular and tiled optimized runs",
         "status": "pass"
     },
-    "production_runs": "UNBLOCKED — A1/A2/L1/L2 remain pending",
-    "acceptance_gates": "PREPRODUCTION PASSED; production matrix pending",
-    "legacy_removal": "BLOCKED — final commit only after A1/A2/L1/L2 acceptance",
+    "production_results": {
+        "A1": {"run_id": "a1_m31_affine_cuda", "frames": 645, "backend": "cuda_v2", "forward_drizzle_seconds": 251.50, "source_read_amplification": 1.014106317552816, "quality_read_amplification": 1.0316747509820428, "sample_amplification": 1.014106317552816, "forward_drizzle_status": "pass", "original_run_status": "downstream_pcc_failed", "pcc_revalidation": {"input": "unchanged stacked_rgb_bge_linear.fits", "catalog_stars": 5451, "stars_matched": 524, "stars_used": 478, "residual_rms": 0.18543647850517198, "condition_number": 1.98, "status": "pass"}},
+        "A2": {"run_id": "a2_m42_affine_cuda", "frames": 610, "backend": "cuda_v2", "forward_drizzle_seconds": 431.02, "source_read_amplification": 1.018240216784621, "quality_read_amplification": 1.0406527378671775, "sample_amplification": 1.018240216784621, "run_status": "final_image_ready"},
+        "L1": {"run_id": "l1_m42_local_cuda", "frames": 610, "backend": "cuda_v2", "forward_drizzle_seconds": 434.45, "source_read_amplification": 1.094386744443812, "quality_read_amplification": 1.0406527378671775, "sample_amplification": 1.0182401926719666, "local_model_samples_total": 33177600, "geometry_leaf_records_read": 33812405, "run_status": "final_image_ready"},
+        "L2": {"run_id": "l2_m42_local_p100_cuda", "frames": 610, "backend": "cuda_v2", "forward_drizzle_seconds": 557.71, "source_read_amplification": 1.0989480830835103, "quality_read_amplification": 1.0451731621168583, "sample_amplification": 1.0228008472633323, "local_model_samples_total": 33177600, "geometry_leaf_records_read": 33971129, "run_status": "final_image_ready"}
+    },
+    "production_runs": "FORWARD_DRIZZLE matrix passed on CUDA v2; A2/L1/L2 reached final_image_ready; A1 FORWARD_DRIZZLE and MULTIBAND passed, and PCC revalidation on the unchanged A1 RGB product passed after removal of the invalid relative-IQR hard reject",
+    "acceptance_gates": "PRODUCTION PERFORMANCE, LOCAL GEOMETRY CACHE, RESUME, CUDA FALLBACK, FAIL-CLOSED STORE CONTRACTS, AND A1 PCC REVALIDATION PASSED",
+    "legacy_removal": "PRODUCTION PATH REMOVED — runner and MULTIBAND are unconditionally v2; low-level legacy/reference algorithms remain test-only regression oracles",
     "results": "docs/forward_drizzle_v2_gate10_cutover_results_2026-09-12.jsonl"
 }

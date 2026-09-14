@@ -4083,11 +4083,16 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `runtime_limits.hard_abort_hours`: absolute Runtime-Sicherheitsgrenze.
 - `runtime_limits.allow_emergency_mode`: erlaubt Verarbeitung unterhalb normaler Annahmen.
 
-## Forward-Drizzle: Streaming und Speicherbudget (Entwicklungsstand 2026-09-05)
+## Forward-Drizzle v2: Streaming und Speicherbudget
 
-Der neue CPU-Coverage-/Uniform-Pfad verarbeitet Zielstreifen statt Vollbild-
-Akkumulatoren pro Frame oder Worker. Er ist noch kein freigegebener vollständiger
-Rekonstruktions-/Resume-Pfad. Die Preview bleibt standardmäßig deaktiviert.
+FORWARD_DRIZZLE verwendet ausschließlich den transaktionalen v2-Bandpfad; es
+gibt keinen Methoden- oder Umgebungsvariablen-Schalter zum alten Produzenten.
+Source-, Qualitäts- und gestartete Samplebereiche werden bandbegrenzt gelesen,
+der CPU-/CUDA-Workspace wird über alle Bänder wiederverwendet und MULTIBAND
+verlangt den publizierten v2-Store fail-closed. CUDA-Gerätefehler starten die
+gesamte unveröffentlichte Phase auf `cpu_v2` neu. Der separate
+CPU-Coverage-/Uniform-Previewpfad bleibt eine standardmäßig deaktivierte
+Diagnose.
 
 | Parameter | Einheit, Bereich und Default | Verhalten |
 |---|---|---|
@@ -4117,6 +4122,6 @@ Ein Beispiel steht in `tile_compile_cpp/examples/forward_drizzle_streaming.examp
 
 Der gemeinsame M3-Uniform/Raw-Bibliothekspfad rechnet zusätzlich im Worst Case einen Clipping-Kandidaten je Frame, Pixel und Kanal sowie zwei Ausgabestreifen an. Die materialisierende Komfortfunktion rechnet beide Vollausgaben zusätzlich an. Eine nachträgliche Kandidatenprüfung ist kein Ersatz für diese Vorabplanung. Der aktuelle Diagnose-Profilstore materialisiert noch Uniform, exportiert seine Ebenen aber ohne zusätzliche Vollbildkopien.
 
-`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (Bool, Default `false`) ist unabhängig von der Preview. Aktiviert schreibt es ungeclippte Uniform-Ebenen per Streaming nach `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` veröffentlicht die vollständige geprüfte Generation atomar. Das bestehende Drizzle-Budget umfasst zusätzlich 8 MiB für FITS/Metadaten und eine float-Zeile. Zu wenig RAM wird vor Quell-I/O abgewiesen; zu wenig freie Disk vor dem Ebenenschreiben. Ein Diagnosefehler lässt den Legacy-Lauf weiterlaufen. Alte Generationen bleiben erhalten und belegen Disk; es gibt keine automatische Bereinigung. Der Store ist kein Resume-Phaseneinstieg. Leser müssen `current.json` gegen erwartete Quell-, Sampling- und Algorithmusidentität prüfen; alte flache Stores werden weder automatisch akzeptiert noch umgeschrieben. Der geclippte Uniform/Raw-Bibliotheksstore nutzt dieselbe Transaktion, ist aber noch nicht als neue Runnerphase verdrahtet.
+`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (Bool, Default `false`) ist unabhängig von der Preview. Aktiviert schreibt es ungeclippte Uniform-Ebenen per Streaming nach `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` veröffentlicht die vollständige geprüfte Generation atomar. Das bestehende Drizzle-Budget umfasst zusätzlich 8 MiB für FITS/Metadaten und eine float-Zeile. Zu wenig RAM wird vor Quell-I/O abgewiesen; zu wenig freie Disk vor dem Ebenenschreiben. Ein Diagnosefehler lässt den Produktionslauf weiterlaufen. Alte Generationen bleiben erhalten und belegen Disk; es gibt keine automatische Bereinigung. Der Store ist kein Resume-Phaseneinstieg. Leser müssen `current.json` gegen erwartete Quell-, Sampling- und Algorithmusidentität prüfen; alte flache Stores werden weder automatisch akzeptiert noch umgeschrieben. Der geclippte Uniform/Raw-Bibliotheksstore ist nur noch ein Dev-/Regression-Oracle und nicht produktiv verdrahtet.
 
 Der geprüfte Quellqualitäts-Bibliothekspfad besitzt ein explizites MiB-Budget und prüft konservativ 128 Byte je Quellpixel zuzüglich Quell-/Ladepuffern, Metadaten und Metrik-Scratch vorab. Große native Bilder können früh abgelehnt werden. Das gemeinsame Drizzle-Budget berücksichtigt zusätzlich den übergebenen dichten Quellgewichtsvektor. Store-Commit-Schema 2 bindet Cache- und Qualitätsplanhash; ältere Diagnosestores werden nicht stillschweigend als geprüfte Vorgänger übernommen. Diese Bibliotheks-APIs schalten kein Pipeline-Resume frei.

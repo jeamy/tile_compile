@@ -71,11 +71,12 @@ geschlossen und vor dem affinen Prototypkern implementiert sein.
 
 ### 1.2 Implementierungsstand und Freigabestatus (2026-09-12)
 
-Gates 0–9 sind abgeschlossen. Gate 10 verdrahtet v2 im produktiven Runner
-während der Abnahme über `TC_FORWARD_DRIZZLE_V2=1`; der Legacy-Pfad bleibt bis
-zum Abschluss der Produktionsmatrix erhalten. Ein Gate gilt erst dann als
-abgeschlossen, wenn alle Exit-Kriterien einschließlich der vollständigen
-End-to-End-Performance erfüllt sind.
+Gates 0–9 sind abgeschlossen. Nach bestandener Gate-10-Produktionsmatrix ist v2
+der einzige produktive FORWARD_DRIZZLE-Pfad. Der frühere
+`TC_FORWARD_DRIZZLE_V2`-Schalter, der Legacy-Produzentenbranch und der
+Legacy-Fusionsfallback wurden entfernt; ein fehlender oder ungültiger v2-Store
+scheitert geschlossen. Niedrigstufige Legacy-Algorithmen bleiben ausschließlich
+als Dev-/Regression-Oracles erhalten.
 
 | Gate | Vorhandener Stand | Freigabe |
 |---:|---|---|
@@ -89,7 +90,7 @@ End-to-End-Performance erfüllt sind.
 | 7 | v2-Artefaktschema mit `band_boundary_resume`, Atomic-Commit, fail-closed Inspection | **bestanden**; 21-Fall-Fehlermatrix, resume = memcmp-identisch zum Dauerlauf |
 | 8 | kompakte Koeffizienten + On-Device-Inversion, exakte `invert/subdivide`-Ports | **bestanden**; Depth-2/Inversionsstress/Discard-Parität nachgewiesen, 0,091 s/Frame |
 | 9 | Profilproduktion U/R/F/M über geteilter Clip-Maske, Quality-Side-Array, Ring-/Halo-Vertrag, CPU-Fusion auf committeten Bändern | **bestanden**; Device-Parität zum Orakel, RA ≤ 1,1 auf Produktionsplan, 19.954 B/px ≤ amendierter Plan, matched-star-Fallbacks |
-| 10 | Runner-/Store-/Fusion-Cutover, Host-Fallback und beschleunigter bandbegrenzter Inputpfad | **Preproduction bestanden**; 24-Frame-Realprovider: 28,930 s, 19,54× schneller als Legacy, Source/Q/Sample-RA 1,0068/1,0156/1,0068; A1/A2/L1/L2 noch ausstehend |
+| 10 | Runner-/Store-/Fusion-Cutover, Host-Fallback und beschleunigter bandbegrenzter Inputpfad | **Produktions-Performance bestanden**; A1/A2/L1/L2 auf CUDA v2: 251,50/431,02/434,45/557,71 s, alle RA-Grenzen ≤ 1,1; A1 scheiterte erst nach FORWARD_DRIZZLE/MULTIBAND in PCC, finale Fehlervertragsabnahme und Legacy-Entfernung offen |
 
 Die affine Gate-0-Referenz ist versioniert in
 `docs/forward_drizzle_v2_gate0_affine_reference_2026-09-12.json`. Sie bindet
@@ -1594,7 +1595,7 @@ Levels 1–4 und Memory-Amendment. Artefakte:
 `forward_drizzle_v2_gate9_streaming_multiband_spec_2026-09-12.json`,
 `..._results_2026-09-12.jsonl`, `..._decision_2026-09-12.json`.
 
-### Gate 10: Cutover — **Preproduction bestanden, Produktionsmatrix offen**
+### Gate 10: Cutover — **Produktionspfad auf v2 umgestellt**
 
 Der erste A2-Versuch wurde nach sieben von 72 Bändern abgebrochen. Der Median
 lag bei 298,390 s/Band; der vollständige FORWARD_DRIZZLE wäre aus den gemessenen
@@ -1645,15 +1646,45 @@ rechteckigen und X-gekachelten optimierten Kontrollpfaden bitidentisch. Die
 konservative A2-Projektion beträgt 1.320,01 s und liegt unter der vorab
 eingefrorenen 2.148,408-s-Schranke.
 
-Noch erforderlich:
+Die frische Produktionsmatrix vom 2026-09-14 bestätigt den beschleunigten Pfad:
 
-- zwei frische affine und zwei frische lokale Produktionsläufe;
-- vollständige 600-Frame-Gates einschließlich realer lokaler Cache-Nutzung;
-- Resume- und Fehlerfälle auf dem finalen Produktionspfad;
-- Dokumentation, Schema und Report konsistent abschließen.
+| Lauf | Modus | FORWARD_DRIZZLE | Source/Q/Sample-RA | Ergebnis |
+|---|---|---:|---:|---|
+| A1, M31, 645 Frames | affin | 251,50 s | 1,0141 / 1,0317 / 1,0141 | FORWARD_DRIZZLE und MULTIBAND bestanden; PCC-Revalidierung auf unverändertem RGB nach IQR-Guard-Fix bestanden |
+| A2, M42, 610 Frames | affin | 431,02 s | 1,0182 / 1,0407 / 1,0182 | `final_image_ready` |
+| L1, M42, 610 Frames | lokal | 434,45 s | 1,0944 / 1,0407 / 1,0182 | `final_image_ready` |
+| L2, M42, 610 Frames | lokal, p100 | 557,71 s | 1,0989 / 1,0452 / 1,0228 | `final_image_ready` |
 
-**Exit:** Erst danach wird der alte Record-/Sort-/Kandidatenpfad entfernt. Er
-bleibt nicht als langfristiger Alternativmodus bestehen.
+Alle vier Läufe verwendeten `cuda_v2` ohne Fallback, genau eine
+Workspace-Reservation, keine Host-Hotpath-Allokation und keine globale
+Device-Synchronisation. L1/L2 verarbeiteten jeweils 33.177.600 lokale
+Modellsamples und lasen 33.812.405 beziehungsweise 33.971.129 committete
+Geometry-Cache-Leaves. A2 ist gegenüber der aus dem abgebrochenen Lauf
+abgeleiteten 21.484,08-s-Laufzeit reproduzierbar knapp 50× schneller.
+
+Der nachgelagerte A1-PCC-Ausfall wurde unabhängig vom Drizzlepfad reproduziert.
+Alle 645 Frames nahmen teil, ASTAP löste das Bild und der Siril-Katalog lieferte
+vollständige XP-Spektren. Ein relativer Annulus-Guard
+`IQR > 0,35 × Hintergrund` verwarf jedoch niedrige R/B-Hintergründe noch vor
+dem robusten Ebenenfit. Nach Entfernung dieses skalenabhängigen Hard-Rejects
+besteht PCC auf dem unveränderten A1-RGB mit 524 gematchten und 478 verwendeten
+Sternen, Residual-RMS 0,1854 und Condition Number 1,98. Die bestehenden
+Support-, Sättigungs-, Background-Safe-, Huber- und Sigma-Clip-Gates bleiben
+erhalten.
+
+Nach bestandener Vollsuite wurde der produktive Cutover vollzogen:
+
+- FORWARD_DRIZZLE verwendet v2 ohne Umgebungs- oder Konfigurationsschalter;
+- MULTIBAND verlangt den publizierten v2-Store und scheitert bei fehlendem,
+  fremdem oder ungültigem Store geschlossen;
+- der Legacy-Produzentenbranch und der Legacy-Fusionsfallback sind aus dem
+  Runner entfernt;
+- der v2-Bandstore bleibt als einziger transaktionaler Resume-Store erhalten;
+- niedrigstufige Legacy-Algorithmen verbleiben nur als Dev-/Regression-Oracles
+  und sind aus dem produktiven Runner nicht erreichbar.
+
+**Exit:** Der Produktivpfad ist vollständig v2; es besteht kein langfristiger
+Legacy-Alternativmodus.
 
 ## 23. Architekturvergleich
 

@@ -3301,11 +3301,14 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `runtime_limits.hard_abort_hours`: absolute runtime safety stop.
 - `runtime_limits.allow_emergency_mode`: permits processing below normal assumptions.
 
-## Forward drizzle: streaming and memory budget (development, 2026-09-05)
+## Forward Drizzle v2: streaming and memory budget
 
-The new CPU coverage/Uniform path processes target stripes instead of full-canvas
-accumulators per frame or worker. It is not yet a released full reconstruction or
-resume pipeline. The preview remains disabled by default.
+FORWARD_DRIZZLE exclusively uses the transactional v2 band path; there is no
+method or environment-variable switch to the old producer. Source, quality and
+launched-sample regions are band-bounded, one CPU/CUDA workspace is reused across
+all bands, and MULTIBAND requires the published v2 store fail-closed. CUDA device
+failures restart the entire unpublished phase on `cpu_v2`. The separate CPU
+coverage/Uniform preview remains a diagnostic disabled by default.
 
 | Parameter | Units, range and default | Behavior |
 |---|---|---|
@@ -3333,6 +3336,6 @@ separate accounting. There is no automatic method or scale fallback. See
 
 The shared M3 Uniform/Raw library path additionally budgets one clipping candidate per frame, pixel and channel in the worst case, plus two output stripes. Its materializing wrapper also charges both complete outputs. A check after building candidate lists cannot replace this preflight. The current diagnostic profile store still materializes Uniform, but exports its planes without extra full-image copies.
 
-`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (boolean, default `false`) is independent of preview. When enabled, it streams unclipped Uniform planes into `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` publishes the complete verified generation atomically. The existing drizzle budget includes an additional 8 MiB FITS/metadata reserve and one float row. Insufficient memory fails before source loading; insufficient free disk fails before plane writing. A failed diagnostic does not fail the legacy run. Old generations are retained and consume disk; there is no automatic cleanup. This is a diagnostic store, not a resumable pipeline phase. Read `current.json` and validate it against the expected source, sampling and algorithm identity; old flat stores are not implicitly accepted or rewritten. The shared clipped Uniform/Raw library store uses the same transaction but is not yet wired into a new runner phase.
+`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (boolean, default `false`) is independent of preview. When enabled, it streams unclipped Uniform planes into `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` publishes the complete verified generation atomically. The existing drizzle budget includes an additional 8 MiB FITS/metadata reserve and one float row. Insufficient memory fails before source loading; insufficient free disk fails before plane writing. A failed diagnostic does not fail the production run. Old generations are retained and consume disk; there is no automatic cleanup. This is a diagnostic store, not a resumable pipeline phase. Read `current.json` and validate it against the expected source, sampling and algorithm identity; old flat stores are not implicitly accepted or rewritten. The shared clipped Uniform/Raw library store is now a dev/regression oracle only and is not wired into production.
 
 The checked source-quality library path has an explicit MiB budget and preflights a conservative 128 bytes per source pixel plus source/load buffers, metadata and metric scratch. Large native images may fail early. The shared drizzle budget also includes the supplied dense per-source quality weight vector. Store commit schema 2 additionally binds normalized-cache and quality-plan hashes; older diagnostic stores are not accepted implicitly as checked predecessors. These library APIs do not enable pipeline resume.

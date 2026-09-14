@@ -312,10 +312,11 @@ static void teff_to_rgb(double T, double &r, double &g, double &b) {
 /// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-static double aperture_flux(const Matrix2Df &img, double cx, double cy,
-                            double r_ap, double r_ann_in, double r_ann_out,
-                            const std::string &background_model,
-                            const std::vector<uint8_t> *support_mask = nullptr) {
+double detail::measure_aperture_flux(
+    const Matrix2Df &img, double cx, double cy,
+    double r_ap, double r_ann_in, double r_ann_out,
+    const std::string &background_model,
+    const std::vector<uint8_t> *support_mask) {
     int rows = img.rows();
     int cols = img.cols();
     const bool use_support_mask =
@@ -378,12 +379,6 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
     }
 
     if (!(std::isfinite(sky_bg_median) && sky_bg_median > 0.0)) return -1.0;
-    const size_t n_sky = sky_pixels.size();
-    const float q1 = sky_pixels[(n_sky * 1) / 4];
-    const float q3 = sky_pixels[(n_sky * 3) / 4];
-    const double iqr = static_cast<double>(q3) - static_cast<double>(q1);
-    if (!(std::isfinite(iqr) && iqr >= 0.0)) return -1.0;
-    if (iqr > 0.35 * sky_bg_median) return -1.0;
 
     // Sum aperture flux minus background.
     // For model=plane subtract the local plane value at each aperture pixel.
@@ -783,15 +778,15 @@ std::vector<StarPhotometry> measure_stars(
                 }
             }
 
-            sp.flux_r = aperture_flux(R, px, py, config.aperture_radius_px,
+            sp.flux_r = detail::measure_aperture_flux(R, px, py, config.aperture_radius_px,
                                       config.annulus_inner_px, config.annulus_outer_px,
                                       config.background_model,
                                       &common_support_mask);
-            sp.flux_g = aperture_flux(G, px, py, config.aperture_radius_px,
+            sp.flux_g = detail::measure_aperture_flux(G, px, py, config.aperture_radius_px,
                                       config.annulus_inner_px, config.annulus_outer_px,
                                       config.background_model,
                                       &common_support_mask);
-            sp.flux_b = aperture_flux(B, px, py, config.aperture_radius_px,
+            sp.flux_b = detail::measure_aperture_flux(B, px, py, config.aperture_radius_px,
                                       config.annulus_inner_px, config.annulus_outer_px,
                                       config.background_model,
                                       &common_support_mask);

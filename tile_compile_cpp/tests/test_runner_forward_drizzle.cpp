@@ -6,6 +6,7 @@
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/reconstruction/normalized_source_cache.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_v2_driver.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2_store.hpp"
 #include "tile_compile/reconstruction/multiband_validation.hpp"
 #include <catch2/catch_test_macros.hpp>
@@ -72,10 +73,10 @@ namespace {
 // Process-global fault injection; disarm even if a REQUIRE throws.
 struct CudaFaultGuard {
   explicit CudaFaultGuard(int n) {
-    reconstruction::set_forward_drizzle_cuda_fault_after_chunks(n);
+    reconstruction::set_forward_drizzle_v2_cuda_fault_after_bands(n);
   }
   ~CudaFaultGuard() {
-    reconstruction::set_forward_drizzle_cuda_fault_after_chunks(-1);
+    reconstruction::set_forward_drizzle_v2_cuda_fault_after_bands(-1);
   }
   CudaFaultGuard(const CudaFaultGuard &) = delete;
   CudaFaultGuard &operator=(const CudaFaultGuard &) = delete;
@@ -179,16 +180,15 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
   {
     // Plan 19 / §30.54: the FORWARD_DRIZZLE phase records the acceleration
     // backend it actually ran on. This affine 1/1 fixture runs on the CUDA
-    // per-stripe path when the host has a usable device (store byte-identical
-    // to the CPU build, verified by test_drizzle_profile_store), otherwise CPU.
+    // banded v2 path when the host has a usable device, otherwise cpu_v2.
     core::json fd_end;
     for (const auto &event:events(log.str()))
       if (event["type"]=="phase_end" && event["phase_name"]=="FORWARD_DRIZZLE") fd_end=event;
     const std::string be=fd_end.at("acceleration_backend").get<std::string>();
-    REQUIRE((be=="cpu" || be=="cuda"));
+    REQUIRE((be=="cpu_v2" || be=="cuda_v2"));
     // The phase_end event carries cuda_fallback_reason only when a CUDA attempt
     // fell back; a committed CUDA build omits it.
-    if (be=="cuda") REQUIRE_FALSE(fd_end.contains("cuda_fallback_reason"));
+    if (be=="cuda_v2") REQUIRE_FALSE(fd_end.contains("cuda_fallback_reason"));
   }
   REQUIRE(fs::exists(f.dir/"artifacts/reconstruction_multiband.fits"));
   {
@@ -201,12 +201,14 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
     REQUIRE(finite>0);  // the interior is reconstructed
   }
   {
-    // Cache-lifetime contract (plan 16.2): with the default config the internal
-    // profile store is deleted after a committed final image; the source caches
-    // are retained (resume-reconstruction stays possible). run_end reports it.
+    // Cache-lifetime contract (plan 16.2, v2 cutover): the v2 band store is the
+    // only reconstruction store and is retained after a committed final image;
+    // the source caches are retained (resume-reconstruction stays possible).
+    // run_end reports it.
     const auto re=events(log.str()).back();
-    REQUIRE(re["cache_retention"]["profile_cache"]=="deleted");
+    REQUIRE(re["cache_retention"]["profile_cache"]=="retained");
     REQUIRE(re["cache_retention"]["source_cache"]=="retained");
+    REQUIRE(fs::exists(f.dir/"artifacts/forward_drizzle_v2/current.json"));
     REQUIRE_FALSE(fs::exists(f.dir/"artifacts/forward_drizzle_profiles"));
     REQUIRE(fs::exists(f.dir/"cache/normalized_frames"));
   }
@@ -283,8 +285,8 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
     {
       const std::string be=
           j.at("acceleration").at("forward_drizzle_backend").get<std::string>();
-      REQUIRE((be=="cpu" || be=="cuda"));
-      if (be=="cuda")
+      REQUIRE((be=="cpu_v2" || be=="cuda_v2"));
+      if (be=="cuda_v2")
         REQUIRE(j.at("acceleration").at("cuda_fallback_reason").is_null());
     }
     // null when no CUDA attempt was made or the device path committed (affine,
@@ -375,14 +377,14 @@ TEST_CASE("forward runner: an injected FORWARD_DRIZZLE CUDA fault restarts the "
   }
   Fixture f; std::ostringstream log;
   {
-    CudaFaultGuard guard(1);
+    CudaFaultGuard guard(0);
     REQUIRE(f.execute(log));
   }
   core::json fd_end;
   for (const auto &event : events(log.str()))
     if (event["type"] == "phase_end" && event["phase_name"] == "FORWARD_DRIZZLE")
       fd_end = event;
-  REQUIRE(fd_end.at("acceleration_backend") == "cpu");
+  REQUIRE(fd_end.at("acceleration_backend") == "cpu_v2");
   REQUIRE(fd_end.at("cuda_fallback_reason").get<std::string>().find(
               "injected fault") != std::string::npos);
   REQUIRE(events(log.str()).back()["status"] == "final_image_ready");
@@ -452,8 +454,9 @@ TEST_CASE("forward runner: diagnostics.level and profile-cache retention do not 
     REQUIRE(r->raw_sha == base.raw_sha);
     REQUIRE(r->selected == base.selected);
   }
-  // Retention flags act only on the caches, and are announced.
-  REQUIRE(base.cache_retention["profile_cache"] == "deleted");
+  // Retention flags act only on the caches, and are announced. The v2 band
+  // store is the only reconstruction store and is always retained.
+  REQUIRE(base.cache_retention["profile_cache"] == "retained");
   REQUIRE(kept.cache_retention["profile_cache"] == "retained");
   REQUIRE(base.cache_retention["source_cache"] == "retained");
 
@@ -483,14 +486,15 @@ TEST_CASE("forward runner: resume validates predecessors before starting a phase
   Fixture f; std::ostringstream first;
   f.cfg.reconstruction.keep_profile_cache_after_run=true;  // inspect the store across runs
   REQUIRE(f.execute(first));
-  const auto current=f.dir/"artifacts/forward_drizzle_profiles/current.json";
-  const auto prior=core::sha256_file(current);
+  const auto current=f.dir/"artifacts/forward_drizzle_v2/current.json";
   std::ostringstream resumed;
   REQUIRE(f.execute(resumed,"FORWARD_DRIZZLE"));
   std::vector<std::string> starts;
   for (const auto &event:events(resumed.str())) if (event["type"]=="phase_start") starts.push_back(event["phase_name"]);
   REQUIRE(starts==(std::vector<std::string>{"FORWARD_DRIZZLE","MULTIBAND"}));
-  REQUIRE(core::sha256_file(current)!=prior);
+  // The v2 driver may reuse the committed generation or republish a new one;
+  // either way the published store stays valid.
+  REQUIRE(fs::exists(current));
   const auto valid=core::sha256_file(current);
   // T1 trusted run: same-size content change is NOT detected. Truncate instead.
   { std::ofstream file(f.dir/"cache/normalized_frames/0.raw",std::ios::binary|std::ios::trunc); file<<"short"; }
@@ -630,7 +634,7 @@ TEST_CASE("forward runner: local-warp geometry cache is built, published, "
   }
 
   // Resume from FORWARD_DRIZZLE: the cache is re-opened + fully re-verified.
-  const auto current=f.dir/"artifacts/forward_drizzle_profiles/current.json";
+  const auto current=f.dir/"artifacts/forward_drizzle_v2/current.json";
   const auto before=core::sha256_file(current);
   std::ostringstream resumed;
   REQUIRE(f.execute(resumed,"FORWARD_DRIZZLE"));
@@ -660,27 +664,26 @@ TEST_CASE("forward runner: local-warp geometry cache is built, published, "
   for (const auto &e:events(rejected.str())) REQUIRE(e["type"]!="phase_start");
 }
 
-TEST_CASE("forward runner: FORWARD_DRIZZLE reduction worker count is honoured "
-          "and leaves the committed store bit-identical (plan 11.14.5 P3 T2)",
+TEST_CASE("forward runner: FORWARD_DRIZZLE reports zero reduction workers "
+          "under v2 and leaves the committed store bit-identical",
           "[forward-runner][geometry-cache][geometry-parallel]") {
   // Exercise the CPU scheduler even on GPU hosts; CUDA has no CPU row workers.
   CudaFaultGuard force_cpu_fallback(0);
-  // current.json / profiles_current_bytes embed the clock-derived generation
-  // name, so they differ run-to-run even for identical content. Hash the
-  // committed profile-plane FITS files instead (CFITSIO writes no DATE key
-  // here) --- that is the actual pixel payload.
-  auto content_digest = [](const fs::path &profiles_root) {
-    const auto cur = core::json::parse(std::ifstream(profiles_root / "current.json"));
-    const fs::path gen = profiles_root / cur.at("generation").get<std::string>();
+  // current.json embeds the clock-derived generation name, so it differs
+  // run-to-run even for identical content. Hash the committed band-record
+  // files instead --- that is the actual pixel payload.
+  auto content_digest = [](const fs::path &store_root) {
+    const auto cur = core::json::parse(std::ifstream(store_root / "current.json"));
+    const fs::path gen = store_root / cur.at("generation").get<std::string>();
     std::vector<std::string> shas;
     for (const auto &e : fs::directory_iterator(gen))
-      if (e.path().extension() == ".fits")
+      if (e.path().extension() == ".bin")
         shas.push_back(e.path().filename().string() + ":" +
                        core::sha256_file(e.path()));
     std::sort(shas.begin(), shas.end());
     std::string joined;
     for (const auto &s : shas) joined += s + "\n";
-    REQUIRE(shas.size() >= 4u);  // uniform+raw+fine+medium * L * {value,...}
+    REQUIRE(shas.size() >= 1u);
     return core::sha256_bytes(
         std::vector<uint8_t>(joined.begin(), joined.end()));
   };
@@ -694,7 +697,7 @@ TEST_CASE("forward runner: FORWARD_DRIZZLE reduction worker count is honoured "
     INFO("workers=" << workers << " log:\n" << out.str());
     REQUIRE(ok);
     const auto digest =
-        content_digest(f.dir / "artifacts/forward_drizzle_profiles");
+        content_digest(f.dir / "artifacts/forward_drizzle_v2");
     const auto ckpt = core::json::parse(std::ifstream(
         f.dir / "artifacts/forward_drizzle_checkpoint.json"));
     REQUIRE(ckpt.contains("forward_drizzle_reduction_workers"));
@@ -712,17 +715,16 @@ TEST_CASE("forward runner: FORWARD_DRIZZLE reduction worker count is honoured "
   };
 
   const auto ref = run_at("1");
-  REQUIRE(ref.workers == 1);
-  REQUIRE_FALSE(ref.suppressed_note);  // serial path records real counters
+  // The v2 path has no reduction workers: the checkpoint reports 0 regardless
+  // of the requested count.
+  REQUIRE(ref.workers == 0);
+  REQUIRE_FALSE(ref.suppressed_note);
   for (const char *w : {"2", "4"}) {
     const auto got = run_at(w);
     INFO("workers=" << w);
-    REQUIRE(got.workers >= 1);
-    REQUIRE(got.workers <= std::atoi(w));
+    REQUIRE(got.workers == 0);
     REQUIRE(got.digest == ref.digest);  // store commit invariant to worker count
-    // The all-zero FORWARD_DRIZZLE stripe-consumer counters at W>1 are marked
-    // "not recorded", so nobody misreads them as P1/P2 cache proof.
-    REQUIRE(got.suppressed_note);
+    REQUIRE_FALSE(got.suppressed_note);
   }
 }
 
@@ -771,27 +773,23 @@ TEST_CASE("forward downstream normalization provenance is checked before resume 
   REQUIRE(core::sha256_file(f.dir/"outputs/forward_drizzle_raw_L.fit")==raw);
 }
 
-TEST_CASE("forward runner: TC_FORWARD_DRIZZLE_V2 selects the banded v2 path "
-          "and MULTIBAND auto-detects the v2 store",
+TEST_CASE("forward runner uses the banded v2 path and MULTIBAND v2 store "
+          "unconditionally",
           "[forward-runner][gate10]") {
-  // Gate-10 wiring contract: the env-selected v2 producer commits a Gate-7
-  // band store (artifacts/forward_drizzle_v2), the phase checkpoint binds its
-  // plan_hash, and MULTIBAND fuses it through the v2 adapter without any
-  // legacy profile store.
-  struct V2EnvGuard {
-    V2EnvGuard() { ::setenv("TC_FORWARD_DRIZZLE_V2", "1", 1); }
-    ~V2EnvGuard() { ::unsetenv("TC_FORWARD_DRIZZLE_V2"); }
-    V2EnvGuard(const V2EnvGuard &) = delete;
-    V2EnvGuard &operator=(const V2EnvGuard &) = delete;
-  } env;
-
+  // Gate-10 wiring contract: the v2 producer commits a Gate-7 band store
+  // (artifacts/forward_drizzle_v2) unconditionally --- with
+  // TC_FORWARD_DRIZZLE_V2 unset --- the phase checkpoint binds its plan_hash,
+  // and MULTIBAND fuses it through the v2 adapter without any legacy profile
+  // store.
   Fixture f;
   std::ostringstream log;
   REQUIRE(f.execute(log));
   REQUIRE(events(log.str()).back()["status"] == "final_image_ready");
 
-  // The v2 producer committed a published Gate-7 generation.
+  // The v2 producer committed a published Gate-7 generation even with
+  // TC_FORWARD_DRIZZLE_V2 unset.
   const auto v2_root = f.dir / "artifacts/forward_drizzle_v2";
+  REQUIRE(fs::exists(v2_root / "current.json"));
   reconstruction::ForwardDrizzleV2RunPlan detected;
   std::string load_error;
   REQUIRE(reconstruction::load_forward_drizzle_v2_published_plan(
@@ -926,25 +924,11 @@ TEST_CASE("forward runner: TC_FORWARD_DRIZZLE_V2 selects the banded v2 path "
   // no legacy profile store was produced.
   REQUIRE(fs::exists(f.dir / "artifacts/reconstruction_multiband.fits"));
   REQUIRE_FALSE(fs::exists(f.dir / "artifacts/forward_drizzle_profiles"));
-
-  // Env unset on a fresh run keeps the legacy producer path.
-  ::unsetenv("TC_FORWARD_DRIZZLE_V2");
-  Fixture legacy;
-  std::ostringstream legacy_log;
-  REQUIRE(legacy.execute(legacy_log));
-  REQUIRE_FALSE(
-      fs::exists(legacy.dir / "artifacts/forward_drizzle_v2/current.json"));
 }
 
 TEST_CASE("forward runner: v2 consumes the committed geometry cache for "
           "local frames and fails closed without it (tranche 6)",
           "[forward-runner][geometry-cache][gate10]") {
-  struct V2EnvGuard {
-    V2EnvGuard() { ::setenv("TC_FORWARD_DRIZZLE_V2", "1", 1); }
-    ~V2EnvGuard() { ::unsetenv("TC_FORWARD_DRIZZLE_V2"); }
-    V2EnvGuard(const V2EnvGuard &) = delete;
-    V2EnvGuard &operator=(const V2EnvGuard &) = delete;
-  } env;
   // Keep the serial reduction path so the geomstats consumer counters are
   // recorded honestly.
   ForwardDrizzleWorkersEnvGuard workers("1");

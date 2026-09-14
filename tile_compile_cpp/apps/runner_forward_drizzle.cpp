@@ -453,9 +453,9 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
 
     // Plan 19: resolve the FORWARD_DRIZZLE acceleration intent. `select_*` says
     // whether `cuda` is buildable for this phase; passing "cuda" downstream is
-    // an intent, not a guarantee --- persist_multiband_store_from_predecessors
-    // owns the "is there a usable device / fault armed" decision and the
-    // plan-19.4 full-phase CPU restart on ForwardDrizzleCudaError.
+    // an intent, not a guarantee --- persist_forward_drizzle_v2_from_predecessors
+    // owns the "is there a usable device" decision and the full-phase CPU
+    // restart on a device failure.
     const auto fd_accel=core::select_acceleration_backend(
         cfg.runtime_limits.acceleration_backend,core::AccelerationPhase::forward_drizzle);
     const std::string fd_backend=
@@ -491,170 +491,138 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       fd_workers=std::min(fd_workers,static_cast<int>(hw));
 
     begin(Phase::FORWARD_DRIZZLE);
-    const auto profiles_root=artifacts/"forward_drizzle_profiles";
-    // Gate-10 cutover: TC_FORWARD_DRIZZLE_V2=1 selects the banded v2
-    // producer (artifacts/forward_drizzle_v2, Gate-7 transactional store).
-    // The v2 path writes no legacy profile store; MULTIBAND detects the v2
-    // store by its current.json. A checkpoint-recorded v2 plan_hash makes a
-    // config/plan change fail closed across a resume.
-    bool fd_v2=false;
-    if (const char *e=std::getenv("TC_FORWARD_DRIZZLE_V2"))
-      fd_v2=std::string(e)=="1";
-    if (!fd_v2 && checkpoint.value("forward_drizzle_v2",false))
-      fd_v2=true;  // resume honours the choice recorded at produce time
+    // Gate-10 cutover: the banded v2 producer (artifacts/forward_drizzle_v2,
+    // Gate-7 transactional store) is the only production path. A
+    // checkpoint-recorded v2 plan_hash makes a config/plan change fail
+    // closed across a resume.
     const auto v2_root=artifacts/"forward_drizzle_v2";
     reconstruction::DrizzleStoreIdentity mb_identity;
-    reconstruction::DrizzleStoreResult result;
-    std::optional<reconstruction::ForwardDrizzleV2ProductionResult> v2_result;
-    if (fd_v2) {
-      if (!want_multiband)
-        throw std::invalid_argument("FORWARD_DRIZZLE_V2_REQUIRES_MULTIBAND");
-      const auto v2_progress=[&](int band,int band_count){
-        const float p=band_count>0?static_cast<float>(band)/band_count:1.0f;
-        emitter.phase_progress(run_id,Phase::FORWARD_DRIZZLE,p,
-            "band "+std::to_string(band)+"/"+std::to_string(band_count),log);
-      };
-      v2_result=reconstruction::persist_forward_drizzle_v2_from_predecessors(
-          v2_root,quality_path,sampling,cache,qcfg,drizzle,
-          reconstruction_cfg.clipping,reconstruction_cfg.multiband,
-          sqm_cache_root,
-          sqm_cache_root/"source_quality_metrics-v1.json",
-          artifacts/"global_registration.json",
-          geom_reader?&*geom_reader:nullptr,geom_sub,
-          provenance.at("config").at("sha256").get<std::string>(),
-          fd_backend,v2_progress);
-      fd_backend_used=v2_result->driver.backend_used;
-      fd_cuda_fallback_reason=v2_result->driver.cuda_fallback_reason;
-      checkpoint["forward_drizzle_v2"]=true;
-      checkpoint["forward_drizzle_v2_plan_hash"]=v2_result->plan.plan_hash;
-      checkpoint["forward_drizzle_v2_commit_hash"]=v2_result->driver.commit_hash;
-      checkpoint["multiband_levels"]=v2_result->plan.multiband_levels;
-      checkpoint["v2_frames_participating"]=v2_result->frames_participating;
-      checkpoint["v2_frames_skipped_invalid"]=v2_result->frames_skipped_invalid;
-      checkpoint["v2_bands_committed"]=v2_result->driver.bands_committed;
-      checkpoint["v2_bands_reused"]=v2_result->driver.bands_reused;
-    } else if (want_multiband) {
-      auto built=reconstruction::persist_multiband_store_from_predecessors(
-          profiles_root,quality_path,sampling,cache,qcfg,drizzle,
-          reconstruction_cfg.clipping,reconstruction_cfg.multiband,sqm_cache_root,
-          {},fd_backend,fd_workers);
-      result=built.store;
-      mb_identity=built.identity;
-      fd_backend_used=built.backend_used;
-      fd_cuda_fallback_reason=built.cuda_fallback_reason;
-      checkpoint["multiband_reconstruction_hash"]=mb_identity.reconstruction_hash;
-      checkpoint["multiband_levels"]=mb_identity.multiband_levels;
-    } else {
-      result=reconstruction::persist_forward_drizzle_from_predecessors(
-          profiles_root,quality_path,sampling,cache,qcfg,
-          drizzle,reconstruction_cfg.clipping,{},sqm_cache_root,fd_workers);
-    }
+    if (!want_multiband)
+      throw std::invalid_argument("FORWARD_DRIZZLE_V2_REQUIRES_MULTIBAND");
+    const auto v2_progress=[&](int band,int band_count){
+      const float p=band_count>0?static_cast<float>(band)/band_count:1.0f;
+      emitter.phase_progress(run_id,Phase::FORWARD_DRIZZLE,p,
+          "band "+std::to_string(band)+"/"+std::to_string(band_count),log);
+    };
+    reconstruction::ForwardDrizzleV2ProductionResult v2_result=
+        reconstruction::persist_forward_drizzle_v2_from_predecessors(
+        v2_root,quality_path,sampling,cache,qcfg,drizzle,
+        reconstruction_cfg.clipping,reconstruction_cfg.multiband,
+        sqm_cache_root,
+        sqm_cache_root/"source_quality_metrics-v1.json",
+        artifacts/"global_registration.json",
+        geom_reader?&*geom_reader:nullptr,geom_sub,
+        provenance.at("config").at("sha256").get<std::string>(),
+        fd_backend,v2_progress);
+    fd_backend_used=v2_result.driver.backend_used;
+    fd_cuda_fallback_reason=v2_result.driver.cuda_fallback_reason;
+    checkpoint["forward_drizzle_v2"]=true;
+    checkpoint["forward_drizzle_v2_plan_hash"]=v2_result.plan.plan_hash;
+    checkpoint["forward_drizzle_v2_commit_hash"]=v2_result.driver.commit_hash;
+    checkpoint["multiband_levels"]=v2_result.plan.multiband_levels;
+    checkpoint["v2_frames_participating"]=v2_result.frames_participating;
+    checkpoint["v2_frames_skipped_invalid"]=v2_result.frames_skipped_invalid;
+    checkpoint["v2_bands_committed"]=v2_result.driver.bands_committed;
+    checkpoint["v2_bands_reused"]=v2_result.driver.bands_reused;
     checkpoint["profiles_current_bytes"]=fs::file_size(
-        (fd_v2?v2_root:profiles_root)/"current.json");
+        v2_root/"current.json");
     checkpoint["forward_drizzle_backend"]=fd_backend_used;
-    // P3 Teil 2: resolved CPU-reduction worker count (informational; the store
-    // commit hash is invariant to it, so it is NOT resume-validated). On the
-    // CUDA stripe path the device band chunking runs instead --- the value then
-    // only applies to a CUDA->CPU restart. The v2 backends are named
-    // "cpu_v2"/"cuda_v2"; the CPU one is serial (the driver owns the band
-    // loop), so workers_used stays 0 on that path by construction.
+    // The v2 backends are named "cpu_v2"/"cuda_v2"; the CPU one is serial
+    // (the driver owns the band loop), so the resolved worker fields stay 0
+    // by construction. The requested count is informational only.
     checkpoint["forward_drizzle_reduction_workers_requested"]=fd_workers;
-    const bool cpu_reduction=fd_backend_used=="cpu"||fd_backend_used=="cpu_v2";
-    checkpoint["forward_drizzle_reduction_workers"]=
-        (cpu_reduction&&!fd_v2) ? result.diagnostics.workers_used : 0;
-    checkpoint["forward_drizzle_reduction_workers_budgeted"]=
-        (cpu_reduction&&!fd_v2) ? result.diagnostics.workers_budgeted : 0;
+    checkpoint["forward_drizzle_reduction_workers"]=0;
+    checkpoint["forward_drizzle_reduction_workers_budgeted"]=0;
     if (!fd_cuda_fallback_reason.empty())
       checkpoint["forward_drizzle_cuda_fallback_reason"]=fd_cuda_fallback_reason;
     core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
     {
-      json extra={{"generation",fd_v2?v2_result->driver.generation_dir.filename().string()
-                                   :result.generation_dir.filename().string()},
-         {"estimated_peak_bytes",result.diagnostics.estimated_peak_bytes},
+      json extra={{"generation",v2_result.driver.generation_dir.filename().string()},
+         {"estimated_peak_bytes",0},
          {"internal_scale",drizzle.internal_scale},
          {"output_scale",drizzle.output_scale},
          {"output_scale_applied",applied_2x2},
          {"multiband",want_multiband},
          {"acceleration_backend",fd_backend_used},
-         {"forward_drizzle_v2",fd_v2},
+         {"forward_drizzle_v2",true},
          {"reduction_workers_requested",fd_workers},
-         {"reduction_workers",(cpu_reduction&&!fd_v2) ? result.diagnostics.workers_used : 0},
-         {"reduction_worker_scratch_bytes",result.diagnostics.worker_scratch_bytes},
+         {"reduction_workers",0},
+         {"reduction_worker_scratch_bytes",0},
          {"kernel_noise_sigma_factor",
           reconstruction::kernel_noise_correlation_sigma_factor(
               drizzle.pixfrac,drizzle.internal_scale)}};
-      if (fd_v2) {
-        extra["v2_plan_hash"]=v2_result->plan.plan_hash;
-        extra["v2_band_rows"]=v2_result->plan.band_rows;
-        extra["v2_band_count"]=v2_result->plan.band_count;
-        extra["v2_bands_committed"]=v2_result->driver.bands_committed;
-        extra["v2_bands_reused"]=v2_result->driver.bands_reused;
-        extra["v2_frames_participating"]=v2_result->frames_participating;
-        extra["v2_commit_hash"]=v2_result->driver.commit_hash;
-        extra["v2_frames_processed"]=v2_result->driver.totals.frames_processed;
-        extra["v2_reservoir_kept"]=v2_result->driver.totals.reservoir_kept_total;
-        extra["v2_q_bin_loads"]=v2_result->q_bin_loads;
-        extra["v2_q_bin_cells_decoded"]=v2_result->q_bin_cells_decoded;
-        extra["v2_local_samples_discarded"]=v2_result->local_model_samples_discarded;
-        extra["v2_max_frame_seconds"]=v2_result->driver.max_frame_seconds;
+      {
+        extra["v2_plan_hash"]=v2_result.plan.plan_hash;
+        extra["v2_band_rows"]=v2_result.plan.band_rows;
+        extra["v2_band_count"]=v2_result.plan.band_count;
+        extra["v2_bands_committed"]=v2_result.driver.bands_committed;
+        extra["v2_bands_reused"]=v2_result.driver.bands_reused;
+        extra["v2_frames_participating"]=v2_result.frames_participating;
+        extra["v2_commit_hash"]=v2_result.driver.commit_hash;
+        extra["v2_frames_processed"]=v2_result.driver.totals.frames_processed;
+        extra["v2_reservoir_kept"]=v2_result.driver.totals.reservoir_kept_total;
+        extra["v2_q_bin_loads"]=v2_result.q_bin_loads;
+        extra["v2_q_bin_cells_decoded"]=v2_result.q_bin_cells_decoded;
+        extra["v2_local_samples_discarded"]=v2_result.local_model_samples_discarded;
+        extra["v2_max_frame_seconds"]=v2_result.driver.max_frame_seconds;
         extra["v2_max_provider_enqueue_seconds"]=
-            v2_result->driver.max_provider_enqueue_seconds;
+            v2_result.driver.max_provider_enqueue_seconds;
         extra["v2_quality_bytes_uploaded"]=
-            v2_result->driver.totals.quality_bytes_uploaded;
+            v2_result.driver.totals.quality_bytes_uploaded;
         extra["v2_source_samples_launched"]=
-            v2_result->driver.totals.source_samples_launched;
+            v2_result.driver.totals.source_samples_launched;
         extra["v2_quality_frames_processed"]=
-            v2_result->driver.totals.quality_frames_processed;
-        extra["v2_upload_seconds"]=v2_result->driver.totals.upload_seconds;
-        extra["v2_kernel_seconds"]=v2_result->driver.totals.kernel_seconds;
-        extra["v2_download_seconds"]=v2_result->driver.totals.download_seconds;
+            v2_result.driver.totals.quality_frames_processed;
+        extra["v2_upload_seconds"]=v2_result.driver.totals.upload_seconds;
+        extra["v2_kernel_seconds"]=v2_result.driver.totals.kernel_seconds;
+        extra["v2_download_seconds"]=v2_result.driver.totals.download_seconds;
         extra["v2_reserved_device_bytes"]=
-            v2_result->driver.totals.reserved_device_bytes;
+            v2_result.driver.totals.reserved_device_bytes;
         extra["v2_frames_skipped_empty_window"]=
-            v2_result->driver.totals.frames_skipped_empty_window;
+            v2_result.driver.totals.frames_skipped_empty_window;
         extra["v2_quality_expanded_floats"]=
-            v2_result->driver.totals.quality_expanded_floats;
-        extra["v2_phase_wall_seconds"]=v2_result->driver.phase_wall_seconds;
-        extra["v2_commit_seconds"]=v2_result->driver.commit_seconds;
+            v2_result.driver.totals.quality_expanded_floats;
+        extra["v2_phase_wall_seconds"]=v2_result.driver.phase_wall_seconds;
+        extra["v2_commit_seconds"]=v2_result.driver.commit_seconds;
         extra["v2_provider_source_seconds"]=
-            v2_result->provider_source_seconds;
+            v2_result.provider_source_seconds;
         extra["v2_provider_quality_seconds"]=
-            v2_result->provider_quality_seconds;
+            v2_result.provider_quality_seconds;
         extra["v2_provider_source_bytes_read"]=
-            v2_result->provider_source_bytes_read;
+            v2_result.provider_source_bytes_read;
         extra["v2_provider_source_read_calls"]=
-            v2_result->provider_source_read_calls;
+            v2_result.provider_source_read_calls;
         extra["v2_provider_hotpath_allocations"]=
-            v2_result->provider_hotpath_allocations;
+            v2_result.provider_hotpath_allocations;
         extra["v2_provider_quality_cells_read"]=
-            v2_result->provider_quality_cells_read;
+            v2_result.provider_quality_cells_read;
         extra["v2_provider_quality_expanded_floats"]=
-            v2_result->provider_quality_expanded_floats;
+            v2_result.provider_quality_expanded_floats;
         extra["v2_provider_quality_denominator_bytes"]=
-            v2_result->provider_quality_denominator_bytes;
+            v2_result.provider_quality_denominator_bytes;
         extra["v2_geometry_leaf_records_read"]=
-            v2_result->geometry_leaf_records_read;
+            v2_result.geometry_leaf_records_read;
         extra["v2_geometry_leaf_record_bytes_read"]=
-            v2_result->geometry_leaf_record_bytes_read;
+            v2_result.geometry_leaf_record_bytes_read;
         extra["v2_geometry_unique_source_samples"]=
-            v2_result->geometry_unique_source_samples;
+            v2_result.geometry_unique_source_samples;
         extra["v2_geometry_cache_enumerations"]=
-            v2_result->geometry_cache_enumerations;
+            v2_result.geometry_cache_enumerations;
         extra["v2_cached_leaf_records_launched"]=
-            v2_result->driver.totals.cached_leaf_records_launched;
+            v2_result.driver.totals.cached_leaf_records_launched;
         extra["v2_cached_leaf_bytes_uploaded"]=
-            v2_result->driver.totals.cached_leaf_bytes_uploaded;
+            v2_result.driver.totals.cached_leaf_bytes_uploaded;
         extra["v2_affine_pieces_processed"]=
-            v2_result->driver.totals.affine_pieces_processed;
-        extra["v2_empty_affine_tiles"]=v2_result->empty_affine_tiles;
+            v2_result.driver.totals.affine_pieces_processed;
+        extra["v2_empty_affine_tiles"]=v2_result.empty_affine_tiles;
         // Tranche 8: the production affine path is the canonical ragged
         // sample list (one full-target piece per frame); the rectangle
         // target-tile keys are reported as not applicable rather than
         // misleadingly implying 512-column pieces.
         extra["v2_affine_samples_processed"]=
-            v2_result->driver.totals.affine_samples_processed;
+            v2_result.driver.totals.affine_samples_processed;
         extra["v2_affine_span_rows"]=
-            v2_result->driver.totals.affine_span_rows;
+            v2_result.driver.totals.affine_span_rows;
         extra["v2_affine_sample_path"]=true;
         extra["v2_target_tile_cols_native"]=nullptr;
         extra["v2_target_tile_cols_native_applicable"]=false;
@@ -665,14 +633,14 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         // a denominator is zero.
         {
           const double frames =
-              static_cast<double>(v2_result->frames_participating);
+              static_cast<double>(v2_result.frames_participating);
           const double src_px =
               static_cast<double>(sampling.source_width) *
               sampling.source_height;
           const double src_den = frames * src_px * sizeof(float);
           if (src_den > 0.0) {
             extra["v2_source_read_amplification"]=
-                static_cast<double>(v2_result->provider_source_bytes_read) /
+                static_cast<double>(v2_result.provider_source_bytes_read) /
                 src_den;
             extra["v2_source_read_amplification_applicable"]=true;
           } else {
@@ -683,7 +651,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           if (launched_den > 0.0) {
             extra["v2_launched_sample_amplification"]=
                 static_cast<double>(
-                    v2_result->driver.totals.source_samples_launched) /
+                    v2_result.driver.totals.source_samples_launched) /
                 launched_den;
             extra["v2_launched_sample_amplification_applicable"]=true;
           } else {
@@ -693,11 +661,11 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           // Dense baseline computed by the provider: selected frames x
           // present streams x full storage grid at 3 bytes/cell.
           const double q_den = static_cast<double>(
-              v2_result->provider_quality_denominator_bytes);
+              v2_result.provider_quality_denominator_bytes);
           if (q_den > 0.0) {
             extra["v2_quality_read_amplification"]=
                 static_cast<double>(
-                    v2_result->provider_quality_cells_read) *
+                    v2_result.provider_quality_cells_read) *
                 3.0 / q_den;
             extra["v2_quality_read_amplification_applicable"]=true;
           } else {
@@ -707,14 +675,14 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         }
         // One workspace reservation per backend attempt (persistent across
         // bands); the accumulate hot path allocates nothing by contract.
-        extra["v2_reserve_allocations"]=v2_result->driver.totals.allocations;
+        extra["v2_reserve_allocations"]=v2_result.driver.totals.allocations;
         extra["v2_workspace_reservations"]=
-            v2_result->driver.totals.workspace_reservations;
-        extra["v2_band_resets"]=v2_result->driver.totals.band_resets;
+            v2_result.driver.totals.workspace_reservations;
+        extra["v2_band_resets"]=v2_result.driver.totals.band_resets;
         extra["v2_driver_hotpath_allocations"]=
-            v2_result->driver.driver_hotpath_allocations;
+            v2_result.driver.driver_hotpath_allocations;
         extra["v2_device_global_syncs"]=
-            v2_result->driver.totals.device_global_synchronizations;
+            v2_result.driver.totals.device_global_synchronizations;
       }
       if (!fd_cuda_fallback_reason.empty())
         extra["cuda_fallback_reason"]=fd_cuda_fallback_reason;
@@ -735,15 +703,6 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     // hash guard (like forward_drizzle.json).
     {
       auto geom_profile=json::parse(reconstruction::geomstats::to_json());
-      // P3 Teil 2 honesty: with >1 reduction worker the process-global geomstats
-      // registry is DISABLED for the FORWARD_DRIZZLE stripe loop (not
-      // concurrency-safe), so the production_uniform_raw / contrib_* / hybrid
-      // counters below reflect only what ran serially --- a zero there is
-      // "not recorded", NOT "the cache served everything". SAMPLING_GEOMETRY
-      // (coverage_*) is unaffected (still single-threaded).
-      if (result.diagnostics.reduction_stats_suppressed)
-        geom_profile["forward_drizzle_stage_stats_suppressed_reduction_workers"]=
-            result.diagnostics.workers_budgeted;
       // P3 Teil 2 shared-budget term: the largest per-source-row leaf-record
       // block a band worker seek-reads (one such buffer per concurrent worker).
       if (geom_reader)
@@ -775,19 +734,19 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         ~SpoolGuard() { std::error_code ec; fs::remove_all(dir,ec); }
       } spool_guard{spool.dir};
       reconstruction::MultibandFusionMemoryPlan mem_plan;
-      // Gate-10 store autodetection: a published v2 store (current.json under
+      // Gate-10 cutover: the published v2 store (current.json under
       // artifacts/forward_drizzle_v2) is fused through the v2 adapter path;
       // its committed plan is bound by the checkpoint's
       // forward_drizzle_v2_plan_hash whenever the producer recorded one.
-      // Otherwise the legacy profile store is fused unchanged.
       reconstruction::ForwardDrizzleV2RunPlan v2_store_plan;
       std::string v2_plan_load_error;
-      const bool v2_store=
-          reconstruction::load_forward_drizzle_v2_published_plan(
-              v2_root,v2_store_plan,v2_plan_load_error);
+      if (!reconstruction::load_forward_drizzle_v2_published_plan(
+              v2_root,v2_store_plan,v2_plan_load_error))
+        throw std::runtime_error("FORWARD_STAGE_V2_STORE_UNUSABLE: "+
+                                 v2_plan_load_error);
       long long pixels=0;
       reconstruction::ForwardDrizzleV2FusionStats v2_fuse_stats;
-      if (v2_store) {
+      {
         if (checkpoint.contains("forward_drizzle_v2_plan_hash") &&
             checkpoint.at("forward_drizzle_v2_plan_hash").get<std::string>()!=
                 v2_store_plan.plan_hash)
@@ -806,10 +765,6 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         mb_identity.height=v2_store_plan.native_height;
         mb_identity.multiband_levels=v2_store_plan.multiband_levels;
         mb_identity.reconstruction_hash="v2:"+v2_store_plan.plan_hash;
-      } else {
-        pixels=reconstruction::fuse_multiband_store_to_image(
-            profiles_root,mb_identity,mb_internal,reconstruction_cfg.multiband,
-            drizzle.chunk_rows,drizzle.memory_budget_mb,&cand,&spool,&mem_plan);
       }
       checkpoint["final_image_bytes"]=fs::file_size(mb_internal);
 
@@ -975,15 +930,11 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           mb_phase_rss_growth_kb<=mb_envelope_kb;
       json local_warp={
         {"local_model_samples_total",
-         v2_result ? static_cast<long long>(v2_result->local_model_samples_total)
-                   : result.diagnostics.local_model_samples_total},
+         static_cast<long long>(v2_result.local_model_samples_total)},
         {"local_model_samples_discarded",
-         v2_result ? static_cast<long long>(v2_result->local_model_samples_discarded)
-                   : result.diagnostics.local_model_samples_discarded}};
+         static_cast<long long>(v2_result.local_model_samples_discarded)}};
       { json fx=json::array();
-        for (const auto &fr:v2_result
-                ? v2_result->frames_excluded_subdivision_error_rate
-                : result.diagnostics.frames_excluded_subdivision_error_rate)
+        for (const auto &fr:v2_result.frames_excluded_subdivision_error_rate)
           fx.push_back({{"frame_id",fr.first},{"inversion_error_rate",fr.second}});
         local_warp["frames_excluded_subdivision_error_rate"]=fx; }
       json fwd={
@@ -1010,12 +961,10 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           {"kernel",drizzle.kernel},
           {"pixfrac",drizzle.pixfrac}}},
         {"clipping",{
-          {"pixel_channel_evaluations",result.clipping.pixel_channel_evaluations},
-          {"pixel_channel_rejected",result.clipping.pixel_channel_rejected},
-          {"candidate_contributions_clipped",
-           result.clipping.candidate_contributions_clipped},
-          {"pixel_channel_guard_fallback",
-           result.clipping.pixel_channel_guard_fallback}}},
+          {"pixel_channel_evaluations",0},
+          {"pixel_channel_rejected",0},
+          {"candidate_contributions_clipped",0},
+          {"pixel_channel_guard_fallback",0}}},
         {"local_warp",local_warp},
         {"pixels_supported",pixels},
         {"acceleration",{
@@ -1023,56 +972,13 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           {"cuda_fallback_reason",
            fd_cuda_fallback_reason.empty() ? json(nullptr)
                                            : json(fd_cuda_fallback_reason)},
-          {"workers_used",cpu_reduction ? result.diagnostics.workers_used : 0},
-          {"resolved_chunk_rows",result.diagnostics.resolved_chunk_rows},
-          // Plan 19.4/19.6: populated only when the CUDA per-stripe path
-          // (accumulate_pair_by_frame_cuda via run_cuda_chunked) actually ran.
-          {"cuda_stripe_path",
-           result.cuda_timing.used
-               ? json{{"bands",result.cuda_timing.bands},
-                      {"resolved_chunk_rows",
-                       result.cuda_timing.resolved_chunk_rows},
-                      {"min_chunk_rows",result.cuda_timing.min_chunk_rows},
-                      {"bytes_per_row",
-                       static_cast<long long>(result.cuda_timing.bytes_per_row)},
-                      // §30.80: three-way split of bytes_per_row + host ceiling
-                      // + observed band collapse.
-                      {"cand_row_bytes",
-                       static_cast<long long>(
-                           result.cuda_timing.cand_row_bytes)},
-                      {"rec_row_bytes",
-                       static_cast<long long>(result.cuda_timing.rec_row_bytes)},
-                      {"acc_row_bytes",
-                       static_cast<long long>(result.cuda_timing.acc_row_bytes)},
-                      {"host_budget_bytes",
-                       static_cast<long long>(
-                           result.cuda_timing.host_budget_bytes)},
-                      {"band_halvings",result.cuda_timing.band_halvings},
-                      {"min_band_rows",result.cuda_timing.min_band_rows},
-                      {"max_band_rows",result.cuda_timing.max_band_rows},
-                      // §30.81: per-band column tiling of the host buffer
-                      {"resolved_tile_w",result.cuda_timing.resolved_tile_w},
-                      {"min_tile_w",result.cuda_timing.min_tile_w},
-                      {"max_tiles_per_band",
-                       result.cuda_timing.max_tiles_per_band},
-                      {"device_free_bytes",
-                       static_cast<long long>(
-                           result.cuda_timing.device_free_bytes)},
-                      {"stripe_seconds",result.cuda_timing.stripe_seconds},
-                      {"total_seconds",result.cuda_timing.total_seconds},
-                      {"hybrid_local_frames",
-                       result.cuda_timing.hybrid_local_frames},
-                      {"hybrid_cpu_seconds",
-                       result.cuda_timing.hybrid_cpu_seconds},
-                      {"hybrid_gpu_raster_seconds",
-                       result.cuda_timing.hybrid_gpu_raster_seconds},
-                      {"hybrid_leaf_cells",
-                       static_cast<long long>(
-                           result.cuda_timing.hybrid_leaf_cells)}}
-               : json(nullptr)}}},
+          {"workers_used",0},
+          {"resolved_chunk_rows",0},
+          // The v2 driver owns banding; no legacy per-stripe CUDA path exists.
+          {"cuda_stripe_path",json(nullptr)}}},
         {"resources",{
-          // FORWARD_DRIZZLE store-build estimate (unchanged).
-          {"estimated_peak_bytes",result.diagnostics.estimated_peak_bytes},
+          // FORWARD_DRIZZLE store-build estimate (v2 reports 0).
+          {"estimated_peak_bytes",0},
           // Plan 11.13(1)+(4): the MULTIBAND fuse/validate/export working-set
           // pre-plan that gated the phase, reported next to (not merged with)
           // the measured RSS.
@@ -1159,7 +1065,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
                        ? json(gpu_device_name) : json(nullptr)}}},
           {"threads",{
             {"parallel_workers_config",cfg.runtime_limits.parallel_workers},
-            {"workers_used",cpu_reduction ? result.diagnostics.workers_used : 0}}}}},
+            {"workers_used",0}}}}},
         // Plan 23.1 (M4 carry-over -> M8 report): state the flux space of the
         // delivered planes unambiguously. The STACKING 17.4 normalisation undo
         // is applied only to the separate canonical downstream products.
@@ -1187,7 +1093,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
              ? json(nullptr) : json(sel.reason)},
         {"outputs",out_list},
         {"commit_complete",true}};
-      if (v2_store) {
+      {
         // Gate-10 v2 producer identity + fusion read accounting (the
         // alpha_confidence_summary / validation blocks above already carry
         // the fused v2 products unchanged).
@@ -1267,20 +1173,15 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
     }
 
-    // Cache-lifetime contract (plan 16.2). Only after a fully committed final
-    // image: the internal transactional U/R/F/M profile store is a
-    // reconstruction cache, never a downstream-resume predecessor, so it is
-    // deleted by default and kept (as a hashed cache) only on request. The
-    // source caches are kept by default; deleting them disables
-    // resume-reconstruction and is announced as such. Reported in the run_end
-    // event, not as a phase, so the phase sequence is unchanged.
+    // Cache-lifetime contract (plan 16.2, adapted for the v2 cutover). The v2
+    // band store is the only reconstruction store and is always retained: it
+    // is a downstream-resume predecessor. The source caches are kept by
+    // default; deleting them disables resume-reconstruction and is announced
+    // as such. Reported in the run_end event, not as a phase, so the phase
+    // sequence is unchanged.
     json cache_actions=json::object();
     if (final_image_available) {
-      if (want_multiband && !reconstruction_cfg.keep_profile_cache_after_run) {
-        std::error_code ec; fs::remove_all(profiles_root,ec);
-        cache_actions["profile_cache"]=ec ? "delete_failed" : "deleted";
-        checkpoint["profile_cache_retained"]=false;
-      } else if (want_multiband) {
+      if (want_multiband) {
         cache_actions["profile_cache"]="retained";
         checkpoint["profile_cache_retained"]=true;
       }
