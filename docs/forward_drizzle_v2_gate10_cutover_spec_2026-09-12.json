@@ -24,7 +24,7 @@
       "sigma2": "compute from the band-local source window with the required one-pixel gradient halo; a full source-size sigma2 allocation or upload per band is forbidden",
       "quality": "read only the selected frame's band-local storage-grid window; full source-resolution float expansion per band is forbidden",
       "local_geometry": "reuse the committed DrizzleGeometryCacheReader leaves for local frames; FORWARD_DRIZZLE must not repeat whole-source local inversion/subdivision per band",
-      "workspace": "reserve one maximum-band workspace per backend attempt and reset/rebind it across bands; per-band stream, bulk cudaMalloc and O(frame_count) event recreation are forbidden"
+      "workspace": "reserve one maximum-band workspace per backend attempt and reset/rebind it across bands; per-band stream, bulk cudaMalloc and O(frame_count) event recreation are forbidden; the resume-stable production planner caps dynamic per-pixel device state at 2 GiB so fixed source/sample/compact-Q buffers and cached-leaf storage fit the 6-GiB device"
     },
     "frozen_acceptance": {
       "actual_source_read_amplification_max": 1.1,

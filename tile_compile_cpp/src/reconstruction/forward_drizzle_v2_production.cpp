@@ -492,11 +492,18 @@ ForwardDrizzleV2ProductionResult persist_forward_drizzle_v2_from_predecessors(
   out.frames_participating = static_cast<int>(stream.size());
 
   // Nominal device planning bound when the CUDA path is requested: a fixed
-  // 4 GiB, NOT measured free VRAM --- the band geometry is bound into
-  // plan_hash and must be identical across a resume. A device that cannot
-  // actually fit a band fails reserve() and the phase restarts on CPU.
+  // 2 GiB for the per-pixel band state, NOT measured free VRAM --- the band
+  // geometry is bound into plan_hash and must be identical across a resume
+  // (no transient cudaMemGetInfo). CUDA reserve() additionally allocates
+  // fixed full-source compatibility/sample/compact-Q buffers (~431 MiB at
+  // 3840x2160) and optional cached-leaf storage on top of this dynamic cap.
+  // The 2 GiB dynamic cap is proven by bench_m42_v2_spans, which reserved a
+  // total of 2,432,577,804 bytes on the GTX 1660 Ti --- deterministic
+  // headroom under the observed 3,658 MiB free while remaining
+  // resume-stable. A device that cannot actually fit a band fails reserve()
+  // and the phase restarts on CPU.
   const std::size_t nominal_device_bytes =
-      acceleration_backend == "cuda" ? (std::size_t{4} << 30) : 0;
+      acceleration_backend == "cuda" ? kV2NominalDeviceDynamicBytes : 0;
   out.plan = make_forward_drizzle_v2_run_plan(
       sampling, drizzle_cfg, clipping_cfg, multiband_cfg,
       multiband_cfg.enabled /*emit_profiles*/,

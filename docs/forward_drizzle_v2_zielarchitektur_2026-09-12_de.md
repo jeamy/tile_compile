@@ -1622,6 +1622,9 @@ Der neu geöffnete Performancepfad beseitigt den Faktor strukturell:
 - ein CPU-/CUDA-Workspace, Stream und Eventset wird über alle Bänder
   wiederverwendet; Host-Provider- und Driver-Hotpaths wachsen nach Pre-Reserve
   nicht mehr;
+- der deterministische Device-Plan begrenzt den dynamischen Pixelzustand auf
+  2 GiB. Das lässt auf der 6-GiB-GPU Platz für die zusätzlichen festen
+  Source-/Sample-/Q-Puffer und verhindert einen stillen CPU-Fallback;
 - die Telemetrie trennt Provider-I/O, Q-Zellen, H2D, Device-Zeit, Commit-Zeit,
   tatsächliche Read-/Sample-Amplifikation und Workspace-Reservationen.
 

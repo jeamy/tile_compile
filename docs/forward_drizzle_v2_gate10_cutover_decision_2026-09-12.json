@@ -1,6 +1,6 @@
 {
     "gate": 10,
-    "spec_sha256": "af6381e4cc223c3c2401a94ca9358b90c7beb38695312fe327d27dc69ccd557a",
+    "spec_sha256": "e99366e1a30cd5be12cbb928cf15b1f00f37eb184e7c2604232058df71a4674b",
     "decision": "rejected_first_cutover_reopened_for_input_amplification_fix",
     "decided_at": "2026-09-13",
     "scope": "production cutover of forward drizzle v2: runner wiring, host CPU fallback port, band-level resume through the gate-7 store, real production runs; legacy record/sort/candidate path removal only after acceptance",

@@ -6433,6 +6433,53 @@ TEST_CASE("forward drizzle v2 gate10 production plan binds predecessors",
                       std::invalid_argument);
   }
 
+  SECTION("CUDA nominal device budget is 2 GiB and bounds A2 band geometry") {
+    // Production passes kV2NominalDeviceDynamicBytes as the device budget
+    // when "cuda" is requested. For the real A2 geometry (OSC 3ch,
+    // internal_scale 2, emit_profiles, 4526-wide canvas, N=610 -> 58
+    // reservoir slots) the dynamic per-pixel band state must resolve to
+    // band_rows <= 48 so it stays within 2 GiB; the fixed full-source
+    // compatibility/sample/compact-Q buffers (~431 MiB at 3840x2160) plus
+    // this cap stay under 2.5 GiB total, matching the proven
+    // bench_m42_v2_spans reservation of 2,432,577,804 bytes.
+    REQUIRE(kV2NominalDeviceDynamicBytes == (std::size_t{2} << 30));
+    constexpr std::size_t kFixedDeviceBytes =
+        std::size_t{431} << 20;  // documented fixed-buffer bound at 3840x2160
+    REQUIRE(kV2NominalDeviceDynamicBytes + kFixedDeviceBytes <=
+            (std::size_t{5} << 29));  // 2.5 GiB
+    RegistrationSamplingPlan a2;
+    a2.source_width = 3840;
+    a2.source_height = 2160;
+    a2.canvas_width_native = 4526;
+    a2.canvas_height_native = 3370;
+    a2.color_mode = ColorMode::OSC;
+    a2.bayer_pattern = BayerPattern::GRBG;
+    a2.source_identity_hash = "a2-src";
+    a2.plan_hash = "a2-sampling";
+    auto d2 = dc;
+    d2.internal_scale = 2;
+    d2.output_scale = 1;
+    const auto sel610 = forward_drizzle_v2_selected_frame_orders(
+        610, 64, 11400714819323198485ULL);
+    const std::size_t bpp = forward_drizzle_v2_cpu_bytes_per_native_pixel(
+        3, 2, static_cast<int>(sel610.size()), true, true);
+    const std::size_t row_bytes = bpp * 4526;
+    const auto a2plan = make_forward_drizzle_v2_run_plan(
+        a2, d2, cc, mc, true, 610, "cache-a", "q-a", "sqc-a", "cfg-a",
+        std::size_t{16384} << 20, kV2NominalDeviceDynamicBytes);
+    INFO("a2 band_rows=" << a2plan.band_rows
+                         << " row_bytes=" << row_bytes);
+    REQUIRE(a2plan.band_rows <= 48);
+    REQUIRE(static_cast<std::size_t>(a2plan.band_rows) * row_bytes <=
+            kV2NominalDeviceDynamicBytes);
+    // Sanity: the old 4 GiB cap allowed ~96 rows; the new cap must not
+    // silently re-admit it.
+    const auto old = make_forward_drizzle_v2_run_plan(
+        a2, d2, cc, mc, true, 610, "cache-a", "q-a", "sqc-a", "cfg-a",
+        std::size_t{16384} << 20, std::size_t{4} << 30);
+    REQUIRE(old.band_rows > a2plan.band_rows);
+  }
+
   SECTION("unsupported output grids reject") {
     auto d22 = dc;
     d22.internal_scale = 2;

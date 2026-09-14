@@ -92,6 +92,18 @@ ForwardDrizzleV2RunPlan make_forward_drizzle_v2_run_plan(
     std::size_t host_budget_bytes,
     std::size_t device_budget_bytes = 0);
 
+// Nominal per-pixel band-state (dynamic) budget the production planner
+// passes as `device_budget_bytes` when the CUDA path is requested. Fixed,
+// never measured free VRAM: the band geometry is bound into plan_hash and
+// must be identical across resume. CUDA reserve() allocates fixed
+// full-source compatibility/sample/compact-Q buffers (~431 MiB at
+// 3840x2160) and optional cached-leaf storage on top of this cap;
+// bench_m42_v2_spans reserved a total of 2,432,577,804 bytes on the
+// GTX 1660 Ti (observed free 3,658 MiB), so the cap leaves deterministic
+// headroom while remaining resume-stable.
+inline constexpr std::size_t kV2NominalDeviceDynamicBytes = std::size_t{2}
+                                                          << 30;
+
 // Tranche 7: deterministic affine target-tile width in NATIVE output
 // columns. Retained for the rectangle/target-piece compatibility APIs and
 // their tests; the production provider no longer tiles affine frames (the
