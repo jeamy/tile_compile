@@ -65,6 +65,11 @@ bool forward_drizzle_cuda_affine_target_gather(
     unsigned long long *, unsigned long long *) {
   return false;
 }
+bool forward_drizzle_cuda_affine_coverage_gather(
+    const double *, const double *, int, double, int, int, int, int, int, int,
+    int, int, int, int, bool, double *) {
+  return false;
+}
 bool forward_drizzle_cuda_affine_dense_scatter(
     const double *, int, double, int, int, int, int, int, int, const float *,
     int, int, int, bool, double *, double *, unsigned long long *) {

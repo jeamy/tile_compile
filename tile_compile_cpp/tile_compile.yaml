@@ -19,12 +19,6 @@ calibration:
   dark_match_exposure_tolerance_percent: 10
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 5
-  bias_dir:
-  darks_dir:
-  flats_dir:
-  bias_master:
-  dark_master:
-  flat_master:
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
 normalization:
   enabled: true
@@ -104,7 +98,6 @@ chroma_denoise:
     amount: 0.8
 astrometry:
   enabled: true
-  astap_bin:
   astap_data_dir: /media/data/Astro/astap
   search_radius: 183
 stacking:
@@ -206,13 +199,12 @@ hypermetric_stretch:
   write_channels: false
   output_rgb: stacked_rgb_hms.fits
 runtime_limits:
-  memory_budget: 4096
+  memory_budget: 16384
   parallel_workers: 8
   acceleration_backend: auto
   hard_abort_hours: 6
-# Single-method CFA forward-drizzle + multiband pipeline.
 reconstruction:
-  common_overlap_required_fraction: 1.0
+  common_overlap_required_fraction: 1
   delete_source_cache_after_run: true
   keep_profile_cache_after_run: false
   diagnostics:
@@ -223,22 +215,22 @@ reconstruction:
     internal_scale: 2
     output_scale: 1
     kernel: square
-    pixfrac: 0.8
+    pixfrac: 0.6
     robust_passes: 4
     min_clip_contributors: 5
     chunk_rows: 0
     chunk_halo_rows: -1
     memory_budget_mb: 0
   clipping:
-    clip_sigma_low: 2.0
-    clip_sigma_high: 4.0
+    clip_sigma_low: 2
+    clip_sigma_high: 4
     min_fraction: 0.4
-    min_n_eff: 2.0
+    min_n_eff: 2
     guard_fallback: false
   coverage_gate:
     min_frames: 2
     min_supported_fraction: 0.995
-    min_channel_n_eff_floor: 3.0
+    min_channel_n_eff_floor: 3
     min_channel_n_eff_fraction: 0.15
     min_analysis_pixels: 1024
     max_internal_hole_area_px: 0
@@ -254,20 +246,12 @@ reconstruction:
   multiband:
     enabled: true
     levels: 3
-    alpha_cap: 1.0
-    fine_quality_exponent: 4.0
-    medium_quality_exponent: 2.0
+    alpha_cap: 1
+    fine_quality_exponent: 4
+    medium_quality_exponent: 2
     min_quality_separation: 0.05
     full_quality_separation: 0.2
-    min_effective_samples: 8.0
-    full_effective_samples: 24.0
+    min_effective_samples: 8
+    full_effective_samples: 24
   multiband_validation:
-    fwhm_ratio_max: 0.95
-    p90_fwhm_ratio_max: 1.0
-    tail_ratio_max: 1.1
-    elongation_ratio_max: 1.08
-    background_rms_ratio_max: 1.05
-    seam_ratio_max: 1.05
-    min_stars_fwhm: 20
-    min_stars_p90_tail_elongation: 30
-    max_fwhm_ci_relative_width: 0.1
+    background_rms_ratio_max: 1.5

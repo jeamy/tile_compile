@@ -200,28 +200,28 @@ public:
   } // active last-row components touch the exterior
 };
 
-// T6b: affine GPU rasterization for the coverage CFA pass. Returns true if the
-// CUDA path was used (affine frame, CUDA available); false if the caller should
-// fall back to the CPU `rasterize_drizzle_stripe`. The coverage path doesn't
-// access source pixel values (only geometry), so a dummy all-1.0f buffer is
-// passed to satisfy the kernel's isfinite() guard. The kernel emits (channel,
-// target_y, target_x, area) records; the host accumulates B[c][i] += area,
-// exactly matching the CPU sink lambda. Bit-identical to the CPU path because
-// the kernel is compiled --fmad=false and uses the same polygon/rect area
-// routine.
+// T6b: affine GPU gather for the coverage CFA pass. Returns true when the
+// per-cell B plane (channel-major, `channels * canvas_w * rows` doubles) was
+// produced on the device; false if the caller should fall back to the CPU
+// `rasterize_drizzle_stripe`. out_b[static_cast<size_t>(c) * n + i] holds the
+// same value the CPU path accumulates into B[c][i] --- the kernel scans each
+// cell's source neighbourhood in canonical (sy, sx) order, so the per-cell
+// sums are bit-identical.
 //
-// Thread safety: the CUDA runtime is not safe for concurrent calls from
-// multiple host threads. A static mutex serializes the device call (H2D +
-// kernel + D2H + cudaFree). The host-side accumulation (B[c][i] += area) runs
-// without the lock because B[c] is per-band (each OpenMP worker has its own).
-// This allows the coverage path to use CUDA even with workers > 1: affine
-// frames are serialized through the mutex, local-warp frames and all
-// non-CFA passes (reset, reduction, footprint, holes) run in parallel.
-bool rasterize_coverage_stripe_cuda_affine(
+// The old records pipeline moved band_h*sw*32 CudaDrizzleContribRecord (~330MB
+// at 4K inputs) per (band, frame) call through a serialized device section;
+// the gather moves only the B plane (~canvas_w*rows*channels*8B) and uploads
+// nothing (coverage is geometry-only).
+//
+// Thread safety: a static mutex serializes the device call across OpenMP
+// workers; the caller's fold over out_b runs outside the lock (per-band
+// buffers). TC_COVERAGE_DISABLE_CUDA forces the CPU path (parity tests).
+bool gather_coverage_stripe_cuda_affine(
     const RegistrationSamplingPlan &plan, const FrameSamplingTransform &f,
     int internal_scale, float pixfrac, int y_begin, int rows, int canvas_w,
-    std::array<std::vector<double>, 3> &B, int channels) {
+    double *out_b, int channels) {
   if (f.has_smooth_local_model) return false;  // local-warp: CPU only
+  if (std::getenv("TC_COVERAGE_DISABLE_CUDA") != nullptr) return false;
   const auto dev_mem = reconstruction::forward_drizzle_cuda_device_memory();
   if (dev_mem.free_bytes == 0) return false;  // no CUDA device
 
@@ -229,76 +229,62 @@ bool rasterize_coverage_stripe_cuda_affine(
   WarpMatrix inv;
   if (!invert_affine_2x3(s2c, 1e-12f, 1e12f, inv)) return false;
 
-  const int sw = plan.source_width;
-  const int sh = plan.source_height;
-  const double half = static_cast<double>(pixfrac) / 2.0;
-
-  // Source-Y band from inverse affine (same as forward-drizzle CUDA producer).
-  double sy_lo = std::numeric_limits<double>::infinity(),
-         sy_hi = -sy_lo;
-  for (double dx : {0.0, static_cast<double>(canvas_w) / internal_scale})
-    for (double dy : {static_cast<double>(y_begin) / internal_scale,
-                      static_cast<double>(y_begin + rows) / internal_scale}) {
-      const double sy = static_cast<double>(inv(1, 0)) * dx +
-                        static_cast<double>(inv(1, 1)) * dy +
-                        static_cast<double>(inv(1, 2));
-      sy_lo = std::min(sy_lo, sy);
-      sy_hi = std::max(sy_hi, sy);
-    }
-  int band0 = static_cast<int>(
-      std::clamp(std::floor(sy_lo - 1), 0.0, static_cast<double>(sh)));
-  int band1 = static_cast<int>(
-      std::clamp(std::ceil(sy_hi + 1), 0.0, static_cast<double>(sh)));
-  if (band1 <= band0) return true;  // empty band, no records (already handled)
-
-  // Dummy source buffer (all 1.0f) --- coverage doesn't access source values.
-  const int band_h = band1 - band0;
-  std::vector<float> src_buf(static_cast<std::size_t>(band_h) * sw, 1.0f);
-
   const double affine6[6] = {
       static_cast<double>(s2c(0, 0)), static_cast<double>(s2c(0, 1)),
       static_cast<double>(s2c(0, 2)), static_cast<double>(s2c(1, 0)),
       static_cast<double>(s2c(1, 1)), static_cast<double>(s2c(1, 2))};
+  const double inv6[6] = {
+      static_cast<double>(inv(0, 0)), static_cast<double>(inv(0, 1)),
+      static_cast<double>(inv(0, 2)), static_cast<double>(inv(1, 0)),
+      static_cast<double>(inv(1, 1)), static_cast<double>(inv(1, 2))};
   const bool mono = plan.color_mode == ColorMode::MONO;
 
-  const long long cap =
-      static_cast<long long>(band_h) * sw * 32LL;  // max_cells_per_pixel = 32
-  std::vector<reconstruction::CudaDrizzleContribRecord> raw(
-      static_cast<std::size_t>(cap));
-  long long written = 0;
-  // Serialize the CUDA device call across OpenMP workers. The CUDA runtime
-  // (cudaMalloc / cudaMemcpy / kernel launch / cudaFree) is not thread-safe
-  // for concurrent host threads. The host-side accumulation below runs without
-  // the lock because B[c] is per-band.
   static std::mutex cuda_mutex;
-  bool cuda_ok;
-  {
-    std::lock_guard<std::mutex> lk(cuda_mutex);
-    cuda_ok = reconstruction::forward_drizzle_cuda_affine_frame_contributions(
-        affine6, internal_scale, half, y_begin, rows, canvas_w,
-        band0, band1, 0, sw, sw, sh, src_buf.data(),
-        static_cast<int>(plan.bayer_pattern), plan.cfa_origin_x,
-        plan.cfa_origin_y, mono, 32, raw.data(), cap, &written);
-  }
-  if (!cuda_ok)
-    return false;  // CUDA failed -> CPU fallback
+  std::lock_guard<std::mutex> lk(cuda_mutex);
+  return reconstruction::forward_drizzle_cuda_affine_coverage_gather(
+      affine6, inv6, internal_scale, static_cast<double>(pixfrac) / 2.0,
+      /*target_x_begin=*/0, y_begin, canvas_w, rows, plan.source_width,
+      plan.source_height, static_cast<int>(plan.bayer_pattern),
+      plan.cfa_origin_x, plan.cfa_origin_y, mono, out_b);
+}
 
-  // Host-side accumulation: B[c][i] += area, matching the CPU sink lambda.
-  for (long long t = 0; t < written; ++t) {
-    const auto &r = raw[static_cast<std::size_t>(t)];
-    const int c = static_cast<int>(r.channel);
-    if (c >= channels) continue;
-    const size_t i = static_cast<size_t>(r.target_y) * canvas_w + r.target_x;
-    if (i < B[c].size()) B[c][i] += r.area;
-  }
-  // T6: populate geomstats leaf_cells_emitted for the CUDA path (the CPU path
-  // increments this inside enumerate_drizzle_stripe_leaf_cells). The current
-  // variant is kCoverageCfa (set by the enclosing ScopedVariant). Only
-  // incremented when geomstats is enabled (workers == 1).
-  if (reconstruction::geomstats::registry().enabled)
-    reconstruction::geomstats::registry().cur().leaf_cells_emitted +=
-        static_cast<std::uint64_t>(written);
-  return true;
+// Conservative internal-canvas bounding box of a frame's mapped source
+// rectangle (the union P of all unshrunk pixel squares; every pixfrac droplet
+// stays inside P). Padded 2 cells so every contributing cell index is inside.
+// Local-warp and non-affine frames get the full canvas: never skipped.
+struct FrameCanvasBox {
+  int x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // half-open
+};
+FrameCanvasBox frame_canvas_box(const RegistrationSamplingPlan &plan,
+                                const FrameSamplingTransform &f,
+                                int internal_scale) {
+  const int W = plan.canvas_width_native * internal_scale;
+  const int H = plan.canvas_height_native * internal_scale;
+  const FrameCanvasBox full{0, 0, W, H};
+  if (f.has_smooth_local_model || !f.source_to_canvas_affine_valid)
+    return full;
+  const auto &a = f.source_to_canvas;
+  double xlo = std::numeric_limits<double>::infinity(), xhi = -xlo,
+         ylo = xlo, yhi = -xlo;
+  for (double sx : {0.0, static_cast<double>(plan.source_width)})
+    for (double sy : {0.0, static_cast<double>(plan.source_height)}) {
+      const double qx =
+          static_cast<double>(a(0, 0)) * sx + static_cast<double>(a(0, 1)) * sy +
+          static_cast<double>(a(0, 2));
+      const double qy =
+          static_cast<double>(a(1, 0)) * sx + static_cast<double>(a(1, 1)) * sy +
+          static_cast<double>(a(1, 2));
+      if (!std::isfinite(qx) || !std::isfinite(qy))
+        return full;
+      xlo = std::min(xlo, qx * internal_scale);
+      xhi = std::max(xhi, qx * internal_scale);
+      ylo = std::min(ylo, qy * internal_scale);
+      yhi = std::max(yhi, qy * internal_scale);
+    }
+  return {std::clamp(static_cast<int>(std::floor(xlo)) - 2, 0, W),
+          std::clamp(static_cast<int>(std::floor(ylo)) - 2, 0, H),
+          std::clamp(static_cast<int>(std::ceil(xhi)) + 2, 0, W),
+          std::clamp(static_cast<int>(std::ceil(yhi)) + 2, 0, H)};
 }
 
 } // namespace
@@ -558,11 +544,20 @@ GeometricCoverageResult compute_geometric_coverage(
   std::vector<long long> band_analysis_px(static_cast<size_t>(band_count), 0);
   std::exception_ptr worker_error;
 
+  // Per-frame conservative internal-canvas footprint box: a frame whose box
+  // misses a band contributes nothing there (all B / touched entries would
+  // stay 0), so its reset/rasterize/fold/footprint work is skipped outright.
+  std::vector<FrameCanvasBox> frame_boxes(prepared.frames.size());
+  for (size_t fi = 0; fi < prepared.frames.size(); ++fi)
+    frame_boxes[fi] =
+        frame_canvas_box(plan, *prepared.frames[fi], internal_scale);
+
   auto run_band = [&](int s) {
     const int y = s * band_rows;
     const int rows = std::min(band_rows, memory.height - y);
-    const size_t n = static_cast<size_t>(memory.width) * rows,
-                 offset = static_cast<size_t>(y) * memory.width;
+    const int W = memory.width;
+    const size_t n = static_cast<size_t>(W) * rows,
+                 offset = static_cast<size_t>(y) * W;
     std::array<std::vector<double>, 3> B, w, w2;
     std::array<std::vector<uint32_t>, 3> count;
     std::array<std::vector<uint8_t>, 3> support;
@@ -575,33 +570,52 @@ GeometricCoverageResult compute_geometric_coverage(
     }
     std::vector<uint32_t> footprint_count(n, 0);
     std::vector<uint8_t> touched(n, 0);
-    for (const auto *f : prepared.frames) {
-      // T6: accumulator reset subtimer --- per-frame B[c] clear.
-      {
-        reconstruction::geomstats::ScopedVariant _v(
-            reconstruction::geomstats::Variant::kCoverageAccumulatorReset,
-            pixfrac);
-        reconstruction::geomstats::ScopedGeometryTimer _t;
-        for (int c = 0; c < channels; ++c)
-          std::fill(B[c].begin(), B[c].end(), 0);
-      }
+    // Channel-major B plane filled by the CUDA coverage gather; per-frame.
+    std::vector<double> gathered(static_cast<size_t>(channels) * n);
+    for (size_t fi = 0; fi < prepared.frames.size(); ++fi) {
+      const auto *f = prepared.frames[fi];
+      const FrameCanvasBox &fb = frame_boxes[fi];
+      if (fb.y1 <= y || fb.y0 >= y + rows || fb.x1 <= fb.x0)
+        continue;  // frame footprint misses this band entirely
+      const int fx0 = std::max(fb.x0, 0);
+      const int fx1 = std::min(fb.x1, W);
+      const int win_w = fx1 - fx0;
+
+      bool cuda_used = false;
       {
         reconstruction::geomstats::ScopedVariant _v(
             reconstruction::geomstats::Variant::kCoverageCfa, pixfrac);
         reconstruction::geomstats::ScopedGeometryTimer _t;
-        // T6b: use CUDA affine rasterization for affine frames when available.
-        // The CUDA call is serialized via a static mutex inside the helper, so
-        // this is safe for workers > 1. Local-warp frames use the CPU path.
-        // Bit-identical because the kernel uses the same polygon/rect area
-        // routine, compiled --fmad=false.
-        const bool cuda_used =
-            rasterize_coverage_stripe_cuda_affine(
-                plan, *f, internal_scale, pixfrac, y, rows, memory.width,
-                B, channels);
-        if (!cuda_used)
+        // T6b: dense per-cell B gather on the device for affine frames when
+        // available; serialized inside the helper. Bit-identical: the kernel
+        // scans each cell's source neighbourhood in canonical order.
+        cuda_used = gather_coverage_stripe_cuda_affine(
+            plan, *f, internal_scale, pixfrac, y, rows, W, gathered.data(),
+            channels);
+        if (!cuda_used) {
+          // T6: accumulator reset --- per-frame B[c] clear, windowed to the
+          // frame's canvas box (outside it every entry stays 0).
+          {
+            reconstruction::geomstats::ScopedVariant _v2(
+                reconstruction::geomstats::Variant::kCoverageAccumulatorReset,
+                pixfrac);
+            reconstruction::geomstats::ScopedGeometryTimer _t2;
+            for (int c = 0; c < channels; ++c)
+              for (int r = 0; r < rows; ++r)
+                std::fill_n(B[c].begin() + static_cast<size_t>(r) * W + fx0,
+                            static_cast<size_t>(win_w), 0.0);
+          }
+          // The column window restricts the source scan; the sink index is
+          // window-local, translated back to the full-width band index.
           rasterize_drizzle_stripe(
               plan, *f, internal_scale, pixfrac, y, rows,
-              [&](int, int, int c, int, size_t i, double k) { B[c][i] += k; });
+              [&](int, int, int c, int, size_t i, double k) {
+                const size_t r = i / static_cast<size_t>(win_w);
+                const size_t col = i % static_cast<size_t>(win_w);
+                B[c][r * static_cast<size_t>(W) + fx0 + col] += k;
+              },
+              {}, fx0, win_w);
+        }
       }
       // T6: accumulator reduction subtimer --- per-frame w/w2/count fold.
       {
@@ -609,13 +623,30 @@ GeometricCoverageResult compute_geometric_coverage(
             reconstruction::geomstats::Variant::kCoverageAccumulatorReduction,
             pixfrac);
         reconstruction::geomstats::ScopedGeometryTimer _t;
-        for (int c = 0; c < channels; ++c)
-          for (size_t i = 0; i < n; ++i)
-            if (B[c][i] > 0) {
-              ++count[c][i];
-              w[c][i] += B[c][i];
-              w2[c][i] += B[c][i] * B[c][i];
-            }
+        long long emitted = 0;
+        for (int c = 0; c < channels; ++c) {
+          const double *src =
+              cuda_used ? gathered.data() + static_cast<size_t>(c) * n
+                        : B[c].data();
+          for (int r = 0; r < rows; ++r) {
+            const size_t i0 = static_cast<size_t>(r) * W + fx0;
+            for (size_t i = i0; i < i0 + static_cast<size_t>(win_w); ++i)
+              if (src[i] > 0) {
+                ++count[c][i];
+                w[c][i] += src[i];
+                w2[c][i] += src[i] * src[i];
+                emitted += cuda_used ? 1 : 0;
+              }
+          }
+        }
+        // Same accounting the CPU path gets inside the leaf enumerator: one
+        // emitted (channel, cell) pair per positive contribution. Same-channel
+        // droplets are disjoint for pixfrac <= 1, so a cell receives at most
+        // one record per channel --- the positive fold count equals the record
+        // count the old pipeline accumulated.
+        if (reconstruction::geomstats::registry().enabled)
+          reconstruction::geomstats::registry().cur().leaf_cells_emitted +=
+              static_cast<std::uint64_t>(emitted);
       }
       // Dense source pixel squares define full-frame footprints, independently
       // of CFA colour and the shrunken reconstruction droplet. §30.75: cell
@@ -628,8 +659,11 @@ GeometricCoverageResult compute_geometric_coverage(
         reconstruction::dense_footprint_touched_stripe(
             plan, *f, internal_scale, y, rows, touched, footprint_exact);
       }
-      for (size_t i = 0; i < n; ++i)
-        footprint_count[i] += touched[i];
+      for (int r = 0; r < rows; ++r) {
+        const size_t i0 = static_cast<size_t>(r) * W + fx0;
+        for (size_t i = i0; i < i0 + static_cast<size_t>(win_w); ++i)
+          footprint_count[i] += touched[i];
+      }
     }
     for (size_t i = 0; i < n; ++i) {
       const bool reference =

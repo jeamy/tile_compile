@@ -158,6 +158,17 @@ bool forward_drizzle_cuda_affine_frame_contributions(
     CudaDrizzleContribRecord *records_out, long long records_capacity,
     long long *out_written);
 
+// Geometry-only variant of the target gather for the SAMPLING_GEOMETRY
+// coverage CFA pass: no source upload, no A plane. `out_b` receives the
+// channel-major B plane (sum of droplet overlap areas per target cell), the
+// same values the record path's host accumulation produces --- per-cell the
+// scan order is canonical (sy, sx), so the sums are bit-identical.
+bool forward_drizzle_cuda_affine_coverage_gather(
+    const double affine6[6], const double inverse6[6], int internal_scale,
+    double half, int target_x_begin, int target_y_begin, int target_cols,
+    int target_rows, int source_w, int source_h, int bayer_pattern,
+    int cfa_origin_x, int cfa_origin_y, bool mono, double *out_b);
+
 // Forward-Drizzle-v2 Gate-1 prototype G: record-free affine target gather for
 // one frame and one target rectangle.  One CUDA thread owns one target cell,
 // scans its conservative inverse-affine source neighbourhood in canonical

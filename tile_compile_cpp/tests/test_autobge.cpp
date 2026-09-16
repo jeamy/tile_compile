@@ -482,6 +482,95 @@ TEST_CASE("autobge_finalize_overrides_slope_guard_when_levels_equalize") {
   REQUIRE(b_med == Catch::Approx(r_med).margin(0.01f));
 }
 
+// Production regression (m31_forward1_20260916_090149): the G input sat 9 DN
+// above R/B but its model did NOT absorb the offset (model medians ~equal).
+// The shared-pedestal apply kept --- even grew --- the channel spread, so the
+// level-equalization override never fired and the residual pedestal blew up
+// into a magenta cast under HMS. The rescue must re-anchor each channel at
+// the darkest residual level, making the corrected medians equal.
+TEST_CASE("autobge_finalize_anchors_channels_when_model_misses_pedestal") {
+  constexpr int W = 400, H = 400;
+  auto cfg = make_autobge_config(W, H);
+  cfg.internal_relaxed_channel_guards = true;
+
+  auto R = make_gradient_image(W, H, 100.0f, 0.5f, 0.0f);
+  auto G = make_gradient_image(W, H, 109.0f, 0.5f, 0.0f);
+  auto B = make_gradient_image(W, H, 100.0f, 0.5f, 0.0f);
+
+  std::array<ti::BackgroundModel, 3> models;
+  // All three models sit at the same level: G's +9 DN pedestal is missed by
+  // its model. The counter-tilt still trips slope_worsened (1.25x input).
+  for (int ch = 0; ch < 3; ++ch) {
+    models[ch].model = make_gradient_image(W, H, 100.0f, -0.125f, 0.0f);
+    models[ch].success = true;
+  }
+
+  ti::BGEDiagnostics diag;
+  bool ok = ti::finalize_bge_from_channel_models(R, G, B, models, {}, cfg, &diag);
+  REQUIRE(ok);
+  REQUIRE(diag.guard_override == "level_equalization");
+  const float r_med = R(static_cast<int>(H / 2), static_cast<int>(W / 2));
+  const float g_med = G(static_cast<int>(H / 2), static_cast<int>(W / 2));
+  const float b_med = B(static_cast<int>(H / 2), static_cast<int>(W / 2));
+  REQUIRE(g_med == Catch::Approx(r_med).margin(0.01f));
+  REQUIRE(b_med == Catch::Approx(r_med).margin(0.01f));
+}
+
+// Production regression (m31_forward1-dark_20260916_144333): dark-calibrated
+// input carried a large additive green pedestal (airglow + GBRG coverage).
+// Removing it raises the per-pixel log-chroma std because the pedestal had
+// damped the ratio noise -- the raw pre/post std comparison therefore
+// rejected a correct level equalization with "background_chroma_worsened".
+// The guard must instead compare against a level-equalized input, where
+// pure pedestal removal no longer inflates the metric.
+TEST_CASE("autobge_finalize_chroma_guard_allows_pedestal_equalization") {
+  constexpr int W = 400, H = 400;
+  auto cfg = make_autobge_config(W, H);
+
+  // Noisy channels with different pedestals and a shared tilt, like the
+  // dark-calibrated production stack.
+  std::mt19937 rng(7);
+  std::normal_distribution<float> noise(0.0f, 3.0f);
+  auto make_channel = [&](float pedestal) {
+    tile_compile::Matrix2Df img(H, W);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x)
+        img(y, x) = pedestal + 0.02f * static_cast<float>(x) + noise(rng);
+    return img;
+  };
+  auto R = make_channel(10.0f);
+  auto G = make_channel(18.0f);
+  auto B = make_channel(9.0f);
+
+  std::array<ti::BackgroundModel, 3> models;
+  // Models capture each channel's true smooth background (pedestal + tilt),
+  // so the corrected planes all land on the shared pedestal plus noise.
+  const float levels[3] = {10.0f, 18.0f, 9.0f};
+  for (int ch = 0; ch < 3; ++ch) {
+    models[ch].model = make_gradient_image(W, H, levels[ch], 0.02f, 0.0f);
+    models[ch].success = true;
+  }
+
+  ti::BGEDiagnostics diag;
+  bool ok = ti::finalize_bge_from_channel_models(R, G, B, models, {}, cfg, &diag);
+  REQUIRE(ok);
+  REQUIRE(diag.success);
+  // Corrected channel levels are equalized onto the shared pedestal.
+  const auto block_median = [](const tile_compile::Matrix2Df &img) {
+    std::vector<float> vals;
+    for (int y = H / 2 - 40; y < H / 2 + 40; ++y)
+      for (int x = W / 2 - 40; x < W / 2 + 40; ++x)
+        vals.push_back(img(y, x));
+    std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
+    return vals[vals.size() / 2];
+  };
+  const float r_med = block_median(R);
+  const float g_med = block_median(G);
+  const float b_med = block_median(B);
+  REQUIRE(g_med == Catch::Approx(r_med).margin(0.5f));
+  REQUIRE(b_med == Catch::Approx(r_med).margin(0.5f));
+}
+
 // Without a channel-level improvement the slope veto still wins.
 TEST_CASE("autobge_finalize_slope_guard_still_rejects_without_level_gain") {
   constexpr int W = 400, H = 400;

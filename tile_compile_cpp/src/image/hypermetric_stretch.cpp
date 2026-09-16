@@ -474,23 +474,35 @@ void adaptive_output_scaling(
     const float med = median(vals);
     const float sd = stddev(vals, med);
     const float min_v = *std::min_element(vals.begin(), vals.end());
-    return std::array<float, 3>{med, sd, min_v};
+    const float sky = percentile(vals, 20.0f);
+    return std::array<float, 4>{med, sd, min_v, sky};
   };
 
   const auto stat_r = channel_stats(sr);
   const auto stat_g = channel_stats(sg);
   const auto stat_b = channel_stats(sb);
-  // Shared 2.7*sigma margin anchored at each channel's own median. A
-  // per-channel sigma would leave a noise-proportional residual pedestal:
-  // Bayer G carries ~2x the samples of R/B, so its smaller sigma raises
-  // floor_g and the shared expansion scale then amplifies the larger R/B
-  // residuals into a magenta cast. Equal absolute margins keep the noise
-  // floor without color bias.
+  // Floors anchor at each channel's own sky level (p20) minus one shared
+  // gap, so sky pixels map to the same output level in all channels. A
+  // per-channel sigma margin would leave a noise-proportional residual
+  // pedestal (Bayer G carries ~2x the samples of R/B, hence a smaller
+  // sigma), and a per-channel minimum clamp diverges the floors because
+  // CFA coverage holes pull R/B minima to 0 while G's stays near the sky.
+  // Both produced a magenta cast in production. Anchoring at p20 also
+  // keeps the equal gap on the *sky band*: the channel histograms are
+  // asymmetric, so median anchoring equalizes mid-tones but leaves the
+  // visible dark sky biased.
+  // The shared gap is capped by the widest channel's p20-to-min span --
+  // the smallest gap that never clips a channel's own minimum. Floors may
+  // go negative; that merely adds headroom below the data.
   const float shared_margin =
       2.7f * std::max({stat_r[1], stat_g[1], stat_b[1]});
-  const float floor_r = std::max(stat_r[2], stat_r[0] - shared_margin);
-  const float floor_g = std::max(stat_g[2], stat_g[0] - shared_margin);
-  const float floor_b = std::max(stat_b[2], stat_b[0] - shared_margin);
+  const float margin = std::min(
+      shared_margin,
+      std::max({stat_r[3] - stat_r[2], stat_g[3] - stat_g[2],
+                stat_b[3] - stat_b[2]}));
+  const float floor_r = stat_r[3] - margin;
+  const float floor_g = stat_g[3] - margin;
+  const float floor_b = stat_b[3] - margin;
   constexpr float pedestal = 0.001f;
 
   // Per-channel soft ceilings define candidate dynamic ranges. The expansion

@@ -23,6 +23,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <new>
 #include <vector>
@@ -226,6 +227,131 @@ __global__ void k_affine_target_gather(
   }
   if (candidates) atomicAdd(source_candidates, candidates);
   if (overlaps) atomicAdd(positive_overlaps, overlaps);
+}
+
+// Coverage variant of k_affine_target_gather: geometry only --- no source
+// values, no A plane. One thread per target cell accumulates B[c] = sum of
+// droplet overlap areas, scanning the conservative inverse-affine source
+// neighbourhood in canonical (sy, sx) order. That is the same accumulation
+// order the record path's host loop uses per cell, so the resulting B plane
+// is bit-identical. Replaces the records pipeline in SAMPLING_GEOMETRY,
+// which otherwise moves ~8M records per (band, frame) call.
+__global__ void k_affine_coverage_gather(
+    double a00, double a01, double a02, double a10, double a11, double a12,
+    double i00, double i01, double i02, double i10, double i11, double i12,
+    int internal_scale, double half, int tx0, int ty0, int cols, int rows,
+    int source_w, int source_h, int bayer, int ox, int oy, bool mono,
+    double *out_b) {
+  const int local = blockIdx.x * blockDim.x + threadIdx.x;
+  const int n = cols * rows;
+  if (local >= n) return;
+  const int lx = local % cols;
+  const int ly = local / cols;
+  const int tx = tx0 + lx;
+  const int ty = ty0 + ly;
+  const double sc = static_cast<double>(internal_scale);
+
+  double minx = DBL_MAX, maxx = -DBL_MAX;
+  double miny = DBL_MAX, maxy = -DBL_MAX;
+  for (int cy = 0; cy < 2; ++cy) {
+    for (int cx = 0; cx < 2; ++cx) {
+      const double x = static_cast<double>(tx + cx) / sc;
+      const double y = static_cast<double>(ty + cy) / sc;
+      const double sx = i00 * x + i01 * y + i02;
+      const double sy = i10 * x + i11 * y + i12;
+      minx = fmin(minx, sx); maxx = fmax(maxx, sx);
+      miny = fmin(miny, sy); maxy = fmax(maxy, sy);
+    }
+  }
+  const int sx0 = max(0, static_cast<int>(floor(minx - half - 0.5)) - 1);
+  const int sx1 = min(source_w,
+                      static_cast<int>(ceil(maxx + half - 0.5)) + 2);
+  const int sy0 = max(0, static_cast<int>(floor(miny - half - 0.5)) - 1);
+  const int sy1 = min(source_h,
+                      static_cast<int>(ceil(maxy + half - 0.5)) + 2);
+
+  double B[3] = {0.0, 0.0, 0.0};
+  for (int sy = sy0; sy < sy1; ++sy) {
+    for (int sx = sx0; sx < sx1; ++sx) {
+      const double centre_x = static_cast<double>(sx) + 0.5;
+      const double centre_y = static_cast<double>(sy) + 0.5;
+      const double px[4] = {centre_x - half, centre_x + half,
+                            centre_x + half, centre_x - half};
+      const double py[4] = {centre_y - half, centre_y - half,
+                            centre_y + half, centre_y + half};
+      double qx[4], qy[4];
+      for (int k = 0; k < 4; ++k) {
+        qx[k] = (a00 * px[k] + a01 * py[k] + a02) * sc;
+        qy[k] = (a10 * px[k] + a11 * py[k] + a12) * sc;
+      }
+      const double area = d_polygon_rect_area(qx, qy, tx, ty, tx + 1.0,
+                                               ty + 1.0);
+      if (!(area > 0.0)) continue;
+      const int c = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
+      B[c] += area;
+    }
+  }
+  const int channels = mono ? 1 : 3;
+  for (int c = 0; c < channels; ++c)
+    out_b[static_cast<long long>(c) * n + local] = B[c];
+}
+
+// Coverage scatter for the SAMPLING_GEOMETRY CFA pass, one parity class per
+// launch. One thread per source sample with (sx&1)==par_x && (sy&1)==par_y
+// inside the band; each ACCUMULATES its droplet overlap areas into the
+// channel-major B plane. Within one parity class same-channel droplets are
+// spaced 2 source pixels apart in both axes, so the caller's gate
+// (2-2*half)*sigma_min(affine)*scale >= sqrt(2) guarantees every target cell
+// receives at most ONE contribution per launch: the += is then race-free.
+// Across the four launches the only multi-contributor cells are G cells hit
+// by the two G parity classes (diagonal CFA neighbours); two addends sum
+// commutatively, so the launch-order accumulation stays bit-identical to the
+// CPU scan-order accumulate. MONO frames (up to 4 contributors per cell)
+// must take the gather path --- pass mono=1 to skip the scatter there.
+__global__ void k_affine_coverage_scatter(
+    double a0, double a1, double a2, double a3, double a4, double a5,
+    double sc, double half, int tx_begin, int ty_begin, int cols, int rows,
+    int band_sy0, int band_sy1, int band_sx0, int band_sx1, int bayer, int ox,
+    int oy, int par_x, int par_y, double *out_b) {
+  const long long tid =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int fx = band_sx0 + ((par_x - band_sx0) & 1);
+  const int fy = band_sy0 + ((par_y - band_sy0) & 1);
+  const long long pcols =
+      fx < band_sx1 ? (band_sx1 - fx + 1) / 2 : 0;
+  const long long prows =
+      fy < band_sy1 ? (band_sy1 - fy + 1) / 2 : 0;
+  const long long total = prows * pcols;
+  if (tid >= total) return;
+  const int sy = fy + 2 * static_cast<int>(tid / pcols);
+  const int sx = fx + 2 * static_cast<int>(tid % pcols);
+  const int ch = d_cfa_channel(sx, sy, bayer, ox, oy);
+
+  const double x = sx + 0.5, y = sy + 0.5;
+  const double px[4] = {x - half, x + half, x + half, x - half};
+  const double py[4] = {y - half, y - half, y + half, y + half};
+  double lx[4], ly[4];
+  double xmin = DBL_MAX, xmax = -DBL_MAX, ymin = DBL_MAX, ymax = -DBL_MAX;
+  for (int i = 0; i < 4; ++i) {
+    lx[i] = (a0 * px[i] + a1 * py[i] + a2) * sc;
+    ly[i] = (a3 * px[i] + a4 * py[i] + a5) * sc;
+    xmin = fmin(xmin, lx[i]); xmax = fmax(xmax, lx[i]);
+    ymin = fmin(ymin, ly[i]); ymax = fmax(ymax, ly[i]);
+  }
+  const int x0 = max(tx_begin, static_cast<int>(floor(xmin)));
+  const int x1 = min(tx_begin + cols, static_cast<int>(ceil(xmax)));
+  const int y0 = max(ty_begin, static_cast<int>(floor(ymin)));
+  const int y1 = min(ty_begin + rows, static_cast<int>(ceil(ymax)));
+  const long long plane_n = static_cast<long long>(cols) * rows;
+  const long long base = static_cast<long long>(ch) * plane_n;
+  for (int yy = y0; yy < y1; ++yy)
+    for (int xx = x0; xx < x1; ++xx) {
+      const double k = d_polygon_rect_area(lx, ly, (double)xx, (double)yy,
+                                           xx + 1.0, yy + 1.0);
+      if (k > 0.0)
+        out_b[base + static_cast<long long>(yy - ty_begin) * cols +
+              (xx - tx_begin)] += k;
+    }
 }
 
 // 1:1 with build_affine_leaf + the rasterize_drizzle_stripe bbox/area loop.
@@ -1877,6 +2003,128 @@ bool forward_drizzle_cuda_affine_target_gather(
     if (out_source_candidates) *out_source_candidates = candidates;
     if (out_positive_overlaps) *out_positive_overlaps = overlaps;
   }
+  return ok;
+}
+
+bool forward_drizzle_cuda_affine_coverage_gather(
+    const double affine6[6], const double inverse6[6], int internal_scale,
+    double half, int target_x_begin, int target_y_begin, int target_cols,
+    int target_rows, int source_w, int source_h, int bayer_pattern,
+    int cfa_origin_x, int cfa_origin_y, bool mono, double *out_b) {
+  if (!affine6 || !inverse6 || !out_b || internal_scale <= 0 ||
+      target_cols <= 0 || target_rows <= 0 || source_w <= 0 ||
+      source_h <= 0)
+    return false;
+  int devices = 0;
+  if (cudaGetDeviceCount(&devices) != cudaSuccess || devices <= 0) {
+    cudaGetLastError();
+    return false;
+  }
+  CudaScopedError clear_on_exit;
+  const int channels = mono ? 1 : 3;
+  const long long cells = static_cast<long long>(target_cols) * target_rows;
+  if (cells <= 0 || cells > 2000000000LL) return false;
+  const std::size_t plane_bytes =
+      static_cast<std::size_t>(channels) * cells * sizeof(double);
+  // Grow-only static output plane: the SAMPLING_GEOMETRY caller serializes
+  // every call through its own mutex, and per-call cudaMalloc/cudaFree of a
+  // ~30MB buffer dominated the old records pipeline's call overhead.
+  static double *d_b = nullptr;
+  static std::size_t d_b_capacity = 0;  // cells
+  if (static_cast<std::size_t>(cells) > d_b_capacity) {
+    cudaFree(d_b);
+    d_b = nullptr;
+    d_b_capacity = 0;
+    if (cudaMalloc(&d_b, plane_bytes) != cudaSuccess) {
+      cudaGetLastError();
+      return false;
+    }
+    d_b_capacity = static_cast<std::size_t>(cells);
+  }
+  bool ok = true;
+  const bool force_gather =
+      std::getenv("TC_COVERAGE_FORCE_GATHER") != nullptr;
+  // Scatter is only race-free when every (channel, cell) pair has at most one
+  // contributing droplet per parity-class launch. A target cell can straddle
+  // the gap between two same-parity droplets only if the gap (measured in
+  // target space along its worst-case direction) is at least the cell
+  // diagonal sqrt(2). Same-parity source spacing is 2 px in both axes, so
+  // the source-space gap is (2 - 2*half); the forward affine can shrink it
+  // --- use its smallest singular value. MONO has no parity sublattices
+  // (every pixel is channel 0), so it always takes the gather path.
+  const double t2 = affine6[0] * affine6[0] + affine6[1] * affine6[1] +
+                    affine6[3] * affine6[3] + affine6[4] * affine6[4];
+  const double det =
+      std::abs(affine6[0] * affine6[4] - affine6[1] * affine6[3]);
+  const double disc =
+      std::sqrt(std::max(0.0, t2 * t2 - 4.0 * det * det));
+  const double sigma_min = std::sqrt(std::max(0.0, 0.5 * (t2 - disc)));
+  const double gap_cells =
+      (2.0 - 2.0 * half) * sigma_min * internal_scale;
+  const bool scatter_ok =
+      !mono && half <= 0.5 && gap_cells >= std::sqrt(2.0);
+  if (scatter_ok && !force_gather) {
+    // Scatter direction: one thread per source sample of a parity class,
+    // accumulating droplet areas directly into the dense plane (see the
+    // kernel comment for why this is race-free and bit-identical). Needs the
+    // plane zeroed and the conservative inverse-mapped source band.
+    ok = cudaMemset(d_b, 0, plane_bytes) == cudaSuccess;
+    if (!ok) return false;
+    double sx_lo = DBL_MAX, sx_hi = -DBL_MAX, sy_lo = DBL_MAX,
+           sy_hi = -DBL_MAX;
+    for (double dx : {static_cast<double>(target_x_begin) / internal_scale,
+                      static_cast<double>(target_x_begin + target_cols) /
+                          internal_scale})
+      for (double dy : {static_cast<double>(target_y_begin) / internal_scale,
+                        static_cast<double>(target_y_begin + target_rows) /
+                            internal_scale}) {
+        const double sx =
+            inverse6[0] * dx + inverse6[1] * dy + inverse6[2];
+        const double sy =
+            inverse6[3] * dx + inverse6[4] * dy + inverse6[5];
+        sx_lo = fmin(sx_lo, sx); sx_hi = fmax(sx_hi, sx);
+        sy_lo = fmin(sy_lo, sy); sy_hi = fmax(sy_hi, sy);
+      }
+    const int band_sy0 = max(0, static_cast<int>(floor(sy_lo - 1)));
+    const int band_sy1 = min(source_h, static_cast<int>(ceil(sy_hi + 1)));
+    const int band_sx0 = max(0, static_cast<int>(floor(sx_lo - 1)));
+    const int band_sx1 = min(source_w, static_cast<int>(ceil(sx_hi + 1)));
+    if (band_sy1 <= band_sy0 || band_sx1 <= band_sx0) {
+      std::memset(out_b, 0, plane_bytes);  // frame misses the band entirely
+      return true;
+    }
+    // Four sequential parity-class launches (same stream -> serialized). The
+    // plane was memset once; each launch accumulates its sublattice.
+    const long long total =
+        static_cast<long long>(band_sy1 - band_sy0) * (band_sx1 - band_sx0);
+    const int block = 128;
+    const int grid = static_cast<int>((total + block - 1) / block);
+    for (int py = 0; py < 2 && ok; ++py)
+      for (int px = 0; px < 2; ++px) {
+        k_affine_coverage_scatter<<<grid, block>>>(
+            affine6[0], affine6[1], affine6[2], affine6[3], affine6[4],
+            affine6[5], static_cast<double>(internal_scale), half,
+            target_x_begin, target_y_begin, target_cols, target_rows,
+            band_sy0, band_sy1, band_sx0, band_sx1, bayer_pattern,
+            cfa_origin_x, cfa_origin_y, px, py, d_b);
+      }
+    ok = cudaGetLastError() == cudaSuccess &&
+         cudaDeviceSynchronize() == cudaSuccess;
+  } else {
+    const int block = 128;
+    const int grid = (static_cast<int>(cells) + block - 1) / block;
+    k_affine_coverage_gather<<<grid, block>>>(
+        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
+        inverse6[0], inverse6[1], inverse6[2], inverse6[3], inverse6[4],
+        inverse6[5], internal_scale, half, target_x_begin, target_y_begin,
+        target_cols, target_rows, source_w, source_h, bayer_pattern,
+        cfa_origin_x, cfa_origin_y, mono, d_b);
+    ok = cudaGetLastError() == cudaSuccess &&
+         cudaDeviceSynchronize() == cudaSuccess;
+  }
+  if (ok)
+    ok = cudaMemcpy(out_b, d_b, plane_bytes, cudaMemcpyDeviceToHost) ==
+         cudaSuccess;
   return ok;
 }
 

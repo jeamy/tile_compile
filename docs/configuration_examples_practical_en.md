@@ -235,9 +235,13 @@ bge:
 Since the forward-drizzle cutover, AutoBGE anchors all three channels to a
 shared pedestal (darkest model median) instead of each channel's own model
 median. This equalizes channel-dependent background pedestals before
-PCC/HMS. The slope guard may be overridden when the correction measurably
-improves the channel-level spread; this is recorded as `guard_override:
-"level_equalization"` in `artifacts/bge.json` (per channel
+PCC/HMS. If the slope guard still fires (typically because the model failed
+to absorb a channel offset), a re-anchored apply is tested that equalizes
+the residual medians of all channels exactly; it is only accepted when the
+channel-level spread measurably decreases and the residual tilt stays
+bounded (ratio bound or absolute amplitude <= 25% of the removed spread).
+This is recorded as `guard_override: "level_equalization"` in
+`artifacts/bge.json` (per channel
 `guard_reason: "slope_worsened_but_level_equalized"`). Without a level
 improvement the guard still discards the correction entirely.
 

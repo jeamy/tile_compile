@@ -93,6 +93,58 @@ TEST_CASE("hypermetric_ready_to_use_rgb_run_produces_unit_range_output") {
   }
 }
 
+// Regression for the M31 CFA magenta cast: R/B carry coverage holes clamped
+// to 0 while G's doubled Bayer sampling keeps its minimum near the
+// background. A per-channel min-clamped floor then sat floor_g far above the
+// R/B floors, shrinking G's expansion gap and producing R/G ~1.7 in the
+// output. Floors must leave an identical (median - floor) gap per channel.
+TEST_CASE("hypermetric_ready_to_use_floors_do_not_follow_channel_min") {
+  constexpr int kSize = 96;
+  tile_compile::Matrix2Df R(kSize, kSize);
+  tile_compile::Matrix2Df G(kSize, kSize);
+  tile_compile::Matrix2Df B(kSize, kSize);
+  for (int y = 0; y < kSize; ++y) {
+    for (int x = 0; x < kSize; ++x) {
+      const float base = 0.15f + 0.0004f * static_cast<float>((x + y) % 17);
+      R(y, x) = base;
+      G(y, x) = base;
+      B(y, x) = base;
+    }
+  }
+  // Coverage holes: R/B get zeroed pixels, G keeps a high minimum.
+  for (int y = 0; y < kSize; y += 5) {
+    for (int x = 0; x < kSize; x += 5) {
+      R(y, x) = 0.0f;
+      B(y, x) = 0.0f;
+    }
+  }
+  for (int i = 0; i < 30; ++i) {
+    const int y = 6 + (i * 11) % 84;
+    const int x = 8 + (i * 13) % 80;
+    R(y, x) = G(y, x) = B(y, x) = 0.6f + 0.005f * static_cast<float>(i % 6);
+  }
+
+  tile_compile::image::HyperMetricStretchConfig cfg;
+  cfg.enabled = true;
+  cfg.mode = "ready_to_use";
+  cfg.sensor_profile = "rec709";
+  cfg.adaptive_anchor = false;
+  cfg.log_d_mode = "fixed";
+  cfg.fixed_log_d = 2.0f;
+  cfg.color_strategy = "fixed";
+  cfg.target_bg = 0.15f;
+
+  const auto diag =
+      tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);
+  REQUIRE(diag.success);
+  const float r_med = median_matrix(R);
+  const float g_med = median_matrix(G);
+  const float b_med = median_matrix(B);
+  REQUIRE(g_med > 0.01f);
+  REQUIRE(r_med / g_med == Catch::Approx(1.0f).margin(0.15f));
+  REQUIRE(b_med / g_med == Catch::Approx(1.0f).margin(0.15f));
+}
+
 TEST_CASE("hypermetric_ready_to_use_scaling_preserves_weak_blue_channel") {
   constexpr int kSize = 96;
   tile_compile::Matrix2Df R(kSize, kSize);

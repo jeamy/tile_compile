@@ -235,12 +235,16 @@ bge:
 Seit dem Forward-Drizzle-Cutover verankert AutoBGE alle drei Kanaele an
 einem gemeinsamen Sockel (dunkelster Modell-Median) statt pro Kanal am
 eigenen Modell-Median. Damit werden kanalabhaengige
-Hintergrund-Pedestale vor PCC/HMS egalisiert. Der Slope-Guard kann
-ueberstimmt werden, wenn die Korrektur die Kanal-Level-Streuung
-messbar verbessert; das steht dann als `guard_override:
-"level_equalization"` in `artifacts/bge.json` (pro Kanal
-`guard_reason: "slope_worsened_but_level_equalized"`). Ohne
-Level-Verbesserung verwirft der Guard die Korrektur weiterhin
+Hintergrund-Pedestale vor PCC/HMS egalisiert. Feuert der Slope-Guard
+dennoch (typischerweise weil das Modell einen Kanal-Offset nicht
+absorbiert hat), wird ein re-anchored Apply getestet, das die
+Residuen-Mediane aller Kanaele exakt ausgleicht; es wird nur
+akzeptiert, wenn die Kanal-Level-Streuung messbar sinkt und der
+Rest-Tilt begrenzt bleibt (Verhaeltnis-Bound oder absolute
+Amplitude <= 25 % der entfernten Streuung). Das steht dann als
+`guard_override: "level_equalization"` in `artifacts/bge.json`
+(pro Kanal `guard_reason: "slope_worsened_but_level_equalized"`).
+Ohne Level-Verbesserung verwirft der Guard die Korrektur weiterhin
 vollstaendig.
 
 **PCC-v3.3.6-Optionen (empfohlen mit BGE):**

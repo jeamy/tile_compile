@@ -1320,11 +1320,17 @@ bool finalize_bge_from_channel_models(
   }
 
   // Deferred slope decision: a worsened coarse-plane slope vetoes the apply
-  // only when the correction did not simultaneously equalize the per-channel
+  // only when the correction cannot simultaneously equalize the per-channel
   // background levels. On an already flat field the fitted model can add a
   // harmless micro-tilt while still removing real channel floor offsets --
   // that trade is accepted and reported instead of discarding the run's only
-  // pedestal equalization step.
+  // pedestal equalization step. The shared-pedestal variant keeps each
+  // channel's residual offset (in_med - model_med); when the per-channel
+  // models disagree about the absolute level (e.g. a channel whose model
+  // under-estimates the pedestal) the residual spread can stay or even grow.
+  // The rescue therefore re-anchors every channel at the darkest residual
+  // level: corrected_c = in_c - model_c + (shared_pedestal + min_res -
+  // res_med_c), which makes the corrected medians equal by construction.
   if (config.autobge.apply_guards &&
       (slope_rejected[0] || slope_rejected[1] || slope_rejected[2])) {
     const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
@@ -1343,38 +1349,146 @@ bool finalize_bge_from_channel_models(
       std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
       return vals[vals.size() / 2];
     };
-    auto level_spread = [&](const std::array<const Matrix2Df*, 3> &planes) {
-      float lo = std::numeric_limits<float>::infinity();
-      float hi = -std::numeric_limits<float>::infinity();
-      for (const auto *p : planes) {
-        const float lv = masked_level(*p);
-        if (!std::isfinite(lv)) return std::numeric_limits<float>::quiet_NaN();
-        lo = std::min(lo, lv);
-        hi = std::max(hi, lv);
+    // Residual median of (input - model) per channel; residuals are legitimate
+    // level offsets, so unlike masked_level no v>0 filter applies.
+    auto masked_residual = [&](const Matrix2Df &img,
+                               const Matrix2Df &bg) -> float {
+      std::vector<float> vals;
+      for (size_t i = 0; i < total_px; i += stride) {
+        if (config.common_valid_mask[i] == 0)
+          continue;
+        const float v = img.data()[i] - bg.data()[i];
+        if (std::isfinite(v))
+          vals.push_back(v);
       }
-      return hi - lo;
+      if (vals.empty())
+        return std::numeric_limits<float>::quiet_NaN();
+      std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
+      return vals[vals.size() / 2];
     };
-    const std::array<const Matrix2Df*, 3> corrected_ptrs = {
-        &corrected[0], &corrected[1], &corrected[2]};
-    const float spread_pre = level_spread(inputs);
-    const float spread_post = level_spread(corrected_ptrs);
-    const bool level_equalized = std::isfinite(spread_pre) &&
-                                 std::isfinite(spread_post) &&
-                                 spread_post < spread_pre;
-    if (level_equalized) {
-      std::cerr << "[AutoBGE] slope guard overridden: channel background "
-                   "level equalization improved (spread "
-                << spread_pre << " -> " << spread_post << ")" << std::endl;
+    float in_med[3], res_med[3];
+    float in_lo = std::numeric_limits<float>::infinity(),
+          in_hi = -in_lo;
+    float min_res = std::numeric_limits<float>::infinity();
+    bool have_levels = true;
+    for (int ch = 0; ch < 3; ++ch) {
+      in_med[ch] = masked_level(*inputs[ch]);
+      res_med[ch] = masked_residual(*inputs[ch], channel_models[ch].model);
+      if (!std::isfinite(in_med[ch]) || !std::isfinite(res_med[ch]))
+        have_levels = false;
+      in_lo = std::min(in_lo, in_med[ch]);
+      in_hi = std::max(in_hi, in_med[ch]);
+      min_res = std::min(min_res, res_med[ch]);
+    }
+    const float spread_pre = in_hi - in_lo;
+    // A constant per-channel shift does not change the within-channel
+    // flatness/slope metrics, so the earlier guard measurements stay valid.
+    // The rescue is still bounded: the worsened slope may not exceed a
+    // moderate factor over the input slope, and the channel-level spread
+    // must strictly improve.
+    const float slope_bound =
+        config.internal_relaxed_channel_guards ? 2.0f : 1.6f;
+    // The ratio bound alone is meaningless on an already flat input: when
+    // slope_pre ~ 1e-5 DN/px (~0.05 DN edge-to-edge), even a model adding a
+    // negligible micro-tilt trips any multiplicative guard. The absolute
+    // fallback therefore caps the post-correction tilt amplitude
+    // (slope * frame diagonal, in DN) at a fraction of the channel spread the
+    // rescue is about to remove -- a tilt far below the corrected offset is
+    // always a net uniformity win.
+    const float diag_px = std::sqrt(static_cast<float>(rows) * rows +
+                                    static_cast<float>(cols) * cols);
+    const float tilt_bound_dn = 0.25f * spread_pre;
+    bool slope_bounded = have_levels;
+    for (int ch = 0; ch < 3 && slope_bounded; ++ch) {
+      if (!slope_rejected[static_cast<size_t>(ch)])
+        continue;
+      const auto &d = out_diags[static_cast<size_t>(ch)];
+      const float tilt_amp_dn =
+          std::isfinite(d.guard_slope_post) ? d.guard_slope_post * diag_px
+                                          : std::numeric_limits<float>::infinity();
+      slope_bounded = d.guard_slope_post <= d.guard_slope_pre * slope_bound ||
+                      tilt_amp_dn <= tilt_bound_dn;
+    }
+    if (have_levels && slope_bounded) {
       for (int ch = 0; ch < 3; ++ch) {
-        if (slope_rejected[static_cast<size_t>(ch)]) {
+        const Matrix2Df &img = *inputs[ch];
+        const Matrix2Df &bg = channel_models[ch].model;
+        const float anchor =
+            shared_pedestal + (min_res - res_med[ch]);
+        for (int r = 0; r < rows; ++r) {
+          for (int c = 0; c < cols; ++c) {
+            const size_t idx = static_cast<size_t>(r * cols + c);
+            if (config.common_valid_mask[idx] == 0) {
+              corrected[ch](r, c) = 0.0f;
+              continue;
+            }
+            const float vin = img(r, c);
+            const float mv = bg(r, c);
+            if (!std::isfinite(vin) || !std::isfinite(mv)) {
+              corrected[ch](r, c) = std::numeric_limits<float>::quiet_NaN();
+              continue;
+            }
+            corrected[ch](r, c) = std::max(0.0f, vin - mv + anchor);
+          }
+        }
+        auto &d = out_diags[static_cast<size_t>(ch)];
+        d.output_stats = stats_from_matrix_local(corrected[ch]);
+        d.mean_shift = d.output_stats.mean - d.input_stats.mean;
+      }
+      const float spread_post = [&] {
+        float lo = std::numeric_limits<float>::infinity(),
+              hi = -lo;
+        for (int ch = 0; ch < 3; ++ch) {
+          const float lv = masked_level(corrected[ch]);
+          if (!std::isfinite(lv)) return std::numeric_limits<float>::quiet_NaN();
+          lo = std::min(lo, lv);
+          hi = std::max(hi, lv);
+        }
+        return hi - lo;
+      }();
+      if (std::isfinite(spread_post) && spread_post < spread_pre) {
+        std::cerr << "[AutoBGE] slope guard overridden: channel background "
+                     "level equalization improved (spread "
+                  << spread_pre << " -> " << spread_post << ")" << std::endl;
+        for (int ch = 0; ch < 3; ++ch) {
+          if (slope_rejected[static_cast<size_t>(ch)]) {
+            auto &d = out_diags[static_cast<size_t>(ch)];
+            d.guard_rejected = false;
+            d.guard_reason = "slope_worsened_but_level_equalized";
+            slope_rejected[static_cast<size_t>(ch)] = false;
+          }
+        }
+        if (diagnostics)
+          diagnostics->guard_override = "level_equalization";
+      } else {
+        // Anchored variant did not improve the spread --- restore the shared
+        // pedestal form so the rejection below reports consistent stats.
+        for (int ch = 0; ch < 3; ++ch) {
+          const Matrix2Df &img = *inputs[ch];
+          const Matrix2Df &bg = channel_models[ch].model;
+          for (int r = 0; r < rows; ++r)
+            for (int c = 0; c < cols; ++c) {
+              const size_t idx = static_cast<size_t>(r * cols + c);
+              if (config.common_valid_mask[idx] == 0) {
+                corrected[ch](r, c) = 0.0f;
+                continue;
+              }
+              const float vin = img(r, c);
+              const float mv = bg(r, c);
+              corrected[ch](r, c) = (!std::isfinite(vin) || !std::isfinite(mv))
+                                        ? std::numeric_limits<float>::quiet_NaN()
+                                        : std::max(0.0f, vin - mv + shared_pedestal);
+            }
           auto &d = out_diags[static_cast<size_t>(ch)];
-          d.guard_rejected = false;
-          d.guard_reason = "slope_worsened_but_level_equalized";
+          d.output_stats = stats_from_matrix_local(corrected[ch]);
+          d.mean_shift = d.output_stats.mean - d.input_stats.mean;
         }
       }
-      if (diagnostics)
-        diagnostics->guard_override = "level_equalization";
-    } else {
+    }
+    // Any channel still slope-rejected after the rescue rejects the apply.
+    const bool still_rejected = slope_rejected[0] || slope_rejected[1] ||
+                                slope_rejected[2];
+    if (still_rejected) {
       for (int ch = 0; ch < 3; ++ch) {
         if (!slope_rejected[static_cast<size_t>(ch)])
           continue;
@@ -1400,8 +1514,37 @@ bool finalize_bge_from_channel_models(
   if (config.autobge.apply_guards) {
     const std::vector<uint8_t> bg_mask =
         build_chroma_background_mask_from_rgb(R, G, B, &config.common_valid_mask);
-    const float pre_rg_std = log_chroma_std_background(R, G, bg_mask);
-    const float pre_bg_std = log_chroma_std_background(B, G, bg_mask);
+    // A per-channel pedestal damps the log-ratio scatter of the input (the
+    // offset compresses both noise and true spatial variation of the
+    // ratio), so comparing raw input std against a level-equalized
+    // correction falsely rejects exactly the equalization BGE is for.
+    // Measure the pre-std on level-equalized input channels so both sides
+    // sit at a common level and the comparison is apples-to-apples.
+    const auto masked_median = [&](const Matrix2Df &ch) {
+      std::vector<float> vals;
+      vals.reserve(bg_mask.size() / 4);
+      for (size_t i = 0; i < bg_mask.size(); ++i) {
+        if (bg_mask[i] == 0)
+          continue;
+        const float v = ch.data()[i];
+        if (std::isfinite(v) && v > 0.0f)
+          vals.push_back(v);
+      }
+      return vals.empty() ? 0.0f
+                          : tile_compile::core::median_of(std::move(vals));
+    };
+    const std::array<float, 3> in_med = {masked_median(R), masked_median(G),
+                                         masked_median(B)};
+    const float shared_level =
+        std::min(in_med[0], std::min(in_med[1], in_med[2]));
+    const Matrix2Df R_eq =
+        (R.array() + (shared_level - in_med[0])).matrix();
+    const Matrix2Df G_eq =
+        (G.array() + (shared_level - in_med[1])).matrix();
+    const Matrix2Df B_eq =
+        (B.array() + (shared_level - in_med[2])).matrix();
+    const float pre_rg_std = log_chroma_std_background(R_eq, G_eq, bg_mask);
+    const float pre_bg_std = log_chroma_std_background(B_eq, G_eq, bg_mask);
     const float post_rg_std =
         log_chroma_std_background(corrected[0], corrected[1], bg_mask);
     const float post_bg_std =

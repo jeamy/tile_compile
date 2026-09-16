@@ -8,9 +8,12 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -645,6 +648,24 @@ RegistrationSamplingPlan matrix_plan(ColorMode mode) {
 
 }  // namespace
 
+TEST_CASE("coverage: CUDA gather path is byte-identical to the CPU rasterize",
+          "[drizzle-audit][coverage-cuda-gather]") {
+  if (!reconstruction::forward_drizzle_cuda_runtime_available())
+    return;  // no device: the CUDA path is never taken, nothing to compare
+  for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+    const RegistrationSamplingPlan plan = matrix_plan(mode);
+    for (int scale : {1, 2})
+      for (int chunk : {3, 16, 0}) {
+        CAPTURE(mode == ColorMode::OSC, scale, chunk);
+        setenv("TC_COVERAGE_DISABLE_CUDA", "1", 1);
+        const auto cpu = coverage_once(plan, scale, 0.8f, 1.0f, chunk, false);
+        unsetenv("TC_COVERAGE_DISABLE_CUDA");
+        const auto gpu = coverage_once(plan, scale, 0.8f, 1.0f, chunk, false);
+        require_coverage_identical(cpu, gpu);
+      }
+  }
+}
+
 TEST_CASE("coverage: dense-footprint fast path is byte-identical to the exact "
           "per-pixel footprint rasterize",
           "[drizzle-audit][footprint-fastpath]") {
@@ -661,4 +682,76 @@ TEST_CASE("coverage: dense-footprint fast path is byte-identical to the exact "
           require_coverage_identical(fast, exact);
         }
   }
+}
+
+// Regression: the coverage scatter is legal only as 4 serialized parity-class
+// launches --- the G channel is a checkerboard whose same-channel droplet
+// neighbours sit diagonally (gap sqrt(2)*(1-2*half) source px), far below the
+// cell diagonal, so a single-launch scatter races there. This upscale frame
+// (sigma_min*scale*(2-2*half) = 1.536 >= sqrt(2)) exercises the scatter path;
+// the plane must equal the reference gather bit-for-bit.
+TEST_CASE("coverage scatter: parity passes are bit-identical to the gather",
+          "[drizzle-audit][coverage-scatter-parity]") {
+  if (!reconstruction::forward_drizzle_cuda_runtime_available())
+    return;
+  const double a[6] = {1.28, 0, -6, 0, 1.28, -4};
+  const double inv[6] = {1.0 / 1.28, 0, 6.0 / 1.28, 0, 1.0 / 1.28, 4.0 / 1.28};
+  const int W = 72, rows = 3;
+  std::vector<double> bg(static_cast<size_t>(3) * W * rows),
+      bs(static_cast<size_t>(3) * W * rows);
+  for (int ty = 0; ty < 50; ty += rows) {
+    setenv("TC_COVERAGE_FORCE_GATHER", "1", 1);
+    REQUIRE(reconstruction::forward_drizzle_cuda_affine_coverage_gather(
+        a, inv, 1, 0.4, 0, ty, W, rows, 60, 44,
+        static_cast<int>(BayerPattern::RGGB), 0, 0, false, bg.data()));
+    unsetenv("TC_COVERAGE_FORCE_GATHER");
+    REQUIRE(reconstruction::forward_drizzle_cuda_affine_coverage_gather(
+        a, inv, 1, 0.4, 0, ty, W, rows, 60, 44,
+        static_cast<int>(BayerPattern::RGGB), 0, 0, false, bs.data()));
+    CAPTURE(ty);
+    REQUIRE(bs == bg);
+  }
+}
+
+// Temporary benchmark: M31-like plan (real source/canvas size, fewer frames).
+// Run once with and once without CUDA_VISIBLE_DEVICES to compare the CUDA
+// records path against the CPU scatter fallback.
+TEST_CASE("bench: coverage m31-like", "[.bench_cov]") {
+  const char *nf = std::getenv("TC_BENCH_FRAMES");
+  const char *nw = std::getenv("TC_BENCH_WORKERS");
+  const int n_frames = nf ? std::atoi(nf) : 48;
+  const int workers = nw ? std::atoi(nw) : 8;
+
+  RegistrationSamplingPlan plan;
+  plan.source_width = 3840;
+  plan.source_height = 2160;
+  plan.canvas_width_native = 3924;
+  plan.canvas_height_native = 2310;
+  plan.color_mode = ColorMode::OSC;
+  plan.bayer_pattern = BayerPattern::GBRG;
+  plan.cfa_origin_x = 0;
+  plan.cfa_origin_y = 0;
+  for (int i = 0; i < n_frames; ++i) {
+    // ~identity + small dither translation (frame covers ~96% of canvas)
+    const float dx = 40.0f + static_cast<float>((i * 37) % 60) - 30.0f;
+    const float dy = 60.0f + static_cast<float>((i * 53) % 60) - 30.0f;
+    plan.frames.push_back(make_frame_s2c(
+        "f" + std::to_string(i), static_cast<size_t>(i),
+        make_affine(1, 0, dx, 0, 1, dy)));
+  }
+
+  config::ReconstructionDrizzleConfig cfg;
+  cfg.internal_scale = 2;
+  cfg.chunk_rows = 0;
+  cfg.memory_budget_mb = 8192;
+  const auto t0 = std::chrono::steady_clock::now();
+  auto cov = compute_geometric_coverage(plan, 2, 0.8f, lenient_gate(), 1.0f,
+                                        workers, cfg, false, nullptr);
+  const auto t1 = std::chrono::steady_clock::now();
+  std::fprintf(stderr,
+               "[bench_cov] frames=%d workers=%d elapsed=%.2fs "
+               "workers_used=%d chunk_rows=%d\n",
+               n_frames, workers,
+               std::chrono::duration<double>(t1 - t0).count(),
+               cov.gate.workers_used, cov.gate.resolved_chunk_rows);
 }
