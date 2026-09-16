@@ -158,6 +158,36 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     io::write_fits_rgb(out.path(),r,g,b,header);
     out.commit();
   };
+  core::json chroma_denoise_passes = core::json::array();
+  auto record_chroma_denoise = [&](
+      const char *stage,
+      const reconstruction::ChromaDenoiseStats &stats) {
+    chroma_denoise_passes.push_back({
+        {"stage", stage},
+        {"applied", stats.applied},
+        {"valid_pixels", stats.valid_pixels},
+        {"input_chroma_sigma", stats.input_chroma_sigma},
+        {"adaptation", stats.adaptation},
+        {"effective_blend_amount", stats.effective_blend_amount},
+        {"star_protected_fraction", stats.star_protected_fraction},
+        {"structure_protected_fraction", stats.structure_protected_fraction},
+        {"extended_source_raw_fraction",
+         stats.extended_source_raw_fraction},
+        {"extended_source_protected_fraction",
+         stats.extended_source_protected_fraction},
+        {"combined_protected_fraction", stats.combined_protected_fraction},
+        {"mean_protection", stats.mean_protection},
+        {"mean_denoise_fraction", stats.mean_denoise_fraction},
+        {"extended_source_sky_median",
+         stats.extended_source_sky_median},
+        {"extended_source_sky_sigma", stats.extended_source_sky_sigma},
+        {"extended_source_threshold", stats.extended_source_threshold},
+    });
+    core::write_text_atomic(
+        run_dir / "artifacts" / "chroma_denoise.json",
+        core::json({{"version", 1}, {"passes", chroma_denoise_passes}})
+            .dump(2));
+  };
 
   fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
   fs::path stacked_rgb_solve_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
@@ -668,7 +698,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
         bge_have_tile_data &&
         (bge_tile_metrics.size() == bge_tile_grid.tiles.size());
 
-    if (cfg.bge.method == "autobge" ||
+    if (cfg.bge.method == "autobge" || cfg.bge.method == "auto" ||
         (bge_have_tile_data && bge_metrics_tiles_match)) {
       Matrix2Df R_bge = rgb.R;
       Matrix2Df G_bge = rgb.G;
@@ -697,6 +727,14 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     bge_artifact["config"] = {
         {"enabled", (cfg.bge.method != "none")},
         {"method", cfg.bge.method},
+        {"auto_detect",
+         {
+             {"gradient_threshold", cfg.bge.auto_detect.gradient_threshold},
+             {"extended_source_sigma",
+              cfg.bge.auto_detect.extended_source_sigma},
+             {"extended_source_dilate_px",
+              cfg.bge.auto_detect.extended_source_dilate_px},
+         }},
         {"autobge",
          {
              {"num_sample_points", cfg.bge.autobge.num_sample_points},
@@ -788,9 +826,11 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
         {"metrics_tiles_match", bge_metrics_tiles_match},
         {"artifact", bge_artifact_path.string()},
     };
-    if (cfg.bge.method != "autobge" && !bge_have_tile_data) {
+    if (cfg.bge.method != "autobge" && cfg.bge.method != "auto" &&
+        !bge_have_tile_data) {
       phase_extra["reason"] = "no_tile_data";
-    } else if (cfg.bge.method != "autobge" && !bge_metrics_tiles_match) {
+    } else if (cfg.bge.method != "autobge" && cfg.bge.method != "auto" &&
+               !bge_metrics_tiles_match) {
       phase_extra["reason"] = "tile_metric_grid_mismatch";
     } else if (bge_diag.attempted && !bge_diag.success) {
       phase_extra["reason"] =
@@ -983,8 +1023,9 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
         cfg.chroma_denoise.enabled &&
         (cfg.chroma_denoise.apply_stage == "post_stack_linear" ||
          cfg.chroma_denoise.apply_stage == "both")) {
-      reconstruction::chroma_denoise_rgb_inplace(rgb.R, rgb.G, rgb.B,
-                                                 cfg.chroma_denoise);
+      const auto chroma_stats = reconstruction::chroma_denoise_rgb_inplace(
+          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise);
+      record_chroma_denoise("post_stack_linear", chroma_stats);
       std::cout << "[CHROMA_DENOISE] applied post_stack_linear (chroma-only)"
                 << std::endl;
     }
@@ -1242,8 +1283,9 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
         cfg.chroma_denoise.enabled &&
         (cfg.chroma_denoise.apply_stage == "post_pcc" ||
          cfg.chroma_denoise.apply_stage == "both")) {
-      reconstruction::chroma_denoise_rgb_inplace(
+      const auto chroma_stats = reconstruction::chroma_denoise_rgb_inplace(
           rgb.R, rgb.G, rgb.B, cfg.chroma_denoise);
+      record_chroma_denoise("post_pcc", chroma_stats);
       std::cout << "[CHROMA_DENOISE] applied post_pcc (chroma-only)"
                 << std::endl;
     }

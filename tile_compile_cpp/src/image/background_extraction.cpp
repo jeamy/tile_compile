@@ -3674,6 +3674,13 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     diagnostics->image_height = 0;
     diagnostics->grid_spacing = 0;
     diagnostics->bge_method = config.method;
+    diagnostics->auto_gradient_strength = 0.0f;
+    diagnostics->auto_gradient_threshold = config.auto_detect.gradient_threshold;
+    diagnostics->auto_sky_median = 0.0f;
+    diagnostics->auto_sky_sigma = 0.0f;
+    diagnostics->auto_extended_source_threshold = 0.0f;
+    diagnostics->auto_extended_source_blocks = 0;
+    diagnostics->auto_extended_source_excluded_fraction = 0.0f;
     diagnostics->method =
         config.method == "classic" ? config.fit.method : config.method;
     diagnostics->robust_loss = config.fit.robust_loss;
@@ -3719,9 +3726,15 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     const int GX = std::max(2, W / BLOCK);
     std::vector<float> block_meds;
     std::vector<float> block_cx, block_cy;
+    std::vector<int> block_bx, block_by;
     block_meds.reserve(static_cast<size_t>(GY * GX));
     block_cx.reserve(block_meds.capacity());
     block_cy.reserve(block_meds.capacity());
+    block_bx.reserve(block_meds.capacity());
+    block_by.reserve(block_meds.capacity());
+    const bool have_canvas_mask =
+        config.common_mask_rows == H && config.common_mask_cols == W &&
+        config.common_valid_mask.size() == static_cast<size_t>(H * W);
     for (int by = 0; by < GY; ++by) {
       for (int bx = 0; bx < GX; ++bx) {
         const int r0 = by * H / GY, r1 = (by + 1) * H / GY;
@@ -3730,8 +3743,11 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         vals.reserve(static_cast<size_t>((r1 - r0) * (c1 - c0)));
         for (int r = r0; r < r1; ++r)
           for (int c = c0; c < c1; ++c) {
+            if (have_canvas_mask &&
+                config.common_valid_mask[static_cast<size_t>(r * W + c)] == 0u)
+              continue;
             const float v = G(r, c);
-            if (v > 0.0f) vals.push_back(v);
+            if (std::isfinite(v) && v > 0.0f) vals.push_back(v);
           }
         if (vals.empty()) continue;
         std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
@@ -3740,6 +3756,8 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                             static_cast<float>(W));
         block_cy.push_back((static_cast<float>(r0) + static_cast<float>(r1)) * 0.5f /
                             static_cast<float>(H));
+        block_bx.push_back(bx);
+        block_by.push_back(by);
       }
     }
     if (block_meds.empty()) {
@@ -3793,6 +3811,9 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     if (diagnostics) {
       diagnostics->attempted = true;
       diagnostics->bge_method = "auto";
+      diagnostics->auto_gradient_strength = gradient_strength;
+      diagnostics->auto_gradient_threshold = thr;
+      diagnostics->auto_sky_median = sky_med;
     }
     if (gradient_strength < thr) {
       // No significant gradient: skip BGE.
@@ -3839,8 +3860,8 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       if (block_meds[i] <= ext_thr) continue;
       // Mark this block as excluded.
       ++n_excl_blocks;
-      const int bx_idx = static_cast<int>(i) % GX;
-      const int by_idx = static_cast<int>(i) / GX;
+      const int bx_idx = block_bx[i];
+      const int by_idx = block_by[i];
       const int r0 = by_idx * H / GY, r1 = (by_idx + 1) * H / GY;
       const int c0 = bx_idx * W / GX, c1 = (bx_idx + 1) * W / GX;
       for (int r = r0; r < r1; ++r)
@@ -3891,6 +3912,13 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         static_cast<double>(std::count(cfg_run.sampling_valid_mask.begin(),
                                        cfg_run.sampling_valid_mask.end(), 0u)) /
         static_cast<double>(H * W) : 0.0;
+    if (diagnostics) {
+      diagnostics->auto_sky_sigma = sky_sigma;
+      diagnostics->auto_extended_source_threshold = ext_thr;
+      diagnostics->auto_extended_source_blocks = n_excl_blocks;
+      diagnostics->auto_extended_source_excluded_fraction =
+          static_cast<float>(excl_frac);
+    }
     std::cerr << "[BGE][auto] extended_source_excl=" << n_excl_blocks
               << " blocks (" << static_cast<int>(excl_frac * 100.0) << "% of image)"
               << std::endl;
@@ -3898,7 +3926,17 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     // Delegate to AutoBGE with the extended-source exclusion mask set.
     const bool applied = apply_background_extraction(R, G, B, tile_metrics,
                                                      tile_grid, cfg_run, diagnostics);
-    if (diagnostics) diagnostics->bge_method = "auto";
+    if (diagnostics) {
+      diagnostics->bge_method = "auto";
+      diagnostics->auto_gradient_strength = gradient_strength;
+      diagnostics->auto_gradient_threshold = thr;
+      diagnostics->auto_sky_median = sky_med;
+      diagnostics->auto_sky_sigma = sky_sigma;
+      diagnostics->auto_extended_source_threshold = ext_thr;
+      diagnostics->auto_extended_source_blocks = n_excl_blocks;
+      diagnostics->auto_extended_source_excluded_fraction =
+          static_cast<float>(excl_frac);
+    }
     return applied;
   }
 

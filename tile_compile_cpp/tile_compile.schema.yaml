@@ -465,12 +465,14 @@ properties:
             default: false
           luma_sigma:
             type: number
-            exclusiveMinimum: 0
+            minimum: 1.0
+            maximum: 5.0
             description: 'Detection threshold in sky-sigma units. Range 1.0–5.0. Recommended: 2.5.'
             default: 2.5
           dilate_px:
             type: integer
             minimum: 0
+            maximum: 100
             description: 'Dilation radius (px) applied after detection to cover halos. Range 0–100. Recommended: 30.'
             default: 30
   global_metrics:
@@ -999,17 +1001,20 @@ properties:
         properties:
           gradient_threshold:
             type: number
-            minimum: 0
+            minimum: 0.01
+            maximum: 0.5
             default: 0.05
             description: 'Minimum gradient amplitude (relative to sky median) to trigger AutoBGE. Range 0.01–0.5. Recommended: 0.05.'
           extended_source_sigma:
             type: number
-            minimum: 0
+            minimum: 1.0
+            maximum: 6.0
             default: 3.0
             description: 'Sigma threshold for extended-source detection in the block-median grid. Range 1.0–6.0. Recommended: 3.0.'
           extended_source_dilate_px:
             type: integer
             minimum: 0
+            maximum: 200
             default: 50
             description: 'Dilation (px) applied to the extended-source exclusion mask. Range 0–200. Recommended: 50.'
       autobge:

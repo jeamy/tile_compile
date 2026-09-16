@@ -601,6 +601,8 @@ TEST_CASE("bge_auto_flat_field_skips_bge") {
   bool applied = ti::apply_background_extraction(R, G, B, {}, {}, cfg, &diag);
   REQUIRE_FALSE(applied);
   REQUIRE(diag.failure_reason == "auto_detect_no_gradient");
+  REQUIRE(diag.auto_gradient_threshold == Catch::Approx(0.05f));
+  REQUIRE(diag.auto_gradient_strength < diag.auto_gradient_threshold);
 }
 
 // Strong gradient field: gradient ≥ threshold → BGE must be attempted.
@@ -636,6 +638,8 @@ TEST_CASE("bge_auto_gradient_field_triggers_bge") {
   // may succeed or fail depending on data quality, but must not be "no_gradient".
   ti::apply_background_extraction(R, G, B, {}, {}, cfg, &diag);
   REQUIRE(diag.failure_reason != "auto_detect_no_gradient");
+  REQUIRE(diag.auto_gradient_strength >= diag.auto_gradient_threshold);
+  REQUIRE(diag.auto_sky_median > 0.0f);
 }
 
 // ---- chroma_denoise extended_source_protection tests -------------------

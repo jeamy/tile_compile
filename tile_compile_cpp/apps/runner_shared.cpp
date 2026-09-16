@@ -1274,6 +1274,16 @@ core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
   out["image_height"] = diag.image_height;
   out["grid_spacing"] = diag.grid_spacing;
   out["bge_method"] = diag.bge_method;
+  out["auto_detect"] = {
+      {"gradient_strength", diag.auto_gradient_strength},
+      {"gradient_threshold", diag.auto_gradient_threshold},
+      {"sky_median", diag.auto_sky_median},
+      {"sky_sigma", diag.auto_sky_sigma},
+      {"extended_source_threshold", diag.auto_extended_source_threshold},
+      {"extended_source_blocks", diag.auto_extended_source_blocks},
+      {"extended_source_excluded_fraction",
+       diag.auto_extended_source_excluded_fraction},
+  };
   out["method"] = diag.method;
   out["robust_loss"] = diag.robust_loss;
   out["insufficient_cell_strategy"] = diag.insufficient_cell_strategy;

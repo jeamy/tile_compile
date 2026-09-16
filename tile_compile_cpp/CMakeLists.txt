@@ -675,6 +675,7 @@ if(BUILD_TESTS)
             apps/runner_phase_post_stack_output.cpp
             tests/test_background_extraction.cpp
             tests/test_autobge.cpp
+            tests/test_chroma_denoise.cpp
             tests/test_utils.cpp
             tests/test_fits.cpp
             tests/test_fits_hdu_selection.cpp

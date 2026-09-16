@@ -1683,6 +1683,16 @@ void Config::validate() const {
   if (!is_between_0_1(chroma_denoise.blend.amount)) {
     throw ValidationError("chroma_denoise.blend.amount must be in [0,1]");
   }
+  if (chroma_denoise.extended_source_protection.luma_sigma < 1.0f ||
+      chroma_denoise.extended_source_protection.luma_sigma > 5.0f) {
+    throw ValidationError(
+        "chroma_denoise.extended_source_protection.luma_sigma must be in [1,5]");
+  }
+  if (chroma_denoise.extended_source_protection.dilate_px < 0 ||
+      chroma_denoise.extended_source_protection.dilate_px > 100) {
+    throw ValidationError(
+        "chroma_denoise.extended_source_protection.dilate_px must be in [0,100]");
+  }
 
   auto check_weight_sum = [](std::initializer_list<float> weights,
                              const char *name) {
@@ -1732,7 +1742,22 @@ void Config::validate() const {
       bge.method != "autobge" && bge.method != "auto") {
     throw ValidationError("bge.method must be one of: none|classic|autobge|auto");
   }
-  if (bge.method == "autobge") {
+  if (bge.auto_detect.gradient_threshold < 0.01f ||
+      bge.auto_detect.gradient_threshold > 0.5f) {
+    throw ValidationError(
+        "bge.auto_detect.gradient_threshold must be in [0.01,0.5]");
+  }
+  if (bge.auto_detect.extended_source_sigma < 1.0f ||
+      bge.auto_detect.extended_source_sigma > 6.0f) {
+    throw ValidationError(
+        "bge.auto_detect.extended_source_sigma must be in [1,6]");
+  }
+  if (bge.auto_detect.extended_source_dilate_px < 0 ||
+      bge.auto_detect.extended_source_dilate_px > 200) {
+    throw ValidationError(
+        "bge.auto_detect.extended_source_dilate_px must be in [0,200]");
+  }
+  if (bge.method == "autobge" || bge.method == "auto") {
     if (bge.autobge.num_sample_points < 0 || bge.autobge.num_sample_points > 3000) {
       throw ValidationError("bge.autobge.num_sample_points must be in [0,3000]");
     }

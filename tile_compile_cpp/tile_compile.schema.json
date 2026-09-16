@@ -571,13 +571,15 @@
             },
             "luma_sigma": {
               "type": "number",
-              "exclusiveMinimum": 0,
+              "minimum": 1.0,
+              "maximum": 5.0,
               "description": "Detection threshold above sky background in units of sky sigma. Pixels whose smoothed luma exceeds sky_median + luma_sigma × sky_sigma are protected. Range 1.0–5.0. Lower values protect more; higher values protect only the brightest cores. Recommended: 2.5.",
               "default": 2.5
             },
             "dilate_px": {
               "type": "integer",
               "minimum": 0,
+              "maximum": 100,
               "description": "Dilation radius (pixels) applied after detection to cover halos and PSF wings around the detected extended source. Range 0–100. Recommended: 30.",
               "default": 30
             }
@@ -1385,19 +1387,22 @@
           "properties": {
             "gradient_threshold": {
               "type": "number",
-              "minimum": 0,
+              "minimum": 0.01,
+              "maximum": 0.5,
               "default": 0.05,
               "description": "Minimum gradient amplitude (relative to sky median) required to trigger AutoBGE. Gradient amplitude = (max − min of linear-plane fit across the image) / median_sky. Values below this threshold skip BGE entirely."
             },
             "extended_source_sigma": {
               "type": "number",
-              "minimum": 0,
+              "minimum": 1.0,
+              "maximum": 6.0,
               "default": 3.0,
               "description": "Detection threshold for extended sources (galaxy disks, large nebulae) in the block-median grid. Blocks whose median exceeds sky_median + N×sky_sigma are excluded from the AutoBGE sample set so the background fit uses only real sky pixels."
             },
             "extended_source_dilate_px": {
               "type": "integer",
               "minimum": 0,
+              "maximum": 200,
               "default": 50,
               "description": "Morphological dilation (in pixels) applied to the detected extended-source exclusion mask. Larger values provide a safety margin around galaxy halos and nebula edges."
             }

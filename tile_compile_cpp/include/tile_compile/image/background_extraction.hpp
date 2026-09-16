@@ -230,6 +230,13 @@ struct BGEDiagnostics {
     int image_height = 0;
     int grid_spacing = 0;
     std::string bge_method = "none";
+    float auto_gradient_strength = 0.0f;
+    float auto_gradient_threshold = 0.0f;
+    float auto_sky_median = 0.0f;
+    float auto_sky_sigma = 0.0f;
+    float auto_extended_source_threshold = 0.0f;
+    int auto_extended_source_blocks = 0;
+    float auto_extended_source_excluded_fraction = 0.0f;
     std::string method;
     std::string robust_loss;
     std::string insufficient_cell_strategy;

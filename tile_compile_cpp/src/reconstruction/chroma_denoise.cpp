@@ -93,8 +93,10 @@ cv::Mat soft_threshold_signed(const cv::Mat& src, float tau) {
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 cv::Mat build_protection_mask(const cv::Mat& y,
-                              const config::ChromaDenoiseConfig& cfg) {
+                              const config::ChromaDenoiseConfig& cfg,
+                              ChromaDenoiseStats* stats) {
     cv::Mat mask = cv::Mat::zeros(y.size(), CV_32F);
+    const double pixels = static_cast<double>(y.total());
 
     if (cfg.star_protection.enabled) {
         const float sigma = robust_sigma_mad_from_mat(y);
@@ -111,6 +113,8 @@ cv::Mat build_protection_mask(const cv::Mat& y,
             cv::Mat ker = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(k, k));
             cv::dilate(stars, stars, ker);
         }
+        if (stats && pixels > 0.0)
+            stats->star_protected_fraction = cv::countNonZero(stars > 0.5f) / pixels;
         cv::max(mask, stars, mask);
     }
 
@@ -123,6 +127,9 @@ cv::Mat build_protection_mask(const cv::Mat& y,
         cv::Mat structures;
         cv::threshold(mag, structures, p, 1.0, cv::THRESH_BINARY);
         structures.convertTo(structures, CV_32F);
+        if (stats && pixels > 0.0)
+            stats->structure_protected_fraction =
+                cv::countNonZero(structures > 0.5f) / pixels;
         cv::max(mask, structures, mask);
     }
 
@@ -152,17 +159,33 @@ cv::Mat build_protection_mask(const cv::Mat& y,
         cv::Mat ext_src;
         cv::threshold(y_smooth, ext_src, static_cast<double>(thr), 1.0, cv::THRESH_BINARY);
         ext_src.convertTo(ext_src, CV_32F);
+        if (stats) {
+            stats->extended_source_sky_median = sky_med;
+            stats->extended_source_sky_sigma = sky_sigma;
+            stats->extended_source_threshold = thr;
+            if (pixels > 0.0)
+                stats->extended_source_raw_fraction =
+                    cv::countNonZero(ext_src > 0.5f) / pixels;
+        }
         if (cfg.extended_source_protection.dilate_px > 0) {
             const int k = std::max(1, cfg.extended_source_protection.dilate_px * 2 + 1);
             cv::Mat ker = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(k, k));
             cv::dilate(ext_src, ext_src, ker);
         }
+        if (stats && pixels > 0.0)
+            stats->extended_source_protected_fraction =
+                cv::countNonZero(ext_src > 0.5f) / pixels;
         cv::max(mask, ext_src, mask);
     }
 
     cv::GaussianBlur(mask, mask, cv::Size(0, 0), 1.0, 1.0, cv::BORDER_REFLECT_101);
     cv::min(mask, 1.0, mask);
     cv::max(mask, 0.0, mask);
+    if (stats && pixels > 0.0) {
+        stats->combined_protected_fraction =
+            cv::countNonZero(mask > 0.5f) / pixels;
+        stats->mean_protection = cv::mean(mask)[0];
+    }
     return mask;
 }
 
@@ -200,20 +223,22 @@ void denoise_chroma_plane_inplace(cv::Mat& c,
 }
 
 } // namespace
-void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
-                                const config::ChromaDenoiseConfig& cfg) {
-    if (!cfg.enabled) return;
-    if (r.size() <= 0 || g.size() <= 0 || b.size() <= 0) return;
+ChromaDenoiseStats chroma_denoise_rgb_inplace(
+        Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
+        const config::ChromaDenoiseConfig& cfg) {
+    ChromaDenoiseStats stats;
+    if (!cfg.enabled) return stats;
+    if (r.size() <= 0 || g.size() <= 0 || b.size() <= 0) return stats;
     if (r.rows() != g.rows() || r.cols() != g.cols() ||
         r.rows() != b.rows() || r.cols() != b.cols()) {
-        return;
+        return stats;
     }
 
     cv::Mat R(r.rows(), r.cols(), CV_32F, r.data());
     cv::Mat G(g.rows(), g.cols(), CV_32F, g.data());
     cv::Mat B(b.rows(), b.cols(), CV_32F, b.data());
 
-    if (cfg.blend.mode != "chroma_only") return;
+    if (cfg.blend.mode != "chroma_only") return stats;
 
     cv::Mat Y, C1, C2;
     rgb_to_chroma_space(R, G, B, cfg.color_space, Y, C1, C2);
@@ -231,6 +256,11 @@ void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
         std::max(0.1f, cfg.chroma_wavelet.threshold_scale * adapt);
     tuned.chroma_bilateral.sigma_range =
         std::max(1.0e-4f, cfg.chroma_bilateral.sigma_range * std::sqrt(adapt));
+    stats.applied = true;
+    stats.valid_pixels = static_cast<std::uint64_t>(r.size());
+    stats.input_chroma_sigma = chroma_sigma;
+    stats.adaptation = adapt;
+    stats.effective_blend_amount = tuned.blend.amount;
 
     cv::Mat C1_orig = C1.clone();
     cv::Mat C2_orig = C2.clone();
@@ -240,11 +270,12 @@ void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
 
     cv::Mat amount_map(Y.size(), CV_32F, cv::Scalar(tuned.blend.amount));
     if (tuned.protect_luma) {
-        cv::Mat protect = build_protection_mask(Y, tuned);
+        cv::Mat protect = build_protection_mask(Y, tuned, &stats);
         amount_map = amount_map.mul(1.0f - tuned.luma_guard_strength * protect);
         cv::min(amount_map, tuned.blend.amount, amount_map);
         cv::max(amount_map, 0.0, amount_map);
     }
+    stats.mean_denoise_fraction = cv::mean(amount_map)[0];
 
     cv::Mat one_minus = 1.0f - amount_map;
     cv::Mat C1_mix = C1_orig.mul(one_minus) + C1.mul(amount_map);
@@ -256,6 +287,7 @@ void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
     R_new.copyTo(R);
     G_new.copyTo(G);
     B_new.copyTo(B);
+    return stats;
 }
 
 } // namespace tile_compile::reconstruction
