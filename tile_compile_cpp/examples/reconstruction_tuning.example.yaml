@@ -54,6 +54,7 @@ normalization:
 
 dithering:
   enabled: true
+  min_shift_px: 0.7
 linearity:
   enabled: true
   max_frames: 64             # aligned with M31-REF-20260801_080824_dd07d775 for the GPU/CPU-fallback A/B test
@@ -86,7 +87,7 @@ registration:
   affine_refinement_enabled: true       # gegatet; bei Ablehnung bleibt der globale Warp unveraendert
   smooth_local_refinement_enabled: true # Held-out/Jacobian/NCC-gegatet; sonst atomarer Warp-Fallback
 
-  prewarp_interpolation: linear
+  prewarp_interpolation: cubic
   debayer_first: true
   pre_debayer_method: edge_aware
 
@@ -112,8 +113,8 @@ chroma_denoise:
   luma_guard_strength: 0.85
   star_protection:
     enabled: true
-    threshold_sigma: 3
-    dilate_px: 3
+    threshold_sigma: 2   # detect fainter stars into the protection mask
+    dilate_px: 8         # must cover the full PSF (core+wings); 3 caused green halos
   structure_protection:
     enabled: true
     gradient_percentile: 90
@@ -257,7 +258,7 @@ reconstruction:
     internal_scale: 2
     output_scale: 1
     kernel: square
-    pixfrac: 0.8
+    pixfrac: 0.6
     robust_passes: 4
     min_clip_contributors: 5
     chunk_rows: 0
@@ -297,7 +298,7 @@ reconstruction:
     full_effective_samples: 24.0
 
 runtime_limits:
-  memory_budget: 4096         # MB - ensure sufficient for reconstruction caches
+  memory_budget: 16384        # MB - ensure sufficient for reconstruction caches
   parallel_workers: 8        # Number of worker threads (>=1, 1 = sequential)
   acceleration_backend: auto
   hard_abort_hours: 6

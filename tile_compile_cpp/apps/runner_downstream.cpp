@@ -979,6 +979,14 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     if (abort_if_runtime_limit_exceeded("ASTROMETRY")) {
       return 1;
     }
+    if (rgb.G.rows() > 0 && rgb.B.rows() > 0 &&
+        cfg.chroma_denoise.enabled &&
+        cfg.chroma_denoise.apply_stage == "post_stack_linear") {
+      reconstruction::chroma_denoise_rgb_inplace(rgb.R, rgb.G, rgb.B,
+                                                 cfg.chroma_denoise);
+      std::cout << "[CHROMA_DENOISE] applied post_stack_linear (chroma-only)"
+                << std::endl;
+    }
     if (!run_bge_phase()) {
       core::emit_event("downstream_end", run_id,
                        {{"success", false},
@@ -1229,7 +1237,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
                 << " isolated pixels (candidates="
                 << chroma_speckle_stats.candidate_pixels << ")" << std::endl;
     }
-    if (io::detect_color_mode(rgb.header, 2) == ColorMode::OSC &&
+    if (rgb.G.rows() > 0 && rgb.B.rows() > 0 &&
         cfg.chroma_denoise.enabled &&
         cfg.chroma_denoise.apply_stage == "post_pcc") {
       reconstruction::chroma_denoise_rgb_inplace(

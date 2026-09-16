@@ -457,7 +457,7 @@ global_metrics:
   clamp: [-2.5, 2.5]
 ```
 
-- Full example file: [`m104.example.yaml`](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/m104.example.yaml)
+- Full example file: [`reconstruction_tuning.example.yaml`](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/reconstruction_tuning.example.yaml)
 - Intent of this profile: keep the multi-anchor Alt/Az registration path active, retain weak frames, but weight clearly better frames more strongly in the global ranking.
 
 ---
@@ -491,7 +491,7 @@ global_metrics:
 ```
 
 - Recommended when seeing or transparency varies noticeably across the session.
-- This stronger separation is also used in [`m104.example.yaml`](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/m104.example.yaml).
+- This stronger separation is also shown in [`reconstruction_tuning.example.yaml`](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/reconstruction_tuning.example.yaml).
 
 **Softer weighting for homogeneous sessions:**
 ```yaml
@@ -654,8 +654,8 @@ data:
 ```
 
 Ready-to-use repository profiles:
-- `tile_compile_cpp/examples/ic434.example.yaml`
-- `tile_compile_cpp/examples/m31_background_gradient_balanced.example.yaml`
+- `tile_compile_cpp/examples/reconstruction_tuning.example.yaml` (OSC, canonical)
+- `tile_compile_cpp/examples/mono.example.yaml` (MONO)
 
 ### Mono on a large telescope
 

@@ -79,8 +79,8 @@ chroma_denoise:
   luma_guard_strength: 0.85
   star_protection:
     enabled: true
-    threshold_sigma: 3
-    dilate_px: 3
+    threshold_sigma: 2
+    dilate_px: 8
   structure_protection:
     enabled: true
     gradient_percentile: 90

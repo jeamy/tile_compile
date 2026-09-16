@@ -9,7 +9,7 @@ reconstruction:
   drizzle:
     internal_scale: 2
     output_scale: 1
-    pixfrac: 0.8
+    pixfrac: 0.6
     chunk_rows: 0
     chunk_halo_rows: -1
     memory_budget_mb: 0

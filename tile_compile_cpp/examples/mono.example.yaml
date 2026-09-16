@@ -1,19 +1,6 @@
-# v3.2 MONO FULL-MODE Referenzkonfiguration (vollstaendig, alle Optionen)
+# MONO FULL-MODE Referenzkonfiguration (vollstaendig, alle Optionen)
 # Zielzustand: MONO-Datensatz mit grosser Frame-Anzahl.
 # Alt/Az-optimiert: robuste Registrierung bei Feldrotation und Wolkenluecken.
-
-run_dir: ./run_mono
-log_level: info # trace|debug|info|warn|error
-
-scenario_profile:
-  id: mono
-  title: MONO
-  intent: "Robuster MONO-Betrieb mit grosser Frame-Anzahl."
-  gui2_scenarios: [mono, large_n, alt_az, rotation_robust]
-  recommended_for:
-    - "MONO-Datensaetze mit grosser Frame-Anzahl"
-    - "Alt/Az Sessions mit Feldrotation und Wolkenluecken"
-  priority: balanced_quality
 
 output:
   registered_dir: registered # Ausgabeordner fuer registrierte Frames
@@ -25,11 +12,6 @@ data:
   image_height: 2160 # erwartete Bildhoehe (px)
   color_mode: MONO # OSC|MONO|RGB
   bayer_pattern: auto # bei MONO wirkungslos, aus Kompatibilitaetsgruenden vorhanden
-
-input:
-  pattern: ./data/*.fits # Input-Glob fuer Rohframes
-  sort: numeric # numeric|lexicographic
-  max_frames: 0 # 0 = alle; >0 limitiert Inputanzahl
 
 linearity:
   enabled: true # Linearity-Check aktiv
