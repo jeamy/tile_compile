@@ -1,6 +1,7 @@
 #include "tile_compile/image/background_extraction.hpp"
 #include "tile_compile/core/utils.hpp"
 
+#include <Eigen/Dense>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -3704,6 +3705,203 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   if (config.method == "none") {
     return false;
   }
+
+  // ---- Auto-detect mode: run AutoBGE only when a meaningful background
+  // gradient is present, with an automatically derived extended-source
+  // exclusion mask so galaxy/nebula regions are not fitted as background.
+  if (config.method == "auto") {
+    const int H = R.rows();
+    const int W = R.cols();
+    // Build a coarse block-median grid over the G channel (most photons,
+    // lowest noise per pixel in a Bayer-derived stack) using a 64 px step.
+    const int BLOCK = 64;
+    const int GY = std::max(2, H / BLOCK);
+    const int GX = std::max(2, W / BLOCK);
+    std::vector<float> block_meds;
+    std::vector<float> block_cx, block_cy;
+    block_meds.reserve(static_cast<size_t>(GY * GX));
+    block_cx.reserve(block_meds.capacity());
+    block_cy.reserve(block_meds.capacity());
+    for (int by = 0; by < GY; ++by) {
+      for (int bx = 0; bx < GX; ++bx) {
+        const int r0 = by * H / GY, r1 = (by + 1) * H / GY;
+        const int c0 = bx * W / GX, c1 = (bx + 1) * W / GX;
+        std::vector<float> vals;
+        vals.reserve(static_cast<size_t>((r1 - r0) * (c1 - c0)));
+        for (int r = r0; r < r1; ++r)
+          for (int c = c0; c < c1; ++c) {
+            const float v = G(r, c);
+            if (v > 0.0f) vals.push_back(v);
+          }
+        if (vals.empty()) continue;
+        std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
+        block_meds.push_back(vals[vals.size() / 2]);
+        block_cx.push_back((static_cast<float>(c0) + static_cast<float>(c1)) * 0.5f /
+                            static_cast<float>(W));
+        block_cy.push_back((static_cast<float>(r0) + static_cast<float>(r1)) * 0.5f /
+                            static_cast<float>(H));
+      }
+    }
+    if (block_meds.empty()) {
+      if (diagnostics) diagnostics->failure_reason = "auto_detect_no_blocks";
+      return false;
+    }
+
+    // Compute global sky median from the lower half of block medians
+    // (upper half includes extended sources and stars).
+    std::vector<float> sorted_meds = block_meds;
+    std::sort(sorted_meds.begin(), sorted_meds.end());
+    const float sky_med = sorted_meds[sorted_meds.size() / 2];
+
+    // Fit a linear plane (degree-1) via least-squares: z = a*x + b*y + c.
+    // We use only blocks in the lower 70th percentile to keep extended
+    // sources out of the gradient estimate.
+    const float p70 = sorted_meds[static_cast<size_t>(sorted_meds.size() * 0.70f)];
+    double sum_x = 0, sum_y = 0, sum_z = 0, sum_xx = 0, sum_xy = 0;
+    double sum_xz = 0, sum_yy = 0, sum_yz = 0;
+    int n_fit = 0;
+    for (size_t i = 0; i < block_meds.size(); ++i) {
+      if (block_meds[i] > p70) continue;
+      const double x = block_cx[i], y2 = block_cy[i], z = block_meds[i];
+      sum_x += x; sum_y += y2; sum_z += z;
+      sum_xx += x * x; sum_xy += x * y2; sum_xz += x * z;
+      sum_yy += y2 * y2; sum_yz += y2 * z;
+      ++n_fit;
+    }
+    float gradient_strength = 0.0f;
+    if (n_fit >= 4 && sky_med > 0.0f) {
+      // Closed-form 3×3 normal equations for plane z = ax + by + c.
+      Eigen::Matrix3d A;
+      A << sum_xx, sum_xy, sum_x,
+           sum_xy, sum_yy, sum_y,
+           sum_x,  sum_y,  static_cast<double>(n_fit);
+      Eigen::Vector3d b_vec;
+      b_vec << sum_xz, sum_yz, sum_z;
+      const Eigen::Vector3d abc = A.ldlt().solve(b_vec);
+      const double a = abc[0], b_coef = abc[1], c = abc[2];
+      // Evaluate plane at image corners to get amplitude.
+      const double zv[4] = {c, a + c, b_coef + c, a + b_coef + c};
+      const double zmin = *std::min_element(std::begin(zv), std::end(zv));
+      const double zmax = *std::max_element(std::begin(zv), std::end(zv));
+      gradient_strength = static_cast<float>((zmax - zmin) / static_cast<double>(sky_med));
+    }
+
+    const float thr = config.auto_detect.gradient_threshold;
+    std::cerr << "[BGE][auto] gradient_strength=" << gradient_strength
+              << " threshold=" << thr
+              << (gradient_strength >= thr ? " → AutoBGE" : " → skip") << std::endl;
+    if (diagnostics) {
+      diagnostics->attempted = true;
+      diagnostics->bge_method = "auto";
+    }
+    if (gradient_strength < thr) {
+      // No significant gradient: skip BGE.
+      if (diagnostics) {
+        diagnostics->success = false;
+        diagnostics->failure_reason = "auto_detect_no_gradient";
+      }
+      return false;
+    }
+
+    // Gradient detected: build extended-source exclusion mask.
+    // Blocks whose median exceeds  sky_med + N×sky_sigma  are extended sources.
+    // Compute sky sigma from the sky-half blocks.
+    std::vector<float> sky_blocks;
+    for (float v : sorted_meds)
+      if (v <= p70) sky_blocks.push_back(v);
+    float sky_sigma = 0.0f;
+    if (!sky_blocks.empty()) {
+      double mean = 0.0;
+      for (float v : sky_blocks) mean += v;
+      mean /= sky_blocks.size();
+      double var = 0.0;
+      for (float v : sky_blocks) { double d = v - mean; var += d * d; }
+      sky_sigma = static_cast<float>(std::sqrt(var / sky_blocks.size()));
+      // Use MAD as a more robust alternative if std is suspiciously high.
+      std::vector<float> abs_dev;
+      const float m = sorted_meds[sorted_meds.size() / 2];
+      for (float v : sky_blocks) abs_dev.push_back(std::abs(v - m));
+      std::sort(abs_dev.begin(), abs_dev.end());
+      const float mad = abs_dev[abs_dev.size() / 2] * 1.4826f;
+      if (mad < sky_sigma) sky_sigma = mad;
+    }
+    const float ext_thr = sky_med + config.auto_detect.extended_source_sigma * sky_sigma;
+
+    // Build pixel-resolution sampling exclusion mask; start from the block grid,
+    // then dilate.
+    BGEConfig cfg_run = config;
+    cfg_run.method = "autobge";
+    cfg_run.sampling_valid_mask.assign(static_cast<size_t>(H * W), 1u);
+    cfg_run.sampling_mask_rows = H;
+    cfg_run.sampling_mask_cols = W;
+    int n_excl_blocks = 0;
+    for (size_t i = 0; i < block_meds.size(); ++i) {
+      if (block_meds[i] <= ext_thr) continue;
+      // Mark this block as excluded.
+      ++n_excl_blocks;
+      const int bx_idx = static_cast<int>(i) % GX;
+      const int by_idx = static_cast<int>(i) / GX;
+      const int r0 = by_idx * H / GY, r1 = (by_idx + 1) * H / GY;
+      const int c0 = bx_idx * W / GX, c1 = (bx_idx + 1) * W / GX;
+      for (int r = r0; r < r1; ++r)
+        for (int c = c0; c < c1; ++c)
+          cfg_run.sampling_valid_mask[static_cast<size_t>(r * W + c)] = 0u;
+    }
+    // Dilate the exclusion mask by extended_source_dilate_px pixels using two
+    // separable 1-D passes (O(N) per pixel instead of O(dpx²)).
+    const int dpx = config.auto_detect.extended_source_dilate_px;
+    if (dpx > 0 && n_excl_blocks > 0) {
+      // Horizontal pass: for each row, propagate zeros left and right.
+      std::vector<uint8_t> h_pass(cfg_run.sampling_valid_mask);
+      for (int r = 0; r < H; ++r) {
+        // Forward sweep: propagate left-to-right with a counter.
+        int gap = dpx + 1;
+        for (int c = 0; c < W; ++c) {
+          if (h_pass[static_cast<size_t>(r * W + c)] == 0u) gap = 0;
+          else if (gap <= dpx) h_pass[static_cast<size_t>(r * W + c)] = 0u;
+          ++gap;
+        }
+        // Backward sweep: propagate right-to-left.
+        gap = dpx + 1;
+        for (int c = W - 1; c >= 0; --c) {
+          if (cfg_run.sampling_valid_mask[static_cast<size_t>(r * W + c)] == 0u) gap = 0;
+          else if (gap <= dpx) h_pass[static_cast<size_t>(r * W + c)] = 0u;
+          ++gap;
+        }
+      }
+      // Vertical pass: for each column, propagate up and down.
+      std::vector<uint8_t>& v_pass = cfg_run.sampling_valid_mask;
+      v_pass = h_pass;
+      for (int c = 0; c < W; ++c) {
+        int gap = dpx + 1;
+        for (int r = 0; r < H; ++r) {
+          if (h_pass[static_cast<size_t>(r * W + c)] == 0u) gap = 0;
+          else if (gap <= dpx) v_pass[static_cast<size_t>(r * W + c)] = 0u;
+          ++gap;
+        }
+        gap = dpx + 1;
+        for (int r = H - 1; r >= 0; --r) {
+          if (h_pass[static_cast<size_t>(r * W + c)] == 0u) gap = 0;
+          else if (gap <= dpx) v_pass[static_cast<size_t>(r * W + c)] = 0u;
+          ++gap;
+        }
+      }
+    }
+    const double excl_frac = (H * W > 0) ?
+        static_cast<double>(std::count(cfg_run.sampling_valid_mask.begin(),
+                                       cfg_run.sampling_valid_mask.end(), 0u)) /
+        static_cast<double>(H * W) : 0.0;
+    std::cerr << "[BGE][auto] extended_source_excl=" << n_excl_blocks
+              << " blocks (" << static_cast<int>(excl_frac * 100.0) << "% of image)"
+              << std::endl;
+
+    // Delegate to AutoBGE with the extended-source exclusion mask set.
+    const bool applied = apply_background_extraction(R, G, B, tile_metrics,
+                                                     tile_grid, cfg_run, diagnostics);
+    if (diagnostics) diagnostics->bge_method = "auto";
+    return applied;
+  }
+
   if (config.method == "autobge") {
     const int H = R.rows();
     const int W = R.cols();

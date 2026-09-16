@@ -11,9 +11,11 @@
 # differences between CUDA and the automatic CPU fallback are attributable
 # to the compute backend, not to tuning drift. For that A/B run bge.method
 # was set to none to match the reference run's disabled BGE stage exactly --
-# this file keeps method: autobge below as the general baseline
-# recommendation; set it to none if you need to reproduce that exact
-# comparison. (bge.method alone is the on/off switch, "none" == disabled.)
+# this file keeps method: auto below as the general baseline (BGE runs only
+# when a significant background gradient is detected, and extended sources
+# such as galaxy disks are automatically excluded from the BGE fit);
+# set it to none to skip BGE unconditionally, or autobge to always run it.
+# (bge.method alone is the on/off switch, "none" == disabled.)
 
 
 output:
@@ -108,12 +110,12 @@ global_metrics:
 chroma_denoise:
   enabled: true
   color_space: ycbcr_linear
-  apply_stage: post_stack_linear
+  apply_stage: both
   protect_luma: true
   luma_guard_strength: 0.85
   star_protection:
     enabled: true
-    threshold_sigma: 2   # detect fainter stars into the protection mask
+    threshold_sigma: 4   # must stay sparse: at 2 the dilated mask covers ~94% of a dense field
     dilate_px: 8         # must cover the full PSF (core+wings); 3 caused green halos
   structure_protection:
     enabled: true
@@ -121,7 +123,7 @@ chroma_denoise:
   chroma_wavelet:
     enabled: true
     levels: 4
-    threshold_scale: 1.5
+    threshold_scale: 2.0
     soft_k: 1.0
   chroma_bilateral:
     enabled: true
@@ -129,7 +131,17 @@ chroma_denoise:
     sigma_range: 0.05
   blend:
     mode: chroma_only
-    amount: 0.8
+    amount: 1.0
+  extended_source_protection:
+    # Protect galaxy disks, large nebulae and diffuse halos from chroma
+    # denoising. Without this, the wavelet threshold treats the galaxy's
+    # smooth warm excess as color noise and erases it, causing a green cast
+    # in the stretched output. The detection uses a heavily blurred luma map;
+    # any pixel whose smoothed luma exceeds sky_median + luma_sigma * sky_sigma
+    # is blended back to its original chroma.
+    enabled: true
+    luma_sigma: 2.5   # detection threshold in sky-sigma; lower = protect more
+    dilate_px: 30     # dilation covering PSF wings and halos around the source
 
 astrometry:
   enabled: true
@@ -142,7 +154,16 @@ stacking:
   per_frame_cosmetic_correction_sigma: 2.0
 # Background gradient estimation
 bge:
-  method: autobge
+  # auto: measure the background gradient first; only run AutoBGE when the
+  # gradient amplitude exceeds auto_detect.gradient_threshold (relative to
+  # sky median), and automatically exclude extended sources (galaxies,
+  # nebulae) from the BGE fit so the polynomial/RBF model uses only real
+  # sky pixels.  Use autobge to always run, none to always skip.
+  method: auto
+  auto_detect:
+    gradient_threshold: 0.05          # BGE runs only if max−min of linear sky plane > 5% of sky median
+    extended_source_sigma: 3.0        # blocks above sky_med + 3σ are excluded from sample set
+    extended_source_dilate_px: 50     # safety margin around detected extended source (px)
   autobge:
     num_sample_points: 800
     poly_degree: 2
@@ -208,7 +229,7 @@ pcc:
   min_stars: 3
   sigma_clip: 2.5
   background_model: plane
-  background_neutralization_mode: auto
+  background_neutralization_mode: always
   radii_mode: auto_fwhm
   aperture_fwhm_mult: 1.8
   annulus_inner_fwhm_mult: 3

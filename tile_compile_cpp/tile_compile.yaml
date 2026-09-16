@@ -74,12 +74,12 @@ global_metrics:
 chroma_denoise:
   enabled: true
   color_space: ycbcr_linear
-  apply_stage: post_stack_linear
+  apply_stage: both
   protect_luma: true
   luma_guard_strength: 0.85
   star_protection:
     enabled: true
-    threshold_sigma: 2
+    threshold_sigma: 4
     dilate_px: 8
   structure_protection:
     enabled: true
@@ -87,7 +87,7 @@ chroma_denoise:
   chroma_wavelet:
     enabled: true
     levels: 4
-    threshold_scale: 1.5
+    threshold_scale: 2.0
     soft_k: 1
   chroma_bilateral:
     enabled: true
@@ -95,7 +95,11 @@ chroma_denoise:
     sigma_range: 0.05
   blend:
     mode: chroma_only
-    amount: 0.8
+    amount: 1.0
+  extended_source_protection:
+    enabled: true
+    luma_sigma: 2.5
+    dilate_px: 30
 astrometry:
   enabled: true
   astap_data_dir: /media/data/Astro/astap
@@ -104,7 +108,11 @@ stacking:
   per_frame_cosmetic_correction: true
   per_frame_cosmetic_correction_sigma: 2
 bge:
-  method: autobge
+  method: auto
+  auto_detect:
+    gradient_threshold: 0.05
+    extended_source_sigma: 3.0
+    extended_source_dilate_px: 50
   autobge:
     num_sample_points: 800
     poly_degree: 2
@@ -167,7 +175,7 @@ pcc:
   min_stars: 3
   sigma_clip: 2.5
   background_model: plane
-  background_neutralization_mode: auto
+  background_neutralization_mode: always
   radii_mode: auto_fwhm
   aperture_fwhm_mult: 1.8
   annulus_inner_fwhm_mult: 3

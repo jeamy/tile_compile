@@ -470,6 +470,18 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (yaml_has_value(b["amount"]))
         cfg.chroma_denoise.blend.amount = b["amount"].as<float>();
     }
+
+    if (yaml_has_value(cd["extended_source_protection"])) {
+      auto es = cd["extended_source_protection"];
+      if (yaml_has_value(es["enabled"]))
+        cfg.chroma_denoise.extended_source_protection.enabled = es["enabled"].as<bool>();
+      if (yaml_has_value(es["luma_sigma"]))
+        cfg.chroma_denoise.extended_source_protection.luma_sigma =
+            es["luma_sigma"].as<float>();
+      if (yaml_has_value(es["dilate_px"]))
+        cfg.chroma_denoise.extended_source_protection.dilate_px =
+            es["dilate_px"].as<int>();
+    }
   }
 
   if (node["global_metrics"]) {
@@ -684,6 +696,18 @@ Config Config::from_yaml(const YAML::Node &node) {
     }
     if (b["method"])
       cfg.bge.method = b["method"].as<std::string>();
+    if (yaml_has_value(b["auto_detect"])) {
+      auto ad = b["auto_detect"];
+      if (yaml_has_value(ad["gradient_threshold"]))
+        cfg.bge.auto_detect.gradient_threshold =
+            ad["gradient_threshold"].as<float>();
+      if (yaml_has_value(ad["extended_source_sigma"]))
+        cfg.bge.auto_detect.extended_source_sigma =
+            ad["extended_source_sigma"].as<float>();
+      if (yaml_has_value(ad["extended_source_dilate_px"]))
+        cfg.bge.auto_detect.extended_source_dilate_px =
+            ad["extended_source_dilate_px"].as<int>();
+    }
     if (yaml_has_value(b["autobge"])) {
       auto a = b["autobge"];
       if (yaml_has_value(a["num_sample_points"]))
@@ -1100,6 +1124,12 @@ YAML::Node Config::to_yaml() const {
       chroma_denoise.chroma_bilateral.sigma_range;
   node["chroma_denoise"]["blend"]["mode"] = chroma_denoise.blend.mode;
   node["chroma_denoise"]["blend"]["amount"] = chroma_denoise.blend.amount;
+  node["chroma_denoise"]["extended_source_protection"]["enabled"] =
+      chroma_denoise.extended_source_protection.enabled;
+  node["chroma_denoise"]["extended_source_protection"]["luma_sigma"] =
+      chroma_denoise.extended_source_protection.luma_sigma;
+  node["chroma_denoise"]["extended_source_protection"]["dilate_px"] =
+      chroma_denoise.extended_source_protection.dilate_px;
 
   node["global_metrics"]["adaptive_weights"] = global_metrics.adaptive_weights;
   node["global_metrics"]["weight_exponent_scale"] = global_metrics.weight_exponent_scale;
@@ -1122,6 +1152,12 @@ YAML::Node Config::to_yaml() const {
   node["astrometry"]["search_radius"] = astrometry.search_radius;
 
   node["bge"]["method"] = bge.method;
+  node["bge"]["auto_detect"]["gradient_threshold"] =
+      bge.auto_detect.gradient_threshold;
+  node["bge"]["auto_detect"]["extended_source_sigma"] =
+      bge.auto_detect.extended_source_sigma;
+  node["bge"]["auto_detect"]["extended_source_dilate_px"] =
+      bge.auto_detect.extended_source_dilate_px;
   node["bge"]["autobge"]["num_sample_points"] =
       bge.autobge.num_sample_points;
   node["bge"]["autobge"]["poly_degree"] = bge.autobge.poly_degree;
@@ -1606,9 +1642,10 @@ void Config::validate() const {
   }
   if (chroma_denoise.apply_stage != "pre_stack_tiles" &&
       chroma_denoise.apply_stage != "post_stack_linear" &&
-      chroma_denoise.apply_stage != "post_pcc") {
+      chroma_denoise.apply_stage != "post_pcc" &&
+      chroma_denoise.apply_stage != "both") {
     throw ValidationError(
-        "chroma_denoise.apply_stage must be 'pre_stack_tiles', 'post_stack_linear' or 'post_pcc'");
+        "chroma_denoise.apply_stage must be 'pre_stack_tiles', 'post_stack_linear', 'post_pcc' or 'both'");
   }
   if (!is_between_0_1(chroma_denoise.luma_guard_strength)) {
     throw ValidationError("chroma_denoise.luma_guard_strength must be in [0,1]");
@@ -1692,8 +1729,8 @@ void Config::validate() const {
   }
 
   if (bge.method != "none" && bge.method != "classic" &&
-      bge.method != "autobge") {
-    throw ValidationError("bge.method must be one of: none|classic|autobge");
+      bge.method != "autobge" && bge.method != "auto") {
+    throw ValidationError("bge.method must be one of: none|classic|autobge|auto");
   }
   if (bge.method == "autobge") {
     if (bge.autobge.num_sample_points < 0 || bge.autobge.num_sample_points > 3000) {
@@ -2027,7 +2064,7 @@ std::string get_schema_json() {
     "chroma_denoise": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "color_space":{"type":"string","enum":["ycbcr_linear","opponent_linear"]},
-                      "apply_stage":{"type":"string","enum":["pre_stack_tiles","post_stack_linear","post_pcc"]},
+                      "apply_stage":{"type":"string","enum":["pre_stack_tiles","post_stack_linear","post_pcc","both"]},
                       "protect_luma":{"type":"boolean"},
                       "luma_guard_strength":{"type":"number","minimum":0,"maximum":1},
                       "star_protection":{"type":"object","properties":{

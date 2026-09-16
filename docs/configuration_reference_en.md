@@ -690,10 +690,10 @@ Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches whil
 | Property | Value |
 |----------|-------|
 | **Type** | string (enum) |
-| **Values** | `pre_stack_tiles`, `post_stack_linear` |
+| **Values** | `pre_stack_tiles`, `post_stack_linear`, `post_pcc`, `both` |
 | **Default** | `"post_stack_linear"` |
 
-**Purpose:** Pipeline stage at which chroma denoise is applied. `pre_stack_tiles` applies denoise to individual tiles before reconstruction. `post_stack_linear` applies denoise to the final linear stacked image (recommended).
+**Purpose:** Pipeline stage at which chroma denoise is applied. `pre_stack_tiles` applies denoise to individual tiles before reconstruction. `post_stack_linear` applies denoise to the final linear stacked image (recommended). `post_pcc` runs after photometric color calibration and catches chroma noise re-amplified by the PCC gains. `both` runs at `post_stack_linear` and `post_pcc`.
 
 ### `chroma_denoise.protect_luma`
 
@@ -1135,7 +1135,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 - `quality_score`: applied as an additional tile-sample reliability factor.
 
 **Key BGE parameters:**
-- `bge.method`: Engine selector `none|classic|autobge` (default: `none`). Sole on/off switch -- `none` disables BGE.
+- `bge.method`: Engine selector `none|classic|autobge|auto` (default: `none`). Sole on/off switch -- `none` disables BGE. `auto` measures the background gradient first and only runs AutoBGE when the gradient exceeds `auto_detect.gradient_threshold`.
 - `bge.tile_weight_lambda_structure`: Lambda in tile reliability weight `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)` (range `> 0`, default `1.0`)
 - `bge.sample_quantile`: Tile background quantile (range `(0, 0.5]`, default `0.20`)
 - `bge.min_valid_sample_fraction_for_apply`: Minimum valid tile-sample fraction required per channel before BGE apply (range `(0, 1]`, default `0.30`)
@@ -1151,19 +1151,49 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 - `bge.autotune.alpha_flatness`: objective weight for flatness term (minimum `0`, default `0.25`)
 - `bge.autotune.beta_roughness`: objective weight for roughness term (minimum `0`, default `0.10`)
 
-**Recommendation:** Set `bge.method: classic` or `bge.method: autobge` when gradients are visible (urban light pollution, moonlight) or when PCC shows color shifts across the field.
+**Recommendation:** Use `bge.method: auto` as the general production default — it skips BGE on flat fields (no gradient → no color corruption) and runs AutoBGE with extended-source exclusion on fields with real gradients. Use `none` to unconditionally skip, or `autobge` to unconditionally run.
 
 ### `bge.method`
 
 | Property | Value |
 |----------|-------|
 | **Type** | string |
-| **Values** | `none`, `classic`, `autobge` |
+| **Values** | `none`, `classic`, `autobge`, `auto` |
 | **Default** | `none` |
 
-**Purpose:** Selects the BGE engine. `none` disables BGE, `classic` uses the existing grid/tile BGE implementation, and `autobge` selects the two-stage poly+RBF AutoBGE implementation. This is the sole on/off switch for BGE.
+**Purpose:** Selects the BGE engine. `none` disables BGE, `classic` uses the existing grid/tile BGE implementation, `autobge` selects the two-stage poly+RBF AutoBGE implementation, and `auto` programmatically detects the background gradient and only triggers AutoBGE when the gradient amplitude exceeds `bge.auto_detect.gradient_threshold` — with an automatically derived extended-source exclusion mask so galaxy disks and large nebulae are excluded from the BGE fit. This is the sole on/off switch for BGE.
 
 > **Migration note:** `bge.enabled` (a legacy boolean mirror of this field) has been removed. It could silently disagree with `bge.method` -- e.g. `enabled: false` next to a stale `method: classic` still ran BGE, because `method` was always authoritative whenever present. A config that still sets `bge.enabled` now fails to load with a validation error naming `bge.method`. Replace `enabled: true` with `method: classic` (or `autobge`), and `enabled: false` with `method: none`.
+
+### `bge.auto_detect.gradient_threshold`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `0` |
+| **Default** | `0.05` |
+
+**Purpose:** Minimum relative gradient amplitude to trigger AutoBGE when `bge.method: auto`. Amplitude = `(max − min of linear sky-plane fit) / sky_median` over the G channel. Values below this skip BGE. Range 0.01–0.50; recommended 0.05.
+
+### `bge.auto_detect.extended_source_sigma`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `0` |
+| **Default** | `3.0` |
+
+**Purpose:** Detection threshold for extended sources in the block-median grid. Blocks exceeding `sky_median + N × sky_sigma` are excluded from the AutoBGE sample set, so the poly/RBF fit uses only real sky pixels. Range 1.0–6.0; recommended 3.0.
+
+### `bge.auto_detect.extended_source_dilate_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `0` |
+| **Default** | `50` |
+
+**Purpose:** Morphological dilation (pixels) applied to the detected extended-source exclusion mask. Provides a safety margin around galaxy halos and nebula edges. Range 0–200; recommended 50.
 
 ### `bge.autobge.num_sample_points`
 
@@ -2031,7 +2061,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 
 - `chroma_denoise.enabled`: enables chroma-focused denoise (OSC path).
 - `chroma_denoise.color_space`: chroma/luma transform (`ycbcr_linear` or `opponent_linear`).
-- `chroma_denoise.apply_stage`: execute before tile OLA or after final linear stack.
+- `chroma_denoise.apply_stage`: execute before tile OLA, after final linear stack, after PCC, or at both stack stages (`both`).
 - `chroma_denoise.protect_luma`: protects luminance structures from chroma denoise side effects.
 - `chroma_denoise.luma_guard_strength`: strength of luma protection mask.
 - `chroma_denoise.star_protection.enabled`: star-mask protection for color cores/halos.
@@ -2048,6 +2078,9 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `chroma_denoise.chroma_bilateral.sigma_range`: color-distance bilateral selectivity.
 - `chroma_denoise.blend.mode`: currently chroma-only blending mode.
 - `chroma_denoise.blend.amount`: blend fraction between original and denoised chroma.
+- `chroma_denoise.extended_source_protection.enabled`: protect extended smooth sources (galaxy disks, large nebulae) from chroma denoising. Enable whenever the field contains a galaxy or large nebula to prevent the wavelet threshold from erasing real object color.
+- `chroma_denoise.extended_source_protection.luma_sigma`: detection threshold above sky background in sigma units (range 1.0–5.0). Lower values protect more area.
+- `chroma_denoise.extended_source_protection.dilate_px`: dilation radius (pixels) after detection, to cover PSF halos.
 
 ### A.5 Global metrics / Reconstruction
 

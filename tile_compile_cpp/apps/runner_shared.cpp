@@ -1100,6 +1100,9 @@ image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   // (background_extraction.cpp), so derive it here.
   dst.enabled = (src.method != "none");
   dst.method = src.method;
+  dst.auto_detect.gradient_threshold      = src.auto_detect.gradient_threshold;
+  dst.auto_detect.extended_source_sigma   = src.auto_detect.extended_source_sigma;
+  dst.auto_detect.extended_source_dilate_px = src.auto_detect.extended_source_dilate_px;
   dst.autobge.num_sample_points = src.autobge.num_sample_points;
   dst.autobge.poly_degree = src.autobge.poly_degree;
   dst.autobge.rbf_smooth = src.autobge.rbf_smooth;

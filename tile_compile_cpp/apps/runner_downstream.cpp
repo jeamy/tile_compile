@@ -981,7 +981,8 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     }
     if (rgb.G.rows() > 0 && rgb.B.rows() > 0 &&
         cfg.chroma_denoise.enabled &&
-        cfg.chroma_denoise.apply_stage == "post_stack_linear") {
+        (cfg.chroma_denoise.apply_stage == "post_stack_linear" ||
+         cfg.chroma_denoise.apply_stage == "both")) {
       reconstruction::chroma_denoise_rgb_inplace(rgb.R, rgb.G, rgb.B,
                                                  cfg.chroma_denoise);
       std::cout << "[CHROMA_DENOISE] applied post_stack_linear (chroma-only)"
@@ -1239,9 +1240,12 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     }
     if (rgb.G.rows() > 0 && rgb.B.rows() > 0 &&
         cfg.chroma_denoise.enabled &&
-        cfg.chroma_denoise.apply_stage == "post_pcc") {
+        (cfg.chroma_denoise.apply_stage == "post_pcc" ||
+         cfg.chroma_denoise.apply_stage == "both")) {
       reconstruction::chroma_denoise_rgb_inplace(
           rgb.R, rgb.G, rgb.B, cfg.chroma_denoise);
+      std::cout << "[CHROMA_DENOISE] applied post_pcc (chroma-only)"
+                << std::endl;
     }
 
     const fs::path pcc_r_path = run_dir / "outputs" / "pcc_R.fit";

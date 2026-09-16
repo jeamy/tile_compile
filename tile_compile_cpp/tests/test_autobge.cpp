@@ -571,6 +571,75 @@ TEST_CASE("autobge_finalize_chroma_guard_allows_pedestal_equalization") {
   REQUIRE(b_med == Catch::Approx(r_med).margin(0.5f));
 }
 
+// ---- method: auto tests ------------------------------------------------
+
+// Flat field: gradient < threshold → BGE must be skipped.
+TEST_CASE("bge_auto_flat_field_skips_bge") {
+  constexpr int W = 512, H = 512;
+  ti::BGEConfig cfg{};
+  cfg.enabled = true;
+  cfg.method = "auto";
+  cfg.auto_detect.gradient_threshold      = 0.05f;
+  cfg.auto_detect.extended_source_sigma   = 3.0f;
+  cfg.auto_detect.extended_source_dilate_px = 4;
+  cfg.common_valid_mask.assign(static_cast<size_t>(W * H), 1u);
+  cfg.common_mask_rows = H; cfg.common_mask_cols = W;
+
+  // Flat background ≈ 10 + tiny noise — no real gradient.
+  std::mt19937 rng(99);
+  std::normal_distribution<float> noise(0.0f, 0.1f);
+  auto flat = [&]() {
+    tile_compile::Matrix2Df m(H, W);
+    for (int r = 0; r < H; ++r)
+      for (int c = 0; c < W; ++c)
+        m(r, c) = 10.0f + noise(rng);
+    return m;
+  };
+  auto R = flat(), G = flat(), B = flat();
+
+  ti::BGEDiagnostics diag;
+  bool applied = ti::apply_background_extraction(R, G, B, {}, {}, cfg, &diag);
+  REQUIRE_FALSE(applied);
+  REQUIRE(diag.failure_reason == "auto_detect_no_gradient");
+}
+
+// Strong gradient field: gradient ≥ threshold → BGE must be attempted.
+TEST_CASE("bge_auto_gradient_field_triggers_bge") {
+  constexpr int W = 512, H = 512;
+  ti::BGEConfig cfg{};
+  cfg.enabled = true;
+  cfg.method = "auto";
+  cfg.auto_detect.gradient_threshold      = 0.05f;
+  cfg.auto_detect.extended_source_sigma   = 3.0f;
+  cfg.auto_detect.extended_source_dilate_px = 4;
+  cfg.autobge.num_sample_points = 0;
+  cfg.autobge.poly_degree = 2;
+  cfg.autobge.rbf_smooth  = 0.5f;
+  cfg.autobge.downsample_scale = 2;
+  cfg.autobge.patch_size   = 5;
+  cfg.autobge.patch_estimator = "median";
+  cfg.autobge.stretch_mode = "none";
+  cfg.autobge.border_margin = 2;
+  cfg.autobge.bright_exclusion_fraction = 0.2f;
+  cfg.autobge.gradient_descent_max_iters = 5;
+  cfg.autobge.mono_mode = "rgb_duplicate";
+  cfg.common_valid_mask.assign(static_cast<size_t>(W * H), 1u);
+  cfg.common_mask_rows = H; cfg.common_mask_cols = W;
+
+  // Sky median ≈ 10, gradient +3 across the image → ~30% relative gradient.
+  auto R = make_gradient_image(W, H, 10.0f, 3.0f / W, 0.0f);
+  auto G = make_gradient_image(W, H, 10.0f, 3.0f / W, 0.0f);
+  auto B = make_gradient_image(W, H, 10.0f, 3.0f / W, 0.0f);
+
+  ti::BGEDiagnostics diag;
+  // We only check that auto-detect didn't skip — the actual autobge result
+  // may succeed or fail depending on data quality, but must not be "no_gradient".
+  ti::apply_background_extraction(R, G, B, {}, {}, cfg, &diag);
+  REQUIRE(diag.failure_reason != "auto_detect_no_gradient");
+}
+
+// ---- chroma_denoise extended_source_protection tests -------------------
+
 // Without a channel-level improvement the slope veto still wins.
 TEST_CASE("autobge_finalize_slope_guard_still_rejects_without_level_gain") {
   constexpr int W = 400, H = 400;

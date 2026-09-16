@@ -432,9 +432,11 @@
           "type": "string",
           "enum": [
             "pre_stack_tiles",
-            "post_stack_linear"
+            "post_stack_linear",
+            "post_pcc",
+            "both"
           ],
-          "description": "Pipeline stage for chroma denoise. pre_stack_tiles = per-tile before reconstruction (preserves per-frame noise characteristics). post_stack_linear = on final stacked linear image (more effective for residual color noise). Default: post_stack_linear.",
+          "description": "Pipeline stage for chroma denoise. pre_stack_tiles = per-tile before reconstruction (preserves per-frame noise characteristics). post_stack_linear = on final stacked linear image (more effective for residual color noise). post_pcc = after photometric color calibration (catches noise re-amplified by PCC gains). both = post_stack_linear and post_pcc. Default: post_stack_linear.",
           "default": "post_stack_linear"
         },
         "protect_luma": {
@@ -555,6 +557,29 @@
               "maximum": 1,
               "description": "Blend amount between original and denoised chroma. 0 = no denoise, 1 = full denoise. Range 0–1. Recommended: 0.95.",
               "default": 0.85
+            }
+          }
+        },
+        "extended_source_protection": {
+          "type": "object",
+          "description": "Protects extended smooth-emission regions (galaxy disks, large nebulae, diffuse halos) from chroma denoising. Derived from a heavily-blurred luma image: any pixel whose smoothed luma exceeds sky_median + luma_sigma × sky_sigma is treated as extended foreground and is blended back to its original chroma.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable extended-source protection. Set true whenever the field contains a galaxy disk or large nebula to prevent chroma denoising from erasing the object's real color. Default: false.",
+              "default": false
+            },
+            "luma_sigma": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Detection threshold above sky background in units of sky sigma. Pixels whose smoothed luma exceeds sky_median + luma_sigma × sky_sigma are protected. Range 1.0–5.0. Lower values protect more; higher values protect only the brightest cores. Recommended: 2.5.",
+              "default": 2.5
+            },
+            "dilate_px": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Dilation radius (pixels) applied after detection to cover halos and PSF wings around the detected extended source. Range 0–100. Recommended: 30.",
+              "default": 30
             }
           }
         }
@@ -1348,10 +1373,35 @@
           "enum": [
             "none",
             "classic",
-            "autobge"
+            "autobge",
+            "auto"
           ],
           "default": "none",
-          "description": "BGE engine selector. none disables BGE; classic uses the existing grid/tile BGE; autobge uses the two-stage poly+RBF AutoBGE engine. This field is authoritative when present."
+          "description": "BGE engine selector. none disables BGE; classic uses the existing grid/tile BGE; autobge uses the two-stage poly+RBF AutoBGE engine; auto measures the background gradient first and only runs AutoBGE when the gradient exceeds auto_detect.gradient_threshold, with an automatically derived extended-source exclusion mask. This field is authoritative when present."
+        },
+        "auto_detect": {
+          "type": "object",
+          "description": "Parameters for method: auto. Controls gradient-strength threshold and extended-source detection used to decide whether to run AutoBGE and which regions to exclude from fitting.",
+          "properties": {
+            "gradient_threshold": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0.05,
+              "description": "Minimum gradient amplitude (relative to sky median) required to trigger AutoBGE. Gradient amplitude = (max − min of linear-plane fit across the image) / median_sky. Values below this threshold skip BGE entirely."
+            },
+            "extended_source_sigma": {
+              "type": "number",
+              "minimum": 0,
+              "default": 3.0,
+              "description": "Detection threshold for extended sources (galaxy disks, large nebulae) in the block-median grid. Blocks whose median exceeds sky_median + N×sky_sigma are excluded from the AutoBGE sample set so the background fit uses only real sky pixels."
+            },
+            "extended_source_dilate_px": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 50,
+              "description": "Morphological dilation (in pixels) applied to the detected extended-source exclusion mask. Larger values provide a safety margin around galaxy halos and nebula edges."
+            }
+          }
         },
         "autobge": {
           "type": "object",

@@ -126,6 +126,40 @@ cv::Mat build_protection_mask(const cv::Mat& y,
         cv::max(mask, structures, mask);
     }
 
+    if (cfg.extended_source_protection.enabled) {
+        // Heavily blur Y to suppress point sources; only extended smooth emission
+        // survives at this scale (sigma ≈ 2 % of image short axis).
+        const float blur_sigma = std::max(5.0f, static_cast<float>(
+            std::min(y.rows, y.cols)) * 0.02f);
+        cv::Mat y_smooth;
+        cv::GaussianBlur(y, y_smooth, cv::Size(0, 0), blur_sigma, blur_sigma,
+                         cv::BORDER_REFLECT_101);
+
+        // Estimate sky stats from the lowest-brightness half of the smoothed luma.
+        const float p50 = percentile_from_mat(y_smooth, 50.0f);
+        std::vector<float> sky_vals;
+        sky_vals.reserve(static_cast<size_t>(y_smooth.total()));
+        for (int row = 0; row < y_smooth.rows; ++row) {
+            const float* ptr = y_smooth.ptr<float>(row);
+            for (int col = 0; col < y_smooth.cols; ++col)
+                if (ptr[col] <= p50) sky_vals.push_back(ptr[col]);
+        }
+        const float sky_sigma = tile_compile::core::robust_sigma_mad(sky_vals);
+        const float sky_med   = sky_vals.empty() ? p50 :
+            tile_compile::core::percentile_of(sky_vals, 50.0f);
+        const float thr = sky_med + cfg.extended_source_protection.luma_sigma * sky_sigma;
+
+        cv::Mat ext_src;
+        cv::threshold(y_smooth, ext_src, static_cast<double>(thr), 1.0, cv::THRESH_BINARY);
+        ext_src.convertTo(ext_src, CV_32F);
+        if (cfg.extended_source_protection.dilate_px > 0) {
+            const int k = std::max(1, cfg.extended_source_protection.dilate_px * 2 + 1);
+            cv::Mat ker = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(k, k));
+            cv::dilate(ext_src, ext_src, ker);
+        }
+        cv::max(mask, ext_src, mask);
+    }
+
     cv::GaussianBlur(mask, mask, cv::Size(0, 0), 1.0, 1.0, cv::BORDER_REFLECT_101);
     cv::min(mask, 1.0, mask);
     cv::max(mask, 0.0, mask);

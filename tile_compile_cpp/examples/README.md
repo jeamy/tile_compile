@@ -9,10 +9,12 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   Canonical full OSC reference configuration, kept in sync with the production
   `tile_compile.yaml` tuning: `drizzle.pixfrac: 0.6`,
   `registration.prewarp_interpolation: cubic`,
-  `chroma_denoise` active at `post_stack_linear` with
-  `star_protection.threshold_sigma: 2` / `dilate_px: 8`
-  (the dilate radius must cover the full PSF including wings; a too-small
-  radius lets the chroma wavelet erode star wings into green halos),
+  `chroma_denoise` active at `apply_stage: both` (pre-BGE and post-PCC) with
+  `star_protection.threshold_sigma: 4` / `dilate_px: 8`
+  (the dilate radius must cover the full PSF including wings — a too-small
+  radius lets the chroma wavelet erode star wings into green halos — while
+  the sigma threshold must stay sparse: at `threshold_sigma: 2` the dilated
+  mask covers ~94% of a dense field and the denoiser degenerates to a no-op),
   `runtime_limits.memory_budget: 16384`.
   Use this file to diff your own configuration against current production
   values.

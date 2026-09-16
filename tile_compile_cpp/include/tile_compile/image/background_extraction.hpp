@@ -17,7 +17,13 @@ struct SamplePoint {
 // BGE Configuration (matches YAML structure from v3.3 §6.3)
 struct BGEConfig {
     bool enabled = false;
-    std::string method = "none"; // none | classic | autobge
+    std::string method = "none"; // none | classic | autobge | auto
+    // Parameters for method == "auto" (gradient detection + extended-source exclusion).
+    struct AutoDetectConfig {
+        float gradient_threshold = 0.05f;
+        float extended_source_sigma = 3.0f;
+        int   extended_source_dilate_px = 50;
+    } auto_detect;
     struct AutoBGEConfig {
         int num_sample_points = 0;
         int poly_degree = 2;

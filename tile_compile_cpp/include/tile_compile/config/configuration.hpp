@@ -135,6 +135,18 @@ struct ChromaDenoiseConfig {
     float gradient_percentile = 85.0f;
   } structure_protection;
 
+  // Protects extended smooth-emission regions (galaxy disks, nebula halos) from
+  // chroma denoising.  The protection mask is derived from a heavily-smoothed
+  // luma image: any pixel whose smoothed luma exceeds
+  //   sky_median + luma_sigma × sky_sigma
+  // is treated as extended-source foreground and is blended back to the
+  // original chroma (same mechanism as star_protection / luma_guard).
+  struct ExtendedSourceProtectionConfig {
+    bool enabled = false;
+    float luma_sigma = 2.5f; // detection threshold above sky background (in σ)
+    int   dilate_px  = 30;   // dilation applied after detection; covers PSF halos
+  } extended_source_protection;
+
   struct ChromaWaveletConfig {
     bool enabled = true;
     int levels = 3;
@@ -325,7 +337,25 @@ struct BGEConfig {
   // removed because it could disagree with `method` (whichever was set
   // last silently won depending on write order) -- see
   // docs/configuration_reference.md "bge.method" for the migration note.
-  std::string method = "none"; // none | classic | autobge
+  std::string method = "none"; // none | classic | autobge | auto
+
+  // Programmatic BGE selection used when method == "auto".
+  // The runner measures the background gradient strength of the stacked image
+  // before deciding whether AutoBGE is needed.
+  struct AutoDetectConfig {
+    // Minimum gradient amplitude relative to sky median to trigger AutoBGE.
+    // Gradient amplitude = (max − min of linear-plane fit) / median_sky.
+    // Values below this threshold skip BGE entirely.
+    float gradient_threshold = 0.05f;
+    // When an extended source (galaxy, large nebula) is detected in the
+    // background grid it is excluded from the AutoBGE sample points so the
+    // polynomial/RBF fit uses only real sky pixels.
+    // Detection: block-median grid residual > extended_source_sigma × sky_sigma.
+    float extended_source_sigma = 3.0f;
+    // Morphological dilation (px) applied to the detected extended-source mask
+    // before it is used as a sampling exclusion region.
+    int extended_source_dilate_px = 50;
+  } auto_detect;
 
   struct AutoBGEConfig {
     int num_sample_points = 0;

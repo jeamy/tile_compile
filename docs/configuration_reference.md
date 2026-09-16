@@ -791,13 +791,13 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 
 Optionale, **chroma-selektive** Denoise-Erweiterung für OSC-Daten. Idee: Luminanz/Struktur möglichst erhalten, Farbrauschen primär in Cb/Cr (oder äquivalenten Opponent-Kanälen) reduzieren.
 
-> Hinweis: Wirkt nur im OSC-Pfad. `apply_stage` steuert, ob vor dem Tile-Overlap-Add (`pre_stack_tiles`) oder auf dem finalen linearen RGB-Stack (`post_stack_linear`) gefiltert wird.
+> Hinweis: Wirkt nur im OSC-Pfad. `apply_stage` steuert, ob vor dem Tile-Overlap-Add (`pre_stack_tiles`), auf dem finalen linearen RGB-Stack (`post_stack_linear`), nach der photometrischen Farbkalibrierung (`post_pcc`) oder an beiden Stack-Stellen (`both`) gefiltert wird. `post_pcc` faengt Chroma-Rauschen ab, das durch die PCC-Matrix-Verstaerkung neu entsteht.
 
 ```yaml
 chroma_denoise:
   enabled: true
   color_space: ycbcr_linear        # ycbcr_linear | opponent_linear
-  apply_stage: post_stack_linear   # pre_stack_tiles | post_stack_linear
+  apply_stage: post_stack_linear   # pre_stack_tiles | post_stack_linear | post_pcc | both
   protect_luma: true
   luma_guard_strength: 0.75        # 0..1
   star_protection:
@@ -1211,12 +1211,42 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | string |
-| **Werte** | `none`, `classic`, `autobge` |
+| **Werte** | `none`, `classic`, `autobge`, `auto` |
 | **Default** | `none` |
 
-**Zweck:** Wählt die BGE-Engine. `none` deaktiviert BGE vollständig, `classic` nutzt die bestehende grid-/tile-basierte BGE-Implementierung, `autobge` wählt die zweistufige Poly+RBF-AutoBGE-Implementierung. Dies ist der einzige Ein-/Ausschalter für BGE.
+**Zweck:** Wählt die BGE-Engine. `none` deaktiviert BGE vollständig, `classic` nutzt die bestehende grid-/tile-basierte BGE-Implementierung, `autobge` wählt die zweistufige Poly+RBF-AutoBGE-Implementierung, `auto` misst den Hintergrundgradienten programmatisch und startet AutoBGE nur dann, wenn die Gradienten-Amplitude den Schwellwert `bge.auto_detect.gradient_threshold` überschreitet — mit automatisch abgeleitetem Exclusion-Mask für Extended Sources (Galaxien, Nebel). Dies ist der einzige Ein-/Ausschalter für BGE.
 
 > **Migrationshinweis:** `bge.enabled` (ein legacy boolean-Spiegel dieses Felds) wurde entfernt. Es konnte im Widerspruch zu `bge.method` stehen — z. B. lief BGE bei `enabled: false` neben einem veralteten `method: classic` trotzdem, weil `method` immer maßgeblich war, sobald vorhanden. Eine Config, die weiterhin `bge.enabled` setzt, schlägt jetzt beim Laden mit einem Validierungsfehler fehl, der auf `bge.method` verweist. Ersetze `enabled: true` durch `method: classic` (oder `autobge`) und `enabled: false` durch `method: none`.
+
+### `bge.auto_detect.gradient_threshold`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | `0` |
+| **Default** | `0.05` |
+
+**Zweck:** Minimale relative Gradienten-Amplitude, die bei `bge.method: auto` AutoBGE auslöst. Die Amplitude ist `(max − min des linearen Ebenen-Fits) / sky_median` über dem G-Kanal. Werte darunter: BGE wird übersprungen. Empfohlen: `0.03–0.10`; kleiner = empfindlicher (mehr Felder bekommen BGE), größer = konservativer.
+
+### `bge.auto_detect.extended_source_sigma`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | `0` |
+| **Default** | `3.0` |
+
+**Zweck:** Detektionsschwelle für Extended Sources (Galaxien-Discs, große Nebel) im Block-Median-Gitter. Blöcke, deren Median `sky_median + N × sky_sigma` überschreitet, werden vom AutoBGE-Sample-Set ausgeschlossen, damit der Poly/RBF-Fit nur echte Himmelspixel verwendet. Empfohlen: `2.5–4.0`.
+
+### `bge.auto_detect.extended_source_dilate_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | `0` |
+| **Default** | `50` |
+
+**Zweck:** Morphologische Dilation (Pixel) des erkannten Extended-Source-Exclusion-Masks. Größere Werte geben mehr Sicherheitsmarge um Galaxien-Halos und Nebelränder. Empfohlen: `30–80`.
 
 ### `bge.autobge.num_sample_points`
 
@@ -2491,7 +2521,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 
 - `chroma_denoise.enabled`: aktiviert chroma-fokussierte Denoise (OSC-Pfad).
 - `chroma_denoise.color_space`: Chroma/Luma-Transform (`ycbcr_linear` oder `opponent_linear`).
-- `chroma_denoise.apply_stage`: Ausführung vor Tile-OLA oder nach finalem linearem Stack.
+- `chroma_denoise.apply_stage`: Ausführung vor Tile-OLA, nach finalem linearem Stack, nach PCC oder an beiden Stack-Stellen (`both`).
 - `chroma_denoise.protect_luma`: schützt Luminanzstrukturen vor Chroma-Nebenwirkungen.
 - `chroma_denoise.luma_guard_strength`: Stärke der Luma-Schutzmaske.
 - `chroma_denoise.star_protection.enabled`: Sternmasken-Schutz für Kerne/Halos.
@@ -2508,6 +2538,9 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `chroma_denoise.chroma_bilateral.sigma_range`: Farbdistanz-Selektivität bilateral.
 - `chroma_denoise.blend.mode`: aktuell chroma-only Blending-Modus.
 - `chroma_denoise.blend.amount`: Mischanteil Original vs. denoised Chroma.
+- `chroma_denoise.extended_source_protection.enabled`: Schutz für Extended Sources (Galaxien-Discs, große Nebel) vor Chroma-Denoising. Aktivieren, wenn das Feld eine Galaxie oder einen großen Nebel enthält, damit der Denoiser die echte Farbe der Quelle nicht als Rauschen behandelt.
+- `chroma_denoise.extended_source_protection.luma_sigma`: Detektionsschwelle über dem Himmelshintergrund in σ-Einheiten (0–5). Niedrigere Werte schützen mehr; höhere nur den hellsten Kern.
+- `chroma_denoise.extended_source_protection.dilate_px`: Dilations-Radius (Pixel) nach der Erkennung, um PSF-Halos abzudecken.
 
 ### A.5 Global Metrics / Reconstruction
 

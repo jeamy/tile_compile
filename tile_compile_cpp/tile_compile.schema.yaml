@@ -356,8 +356,10 @@ properties:
         enum:
         - pre_stack_tiles
         - post_stack_linear
+        - post_pcc
+        - both
         description: 'Pipeline stage for chroma denoise. pre_stack_tiles = per-tile before reconstruction (preserves per-frame noise characteristics). post_stack_linear = on final stacked linear image (more
-          effective for residual color noise). Default: post_stack_linear.'
+          effective for residual color noise). post_pcc = after photometric color calibration (catches noise re-amplified by PCC gains). both = post_stack_linear and post_pcc. Default: post_stack_linear.'
         default: post_stack_linear
       protect_luma:
         type: boolean
@@ -453,6 +455,24 @@ properties:
             maximum: 1
             description: 'Blend amount between original and denoised chroma. 0 = no denoise, 1 = full denoise. Range 0–1. Recommended: 0.95.'
             default: 0.85
+      extended_source_protection:
+        type: object
+        description: Protects extended smooth-emission regions (galaxy disks, large nebulae) from chroma denoising. Detection uses a heavily-blurred luma image; pixels above sky_median + luma_sigma * sky_sigma are protected.
+        properties:
+          enabled:
+            type: boolean
+            description: 'Enable extended-source protection. Set true when the field contains a galaxy disk or large nebula. Default: false.'
+            default: false
+          luma_sigma:
+            type: number
+            exclusiveMinimum: 0
+            description: 'Detection threshold in sky-sigma units. Range 1.0–5.0. Recommended: 2.5.'
+            default: 2.5
+          dilate_px:
+            type: integer
+            minimum: 0
+            description: 'Dilation radius (px) applied after detection to cover halos. Range 0–100. Recommended: 30.'
+            default: 30
   global_metrics:
     type: object
     properties:
@@ -970,8 +990,28 @@ properties:
         - none
         - classic
         - autobge
+        - auto
         default: none
-        description: BGE engine selector. none disables BGE; classic uses the existing grid/tile BGE; autobge uses the two-stage poly+RBF AutoBGE engine. This field is authoritative when present.
+        description: 'BGE engine selector. none disables BGE; classic uses the existing grid/tile BGE; autobge uses the two-stage poly+RBF AutoBGE engine; auto measures the background gradient first and only runs AutoBGE when the gradient exceeds auto_detect.gradient_threshold, with an automatically derived extended-source exclusion mask. This field is authoritative when present.'
+      auto_detect:
+        type: object
+        description: Parameters for method auto. Controls gradient-strength threshold and extended-source detection.
+        properties:
+          gradient_threshold:
+            type: number
+            minimum: 0
+            default: 0.05
+            description: 'Minimum gradient amplitude (relative to sky median) to trigger AutoBGE. Range 0.01–0.5. Recommended: 0.05.'
+          extended_source_sigma:
+            type: number
+            minimum: 0
+            default: 3.0
+            description: 'Sigma threshold for extended-source detection in the block-median grid. Range 1.0–6.0. Recommended: 3.0.'
+          extended_source_dilate_px:
+            type: integer
+            minimum: 0
+            default: 50
+            description: 'Dilation (px) applied to the extended-source exclusion mask. Range 0–200. Recommended: 50.'
       autobge:
         type: object
         properties:
