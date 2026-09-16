@@ -221,12 +221,22 @@ prep::Config parse_preprocessing_config(const json& j) {
     if (b.contains("enabled")) {
       throw tile_compile::ValidationError(
           "bge.enabled is no longer supported; use bge.method: "
-          "none|classic|autobge instead (method is the sole on/off "
+          "none|classic|autobge|auto instead (method is the sole on/off "
           "switch -- \"none\" disables BGE).");
     }
     if (b.contains("method") && b["method"].is_string()) {
       cfg.bge.method = b["method"].get<std::string>();
     }
+    const json auto_detect = json_object(b, "auto_detect");
+    cfg.bge.auto_detect.gradient_threshold =
+        json_float(auto_detect, "gradient_threshold",
+                   cfg.bge.auto_detect.gradient_threshold);
+    cfg.bge.auto_detect.extended_source_sigma =
+        json_float(auto_detect, "extended_source_sigma",
+                   cfg.bge.auto_detect.extended_source_sigma);
+    cfg.bge.auto_detect.extended_source_dilate_px =
+        json_int(auto_detect, "extended_source_dilate_px",
+                 cfg.bge.auto_detect.extended_source_dilate_px);
     const json autobge = json_object(b, "autobge");
     cfg.bge.autobge.num_sample_points =
         json_int(autobge, "num_sample_points", cfg.bge.autobge.num_sample_points);

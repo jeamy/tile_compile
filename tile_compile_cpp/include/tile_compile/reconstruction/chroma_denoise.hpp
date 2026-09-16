@@ -23,6 +23,12 @@ struct ChromaDenoiseStats {
   double extended_source_sky_median = 0.0;
   double extended_source_sky_sigma = 0.0;
   double extended_source_threshold = 0.0;
+  // Large-scale (block-median-surface) chroma bias removal, see
+  // config::ChromaDenoiseConfig::LargeScaleBiasConfig.
+  double input_luma_sigma = 0.0;
+  double large_scale_bias_removed_rms_c1 = 0.0;
+  double large_scale_bias_removed_rms_c2 = 0.0;
+  double large_scale_bias_grid_holes_filled_fraction = 0.0;
 };
 
 // Applies the configured chroma denoise to the RGB planes in place. Shared by

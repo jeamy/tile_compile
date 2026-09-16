@@ -417,6 +417,9 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.chroma_denoise.protect_luma = cd["protect_luma"].as<bool>();
     if (yaml_has_value(cd["luma_guard_strength"]))
       cfg.chroma_denoise.luma_guard_strength = cd["luma_guard_strength"].as<float>();
+    if (yaml_has_value(cd["adaptation_reference_ratio"]))
+      cfg.chroma_denoise.adaptation_reference_ratio =
+          cd["adaptation_reference_ratio"].as<float>();
 
     if (yaml_has_value(cd["star_protection"])) {
       auto sp = cd["star_protection"];
@@ -481,6 +484,21 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (yaml_has_value(es["dilate_px"]))
         cfg.chroma_denoise.extended_source_protection.dilate_px =
             es["dilate_px"].as<int>();
+    }
+
+    if (yaml_has_value(cd["large_scale_bias"])) {
+      auto lb = cd["large_scale_bias"];
+      if (yaml_has_value(lb["enabled"]))
+        cfg.chroma_denoise.large_scale_bias.enabled = lb["enabled"].as<bool>();
+      if (yaml_has_value(lb["block_size"]))
+        cfg.chroma_denoise.large_scale_bias.block_size =
+            lb["block_size"].as<int>();
+      if (yaml_has_value(lb["blur_sigma"]))
+        cfg.chroma_denoise.large_scale_bias.blur_sigma =
+            lb["blur_sigma"].as<float>();
+      if (yaml_has_value(lb["strength"]))
+        cfg.chroma_denoise.large_scale_bias.strength =
+            lb["strength"].as<float>();
     }
   }
 
@@ -691,7 +709,7 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (yaml_has_value(b["enabled"])) {
       throw ValidationError(
           "bge.enabled is no longer supported; use bge.method: "
-          "none|classic|autobge instead (method is the sole on/off "
+          "none|classic|autobge|auto instead (method is the sole on/off "
           "switch -- \"none\" disables BGE).");
     }
     if (b["method"])
@@ -1098,6 +1116,8 @@ YAML::Node Config::to_yaml() const {
   node["chroma_denoise"]["apply_stage"] = chroma_denoise.apply_stage;
   node["chroma_denoise"]["protect_luma"] = chroma_denoise.protect_luma;
   node["chroma_denoise"]["luma_guard_strength"] = chroma_denoise.luma_guard_strength;
+  node["chroma_denoise"]["adaptation_reference_ratio"] =
+      chroma_denoise.adaptation_reference_ratio;
   node["chroma_denoise"]["star_protection"]["enabled"] =
       chroma_denoise.star_protection.enabled;
   node["chroma_denoise"]["star_protection"]["threshold_sigma"] =
@@ -1130,6 +1150,14 @@ YAML::Node Config::to_yaml() const {
       chroma_denoise.extended_source_protection.luma_sigma;
   node["chroma_denoise"]["extended_source_protection"]["dilate_px"] =
       chroma_denoise.extended_source_protection.dilate_px;
+  node["chroma_denoise"]["large_scale_bias"]["enabled"] =
+      chroma_denoise.large_scale_bias.enabled;
+  node["chroma_denoise"]["large_scale_bias"]["block_size"] =
+      chroma_denoise.large_scale_bias.block_size;
+  node["chroma_denoise"]["large_scale_bias"]["blur_sigma"] =
+      chroma_denoise.large_scale_bias.blur_sigma;
+  node["chroma_denoise"]["large_scale_bias"]["strength"] =
+      chroma_denoise.large_scale_bias.strength;
 
   node["global_metrics"]["adaptive_weights"] = global_metrics.adaptive_weights;
   node["global_metrics"]["weight_exponent_scale"] = global_metrics.weight_exponent_scale;
@@ -1693,6 +1721,22 @@ void Config::validate() const {
     throw ValidationError(
         "chroma_denoise.extended_source_protection.dilate_px must be in [0,100]");
   }
+  if (chroma_denoise.adaptation_reference_ratio <= 0.0f) {
+    throw ValidationError(
+        "chroma_denoise.adaptation_reference_ratio must be > 0");
+  }
+  if (chroma_denoise.large_scale_bias.block_size < 4) {
+    throw ValidationError(
+        "chroma_denoise.large_scale_bias.block_size must be >= 4");
+  }
+  if (chroma_denoise.large_scale_bias.blur_sigma < 0.0f) {
+    throw ValidationError(
+        "chroma_denoise.large_scale_bias.blur_sigma must be >= 0");
+  }
+  if (!is_between_0_1(chroma_denoise.large_scale_bias.strength)) {
+    throw ValidationError(
+        "chroma_denoise.large_scale_bias.strength must be in [0,1]");
+  }
 
   auto check_weight_sum = [](std::initializer_list<float> weights,
                              const char *name) {
@@ -2110,7 +2154,11 @@ std::string get_schema_json() {
                         "sigma_range":{"type":"number","exclusiveMinimum":0}}},
                       "blend":{"type":"object","properties":{
                         "mode":{"type":"string","enum":["chroma_only"]},
-                        "amount":{"type":"number","minimum":0,"maximum":1}}} } },
+                        "amount":{"type":"number","minimum":0,"maximum":1}}},
+                      "extended_source_protection":{"type":"object","properties":{
+                        "enabled":{"type":"boolean"},
+                        "luma_sigma":{"type":"number","minimum":1.0,"maximum":5.0},
+                        "dilate_px":{"type":"integer","minimum":0,"maximum":100}}} } },
     "global_metrics": { "type":"object",
       "properties": { "adaptive_weights":{"type":"boolean"},
                       "weight_exponent_scale":{"type":"number","exclusiveMinimum":0,"description":"Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames."},

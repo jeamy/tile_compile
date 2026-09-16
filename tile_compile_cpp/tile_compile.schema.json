@@ -451,6 +451,12 @@
           "description": "Strength of luma protection guard. 0 = no protection, 1 = full protection. Higher values prevent any luma modification. Range 0–1. Recommended: 0.75.",
           "default": 0.75
         },
+        "adaptation_reference_ratio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Reference chroma-to-luma noise-sigma ratio used to scale wavelet/bilateral strength to the dataset's actual noise level. Expressed relative to the image's own measured luma-noise sigma, so it stays meaningful across normalized, ADU, and stretched data (unlike a fixed absolute reference). Recommended: 1.0.",
+          "default": 1.0
+        },
         "star_protection": {
           "type": "object",
           "properties": {
@@ -582,6 +588,36 @@
               "maximum": 100,
               "description": "Dilation radius (pixels) applied after detection to cover halos and PSF wings around the detected extended source. Range 0–100. Recommended: 30.",
               "default": 30
+            }
+          }
+        },
+        "large_scale_bias": {
+          "type": "object",
+          "description": "Removes smooth, large-scale (larger than the wavelet's coarsest scale) chroma bias/variation from the background. The wavelet/bilateral stages above only shrink detail relative to a progressively-blurred low-pass version and never touch that low-pass remainder, so a background color cast wider than roughly the wavelet's coarsest scale passes through untouched regardless of blend/protection settings. This stage estimates a coarse block-median surface from unprotected (background-only) pixels, smooths it, and subtracts a fraction of its deviation from its own global background median (the overall background chroma level is preserved; only spatial variation across it is flattened).",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable large-scale chroma bias removal. Set true when residual color blotches remain in the background after the wavelet/bilateral stages. Default: false.",
+              "default": false
+            },
+            "block_size": {
+              "type": "integer",
+              "minimum": 4,
+              "description": "Grid cell size (px) for the block-median bias estimate. Smaller values track finer spatial variation but are noisier. Range 8–128. Recommended: 32.",
+              "default": 32
+            },
+            "blur_sigma": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Gaussian smoothing sigma (px) applied to the block grid to build a continuous bias surface. Range 0–64. Recommended: 24.",
+              "default": 24.0
+            },
+            "strength": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Fraction of the estimated large-scale bias removed. 0 = no removal, 1 = full removal. Range 0–1. Recommended: 1.0.",
+              "default": 1.0
             }
           }
         }

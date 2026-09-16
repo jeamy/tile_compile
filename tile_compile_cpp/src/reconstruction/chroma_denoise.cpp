@@ -189,6 +189,117 @@ cv::Mat build_protection_mask(const cv::Mat& y,
     return mask;
 }
 
+/// @brief Removes a smooth, large-scale bias/variation from one chroma plane.
+/// @details The wavelet/bilateral stages below only ever shrink *detail*
+/// relative to a progressively-blurred low-pass version and by construction
+/// never touch that low-pass remainder (see denoise_chroma_plane_inplace), so
+/// a background color cast wider than the wavelet's coarsest scale passes
+/// through them untouched. This estimates a coarse block-median surface
+/// using ONLY unprotected (background) pixels -- so real extended-source /
+/// star color never contributes to the estimate -- fills any block that has
+/// no unprotected pixel at all via a normalized-convolution ("push-pull")
+/// fill so the surface has no holes, smooths the grid into a continuous
+/// field, and subtracts `strength` of its deviation from the surface's own
+/// global background median (so the overall background chroma level, e.g.
+/// real sky-glow color, is preserved -- only spatial variation across it is
+/// flattened).
+double flatten_large_scale_chroma_bias(
+        cv::Mat& c, const cv::Mat& protect_mask,
+        const config::ChromaDenoiseConfig::LargeScaleBiasConfig& cfg,
+        double* holes_filled_fraction) {
+    if (holes_filled_fraction) *holes_filled_fraction = 0.0;
+    if (!cfg.enabled || c.empty()) return 0.0;
+
+    const int bs = std::max(4, cfg.block_size);
+    const int gy = std::max(1, (c.rows + bs - 1) / bs);
+    const int gx = std::max(1, (c.cols + bs - 1) / bs);
+    cv::Mat grid(gy, gx, CV_32F, cv::Scalar(0.0f));
+    cv::Mat grid_valid(gy, gx, CV_32F, cv::Scalar(0.0f));
+
+    std::vector<float> block_vals;
+    for (int by = 0; by < gy; ++by) {
+        const int r0 = by * bs, r1 = std::min(c.rows, r0 + bs);
+        for (int bx = 0; bx < gx; ++bx) {
+            const int c0 = bx * bs, c1 = std::min(c.cols, c0 + bs);
+            block_vals.clear();
+            for (int r = r0; r < r1; ++r) {
+                const float* crow = c.ptr<float>(r);
+                const float* mrow =
+                    protect_mask.empty() ? nullptr : protect_mask.ptr<float>(r);
+                for (int cc = c0; cc < c1; ++cc) {
+                    if (mrow && mrow[cc] > 0.5f) continue;  // background-only
+                    block_vals.push_back(crow[cc]);
+                }
+            }
+            if (block_vals.empty()) continue;
+            std::nth_element(block_vals.begin(),
+                             block_vals.begin() + block_vals.size() / 2,
+                             block_vals.end());
+            grid.at<float>(by, bx) = block_vals[block_vals.size() / 2];
+            grid_valid.at<float>(by, bx) = 1.0f;
+        }
+    }
+
+    const int n_cells = gy * gx;
+    int n_valid = cv::countNonZero(grid_valid);
+    if (n_valid == 0) return 0.0;  // fully protected image: nothing to estimate from
+    if (holes_filled_fraction)
+        *holes_filled_fraction =
+            static_cast<double>(n_cells - n_valid) / static_cast<double>(n_cells);
+
+    // Push-pull fill: propagate valid block values into holes via a growing
+    // normalized-convolution box filter, so every cell ends up covered.
+    if (n_valid < n_cells) {
+        cv::Mat value = grid.mul(grid_valid);
+        cv::Mat weight = grid_valid.clone();
+        int ksize = 3;
+        const int kmax = 2 * std::max(gy, gx) + 1;
+        while (cv::countNonZero(weight) < n_cells && ksize <= kmax) {
+            cv::Mat blurred_value, blurred_weight;
+            cv::boxFilter(value, blurred_value, -1, cv::Size(ksize, ksize),
+                          cv::Point(-1, -1), false, cv::BORDER_REPLICATE);
+            cv::boxFilter(weight, blurred_weight, -1, cv::Size(ksize, ksize),
+                          cv::Point(-1, -1), false, cv::BORDER_REPLICATE);
+            cv::Mat still_empty;
+            cv::compare(weight, 0.5f, still_empty, cv::CMP_LT);
+            cv::Mat reached;
+            cv::compare(blurred_weight, 1.0e-6f, reached, cv::CMP_GT);
+            cv::Mat newly;
+            cv::bitwise_and(still_empty, reached, newly);
+            cv::Mat filled_value;
+            cv::divide(blurred_value, blurred_weight, filled_value);
+            filled_value.copyTo(value, newly);
+            cv::Mat ones(weight.size(), CV_32F, cv::Scalar(1.0f));
+            ones.copyTo(weight, newly);
+            ksize += 2;
+        }
+        grid = value;
+    }
+
+    // Reference level: median of the ORIGINALLY-valid block medians only --
+    // the plane's overall background chroma level, preserved unchanged.
+    std::vector<float> gv;
+    gv.reserve(static_cast<size_t>(n_valid));
+    for (int by = 0; by < gy; ++by)
+        for (int bx = 0; bx < gx; ++bx)
+            if (grid_valid.at<float>(by, bx) > 0.5f)
+                gv.push_back(grid.at<float>(by, bx));
+    std::nth_element(gv.begin(), gv.begin() + gv.size() / 2, gv.end());
+    const float ref = gv[gv.size() / 2];
+
+    cv::Mat surface;
+    cv::resize(grid, surface, c.size(), 0, 0, cv::INTER_LINEAR);
+    if (cfg.blur_sigma > 0.0f)
+        cv::GaussianBlur(surface, surface, cv::Size(0, 0), cfg.blur_sigma,
+                         cfg.blur_sigma, cv::BORDER_REFLECT_101);
+
+    cv::Mat correction = (surface - ref) * cfg.strength;
+    cv::Scalar mean, stddev;
+    cv::meanStdDev(correction, mean, stddev);
+    c -= correction;
+    return stddev[0];
+}
+
 /// @brief Implements denoise chroma plane inplace.
 /// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -243,14 +354,20 @@ ChromaDenoiseStats chroma_denoise_rgb_inplace(
     cv::Mat Y, C1, C2;
     rgb_to_chroma_space(R, G, B, cfg.color_space, Y, C1, C2);
 
-    // Dataset-aware adaptation: scale denoise strength from measured chroma noise.
+    // Dataset-aware adaptation: scale denoise strength from measured chroma
+    // noise, expressed RELATIVE to the image's own luma-noise sigma (not a
+    // fixed absolute constant -- the old ref_sigma=0.02f was calibrated for
+    // [0,1]-normalized data and saturated the clamp on real, unnormalized
+    // ADU-scale data, where absolute chroma sigma is routinely in the tens).
     // This keeps fine detail on clean data and increases suppression on noisy data.
     config::ChromaDenoiseConfig tuned = cfg;
     const float sigma_c1 = robust_sigma_mad_from_mat(C1);
     const float sigma_c2 = robust_sigma_mad_from_mat(C2);
     const float chroma_sigma = 0.5f * (sigma_c1 + sigma_c2);
-    const float ref_sigma = 0.02f;
-    const float adapt = std::clamp(chroma_sigma / ref_sigma, 0.8f, 1.4f);
+    const float luma_sigma = std::max(1.0e-6f, robust_sigma_mad_from_mat(Y));
+    const float ref_ratio = std::max(1.0e-6f, cfg.adaptation_reference_ratio);
+    const float adapt =
+        std::clamp((chroma_sigma / luma_sigma) / ref_ratio, 0.8f, 1.4f);
     tuned.blend.amount = std::clamp(cfg.blend.amount * adapt, 0.0f, 1.0f);
     tuned.chroma_wavelet.threshold_scale =
         std::max(0.1f, cfg.chroma_wavelet.threshold_scale * adapt);
@@ -259,18 +376,36 @@ ChromaDenoiseStats chroma_denoise_rgb_inplace(
     stats.applied = true;
     stats.valid_pixels = static_cast<std::uint64_t>(r.size());
     stats.input_chroma_sigma = chroma_sigma;
+    stats.input_luma_sigma = luma_sigma;
     stats.adaptation = adapt;
     stats.effective_blend_amount = tuned.blend.amount;
 
+    // Protection mask, computed once up front: it depends only on
+    // star_protection/structure_protection/extended_source_protection/
+    // luma_guard_strength, none of which the adaptation above touches, and
+    // is reused both for the large-scale bias estimate below (background-
+    // only pixels) and for the final blend-back amount_map.
+    cv::Mat protect;
+    if (tuned.protect_luma) protect = build_protection_mask(Y, tuned, &stats);
+
     cv::Mat C1_orig = C1.clone();
     cv::Mat C2_orig = C2.clone();
+
+    if (tuned.large_scale_bias.enabled) {
+        double holes_c1 = 0.0, holes_c2 = 0.0;
+        stats.large_scale_bias_removed_rms_c1 = flatten_large_scale_chroma_bias(
+            C1, protect, tuned.large_scale_bias, &holes_c1);
+        stats.large_scale_bias_removed_rms_c2 = flatten_large_scale_chroma_bias(
+            C2, protect, tuned.large_scale_bias, &holes_c2);
+        stats.large_scale_bias_grid_holes_filled_fraction =
+            std::max(holes_c1, holes_c2);
+    }
 
     denoise_chroma_plane_inplace(C1, tuned);
     denoise_chroma_plane_inplace(C2, tuned);
 
     cv::Mat amount_map(Y.size(), CV_32F, cv::Scalar(tuned.blend.amount));
     if (tuned.protect_luma) {
-        cv::Mat protect = build_protection_mask(Y, tuned, &stats);
         amount_map = amount_map.mul(1.0f - tuned.luma_guard_strength * protect);
         cv::min(amount_map, tuned.blend.amount, amount_map);
         cv::max(amount_map, 0.0, amount_map);

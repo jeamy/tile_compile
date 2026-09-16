@@ -182,6 +182,13 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
          stats.extended_source_sky_median},
         {"extended_source_sky_sigma", stats.extended_source_sky_sigma},
         {"extended_source_threshold", stats.extended_source_threshold},
+        {"input_luma_sigma", stats.input_luma_sigma},
+        {"large_scale_bias_removed_rms_c1",
+         stats.large_scale_bias_removed_rms_c1},
+        {"large_scale_bias_removed_rms_c2",
+         stats.large_scale_bias_removed_rms_c2},
+        {"large_scale_bias_grid_holes_filled_fraction",
+         stats.large_scale_bias_grid_holes_filled_fraction},
     });
     core::write_text_atomic(
         run_dir / "artifacts" / "chroma_denoise.json",

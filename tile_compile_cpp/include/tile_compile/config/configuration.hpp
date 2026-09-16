@@ -165,11 +165,43 @@ struct ChromaDenoiseConfig {
     float amount = 0.85f;
   } blend;
 
+  // Removes smooth, large-scale (block-sized-and-up) chroma bias/variation
+  // from the background -- the wavelet/bilateral stages below only shrink
+  // *detail* relative to a progressively-blurred low-pass version and by
+  // construction never touch that low-pass (DC/large-scale) remainder, so a
+  // background color cast/blotch wider than roughly
+  // 2^(chroma_wavelet.levels-1) * 0.75 px is architecturally invisible to
+  // them. This stage estimates a coarse block-median surface of each chroma
+  // plane using ONLY unprotected (background) pixels -- so real extended-
+  // source/star color never contributes to the estimate -- smooths it into a
+  // continuous field, and subtracts `strength` of its deviation from the
+  // surface's own global background median (so the overall background
+  // chroma level, e.g. real sky-glow color, is preserved; only spatial
+  // *variation* across it is flattened). Default off: opt-in, since it
+  // changes pixel values in the background beyond what the previous
+  // filters did.
+  struct LargeScaleBiasConfig {
+    bool enabled = false;
+    int block_size = 32;     // px, grid cell size for the block-median estimate
+    float blur_sigma = 24.0f; // px, Gaussian smoothing of the block grid -> surface
+    float strength = 1.0f;    // 0..1, fraction of the estimated bias removed
+  } large_scale_bias;
+
   bool enabled = false;
   std::string color_space = "ycbcr_linear";      // ycbcr_linear | opponent_linear
   std::string apply_stage = "post_stack_linear"; // pre_stack_tiles | post_stack_linear
   bool protect_luma = true;
   float luma_guard_strength = 0.75f;
+  // Reference chroma-to-luma noise-sigma ratio used to scale the wavelet/
+  // bilateral strength to the dataset's actual noise level (see `adapt` in
+  // chroma_denoise.cpp). Replaces a previous fixed ABSOLUTE reference sigma
+  // (0.02f) that was calibrated for [0,1]-normalized data: on real,
+  // unnormalized (ADU-scale) data the absolute chroma sigma is routinely in
+  // the tens, so chroma_sigma/0.02f saturated the [0.8,1.4] clamp on every
+  // real run, making the adaptation a no-op. Expressing the reference
+  // relative to the image's own measured luma-noise sigma keeps it
+  // scale-invariant across normalized, ADU, and stretched data.
+  float adaptation_reference_ratio = 1.0f;
 };
 
 struct DitheringConfig {

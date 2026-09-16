@@ -3801,7 +3801,11 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       const double zv[4] = {c, a + c, b_coef + c, a + b_coef + c};
       const double zmin = *std::min_element(std::begin(zv), std::end(zv));
       const double zmax = *std::max_element(std::begin(zv), std::end(zv));
-      gradient_strength = static_cast<float>((zmax - zmin) / static_cast<double>(sky_med));
+      const double gs = (zmax - zmin) / static_cast<double>(sky_med);
+      // Fail-closed: a degenerate (singular) plane fit yields NaN/inf —
+      // treat that as "no measurable gradient" rather than running BGE on
+      // unverifiable statistics.
+      if (std::isfinite(gs)) gradient_strength = static_cast<float>(gs);
     }
 
     const float thr = config.auto_detect.gradient_threshold;
@@ -3846,13 +3850,27 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       const float mad = abs_dev[abs_dev.size() / 2] * 1.4826f;
       if (mad < sky_sigma) sky_sigma = mad;
     }
-    const float ext_thr = sky_med + config.auto_detect.extended_source_sigma * sky_sigma;
+    // Fail-closed: with a zero/degenerate sky spread the sigma threshold would
+    // collapse to sky_med and exclude ~half the sky blocks for no reason.
+    const float ext_thr =
+        (std::isfinite(sky_sigma) && sky_sigma > 0.0f)
+            ? sky_med + config.auto_detect.extended_source_sigma * sky_sigma
+            : std::numeric_limits<float>::infinity();
 
     // Build pixel-resolution sampling exclusion mask; start from the block grid,
-    // then dilate.
+    // then dilate.  Preserve any pre-existing sampling_valid_mask (e.g. user
+    // exclusion_polygons applied by the runner) by AND-ing rather than
+    // overwriting it.
     BGEConfig cfg_run = config;
     cfg_run.method = "autobge";
-    cfg_run.sampling_valid_mask.assign(static_cast<size_t>(H * W), 1u);
+    const bool have_prior_sampling_mask =
+        config.sampling_mask_rows == H && config.sampling_mask_cols == W &&
+        config.sampling_valid_mask.size() == static_cast<size_t>(H * W);
+    if (have_prior_sampling_mask) {
+      cfg_run.sampling_valid_mask = config.sampling_valid_mask;
+    } else {
+      cfg_run.sampling_valid_mask.assign(static_cast<size_t>(H * W), 1u);
+    }
     cfg_run.sampling_mask_rows = H;
     cfg_run.sampling_mask_cols = W;
     int n_excl_blocks = 0;
