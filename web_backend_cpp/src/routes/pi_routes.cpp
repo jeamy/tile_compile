@@ -1854,13 +1854,13 @@ nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
         const std::string id = hint.value("id", std::string());
         if (id == "empty_valid_crop") {
             likely_causes.push_back(append_text_item(
-                "Der letzte Resume scheiterte in STACKING, weil crop_to_nonzero_bbox nach AQMH-Reconstruction kein gueltiges Nicht-Null-Crop-Fenster mehr fand.",
+                "Der letzte Lauf scheiterte nach MULTIBAND, weil crop_to_nonzero_bbox kein gueltiges Nicht-Null-Crop-Fenster mehr fand.",
                 "artifacts"));
             checks.push_back(append_text_item(
-                "Pruefe STACKING phase_end und AQMH-Reconstruction-Warnungen: empty_valid_crop, unsupported_pixels und post-clipping numerical guard zeigen, dass automatisches Crop hier nicht belastbar ist.",
+                "Pruefe FORWARD_DRIZZLE/MULTIBAND phase_end-Warnungen: empty_valid_crop, unsupported_pixels und post-clipping numerical guard zeigen, dass automatisches Crop hier nicht belastbar ist.",
                 "artifacts"));
             recommendations.push_back(append_text_item(
-                "Vor dem naechsten Resume `output.crop_to_nonzero_bbox=false` setzen und ab `STACKING` neu rechnen.",
+                "Vor dem naechsten Lauf `output.crop_to_nonzero_bbox=false` setzen und neu rechnen.",
                 "artifacts"));
         } else if (id == "black_star_cores") {
             likely_causes.push_back(append_text_item(
@@ -1914,13 +1914,13 @@ nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
                 "report"));
         } else if (id == "tile_pattern") {
             likely_causes.push_back(append_text_item(
-                "Tile-Muster spricht fuer zu wenig Overlap, zu starke lokale Gewichtung oder inkonsistente lokale Rekonstruktion.",
+                "Flaechenartefakte sprechen fuer zu aggressive Beitragskontrolle oder inkonsistente lokale Qualitaetskarten.",
                 "report"));
             checks.push_back(append_text_item(
-                "AQMH-/Tile-Artefakte, lokale Metrikkarten und Rekonstruktionsdiagnostik pruefen.",
+                "Rekonstruktionsdiagnostik, lokale Qualitaetskarten und Multiband-Artefakte pruefen.",
                 "artifacts"));
             recommendations.push_back(append_text_item(
-                "Tile-Overlap erhoehen und lokale Regularisierung/Tile-Groesse gegenpruefen.",
+                "Clipping-/Quality-Pyramid-Parameter und Multiband-Schwellen gegenpruefen.",
                 "report"));
         } else if (id == "soft_or_elongated_stars") {
             likely_causes.push_back(append_text_item(

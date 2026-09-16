@@ -132,6 +132,81 @@ nlohmann::json make_sg_fixture() {
     };
 }
 
+nlohmann::json make_registration_sampling_fixture() {
+    return nlohmann::json{
+        {"schema_version", 2},
+        {"bayer_pattern", "GBRG"},
+        {"color_mode", "OSC"},
+        {"source_width", 3840}, {"source_height", 2160},
+        {"canvas_width_native", 3924}, {"canvas_height_native", 2310},
+        {"canvas_offset_x_native", 50}, {"canvas_offset_y_native", 8},
+        {"cfa_origin_x", 0}, {"cfa_origin_y", 0},
+        {"internal_scale", 1}, {"output_scale", 1},
+        {"warp_convention", "canvas_to_source"},
+        {"plan_hash", "ec60ed6f63aef6a4b7ac4b88650f78df133041d24629b75f29c37c6f3a33c757"},
+        {"frames", {
+            {{"frame_id", "f0"}, {"provenance", "direct_global"}, {"valid", true},
+             {"has_smooth_local_model", false}, {"model_predicted", false}},
+            {{"frame_id", "f1"}, {"provenance", "direct_global"}, {"valid", true},
+             {"has_smooth_local_model", true}, {"model_predicted", false}},
+            {{"frame_id", "f2"}, {"provenance", "model_predicted"}, {"valid", true},
+             {"has_smooth_local_model", false}, {"model_predicted", true}}
+        }}
+    };
+}
+
+nlohmann::json make_common_overlap_fixture() {
+    return nlohmann::json{
+        {"schema_version", 1},
+        {"analysis_mask", "sampling_geometry_analysis_common_mask.fits"},
+        {"support_mask", "sampling_geometry_reconstruction_support_mask.fits"},
+        {"analysis_pixels", 8240098},
+        {"width", 3924}, {"height", 2310},
+        {"source", "sampling_geometry"},
+        {"geometry_hash", "3b2e5442dd25b220e4db6458aac3b76bd60c478bd55f314fa31a7ba1a6b6cfe8"}
+    };
+}
+
+nlohmann::json make_source_quality_plan_fixture() {
+    return nlohmann::json{
+        {"schema_version", 1},
+        {"metrics_source", "source_quality_metrics-v1.json"},
+        {"quality_plan", {
+            {"plan_hash", "ec60ed6f63aef6a4b7ac4b88650f78df133041d24629b75f29c37c6f3a33c757"},
+            {"frames", {
+                {{"frame_id", "f0"}, {"g_quality", 0.8}, {"g_eff", 0.8},
+                 {"registration_residual_factor", 1.0}, {"model_prediction_factor", 1.0}},
+                {{"frame_id", "f1"}, {"g_quality", 0.5}, {"g_eff", 0.4},
+                 {"registration_residual_factor", 0.8}, {"model_prediction_factor", 1.0}},
+                {{"frame_id", "f2"}, {"g_quality", 0.2}, {"g_eff", 0.2},
+                 {"registration_residual_factor", 1.0}, {"model_prediction_factor", 1.0}}
+            }}
+        }}
+    };
+}
+
+nlohmann::json make_acceleration_context_fixture() {
+    return nlohmann::json{
+        {"requested_backend", "auto"},
+        {"device_id", 0},
+        {"device_name", "NVIDIA GeForce GTX 1660 Ti"},
+        {"opencv_cuda_runtime", true},
+        {"opencv_opencl_runtime", true},
+        {"phases", {
+            {"FORWARD_DRIZZLE", {
+                {"phase", "FORWARD_DRIZZLE"}, {"requested_backend", "auto"},
+                {"selected_backend", "cuda"}, {"using_gpu", true},
+                {"request_honored", true}
+            }},
+            {"PREWARP", {
+                {"phase", "PREWARP"}, {"requested_backend", "auto"},
+                {"selected_backend", "opencv_opencl"}, {"using_gpu", true},
+                {"request_honored", true}
+            }}
+        }}
+    };
+}
+
 // Boots the backend fresh (start() picks up the current TILE_COMPILE_REPORT_LOCALE
 // env), renders the fixture, and returns report.html.
 std::string render_report(BackendHarness& harness) {
@@ -146,6 +221,10 @@ std::string render_report(BackendHarness& harness) {
     const fs::path run_dir = harness.create_run("fd_run", events);
     harness.make_file("runs/fd_run/artifacts/forward_drizzle.json", make_fd_fixture().dump(2));
     harness.make_file("runs/fd_run/artifacts/sampling_geometry.json", make_sg_fixture().dump(2));
+    harness.make_file("runs/fd_run/artifacts/registration_sampling.json", make_registration_sampling_fixture().dump(2));
+    harness.make_file("runs/fd_run/artifacts/forward_common_overlap.json", make_common_overlap_fixture().dump(2));
+    harness.make_file("runs/fd_run/artifacts/source_quality_plan.json", make_source_quality_plan_fixture().dump(2));
+    harness.make_file("runs/fd_run/artifacts/acceleration_context.json", make_acceleration_context_fixture().dump(2));
 
     const auto stats_job = harness.post_json("/api/runs/fd_run/stats", {{"run_dir", run_dir.string()}});
     expect_equal(stats_job["_http_status"].get<long>(), 202L, "stats job accepted");
@@ -196,6 +275,18 @@ int main(int argc, char** argv) {
                     "coverage-gate n_eff p10 rendered");
         expect_true(en.find("normalised_linear_working") != std::string::npos,
                     "flux space value rendered");
+        expect_true(en.find("Sampling geometry and common overlap") != std::string::npos,
+                    "sampling geometry section title survives en pass");
+        expect_true(en.find("Source quality plan") != std::string::npos,
+                    "source quality section title survives en pass");
+        expect_true(en.find("Acceleration") != std::string::npos,
+                    "acceleration section title survives en pass");
+        expect_true(en.find("direct_global") != std::string::npos,
+                    "warp provenance rendered");
+        expect_true(en.find("sampling_geometry_analysis_common_mask.fits") != std::string::npos,
+                    "common-overlap mask rendered");
+        expect_true(en.find("NVIDIA GeForce GTX 1660 Ti") != std::string::npos,
+                    "acceleration device rendered");
 
         // ---- Pass 2: German ------------------------------------------------
         // The i18n key match must actually fire: German card titles present,
@@ -224,12 +315,24 @@ int main(int argc, char** argv) {
                     "kv-table row label 'Frames used' translated to German");
         expect_true(de.find("Auswahlgrund") != std::string::npos,
                     "kv-table row label 'Selection reason' translated to German");
+        expect_true(de.find("Sampling-Geometrie und gemeinsame Überlappung") != std::string::npos,
+                    "sampling geometry section title translated to German");
+        expect_true(de.find("Quell-Qualitätsplan") != std::string::npos,
+                    "source quality section title translated to German");
+        expect_true(de.find("Beschleunigung") != std::string::npos,
+                    "acceleration section title translated to German");
+        expect_true(de.find("Angefordertes Backend") != std::string::npos,
+                    "kv-table row label 'Requested backend' translated to German");
 
-        expect_true(de.find(">Coverage and geometry<") == std::string::npos,
+        // The embedded language-switch templates intentionally contain the
+        // rendered English variant; scope the English-absence checks to the
+        // visible document before the switch script.
+        const auto de_visible = de.substr(0, de.find("const templates="));
+        expect_true(de_visible.find(">Coverage and geometry<") == std::string::npos,
                     "English coverage card title gone from German report");
-        expect_true(de.find(">Candidate selection and gates<") == std::string::npos,
+        expect_true(de_visible.find(">Candidate selection and gates<") == std::string::npos,
                     "English candidate card title gone from German report");
-        expect_true(de.find(">Resources and throughput<") == std::string::npos,
+        expect_true(de_visible.find(">Resources and throughput<") == std::string::npos,
                     "English resources card title gone from German report");
 
         harness.stop();

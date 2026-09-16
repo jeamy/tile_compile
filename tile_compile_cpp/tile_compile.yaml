@@ -1,6 +1,3 @@
-method: aqmh
-pipeline:
-  mode: production
 output:
   registered_dir: registered
   write_registered_frames: false
@@ -22,18 +19,13 @@ calibration:
   dark_match_exposure_tolerance_percent: 10
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 5
-  bias_dir: 
-  darks_dir: 
-  flats_dir: 
-  bias_master: 
-  dark_master: 
-  flat_master: 
+  bias_dir:
+  darks_dir:
+  flats_dir:
+  bias_master:
+  dark_master:
+  flat_master:
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
-assumptions:
-  frames_min: 50
-  frames_reduced_threshold: 150
-  reduced_mode_skip_clustering: true
-  reduced_mode_cluster_range: [5, 10]
 normalization:
   enabled: true
   mode: background
@@ -71,80 +63,9 @@ registration:
   star_shift_radius_px: 200
   affine_refinement_enabled: true
   smooth_local_refinement_enabled: true
-aqmh:
-  enabled: true
-  storage:
-    resolution_divisor: 2
-    dtype: uint16
-    max_resident_maps: 2
-  pyramid:
-    base_window_px: 4
-    scales: 4
-    w_sharp: 0.6
-    w_snr: 0.4
-    score_scale: 0.6
-    k_artifact: 3
-    frac_artifact_max: 0.25
-  global_quality:
-    g_floor: 0.03
-    g_w_sharp: 0.55
-    g_w_snr: 0.3
-    g_w_background_penalty: 0.25
-    g_k_scale: 1.5
-  diagnostics:
-    enabled: true
-    level: full
-    per_frame_blocks: false
-    heatmaps: false
-    regions: false
-    format: json
-    binary_block_size_px: 64
-    q_region: 0.75
-    r_morph_canvas_px: 6
-    tau_artifact: 0.2
-  reconstruction:
-    clip_sigma: 2
-    clip_sigma_low: 2
-    clip_sigma_high: 4
-    clip_iterations: 4
-    min_fraction: 0.4
-    min_n_eff: 2
-    chunk_rows: 0
-    memory_budget_mb: 0
-    delete_prewarped_cache_after_run: false
-    prewarp_interpolation: linear
-    debayer_first: true
-    pre_debayer_method: edge_aware
-    rgb_q_map_mode: shared_luma
-    rgb_memory_strategy: sequential
-    registration_weight_guard: true
-    registration_weight_floor: 0.3
-    registration_cc_floor: 0.35
-    registration_cc_full: 0.8
-    registration_sequential_factor: 0.92
-    registration_predicted_factor: 0.5
-    registration_chain_depth_penalty: 0.03
-    registration_chain_depth_max_penalty: 0.15
-    structure_mask_low_q: 0.4
-    structure_mask_high_q: 0.9
-    structure_mask_blur_sigma_px: 4
-    gpu_half_qmaps: true
-    gpu_packed_masks: true
-  cherry_pick:
-    enabled: false
-    mode: auto_reject
-    k_frac: 0.5
-    k_min_required: 30
-    margin_min: 0.02
-    tiered_k_frac: []
-    reject_below_best_fraction: 0.25
-    min_keep_fraction: 0.9
-  validation:
-    max_fwhm_regression: 0.02
-    max_background_rms_regression: 0.05
-    max_seam_score_regression: 0.05
-    max_tail11_abs_regression: 0.1
-    max_elongation_regression: 0.08
+  prewarp_interpolation: cubic
+  debayer_first: true
+  pre_debayer_method: edge_aware
 global_metrics:
   adaptive_weights: true
   weight_exponent_scale: 1.8
@@ -156,40 +77,6 @@ global_metrics:
     noise: 0.2
     roundness: 0.1
     star_count: 0
-local_metrics:
-  clamp: [-3, 3]
-  k_local: 1
-  neighborhood_normalization:
-    enabled: false
-    radius: 0
-    blend: 0
-  spatial_regularization:
-    enabled: false
-    lambda: 0
-    passes: 0
-    tau_local: 1
-  star_mode:
-    weights:
-      fwhm: 0.6
-      roundness: 0.2
-      contrast: 0.2
-  structure_mode:
-    background_weight: 0.3
-    metric_weight: 0.7
-tile_denoise:
-  soft_threshold:
-    enabled: true
-    blur_kernel: 31
-    alpha: 1.8
-    skip_star_tiles: true
-  wiener:
-    enabled: true
-    snr_threshold: 5
-    q_min: -0.5
-    q_max: 1
-    q_step: 0.1
-    min_snr: 2
-    max_iterations: 10
 chroma_denoise:
   enabled: true
   color_space: ycbcr_linear
@@ -215,44 +102,14 @@ chroma_denoise:
   blend:
     mode: chroma_only
     amount: 0.8
-synthetic:
-  weighting: tile_weighted
-  frames_min: 4
-  frames_max: 20
-  clustering:
-    mode: kmeans
-    cluster_count_range: [3, 12]
 astrometry:
   enabled: true
-  astap_bin: 
+  astap_bin:
   astap_data_dir: /media/data/Astro/astap
   search_radius: 183
-tile:
-  size_factor: 32
-  min_size: 64
-  max_divisor: 6
-  overlap_fraction: 0.25
-  star_min_count: 8
-  star_soft_count: 4
 stacking:
-  method: rej
-  common_overlap_required_fraction: 1
-  tile_common_valid_min_fraction: 1
-  output_stretch: false
-  cosmetic_correction: true
-  cosmetic_correction_sigma: 4
   per_frame_cosmetic_correction: true
   per_frame_cosmetic_correction_sigma: 2
-  sigma_clip:
-    sigma_low: 2
-    sigma_high: 1.5
-    max_iters: 3
-    min_fraction: 0.4
-  cluster_quality_weighting:
-    enabled: true
-    kappa_cluster: 1
-    cap_enabled: false
-    cap_ratio: 20
 bge:
   method: autobge
   autobge:
@@ -348,28 +205,69 @@ hypermetric_stretch:
   linear_expansion: 0
   write_channels: false
   output_rgb: stacked_rgb_hms.fits
-validation:
-  min_fwhm_improvement_percent: 5
-  max_background_rms_increase_percent: 0
-  min_tile_weight_variance: 0.1
-  require_no_tile_pattern: true
 runtime_limits:
   memory_budget: 4096
   parallel_workers: 8
   acceleration_backend: auto
-  allow_emergency_mode: false
   hard_abort_hours: 6
-  tile_analysis_max_factor_vs_stack: 3
-  tile_reconstruction_diagnostics: full
-# Forward-drizzle development path: bounded stripes; 0 inherits runtime_limits.
+# Single-method CFA forward-drizzle + multiband pipeline.
 reconstruction:
   common_overlap_required_fraction: 1.0
+  delete_source_cache_after_run: true
+  keep_profile_cache_after_run: false
   diagnostics:
+    level: full
     preview_forward_drizzle_uniform: false
+    persist_forward_drizzle_uniform_store: false
   drizzle:
     internal_scale: 2
     output_scale: 1
+    kernel: square
     pixfrac: 0.8
+    robust_passes: 4
+    min_clip_contributors: 5
     chunk_rows: 0
     chunk_halo_rows: -1
     memory_budget_mb: 0
+  clipping:
+    clip_sigma_low: 2.0
+    clip_sigma_high: 4.0
+    min_fraction: 0.4
+    min_n_eff: 2.0
+    guard_fallback: false
+  coverage_gate:
+    min_frames: 2
+    min_supported_fraction: 0.995
+    min_channel_n_eff_floor: 3.0
+    min_channel_n_eff_fraction: 0.15
+    min_analysis_pixels: 1024
+    max_internal_hole_area_px: 0
+  quality:
+    pyramid:
+      scales: 4
+      base_window_px: 4
+      sharpness_weight: 0.6
+      snr_weight: 0.4
+      score_scale: 0.6
+      artifact_sigma: 3
+      max_artifact_fraction: 0.25
+  multiband:
+    enabled: true
+    levels: 3
+    alpha_cap: 1.0
+    fine_quality_exponent: 4.0
+    medium_quality_exponent: 2.0
+    min_quality_separation: 0.05
+    full_quality_separation: 0.2
+    min_effective_samples: 8.0
+    full_effective_samples: 24.0
+  multiband_validation:
+    fwhm_ratio_max: 0.95
+    p90_fwhm_ratio_max: 1.0
+    tail_ratio_max: 1.1
+    elongation_ratio_max: 1.08
+    background_rms_ratio_max: 1.05
+    seam_ratio_max: 1.05
+    min_stars_fwhm: 20
+    min_stars_p90_tail_elongation: 30
+    max_fwhm_ci_relative_width: 0.1

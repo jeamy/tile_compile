@@ -44,11 +44,8 @@ enum class Variant : int {
   kCoverageAccumulatorReset,     // T6: per-frame B[c] clear before CFA raster
   kCoverageAccumulatorReduction, // T6: per-frame w/w2/count fold after CFA
   kCoverageHoleQuantile,         // T6: post-band hole detection + quantile merge
-  kProductionUniformRaw, // stream_forward_drizzle_uniform_and_raw main loop
   kUniformDiagnostic,    // stream_forward_drizzle_uniform (non-production diag)
-  kContribCount,         // build_frame_records: pre-count pass
   kContribFill,          // build_frame_records: fill pass
-  kHybridCpuGeometry,    // build_frame_records_hybrid_local: CPU geometry pass
   kVariantCount
 };
 

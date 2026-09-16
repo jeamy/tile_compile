@@ -80,7 +80,7 @@ bool run_phase_channel_split_normalization_global_metrics(
     extra["mode"] = "OSC";
     extra["channels"] = core::json::array({"R", "G", "B"});
     extra["bayer_pattern"] = detected_bayer_str;
-    extra["note"] = "deferred_to_tile_processing";
+    extra["note"] = "deferred_to_forward_drizzle_cfa";
   } else {
     extra["mode"] = "MONO";
     extra["channels"] = core::json::array({"L"});
@@ -535,16 +535,9 @@ bool run_phase_channel_split_normalization_global_metrics(
                     log_file);
 
   // Phase 3: GLOBAL_METRICS
-  // For AQMH this phase is not exposed as a pipeline stage (AQMH computes its
-  // own frame-quality factor G in AQMH_GLOBAL_QUALITY), but the metrics are
-  // still needed for downstream BGE validation and the registration weight
-  // penalty. Therefore we keep the computation but skip the phase events.
-  const bool expose_global_metrics = !cfg.aqmh.enabled;
-  if (expose_global_metrics) {
-    emitter.phase_start(run_id, Phase::GLOBAL_METRICS, "GLOBAL_METRICS",
-                        log_file);
-  }
-
+  // The metrics are still needed for downstream BGE validation and the
+  // registration weight penalty, but the phase is not exposed as a pipeline
+  // stage in the single-method pipeline, so no phase events are emitted.
   out.frame_metrics.assign(frames.size(), {});
   auto &frame_metrics = out.frame_metrics;
   std::vector<metrics::FrameStarMetrics> frame_star_metrics;
@@ -562,7 +555,6 @@ bool run_phase_channel_split_normalization_global_metrics(
   std::atomic<bool> gm_failed{false};
   std::mutex gm_error_mutex;
   std::mutex gm_log_mutex;
-  std::mutex gm_progress_mutex;
   std::string gm_error;
 
   auto global_metrics_worker = [&]() {
@@ -620,22 +612,7 @@ bool run_phase_channel_split_normalization_global_metrics(
         }
       }
 
-      const size_t done = gm_done.fetch_add(1) + 1;
-      if (done % 2 == 0 || done == frames.size()) {
-        const float progress =
-            frames.empty()
-                ? 1.0f
-                : static_cast<float>(done) / static_cast<float>(frames.size());
-        if (expose_global_metrics) {
-          std::lock_guard<std::mutex> lock(gm_progress_mutex);
-          emitter.phase_progress(run_id, Phase::GLOBAL_METRICS, progress,
-                                 "metrics " + std::to_string(done) + "/" +
-                                     std::to_string(frames.size()) +
-                                     " workers=" +
-                                     std::to_string(global_metrics_workers),
-                                 log_file);
-        }
-      }
+      gm_done.fetch_add(1);
     }
   };
 
@@ -658,12 +635,6 @@ bool run_phase_channel_split_normalization_global_metrics(
   }
 
   if (gm_failed.load(std::memory_order_relaxed)) {
-    if (expose_global_metrics) {
-      emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "error",
-                        {{"error", gm_error.empty() ? "unknown_error"
-                                                     : gm_error}},
-                        log_file);
-    }
     emitter.run_end(run_id, false, "error", log_file,
                     {{"message", std::string("Error during GLOBAL_METRICS: ") + (gm_error.empty() ? "unknown_error" : gm_error)}});
     std::cerr << "Error during GLOBAL_METRICS: "
@@ -738,14 +709,6 @@ bool run_phase_channel_split_normalization_global_metrics(
         "Otherwise clip adaptive weights to [0.1,0.7] and renormalize.";
     core::write_text(run_dir / "artifacts" / "global_metrics.json",
                      artifact.dump(2));
-  }
-
-  if (expose_global_metrics) {
-    emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "ok",
-                      {
-                          {"num_frames", static_cast<int>(frame_metrics.size())},
-                      },
-                      log_file);
   }
 
   return true;

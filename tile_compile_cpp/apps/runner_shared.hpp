@@ -57,10 +57,6 @@ LocalGaiaPlateSolveResult solve_with_local_gaia_catalog(
 bool write_wcs_sidecar(const astrometry::WCS &wcs,
                        const std::filesystem::path &path);
 
-/// Aggregate local tile metrics across multiple frames into a single median-based profile.
-std::vector<tile_compile::TileMetrics> aggregate_tile_metrics_across_frames(
-    const std::vector<std::vector<tile_compile::TileMetrics>> &local_metrics);
-
 /// Format a byte count for human-readable logs and diagnostics.
 std::string format_bytes(uint64_t bytes);
 
@@ -115,23 +111,6 @@ private:
   int previous_threads_ = 0;
   bool changed_ = false;
 };
-
-/// Memory-aware worker plan for full-resolution AQMH quality-map generation.
-/// AQMH_MAPS allocates several full-canvas intermediate matrices per worker;
-/// its ordinary CPU worker heuristic must therefore be capped separately.
-struct AqmhMapWorkerPlan {
-  int requested_workers = 1;
-  int effective_workers = 1;
-  uint64_t memory_budget_bytes = 0;
-  uint64_t available_memory_bytes = 0;
-  uint64_t estimated_bytes_per_worker = 0;
-  bool memory_capped = false;
-};
-
-AqmhMapWorkerPlan compute_aqmh_map_worker_plan(
-    const config::Config &cfg, size_t task_count,
-    const std::vector<std::filesystem::path> &frames, int width, int height,
-    uint64_t available_memory_bytes = 0);
 
 struct OverlapMasks {
   std::vector<uint8_t> analysis_common;
@@ -484,33 +463,6 @@ bool invert_affine_warp(const WarpMatrix &w, WarpMatrix &inv);
 WarpBounds compute_warps_bounds(int width, int height,
                                 const std::vector<WarpMatrix> &warps);
 
-/// Axis-aligned crop rectangle in image coordinates.
-struct CropBox {
-  int x{0};
-  int y{0};
-  int width{0};
-  int height{0};
-
-  [[nodiscard]] bool valid() const { return width > 0 && height > 0; }
-};
-
-/// Find the bounding box of finite/nonzero reconstructed data.
-CropBox compute_nonzero_data_bbox(const Matrix2Df &luma,
-                                  const Matrix2Df *r = nullptr,
-                                  const Matrix2Df *g = nullptr,
-                                  const Matrix2Df *b = nullptr);
-
-/// Find the axis-aligned bounding box of reconstructed support pixels.
-CropBox compute_support_mask_bbox(const std::vector<uint8_t> &support_mask,
-                                  int mask_rows, int mask_cols);
-
-/// Find the largest crop box supported by the common-valid mask and data planes.
-CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
-                                       const std::vector<uint8_t> &common_valid_mask,
-                                       int mask_rows, int mask_cols,
-                                       const Matrix2Df *r = nullptr,
-                                       const Matrix2Df *g = nullptr,
-                                       const Matrix2Df *b = nullptr);
 
 /// Convert runner configuration into the image-module BGE runtime config.
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src);

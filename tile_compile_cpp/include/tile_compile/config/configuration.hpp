@@ -10,10 +10,6 @@ namespace tile_compile::config {
 
 namespace fs = std::filesystem;
 
-struct PipelineConfig {
-  std::string mode = "production";
-};
-
 struct OutputConfig {
   std::string registered_dir = "registered";
   bool write_registered_frames = false;
@@ -54,13 +50,6 @@ struct CalibrationConfig {
   std::string dark_master;
   std::string flat_master;
   std::string pattern = "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz";
-};
-
-struct AssumptionsConfig {
-  int frames_min = 50;
-  int frames_reduced_threshold = 200;
-  bool reduced_mode_skip_clustering = true;
-  std::array<int, 2> reduced_mode_cluster_range{5, 10};
 };
 
 struct NormalizationConfig {
@@ -113,6 +102,15 @@ struct RegistrationConfig {
   // warp. Held-out, coverage, Jacobian, NCC, and overlap gates must all pass;
   // otherwise prewarp uses the unchanged affine/global warp.
   bool smooth_local_refinement_enabled = true;
+  // Prewarp stage: interpolation kernel applied when warping frames onto the
+  // common canvas ("bilinear" | "cubic").
+  std::string prewarp_interpolation = "cubic";
+  // OSC: demosaic before prewarp, then reconstruct the RGB channels directly
+  // (instead of CFA prewarp + post-stack debayer).
+  bool debayer_first = true;
+  // Demosaic method used when debayer_first is active:
+  // "bilinear" | "nearest" | "vng" | "edge_aware".
+  std::string pre_debayer_method = "edge_aware";
 };
 
 // §4.1, §8.B — Berechnung effektiver Chain-Tiefe
@@ -124,28 +122,6 @@ inline int get_effective_chain_depth(int num_frames, const RegistrationConfig& c
   // Auto: N/10, mindestens 12, maximal 50
   return std::clamp(num_frames / 10, 12, 50);
 }
-
-struct WienerDenoiseConfig {
-  bool enabled = true;
-  float snr_threshold = 5.0f;
-  float q_min = -0.5f;
-  float q_max = 1.0f;
-  float q_step = 0.1f;
-  float min_snr = 2.0f;
-  int max_iterations = 10;
-};
-
-struct SoftThresholdConfig {
-  bool enabled = true;
-  int blur_kernel = 31;       // box-blur kernel size for background estimation
-  float alpha = 1.5f;         // threshold multiplier: τ = α · σ_t
-  bool skip_star_tiles = true; // skip denoising for star-dominated tiles
-};
-
-struct TileDenoiseConfig {
-  SoftThresholdConfig soft_threshold;
-  WienerDenoiseConfig wiener;
-};
 
 struct ChromaDenoiseConfig {
   struct StarProtectionConfig {
@@ -208,154 +184,12 @@ struct TileConfig {
   int min_size = 64;
   int max_divisor = 6;
   float overlap_fraction = 0.25f;
-  int star_min_count = 10;
-  int star_soft_count = 10;
-};
-
-struct LocalMetricsConfig {
-  struct NeighborhoodNormalizationConfig {
-    bool enabled = true;
-    int radius = 1;
-    float blend = 0.5f;
-  } neighborhood_normalization;
-
-  struct SpatialRegularizationConfig {
-    bool enabled = true;
-    float lambda = 0.35f;
-    int passes = 1;
-    float tau_local = 1.0f;
-  } spatial_regularization;
-
-  struct StarModeConfig {
-    struct Weights {
-      float fwhm = 0.6f;
-      float roundness = 0.2f;
-      float contrast = 0.2f;
-    } weights;
-  } star_mode;
-
-  struct StructureModeConfig {
-    float background_weight = 0.3f;
-    float metric_weight = 0.7f;
-  } structure_mode;
-
-  std::array<float, 2> clamp{-3.0f, 3.0f};
-  float k_local = 1.0f; // §5.5.6: L_{f,t} = exp(k_local * Q^local), symmetric with k_global
-};
-
-struct AqmhPyramidConfig {
-  int scales = 4;
-  int base_window_px = 4;
-  float w_sharp = 0.6f;
-  float w_snr = 0.4f;
-  float score_scale = 1.8f;
-  float k_artifact = 3.0f;
-  float frac_artifact_max = 0.25f;
-};
-
-struct AqmhStorageConfig {
-  int resolution_divisor = 2;
-  std::string dtype = "uint16";
-  int max_resident_maps = 2;
-};
-
-struct AqmhGlobalQualityConfig {
-  float g_floor = 0.03f;
-  float g_w_sharp = 0.55f;
-  float g_w_snr = 0.3f;
-  float g_w_background_penalty = 0.25f;
-  float g_k_scale = 1.5f;            // sigmoid temperature; output remains in [g_floor, 1]
-};
-
-struct AqmhReconstructionConfig {
-  float clip_sigma = 2.0f;
-  float clip_sigma_low = 2.0f;
-  float clip_sigma_high = 2.0f;
-  int clip_iterations = 4;
-  float min_fraction = 0.4f;
-  float min_n_eff = 2.0f;
-  int chunk_rows = 0;                 // 0 = backend-specific auto sizing, >0 = explicit override
-  size_t memory_budget_mb = 0;        // 0 = use global config (passed in from AqmhConfig at callsite)
-  bool delete_prewarped_cache_after_run = true;
-  std::string prewarp_interpolation = "cubic";
-  bool debayer_first = true;          // OSC: demosaic before prewarp/AQMH, then reconstruct RGB channels directly
-  std::string pre_debayer_method = "edge_aware"; // "bilinear" | "nearest" | "vng" | "edge_aware"
-  std::string rgb_q_map_mode = "shared_luma";  // RGB channel reconstruction reuses luma Q-maps
-  std::string rgb_memory_strategy = "sequential"; // reconstruct RGB channels one after another
-  bool registration_weight_guard = true;
-  float registration_weight_floor = 0.30f;
-  float registration_cc_floor = 0.35f;
-  float registration_cc_full = 0.80f;
-  float registration_sequential_factor = 0.92f;
-  float registration_predicted_factor = 0.50f;
-  float registration_chain_depth_penalty = 0.03f;
-  float registration_chain_depth_max_penalty = 0.15f;
-  // Structure-masked detail blending parameters (v0.2.1 post-reconstruction)
-  float structure_mask_low_q = 0.40f;             // gradient quantile mapped to mask=0 (was 0.70)
-  float structure_mask_high_q = 0.90f;            // gradient quantile mapped to mask=1 (was 0.97)
-  float structure_mask_blur_sigma_px = 4.0f;      // soft mask blur sigma (was 2.0)
-  // WP-E (GPU bandwidth reduction): stage Q-Maps as fp16 and frame masks as
-  // bit-packed (1 bit/pixel) for the H2D transfer, dequantized back to
-  // float32/uint8 on-device before the reconstruction kernel runs. Defaults
-  // on; disable per-run if fp16 rounding is suspected of shifting
-  // cherry-pick/sigma-clip decisions.
-  bool gpu_half_qmaps = true;
-  bool gpu_packed_masks = true;
-};
-
-struct AqmhValidationConfig {
-  float max_seam_score_regression = 0.05f;
-  float max_fwhm_regression = 0.02f;
-  float max_background_rms_regression = 0.05f;
-  float max_tail11_abs_regression = 0.10f;
-  float max_elongation_regression = 0.08f;
-};
-
-struct AqmhDiagnosticsConfig {
-  bool enabled = true;                    // master switch
-  std::string level = "full";             // "none" | "summary" | "full"
-  bool per_frame_blocks = true;           // per-frame block-level diagnostics + heatmaps
-  bool heatmaps = true;                   // spatial heatmap arrays
-  bool regions = true;                    // region extraction (aqmh_regions.json)
-  std::string format = "json";            // "json" | "binary"
-  int binary_block_size_px = 64;           // 0 = use r_morph_canvas_px
-  float tau_artifact = 0.20f;
-  float q_region = 0.75f;
-  int r_morph_canvas_px = 6;
-};
-
-struct AqmhCherryPickConfig {
-  struct Tier {
-    int min_n_rankable = 0;
-    float k_frac = 0.30f;
-  };
-  bool enabled = false;
-  std::string mode = "auto_reject"; // "auto_reject" | "top_k"
-  float k_frac = 0.30f;
-  int k_min_required = 20;
-  float margin_min = 0.02f;
-  float reject_below_best_fraction = 0.25f;
-  float min_keep_fraction = 0.90f;
-  std::vector<Tier> tiered_k_frac;
-};
-
-struct AqmhConfig {
-  bool enabled = true; // Runtime-Flag, wird aus Config::method abgeleitet via normalizeMethod()
-  AqmhPyramidConfig pyramid;
-  AqmhStorageConfig storage;
-  AqmhGlobalQualityConfig global_quality;
-  AqmhCherryPickConfig cherry_pick;
-  AqmhDiagnosticsConfig diagnostics;
-  AqmhReconstructionConfig reconstruction;
-  AqmhValidationConfig validation;
 };
 
 // ---------------------------------------------------------------------------
 // Single-method reconstruction contract (CFA forward drizzle + multiband).
 // Plan sections 6.1-6.3 / 11.2. This is the public `reconstruction:` config
-// root introduced in M0. It is parsed and validated but not yet consumed by
-// any phase (the forward-drizzle pipeline is built in M2+); the legacy `aqmh:`
-// block keeps driving the active pipeline until M10.
+// root; it is the only reconstruction configuration the pipeline consumes.
 // ---------------------------------------------------------------------------
 
 struct ReconstructionDiagnosticsConfig {
@@ -417,7 +251,13 @@ struct ReconstructionCoverageGateConfig {
 };
 
 struct ReconstructionQualityPyramidConfig {
-  int scales = 4;  // [1, 4]
+  int scales = 4;                   // [1, 8]
+  int base_window_px = 4;           // >= 1
+  float sharpness_weight = 0.6f;    // >= 0; sharpness_weight+snr_weight > 0
+  float snr_weight = 0.4f;          // >= 0
+  float score_scale = 1.8f;         // > 0
+  float artifact_sigma = 3.0f;      // > 0
+  float max_artifact_fraction = 0.25f;  // (0, 1]
 };
 
 struct ReconstructionQualityConfig {
@@ -436,6 +276,21 @@ struct ReconstructionMultibandConfig {
   float full_effective_samples = 24.0f;
 };
 
+// Candidate-selection gates of plan 15.3.4/15.3.5. Mirrors
+// reconstruction::MultibandValidationConfig; kept in the config layer so the
+// runner can populate the validation struct from the effective YAML.
+struct ReconstructionMultibandValidationConfig {
+  double fwhm_ratio_max = 0.95;               // > 0; multiband median FWHM <= x*raw
+  double p90_fwhm_ratio_max = 1.00;           // > 0; vs raw
+  double tail_ratio_max = 1.10;               // > 0; vs raw
+  double elongation_ratio_max = 1.08;         // > 0; vs raw
+  double background_rms_ratio_max = 1.05;     // > 0; vs UNIFORM (raw veto + promotion)
+  double seam_ratio_max = 1.05;               // > 0; vs UNIFORM at support boundary
+  int min_stars_fwhm = 20;                    // >= 0; stars needed for FWHM metric
+  int min_stars_p90_tail_elongation = 30;     // >= 0; stars for p90/tail/elongation
+  double max_fwhm_ci_relative_width = 0.10;   // > 0; bootstrap 95% CI width veto
+};
+
 struct ReconstructionConfig {
   bool delete_source_cache_after_run = false;
   bool keep_profile_cache_after_run = false;
@@ -446,42 +301,13 @@ struct ReconstructionConfig {
   ReconstructionCoverageGateConfig coverage_gate;
   ReconstructionQualityConfig quality;
   ReconstructionMultibandConfig multiband;
+  ReconstructionMultibandValidationConfig multiband_validation;
 
   // Throws tile_compile::ValidationError on a contract violation (plan 6.3).
   void validate() const;
 };
 
-struct SyntheticConfig {
-  struct ClusteringConfig {
-    std::string mode = "kmeans";
-    std::array<int, 2> cluster_count_range{5, 30};
-  } clustering;
-  std::string weighting = "global";
-  int frames_min = 5;
-  int frames_max = 30;
-};
-
 struct StackingConfig {
-  struct SigmaClipConfig {
-    float sigma_low = 2.0f;
-    float sigma_high = 2.0f;
-    int max_iters = 3;
-    float min_fraction = 0.5f;
-  } sigma_clip;
-
-  struct ClusterQualityWeightingConfig {
-    bool enabled = true;
-    float kappa_cluster = 1.0f;
-    bool cap_enabled = false;
-    float cap_ratio = 20.0f;
-  } cluster_quality_weighting;
-
-  std::string method = "rej";
-  float common_overlap_required_fraction = 1.0f;
-  float tile_common_valid_min_fraction = 1.0f;
-  bool output_stretch = false;
-  bool cosmetic_correction = false;
-  float cosmetic_correction_sigma = 5.0f;
   bool per_frame_cosmetic_correction = false;
   float per_frame_cosmetic_correction_sigma = 5.0f;
 };
@@ -631,49 +457,30 @@ struct HyperMetricStretchConfig {
   std::string output_rgb = "stacked_rgb_hms.fits";
 };
 
-struct ValidationConfig {
-  float min_fwhm_improvement_percent = 0.0f;
-  float max_background_rms_increase_percent = 0.0f;
-  float min_tile_weight_variance = 0.1f;
-  bool require_no_tile_pattern = true;
-};
-
 struct RuntimeLimitsConfig {
-  float tile_analysis_max_factor_vs_stack = 3.0f;
   float hard_abort_hours = 6.0f;
-  bool allow_emergency_mode = false;
   int parallel_workers = 4;
   int memory_budget = 512;
   std::string acceleration_backend = "auto";
-  std::string tile_reconstruction_diagnostics = "full";
-  bool tile_boundary_diagnostics_enabled = false; // opt-in, default off
 };
 
 struct Config {
-  std::string method = "aqmh"; // aqmh | classic_tile_compile
-  PipelineConfig pipeline;
   OutputConfig output;
   DataConfig data;
   LinearityConfig linearity;
   CalibrationConfig calibration;
-  AssumptionsConfig assumptions;
   NormalizationConfig normalization;
   RegistrationConfig registration;
   DitheringConfig dithering;
-  TileDenoiseConfig tile_denoise;
   ChromaDenoiseConfig chroma_denoise;
   GlobalMetricsConfig global_metrics;
   TileConfig tile;
-  LocalMetricsConfig local_metrics;
-  AqmhConfig aqmh;
   ReconstructionConfig reconstruction;
-  SyntheticConfig synthetic;
   AstrometryConfig astrometry;
   BGEConfig bge;
   PCCConfig pcc;
   HyperMetricStretchConfig hypermetric_stretch;
   StackingConfig stacking;
-  ValidationConfig validation;
   RuntimeLimitsConfig runtime_limits;
 
   static Config load(const fs::path &path);
@@ -684,8 +491,7 @@ struct Config {
   // migration (plan section 6.5): rejects `method`/engine keys fail-closed
   // (throws tile_compile::ConfigError) and strips removed structural blocks,
   // recording every change in `report` (see legacy_config_migration.hpp). Used
-  // by the production run path; the legacy-reference runner keeps using plain
-  // load()/from_yaml_text().
+  // by the production run path.
   static Config from_yaml_text_migrated(const std::string &yaml_text,
                                         struct ConfigMigrationReport &report);
 
@@ -694,8 +500,6 @@ struct Config {
 
   void validate() const;
 };
-
-std::string getEffectiveMethod(const Config& config);
 
 std::string get_schema_json();
 

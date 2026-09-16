@@ -11,16 +11,16 @@
 //     starts with "UNKNOWN_LEGACY_KEY:". It is never silently stripped or
 //     translated (this is the one exception to strip-with-warning).
 //
-//   * The removed *structural* Classic / tile-era blocks (`tile`, `tile_denoise`,
-//     `local_metrics`, `synthetic`) and removed sub-keys are STRIPPED: a WARN is
-//     logged, the stripped path is recorded in the ConfigMigrationReport, and
-//     the run proceeds with the cleaned config. The report is written to
-//     artifacts/config_migration.json so the strip is auditable.
+//   * The removed *structural* blocks (`aqmh`, `pipeline`, `assumptions`,
+//     `tile`, `tile_denoise`, `local_metrics`, `synthetic`, `validation`) and
+//     removed sub-keys are STRIPPED: a WARN is logged, the stripped path is
+//     recorded in the ConfigMigrationReport, and the run proceeds with the
+//     cleaned config. The report is written to artifacts/config_migration.json
+//     so the strip is auditable.
 //
-// Key *renames* (aqmh -> reconstruction, global_metrics ->
-// reconstruction.quality.frame_weights, stacking cosmetic keys ->
-// calibration.frame_cleanup) are a separate follow-up coupled to the internal
-// struct rename; see the note in legacy_config_migration.cpp.
+// Key *renames* are applied where the value is still meaningful:
+// stacking.common_overlap_required_fraction ->
+// reconstruction.common_overlap_required_fraction.
 
 #include <yaml-cpp/yaml.h>
 

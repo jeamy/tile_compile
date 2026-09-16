@@ -2,554 +2,262 @@
 
 ## Pipeline objective
 
-The system turns a set of calibrated astronomical single-frame inputs into a reproducible final product inside a shared geometric and photometric reference space.
+The system turns a set of calibrated astronomical single-frame inputs into
+a reproducible final product inside a shared geometric and photometric
+reference space, using exactly one reconstruction method:
+**CFA Forward Drizzle + Multiband**.
 
-From a technical perspective, the pipeline is organized into three major blocks:
+Technically, the pipeline is organized into three major blocks:
 
 - **Preparation and normalization**
   - validate inputs
-  - unify geometry
-  - normalize intensity levels
-- **Quality modeling and reconstruction**
-  - compute global metrics and dense AQMH quality maps
-  - perform per-pixel AQMH weighted reconstruction
-  - optionally use Classic Tile-Compile with local tile metrics, clustering and synthetic frames
+  - normalize intensity levels (per CFA channel for OSC)
+  - measure registration geometry
+- **Quality modeling and forward reconstruction**
+  - seal the normalized-frame cache
+  - derive output grid, coverage masks, and geometry caches
+  - compute per-pixel source-quality maps and global frame weights
+  - forward-drizzle every source sample into a banded super-resolution
+    store
+  - fuse the multiband result
 - **Post-processing and calibration**
-  - debayer
   - astrometry / WCS
   - optional BGE
-  - PCC
+  - optional PCC
+  - optional HyperMetric Stretch
 
-The primary product is a linear stacked image. Depending on configuration and data mode, the run may also generate debayered, gradient-corrected and photometrically calibrated derivatives, plus structured diagnostics.
+The primary product is a linear reconstructed image (mono or per-channel
+RGB for OSC). There is no method selector: AQMH and Classic Tile-Compile
+no longer exist, and a `method:` key in a config is rejected fail-closed.
 
 ## Core terms
 
-- **Run**
-  - One full pipeline execution with its own run directory under `runs/<run_id>/`.
-- **Phase**
-  - One well-defined processing stage such as `REGISTRATION`, `AQMH_MAPS`, or `PCC`.
-- **Artifact**
-  - Persisted diagnostic or intermediate data, typically written under `artifacts/`.
-- **Event timeline**
-  - Chronological execution events written to `logs/run_events.jsonl`.
-- **Assumptions thresholds**
-  - `assumptions.frames_min` and `assumptions.frames_reduced_threshold` control whether the runner aborts, enters reduced mode, or runs the full pipeline.
-- **Resume**
-  - Existing run directories can be reused for supported downstream phases, especially `STACKING`, `ASTROMETRY`, `BGE`, `PCC`, and `HYPERMETRIC_STRETCH`.
-
----
+- **Run** — one full pipeline execution with its own run directory under
+  `runs/<run_id>/`.
+- **Phase** — one well-defined processing stage such as `REGISTRATION`,
+  `FORWARD_DRIZZLE`, or `PCC`.
+- **Artifact** — persisted diagnostic or intermediate data, typically
+  under `artifacts/`.
+- **Event timeline** — chronological execution events written to
+  `logs/run_events.jsonl`.
+- **Sampling plan** — `artifacts/registration_sampling.json`: the frozen
+  geometric contract (output grid, affine + local warps, CFA origin) all
+  downstream stages obey.
+- **Uniform store** — the banded accumulator set under
+  `artifacts/forward_drizzle_v2/` produced by the gather; the single
+  source for the multiband fusion and the exports.
+- **Resume** — `resume-reconstruction` continues a run from
+  `GLOBAL_QUALITY` or `FORWARD_DRIZZLE` only.
 
 ## Overall flow
 
 ```text
-Input frames (FITS)
+Input frames (FITS, MONO or OSC/CFA)
    -> SCAN_INPUT
-   -> REGISTRATION
-   -> PREWARP
-   -> CHANNEL_SPLIT
-   -> NORMALIZATION
-   -> GLOBAL_METRICS
-   -> TILE_GRID (auxiliary geometry; reconstruction grid for Classic)
-   -> COMMON_OVERLAP
-   -> AQMH_MAPS (enum 19)
-   -> AQMH_GLOBAL_QUALITY (enum 20)
-   -> AQMH_RECONSTRUCTION (enum 21)
-   -> AQMH_DIAGNOSTICS (enum 22)
-      or [Classic] LOCAL_METRICS -> TILE_RECONSTRUCTION
-   -> [Classic only, optional] STATE_CLUSTERING
-   -> [Classic only, optional] SYNTHETIC_FRAMES
-   -> STACKING
-   -> [optional / data-dependent] DEBAYER
-   -> ASTROMETRY
-   -> [optional] BGE
-   -> [optional] PCC
-   -> [optional] HYPERMETRIC_STRETCH
-   -> DONE
+   -> CHANNEL_SPLIT            (metadata only — no file splits)
+   -> NORMALIZATION            (B_f/P_f per frame & CFA channel,
+                                cache/normalized_frames/)
+   -> REGISTRATION             (affine + optional local warp,
+                                registration_sampling.json)
+   -> NORMALIZED_CACHE         (seal cache against the plan)
+   -> SAMPLING_GEOMETRY        (output grid, coverage masks,
+                                forward_drizzle_geometry/ cache)
+   -> COMMON_OVERLAP           (common-valid support masks)
+   -> SOURCE_QUALITY_MAPS      (cache/source_quality_maps/)
+   -> GLOBAL_QUALITY           (frame weights + gates)
+   -> FORWARD_DRIZZLE          (chunked CFA gather,
+                                artifacts/forward_drizzle_v2/)
+   -> MULTIBAND                (band fusion,
+                                reconstruction_multiband.fits)
+   -> STACKING                 (pass-through marker)
+   -> ASTROMETRY (optional)
+   -> BGE        (optional)
+   -> PCC        (optional)
+   -> HYPERMETRIC_STRETCH (optional)
 ```
 
----
+## Why forward drizzle instead of classic stacking
 
-## Why AQMH is the default
-
-Frame-level global scoring alone is usually insufficient for astrophotography
-series because quality varies spatially. AQMH therefore computes a dense
-per-frame quality map and weights every output pixel independently. This avoids
-a fixed tile raster and overlap-add seams while still reacting to:
-
-- location-dependent seeing variations
-- local guiding or deformation artifacts
-- border artifacts after warp or rotation
-- uneven background or noise distributions
-
-The original tile-based method remains available as **Classic Tile-Compile** via
-`method: classic_tile_compile`. It approximates local quality with overlapping
-tiles and is no longer the default.
-
----
+- **Sub-pixel accuracy:** each source sample is splatted into the output
+  grid through the measured per-frame geometry (affine + optional smooth
+  local warp), so dithered data yields true super-resolution.
+- **CFA-native:** for OSC input the Bayer pattern is never interpolated —
+  `cfa_channel_for_source_pixel` routes every source pixel into the
+  matching R/G/B accumulator plane. No debayering artifacts, full
+  dither benefit per channel.
+- **Quality-weighted:** per-pixel source-quality maps × global frame
+  weights replace any global frame rejection; bad pixels lose weight,
+  not whole frames.
+- **Bounded memory:** row-chunked gather with a configurable memory
+  budget; input amplification stays low even for large stacks.
 
 ## Phases in detail
 
-## 0) Validate input (`SCAN_INPUT`)
-
-**Input**
-
-- one input path or multiple input directories
-- FITS files with headers and acquisition metadata
-
-**Processing**
-
-- discover and enumerate input files
-- validate headers, bit depth, image dimensions and color mode
-- classify data as mono or OSC/CFA
-- detect obvious exclusion cases
-- verify that sufficient storage and workspace capacity are available
-
-**Output**
-
-- cleaned frame list
-- scan summary with metadata, warnings and errors
-- guardrails used by downstream run-start decisions
-
----
-
-## 1) Global registration (`REGISTRATION`)
-
-**Goal**
-
-- bring all frames into one common geometric reference system
-
-**Processing**
-
-- select a reference frame
-- estimate geometric transforms relative to the reference
-- switch through fallback strategies if the primary registration path is not reliable enough
-- persist registration metrics and transform parameters
-- execute on CPU workers; this phase does not use the GPU
-
-**Output**
-
-- registered transform data per frame
-- quality indicators such as correlation, drift, rotation or residual misalignment
-
----
-
-## 2) Prewarp onto a common canvas (`PREWARP`)
-
-**Goal**
-
-- move all registered frames onto the same target canvas and pixel geometry
-
-**Processing**
-
-- apply the estimated transforms to a shared target area
-- for OSC/CFA data: use CFA-safe warping via sub-plane logic so the Bayer pattern stays semantically stable
-- enlarge the canvas when field rotation or translation exceeds the original bounds
-- track offsets such as `tile_offset_x` and `tile_offset_y`
-- use CUDA or OpenCL for full-frame warps when available, otherwise CPU
-
-**Output**
-
-- prewarped frames with unified geometry
-- a consistent coordinate domain for AQMH and Classic downstream phases
-
----
-
-## 3) Establish the channel model (`CHANNEL_SPLIT`)
-
-**Goal**
-
-- define a consistent internal channel model for mono or OSC data
-
-**Processing**
-
-- determine whether subsequent metrics and reconstruction stages operate on mono data, CFA sub-planes, or RGB-compatible representations
-- derive channel-related metadata for downstream stages
-
-**Output**
-
-- channel and mode description used by later phases
-
----
-
-## 4) Normalization (`NORMALIZATION`)
-
-**Goal**
-
-- make signal and background levels comparable across frames
-
-**Processing**
-
-- estimate background and intensity statistics per frame or per channel
-- scale data into a shared reference state
-- persist normalization parameters
-
-**Output**
-
-- normalized frames or equivalent normalization parameters
-- diagnostics about background and signal stability
-
----
-
-## 5) Global quality metrics (`GLOBAL_METRICS`)
-
-**Goal**
-
-- derive a global quality profile for each frame
-
-**Processing**
-
-- compute global measures such as background level, noise, gradient energy, star metrics or global sharpness indicators
-- derive a global frame weight
-- in the `strict` profile: evaluate on unified geometry before local stages proceed
-
-**Output**
-
-- per-frame global metrics
-- global weights and selection priors
-
----
-
-## 6) Build the tile grid (`TILE_GRID`)
-
-**Goal**
-
-- provide auxiliary spatial geometry and the reconstruction grid for the Classic path
-
-**Processing**
-
-- generate an overlapping or smoothly composable tile raster
-- parameterize tile size, overlap and usable support region
-
-**Output**
-
-- auxiliary tile geometry; in Classic Tile-Compile, also the local-metrics and reconstruction grid
-
----
-
-## 7) Determine shared overlap (`COMMON_OVERLAP`)
-
-**Goal**
-
-- restrict downstream processing to pixel regions that actually contain reliable warped data
-
-**Processing**
-
-- derive global and tile-local validity masks
-- compute usable area fractions after warp, translation and rotation
-- mask empty or insufficiently overlapping border regions
-
-**Output**
-
-- global valid fractions
-- tile-local validity measures
-- robust support mask for reconstruction and stacking
-
----
-
-## 8) AQMH quality maps (`AQMH_MAPS`, enum 19)
-
-**Goal**
-
-- produce a dense per-pixel quality model for every frame
-
-**Processing**
-
-- calculate multi-scale sharpness and SNR using a Laplacian pyramid
-- detect artifact-dominated support and apply the common canvas mask
-- cache one `Q_map` per frame for independent reconstruction
-- use CUDA/OpenCL filters when available
-
-**Output**
-
-- cached AQMH quality maps and AQMH diagnostics
-
-This is followed by `AQMH_GLOBAL_QUALITY` (enum 20), which computes the global
-frame weights. With `method: classic_tile_compile`, `LOCAL_METRICS` (enum 8)
-is executed instead and computes local tile metrics and weights `L_f,t`.
-
----
-
-## 9) Reconstruction (`AQMH_RECONSTRUCTION`, enum 21)
-
-**Goal**
-
-- reconstruct the final linear signal from per-pixel AQMH quality maps (default) or classic local tile contributions
-
-**Processing**
-
-- AQMH: combine each pixel with global frame weights and per-frame quality maps, then apply weighted sigma clipping
-- Classic: `TILE_RECONSTRUCTION` (enum 9) fuses weighted tile contributions and
-  blends neighboring overlap regions
-- use streaming CUDA for AQMH reconstruction when Cherry-Pick is disabled
-- use CUDA/OpenCL for classic sigma clipping and overlap-add; fall back to CPU when unavailable
-
-**Output**
-
-- reconstructed image with quality-aware information usage
-- AQMH or per-tile reconstruction diagnostics
-
----
-
-## 10) State clustering (`STATE_CLUSTERING`, Classic Tile-Compile only)
-
-**Goal**
-
-- group frames with similar quality or acquisition states
-
-**Processing**
-
-- cluster in global and/or local feature space
-- separate heterogeneous sub-populations within a single acquisition series
-
-**Output**
-
-- cluster assignment per frame
-- diagnostics for cluster size and stability
-
----
-
-## 11) Synthetic frames (`SYNTHETIC_FRAMES`, Classic Tile-Compile only)
-
-**Goal**
-
-- derive robust intermediate representations from clusters
-
-**Processing**
-
-- aggregate frame groups into synthetic representatives
-- reduce variance inside a state cluster
-
-**Output**
-
-- synthetic frames as alternative inputs for later aggregation stages
-
----
-
-## 12) Final stacking (`STACKING`)
-
-**Goal**
-
-- produce the final linear stacked image
-
-**Processing**
-
-- AQMH: pass through the final reconstruction produced in
-  `AQMH_RECONSTRUCTION` (phase 21)
-- Classic: robustly aggregate reconstructed or synthetic intermediate data
-- Classic: suppress outliers such as hot pixels, satellite trails or sporadic defects
-- Classic: combine data using the previously derived quality models
-- Classic: use CUDA/OpenCL for weighted or sigma-clipped reduction and process OSC RGB channels concurrently
-
-**Output**
-
-- linear final image, typically `outputs/stacked.fits`
-
----
-
-## 13) Debayer (`DEBAYER`, OSC only)
-
-**Goal**
-
-- convert CFA/OSC data into an RGB representation
-
-**Processing**
-
-- demosaic the stacked or otherwise prepared linear data product
-- for mono data: pass through without color interpolation
-
-**Output**
-
-- RGB FITS, typically `outputs/stacked_rgb.fits`
-
----
-
-## 14) Astrometry (`ASTROMETRY`)
-
-**Goal**
-
-- generate a WCS solution for the final image
-
-**Processing**
-
-- try ASTAP plate solving first; if it does not produce a WCS, match detected stars against the locally installed PCC Gaia DR3 catalog without starting Siril or using the network
-- derive or write sky-coordinate context and image scale
-
-**Output**
-
-- WCS-aware image or associated WCS file
-- diagnostic artifacts and phase fields describing the selected solver, Gaia star counts, and any fallback error
-
----
-
-## 15) Background Gradient Extraction (`BGE`, optional)
-
-**Goal**
-
-- reduce large-scale background gradients before color calibration
-
-**Processing**
-
-- estimate a background model per RGB channel
-- subtract that model from the RGB image
-- persist diagnostics such as `artifacts/bge.json`
-
-**Output**
-
-- gradient-corrected RGB image, typically `outputs/stacked_rgb_bge.fits`
-- BGE diagnostics
-
----
-
-## 16) Photometric Color Calibration (`PCC`)
-
-**Goal**
-
-- calibrate the RGB image towards a more astrophysically plausible color balance
-
-**Processing**
-
-- match stars against catalogs using the available WCS context
-- determine and apply color scaling or calibration factors
-
-**Output**
-
-- photometrically calibrated RGB image, typically `outputs/stacked_rgb_pcc.fits`
-- PCC diagnostics and possibly auxiliary catalog products
-
----
-
-## 17) HyperMetric Stretch (`HYPERMETRIC_STRETCH`, optional)
-
-**Goal**
-
-- apply a final, reproducible VeraLux HMS stretch to the PCC-calibrated RGB image
-
-**Processing**
-
-- reads the PCC RGB result, typically `outputs/stacked_rgb_pcc.fits`
-- resolves the configured sensor profile, adaptive anchor and Auto-LogD
-- applies the HyperMetric stretch curve and color preservation
-
-**Output**
-
-- stretched RGB image, typically `outputs/stacked_rgb_hms.fits`
-- with `write_channels: true`, also `hms_R.fit`, `hms_G.fit`, `hms_B.fit`
-
----
-
-## 18) Finish (`DONE`)
-
-**Goal**
-
-- move the run into a consistent final state
-
-**Processing**
-
-- persist the terminal status such as `ok` or `validation_failed`
-- finalize artifacts, logs and the configuration snapshot
-
-**Output**
-
-- reproducible and auditable run state
-
----
+### SCAN_INPUT
+
+- Enumerates FITS inputs, reads dimensions and headers (EXPTIME, filter,
+  Bayer keys).
+- Detects MONO vs. OSC and the Bayer pattern; validates linearity and
+  free disk space (`scandir × 4` conservative estimate).
+- Mode inconsistencies or unreadable inputs are terminal here.
+
+### CHANNEL_SPLIT (metadata)
+
+- Records the color mode and Bayer pattern in the event stream
+  (`note: deferred_to_forward_drizzle_cfa`).
+- Emits **no files**: the actual per-pixel channel assignment happens
+  inside the drizzle gather.
+
+### NORMALIZATION
+
+- Computes the additive background `B_f` and photometric scale `P_f` per
+  frame — per CFA channel for OSC (`B_r/g/b`, `P_r/g/b`).
+- Photometric scaling uses `exposure_ratio` when all EXPTIME headers are
+  valid, otherwise `identity_fallback`.
+- Persists normalized frames to `cache/normalized_frames/` and writes
+  `normalization.json` + `global_metrics.json` (early frame weights
+  `G_f`).
+- `normalization.enabled: false` is terminal.
+
+### REGISTRATION
+
+- Cascaded global registration on downsampled registration proxies
+  (CFA-safe for OSC).
+- Produces an affine transform and optionally a smooth local warp model
+  per frame; failures degrade to identity warp with CC=0 — no hard frame
+  rejection.
+- Writes `global_registration.json` and the frozen
+  `registration_sampling.json` plan (output dimensions, `internal_scale`,
+  `cfa_origin`, per-frame transforms).
+- `run_provenance.json` anchors the config sha256 for later resume
+  validation.
+
+### NORMALIZED_CACHE
+
+- Seals `cache/normalized_frames/` against the sampling plan. From here
+  on the cache is read-only input for every consumer.
+
+### SAMPLING_GEOMETRY
+
+- Builds the output grid and coverage masks
+  (`analysis_common_mask`, `reconstruction_support_mask`).
+- Materializes the local-warp geometry cache
+  `artifacts/forward_drizzle_geometry/` for frames with local models —
+  affine-only runs skip it entirely.
+- Writes `sampling_geometry.json`; the coverage-geometry hash feeds the
+  resume checkpoint.
+
+### COMMON_OVERLAP
+
+- Computes the pixelwise common-valid coverage of all frames.
+- Enforces `reconstruction.common_overlap_required_fraction`;
+  writes `forward_common_overlap.json` and fixes the support masks for
+  the remainder of the run.
+
+### SOURCE_QUALITY_MAPS
+
+- Per-frame, per-pixel quality maps from the
+  `reconstruction.quality.pyramid.*` configuration.
+- Persisted under `cache/source_quality_maps/`; plan summarized in
+  `source_quality_plan.json`.
+
+### GLOBAL_QUALITY
+
+- Aggregates source maps into final frame weights `G_f` and applies the
+  coverage/clipping gates (`coverage_gate.*`,
+  `common_overlap_required_fraction`, `clipping.min_n_eff`).
+- First supported resume entry point.
+
+### FORWARD_DRIZZLE
+
+- The core gather: for each row chunk (`drizzle.chunk_rows` +
+  `chunk_halo_rows`) every contributing source sample is splatted with
+  `drizzle.kernel`/`drizzle.pixfrac` into `wx`/`w`/`w²` accumulators of
+  the banded v2 store — per CFA channel for OSC.
+- Robust reduction follows `clipping.*` (`clip_sigma_low/high`,
+  `min_clip_contributors`, `robust_passes`, `guard_fallback`).
+- Memory is bounded by `drizzle.memory_budget_mb`; the checkpoint
+  (`forward_drizzle_checkpoint.json`) records the geometry hash and
+  artifact sizes for resume.
+
+### MULTIBAND
+
+- Fuses the banded store into `reconstruction_multiband.fits` per
+  `reconstruction.multiband.*`; candidate intermediates spool through
+  `artifacts/multiband_candidate_spool/`.
+- Always re-runs on resume (not an entry point).
+
+### STACKING (pass-through marker)
+
+- Emitted before downstream processing for status/report continuity.
+  The drizzle store already *is* the stack — no classic stacking stage
+  exists.
+
+### ASTROMETRY / BGE / PCC / HYPERMETRIC_STRETCH
+
+- Optional downstream phases, fixed order, each independently skippable.
+- Everything up to and including PCC stays linear; HMS is the explicit
+  non-linear final step.
 
 ## Typical run structure
 
-A run typically creates `runs/<run_id>/` with the following logical structure:
-
-- `outputs/`
-  - final and derived FITS products
-  - e.g. `stacked.fits`, `stacked_rgb.fits`, `stacked_rgb_bge.fits`, `stacked_rgb_pcc.fits`, `stacked_rgb_hms.fits`
-- `artifacts/`
-  - per-phase JSON diagnostics
-  - reports and visual assets
-- `logs/`
-  - `run_events.jsonl` as the run event timeline
-- `config.yaml`
-  - snapshot of the effective configuration used for this run
-
-The exact filenames may vary by configuration. The stable part is the semantic separation between outputs, artifacts, logs and configuration snapshot.
-
----
-
-## Resume of post-run phases
-
-The complete resume matrix with the implemented entry points and minimum
-dependencies is in
-[resume_dependencies_en.md](resume_dependencies_en.md). Its distinction
-between direct resume and in-place full rerun is authoritative.
-
-If a run already exists, supported post-processing phases can be re-executed
-from the persisted run state:
-
 ```text
-./tile_compile_runner resume --run-dir runs/<run_id> --from-phase ASTROMETRY
-./tile_compile_runner resume --run-dir runs/<run_id> --from-phase HYPERMETRIC_STRETCH
+runs/<run_id>/
+├── config.yaml                     # frozen run config
+├── logs/run_events.jsonl           # event stream
+├── artifacts/
+│   ├── run_provenance.json         # resume anchor (config sha256)
+│   ├── normalization.json
+│   ├── global_metrics.json
+│   ├── global_registration.json
+│   ├── registration_sampling.json
+│   ├── sampling_geometry.json
+│   ├── forward_common_overlap.json
+│   ├── forward_drizzle_geometry/
+│   ├── source_quality_plan.json
+│   ├── forward_drizzle_v2/
+│   ├── forward_drizzle_checkpoint.json
+│   ├── forward_drizzle.json
+│   ├── reconstruction_multiband.fits
+│   └── report.html                 # via POST /api/runs/<id>/stats
+├── cache/
+│   ├── normalized_frames/
+│   └── source_quality_maps/
+└── outputs/                        # final FITS products
 ```
 
-The resume path reuses in particular:
+## Resume
 
-- the configuration snapshot `config.yaml`
-- outputs and artifacts from earlier phases
-- the run directory as the authoritative working context
-
-For direct post-processing resumes this is a controlled continuation based on
-persisted run data. Early phases marked as in-place full reruns instead start
-the complete pipeline in the same run directory.
-
----
+Only two entry points exist — `GLOBAL_QUALITY` and `FORWARD_DRIZZLE`.
+Both validate provenance (config sha256), the checkpoint (geometry hash,
+artifact sizes), and all required caches fail-closed. Downstream phases
+always re-run. See [resume_dependencies_en.md](resume_dependencies_en.md).
 
 ## Evaluation with the integrated report generator
 
-For technical evaluation and quality assurance, an HTML report can be generated from a run directory:
-
 ```text
-./tile_compile_cli generate-report runs/<run_id>
+POST /api/runs/<run_id>/stats  (GUI: Generate Stats)
 ```
 
-The report is typically written to `runs/<run_id>/artifacts/report.html` and correlates execution events, diagnostic artifacts and configuration state.
-
-Typical report sections include:
-
-- **Normalization**
-  - background trends and intensity-scaling stability
-- **Global metrics**
-  - background, noise, gradient energy, global weights, distributions
-- **Star metrics**
-  - FWHM, wFWHM, roundness, star count, correlation plots
-- **Registration**
-  - drift, rotation, matching or correlation quality
-- **Tile analysis**
-  - Classic-only tile grid, local metrics and spatial heatmaps
-- **AQMH analysis**
-  - quality-map statistics, artifact support and reconstruction diagnostics
-- **Reconstruction**
-  - AQMH per-pixel reconstruction or Classic tile-local usage metrics
-- **Clustering and synthetic frames**
-  - Classic-only cluster sizes, reduction behavior and synthetic representative usage
-- **BGE / PCC**
-  - background model, residuals, calibration diagnostics
-- **Validation**
-  - derived quality indicators and threshold checks
-- **Timeline**
-  - chronological phase sequence from `run_events.jsonl`
-
-The report also embeds the effective `config.yaml`, which makes each finding directly traceable to the exact parameter state.
-
----
+produces `artifacts/report.html` (self-contained, inline SVG) and
+`artifacts/stats.json` from the artifact JSONs and `run_events.jsonl` — normalization trends,
+registration evaluation, coverage/support heatmaps, drizzle and
+multiband diagnostics, downstream (BGE/PCC) results, and the pipeline
+timeline.
 
 ## Notes on interpretation
 
-1. **Linear images look dark**
-   - This is expected. A linear stacked image is not stretched for presentation by default.
-2. **`validation_failed` does not automatically mean “useless”**
-   - It primarily means that defined validation or guardrail criteria were violated.
-3. **Per-pixel AQMH quality is the default principle**
-   - The main advantage comes from dense local quality weighting instead of a purely global average. Classic Tile-Compile remains available when tile-based diagnostics or clustering are specifically desired.
-
----
+- A `skipped` downstream phase (e.g. no astrometric solution) is not a
+  failure; check the phase-end payload for the reason.
+- `channels` in CHANNEL_SPLIT only describes the channel model — count
+  actual per-channel coverage in `forward_drizzle.json`.
+- `STACKING` finishing instantly is expected: it is a marker, the real
+  work happened in FORWARD_DRIZZLE/MULTIBAND.
 
 ## Short conclusion
 
-> The pipeline transforms a heterogeneous FITS frame series into a shared geometric and photometric reference space, builds dense AQMH quality maps, reconstructs the signal per pixel, and produces a reproducible final image with diagnostics, WCS metadata and optional color calibration. The former tile-based workflow is retained as Classic Tile-Compile.
+The pipeline is a single, deterministic CFA-forward-drizzle
+reconstruction path: normalize, register, measure per-pixel quality,
+splat every sample into a banded super-resolution store, fuse the bands,
+then optionally solve, correct, calibrate, and stretch — with a strict
+fail-closed resume contract at the two expensive boundaries.

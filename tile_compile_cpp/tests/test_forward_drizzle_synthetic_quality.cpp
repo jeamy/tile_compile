@@ -484,7 +484,7 @@ TEST_CASE("forward drizzle synthetic quality: aperture flux and centroid match "
 
   // ---- FWHM: multiband is not a regression against raw --------------------
   // Plan 3.2 asks for multiband >= 5 % better on matched real stars; that
-  // comparison needs the PREWARP-AQMH reference (M9 legacy harness). On this
+  // comparison needs the prewarp uniform/raw reference. On this
   // smooth analytic set multiband has little detail to recover, so the fixture
   // only guards against a regression.
   const double med_raw = median(fwhm_raw), med_mb = median(fwhm_mb);

@@ -1,5 +1,4 @@
 #include "tile_compile/reconstruction/drizzle_geometry_cache.hpp"
-#include "tile_compile/reconstruction/forward_drizzle_contrib_list.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2_cpu.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2.hpp"

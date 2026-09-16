@@ -140,31 +140,4 @@ MultibandResult fuse_multiband_streamed(
     const std::vector<float> &a_registration = {},
     const std::vector<double> &background_band_floor = {});
 
-// ---- End-to-end reference path (drizzle U/R/F/M + alpha maps -> fuse) -----
-
-struct MultibandReconstructionParams {
-  // `multiband.fine_quality_exponent` / `.medium_quality_exponent` are the sole
-  // source of truth for the Fine/Medium Q-weight exponents (plan 14.3).
-  config::ReconstructionMultibandConfig multiband{};
-  AdaptiveAlphaParams alpha{};
-  EnergyGuardParams guard{};
-  AlphaConfidenceParams alpha_confidence{};
-  std::vector<double> background_band_floor{};  // per band; empty => 0
-};
-
-// Runs one whole-frame forward-drizzle emitting U/R/F/M and the
-// A_separation/A_artifact/A_registration maps, then fuses per plan 14. This
-// is the in-memory reference (plan 14.7) --- production streams from the
-// transactional stores instead. `quality_of` must supply composite + artifact
-// (and scale0/scale1 for levels >= 1/2).
-MultibandResult reconstruct_multiband_reference(
-    const registration::RegistrationSamplingPlan &plan,
-    const SourceImageProvider &source_of,
-    const config::ReconstructionDrizzleConfig &drizzle_cfg,
-    const config::ReconstructionClippingConfig &clip_cfg,
-    const FrameQualityProvider &quality_of,
-    const MultibandReconstructionParams &params,
-    const ForwardDrizzleSubdivisionParams &subdivision = {},
-    const std::vector<float> &g_eff_by_source_index = {});
-
 }  // namespace tile_compile::reconstruction

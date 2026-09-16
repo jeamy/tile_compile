@@ -404,36 +404,4 @@ MultibandResult fuse_multiband_streamed(
   return out;
 }
 
-MultibandResult reconstruct_multiband_reference(
-    const registration::RegistrationSamplingPlan &plan,
-    const SourceImageProvider &source_of,
-    const config::ReconstructionDrizzleConfig &drizzle_cfg,
-    const config::ReconstructionClippingConfig &clip_cfg,
-    const FrameQualityProvider &quality_of,
-    const MultibandReconstructionParams &params,
-    const ForwardDrizzleSubdivisionParams &subdivision,
-    const std::vector<float> &g_eff_by_source_index) {
-  const int L = params.multiband.levels;
-  if (L < 1 || L > 4) throw std::invalid_argument("MULTIBAND_LEVELS_RANGE");
-
-  MultibandProfileParams mb;
-  mb.emit_fine = true;             // D1 is always Fine
-  mb.emit_medium = L >= 2;         // D2 is Medium
-  mb.emit_alpha_confidence = true;
-  mb.fine_quality_exponent = params.multiband.fine_quality_exponent;
-  mb.medium_quality_exponent = params.multiband.medium_quality_exponent;
-  mb.alpha_confidence = params.alpha_confidence;
-
-  const auto dz = compute_forward_drizzle_uniform_and_raw(
-      plan, source_of, drizzle_cfg, clip_cfg, subdivision, g_eff_by_source_index,
-      quality_of, mb);
-
-  const int w = dz.uniform.internal_width;
-  const int h = dz.uniform.internal_height;
-  return fuse_multiband(dz.uniform, dz.raw, dz.fine, dz.medium, plan.color_mode,
-                        w, h, params.multiband, params.alpha, params.guard,
-                        dz.a_separation, dz.a_artifact, dz.a_registration,
-                        params.background_band_floor);
-}
-
 }  // namespace tile_compile::reconstruction

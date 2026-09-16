@@ -16,22 +16,28 @@ using json = nlohmann::json;
 // These are dropped with a warning; they carry no semantics the new pipeline
 // understands.
 constexpr const char* kRemovedTopLevelBlocks[] = {
+    "aqmh",           // removed AQMH reconstruction method
+    "pipeline",       // production/test mode selector, never consumed at runtime
+    "assumptions",    // Classic reduced/emergency frame-count gating
     "tile",           // Classic tile grid
     "tile_denoise",   // Classic tile-level soft-threshold + wiener denoise
     "local_metrics",  // per-tile local metric weighting
     "synthetic",      // Classic tile-weighted synthetic frame synthesis
+    "validation",     // tile-era reconstruction acceptance gates
 };
 
 // Removed sub-keys under blocks that are otherwise kept. {block, key}.
 constexpr std::pair<const char*, const char*> kRemovedSubKeys[] = {
-    {"dithering", "min_shift_px"},              // dither is diagnosis-only now (6.5 / 26)
-    {"validation", "min_tile_weight_variance"}, // tile-era
-    {"validation", "require_no_tile_pattern"},  // tile-era
     {"stacking", "method"},                     // STACKING is a pass-through (17.2)
     {"stacking", "sigma_clip"},
     {"stacking", "cluster_quality_weighting"},
     {"stacking", "output_stretch"},
     {"stacking", "tile_common_valid_min_fraction"},
+    {"stacking", "cosmetic_correction"},
+    {"stacking", "cosmetic_correction_sigma"},
+    {"runtime_limits", "allow_emergency_mode"},
+    {"runtime_limits", "tile_analysis_max_factor_vs_stack"},
+    {"runtime_limits", "tile_reconstruction_diagnostics"},
 };
 
 void warn_stripped(const std::string& path, ConfigMigrationReport& report) {
@@ -66,16 +72,6 @@ void migrate_legacy_config_node(YAML::Node& node,
         "UNKNOWN_LEGACY_KEY: 'reconstruction.engine' selects a reconstruction "
         "engine; the single-method pipeline has none (plan section 6.5).");
   }
-  if (node["aqmh"] && node["aqmh"].IsMap() &&
-      node["aqmh"]["reconstruction"] &&
-      node["aqmh"]["reconstruction"].IsMap() &&
-      node["aqmh"]["reconstruction"]["engine"]) {
-    throw ConfigError(
-        "UNKNOWN_LEGACY_KEY: 'aqmh.reconstruction.engine' selects a "
-        "reconstruction engine; the single-method pipeline has none "
-        "(plan section 6.5).");
-  }
-
   // --- 2. removed structural blocks: strip with warning -------------------
   for (const char* block : kRemovedTopLevelBlocks) {
     if (node[block] && node[block].IsDefined()) {
@@ -91,11 +87,38 @@ void migrate_legacy_config_node(YAML::Node& node,
     }
   }
 
-  // --- 3. renames (aqmh -> reconstruction, global_metrics -> ... ) --------
-  // Deferred. The renames are coupled to the internal config::Config field
-  // rename and to the schema / default-YAML / examples update (plan section
-  // 6.4). Until that lands, the parser keeps reading the old key names, so a
-  // rename here would break parsing. Tracked in plan section 30.4.
+  // --- 3. renames ---------------------------------------------------------
+  // stacking.common_overlap_required_fraction -> reconstruction.* (same knob,
+  // moved when STACKING became a pass-through).
+  auto move_key = [&](YAML::Node src_parent, const char* src_key,
+                      YAML::Node dst_parent, const char* dst_key,
+                      const std::string& from, const std::string& to) {
+    if (!src_parent || !src_parent.IsMap() || !src_parent[src_key] ||
+        !src_parent[src_key].IsDefined()) {
+      return;
+    }
+    // An explicitly set new-style key wins; the legacy value is still dropped.
+    if (!dst_parent[dst_key] || !dst_parent[dst_key].IsDefined()) {
+      dst_parent[dst_key] = src_parent[src_key];
+    }
+    src_parent.remove(src_key);
+    std::cerr << "[CONFIG-MIGRATION] WARN renamed legacy config key '" << from
+              << "' -> '" << to << "'." << std::endl;
+    report.renamed_keys.emplace_back(from, to);
+    report.applied = true;
+  };
+
+  if (node["stacking"] && node["stacking"].IsMap() &&
+      node["stacking"]["common_overlap_required_fraction"] &&
+      node["stacking"]["common_overlap_required_fraction"].IsDefined()) {
+    if (!node["reconstruction"] || !node["reconstruction"].IsMap()) {
+      node["reconstruction"] = YAML::Node(YAML::NodeType::Map);
+    }
+    move_key(node["stacking"], "common_overlap_required_fraction",
+             node["reconstruction"], "common_overlap_required_fraction",
+             "stacking.common_overlap_required_fraction",
+             "reconstruction.common_overlap_required_fraction");
+  }
 }
 
 std::string ConfigMigrationReport::to_json_string() const {

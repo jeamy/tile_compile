@@ -1018,18 +1018,14 @@ json completion_config_schema(const SchemaInfo& schema) {
 
 json extract_resume_recommendation(const json& analysis) {
     static const std::set<std::string> supported = {
-        "SCAN_INPUT", "REGISTRATION", "PREWARP", "CHANNEL_SPLIT", "NORMALIZATION",
-        "GLOBAL_METRICS", "TILE_GRID", "COMMON_OVERLAP", "LOCAL_METRICS",
-        "TILE_RECONSTRUCTION", "STATE_CLUSTERING", "SYNTHETIC_FRAMES", "AQMH_MAPS",
-        "AQMH_GLOBAL_QUALITY", "AQMH_METRICS", "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS",
-        "STACKING", "DEBAYER", "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"
+        "GLOBAL_QUALITY", "FORWARD_DRIZZLE"
     };
     json recommendation = analysis.value("resume_recommendation", json::object());
     if (!recommendation.is_object()) recommendation = json::object();
     const std::string phase = recommendation.value("from_phase", std::string());
     if (!supported.count(phase)) {
-        recommendation["from_phase"] = "DEBAYER";
-        recommendation["reason"] = "Fallback to the earliest safe phase that regenerates stacked_rgb.fits.";
+        recommendation["from_phase"] = "FORWARD_DRIZZLE";
+        recommendation["reason"] = "Fallback to the latest safe resume start point that regenerates stacked_rgb.fits and all downstream outputs.";
         recommendation["model_phase_rejected"] = phase;
     }
     recommendation["feasibility"] = "requires_dry_run";
@@ -1933,8 +1929,8 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             "(array of objects with path, value, reason, confidence, risk), and resume_recommendation "
             "(object with from_phase and reason). Recommend object-agnostic parameter improvements for a new "
             "run. Use only allowed_config_paths and config_schema. Do not infer defects that are hidden by the "
-            "preview. AQMH and Classic Tile Compile are independent: never feed Classic local/tile quality "
-            "metrics into AQMH weights. Select the earliest necessary supported resume phase and explain why; "
+            "preview. Select the earliest necessary supported resume phase (GLOBAL_QUALITY or "
+            "FORWARD_DRIZZLE) and explain why; "
             "the backend will verify feasibility separately.";
 
         json image_info = preview;

@@ -67,7 +67,7 @@ std::string compute_source_quality_identity_hash(
 // Config identity (plan 13.4): proxy version, pyramid/Q parameters, storage
 // divisor and dtype.
 std::string compute_scale_quality_config_hash(
-    const config::AqmhPyramidConfig &pyramid,
+    const config::ReconstructionQualityPyramidConfig &pyramid,
     const SourceQualityMapCacheConfig &cache_cfg);
 
 struct SourceQualityCacheFileEntry {
@@ -104,7 +104,7 @@ class SourceQualityMapCacheWriter {
   SourceQualityMapCacheWriter(
       fs::path root, const registration::RegistrationSamplingPlan &plan,
       std::string normalized_cache_hash,
-      const config::AqmhPyramidConfig &pyramid,
+      const config::ReconstructionQualityPyramidConfig &pyramid,
       SourceQualityMapCacheConfig cache_cfg = {});
 
   // Store one source-geometry map (values in [0,1], NaN/<=0 = veto) for one
@@ -342,7 +342,7 @@ SourceQualityMapsBuildResult build_source_quality_map_cache(
     const fs::path &cache_root,
     const registration::RegistrationSamplingPlan &plan,
     VerifiedNormalizedSourceCache &cache,
-    const config::AqmhPyramidConfig &pyramid,
+    const config::ReconstructionQualityPyramidConfig &pyramid,
     SourceQualityMapCacheConfig cache_cfg = {}, int workers = 1);
 
 }  // namespace tile_compile::reconstruction

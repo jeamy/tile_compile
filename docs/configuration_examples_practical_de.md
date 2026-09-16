@@ -4,150 +4,130 @@
 
 Dieser Leitfaden ergänzt die Konfigurationsreferenz mit praktischen Beispielen, Grenzbereichen und Anwendungsfällen basierend auf der Methodik v3.3.
 
-## Änderungsstand (2026-07-18)
+## Änderungsstand (Single-Method-Cutover)
 
-- AQMH (`aqmh.*`) vollständig dokumentiert und mit praktischen Beispielen versehen.
-- HyperMetric Stretch (`hypermetric_stretch.*`) ist als optionale Post-PCC-Phase mit `ready_to_use`- und `scientific`-Modus dokumentiert.
-- `bge.fit.robust_loss` und `bge.fit.huber_delta` sind wieder als Benutzerparameter verfügbar.
-- Neue BGE-Apply-Grenzwerte `bge.min_valid_sample_fraction_for_apply` und `bge.min_valid_samples_for_apply` dokumentiert.
-- PCC-Beispiele wurden auf den aktuellen Parametersatz (ohne `pcc.method`) aktualisiert.
-- Assumptions-Beispiele auf die aktiven Runtime-Felder (`frames_min`, `frames_reduced_threshold`, Reduced-Mode-Steuerung) abgeglichen.
-- `registration.enable_star_pair_fallback` ergänzt, um die optionale nicht-normative Star-Pair-Stufe zu steuern.
-- `bge.tile_weight_lambda_structure` auf den aktuellen Default `1.0` abgeglichen.
-- `stacking.common_overlap_required_fraction` und `stacking.tile_common_valid_min_fraction` mit der aktuellen strikten Default-Semantik `1.0 / 1.0` dokumentiert.
-- Das Basis-Snippet wurde auf das strikte `v3.3.9`-Profil aktualisiert.
-- AQMH-Beispiele auf die objektklassenunabhängige v0.2.1-Baseline abgeglichen: begrenzte globale Sigmoid-Gewichte, `resolution_divisor: 2`, `dtype: uint16`, asymmetrisches Sigma-Clipping `2.0 / 1.5` mit vier Iterationen und duales Validierungsgate gegen Uniformkontrolle und rohe AQMH-Baseline.
+- Die Pipeline ist fest auf **CFA Forward Drizzle + Multiband** ausgelegt (`tile_compile_runner reconstruct`); es gibt keinen Methoden-Selektor mehr.
+- `method`, `pipeline.mode`, `aqmh.*`, `tile.*`, `tile_denoise.*`, `local_metrics.*`, `synthetic.*`, `validation.*`, `assumptions.*` und die Classic-`stacking.*`-Felder wurden entfernt; die Zuordnung alter auf neue Schluessel steht in der Konfigurationsreferenz §1.
+- Die ehemaligen `aqmh.reconstruction.*`-Tuningwerte leben unter `registration.*` (Prewarp/Debayer) und `reconstruction.drizzle.*` / `reconstruction.clipping.*` weiter.
+- `aqmh.pyramid.*` heisst jetzt `reconstruction.quality.pyramid.*`.
+- `stacking.common_overlap_required_fraction` heisst jetzt `reconstruction.common_overlap_required_fraction`.
 
-**Strict-v3.3.9-Basis-Snippet:**
+**Basis-Snippet (Single-Method):**
 
 ```yaml
-assumptions:
-  frames_min: 50
-  frames_reduced_threshold: 200
-
 registration:
   engine: triangle_star_matching
-  enable_star_pair_fallback: false
+  enable_star_pair_fallback: true
+  prewarp_interpolation: lanczos4
+  debayer_first: true
+  pre_debayer_method: linear
 
-stacking:
+reconstruction:
   common_overlap_required_fraction: 1.0
-  tile_common_valid_min_fraction: 1.0
+  diagnostics:
+    level: full
+  drizzle:
+    robust_passes: 4
+  clipping:
+    clip_sigma_low: 2.0
+    clip_sigma_high: 4.0
+    min_fraction: 0.4
+    min_n_eff: 2.0
 ```
 
 ---
 
-## AQMH (Adaptive Quality Map Harvesting) - Experimentell
+## Rekonstruktion (CFA Forward Drizzle + Multiband)
 
-**Wann aktivieren:**
-- Hochwertige Sessions mit stark variierender Frame-Qualität (Seeing, Wolken)
-- Wenn Tile-Seams oder OLA-Artefakte sichtbar sind
-- Als Alternative zur klassischen Tile-OLA-Rekonstruktion
+Die Rekonstruktion ist die einzige Methode und immer aktiv. Relevant sind
+v. a. die robuste Beitragskontrolle (`clipping.*`), die
+Streaming-/Speichersteuerung (`drizzle.*`) und die lokalen Qualitaetskarten
+(`quality.pyramid.*`).
 
-**Standard-Konfiguration (empfohlen):**
+**Produktions-Profil (empfohlen, angelehnt an `tile_compile.yaml`):**
 
 ```yaml
 registration:
   affine_refinement_enabled: true       # nur bei vollständig bestandenen Residual-/NCC-/Overlap-Gates anwenden
   smooth_local_refinement_enabled: true # zusätzlicher Held-out-/Jacobian-Guard; sonst atomarer Warp-Fallback
-aqmh:
-  enabled: true
-  pyramid:
-    scales: 4
-    base_window_px: 4
-    w_sharp: 0.6        # Schärfe-Gewicht im Qualitätsindex
-    w_snr: 0.4          # SNR-Gewicht im Qualitätsindex
-    score_scale: 1.8    # Selektivität der lokalen AQMH-Qualitätskarte
-    k_artifact: 3.0     # MAD-Multiplikator für Artefakt-Erkennung
-    frac_artifact_max: 0.25  # max. Artefaktanteil pro Fenster
-  storage:
-    resolution_divisor: 2   # robuster Standard; 1 für Cherry-Pick/Referenzläufe
-    dtype: uint16           # float32 für Cherry-Pick/Referenzläufe
-    max_resident_maps: 2
-  global_quality:
-    g_floor: 0.03
-    g_w_sharp: 0.55
-    g_w_snr: 0.30
-    g_w_background_penalty: 0.25
-    g_k_scale: 1.5         # begrenzte Sigmoid-Temperatur
-  reconstruction:
-    delete_prewarped_cache_after_run: true  # false fuer Resume; Cache liegt unter cache/prewarped_frames
-    prewarp_interpolation: cubic             # belegter Schärfe-Default; linear = Low-Noise-Fallback, lanczos4 = Tuning
-    debayer_first: true                      # OSC: vor PREWARP/AQMH debayern und RGB direkt rekonstruieren
-    pre_debayer_method: edge_aware           # konservativ bei sehr niedrigem SNR: bilinear testen
-    rgb_q_map_mode: shared_luma
-    rgb_memory_strategy: sequential
-    clip_sigma: 2.0
-    clip_sigma_low: 2.0
-    clip_sigma_high: 2.0
-    clip_iterations: 4
-    min_fraction: 0.4
-    min_n_eff: 2.0
-    registration_weight_guard: true
-    registration_weight_floor: 0.30
-    registration_sequential_factor: 0.92
-    registration_predicted_factor: 0.50
-    structure_mask_low_q: 0.40
-    structure_mask_high_q: 0.90
-    structure_mask_blur_sigma_px: 4.0
-  cherry_pick:
-    enabled: false
-  validation:
-    max_seam_score_regression: 0.05
-    max_fwhm_regression: 0.02
-    max_background_rms_regression: 0.05
-    max_tail11_abs_regression: 0.10
-    max_elongation_regression: 0.08
+  prewarp_interpolation: lanczos4       # schärfste Interpolation; cubic/linear = schnellere Fallbacks
+  debayer_first: true                   # OSC: vor dem Prewarp debayern, RGB direkt rekonstruieren
+  pre_debayer_method: linear            # Demosaicing-Methode des debayer_first-Pfads
+
+reconstruction:
+  delete_source_cache_after_run: true   # Cache nach erfolgreichem Lauf loeschen (Plattenplatz)
   diagnostics:
     level: full
-    tau_artifact: 0.20
-    q_region: 0.75
-    r_morph_canvas_px: 6
-    binary_block_size_px: 64
+  drizzle:
+    robust_passes: 4                    # robuste Reprojektions-Passes
+  clipping:
+    clip_sigma_low: 2.0                 # untere MAD-Schwelle (aggressiver)
+    clip_sigma_high: 4.0                # obere MAD-Schwelle (toleranter)
+    min_fraction: 0.4                   # Mindestanteil belegbarer Samples
+    min_n_eff: 2.0                      # min. effektive Beitragszahl pro Pixel
+    guard_fallback: false               # false = striktes Veto bei Clip-Versagen
+  quality:
+    pyramid:
+      scales: 4
+      base_window_px: 4
+      sharpness_weight: 0.6   # Schärfe-Gewicht im Qualitätsindex
+      snr_weight: 0.4         # SNR-Gewicht im Qualitätsindex
+      score_scale: 1.8        # Selektivität der lokalen Qualitätskarten
+      artifact_sigma: 3.0     # MAD-Multiplikator für Artefakt-Erkennung
+      max_artifact_fraction: 0.25  # max. Artefaktanteil pro Fenster
 ```
 
 **Toleranter gegenüber Artefakten (Satelliten, Wolken):**
 
 ```yaml
-aqmh:
-  enabled: true
-  pyramid:
-    k_artifact: 5.0
-    frac_artifact_max: 0.35
+reconstruction:
+  quality:
+    pyramid:
+      artifact_sigma: 5.0
+      max_artifact_fraction: 0.35
+  clipping:
+    clip_sigma_low: 1.5
 ```
 
-**Cherry-Pick Auto-Reject (meiste Frames behalten, nur Extremfälle verwerfen):**
+**Speichersparend (grosse Sessions, RAM-knapp):**
 
 ```yaml
-aqmh:
-  enabled: true
-  storage:
-    resolution_divisor: 1
-    dtype: float32
-  cherry_pick:
-    enabled: true
-    mode: auto_reject
-    k_min_required: 20  # Lauf-Gate und Untergrenze Samples pro Pixel
-    reject_below_best_fraction: 0.25
-    min_keep_fraction: 0.90
+reconstruction:
+  drizzle:
+    memory_budget_mb: 1024   # explizites Budget; 0 erbt runtime_limits.memory_budget
+    chunk_rows: 0            # 0 = budgetierte Streifen (<=256 Zeilen)
+
+runtime_limits:
+  parallel_workers: 2
+  memory_budget: 1024
 ```
 
-**Speichersparend (große Sessions, RAM-knapp):**
+**Konservativ bei schwarzen Artefaktpixeln:**
 
 ```yaml
-aqmh:
-  enabled: true
-  storage:
-    resolution_divisor: 4   # Viertel-Auflösung für Maps
-    dtype: uint8            # 8-bit Quantisierung
-    max_resident_maps: 2
+reconstruction:
+  clipping:
+    guard_fallback: true     # statt Veto den Survivor-/Unclipped-Wert verwenden
 ```
 
-**AQMH deaktivieren (zurück zu klassischer Tile-OLA):**
+**Feldfuellende Objekte (z. B. grosse Galaxien):**
+
+Der `background_rms`-Gate misst Rauschen in Regionen, die bei feldfuellenden
+Objekten echte schwache Struktur enthalten. Der gewichtete Stack kann dann
+mehr "RMS" zeigen, obwohl er mehr Signal bewahrt - und das Gate verwirft ihn
+zugunsten der ungewichteten Kontrolle (Detailverlust). Diagnose: im Report /
+`forward_drizzle.json` pruefen, ob `selected_candidate` auf
+`drizzle_uniform` zurueckfiel, obwohl `background_rms` nur knapp ueber dem
+Schwellwert lag.
 
 ```yaml
-aqmh:
-  enabled: false
+reconstruction:
+  multiband_validation:
+    background_rms_ratio_max: 1.15   # toleranter, wenn "Hintergrund" Struktur enthaelt
 ```
+
+Die uebrigen `multiband_validation.*`-Gates (FWHM, Elongation, Naht)
+sollten nur mit Beleg aus den Validierungsartefakten gelockert werden.
 
 ---
 
@@ -252,6 +232,17 @@ bge:
 
 **Wichtig:** BGE läuft **vor** PCC. Wenn BGE aktiviert ist, sollte PCC danach bessere Ergebnisse liefern.
 
+Seit dem Forward-Drizzle-Cutover verankert AutoBGE alle drei Kanaele an
+einem gemeinsamen Sockel (dunkelster Modell-Median) statt pro Kanal am
+eigenen Modell-Median. Damit werden kanalabhaengige
+Hintergrund-Pedestale vor PCC/HMS egalisiert. Der Slope-Guard kann
+ueberstimmt werden, wenn die Korrektur die Kanal-Level-Streuung
+messbar verbessert; das steht dann als `guard_override:
+"level_equalization"` in `artifacts/bge.json` (pro Kanal
+`guard_reason: "slope_worsened_but_level_equalized"`). Ohne
+Level-Verbesserung verwirft der Guard die Korrektur weiterhin
+vollstaendig.
+
 **PCC-v3.3.6-Optionen (empfohlen mit BGE):**
 
 ```yaml
@@ -311,58 +302,37 @@ hypermetric_stretch:
 
 ---
 
-## Gemeinsamer Overlap nach PREWARP (`stacking.common_overlap_*`)
+## Gemeinsamer Overlap (`reconstruction.common_overlap_required_fraction`)
 
-**Aktuelle sinnvolle Standardwerte:**
+**Aktueller sinnvoller Standardwert:**
 
 ```yaml
-stacking:
+reconstruction:
   common_overlap_required_fraction: 1.0
-  tile_common_valid_min_fraction: 1.0
 ```
 
-- `common_overlap_required_fraction: 1.0` erzwingt die strikte Schnittmenge aller nutzbaren Frames.
-- `tile_common_valid_min_fraction: 1.0` bedeutet: Ein Tile ist nur dann gueltig, wenn seine komplette Flaeche innerhalb von `COMMON_OVERLAP` liegt.
-- Die Tile-Quote wird ueber die volle Tile-Flaeche berechnet, nicht nur ueber den zufaellig im Canvas liegenden Rest.
+- `1.0` erzwingt die strikte Schnittmenge aller nutzbaren Frames.
+- Niedrigere Werte lassen wieder teilweise überdeckte Randpixel in Metriken, BGE/PCC und Hintergrundstatistiken einsickern.
 
 **Empfehlungen nach Setup:**
 
-- **Alt/Az mit Feldrotation:** `1.0 / 1.0` (empfohlen)
-- **EQ mit sehr stabiler Nachfuehrung:** `1.0 / 1.0` (empfohlen, wenn Randbias vermieden werden soll)
-- **Nur wenn bewusst mehr Randflaeche zugelassen werden soll:** z. B. `0.98 / 0.95` oder `0.95 / 0.90`
-
-**Wichtig:** Niedrigere Werte lassen wieder teilweise ueberdeckte Randpixel und Rand-Tiles in lokale Metriken, BGE/PCC und Hintergrundstatistiken einsickern.
+- **Alt/Az mit Feldrotation:** `1.0` (empfohlen)
+- **EQ mit sehr stabiler Nachfuehrung:** `1.0` (empfohlen, wenn Randbias vermieden werden soll)
+- **Nur wenn bewusst mehr Randflaeche zugelassen werden soll:** z. B. `0.98` oder `0.95`
 
 ---
 
-## Sichtbare Kachelgrenzen diagnostizieren (Artefakte)
+## Sichtbare Grenzen / Artefakte diagnostizieren
 
-Es gibt aktuell keinen dedizierten Seam-Korrektur-Parameterblock.
+Die Forward-Drizzle-Pipeline erzeugt keine Kachel-Seams mehr (kein
+Overlap-Add-Stacking). Wenn sichtbare Artefakte auftreten, pruefe:
 
-Wenn sichtbare Kachelstruktur auftritt, prüfe nach dem Run `artifacts/tile_reconstruction.json`, insbesondere:
-
-- `tile_boundary_raw_pair_mean_abs_diff_p95`
-- `tile_boundary_normalized_pair_mean_abs_diff_p95`
-- `tile_boundary_pair_mean_abs_diff_p95`
-- `tile_boundary_post_background_delta_p95_abs`
-- `tile_boundary_post_snr_delta_p95_abs`
-- `tile_boundary_top_pairs`
-- `tile_norm_scale`
-
-Interpretation:
-
-- hohe `tile_boundary_raw_pair_mean_abs_diff_*`-Werte bedeuten, dass sich benachbarte Tiles schon vor der optionalen Tile-Normalisierung deutlich unterscheiden
-- wenn `tile_boundary_normalized_pair_mean_abs_diff_*` deutlich höher liegt als der Raw-Wert, verschärft die Tile-Normalisierung die Naht
-- hohe `tile_boundary_post_background_delta_*`-Werte deuten auf tileweisen Hintergrunddrift
-- hohe `tile_boundary_post_snr_delta_*`-Werte sprechen für divergierende Support-/Qualitätslage benachbarter Tiles
-- `tile_boundary_top_pairs` listet die problematischsten Nachbarpaare mit Tile-Indizes, Grid-Positionen, Valid-Counts, Fallback-Flags und Post-Metriken
-- über `tile_norm_scale` und `tile_norm_bg_*` an genau diesen Tile-Indizes lässt sich prüfen, ob die Normierung die Tile-Population auseinanderzieht
-
-Wenn die Kachelstruktur sichtbar ist und diese Boundary-Diagnostik ebenfalls hoch ausfällt, zuerst prüfen:
-
-- `tile.overlap_fraction`
-- `tile_denoise.*`
-- `stacking.output_stretch`
+- `reconstruction.coverage_gate.*` — Deckungs-Gates vor FORWARD_DRIZZLE
+- `reconstruction.clipping.*` — bei zu aggressiven Sigma-Werten kann Signal
+  verworfen werden; bei zu losen Werten bleiben Ausreisser stehen
+- `reconstruction.clipping.guard_fallback` — `false` laesst nicht belegbare
+  Pixel schwarz; `true` faellt auf Survivor-/Unclipped-Werte zurueck
+- `reconstruction.diagnostics.level: full` — maximale Diagnose-Artefakte
 - nachgelagerte Unterschiede aus `BGE` oder `PCC`
 
 ---
@@ -379,77 +349,18 @@ stacking:
   per_frame_cosmetic_correction_sigma: 5.0
 ```
 
-Optional kann zusätzlich eine sehr konservative Post-Stack-Kosmetik aktiv bleiben:
-
-```yaml
-stacking:
-  cosmetic_correction: true
-  cosmetic_correction_sigma: 10.0
-```
-
 ---
 
-## Audit-Hinweis zu Legacy-Parametern
+## Audit-Hinweis zu entfernten Parametern
 
-Im Rahmen des Code-/Schema-Abgleichs wurden mehrere veraltete Beispielparameter aus diesem Leitfaden entfernt oder ersetzt.
-
-Nicht mehr aktive Legacy-Keys waren unter anderem:
-- `tile.size`, `tile.overlap`, `tile.min_valid_fraction`
-- `registration.method`, `registration.max_rotation_deg`, `registration.fallback_to_identity`, `registration.identity_correlation_threshold`, `registration.trail_endpoint_enabled`
-- `global_metrics.fwhm_percentile`, `global_metrics.fwhm_outlier_sigma`, `global_metrics.use_robust_background`
-- `local_metrics.sharpness_method`, `local_metrics.sharpness_kernel_size`, `local_metrics.sharpness_percentile`, `local_metrics.contrast_percentile`
-- der komplette alte Block `reconstruction.*`
-- `runtime.min_frames`, `runtime.allow_reduced_mode`, `runtime.max_memory_gb`, `runtime.use_disk_cache`
-- `data.mode`
-- `output.write_tile_weights`, `output.write_quality_maps`
+Mit dem Single-Method-Cutover wurden die Bloecke `aqmh.*`, `tile.*`,
+`tile_denoise.*`, `local_metrics.*`, `synthetic.*`, `validation.*`,
+`assumptions.*`, `pipeline.*`, `method` sowie die Classic-`stacking.*`-Felder
+(`method`, `sigma_clip.*`, `cluster_quality_weighting.*`, `output_stretch`,
+`tile_common_valid_min_fraction`, `cosmetic_correction*`) entfernt.
+Die Zuordnung migrierter Schluessel steht in der Konfigurationsreferenz §1.
 
 Die folgenden Praxisbeispiele verwenden nur noch aktuell aktive Parameter aus Code und Schema.
-
----
-
-## Tile-Erzeugung (`tile.*`)
-
-Die Tile-Erzeugung ist im aktuellen Runner **adaptiv**. Statt eines festen `tile.size` werden die Tiles aus `tile.size_factor`, `tile.min_size`, `tile.max_divisor` und `tile.overlap_fraction` abgeleitet.
-
-**Kurze Brennweite / gutes Seeing:**
-```yaml
-tile:
-  size_factor: 24
-  min_size: 48
-  max_divisor: 6
-  overlap_fraction: 0.30
-```
-
-**Allround / Default-nah:**
-```yaml
-tile:
-  size_factor: 32
-  min_size: 64
-  max_divisor: 6
-  overlap_fraction: 0.25
-```
-
-**Lange Brennweite / grobe Strukturen / schlechtes Seeing:**
-```yaml
-tile:
-  size_factor: 40
-  min_size: 96
-  max_divisor: 5
-  overlap_fraction: 0.30
-```
-
-**Alt/Az mit striktem Randverhalten:**
-```yaml
-tile:
-  size_factor: 24
-  min_size: 48
-  max_divisor: 6
-  overlap_fraction: 0.30
-
-stacking:
-  common_overlap_required_fraction: 1.0
-  tile_common_valid_min_fraction: 1.0
-```
 
 ---
 
@@ -475,7 +386,6 @@ registration:
   star_min_inliers: 4
   star_inlier_tol_px: 4.0
   star_dist_bin_px: 5.0
-  max_shift_px: 80
   reject_outliers: true
   reject_cc_min_abs: 0.25
   reject_shift_px_min: 100.0
@@ -498,7 +408,6 @@ registration:
 registration:
   engine: robust_phase_ecc
   allow_rotation: true
-  max_shift_px: 80
   reject_outliers: true
   # Legacy-Kompatibilitaet; bei independent_global_consensus_v2 ohne Einfluss
   max_blind_chain_depth: 0
@@ -514,7 +423,6 @@ registration:
 registration:
   engine: triangle_star_matching
   allow_rotation: true
-  max_shift_px: 30
   # Neue Parameter (v2.0) — Defaults
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.08
@@ -592,101 +500,68 @@ global_metrics:
 
 ---
 
-## Lokale Gewichtung (`local_metrics.*`)
+## Lokale Qualitätskarten (`reconstruction.quality.pyramid.*`)
 
-Statt alter Schärfe-Kernel-/Percentile-Schalter sind aktuell die Exponent-Skala `k_local`, die Nachbarschafts-Normierung, die räumliche Regularisierung und die STAR-/STRUCTURE-Gewichte relevant.
+Die lokale Pixelgewichtung erfolgt ueber die Source-Quality-Pyramide
+(Phase `SOURCE_QUALITY_MAPS`), nicht mehr ueber Tile-Metriken.
 
 **Default-nah / robust:**
 ```yaml
-local_metrics:
-  clamp: [-3.0, 3.0]
-  k_local: 1.0
-  neighborhood_normalization:
-    enabled: true
-    radius: 1
-    blend: 0.5
-  spatial_regularization:
-    enabled: true
-    lambda: 0.35
-    passes: 1
+reconstruction:
+  quality:
+    pyramid:
+      scales: 4
+      base_window_px: 4
+      sharpness_weight: 0.6
+      snr_weight: 0.4
+      score_scale: 1.8
+      artifact_sigma: 3.0
+      max_artifact_fraction: 0.25
 ```
 
-**Staerkere lokale Differenzierung:**
+**Schaerfe staerker gewichten (Seeing-Sessions):**
 ```yaml
-local_metrics:
-  k_local: 1.5
+reconstruction:
+  quality:
+    pyramid:
+      sharpness_weight: 0.7
+      snr_weight: 0.3
+      score_scale: 2.5
 ```
 
-**Weichere lokale Gewichtung:**
+**SNR staerker gewichten (verrauschte, heterogene Sessions):**
 ```yaml
-local_metrics:
-  k_local: 0.7
+reconstruction:
+  quality:
+    pyramid:
+      sharpness_weight: 0.4
+      snr_weight: 0.6
 ```
 
-**Sternfelder priorisieren:**
+**Mehr Raumfrequenzen erfassen:**
 ```yaml
-local_metrics:
-  star_mode:
-    weights:
-      fwhm: 0.7
-      roundness: 0.2
-      contrast: 0.1
-```
-
-**Diffuse Struktur priorisieren:**
-```yaml
-local_metrics:
-  structure_mode:
-    metric_weight: 0.7
-    background_weight: 0.3
+reconstruction:
+  quality:
+    pyramid:
+      scales: 6
+      base_window_px: 4
 ```
 
 ---
 
-## Frame-Anzahl und Modi (`assumptions.*`, `synthetic.*`, `runtime_limits.*`)
+## Laufzeitgrenzen (`runtime_limits.*`)
 
-Die Umschaltung erfolgt aktuell ueber `assumptions.frames_min` und `assumptions.frames_reduced_threshold`, nicht mehr ueber einen alten `runtime.min_frames`-Block.
+Das fruehere Reduced-/Emergency-Mode-Gating (`assumptions.*`,
+`runtime_limits.allow_emergency_mode`) entfaellt; die Pipeline hat nur noch
+einen Modus. Relevant bleiben die Laufzeitgrenzen:
 
-**Full Mode (N >= 200):**
-```yaml
-assumptions:
-  frames_min: 50
-  frames_reduced_threshold: 200
-  reduced_mode_skip_clustering: false
-
-synthetic:
-  weighting: tile_weighted
-  frames_min: 4
-  frames_max: 20
-  clustering:
-    mode: kmeans
-    cluster_count_range: [3, 12]
-```
-
-**Reduced Mode (50 <= N < 200):**
-```yaml
-assumptions:
-  frames_min: 50
-  frames_reduced_threshold: 200
-  reduced_mode_skip_clustering: true
-  reduced_mode_cluster_range: [5, 10]
-```
-
-**Emergency Mode (nur bewusst):**
 ```yaml
 runtime_limits:
-  allow_emergency_mode: true
-
-stacking:
-  common_overlap_required_fraction: 1.0
-  tile_common_valid_min_fraction: 1.0
-  sigma_clip:
-    sigma_low: 2.5
-    sigma_high: 2.5
-    max_iters: 2
+  parallel_workers: 8        # parallele Worker
+  memory_budget: 4096        # MeB; deckelt zusaetzlich die Parallelitaet
+  hard_abort_hours: 6.0      # hartes Laufzeitlimit
+  acceleration_backend: auto # auto | cpu | opencv_cuda | opencv_opencl | opencl
 ```
-
-**Warnung:** `allow_emergency_mode` ist fuer Test-/Rettungslaeufe gedacht, nicht fuer normale Produktion.
 
 ---
 
@@ -715,13 +590,10 @@ data:
 
 ---
 
-## Performance-Optimierung (`pipeline.*`, `runtime_limits.*`, `output.*`)
+## Performance-Optimierung (`runtime_limits.*`, `output.*`)
 
 **Schneller Debug-Lauf:**
 ```yaml
-pipeline:
-  mode: test
-
 linearity:
   max_frames: 4
 
@@ -736,9 +608,6 @@ output:
 
 **Produktion / hohe Qualitaet:**
 ```yaml
-pipeline:
-  mode: production
-
 runtime_limits:
   parallel_workers: 8
   memory_budget: 4096
@@ -771,28 +640,6 @@ data:
   color_mode: OSC
   bayer_pattern: auto
 
-tile:
-  size_factor: 24
-  min_size: 48
-  max_divisor: 6
-  overlap_fraction: 0.30
-
-registration:
-  engine: triangle_star_matching
-  enable_star_pair_fallback: true
-  allow_rotation: true
-  max_shift_px: 80
-  star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius für mehrstündige Sessions
-
-stacking:
-  common_overlap_required_fraction: 1.0
-  tile_common_valid_min_fraction: 1.0
-  per_frame_cosmetic_correction: true
-  per_frame_cosmetic_correction_sigma: 2.5
-
-pcc:
-  enabled: true
-  source: auto
 ```
 
 ### DSLR auf EQ-Montierung
@@ -802,23 +649,6 @@ data:
   color_mode: OSC
   bayer_pattern: auto
 
-tile:
-  size_factor: 36
-  min_size: 96
-  max_divisor: 6
-  overlap_fraction: 0.35
-
-registration:
-  engine: triangle_star_matching
-  allow_rotation: true
-  max_shift_px: 40
-
-global_metrics:
-  adaptive_weights: false
-  weight_exponent_scale: 1.0
-
-pcc:
-  enabled: true
 ```
 
 Fertige Profile im Repository:
@@ -831,22 +661,6 @@ Fertige Profile im Repository:
 data:
   color_mode: MONO
 
-tile:
-  size_factor: 40
-  min_size: 96
-  max_divisor: 5
-  overlap_fraction: 0.30
-
-registration:
-  engine: triangle_star_matching
-  allow_rotation: true
-  max_shift_px: 20
-
-local_metrics:
-  k_local: 1.2
-  structure_mode:
-    metric_weight: 0.7
-    background_weight: 0.3
 ```
 
 ## Raw Stack / Preprocessing
@@ -945,9 +759,8 @@ Passen Sie die Werte an Ihre spezifische Hardware und Bedingungen an.
 
 ## Forward-Drizzle: Streaming und Speicherbudget (Entwicklungsstand 2026-09-05)
 
-Der neue CPU-Coverage-/Uniform-Pfad verarbeitet Zielstreifen statt Vollbild-
-Akkumulatoren pro Frame oder Worker. Er ist noch kein freigegebener vollständiger
-Rekonstruktions-/Resume-Pfad. Die Preview bleibt standardmäßig deaktiviert.
+Der CPU-Coverage-/Uniform-Pfad verarbeitet Zielstreifen statt Vollbild-
+Akkumulatoren pro Frame oder Worker. Die Preview bleibt standardmäßig deaktiviert.
 
 | Parameter | Einheit, Bereich und Default | Verhalten |
 |---|---|---|
@@ -975,8 +788,7 @@ vorhandene Registrierungsdaten und konkurrierende Prozesse bleiben gesondert zu
 berücksichtigen. Es gibt keinen automatischen Methoden- oder Skalenfallback.
 Ein Beispiel steht in `tile_compile_cpp/examples/forward_drizzle_streaming.example.yaml`.
 
-Für gemeinsame Uniform/Raw-Bibliotheksaufrufe empfiehlt sich ebenfalls `chunk_rows: 0`: Der Kandidatenspeicher wächst mit der Framezahl, deshalb können dieselben Bilddimensionen bei mehr Frames kleinere Streifen erfordern. Passt eine Zeile nicht, erfolgt eine frühe Ablehnung. Die Streaming-API vermeidet beide vollständigen Ausgaben im RAM; ihr Sink muss Streifen unmittelbar verbrauchen. Diese API ist noch kein vollständiger neuer Runnerpfad.
+Für gemeinsame Uniform/Raw-Bibliotheksaufrufe empfiehlt sich ebenfalls `chunk_rows: 0`: Der Kandidatenspeicher wächst mit der Framezahl, deshalb können dieselben Bilddimensionen bei mehr Frames kleinere Streifen erfordern. Passt eine Zeile nicht, erfolgt eine frühe Ablehnung. Die Streaming-API vermeidet beide vollständigen Ausgaben im RAM; ihr Sink muss Streifen unmittelbar verbrauchen.
 
-`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (Bool, Default `false`) ist unabhängig von der Preview. Aktiviert schreibt es ungeclippte Uniform-Ebenen per Streaming nach `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` veröffentlicht die vollständige geprüfte Generation atomar. Das bestehende Drizzle-Budget umfasst zusätzlich 8 MiB für FITS/Metadaten und eine float-Zeile. Zu wenig RAM wird vor Quell-I/O abgewiesen; zu wenig freie Disk vor dem Ebenenschreiben. Ein Diagnosefehler lässt den Legacy-Lauf weiterlaufen. Alte Generationen bleiben erhalten und belegen Disk; es gibt keine automatische Bereinigung. Der Store ist kein Resume-Phaseneinstieg. Leser müssen `current.json` gegen erwartete Quell-, Sampling- und Algorithmusidentität prüfen; alte flache Stores werden weder automatisch akzeptiert noch umgeschrieben. Der geclippte Uniform/Raw-Bibliotheksstore nutzt dieselbe Transaktion, ist aber noch nicht als neue Runnerphase verdrahtet.
-
-Die geprüfte Vorgänger-Bibliotheks-API verwendet ein explizites Quellqualitätsbudget in MiB (Default 512 MiB). Große native Frames können wegen der konservativen Scratch-Schätzung früh abgelehnt werden; diese Prüfung nicht umgehen. Cachemanifeste identifizieren vorhandene normalisierte Float-Rohdateien und führen keine Kalibrierung aus. Store-Commit-Schema 2 bindet Cache- und Qualitätsplanhash. Produktive Cache-Aufbewahrung und Resume-Integration im Runner bleiben offen.
+`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (Bool, Default `false`) ist unabhängig von der Preview. Aktiviert schreibt es ungeclippte Uniform-Ebenen per Streaming nach `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` veröffentlicht die vollständige geprüfte Generation atomar. Das bestehende Drizzle-Budget umfasst zusätzlich 8 MiB für FITS/Metadaten und eine float-Zeile. Zu wenig RAM wird vor Quell-I/O abgewiesen; zu wenig freie Disk vor dem Ebenenschreiben. Ein Diagnosefehler lässt den Lauf weiterlaufen. Alte Generationen bleiben erhalten und belegen Disk; es gibt keine automatische Bereinigung. Der Store ist kein Resume-Phaseneinstieg. Leser müssen `current.json` gegen erwartete Quell-, Sampling- und Algorithmusidentität prüfen; alte flache Stores werden weder automatisch akzeptiert noch umgeschrieben.
+Die geprüfte Vorgänger-Bibliotheks-API verwendet ein explizites Quellqualitätsbudget in MiB (Default 512 MiB). Große native Frames können wegen der konservativen Scratch-Schätzung früh abgelehnt werden; diese Prüfung nicht umgehen. Cachemanifeste identifizieren vorhandene normalisierte Float-Rohdateien und führen keine Kalibrierung aus. Store-Commit-Schema 2 bindet Cache- und Qualitätsplanhash.

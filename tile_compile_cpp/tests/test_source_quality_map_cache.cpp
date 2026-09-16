@@ -164,12 +164,12 @@ TEST_CASE("source-quality identity hash ignores registration / canvas / scale "
 
 TEST_CASE("scale-quality config hash tracks pyramid params, storage divisor "
           "and dtype") {
-  config::AqmhPyramidConfig p;
+  config::ReconstructionQualityPyramidConfig p;
   SourceQualityMapCacheConfig c;
   const std::string h0 = compute_scale_quality_config_hash(p, c);
   REQUIRE(compute_scale_quality_config_hash(p, c) == h0);  // stable
 
-  auto p2 = p; p2.w_sharp += 0.1f;
+  auto p2 = p; p2.sharpness_weight += 0.1f;
   REQUIRE(compute_scale_quality_config_hash(p2, c) != h0);
   auto c2 = c; c2.storage_divisor = 4;
   REQUIRE(compute_scale_quality_config_hash(p, c2) != h0);
@@ -184,7 +184,7 @@ TEST_CASE("cache writer + fail-closed reader round-trip with a zero-veto "
   const int w = 8, h = 8;
   const auto plan = make_plan(w, h);
   const std::string nch = "ncache-hash-1";
-  config::AqmhPyramidConfig pyr;
+  config::ReconstructionQualityPyramidConfig pyr;
   SourceQualityMapCacheConfig ccfg;  // divisor 2, uint16
 
   Matrix2Df composite = block_map(w, h, 0.4f);
@@ -366,7 +366,7 @@ TEST_CASE("build_source_quality_map_cache orchestrates proxy -> streamed "
   reconstruction::VerifiedNormalizedSourceCache ncache(ncache_root, plan);
 
   const fs::path sqm_root = tmp.path / "source_quality_maps";
-  config::AqmhPyramidConfig pyr;
+  config::ReconstructionQualityPyramidConfig pyr;
   const auto built = reconstruction::build_source_quality_map_cache(
       sqm_root, plan, ncache, pyr);
 
@@ -450,7 +450,7 @@ TEST_CASE("build_source_quality_map_cache is byte-identical across worker counts
                     2.0f * static_cast<float>(i));
   reconstruction::publish_normalized_source_manifest(ncache_root, plan);
 
-  config::AqmhPyramidConfig pyr;
+  config::ReconstructionQualityPyramidConfig pyr;
   std::string ref_hash;
   std::vector<std::string> ref_files;  // "name=bytes" sorted
   for (int workers : {1, 2, 3, 6}) {
@@ -485,7 +485,7 @@ TEST_CASE("cache preserves an exact Q=0 hard veto through storage even when "
   const fs::path root = tmp.path / "source_quality_maps";
   const int w = 8, h = 8;
   const auto plan = make_plan(w, h);
-  config::AqmhPyramidConfig pyr;
+  config::ReconstructionQualityPyramidConfig pyr;
   SourceQualityMapCacheConfig ccfg;  // divisor 2
 
   Matrix2Df comp = block_map(w, h, 0.5f);
@@ -528,7 +528,7 @@ TEST_CASE("SourceQualityMapCacheReader has()/file_path() use O(1) index",
   const fs::path root = tmp.path / "source_quality_maps";
   const int w = 8, h = 8;
   const auto plan = make_plan(w, h);
-  config::AqmhPyramidConfig pyr;
+  config::ReconstructionQualityPyramidConfig pyr;
   SourceQualityMapCacheConfig ccfg;
 
   std::string id, cfgh;
@@ -596,7 +596,7 @@ TEST_CASE("build_source_quality_map_cache writes metrics artifact (T3)",
 
   reconstruction::VerifiedNormalizedSourceCache ncache(ncache_root, plan);
   const fs::path sqm_root = tmp.path / "source_quality_maps";
-  config::AqmhPyramidConfig pyr;
+  config::ReconstructionQualityPyramidConfig pyr;
   SourceQualityMapCacheConfig ccfg;
   ccfg.star_max_corners = 400;  // T3: enable metrics
   ccfg.star_patch_radius = 10;
@@ -638,7 +638,7 @@ TEST_CASE("read_packed_rect expands bit-identically to read_rect",
   const int w = 11, h = 9;  // odd dims -> ragged storage grid at divisor 2
   const auto plan = make_plan(w, h);
   const std::string nch = "ncache-hash-packed";
-  config::AqmhPyramidConfig pyr;
+  config::ReconstructionQualityPyramidConfig pyr;
   SourceQualityMapCacheConfig ccfg;  // divisor 2, uint16
 
   Matrix2Df composite = block_map(w, h, 0.4f);
@@ -722,7 +722,7 @@ TEST_CASE("read_packed_rect_into reuses caller buffers with identical "
   const fs::path root = tmp.path / "source_quality_maps";
   const int w = 11, h = 9;
   const auto plan = make_plan(w, h);
-  config::AqmhPyramidConfig pyr;
+  config::ReconstructionQualityPyramidConfig pyr;
   SourceQualityMapCacheConfig ccfg;
 
   Matrix2Df composite = block_map(w, h, 0.4f);
@@ -802,7 +802,7 @@ TEST_CASE("read_packed_samples_into aligns cells/veto 1:1 with ragged spans "
   const int w = 11, h = 9;  // odd dims -> ragged storage grid at divisor 2
   const auto plan = make_plan(w, h);
   const std::string nch = "ncache-hash-samples";
-  config::AqmhPyramidConfig pyr;
+  config::ReconstructionQualityPyramidConfig pyr;
   SourceQualityMapCacheConfig ccfg;
 
   Matrix2Df composite = block_map(w, h, 0.4f);

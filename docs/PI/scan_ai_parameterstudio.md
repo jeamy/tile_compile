@@ -1,6 +1,11 @@
 # PI Scan-AI fuer Parameter Studio
 
-**Status:** Entwurf fuer Implementierung  
+**Status:** Entwurf fuer Implementierung — **historisches Dokument.** Die
+Konfigurationsbeispiele unten verwenden die entfernte `method:`-Selektoren und
+`aqmh.*`-Bloecke; die aktuelle Single-Method-Pipeline (CFA Forward Drizzle +
+Multiband) nutzt `reconstruction.*`. Siehe
+`../configuration_reference.md`.
+
 **Ziel:** Beim Input-Scan sollen Frames nicht nur technisch erkannt, sondern inhaltlich bewertet werden. Aus dieser Analyse soll eine passende, validierte Konfiguration fuer das Parameter Studio entstehen, damit der Stacking-Prozess mit einer moeglichst guten Startkonfiguration beginnt.
 
 ## 1. Zielbild

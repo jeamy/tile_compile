@@ -804,12 +804,24 @@ int cmd_validate_config(const std::string& path, const std::string& yaml_arg, bo
     result["warnings"] = json::array();
     if (!path.empty()) result["path"] = path;
     
+    // Use the migrated parser so validation reports exactly what the runner
+    // enforces: `method:`/engine keys fail closed here instead of passing
+    // validation and then killing the run at startup.
+    tile_compile::config::ConfigMigrationReport migration_report;
     try {
-        tile_compile::config::Config cfg = tile_compile::config::Config::from_yaml_text(yaml_text);
+        tile_compile::config::Config cfg =
+            tile_compile::config::Config::from_yaml_text_migrated(yaml_text, migration_report);
         cfg.validate();
         result["valid"] = true;
     } catch (const std::exception& e) {
         result["errors"].push_back(e.what());
+    }
+    for (const auto& key : migration_report.stripped_keys) {
+        result["warnings"].push_back("legacy config key removed by migration: " + key);
+    }
+    for (const auto& renamed : migration_report.renamed_keys) {
+        result["warnings"].push_back("legacy config key renamed: " + renamed.first +
+                                     " -> " + renamed.second);
     }
     
     print_json(result);

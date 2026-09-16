@@ -2,19 +2,20 @@
 
 Tile-Compile is a toolkit for high-quality astronomical image reconstruction from short-exposure deep-sky datasets. It is designed for smart telescope data (DWARF, Seestar, ZWO SeeStar, etc.) but works with any FITS input.
 
-## Two Reconstruction Methods
+## Reconstruction Method
 
-| Method | Description | Status |
-|--------|-------------|--------|
-| **AQMH** | Adaptive Quality Map Hyperstacking — pixel-wise quality maps with multi-scale pyramid, per-pixel weighted reconstruction | ✅ Default (v0.3.0+) |
-| **Classic Tile-Compile** | Tile-based quality reconstruction with local metrics, clustering, synthetic frames, and OLA stacking | Optional (`aqmh.enabled: false`) |
+**CFA Forward Drizzle + Multiband** is the single reconstruction method:
+drizzle before debayer — every raw CFA sample is drizzled directly into its
+channel accumulator plane, followed by à-trous multiband fusion. The earlier
+AQMH and Classic Tile-Compile methods have been removed; a top-level `method:`
+key is rejected fail-closed.
 
 ## Features
 
 - **GUI3** — Web-based interface with Scan Input, Parameter Studio, Run Monitor, Results, Astrometry/PCC, Raw Stack, and Run History tabs
 - **CLI** — Full command-line interface for scripting and automation
-- **AQMH** — Per-pixel quality-map-driven reconstruction with cherry-pick frame selection
-- **Classic pipeline** — Tile-based reconstruction with state clustering and synthetic frames
+- **CFA Forward Drizzle** — Direct CFA sample drizzling with support-mask semantics, chunked bounded-memory gather, and transactional resume checkpoints
+- **Multiband** — À-trous band fusion with three-way candidate selection
 - **Calibration** — Bias/Dark/Flat calibration with auto-selection and exposure matching
 - **Astrometry** — ASTAP plate solving with WCS output
 - **BGE** — Background Gradient Extraction (classic + AutoBGE)
@@ -23,7 +24,7 @@ Tile-Compile is a toolkit for high-quality astronomical image reconstruction fro
 - **Raw Stack** — Standalone preprocessing pipeline (calibration → stacking → post-processing)
 - **AI-assisted configuration** — Parameter Intelligence (PI) module for data-driven recommendations
 - **Reports** — HTML reports with charts, heatmaps, and diagnostics
-- **GPU acceleration** — CUDA and OpenCL support for PREWARP, AQMH, reconstruction, and stacking
+- **GPU acceleration** — CUDA for Forward Drizzle geometry/gather, CUDA + OpenCL for source-quality-map filters; CPU fallback preserved
 
 ## Tech Stack
 

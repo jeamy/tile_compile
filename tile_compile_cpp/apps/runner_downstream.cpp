@@ -16,9 +16,7 @@
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
-#include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
-#include "tile_compile/reconstruction/reconstruction.hpp"
-#include "tile_compile/metrics/aqmh_quality_map_cache.hpp"
+#include "tile_compile/reconstruction/chroma_denoise.hpp"
 #include "tile_compile/pipeline/adaptive_tile_grid.hpp"
 
 #include "runner_shared.hpp"
@@ -46,153 +44,8 @@ namespace fs = std::filesystem;
 namespace {
 using namespace tile_compile;
 namespace runner = tile_compile::runner;
-/// @brief Parses tile metrics json.
-/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-TileMetrics parse_tile_metrics_json(const tile_compile::core::json &j) {
-  TileMetrics tm{};
-  tm.fwhm = j.value("fwhm", 0.0f);
-  tm.roundness = j.value("roundness", 0.0f);
-  tm.contrast = j.value("contrast", 0.0f);
-  tm.sharpness = j.value("sharpness", 0.0f);
-  tm.background = j.value("background", 0.0f);
-  tm.noise = j.value("noise", 0.0f);
-  tm.gradient_energy = j.value("gradient_energy", 0.0f);
-  tm.star_count = j.value("star_count", 0);
-  tm.quality_score = j.value("quality_score", 0.0f);
-  const std::string type = j.value("tile_type", "STRUCTURE");
-  tm.type = (type == "STAR") ? TileType::STAR : TileType::STRUCTURE;
-  return tm;
-}
 
-/// @brief Loads tile grid from artifact.
-/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-bool load_tile_grid_from_artifact(const fs::path &tile_grid_path,
-                                  TileGrid &out,
-                                  std::string &error_out) {
-  if (!fs::exists(tile_grid_path)) {
-    error_out = "missing tile_grid.json";
-    return false;
-  }
-  try {
-    const auto j = tile_compile::core::json::parse(
-        tile_compile::core::read_text(tile_grid_path));
-    if (!j.contains("tiles") || !j["tiles"].is_array()) {
-      error_out = "tile_grid.json missing tiles[]";
-      return false;
-    }
-
-    out.tile_size = j.value("uniform_tile_size", 0);
-    out.overlap_fraction = j.value("overlap_fraction", 0.0f);
-    out.rows = 0;
-    out.cols = 0;
-    out.tiles.clear();
-    out.tiles.reserve(j["tiles"].size());
-
-    std::map<int, int> y_to_row;
-    std::map<int, int> x_to_col;
-    for (const auto &tj : j["tiles"]) {
-      Tile t{};
-      t.x = tj.value("x", 0);
-      t.y = tj.value("y", 0);
-      t.width = tj.value("width", 0);
-      t.height = tj.value("height", 0);
-      t.row = 0;
-      t.col = 0;
-      out.tiles.push_back(t);
-      y_to_row.emplace(t.y, 0);
-      x_to_col.emplace(t.x, 0);
-    }
-
-    if (out.tiles.empty()) {
-      error_out = "tile_grid.json has no tiles";
-      return false;
-    }
-    if (out.tile_size <= 0) {
-      out.tile_size = std::max(1, out.tiles.front().width);
-    }
-
-    int row_idx = 0;
-    for (auto &kv : y_to_row)
-      kv.second = row_idx++;
-    int col_idx = 0;
-    for (auto &kv : x_to_col)
-      kv.second = col_idx++;
-
-    for (auto &t : out.tiles) {
-      t.row = y_to_row[t.y];
-      t.col = x_to_col[t.x];
-    }
-    out.rows = static_cast<int>(y_to_row.size());
-    out.cols = static_cast<int>(x_to_col.size());
-    return true;
-  } catch (const std::exception &e) {
-    error_out = std::string("tile_grid parse failed: ") + e.what();
-    return false;
-  }
-}
-
-/// @brief Loads aggregated tile metrics.
-/// @details Part of the resume command path that reconstructs downstream artifacts from an existing run directory; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-bool load_aggregated_tile_metrics(const fs::path &local_metrics_path,
-                                  std::vector<TileMetrics> &out,
-                                  std::string &error_out) {
-  if (!fs::exists(local_metrics_path)) {
-    error_out = "missing local_metrics.json";
-    return false;
-  }
-  try {
-    const auto j = tile_compile::core::json::parse(
-        tile_compile::core::read_text(local_metrics_path));
-    if (!j.contains("tile_metrics") || !j["tile_metrics"].is_array() ||
-        j["tile_metrics"].empty()) {
-      error_out = "local_metrics.json missing tile_metrics[][]";
-      return false;
-    }
-
-    const auto &all_frames = j["tile_metrics"];
-    size_t n_tiles = 0;
-    if (all_frames.front().is_array()) {
-      n_tiles = all_frames.front().size();
-    }
-    if (n_tiles == 0) {
-      error_out = "local_metrics.json has zero tiles";
-      return false;
-    }
-
-    const bool consistent = std::all_of(
-        all_frames.begin(), all_frames.end(),
-        [n_tiles](const auto &fm) { return fm.is_array() && fm.size() == n_tiles; });
-
-    std::vector<std::vector<TileMetrics>> parsed_metrics(all_frames.size());
-    for (size_t f = 0; f < all_frames.size(); ++f) {
-      const auto &fm = all_frames[f];
-      size_t f_tiles = fm.is_array() ? fm.size() : 0;
-      parsed_metrics[f].reserve(f_tiles);
-      for (size_t t = 0; t < f_tiles; ++t) {
-        parsed_metrics[f].push_back(parse_tile_metrics_json(fm[t]));
-      }
-    }
-
-    if (!consistent) {
-      out = parsed_metrics.empty() ? std::vector<TileMetrics>() : parsed_metrics.front();
-      return !out.empty();
-    }
-
-    out = tile_compile::runner::aggregate_tile_metrics_across_frames(parsed_metrics);
-    return true;
-  } catch (const std::exception &e) {
-    error_out = std::string("local_metrics parse failed: ") + e.what();
-    return false;
-  }
-}
-
-std::vector<TileMetrics> build_aqmh_bge_tile_metrics_from_rgb(
+std::vector<TileMetrics> build_bge_tile_metrics_from_rgb(
     const TileGrid &grid, const tile_compile::Matrix2Df &R,
     const tile_compile::Matrix2Df &G, const tile_compile::Matrix2Df &B,
     const std::vector<uint8_t> &valid_mask, int mask_rows, int mask_cols) {
@@ -293,8 +146,7 @@ std::vector<TileMetrics> build_aqmh_bge_tile_metrics_from_rgb(
 namespace tile_compile::runner {
 int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     const config::Config &cfg, std::string phase_upper, std::ostream &log_file,
-    const std::function<bool(const std::string &)> &abort_if_runtime_limit_exceeded,
-    bool forward) {
+    const std::function<bool(const std::string &)> &abort_if_runtime_limit_exceeded) {
   namespace core = tile_compile::core;
   namespace io = tile_compile::io;
   namespace astro = tile_compile::astrometry;
@@ -335,7 +187,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
   }
   if (!fs::exists(rgb_path)) {
     std::cerr << "Error: missing stacked RGB cube in run outputs" << std::endl;
-    core::emit_event((forward ? "downstream_end" : "resume_end"), run_id,
+    core::emit_event("downstream_end", run_id,
                      {{"success", false},
                       {"status", "missing_rgb"},
                       {"error", "missing stacked RGB cube in run outputs"}},
@@ -348,7 +200,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     rgb = io::read_fits_rgb(rgb_path);
   } catch (const std::exception &e) {
     std::cerr << "Error: failed to read RGB FITS: " << e.what() << std::endl;
-    core::emit_event((forward ? "downstream_end" : "resume_end"), run_id,
+    core::emit_event("downstream_end", run_id,
                      {{"success", false},
                       {"status", "read_rgb_failed"},
                       {"error", e.what()}},
@@ -382,14 +234,6 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     if (fs::exists(wcs_path2))
       wcs_path = wcs_path2;
   }
-  if (!forward && fs::exists(wcs_path)) {
-    try {
-      wcs = astro::parse_wcs_file(wcs_path.string());
-      have_wcs = wcs.valid();
-    } catch (const std::exception &) {
-      have_wcs = false;
-    }
-  }
 
   std::string astrometry_resume_error;
 
@@ -420,7 +264,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
 
   bool astrometry_ran = false;
   auto run_astrometry_if_needed = [&](bool force_rerun = false) -> bool {
-    if (forward && astrometry_ran) return have_wcs || !cfg.astrometry.enabled;
+    if (astrometry_ran) return have_wcs || !cfg.astrometry.enabled;
     astrometry_ran = true;
     core::EventEmitter emitter;
     emitter.phase_start(run_id, Phase::ASTROMETRY, "ASTROMETRY", log_file);
@@ -596,15 +440,6 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
                         log_file);
       return true;
     } else {
-      // Re-solve failed — try to fall back to existing WCS file
-      if (!forward && fs::exists(wcs_path)) {
-        try {
-          wcs = astro::parse_wcs_file(wcs_path.string());
-          have_wcs = wcs.valid();
-        } catch (const std::exception &) {
-          have_wcs = false;
-        }
-      }
       if (have_wcs) {
         emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
                           {{"reason", "solve_failed_existing_wcs"}, {"exit_code", ret}},
@@ -671,22 +506,13 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     if (bge_tile_context_loaded) return;
     bge_tile_context_loaded = true;
 
-    std::string local_err;
-    std::string grid_err;
-    const bool ok_local = !forward && load_aggregated_tile_metrics(
-        run_dir / "artifacts" / "local_metrics.json", bge_tile_metrics, local_err);
-    const bool ok_grid = !forward && load_tile_grid_from_artifact(
-        run_dir / "artifacts" / "tile_grid.json", bge_tile_grid, grid_err);
-
-    bge_have_local_metrics = ok_local && !bge_tile_metrics.empty();
-    // Set BGE tile metrics source based on reconstruction method
-    if (forward || cfg.method == "aqmh") {
-        bge_tile_metrics_source = "aqmh_output";
-    } else {
-        bge_tile_metrics_source = bge_have_local_metrics ? "classic_local_metrics" : "none";
-    }
-    bge_have_bge_grid = ok_grid && !bge_tile_grid.tiles.empty();
-    if ((forward || cfg.aqmh.enabled) && !bge_have_bge_grid && rgb.R.rows() > 0 &&
+    // The single-method pipeline has no tile grid or local-metrics artifacts;
+    // BGE builds a synthetic tile grid over the reconstructed RGB image when
+    // a grid-aware method needs one.
+    bge_have_local_metrics = false;
+    bge_tile_metrics_source = "reconstruction_output";
+    bge_have_bge_grid = false;
+    if (!bge_have_bge_grid && rgb.R.rows() > 0 &&
         rgb.R.cols() > 0) {
       load_seeing_fwhm_if_needed();
       const float fwhm = have_seeing_fwhm
@@ -713,7 +539,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       }
       bge_have_bge_grid = !bge_tile_grid.tiles.empty();
       if (bge_have_bge_grid) {
-        std::cout << "[BGE][resume] Reconstructed AQMH BGE grid from RGB output: "
+        std::cout << "[BGE][resume] Reconstructed BGE grid from RGB output: "
                   << bge_tile_grid.tiles.size() << " tiles, tile_size="
                   << tile_size << ", overlap=" << overlap << std::endl;
       }
@@ -721,13 +547,6 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     bge_metrics_tiles_match =
         bge_have_local_metrics && bge_have_bge_grid &&
         (bge_tile_metrics.size() == bge_tile_grid.tiles.size());
-
-    if (!ok_local) {
-      std::cout << "[BGE][resume] Warning: " << local_err << std::endl;
-    }
-    if (!ok_grid) {
-      std::cout << "[BGE][resume] Warning: " << grid_err << std::endl;
-    }
   };
 
 	  auto write_stretched_rgb_snapshot = [&](const fs::path &path,
@@ -836,11 +655,11 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     tile_compile::runner::apply_autobge_exclusion_polygons(
         cfg.bge, rows, cols, bge_cfg);
 
-    if (cfg.aqmh.enabled && !bge_have_local_metrics && bge_have_bge_grid) {
-      bge_tile_metrics = build_aqmh_bge_tile_metrics_from_rgb(
+    if (!bge_have_local_metrics && bge_have_bge_grid) {
+      bge_tile_metrics = build_bge_tile_metrics_from_rgb(
           bge_tile_grid, rgb.R, rgb.G, rgb.B, bge_cfg.common_valid_mask,
           bge_cfg.common_mask_rows, bge_cfg.common_mask_cols);
-      bge_tile_metrics_source = "aqmh_output";
+      bge_tile_metrics_source = "reconstruction_output";
     }
 
     const bool bge_have_tile_metrics = !bge_tile_metrics.empty();
@@ -953,7 +772,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       write_linear_rgb_snapshot(stacked_rgb_bge_linear_path, rgb.R, rgb.G, rgb.B,
                                 bge_hdr);
       write_stretched_rgb_snapshot(stacked_rgb_bge_path, rgb.R, rgb.G, rgb.B,
-                                  bge_hdr, cfg.stacking.output_stretch, "BGE");
+                                  bge_hdr, false, "BGE");
     } else {
       std::error_code ec_linear;
       std::error_code ec_display;
@@ -987,9 +806,161 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     return true;
   };
 
+  // Shared PCC/HMS state: pcc_cfg carries the mask contract HMS consumes,
+  // out_hdr the output header. Populated by whichever entry ran (PCC block
+  // or the HYPERMETRIC_STRETCH resume entry below).
+  astro::PCCConfig pcc_cfg{};
+  io::FitsHeader out_hdr;
+
+  // Loads the output canvas mask and the COMMON_OVERLAP analysis mask into
+  // pcc_cfg for the current `rgb` image. On failure emits a `err_phase`
+  // error event + downstream_end and returns false.
+  auto load_pcc_masks_for_rgb = [&](Phase err_phase) -> bool {
+    core::EventEmitter mask_emitter;
+    std::string mask_error;
+    const int rows = static_cast<int>(rgb.R.rows());
+    const int cols = static_cast<int>(rgb.R.cols());
+    if (rows <= 0 || cols <= 0 || rgb.G.rows() != rows ||
+        rgb.B.rows() != rows || rgb.G.cols() != cols ||
+        rgb.B.cols() != cols) {
+      mask_error = "invalid RGB dimensions";
+      mask_emitter.phase_end(
+          run_id, err_phase, "error",
+          {{"reason", "output_canvas_mask_invalid"}, {"error", mask_error}},
+          log_file);
+      core::emit_event("downstream_end", run_id,
+                       {{"success", false},
+                        {"status", "output_canvas_mask_invalid"},
+                        {"error", mask_error}},
+                       log_file);
+      return false;
+    }
+    int mask_rows = rows;
+    int mask_cols = cols;
+    if (!tile_compile::runner::load_canvas_mask_for_rgb(
+            run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
+            pcc_cfg.output_valid_mask, mask_rows, mask_cols, mask_error)) {
+      mask_emitter.phase_end(
+          run_id, err_phase, "error",
+          {{"reason", "output_canvas_mask_invalid"}, {"error", mask_error}},
+          log_file);
+      core::emit_event("downstream_end", run_id,
+                       {{"success", false},
+                        {"status", "output_canvas_mask_invalid"},
+                        {"error", mask_error}},
+                       log_file);
+      return false;
+    }
+    std::vector<uint8_t> analysis_mask;
+    std::string analysis_mask_error;
+    int analysis_rows = 0;
+    int analysis_cols = 0;
+    fs::path analysis_mask_path =
+        run_dir / "outputs" / "common_overlap_mask.fits";
+    if (!fs::exists(analysis_mask_path)) {
+      analysis_mask_path = run_dir / "outputs" / "canvas_mask.fits";
+    }
+    if (!tile_compile::runner::load_canvas_mask_for_rgb(
+            analysis_mask_path, rgb.R, rgb.G, rgb.B, analysis_mask,
+            analysis_rows, analysis_cols, analysis_mask_error)) {
+      mask_emitter.phase_end(
+          run_id, err_phase, "error",
+          {{"reason", "analysis_mask_invalid"}, {"error", analysis_mask_error}},
+          log_file);
+      core::emit_event("downstream_end", run_id,
+                       {{"success", false},
+                        {"status", "analysis_mask_invalid"},
+                        {"error", analysis_mask_error}},
+                       log_file);
+      return false;
+    }
+    pcc_cfg.common_valid_mask = std::move(analysis_mask);
+    pcc_cfg.common_mask_rows = analysis_rows;
+    pcc_cfg.common_mask_cols = analysis_cols;
+    pcc_cfg.output_mask_rows = rows;
+    pcc_cfg.output_mask_cols = cols;
+    return true;
+  };
+
+  // The HYPERMETRIC_STRETCH phase body, shared between the PCC fall-through
+  // and the "hms" resume entry. Requires rgb (the linear HMS input),
+  // out_hdr and the pcc_cfg mask fields to be populated by the caller.
+  // The caller emits phase_start(HYPERMETRIC_STRETCH) so the phase event is
+  // recorded exactly once for both the PCC fall-through and the resume
+  // entry.
+  auto run_hms_phase = [&]() -> int {
+    if (!cfg.hypermetric_stretch.enabled) return 0;
+    core::EventEmitter hms_emitter;
+    image::HyperMetricStretchConfig hms_cfg =
+        to_image_hms_config(cfg.hypermetric_stretch);
+    auto hms_diag = image::run_hypermetric_stretch_rgb(
+        rgb.R, rgb.G, rgb.B, hms_cfg, &pcc_cfg.common_valid_mask,
+        pcc_cfg.common_mask_rows, pcc_cfg.common_mask_cols,
+        &pcc_cfg.output_valid_mask);
+    if (!hms_diag.success) {
+      hms_emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
+                            {{"reason", "stretch_failed"},
+                             {"error", hms_diag.error_message}},
+                            log_file);
+      core::emit_event("downstream_end", run_id,
+                       {{"success", false},
+                        {"status", "stretch_failed"},
+                        {"error", hms_diag.error_message}},
+                       log_file);
+      return 1;
+    }
+
+    io::FitsHeader hms_hdr = out_hdr;
+    hms_hdr.set("HMS", true);
+    hms_hdr.set("HMSVER", std::string("1"));
+    hms_hdr.set("HMSMODE", hms_cfg.mode);
+    hms_hdr.set("HMSPROF", hms_diag.profile);
+    hms_hdr.set("HMSWR", static_cast<double>(hms_diag.weights_r));
+    hms_hdr.set("HMSWG", static_cast<double>(hms_diag.weights_g));
+    hms_hdr.set("HMSWB", static_cast<double>(hms_diag.weights_b));
+    hms_hdr.set("HMSANCH", static_cast<double>(hms_diag.anchor));
+    hms_hdr.set("HMSLOGD", static_cast<double>(hms_diag.log_d));
+    hms_hdr.set("HMSB", static_cast<double>(hms_diag.protect_b));
+    hms_hdr.set("HMSTGBG", static_cast<double>(hms_diag.target_bg));
+    hms_hdr.set("HMSCONV", static_cast<double>(hms_diag.convergence_power));
+    hms_hdr.set("HMSSTAR", static_cast<double>(hms_diag.star_pressure));
+
+    fs::path hms_rgb_path(hms_cfg.output_rgb);
+    if (hms_rgb_path.is_relative()) {
+      hms_rgb_path = run_dir / "outputs" / hms_rgb_path;
+    }
+    write_atomic_rgb(hms_rgb_path, rgb.R, rgb.G, rgb.B, hms_hdr);
+    if (hms_cfg.write_channels) {
+      io::write_fits_float(run_dir / "outputs" / "hms_R.fit", rgb.R, hms_hdr);
+      io::write_fits_float(run_dir / "outputs" / "hms_G.fit", rgb.G, hms_hdr);
+      io::write_fits_float(run_dir / "outputs" / "hms_B.fit", rgb.B, hms_hdr);
+    }
+
+    hms_emitter.phase_end(
+        run_id, Phase::HYPERMETRIC_STRETCH, "ok",
+        {{"input_stage", "pcc"},
+         {"output_rgb", hms_rgb_path.string()},
+         {"profile", hms_diag.profile},
+         {"profile_source", hms_diag.profile_source},
+         {"anchor", hms_diag.anchor},
+         {"log_d", hms_diag.log_d},
+         {"target_bg", hms_diag.target_bg},
+         {"star_pressure", hms_diag.star_pressure},
+         {"color_strategy", hms_diag.color_strategy},
+         {"color_grip", hms_diag.color_grip},
+         {"shadow_convergence", hms_diag.shadow_convergence},
+         {"black_clip_percent", hms_diag.black_clip_percent},
+         {"white_clip_percent", hms_diag.white_clip_percent}},
+        log_file);
+    if (abort_if_runtime_limit_exceeded("HYPERMETRIC_STRETCH")) {
+      return 1;
+    }
+    return 0;
+  };
+
   if (phase_l == "astrometry") {
-    if (!run_astrometry_if_needed(true) || (forward && cfg.astrometry.enabled && !have_wcs)) {
-      core::emit_event((forward ? "downstream_end" : "resume_end"), run_id,
+    if (!run_astrometry_if_needed(true) || (cfg.astrometry.enabled && !have_wcs)) {
+      core::emit_event("downstream_end", run_id,
                        {{"success", false},
                         {"status", "astrometry_failed"},
                         {"error", astrometry_resume_error.empty()
@@ -1009,7 +980,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       return 1;
     }
     if (!run_bge_phase()) {
-      core::emit_event((forward ? "downstream_end" : "resume_end"), run_id,
+      core::emit_event("downstream_end", run_id,
                        {{"success", false},
                         {"status", "bge_failed"},
                         {"error", bge_resume_error.empty()
@@ -1022,10 +993,12 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       return 1;
     }
     phase_l = "pcc";
-  } else if (phase_l != "pcc") {
+  } else if (phase_l == "hypermetric_stretch") {
+    phase_l = "hms";
+  } else if (phase_l != "pcc" && phase_l != "hms") {
     std::cerr << "Error: unsupported resume phase: " << phase_upper
               << std::endl;
-    core::emit_event((forward ? "downstream_end" : "resume_end"), run_id,
+    core::emit_event("downstream_end", run_id,
                      {{"success", false},
                       {"status", "unsupported_phase"},
                       {"from_phase", phase_upper},
@@ -1034,9 +1007,69 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     return 1;
   }
 
+  if (phase_l == "hms") {
+    // Downstream-only resume entry: reuse the persisted linear PCC output.
+    // stacked_rgb_pcc.fits is the documented HMS input; fail closed when it
+    // is absent (e.g. a run where PCC was disabled or never reached).
+    if (!cfg.hypermetric_stretch.enabled) {
+      std::cerr << "Error: cannot resume at HYPERMETRIC_STRETCH; "
+                   "hypermetric_stretch is disabled in the effective config"
+                << std::endl;
+      core::emit_event("downstream_end", run_id,
+                       {{"success", false},
+                        {"status", "hms_disabled"},
+                        {"error", "hypermetric_stretch is disabled"}},
+                       log_file);
+      return 1;
+    }
+    core::EventEmitter hms_entry_emitter;
+    hms_entry_emitter.phase_start(run_id, Phase::HYPERMETRIC_STRETCH,
+                                  "HYPERMETRIC_STRETCH", log_file);
+    const fs::path hms_input_path =
+        run_dir / "outputs" / "stacked_rgb_pcc.fits";
+    if (!fs::exists(hms_input_path)) {
+      hms_entry_emitter.phase_end(
+          run_id, Phase::HYPERMETRIC_STRETCH, "error",
+          {{"reason", "missing_input"},
+           {"error", "outputs/stacked_rgb_pcc.fits is required for "
+                     "HYPERMETRIC_STRETCH resume"}},
+          log_file);
+      core::emit_event("downstream_end", run_id,
+                       {{"success", false},
+                        {"status", "missing_pcc_rgb"},
+                        {"error", "outputs/stacked_rgb_pcc.fits missing"}},
+                       log_file);
+      return 1;
+    }
+    try {
+      rgb = io::read_fits_rgb(hms_input_path);
+    } catch (const std::exception &e) {
+      hms_entry_emitter.phase_end(
+          run_id, Phase::HYPERMETRIC_STRETCH, "error",
+          {{"reason", "read_input_failed"}, {"error", e.what()}}, log_file);
+      core::emit_event("downstream_end", run_id,
+                       {{"success", false},
+                        {"status", "read_pcc_rgb_failed"},
+                        {"error", e.what()}},
+                       log_file);
+      return 1;
+    }
+    out_hdr = rgb.header;
+    pcc_cfg = tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
+    if (!load_pcc_masks_for_rgb(Phase::HYPERMETRIC_STRETCH)) {
+      return 1;
+    }
+    if (run_hms_phase() != 0) {
+      return 1;
+    }
+    core::emit_event("downstream_end", run_id,
+                     {{"success", true}, {"status", "ok"}}, log_file);
+    return 0;
+  }
+
   if (phase_l == "pcc") {
     if (!run_astrometry_if_needed()) {
-      core::emit_event((forward ? "downstream_end" : "resume_end"), run_id,
+      core::emit_event("downstream_end", run_id,
                        {{"success", false},
                         {"status", "astrometry_failed"},
                         {"error", astrometry_resume_error.empty()
@@ -1049,7 +1082,11 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       return 1;
     }
 
-    if (fs::exists(stacked_rgb_bge_linear_path)) {
+    // A stale BGE snapshot may outlive a config that now disables BGE; only
+    // reuse it when the effective config still runs BGE.
+    const bool have_bge_linear = cfg.bge.method != "none" &&
+                                 fs::exists(stacked_rgb_bge_linear_path);
+    if (have_bge_linear) {
       try {
         rgb = io::read_fits_rgb(stacked_rgb_bge_linear_path);
         std::cout << "[PCC][resume] Using precomputed linear BGE snapshot: "
@@ -1061,13 +1098,12 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     }
 
     const fs::path pcc_input_rgb_path =
-        fs::exists(stacked_rgb_bge_linear_path) ? stacked_rgb_bge_linear_path
-                                                : rgb_path;
+        have_bge_linear ? stacked_rgb_bge_linear_path : rgb_path;
 
     core::EventEmitter emitter;
     emitter.phase_start(run_id, Phase::PCC, "PCC", log_file);
 
-    io::FitsHeader out_hdr = rgb.header;
+    out_hdr = rgb.header;
     if (have_wcs) {
       inject_wcs_keywords(out_hdr, wcs);
     }
@@ -1077,7 +1113,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
                         {{"reason", "disabled"},
                          {"input_rgb", pcc_input_rgb_path.string()}},
                         log_file);
-      core::emit_event((forward ? "downstream_end" : "resume_end"), run_id,
+      core::emit_event("downstream_end", run_id,
                        {{"success", true}, {"status", "ok"}}, log_file);
       return 0;
     }
@@ -1087,7 +1123,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
                         {{"reason", "no_wcs"},
                          {"input_rgb", pcc_input_rgb_path.string()}},
                         log_file);
-      core::emit_event((forward ? "downstream_end" : "resume_end"), run_id,
+      core::emit_event("downstream_end", run_id,
                        {{"success", false},
                         {"status", "no_wcs"},
                         {"error", "no valid WCS solution available for PCC"}},
@@ -1111,7 +1147,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
                          {"input_rgb", pcc_input_rgb_path.string()}},
                         log_file);
       core::emit_event(
-          (forward ? "downstream_end" : "resume_end"), run_id,
+          "downstream_end", run_id,
           {{"success", false},
            {"status", "no_catalog_stars"},
            {"error", "PCC catalog query returned no stars"},
@@ -1121,75 +1157,14 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       return 1;
     }
 
-    astro::PCCConfig pcc_cfg =
-        tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
-    {
-      std::string mask_error;
-      int rows = static_cast<int>(rgb.R.rows());
-      int cols = static_cast<int>(rgb.R.cols());
-      if (rows <= 0 || cols <= 0 || rgb.G.rows() != rows ||
-          rgb.B.rows() != rows || rgb.G.cols() != cols ||
-          rgb.B.cols() != cols) {
-        mask_error = "invalid RGB dimensions";
-        emitter.phase_end(run_id, Phase::PCC, "error",
-                          {{"reason", "output_canvas_mask_invalid"},
-                           {"error", mask_error}},
-                          log_file);
-        core::emit_event(
-            (forward ? "downstream_end" : "resume_end"), run_id,
-            {{"success", false},
-             {"status", "output_canvas_mask_invalid"},
-             {"error", mask_error}},
-            log_file);
-        return 1;
-      }
-      if (!tile_compile::runner::load_canvas_mask_for_rgb(
-              run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
-              pcc_cfg.output_valid_mask, rows, cols, mask_error)) {
-        emitter.phase_end(run_id, Phase::PCC, "error",
-                          {{"reason", "output_canvas_mask_invalid"},
-                           {"error", mask_error}},
-                          log_file);
-        core::emit_event(
-            (forward ? "downstream_end" : "resume_end"), run_id,
-            {{"success", false},
-             {"status", "output_canvas_mask_invalid"},
-             {"error", mask_error}},
-            log_file);
-        return 1;
-      }
-      std::vector<uint8_t> analysis_mask;
-      std::string analysis_mask_error;
-      int analysis_rows = 0;
-      int analysis_cols = 0;
-      fs::path analysis_mask_path =
-          run_dir / "outputs" / "common_overlap_mask.fits";
-      if (!fs::exists(analysis_mask_path)) {
-        analysis_mask_path = run_dir / "outputs" / "canvas_mask.fits";
-      }
-      if (!tile_compile::runner::load_canvas_mask_for_rgb(
-              analysis_mask_path, rgb.R, rgb.G, rgb.B, analysis_mask,
-              analysis_rows, analysis_cols, analysis_mask_error)) {
-        emitter.phase_end(run_id, Phase::PCC, "error",
-                          {{"reason", "analysis_mask_invalid"},
-                           {"error", analysis_mask_error}},
-                          log_file);
-        core::emit_event(
-            (forward ? "downstream_end" : "resume_end"), run_id,
-            {{"success", false},
-             {"status", "analysis_mask_invalid"},
-             {"error", analysis_mask_error}},
-            log_file);
-        return 1;
-      }
-      pcc_cfg.common_valid_mask = std::move(analysis_mask);
-      pcc_cfg.common_mask_rows = analysis_rows;
-      pcc_cfg.common_mask_cols = analysis_cols;
-      pcc_cfg.output_mask_rows = rows;
-      pcc_cfg.output_mask_cols = cols;
-      std::cout << "[PCC][resume] Using COMMON_OVERLAP analysis mask and full output canvas mask ("
-                << cols << "x" << rows << ")" << std::endl;
+    pcc_cfg = tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
+    if (!load_pcc_masks_for_rgb(Phase::PCC)) {
+      return 1;
     }
+    std::cout << "[PCC][resume] Using COMMON_OVERLAP analysis mask and full "
+                 "output canvas mask ("
+              << pcc_cfg.output_mask_cols << "x" << pcc_cfg.output_mask_rows
+              << ")" << std::endl;
 
     if (pcc_cfg.radii_mode == "auto_fwhm") {
       load_seeing_fwhm_if_needed();
@@ -1233,7 +1208,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
                          {"source", used_source},
                          {"input_rgb", pcc_input_rgb_path.string()}},
                         log_file);
-      core::emit_event((forward ? "downstream_end" : "resume_end"), run_id,
+      core::emit_event("downstream_end", run_id,
                        {{"success", false},
                         {"status", "fit_failed"},
                         {"error", result.error_message},
@@ -1316,79 +1291,13 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     if (cfg.hypermetric_stretch.enabled) {
       emitter.phase_start(run_id, Phase::HYPERMETRIC_STRETCH,
                           "HYPERMETRIC_STRETCH", log_file);
-      image::HyperMetricStretchConfig hms_cfg =
-          to_image_hms_config(cfg.hypermetric_stretch);
-      auto hms_diag = image::run_hypermetric_stretch_rgb(
-          rgb.R, rgb.G, rgb.B, hms_cfg, &pcc_cfg.common_valid_mask,
-          pcc_cfg.common_mask_rows, pcc_cfg.common_mask_cols,
-          &pcc_cfg.output_valid_mask);
-      if (!hms_diag.success) {
-        emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
-                          {{"reason", "stretch_failed"},
-                           {"error", hms_diag.error_message}},
-                          log_file);
-        core::emit_event((forward ? "downstream_end" : "resume_end"), run_id,
-                         {{"success", false},
-                          {"status", "stretch_failed"},
-                          {"error", hms_diag.error_message}},
-                         log_file);
-        return 1;
-      }
-
-      io::FitsHeader hms_hdr = out_hdr;
-      hms_hdr.set("HMS", true);
-      hms_hdr.set("HMSVER", std::string("1"));
-      hms_hdr.set("HMSMODE", hms_cfg.mode);
-      hms_hdr.set("HMSPROF", hms_diag.profile);
-      hms_hdr.set("HMSWR", static_cast<double>(hms_diag.weights_r));
-      hms_hdr.set("HMSWG", static_cast<double>(hms_diag.weights_g));
-      hms_hdr.set("HMSWB", static_cast<double>(hms_diag.weights_b));
-      hms_hdr.set("HMSANCH", static_cast<double>(hms_diag.anchor));
-      hms_hdr.set("HMSLOGD", static_cast<double>(hms_diag.log_d));
-      hms_hdr.set("HMSB", static_cast<double>(hms_diag.protect_b));
-      hms_hdr.set("HMSTGBG", static_cast<double>(hms_diag.target_bg));
-      hms_hdr.set("HMSCONV", static_cast<double>(hms_diag.convergence_power));
-      hms_hdr.set("HMSSTAR", static_cast<double>(hms_diag.star_pressure));
-
-      fs::path hms_rgb_path(hms_cfg.output_rgb);
-      if (hms_rgb_path.is_relative()) {
-        hms_rgb_path = run_dir / "outputs" / hms_rgb_path;
-      }
-      std::error_code hms_ec;
-      if (!forward) fs::remove(hms_rgb_path, hms_ec);
-      write_atomic_rgb(hms_rgb_path, rgb.R, rgb.G, rgb.B, hms_hdr);
-      if (hms_cfg.write_channels) {
-        io::write_fits_float(run_dir / "outputs" / "hms_R.fit", rgb.R,
-                             hms_hdr);
-        io::write_fits_float(run_dir / "outputs" / "hms_G.fit", rgb.G,
-                             hms_hdr);
-        io::write_fits_float(run_dir / "outputs" / "hms_B.fit", rgb.B,
-                             hms_hdr);
-      }
-
-      emitter.phase_end(
-          run_id, Phase::HYPERMETRIC_STRETCH, "ok",
-          {{"input_stage", "pcc"},
-           {"output_rgb", hms_rgb_path.string()},
-           {"profile", hms_diag.profile},
-           {"profile_source", hms_diag.profile_source},
-           {"anchor", hms_diag.anchor},
-           {"log_d", hms_diag.log_d},
-           {"target_bg", hms_diag.target_bg},
-           {"star_pressure", hms_diag.star_pressure},
-           {"color_strategy", hms_diag.color_strategy},
-           {"color_grip", hms_diag.color_grip},
-           {"shadow_convergence", hms_diag.shadow_convergence},
-           {"black_clip_percent", hms_diag.black_clip_percent},
-           {"white_clip_percent", hms_diag.white_clip_percent}},
-          log_file);
-      if (abort_if_runtime_limit_exceeded("HYPERMETRIC_STRETCH")) {
+      if (run_hms_phase() != 0) {
         return 1;
       }
     }
   }
 
-  core::emit_event((forward ? "downstream_end" : "resume_end"), run_id, {{"success", true}, {"status", "ok"}},
+  core::emit_event("downstream_end", run_id, {{"success", true}, {"status", "ok"}},
                    log_file);
   return 0;
 }

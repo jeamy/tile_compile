@@ -7049,3 +7049,43 @@ und regressionsfrei ist, folgen Raw-Forward-Drizzle, 2x, Mehrband,
 Qualitätsnachweis und abschließend M10/M11.
 
 ---
+
+<a id="historie-30-75"></a>
+
+## 30.75 M10-Tranche: AQMH-freie Qualitätsparameter (reconstruction.quality.pyramid)
+
+**Kontext.** Nach dem M8-Schnitt blieb die Kategorie `aqmh` im Parameter-Editor
+sichtbar, weil `aqmh.pyramid.*` die aktive SOURCE_QUALITY_MAPS-Phase speiste.
+Der Block ist jetzt vollständig auf den im Implementierungsplan (13.3/13.4)
+vorgesehenen öffentlichen Namen migriert; die Kategorie `aqmh` ist im Editor
+komplett ausgeblendet.
+
+**Öffentlicher Vertrag.** `reconstruction.quality.pyramid.{scales,
+base_window_px, sharpness_weight, snr_weight, score_scale, artifact_sigma,
+max_artifact_fraction}` (Struktur `ReconstructionQualityPyramidConfig`).
+Semantik identisch zum bisherigen internen `AqmhPyramidConfig`; Defaults
+unverändert (4 / 4 / 0.6 / 0.4 / 1.8 / 3.0 / 0.25).
+
+**Migration.** `Config::from_yaml` liest `aqmh.pyramid.*` weiterhin
+(Kompatibilität), seedet daraus den neuen Block, explizite neue Schlüssel
+überschreiben den Seed; anschließend werden die kanonischen Werte in die
+interne `aqmh.pyramid`-Struktur zurückgespiegelt, damit verbleibende interne
+Verbraucher (`runner_phase_local_metrics.cpp`, `runner_resume.cpp`) denselben
+Wert sehen. `to_yaml` serialisiert nur noch `reconstruction.quality.pyramid.*`.
+Static- und Embedded-Schema enthalten den alten Block nicht mehr.
+
+**Verbraucher.** `runner_forward_drizzle.cpp` mappt den neuen Block auf den
+internen `AqmhPyramidConfig`-Adapter für `build_source_quality_map_cache`.
+Frontend: neue i18n-Labels unter `param.reconstruction.quality.pyramid.*`
+(de/en, ohne AQMH-Bezug); Kategorie `aqmh` in `LEGACY_HIDDEN_CATEGORIES`.
+AI-Katalog/Situation-Assistant zeigen auf die neuen Pfade. Schemas,
+`tile_compile.yaml`, alle 19 betroffenen Beispiel-YAMLs, examples-README,
+Konfigurationsreferenz de/en, praktische Beispiele de/en, `phase_0_overview`,
+GUI3-Userguides de/en, `aqmh_overview`-Guides und der PI-Kontextplan
+aktualisiert.
+
+**Verifikation.** Build runner/cli/tests; `reconstruction:*` (78 Assertions)
+und `*quality*` (37722) grün; Gesamtsuite 646 Fälle; Backend-Vertragstests
+(ai_routes, run-start, queue) grün; JSON/YAML-Validierung aller Schemas,
+Beispiele und i18n-Dateien sauber; `validate-config` akzeptiert migrierte
+Beispiele, Default-Config und reinen Legacy-`aqmh.pyramid`-Block.

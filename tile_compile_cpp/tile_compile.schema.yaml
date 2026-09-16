@@ -2,23 +2,6 @@ $schema: http://json-schema.org/draft-07/schema#
 title: tile_compile v4 config
 type: object
 properties:
-  method:
-    type: string
-    enum:
-    - aqmh
-    - classic_tile_compile
-    default: aqmh
-    description: 'Reconstruction method: ''aqmh'' (AQMH First default) or ''classic_tile_compile''. If missing, defaults to ''aqmh''.'
-  pipeline:
-    type: object
-    properties:
-      mode:
-        type: string
-        enum:
-        - production
-        - test
-        description: Pipeline execution mode. production = full pipeline with all stages. test = reduced pipeline for quick validation runs.
-        default: production
   output:
     type: object
     properties:
@@ -59,6 +42,10 @@ properties:
         type: string
         description: Bayer matrix pattern for OSC CFA data (e.g. RGGB, BGGR, GBRG, GRBG). NONE for monochrome data. Auto-detected from FITS header if available.
         default: auto
+      linear_required:
+        type: boolean
+        deprecated: true
+        description: 'Deprecated: non-linear frames are warn-only in the runner and are no longer removed.'
   linearity:
     type: object
     properties:
@@ -162,34 +149,6 @@ properties:
         type: string
         description: 'Glob pattern for calibration frame file matching. Default: *.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz'
         default: '*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz'
-  assumptions:
-    type: object
-    properties:
-      frames_min:
-        type: integer
-        minimum: 1
-        description: 'Minimum number of frames required for the pipeline to run. Below this, the run aborts. Default: 50.'
-        default: 50
-      frames_reduced_threshold:
-        type: integer
-        minimum: 1
-        description: 'Schwelle fuer Full Mode: frames_min..(threshold-1) = Reduced Mode, ab threshold = Full Mode. In Reduced Mode, clustering and synthetic frame generation may be skipped. Default: 200.'
-        default: 200
-      reduced_mode_skip_clustering:
-        type: boolean
-        description: 'Wenn true, werden STATE_CLUSTERING und SYNTHETIC_FRAMES im Reduced-/Emergency-Mode uebersprungen. Recommended: true (tile reconstruction result is used directly as final image).'
-        default: true
-      reduced_mode_cluster_range:
-        type: array
-        items:
-          type: integer
-          minimum: 1
-        minItems: 2
-        maxItems: 2
-        description: 'Cluster count range [k_min, k_max] for Reduced Mode clustering (only when reduced_mode_skip_clustering=false). Default: [5, 10].'
-        default:
-        - 5
-        - 10
   normalization:
     type: object
     properties:
@@ -344,6 +303,27 @@ properties:
         type: boolean
         description: 'Enable gated smooth local per-frame refinement after the global/optional affine warp. Fits a regularized 4x4 Gaussian inverse displacement field from mutual star matches and applies it only when spatial coverage, held-out median/p90/RMS, maximum displacement, Jacobian/local-scale, NCC, and overlap gates pass. Supported for MONO and OSC debayer-first RGB prewarp; otherwise the global/affine warp is preserved. Default: true.'
         default: true
+      prewarp_interpolation:
+        type: string
+        enum:
+        - linear
+        - cubic
+        - lanczos4
+        default: cubic
+        description: Interpolation kernel used when prewarping registered frames onto the common canvas before reconstruction and stacking. cubic is the default because controlled sharpness comparisons preserved more high-frequency detail than linear with a smaller background-noise increase than lanczos4.
+      debayer_first:
+        type: boolean
+        default: true
+        description: OSC-only mode. When true and a Bayer pattern is known, each calibrated frame is demosaiced before prewarp; source-quality maps are computed from luma and the final R/G/B planes are reconstructed directly from the prewarped RGB planes. This avoids reconstructing and later debayering a warped CFA mosaic.
+      pre_debayer_method:
+        type: string
+        enum:
+        - bilinear
+        - nearest
+        - vng
+        - edge_aware
+        default: edge_aware
+        description: Demosaicing method used before prewarp when registration.debayer_first is true for OSC input. Ignored for mono/RGB input and for OSC input without a known Bayer pattern.
   dithering:
     type: object
     properties:
@@ -355,70 +335,8 @@ properties:
       min_shift_px:
         type: number
         minimum: 0
-        description: 'Minimum shift in pixels between consecutive frames to count as dithered. Shifts below this are ignored for dither detection. Range 0–5. Recommended: 0.7.'
         default: 0.5
-  tile_denoise:
-    type: object
-    properties:
-      soft_threshold:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            description: Enable wavelet soft-thresholding denoise on tiles before reconstruction. Removes noise while preserving edges.
-            default: true
-          blur_kernel:
-            type: integer
-            minimum: 3
-            description: 'Gaussian blur kernel size for pre-smoothing before wavelet decomposition. Must be odd. Range 3–15. Recommended: 5.'
-            default: 31
-          alpha:
-            type: number
-            exclusiveMinimum: 0
-            description: 'Soft-thresholding strength. Higher values remove more noise but may blur faint detail. Range 0.5–5.0. Recommended: 2.0.'
-            default: 1.5
-          skip_star_tiles:
-            type: boolean
-            description: 'When true, skips denoising for tiles classified as STAR to preserve star sharpness. Recommended: true.'
-            default: true
-      wiener:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            description: Enable Wiener filter denoise on tiles. Estimates signal-to-noise ratio per tile and applies adaptive filtering.
-            default: true
-          snr_threshold:
-            type: number
-            minimum: 0
-            description: 'Minimum SNR for Wiener filtering. Tiles with SNR below this are filtered more aggressively. Range 0–10. Recommended: 1.0.'
-            default: 5.0
-          q_min:
-            type: number
-            minimum: -1
-            description: 'Minimum Wiener filter quality parameter q. Controls the lower bound of the adaptive filter. Range -1–1. Recommended: 0.'
-            default: -0.5
-          q_max:
-            type: number
-            minimum: 0
-            maximum: 1
-            description: 'Maximum Wiener filter quality parameter q. Controls the upper bound of the adaptive filter. Range 0–1. Recommended: 0.9.'
-            default: 1.0
-          q_step:
-            type: number
-            exclusiveMinimum: 0
-            description: 'Step size for q parameter search. Smaller steps = finer adaptation but slower. Range 0.01–0.5. Recommended: 0.1.'
-            default: 0.1
-          min_snr:
-            type: number
-            minimum: 0
-            description: 'Minimum SNR for applying Wiener filter at all. Tiles below this SNR are not filtered. Range 0–5. Recommended: 0.5.'
-            default: 2.0
-          max_iterations:
-            type: integer
-            minimum: 1
-            description: 'Maximum iterations for Wiener filter convergence. Range 1–20. Recommended: 5.'
-            default: 10
+        description: 'Minimum inter-frame shift in pixels for a frame to count as dithered in the global_registration.json diagnostic. Default: 0.5.'
   chroma_denoise:
     type: object
     properties:
@@ -600,510 +518,6 @@ properties:
         default:
         - -3.0
         - 3.0
-  tile:
-    type: object
-    properties:
-      size_factor:
-        type: integer
-        minimum: 1
-        description: 'Base tile size factor. Tile size T0 = size_factor × FWHM. Larger tiles contain more signal but less spatial resolution. Range 1–100. Recommended: 24.'
-        default: 32
-      min_size:
-        type: integer
-        minimum: 1
-        description: 'Minimum tile size in pixels. Tiles smaller than this are merged with neighbors. Range 16–256. Recommended: 64.'
-        default: 64
-      max_divisor:
-        type: integer
-        minimum: 1
-        description: 'Maximum divisor for tile size reduction. Controls how small tiles can be subdivided for adaptive reconstruction. Range 1–8. Recommended: 4.'
-        default: 6
-      overlap_fraction:
-        type: number
-        minimum: 0
-        maximum: 0.5
-        description: 'Fractional overlap between adjacent tiles for Hanning overlap-add reconstruction. Too little overlap → visible tile boundaries. Too much → inefficient. Range 0–0.5. Recommended: 0.3.'
-        default: 0.25
-      star_min_count:
-        type: integer
-        minimum: 0
-        description: 'Minimum star count (median across frames) for STAR tile classification. Tiles with fewer stars are classified as STRUCTURE. Range 0–50. Recommended: 5.'
-        default: 10
-      star_soft_count:
-        type: integer
-        minimum: 0
-        description: 'Soft star count threshold for STAR tile classification. Above this count, tiles are marked as STAR but less strictly than star_min_count. Range 0–100. Recommended: 10.'
-        default: 10
-  local_metrics:
-    type: object
-    properties:
-      clamp:
-        type: array
-        items:
-          type: number
-        minItems: 2
-        maxItems: 2
-        default:
-        - -3.0
-        - 3.0
-      neighborhood_normalization:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            description: 'Enable neighborhood normalization for local metrics. Normalizes tile quality scores against their spatial neighbors to reduce large-scale gradients in quality. Default: true.'
-            default: true
-          radius:
-            type: integer
-            minimum: 0
-            description: 'Radius in tiles for neighborhood normalization. 0 = no normalization. Larger radii = smoother normalization. Range 0–5. Recommended: 1.'
-            default: 1
-          blend:
-            type: number
-            minimum: 0
-            maximum: 1
-            description: 'Blend factor between raw and neighborhood-normalized local quality. 0 = raw only, 1 = fully normalized. Range 0–1. Recommended: 0.5.'
-            default: 0.5
-      spatial_regularization:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            description: 'Enable spatial regularization for local metrics. Smooths per-tile quality weights spatially to reduce tile boundary artifacts. Default: true.'
-            default: true
-          lambda:
-            type: number
-            minimum: 0
-            maximum: 1
-            description: 'Regularization strength. Higher values produce smoother weight maps. Range 0–1. Recommended: 0.3.'
-            default: 0.35
-          passes:
-            type: integer
-            minimum: 0
-            description: 'Number of regularization passes. More passes = smoother but slower. Range 0–10. Recommended: 3.'
-            default: 1
-          tau_local:
-            type: number
-            exclusiveMinimum: 0
-            description: 'Local regularization step size tau. Controls convergence speed. Range 0.01–1.0. Recommended: 0.1.'
-            default: 1.0
-      star_mode:
-        type: object
-        properties:
-          weights:
-            type: object
-            properties:
-              fwhm:
-                type: number
-                minimum: 0
-                maximum: 1
-                description: 'Weight for FWHM (star sharpness) in STAR tile mode. Range 0–1. Default: 0.5.'
-                default: 0.6
-              roundness:
-                type: number
-                minimum: 0
-                maximum: 1
-                description: 'Weight for star roundness in STAR tile mode. Range 0–1. Default: 0.3.'
-                default: 0.2
-              contrast:
-                type: number
-                minimum: 0
-                maximum: 1
-                description: 'Weight for star contrast in STAR tile mode. Range 0–1. Default: 0.2.'
-                default: 0.2
-      structure_mode:
-        type: object
-        properties:
-          background_weight:
-            type: number
-            minimum: 0
-            maximum: 1
-            description: 'Weight for background quality in STRUCTURE tile mode. Range 0–1. Default: 0.5.'
-            default: 0.3
-          metric_weight:
-            type: number
-            minimum: 0
-            maximum: 1
-            description: 'Weight for structure metric in STRUCTURE tile mode. Range 0–1. Default: 0.5.'
-            default: 0.7
-      k_local:
-        type: number
-        exclusiveMinimum: 0
-        description: 'Exponent scale for local weight L_{f,t}=exp(k_local*Q_local). Default 1.0; >1 increases local differentiation between tiles, <1 softens it. NOTE: unlike weight_exponent_scale, k_local
-          does NOT affect registration anchor selection — it only influences per-tile weighting during reconstruction. Safe to tune independently. High values (>2.0) can cause tile boundary artifacts if
-          local quality varies sharply across neighboring tiles.'
-        default: 1.0
-  aqmh:
-    type: object
-    description: AQMH-specific configuration. The 'enabled' flag is derived from the top-level 'method' field and should not be set manually.
-    properties:
-      enabled:
-        type: boolean
-        description: Runtime flag derived from Config.method. true when method='aqmh', false when method='classic_tile_compile'.
-        default: true
-      pyramid:
-        type: object
-        properties:
-          scales:
-            type: integer
-            minimum: 1
-            maximum: 8
-            default: 4
-            description: 'Number of pyramid scales for AQMH multi-scale analysis. More scales capture larger-scale quality variations but increase memory. Range 1–8. Recommended: 4.'
-          base_window_px:
-            type: integer
-            minimum: 1
-            default: 4
-            description: 'Base window size in pixels for the finest pyramid level. Controls the spatial resolution of quality analysis. Range 16–256. Recommended: 64.'
-          w_sharp:
-            type: number
-            minimum: 0
-            default: 0.6
-            description: 'Weight for sharpness in the AQMH quality metric. Higher values prioritize sharp tiles. Range 0–2. Recommended: 1.0.'
-          w_snr:
-            type: number
-            minimum: 0
-            default: 0.4
-            description: 'Weight for signal-to-noise ratio in the AQMH quality metric. Higher values prioritize low-noise tiles. Range 0–2. Recommended: 1.0.'
-          score_scale:
-            type: number
-            exclusiveMinimum: 0
-            default: 1.8
-            description: 'Sigmoid score scale for local AQMH quality maps. Higher values increase per-pixel frame selectivity while preserving the [0,1] map range. Range 0.1–5.0. Recommended: 1.8.'
-          k_artifact:
-            type: number
-            exclusiveMinimum: 0
-            default: 3.0
-            description: 'Artifact penalty exponent. Higher values more aggressively reject tiles with artifacts (e.g. satellite trails, cosmic rays). Range 0.1–5.0. Recommended: 1.0.'
-          frac_artifact_max:
-            type: number
-            exclusiveMinimum: 0
-            maximum: 1
-            default: 0.25
-            description: 'Maximum fraction of artifact pixels allowed before a tile is rejected. Range 0–1. Recommended: 0.1.'
-      storage:
-        type: object
-        properties:
-          resolution_divisor:
-            type: integer
-            enum:
-            - 1
-            - 2
-            - 4
-            default: 1
-            description: Full resolution by default. Values 2 or 4 enable approximate storage and require the format-v2 full-resolution zero-veto sidecar.
-          dtype:
-            type: string
-            enum:
-            - float32
-            - uint16
-            - uint8
-            default: float32
-            description: Storage data type for AQMH quality maps. float32 is exact; uint16 is recommended for lower disk and I/O cost; uint8 is smallest but coarser.
-          max_resident_maps:
-            type: integer
-            minimum: 0
-            maximum: 16
-            default: 2
-            description: Maximum number of full-resolution AQMH quality maps kept in RAM by the reconstruction read cache. 0 disables the read cache.
-      cherry_pick:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            default: true
-            description: Enables per-pixel AQMH frame selection during reconstruction.
-          mode:
-            type: string
-            enum:
-              - auto_reject
-              - top_k
-            default: auto_reject
-            description: auto_reject keeps most locally usable frames and rejects only clear low-score outliers; top_k is the legacy fixed best-k selection.
-          k_frac:
-            type: number
-            exclusiveMinimum: 0
-            maximum: 1
-            default: 0.3
-            description: Fraction retained in legacy mode=top_k.
-          k_min_required:
-            type: integer
-            minimum: 1
-            default: 20
-          margin_min:
-            type: number
-            minimum: 0
-            maximum: 1
-            default: 0.02
-          reject_below_best_fraction:
-            type: number
-            exclusiveMinimum: 0
-            maximum: 1
-            default: 0.25
-            description: In mode=auto_reject, reject samples only when their local score is below this fraction of the local best score.
-          min_keep_fraction:
-            type: number
-            exclusiveMinimum: 0
-            maximum: 1
-            default: 0.9
-            description: In mode=auto_reject, retain at least this fraction of locally rankable samples.
-          tiered_k_frac:
-            type: array
-            default: []
-            items:
-              type: object
-              required:
-              - min_n_rankable
-              - k_frac
-              properties:
-                min_n_rankable:
-                  type: integer
-                  minimum: 0
-                k_frac:
-                  type: number
-                  exclusiveMinimum: 0
-                  maximum: 1
-      global_quality:
-        type: object
-        properties:
-          g_floor:
-            type: number
-            exclusiveMinimum: 0
-            exclusiveMaximum: 1
-            default: 0.03
-          g_w_sharp:
-            type: number
-            minimum: 0
-            default: 0.55
-          g_w_snr:
-            type: number
-            minimum: 0
-            default: 0.3
-          g_w_background_penalty:
-            type: number
-            minimum: 0
-            default: 0.25
-          g_k_scale:
-            type: number
-            exclusiveMinimum: 0
-            default: 1.5
-            description: Sigmoid temperature for global AQMH quality. The resulting frame weight remains bounded to [g_floor, 1].
-      reconstruction:
-        type: object
-        properties:
-          clip_sigma:
-            type: number
-            exclusiveMinimum: 0
-            default: 2.0
-          clip_sigma_low:
-            type: number
-            exclusiveMinimum: 0
-            default: 2.0
-            description: Lower-side AQMH sigma clipping threshold.
-          clip_sigma_high:
-            type: number
-            exclusiveMinimum: 0
-            default: 4.0
-            description: >-
-              Upper-side AQMH sigma clipping threshold. Kept looser than clip_sigma_low (2.0): at a star's PSF peak, per-frame subpixel registration jitter makes the
-              pixel's frame-to-frame value distribution right-skewed, so a tight symmetric clip preferentially rejects the genuinely bright frames and biases the reconstructed
-              peak down, visible as a dark notch in star centers. 4.0 removes that notch without loosening clip_sigma_low, so diffuse-background behavior is unchanged.
-          clip_iterations:
-            type: integer
-            minimum: 0
-            default: 4
-          min_fraction:
-            type: number
-            exclusiveMinimum: 0
-            maximum: 1
-            default: 0.4
-          min_n_eff:
-            type: number
-            minimum: 1
-            default: 2.0
-          chunk_rows:
-            type: integer
-            minimum: 0
-            default: 0
-            description: Row chunk size for AQMH reconstruction. 0 = automatic based on memory budget.
-          memory_budget_mb:
-            type: integer
-            minimum: 0
-            default: 0
-            description: VRAM/RAM budget for reconstruction in MB. 0 = automatic.
-          delete_prewarped_cache_after_run:
-            type: boolean
-            default: true
-            description: Controls deletion of the disk-backed cache/prewarped_frames directory after a successful run. true saves disk space but prevents direct resume from AQMH_RECONSTRUCTION or STACKING; false retains registered and prewarped frames for those resumes without repeating registration and PREWARP. The cache can require several tens of gigabytes.
-          prewarp_interpolation:
-            type: string
-            enum:
-              - linear
-              - cubic
-              - lanczos4
-            default: cubic
-            description: Interpolation kernel used when prewarping registered frames onto the common canvas before AQMH reconstruction and stacking. cubic is the default because controlled sharpness comparisons preserved more high-frequency detail than linear with a smaller background-noise increase than lanczos4. linear remains the conservative low-noise fallback; lanczos4 is an explicit tuning option that may increase background noise or ringing.
-          debayer_first:
-            type: boolean
-            default: false
-            description: OSC-only AQMH mode. When true and a Bayer pattern is known, each calibrated frame is demosaiced before prewarp; AQMH quality maps are computed from luma and the final R/G/B planes are reconstructed directly from the prewarped RGB planes. This avoids reconstructing and later debayering a warped CFA mosaic.
-          pre_debayer_method:
-            type: string
-            enum:
-              - bilinear
-              - nearest
-              - vng
-              - edge_aware
-            default: edge_aware
-            description: Demosaicing method used before prewarp when aqmh.reconstruction.debayer_first is true for OSC input. Ignored for mono/RGB input and for OSC input without a known Bayer pattern.
-          rgb_q_map_mode:
-            type: string
-            enum:
-              - shared_luma
-            default: shared_luma
-            description: Quality-map source for AQMH debayer-first RGB reconstruction. shared_luma reuses luma Q-maps and global weights for R, G, and B.
-          rgb_memory_strategy:
-            type: string
-            enum:
-              - sequential
-            default: sequential
-            description: Memory strategy for AQMH debayer-first RGB reconstruction. sequential reconstructs R, G, and B one channel at a time to bound memory and VRAM usage.
-          registration_weight_guard:
-            type: boolean
-            default: true
-            description: Downweights frames with weak registration evidence before AQMH reconstruction.
-          registration_weight_floor:
-            type: number
-            minimum: 0
-            maximum: 1
-            default: 0.30
-          registration_cc_floor:
-            type: number
-            minimum: 0
-            maximum: 1
-            default: 0.35
-          registration_cc_full:
-            type: number
-            minimum: 0
-            maximum: 1
-            default: 0.8
-          registration_sequential_factor:
-            type: number
-            minimum: 0
-            maximum: 1
-            default: 0.92
-          registration_predicted_factor:
-            type: number
-            minimum: 0
-            maximum: 1
-            default: 0.50
-          registration_chain_depth_penalty:
-            type: number
-            minimum: 0
-            maximum: 0.5
-            default: 0.03
-          registration_chain_depth_max_penalty:
-            type: number
-            minimum: 0
-            maximum: 1
-            default: 0.15
-          structure_mask_low_q:
-            type: number
-            minimum: 0
-            maximum: 1
-            default: 0.40
-            description: Gradient quantile mapped to structure mask = 0 (background).
-          structure_mask_high_q:
-            type: number
-            minimum: 0
-            maximum: 1
-            default: 0.90
-            description: Gradient quantile mapped to structure mask = 1 (full AQMH detail).
-          structure_mask_blur_sigma_px:
-            type: number
-            exclusiveMinimum: 0
-            default: 4.0
-            description: Gaussian blur sigma for soft structure mask transition.
-      validation:
-        type: object
-        properties:
-          max_seam_score_regression:
-            type: number
-            minimum: 0
-            default: 0.05
-          max_fwhm_regression:
-            type: number
-            minimum: 0
-            default: 0.02
-          max_background_rms_regression:
-            type: number
-            minimum: 0
-            default: 0.05
-            description: Maximum relative regression of robust local background noise, measured from neighbouring pixel differences. Diffuse astronomical structure is excluded; exceeding the limit rejects optional post-processing and preserves raw AQMH.
-          max_tail11_abs_regression:
-            type: number
-            minimum: 0
-            default: 0.10
-          max_elongation_regression:
-            type: number
-            minimum: 0
-            default: 0.08
-      diagnostics:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            default: true
-            description: Enable the AQMH diagnostics phase.
-          level:
-            type: string
-            enum:
-            - none
-            - summary
-            - full
-            default: full
-            description: 'AQMH diagnostics detail level: none = skip, summary = run-level metrics, full = per-frame block diagnostics and heatmaps.'
-          format:
-            type: string
-            enum:
-            - json
-            - binary
-            default: json
-            description: 'AQMH diagnostics output format: json or binary (AQDB).'
-          regions:
-            type: boolean
-            default: true
-            description: When true, write artifacts/aqmh_regions.json with per-frame detected quality regions.
-          per_frame_blocks:
-            type: boolean
-            default: true
-            description: When true and level=full, compute block-level diagnostics per frame.
-          heatmaps:
-            type: boolean
-            default: true
-            description: When true and level=full, include heatmap arrays in diagnostics.
-          binary_block_size_px:
-            type: integer
-            minimum: 0
-            default: 64
-            description: Block size in pixels for binary AQDB diagnostics. 0 disables block grouping.
-          tau_artifact:
-            type: number
-            minimum: 0
-            maximum: 1
-            default: 0.2
-            description: 'Artifact detection threshold for AQMH diagnostics. Tiles with artifact score above this are flagged. Range 0–1. Recommended: 0.5.'
-          q_region:
-            type: number
-            minimum: 0
-            maximum: 1
-            default: 0.75
-            description: 'Quality region size for AQMH diagnostics. Controls the spatial extent of quality region analysis. Range 0–1. Recommended: 0.25.'
-          r_morph_canvas_px:
-            type: integer
-            minimum: 1
-            default: 6
-            description: 'Morphological canvas size in pixels for AQMH artifact detection. Larger canvases detect larger artifacts. Range 16–256. Recommended: 64.'
   reconstruction:
     type: object
     description: Single-method CFA-forward-drizzle + multiband reconstruction contract (plan sections 6.1-6.3). Parsed and validated in M0; consumed from M2 onward.
@@ -1173,7 +587,13 @@ properties:
           pyramid:
             type: object
             properties:
-              scales: {type: integer, minimum: 1, maximum: 4, default: 4}
+              scales: {type: integer, minimum: 1, maximum: 8, default: 4, description: "Number of Source Quality Map pyramid levels."}
+              base_window_px: {type: integer, minimum: 1, default: 4, description: "Base local window size in pixels for Source Quality Map statistics."}
+              sharpness_weight: {type: number, minimum: 0, default: 0.6, description: "Weight of the local sharpness term in the Source Quality Map score; sharpness_weight+snr_weight must be > 0."}
+              snr_weight: {type: number, minimum: 0, default: 0.4, description: "Weight of the local signal-to-noise term in the Source Quality Map score."}
+              score_scale: {type: number, exclusiveMinimum: 0, default: 1.8, description: "Scaling factor applied to the combined Source Quality Map score."}
+              artifact_sigma: {type: number, exclusiveMinimum: 0, default: 3.0, description: "Sigma threshold above which a Source Quality Map region counts as artifact."}
+              max_artifact_fraction: {type: number, exclusiveMinimum: 0, maximum: 1, default: 0.25, description: "Maximum tolerated artifact fraction in the Source Quality Map."}
       multiband:
         type: object
         properties:
@@ -1186,47 +606,54 @@ properties:
           full_quality_separation: {type: number, minimum: 0, maximum: 1, default: 0.20}
           min_effective_samples: {type: number, minimum: 1, default: 8.0}
           full_effective_samples: {type: number, minimum: 1, default: 24.0}
-  synthetic:
-    type: object
-    properties:
-      weighting:
-        type: string
-        enum:
-        - global
-        - tile_weighted
-        description: global = nur G_f; tile_weighted = W_f,t = G_f*L_f,t mit tileweiser OLA-Rekonstruktion.
-        default: global
-      frames_min:
-        type: integer
-        minimum: 1
-        description: 'Minimum frames for synthetic frame generation. Below this, synthetic frames are not created. Default: 3.'
-        default: 5
-      frames_max:
-        type: integer
-        minimum: 1
-        description: 'Maximum synthetic frames to generate. Caps the total synthetic frame count. Default: 50.'
-        default: 30
-      clustering:
+      multiband_validation:
         type: object
         properties:
-          mode:
-            type: string
-            enum:
-            - kmeans
-            - quantile
-            description: 'Clustering mode for synthetic frame generation. kmeans = K-means clustering of frame quality. quantile = quality-based quantile binning. Default: kmeans.'
-            default: kmeans
-          cluster_count_range:
-            type: array
-            items:
-              type: integer
-              minimum: 1
-            minItems: 2
-            maxItems: 2
-            description: 'Cluster count range [k_min, k_max] for frame clustering. The optimal k is auto-selected within this range. Default: [3, 8].'
-            default:
-            - 5
-            - 30
+          fwhm_ratio_max:
+            type: number
+            exclusiveMinimum: 0
+            description: 'Multiband promotion gate: median FWHM of the multiband candidate must be <= this factor x raw (plan 15.3.4). <1 requires measurable improvement. Default: 0.95.'
+            default: 0.95
+          p90_fwhm_ratio_max:
+            type: number
+            exclusiveMinimum: 0
+            description: 'Multiband promotion gate: p90 FWHM of multiband <= this factor x raw. Default: 1.0.'
+            default: 1.0
+          tail_ratio_max:
+            type: number
+            exclusiveMinimum: 0
+            description: 'Multiband promotion gate: star-tail metric of multiband <= this factor x raw. Default: 1.1.'
+            default: 1.1
+          elongation_ratio_max:
+            type: number
+            exclusiveMinimum: 0
+            description: 'Multiband promotion gate: star elongation of multiband <= this factor x raw. Default: 1.08.'
+            default: 1.08
+          background_rms_ratio_max:
+            type: number
+            exclusiveMinimum: 0
+            description: 'Background-RMS veto: raw and multiband are rejected when their background RMS exceeds this factor x the uniform control. NOTE: for frame-filling extended objects (galaxies, large nebulae) the RMS samples sit on real faint structure, so a better-weighted stack legitimately measures higher RMS; raise this (e.g. 1.15-1.25) for such targets. Default: 1.05.'
+            default: 1.05
+          seam_ratio_max:
+            type: number
+            exclusiveMinimum: 0
+            description: 'Seam-score veto: raw and multiband are rejected when their Laplacian seam score at the support boundary exceeds this factor x uniform. Default: 1.05.'
+            default: 1.05
+          min_stars_fwhm:
+            type: integer
+            minimum: 0
+            description: 'Minimum matched stars for the median-FWHM metric; below this the metric is not applicable (no promotion evidence). Default: 20.'
+            default: 20
+          min_stars_p90_tail_elongation:
+            type: integer
+            minimum: 0
+            description: 'Minimum matched stars for the p90-FWHM, tail and elongation metrics. Default: 30.'
+            default: 30
+          max_fwhm_ci_relative_width:
+            type: number
+            exclusiveMinimum: 0
+            description: 'Bootstrap 95% CI relative width veto on the FWHM median; a wider CI means the FWHM evidence is too noisy to promote. Default: 0.1.'
+            default: 0.1
   astrometry:
     type: object
     properties:
@@ -1897,87 +1324,6 @@ properties:
   stacking:
     type: object
     properties:
-      method:
-        type: string
-        enum:
-        - rej
-        - average
-        description: 'Stacking method. rej = sigma-clipped rejection (recommended, removes outliers like cosmic rays). average = simple average (faster, no outlier rejection). Default: rej.'
-        default: rej
-      common_overlap_required_fraction:
-        type: number
-        exclusiveMinimum: 0
-        maximum: 1
-        description: Erforderlicher Pixel-Anteil ueber alle nutzbaren Frames fuer COMMON_OVERLAP. Default 1.0 = strikte Schnittmenge.
-        default: 1.0
-      tile_common_valid_min_fraction:
-        type: number
-        exclusiveMinimum: 0
-        maximum: 1
-        description: Mindestanteil gueltiger COMMON_OVERLAP-Pixel pro Tile. Default 1.0 = nur vollstaendig innerhalb der Support-Maske liegende Tiles.
-        default: 1.0
-      sigma_clip:
-        type: object
-        description: 'Sigma-clipping parameters for stacking rejection. WARNING: sigma_low, sigma_high, and min_fraction interact — with small frame counts (<30), tight sigma values (sigma_low < 2.0 or
-          sigma_high < 2.0) combined with min_fraction > 0.5 can reject most frames per pixel, leaving empty tiles or ghosting. For large frame counts (>200) the defaults are safe. Only tighten sigma if
-          you have many frames AND visible cosmic ray artifacts in the output.'
-        properties:
-          sigma_low:
-            type: number
-            exclusiveMinimum: 0
-            description: 'Low-side sigma clipping threshold for stacking rejection. Pixels below mean - sigma_low × std are rejected. Lower values = more aggressive. Range 1–5. Recommended: 3.0.'
-            default: 2.0
-          sigma_high:
-            type: number
-            exclusiveMinimum: 0
-            description: 'High-side sigma clipping threshold for stacking rejection. Pixels above mean + sigma_high × std are rejected. Lower values = more aggressive (removes cosmic rays). Range 1–5. Recommended:
-              3.0.'
-            default: 2.0
-          max_iters:
-            type: integer
-            minimum: 1
-            description: 'Maximum sigma-clipping iterations. More iterations = better outlier removal but slower. Range 1–10. Recommended: 3.'
-            default: 3
-          min_fraction:
-            type: number
-            minimum: 0
-            maximum: 1
-            description: 'Minimum fraction of frames that must survive sigma clipping per pixel. Below this, the pixel is rejected. Range 0–1. Recommended: 0.0.'
-            default: 0.5
-      cluster_quality_weighting:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            description: 'Aktiviert v3.2.2 Cluster-Qualitaetsgewichtung im finalen Stack: w_k = exp(kappa_cluster * Q_k).'
-            default: true
-          kappa_cluster:
-            type: number
-            exclusiveMinimum: 0
-            description: Exponentfaktor fuer Cluster-Qualitaet Q_k (Q_k in [-3,+3]).
-            default: 1.0
-          cap_enabled:
-            type: boolean
-            description: Aktiviert optionales Dominanz-Cap fuer Clustergewichte.
-            default: false
-          cap_ratio:
-            type: number
-            exclusiveMinimum: 0
-            description: 'Nur mit cap_enabled=true: begrenzt Gewicht auf w_k <= cap_ratio * median_j(w_j).'
-            default: 20.0
-      output_stretch:
-        type: boolean
-        description: Optionaler linearer Anzeige-Stretch auf den Ausgabe-Daten (Post-Processing, nicht Teil des linearen Pflichtkerns).
-        default: false
-      cosmetic_correction:
-        type: boolean
-        description: Optionale Hotpixel-/Artefakt-Kosmetik nach dem Stacken (Post-Processing, standardmaessig deaktiviert).
-        default: false
-      cosmetic_correction_sigma:
-        type: number
-        exclusiveMinimum: 0
-        description: 'Schwellwert in Vielfachen der MAD-Sigma fuer die Hotpixel-Erkennung in cosmetic_correction. Niedrigerer Wert = aggressiver. Default: 5.0, empfohlen fuer OSC/Seestar: 10.0.'
-        default: 5.0
       per_frame_cosmetic_correction:
         type: boolean
         description: Hotpixel-Korrektur pro Frame VOR dem Stacken. Entfernt fixe Sensordefekte (immer gleiche Position), die Sigma-Clipping nicht erkennt. Empfohlen fuer OSC-Kameras mit fixen Hot Pixeln.
@@ -1987,27 +1333,6 @@ properties:
         exclusiveMinimum: 0
         description: 'Sigma-Schwelle fuer per_frame_cosmetic_correction. Niedrigerer Wert = aggressiver. Default: 5.0. Fuer Seestar/OSC empfohlen: 5.0.'
         default: 5.0
-  validation:
-    type: object
-    properties:
-      min_fwhm_improvement_percent:
-        type: number
-        description: 'Minimum FWHM improvement percentage required for the run to be considered successful. If the output FWHM is not at least this much better than the input median FWHM, a warning is issued.
-          Default: 0.'
-        default: 0.0
-      max_background_rms_increase_percent:
-        type: number
-        description: 'Maximum allowed background RMS increase (in percent) from cherry_pick or other processing. If exceeded, the feature is auto-disabled. Range 0–100. Recommended: 5.'
-        default: 0.0
-      min_tile_weight_variance:
-        type: number
-        minimum: 0
-        description: 'Minimum required variance in tile weights. If all tiles have nearly equal weights, the reconstruction may not be benefiting from quality-based weighting. Default: 0.'
-        default: 0.1
-      require_no_tile_pattern:
-        type: boolean
-        description: 'When true, validates that the output has no visible tile pattern artifacts. If detected, a warning is issued. Default: true.'
-        default: true
   runtime_limits:
     type: object
     properties:
@@ -2034,25 +1359,8 @@ properties:
         description: 'Beschleunigungs-Backend fuer PREWARP/TILE_RECONSTRUCTION/STACKING. ''auto'' (Standard) erkennt automatisch verfuegbare GPU-Backends (CUDA/OpenCL) zur Laufzeit. Prioritaet: CUDA ->
           OpenCL -> CPU. ''opencv_cuda'' erzwingt NVIDIA CUDA, ''opencv_opencl''/''opencl'' erzwingt OpenCL (AMD/Intel/NVIDIA), ''cpu'' deaktiviert GPU. Faellt sauber auf CPU zurueck wenn Hardware nicht
           verfuegbar.'
-      tile_reconstruction_diagnostics:
-        type: string
-        enum:
-        - full
-        - minimal
-        - false
-        default: full
-        description: 'Diagnostics detail level for tile reconstruction. full = all diagnostics (maps, histograms, per-tile metrics). minimal = summary only. off = no diagnostics. Default: full.'
-      tile_analysis_max_factor_vs_stack:
-        type: number
-        exclusiveMinimum: 0
-        description: 'Maximum factor by which tile analysis memory can exceed the stack memory. Prevents excessive memory usage for very large images. Range 1–10. Recommended: 3.0.'
-        default: 3.0
       hard_abort_hours:
         type: number
         exclusiveMinimum: 0
         description: 'Hard time limit in hours. The pipeline aborts after this duration regardless of progress. 0 = no limit. Range 0–72. Recommended: 0.'
         default: 6.0
-      allow_emergency_mode:
-        type: boolean
-        description: Erlaubt Emergency-Mode fuer Datensaetze mit <50 nutzbaren Frames; sonst wird der Lauf kontrolliert abgebrochen.
-        default: false

@@ -4,7 +4,7 @@
 
 ```bash
 ./tile_compile_runner \
-  run \
+  reconstruct \
   --config ../tile_compile.yaml \
   --input-dir /path/to/lights \
   --runs-dir /path/to/runs
@@ -13,26 +13,53 @@
 ### Common options
 
 - `--max-frames <n>` limit frames (`0` = no limit)
-- `--max-tiles <n>` limit classic tile processing (`0` = no limit)
 - `--dry-run` execute validation flow without full processing
 - `--run-id <id>` custom run id for grouping
+- `--project-root <path>` project root directory
 - `--stdin` with `--config -` to read YAML from stdin
 
 ### Resume mode
 
 ```bash
-./tile_compile_runner resume \
+./tile_compile_runner resume-reconstruction \
   --run-dir /path/to/runs/<run_id> \
-  --from-phase BGE
+  --from-phase FORWARD_DRIZZLE
 ```
 
-Supported resume phases (any phase from 0..17):
+Supported resume phases (case-insensitive; `HMS` is an alias for
+`HYPERMETRIC_STRETCH`):
 
-- Early: `SCAN_INPUT`, `CHANNEL_SPLIT`, `NORMALIZATION`, `GLOBAL_METRICS`, `TILE_GRID`
-- Mid: `REGISTRATION`, `PREWARP`, `COMMON_OVERLAP`, `LOCAL_METRICS`, `TILE_RECONSTRUCTION`
-- Late: `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`, `STACKING`, `DEBAYER`, `ASTROMETRY`, `BGE`, `PCC`, `HYPERMETRIC_STRETCH`
+- **Reconstruction resume:** `GLOBAL_QUALITY` and `FORWARD_DRIZZLE`.
+  Re-uses the checked M1–M3 predecessors (normalized-frame cache, geometry,
+  overlap, quality maps, weights, uniform store) and re-runs
+  `FORWARD_DRIZZLE`/`MULTIBAND` plus the downstream phases. `config.yaml`
+  must be byte-identical to the run-start config (sha256 in
+  `run_provenance.json`).
+- **Downstream resume:** `ASTROMETRY`, `BGE`, `PCC`,
+  `HYPERMETRIC_STRETCH`. Reuses the persisted reconstruction outputs
+  (`outputs/stacked_rgb*.fits`; HMS additionally requires
+  `outputs/stacked_rgb_pcc.fits`) and re-runs only the downstream chain —
+  the M1–M3 predecessors are never touched. The config may differ from the
+  run-start config **only** in the sections consumed at-or-after the entry
+  point (e.g. a HYPERMETRIC_STRETCH resume accepts changes to
+  `hypermetric_stretch` and `runtime_limits`; a PCC resume additionally
+  accepts `pcc` and `chroma_denoise`). Any other changed section aborts
+  with `FORWARD_STAGE_CONFIG_SCOPE_MISMATCH`.
 
-Common resume points: `ASTROMETRY` (re-solve), `BGE` (re-extract background), `PCC` (re-calibrate color), `HYPERMETRIC_STRETCH` (rerun final VeraLux stretch), `STACKING` (re-stack from synthetic frames).
+`MULTIBAND` is not a resume entry; it always re-runs with
+`FORWARD_DRIZZLE`.
+
+`reconstruction.delete_source_cache_after_run: true` deletes the
+normalized-frame cache at run end and therefore disables reconstruction
+resume (downstream resume from persisted outputs still works).
+
+### Preprocessing pipeline
+
+```bash
+./tile_compile_runner preprocess \
+  --config /path/to/preprocess.json \
+  --runs-dir /path/to/runs
+```
 
 ## CLI Scan
 
@@ -73,25 +100,25 @@ Common resume points: `ASTROMETRY` (re-solve), `BGE` (re-extract background), `P
 
 ## Diagnostic Report
 
-Generate an HTML quality report from a finished run either via GUI3 or directly through the CLI:
+Generate an HTML quality report from a finished run via GUI3 (**Generate
+Stats** in Run Monitor / Run History) or the backend endpoint:
 
 ```bash
-./tile_compile_cli generate-report runs/<run_id>
+curl -X POST http://127.0.0.1:8080/api/runs/<run_id>/stats \
+  -H 'Content-Type: application/json' -d '{}'
 ```
 
-Output:
+Output (single self-contained HTML with inline SVG, plus a JSON summary):
 
 - `runs/<run_id>/artifacts/report.html`
-- `runs/<run_id>/artifacts/report.css`
-- `runs/<run_id>/artifacts/*.png`
+- `runs/<run_id>/artifacts/stats.json`
 
 The report aggregates data from artifact JSON files, `logs/run_events.jsonl`, and `config.yaml`, including:
 
 - normalization/background trends
 - global quality distributions and weights
 - registration drift/CC/rotation diagnostics
-- tile and reconstruction heatmaps
-- clustering/synthetic frame summaries
+- reconstruction support/coverage heatmaps
 - BGE diagnostics (grid cells, residuals, channel shifts)
-- validation metrics (including tile-pattern indicators)
+- validation metrics
 - pipeline timeline and frame-usage funnel

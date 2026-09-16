@@ -271,62 +271,6 @@ Matrix2Df const_map(int w, int h, float v) {
 
 }  // namespace
 
-TEST_CASE("multiband reference: identical frames + constant quality maps => "
-          "X_out == R (drizzle U/R/F/M + alpha maps -> fuse, end to end)") {
-  const int nf = 4, sw = 40, sh = 36;
-  auto plan = nframe_plan(nf, sw, sh);
-
-  std::vector<Matrix2Df> imgs;
-  for (int f = 0; f < nf; ++f) {
-    Matrix2Df im(sh, sw);
-    for (int y = 0; y < sh; ++y)
-      for (int x = 0; x < sw; ++x)
-        im(y, x) = 100.0f + 8.0f * std::sin(0.2f * x) + 5.0f * std::cos(0.15f * y);
-    imgs.push_back(im);
-  }
-  SourceImageProvider source_of = [&](std::size_t i) -> const Matrix2Df & {
-    return imgs[i];
-  };
-
-  const auto comp = const_map(sw, sh, 0.7f);
-  const auto s0 = const_map(sw, sh, 0.7f);
-  const auto s1 = const_map(sw, sh, 0.7f);
-  const auto art = const_map(sw, sh, 0.95f);
-  FrameQualityProvider quality_of = [&](std::size_t) -> FrameQualityMaps {
-    return {&comp, &s0, &s1, &art};
-  };
-
-  config::ReconstructionDrizzleConfig drizzle_cfg;
-  drizzle_cfg.internal_scale = 1;
-  drizzle_cfg.pixfrac = 0.9f;
-  drizzle_cfg.min_clip_contributors = nf + 1;  // no clipping
-  config::ReconstructionClippingConfig clip_cfg;
-  clip_cfg.min_n_eff = 1.0f;
-  clip_cfg.min_fraction = 0.1f;
-
-  MultibandReconstructionParams p;
-  p.multiband.levels = 3;
-
-  auto res = reconstruct_multiband_reference(plan, source_of, drizzle_cfg,
-                                             clip_cfg, quality_of, p);
-
-  // Compare against a plain Raw drizzle: X_out must reproduce R on the
-  // common support (U==R==F==M in value because every quality map is the
-  // same constant).
-  MultibandProfileParams mbp;
-  auto dz = compute_forward_drizzle_uniform_and_raw(
-      plan, source_of, drizzle_cfg, clip_cfg, {}, {}, quality_of, mbp);
-
-  int checked = 0;
-  for (int i = 0; i < sw * sh; ++i)
-    if (res.support_L[i] && dz.raw.L.support[i]) {
-      REQUIRE(res.L[i] == Approx(dz.raw.L.value[i]).margin(5e-3));
-      ++checked;
-    }
-  REQUIRE(checked > 0);
-  REQUIRE(static_cast<int>(res.alpha_final.size()) == 3);
-}
-
 namespace {
 
 // Exact agreement: identical NaN pattern, bitwise-equal finite values.

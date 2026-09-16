@@ -1,80 +1,60 @@
-# Process Flow Documentation — AQMH Pipeline (tile_compile_cpp)
+# Process Flow Documentation — CFA Forward Drizzle + Multiband Pipeline (tile_compile_cpp)
 
 ## Overview
 
-This document primarily describes the **actual AQMH execution flow** of the C++ implementation (`tile_compile_cpp/apps/runner_pipeline.cpp`). Classic Tile-Compile reconstruction is separated as an alternative at the end.
+This document describes the **actual execution flow** of the C++ implementation
+(`tile_compile_cpp/apps/runner_pipeline.cpp` → `runner_forward_drizzle.cpp`).
 
-The current default pipeline processes **FITS frames** (mono or OSC/CFA) and produces a pixel-wise AQMH reconstruction. It does not use classic local tile metrics, clustering, or synthetic frames.
+The pipeline has exactly **one reconstruction method**: **CFA Forward Drizzle +
+Multiband**. It processes **FITS frames** (mono or OSC/CFA) and reconstructs the
+stack by forward-mapping every calibrated source sample through the measured
+registration geometry into a super-resolution output grid — per CFA channel for
+OSC data, without any debayering step. The removed AQMH and Classic Tile-Compile
+methods no longer exist in the code; a top-level `method:` key in a config is
+rejected fail-closed.
 
-**Implementation:** C++ with Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.
+**Implementation:** C++20 with Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.
 
-**GUI3 integration:** The productive GUI path uses the web frontend plus the Crow/C++ backend. Crow orchestrates the C++ pipeline by invoking `tile_compile_cli` and `tile_compile_runner`; it does not reimplement the processing logic.
+**GUI3 integration:** The productive GUI path uses the web frontend plus the
+Crow/C++ backend. Crow orchestrates the C++ pipeline by invoking
+`tile_compile_cli` and `tile_compile_runner`; it does not reimplement the
+processing logic.
 
-> **Default method: AQMH** — The default reconstruction method is `aqmh` (Adaptive Quality Map Harvesting). AQMH uses phases 19–22 (`AQMH_MAPS`, `AQMH_GLOBAL_QUALITY`, `AQMH_RECONSTRUCTION`, `AQMH_DIAGNOSTICS`) instead of Classic phases 8–9. Clustering and synthetic frames are skipped. See [Pipeline Overview](phase_0_overview.md) for the AQMH vs. Classic comparison.
+The resume entry point (`resume-reconstruction`) and its artifact/cache
+dependencies are documented in
+[Resume Dependencies](resume_dependencies_en.md). Resume is supported from
+`GLOBAL_QUALITY` and `FORWARD_DRIZZLE` (reconstruction) and from
+`ASTROMETRY`, `BGE`, `PCC` and `HYPERMETRIC_STRETCH` (downstream chain on
+the persisted outputs).
 
-The authoritative resume entry points and their artifact/cache dependencies are
-documented in [Resume Dependencies](resume_dependencies_en.md). In particular,
-early resume phases trigger an in-place full rerun; they do not continue from
-the named phase.
+## Canonical phases (C++ implementation)
 
-## Current AQMH phases (C++ implementation)
+Phase order emitted by `tile_compile_runner reconstruct` (canonical order in
+`web_backend_cpp/include/services/run_inspector.hpp`):
 
-Source of the phase order: `tile_compile::Phase` in `include/tile_compile/core/types.hpp`.
+| # | Phase | Short description |
+|---|-------|-------------------|
+| 1 | `SCAN_INPUT` | FITS enumeration, header/mode detection (MONO/OSC + Bayer pattern), linearity validation, disk-space precheck |
+| 2 | `CHANNEL_SPLIT` | Metadata-only: records color mode, channels and Bayer pattern. No files are split — CFA channel assignment happens per pixel inside FORWARD_DRIZZLE |
+| 3 | `NORMALIZATION` | Additive background `B_f` and photometric scale `P_f` per frame (per CFA channel for OSC); writes `cache/normalized_frames/` and `artifacts/normalization.json` |
+| 4 | `REGISTRATION` | Global registration (cascaded fallbacks) on registration proxies; affine + optional smooth local warp per frame; writes `global_registration.json` and the `registration_sampling.json` plan |
+| 5 | `NORMALIZED_CACHE` | Seals the normalized-frame cache against the sampling plan; required for every downstream stage |
+| 6 | `SAMPLING_GEOMETRY` | Output grid, coverage masks, and the local-warp geometry cache (`artifacts/forward_drizzle_geometry/`); writes `sampling_geometry.json` |
+| 7 | `COMMON_OVERLAP` | Pixelwise common-valid coverage of all frames; writes `forward_common_overlap.json` and the analysis/reconstruction support masks |
+| 8 | `SOURCE_QUALITY_MAPS` | Per-frame pixelwise source-quality maps cached under `cache/source_quality_maps/`; writes `source_quality_plan.json` |
+| 9 | `GLOBAL_QUALITY` | Global quality gate: aggregates source maps into frame weights and the final weight plan; a resume entry point |
+| 10 | `FORWARD_DRIZZLE` | The core reconstruction: chunked forward-drizzle gather of all source samples into the banded v2 store (`artifacts/forward_drizzle_v2/`); writes `forward_drizzle.json` + checkpoint |
+| 11 | `MULTIBAND` | Multiband (low-/high-frequency) reconstruction from the uniform store and band passes; writes `reconstruction_multiband.fits` |
+| 12 | `ASTROMETRY` | Optional plate solving / WCS (ASTAP, local catalog fallback) |
+| 13 | `BGE` | Optional background-gradient extraction before PCC |
+| 14 | `PCC` | Optional photometric color calibration |
+| 15 | `HYPERMETRIC_STRETCH` | Optional VeraLux HyperMetric Stretch (explicit non-linear stretch, runs last) |
 
-| ID | Enum | Short description |
-|----|------|-------------------|
-| 0 | `SCAN_INPUT` | Input scan, header/mode detection, linearity validation, disk-space precheck (`scandir*4`) |
-| 1 | `REGISTRATION` | Global registration (cascaded), warp quality / CC |
-| 2 | `PREWARP` | Full-frame prewarp onto a common canvas (CFA-safe for OSC) |
-| 3 | `CHANNEL_SPLIT` | Metadata phase (OSC/mono channel model; actual channel work happens later) |
-| 4 | `NORMALIZATION` | Global linear normalization (additive background + photometric scale) |
-| 5 | `GLOBAL_METRICS` | Global frame metrics and weights `G_f` |
-| 6 | `TILE_GRID` | Adaptive tile geometry (seeing/FWHM-based) |
-| 7 | `COMMON_OVERLAP` | Common valid-data area (global/tile-local) |
-| 19 | `AQMH_MAPS` | Pyramid pixel-wise quality maps and per-frame diagnostics in `cache/aqmh/` and `artifacts/aqmh_metrics.json` |
-| 20 | `AQMH_GLOBAL_QUALITY` | Global frame weights `G_f` from sharpness, SNR, and background penalty |
-| 21 | `AQMH_RECONSTRUCTION` | Pixel-wise weighted reconstruction with support masks, robust clipping, and immutable raw CFA output |
-| 22 | `AQMH_DIAGNOSTICS` | Block diagnostics, heatmaps, and reconstruction metrics |
-| 12 | `STACKING` | Final linear stacking (including robust pixel outlier handling) |
-| 13 | `DEBAYER` | OSC debayering and RGB output (mono: pass-through) |
-| 14 | `ASTROMETRY` | Plate solving / WCS |
-| 15 | `BGE` | Optional Background Gradient Extraction on RGB before PCC |
-| 16 | `PCC` | Photometric Color Calibration |
-| 17 | `HYPERMETRIC_STRETCH` | VeraLux HyperMetric Stretch after PCC |
-| 18 | `DONE` | Final status (`ok` or `validation_failed`) |
+`STACKING` is emitted as a pass-through marker before the downstream
+post-processing phases; there is no classic stacking stage — the drizzle store
+*is* the stack.
 
-Note: **Validation** is a quality block between `STACKING` and `DEBAYER`, but it is not its own enum phase.
-
-Note: **BGE** is an optional **dedicated phase** between `ASTROMETRY` and `PCC`.
-
-`STATE_CLUSTERING` and `SYNTHETIC_FRAMES` are skipped or unused as executing
-AQMH stages.
-`AQMH_BGE_INPUTS` is currently defined as an enum value only and is not emitted
-as a separate executing phase by the normal runner.
-
-## Document structure
-
-Details of the AQMH-specific extension phases are documented in
-[AQMH extensions](phase_8_aqmh_extensions.md).
-
-The **authoritative AQMH execution order** is shared preprocessing,
-`AQMH_MAPS`, `AQMH_GLOBAL_QUALITY`, `AQMH_RECONSTRUCTION`,
-`AQMH_DIAGNOSTICS`, and shared finalization. Enum values 19–22 are AQMH
-phase values, not a continuation of the old Classic phase 8/9 numbering.
-
-High-level mapping:
-
-- Input + mode + linearity + disk precheck -> `SCAN_INPUT`
-- Registration / prewarp -> `REGISTRATION`, `PREWARP`
-- Normalization + canvas masks -> `NORMALIZATION` through `COMMON_OVERLAP`
-- AQMH analysis -> `AQMH_MAPS` -> `AQMH_GLOBAL_QUALITY`
-- AQMH reconstruction -> `AQMH_RECONSTRUCTION` -> `AQMH_DIAGNOSTICS`
-- Unused Classic stages -> `STATE_CLUSTERING`, `SYNTHETIC_FRAMES` (`skipped`)
-- Finalization path -> `STACKING`, `DEBAYER`, `ASTROMETRY`, `BGE` (optional but its own phase), `PCC`, `HYPERMETRIC_STRETCH`, `DONE`
-
----
-
-## Pipeline flow diagram (C++ implementation, v3.3)
+## Pipeline flow diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -82,368 +62,139 @@ High-level mapping:
 └────────────────────────────┬────────────────────────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 0: SCAN_INPUT         │
-              │  • FITS dimensions + header  │
-              │  • Color mode (MONO/OSC)     │
-              │  • Bayer pattern detection   │
-              │  • Linearity validation      │
+              │  SCAN_INPUT                  │
+              │  • FITS dims + headers       │
+              │  • MONO/OSC + Bayer detect   │
+              │  • linearity + disk precheck │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 1: REGISTRATION       │
-              │  • Cascaded fallbacks        │
-              │  • CC / warp metrics         │
+              │  CHANNEL_SPLIT (metadata)    │
+              │  • mode + Bayer pattern      │
+              │  • deferred to drizzle       │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 2: PREWARP            │
-              │  • Full-frame canvas warp    │
-              │  • CFA-safe (OSC)            │
+              │  NORMALIZATION               │
+              │  • B_f / P_f per frame       │
+              │  • per CFA channel (OSC)     │
+              │  • cache/normalized_frames/  │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 3: CHANNEL_SPLIT      │
-              │  (metadata-only)             │
+              │  REGISTRATION                │
+              │  • cascaded global align     │
+              │  • affine + local warp       │
+              │  • registration_sampling.json│
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 4: NORMALIZATION      │
-              │  • Sigma-clip BG mask        │
-              │  • Additive background B_f   │
-              │  • Photometric scale P_f     │
-              │  • I = (I_raw - B_f) / P_f   │
+              │  NORMALIZED_CACHE            │
+              │  • seals cache vs. plan      │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 5: GLOBAL_METRICS     │
-              │  • B_f, σ_f, E_f per frame   │
-              │  • MAD-normalize -> z-scores │
-              │  • G_f = exp(α·B̃+β·σ̃+γ·Ẽ)    │
+              │  SAMPLING_GEOMETRY           │
+              │  • output grid + coverage    │
+              │  • local-warp geometry cache │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 6: TILE_GRID          │
-              │  • FWHM probe (central ROI)  │
-              │  • T = clip(s·F, min, max)   │
-              │  • Overlap + stride calc     │
-              │  • Uniform tile grid         │
+              │  COMMON_OVERLAP              │
+              │  • common-valid masks        │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 7: COMMON_OVERLAP     │
-              │  • Pixelwise valid overlap   │
-              │  • common_overlap.json       │
+              │  SOURCE_QUALITY_MAPS         │
+              │  • per-pixel source quality  │
+              │  • cache/source_quality_maps │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 19: AQMH_MAPS          │
-              │  • Pyramid quality maps      │
-              │  • Per-frame pixel diagnostics│
-              │  • cache/aqmh/                │
+              │  GLOBAL_QUALITY              │
+              │  • frame weights + gate      │
+              │  • resume entry point        │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 20: AQMH_GLOBAL_QUALITY│
-              │  • Sharpness/SNR summaries   │
-              │  • Background penalty        │
-              │  • Global frame weight G_f   │
+              │  FORWARD_DRIZZLE             │
+              │  • chunked CFA gather        │
+              │  • banded v2 store           │
+              │  • resume entry point        │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 21: AQMH_RECONSTRUCTION│
-              │  • Pixel-wise weighting      │
-              │  • Support/valid masks       │
-              │  • Robust Welford/sigma-clip │
-              │  • Persist raw CFA artifact  │
+              │  MULTIBAND                   │
+              │  • band fusion               │
+              │  • reconstruction_*.fits     │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 22: AQMH_DIAGNOSTICS   │
-              │  • Block diagnostics         │
-              │  • Heatmaps / map statistics │
+              │  ASTROMETRY → BGE → PCC →    │
+              │  HYPERMETRIC_STRETCH         │
+              │  (each optional)             │
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  PHASE 12: STACKING          │
-              │  • Sigma-clip rejection      │
-              │  • Or mean of synth frames   │
-              └──────────────┬───────────────┘
-                             │
-              ┌──────────────▼───────────────┐
-              │  VALIDATION                  │
-              │  • FWHM improvement check    │
-              │  • Tile weight variance      │
-              │  • Tile pattern detection    │
-              └──────────────┬───────────────┘
-                             │
-              ┌──────────────▼───────────────┐
-              │  PHASE 13: DEBAYER           │
-              │  • OSC: NN demosaic -> RGB   │
-              │  • MONO: pass-through        │
-              └──────────────┬───────────────┘
-                             │
-              ┌──────────────▼──────────────┐
-              │  PHASE 14: ASTROMETRY       │
-              │  • ASTAP, local Gaia fallback│
-              └──────────────┬──────────────┘
-                             │
-              ┌──────────────▼──────────────┐
-              │  PHASE 15: BGE              │
-              │  • Optional before PCC      │
-              │  • Gradient subtraction     │
-              │  • artifacts/bge.json       │
-              └──────────────┬──────────────┘
-                             │
-              ┌──────────────▼──────────────┐
-              │  PHASE 16: PCC              │
-              │  • Photometric color cal.   │
-              └──────────────┬──────────────┘
-                             │
-              ┌──────────────▼──────────────┐
-              │  PHASE 17: HMS              │
-              │  • VeraLux HyperMetric      │
-              │  • Stretch after PCC        │
-              └──────────────┬──────────────┘
-                             │
-              ┌──────────────▼──────────────┐
-              │  PHASE 18: DONE             │
-              │  • Final status emit        │
-              └──────────────┬──────────────┘
-                             │
-              ┌──────────────▼──────────────┐
-              │  OUTPUTS:                   │
-              │  • stacked.fits             │
-              │  • reconstructed_L.fit      │
-              │  • stacked_rgb.fits (OSC)   │
-              │  • stacked_rgb_solve.fits   │
-              │  • stacked_rgb_bge.fits     │
-              │  • stacked_rgb_pcc.fits     │
-              │  • stacked_rgb_hms.fits     │
-              │  • R/G/B .fit (OSC)         │
-              │  • 12 artifact JSON files   │
-              │  • run_events.jsonl         │
-              └─────────────────────────────┘
+              │  OUTPUTS:                    │
+              │  • reconstructed stack FITS  │
+              │  • artifacts/*.json          │
+              │  • logs/run_events.jsonl     │
+              └──────────────────────────────┘
 ```
 
-## Core principles (C++ implementation)
+## Core principles
 
-1. **Core linearity:** phases up to and including PCC stay linear; HMS is an explicit final stretch phase after PCC.
-2. **No hard frame selection:** frames are kept; failed registration falls back to identity warp with CC=0.
-3. **Mono + OSC:** both modes in one pipeline, CFA-aware for OSC.
-4. **Strictly sequential:** no feedback loops; deterministic execution order.
-5. **AQMH instead of Classic tiles:** reconstruction is pixel-wise on quality maps, not based on `L_f,t` tile weights.
-6. **Global × pixel:** the global frame weight combines with pixel-wise AQMH quality.
-7. **Pre-warping:** frames are fully warped onto the common canvas before quality-map computation.
-8. **Robust statistics:** median, MAD, sigma-clipping throughout.
+1. **Single method:** there is no method selector. Configs carrying `method:` or
+   `reconstruction.engine:` are rejected fail-closed; legacy structural blocks
+   (`aqmh`, `pipeline`, `tile`, `local_metrics`, `synthetic`, …) are stripped
+   with a migration warning.
+2. **No debayering:** for OSC input each source pixel is assigned to its CFA
+   channel per-pixel inside the drizzle gather
+   (`cfa_channel_for_source_pixel` with `cfa_origin` offsets from the sampling
+   plan). R/G/B output planes are produced directly.
+3. **Forward mapping:** source samples are splatted into the output grid
+   (sub-pixel accurate, pixfrac-controlled drop size) instead of inverse-mapping
+   output pixels — this is what makes the CFA-aware super-resolution possible.
+4. **Bounded memory:** FORWARD_DRIZZLE runs in row chunks with a configurable
+   `reconstruction.drizzle.memory_budget_mb`; the banded store is written
+   incrementally, input amplification stays low.
+5. **Linearity:** all phases up to and including PCC stay linear;
+   HYPERMETRIC_STRETCH is the explicit final non-linear step.
+6. **Resume contract:** `resume-reconstruction --from-phase` supports
+   `GLOBAL_QUALITY` and `FORWARD_DRIZZLE` (reconstruction resume; all
+   predecessor artifacts plus `run_provenance.json` config sha256 must
+   validate) and `ASTROMETRY`, `BGE`, `PCC`, `HYPERMETRIC_STRETCH`
+   (downstream resume on the persisted outputs; only the downstream config
+   sections may differ from the run-start config).
 
-## Modes
+## Document structure
 
-### AQMH in every mode
-
-- `AQMH_MAPS`, `AQMH_GLOBAL_QUALITY`, `AQMH_RECONSTRUCTION`, and `AQMH_DIAGNOSTICS` form the AQMH analysis and reconstruction path.
-- `STATE_CLUSTERING` and `SYNTHETIC_FRAMES` are not used as Classic processing in AQMH mode.
-- `STACKING` consumes the AQMH reconstruction, followed by `DEBAYER`, `ASTROMETRY`, `BGE`, `PCC`, and HMS.
-- Frame count still controls reduced/emergency gates and resource use.
-
-### Classic alternative
-
-Only `method: classic_tile_compile` executes `LOCAL_METRICS`,
-`TILE_RECONSTRUCTION`, `STATE_CLUSTERING`, and `SYNTHETIC_FRAMES`.
-
-## Quality metrics
-
-### AQMH global frame quality (`AQMH_GLOBAL_QUALITY`)
-
-- **B_f:** background level of the normalized frame (lower = better)
-- **σ_f:** noise (lower = better)
-- **E_f:** gradient energy / Sobel-based (higher = better)
-- **Q_f:** weighted score = α·(-B̃) + β·(-σ̃) + γ·Ẽ (MAD-normalized)
-- **G_f:** global frame weight from the AQMH summaries, bounded by the configured range
-
-### AQMH quality maps (`AQMH_MAPS`)
-
-- Pyramid local variance/sharpness information per frame and pixel
-- Per-frame SNR and background penalty
-- Artifact and support masks
-- Maps persisted under `cache/aqmh/`
-
-### AQMH reconstruction (`AQMH_RECONSTRUCTION`)
-- Pixel-wise combination of valid frames using the AQMH map and `G_f`
-- Robust Welford/sigma-clipping reduction
-- Support-aware output without Classic tile renormalization
-- Used in phase 9 for tile reconstruction.
-
-## Mathematical notation
-
-```
-Indices:
-  f - frame index (0..N-1)
-  p - pixel index on the common canvas
-
-Dimensions:
-  N  - number of usable frames after input validation
-  W,H - image width/height in pixels
-
-Normalization:
-  I_f^raw  - original linear frame
-  B_f      - additive background level
-  P_f      - photometric scale
-  J_f      - background-subtracted frame = I_f^raw - B_f
-  I_f      - normalized frame = J_f / P_f
-
-AQMH global inputs:
-  g_sharp_f       - summarized sharpness/PSF quality
-  g_snr_f         - summarized signal-to-noise quality
-  g_background_f  - background penalty
-
-Global frame weight:
-  G_f = compute_aqmh_global_quality(g_sharp_f, g_snr_f, g_background_f)
-
-Pixel-wise reconstruction:
-  q_f,p = QualityMap(f, p)
-  w_f,p = G_f × q_f,p × valid_f,p
-  recon_p = robust_weighted_reduce({I_f,p}, {w_f,p})
-
-The robust reduction applies minimum support, effective sample-size,
-sigma-clipping, and the configured AQMH gates. Classic quantities `L_f,t`,
-tile overlap-add, clustering, and synthetic frames are not part of AQMH.
-```
-
-## Artifact files
-
-An AQMH run produces the following central artifacts in
-`<run_dir>/artifacts/`; optional diagnostic artifacts may be added:
-
-| File | Phase | Contents |
-|------|-------|----------|
-| `normalization.json` | 4 | mode, bayer, B_mono / B_r / B_g / B_b per frame |
-| `global_metrics.json` | 5 | global normalization/input metrics per frame |
-| `tile_grid.json` | 6 | image dimensions, tile list (x,y,w,h), FWHM, overlap |
-| `global_registration.json` | 1 | warp matrices (a00,a01,tx,a10,a11,ty) + CC per frame |
-| `common_overlap.json` | 7 | global/tile-wise common valid area |
-| `aqmh_metrics.json` | 8/9 | quality-map metadata, frame diagnostics, and global AQMH weights |
-| `aqmh_reconstruction.json` | 10 | AQMH reconstruction, support, and clipping diagnostics |
-| `aqmh_regions.json` / `cache/aqmh_block_diagnostics.jsonl` | 11 | AQMH region, block, and heatmap diagnostics |
-| `bge.json` | 15 | per-channel BGE diagnostics (samples, grid cells, residuals) |
-| `validation.json` | 12 | method-specific quality and support validation |
-
-`local_metrics.json`, `state_clustering.json`, and `synthetic_frames.json` are
-Classic-only artifacts and are not AQMH quality inputs.
-
-### Report generation and readable data
-
-For consolidated analysis, generate the report via the integrated CLI/backend path.
-
-Invocation:
-
-```text
-./tile_compile_cli generate-report runs/<run_id>
-```
-
-Generated outputs:
-
-- `artifacts/report.html`
-- `artifacts/report.css`
-- `artifacts/*.png` (charts/heatmaps)
-
-Input data used:
-
-- Artifact JSONs: `normalization.json`, `global_metrics.json`, `tile_grid.json`,
-  `global_registration.json`, `common_overlap.json`, `aqmh_metrics.json`,
-  `aqmh_reconstruction.json`, `aqmh_regions.json`, AQMH block diagnostics,
-  `bge.json`, `validation.json`
-- Run events: `logs/run_events.jsonl`
-- Run configuration: `config.yaml` (embedded into the report)
-
-Typically readable content:
-
-- Normalization/background trends (mono/RGB)
-- AQMH quality-map statistics and global frame weights
-- Star metrics (incl. FWHM, wFWHM, roundness, star count)
-- Registration evaluation (shift/rotation/correlation)
-- AQMH reconstruction and support heatmaps
-- Classic clustering and synthetic-frame summaries only for `classic_tile_compile`
-- BGE diagnostics (per-channel background models, grid cells, residual histograms)
-- Validation results (incl. tile-pattern indicators)
-- Pipeline timeline and frame usage funnel
-
-## Directory structure
-
-```
-runs/<run_id>/
-├── config.yaml           # copy of the run configuration
-├── logs/
-│   └── run_events.jsonl  # all pipeline events (JSONL)
-├── artifacts/
-│   ├── normalization.json
-│   ├── global_metrics.json
-│   ├── tile_grid.json
-│   ├── global_registration.json
-│   ├── common_overlap.json
-│   ├── aqmh_metrics.json
-│   ├── aqmh_reconstruction.json
-│   ├── aqmh_regions.json
-│   ├── bge.json
-│   ├── validation.json
-│   ├── report.html       # generated via CLI/backend report path
-│   ├── *.png             # chart images
-├── cache/
-│   ├── normalized_frames/
-│   ├── prewarped_frames/
-│   ├── aqmh/
-│   ├── aqmh_masks/
-│   └── aqmh_block_diagnostics.jsonl
-└── outputs/
-    ├── stacked.fits
-    ├── reconstructed_L.fit
-    ├── stacked_rgb.fits       # (OSC only)
-    ├── reconstructed_R.fit    # (OSC only)
-    ├── reconstructed_G.fit    # (OSC only)
-    ├── reconstructed_B.fit    # (OSC only)
-    └── synthetic_*.fit        # (Classic mode only)
-```
-
-## Performance optimizations (C++)
-
-- **Eigen matrices:** vectorized pixel operations (SIMD)
-- **OpenCV:** optimized image processing (Sobel, Laplacian, warpAffine)
-- **Thread parallelism:** AQMH map/reconstruction workers; Classic additionally uses a `TILE_RECONSTRUCTION` worker pool
-- **Pre-warping:** warp all frames once instead of per-tile
-- **2× downsample:** registration at half resolution (speedup ~4×)
-- **Memory-efficient:** frames are loaded from disk per phase
-- **cv::setNumThreads(1):** avoids OpenCV thread contention in parallel tiles
-- **CUDA worker streams:** one non-default stream per parallel PREWARP/AQMH/tile worker
-- **Streaming AQMH CUDA reconstruction:** GPU accumulators remain resident while frames/maps are transferred one at a time; VRAM use is independent of frame count
-- **Concurrent RGB stacking:** R/G/B reductions run concurrently with separate CUDA streams
-
-## GPU execution by phase
-
-| Phase | CUDA | OpenCL | Work performed on GPU |
-|---|---:|---:|---|
-| `PREWARP` | Yes | Yes | Full-frame affine/CFA warps |
-| `AQMH_MAPS` | Yes | Yes | Pyramid filters and local variance |
-| `AQMH_RECONSTRUCTION` | Yes | No | Weighted Welford statistics, masks, sigma clipping, accumulation |
-| Classic `TILE_RECONSTRUCTION` | Yes | Yes | Sigma clipping and overlap-add |
-| `SYNTHETIC_FRAMES` | Yes | Yes | Cluster tile reconstruction |
-| `STACKING` / resume | Yes | Yes | Weighted/sigma-clipped reduction, concurrent RGB |
-
-`REGISTRATION` remains CPU-only; GPU execution starts in `PREWARP`.
-
-`runtime_limits.acceleration_backend: auto` selects CUDA, then OpenCL, then
-CPU per supported phase. AQMH Cherry-Pick uses CPU. CUDA/OpenCL failures fall
-back to CPU, and `artifacts/acceleration_context.json` plus live fields
-`cpu_workers`, `gpu`, and `backend` record the effective path.
-
-## References
+| File | Contents |
+|------|----------|
+| [phase_0_overview.md](phase_0_overview.md) | Phase table, artifact map, configuration surface |
+| [phase_1_scan_normalization.md](phase_1_scan_normalization.md) | SCAN_INPUT, CHANNEL_SPLIT, NORMALIZATION |
+| [phase_2_registration_geometry.md](phase_2_registration_geometry.md) | REGISTRATION, NORMALIZED_CACHE, SAMPLING_GEOMETRY, COMMON_OVERLAP |
+| [phase_3_quality.md](phase_3_quality.md) | SOURCE_QUALITY_MAPS, GLOBAL_QUALITY |
+| [phase_4_forward_drizzle.md](phase_4_forward_drizzle.md) | FORWARD_DRIZZLE gather, chunking, store, checkpoint |
+| [phase_5_multiband.md](phase_5_multiband.md) | MULTIBAND band fusion |
+| [phase_6_postprocessing.md](phase_6_postprocessing.md) | ASTROMETRY, BGE, PCC, HYPERMETRIC_STRETCH |
+| [data_flow_user_description_en.md](data_flow_user_description_en.md) | Data-centric walkthrough (EN) |
+| [data_flow_user_description_de.md](data_flow_user_description_de.md) | Data-centric walkthrough (DE) |
+| [resume_dependencies_en.md](resume_dependencies_en.md) | Resume contract (EN) |
+| [resume_dependencies_de.md](resume_dependencies_de.md) | Resume contract (DE) |
+| [flow_analysis.md](flow_analysis.md) | Implementation-level notes |
 
 ### Normative specification
-  - `/docs/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md`
+
+- `/docs/forward_drizzle_v2_zielarchitektur_2026-09-12_de.md`
+- `/docs/AQMH/aqmh_cfa_forward_drizzle_multiband_implementierungsplan_de.md`
+  (the implementation plan the single-method cutover follows)
 
 ### C++ implementation
-  - `/tile_compile_cpp/apps/runner_pipeline.cpp`
-  - **Configuration:** `/tile_compile_cpp/include/tile_compile/config/configuration.hpp`
-  - **Report generator:** `/web_backend_cpp/src/services/report_generator.cpp`
 
----
-
-**Note:** this document describes the **actual C++ code behavior**. If there are contradictions with the normative specification, the code is the reference for behavior and the specification is the reference for intent.
+- `/tile_compile_cpp/apps/runner_pipeline.cpp` — scan + early phases
+- `/tile_compile_cpp/apps/runner_phase_metrics.cpp` — CHANNEL_SPLIT, NORMALIZATION
+- `/tile_compile_cpp/apps/runner_phase_registration.cpp` — REGISTRATION
+- `/tile_compile_cpp/apps/runner_forward_drizzle.cpp` — NORMALIZED_CACHE … MULTIBAND + downstream orchestration
+- `/tile_compile_cpp/apps/runner_downstream.cpp` — ASTROMETRY, BGE, PCC, HMS

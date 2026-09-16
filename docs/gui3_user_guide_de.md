@@ -83,10 +83,9 @@ Das Parameter Studio ist in Kategorien gegliedert:
 
 | Kategorie | Wichtige Parameter |
 |-----------|-------------------|
-| **Pipeline** | `pipeline.mode` (production/preview), `method` (aqmh/classic_tile_compile) |
+| **Pipeline** | `pipeline.mode` (production/preview) |
 | **Registrierung** | `registration.allow_rotation`, `registration.transform_model` (similarity/affine), `registration.engine` |
-| **AQMH** | `aqmh.enabled`, `aqmh.pyramid.scales`, `aqmh.cherry_pick.enabled`, `aqmh.storage.max_resident_maps` |
-| **Rekonstruktion** | Tile-Geometrie, Rekonstruktionsmodus |
+| **Rekonstruktion** | `reconstruction.quality.pyramid.*` (lokale Qualitätskarten: `scales`, `base_window_px`, `sharpness_weight`, `snr_weight`, `score_scale`, `artifact_sigma`, `max_artifact_fraction`), `reconstruction.drizzle.*`, `reconstruction.multiband.*` |
 | **Stacking** | `stacking.method` (sigma_clip/median/average), Sigma-Clip-Parameter |
 | **Debayer** | `data.bayer_pattern` (RGGB/BGGR/GBRG/GRBG) |
 | **Astrometry** | `astrometry.astap_bin`, `astrometry.astap_data_dir` |
@@ -104,7 +103,7 @@ Das Parameter Studio ist in Kategorien gegliedert:
 3. Bei Validierungsfehlern: Fehlermeldungen beachten und korrigieren.
 4. **Save** klicken, um die Konfiguration zu speichern.
 
-> **Tipp:** Für erste Versuche ist die Default-Konfiguration mit `method: aqmh` bereits gut brauchbar. Die wichtigsten Anpassungen sind `registration.allow_rotation` (bei Alt/Az-Montierung auf `true` belassen) und `data.bayer_pattern` (mit den FITS-Headern abgleichen).
+> **Tipp:** Für erste Versuche ist die Default-Konfiguration bereits gut brauchbar (einzelne Methode: CFA Forward Drizzle + Multiband). Die wichtigsten Anpassungen sind `registration.allow_rotation` (bei Alt/Az-Montierung auf `true` belassen) und `data.bayer_pattern` (mit den FITS-Headern abgleichen).
 
 ### Explain-Panel
 
@@ -378,9 +377,8 @@ runs/<run_id>/
 │   ├── stacked_rgb_pcc.fits      # Nach PCC
 │   └── stacked_rgb_hms.fits      # Nach HyperMetric Stretch (optional)
 ├── artifacts/
-│   ├── report.html               # Diagnosebericht
-│   ├── report.css
-│   ├── *.png                     # Diagramme/Heatmaps
+│   ├── report.html               # Diagnosebericht (self-contained, inline SVG)
+│   ├── stats.json                # Report-Zusammenfassung
 │   ├── normalization.json
 │   ├── global_registration.json
 │   ├── bge.json
@@ -396,7 +394,7 @@ runs/<run_id>/
 
 - **Run Monitor**: Button **Stats erstellen** klicken.
 - **Run History**: Run auswählen und Report generieren.
-- **CLI**: `./tile_compile_cli generate-report runs/<run_id>`
+- **Backend**: `POST /api/runs/<run_id>/stats`
 
 Der Bericht enthält:
 - Normalisierungs-/Hintergrund-Trends
@@ -456,7 +454,7 @@ linear TAN/CD und enthält keine SIP-Verzerrungsterme.
 ### Wenn Kataloge fehlen
 
 Wenn ASTAP oder der lokale Gaia-Katalog nicht installiert sind:
-- Die Kernrekonstruktion (Registrierung, AQMH, Stacking, Debayer) funktioniert weiterhin.
+- Die Kernrekonstruktion (Registrierung, Forward Drizzle, Multiband) funktioniert weiterhin.
 - Astrometrie kann entweder einen erfolgreichen ASTAP-Solve oder den lokalen Gaia-Fallback verwenden; PCC benötigt den lokalen Gaia-Katalog (oder seine konfigurierte Online-Quelle).
 - Eine Phase ohne verfügbaren passenden Löser/Katalog wird je nach Konfiguration als `skipped` markiert oder schlägt fehl.
 - BGE (Background Gradient Extraction) funktioniert unabhängig von externen Katalogen.

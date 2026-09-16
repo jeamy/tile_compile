@@ -445,16 +445,6 @@ export class FrameAnalysisService {
         ? configContext.parameter_catalog as Record<string, any>
         : {};
     const baseConfig = (request.base_config as any) || configContext.base_config || {};
-    const currentMethod = typeof baseConfig?.method === "string"
-      ? baseConfig.method
-      : baseConfig?.aqmh?.enabled === true
-        ? "aqmh"
-        : "classic_tile_compile";
-    const isAqmhMethod = currentMethod === "aqmh";
-    const isClassicOnlyPath = (path: string): boolean =>
-      path.startsWith("global_metrics.") ||
-      path.startsWith("local_metrics.") ||
-      path.startsWith("synthetic.");
     const sessionContextFromAiRequest = aiRequest.session_context && typeof aiRequest.session_context === "object" && !Array.isArray(aiRequest.session_context)
       ? aiRequest.session_context as SessionContext
       : undefined;
@@ -462,10 +452,6 @@ export class FrameAnalysisService {
     const configSchema = request.config_schema || configContext.config_schema || {};
     const schemaLines: string[] = [];
     for (const [path, info] of Object.entries<any>(configSchema)) {
-      if (isAqmhMethod && isClassicOnlyPath(path)) continue;
-      if (path.startsWith("aqmh.cherry_pick.")) continue;
-      if (path === "aqmh.storage.dtype") continue;
-      if (path === "aqmh.storage.max_resident_maps") continue;
       if (info?.type === "object") continue; // skip parent objects
       const parts = [path, `type:${info?.type || "unknown"}`];
       if (info?.enum) parts.push(`enum:${JSON.stringify(info.enum)}`);
@@ -477,7 +463,6 @@ export class FrameAnalysisService {
     }
     const catalogLines: string[] = [];
     for (const [path, meta] of Object.entries<any>(parameterCatalog)) {
-      if (isAqmhMethod && isClassicOnlyPath(path)) continue;
       const parts = [path];
       if (meta?.current_value !== undefined) parts.push(`current:${JSON.stringify(meta.current_value)}`);
       if (meta?.cpp_default !== undefined) parts.push(`cpp_default:${JSON.stringify(meta.cpp_default)}`);
@@ -658,11 +643,7 @@ export class FrameAnalysisService {
       "- Evidence should cite fact IDs from PI CONTEXT V2 when available, not free-form invented metric names.",
       "- Do NOT recommend paths of type 'object' or 'array'.",
       "- Do NOT recommend file/directory paths (e.g. calibration.darks_dir, calibration.flat_master).",
-      "- Do NOT recommend aqmh.cherry_pick.* paths. Cherry-pick is excluded from AI recommendations because it has produced unreliable quality decisions.",
-      ...(isAqmhMethod
-        ? ["- Do NOT recommend classic_tile_compile-only paths for method=aqmh: global_metrics.*, local_metrics.*, synthetic.*. AQMH reconstruction uses aqmh.global_quality.* and per-pixel quality maps; clustering/synthetic-frame generation and classic local/tile metrics are skipped."]
-        : ["- global_metrics.weights.* and global_metrics.weight_exponent_scale are ALLOWED but RESTRICTED: set review_required=true, confidence <= 0.6, and include a warning explaining the downstream PCC/color-calibration impact. Prefer balanced weights (background, noise, gradient) over sharpness-dominated weights (fwhm, roundness). Never set fwhm weight > 0.2. Always recommend ALL weights in GROUP A together (must sum to 1.0)."]),
-      "- Do NOT recommend aqmh.storage.dtype or aqmh.storage.max_resident_maps. Storage/cache settings are performance/I/O concerns, not image-quality recommendations.",
+      "- global_metrics.weights.* and global_metrics.weight_exponent_scale are ALLOWED but RESTRICTED: set review_required=true, confidence <= 0.6, and include a warning explaining the downstream PCC/color-calibration impact. Prefer balanced weights (background, noise, gradient) over sharpness-dominated weights (fwhm, roundness). Never set fwhm weight > 0.2. Always recommend ALL weights in GROUP A together (must sum to 1.0).",
       "- Only recommend changes where the new value differs from the current value, or where the current value is missing/default.",
       "- Use IMAGE QUALITY METRICS as the primary evidence for strategy decisions; use FITS header metadata only as secondary context.",
       "- Prefer a complete coherent configuration strategy over isolated tweaks: include every relevant config change needed for the detected dataset, but do not include unchanged values.",
@@ -679,20 +660,6 @@ export class FrameAnalysisService {
       "- Use assumptions only in reason/warnings, never as evidence. Recommendations based primarily on assumptions must use review_required=true and confidence <= 0.55.",
       "- If SESSION CONTEXT does not include mount_type: use registration.star_shift_radius_px=200 as safe default and set review_required=true for all registration parameters.",
       "- If SESSION CONTEXT does not include target_angular_size: do NOT recommend normalization.mode=background or bge.enabled=true — omit those paths or set review_required=true.",
-      "",
-      "AQMH HARD RULES (mandatory, override intuitive frame-retention reasoning):",
-      "- aqmh.cherry_pick.enabled, aqmh.cherry_pick.k_frac, and all other aqmh.cherry_pick.* paths are not allowed recommendation targets. Leave existing cherry-pick settings unchanged.",
-      "- aqmh.cherry_pick.k_frac is the fraction of frames retained per pixel/tile, not the fraction of bad frames removed.",
-      "- For frame_count > 300, NEVER recommend aqmh.cherry_pick.k_frac > 0.5. Arguments such as 'discarding too many usable frames' are explicitly invalid; 0.3-0.5 still retains enough frames.",
-      "- For frame_count > 300, treat aqmh.cherry_pick.k_frac > 0.4 as aggressive. Recommend it only when measured evidence shows stable registration, no transient line artifacts, and a large clean quality spread.",
-      "- For frame_count 100-300, NEVER recommend aqmh.cherry_pick.k_frac > 0.7.",
-      "- If you recommend aqmh.cherry_pick.enabled=true and the effective aqmh.storage.resolution_divisor is not already 1, you MUST recommend aqmh.storage.resolution_divisor=1 in the same response.",
-      "- NEVER recommend aqmh.cherry_pick.enabled=true together with aqmh.storage.resolution_divisor=2 or 4. That pair is internally contradictory.",
-      "- AQMH cherry-pick is a local quality selector, not a substitute for satellite/airplane trail rejection, cosmetic masking, sigma clipping, or rejecting badly registered frames.",
-      "- NEVER justify aqmh.cherry_pick.enabled or increasing aqmh.cherry_pick.k_frac as a way to remove airplane trails, satellite trails, line artifacts, hot pixels, or bad registration unless explicit artifact-mask or registration diagnostics are present in the provided data.",
-      "- If SESSION CONTEXT, warnings, or measured diagnostics indicate visible trails, suspected transient line artifacts, registration failures, or many rescue/interpolated registrations, keep aqmh.cherry_pick.k_frac at or below the current value and set review_required=true for any AQMH/cherry-pick recommendation.",
-      "- If transient artifacts or registration quality are unknown because no detector metrics are provided, do not claim AQMH will solve them. Mention the missing evidence in warnings when recommending cherry-pick.",
-      "- aqmh.storage.dtype affects cache size and I/O only. Do not present dtype changes as an image-quality improvement, and do not couple dtype changes to cherry-pick quality claims.",
       "",
       "RECOMMENDATION STRATEGY:",
       "- First classify the dataset: OSC/mono, frame count regime, exposure/gain consistency, target scale, mount/tracking context, calibration availability, and measured quality spread.",
@@ -718,15 +685,9 @@ export class FrameAnalysisService {
       "- Use bge.mask.star_dilate_px=6 and bge.mask.sat_dilate_px=6 for dense star fields.",
       "",
       "PIPELINE CAUSALITY (critical — your recommendations have downstream effects):",
-      ...(isAqmhMethod
-        ? [
-            "- For method=aqmh, do not use global_metrics.weights.* as a color/PCC or reconstruction recommendation. AQMH uses aqmh.global_quality.* and quality maps for reconstruction weights.",
-          ]
-        : [
-            "- global_metrics.weights.* → determines per-frame stacking influence → affects PCC (Photometric Color Calibration) star-color measurement → affects final color balance.",
-            "  UNEVEN WEIGHTS (max/median ratio > 3) can cause color cast because PCC measures star colors from a weighted-averaged stack. A few heavily-weighted frames skew the color balance, and PCC cannot correct it because it measures the already-skewed stack.",
-            "  If you recommend weight changes, ensure the resulting distribution stays balanced (max/median < 3). Avoid concentrating weight on a single metric like fwhm — this over-weights sharp frames regardless of their overall quality.",
-          ]),
+      "- global_metrics.weights.* → determines per-frame stacking influence → affects PCC (Photometric Color Calibration) star-color measurement → affects final color balance.",
+      "  UNEVEN WEIGHTS (max/median ratio > 3) can cause color cast because PCC measures star colors from a weighted-averaged stack. A few heavily-weighted frames skew the color balance, and PCC cannot correct it because it measures the already-skewed stack.",
+      "  If you recommend weight changes, ensure the resulting distribution stays balanced (max/median < 3). Avoid concentrating weight on a single metric like fwhm — this over-weights sharp frames regardless of their overall quality.",
       "- registration.* → determines frame alignment quality → affects overlap area → affects stacking coverage and PCC star detection.",
       "  Poor registration reduces the number of stars PCC can use, degrading color calibration accuracy.",
       "- normalization.* → determines per-frame background/signal scaling → directly affects PCC color matrix.",
@@ -739,16 +700,13 @@ export class FrameAnalysisService {
       "- PCC must correct this green dominance. A correct PCC matrix for an OSC sensor typically shows B>1.2 and R>1.05 (boosting red and blue to compensate for green dominance).",
       "- If the PCC matrix is near-identity (all values ≈1.0), color correction is INSUFFICIENT and the final image will have a green cast.",
       "- A green cast in the final image is almost always caused by either: (1) uneven frame weights skewing the stack color balance, (2) insufficient PCC correction due to poor star detection from bad registration, or (3) normalization not properly equalizing per-channel backgrounds.",
-      ...(isAqmhMethod
-        ? ["- For method=aqmh, color-bias reasoning must refer to aqmh.global_quality.*, PCC, registration, or normalization evidence; do not recommend global_metrics.*."]
-        : ["- Do NOT recommend weight configurations that could amplify the sensor's natural green bias. Prefer balanced weights (background, noise, gradient) over sharpness-dominated weights (fwhm, roundness)."]),
+      "- Do NOT recommend weight configurations that could amplify the sensor's natural green bias. Prefer balanced weights (background, noise, gradient) over sharpness-dominated weights (fwhm, roundness).",
       "",
       "NUMERIC PRECISION RULES (mandatory):",
       "- All recommended numeric values must be EXACT and precise — never approximate, never 'around X', never rounded to single decimal unless the schema minimum step is 0.1.",
       "- Weight groups: the config contains several groups of weights that MUST each sum to exactly 1.0. If you recommend any weight within a group, you MUST recommend ALL weights in that group so they sum to exactly 1.0.",
       "  Known weight groups (always recommend all paths in the same group together):",
-      ...(isAqmhMethod ? [] : ["  GROUP A: global_metrics.weights.background + global_metrics.weights.gradient + global_metrics.weights.noise + global_metrics.weights.fwhm + global_metrics.weights.roundness + global_metrics.weights.star_count = 1.0"]),
-      "  GROUP B: local_metrics.star_mode.weights.fwhm + local_metrics.star_mode.weights.roundness + local_metrics.star_mode.weights.contrast = 1.0",
+      "  GROUP A: global_metrics.weights.background + global_metrics.weights.gradient + global_metrics.weights.noise + global_metrics.weights.fwhm + global_metrics.weights.roundness + global_metrics.weights.star_count = 1.0",
       "- Never recommend a single weight from a group without recommending all others in the same group.",
       "- Double-check that all weights in a group sum to exactly 1.0 before including them.",
       "",

@@ -1,8 +1,8 @@
 # Tile-Compile
 
-Tile-Compile is a toolkit for high-quality astronomical image reconstruction from short-exposure deep-sky datasets. The default reconstruction method is **AQMH (Adaptive Quality Map Hyperstacking)** — a per-pixel, quality-map-driven approach that replaces tile-based overlap-add stacking with a physically optimal pixel-wise weighted average.
+Tile-Compile is a toolkit for high-quality astronomical image reconstruction from short-exposure deep-sky datasets. The reconstruction method is **CFA Forward Drizzle + Multiband**: every calibrated source sample is forward-mapped through the measured registration geometry into a super-resolution output grid — directly from the Bayer (CFA) data for OSC input, without any debayering step — and fused across frequency bands into the final linear image.
 
-> **Classic Tile-Compile (TBQR):** The original tile-based quality reconstruction methodology is still available and fully supported. See [Classic Tile-Compile README (EN)](README_classic_tile_compile_en.md) and [Classic Tile-Compile README (DE)](README_classic_tile_compile_de.md). Set `aqmh.enabled: false` to revert to classic TILE_RECONSTRUCTION.
+There is exactly one method. AQMH and Classic Tile-Compile have been removed; a `method:` key in a configuration file is rejected fail-closed (`tile_compile_cli migrate-config` cleans legacy configs). Historical AQMH/TBQR methodology documents under `docs/AQMH/` and `docs/v3/` remain as records.
 
 > **Note:** This is experimental software primarily developed for processing images from smart telescopes (e.g., DWARF, Seestar, ZWO SeeStar, etc.). While designed for general astronomical image processing, it has been optimized for the specific characteristics and challenges of smart telescope data.
 
@@ -27,10 +27,11 @@ Release bundle start:
 ### CLI
 
 ```bash
-./tile_compile_runner run \
+./tile_compile_runner reconstruct \
   --config tile_compile.yaml \
   --input-dir /path/to/lights \
-  --runs-dir /path/to/runs
+  --runs-dir /path/to/runs \
+  --project-root /path/to/tile_compile
 ```
 
 ### Docker
@@ -61,12 +62,12 @@ Full documentation site: **[https://jeamy.github.io/tile_compile/](https://jeamy
 - [PI – AI-Assisted Recommendations](docs/guides/pi_ai.md) — Data-driven parameter recommendations
 - [Live Image Editor (EN)](docs/guides/live_image_editor_en.md) — Non-destructive FITS editing, previews, undo/redo, repeat, and AI/local fallback behavior
 
-### AQMH
+### Forward Drizzle Pipeline
 
-- [AQMH Overview](docs/guides/aqmh_overview.md) — How it works, key parameters, when to use
-- [AQMH Methodology v0.2.1 (normative)](docs/AQMH/aqmh_methodik_en_v0.2.1.md)
-- [AQMH v0.2.0 Paper (PDF)](docs/AQMH/zenodo-0.2.0/paper-adaptive_quality_map_hyperstacking_m31_run_20260722_en.pdf)
-- [AQMH v0.1.0 Paper](docs/AQMH/zenodo-0.1.0/)
+- [CFA Forward Drizzle + Multiband (EN)](docs/guides/cfa_forward_drizzle_pipeline_en.md) — How it works, candidates, key parameters
+- [CFA Forward Drizzle + Multiband (DE)](docs/guides/cfa_forward_drizzle_pipeline_de.md) — Deutsche Variante
+- [Process Flow](docs/process_flow/) — Phase-by-phase implementation docs (EN/DE)
+- [Forward-Drizzle v2 Target Architecture (DE)](docs/forward_drizzle_v2_zielarchitektur_2026-09-12_de.md) — Normative design document
 
 ### Configuration
 
@@ -85,12 +86,12 @@ Full documentation site: **[https://jeamy.github.io/tile_compile/](https://jeamy
 - [Calibration & External Tools](docs/reference/calibration.md) — Bias/dark/flat, ASTAP, Siril catalog
 - [Project Structure](docs/reference/project_structure.md) — Repository layout and components
 
-### Methodology
+### Methodology (historical records)
 
-- [AQMH Methodology v0.2.1](docs/AQMH/aqmh_methodik_en_v0.2.1.md) — Current AQMH normative specification
-- [TBQR Methodology v3.3.9 (EN)](docs/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md)
+- [CFA Forward-Drizzle + Multiband Implementation Plan (DE)](docs/AQMH/aqmh_cfa_forward_drizzle_multiband_implementierungsplan_de.md) — the plan the single-method cutover follows
+- [AQMH Methodology v0.2.1](docs/AQMH/aqmh_methodik_en_v0.2.1.md) — superseded method, kept as record
+- [TBQR Methodology v3.3.9 (EN)](docs/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md) — Classic Tile-Compile, kept as record
 - [TBQR Methodology v3.3.9 (DE)](docs/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de.md)
-- [Process Flow](docs/process_flow/) — Phase-by-phase implementation docs
 
 ### Changelog
 
@@ -100,8 +101,6 @@ Full documentation site: **[https://jeamy.github.io/tile_compile/](https://jeamy
 ### Other Languages
 
 - [German README](README_de.md)
-- [Classic README (EN)](README_classic_tile_compile_en.md)
-- [Classic README (DE)](README_classic_tile_compile_de.md)
 
 ## Attribution
 

@@ -278,7 +278,7 @@ std::string compute_source_quality_identity_hash(
 }
 
 std::string compute_scale_quality_config_hash(
-    const config::AqmhPyramidConfig &p,
+    const config::ReconstructionQualityPyramidConfig &p,
     const SourceQualityMapCacheConfig &c) {
   ByteSink s;
   s.str("sqm-config-v1");
@@ -287,11 +287,11 @@ std::string compute_scale_quality_config_hash(
   s.str(c.dtype);
   s.i32(p.scales);
   s.i32(p.base_window_px);
-  s.f32(p.w_sharp);
-  s.f32(p.w_snr);
+  s.f32(p.sharpness_weight);
+  s.f32(p.snr_weight);
   s.f32(p.score_scale);
-  s.f32(p.k_artifact);
-  s.f32(p.frac_artifact_max);
+  s.f32(p.artifact_sigma);
+  s.f32(p.max_artifact_fraction);
   return core::sha256_bytes(s.bytes);
 }
 
@@ -299,7 +299,7 @@ std::string compute_scale_quality_config_hash(
 
 SourceQualityMapCacheWriter::SourceQualityMapCacheWriter(
     fs::path root, const registration::RegistrationSamplingPlan &plan,
-    std::string normalized_cache_hash, const config::AqmhPyramidConfig &pyramid,
+    std::string normalized_cache_hash, const config::ReconstructionQualityPyramidConfig &pyramid,
     SourceQualityMapCacheConfig cache_cfg)
     : root_(std::move(root)),
       source_width_(plan.source_width),
@@ -755,7 +755,7 @@ SourceQualityMapsBuildResult build_source_quality_map_cache(
     const fs::path &cache_root,
     const registration::RegistrationSamplingPlan &plan,
     VerifiedNormalizedSourceCache &cache,
-    const config::AqmhPyramidConfig &pyramid,
+    const config::ReconstructionQualityPyramidConfig &pyramid,
     SourceQualityMapCacheConfig cache_cfg, int workers) {
   const std::string normalized_cache_hash = cache.manifest_hash();
   SourceQualityMapCacheWriter writer(cache_root, plan, normalized_cache_hash,

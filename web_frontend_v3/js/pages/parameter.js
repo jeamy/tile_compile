@@ -237,20 +237,22 @@ function renderCategories() {
     return;
   }
 
-  // Single-method pipeline (plan M8): no reconstruction-method selector. The
-  // legacy Classic/tile-era categories below are never editable and stay hidden
-  // unconditionally until their schema keys are removed in M10.
   const filter = parameterSearchTerm();
   const entries = parameterSearchEntries(schemaPaths, schema);
   const matchingEntries = entries.filter((entry) =>
-    parameterMatchesSearch(entry, filter) &&
-    !LEGACY_HIDDEN_CATEGORIES.includes(entry.category)
+    parameterMatchesSearch(entry, filter)
   );
   const matchingCategories = new Set(matchingEntries.map((entry) => entry.category));
+  // A category stays visible while at least one of its paths survives the
+  // hidden-path filter.
+  const visibleCategorySet = new Set(
+    entries
+           .map((entry) => entry.category)
+  );
   const visibleCategories = (filter
     ? categories.filter((cat) => cat === "all" || matchingCategories.has(cat))
     : categories
-  ).filter((cat) => cat === "all" || !LEGACY_HIDDEN_CATEGORIES.includes(cat));
+  ).filter((cat) => cat === "all" || visibleCategorySet.has(cat));
   const savedCat = getUiState().selectedCategory || "all";
 
   if (filter && matchingEntries.length === 0) {
@@ -291,17 +293,6 @@ const BGE_CLASSIC_ONLY_PREFIXES = [
 ];
 const BGE_AUTOBGE_ONLY_PREFIXES = ["bge.autobge."];
 
-// Config top-level keys hidden from the editor under the single-method pipeline
-// (plan M8). `method` is the reconstruction-method selector: the pipeline offers
-// exactly one method, so it must not be shown as a choice; the schema key itself
-// is removed in M10. The rest are legacy Classic/tile-era blocks, never editable
-// here, hidden until their schema keys go in M10. `aqmh` is deliberately NOT
-// here: `aqmh.pyramid.*` still feeds the active SOURCE_QUALITY_MAPS phase (M10
-// renames the block to reconstruction.quality.*).
-const LEGACY_HIDDEN_CATEGORIES = [
-  "method",
-  "synthetic", "tile", "tile_denoise", "local_metrics", "global_metrics",
-];
 
 function isBgeParamVisible(path, bgeMethod) {
   const isClassicOnly = BGE_CLASSIC_ONLY_PREFIXES.some(p => path === p || path.startsWith(p));
@@ -309,11 +300,6 @@ function isBgeParamVisible(path, bgeMethod) {
   if (!isClassicOnly && !isAutobgeOnly) return true;
   if (bgeMethod === "autobge") return isAutobgeOnly;
   return isClassicOnly;
-}
-
-function isLegacyCategoryHidden(path) {
-  const top = path.split(".")[0] || "";
-  return LEGACY_HIDDEN_CATEGORIES.includes(top);
 }
 
 export function renderEditorForCategory(category) {
@@ -335,7 +321,6 @@ export function renderEditorForCategory(category) {
   let renderedCount = 0;
   for (const path of paths) {
     if (!isBgeParamVisible(path, bgeMethod)) continue;
-    if (isLegacyCategoryHidden(path)) continue;
     const fieldSchema = getSchemaForPath(schema, path);
     const value = draft ? (getConfigValue(draft, path) ?? fieldSchema?.default) : "";
     editorBody.appendChild(editableParamRow(path, value, fieldSchema));
@@ -630,7 +615,7 @@ function getConfigValue(obj, path) {
     val = val?.[p];
     if (val === undefined) break;
   }
-  return val ?? "";
+  return val;
 }
 
 async function doValidate() {

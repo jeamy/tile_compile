@@ -62,7 +62,7 @@ TEST_CASE("forward downstream restores RGB photometry once and preserves raw inp
   downstream.pcc.enabled=false; downstream.hypermetric_stretch.enabled=false;
   std::ostringstream events;
   REQUIRE(runner::run_rgb_downstream(dir,"synthetic",downstream,"ASTROMETRY",events,
-      [](const std::string &){return false;},true)==0);
+      [](const std::string &){return false;})==0);
   REQUIRE(events.str().find("DEBAYER")==std::string::npos);
   core::write_text_atomic(dir/"artifacts/normalization.json","{}");
   REQUIRE_THROWS(runner::write_forward_downstream_inputs(dir,sampling,cfg));
@@ -161,6 +161,63 @@ std::vector<core::json> events(const std::string &text) {
   return result;
 }
 }
+TEST_CASE("forward downstream resume from HYPERMETRIC_STRETCH reuses the PCC output",
+          "[forward-runner][forward-downstream]") {
+  core::AtomicOutput temporary(fs::temp_directory_path()/"forward-hms-resume-test");
+  const auto dir=temporary.path();
+  fs::create_directories(dir/"outputs");
+  fs::create_directories(dir/"artifacts");
+  fs::create_directories(dir/"logs");
+  // The resume contract: persisted reconstruction RGB + linear PCC output +
+  // the canvas/overlap masks HMS consumes.
+  const auto plane=Matrix2Df::Constant(8,8,10.0f);
+  io::write_fits_rgb(dir/"outputs/stacked_rgb.fits",plane,plane,plane,{});
+  io::write_fits_rgb(dir/"outputs/stacked_rgb_pcc.fits",plane,plane,plane,{});
+  const auto mask=Matrix2Df::Ones(8,8).eval();
+  io::write_fits_float(dir/"outputs/canvas_mask.fits",mask,{});
+  io::write_fits_float(dir/"outputs/common_overlap_mask.fits",mask,{});
+  config::Config cfg;
+  cfg.astrometry.enabled=false; cfg.bge.method="none"; cfg.pcc.enabled=false;
+  cfg.hypermetric_stretch.enabled=true;
+  std::ostringstream evlog;
+  REQUIRE(runner::run_rgb_downstream(dir,"synthetic",cfg,"HYPERMETRIC_STRETCH",
+      evlog,[](const std::string &){return false;})==0);
+  REQUIRE(fs::exists(dir/"outputs/stacked_rgb_hms.fits"));
+  int hms_starts=0; bool hms_ok=false; bool saw_downstream_end=false;
+  for (const auto &e:events(evlog.str())) {
+    if (e["type"]=="phase_start"&&e["phase_name"]=="HYPERMETRIC_STRETCH") ++hms_starts;
+    if (e["type"]=="phase_end"&&e["phase_name"]=="HYPERMETRIC_STRETCH"&&e["status"]=="ok") hms_ok=true;
+    if (e["type"]=="downstream_end") saw_downstream_end=e.value("success",false);
+  }
+  REQUIRE(hms_starts==1);  // exactly one phase_start for the resume entry
+  REQUIRE(hms_ok);
+  REQUIRE(saw_downstream_end);
+}
+
+TEST_CASE("forward downstream resume from HYPERMETRIC_STRETCH fails closed "
+          "without the PCC output",
+          "[forward-runner][forward-downstream]") {
+  core::AtomicOutput temporary(fs::temp_directory_path()/"forward-hms-resume-missing");
+  const auto dir=temporary.path();
+  fs::create_directories(dir/"outputs");
+  fs::create_directories(dir/"artifacts");
+  fs::create_directories(dir/"logs");
+  const auto plane=Matrix2Df::Constant(8,8,10.0f);
+  io::write_fits_rgb(dir/"outputs/stacked_rgb.fits",plane,plane,plane,{});
+  config::Config cfg;
+  cfg.astrometry.enabled=false; cfg.bge.method="none"; cfg.pcc.enabled=false;
+  cfg.hypermetric_stretch.enabled=true;
+  std::ostringstream evlog;
+  REQUIRE(runner::run_rgb_downstream(dir,"synthetic",cfg,"HYPERMETRIC_STRETCH",
+      evlog,[](const std::string &){return false;})!=0);
+  REQUIRE_FALSE(fs::exists(dir/"outputs/stacked_rgb_hms.fits"));
+  bool saw_failure=false;
+  for (const auto &e:events(evlog.str()))
+    if (e["type"]=="downstream_end"&&e.value("status",std::string())=="missing_pcc_rgb")
+      saw_failure=true;
+  REQUIRE(saw_failure);
+}
+
 TEST_CASE("forward runner: ordered phases retain cache and never create prewarp frames", "[forward-runner]") {
   Fixture f; std::ostringstream log;
   REQUIRE(f.execute(log));
@@ -360,7 +417,6 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
   reconstruction::VerifiedNormalizedSourceCache kept(f.dir/"cache/normalized_frames",f.plan,32);
   REQUIRE(kept.load(0).minCoeff()==10.0f);
   REQUIRE(phase_to_int(Phase::PREWARP)==2);
-  REQUIRE(phase_to_int(Phase::AQMH_BGE_INPUTS)==23);
   REQUIRE(phase_to_int(Phase::FORWARD_DRIZZLE)==27);
   REQUIRE(phase_to_int(Phase::SOURCE_QUALITY_MAPS)==28);
   REQUIRE(phase_to_int(Phase::MULTIBAND)==29);
@@ -726,27 +782,6 @@ TEST_CASE("forward runner: FORWARD_DRIZZLE reports zero reduction workers "
     REQUIRE(got.digest == ref.digest);  // store commit invariant to worker count
     REQUIRE_FALSE(got.suppressed_note);
   }
-}
-
-TEST_CASE("forward reduction caps workers against aggregate scratch before allocation",
-          "[forward-runner][drizzle-memory]") {
-  Fixture f;
-  auto cfg=f.cfg.reconstruction.drizzle;
-  cfg.memory_budget_mb=4;
-  cfg.chunk_rows=0;
-  const Matrix2Df source=Matrix2Df::Constant(32,32,11.0f);
-  const auto provider=[&](size_t)->const Matrix2Df & { return source; };
-  const auto ref=reconstruction::compute_forward_drizzle_uniform_and_raw(
-      f.plan,provider,cfg,f.cfg.reconstruction.clipping,{}, {}, {}, {},1);
-  const auto parallel=reconstruction::compute_forward_drizzle_uniform_and_raw(
-      f.plan,provider,cfg,f.cfg.reconstruction.clipping,{}, {}, {}, {},32);
-  REQUIRE(parallel.diagnostics.workers_requested==32);
-  REQUIRE(parallel.diagnostics.workers_budgeted<32);
-  REQUIRE(parallel.diagnostics.workers_used<=parallel.diagnostics.workers_budgeted);
-  REQUIRE(parallel.diagnostics.worker_scratch_bytes>=262144);
-  REQUIRE(parallel.diagnostics.estimated_peak_bytes<=4*1024*1024);
-  REQUIRE(parallel.raw.L.value==ref.raw.L.value);
-  REQUIRE(parallel.raw.L.support==ref.raw.L.support);
 }
 
 TEST_CASE("forward downstream normalization provenance is checked before resume events",

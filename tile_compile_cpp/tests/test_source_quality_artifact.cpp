@@ -14,6 +14,7 @@
 #include <cstring>
 #include <functional>
 #include <fstream>
+#include <limits>
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -272,45 +273,6 @@ TEST_CASE("quality artifact: frame identity binding is independent of artifact o
   REQUIRE_THROWS(resolve_quality_frame_weights(quality,f.plan,other_cfg));
 }
 
-TEST_CASE("quality artifact: persist load and raw reconstruction require matching predecessors", "[source-predecessors]") {
-  Fixture f;
-  publish_normalized_source_manifest(f.root,f.plan);
-  VerifiedNormalizedSourceCache cache(f.root,f.plan,32);
-  GlobalQualityConfig quality_cfg;
-  const auto artifact=f.root/"quality.json";
-  const auto quality=persist_source_quality_artifact(artifact,f.plan,cache,quality_cfg,32);
-  REQUIRE(load_source_quality_artifact(artifact,f.plan,cache,quality_cfg,32).plan_hash==quality.plan_hash);
-  config::ReconstructionDrizzleConfig drizzle;
-  drizzle.internal_scale=1; drizzle.pixfrac=1; drizzle.chunk_rows=3; drizzle.memory_budget_mb=32;
-  config::ReconstructionClippingConfig clipping;
-  clipping.min_n_eff=1;
-  const auto store=persist_forward_drizzle_from_predecessors(f.root/"store",artifact,
-      f.plan,cache,quality_cfg,drizzle,clipping);
-  const auto weights=resolve_quality_frame_weights(quality,f.plan,quality_cfg);
-  const auto expected=make_drizzle_store_identity(f.plan,drizzle,{},&clipping,weights,
-      {cache.manifest_hash(),quality.plan_hash});
-  REQUIRE(verify_drizzle_profile_store(f.root/"store",expected).usable);
-  auto unbound=make_drizzle_store_identity(f.plan,drizzle,{},&clipping,weights);
-  REQUIRE_FALSE(verify_drizzle_profile_store(f.root/"store",unbound).usable);
-  const auto raw=read_drizzle_profile_region(f.root/"store",expected,"raw","L",0,0,2,2,16);
-  const float mean=(10*weights[0]+12*weights[1])/(weights[0]+weights[1]);
-  REQUIRE(std::abs(raw.value[0]-mean)<1e-5f);
-  // T1 trusted run: a same-size content rewrite is NOT detected (no SHA-256).
-  // Truncating the file IS detected via the size check.
-  { std::ofstream file(f.root/"0.raw",std::ios::binary|std::ios::trunc); file<<"short"; }
-  REQUIRE_THROWS(persist_forward_drizzle_from_predecessors(f.root/"store",artifact,
-      f.plan,cache,quality_cfg,drizzle,clipping));
-  REQUIRE(verify_drizzle_profile_store(f.root/"store",expected).usable);
-  // Restore the file to full size with different content, then re-publish.
-  f.write(0,Matrix2Df::Constant(32,32,100.0f));
-  publish_normalized_source_manifest(f.root,f.plan);
-  VerifiedNormalizedSourceCache changed(f.root,f.plan,32);
-  // T1 trusted run: same-size content change is NOT detected (no SHA-256).
-  // The manifest hash is metadata-only, so the quality artifact still matches.
-  // Only a size change (truncation) would be caught.
-  REQUIRE_NOTHROW(load_source_quality_artifact(artifact,f.plan,changed,quality_cfg,32));
-}
-
 TEST_CASE("quality artifact: memory preflight precedes cache reads and preserves old artifact", "[source-predecessors]") {
   Fixture f;
   publish_normalized_source_manifest(f.root,f.plan);
@@ -319,8 +281,11 @@ TEST_CASE("quality artifact: memory preflight precedes cache reads and preserves
   core::write_text_atomic(artifact,"previous");
   fs::remove(f.root/"0.raw");
   GlobalQualityConfig cfg;
+  // An impossible scratch demand (~275 GiB) exceeds any autogrow headroom:
+  // the preflight still fails before touching the cache or the artifact.
+  cfg.star_max_corners=std::numeric_limits<int>::max();
   REQUIRE_THROWS_WITH(persist_source_quality_artifact(artifact,f.plan,cache,cfg,1),
-      "SOURCE_QUALITY_MEMORY_BUDGET");
+      Catch::Matchers::ContainsSubstring("DRIZZLE_MEMORY_BUDGET"));
   REQUIRE(core::read_text(artifact)=="previous");
 }
 

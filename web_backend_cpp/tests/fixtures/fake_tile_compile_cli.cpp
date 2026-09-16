@@ -43,46 +43,49 @@ int main(int argc, char** argv) {
                         }}
                     }}
                 }},
-                {"aqmh", {
+                {"reconstruction", {
                     {"type", "object"},
                     {"properties", {
-                        {"storage", {
+                        {"drizzle", {
                             {"type", "object"},
                             {"properties", {
-                                {"resolution_divisor", {
+                                {"internal_scale", {
                                     {"type", "integer"},
-                                    {"enum", {1, 2, 4}}
+                                    {"enum", {1, 2}}
                                 }}
                             }}
                         }},
-                        {"cherry_pick", {
+                        {"clipping", {
                             {"type", "object"},
                             {"properties", {
-                                {"enabled", {{"type", "boolean"}}},
-                                {"k_frac", {
+                                {"min_fraction", {
                                     {"type", "number"},
                                     {"exclusiveMinimum", 0},
                                     {"maximum", 1}
                                 }}
                             }}
                         }},
-                        {"pyramid", {
+                        {"quality", {
                             {"type", "object"},
                             {"properties", {
-                                {"base_window_px", {
-                                    {"type", "integer"},
-                                    {"minimum", 1},
-                                    {"default", 4}
+                                {"pyramid", {
+                                    {"type", "object"},
+                                    {"properties", {
+                                        {"base_window_px", {
+                                            {"type", "integer"},
+                                            {"minimum", 1},
+                                            {"default", 4}
+                                        }}
+                                    }}
                                 }}
                             }}
                         }},
                         {"diagnostics", {
                             {"type", "object"},
                             {"properties", {
-                                {"r_morph_canvas_px", {
-                                    {"type", "integer"},
-                                    {"minimum", 1},
-                                    {"default", 6}
+                                {"preview_forward_drizzle_uniform", {
+                                    {"type", "boolean"},
+                                    {"default", false}
                                 }}
                             }}
                         }}
@@ -109,14 +112,6 @@ int main(int argc, char** argv) {
                         }}
                     }}
                 }},
-                {"validation", {
-                    {"type", "object"},
-                    {"properties", {
-                        {"max_background_rms_increase_percent", {
-                            {"type", "number"}
-                        }}
-                    }}
-                }}
             }}
         }.dump() << std::endl;
         return 0;

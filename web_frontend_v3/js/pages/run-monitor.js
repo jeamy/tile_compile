@@ -215,8 +215,7 @@ const completionAnalysisCacheLoads = new Set();
 const runChatStore = getStore("run-chat", { chats: {} });
 const RESUME_PENDING_TIMEOUT_MS = 120000;
 const RESUME_CONFIG_SECTIONS = [
-  { key: "aqmh", label: "AQMH" },
-  { key: "common_overlap", label: "COMMON" },
+  { key: "reconstruction", label: "RECON" },
   { key: "stacking", label: "STACKING" },
   { key: "output", label: "OUTPUT" },
   { key: "normalization", label: "NORM" },
@@ -1746,49 +1745,15 @@ function stopLogTailPolling() {
   logTailTimer = null;
 }
 
-const PHASE_I18N_KEYS = {
-  AQMH_MAPS: "phase.aqmh_maps",
-  AQMH_GLOBAL_QUALITY: "phase.aqmh_global_quality",
-  AQMH_RECONSTRUCTION: "phase.aqmh_reconstruction",
-  AQMH_DIAGNOSTICS: "phase.aqmh_diagnostics",
-};
-
-function localizedPhaseName(value) {
-  const raw = String(value || "");
-  const key = PHASE_I18N_KEYS[raw];
-  return key ? t(key, raw) : raw;
-}
-
-function localizedAqmhSubstep(pass, rawSubstep) {
-  const substep = String(rawSubstep || "");
-  const key = `monitor.log.aqmh.${pass || ""}`;
-  const params = {};
-  const rowMatch = substep.match(/(\d+)\/(\d+)$/);
-  if (rowMatch) {
-    params.current = rowMatch[1];
-    params.total = rowMatch[2];
-  }
-  const alphaMatch = substep.match(/alpha=([0-9.eE+-]+)/);
-  if (alphaMatch) params.alpha = alphaMatch[1];
-  const iterationMatch = substep.match(/(?:Schritt|step)\s+(\d+)\/4/i);
-  if (iterationMatch) params.iteration = iterationMatch[1];
-  const translated = t(key, "", params);
-  return translated || substep;
-}
-
 function formatEventMessage(ev) {
   const type = ev.type || "";
   const payload = ev.payload || ev;
-  const phase = localizedPhaseName(ev.phase_name || ev.phase || payload.phase_name || payload.phase);
+  const phase = String(ev.phase_name || ev.phase || payload.phase_name || payload.phase || "");
   if (type === "phase_start") return `${phase} | ${t("monitor.log.start", "start")}`;
   if (type === "phase_progress") {
     const pctValue = normalizedEventPercent(ev.pct ?? payload.pct ?? ev.progress ?? payload.progress);
     const pct = pctValue != null ? ` (${Math.round(pctValue)}%)` : "";
-    const substep = payload.substep || ev.substep || "";
-    const pass = payload.pass || ev.pass || "";
-    const detail = pass.startsWith("core_") || pass.startsWith("rgb_") || pass
-      ? localizedAqmhSubstep(pass, substep)
-      : substep;
+    const detail = payload.substep || ev.substep || "";
     return `${phase} | ${t("monitor.log.progress", "progress")}${pct}${detail ? ` | ${detail}` : ""}`;
   }
   if (type === "phase_end") {
@@ -1799,12 +1764,12 @@ function formatEventMessage(ev) {
   if (type === "run_start") return t("monitor.log.run_started", "Run started");
   if (type === "run_end") return `${t("monitor.log.run_finished", "Run finished")} | ${t(`monitor.log.status.${payload.status || ev.status || "ok"}`, payload.status || ev.status || "ok")}`;
   if (type === "resume_start") {
-    const fromPhase = localizedPhaseName(payload.from_phase || ev.from_phase);
+    const fromPhase = payload.from_phase || ev.from_phase || "";
     return `${t("monitor.log.resume", "Resume")} | ${t("monitor.log.start", "start")} | ${fromPhase}`;
   }
   if (type === "resume_end") {
     const ok = payload.success ?? ev.success ?? false;
-    const fromPhase = localizedPhaseName(payload.from_phase || ev.from_phase);
+    const fromPhase = payload.from_phase || ev.from_phase || "";
     return `${t("monitor.log.resume", "Resume")} | ${ok ? t("monitor.log.ok", "OK") : t("monitor.log.error", "ERROR")} | ${fromPhase}`;
   }
   if (type === "queue_progress") return payload.message || ev.message || t("monitor.log.queue_progress", "Queue progress");
@@ -1843,11 +1808,9 @@ async function refreshRunStatus(runId) {
     // newer local phase progress while a resume is active.
     const keepLiveResumePhases = getResumePending() || getResumeActive();
     if (status.phases && Array.isArray(status.phases) && !keepLiveResumePhases) {
-      // Merge backend statuses into the correct phase order for the run method.
-      // This prevents backend-specific or out-of-order phases (e.g. GLOBAL_METRICS
-      // for AQMH) from appearing at the bottom of the list.
-      const method = status.method || (status.aqmh_enabled ? "aqmh" : "classic_tile_compile");
-      const basePhases = getPhasesForConfig({ method, aqmh: { enabled: method === "aqmh" } });
+      // Merge backend statuses into the canonical phase order; out-of-order or
+      // stale phase names from older runs must not appear at the bottom.
+      const basePhases = getPhasesForConfig();
       const statusMap = new Map();
       for (const p of status.phases) {
         const name = p.phase || p.phase_name || "";
@@ -1875,7 +1838,7 @@ async function refreshRunStatus(runId) {
     });
     maybeLoadCompletionAnalysis(status.status);
     updateStat("info-color-mode", status.color_mode || "\u2014");
-    updateStat("info-pipeline", status.method || (status.aqmh_enabled ? "AQMH" : "Classic") || "\u2014");
+    updateStat("info-pipeline", "Forward Drizzle");
 
     if (status.run_dir) {
       updateStat("info-output-dir", status.run_dir + "/outputs");

@@ -2574,9 +2574,13 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
         cfg.fine_quality_exponent < 0.0f ||
         cfg.medium_quality_exponent < 0.0f)))
     return false;
+  last_device_error_.clear();
   int devices = 0;
   if (cudaGetDeviceCount(&devices) != cudaSuccess || devices <= 0) {
-    cudaGetLastError();
+    const cudaError_t e = cudaGetLastError();
+    if (e != cudaSuccess)
+      last_device_error_ =
+          std::string("cudaGetDeviceCount: ") + cudaGetErrorString(e);
     return false;
   }
   CudaScopedError clear_on_exit;
@@ -2681,7 +2685,10 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
   im->iplane = iplane;
   if (cudaStreamCreateWithFlags(&im->stream, cudaStreamNonBlocking) !=
       cudaSuccess) {
-    cudaGetLastError();
+    const cudaError_t e = cudaGetLastError();
+    if (e != cudaSuccess)
+      last_device_error_ =
+          std::string("cudaStreamCreate: ") + cudaGetErrorString(e);
     delete im;
     return false;
   }
@@ -2772,8 +2779,13 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
        cudaMalloc(&im->out, pc_elems * sizeof(ForwardDrizzleV2PixelResult)) ==
            cudaSuccess;
   if (!ok) {
+    // Capture BEFORE delete im: the destructor's cudaFree calls would
+    // overwrite the pending error.
+    const cudaError_t alloc_err = cudaGetLastError();
+    if (alloc_err != cudaSuccess)
+      last_device_error_ =
+          std::string("reserve/cudaMalloc: ") + cudaGetErrorString(alloc_err);
     delete im;
-    cudaGetLastError();
     return false;
   }
   // Queue zero-init on the workspace stream; ordered before any kernel.
@@ -2804,8 +2816,11 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
        cudaMemsetAsync(im->scalars, 0, 3 * sizeof(unsigned long long),
                        im->stream) == cudaSuccess;
   if (!ok) {
+    const cudaError_t memset_err = cudaGetLastError();
+    if (memset_err != cudaSuccess)
+      last_device_error_ = std::string("reserve/cudaMemsetAsync: ") +
+                           cudaGetErrorString(memset_err);
     delete im;
-    cudaGetLastError();
     return false;
   }
   impl_ = im;
@@ -2837,6 +2852,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
 // / cudaFree / event creation; all buffers and the stream persist.
 bool ForwardDrizzleV2CudaPrototypeKernel::begin_band(
     int native_rows, const ForwardDrizzleV2KernelConfig &cfg) {
+  last_device_error_.clear();
   if (impl_ == nullptr) return false;
   Impl &im = *impl_;
   // Legal only right after reserve() (frames==0, not yet finalized) or
@@ -3886,29 +3902,58 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
       static_cast<double>(im.cfg.fine_quality_exponent),
       static_cast<double>(im.cfg.medium_quality_exponent),
       AlphaConfidenceParams{}, im.pout, im.out, im.scalars + 1);
-  if (cudaGetLastError() != cudaSuccess) return false;
+  if (const cudaError_t launch_err = cudaGetLastError();
+      launch_err != cudaSuccess) {
+    last_device_error_ = std::string("k_finalize_v2 launch: ") +
+                         cudaGetErrorString(launch_err);
+    return false;
+  }
   unsigned long long h_scalars[3] = {0, 0, 0};
   std::vector<unsigned int> h_kept(n_pc), h_contrib(n_pc);
   const std::size_t out_bytes = n_pc * sizeof(ForwardDrizzleV2PixelResult);
   const std::size_t prof_bytes =
       im.cfg.emit_profiles ? n_pc * sizeof(ForwardDrizzleV2ProfileResult) : 0;
   const std::size_t cnt_bytes = n_pc * sizeof(unsigned int);
+  cudaError_t first_err = cudaSuccess;
+  auto step = [&](const char *api, cudaError_t e) {
+    if (e != cudaSuccess && first_err == cudaSuccess) {
+      first_err = e;
+      last_device_error_ =
+          std::string(api) + ": " + cudaGetErrorString(e);
+    }
+    return e == cudaSuccess;
+  };
   bool ok =
-      cudaMemcpyAsync(results, im.out, out_bytes, cudaMemcpyDeviceToHost, st) ==
-          cudaSuccess &&
+      step("cudaMemcpyAsync(results)",
+           cudaMemcpyAsync(results, im.out, out_bytes, cudaMemcpyDeviceToHost,
+                           st)) &&
       (!im.cfg.emit_profiles ||
-       cudaMemcpyAsync(profiles_or_null, im.pout, prof_bytes,
-                       cudaMemcpyDeviceToHost, st) == cudaSuccess) &&
-      cudaMemcpyAsync(h_scalars, im.scalars, sizeof(h_scalars),
-                      cudaMemcpyDeviceToHost, st) == cudaSuccess &&
-      cudaMemcpyAsync(h_kept.data(), im.kept, cnt_bytes,
-                      cudaMemcpyDeviceToHost, st) == cudaSuccess &&
-      cudaMemcpyAsync(h_contrib.data(), im.contrib, cnt_bytes,
-                      cudaMemcpyDeviceToHost, st) == cudaSuccess;
+       step("cudaMemcpyAsync(profiles)",
+            cudaMemcpyAsync(profiles_or_null, im.pout, prof_bytes,
+                            cudaMemcpyDeviceToHost, st))) &&
+      step("cudaMemcpyAsync(scalars)",
+           cudaMemcpyAsync(h_scalars, im.scalars, sizeof(h_scalars),
+                           cudaMemcpyDeviceToHost, st)) &&
+      step("cudaMemcpyAsync(kept)",
+           cudaMemcpyAsync(h_kept.data(), im.kept, cnt_bytes,
+                           cudaMemcpyDeviceToHost, st)) &&
+      step("cudaMemcpyAsync(contrib)",
+           cudaMemcpyAsync(h_contrib.data(), im.contrib, cnt_bytes,
+                           cudaMemcpyDeviceToHost, st));
   ++stats_.stream_synchronizations;
-  ok = cudaStreamSynchronize(st) == cudaSuccess && ok;
+  ok = step("cudaStreamSynchronize", cudaStreamSynchronize(st)) && ok;
   if (!ok) {
-    cudaGetLastError();
+    // Sticky errors from earlier async work in this band surface here; when
+    // no API call above reported one, keep whatever the runtime has pending.
+    if (first_err == cudaSuccess) {
+      const cudaError_t sticky = cudaGetLastError();
+      if (sticky != cudaSuccess)
+        last_device_error_ =
+            std::string("finalize pending error: ") +
+            cudaGetErrorString(sticky);
+    } else {
+      cudaGetLastError();
+    }
     return false;
   }
   im.finalized = true;

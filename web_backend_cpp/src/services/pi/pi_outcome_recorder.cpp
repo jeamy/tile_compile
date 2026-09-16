@@ -137,7 +137,7 @@ void record_run_outcome_if_needed(const std::shared_ptr<AppState>& state,
 
         const std::string memory_id = matched_item.value("memory_id", std::string());
         store.attach_outcome(memory_id, outcome, "pi_outcome_recorder",
-                             "Schritt 1c: automatischer Join von Run-Provenance und AQMH-Run-Quality");
+                             "Schritt 1c: automatischer Join von Run-Provenance und Run-Quality");
 
         // Schritt 2 (docs/PI/pi_local_learning_plan_de.md, Abschnitt 5/7): shadow-mode only —
         // evaluate and log what auto-promotion WOULD decide, never apply it. A failure here must

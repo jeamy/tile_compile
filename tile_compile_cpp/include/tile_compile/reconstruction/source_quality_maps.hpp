@@ -4,12 +4,12 @@
 // CFA-forward-drizzle plan (docs/AQMH/aqmh_cfa_forward_drizzle_multiband_
 // implementierungsplan_de.md, sections 13.1-13.5).
 //
-// M5 job (plan 13.1): the legacy compute_aqmh_quality_map() collapses every
+// M5 job (plan 13.1): the legacy compute_source_quality_map() collapses every
 // pyramid scale into one geometric-mean Q-map on a PREWARPED frame. The
 // multiband reconstruction (section 14) needs the per-scale maps kept
 // separate AND expressed in SOURCE coordinates. This module reuses the
 // legacy per-scale math verbatim (via the PerScaleQualityHook added to
-// metrics::compute_aqmh_quality_map) and only changes what is exposed:
+// metrics::compute_source_quality_map) and only changes what is exposed:
 //   - q_map            : the geometric-mean composite, byte-identical to the
 //                        legacy path for MONO + all-valid mask (equivalence
 //                        test), source geometry;
@@ -78,7 +78,7 @@ using QualityScaleMapSink = std::function<void(
 SourceQualityMapResult compute_source_quality_maps(
     const Matrix2Df &analysis_proxy,
     const std::vector<uint8_t> &source_valid_mask, int source_width,
-    int source_height, const config::AqmhPyramidConfig &cfg,
+    int source_height, const config::ReconstructionQualityPyramidConfig &cfg,
     const QualityScaleMapSink &sink = {});
 
 }  // namespace tile_compile::reconstruction

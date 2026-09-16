@@ -21,7 +21,9 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <optional>
+#include <set>
 #include <thread>
 
 #include <sys/resource.h>
@@ -396,8 +398,9 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       reconstruction::SourceQualityMapCacheConfig sqm_cfg;
       sqm_cfg.star_max_corners=qcfg.star_max_corners;
       sqm_cfg.star_patch_radius=qcfg.star_patch_radius;
+      const auto &source_quality_pyramid=cfg.reconstruction.quality.pyramid;
       const auto sqm=reconstruction::build_source_quality_map_cache(
-          sqm_cache_root,sampling,cache,cfg.aqmh.pyramid,sqm_cfg,sqm_workers);
+          sqm_cache_root,sampling,cache,source_quality_pyramid,sqm_cfg,sqm_workers);
       checkpoint["source_quality_identity_hash"]=sqm.source_identity_hash;
       checkpoint["source_quality_config_hash"]=sqm.source_quality_config_hash;
       checkpoint["source_quality_cache_hash"]=sqm.source_quality_cache_hash;
@@ -832,7 +835,19 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           uni_m,cand.width,cand.height,cand.uniform_support,cand.alpha_final_by_band);
       // One config object feeds both the selection and its provenance hash, so
       // validation_config_hash is structurally the config that was used.
-      const reconstruction::MultibandValidationConfig val_cfg{};
+      reconstruction::MultibandValidationConfig val_cfg{};
+      {
+        const auto &mv = reconstruction_cfg.multiband_validation;
+        val_cfg.fwhm_ratio_max = mv.fwhm_ratio_max;
+        val_cfg.p90_fwhm_ratio_max = mv.p90_fwhm_ratio_max;
+        val_cfg.tail_ratio_max = mv.tail_ratio_max;
+        val_cfg.elongation_ratio_max = mv.elongation_ratio_max;
+        val_cfg.background_rms_ratio_max = mv.background_rms_ratio_max;
+        val_cfg.seam_ratio_max = mv.seam_ratio_max;
+        val_cfg.min_stars_fwhm = mv.min_stars_fwhm;
+        val_cfg.min_stars_p90_tail_elongation = mv.min_stars_p90_tail_elongation;
+        val_cfg.max_fwhm_ci_relative_width = mv.max_fwhm_ci_relative_width;
+      }
       const auto sel=reconstruction::select_reconstruction_candidate(
           uni_m,raw_m,mb_m,cand.width,cand.height,stars,val_cfg,cand.uniform_support);
       const std::string sel_name=
@@ -1154,7 +1169,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           return std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count()
               > cfg.runtime_limits.hard_abort_hours*3600.0;
         };
-        if (run_rgb_downstream(dir,run_id,cfg,"ASTROMETRY",log,abort_downstream,true)!=0)
+        if (run_rgb_downstream(dir,run_id,cfg,"ASTROMETRY",log,abort_downstream)!=0)
           throw std::runtime_error("FORWARD_DOWNSTREAM_FAILED");
       } else {
         for (const auto phase : {Phase::ASTROMETRY,Phase::BGE,Phase::PCC,Phase::HYPERMETRIC_STRETCH}) {
@@ -1213,19 +1228,186 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
 }
 } // namespace tile_compile::runner
 
+namespace {
+
+using namespace tile_compile;
+using core::json;
+namespace fs = tile_compile::core::fs;
+
+// Downstream-only resume phases handled by run_rgb_downstream directly:
+// they reuse the persisted reconstruction outputs and never touch the
+// expensive M1-M3 predecessors (sampling geometry / forward drizzle).
+bool is_downstream_resume_phase(const std::string &p) {
+  return p=="ASTROMETRY"||p=="BGE"||p=="PCC"||
+         p=="HYPERMETRIC_STRETCH"||p=="HMS";
+}
+
+// Config sections allowed to differ for a downstream-only resume: the
+// sections consumed at-or-after the resume entry, plus non-numeric runtime
+// limits. Every earlier section must stay identical so the reused
+// predecessor artifacts remain valid for the effective configuration.
+const std::set<std::string> &allowed_resume_sections(const std::string &p) {
+  static const std::set<std::string> hms =
+      {"hypermetric_stretch","runtime_limits"};
+  static const std::set<std::string> pcc =
+      {"pcc","chroma_denoise","hypermetric_stretch","runtime_limits"};
+  static const std::set<std::string> bge =
+      {"bge","pcc","chroma_denoise","hypermetric_stretch","runtime_limits"};
+  static const std::set<std::string> astro =
+      {"astrometry","bge","pcc","chroma_denoise","hypermetric_stretch",
+       "runtime_limits"};
+  if (p=="HYPERMETRIC_STRETCH"||p=="HMS") return hms;
+  if (p=="PCC") return pcc;
+  if (p=="BGE") return bge;
+  return astro;
+}
+
+// Serialised top-level config sections for the scoped resume comparison.
+// Emitting each section separately yields a per-section diff so the error
+// can name exactly which out-of-scope sections changed.
+std::map<std::string,std::string> config_section_map(
+    const config::Config &cfg) {
+  std::map<std::string,std::string> out;
+  const YAML::Node root = cfg.to_yaml();
+  for (const auto &kv : root) {
+    YAML::Emitter e;
+    e << kv.second;
+    out[kv.first.as<std::string>()] = e.c_str();
+  }
+  return out;
+}
+
+// The YAML that produced the persisted predecessors: the recorded run-start
+// config revision when present (it survives config.yaml edits made for a
+// downstream resume), else config.yaml itself iff its sha256 still matches
+// run provenance. Empty when neither can be verified.
+std::string original_run_config_yaml(const fs::path &dir,
+                                     const json &provenance) {
+  const auto idx_path = dir/"artifacts/config_revisions/index.json";
+  std::error_code ec;
+  if (fs::is_regular_file(idx_path,ec)) {
+    try {
+      const auto idx = json::parse(core::read_text(idx_path));
+      for (const auto &e : idx) {
+        if (e.value("source",std::string())=="run_start" &&
+            e.contains("file_name")) {
+          const auto rev =
+              idx_path.parent_path()/e["file_name"].get<std::string>();
+          if (fs::is_regular_file(rev,ec)) return core::read_text(rev);
+        }
+      }
+    } catch (...) {
+    }
+  }
+  if (provenance.at("config").at("sha256")==
+      core::sha256_file(dir/"config.yaml"))
+    return core::read_text(dir/"config.yaml");
+  return {};
+}
+
+int resume_downstream_command(const fs::path &dir, const json &provenance,
+                              const std::string &phase_upper) {
+  config::ConfigMigrationReport migration;
+  const auto cfg=config::Config::from_yaml_text_migrated(
+      core::read_text(dir/"config.yaml"),migration);
+  cfg.validate();
+
+  const std::string orig_yaml = original_run_config_yaml(dir,provenance);
+  if (orig_yaml.empty())
+    throw std::runtime_error("FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH");
+  config::ConfigMigrationReport orig_migration;
+  const auto orig = config::Config::from_yaml_text_migrated(
+      orig_yaml,orig_migration);
+  const auto &allowed = allowed_resume_sections(
+      phase_upper=="HMS" ? "HYPERMETRIC_STRETCH" : phase_upper);
+  const auto before = config_section_map(orig);
+  const auto after  = config_section_map(cfg);
+  std::set<std::string> keys;
+  for (const auto &[k,v] : before) keys.insert(k);
+  for (const auto &[k,v] : after)  keys.insert(k);
+  std::string bad;
+  for (const auto &k : keys) {
+    if (allowed.count(k)) continue;
+    const auto ia = before.find(k), ib = after.find(k);
+    const std::string va =
+        ia==before.end() ? std::string("<absent>") : ia->second;
+    const std::string vb =
+        ib==after.end() ? std::string("<absent>") : ib->second;
+    if (va!=vb) { if (!bad.empty()) bad+=", "; bad+=k; }
+  }
+  if (!bad.empty())
+    throw std::runtime_error(
+        "FORWARD_STAGE_CONFIG_SCOPE_MISMATCH: "+phase_upper+
+        " resume allows changes only in the downstream sections; "
+        "changed outside scope: "+bad);
+
+  // Fail closed on missing predecessor artifacts BEFORE touching the log.
+  const fs::path outputs = dir/"outputs";
+  const bool rgb_ok = fs::exists(outputs/"stacked_rgb.fits") ||
+                      fs::exists(outputs/"stacked_rgb_solve.fits");
+  if (!rgb_ok)
+    throw std::runtime_error(
+        "FORWARD_STAGE_DOWNSTREAM_INPUT_MISSING: outputs/stacked_rgb.fits");
+  if ((phase_upper=="HYPERMETRIC_STRETCH"||phase_upper=="HMS") &&
+      !fs::exists(outputs/"stacked_rgb_pcc.fits"))
+    throw std::runtime_error(
+        "FORWARD_STAGE_DOWNSTREAM_INPUT_MISSING: outputs/stacked_rgb_pcc.fits");
+
+  std::ofstream log(dir/"logs/run_events.jsonl",std::ios::app);
+  if (!log) throw std::runtime_error("FORWARD_STAGE_LOG_UNAVAILABLE");
+  core::EventEmitter emitter;
+  const std::string run_id = dir.filename().string();
+  const auto t0 = std::chrono::steady_clock::now();
+  const auto abort_fn = [&](const std::string &) {
+    return std::chrono::duration<double>(
+               std::chrono::steady_clock::now()-t0).count()
+        > cfg.runtime_limits.hard_abort_hours*3600.0;
+  };
+  const int rc = runner::run_rgb_downstream(dir,run_id,cfg,phase_upper,log,
+                                            abort_fn);
+  if (rc==0) {
+    // Refresh the checkpoint's downstream markers (same contract as the
+    // full-run tail).
+    const auto ckpt = dir/"artifacts/forward_drizzle_checkpoint.json";
+    std::error_code ec;
+    if (fs::is_regular_file(ckpt,ec)) {
+      try {
+        auto cp = json::parse(core::read_text(ckpt));
+        cp["downstream_status"]="complete";
+        if (cfg.hypermetric_stretch.enabled) {
+          fs::path hms_path(cfg.hypermetric_stretch.output_rgb);
+          if (hms_path.is_relative()) hms_path=dir/"outputs"/hms_path;
+          if (fs::exists(hms_path,ec))
+            cp["final_output"]={{"path",hms_path.string()},
+                                {"bytes",fs::file_size(hms_path,ec)}};
+        }
+        core::write_text_atomic(ckpt,cp.dump(2));
+      } catch (...) {
+      }
+    }
+  }
+  emitter.run_end(run_id, rc==0, rc==0 ? "final_image_ready" : "error", log,
+                  {{"execution_scope","forward_drizzle_m1_m3"},
+                   {"resume_from",phase_upper}});
+  return rc;
+}
+
+} // namespace
+
 int resume_forward_drizzle_command(const std::string &path,const std::string &phase) {
-#ifdef TILE_COMPILE_LEGACY_REFERENCE
-  (void)path; (void)phase;
-  std::cerr<<"LEGACY_REFERENCE_RESUME_DISABLED\n";
-  return 1;
-#else
   using namespace tile_compile;
   try {
     const fs::path dir=fs::absolute(path);
+    std::string phase_upper=phase;
+    for (auto &c : phase_upper)
+      c=static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
     // No logs or artifacts are opened for writing before basic identity checks.
     const auto provenance=runner::checked_json(dir/"artifacts/run_provenance.json");
-    if (provenance.at("execution_scope")!="forward_drizzle_m1_m3" ||
-        provenance.at("config").at("sha256")!=core::sha256_file(dir/"config.yaml"))
+    if (provenance.at("execution_scope")!="forward_drizzle_m1_m3")
+      throw std::runtime_error("FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH");
+    if (is_downstream_resume_phase(phase_upper))
+      return resume_downstream_command(dir,provenance,phase_upper);
+    if (provenance.at("config").at("sha256")!=core::sha256_file(dir/"config.yaml"))
       throw std::runtime_error("FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH");
     config::ConfigMigrationReport migration;
     const auto cfg=config::Config::from_yaml_text_migrated(core::read_text(dir/"config.yaml"),migration);
@@ -1238,7 +1420,6 @@ int resume_forward_drizzle_command(const std::string &path,const std::string &ph
     if (!log) throw std::runtime_error("FORWARD_STAGE_LOG_UNAVAILABLE");
     core::EventEmitter emitter;
     return runner::run_forward_drizzle_stages(dir.filename().string(),cfg,dir,sampling,
-                                             nullptr,emitter,log,phase) ? 0:1;
+                                             nullptr,emitter,log,phase_upper) ? 0:1;
   } catch (const std::exception &e) { std::cerr<<e.what()<<std::endl; return 1; }
-#endif
 }

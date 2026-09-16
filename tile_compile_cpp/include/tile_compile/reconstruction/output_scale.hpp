@@ -1,102 +1,18 @@
 #pragma once
 
-// Internal 2x raster -> output geometry (milestone M4, plan section 12).
+// Output-geometry contract for the internal 2x raster (plan section 12).
 //
-// After candidate selection the reconstruction may live on an internal 2x
-// raster (internal_scale = 2). This module converts it to the requested
-// output_scale:
-//   * 2/1 (production default): one deterministic 2x2 area-average onto
-//     image, masks and weight planes, with the strict 4/4-support contract
-//     from plan 12.1;
+// The reconstruction may live on an internal 2x raster (internal_scale = 2);
+// `OutputScaleMode` expresses the requested output_scale:
+//   * 2/1: deterministic 2x2 area-average onto image, masks and weight
+//     planes, applied inside the forward drizzle v2 production path;
 //   * 2/2 and 1/1: identity (no resample).
 // Auto selection is deliberately absent (plan: "explizite Modi ... ohne
 // Auto").
-//
-// It also carries plan 12.2's WCS scaling so masks, RGB and WCS never pick
-// up different rounding rules.
 
-#include "tile_compile/astrometry/wcs.hpp"
-#include "tile_compile/reconstruction/forward_drizzle.hpp"
-
-#include <memory>
+#include <vector>
 
 namespace tile_compile::reconstruction {
-
-// Plan 12.1's deterministic 2x2 -> 1x area-average:
-//   valid_out = valid_00 && valid_01 && valid_10 && valid_11
-//   value_out = 0.25 * (v_00 + v_01 + v_10 + v_11)
-//   n_eff_out = min(n_eff_00, n_eff_01, n_eff_10, n_eff_11)
-// An invalid subpixel never enters as 0 or a partially-normalized mean ---
-// the 1x pixel goes invalid. weight_sum is area-averaged the same way as
-// value (a documented convention; the plan pins only value and n_eff). An
-// odd internal dimension drops its last row/column (same rule the Quad-Green
-// grid uses), so the operator is always exact 2x2.
-ProfilePlane downsample_profile_plane_2x2(const ProfilePlane &in);
-
-// Applies the 2x2 operator to every present plane of a uniform+raw result
-// and returns a result whose planes are at output (1x) resolution.
-ForwardDrizzleUniformAndRawResult
-downsample_uniform_and_raw_2x2(const ForwardDrizzleUniformAndRawResult &in);
-
-// Memory-bounded 2/1: runs stream_forward_drizzle_uniform_and_raw() and
-// emits stripes already downsampled 2x2 -> 1x, so a caller (e.g. the
-// transactional profile store) never holds a full internal-resolution
-// image. A small row buffer (at most one internal row of carry) turns the
-// internal-row stripes into output-row stripes; the result is bit-identical
-// to compute_forward_drizzle_uniform_and_raw() followed by
-// downsample_uniform_and_raw_2x2(), independent of the internal chunk
-// height. Requires drizzle_cfg.internal_scale == 2 (internal dimensions are
-// canvas_native*2, always even, so no leftover row). When `multiband` requests
-// fine/medium/alpha-confidence, those are carried too: fine/medium by the same
-// 2x2 area-average, the channel-min confidence maps by 2x2 min + AND support.
-ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw_2x2(
-    const registration::RegistrationSamplingPlan &plan,
-    const SourceImageProvider &source_of,
-    const config::ReconstructionDrizzleConfig &drizzle_cfg,
-    const config::ReconstructionClippingConfig &clipping_cfg,
-    const UniformAndRawStripeSink &output_sink,
-    const ForwardDrizzleSubdivisionParams &subdivision_params = {},
-    const std::vector<float> &g_eff_by_source_index = {}, size_t retained_bytes = 0,
-    const FrameQualityProvider &quality_of = {},
-    const MultibandProfileParams &multiband = {},
-    // Forwarded verbatim to stream_forward_drizzle_uniform_and_raw(): per-stripe
-    // output-row-band parallelism, bit-identical to `workers == 1` (default).
-    // The 2x2 -> 1x fold is downstream of the (still in-order, one-per-stripe)
-    // inner sink, so it is unaffected.
-    int workers = 1,
-    // A1/A2: banded providers, forwarded verbatim to the inner stream call.
-    const SourceImageRectProvider &source_rect_of = {},
-    const FrameQualityRectProvider &quality_rect_of = {});
-
-// The same row-buffered 2x2 -> 1x fold that stream_forward_drizzle_uniform_and_raw_2x2
-// uses internally, exposed for callers that own their own internal-row stripe
-// loop (e.g. the plan-19.4 CUDA per-band driver, which produces internal-2x
-// stripes on the device and must fold them to output geometry before the
-// StoreWriter). `feed()` takes internal-row stripes with contiguous, ascending
-// `y_begin` (0, then +internal_height each call --- chunk height may vary); it
-// emits one output-row stripe per even internal-row pair through `out` with a
-// 0-based OUTPUT row index. `finish()` throws if the total internal height was
-// odd. Byte-identical to downsample_uniform_and_raw_2x2 on the assembled image
-// and independent of how the internal rows were chunked. `internal_width` is
-// canvas_width_native*2 (always even). Carries fine/medium/alpha-confidence
-// when the fed stripes contain them (latched from the first stripe).
-class Downsample2x2StripeAdapter {
- public:
-  Downsample2x2StripeAdapter(UniformAndRawStripeSink out, int internal_width,
-                             bool mono);
-  ~Downsample2x2StripeAdapter();
-  Downsample2x2StripeAdapter(Downsample2x2StripeAdapter &&) noexcept;
-  Downsample2x2StripeAdapter &operator=(Downsample2x2StripeAdapter &&) noexcept;
-  Downsample2x2StripeAdapter(const Downsample2x2StripeAdapter &) = delete;
-  Downsample2x2StripeAdapter &operator=(const Downsample2x2StripeAdapter &) =
-      delete;
-  void feed(int y_begin, const ForwardDrizzleUniformAndRawResult &internal_stripe);
-  void finish();
-
- private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
-};
 
 struct OutputScaleMode {
   int internal_scale = 2;
@@ -106,18 +22,6 @@ struct OutputScaleMode {
            (output_scale == 1 || output_scale == 2) && output_scale <= internal_scale;
   }
   bool needs_2x2_downsample() const { return internal_scale == 2 && output_scale == 1; }
-};
-
-struct OutputWcsParams {
-  // Shift of the original reference geometry into the native canvas
-  // (RegistrationSamplingPlan::canvas_offset_{x,y}_native), in native pixels.
-  double canvas_offset_x_native = 0.0;
-  double canvas_offset_y_native = 0.0;
-  // Removed top/left crop edge, expressed in OUTPUT pixels. For a crop
-  // determined in native pixels: crop_origin_out = output_scale * crop_origin_native.
-  double crop_origin_x_out = 0.0;
-  double crop_origin_y_out = 0.0;
-  int output_scale = 1;  // S
 };
 
 // --- Plan 12.4: kernel-induced noise correlation ---------------------------
@@ -147,14 +51,5 @@ double kernel_noise_correlation_sigma_factor(float pixfrac, int internal_scale);
 // above is sqrt(sum over all lags of rho_delta).
 std::vector<double> kernel_noise_autocorrelation_1d(float pixfrac, int internal_scale,
                                                     int max_lag = 6);
-
-// Plan 12.2, component-wise, exactly as written:
-//   CRPIX_canvas_native = CRPIX_in + canvas_offset_native
-//   CRPIX_out = S * (CRPIX_canvas_native - 0.5) + 0.5 - crop_origin_out
-//   CD_out    = CD_in / S
-// (This is the standard FITS rebin form CRPIX_out = S*CRPIX_in - (S-1)/2
-// plus the canvas-offset and explicit-sign crop term.) `naxis*` are left
-// unchanged --- the caller sets them from the actual output image size.
-astrometry::WCS scale_wcs_to_output(const astrometry::WCS &in, const OutputWcsParams &p);
 
 }  // namespace tile_compile::reconstruction

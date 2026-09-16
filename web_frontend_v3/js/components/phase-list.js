@@ -3,42 +3,16 @@
 import { el, clear } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
 
-// Phase order must match the runner's event order, not the numeric Phase enum ids.
-const CLASSIC_PHASES = [
-  "SCAN_INPUT",
-  "CHANNEL_SPLIT",
-  "NORMALIZATION",
-  "GLOBAL_METRICS",
-  "TILE_GRID",
-  "REGISTRATION",
-  "PREWARP",
-  "COMMON_OVERLAP",
-  "LOCAL_METRICS",
-  "TILE_RECONSTRUCTION",
-  "STATE_CLUSTERING",
-  "SYNTHETIC_FRAMES",
-  "STACKING",
-  "DEBAYER",
-  "ASTROMETRY",
-  "BGE",
-  "PCC",
-  "HYPERMETRIC_STRETCH",
-];
-
-// Single-method CFA forward-drizzle + multiband pipeline (`runner reconstruct`).
-// Exact event order emitted by runner_pipeline.cpp's forward_drizzle_only path:
-// SCAN_INPUT + channel-split/normalization + registration (the forward path runs
+// Single-method CFA forward-drizzle + multiband pipeline (`runner reconstruct`,
+// the only pipeline). Exact event order emitted by runner_pipeline.cpp:
+// SCAN_INPUT + channel-split/normalization + registration (registration runs
 // registration_only=true, so PREWARP is not emitted), then
 // run_forward_drizzle_stages (NORMALIZED_CACHE .. MULTIBAND). Verified against
 // the event logs of two real runs (M31/M42).
 // Not listed:
-//  - GLOBAL_METRICS: runner_phase_metrics.cpp only emits it as a stage when
-//    aqmh.enabled is false; normalizeMethod (io/config.cpp) defaults
-//    Config::method to "aqmh" => aqmh.enabled is true on the reconstruct path
-//    by construction, so the phase is computed but not exposed. It re-enters
-//    this list when M10 drops Config::method.
-//  - PREWARP / AQMH_* / TILE_* / STACKING / DEBAYER / ASTROMETRY / BGE / PCC /
-//    HYPERMETRIC_STRETCH: legacy `run` path only.
+//  - GLOBAL_METRICS: computed internally, not emitted as a stage.
+//  - ASTROMETRY / BGE / PCC / HYPERMETRIC_STRETCH follow MULTIBAND as the
+//    downstream phases.
 const RECONSTRUCT_PHASES = [
   "SCAN_INPUT",
   "CHANNEL_SPLIT",
@@ -51,13 +25,27 @@ const RECONSTRUCT_PHASES = [
   "GLOBAL_QUALITY",
   "FORWARD_DRIZZLE",
   "MULTIBAND",
+  "ASTROMETRY",
+  "BGE",
+  "PCC",
+  "HYPERMETRIC_STRETCH",
 ];
 
 const DEFAULT_PHASES = RECONSTRUCT_PHASES;
 
-// CLASSIC_PHASES is kept only so legacy runs still resolve clickable phase
-// deep-links until the legacy phase IDs are pruned from UI/Resume in M10.
-const CLICKABLE_PHASES = new Set([...CLASSIC_PHASES, ...RECONSTRUCT_PHASES]);
+// resume-reconstruction entry points: the reconstruction resume phases
+// (GLOBAL_QUALITY, FORWARD_DRIZZLE) plus the downstream-only resume phases
+// which reuse the persisted reconstruction outputs and re-run only the
+// downstream chain (ASTROMETRY -> BGE -> PCC -> HYPERMETRIC_STRETCH).
+// MULTIBAND is not a resume entry; it always re-runs with FORWARD_DRIZZLE.
+const CLICKABLE_PHASES = new Set([
+  "GLOBAL_QUALITY",
+  "FORWARD_DRIZZLE",
+  "ASTROMETRY",
+  "BGE",
+  "PCC",
+  "HYPERMETRIC_STRETCH",
+]);
 
 let selectedPhase = null;
 let phaseClickHandler = null;
@@ -69,9 +57,6 @@ export function setPhaseClickHandler(handler) {
 export function getPhasesForConfig(configDraft) {
   // Single-method pipeline (plan M8): no method selector, so the phase list is
   // no longer config-dependent - it is always the `runner reconstruct` order.
-  // RECONSTRUCT_PHASES does not contain "BGE" (BGE is not part of the
-  // reconstruct-only pipeline), so this used to carry a dead `p === "BGE"`
-  // branch and an unreachable getBgeLabel() helper; both removed.
   return RECONSTRUCT_PHASES.map(p => ({ phase: p, label: p }));
 }
 

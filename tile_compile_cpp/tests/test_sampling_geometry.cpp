@@ -472,8 +472,11 @@ TEST_CASE(
   REQUIRE(a.gate.workers_used > 1);
   REQUIRE(b.gate.workers_used == 1);
   cfg.memory_budget_mb = 1;
-  REQUIRE_THROWS(compute_geometric_coverage(plan, 2, 0.8f, lenient_gate(), 0.5f,
-                                            128, cfg));
+  // An undersized budget no longer aborts: the planner logs a warning and
+  // grows the effective budget in +1 GiB steps until the working set fits.
+  auto c =
+      compute_geometric_coverage(plan, 2, 0.8f, lenient_gate(), 0.5f, 128, cfg);
+  REQUIRE(c.support_count_l == a.support_count_l);
 }
 
 TEST_CASE("coverage audit: semantic hashes invalidate geometry without rounded "

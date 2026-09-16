@@ -26,6 +26,5 @@ void write_forward_downstream_inputs(const fs::path &run_dir,
 // inputs and never reuse a WCS or Classic tile metrics from a previous image.
 int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     const config::Config &cfg, std::string phase_upper, std::ostream &log,
-    const std::function<bool(const std::string &)> &abort_if_runtime_limit_exceeded,
-    bool forward = false);
+    const std::function<bool(const std::string &)> &abort_if_runtime_limit_exceeded);
 }

@@ -81,19 +81,6 @@ std::string normalize_acceleration_backend(std::string value) {
   return value;
 }
 
-/// @brief Normalizes the reconstruction method and derived flags.
-/// @details Ensures that Config::method is always set and AqmhConfig::enabled is derived from it.
-/// This is the single source of truth for method determination. If method is missing, it defaults to "aqmh".
-void normalizeMethod(Config &config) {
-  if (config.method.empty()) {
-    config.method = "aqmh";
-  }
-  if (config.method == "aqmh") {
-    config.aqmh.enabled = true;
-  } else if (config.method == "classic_tile_compile") {
-    config.aqmh.enabled = false;
-  }
-}
 
 /// @brief Reads float pair.
 /// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
@@ -248,16 +235,6 @@ Config Config::load(const fs::path &path) {
 Config Config::from_yaml(const YAML::Node &node) {
   Config cfg;
 
-  if (node["method"]) {
-    cfg.method = node["method"].as<std::string>();
-  }
-
-  if (node["pipeline"]) {
-    auto p = node["pipeline"];
-    if (yaml_has_value(p["mode"]))
-      cfg.pipeline.mode = p["mode"].as<std::string>();
-  }
-
   if (node["output"]) {
     auto o = node["output"];
     if (yaml_has_value(o["registered_dir"]))
@@ -341,21 +318,6 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.calibration.pattern = c["pattern"].as<std::string>();
   }
 
-  if (node["assumptions"]) {
-    auto a = node["assumptions"];
-    if (yaml_has_value(a["frames_min"]))
-      cfg.assumptions.frames_min = a["frames_min"].as<int>();
-    if (yaml_has_value(a["frames_reduced_threshold"]))
-      cfg.assumptions.frames_reduced_threshold =
-          a["frames_reduced_threshold"].as<int>();
-    if (yaml_has_value(a["reduced_mode_skip_clustering"])) {
-      cfg.assumptions.reduced_mode_skip_clustering =
-          a["reduced_mode_skip_clustering"].as<bool>();
-    }
-    read_int_pair(a["reduced_mode_cluster_range"],
-                  cfg.assumptions.reduced_mode_cluster_range);
-  }
-
   if (node["normalization"]) {
     auto n = node["normalization"];
     if (yaml_has_value(n["enabled"]))
@@ -424,6 +386,14 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (yaml_has_value(r["smooth_local_refinement_enabled"]))
       cfg.registration.smooth_local_refinement_enabled =
           r["smooth_local_refinement_enabled"].as<bool>();
+    if (yaml_has_value(r["prewarp_interpolation"]))
+      cfg.registration.prewarp_interpolation =
+          r["prewarp_interpolation"].as<std::string>();
+    if (yaml_has_value(r["debayer_first"]))
+      cfg.registration.debayer_first = r["debayer_first"].as<bool>();
+    if (yaml_has_value(r["pre_debayer_method"]))
+      cfg.registration.pre_debayer_method =
+          r["pre_debayer_method"].as<std::string>();
   }
 
   if (node["dithering"]) {
@@ -434,37 +404,6 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.dithering.min_shift_px = d["min_shift_px"].as<float>();
   }
 
-  if (node["tile_denoise"]) {
-    auto td = node["tile_denoise"];
-    if (yaml_has_value(td["soft_threshold"])) {
-      auto st = td["soft_threshold"];
-      if (yaml_has_value(st["enabled"]))
-        cfg.tile_denoise.soft_threshold.enabled = st["enabled"].as<bool>();
-      if (yaml_has_value(st["blur_kernel"]))
-        cfg.tile_denoise.soft_threshold.blur_kernel = st["blur_kernel"].as<int>();
-      if (yaml_has_value(st["alpha"]))
-        cfg.tile_denoise.soft_threshold.alpha = st["alpha"].as<float>();
-      if (yaml_has_value(st["skip_star_tiles"]))
-        cfg.tile_denoise.soft_threshold.skip_star_tiles = st["skip_star_tiles"].as<bool>();
-    }
-    if (yaml_has_value(td["wiener"])) {
-      auto w = td["wiener"];
-      if (yaml_has_value(w["enabled"]))
-        cfg.tile_denoise.wiener.enabled = w["enabled"].as<bool>();
-      if (yaml_has_value(w["snr_threshold"]))
-        cfg.tile_denoise.wiener.snr_threshold = w["snr_threshold"].as<float>();
-      if (yaml_has_value(w["q_min"]))
-        cfg.tile_denoise.wiener.q_min = w["q_min"].as<float>();
-      if (yaml_has_value(w["q_max"]))
-        cfg.tile_denoise.wiener.q_max = w["q_max"].as<float>();
-      if (yaml_has_value(w["q_step"]))
-        cfg.tile_denoise.wiener.q_step = w["q_step"].as<float>();
-      if (yaml_has_value(w["min_snr"]))
-        cfg.tile_denoise.wiener.min_snr = w["min_snr"].as<float>();
-      if (yaml_has_value(w["max_iterations"]))
-        cfg.tile_denoise.wiener.max_iterations = w["max_iterations"].as<int>();
-    }
-  }
 
   if (node["chroma_denoise"]) {
     auto cd = node["chroma_denoise"];
@@ -557,273 +496,6 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.global_metrics.weight_exponent_scale = gm["weight_exponent_scale"].as<float>();
   }
 
-  if (node["tile"]) {
-    auto t = node["tile"];
-    if (yaml_has_value(t["size_factor"]))
-      cfg.tile.size_factor = t["size_factor"].as<int>();
-    if (yaml_has_value(t["min_size"]))
-      cfg.tile.min_size = t["min_size"].as<int>();
-    if (yaml_has_value(t["max_divisor"]))
-      cfg.tile.max_divisor = t["max_divisor"].as<int>();
-    if (yaml_has_value(t["overlap_fraction"]))
-      cfg.tile.overlap_fraction = t["overlap_fraction"].as<float>();
-    if (yaml_has_value(t["star_min_count"]))
-      cfg.tile.star_min_count = t["star_min_count"].as<int>();
-    if (yaml_has_value(t["star_soft_count"]))
-      cfg.tile.star_soft_count = t["star_soft_count"].as<int>();
-    else
-      cfg.tile.star_soft_count = cfg.tile.star_min_count;
-  }
-
-  if (node["local_metrics"]) {
-    auto lm = node["local_metrics"];
-    read_float_pair(lm["clamp"], cfg.local_metrics.clamp);
-    if (yaml_has_value(lm["neighborhood_normalization"])) {
-      auto nn = lm["neighborhood_normalization"];
-      if (yaml_has_value(nn["enabled"]))
-        cfg.local_metrics.neighborhood_normalization.enabled =
-            nn["enabled"].as<bool>();
-      if (yaml_has_value(nn["radius"]))
-        cfg.local_metrics.neighborhood_normalization.radius =
-            nn["radius"].as<int>();
-      if (yaml_has_value(nn["blend"]))
-        cfg.local_metrics.neighborhood_normalization.blend =
-            nn["blend"].as<float>();
-    }
-    if (yaml_has_value(lm["spatial_regularization"])) {
-      auto sr = lm["spatial_regularization"];
-      if (yaml_has_value(sr["enabled"]))
-        cfg.local_metrics.spatial_regularization.enabled =
-            sr["enabled"].as<bool>();
-      if (yaml_has_value(sr["lambda"]))
-        cfg.local_metrics.spatial_regularization.lambda =
-            sr["lambda"].as<float>();
-      if (yaml_has_value(sr["passes"]))
-        cfg.local_metrics.spatial_regularization.passes =
-            sr["passes"].as<int>();
-      if (yaml_has_value(sr["tau_local"]))
-        cfg.local_metrics.spatial_regularization.tau_local =
-            sr["tau_local"].as<float>();
-    }
-    if (lm["star_mode"] && lm["star_mode"]["weights"]) {
-      auto w = lm["star_mode"]["weights"];
-      if (yaml_has_value(w["fwhm"]))
-        cfg.local_metrics.star_mode.weights.fwhm = w["fwhm"].as<float>();
-      if (yaml_has_value(w["roundness"]))
-        cfg.local_metrics.star_mode.weights.roundness =
-            w["roundness"].as<float>();
-      if (yaml_has_value(w["contrast"]))
-        cfg.local_metrics.star_mode.weights.contrast =
-            w["contrast"].as<float>();
-    }
-    if (yaml_has_value(lm["structure_mode"])) {
-      auto sm = lm["structure_mode"];
-      if (yaml_has_value(sm["background_weight"]))
-        cfg.local_metrics.structure_mode.background_weight =
-            sm["background_weight"].as<float>();
-      if (yaml_has_value(sm["metric_weight"]))
-        cfg.local_metrics.structure_mode.metric_weight =
-            sm["metric_weight"].as<float>();
-    }
-    if (yaml_has_value(lm["k_local"]))
-      cfg.local_metrics.k_local = lm["k_local"].as<float>();
-  }
-
-  if (node["aqmh"]) {
-    auto a = node["aqmh"];
-    if (yaml_has_value(a["enabled"]))
-      cfg.aqmh.enabled = a["enabled"].as<bool>();
-    if (yaml_has_value(a["pyramid"])) {
-      auto p = a["pyramid"];
-      if (yaml_has_value(p["scales"]))
-        cfg.aqmh.pyramid.scales = p["scales"].as<int>();
-      if (yaml_has_value(p["base_window_px"]))
-        cfg.aqmh.pyramid.base_window_px = p["base_window_px"].as<int>();
-      if (yaml_has_value(p["w_sharp"]))
-        cfg.aqmh.pyramid.w_sharp = p["w_sharp"].as<float>();
-      if (yaml_has_value(p["w_snr"]))
-        cfg.aqmh.pyramid.w_snr = p["w_snr"].as<float>();
-      if (yaml_has_value(p["score_scale"]))
-        cfg.aqmh.pyramid.score_scale = p["score_scale"].as<float>();
-      if (yaml_has_value(p["k_artifact"]))
-        cfg.aqmh.pyramid.k_artifact = p["k_artifact"].as<float>();
-      if (yaml_has_value(p["frac_artifact_max"]))
-        cfg.aqmh.pyramid.frac_artifact_max =
-            p["frac_artifact_max"].as<float>();
-    }
-    if (yaml_has_value(a["storage"])) {
-      auto s = a["storage"];
-      if (yaml_has_value(s["resolution_divisor"]))
-        cfg.aqmh.storage.resolution_divisor =
-            s["resolution_divisor"].as<int>();
-      if (yaml_has_value(s["dtype"]))
-        cfg.aqmh.storage.dtype = s["dtype"].as<std::string>();
-      if (yaml_has_value(s["max_resident_maps"]))
-        cfg.aqmh.storage.max_resident_maps =
-            s["max_resident_maps"].as<int>();
-    }
-    if (yaml_has_value(a["global_quality"])) {
-      auto g = a["global_quality"];
-      if (yaml_has_value(g["g_floor"])) cfg.aqmh.global_quality.g_floor = g["g_floor"].as<float>();
-      if (yaml_has_value(g["g_w_sharp"])) cfg.aqmh.global_quality.g_w_sharp = g["g_w_sharp"].as<float>();
-      if (yaml_has_value(g["g_w_snr"])) cfg.aqmh.global_quality.g_w_snr = g["g_w_snr"].as<float>();
-      if (yaml_has_value(g["g_w_background_penalty"]))
-        cfg.aqmh.global_quality.g_w_background_penalty =
-            g["g_w_background_penalty"].as<float>();
-      if (yaml_has_value(g["g_k_scale"]))
-        cfg.aqmh.global_quality.g_k_scale = g["g_k_scale"].as<float>();
-    }
-    if (yaml_has_value(a["cherry_pick"])) {
-      auto cp = a["cherry_pick"];
-      if (yaml_has_value(cp["enabled"]))
-        cfg.aqmh.cherry_pick.enabled = cp["enabled"].as<bool>();
-      if (yaml_has_value(cp["mode"]))
-        cfg.aqmh.cherry_pick.mode = cp["mode"].as<std::string>();
-      if (yaml_has_value(cp["k_frac"]))
-        cfg.aqmh.cherry_pick.k_frac = cp["k_frac"].as<float>();
-      if (yaml_has_value(cp["k_min_required"]))
-        cfg.aqmh.cherry_pick.k_min_required = cp["k_min_required"].as<int>();
-      if (yaml_has_value(cp["margin_min"]))
-        cfg.aqmh.cherry_pick.margin_min = cp["margin_min"].as<float>();
-      if (yaml_has_value(cp["reject_below_best_fraction"]))
-        cfg.aqmh.cherry_pick.reject_below_best_fraction =
-            cp["reject_below_best_fraction"].as<float>();
-      if (yaml_has_value(cp["min_keep_fraction"]))
-        cfg.aqmh.cherry_pick.min_keep_fraction =
-            cp["min_keep_fraction"].as<float>();
-      if (yaml_has_value(cp["tiered_k_frac"])) {
-        cfg.aqmh.cherry_pick.tiered_k_frac.clear();
-        for (const auto &item : cp["tiered_k_frac"]) {
-          AqmhCherryPickConfig::Tier tier;
-          if (yaml_has_value(item["min_n_rankable"]))
-            tier.min_n_rankable = item["min_n_rankable"].as<int>();
-          if (yaml_has_value(item["k_frac"]))
-            tier.k_frac = item["k_frac"].as<float>();
-          cfg.aqmh.cherry_pick.tiered_k_frac.push_back(tier);
-        }
-      }
-    }
-    if (yaml_has_value(a["diagnostics"])) {
-      auto d = a["diagnostics"];
-      if (yaml_has_value(d["tau_artifact"]))
-        cfg.aqmh.diagnostics.tau_artifact = d["tau_artifact"].as<float>();
-      if (yaml_has_value(d["q_region"]))
-        cfg.aqmh.diagnostics.q_region = d["q_region"].as<float>();
-      if (yaml_has_value(d["r_morph_canvas_px"]))
-        cfg.aqmh.diagnostics.r_morph_canvas_px =
-            d["r_morph_canvas_px"].as<int>();
-      // NEW FIELDS:
-      if (yaml_has_value(d["enabled"]))
-        cfg.aqmh.diagnostics.enabled = d["enabled"].as<bool>();
-      if (yaml_has_value(d["level"]))
-        cfg.aqmh.diagnostics.level = d["level"].as<std::string>();
-      if (yaml_has_value(d["per_frame_blocks"]))
-        cfg.aqmh.diagnostics.per_frame_blocks = d["per_frame_blocks"].as<bool>();
-      if (yaml_has_value(d["heatmaps"]))
-        cfg.aqmh.diagnostics.heatmaps = d["heatmaps"].as<bool>();
-      if (yaml_has_value(d["regions"]))
-        cfg.aqmh.diagnostics.regions = d["regions"].as<bool>();
-      if (yaml_has_value(d["format"]))
-        cfg.aqmh.diagnostics.format = d["format"].as<std::string>();
-      if (yaml_has_value(d["binary_block_size_px"]))
-        cfg.aqmh.diagnostics.binary_block_size_px = d["binary_block_size_px"].as<int>();
-    }
-    if (yaml_has_value(a["reconstruction"])) {
-      auto r = a["reconstruction"];
-      const bool has_clip_sigma = static_cast<bool>(r["clip_sigma"]);
-      const bool has_clip_sigma_low = static_cast<bool>(r["clip_sigma_low"]);
-      const bool has_clip_sigma_high = static_cast<bool>(r["clip_sigma_high"]);
-      if (has_clip_sigma) {
-        cfg.aqmh.reconstruction.clip_sigma = r["clip_sigma"].as<float>();
-        if (!has_clip_sigma_low)
-          cfg.aqmh.reconstruction.clip_sigma_low =
-              cfg.aqmh.reconstruction.clip_sigma;
-        if (!has_clip_sigma_high)
-          cfg.aqmh.reconstruction.clip_sigma_high =
-              cfg.aqmh.reconstruction.clip_sigma;
-      }
-      if (yaml_has_value(r["clip_sigma_low"]))
-        cfg.aqmh.reconstruction.clip_sigma_low =
-            r["clip_sigma_low"].as<float>();
-      if (yaml_has_value(r["clip_sigma_high"]))
-        cfg.aqmh.reconstruction.clip_sigma_high =
-            r["clip_sigma_high"].as<float>();
-      if (yaml_has_value(r["clip_iterations"])) cfg.aqmh.reconstruction.clip_iterations = r["clip_iterations"].as<int>();
-      if (yaml_has_value(r["min_fraction"])) cfg.aqmh.reconstruction.min_fraction = r["min_fraction"].as<float>();
-      if (yaml_has_value(r["min_n_eff"])) cfg.aqmh.reconstruction.min_n_eff = r["min_n_eff"].as<float>();
-      // NEW FIELDS:
-      if (yaml_has_value(r["chunk_rows"]))
-        cfg.aqmh.reconstruction.chunk_rows = r["chunk_rows"].as<int>();
-      if (yaml_has_value(r["memory_budget_mb"]))
-        cfg.aqmh.reconstruction.memory_budget_mb = r["memory_budget_mb"].as<size_t>();
-      if (yaml_has_value(r["delete_prewarped_cache_after_run"]))
-        cfg.aqmh.reconstruction.delete_prewarped_cache_after_run =
-            r["delete_prewarped_cache_after_run"].as<bool>();
-      if (yaml_has_value(r["prewarp_interpolation"]))
-        cfg.aqmh.reconstruction.prewarp_interpolation =
-            r["prewarp_interpolation"].as<std::string>();
-      if (yaml_has_value(r["debayer_first"]))
-        cfg.aqmh.reconstruction.debayer_first =
-            r["debayer_first"].as<bool>();
-      if (yaml_has_value(r["pre_debayer_method"]))
-        cfg.aqmh.reconstruction.pre_debayer_method =
-            r["pre_debayer_method"].as<std::string>();
-      if (yaml_has_value(r["rgb_q_map_mode"]))
-        cfg.aqmh.reconstruction.rgb_q_map_mode =
-            r["rgb_q_map_mode"].as<std::string>();
-      if (yaml_has_value(r["rgb_memory_strategy"]))
-        cfg.aqmh.reconstruction.rgb_memory_strategy =
-            r["rgb_memory_strategy"].as<std::string>();
-      if (yaml_has_value(r["registration_weight_guard"]))
-        cfg.aqmh.reconstruction.registration_weight_guard =
-            r["registration_weight_guard"].as<bool>();
-      if (yaml_has_value(r["registration_weight_floor"]))
-        cfg.aqmh.reconstruction.registration_weight_floor =
-            r["registration_weight_floor"].as<float>();
-      if (yaml_has_value(r["registration_cc_floor"]))
-        cfg.aqmh.reconstruction.registration_cc_floor =
-            r["registration_cc_floor"].as<float>();
-      if (yaml_has_value(r["registration_cc_full"]))
-        cfg.aqmh.reconstruction.registration_cc_full =
-            r["registration_cc_full"].as<float>();
-      if (yaml_has_value(r["registration_sequential_factor"]))
-        cfg.aqmh.reconstruction.registration_sequential_factor =
-            r["registration_sequential_factor"].as<float>();
-      if (yaml_has_value(r["registration_predicted_factor"]))
-        cfg.aqmh.reconstruction.registration_predicted_factor =
-            r["registration_predicted_factor"].as<float>();
-      if (yaml_has_value(r["registration_chain_depth_penalty"]))
-        cfg.aqmh.reconstruction.registration_chain_depth_penalty =
-            r["registration_chain_depth_penalty"].as<float>();
-      if (yaml_has_value(r["registration_chain_depth_max_penalty"]))
-        cfg.aqmh.reconstruction.registration_chain_depth_max_penalty =
-            r["registration_chain_depth_max_penalty"].as<float>();
-      if (yaml_has_value(r["structure_mask_low_q"]))
-        cfg.aqmh.reconstruction.structure_mask_low_q =
-            r["structure_mask_low_q"].as<float>();
-      if (yaml_has_value(r["structure_mask_high_q"]))
-        cfg.aqmh.reconstruction.structure_mask_high_q =
-            r["structure_mask_high_q"].as<float>();
-      if (yaml_has_value(r["structure_mask_blur_sigma_px"]))
-        cfg.aqmh.reconstruction.structure_mask_blur_sigma_px =
-            r["structure_mask_blur_sigma_px"].as<float>();
-      if (yaml_has_value(r["gpu_half_qmaps"]))
-        cfg.aqmh.reconstruction.gpu_half_qmaps =
-            r["gpu_half_qmaps"].as<bool>();
-      if (yaml_has_value(r["gpu_packed_masks"]))
-        cfg.aqmh.reconstruction.gpu_packed_masks =
-            r["gpu_packed_masks"].as<bool>();
-    }
-    if (yaml_has_value(a["validation"])) {
-      auto v = a["validation"];
-      if (yaml_has_value(v["max_seam_score_regression"])) cfg.aqmh.validation.max_seam_score_regression = v["max_seam_score_regression"].as<float>();
-      if (yaml_has_value(v["max_fwhm_regression"])) cfg.aqmh.validation.max_fwhm_regression = v["max_fwhm_regression"].as<float>();
-      if (yaml_has_value(v["max_background_rms_regression"])) cfg.aqmh.validation.max_background_rms_regression = v["max_background_rms_regression"].as<float>();
-      if (yaml_has_value(v["max_tail11_abs_regression"])) cfg.aqmh.validation.max_tail11_abs_regression = v["max_tail11_abs_regression"].as<float>();
-      if (yaml_has_value(v["max_elongation_regression"])) cfg.aqmh.validation.max_elongation_regression = v["max_elongation_regression"].as<float>();
-    }
-  }
-
   // Single-method reconstruction contract (plan 6.1). Parsed and validated but
   // not yet consumed by any phase (built in M2+).
   if (node["reconstruction"]) {
@@ -904,10 +576,25 @@ Config Config::from_yaml(const YAML::Node &node) {
             g["max_internal_hole_area_px"].as<long long>();
     }
     if (yaml_has_value(r["quality"]) &&
-        yaml_has_value(r["quality"]["pyramid"]) &&
-        yaml_has_value(r["quality"]["pyramid"]["scales"]))
-      rc.quality.pyramid.scales =
-          r["quality"]["pyramid"]["scales"].as<int>();
+        yaml_has_value(r["quality"]["pyramid"])) {
+      auto q = r["quality"]["pyramid"];
+      if (yaml_has_value(q["scales"]))
+        rc.quality.pyramid.scales = q["scales"].as<int>();
+      if (yaml_has_value(q["base_window_px"]))
+        rc.quality.pyramid.base_window_px = q["base_window_px"].as<int>();
+      if (yaml_has_value(q["sharpness_weight"]))
+        rc.quality.pyramid.sharpness_weight =
+            q["sharpness_weight"].as<float>();
+      if (yaml_has_value(q["snr_weight"]))
+        rc.quality.pyramid.snr_weight = q["snr_weight"].as<float>();
+      if (yaml_has_value(q["score_scale"]))
+        rc.quality.pyramid.score_scale = q["score_scale"].as<float>();
+      if (yaml_has_value(q["artifact_sigma"]))
+        rc.quality.pyramid.artifact_sigma = q["artifact_sigma"].as<float>();
+      if (yaml_has_value(q["max_artifact_fraction"]))
+        rc.quality.pyramid.max_artifact_fraction =
+            q["max_artifact_fraction"].as<float>();
+    }
     if (yaml_has_value(r["multiband"])) {
       auto m = r["multiband"];
       if (yaml_has_value(m["enabled"]))
@@ -935,22 +622,35 @@ Config Config::from_yaml(const YAML::Node &node) {
         rc.multiband.full_effective_samples =
             m["full_effective_samples"].as<float>();
     }
-  }
-
-  if (node["synthetic"]) {
-    auto s = node["synthetic"];
-    if (yaml_has_value(s["weighting"]))
-      cfg.synthetic.weighting = s["weighting"].as<std::string>();
-    if (yaml_has_value(s["frames_min"]))
-      cfg.synthetic.frames_min = s["frames_min"].as<int>();
-    if (yaml_has_value(s["frames_max"]))
-      cfg.synthetic.frames_max = s["frames_max"].as<int>();
-    if (yaml_has_value(s["clustering"])) {
-      auto cl = s["clustering"];
-      if (yaml_has_value(cl["mode"]))
-        cfg.synthetic.clustering.mode = cl["mode"].as<std::string>();
-      read_int_pair(cl["cluster_count_range"],
-                    cfg.synthetic.clustering.cluster_count_range);
+    if (yaml_has_value(r["multiband_validation"])) {
+      auto v = r["multiband_validation"];
+      if (yaml_has_value(v["fwhm_ratio_max"]))
+        rc.multiband_validation.fwhm_ratio_max =
+            v["fwhm_ratio_max"].as<double>();
+      if (yaml_has_value(v["p90_fwhm_ratio_max"]))
+        rc.multiband_validation.p90_fwhm_ratio_max =
+            v["p90_fwhm_ratio_max"].as<double>();
+      if (yaml_has_value(v["tail_ratio_max"]))
+        rc.multiband_validation.tail_ratio_max =
+            v["tail_ratio_max"].as<double>();
+      if (yaml_has_value(v["elongation_ratio_max"]))
+        rc.multiband_validation.elongation_ratio_max =
+            v["elongation_ratio_max"].as<double>();
+      if (yaml_has_value(v["background_rms_ratio_max"]))
+        rc.multiband_validation.background_rms_ratio_max =
+            v["background_rms_ratio_max"].as<double>();
+      if (yaml_has_value(v["seam_ratio_max"]))
+        rc.multiband_validation.seam_ratio_max =
+            v["seam_ratio_max"].as<double>();
+      if (yaml_has_value(v["min_stars_fwhm"]))
+        rc.multiband_validation.min_stars_fwhm =
+            v["min_stars_fwhm"].as<int>();
+      if (yaml_has_value(v["min_stars_p90_tail_elongation"]))
+        rc.multiband_validation.min_stars_p90_tail_elongation =
+            v["min_stars_p90_tail_elongation"].as<int>();
+      if (yaml_has_value(v["max_fwhm_ci_relative_width"]))
+        rc.multiband_validation.max_fwhm_ci_relative_width =
+            v["max_fwhm_ci_relative_width"].as<double>();
     }
   }
 
@@ -1242,81 +942,16 @@ Config Config::from_yaml(const YAML::Node &node) {
 
   if (node["stacking"]) {
     auto st = node["stacking"];
-    if (yaml_has_value(st["method"]))
-      cfg.stacking.method = st["method"].as<std::string>();
-    if (yaml_has_value(st["common_overlap_required_fraction"]))
-      cfg.stacking.common_overlap_required_fraction =
-          st["common_overlap_required_fraction"].as<float>();
-    if (yaml_has_value(st["tile_common_valid_min_fraction"]))
-      cfg.stacking.tile_common_valid_min_fraction =
-          st["tile_common_valid_min_fraction"].as<float>();
-    if (yaml_has_value(st["sigma_clip"])) {
-      auto sc = st["sigma_clip"];
-      if (yaml_has_value(sc["sigma_low"]))
-        cfg.stacking.sigma_clip.sigma_low = sc["sigma_low"].as<float>();
-      if (yaml_has_value(sc["sigma_high"]))
-        cfg.stacking.sigma_clip.sigma_high = sc["sigma_high"].as<float>();
-      if (yaml_has_value(sc["max_iters"]))
-        cfg.stacking.sigma_clip.max_iters = sc["max_iters"].as<int>();
-      if (yaml_has_value(sc["min_fraction"]))
-        cfg.stacking.sigma_clip.min_fraction = sc["min_fraction"].as<float>();
-    }
-    if (yaml_has_value(st["cluster_quality_weighting"])) {
-      auto cqw = st["cluster_quality_weighting"];
-      if (yaml_has_value(cqw["enabled"]))
-        cfg.stacking.cluster_quality_weighting.enabled =
-            cqw["enabled"].as<bool>();
-      if (yaml_has_value(cqw["kappa_cluster"]))
-        cfg.stacking.cluster_quality_weighting.kappa_cluster =
-            cqw["kappa_cluster"].as<float>();
-      if (yaml_has_value(cqw["cap_enabled"]))
-        cfg.stacking.cluster_quality_weighting.cap_enabled =
-            cqw["cap_enabled"].as<bool>();
-      if (yaml_has_value(cqw["cap_ratio"]))
-        cfg.stacking.cluster_quality_weighting.cap_ratio =
-            cqw["cap_ratio"].as<float>();
-    }
-    if (yaml_has_value(st["output_stretch"]))
-      cfg.stacking.output_stretch = st["output_stretch"].as<bool>();
-    if (yaml_has_value(st["cosmetic_correction"]))
-      cfg.stacking.cosmetic_correction = st["cosmetic_correction"].as<bool>();
-    if (yaml_has_value(st["cosmetic_correction_sigma"]))
-      cfg.stacking.cosmetic_correction_sigma = st["cosmetic_correction_sigma"].as<float>();
     if (yaml_has_value(st["per_frame_cosmetic_correction"]))
       cfg.stacking.per_frame_cosmetic_correction = st["per_frame_cosmetic_correction"].as<bool>();
     if (yaml_has_value(st["per_frame_cosmetic_correction_sigma"]))
       cfg.stacking.per_frame_cosmetic_correction_sigma = st["per_frame_cosmetic_correction_sigma"].as<float>();
   }
 
-  if (node["validation"]) {
-    auto v = node["validation"];
-    if (yaml_has_value(v["min_fwhm_improvement_percent"])) {
-      cfg.validation.min_fwhm_improvement_percent =
-          v["min_fwhm_improvement_percent"].as<float>();
-    }
-    if (yaml_has_value(v["max_background_rms_increase_percent"])) {
-      cfg.validation.max_background_rms_increase_percent =
-          v["max_background_rms_increase_percent"].as<float>();
-    }
-    if (yaml_has_value(v["min_tile_weight_variance"]))
-      cfg.validation.min_tile_weight_variance =
-          v["min_tile_weight_variance"].as<float>();
-    if (yaml_has_value(v["require_no_tile_pattern"]))
-      cfg.validation.require_no_tile_pattern =
-          v["require_no_tile_pattern"].as<bool>();
-  }
-
   if (node["runtime_limits"]) {
     auto rl = node["runtime_limits"];
-    if (yaml_has_value(rl["tile_analysis_max_factor_vs_stack"])) {
-      cfg.runtime_limits.tile_analysis_max_factor_vs_stack =
-          rl["tile_analysis_max_factor_vs_stack"].as<float>();
-    }
     if (yaml_has_value(rl["hard_abort_hours"]))
       cfg.runtime_limits.hard_abort_hours = rl["hard_abort_hours"].as<float>();
-    if (yaml_has_value(rl["allow_emergency_mode"]))
-      cfg.runtime_limits.allow_emergency_mode =
-          rl["allow_emergency_mode"].as<bool>();
     if (yaml_has_value(rl["parallel_workers"]))
       cfg.runtime_limits.parallel_workers = rl["parallel_workers"].as<int>();
     if (yaml_has_value(rl["memory_budget"]))
@@ -1326,21 +961,8 @@ Config Config::from_yaml(const YAML::Node &node) {
           normalize_acceleration_backend(
               rl["acceleration_backend"].as<std::string>());
     }
-    if (yaml_has_value(rl["tile_reconstruction_diagnostics"])) {
-      cfg.runtime_limits.tile_reconstruction_diagnostics =
-          rl["tile_reconstruction_diagnostics"].as<std::string>();
-    }
-    if (yaml_has_value(rl["tile_boundary_diagnostics_enabled"])) {
-      cfg.runtime_limits.tile_boundary_diagnostics_enabled =
-          rl["tile_boundary_diagnostics_enabled"].as<bool>();
-    } else {
-      // Derive from legacy string field: "full" or "minimal" → enabled, "off" → disabled.
-      cfg.runtime_limits.tile_boundary_diagnostics_enabled =
-          (cfg.runtime_limits.tile_reconstruction_diagnostics != "off");
-    }
   }
 
-  normalizeMethod(cfg);
 
   return cfg;
 }
@@ -1365,10 +987,6 @@ void Config::save(const fs::path &path) const {
 /// artifact, and error-handling semantics expected by callers.
 YAML::Node Config::to_yaml() const {
   YAML::Node node;
-
-  node["method"] = method;
-
-  node["pipeline"]["mode"] = pipeline.mode;
 
   node["output"]["registered_dir"] = output.registered_dir;
   node["output"]["write_registered_frames"] = output.write_registered_frames;
@@ -1407,16 +1025,6 @@ YAML::Node Config::to_yaml() const {
   node["calibration"]["flat_master"] = calibration.flat_master;
   node["calibration"]["pattern"] = calibration.pattern;
 
-  node["assumptions"]["frames_min"] = assumptions.frames_min;
-  node["assumptions"]["frames_reduced_threshold"] =
-      assumptions.frames_reduced_threshold;
-  node["assumptions"]["reduced_mode_skip_clustering"] =
-      assumptions.reduced_mode_skip_clustering;
-  node["assumptions"]["reduced_mode_cluster_range"].push_back(
-      assumptions.reduced_mode_cluster_range[0]);
-  node["assumptions"]["reduced_mode_cluster_range"].push_back(
-      assumptions.reduced_mode_cluster_range[1]);
-
   node["normalization"]["enabled"] = normalization.enabled;
   node["normalization"]["mode"] = normalization.mode;
   node["normalization"]["per_channel"] = normalization.per_channel;
@@ -1453,21 +1061,13 @@ YAML::Node Config::to_yaml() const {
       registration.affine_refinement_enabled;
   node["registration"]["smooth_local_refinement_enabled"] =
       registration.smooth_local_refinement_enabled;
+  node["registration"]["prewarp_interpolation"] =
+      registration.prewarp_interpolation;
+  node["registration"]["debayer_first"] = registration.debayer_first;
+  node["registration"]["pre_debayer_method"] = registration.pre_debayer_method;
 
   node["dithering"]["enabled"] = dithering.enabled;
   node["dithering"]["min_shift_px"] = dithering.min_shift_px;
-
-  node["tile_denoise"]["soft_threshold"]["enabled"] = tile_denoise.soft_threshold.enabled;
-  node["tile_denoise"]["soft_threshold"]["blur_kernel"] = tile_denoise.soft_threshold.blur_kernel;
-  node["tile_denoise"]["soft_threshold"]["alpha"] = tile_denoise.soft_threshold.alpha;
-  node["tile_denoise"]["soft_threshold"]["skip_star_tiles"] = tile_denoise.soft_threshold.skip_star_tiles;
-  node["tile_denoise"]["wiener"]["enabled"] = tile_denoise.wiener.enabled;
-  node["tile_denoise"]["wiener"]["snr_threshold"] = tile_denoise.wiener.snr_threshold;
-  node["tile_denoise"]["wiener"]["q_min"] = tile_denoise.wiener.q_min;
-  node["tile_denoise"]["wiener"]["q_max"] = tile_denoise.wiener.q_max;
-  node["tile_denoise"]["wiener"]["q_step"] = tile_denoise.wiener.q_step;
-  node["tile_denoise"]["wiener"]["min_snr"] = tile_denoise.wiener.min_snr;
-  node["tile_denoise"]["wiener"]["max_iterations"] = tile_denoise.wiener.max_iterations;
 
   node["chroma_denoise"]["enabled"] = chroma_denoise.enabled;
   node["chroma_denoise"]["color_space"] = chroma_denoise.color_space;
@@ -1515,214 +1115,6 @@ YAML::Node Config::to_yaml() const {
       global_metrics.weights.star_count;
   node["global_metrics"]["clamp"].push_back(global_metrics.clamp[0]);
   node["global_metrics"]["clamp"].push_back(global_metrics.clamp[1]);
-
-  node["tile"]["size_factor"] = tile.size_factor;
-  node["tile"]["min_size"] = tile.min_size;
-  node["tile"]["max_divisor"] = tile.max_divisor;
-  node["tile"]["overlap_fraction"] = tile.overlap_fraction;
-  node["tile"]["star_min_count"] = tile.star_min_count;
-  node["tile"]["star_soft_count"] = tile.star_soft_count;
-
-  node["local_metrics"]["clamp"].push_back(local_metrics.clamp[0]);
-  node["local_metrics"]["clamp"].push_back(local_metrics.clamp[1]);
-  node["local_metrics"]["neighborhood_normalization"]["enabled"] =
-      local_metrics.neighborhood_normalization.enabled;
-  node["local_metrics"]["neighborhood_normalization"]["radius"] =
-      local_metrics.neighborhood_normalization.radius;
-  node["local_metrics"]["neighborhood_normalization"]["blend"] =
-      local_metrics.neighborhood_normalization.blend;
-  node["local_metrics"]["spatial_regularization"]["enabled"] =
-      local_metrics.spatial_regularization.enabled;
-  node["local_metrics"]["spatial_regularization"]["lambda"] =
-      local_metrics.spatial_regularization.lambda;
-  node["local_metrics"]["spatial_regularization"]["passes"] =
-      local_metrics.spatial_regularization.passes;
-  node["local_metrics"]["spatial_regularization"]["tau_local"] =
-      local_metrics.spatial_regularization.tau_local;
-  node["local_metrics"]["star_mode"]["weights"]["fwhm"] =
-      local_metrics.star_mode.weights.fwhm;
-  node["local_metrics"]["star_mode"]["weights"]["roundness"] =
-      local_metrics.star_mode.weights.roundness;
-  node["local_metrics"]["star_mode"]["weights"]["contrast"] =
-      local_metrics.star_mode.weights.contrast;
-  node["local_metrics"]["structure_mode"]["background_weight"] =
-      local_metrics.structure_mode.background_weight;
-  node["local_metrics"]["structure_mode"]["metric_weight"] =
-      local_metrics.structure_mode.metric_weight;
-  node["local_metrics"]["k_local"] = local_metrics.k_local;
-
-  node["aqmh"]["enabled"] = aqmh.enabled;
-  node["aqmh"]["pyramid"]["scales"] = aqmh.pyramid.scales;
-  node["aqmh"]["pyramid"]["base_window_px"] = aqmh.pyramid.base_window_px;
-  node["aqmh"]["pyramid"]["w_sharp"] = aqmh.pyramid.w_sharp;
-  node["aqmh"]["pyramid"]["w_snr"] = aqmh.pyramid.w_snr;
-  node["aqmh"]["pyramid"]["score_scale"] = aqmh.pyramid.score_scale;
-  node["aqmh"]["pyramid"]["k_artifact"] = aqmh.pyramid.k_artifact;
-  node["aqmh"]["pyramid"]["frac_artifact_max"] =
-      aqmh.pyramid.frac_artifact_max;
-  node["aqmh"]["storage"]["resolution_divisor"] =
-      aqmh.storage.resolution_divisor;
-  node["aqmh"]["storage"]["dtype"] = aqmh.storage.dtype;
-  node["aqmh"]["storage"]["max_resident_maps"] =
-      aqmh.storage.max_resident_maps;
-  node["aqmh"]["global_quality"]["g_floor"] = aqmh.global_quality.g_floor;
-  node["aqmh"]["global_quality"]["g_w_sharp"] = aqmh.global_quality.g_w_sharp;
-  node["aqmh"]["global_quality"]["g_w_snr"] = aqmh.global_quality.g_w_snr;
-  node["aqmh"]["global_quality"]["g_w_background_penalty"] =
-      aqmh.global_quality.g_w_background_penalty;
-  node["aqmh"]["global_quality"]["g_k_scale"] = aqmh.global_quality.g_k_scale;
-  node["aqmh"]["cherry_pick"]["enabled"] = aqmh.cherry_pick.enabled;
-  node["aqmh"]["cherry_pick"]["mode"] = aqmh.cherry_pick.mode;
-  node["aqmh"]["cherry_pick"]["k_frac"] = aqmh.cherry_pick.k_frac;
-  node["aqmh"]["cherry_pick"]["k_min_required"] = aqmh.cherry_pick.k_min_required;
-  node["aqmh"]["cherry_pick"]["margin_min"] = aqmh.cherry_pick.margin_min;
-  node["aqmh"]["cherry_pick"]["reject_below_best_fraction"] =
-      aqmh.cherry_pick.reject_below_best_fraction;
-  node["aqmh"]["cherry_pick"]["min_keep_fraction"] =
-      aqmh.cherry_pick.min_keep_fraction;
-  if (aqmh.cherry_pick.tiered_k_frac.empty()) {
-    node["aqmh"]["cherry_pick"]["tiered_k_frac"] = YAML::Node(YAML::NodeType::Sequence);
-  } else {
-    for (const auto &tier : aqmh.cherry_pick.tiered_k_frac) {
-      YAML::Node item;
-      item["min_n_rankable"] = tier.min_n_rankable;
-      item["k_frac"] = tier.k_frac;
-      node["aqmh"]["cherry_pick"]["tiered_k_frac"].push_back(item);
-    }
-  }
-  node["aqmh"]["diagnostics"]["tau_artifact"] =
-      aqmh.diagnostics.tau_artifact;
-  node["aqmh"]["diagnostics"]["q_region"] = aqmh.diagnostics.q_region;
-  node["aqmh"]["diagnostics"]["r_morph_canvas_px"] =
-      aqmh.diagnostics.r_morph_canvas_px;
-  // NEW FIELDS:
-  node["aqmh"]["diagnostics"]["enabled"] = aqmh.diagnostics.enabled;
-  node["aqmh"]["diagnostics"]["level"] = aqmh.diagnostics.level;
-  node["aqmh"]["diagnostics"]["per_frame_blocks"] = aqmh.diagnostics.per_frame_blocks;
-  node["aqmh"]["diagnostics"]["heatmaps"] = aqmh.diagnostics.heatmaps;
-  node["aqmh"]["diagnostics"]["regions"] = aqmh.diagnostics.regions;
-  node["aqmh"]["diagnostics"]["format"] = aqmh.diagnostics.format;
-  node["aqmh"]["diagnostics"]["binary_block_size_px"] = aqmh.diagnostics.binary_block_size_px;
-  node["aqmh"]["reconstruction"]["clip_sigma"] = aqmh.reconstruction.clip_sigma;
-  node["aqmh"]["reconstruction"]["clip_sigma_low"] =
-      aqmh.reconstruction.clip_sigma_low;
-  node["aqmh"]["reconstruction"]["clip_sigma_high"] =
-      aqmh.reconstruction.clip_sigma_high;
-  node["aqmh"]["reconstruction"]["clip_iterations"] = aqmh.reconstruction.clip_iterations;
-  node["aqmh"]["reconstruction"]["min_fraction"] = aqmh.reconstruction.min_fraction;
-  node["aqmh"]["reconstruction"]["min_n_eff"] = aqmh.reconstruction.min_n_eff;
-  // NEW FIELDS:
-  node["aqmh"]["reconstruction"]["chunk_rows"] = aqmh.reconstruction.chunk_rows;
-  node["aqmh"]["reconstruction"]["memory_budget_mb"] = aqmh.reconstruction.memory_budget_mb;
-  node["aqmh"]["reconstruction"]["delete_prewarped_cache_after_run"] =
-      aqmh.reconstruction.delete_prewarped_cache_after_run;
-  node["aqmh"]["reconstruction"]["prewarp_interpolation"] =
-      aqmh.reconstruction.prewarp_interpolation;
-  node["aqmh"]["reconstruction"]["debayer_first"] =
-      aqmh.reconstruction.debayer_first;
-  node["aqmh"]["reconstruction"]["pre_debayer_method"] =
-      aqmh.reconstruction.pre_debayer_method;
-  node["aqmh"]["reconstruction"]["rgb_q_map_mode"] =
-      aqmh.reconstruction.rgb_q_map_mode;
-  node["aqmh"]["reconstruction"]["rgb_memory_strategy"] =
-      aqmh.reconstruction.rgb_memory_strategy;
-  node["aqmh"]["reconstruction"]["registration_weight_guard"] =
-      aqmh.reconstruction.registration_weight_guard;
-  node["aqmh"]["reconstruction"]["registration_weight_floor"] =
-      aqmh.reconstruction.registration_weight_floor;
-  node["aqmh"]["reconstruction"]["registration_cc_floor"] =
-      aqmh.reconstruction.registration_cc_floor;
-  node["aqmh"]["reconstruction"]["registration_cc_full"] =
-      aqmh.reconstruction.registration_cc_full;
-  node["aqmh"]["reconstruction"]["registration_sequential_factor"] =
-      aqmh.reconstruction.registration_sequential_factor;
-  node["aqmh"]["reconstruction"]["registration_predicted_factor"] =
-      aqmh.reconstruction.registration_predicted_factor;
-  node["aqmh"]["reconstruction"]["registration_chain_depth_penalty"] =
-      aqmh.reconstruction.registration_chain_depth_penalty;
-  node["aqmh"]["reconstruction"]["registration_chain_depth_max_penalty"] =
-      aqmh.reconstruction.registration_chain_depth_max_penalty;
-  node["aqmh"]["reconstruction"]["structure_mask_low_q"] =
-      aqmh.reconstruction.structure_mask_low_q;
-  node["aqmh"]["reconstruction"]["structure_mask_high_q"] =
-      aqmh.reconstruction.structure_mask_high_q;
-  node["aqmh"]["reconstruction"]["structure_mask_blur_sigma_px"] =
-      aqmh.reconstruction.structure_mask_blur_sigma_px;
-  node["aqmh"]["reconstruction"]["gpu_half_qmaps"] =
-      aqmh.reconstruction.gpu_half_qmaps;
-  node["aqmh"]["reconstruction"]["gpu_packed_masks"] =
-      aqmh.reconstruction.gpu_packed_masks;
-  node["aqmh"]["validation"]["max_seam_score_regression"] = aqmh.validation.max_seam_score_regression;
-  node["aqmh"]["validation"]["max_fwhm_regression"] = aqmh.validation.max_fwhm_regression;
-  node["aqmh"]["validation"]["max_background_rms_regression"] = aqmh.validation.max_background_rms_regression;
-  node["aqmh"]["validation"]["max_tail11_abs_regression"] =
-      aqmh.validation.max_tail11_abs_regression;
-  node["aqmh"]["validation"]["max_elongation_regression"] =
-      aqmh.validation.max_elongation_regression;
-
-  // Single-method reconstruction contract (plan 6.1).
-  {
-    const auto &rc = reconstruction;
-    auto r = node["reconstruction"];
-    r["delete_source_cache_after_run"] = rc.delete_source_cache_after_run;
-    r["keep_profile_cache_after_run"] = rc.keep_profile_cache_after_run;
-    r["common_overlap_required_fraction"] = rc.common_overlap_required_fraction;
-    r["diagnostics"]["level"] = rc.diagnostics.level;
-    r["diagnostics"]["preview_forward_drizzle_uniform"] =
-        rc.diagnostics.preview_forward_drizzle_uniform;
-    r["diagnostics"]["persist_forward_drizzle_uniform_store"] =
-        rc.diagnostics.persist_forward_drizzle_uniform_store;
-    r["drizzle"]["internal_scale"] = rc.drizzle.internal_scale;
-    r["drizzle"]["output_scale"] = rc.drizzle.output_scale;
-    r["drizzle"]["kernel"] = rc.drizzle.kernel;
-    r["drizzle"]["pixfrac"] = rc.drizzle.pixfrac;
-    r["drizzle"]["robust_passes"] = rc.drizzle.robust_passes;
-    r["drizzle"]["min_clip_contributors"] = rc.drizzle.min_clip_contributors;
-    r["drizzle"]["chunk_rows"] = rc.drizzle.chunk_rows;
-    r["drizzle"]["chunk_halo_rows"] = rc.drizzle.chunk_halo_rows;
-    r["drizzle"]["memory_budget_mb"] = rc.drizzle.memory_budget_mb;
-    r["clipping"]["clip_sigma_low"] = rc.clipping.clip_sigma_low;
-    r["clipping"]["clip_sigma_high"] = rc.clipping.clip_sigma_high;
-    r["clipping"]["min_fraction"] = rc.clipping.min_fraction;
-    r["clipping"]["min_n_eff"] = rc.clipping.min_n_eff;
-    r["clipping"]["guard_fallback"] = rc.clipping.guard_fallback;
-    r["coverage_gate"]["min_frames"] = rc.coverage_gate.min_frames;
-    r["coverage_gate"]["min_supported_fraction"] =
-        rc.coverage_gate.min_supported_fraction;
-    r["coverage_gate"]["min_channel_n_eff_floor"] =
-        rc.coverage_gate.min_channel_n_eff_floor;
-    r["coverage_gate"]["min_channel_n_eff_fraction"] =
-        rc.coverage_gate.min_channel_n_eff_fraction;
-    r["coverage_gate"]["min_analysis_pixels"] =
-        rc.coverage_gate.min_analysis_pixels;
-    r["coverage_gate"]["max_internal_hole_area_px"] =
-        rc.coverage_gate.max_internal_hole_area_px;
-    r["quality"]["pyramid"]["scales"] = rc.quality.pyramid.scales;
-    r["multiband"]["enabled"] = rc.multiband.enabled;
-    r["multiband"]["levels"] = rc.multiband.levels;
-    r["multiband"]["alpha_cap"] = rc.multiband.alpha_cap;
-    r["multiband"]["fine_quality_exponent"] =
-        rc.multiband.fine_quality_exponent;
-    r["multiband"]["medium_quality_exponent"] =
-        rc.multiband.medium_quality_exponent;
-    r["multiband"]["min_quality_separation"] =
-        rc.multiband.min_quality_separation;
-    r["multiband"]["full_quality_separation"] =
-        rc.multiband.full_quality_separation;
-    r["multiband"]["min_effective_samples"] =
-        rc.multiband.min_effective_samples;
-    r["multiband"]["full_effective_samples"] =
-        rc.multiband.full_effective_samples;
-  }
-
-  node["synthetic"]["weighting"] = synthetic.weighting;
-  node["synthetic"]["frames_min"] = synthetic.frames_min;
-  node["synthetic"]["frames_max"] = synthetic.frames_max;
-  node["synthetic"]["clustering"]["mode"] = synthetic.clustering.mode;
-  node["synthetic"]["clustering"]["cluster_count_range"].push_back(
-      synthetic.clustering.cluster_count_range[0]);
-  node["synthetic"]["clustering"]["cluster_count_range"].push_back(
-      synthetic.clustering.cluster_count_range[1]);
 
   node["astrometry"]["enabled"] = astrometry.enabled;
   node["astrometry"]["astap_bin"] = astrometry.astap_bin;
@@ -1862,55 +1254,100 @@ YAML::Node Config::to_yaml() const {
       hypermetric_stretch.write_channels;
   node["hypermetric_stretch"]["output_rgb"] = hypermetric_stretch.output_rgb;
 
-  node["stacking"]["method"] = stacking.method;
-  node["stacking"]["common_overlap_required_fraction"] =
-      stacking.common_overlap_required_fraction;
-  node["stacking"]["tile_common_valid_min_fraction"] =
-      stacking.tile_common_valid_min_fraction;
-  node["stacking"]["sigma_clip"]["sigma_low"] = stacking.sigma_clip.sigma_low;
-  node["stacking"]["sigma_clip"]["sigma_high"] = stacking.sigma_clip.sigma_high;
-  node["stacking"]["sigma_clip"]["max_iters"] = stacking.sigma_clip.max_iters;
-  node["stacking"]["sigma_clip"]["min_fraction"] =
-      stacking.sigma_clip.min_fraction;
-  node["stacking"]["cluster_quality_weighting"]["enabled"] =
-      stacking.cluster_quality_weighting.enabled;
-  node["stacking"]["cluster_quality_weighting"]["kappa_cluster"] =
-      stacking.cluster_quality_weighting.kappa_cluster;
-  node["stacking"]["cluster_quality_weighting"]["cap_enabled"] =
-      stacking.cluster_quality_weighting.cap_enabled;
-  node["stacking"]["cluster_quality_weighting"]["cap_ratio"] =
-      stacking.cluster_quality_weighting.cap_ratio;
-  node["stacking"]["output_stretch"] = stacking.output_stretch;
-  node["stacking"]["cosmetic_correction"] =
-      stacking.cosmetic_correction;
-  node["stacking"]["cosmetic_correction_sigma"] =
-      stacking.cosmetic_correction_sigma;
+  // Single-method reconstruction contract (plan 6.1).
+  {
+    const auto &rc = reconstruction;
+    auto r = node["reconstruction"];
+    r["delete_source_cache_after_run"] = rc.delete_source_cache_after_run;
+    r["keep_profile_cache_after_run"] = rc.keep_profile_cache_after_run;
+    r["common_overlap_required_fraction"] = rc.common_overlap_required_fraction;
+    r["diagnostics"]["level"] = rc.diagnostics.level;
+    r["diagnostics"]["preview_forward_drizzle_uniform"] =
+        rc.diagnostics.preview_forward_drizzle_uniform;
+    r["diagnostics"]["persist_forward_drizzle_uniform_store"] =
+        rc.diagnostics.persist_forward_drizzle_uniform_store;
+    r["drizzle"]["internal_scale"] = rc.drizzle.internal_scale;
+    r["drizzle"]["output_scale"] = rc.drizzle.output_scale;
+    r["drizzle"]["kernel"] = rc.drizzle.kernel;
+    r["drizzle"]["pixfrac"] = rc.drizzle.pixfrac;
+    r["drizzle"]["robust_passes"] = rc.drizzle.robust_passes;
+    r["drizzle"]["min_clip_contributors"] = rc.drizzle.min_clip_contributors;
+    r["drizzle"]["chunk_rows"] = rc.drizzle.chunk_rows;
+    r["drizzle"]["chunk_halo_rows"] = rc.drizzle.chunk_halo_rows;
+    r["drizzle"]["memory_budget_mb"] = rc.drizzle.memory_budget_mb;
+    r["clipping"]["clip_sigma_low"] = rc.clipping.clip_sigma_low;
+    r["clipping"]["clip_sigma_high"] = rc.clipping.clip_sigma_high;
+    r["clipping"]["min_fraction"] = rc.clipping.min_fraction;
+    r["clipping"]["min_n_eff"] = rc.clipping.min_n_eff;
+    r["clipping"]["guard_fallback"] = rc.clipping.guard_fallback;
+    r["coverage_gate"]["min_frames"] = rc.coverage_gate.min_frames;
+    r["coverage_gate"]["min_supported_fraction"] =
+        rc.coverage_gate.min_supported_fraction;
+    r["coverage_gate"]["min_channel_n_eff_floor"] =
+        rc.coverage_gate.min_channel_n_eff_floor;
+    r["coverage_gate"]["min_channel_n_eff_fraction"] =
+        rc.coverage_gate.min_channel_n_eff_fraction;
+    r["coverage_gate"]["min_analysis_pixels"] =
+        rc.coverage_gate.min_analysis_pixels;
+    r["coverage_gate"]["max_internal_hole_area_px"] =
+        rc.coverage_gate.max_internal_hole_area_px;
+    r["quality"]["pyramid"]["scales"] = rc.quality.pyramid.scales;
+    r["quality"]["pyramid"]["base_window_px"] =
+        rc.quality.pyramid.base_window_px;
+    r["quality"]["pyramid"]["sharpness_weight"] =
+        rc.quality.pyramid.sharpness_weight;
+    r["quality"]["pyramid"]["snr_weight"] = rc.quality.pyramid.snr_weight;
+    r["quality"]["pyramid"]["score_scale"] = rc.quality.pyramid.score_scale;
+    r["quality"]["pyramid"]["artifact_sigma"] =
+        rc.quality.pyramid.artifact_sigma;
+    r["quality"]["pyramid"]["max_artifact_fraction"] =
+        rc.quality.pyramid.max_artifact_fraction;
+    r["multiband"]["enabled"] = rc.multiband.enabled;
+    r["multiband"]["levels"] = rc.multiband.levels;
+    r["multiband"]["alpha_cap"] = rc.multiband.alpha_cap;
+    r["multiband"]["fine_quality_exponent"] =
+        rc.multiband.fine_quality_exponent;
+    r["multiband"]["medium_quality_exponent"] =
+        rc.multiband.medium_quality_exponent;
+    r["multiband"]["min_quality_separation"] =
+        rc.multiband.min_quality_separation;
+    r["multiband"]["full_quality_separation"] =
+        rc.multiband.full_quality_separation;
+    r["multiband"]["min_effective_samples"] =
+        rc.multiband.min_effective_samples;
+    r["multiband"]["full_effective_samples"] =
+        rc.multiband.full_effective_samples;
+    r["multiband_validation"]["fwhm_ratio_max"] =
+        rc.multiband_validation.fwhm_ratio_max;
+    r["multiband_validation"]["p90_fwhm_ratio_max"] =
+        rc.multiband_validation.p90_fwhm_ratio_max;
+    r["multiband_validation"]["tail_ratio_max"] =
+        rc.multiband_validation.tail_ratio_max;
+    r["multiband_validation"]["elongation_ratio_max"] =
+        rc.multiband_validation.elongation_ratio_max;
+    r["multiband_validation"]["background_rms_ratio_max"] =
+        rc.multiband_validation.background_rms_ratio_max;
+    r["multiband_validation"]["seam_ratio_max"] =
+        rc.multiband_validation.seam_ratio_max;
+    r["multiband_validation"]["min_stars_fwhm"] =
+        rc.multiband_validation.min_stars_fwhm;
+    r["multiband_validation"]["min_stars_p90_tail_elongation"] =
+        rc.multiband_validation.min_stars_p90_tail_elongation;
+    r["multiband_validation"]["max_fwhm_ci_relative_width"] =
+        rc.multiband_validation.max_fwhm_ci_relative_width;
+  }
+
   node["stacking"]["per_frame_cosmetic_correction"] =
       stacking.per_frame_cosmetic_correction;
   node["stacking"]["per_frame_cosmetic_correction_sigma"] =
       stacking.per_frame_cosmetic_correction_sigma;
 
-  node["validation"]["min_fwhm_improvement_percent"] =
-      validation.min_fwhm_improvement_percent;
-  node["validation"]["max_background_rms_increase_percent"] =
-      validation.max_background_rms_increase_percent;
-  node["validation"]["min_tile_weight_variance"] =
-      validation.min_tile_weight_variance;
-  node["validation"]["require_no_tile_pattern"] =
-      validation.require_no_tile_pattern;
-
-  node["runtime_limits"]["tile_analysis_max_factor_vs_stack"] =
-      runtime_limits.tile_analysis_max_factor_vs_stack;
   node["runtime_limits"]["hard_abort_hours"] = runtime_limits.hard_abort_hours;
-  node["runtime_limits"]["allow_emergency_mode"] =
-      runtime_limits.allow_emergency_mode;
   node["runtime_limits"]["parallel_workers"] =
       runtime_limits.parallel_workers;
   node["runtime_limits"]["memory_budget"] = runtime_limits.memory_budget;
   node["runtime_limits"]["acceleration_backend"] =
       runtime_limits.acceleration_backend;
-  node["runtime_limits"]["tile_reconstruction_diagnostics"] =
-      runtime_limits.tile_reconstruction_diagnostics;
 
   return node;
 }
@@ -1949,8 +1386,22 @@ void ReconstructionConfig::validate() const {
   req(diagnostics.level == "summary" || diagnostics.level == "full",
       "diagnostics.level must be 'summary' or 'full'");
 
-  req(quality.pyramid.scales >= 1 && quality.pyramid.scales <= 4,
-      "quality.pyramid.scales must be in [1, 4]");
+  req(quality.pyramid.scales >= 1 && quality.pyramid.scales <= 8,
+      "quality.pyramid.scales must be in [1, 8]");
+  req(quality.pyramid.base_window_px >= 1,
+      "quality.pyramid.base_window_px must be >= 1");
+  req(quality.pyramid.sharpness_weight >= 0.0f &&
+          quality.pyramid.snr_weight >= 0.0f &&
+          quality.pyramid.sharpness_weight + quality.pyramid.snr_weight > 0.0f,
+      "quality.pyramid.sharpness_weight and snr_weight must be non-negative "
+      "with positive sum");
+  req(quality.pyramid.score_scale > 0.0f,
+      "quality.pyramid.score_scale must be > 0");
+  req(quality.pyramid.artifact_sigma > 0.0f,
+      "quality.pyramid.artifact_sigma must be > 0");
+  req(quality.pyramid.max_artifact_fraction > 0.0f &&
+          quality.pyramid.max_artifact_fraction <= 1.0f,
+      "quality.pyramid.max_artifact_fraction must be in (0, 1]");
 
   req(coverage_gate.min_frames >= 2, "coverage_gate.min_frames must be >= 2");
   req(coverage_gate.min_supported_fraction > 0.0f &&
@@ -1985,21 +1436,33 @@ void ReconstructionConfig::validate() const {
           multiband.min_effective_samples < multiband.full_effective_samples,
       "multiband effective samples must satisfy 1 <= min < full");
 
+  req(multiband_validation.fwhm_ratio_max > 0.0,
+      "multiband_validation.fwhm_ratio_max must be > 0");
+  req(multiband_validation.p90_fwhm_ratio_max > 0.0,
+      "multiband_validation.p90_fwhm_ratio_max must be > 0");
+  req(multiband_validation.tail_ratio_max > 0.0,
+      "multiband_validation.tail_ratio_max must be > 0");
+  req(multiband_validation.elongation_ratio_max > 0.0,
+      "multiband_validation.elongation_ratio_max must be > 0");
+  req(multiband_validation.background_rms_ratio_max > 0.0,
+      "multiband_validation.background_rms_ratio_max must be > 0");
+  req(multiband_validation.seam_ratio_max > 0.0,
+      "multiband_validation.seam_ratio_max must be > 0");
+  req(multiband_validation.min_stars_fwhm >= 0,
+      "multiband_validation.min_stars_fwhm must be >= 0");
+  req(multiband_validation.min_stars_p90_tail_elongation >= 0,
+      "multiband_validation.min_stars_p90_tail_elongation must be >= 0");
+  req(multiband_validation.max_fwhm_ci_relative_width > 0.0,
+      "multiband_validation.max_fwhm_ci_relative_width must be > 0");
+
   req(common_overlap_required_fraction >= 0.0f &&
           common_overlap_required_fraction <= 1.0f,
       "common_overlap_required_fraction must be in [0, 1]");
 }
 
 void Config::validate() const {
-  if (method != "aqmh" && method != "classic_tile_compile") {
-    throw ValidationError("method must be 'aqmh' or 'classic_tile_compile'");
-  }
 
   reconstruction.validate();
-
-  if (pipeline.mode != "production" && pipeline.mode != "test") {
-    throw ValidationError("pipeline.mode must be 'production' or 'test'");
-  }
 
   if (data.image_width < 0 || data.image_height < 0) {
     throw ValidationError(
@@ -2048,19 +1511,6 @@ void Config::validate() const {
       calibration.flat_master.empty()) {
     throw ValidationError(
         "calibration.use_flat requires calibration.flats_dir or calibration.flat_master");
-  }
-
-  if (assumptions.frames_min < 1)
-    throw ValidationError("assumptions.frames_min must be >= 1");
-  if (assumptions.frames_reduced_threshold < assumptions.frames_min) {
-    throw ValidationError("assumptions.frames_reduced_threshold must be >= "
-                          "assumptions.frames_min");
-  }
-  if (assumptions.reduced_mode_cluster_range[0] < 1 ||
-      assumptions.reduced_mode_cluster_range[1] <
-          assumptions.reduced_mode_cluster_range[0]) {
-    throw ValidationError("assumptions.reduced_mode_cluster_range must be "
-                          "[min,max] with min>=1 and max>=min");
   }
 
   if (!normalization.enabled) {
@@ -2131,29 +1581,22 @@ void Config::validate() const {
       registration.star_shift_radius_px > 2000.0f) {
     throw ValidationError("registration.star_shift_radius_px must be in [10, 2000]");
   }
+  if (registration.prewarp_interpolation != "linear" &&
+      registration.prewarp_interpolation != "cubic" &&
+      registration.prewarp_interpolation != "lanczos4") {
+    throw ValidationError(
+        "registration.prewarp_interpolation must be linear, cubic, or lanczos4");
+  }
+  if (registration.pre_debayer_method != "bilinear" &&
+      registration.pre_debayer_method != "nearest" &&
+      registration.pre_debayer_method != "vng" &&
+      registration.pre_debayer_method != "edge_aware") {
+    throw ValidationError(
+        "registration.pre_debayer_method must be bilinear, nearest, vng, or edge_aware");
+  }
 
   if (dithering.min_shift_px < 0.0f) {
     throw ValidationError("dithering.min_shift_px must be >= 0");
-  }
-
-  if (tile_denoise.soft_threshold.blur_kernel < 3) {
-    throw ValidationError("tile_denoise.soft_threshold.blur_kernel must be >= 3");
-  }
-  if (tile_denoise.soft_threshold.alpha <= 0.0f) {
-    throw ValidationError("tile_denoise.soft_threshold.alpha must be > 0");
-  }
-  if (tile_denoise.wiener.q_max < 0.0f || tile_denoise.wiener.q_max > 1.0f) {
-    throw ValidationError("tile_denoise.wiener.q_max must be in [0,1]");
-  }
-  if (tile_denoise.wiener.q_min < -1.0f ||
-      tile_denoise.wiener.q_min > tile_denoise.wiener.q_max) {
-    throw ValidationError("tile_denoise.wiener.q_min must be <= q_max and >= -1");
-  }
-  if (tile_denoise.wiener.q_step <= 0.0f) {
-    throw ValidationError("tile_denoise.wiener.q_step must be > 0");
-  }
-  if (tile_denoise.wiener.max_iterations < 1) {
-    throw ValidationError("tile_denoise.wiener.max_iterations must be >= 1");
   }
 
   if (chroma_denoise.color_space != "ycbcr_linear" &&
@@ -2246,233 +1689,6 @@ void Config::validate() const {
     throw ValidationError("tile.max_divisor must be positive");
   if (tile.overlap_fraction < 0 || tile.overlap_fraction > 0.5f) {
     throw ValidationError("tile.overlap_fraction must be between 0 and 0.5");
-  }
-  if (tile.star_min_count < 0)
-    throw ValidationError("tile.star_min_count must be >= 0");
-  if (tile.star_soft_count < 0)
-    throw ValidationError("tile.star_soft_count must be >= 0");
-
-  if (local_metrics.clamp[0] >= local_metrics.clamp[1]) {
-    throw ValidationError(
-        "local_metrics.clamp must be [min,max] with min < max");
-  }
-  if (local_metrics.neighborhood_normalization.radius < 0) {
-    throw ValidationError(
-        "local_metrics.neighborhood_normalization.radius must be >= 0");
-  }
-  if (local_metrics.neighborhood_normalization.blend < 0.0f ||
-      local_metrics.neighborhood_normalization.blend > 1.0f) {
-    throw ValidationError(
-        "local_metrics.neighborhood_normalization.blend must be between 0 and 1");
-  }
-  if (local_metrics.spatial_regularization.lambda < 0.0f ||
-      local_metrics.spatial_regularization.lambda > 1.0f) {
-    throw ValidationError(
-        "local_metrics.spatial_regularization.lambda must be between 0 and 1");
-  }
-  if (local_metrics.spatial_regularization.passes < 0) {
-    throw ValidationError(
-        "local_metrics.spatial_regularization.passes must be >= 0");
-  }
-  if (local_metrics.spatial_regularization.tau_local <= 0.0f) {
-    throw ValidationError(
-        "local_metrics.spatial_regularization.tau_local must be > 0");
-  }
-  check_weight_sum({local_metrics.star_mode.weights.fwhm,
-                    local_metrics.star_mode.weights.roundness,
-                    local_metrics.star_mode.weights.contrast},
-                   "local_metrics.star_mode.weights");
-  if (std::fabs(local_metrics.structure_mode.background_weight +
-                local_metrics.structure_mode.metric_weight - 1.0f) > 1.0e-3f) {
-    throw ValidationError(
-        "local_metrics.structure_mode weights must sum to 1.0");
-  }
-  if (local_metrics.k_local <= 0.0f) {
-    throw ValidationError("local_metrics.k_local must be > 0");
-  }
-
-  if (aqmh.pyramid.scales < 1 || aqmh.pyramid.scales > 8) {
-    throw ValidationError("aqmh.pyramid.scales must be in [1,8]");
-  }
-  if (aqmh.pyramid.base_window_px < 1) {
-    throw ValidationError("aqmh.pyramid.base_window_px must be >= 1");
-  }
-  if (aqmh.pyramid.w_sharp < 0.0f || aqmh.pyramid.w_snr < 0.0f ||
-      aqmh.pyramid.w_sharp + aqmh.pyramid.w_snr <= 0.0f) {
-    throw ValidationError(
-        "aqmh.pyramid.w_sharp and w_snr must be non-negative with positive sum");
-  }
-  if (aqmh.pyramid.score_scale <= 0.0f) {
-    throw ValidationError("aqmh.pyramid.score_scale must be > 0");
-  }
-  if (aqmh.pyramid.k_artifact <= 0.0f) {
-    throw ValidationError("aqmh.pyramid.k_artifact must be > 0");
-  }
-  if (!is_between_0_1(aqmh.pyramid.frac_artifact_max) ||
-      aqmh.pyramid.frac_artifact_max <= 0.0f) {
-    throw ValidationError("aqmh.pyramid.frac_artifact_max must be in (0,1]");
-  }
-  if (aqmh.storage.resolution_divisor != 1 &&
-      aqmh.storage.resolution_divisor != 2 &&
-      aqmh.storage.resolution_divisor != 4) {
-    throw ValidationError("aqmh.storage.resolution_divisor must be 1, 2, or 4");
-  }
-  if (aqmh.storage.dtype != "float32" && aqmh.storage.dtype != "uint16" &&
-      aqmh.storage.dtype != "uint8") {
-    throw ValidationError(
-        "aqmh.storage.dtype must be 'float32', 'uint16', or 'uint8'");
-  }
-  if (aqmh.storage.max_resident_maps < 0 ||
-      aqmh.storage.max_resident_maps > 16) {
-    throw ValidationError("aqmh.storage.max_resident_maps must be in [0,16]");
-  }
-  if (!is_between_0_1(aqmh.cherry_pick.k_frac) ||
-      aqmh.cherry_pick.k_frac <= 0.0f) {
-    throw ValidationError("aqmh.cherry_pick.k_frac must be in (0,1]");
-  }
-  if (aqmh.cherry_pick.mode != "auto_reject" &&
-      aqmh.cherry_pick.mode != "top_k") {
-    throw ValidationError(
-        "aqmh.cherry_pick.mode must be 'auto_reject' or 'top_k'");
-  }
-  if (aqmh.cherry_pick.k_min_required < 1) {
-    throw ValidationError("aqmh.cherry_pick.k_min_required must be >= 1");
-  }
-  if (aqmh.cherry_pick.margin_min < 0.0f || aqmh.cherry_pick.margin_min > 1.0f) {
-    throw ValidationError("aqmh.cherry_pick.margin_min must be in [0,1]");
-  }
-  if (!is_between_0_1(aqmh.cherry_pick.reject_below_best_fraction) ||
-      aqmh.cherry_pick.reject_below_best_fraction <= 0.0f) {
-    throw ValidationError(
-        "aqmh.cherry_pick.reject_below_best_fraction must be in (0,1]");
-  }
-  if (!is_between_0_1(aqmh.cherry_pick.min_keep_fraction) ||
-      aqmh.cherry_pick.min_keep_fraction <= 0.0f) {
-    throw ValidationError(
-        "aqmh.cherry_pick.min_keep_fraction must be in (0,1]");
-  }
-  int last_min = -1;
-  for (const auto &tier : aqmh.cherry_pick.tiered_k_frac) {
-    if (tier.min_n_rankable < 0 || tier.min_n_rankable <= last_min ||
-        tier.k_frac <= 0.0f || tier.k_frac > 1.0f) {
-      throw ValidationError("aqmh.cherry_pick.tiered_k_frac must be strictly ordered with fractions in (0,1]");
-    }
-    last_min = tier.min_n_rankable;
-  }
-  if (!(aqmh.global_quality.g_floor > 0.0f && aqmh.global_quality.g_floor < 1.0f) ||
-      aqmh.global_quality.g_w_sharp < 0.0f ||
-      aqmh.global_quality.g_w_snr < 0.0f ||
-      aqmh.global_quality.g_w_background_penalty < 0.0f ||
-      aqmh.global_quality.g_w_sharp + aqmh.global_quality.g_w_snr +
-              aqmh.global_quality.g_w_background_penalty <=
-          0.0f ||
-      !(aqmh.global_quality.g_k_scale > 0.0f) ||
-      !std::isfinite(aqmh.global_quality.g_k_scale)) {
-    throw ValidationError("aqmh.global_quality values are invalid");
-  }
-  if (aqmh.reconstruction.clip_sigma <= 0.0f ||
-      aqmh.reconstruction.clip_sigma_low <= 0.0f ||
-      aqmh.reconstruction.clip_sigma_high <= 0.0f ||
-      aqmh.reconstruction.clip_iterations < 0 ||
-      aqmh.reconstruction.min_fraction <= 0.0f || aqmh.reconstruction.min_fraction > 1.0f ||
-      aqmh.reconstruction.min_n_eff < 1.0f) {
-    throw ValidationError("aqmh.reconstruction values are invalid");
-  }
-  if (!is_between_0_1(aqmh.diagnostics.tau_artifact)) {
-    throw ValidationError("aqmh.diagnostics.tau_artifact must be in [0,1]");
-  }
-  if (!is_between_0_1(aqmh.diagnostics.q_region)) {
-    throw ValidationError("aqmh.diagnostics.q_region must be in [0,1]");
-  }
-  if (aqmh.diagnostics.r_morph_canvas_px < 1) {
-    throw ValidationError(
-        "aqmh.diagnostics.r_morph_canvas_px must be >= 1");
-  }
-  // NEW VALIDATIONS:
-  if (aqmh.diagnostics.level != "none" &&
-      aqmh.diagnostics.level != "summary" &&
-      aqmh.diagnostics.level != "full") {
-    throw ValidationError("aqmh.diagnostics.level must be none, summary, or full");
-  }
-  if (aqmh.diagnostics.format != "json" && aqmh.diagnostics.format != "binary") {
-    throw ValidationError("aqmh.diagnostics.format must be json or binary");
-  }
-  if (aqmh.diagnostics.binary_block_size_px < 0) {
-    throw ValidationError("aqmh.diagnostics.binary_block_size_px must be >= 0");
-  }
-  if (aqmh.reconstruction.chunk_rows < 0) {
-    throw ValidationError("aqmh.reconstruction.chunk_rows must be >= 0");
-  }
-  if (aqmh.reconstruction.prewarp_interpolation != "linear" &&
-      aqmh.reconstruction.prewarp_interpolation != "cubic" &&
-      aqmh.reconstruction.prewarp_interpolation != "lanczos4") {
-    throw ValidationError(
-        "aqmh.reconstruction.prewarp_interpolation must be linear, cubic, or lanczos4");
-  }
-  if (aqmh.reconstruction.pre_debayer_method != "bilinear" &&
-      aqmh.reconstruction.pre_debayer_method != "nearest" &&
-      aqmh.reconstruction.pre_debayer_method != "vng" &&
-      aqmh.reconstruction.pre_debayer_method != "edge_aware") {
-    throw ValidationError(
-        "aqmh.reconstruction.pre_debayer_method must be bilinear, nearest, vng, or edge_aware");
-  }
-  if (aqmh.reconstruction.rgb_q_map_mode != "shared_luma") {
-    throw ValidationError(
-        "aqmh.reconstruction.rgb_q_map_mode must be shared_luma");
-  }
-  if (aqmh.reconstruction.rgb_memory_strategy != "sequential") {
-    throw ValidationError(
-        "aqmh.reconstruction.rgb_memory_strategy must be sequential");
-  }
-  if (!is_between_0_1(aqmh.reconstruction.registration_weight_floor) ||
-      !is_between_0_1(aqmh.reconstruction.registration_cc_floor) ||
-      !is_between_0_1(aqmh.reconstruction.registration_cc_full) ||
-      aqmh.reconstruction.registration_cc_full <=
-          aqmh.reconstruction.registration_cc_floor ||
-      !is_between_0_1(aqmh.reconstruction.registration_sequential_factor) ||
-      !is_between_0_1(aqmh.reconstruction.registration_predicted_factor) ||
-      aqmh.reconstruction.registration_chain_depth_penalty < 0.0f ||
-      aqmh.reconstruction.registration_chain_depth_penalty > 0.5f ||
-      !is_between_0_1(aqmh.reconstruction.registration_chain_depth_max_penalty)) {
-    throw ValidationError(
-        "aqmh.reconstruction registration weight guard values are invalid");
-  }
-  if (!is_between_0_1(aqmh.reconstruction.structure_mask_low_q) ||
-      !is_between_0_1(aqmh.reconstruction.structure_mask_high_q) ||
-      aqmh.reconstruction.structure_mask_high_q <=
-          aqmh.reconstruction.structure_mask_low_q ||
-      aqmh.reconstruction.structure_mask_blur_sigma_px < 0.0f ||
-      !std::isfinite(aqmh.reconstruction.structure_mask_blur_sigma_px)) {
-    throw ValidationError(
-        "aqmh.reconstruction structure mask values are invalid");
-  }
-
-  if (assumptions.frames_reduced_threshold < assumptions.frames_min) {
-    throw ValidationError(
-        "assumptions.frames_reduced_threshold must be >= assumptions.frames_min "
-        "(i.e. N_red >= frames_min, enforcing N >= max(N_red, frames_min) for clustering)");
-  }
-
-  if (synthetic.clustering.cluster_count_range[0] < 1 ||
-      synthetic.clustering.cluster_count_range[1] <
-          synthetic.clustering.cluster_count_range[0]) {
-    throw ValidationError("synthetic.clustering.cluster_count_range must be "
-                          "[min,max] with min>=1 and max>=min");
-  }
-  if (synthetic.clustering.mode != "kmeans" &&
-      synthetic.clustering.mode != "quantile") {
-    throw ValidationError(
-        "synthetic.clustering.mode must be 'kmeans' or 'quantile'");
-  }
-  if (synthetic.weighting != "global" &&
-      synthetic.weighting != "tile_weighted") {
-    throw ValidationError(
-        "synthetic.weighting must be 'global' or 'tile_weighted'");
-  }
-  if (synthetic.frames_min < 1)
-    throw ValidationError("synthetic.frames_min must be at least 1");
-  if (synthetic.frames_max < synthetic.frames_min) {
-    throw ValidationError("synthetic.frames_max must be >= frames_min");
   }
 
   if (bge.method != "none" && bge.method != "classic" &&
@@ -2697,44 +1913,9 @@ void Config::validate() const {
     throw ValidationError("hypermetric_stretch.output_rgb must not be empty");
   }
 
-  if (stacking.method != "average" && stacking.method != "rej") {
-    throw ValidationError("stacking.method must be 'average' or 'rej'");
-  }
-  if (!is_between_0_1(stacking.common_overlap_required_fraction) ||
-      stacking.common_overlap_required_fraction <= 0.0f) {
+  if (stacking.per_frame_cosmetic_correction_sigma <= 0.0f) {
     throw ValidationError(
-        "stacking.common_overlap_required_fraction must be in (0,1]");
-  }
-  if (!is_between_0_1(stacking.tile_common_valid_min_fraction) ||
-      stacking.tile_common_valid_min_fraction <= 0.0f) {
-    throw ValidationError(
-        "stacking.tile_common_valid_min_fraction must be in (0,1]");
-  }
-  if (stacking.sigma_clip.sigma_low <= 0.0f ||
-      stacking.sigma_clip.sigma_high <= 0.0f) {
-    throw ValidationError("stacking.sigma_clip.sigma_low/high must be > 0");
-  }
-  if (stacking.sigma_clip.max_iters < 1) {
-    throw ValidationError("stacking.sigma_clip.max_iters must be >= 1");
-  }
-  if (!is_between_0_1(stacking.sigma_clip.min_fraction)) {
-    throw ValidationError("stacking.sigma_clip.min_fraction must be in [0,1]");
-  }
-  if (stacking.cluster_quality_weighting.kappa_cluster <= 0.0f) {
-    throw ValidationError(
-        "stacking.cluster_quality_weighting.kappa_cluster must be > 0");
-  }
-  if (stacking.cluster_quality_weighting.cap_enabled &&
-      stacking.cluster_quality_weighting.cap_ratio <= 0.0f) {
-    throw ValidationError("stacking.cluster_quality_weighting.cap_ratio must be "
-                          "> 0 when cap_enabled=true");
-  }
-  if (stacking.cosmetic_correction_sigma <= 0.0f) {
-    throw ValidationError("stacking.cosmetic_correction_sigma must be > 0");
-  }
-  if (runtime_limits.tile_analysis_max_factor_vs_stack <= 0.0f) {
-    throw ValidationError(
-        "runtime_limits.tile_analysis_max_factor_vs_stack must be > 0");
+        "stacking.per_frame_cosmetic_correction_sigma must be > 0");
   }
   if (runtime_limits.hard_abort_hours <= 0.0f) {
     throw ValidationError("runtime_limits.hard_abort_hours must be > 0");
@@ -2752,25 +1933,8 @@ void Config::validate() const {
     throw ValidationError(
         "runtime_limits.acceleration_backend must be auto, cpu, opencv_cuda, opencv_opencl, opencl, or cuda");
   }
-  if (runtime_limits.tile_reconstruction_diagnostics != "full" &&
-      runtime_limits.tile_reconstruction_diagnostics != "minimal" &&
-      runtime_limits.tile_reconstruction_diagnostics != "off") {
-    throw ValidationError(
-        "runtime_limits.tile_reconstruction_diagnostics must be full, minimal, or off");
-  }
 }
 
-/// @brief Implements get schema json.
-/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::string getEffectiveMethod(const Config& /*config*/) {
-    // M0 (plan sections 6.5, 17.1, 22.5): there is exactly one reconstruction
-    // method. The `FORCE_CLASSIC` env var and `--force-classic` CLI flag are
-    // removed; no method/engine selection remains. `Config::method` is kept
-    // internally at its "aqmh" default only until the struct rename lands.
-    return "aqmh";
-}
 
 /// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -2803,8 +1967,6 @@ std::string get_schema_json() {
   "title": "tile_compile v3 config",
   "type": "object",
   "properties": {
-    "pipeline": { "type":"object",
-                      "properties": { "mode":{"type":"string","enum":["production","test"]} } },
     "output": { "type":"object",
       "properties": { "registered_dir":{"type":"string"},
                       "write_registered_frames":{"type":"boolean"},
@@ -2831,11 +1993,6 @@ std::string get_schema_json() {
                       "bias_dir":{"type":"string"}, "darks_dir":{"type":"string"}, "flats_dir":{"type":"string"},
                       "bias_master":{"type":"string"}, "dark_master":{"type":"string"}, "flat_master":{"type":"string"},
                       "pattern":{"type":"string"} } },
-    "assumptions": { "type":"object",
-      "properties": { "frames_min":{"type":"integer","minimum":1},
-                      "frames_reduced_threshold":{"type":"integer","minimum":1},
-                      "reduced_mode_skip_clustering":{"type":"boolean"},
-                      "reduced_mode_cluster_range":{"type":"array","items":{"type":"integer","minimum":1},"minItems":2,"maxItems":2} } },
     "normalization": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "mode":{"type":"string","enum":["background","median"]},
@@ -2860,25 +2017,13 @@ std::string get_schema_json() {
                       "blind_chain_drift_threshold_px":{"type":"number","minimum":0.5,"maximum":10.0},
                       "use_astrometry":{"type":"boolean"},
                       "enable_local_background_subtraction":{"type":"boolean"},
-                      "star_shift_radius_px":{"type":"number","minimum":10,"maximum":2000} } },
+                      "star_shift_radius_px":{"type":"number","minimum":10,"maximum":2000},
+                      "prewarp_interpolation":{"type":"string","enum":["linear","cubic","lanczos4"],"default":"cubic"},
+                      "debayer_first":{"type":"boolean","default":true},
+                      "pre_debayer_method":{"type":"string","enum":["bilinear","nearest","vng","edge_aware"],"default":"edge_aware"} } },
     "dithering": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "min_shift_px":{"type":"number","minimum":0} } },
-    "tile_denoise": { "type":"object",
-      "properties": {
-        "soft_threshold": { "type":"object",
-          "properties": { "enabled":{"type":"boolean"},
-                          "blur_kernel":{"type":"integer","minimum":3},
-                          "alpha":{"type":"number","exclusiveMinimum":0},
-                          "skip_star_tiles":{"type":"boolean"} } },
-        "wiener": { "type":"object",
-          "properties": { "enabled":{"type":"boolean"},
-                          "snr_threshold":{"type":"number","minimum":0},
-                          "q_min":{"type":"number","minimum":-1},
-                          "q_max":{"type":"number","minimum":0,"maximum":1},
-                          "q_step":{"type":"number","exclusiveMinimum":0},
-                          "min_snr":{"type":"number","minimum":0},
-                          "max_iterations":{"type":"integer","minimum":1} } } } },
     "chroma_denoise": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "color_space":{"type":"string","enum":["ycbcr_linear","opponent_linear"]},
@@ -2909,87 +2054,17 @@ std::string get_schema_json() {
                       "weight_exponent_scale":{"type":"number","exclusiveMinimum":0,"description":"Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames."},
                       "weights":{"type":"object","properties":{"background":{"type":"number","minimum":0,"maximum":1},"noise":{"type":"number","minimum":0,"maximum":1},"gradient":{"type":"number","minimum":0,"maximum":1},"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"star_count":{"type":"number","minimum":0,"maximum":1}}},
                       "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2} } },
-    "tile": { "type":"object",
-      "properties": { "size_factor":{"type":"integer","minimum":1},
-                      "min_size":{"type":"integer","minimum":1},
-                      "max_divisor":{"type":"integer","minimum":1},
-                      "overlap_fraction":{"type":"number","minimum":0,"maximum":0.5},
-                      "star_min_count":{"type":"integer","minimum":0},
-                      "star_soft_count":{"type":"integer","minimum":0} } },
-    "local_metrics": { "type":"object",
-      "properties": { "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},
-                      "neighborhood_normalization":{"type":"object","properties":{"enabled":{"type":"boolean"},"radius":{"type":"integer","minimum":0},"blend":{"type":"number","minimum":0,"maximum":1}}},
-                      "spatial_regularization":{"type":"object","properties":{"enabled":{"type":"boolean"},"lambda":{"type":"number","minimum":0,"maximum":1},"passes":{"type":"integer","minimum":0},"tau_local":{"type":"number","exclusiveMinimum":0}}},
-                      "star_mode":{"type":"object","properties":{"weights":{"type":"object","properties":{"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"contrast":{"type":"number","minimum":0,"maximum":1}}}}},
-                      "structure_mode":{"type":"object","properties":{"background_weight":{"type":"number","minimum":0,"maximum":1},"metric_weight":{"type":"number","minimum":0,"maximum":1}}} } },
-    "aqmh": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
-                      "pyramid":{"type":"object","properties":{"scales":{"type":"integer","minimum":1,"maximum":8,"default":4},"base_window_px":{"type":"integer","minimum":1,"default":4},"w_sharp":{"type":"number","minimum":0,"default":0.6},"w_snr":{"type":"number","minimum":0,"default":0.4},"score_scale":{"type":"number","exclusiveMinimum":0,"default":1.8},"k_artifact":{"type":"number","exclusiveMinimum":0,"default":3.0},"frac_artifact_max":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.25}}},
-                      "storage":{"type":"object","properties":{"resolution_divisor":{"type":"integer","enum":[1,2,4],"default":2,"description":"Downsamples stored AQMH quality maps. 1 keeps full resolution, 2 stores half width/height (~1/4 pixels), 4 stores quarter width/height. HARD RULE: if recommending cherry_pick.enabled=true in the same analysis or effective config, recommend resolution_divisor=1. Never recommend cherry_pick.enabled=true together with resolution_divisor=2 or 4."},"dtype":{"type":"string","enum":["float32","uint16","uint8"],"default":"uint16","description":"Storage data type for AQMH quality maps. float32 is exact; uint16 is recommended for lower disk and I/O cost; uint8 is smallest but coarser."},"max_resident_maps":{"type":"integer","minimum":0,"maximum":16,"default":2,"description":"Maximum number of full-resolution AQMH quality maps kept in RAM by the reconstruction read cache. 0 disables the read cache."}}},
-                      "global_quality":{"type":"object","properties":{"g_floor":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1,"default":0.03},"g_w_sharp":{"type":"number","minimum":0,"default":0.55},"g_w_snr":{"type":"number","minimum":0,"default":0.30},"g_w_background_penalty":{"type":"number","minimum":0,"default":0.25},"g_k_scale":{"type":"number","exclusiveMinimum":0,"default":1.5,"description":"Sigmoid temperature for global AQMH quality. The resulting frame weight remains bounded to [g_floor, 1]."}}},
-                      "cherry_pick":{"type":"object","properties":{"enabled":{"type":"boolean","default":false,"description":"Enables per-pixel AQMH frame selection during reconstruction."},"mode":{"type":"string","enum":["auto_reject","top_k"],"default":"auto_reject","description":"auto_reject keeps most locally usable frames and rejects only clear low-score outliers; top_k is the legacy fixed best-k selection."},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.30,"description":"Fraction retained in legacy mode=top_k."},"k_min_required":{"type":"integer","minimum":1,"default":20},"margin_min":{"type":"number","minimum":0,"maximum":1,"default":0.02},"reject_below_best_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.25,"description":"In mode=auto_reject, reject samples only when their local score is below this fraction of the local best score."},"min_keep_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.9,"description":"In mode=auto_reject, retain at least this fraction of locally rankable samples."},"tiered_k_frac":{"type":"array","default":[],"items":{"type":"object","properties":{"min_n_rankable":{"type":"integer","minimum":0},"k_frac":{"type":"number","exclusiveMinimum":0,"maximum":1}},"required":["min_n_rankable","k_frac"]}}}},
-                      "reconstruction":{"type":"object","properties":{"clip_sigma":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_sigma_low":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_sigma_high":{"type":"number","exclusiveMinimum":0,"default":2.0},"clip_iterations":{"type":"integer","minimum":0,"default":4},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.4},"min_n_eff":{"type":"number","minimum":1,"default":2.0},"chunk_rows":{"type":"integer","minimum":0,"default":0},"memory_budget_mb":{"type":"integer","minimum":0,"default":0},"delete_prewarped_cache_after_run":{"type":"boolean","default":true,"description":"Controls deletion of the disk-backed cache/prewarped_frames directory after a successful run. true saves disk space but prevents direct resume from AQMH_RECONSTRUCTION or STACKING; false retains registered and prewarped frames for those resumes without repeating registration and PREWARP. The cache can require several tens of gigabytes."},"prewarp_interpolation":{"type":"string","enum":["linear","cubic","lanczos4"],"default":"linear","description":"Interpolation kernel used when prewarping registered frames onto the common canvas before AQMH reconstruction and stacking. linear is the conservative default; cubic and lanczos4 are explicit tuning options that can preserve more high-frequency detail but may increase background noise or ringing."},"registration_weight_guard":{"type":"boolean","default":true},"registration_weight_floor":{"type":"number","minimum":0,"maximum":1,"default":0.30},"registration_cc_floor":{"type":"number","minimum":0,"maximum":1,"default":0.35},"registration_cc_full":{"type":"number","minimum":0,"maximum":1,"default":0.8},"registration_sequential_factor":{"type":"number","minimum":0,"maximum":1,"default":0.92},"registration_predicted_factor":{"type":"number","minimum":0,"maximum":1,"default":0.50},"registration_chain_depth_penalty":{"type":"number","minimum":0,"maximum":0.5,"default":0.03},"registration_chain_depth_max_penalty":{"type":"number","minimum":0,"maximum":1,"default":0.15},"structure_mask_low_q":{"type":"number","minimum":0,"maximum":1,"default":0.40},"structure_mask_high_q":{"type":"number","minimum":0,"maximum":1,"default":0.90},"structure_mask_blur_sigma_px":{"type":"number","minimum":0,"default":4.0},"gpu_half_qmaps":{"type":"boolean","default":true,"description":"CUDA reconstruction only: stage Q-Maps as fp16 for the host-to-device transfer (halves that transfer's bandwidth), dequantized back to float32 on-device before use. Disable if fp16 rounding is suspected of shifting cherry-pick/sigma-clip decisions at the tolerance boundary."},"gpu_packed_masks":{"type":"boolean","default":true,"description":"CUDA reconstruction only: stage per-frame validity masks as 1-bit-per-pixel for the host-to-device transfer, unpacked back to uint8 on-device before use."}}},
-                      "validation":{"type":"object","properties":{"max_seam_score_regression":{"type":"number","minimum":0,"default":0.05},"max_fwhm_regression":{"type":"number","minimum":0,"default":0.02},"max_background_rms_regression":{"type":"number","minimum":0,"default":0.05},"max_tail11_abs_regression":{"type":"number","minimum":0,"default":0.10},"max_elongation_regression":{"type":"number","minimum":0,"default":0.08}}},
-                      "diagnostics":{"type":"object","properties":{"enabled":{"type":"boolean","default":true},"level":{"type":"string","enum":["none","summary","full"],"default":"full"},"per_frame_blocks":{"type":"boolean","default":true},"heatmaps":{"type":"boolean","default":true},"regions":{"type":"boolean","default":true},"format":{"type":"string","enum":["json","binary"],"default":"json"},"binary_block_size_px":{"type":"integer","minimum":0,"default":0},"tau_artifact":{"type":"number","minimum":0,"maximum":1,"default":0.20},"q_region":{"type":"number","minimum":0,"maximum":1,"default":0.75},"r_morph_canvas_px":{"type":"integer","minimum":1,"default":6}}} } },
     "reconstruction": { "type":"object", "description":"Single-method CFA-forward-drizzle + multiband reconstruction contract (plan sections 6.1-6.3). Parsed and validated in M0; consumed from M2 onward.",
       "properties": {
-        "delete_source_cache_after_run":{"type":"boolean","default":false},
-        "keep_profile_cache_after_run":{"type":"boolean","default":false},
-        "common_overlap_required_fraction":{"type":"number","minimum":0,"maximum":1,"default":1.0},
-        "diagnostics":{"type":"object","properties":{"level":{"type":"string","enum":["summary","full"],"default":"summary"}}},
-        "drizzle":{"type":"object","properties":{"internal_scale":{"type":"integer","enum":[1,2],"default":2},"output_scale":{"type":"integer","enum":[1,2],"default":1},"kernel":{"type":"string","enum":["square"],"default":"square"},"pixfrac":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.8},"robust_passes":{"type":"integer","minimum":1,"maximum":6,"default":2},"min_clip_contributors":{"type":"integer","minimum":2,"default":5},"chunk_rows":{"type":"integer","minimum":0,"default":0},"chunk_halo_rows":{"type":"integer","minimum":-1,"default":-1,"description":"-1 = auto"},"memory_budget_mb":{"type":"integer","minimum":0,"default":0}}},
-        "clipping":{"type":"object","properties":{"clip_sigma_low":{"type":"number","exclusiveMinimum":0,"default":3.0},"clip_sigma_high":{"type":"number","exclusiveMinimum":0,"default":3.0},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.4},"min_n_eff":{"type":"number","minimum":1,"default":3.0}}},
+        "delete_source_cache_after_run":{"type":"boolean","default":false,"description":"Delete the normalized CFA source cache and source quality maps after a fully committed final image. Default false. Setting it true frees disk immediately but DISABLES resume-reconstruction for this run (a later resume would have to re-normalize every frame); the run report announces this as resume_reconstruction_disabled."},
+        "keep_profile_cache_after_run":{"type":"boolean","default":false,"description":"Keep the internal transactional U/R/F/M drizzle profile store after a committed final image. Default false (deleted: it is a reconstruction cache, never a downstream-resume predecessor). Setting it true keeps it as a hashed cache so a re-fuse can skip the forward-drizzle pass, at the cost of disk."},
+        "common_overlap_required_fraction":{"type":"number","minimum":0,"maximum":1,"default":1.0,"description":"Fraction of accepted dense frame footprints defining the analysis region, independent of sparse CFA support; (0,1], default 1."},
+        "diagnostics":{"type":"object","properties":{"level":{"type":"string","enum":["summary","full"],"default":"summary"},"preview_forward_drizzle_uniform":{"type":"boolean","default":false,"description":"Opt-in bounded stripe Uniform diagnostic; default false. Writes summary statistics only. No complete reconstruction phase, clipping, multiband or resume contract."},"persist_forward_drizzle_uniform_store":{"type":"boolean","default":false,"description":"Opt-in, independent of preview. Streams unclipped Uniform planes into immutable generations under artifacts/forward_drizzle_uniform_store/. current.json atomically commits the complete generation after checksum and FITS validation. Includes 8 MiB IO reserve plus one float row in the drizzle budget; old generations are retained. Diagnostic only, not a pipeline resume entry."}}},
+        "drizzle":{"type":"object","properties":{"internal_scale":{"type":"integer","enum":[1,2],"default":2},"output_scale":{"type":"integer","enum":[1,2],"default":1},"kernel":{"type":"string","enum":["square"],"default":"square"},"pixfrac":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.8},"robust_passes":{"type":"integer","minimum":1,"maximum":6,"default":2},"min_clip_contributors":{"type":"integer","minimum":2,"default":5},"chunk_rows":{"type":"integer","minimum":0,"default":0,"description":"Target stripe rows; 0 selects at most 256 rows within the memory budget. Explicit values exceeding the budget fail closed."},"chunk_halo_rows":{"type":"integer","minimum":-1,"default":-1,"description":"Compatibility field (-1 auto, >=0 explicit). Exact source-footprint enumeration completes each target stripe without an output halo; the CPU Uniform/coverage path does not duplicate halo rows."},"memory_budget_mb":{"type":"integer","minimum":0,"default":0,"description":"Phase allocation budget in MiB, including retained masks/output, one source plus transient load copy and stripe scratch. 0 inherits runtime_limits.memory_budget (library default 512 MiB). Available host/cgroup headroom may reduce it. Fails before allocation if one row does not fit."}}},
+        "clipping":{"type":"object","properties":{"clip_sigma_low":{"type":"number","exclusiveMinimum":0,"default":3.0},"clip_sigma_high":{"type":"number","exclusiveMinimum":0,"default":3.0},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.4},"min_n_eff":{"type":"number","minimum":1,"default":3.0},"guard_fallback":{"type":"boolean","default":false,"description":"When the min_fraction/min_n_eff veto (plan 11.8 step 8) fails, use the sigma-clip survivors (or, if none survived, every original candidate unclipped) instead of leaving the pixel/channel unsupported. Default false preserves the exact reviewed 8-step procedure."}}},
         "coverage_gate":{"type":"object","properties":{"min_frames":{"type":"integer","minimum":2,"default":2},"min_supported_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.995},"min_channel_n_eff_floor":{"type":"number","minimum":1,"default":3.0},"min_channel_n_eff_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.15},"min_analysis_pixels":{"type":"integer","minimum":1,"default":1024},"max_internal_hole_area_px":{"type":"integer","minimum":0,"default":0}}},
-        "quality":{"type":"object","properties":{"pyramid":{"type":"object","properties":{"scales":{"type":"integer","minimum":1,"maximum":4,"default":4}}}}},
+        "quality":{"type":"object","properties":{"pyramid":{"type":"object","properties":{"scales":{"type":"integer","minimum":1,"maximum":8,"default":4,"description":"Number of Source Quality Map pyramid levels."},"base_window_px":{"type":"integer","minimum":1,"default":4,"description":"Base local window size in pixels for Source Quality Map statistics."},"sharpness_weight":{"type":"number","minimum":0,"default":0.6,"description":"Weight of the local sharpness term in the Source Quality Map score; sharpness_weight+snr_weight must be > 0."},"snr_weight":{"type":"number","minimum":0,"default":0.4,"description":"Weight of the local signal-to-noise term in the Source Quality Map score."},"score_scale":{"type":"number","exclusiveMinimum":0,"default":1.8,"description":"Scaling factor applied to the combined Source Quality Map score."},"artifact_sigma":{"type":"number","exclusiveMinimum":0,"default":3.0,"description":"Sigma threshold above which a Source Quality Map region counts as artifact."},"max_artifact_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.25,"description":"Maximum tolerated artifact fraction in the Source Quality Map."}}}}},
         "multiband":{"type":"object","properties":{"enabled":{"type":"boolean","default":true},"levels":{"type":"integer","minimum":1,"maximum":4,"default":3},"alpha_cap":{"type":"number","minimum":0,"maximum":1,"default":1.0},"fine_quality_exponent":{"type":"number","minimum":0,"default":4.0},"medium_quality_exponent":{"type":"number","minimum":0,"default":2.0},"min_quality_separation":{"type":"number","minimum":0,"maximum":1,"default":0.05},"full_quality_separation":{"type":"number","minimum":0,"maximum":1,"default":0.20},"min_effective_samples":{"type":"number","minimum":1,"default":8.0},"full_effective_samples":{"type":"number","minimum":1,"default":24.0}}} } },
-    "synthetic": { "type":"object",
-      "properties": { "weighting":{"type":"string","enum":["global","tile_weighted"]},
-                      "frames_min":{"type":"integer","minimum":1},
-                      "frames_max":{"type":"integer","minimum":1},
-                      "clustering":{"type":"object","properties":{"mode":{"type":"string","enum":["kmeans","quantile"]},"cluster_count_range":{"type":"array","items":{"type":"integer","minimum":1},"minItems":2,"maxItems":2}}} } },
-    "astrometry": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
-                      "astap_bin":{"type":"string"},
-                      "astap_data_dir":{"type":"string"},
-                      "search_radius":{"type":"integer","minimum":1,"maximum":360} } },
-    "bge": { "type":"object",
-      "properties": { "method":{"type":"string","enum":["none","classic","autobge"],"default":"none"},
-                      "autobge":{"type":"object","properties":{"num_sample_points":{"type":"integer","minimum":0,"default":0},"poly_degree":{"type":"integer","minimum":1,"maximum":6,"default":2},"rbf_smooth":{"type":"number","minimum":0,"default":0.1},"downsample_scale":{"type":"integer","minimum":1,"default":4},"patch_size":{"type":"integer","minimum":3,"default":15},"patch_estimator":{"type":"string","enum":["median","sigma_clipped_median"],"default":"median"},"stretch_mode":{"type":"string","enum":["none","linear","mtf"],"default":"linear"},"stretch_target_median":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.25},"border_margin":{"type":"integer","minimum":0,"default":10},"bright_exclusion_fraction":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1,"default":0.5},"gradient_descent_max_iters":{"type":"integer","minimum":1,"default":100},"random_seed":{"type":"integer","default":42},"normalize_between_stages":{"type":"boolean","default":true},"apply_guards":{"type":"boolean","default":true},"mono_mode":{"type":"string","enum":["rgb_duplicate","disabled"],"default":"rgb_duplicate"}}},
-                      "tile_weight_lambda_structure":{"type":"number","minimum":0},
-                      "sample_quantile":{"type":"number","exclusiveMinimum":0,"maximum":0.5},
-                      "sample_estimator":{"type":"string","enum":["quantile","sigma_clipped_median","sextractor_mode","biweight"]},
-                      "min_sample_bg_value":{"type":"number","minimum":0},
-                      "structure_thresh_percentile":{"type":"number","minimum":0,"maximum":1},
-                      "min_tiles_per_cell":{"type":"integer","minimum":1},
-                      "min_valid_sample_fraction_for_apply":{"type":"number","exclusiveMinimum":0,"maximum":1},
-                      "min_valid_samples_for_apply":{"type":"integer","minimum":1},
-                      "mask":{"type":"object","properties":{"star_dilate_px":{"type":"integer","minimum":0},"sat_dilate_px":{"type":"integer","minimum":0}}},
-                      "grid":{"type":"object","properties":{"N_g":{"type":"integer","minimum":1},"G_min_px":{"type":"integer","minimum":1},"G_max_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1},"insufficient_cell_strategy":{"type":"string","enum":["discard","nearest","radius_expand"]}}},
-                      "fit":{"type":"object","properties":{"method":{"type":"string","enum":["poly","spline","bicubic","rbf","modeled_mask_mesh"]},"robust_loss":{"type":"string","enum":["huber","tukey"]},"huber_delta":{"type":"number","exclusiveMinimum":0},"irls_max_iterations":{"type":"integer","minimum":1},"irls_tolerance":{"type":"number","exclusiveMinimum":0},"polynomial_order":{"type":"integer","enum":[2,3]},"rbf_phi":{"type":"string","enum":["thinplate","multiquadric","gaussian"]},"rbf_mu_factor":{"type":"number","exclusiveMinimum":0},"rbf_lambda":{"type":"number","exclusiveMinimum":0},"rbf_epsilon":{"type":"number","exclusiveMinimum":0}}},
-                      "autotune":{"type":"object","properties":{"enabled":{"type":"boolean"},"max_evals":{"type":"integer","minimum":1},"holdout_fraction":{"type":"number","minimum":0.05,"maximum":0.5},"alpha_flatness":{"type":"number","minimum":0},"beta_roughness":{"type":"number","minimum":0},"strategy":{"type":"string","enum":["conservative","extended"]}}} } },
-    "pcc": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
-                      "source":{"type":"string","enum":["auto","siril","vizier_gaia","vizier_apass"]},
-                      "mag_limit":{"type":"number","minimum":1,"maximum":22},
-                      "mag_bright_limit":{"type":"number","minimum":0,"maximum":15},
-                      "aperture_radius_px":{"type":"number","exclusiveMinimum":0},
-                      "annulus_inner_px":{"type":"number","exclusiveMinimum":0},
-                      "annulus_outer_px":{"type":"number","exclusiveMinimum":0},
-                      "min_stars":{"type":"integer","minimum":3},
-                      "sigma_clip":{"type":"number","exclusiveMinimum":0},
-                      "background_model":{"type":"string","enum":["median","plane"]},
-                      "max_condition_number":{"type":"number","minimum":1},
-                      "max_residual_rms":{"type":"number","exclusiveMinimum":0},
-                      "radii_mode":{"type":"string","enum":["fixed","auto_fwhm"]},
-                      "aperture_fwhm_mult":{"type":"number","exclusiveMinimum":0},
-                      "annulus_inner_fwhm_mult":{"type":"number","exclusiveMinimum":0},
-                      "annulus_outer_fwhm_mult":{"type":"number","exclusiveMinimum":0},
-                      "min_aperture_px":{"type":"number","exclusiveMinimum":0},
-                      "siril_catalog_dir":{"type":"string"},
-                      "apply_attenuation":{"type":"boolean"},
-                      "chroma_strength":{"type":"number","minimum":0,"maximum":1},
-                      "background_neutralization_mode":{"type":"string","enum":["always","auto","off"]},
-                      "k_max":{"type":"number","exclusiveMinimum":0} } },
     "hypermetric_stretch": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "require_successful_pcc":{"type":"boolean"},
@@ -3010,27 +2085,13 @@ std::string get_schema_json() {
                       "write_channels":{"type":"boolean"},
                       "output_rgb":{"type":"string"} } },
     "stacking": { "type":"object",
-      "properties": { "method":{"type":"string","enum":["rej","average"]},
-                      "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},
-                      "cluster_quality_weighting":{"type":"object","properties":{"enabled":{"type":"boolean"},"kappa_cluster":{"type":"number","exclusiveMinimum":0,"description":"Quality-weight exponent for synthetic-cluster aggregation: w_k = exp(kappa_cluster * Q_k)."},"cap_enabled":{"type":"boolean"},"cap_ratio":{"type":"number","exclusiveMinimum":0,"description":"Optional dominance cap ratio for cluster weights: w_k <= cap_ratio * median_j(w_j)."}}},
-                      "output_stretch":{"type":"boolean"},
-                      "cosmetic_correction":{"type":"boolean"},
-                      "cosmetic_correction_sigma":{"type":"number","exclusiveMinimum":0},
-                      "per_frame_cosmetic_correction":{"type":"boolean"},
+      "properties": { "per_frame_cosmetic_correction":{"type":"boolean"},
                       "per_frame_cosmetic_correction_sigma":{"type":"number","exclusiveMinimum":0} } },
-    "validation": { "type":"object",
-      "properties": { "min_fwhm_improvement_percent":{"type":"number"},
-                      "max_background_rms_increase_percent":{"type":"number"},
-                      "min_tile_weight_variance":{"type":"number","minimum":0},
-                      "require_no_tile_pattern":{"type":"boolean"} } },
     "runtime_limits": { "type":"object",
-      "properties": { "tile_analysis_max_factor_vs_stack":{"type":"number","exclusiveMinimum":0},
-                      "hard_abort_hours":{"type":"number","exclusiveMinimum":0},
-                      "allow_emergency_mode":{"type":"boolean"},
+      "properties": { "hard_abort_hours":{"type":"number","exclusiveMinimum":0},
                       "parallel_workers":{"type":"integer","minimum":1},
                       "memory_budget":{"type":"integer","minimum":1},
-                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","opencv_opencl","opencl","cuda"],"description":"Beschleunigungs-Backend fuer PREWARP, TILE_RECONSTRUCTION und STACKING. AQMH_MAPS und AQMH_RECONSTRUCTION sind CPU-only, weil die M42-Messungen auf GPU instabile oder langsamere Laufzeiten gezeigt haben."},
-                      "tile_reconstruction_diagnostics":{"type":"string","enum":["full","minimal","off"]} } }
+                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","opencv_opencl","opencl","cuda"],"description":"Acceleration backend for PREWARP and FORWARD_DRIZZLE."} } }
   }
 })";
 }

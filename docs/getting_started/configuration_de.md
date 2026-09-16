@@ -4,14 +4,26 @@ Die Pipeline wird über `tile_compile.yaml` konfiguriert.
 
 ## Wichtige Abschnitte
 
-- `input` — Quellverzeichnis, Frame-Limits
-- `registration` — Ausrichtungs-Engine, Anker-Strategie, Astrometrie
-- `method` / `aqmh` — AQMH-Qualitätskarten, Rekonstruktion, Storage, Cherry-Pick
-- `tile` — Klassische Tile-Geometrie
-- `stacking` — Gewichtung, Rejection, Ausgabeformat
-- `background_extraction` — BGE-Parameter
-- `photometric_color_calibration` — PCC-Katalog, Referenz
+- `data` — Eingabehandling, Frame-Limits
+- `normalization` — Hintergrund-/Skalierungsschätzung
+- `registration` — Ausrichtungs-Engine, Anker-Strategie, Prewarp-Verfeinerungen
+- `dithering` — Dithering-Diagnose-Gate
+- `global_metrics` — globale Frame-Gewichtung
+- `reconstruction` — der Rekonstruktionskern: `drizzle.*` (Kernel, Pixfrac,
+  Chunking, Speicherbudget), `clipping.*`, `coverage_gate.*`, `multiband.*`,
+  `quality.pyramid.*`, `diagnostics.*`
+- `astrometry` — Plate Solving
+- `bge` — Hintergrund-Gradienten-Extraktion
+- `pcc` — Photometric Color Calibration
+- `hypermetric_stretch` — finale nichtlineare Streckung
+- `stacking` — Per-Frame-Kosmetik-Korrektur
 - `runtime_limits` — Speicher, Zeit, Worker-Limits, Acceleration-Backend
+
+Es gibt keinen `method`-Abschnitt — CFA Forward Drizzle + Multiband ist die
+einzige Methode. Ein Top-Level-`method:`-Key wird fail-closed abgelehnt;
+Legacy-Blöcke (`aqmh`, `pipeline`, `tile`, `local_metrics`, `synthetic`, …)
+werden mit Migrations-Warnung gestrippt. `tile_compile_cli migrate-config
+<in> <out>` schreibt eine bereinigte Datei.
 
 ## GPU-Backend
 
@@ -22,11 +34,10 @@ runtime_limits:
   memory_budget: 2048
 ```
 
-`auto` bevorzugt CUDA, dann OpenCL, dann CPU. Die Backend-Unterstützung ist
-phasenspezifisch: PREWARP, AQMH-Maps, klassische Tile-Rekonstruktion,
-synthetische Rekonstruktion und STACKING unterstützen CUDA/OpenCL; Streaming-
-AQMH-Rekonstruktion unterstützt derzeit CUDA; REGISTRATION bleibt CPU-only.
-AQMH Cherry-Pick verwendet bewusst CPU. Die effektive Wahl wird in
+`auto` bevorzugt CUDA, dann OpenCL, dann CPU. FORWARD_DRIZZLE hat
+CUDA-Beschleunigung für die Geometrie-/Gather-Hotpaths; der CPU-Pfad ist
+die Bit-Exaktheits-Referenz und bleibt immer als Fallback verfügbar.
+REGISTRATION bleibt CPU-only. Die effektive Wahl wird in
 `artifacts/acceleration_context.json` geschrieben und in Live-Fortschritts-
 Logs angezeigt.
 
@@ -49,10 +60,11 @@ Schema abrufen:
 Siehe `tile_compile_cpp/examples/` für szenariospezifische Konfigurationen:
 
 - `m104.example.yaml` — Alt/Az, starke Rotation, schlechtes Seeing
-- `full_mode.example.yaml` — Hohe Qualität, äquatorial
-- `emergency_mode.example.yaml` — Minimaler Laufzeitmodus
+- `large_n.example.yaml` / `medium_n.example.yaml` / `small_n.example.yaml` — Framezahl-Stufen
+- `mono.example.yaml` — Mono-Workflow
 - `smart_telescope_dwarf_seestar.example.yaml` — Smart Telescope
 - `canon_equatorial_balanced.example.yaml` — Ausgewogene DSLR
+- `reconstruction_tuning.example.yaml` — reconstruction.*-Tuning-Referenz
 
 ## Parameter Studio (GUI3)
 

@@ -289,25 +289,18 @@ int main(int argc, char** argv) {
                     {"risk", "high"}
                 },
                 {
-                    {"path", "aqmh.pyramid.base_window_px"},
+                    {"path", "reconstruction.quality.pyramid.base_window_px"},
                     {"value", 64},
                     {"reason", "Current value is below the schema range 16-256 and schema recommended value 64."},
                     {"confidence", 0.88},
                     {"risk", "medium"}
                 },
                 {
-                    {"path", "aqmh.diagnostics.r_morph_canvas_px"},
-                    {"value", 64},
-                    {"reason", "Improves reconstruction quality by fixing the diagnostic morphology radius."},
+                    {"path", "reconstruction.diagnostics.preview_forward_drizzle_uniform"},
+                    {"value", true},
+                    {"reason", "Improves reconstruction quality by enabling the uniform preview."},
                     {"confidence", 0.8},
                     {"risk", "low"}
-                },
-                {
-                    {"path", "validation.max_background_rms_increase_percent"},
-                    {"value", 5},
-                    {"reason", "Current value 0 means any background RMS increase automatically disables cherry-pick."},
-                    {"confidence", 0.86},
-                    {"risk", "medium"}
                 },
                 {
                     {"path", "registration.enable_local_background_subtraction"},
@@ -463,7 +456,7 @@ int main(int argc, char** argv) {
         expect_equal(analysis["_http_status"].get<long>(), 200L, "scan ai analysis status");
         expect_equal(analysis["schema_version"].get<std::string>(), "pi.scan-analysis.v1", "scan ai schema");
         expect_equal(static_cast<long>(analysis["validated_updates"].size()), 1L, "scan ai validated update count");
-        expect_equal(static_cast<long>(analysis["rejected_updates"].size()), 8L, "scan ai rejected update count");
+        expect_equal(static_cast<long>(analysis["rejected_updates"].size()), 7L, "scan ai rejected update count");
         expect_equal(analysis["validated_updates"][0]["path"].get<std::string>(), "data.color_mode", "scan ai validated path");
         expect_equal(analysis["validated_updates"][0]["reason"].get<std::string>(), "true", "scan ai coerces boolean reason");
         expect_equal(analysis["validated_updates"][0]["risk"].get<std::string>(), "false", "scan ai coerces boolean risk");
@@ -530,7 +523,6 @@ int main(int argc, char** argv) {
         bool rejected_wrong_type_from_memory_context = false;
         bool rejected_unsupported_schema_claim = false;
         bool rejected_diagnostic_quality_claim = false;
-        bool rejected_disabled_sentinel = false;
         bool rejected_default_claim = false;
         for (const auto& rejected : analysis["rejected_updates"]) {
             if (rejected.value("path", std::string()) == "data.color_mode" &&
@@ -541,13 +533,9 @@ int main(int argc, char** argv) {
                 rejected.value("reject_reason", std::string()) == "unsupported_schema_claim") {
                 rejected_unsupported_schema_claim = true;
             }
-            if (rejected.value("path", std::string()) == "aqmh.diagnostics.r_morph_canvas_px" &&
+            if (rejected.value("path", std::string()) == "reconstruction.diagnostics.preview_forward_drizzle_uniform" &&
                 rejected.value("reject_reason", std::string()) == "diagnostic_only_quality_claim") {
                 rejected_diagnostic_quality_claim = true;
-            }
-            if (rejected.value("path", std::string()) == "validation.max_background_rms_increase_percent" &&
-                rejected.value("reject_reason", std::string()) == "disabled_sentinel_misinterpreted") {
-                rejected_disabled_sentinel = true;
             }
             if (rejected.value("path", std::string()) == "registration.enable_local_background_subtraction" &&
                 rejected.value("reject_reason", std::string()) == "unsupported_default_claim") {
@@ -560,8 +548,6 @@ int main(int argc, char** argv) {
                     "semantic validator rejects invented schema claims");
         expect_true(rejected_diagnostic_quality_claim,
                     "semantic validator rejects diagnostic-only quality claims");
-        expect_true(rejected_disabled_sentinel,
-                    "semantic validator rejects validation disabled sentinel misinterpretation");
         expect_true(rejected_default_claim,
                     "semantic validator rejects false schema default claim");
         expect_equal(analysis["action_plan"]["schema_version"].get<std::string>(),
@@ -578,25 +564,25 @@ int main(int argc, char** argv) {
                 {"detected_scenarios", {"large_frame_count"}},
                 {"recommendations", {
                     {
-                        {"path", "aqmh.cherry_pick.enabled"},
+                        {"path", "reconstruction.diagnostics.preview_forward_drizzle_uniform"},
                         {"value", true},
-                        {"reason", "fixture cherry pick"},
+                        {"reason", "fixture diagnostics preview"},
                         {"confidence", 0.9},
                         {"risk", "low"},
                         {"evidence", {"scan_metrics.fwhm.spread"}}
                     },
                     {
-                        {"path", "aqmh.cherry_pick.k_frac"},
-                        {"value", 0.88},
-                        {"reason", "fixture invalid high k_frac"},
+                        {"path", "reconstruction.clipping.min_fraction"},
+                        {"value", 1.5},
+                        {"reason", "fixture invalid high min_fraction"},
                         {"confidence", 0.9},
                         {"risk", "low"},
                         {"evidence", {"scan_metrics.frame_count=610"}}
                     },
                     {
-                        {"path", "aqmh.storage.resolution_divisor"},
+                        {"path", "reconstruction.drizzle.internal_scale"},
                         {"value", 2},
-                        {"reason", "fixture invalid downsampled maps with cherry-pick"},
+                        {"reason", "fixture invalid internal scale"},
                         {"confidence", 0.9},
                         {"risk", "low"},
                         {"evidence", {"scan_metrics.frame_count=610"}}
@@ -632,14 +618,14 @@ int main(int argc, char** argv) {
                 }}
             }},
             {"base_config", {
-                {"aqmh", {
-                    {"storage", {{"resolution_divisor", 2}}},
-                    {"cherry_pick", {{"enabled", false}, {"k_frac", 0.3}}}
+                {"reconstruction", {
+                    {"drizzle", {{"internal_scale", 1}}},
+                    {"clipping", {{"min_fraction", 0.3}}}
                 }}
             }},
             {"config_schema", {
-                {"aqmh.cherry_pick.k_frac", {{"type", "number"}, {"maximum", 1}}},
-                {"aqmh.storage.resolution_divisor", {{"type", "integer"}, {"enum", {1, 2, 4}}}}
+                {"reconstruction.clipping.min_fraction", {{"type", "number"}, {"maximum", 1}}},
+                {"reconstruction.drizzle.internal_scale", {{"type", "integer"}, {"enum", {1, 2}}}}
             }}
         });
         expect_equal(context_store["_http_status"].get<long>(), 200L, "context store status");
@@ -649,9 +635,9 @@ int main(int argc, char** argv) {
                      "context store preserves sampling target");
         expect_equal(static_cast<long>(context_store["analysis_context"]["scan_metrics"]["sampling"]["selected_indices"].size()), 6L,
                      "context store preserves selected indices");
-        expect_equal(context_store["analysis_context"]["base_config"]["aqmh"]["storage"]["resolution_divisor"].get<long>(), 2L,
+        expect_equal(context_store["analysis_context"]["base_config"]["reconstruction"]["drizzle"]["internal_scale"].get<long>(), 1L,
                      "context store preserves base config");
-        expect_true(context_store["analysis_context"]["config_schema"].contains("aqmh.cherry_pick.k_frac"),
+        expect_true(context_store["analysis_context"]["config_schema"].contains("reconstruction.clipping.min_fraction"),
                     "context store preserves config schema");
 
         const auto history = harness.get_json("/api/scan/analysis/history?limit=20");
@@ -679,11 +665,12 @@ int main(int argc, char** argv) {
             {"base_config", {
                 {"data", {{"color_mode", "OSC"}}},
                 {"pcc", {{"max_residual_rms", 0.9}, {"k_max", 2.0}}},
-                {"aqmh", {
-                    {"pyramid", {{"base_window_px", 4}}},
-                    {"diagnostics", {{"r_morph_canvas_px", 6}}}
+                {"reconstruction", {
+                    {"quality", {{"pyramid", {{"base_window_px", 4}}}}}
                 }},
-                {"validation", {{"max_background_rms_increase_percent", 0.0}}},
+                {"reconstruction", {
+                    {"diagnostics", {{"preview_forward_drizzle_uniform", false}}}
+                }},
                 {"registration", {{"enable_local_background_subtraction", false}}}
             }},
             {"selected_paths", {"data.color_mode"}},
@@ -715,7 +702,7 @@ int main(int argc, char** argv) {
                 {"detected_scenarios", nlohmann::json::array()},
                 {"recommendations", {
                     {
-                        {"path", "aqmh.cherry_pick.k_frac"},
+                        {"path", "reconstruction.clipping.min_fraction"},
                         {"value", 0.29999999999999999},
                         {"reason", "fixture float noise"},
                         {"confidence", 0.9},
@@ -728,13 +715,13 @@ int main(int argc, char** argv) {
             }},
             {"scan_result", {{"frames_detected", 10}}},
             {"base_config", {
-                {"aqmh", {
-                    {"cherry_pick", {{"enabled", false}, {"k_frac", 0.4}}},
-                    {"storage", {{"resolution_divisor", 1}}}
+                {"reconstruction", {
+                    {"clipping", {{"min_fraction", 0.4}}},
+                    {"drizzle", {{"internal_scale", 1}}}
                 }}
             }},
             {"config_schema", {
-                {"aqmh.cherry_pick.k_frac", {{"type", "number"}, {"maximum", 1}}}
+                {"reconstruction.clipping.min_fraction", {{"type", "number"}, {"maximum", 1}}}
             }}
         });
         expect_equal(rounded_store["_http_status"].get<long>(), 200L, "rounded float store status");
@@ -744,18 +731,18 @@ int main(int argc, char** argv) {
         const auto rounded_apply = harness.post_json("/api/scan/analysis/apply", {
             {"analysis_id", rounded_id},
             {"base_config", {
-                {"aqmh", {
-                    {"cherry_pick", {{"enabled", false}, {"k_frac", 0.4}}},
-                    {"storage", {{"resolution_divisor", 1}}}
+                {"reconstruction", {
+                    {"clipping", {{"min_fraction", 0.4}}},
+                    {"drizzle", {{"internal_scale", 1}}}
                 }}
             }},
-            {"selected_paths", {"aqmh.cherry_pick.k_frac"}},
+            {"selected_paths", {"reconstruction.clipping.min_fraction"}},
             {"persist", false},
             {"learn", true}
         });
         expect_equal(rounded_apply["_http_status"].get<long>(), 200L, "rounded float apply status");
         const std::string rounded_yaml = rounded_apply["config_yaml"].get<std::string>();
-        expect_true(rounded_yaml.find("k_frac: 0.3") != std::string::npos,
+        expect_true(rounded_yaml.find("min_fraction: 0.3") != std::string::npos,
                     "rounded float yaml uses compact decimal: " + rounded_yaml);
         expect_true(rounded_yaml.find("0.299999999999999") == std::string::npos,
                     "rounded float yaml omits binary noise: " + rounded_yaml);
@@ -764,7 +751,7 @@ int main(int argc, char** argv) {
         expect_equal(rounded_apply["memory"]["outcome"]["applied_count"].get<long>(), 1L,
                      "learned memory records applied count");
         expect_equal(rounded_apply["memory"]["outcome"]["applied_paths"][0].get<std::string>(),
-                     "aqmh.cherry_pick.k_frac",
+                     "reconstruction.clipping.min_fraction",
                      "learned memory records applied path");
 
         const auto missing_apply = harness.post_json("/api/scan/analysis/apply", nlohmann::json::object());

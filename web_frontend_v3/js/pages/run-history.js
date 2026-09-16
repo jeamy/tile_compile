@@ -102,6 +102,11 @@ async function loadRuns() {
   }
 }
 
+function methodLabel(method) {
+  if (!method || method === "cfa_forward_drizzle_multiband") return "Forward Drizzle";
+  return method;
+}
+
 function runItem(run) {
   const status = run.status || "UNKNOWN";
   const badgeClass = status === "OK" || status === "done" ? "tc-badge-success" :
@@ -114,7 +119,7 @@ function runItem(run) {
     "data-run-id": runId,
     onclick: () => selectRun(runId),
   },
-    el("span", { class: "tc-badge" }, run.pipeline || "AQMH"),
+    el("span", { class: "tc-badge" }, methodLabel(run.method)),
     el("span", { class: `tc-badge ${badgeClass}` }, status),
     el("span", { class: "tc-mono tc-text-sm" }, runId),
     el("span", { class: "tc-text-sm" }, run.run_name || run.name || ""),
@@ -302,7 +307,7 @@ async function loadRunSnapshot(runId) {
     let elapsed = "-";
     let firstTs = null;
     let lastTs = null;
-    let method = status.method || "-";
+    let method = status.method || "Forward Drizzle";
 
     const events = status.events || [];
     for (const ev of events) {

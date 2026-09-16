@@ -189,31 +189,21 @@ struct RegistrationResult {
 };
 
 // Pipeline phase enumeration
+// Single-method CFA forward-drizzle pipeline phases. Numeric values are part
+// of the persisted run-event contract and must remain stable; removed legacy
+// values (5,6,8-11,13,19-23) must not be reused.
 enum class Phase {
     SCAN_INPUT = 0,
     REGISTRATION = 1,
     PREWARP = 2,
     CHANNEL_SPLIT = 3,
     NORMALIZATION = 4,
-    GLOBAL_METRICS = 5,
-    TILE_GRID = 6,
     COMMON_OVERLAP = 7,
-    LOCAL_METRICS = 8,
-    TILE_RECONSTRUCTION = 9,
-    STATE_CLUSTERING = 10,
-    SYNTHETIC_FRAMES = 11,
     STACKING = 12,
-    DEBAYER = 13,
     ASTROMETRY = 14,
     BGE = 15,
     PCC = 16,
     HYPERMETRIC_STRETCH = 17,
-    DONE = 18,
-    AQMH_MAPS = 19,
-    AQMH_GLOBAL_QUALITY = 20,
-    AQMH_RECONSTRUCTION = 21,
-    AQMH_DIAGNOSTICS = 22,
-    AQMH_BGE_INPUTS = 23,
     NORMALIZED_CACHE = 24,
     SAMPLING_GEOMETRY = 25,
     GLOBAL_QUALITY = 26,
@@ -229,25 +219,12 @@ inline std::string phase_to_string(Phase phase) {
         case Phase::PREWARP: return "PREWARP";
         case Phase::CHANNEL_SPLIT: return "CHANNEL_SPLIT";
         case Phase::NORMALIZATION: return "NORMALIZATION";
-        case Phase::GLOBAL_METRICS: return "GLOBAL_METRICS";
-        case Phase::TILE_GRID: return "TILE_GRID";
         case Phase::COMMON_OVERLAP: return "COMMON_OVERLAP";
-        case Phase::LOCAL_METRICS: return "LOCAL_METRICS";
-        case Phase::TILE_RECONSTRUCTION: return "TILE_RECONSTRUCTION";
-        case Phase::STATE_CLUSTERING: return "STATE_CLUSTERING";
-        case Phase::SYNTHETIC_FRAMES: return "SYNTHETIC_FRAMES";
         case Phase::STACKING: return "STACKING";
-        case Phase::DEBAYER: return "DEBAYER";
         case Phase::ASTROMETRY: return "ASTROMETRY";
         case Phase::BGE: return "BGE";
         case Phase::PCC: return "PCC";
         case Phase::HYPERMETRIC_STRETCH: return "HYPERMETRIC_STRETCH";
-        case Phase::DONE: return "DONE";
-        case Phase::AQMH_MAPS: return "AQMH_MAPS";
-        case Phase::AQMH_GLOBAL_QUALITY: return "AQMH_GLOBAL_QUALITY";
-        case Phase::AQMH_RECONSTRUCTION: return "AQMH_RECONSTRUCTION";
-        case Phase::AQMH_DIAGNOSTICS: return "AQMH_DIAGNOSTICS";
-        case Phase::AQMH_BGE_INPUTS: return "AQMH_BGE_INPUTS";
         case Phase::NORMALIZED_CACHE: return "NORMALIZED_CACHE";
         case Phase::SAMPLING_GEOMETRY: return "SAMPLING_GEOMETRY";
         case Phase::GLOBAL_QUALITY: return "GLOBAL_QUALITY";

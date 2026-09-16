@@ -136,18 +136,12 @@ the host must provide a working OpenCL ICD/runtime.
 
 | Phase | CUDA | OpenCL | Accelerated operation |
 |---|---:|---:|---|
-| `PREWARP` | Yes | Yes | Full-frame/CFA affine warping |
-| `AQMH_MAPS` | Yes | Yes | Local-variance and pyramid filters |
-| `AQMH_RECONSTRUCTION` | Yes | No | Streaming Welford statistics and sigma clipping |
-| Classic `TILE_RECONSTRUCTION` | Yes | Yes | Sigma clipping and overlap-add |
-| `SYNTHETIC_FRAMES` | Yes | Yes | Cluster tile reconstruction |
-| `STACKING` and resume | Yes | Yes | Weighted/sigma-clipped reduction and parallel RGB |
+| `SOURCE_QUALITY_MAPS` | Yes | Yes | Local-variance / pyramid filters for the quality maps |
+| `FORWARD_DRIZZLE` | Yes | No | Geometry leaf-corner/target-gather batches and dense scatter for the chunked gather |
 
-`REGISTRATION` remains CPU-only; GPU processing begins in `PREWARP`.
-
-AQMH Cherry-Pick currently falls back to CPU. CUDA reconstruction streams one
-frame and one quality map at a time, so its VRAM usage does not scale with the
-number of input frames. Runtime logs expose `cpu_workers`, `gpu`, and `backend`.
+`REGISTRATION` remains CPU-only; all other phases run on CPU. The CPU path
+is the bit-exactness reference and the guaranteed fallback. Runtime logs
+expose `cpu_workers`, `gpu`, and `backend`.
 
 ### CUDA 13 with OpenCV CUDA 13
 

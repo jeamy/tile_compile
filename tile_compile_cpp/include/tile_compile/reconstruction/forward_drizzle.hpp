@@ -189,6 +189,19 @@ plan_drizzle_memory(const registration::RegistrationSamplingPlan &plan,
                     size_t bytes_per_pixel, size_t retained_bytes = 0,
                     bool loads_source = true);
 
+// Like plan_drizzle_memory, but when the configured budget is too small for
+// the retained/source working set, raises `cfg.memory_budget_mb` in 1 GiB
+// steps as long as the effective budget can still grow within the
+// available-memory headroom (the live 80%-of-available cap), calling `warn`
+// with a description of each step. On success the effective budget is stored
+// back into `cfg.memory_budget_mb`. Throws the last DRIZZLE_MEMORY_BUDGET
+// error when the working set cannot fit the available headroom.
+DrizzleMemoryPlan plan_drizzle_memory_autogrow(
+    const registration::RegistrationSamplingPlan &plan,
+    config::ReconstructionDrizzleConfig &cfg, size_t bytes_per_pixel,
+    size_t retained_bytes = 0, bool loads_source = true,
+    const std::function<void(const std::string &)> &warn = {});
+
 struct PreparedDrizzleFrames {
   std::vector<const registration::FrameSamplingTransform *> frames;
   ForwardDrizzleDiagnostics diagnostics;
@@ -339,247 +352,6 @@ bool sample_leaves(const registration::RegistrationSamplingPlan &plan,
                    const ForwardDrizzleSubdivisionParams &subdivision,
                    std::vector<Leaf> &leaves);
 
-// --- M3 (plan section 11.8): shared robust clipping -------------------------
-//
-// Status: the algorithm itself (this function) is implemented and tested
-// against the plan's 8-step procedure, but it is NOT yet wired into
-// compute_forward_drizzle_uniform()/stream_forward_drizzle_uniform(): those
-// still produce the unclipped M2 Uniform-Control profile. Plan section 11.8
-// mandates that the SAME acceptance mask this function computes ultimately
-// applies to Uniform, Raw-Forward-Drizzle and all detail profiles alike ---
-// wiring that in (which also requires retaining every frame's x_f,c(q) per
-// pixel within a stripe, not just the running sums) is separate, still-open
-// M3 integration work. This is the reviewed, tested primitive it will be
-// built on, not a claim that M3 is complete.
-
-// One frame's contribution to a single target pixel/channel, plan 11.7:
-// x_f,c(q) = A_f,c(q) / B_f,c(q), only constructed for B_f,c(q) > 0.
-struct ClipCandidate {
-  std::size_t frame_index = 0;  // for the deterministic tie-break, plan 11.8 step 3
-  double x = 0.0;                // the value under test
-  double b = 0.0;                 // geometric weight B_f,c(q), plan 11.7
-  // Frame-local geometric K-averages of the source quality maps over this
-  // frame's droplets for this target pixel/channel, plan 11.7:
-  //   q  = Q_composite_f,c(q)       -> Raw weight + A_separation
-  //   q0 = Q_scale0_f,c(q)          -> Fine weight
-  //   q1 = Q_scale1_f,c(q)          -> Medium weight
-  //   qa = artifact_confidence K-avg -> A_artifact
-  // None of them ever enter the clipping decision (plan 11.8). Each defaults
-  // to 1.0 so a caller that supplies no map gets that profile == Uniform
-  // scaled by G_eff.
-  double q = 1.0;
-  double q0 = 1.0;
-  double q1 = 1.0;
-  double qa = 1.0;
-  // True iff at least one droplet sample of this contribution had a FINITE
-  // artifact_confidence value. Plan 14.4's "< 8 gueltige Framebeiträge"
-  // counts contributions with real artifact data, not merely frame presence.
-  bool qa_has_data = false;
-};
-
-struct ClipResult {
-  // Same order/size as the input candidates vector.
-  std::vector<bool> accepted;
-  // Plan 11.8 step 8: min_fraction or min_n_eff failed against the
-  // geometrically possible frame support --- the pixel/channel is rejected
-  // in ALL profiles (channel_support_c(q) = 0), not just this one.
-  bool pixel_rejected = false;
-};
-
-// Reusable, budgeted clipping scratch (plan 0.2 priority 2, §30.79):
-// `accepted` + `order`/`active`/`dev_order` sized to the maximum candidate
-// span (== frame count; one candidate per frame/pixel/channel), plus the
-// alpha contribution buffer when emitted. Heap-based; the owning scope
-// budgets it (streaming path: worker_scratch_bytes). CONTENT IS TRANSIENT:
-// every clipping call fully rewrites the used prefix, buffers are never
-// shrunk, and one instance must never be shared between concurrent reduce
-// calls.
-struct DrizzleClipScratch {
-  std::vector<std::uint8_t> accepted;  // 0/1 accept flags, size == span
-  std::vector<std::size_t> order;      // fixed value order, plan 11.8 step 3
-  std::vector<std::size_t> active;     // per-pass valid subset of `order`
-  std::vector<std::size_t> dev_order;  // |x - median| order of `active`
-  std::vector<AlphaFactorContribution> alpha_contribs;
-  // P1.5: reused across compute_alpha_confidence_channel calls instead of
-  // five fresh heap allocations per pixel/channel.
-  AlphaConfidenceScratch alpha_confidence_scratch;
-  std::uint64_t growth_count = 0;      // capacity-growing reserve_for calls
-
-  // Grow-only capacity reservation; counts calls that grow any buffer.
-  void reserve_for(std::size_t capacity, bool with_alpha);
-};
-
-// Implements plan section 11.8's 8-step procedure exactly, including the
-// degenerate-MAD guards (identical values stay valid, no arbitrary epsilon
-// widening) and the min_clip_contributors bypass (plan 11.8 step 2, protects
-// thin R/B channels at low frame counts from MAD instability). Q-/quality
-// weights never enter this decision (plan 11.8: "Q-Gewichte dürfen nicht
-// bestimmen, ob ein Sample als Ausreißer gilt") --- only the geometric
-// weight `b` is used, exactly as specified.
-ClipResult apply_robust_clipping(std::span<const ClipCandidate> candidates,
-                                 int min_clip_contributors, int robust_passes,
-                                 float clip_sigma_low, float clip_sigma_high,
-                                 float min_fraction, float min_n_eff);
-
-// Plan 11.8: "Die resultierende Akzeptanzmaske wird unverändert für Uniform,
-// Raw-Forward-Drizzle und alle Detailprofile verwendet." Computes both
-// profiles in the same pass, sharing one clipping decision per pixel/channel.
-//
-// `raw`'s weight is w_raw = B_f,c(q) * G_eff(f) * Q_composite_f,c(q) (plan
-// 11.9). Both factors are now wired:
-//   - G_eff(f): pass `g_eff_by_source_index` (indexed by
-//     FrameSamplingTransform::source_index, values in [0,1] from a
-//     QualityFrameWeightPlan); empty => 1.0 for every frame.
-//   - Q_composite_f,c(q): pass `quality_of` (M5 source composite Q-maps);
-//     null => 1.0 everywhere. Q_composite_f,c(q) is the geometric K-average
-//     sum_s K(q,s)*Q_composite_f(s)/B_f,c(q) of the frame's source Q-map over
-//     its droplets (plan 11.7); a NaN/<=0 source Q contributes 0 to that
-//     average (plan 11.9) and never vetoes the pixel (plan 11.7).
-// So `raw` equals `uniform` when neither is supplied, differs by G_eff only
-// when just a plan is supplied, and additionally by the per-pixel Q_composite
-// when a quality provider is supplied.
-// `uniform` here is the clipped profile per 11.8, distinct from
-// compute_forward_drizzle_uniform()'s unclipped M2 profile (kept as-is;
-// M2's acceptance never required clipping). The clipping decision itself
-// only ever uses the geometric weight B (plan 11.8) --- G_eff never enters
-// it.
-//
-// Clipping stores at most one candidate per frame/pixel/channel in a flat
-// stripe buffer. Worst-case storage, scratch and both output profiles are
-// budgeted before loading a source or allocating image buffers. Streaming
-// sinks must consume stripes synchronously without retaining their buffers.
-struct ForwardDrizzleClippingDiagnostics {
-  long long pixel_channel_evaluations = 0;
-  long long pixel_channel_rejected = 0;   // plan 11.8 step 8 veto
-  long long candidate_contributions_clipped = 0;  // total false entries across all pixels
-  // P0.1: counted separately from pixel_channel_rejected -- these pixels were
-  // NOT erased. DrizzleProfileReduceConfig::guard_fallback == true only.
-  long long pixel_channel_guard_fallback = 0;
-};
-
-// Plan 11.8 / 11.9 / 14.4: the per-(channel, target cell) reduction that turns
-// one frame-ordered ClipCandidate list into the Uniform / Raw / Fine / Medium
-// profile samples plus the alpha-confidence factors. Shared VERBATIM by the
-// streaming path (stream_forward_drizzle_uniform_and_raw) and the plan-19.6
-// contribution-list path so the two are bit-identical by construction. Q- and
-// G_eff weights never enter the clipping decision (only the geometric weight
-// B); they only weight the post-clip profile accumulation.
-struct DrizzleProfileReduceConfig {
-  int min_clip_contributors = 0;
-  int robust_passes = 0;
-  float clip_sigma_low = 0.0f;
-  float clip_sigma_high = 0.0f;
-  float min_fraction = 0.0f;
-  float min_n_eff = 0.0f;
-  bool emit_fine = false;
-  bool emit_medium = false;
-  bool emit_alpha = false;
-  float fine_quality_exponent = 4.0f;
-  float medium_quality_exponent = 2.0f;
-  AlphaConfidenceParams alpha_confidence{};
-  // P0.1 (config::ReconstructionClippingConfig::guard_fallback): see
-  // ForwardDrizzleClippingDiagnostics::pixel_channel_guard_fallback.
-  bool guard_fallback = false;
-};
-
-// `candidates` MUST be in ascending frame order (plan 19.6 step 4's
-// "feste Framefolge"). Writes value/weight_sum/n_eff/support at `gi` into each
-// non-null profile plane; when the alpha pointers are non-null, folds the
-// channel's alpha factors into them via std::min (the caller seeds them to
-// +inf and takes the min over active channels). Bumps `diag`
-// (pixel_channel_evaluations always; pixel_channel_rejected +
-// candidate_contributions_clipped per the clip result).
-// `scratch` (optional): reusable clip buffers, never shared between
-// concurrent calls; nullptr uses a per-call fallback with identical results.
-void reduce_pixel_profiles(
-    std::span<const ClipCandidate> candidates,
-    const DrizzleProfileReduceConfig &cfg,
-    const std::function<double(std::size_t /*source_index*/)> &g_eff_for,
-    const std::vector<std::pair<std::uint8_t, float>> &reg_by_source,
-    std::size_t gi, ProfilePlane *uniform_c, ProfilePlane *raw_c,
-    ProfilePlane *fine_c, ProfilePlane *medium_c, double *ac_sep, double *ac_art,
-    double *ac_reg, ForwardDrizzleClippingDiagnostics &diag,
-    DrizzleClipScratch *scratch = nullptr);
-
-struct ForwardDrizzleUniformAndRawResult {
-  ForwardDrizzleUniformResult uniform;  // clipped (plan 11.8)
-  ForwardDrizzleUniformResult raw;      // w_raw = B*G_eff*Q_composite (plan 11.9)
-  // Populated only when MultibandProfileParams::emit_fine / emit_medium is
-  // set (plan 14.1). Fine weight = B*G_eff*pow(Q_scale0, fine_quality_exponent);
-  // Medium weight = B*G_eff*pow(Q_scale1, medium_quality_exponent). Same clip
-  // mask as uniform/raw. Empty planes otherwise.
-  ForwardDrizzleUniformResult fine;
-  ForwardDrizzleUniformResult medium;
-  // Per-pixel channel-min adaptive-alpha confidence factors (plan 14.4),
-  // populated only when MultibandProfileParams::emit_alpha_confidence is set.
-  // Row-major internal geometry; NaN where alpha_confidence_support == 0.
-  std::vector<float> a_separation;
-  std::vector<float> a_artifact;
-  std::vector<float> a_registration;
-  std::vector<uint8_t> alpha_confidence_support;
-  ForwardDrizzleDiagnostics diagnostics;
-  ForwardDrizzleClippingDiagnostics clipping;
-};
-
-struct ForwardDrizzlePairDiagnostics {
-  ForwardDrizzleDiagnostics diagnostics;
-  ForwardDrizzleClippingDiagnostics clipping;
-};
-using UniformAndRawStripeSink =
-    std::function<void(int y_begin, const ForwardDrizzleUniformAndRawResult &)>;
-ForwardDrizzlePairDiagnostics stream_forward_drizzle_uniform_and_raw(
-    const registration::RegistrationSamplingPlan &plan,
-    const SourceImageProvider &source_of,
-    const config::ReconstructionDrizzleConfig &drizzle_cfg,
-    const config::ReconstructionClippingConfig &clipping_cfg,
-    const UniformAndRawStripeSink &sink,
-    const ForwardDrizzleSubdivisionParams &subdivision_params = {},
-    const std::vector<float> &g_eff_by_source_index = {},
-    size_t retained_bytes = 0,
-    const FrameQualityProvider &quality_of = {},
-    const MultibandProfileParams &multiband = {},
-    // Plan 11.14.5 P3 (Teil 2): partition each stripe's rasterize + candidate
-    // gather + reduce into `workers` disjoint output-row bands, computed
-    // concurrently. Every canvas cell is still touched by exactly one worker
-    // and every source contribution is still added in the unchanged canonical
-    // order, so profiles / alpha maps / clipping counters are bit-identical to
-    // the serial (`workers == 1`, the default) reference. The source frame is
-    // loaded once on the caller thread per frame; the geometry cache reader is
-    // shared (its `enumerate_stripe` is const + concurrency-safe). Values < 1
-    // are treated as 1. Geometry-stats instrumentation is only collected at
-    // `workers == 1` (the process-global registry is not concurrency-safe).
-    int workers = 1,
-    // §30.81 (P6 priority-3 CUDA 2D target tiling): restrict every stripe to the
-    // target-column window [target_x_begin, target_x_begin + target_cols) of the
-    // internal canvas. `target_cols < 0` => full internal width, i.e. the
-    // historical behaviour, byte-for-byte. When a window is set, all per-stripe
-    // buffers and the emitted ProfilePlane stripes are `target_cols` wide and
-    // `ForwardDrizzleUniformResult::internal_width` reports the window width; the
-    // sink's `y_begin` is still the absolute internal row and the caller owns
-    // re-inserting the tile at column `target_x_begin`.
-    int target_x_begin = 0, int target_cols = -1,
-    // A1/A2/N5 (redundant-reload analysis): when `source_rect_of` is non-null
-    // each (stripe, frame) reads only the inverse-mapped source box through
-    // it instead of the full frame via `source_of`; when `quality_rect_of`
-    // is non-null the same box scopes the quality-map reads AND the
-    // need_qc/need_qa existence pre-scan uses the provider's pure-probe
-    // contract (empty rect, no decode) instead of full-extent decodes.
-    // Bit-identical either way.
-    const SourceImageRectProvider &source_rect_of = {},
-    const FrameQualityRectProvider &quality_rect_of = {});
-
-ForwardDrizzleUniformAndRawResult compute_forward_drizzle_uniform_and_raw(
-    const registration::RegistrationSamplingPlan &plan,
-    const SourceImageProvider &source_of,
-    const config::ReconstructionDrizzleConfig &drizzle_cfg,
-    const config::ReconstructionClippingConfig &clipping_cfg,
-    const ForwardDrizzleSubdivisionParams &subdivision_params = {},
-    const std::vector<float> &g_eff_by_source_index = {},
-    const FrameQualityProvider &quality_of = {},
-    const MultibandProfileParams &multiband = {},
-    int workers = 1,
-    const SourceImageRectProvider &source_rect_of = {},
-    const FrameQualityRectProvider &quality_rect_of = {});
 
 // --- exposed for unit tests (plan section 11.6 geometry) -------------------
 

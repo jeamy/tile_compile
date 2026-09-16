@@ -8,29 +8,20 @@
 
 namespace fs = std::filesystem;
 
-/// @brief Normalizes a phase event name based on the reconstruction method.
-/// For AQMH method, certain Classic phases are hidden and others are relabeled.
-std::string normalizePhaseEvent(const std::string& event, const std::string& method);
-
-/// @brief Returns the method-aware pipeline phase order for computing run status and progress.
-std::vector<std::string> getPhaseOrderForMethod(const std::string& method);
-
-/// @brief Canonical pipeline phase order used to compute run status and progress.
-static const std::vector<std::string> PHASE_ORDER = {
+/// @brief Canonical phase order of the single-method forward-drizzle pipeline
+/// (`tile_compile_runner reconstruct`). New runs emit these phase names.
+static const std::vector<std::string> FORWARD_DRIZZLE_PHASE_ORDER = {
     "SCAN_INPUT",
     "CHANNEL_SPLIT",
     "NORMALIZATION",
-    "GLOBAL_METRICS",
-    "TILE_GRID",
     "REGISTRATION",
-    "PREWARP",
+    "NORMALIZED_CACHE",
+    "SAMPLING_GEOMETRY",
     "COMMON_OVERLAP",
-    "LOCAL_METRICS",
-    "TILE_RECONSTRUCTION",
-    "STATE_CLUSTERING",
-    "SYNTHETIC_FRAMES",
-    "STACKING",
-    "DEBAYER",
+    "SOURCE_QUALITY_MAPS",
+    "GLOBAL_QUALITY",
+    "FORWARD_DRIZZLE",
+    "MULTIBAND",
     "ASTROMETRY",
     "BGE",
     "PCC",
@@ -39,11 +30,14 @@ static const std::vector<std::string> PHASE_ORDER = {
 
 /// @brief Phases accepted by resume endpoints and UI selectors.
 /// Only phases whose required artifacts persist after a normal run are listed.
-/// Earlier phases (before STACKING) require cache/prewarped_frames which is normally
-/// deleted and are therefore validated dynamically in the resume endpoint.
+/// Reconstruction resume points are GLOBAL_QUALITY and FORWARD_DRIZZLE;
+/// downstream resume points (ASTROMETRY, BGE, PCC, HYPERMETRIC_STRETCH)
+/// reuse the persisted reconstruction outputs and re-run only the downstream
+/// chain. MULTIBAND is not a resume entry: it always re-runs with
+/// FORWARD_DRIZZLE.
 static const std::vector<std::string> RESUME_FROM_PHASES = {
-    "STACKING",
-    "DEBAYER",
+    "GLOBAL_QUALITY",
+    "FORWARD_DRIZZLE",
     "ASTROMETRY",
     "BGE",
     "PCC",

@@ -8,7 +8,7 @@
 // composite must be bit-identical too.
 
 #include "tile_compile/reconstruction/source_quality_maps.hpp"
-#include "tile_compile/metrics/aqmh_quality_map.hpp"
+#include "tile_compile/metrics/source_quality_map.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -51,9 +51,9 @@ TEST_CASE("M5 composite is byte-identical to the legacy geometric-mean Q-map "
           "(MONO proxy, all-valid mask)") {
   const int w = 96, h = 96;
   const Matrix2Df frame = synthetic_frame(w, h);
-  config::AqmhPyramidConfig cfg;  // defaults
+  config::ReconstructionQualityPyramidConfig cfg;  // defaults
 
-  const auto legacy = metrics::compute_aqmh_quality_map(
+  const auto legacy = metrics::compute_source_quality_map(
       frame, /*canvas_mask=*/{}, w, h, cfg);
   const auto m5 = compute_source_quality_maps(frame, /*source_valid_mask=*/{}, w,
                                               h, cfg);
@@ -73,7 +73,7 @@ TEST_CASE("M5 sink streams every computed scale with legacy downsample factors "
           "and never holds more than one full scale map resident") {
   const int w = 96, h = 96;
   const Matrix2Df frame = synthetic_frame(w, h);
-  config::AqmhPyramidConfig cfg;
+  config::ReconstructionQualityPyramidConfig cfg;
 
   std::vector<int> seen_scale_index;
   std::vector<int> seen_factor;
@@ -106,7 +106,7 @@ TEST_CASE("M5 sink streams every computed scale with legacy downsample factors "
 TEST_CASE("M5 without a sink retains all scale maps in source geometry") {
   const int w = 96, h = 96;
   const Matrix2Df frame = synthetic_frame(w, h);
-  config::AqmhPyramidConfig cfg;
+  config::ReconstructionQualityPyramidConfig cfg;
 
   const auto m5 = compute_source_quality_maps(frame, {}, w, h, cfg);
   REQUIRE(static_cast<int>(m5.scale_maps.size()) ==
@@ -124,7 +124,7 @@ TEST_CASE("M5 hard mask is re-applied to the composite: masked region is "
           "exactly 0, and the deep interior is NaN at the finest scale") {
   const int w = 96, h = 96;
   const Matrix2Df frame = synthetic_frame(w, h);
-  config::AqmhPyramidConfig cfg;
+  config::ReconstructionQualityPyramidConfig cfg;
 
   // Mask out a solid block. The guarantee of THIS layer:
   //  (a) the geometric-mean composite re-applies the hard mask -> exactly 0
@@ -162,7 +162,7 @@ TEST_CASE("M5 artifact_confidence is a source-geometry map in [0,1] on its "
           "valid support") {
   const int w = 96, h = 96;
   const Matrix2Df frame = synthetic_frame(w, h);
-  config::AqmhPyramidConfig cfg;
+  config::ReconstructionQualityPyramidConfig cfg;
 
   const auto m5 = compute_source_quality_maps(frame, {}, w, h, cfg);
   REQUIRE(m5.artifact_confidence.rows() == h);

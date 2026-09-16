@@ -24,16 +24,10 @@ const char *variant_name(Variant v) {
     return "coverage_accumulator_reduction";
   case Variant::kCoverageHoleQuantile:
     return "coverage_hole_quantile";
-  case Variant::kProductionUniformRaw:
-    return "production_uniform_raw";
   case Variant::kUniformDiagnostic:
     return "uniform_diagnostic";
-  case Variant::kContribCount:
-    return "contrib_count";
   case Variant::kContribFill:
     return "contrib_fill";
-  case Variant::kHybridCpuGeometry:
-    return "hybrid_cpu_geometry";
   case Variant::kVariantCount:
     break;
   }

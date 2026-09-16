@@ -82,7 +82,7 @@ The online help is intentionally split into four levels:
 - [GUI3 User Guide (EN)](gui3_user_guide_en.md)
 - [GUI3 Benutzerhandbuch (DE)](gui3_user_guide_de.md)
 - [Workflow & Pipeline Phases](guides/workflow.md)
-- [AQMH Overview](guides/aqmh_overview.md)
+- [CFA Forward Drizzle + Multiband](guides/cfa_forward_drizzle_pipeline_en.md)
 - [Raw Stack GUI](guides/raw_stack_gui.md) — not optimized, retained for legacy reasons
 - [PI – AI-Assisted Recommendations](guides/pi_ai.md)
 - [Live Image Editor (EN)](guides/live_image_editor_en.md)
@@ -105,10 +105,14 @@ The online help is intentionally split into four levels:
 
 ### Methodology
 
-- [AQMH Methodology v0.2.1](AQMH/aqmh_methodik_en_v0.2.1.md)
+- [Forward-Drizzle v2 Target Architecture (DE)](forward_drizzle_v2_zielarchitektur_2026-09-12_de.md)
 - [CFA Forward-Drizzle and Multiband as the Single Method — Implementation Plan (DE)](AQMH/aqmh_cfa_forward_drizzle_multiband_implementierungsplan_de.md)
-- [TBQR Methodology v3.3.9 (EN)](v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md)
 - [Process Flow](process_flow/phase_0_overview.md)
+
+#### Historical records (superseded methods)
+
+- [AQMH Methodology v0.2.1](AQMH/aqmh_methodik_en_v0.2.1.md)
+- [TBQR Methodology v3.3.9 (EN)](v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md)
 
 ### Changelog
 

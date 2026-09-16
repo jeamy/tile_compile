@@ -19,6 +19,8 @@ aktive Phasenreihenfolge:
 | Phase | Beschreibung |
 |----|-------|
 | SCAN_INPUT | Input-Erkennung, Moduserkennung, Linearitätsprüfung, Speicherplatz-Precheck |
+| CHANNEL_SPLIT | Kanal-Metadaten (Bayer-Pattern, CFA-Origin) — kein materialisierter Split |
+| NORMALIZATION | Kanalweise Background `B` und Scale `P` |
 | REGISTRATION | Kaskadierte globale Registrierung |
 | NORMALIZED_CACHE | Normalisierter CFA-Quellcache (mit Metadaten) |
 | SAMPLING_GEOMETRY | Sampling-Plan, direkte Kanal-Coverage / `n_eff` / Loch-Abdeckung, **Coverage-Gate** |
@@ -27,16 +29,15 @@ aktive Phasenreihenfolge:
 | GLOBAL_QUALITY | Globale frame-weise Qualitätsgewichte |
 | FORWARD_DRIZZLE | CFA-Forward-Drizzle → transaktionaler U/R/F/M-Profilspeicher (CPU oder CUDA) |
 | MULTIBAND | À-trous-Fusion zu `X_out`, Drei-Wege-Kandidatenauswahl, Auslieferung je Kanal |
-| STACKING | Lineares Stacking-Pass-through |
-| DEBAYER | OSC-Demosaic zu RGB (MONO-Durchlauf) |
+| STACKING | Lineares-Stacking-Pass-through-Marker |
 | ASTROMETRY | Plate Solving / WCS |
 | BGE | Optionale RGB-Hintergrund-Gradient-Extraktion vor PCC |
 | PCC | Photometrische Farbkalibrierung |
 | HYPERMETRIC_STRETCH | Optionaler VeraLux HyperMetric Stretch nach PCC |
 | DONE | Endstatus (`ok` oder `validation_failed`) |
 
-> Die *Process-Flow*-Dokumente beschreiben die historische Classic-/AQMH-Tile-
-> Pipeline und dienen nur noch als Referenz.
+> Die *Process-Flow*-Dokumente beschreiben die aktuelle CFA-Forward-Drizzle-+
+> Multiband-Pipeline, Phase für Phase.
 
 Detaillierte Phasen-Dokumentation: [Process Flow](../process_flow/phase_0_overview.md)
 
@@ -71,7 +72,7 @@ Vollständige eigenständige Beispiel-Konfigurationen unter `tile_compile_cpp/ex
 - `very_bright_star_anti_seam.example.yaml`
 - `canon_equatorial_balanced.example.yaml`
 - `mono_full_mode.example.yaml`
-- `mono_small_n_anti_grid.example.yaml` (empfohlen für MONO-Datensätze mit wenigen Frames, z.B. ~10..40, zur Reduzierung des Tile-Muster-Risikos)
+- `mono_small_n_anti_grid.example.yaml` (empfohlen für MONO-Datensätze mit wenigen Frames, z.B. ~10..40, zur Reduzierung des Drizzle-Loch-/Artefakt-Risikos)
 - `mono_small_n_ultra_conservative.example.yaml` (empfohlen für sehr kleine MONO-Datensätze, z.B. ~8..25, wenn Nahtstabilität wichtiger ist als aggressive Verbesserung)
 
 Siehe auch: [Examples README](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/README.md) für den vorgesehenen Anwendungsfall und Abstimmungsschwerpunkt jedes Profils.

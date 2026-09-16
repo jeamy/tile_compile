@@ -15,12 +15,8 @@ if not defined BUILD_DIR set "BUILD_DIR=%PROJECT_ROOT%\web_backend_cpp\build"
 if not defined CPP_BUILD_DIR set "CPP_BUILD_DIR=%PROJECT_ROOT%\tile_compile_cpp\build"
 set "BUILD_TYPE=Release"
 
-rem --- Backend binary ---
-if not defined BACKEND_BIN set "BACKEND_BIN=%BUILD_DIR%\tile_compile_web_backend.exe"
-
-rem --- C++ runner / CLI ---
-if not defined TILE_COMPILE_CLI set "TILE_COMPILE_CLI=%CPP_BUILD_DIR%\tile_compile_cli.exe"
-if not defined TILE_COMPILE_RUNNER set "TILE_COMPILE_RUNNER=%CPP_BUILD_DIR%\tile_compile_runner.exe"
+rem --- Backend binary / runner / CLI paths are resolved after argument parsing
+rem     so that --build-dir / --cpp-build-dir overrides are reflected. ---
 
 rem --- Config / schema / presets ---
 if not defined TILE_COMPILE_CONFIG set "TILE_COMPILE_CONFIG=%PROJECT_ROOT%\tile_compile_cpp\tile_compile.yaml"
@@ -110,6 +106,11 @@ shift
 goto parse_args
 :args_done
 
+rem --- Resolve binary paths (after arg parsing so build-dir overrides apply) ---
+if not defined BACKEND_BIN set "BACKEND_BIN=%BUILD_DIR%\tile_compile_web_backend.exe"
+if not defined TILE_COMPILE_CLI set "TILE_COMPILE_CLI=%CPP_BUILD_DIR%\tile_compile_cli.exe"
+if not defined TILE_COMPILE_RUNNER set "TILE_COMPILE_RUNNER=%CPP_BUILD_DIR%\tile_compile_runner.exe"
+
 rem --- Ensure runs directory exists ---
 if not exist "%TILE_COMPILE_RUNS_DIR%" mkdir "%TILE_COMPILE_RUNS_DIR%"
 
@@ -144,9 +145,17 @@ if "%DO_BUILD%"=="1" (
   )
 )
 
-rem --- Check backend binary ---
+rem --- Check required binaries ---
 if not exist "%BACKEND_BIN%" (
   echo [backend] ERROR: Backend binary not found: %BACKEND_BIN%
+  exit /b 1
+)
+if not exist "%TILE_COMPILE_RUNNER%" (
+  echo [backend] ERROR: Runner binary not found: %TILE_COMPILE_RUNNER%
+  exit /b 1
+)
+if not exist "%TILE_COMPILE_CLI%" (
+  echo [backend] ERROR: CLI binary not found: %TILE_COMPILE_CLI%
   exit /b 1
 )
 
@@ -234,7 +243,7 @@ echo   --host ^<host^>         Backend bind host (default: %HOST%)
 echo   --port ^<port^>         Backend port (default: %PORT%)
 echo   --build-dir ^<path^>    CMake build directory (default: %BUILD_DIR%)
 echo   --cpp-build-dir ^<p^>   C++ core build directory (default: %CPP_BUILD_DIR%)
-echo   --backend-bin ^<path^>  Backend binary path (default: %BACKEND_BIN%)
+echo   --backend-bin ^<path^>  Backend binary path (default: ^<build-dir^>\tile_compile_web_backend.exe)
 echo   --build-type ^<type^>   CMake build type (default: %BUILD_TYPE%)
 echo   --runs-dir ^<path^>     Runs directory (default: %TILE_COMPILE_RUNS_DIR%)
 echo   --no-build            Skip cmake configure/build step

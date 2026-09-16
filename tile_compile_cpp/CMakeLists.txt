@@ -432,7 +432,6 @@ endif()
 
 # Library sources
 set(LIB_SOURCES
-    src/core/mode_gating.cpp
     src/core/utils.cpp
     src/core/events.cpp
     src/core/acceleration.cpp
@@ -452,12 +451,12 @@ set(LIB_SOURCES
     src/registration/registration_sampling_plan.cpp
     src/registration/sampling_geometry.cpp
     src/reconstruction/forward_drizzle.cpp
+    src/reconstruction/forward_drizzle_contrib_list.cpp
     src/reconstruction/forward_drizzle_v2.cpp
     src/reconstruction/forward_drizzle_v2_store.cpp
     src/reconstruction/forward_drizzle_v2_cpu.cpp
     src/reconstruction/forward_drizzle_v2_driver.cpp
     src/reconstruction/forward_drizzle_v2_production.cpp
-    src/reconstruction/forward_drizzle_contrib_list.cpp
     src/reconstruction/drizzle_geometry_stats.cpp
     src/reconstruction/drizzle_geometry_cache.cpp
     src/reconstruction/source_quality_proxy.cpp
@@ -480,29 +479,11 @@ set(LIB_SOURCES
     src/metrics/metrics.cpp
     src/metrics/tile_metrics.cpp
     src/metrics/linearity.cpp
-    src/metrics/aqmh_quality_map.cpp
-    src/metrics/aqmh_quality_map_cache.cpp
-    src/metrics/aqmh_binary_diagnostics.cpp
-    src/metrics/aqmh_eps.cpp
-    src/metrics/aqmh_global_quality.cpp
-    src/metrics/aqmh_frame_valid_mask.cpp
-    src/metrics/aqmh_regions.cpp
+    src/metrics/source_quality_map.cpp
     src/metrics/psf_fit.cpp
-    src/reconstruction/reconstruction.cpp
-    src/reconstruction/aqmh_reconstruction.cpp
-    src/reconstruction/aqmh_pipeline_overlap.cpp
-    src/reconstruction/aqmh_sigma_clip.cpp
-    src/reconstruction/aqmh_reconstruction_opencl.cpp
-    src/reconstruction/aqmh_validation.cpp
-    src/reconstruction/aqmh_cherry_pick.cpp
-    src/reconstruction/memory_budget.cpp
-    src/reconstruction/dead_tile_detector.cpp
-    src/reconstruction/progress_reporter.cpp
-    src/reconstruction/tile_scheduler.cpp
-    src/reconstruction/local_weight_regularization.cpp
-    src/reconstruction/tile_boundary_diagnostics.cpp
-    src/reconstruction/tile_normalization.cpp
-    src/reconstruction/tile_weight_profile_diagnostics.cpp
+    src/metrics/robust_stats.cpp
+    src/reconstruction/stack_validation.cpp
+    src/reconstruction/chroma_denoise.cpp
     src/pipeline/adaptive_tile_grid.cpp
     src/preprocessing/contract.cpp
     src/astrometry/wcs.cpp
@@ -511,7 +492,6 @@ set(LIB_SOURCES
 )
 
 if(TILE_COMPILE_WITH_CUDA)
-    list(APPEND LIB_SOURCES src/reconstruction/aqmh_reconstruction_cuda.cu)
     list(APPEND LIB_SOURCES src/reconstruction/forward_drizzle_cuda_device.cu)
 endif()
 
@@ -526,18 +506,19 @@ endif()
 # file, OR a test that re-implements a reference computation inline --- MUST be
 # added to the list below, or bit-exactness silently regresses with no failing
 # test until a parity case happens to exercise the drifted code.
-# The parity gates: tests/test_forward_drizzle.cpp [cuda-parity] and
-# tests/test_forward_drizzle_contrib_list.cpp [cuda-parity].
+# The parity gate: tests/test_forward_drizzle.cpp [cuda-parity].
 if(NOT MSVC)
     set_source_files_properties(
         src/reconstruction/forward_drizzle.cpp
+        # The canonical record-sort/reduce oracle for the v2 gather; shares the
+        # FP-contraction contract with the path it validates.
+        src/reconstruction/forward_drizzle_contrib_list.cpp
         src/reconstruction/forward_drizzle_v2.cpp
         src/reconstruction/forward_drizzle_v2_cpu.cpp
         # Gate-10 production wiring: sigma2 gradients and transforms feed the
         # kernel's clip/confidence decisions, so it shares the FP-contraction
         # contract with the reference path.
         src/reconstruction/forward_drizzle_v2_production.cpp
-        src/reconstruction/forward_drizzle_contrib_list.cpp
         src/reconstruction/forward_drizzle_cuda.cpp
         # P0 geometry instrumentation: integer counters + diagnostic timers
         # only, but it lives on the forward-drizzle path, so pin it identically.
@@ -549,7 +530,6 @@ if(NOT MSVC)
         # pinned identically to the path they validate.
         tests/test_forward_drizzle.cpp
         tests/test_forward_drizzle_v2.cpp
-        tests/test_forward_drizzle_contrib_list.cpp
         PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 if(TILE_COMPILE_WITH_CUDA)
@@ -601,12 +581,6 @@ set(_tile_compile_runner_sources
     apps/runner_main.cpp
     apps/runner_pipeline.cpp
     apps/runner_phase_metrics.cpp
-    apps/runner_phase_local_metrics.cpp
-    apps/runner_phase_aqmh_maps.cpp
-    apps/runner_phase_aqmh_diagnostics.cpp
-    apps/runner_phase_aqmh_global_quality.cpp
-    apps/runner_phase_aqmh_reconstruction.cpp
-    apps/runner_aqmh_pipeline.cpp
     apps/runner_forward_drizzle.cpp
     apps/runner_downstream.cpp
     apps/runner_forward_output.cpp
@@ -615,7 +589,6 @@ set(_tile_compile_runner_sources
     apps/runner_phase_quality_analysis.cpp
     apps/runner_preprocess.cpp
     apps/runner_shared.cpp
-    apps/runner_resume.cpp
     apps/runner_phase_post_stack_output.cpp
 )
 
@@ -625,25 +598,6 @@ target_link_libraries(tile_compile_runner PRIVATE tile_compile_lib)
 if(CLI11_FOUND)
     target_link_libraries(tile_compile_runner PRIVATE CLI11::CLI11)
     target_compile_definitions(tile_compile_runner PRIVATE HAVE_CLI11)
-endif()
-
-# Frozen legacy reference runner (plan sections 1.1, 23/M0, 25.11).
-# Identical sources to tile_compile_runner but compiled with
-# TILE_COMPILE_LEGACY_REFERENCE so the M0-M9 PIPELINE_UNAVAILABLE_DURING_CUTOVER
-# guard is skipped. It is NOT installed and NOT invoked by the backend; it exists
-# only to produce reproducible regression / bisection runs while the
-# single-method pipeline is under construction. Removed in M11.
-option(TILE_COMPILE_BUILD_LEGACY_REFERENCE
-    "Build the legacy-reference runner (dev/regression only)" OFF)
-if(TILE_COMPILE_BUILD_LEGACY_REFERENCE)
-    add_executable(tile_compile_legacy_reference ${_tile_compile_runner_sources})
-    target_link_libraries(tile_compile_legacy_reference PRIVATE tile_compile_lib)
-    target_compile_definitions(tile_compile_legacy_reference PRIVATE
-        TILE_COMPILE_LEGACY_REFERENCE)
-    if(CLI11_FOUND)
-        target_link_libraries(tile_compile_legacy_reference PRIVATE CLI11::CLI11)
-        target_compile_definitions(tile_compile_legacy_reference PRIVATE HAVE_CLI11)
-    endif()
 endif()
 
 # Backend CLI executable
@@ -678,16 +632,6 @@ tile_compile_add_build_info(tile_compile_cli
     CUDA_VERSION "${CUDAToolkit_VERSION}"
     FEATURE_FLAGS "${_tile_compile_feature_flags}"
     BUILD_INFO_SOURCE "${_tile_compile_build_info_source}")
-if(TARGET tile_compile_legacy_reference)
-    tile_compile_add_build_info(tile_compile_legacy_reference
-        COMPONENT tile_compile_legacy_reference
-        PROJECT_VERSION "${PROJECT_VERSION}"
-        SOURCE_ROOT "${TILE_COMPILE_REPOSITORY_ROOT}"
-        OPENCV_VERSION "${OpenCV_VERSION}"
-        CUDA_VERSION "${CUDAToolkit_VERSION}"
-        FEATURE_FLAGS "${_tile_compile_feature_flags}"
-        BUILD_INFO_SOURCE "${_tile_compile_build_info_source}")
-endif()
 
 if(APPLE)
     set(_TC_INSTALL_RPATH "@executable_path/../lib")
@@ -736,7 +680,6 @@ if(BUILD_TESTS)
             tests/test_fits_hdu_selection.cpp
             tests/test_debayer.cpp
             tests/test_linearity.cpp
-            tests/test_mode_gating.cpp
             tests/test_preprocessing_contract.cpp
             tests/test_registration_cascade.cpp
             tests/test_registration_new_features.cpp
@@ -748,15 +691,12 @@ if(BUILD_TESTS)
             tests/test_sampling_geometry.cpp
             tests/test_forward_drizzle.cpp
             tests/test_forward_drizzle_v2.cpp
-            tests/test_forward_drizzle_contrib_list.cpp
             tests/test_forward_drizzle_synthetic_quality.cpp
             tests/test_forward_drizzle_geometry_scaling.cpp
             tests/test_drizzle_geometry_cache.cpp
             tests/test_geometry_scaling_ladder.cpp
             tests/test_forward_drizzle_local_basis_profile.cpp
             tests/test_coverage_hotspot_profile.cpp
-            tests/test_forward_drizzle_hotspot_profile.cpp
-            tests/test_forward_drizzle_cuda_tile_profile.cpp
             tests/test_source_quality_proxy.cpp
             tests/test_source_quality_maps.cpp
             tests/test_source_quality_map_cache.cpp
@@ -773,19 +713,9 @@ if(BUILD_TESTS)
             tests/test_drizzle_profile_store.cpp
             tests/test_output_scale.cpp
             tests/test_profile_store_manifest.cpp
-            tests/test_reconstruction_regression.cpp
-            tests/test_stacking_quality_weighting.cpp
-            tests/test_memory_budget.cpp
-            tests/test_dead_tile_detector.cpp
             tests/test_coverage_filtered_grid.cpp
-            tests/test_tile_scheduler.cpp
-            tests/test_reconstruction_parallel.cpp
             tests/test_hypermetric_stretch.cpp
             tests/test_photometric_color_cal.cpp
-            tests/test_aqmh_quality_map.cpp
-            tests/test_aqmh_quality_map_cache.cpp
-            tests/test_aqmh_validation.cpp
-            tests/test_aqmh_config.cpp
             ${_tile_compile_build_info_source}
         )
         # runner_forward_drizzle.cpp (compiled into `tests`) now reports
@@ -803,21 +733,6 @@ if(BUILD_TESTS)
         include(CTest)
         include(Catch)
         catch_discover_tests(tests)
-
-        # Legacy-reference tests (plan sections 22.3, 23/M0, 25.11). Tests that
-        # only exercise the PREWARP-AQMH reconstruction kernel live here so the
-        # main suite stays scoped to the single-method contract. Built and run
-        # in CI but reported separately; deleted in M11.
-        if(TILE_COMPILE_BUILD_LEGACY_REFERENCE)
-            add_executable(tile_compile_legacy_reference_tests
-                tests/test_main.cpp
-                tests/test_aqmh_reconstruction.cpp
-            )
-            target_link_libraries(tile_compile_legacy_reference_tests
-                PRIVATE tile_compile_lib Catch2::Catch2WithMain)
-            catch_discover_tests(tile_compile_legacy_reference_tests
-                TEST_PREFIX "legacy_reference.")
-        endif()
     endif()
 endif()
 

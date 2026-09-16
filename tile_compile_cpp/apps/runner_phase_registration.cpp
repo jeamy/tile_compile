@@ -73,10 +73,11 @@ int compute_required_common_overlap_frames(int usable_frames) {
   return std::max(required, 1);
 }
 
-/// @brief Demosaic an OSC frame for the debayer-first AQMH path.
-/// @details AQMH must not reconstruct a warped CFA mosaic when debayer_first is
-/// enabled. This helper keeps demosaicing before geometric resampling so later
-/// phases work on true image planes instead of Bayer phases.
+/// @brief Demosaic an OSC frame for the debayer-first reconstruction path.
+/// @details The pipeline must not reconstruct a warped CFA mosaic when
+/// debayer_first is enabled. This helper keeps demosaicing before geometric
+/// resampling so later phases work on true image planes instead of Bayer
+/// phases.
 image::DebayerResult debayer_for_prewarp(const Matrix2Df &mosaic,
                                          BayerPattern pattern,
                                          const std::string &method) {
@@ -4420,8 +4421,8 @@ bool run_phase_registration_prewarp(
       string_to_bayer_pattern(detected_bayer_str);
   const bool local_refinement_prewarp_supported =
       detected_mode == ColorMode::MONO ||
-      (detected_mode == ColorMode::OSC && cfg.aqmh.enabled &&
-       cfg.aqmh.reconstruction.debayer_first &&
+      (detected_mode == ColorMode::OSC &&
+       cfg.registration.debayer_first &&
        local_refinement_bayer != BayerPattern::UNKNOWN);
   if (global_reg_status == "ok" && !frames.empty() && global_ref_idx >= 0 &&
       static_cast<size_t>(global_ref_idx) < frames.size()) {
@@ -4908,7 +4909,7 @@ bool run_phase_registration_prewarp(
       acceleration.selection_for(core::AccelerationPhase::prewarp);
   const core::AccelerationOps prewarp_ops(
       acceleration, core::AccelerationPhase::prewarp,
-      cfg.aqmh.reconstruction.prewarp_interpolation);
+      cfg.registration.prewarp_interpolation);
   const auto prewarp_input_batch =
       core::make_device_frame_batch(frames.size(), height, width, 1);
   const auto prewarp_output_batch =
@@ -4919,7 +4920,7 @@ bool run_phase_registration_prewarp(
     msg << "PREWARP acceleration "
         << core::acceleration_selection_summary(prewarp_acceleration)
         << " interpolation="
-        << cfg.aqmh.reconstruction.prewarp_interpolation;
+        << cfg.registration.prewarp_interpolation;
     if (!prewarp_acceleration.request_honored &&
         !prewarp_acceleration.fallback_reason.empty()) {
       emitter.warning(run_id, msg.str(), log_file);
@@ -4996,7 +4997,6 @@ bool run_phase_registration_prewarp(
     const bool coverage_gate_ok = run_phase_sampling_geometry(
         sampling_plan, resolved_reconstruction, run_dir, emitter, run_id, log_file,
         first_header, sampling_coverage);
-#ifndef TILE_COMPILE_LEGACY_REFERENCE
     if (!coverage_gate_ok) {
       core::json extra = {
           {"analysis_pixels", sampling_coverage.gate.analysis_pixels},
@@ -5018,14 +5018,11 @@ bool run_phase_registration_prewarp(
           {{"message", "SAMPLING_GEOMETRY coverage_gate failed"}});
       return false;
     }
-#else
-    (void)coverage_gate_ok;
-#endif
 
     // M2 (plan section 11) diagnostic-only preview, opt-in and off by
     // default (config.hpp: reconstruction.diagnostics.preview_forward_drizzle_uniform).
-    // Never gates the run; runs on both the new and the legacy-reference
-    // binary since it is pure additional output, not a behaviour change.
+    // Never gates the run; it is pure additional output, not a behaviour
+    // change.
     sampling_coverage = {}; // release full byte masks before the next budgeted phase
     if (cfg.reconstruction.diagnostics.preview_forward_drizzle_uniform) {
       run_forward_drizzle_uniform_preview(sampling_plan, resolved_reconstruction.drizzle,
@@ -5066,15 +5063,15 @@ bool run_phase_registration_prewarp(
   const BayerPattern pre_debayer_pattern =
       string_to_bayer_pattern(detected_bayer_str);
   const bool debayer_first_rgb =
-      cfg.aqmh.enabled && detected_mode == ColorMode::OSC &&
-      cfg.aqmh.reconstruction.debayer_first &&
+      detected_mode == ColorMode::OSC &&
+      cfg.registration.debayer_first &&
       pre_debayer_pattern != BayerPattern::UNKNOWN;
-  if (cfg.aqmh.enabled && detected_mode == ColorMode::OSC &&
-      cfg.aqmh.reconstruction.debayer_first &&
+  if (detected_mode == ColorMode::OSC &&
+      cfg.registration.debayer_first &&
       pre_debayer_pattern == BayerPattern::UNKNOWN) {
     emitter.warning(
         run_id,
-        "AQMH debayer_first requested but Bayer pattern is unknown; "
+        "debayer_first requested but Bayer pattern is unknown; "
         "falling back to CFA prewarp and post-stack debayer",
         log_file);
   }
@@ -5107,11 +5104,11 @@ bool run_phase_registration_prewarp(
             << " backend="
             << core::acceleration_backend_name(prewarp_acceleration.selected)
             << " interpolation="
-            << cfg.aqmh.reconstruction.prewarp_interpolation
+            << cfg.registration.prewarp_interpolation
             << " debayer_first="
             << (debayer_first_rgb ? "yes" : "no")
             << (debayer_first_rgb ? " pre_debayer_method=" : "")
-            << (debayer_first_rgb ? cfg.aqmh.reconstruction.pre_debayer_method : "")
+            << (debayer_first_rgb ? cfg.registration.pre_debayer_method : "")
             << std::endl;
   const float local_model_coordinate_scale =
       (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale) : 1.0f;
@@ -5174,7 +5171,7 @@ bool run_phase_registration_prewarp(
         if (debayer_first_rgb) {
           auto debayer = debayer_for_prewarp(
               img, pre_debayer_pattern,
-              cfg.aqmh.reconstruction.pre_debayer_method);
+              cfg.registration.pre_debayer_method);
           Matrix2Df warped_r;
           Matrix2Df warped_g;
           Matrix2Df warped_b;
@@ -5200,17 +5197,17 @@ bool run_phase_registration_prewarp(
               const bool remapped_r =
                   registration::remap_frame_with_smooth_local_plan(
                       debayer.R, local_plan,
-                      cfg.aqmh.reconstruction.prewarp_interpolation, warped_r,
+                      cfg.registration.prewarp_interpolation, warped_r,
                       &has_r);
               const bool remapped_g =
                   registration::remap_frame_with_smooth_local_plan(
                       debayer.G, local_plan,
-                      cfg.aqmh.reconstruction.prewarp_interpolation, warped_g,
+                      cfg.registration.prewarp_interpolation, warped_g,
                       &has_g);
               const bool remapped_b =
                   registration::remap_frame_with_smooth_local_plan(
                       debayer.B, local_plan,
-                      cfg.aqmh.reconstruction.prewarp_interpolation, warped_b,
+                      cfg.registration.prewarp_interpolation, warped_b,
                       &has_b);
               local_remap_applied = remapped_r && remapped_g && remapped_b;
               if (local_remap_applied) {
@@ -5263,7 +5260,7 @@ bool run_phase_registration_prewarp(
                     img, w, local_refinement_stats[fi].fit.model,
                     canvas_height, canvas_width, local_model_coordinate_scale,
                     static_cast<float>(offset_x), static_cast<float>(offset_y),
-                    cfg.aqmh.reconstruction.prewarp_interpolation, warped,
+                    cfg.registration.prewarp_interpolation, warped,
                     &warped_valid_mask, &warped_has_data);
           }
           if (!local_remap_applied) {
@@ -5407,7 +5404,7 @@ bool run_phase_registration_prewarp(
       {"workers", prewarp_workers},
       {"debayer_first_rgb", debayer_first_rgb},
       {"pre_debayer_method",
-       debayer_first_rgb ? cfg.aqmh.reconstruction.pre_debayer_method
+       debayer_first_rgb ? cfg.registration.pre_debayer_method
                          : std::string("not_applicable")},
       {"common_overlap_mode", "inline_prewarp_coverage"},
       {"required_common_frames", required_common_frames},

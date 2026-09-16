@@ -23,7 +23,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <vector>
 
 namespace tile_compile::reconstruction {
@@ -50,40 +49,6 @@ struct DrizzleContrib {
 // Canonical strict-weak ordering over the 7-tuple, in the plan-19.6 field
 // order (frame, channel, target_y, target_x, source_y, source_x, leaf_order).
 bool contrib_key_less(const DrizzleContribKey &a, const DrizzleContribKey &b);
-
-// §30.81 step-5 (B): the tiled driver's per-column-tile callback. `tile` is a
-// reduced ForwardDrizzleUniformAndRawResult of internal width `tile_cols`,
-// valid only for the duration of the call; the caller re-inserts it at column
-// `tile_x_begin` of the full-width band. When a tile sink is supplied,
-// accumulate_pair_by_frame[_cuda] produces + sorts each frame's records ONCE
-// per band (a per-band memo) and replays that memo through every column tile,
-// instead of the caller re-invoking the whole build per tile. The returned
-// result then has empty planes and only `.clipping` populated (summed over
-// tiles).
-using PairTileSink =
-    std::function<void(int tile_x_begin, int tile_cols,
-                       const ForwardDrizzleUniformAndRawResult &tile)>;
-
-// FrameQualityRectProvider / to_rect_provider: see forward_drizzle.hpp. The
-// CUDA store pair path takes the rect provider; accumulate_pair_by_frame
-// adapts a plain FrameQualityProvider to it internally.
-
-// plan 19.6.2: wall-clock split of the hybrid CPU-geometry -> GPU-rasterization
-// path, accumulated across every local-warp frame of every band. `cpu_seconds`
-// is the CPU leaf geometry (sample_leaves / subdivide_local / fixed-point
-// inversion), the (leaf,cell) buffer marshalling and the host record assembly;
-// `gpu_raster_seconds` is time inside forward_drizzle_cuda_polygon_rect_area_batch
-// (H2D + kernel + D2H, not separable without instrumenting the .cu).
-struct HybridPathStats {
-  double cpu_seconds = 0.0;
-  double gpu_raster_seconds = 0.0;
-  // Device polygon-area kernel invocations. INCLUDES retried attempts after a
-  // CudaAllocFailure halved the batch, so `leaf_cells / gpu_batch_calls` is not
-  // a clean "cells per call" on a run that hit device allocation pressure.
-  long long gpu_batch_calls = 0;
-  long long leaf_cells = 0;   // (leaf, cell) work items enumerated on the CPU
-  long long records = 0;      // positive-area, finite-value records emitted
-};
 
 struct DrizzleContribList {
   int width = 0;      // stripe width = canvas_width_native * internal_scale
@@ -141,122 +106,5 @@ DrizzleUniformAccum accumulate_uniform_by_frame(
     std::size_t per_frame_mem_budget_bytes = static_cast<std::size_t>(1) << 32);
 
 DrizzleUniformAccum reduce_uniform_contrib_list(const DrizzleContribList &list);
-
-// Plan 19.6 for the FULL pair path: Uniform (clipped) + Raw + Fine + Medium +
-// alpha, for one stripe, via the deterministic per-frame contribution list.
-// Each frame is built -> canonically sorted -> segment-reduced into one
-// ClipCandidate per (channel, target cell), with the Q_composite / Q_scale0 /
-// Q_scale1 / artifact K-averages folded per record (NaN / <= 0 -> 0) in record
-// order, exactly as the streaming sink does. The candidate slices come out in
-// ascending frame order, and the SAME reduce_pixel_profiles() the streaming
-// path uses does the clip + profile + alpha accumulation --- so the result is
-// bit-identical to stream_forward_drizzle_uniform_and_raw() over this stripe.
-//
-// STRIPE-SCOPED REFERENCE. The flat ClipCandidate buffer is
-// channels * (W*rows) * frame_count * sizeof(ClipCandidate) --- it does NOT
-// self-limit `rows` the way stream_forward_drizzle_uniform_and_raw() does via
-// plan_drizzle_memory(). The caller MUST pick `rows` (and, when wiring this
-// into the productive path, drive it from plan_cuda_chunking / the §11.13
-// pre-plan). `mem_budget_bytes` bounds BOTH a single frame's record vector AND
-// that candidate buffer; either overflowing throws "DRIZZLE_CONTRIB_LIST_BUDGET"
-// before the allocation. Peak working set is one frame's records + the
-// candidate buffer, never the whole stripe's contribution list.
-ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame(
-    const registration::RegistrationSamplingPlan &plan,
-    const SourceImageProvider &source_of,
-    const config::ReconstructionDrizzleConfig &cfg,
-    const config::ReconstructionClippingConfig &clip_cfg, int y_begin, int rows,
-    const ForwardDrizzleSubdivisionParams &subdivision = {},
-    const std::vector<float> &g_eff_by_source_index = {},
-    const FrameQualityProvider &quality_of = {},
-    const MultibandProfileParams &mb = {},
-    std::size_t mem_budget_bytes = static_cast<std::size_t>(1) << 32,
-    // §30.81 (P6 priority-3 CUDA 2D target tiling): restrict this pair build to
-    // the target-column window [target_x_begin, target_x_begin + target_cols) of
-    // the internal canvas. `target_cols < 0` => full internal width, i.e. the
-    // historical behaviour, byte-for-byte. The record producers still emit
-    // full-width records; out-of-window contributions are dropped host-side
-    // before the flat ClipCandidate buffer (which is then `target_cols` wide, so
-    // the DRIZZLE_CONTRIB_LIST_BUDGET ceiling scales with the tile). The emitted
-    // ProfilePlane stripes and `internal_width` report the window width; the
-    // caller owns re-inserting the tile at column `target_x_begin`.
-    int target_x_begin = 0, int target_cols = -1,
-    // §30.81 step-5 (B): when `tile_sink` is non-null and `tile_cols > 0`, this
-    // call produces + sorts each frame ONCE, then reduces column tiles of width
-    // `tile_cols` from that memo, handing each to `tile_sink`. `target_x_begin`
-    // / `target_cols` are ignored in that mode (the tiles span [0, W)).
-    const PairTileSink *tile_sink = nullptr, int tile_cols = 0,
-    // §4.4 / T4: when non-null, skip the internal prepare_drizzle_frames() call
-    // and reuse the caller-supplied prepared frames (band-invariant).
-    const PreparedDrizzleFrames *prepared_frames = nullptr,
-    // A1/A2: banded providers. When `source_rect_of` is wired, the record
-    // producer reads only the tile window's inverse-mapped source box per
-    // (frame, tile). When `quality_rect_of` is wired it replaces the adapted
-    // `quality_of` (cheaper empty-rect existence probes + rect reads).
-    const SourceImageRectProvider &source_rect_of = {},
-    const FrameQualityRectProvider &quality_rect_of = {},
-    // P1.4: row-band parallel reduce (see accumulate_pair_by_frame_cuda).
-    // Default 1 keeps every existing (test) caller byte-for-byte serial.
-    int workers = 1);
-
-// The CUDA counterpart of accumulate_pair_by_frame: the per-frame contribution
-// records are produced by the device affine rasterizer
-// (forward_drizzle_cuda_affine_frame_contributions); the sort, Q fold, clip and
-// profile accumulation are the SAME shared host code, so with -ffp-contract=off
-// (host) and --fmad=false (device) on this path the result is bit-identical to
-// the CPU accumulate_pair_by_frame.
-//
-// Affine frames run on the device affine rasterizer. Local-warp frames run the
-// plan-19.6.2 HYBRID path: the CPU builds the authoritative leaf geometry
-// (displacement, fixed-point inversion, bounds, adaptive subdivision, exact
-// corners) and the GPU only rasterizes (exact polygon/cell overlap area) --- no
-// GPU evaluation of the displacement field, so no new tolerance and §19.5.1 is
-// unchanged. Throws ForwardDrizzleCudaError on a singular/absent affine, a
-// device failure, or a leaf exceeding `max_cells_per_pixel` --- the caller then
-// re-runs the whole stripe on the CPU path (plan 19.4: no mixed CPU/CUDA within
-// a commit). Same stripe-scoped memory contract as accumulate_pair_by_frame.
-// `max_batch_items` bounds the (leaf, cell) work items handed to the GPU
-// polygon-area kernel at once on the hybrid path (halved down to a floor on
-// device allocation pressure); it does not affect the result, only peak
-// transfer/scratch. Tests pass a tiny value to exercise flush boundaries.
-// `hybrid_stats`, if non-null, is ADDED TO (not reset) with the CPU/GPU
-// wall-clock split of the hybrid path for this band --- a no-op when no frame
-// takes the hybrid path.
-ForwardDrizzleUniformAndRawResult accumulate_pair_by_frame_cuda(
-    const registration::RegistrationSamplingPlan &plan,
-    const SourceImageProvider &source_of,
-    const config::ReconstructionDrizzleConfig &cfg,
-    const config::ReconstructionClippingConfig &clip_cfg, int y_begin, int rows,
-    const ForwardDrizzleSubdivisionParams &subdivision = {},
-    const std::vector<float> &g_eff_by_source_index = {},
-    // §30.81 step 3a-2: rect provider (source-rectangle Q maps). A full-source
-    // FrameQualityProvider is adapted via to_rect_provider() at the call site.
-    const FrameQualityRectProvider &quality_of = {},
-    const MultibandProfileParams &mb = {},
-    std::size_t mem_budget_bytes = static_cast<std::size_t>(1) << 32,
-    int max_cells_per_pixel = 32,
-    std::size_t max_batch_items = static_cast<std::size_t>(1) << 20,
-    HybridPathStats *hybrid_stats = nullptr,
-    // §30.81: see accumulate_pair_by_frame. Same semantics; the CUDA record
-    // producer still rasterizes full width, the window is applied host-side.
-    int target_x_begin = 0, int target_cols = -1,
-    // §30.81 step-5 (B): per-band memo + column-tile replay; see
-    // accumulate_pair_by_frame.
-    const PairTileSink *tile_sink = nullptr, int tile_cols = 0,
-    const PreparedDrizzleFrames *prepared_frames = nullptr,
-    // A1: banded source reads for the record producer (the band-cache miss
-    // path reads the band rows instead of a full-frame decode; the
-    // local-warp hybrid path reads the full extent through it).
-    const SourceImageRectProvider &source_rect_of = {},
-    // P1.4 (redundant-reload analysis): the reduce step (sort/clip/profile,
-    // shared host code -- see the comment above) is parallelized over row
-    // bands of the window, one DrizzleClipScratch per band, the same pattern
-    // stream_forward_drizzle_uniform_and_raw already uses on the CPU
-    // streaming path. Only the reduce is parallelized, not the device
-    // rasterization or the frame-ordered candidate gather (which must stay
-    // serial: candidates must be frame-ordered). Default 1 keeps every
-    // existing (test) caller byte-for-byte serial; the production CUDA store
-    // path in drizzle_profile_store.cpp passes the phase's real worker count.
-    int workers = 1);
 
 }  // namespace tile_compile::reconstruction

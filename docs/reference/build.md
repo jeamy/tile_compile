@@ -43,23 +43,17 @@ The pipeline supports two GPU backends:
 
 | Phase | CUDA | OpenCL | GPU work |
 |---|---:|---:|---|
-| `PREWARP` | Yes | Yes | Full-frame affine warps; four CFA subplanes for OSC |
-| `AQMH_MAPS` | Yes | Yes | Pyramid box filters and local-variance/sharpness maps |
-| `AQMH_RECONSTRUCTION` | Yes | No | Streaming weighted Welford statistics, masks, sigma clipping, and final accumulation |
-| Classic `TILE_RECONSTRUCTION` | Yes | Yes | Weighted sigma clipping, overlap-add, and accumulator normalization |
-| `SYNTHETIC_FRAMES` | Yes | Yes | Per-cluster weighted tile reconstruction |
-| `STACKING` / resume | Yes | Yes | Sigma-clipped/weighted reduction; RGB channels execute concurrently |
+| `SOURCE_QUALITY_MAPS` | Yes | Yes | Local-variance / pyramid filters for the quality maps |
+| `FORWARD_DRIZZLE` | Yes | No | Geometry leaf-corner/target-gather batches and dense scatter for the chunked gather |
 
 `REGISTRATION` is CPU-only (star detection, matching, transform estimation,
-and ECC); GPU processing starts with the subsequent `PREWARP` phase.
+and ECC). All other phases run on CPU; the CPU path is the bit-exactness
+reference and the guaranteed fallback. The standalone raw-stack
+preprocessing pipeline additionally accelerates its prewarp stage.
 
-CUDA uses one non-default stream per parallel worker. `AQMH_RECONSTRUCTION`
-keeps only its accumulators plus one frame/quality map resident, so VRAM usage
-does not grow with frame count. AQMH Cherry-Pick `mode: auto_reject` is
-implemented for CPU and CUDA; OpenCL currently falls back to CPU for that mode
-to preserve semantics. CUDA errors, unsupported operations, or unavailable
-runtimes fall back to CPU. Live progress logs report `cpu_workers`, `gpu`, and
-the selected `backend`.
+CUDA errors, unsupported operations, or unavailable runtimes fall back to
+CPU within the same semantics. Live progress logs report `cpu_workers`,
+`gpu`, and the selected `backend`.
 
 ### Notes
 

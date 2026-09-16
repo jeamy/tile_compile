@@ -470,16 +470,27 @@ void adaptive_output_scaling(
     return;
   }
 
-  auto channel_floor = [](std::vector<float> &vals) {
+  auto channel_stats = [](std::vector<float> &vals) {
     const float med = median(vals);
     const float sd = stddev(vals, med);
     const float min_v = *std::min_element(vals.begin(), vals.end());
-    return std::max(min_v, med - 2.7f * sd);
+    return std::array<float, 3>{med, sd, min_v};
   };
 
-  const float floor_r = channel_floor(sr);
-  const float floor_g = channel_floor(sg);
-  const float floor_b = channel_floor(sb);
+  const auto stat_r = channel_stats(sr);
+  const auto stat_g = channel_stats(sg);
+  const auto stat_b = channel_stats(sb);
+  // Shared 2.7*sigma margin anchored at each channel's own median. A
+  // per-channel sigma would leave a noise-proportional residual pedestal:
+  // Bayer G carries ~2x the samples of R/B, so its smaller sigma raises
+  // floor_g and the shared expansion scale then amplifies the larger R/B
+  // residuals into a magenta cast. Equal absolute margins keep the noise
+  // floor without color bias.
+  const float shared_margin =
+      2.7f * std::max({stat_r[1], stat_g[1], stat_b[1]});
+  const float floor_r = std::max(stat_r[2], stat_r[0] - shared_margin);
+  const float floor_g = std::max(stat_g[2], stat_g[0] - shared_margin);
+  const float floor_b = std::max(stat_b[2], stat_b[0] - shared_margin);
   constexpr float pedestal = 0.001f;
 
   // Per-channel soft ceilings define candidate dynamic ranges. The expansion

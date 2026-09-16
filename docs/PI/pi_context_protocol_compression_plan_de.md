@@ -281,7 +281,7 @@ Memory darf keine alten Defaults, angebliche Schema-Grenzen oder pauschale Best 
 - Regression-Fixture fuer den M16-Fall:
   - `pcc.max_residual_rms=0.05` muss rejected werden.
   - `pcc.k_max=0.5` muss rejected werden.
-  - `aqmh.pyramid.base_window_px=64` darf nicht als Schema-Default akzeptiert werden.
+  - `reconstruction.quality.pyramid.base_window_px=64` darf nicht als Schema-Default akzeptiert werden.
   - `validation.max_background_rms_increase_percent=0` darf nicht als Auto-Disable interpretiert werden.
 - Tests fuer fehlende Fakten, diagnostic-only Parameter und Memory-Konflikte.
 

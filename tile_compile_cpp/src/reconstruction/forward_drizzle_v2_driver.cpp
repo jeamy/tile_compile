@@ -146,12 +146,19 @@ bool attempt_backend(const fs::path &store_root,
   // failure the kernel destructs (frees once) and the CPU attempt creates
   // its own single workspace.
   auto kernel = make_kernel(cuda);
+  // Appends the backend's last_device_error() detail (CUDA error string)
+  // when present so the fallback reason identifies the actual failure.
+  auto fail_device = [&](const char *where) {
+    *device_failure = std::string(where) + " reported a device failure";
+    const std::string detail = kernel->last_device_error();
+    if (!detail.empty()) *device_failure += ": " + detail;
+  };
   if (!kernel->reserve(
           cols, plan.band_rows, source_w, source_h,
           kernel_config_for_band(plan, 0, plan.band_rows,
                                  options.cached_leaf_capacity))) {
     if (!cuda) throw std::runtime_error("FDV2_DRIVER_RESERVE_FAILED");
-    *device_failure = "reserve() reported a device failure";
+    fail_device("reserve()");
     return false;
   }
   std::vector<ForwardDrizzleV2PixelResult> records;
@@ -183,7 +190,7 @@ bool attempt_backend(const fs::path &store_root,
                                          options.cached_leaf_capacity))) {
       if (!cuda)
         throw std::runtime_error("FDV2_DRIVER_BEGIN_BAND_FAILED");
-      *device_failure = "begin_band() reported a device failure";
+      fail_device("begin_band()");
       return false;
     }
     for (std::uint64_t fr = 0; fr < plan.frame_count; ++fr) {
@@ -328,7 +335,7 @@ bool attempt_backend(const fs::path &store_root,
         throw std::runtime_error("FDV2_DRIVER_FRAME_PROVIDER_FAILED");
       if (!any_piece || emit_failed) {
         if (!kernel_ok && cuda) {
-          *device_failure = "accumulate() reported a device failure";
+          fail_device("accumulate()");
           return false;
         }
         throw std::runtime_error("FDV2_DRIVER_FRAME_PROVIDER_FAILED");
@@ -338,7 +345,7 @@ bool attempt_backend(const fs::path &store_root,
           throw std::runtime_error("FDV2_DRIVER_ACCUMULATE_FAILED band=" +
                                    std::to_string(band) +
                                    " frame=" + std::to_string(fr));
-        *device_failure = "accumulate() reported a device failure";
+        fail_device("accumulate()");
         return false;
       }
       if (!kernel_ok) {
@@ -346,7 +353,7 @@ bool attempt_backend(const fs::path &store_root,
           throw std::runtime_error("FDV2_DRIVER_ACCUMULATE_FAILED band=" +
                                    std::to_string(band) +
                                    " frame=" + std::to_string(fr));
-        *device_failure = "accumulate() reported a device failure";
+        fail_device("accumulate()");
         return false;
       }
       result.max_provider_enqueue_seconds = std::max(
@@ -365,7 +372,7 @@ bool attempt_backend(const fs::path &store_root,
                           plan.emit_profiles ? profiles.data() : nullptr,
                           &dense)) {
       if (!cuda) throw std::runtime_error("FDV2_DRIVER_FINALIZE_FAILED");
-      *device_failure = "finalize() reported a device failure";
+      fail_device("finalize()");
       return false;
     }
     // Commit gate input (spec section 19): a nonfinite centre inside source

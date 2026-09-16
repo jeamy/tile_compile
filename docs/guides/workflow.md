@@ -19,6 +19,8 @@ detail. The active phase order:
 | Phase | Description |
 |----|-------|
 | SCAN_INPUT | Input discovery, mode detection, linearity check, disk-space precheck |
+| CHANNEL_SPLIT | Channel metadata (Bayer pattern, CFA origin) — no materialized split |
+| NORMALIZATION | Per-channel background `B` and scale `P` estimation |
 | REGISTRATION | Cascaded global registration |
 | NORMALIZED_CACHE | Normalized CFA source cache (metadata-tagged) |
 | SAMPLING_GEOMETRY | Sampling plan, direct channel support / `n_eff` / hole coverage, **coverage gate** |
@@ -27,16 +29,15 @@ detail. The active phase order:
 | GLOBAL_QUALITY | Global per-frame quality weights |
 | FORWARD_DRIZZLE | CFA forward drizzle → transactional U/R/F/M profile store (CPU or CUDA) |
 | MULTIBAND | À-trous fusion to `X_out`, three-way candidate selection, per-channel delivery |
-| STACKING | Linear stacking pass-through |
-| DEBAYER | OSC demosaic to RGB (MONO pass-through) |
+| STACKING | Linear stacking pass-through marker |
 | ASTROMETRY | Plate solving / WCS |
 | BGE | Optional RGB background gradient extraction before PCC |
 | PCC | Photometric color calibration |
 | HYPERMETRIC_STRETCH | Optional VeraLux HyperMetric Stretch after PCC |
 | DONE | Final status (`ok` or `validation_failed`) |
 
-> The *Process Flow* documents describe the historical Classic / AQMH
-> tile-based pipeline and are kept for reference only.
+> The *Process Flow* documents describe the current CFA Forward Drizzle +
+> Multiband pipeline, phase by phase.
 
 ## Registration Cascade (Fallback Strategy)
 
@@ -69,8 +70,8 @@ Complete standalone example configs are available under `tile_compile_cpp/exampl
 - `very_bright_star_anti_seam.example.yaml`
 - `canon_equatorial_balanced.example.yaml`
 - `mono_full_mode.example.yaml`
-- `mono_small_n_anti_grid.example.yaml` (recommended for MONO low-frame datasets, e.g. ~10..40, to reduce tile-pattern risk)
-- `mono_small_n_ultra_conservative.example.yaml` (recommended for very small MONO datasets, e.g. ~8..25, when seam stability matters more than aggressive enhancement)
+- `mono_small_n_anti_grid.example.yaml` (recommended for MONO low-frame datasets, e.g. ~10..40, to reduce drizzle hole/artifact risk)
+- `mono_small_n_ultra_conservative.example.yaml` (recommended for very small MONO datasets, e.g. ~8..25, when reconstruction stability matters more than aggressive enhancement)
 
 See also: [Examples README](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/README.md) for the intended use case and tuning focus of each profile.
 

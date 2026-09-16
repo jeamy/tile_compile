@@ -42,7 +42,7 @@ fs::path resolve_project_root(const fs::path& config_path);
 // Empty-input convention: functions in this group return 0.0f on empty input.
 // This is intentional — 0.0f is a neutral element for addition and does not
 // propagate through arithmetic. Callers that need "no data" signalling should
-// check emptiness before calling, or use the metrics::aqmh_* variants which
+// check emptiness before calling, or use the *_or_nan variants below which
 // return NaN on empty/degenerate input.
 constexpr float kMadToSigma = 1.4826f;
 float median_of(std::vector<float> v);              // returns 0.0f if empty
@@ -50,15 +50,15 @@ float mad_of(std::vector<float> v, float median);   // returns 0.0f if empty
 float stddev_of(const std::vector<float>& v);       // returns 0.0f if < 2 elements
 
 // IEEE-754 quiet NaN for float. Shared canonical helper — replaces the
-// previously duplicated anonymous-namespace copies in aqmh_quality_map.cpp,
-// source_quality_maps.cpp, and source_quality_map_cache.cpp.
+// previously duplicated anonymous-namespace copies in source_quality_maps.cpp,
+// source_quality_proxy.cpp, and source_quality_map_cache.cpp.
 inline constexpr float nan_value() {
     return std::numeric_limits<float>::quiet_NaN();
 }
 
 // NaN-on-empty variants for callers that treat "no data" as NaN rather than 0.
 // These replace the previously duplicated anonymous-namespace copies in
-// aqmh_quality_map.cpp, source_quality_maps.cpp, aqmh_validation.cpp, and
+// source_quality_maps.cpp, multiband_validation.cpp, and
 // background_extraction.cpp.
 float median_of_or_nan(std::vector<float> v);       // returns NaN if empty
 float mad_of_or_nan(std::vector<float> v, float median); // returns NaN if empty

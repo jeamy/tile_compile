@@ -14,6 +14,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdio>
+#include <iostream>
 #include <cstdlib>
 #include <filesystem>
 #include <limits>
@@ -413,7 +414,10 @@ GeometricCoverageResult compute_geometric_coverage(
   cfg.internal_scale = internal_scale;
   cfg.pixfrac = pixfrac;
   const int channels = plan.color_mode == ColorMode::MONO ? 1 : 3;
-  const auto initial = plan_drizzle_memory(plan, cfg, 1, 0, false);
+  const auto initial = plan_drizzle_memory_autogrow(
+      plan, cfg, 1, 0, false, [](const std::string &msg) {
+        std::cout << "[SAMPLING_GEOMETRY][warn] " << msg << std::endl;
+      });
   const size_t pixels = static_cast<size_t>(initial.width) * initial.height;
   if (pixels > static_cast<size_t>(std::numeric_limits<int>::max()))
     throw std::runtime_error("COVERAGE_GEOMETRY_TOO_LARGE");
@@ -423,9 +427,12 @@ GeometricCoverageResult compute_geometric_coverage(
       pixels * (2 + (retain_channel_counts ? channels * sizeof(uint32_t) : 0));
   const size_t row_scratch =
       static_cast<size_t>(initial.width) * channels * 256;
-  const auto memory = plan_drizzle_memory(
+  const auto memory = plan_drizzle_memory_autogrow(
       plan, cfg, channels * (3 * sizeof(double) + sizeof(uint32_t) + 1) + 5,
-      retained + row_scratch, false);
+      retained + row_scratch, false,
+      [](const std::string &msg) {
+        std::cout << "[SAMPLING_GEOMETRY][warn] " << msg << std::endl;
+      });
   const auto space =
       std::filesystem::space(std::filesystem::temp_directory_path());
   const size_t disk_needed =

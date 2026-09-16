@@ -36,75 +36,11 @@ QualityFrameWeightPlan load_source_quality_artifact(
     const VerifiedNormalizedSourceCache &cache, const GlobalQualityConfig &cfg,
     size_t memory_budget_mb = 512);
 
-// Library orchestration with mandatory predecessor checks. Existing runner
-// phases are not resumed or bypassed by this entry point.
-DrizzleStoreResult persist_forward_drizzle_from_predecessors(
-    const fs::path &store_root, const fs::path &quality_artifact,
-    const registration::RegistrationSamplingPlan &sampling,
-    VerifiedNormalizedSourceCache &cache, const GlobalQualityConfig &quality_cfg,
-    const config::ReconstructionDrizzleConfig &drizzle_cfg,
-    const config::ReconstructionClippingConfig &clipping_cfg,
-    const ForwardDrizzleSubdivisionParams &subdivision = {},
-    // M5: when set, Raw consumes the source composite Q-maps from this cache
-    // root as Q_composite_f,c(q). Empty => Q_composite = 1.0 (Raw unchanged).
-    const fs::path &source_quality_cache_root = {},
-    // Plan 11.14.5 P3 Teil 2: CPU-reduction output-row-band workers. Forwarded
-    // to the streaming reduction; bit-identical to `workers == 1` (default).
-    int workers = 1);
-
 // Maps the public multiband config onto the store's full hashed contract.
 // Fields not yet in config (energy guard, most confidence edges) take their
 // documented defaults but still enter multiband_config_hash.
 MultibandStoreContract multiband_store_contract_from_config(
     const config::ReconstructionMultibandConfig &cfg);
-
-struct MultibandStoreBuildResult {
-  DrizzleStoreResult store;
-  DrizzleStoreIdentity identity;
-  // Plan 19: which path actually produced the committed store. "cuda" when a
-  // CUDA attempt ran to completion with affine-only frames; "cuda_hybrid" when
-  // that run also took at least one local-warp frame through the plan-19.6.2
-  // hybrid CPU-geometry -> GPU-rasterization path; "cpu" for the plain path AND
-  // for a CUDA attempt that failed and was restarted on the CPU reference path.
-  std::string backend_used = "cpu";
-  // Non-empty iff a CUDA attempt was made and did not commit: the reason the
-  // phase fell back to the CPU reference path (plan 19.4).
-  std::string cuda_fallback_reason;
-  // §30.81 step 3a-2/3a-2b: SourceQualityMapCacheReader I/O totals for this
-  // build --- lets a run report whether the Q read is actually bounded.
-  //   q_bin_loads         .bin files opened (one per read_rect call)
-  //   q_bin_cells_decoded  storage-grid cells read (3a-2b: only the covering
-  //                        cells; before it, storage_w*storage_h per call)
-  //   q_expanded_floats    map elements materialised
-  std::uint64_t q_bin_loads = 0;
-  std::uint64_t q_bin_cells_decoded = 0;
-  std::uint64_t q_expanded_floats = 0;
-};
-
-// M6 phase 1: build the multiband profile store (uniform+raw+fine+(medium)+
-// the four alpha-confidence maps) from the M5 predecessors --- the Q-map cache
-// supplies composite + scale0/scale1 + artifact. This is the durable artefact.
-// Requires `source_quality_cache_root`; output scale 2/1 is rejected.
-//
-// `acceleration_backend` is the resolved backend name ("cpu" | "cuda"). "cuda"
-// attempts the plan-19 CUDA path and, on ForwardDrizzleCudaError, discards the
-// uncommitted generation and restarts the ENTIRE build on the CPU reference
-// path (plan 19.4) --- the committed store is then bit-identical to a "cpu"
-// build. The retry is not recursive: a CPU restart that itself fails throws.
-MultibandStoreBuildResult persist_multiband_store_from_predecessors(
-    const fs::path &store_root, const fs::path &quality_artifact,
-    const registration::RegistrationSamplingPlan &sampling,
-    VerifiedNormalizedSourceCache &cache, const GlobalQualityConfig &quality_cfg,
-    const config::ReconstructionDrizzleConfig &drizzle_cfg,
-    const config::ReconstructionClippingConfig &clipping_cfg,
-    const config::ReconstructionMultibandConfig &multiband_cfg,
-    const fs::path &source_quality_cache_root,
-    const ForwardDrizzleSubdivisionParams &subdivision = {},
-    const std::string &acceleration_backend = "cpu",
-    // Plan 11.14.5 P3 Teil 2: CPU-reference-path output-row-band workers.
-    // Ignored on the CUDA stripe path (own device band chunking); picked up on
-    // a CUDA->CPU restart. Bit-identical (store commit hash) to 1 (default).
-    int workers = 1);
 
 // The three plan-15 candidate images, each reduced to the fixed working
 // luminance (`kWorkingLumaDefinition`), assembled during the single fusion
@@ -178,32 +114,8 @@ MultibandFusionMemoryPlan plan_multiband_fusion_memory(
     int width, int height, int nch, int levels, int chunk_rows, int halo_rows,
     bool with_candidate_luma, bool with_candidate_spool, std::size_t budget_bytes);
 
-// M6 phase 2: fuse the durable multiband store (plan 14, streamed path) into a
-// single final X_out image at `final_image_path` (MONO -> float FITS, OSC ->
-// RGB FITS). `chunk_rows <= 0` uses a default. Returns supported-pixel count.
-// When `candidates_out` is non-null it is also filled with the plan-15
-// uniform / raw / multiband working-luminance candidates + the fused per-band
-// alpha maps, at no extra store I/O.
-//
-// `memory_budget_mb == 0` means "unset" --- an internal floor is applied. A
-// non-zero value is an EXPLICIT budget and is used verbatim (plan 11.13: no
-// silent raising of an explicit budget); the phase fails closed if the
-// pre-planned working set does not fit it.
-long long fuse_multiband_store_to_image(
-    const fs::path &store_root, const DrizzleStoreIdentity &identity,
-    const fs::path &final_image_path,
-    const config::ReconstructionMultibandConfig &multiband_cfg,
-    int chunk_rows = 0, size_t memory_budget_mb = 512,
-    MultibandCandidateLuma *candidates_out = nullptr,
-    // When non-null, streams the three candidates at full per-channel resolution
-    // to `spool_out->dir` (which must already exist). `final_image_path` still
-    // receives the multiband X_out as before.
-    MultibandCandidateSpool *spool_out = nullptr,
-    // When non-null, receives the pre-allocation working-set plan that gated the
-    // phase (plan 11.13(4): reported separately from the measured RSS peak).
-    MultibandFusionMemoryPlan *mem_plan_out = nullptr);
-
-// Gate-10 v2 counterpart of fuse_multiband_store_to_image: the v2 store's
+// Fuse the durable multiband v2 store into a single final X_out image at
+// `final_image_path` (MONO -> float FITS, OSC -> RGB FITS). The v2 store's
 // committed band profile records are read with a rolling row window (every
 // band decoded once), each fusion stripe is adapted through
 // forward_drizzle_v2_profiles_to_uniform_result +

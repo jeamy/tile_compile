@@ -1190,6 +1190,10 @@ bool finalize_bge_from_channel_models(
     for (auto& d : out_diags) d.applied = false;
   };
 
+  // Pass 1: validate every channel model and collect stats. All model
+  // medians must be known before any correction so the apply below can
+  // anchor every channel at one shared pedestal level.
+  float shared_pedestal = std::numeric_limits<float>::infinity();
   for (int ch = 0; ch < 3; ++ch) {
     if (out_diags[static_cast<size_t>(ch)].channel_name.empty())
       out_diags[static_cast<size_t>(ch)].channel_name = names[ch];
@@ -1226,10 +1230,26 @@ bool finalize_bge_from_channel_models(
     }
 
     auto& ch_diag = out_diags[static_cast<size_t>(ch)];
-    const Matrix2Df& img = *inputs[ch];
-    ch_diag.input_stats = stats_from_matrix_local(img);
+    ch_diag.input_stats = stats_from_matrix_local(*inputs[ch]);
     ch_diag.model_stats = stats_from_matrix_local(bg);
-    const float pedestal = ch_diag.model_stats.median;
+    if (std::isfinite(ch_diag.model_stats.median))
+      shared_pedestal = std::min(shared_pedestal, ch_diag.model_stats.median);
+  }
+  if (!std::isfinite(shared_pedestal))
+    shared_pedestal = 0.0f;
+  // Shared pedestal (darkest channel level): re-anchoring every channel at
+  // the same background level equalizes the R/G/B floors. Per-channel
+  // pedestals preserve floor offsets that downstream stages (HMS) amplify
+  // into a color cast.
+
+  // Pass 2: apply the correction with the shared pedestal. flatness_worsened
+  // stays an immediate reject; slope_worsened is deferred so the channel-
+  // level equalization check below can still rescue an already flat field.
+  std::array<bool, 3> slope_rejected{false, false, false};
+  for (int ch = 0; ch < 3; ++ch) {
+    auto& ch_diag = out_diags[static_cast<size_t>(ch)];
+    const Matrix2Df& img = *inputs[ch];
+    const Matrix2Df& bg = channel_models[ch].model;
     corrected[ch] = img;
     for (int r = 0; r < rows; ++r) {
       for (int c = 0; c < cols; ++c) {
@@ -1244,7 +1264,7 @@ bool finalize_bge_from_channel_models(
           corrected[ch](r, c) = std::numeric_limits<float>::quiet_NaN();
           continue;
         }
-        corrected[ch](r, c) = std::max(0.0f, vin - mv + pedestal);
+        corrected[ch](r, c) = std::max(0.0f, vin - mv + shared_pedestal);
       }
     }
 
@@ -1269,14 +1289,6 @@ bool finalize_bge_from_channel_models(
           flat_post > flat_pre * max_flatness_worsen_factor) {
         ch_diag.guard_rejected = true;
         ch_diag.guard_reason = "flatness_worsened";
-      }
-      if (!ch_diag.guard_rejected && std::isfinite(slope_pre) &&
-          std::isfinite(slope_post) &&
-          slope_post > slope_pre * max_slope_worsen_factor) {
-        ch_diag.guard_rejected = true;
-        ch_diag.guard_reason = "slope_worsened";
-      }
-      if (ch_diag.guard_rejected) {
         std::cerr << "[AutoBGE] Channel " << names[ch]
                   << " guard rejected RGB apply: " << ch_diag.guard_reason
                   << std::endl;
@@ -1291,6 +1303,13 @@ bool finalize_bge_from_channel_models(
         }
         return false;
       }
+      if (!ch_diag.guard_rejected && std::isfinite(slope_pre) &&
+          std::isfinite(slope_post) &&
+          slope_post > slope_pre * max_slope_worsen_factor) {
+        ch_diag.guard_rejected = true;
+        ch_diag.guard_reason = "slope_worsened";
+        slope_rejected[static_cast<size_t>(ch)] = true;
+      }
     }
 
     ch_diag.fit_success = true;
@@ -1298,6 +1317,84 @@ bool finalize_bge_from_channel_models(
     ch_diag.output_stats = stats_from_matrix_local(corrected[ch]);
     ch_diag.mean_shift = ch_diag.output_stats.mean - ch_diag.input_stats.mean;
     ch_diag.applied = true;
+  }
+
+  // Deferred slope decision: a worsened coarse-plane slope vetoes the apply
+  // only when the correction did not simultaneously equalize the per-channel
+  // background levels. On an already flat field the fitted model can add a
+  // harmless micro-tilt while still removing real channel floor offsets --
+  // that trade is accepted and reported instead of discarding the run's only
+  // pedestal equalization step.
+  if (config.autobge.apply_guards &&
+      (slope_rejected[0] || slope_rejected[1] || slope_rejected[2])) {
+    const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
+    const size_t stride = std::max<size_t>(1, total_px / 200000u);
+    auto masked_level = [&](const Matrix2Df &m) -> float {
+      std::vector<float> vals;
+      for (size_t i = 0; i < total_px; i += stride) {
+        if (config.common_valid_mask[i] == 0)
+          continue;
+        const float v = m.data()[i];
+        if (std::isfinite(v) && v > 0.0f)
+          vals.push_back(v);
+      }
+      if (vals.empty())
+        return std::numeric_limits<float>::quiet_NaN();
+      std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
+      return vals[vals.size() / 2];
+    };
+    auto level_spread = [&](const std::array<const Matrix2Df*, 3> &planes) {
+      float lo = std::numeric_limits<float>::infinity();
+      float hi = -std::numeric_limits<float>::infinity();
+      for (const auto *p : planes) {
+        const float lv = masked_level(*p);
+        if (!std::isfinite(lv)) return std::numeric_limits<float>::quiet_NaN();
+        lo = std::min(lo, lv);
+        hi = std::max(hi, lv);
+      }
+      return hi - lo;
+    };
+    const std::array<const Matrix2Df*, 3> corrected_ptrs = {
+        &corrected[0], &corrected[1], &corrected[2]};
+    const float spread_pre = level_spread(inputs);
+    const float spread_post = level_spread(corrected_ptrs);
+    const bool level_equalized = std::isfinite(spread_pre) &&
+                                 std::isfinite(spread_post) &&
+                                 spread_post < spread_pre;
+    if (level_equalized) {
+      std::cerr << "[AutoBGE] slope guard overridden: channel background "
+                   "level equalization improved (spread "
+                << spread_pre << " -> " << spread_post << ")" << std::endl;
+      for (int ch = 0; ch < 3; ++ch) {
+        if (slope_rejected[static_cast<size_t>(ch)]) {
+          auto &d = out_diags[static_cast<size_t>(ch)];
+          d.guard_rejected = false;
+          d.guard_reason = "slope_worsened_but_level_equalized";
+        }
+      }
+      if (diagnostics)
+        diagnostics->guard_override = "level_equalization";
+    } else {
+      for (int ch = 0; ch < 3; ++ch) {
+        if (!slope_rejected[static_cast<size_t>(ch)])
+          continue;
+        std::cerr << "[AutoBGE] Channel " << names[ch]
+                  << " guard rejected RGB apply: "
+                  << out_diags[static_cast<size_t>(ch)].guard_reason
+                  << std::endl;
+        if (diagnostics) {
+          diagnostics->attempted = true;
+          diagnostics->success = false;
+          diagnostics->bge_method = "autobge";
+          diagnostics->method = "autobge";
+          diagnostics->failure_reason =
+              out_diags[static_cast<size_t>(ch)].guard_reason;
+          reject_all_applied();
+          diagnostics->channels = std::move(out_diags);
+        }
+        return false;
+      }
+    }
   }
 
   if (config.autobge.apply_guards) {

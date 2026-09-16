@@ -204,8 +204,9 @@ fs::path default_siril_catalog_dir() {
     const std::string env_dir = getenv_or("TILE_COMPILE_SIRIL_CATALOG_DIR");
     if (!env_dir.empty()) return fs::path(env_dir);
     if (const fs::path install_root = gui2_install_root(); !install_root.empty()) {
-        const fs::path p = install_root / "pcc" / "siril_cat1_healpix8_xpsamp";
-        if (fs::exists(p)) return p;
+        // Configured install root wins even before the catalog is downloaded —
+        // the status endpoint reports the suggestion, not only existing dirs.
+        return install_root / "pcc" / "siril_cat1_healpix8_xpsamp";
     }
 #ifdef _WIN32
     if (const char* la = std::getenv("LOCALAPPDATA"); la && la[0] != '\0') {

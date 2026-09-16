@@ -1,6 +1,6 @@
 #include "tile_compile/reconstruction/source_quality_maps.hpp"
 
-#include "tile_compile/metrics/aqmh_quality_map.hpp"
+#include "tile_compile/metrics/source_quality_map.hpp"
 #include "tile_compile/core/utils.hpp"
 
 #include <algorithm>
@@ -30,7 +30,7 @@ float finite_median(const Matrix2Df &m) {
 SourceQualityMapResult compute_source_quality_maps(
     const Matrix2Df &analysis_proxy,
     const std::vector<uint8_t> &source_valid_mask, int source_width,
-    int source_height, const config::AqmhPyramidConfig &cfg,
+    int source_height, const config::ReconstructionQualityPyramidConfig &cfg,
     const QualityScaleMapSink &sink) {
   // A silently all-zero q_map would be a veto for every pixel downstream, so a
   // geometry disagreement is a hard error, not a quiet empty result.
@@ -55,10 +55,10 @@ SourceQualityMapResult compute_source_quality_maps(
           const Matrix2Df &psi_src_in, const Matrix2Df &artifact) {
         ++observed_scales;
         // psi_src_in is `psi` already bilinearly upsampled to source geometry
-        // by compute_aqmh_quality_map (plan: avoid running that identical
+        // by compute_source_quality_map (plan: avoid running that identical
         // interpolation a second time here). This map plus any retained in
         // result.scale_maps are the only full source-geometry maps held here;
-        // the geometric-mean composite lives inside compute_aqmh_quality_map
+        // the geometric-mean composite lives inside compute_source_quality_map
         // as a double log-sum accumulator.
         Matrix2Df psi_src = psi_src_in;
         ++live_maps;
@@ -97,7 +97,7 @@ SourceQualityMapResult compute_source_quality_maps(
         --live_maps;
       };
 
-  const auto legacy = metrics::compute_aqmh_quality_map(
+  const auto legacy = metrics::compute_source_quality_map(
       analysis_proxy, source_valid_mask, /*frame_valid_mask=*/{}, source_width,
       source_height, cfg, ::tile_compile::core::AccelerationBackend::cpu,
       /*stream=*/nullptr, hook);

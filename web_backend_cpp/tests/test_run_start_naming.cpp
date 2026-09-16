@@ -1,7 +1,11 @@
 #include "backend_test_harness.hpp"
 
+#include <yaml-cpp/yaml.h>
+
 #include <cstdio>
+#include <fstream>
 #include <regex>
+#include <sstream>
 
 int main(int argc, char** argv) {
     if (argc < 5) return 2;
@@ -16,7 +20,8 @@ int main(int argc, char** argv) {
         const auto started = harness.post_json("/api/runs/start", {
             {"input_dir", input_dir},
             {"run_name", "M42 Test"},
-            {"color_mode", "OSC"}
+            {"color_mode", "OSC"},
+            {"config_yaml", "data:\n  color_mode: OSC\n"}
         });
         expect_equal(started["_http_status"].get<long>(), 202L, "run start status");
         expect_json_field(started, "job_id", "run start job id");
@@ -42,6 +47,24 @@ int main(int argc, char** argv) {
         const auto job = harness.wait_for_job(started["job_id"].get<std::string>());
         expect_equal(job["run_id"].get<std::string>(), generated_run_id, "job run id matches generated run id");
         expect_true(job["data"]["command"].is_array(), "job command is array");
+        expect_equal(job["data"]["command"][1].get<std::string>(), "reconstruct",
+                     "job command uses reconstruct");
+
+        std::string config_arg;
+        for (size_t i = 0; i + 1 < job["data"]["command"].size(); ++i) {
+            if (job["data"]["command"][i].get<std::string>() == "--config") {
+                config_arg = job["data"]["command"][i + 1].get<std::string>();
+            }
+        }
+        expect_true(!config_arg.empty(), "runner args include --config path");
+        {
+            std::ifstream snapshot(config_arg);
+            std::ostringstream snapshot_text;
+            snapshot_text << snapshot.rdbuf();
+            YAML::Node snapshot_root = YAML::Load(snapshot_text.str());
+            expect_true(!snapshot_root["method"],
+                        "generated config snapshot has no top-level method");
+        }
 
         bool found_run_id_flag = false;
         bool found_generated_run_id = false;

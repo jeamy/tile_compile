@@ -124,6 +124,10 @@ class ForwardDrizzleV2Kernel {
                         std::uint64_t *dense_overlap_count) = 0;
   virtual const ForwardDrizzleV2PrototypeStats &stats() const = 0;
   virtual bool device_backend() const = 0;
+  // Diagnosis hook: the CUDA adapter reports cudaGetErrorString() of the
+  // failing runtime call after a false return; the CPU kernel always
+  // returns "".
+  virtual std::string last_device_error() const { return {}; }
 };
 
 // Host CPU port. Bounded memory: all state is allocated in reserve() sized
@@ -357,6 +361,9 @@ class ForwardDrizzleV2CudaKernel final : public ForwardDrizzleV2Kernel {
     return kernel_.stats();
   }
   bool device_backend() const override { return true; }
+  std::string last_device_error() const override {
+    return kernel_.last_device_error();
+  }
 
  private:
   ForwardDrizzleV2CudaPrototypeKernel kernel_;

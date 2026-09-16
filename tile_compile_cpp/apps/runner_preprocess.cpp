@@ -325,8 +325,6 @@ prep::Config parse_preprocessing_config(const json& j) {
     cfg.tile.min_size = json_int(t, "min_size", cfg.tile.min_size);
     cfg.tile.max_divisor = json_int(t, "max_divisor", cfg.tile.max_divisor);
     cfg.tile.overlap_fraction = json_float(t, "overlap_fraction", cfg.tile.overlap_fraction);
-    cfg.tile.star_min_count = json_int(t, "star_min_count", cfg.tile.star_min_count);
-    cfg.tile.star_soft_count = json_int(t, "star_soft_count", cfg.tile.star_soft_count);
   }
   if (j.contains("pcc") && j["pcc"].is_object()) {
     const auto& p = j["pcc"];
@@ -487,8 +485,6 @@ json config_to_json(const prep::Config& cfg) {
           {"min_size", cfg.tile.min_size},
           {"max_divisor", cfg.tile.max_divisor},
           {"overlap_fraction", cfg.tile.overlap_fraction},
-          {"star_min_count", cfg.tile.star_min_count},
-          {"star_soft_count", cfg.tile.star_soft_count},
       }},
       {"hypermetric_stretch", {
           {"require_successful_pcc", cfg.hypermetric_stretch.require_successful_pcc},

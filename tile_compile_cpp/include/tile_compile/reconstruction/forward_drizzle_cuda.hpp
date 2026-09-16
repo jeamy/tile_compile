@@ -68,55 +68,6 @@ struct CudaDeviceMemory {
 };
 CudaDeviceMemory forward_drizzle_cuda_device_memory();
 
-// The plan-19.4 chunking decision: an initial chunk height plus a bounded
-// retry ladder that halves the height on each CUDA allocation failure, down
-// to `min_chunk_rows`. A safety margin (`reserve_bytes`) is held back for the
-// driver / OpenCV before any chunk is sized.
-struct CudaChunkPlan {
-  int chunk_rows = 0;         // initial attempt
-  int min_chunk_rows = 1;     // floor; below this the phase restarts on CPU
-  int max_retries = 0;        // halvings available from chunk_rows to the floor
-  std::size_t reserve_bytes = 0;  // margin withheld for driver / OpenCV
-  std::size_t usable_bytes = 0;   // free_bytes - reserve_bytes (0 if underwater)
-  std::size_t bytes_per_row = 0;  // the working-set estimate that was used
-  bool feasible = false;     // false => not enough memory for even one row
-};
-
-// Pure arithmetic (no device calls): pick the chunk plan from a free-memory
-// figure and a per-output-row working-set estimate. `requested_chunk_rows > 0`
-// caps the initial height (a config ceiling); 0 means "as large as fits".
-// `reserve_fraction` of free memory is held back, but never less than
-// `reserve_floor_bytes`. Deterministic and unit-tested without a GPU.
-CudaChunkPlan plan_cuda_chunking(std::size_t free_bytes,
-                                 std::size_t bytes_per_row, int image_rows,
-                                 int requested_chunk_rows = 0,
-                                 double reserve_fraction = 0.20,
-                                 std::size_t reserve_floor_bytes =
-                                     static_cast<std::size_t>(256) << 20);
-
-// A per-chunk device allocation failed: the driver of run_cuda_chunked() then
-// halves the chunk height and retries. Any OTHER exception from a chunk
-// processor is a hard failure --- run_cuda_chunked lets it propagate and the
-// caller restarts FORWARD_DRIZZLE on the CPU reference path (plan 19.4).
-struct CudaAllocFailure : std::runtime_error {
-  using std::runtime_error::runtime_error;
-};
-
-// Process one output-row band [y0, y0 + rows). Throw CudaAllocFailure to ask
-// for a smaller band; return normally on success.
-using CudaChunkProcessor = std::function<void(int y0, int rows)>;
-
-// §30.80 (P6 priority-3 groundwork): observed band structure of a
-// run_cuda_chunked drive. `halvings` counts CudaAllocFailure catches (band
-// collapse indicator); `min_band_rows` / `max_band_rows` are the actual
-// processed band heights (the planned `chunk_rows` does not reveal what the
-// ladder collapsed to). Pure telemetry, no behaviour change.
-struct CudaChunkRunStats {
-  int bands = 0;
-  int halvings = 0;
-  int min_band_rows = 0;
-  int max_band_rows = 0;
-};
 
 // --- Plan 19.2 stage 3/5 kernel building block ----------------------------
 
@@ -715,6 +666,11 @@ class ForwardDrizzleV2CudaPrototypeKernel {
                 ForwardDrizzleV2ProfileResult *profiles_or_null,
                 std::uint64_t *dense_overlap_count);
   const ForwardDrizzleV2PrototypeStats &stats() const { return stats_; }
+  // Diagnosis hook: after a false return caused by the CUDA runtime this
+  // holds cudaGetErrorString() of the failing call (prefixed with the API
+  // name). Empty when the failure was a contract violation, not a device
+  // error. Cleared by reserve()/begin_band().
+  const std::string &last_device_error() const { return last_device_error_; }
   std::size_t device_bytes_per_native_pixel() const {
     return bytes_per_native_pixel_;
   }
@@ -738,6 +694,7 @@ class ForwardDrizzleV2CudaPrototypeKernel {
   struct Impl;
   Impl *impl_ = nullptr;
   ForwardDrizzleV2PrototypeStats stats_;
+  std::string last_device_error_;
   std::size_t bytes_per_native_pixel_ = 0;
   std::size_t capacity_bytes_ = 0;
   // True until the first begin_band consumes the reservation reported by
@@ -765,16 +722,8 @@ struct ForwardDrizzleCudaProfile {
   std::atomic<double> dev_upload_s{0.0};   // H2D source copy
   std::atomic<double> dev_kernel_s{0.0};   // kernel launch + cudaDeviceSynchronize
   std::atomic<double> dev_download_s{0.0}; // D2H records + count
-  std::atomic<double> produce_s{0.0};      // whole PairFrameRecordProducer call
-  std::atomic<double> sort_s{0.0};         // std::sort of the frame's records
-  std::atomic<double> reduce_s{0.0};       // reduce_pixel_profiles loop
-  std::atomic<std::uint64_t> calls{0};     // accumulate_pair_impl invocations
-  std::atomic<std::uint64_t> records_sorted{0};  // sum of recs.size() over sorts
   void reset() {
     dev_malloc_s = dev_upload_s = dev_kernel_s = dev_download_s = 0.0;
-    produce_s = sort_s = reduce_s = 0.0;
-    calls = 0;
-    records_sorted = 0;
   }
 };
 ForwardDrizzleCudaProfile &forward_drizzle_cuda_profile();
@@ -784,17 +733,5 @@ inline void forward_drizzle_cuda_profile_add(std::atomic<double> &slot,
                                              double dt) {
   slot.fetch_add(dt, std::memory_order_relaxed);
 }
-
-// Plan-19.4 chunk driver (host-only, no device calls of its own). Walks the
-// image in bands of `plan.chunk_rows`; on CudaAllocFailure it halves the
-// CURRENT band height and retries the SAME band, down to `plan.min_chunk_rows`.
-// If a band still cannot be processed at the floor height, every temporary
-// CUDA store is void and the whole phase must restart on CPU --- signalled by
-// throwing ForwardDrizzleCudaError. Returns the number of bands committed.
-// `plan.feasible` must be true. `stats` (optional): observed band structure
-// (§30.80); filled on a normal return, untouched on a throw.
-int run_cuda_chunked(const CudaChunkPlan &plan, int image_rows,
-                     const CudaChunkProcessor &process,
-                     CudaChunkRunStats *stats = nullptr);
 
 }  // namespace tile_compile::reconstruction

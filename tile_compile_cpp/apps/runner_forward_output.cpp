@@ -5,6 +5,7 @@
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
 #include <cmath>
 #include <fstream>
+#include <iostream>
 
 namespace tile_compile::runner {
 void write_forward_downstream_inputs(const fs::path &dir,
@@ -35,7 +36,10 @@ void write_forward_downstream_inputs(const fs::path &dir,
   output_budget.chunk_rows = h;
   // Full output RGB/L, mask conversion, and downstream input serialization.
   // Fail before reading image planes if this working set does not fit.
-  reconstruction::plan_drizzle_memory(sampling, output_budget, 128);
+  reconstruction::plan_drizzle_memory_autogrow(
+      sampling, output_budget, 128, 0, true, [](const std::string &msg) {
+        std::cout << "[FORWARD_OUTPUT][warn] " << msg << std::endl;
+      });
   const auto outputs = dir / "outputs";
   const std::vector<std::string> channels = mono
       ? std::vector<std::string>{"L"} : std::vector<std::string>{"R", "G", "B"};

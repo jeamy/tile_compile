@@ -2,8 +2,6 @@
 
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
-#include "tile_compile/reconstruction/reconstruction.hpp"
-#include "tile_compile/reconstruction/aqmh_reconstruction.hpp"
 
 #include <cstddef>
 #include <memory>
@@ -29,10 +27,6 @@ enum class AccelerationBackend {
 
 enum class AccelerationPhase {
   prewarp = 0,
-  aqmh_maps,
-  aqmh_reconstruction,
-  tile_reconstruction,
-  stacking,
   // CFA-forward-drizzle single method (plan M6/M7). CUDA covers the droplet /
   // clipping / profile accumulation only; the a-trous fusion stays on the CPU
   // reference path (plan 19.2 stage 9).
@@ -169,90 +163,9 @@ public:
       bool *has_data_out = nullptr,
       cv::cuda::Stream *stream = nullptr) const;
 
-  reconstruction::WeightedTileResult sigma_clip_reduce(
-      const std::vector<Matrix2Df> &tiles, const std::vector<float> &weights,
-      float sigma_low, float sigma_high, int max_iters, float min_fraction,
-      float eps_weight,
-      cv::cuda::Stream *stream = nullptr) const;
-
-  Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df> &frames,
-                             float sigma_low, float sigma_high, int max_iters,
-                             float min_fraction,
-                             cv::cuda::Stream *stream = nullptr) const;
-
-  reconstruction::AqmhReconstructionResult reconstruct_aqmh(
-      size_t frame_count,
-      const reconstruction::AqmhFrameLoader &load_frame,
-      metrics::QualityMapCache *q_map_cache,
-      const VectorXf &global_weights,
-      const std::vector<uint8_t> &canvas_mask, int width, int height,
-      const reconstruction::AqmhReconstructionConfig &cfg,
-      cv::cuda::Stream *stream = nullptr,
-      const reconstruction::AqmhMaskLoader &load_frame_valid_mask = {},
-      const reconstruction::AqmhFrameRegionLoader &load_frame_region = {},
-      const reconstruction::AqmhMaskRegionLoader &load_frame_valid_mask_region = {},
-      const reconstruction::AqmhProgressCallback &progress = {}) const;
-
-  void overlap_add(const Matrix2Df &tile, const Tile &tile_bounds,
-                   const std::vector<float> &hann_x,
-                   const std::vector<float> &hann_y,
-                   const std::vector<uint8_t> &common_valid_mask,
-                   int canvas_width, Matrix2Df &accum, Matrix2Df &weight_sum,
-                   bool accumulate_weight = true) const;
-
-  void overlap_add(const Matrix2Df &tile, const Tile &tile_bounds,
-                   const Matrix2Df &coeff, Matrix2Df &accum,
-                   Matrix2Df &weight_sum,
-                   bool accumulate_weight = true) const;
-
-  void overlap_add_preweighted(const Matrix2Df &weighted_tile,
-                               const Tile &tile_bounds, Matrix2Df &accum,
-                               Matrix2Df &weight_sum,
-                               const Matrix2Df *weight_mask = nullptr,
-                               bool accumulate_weight = true) const;
-
-  bool normalize_overlap_accum(Matrix2Df &accum, Matrix2Df &weight_sum,
-                               float eps_weight,
-                               float invalid_value) const;
-  void flush_overlap_state(Matrix2Df &accum, Matrix2Df &weight_sum) const;
-
-  // --- GPU batch interface (B6) ---
-
-  /// Input bundle for one tile in a batch sigma-clip dispatch.
-  struct BatchSigmaClipInput {
-      std::vector<Matrix2Df> tile_frames; // per-frame tile crops
-      std::vector<float>     weights;     // per-frame quality weights
-  };
-
-  /// Process multiple tiles in a single GPU dispatch (reduces kernel-launch overhead).
-  /// Falls back to sequential sigma_clip_reduce() calls on CPU or on OpenCL error.
-  ///
-  /// @param tile_inputs   One entry per tile.
-  /// @param sigma_low     Lower sigma threshold for clipping.
-  /// @param sigma_high    Upper sigma threshold for clipping.
-  /// @param max_iters     Maximum sigma-clip iterations.
-  /// @param min_fraction  Minimum surviving pixel fraction.
-  /// @param eps_weight    Minimum weight to consider a frame.
-  std::vector<reconstruction::WeightedTileResult> sigma_clip_reduce_batch(
-      const std::vector<BatchSigmaClipInput>& tile_inputs,
-      float sigma_low,
-      float sigma_high,
-      int   max_iters,
-      float min_fraction,
-      float eps_weight,
-      cv::cuda::Stream *stream = nullptr) const;
-
 private:
-  struct OverlapAddState;
   AccelerationSelection selection_;
   std::string prewarp_interpolation_;
-  mutable std::unordered_map<const Matrix2Df *,
-                             std::shared_ptr<OverlapAddState>>
-      overlap_add_states_;
-  mutable std::unordered_map<const Matrix2Df *,
-                             std::shared_ptr<OverlapAddState>>
-      overlap_add_coeff_states_;
-  mutable std::shared_mutex overlap_add_mutex_;
 };
 
 } // namespace tile_compile::core

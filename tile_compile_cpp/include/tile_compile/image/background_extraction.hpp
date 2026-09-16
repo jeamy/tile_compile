@@ -243,6 +243,9 @@ struct BGEDiagnostics {
     float autotune_selected_structure_thresh_percentile = 0.0f;
     float autotune_selected_rbf_mu_factor = 0.0f;
     bool autotune_fallback_used = false;
+    // Set when a per-channel slope_worsened veto was overridden because the
+    // correction still improved the inter-channel background level spread.
+    std::string guard_override;
     bool safety_fallback_triggered = false;
     std::string safety_fallback_method;
     std::string safety_fallback_reason;

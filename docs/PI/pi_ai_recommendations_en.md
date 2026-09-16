@@ -110,7 +110,7 @@ The `scan-metrics` phase computes the following aggregates per dataset:
 Aggregates include `median`, `mean`, `std`, `min`, `max`, `p10`, `p90`.
 
 The AI uses these values as **measured facts** — not assumptions — for recommendations
-regarding `aqmh.cherry_pick`, `local_metrics`, `global_metrics.weights`, and sigma-clip parameters.
+regarding `reconstruction.drizzle.*`, `reconstruction.clipping.*`, `global_metrics.weights`, and sigma-clip parameters.
 
 ### Metrics Cache
 
@@ -213,5 +213,6 @@ Saved to `.ai_analyses/<Target>_<Date>.json`.
 
 - [PI Parameter Studio](scan_ai_parameterstudio.md)
 - [Configuration Reference](../configuration_reference_en.md)
-- [AQMH Methodology](../AQMH/aqmh_methodik_en_v0.2.1.md)
+- [CFA Forward Drizzle + Multiband](../guides/cfa_forward_drizzle_pipeline_en.md)
+- [AQMH Methodology (historical)](../AQMH/aqmh_methodik_en_v0.2.1.md)
 - 🇩🇪 [Deutsche Version](pi_ki_empfehlungen_de.md)

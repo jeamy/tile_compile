@@ -40,12 +40,21 @@ TEST_CASE("migration rejects a top-level 'method' key fail-closed (plan 6.5)") {
 }
 
 TEST_CASE("migration rejects a reconstruction engine key (plan 6.5)") {
-  ConfigMigrationReport report;
-  YAML::Node a = load("aqmh:\n  reconstruction:\n    engine: cuda\n");
-  REQUIRE_THROWS_AS(migrate_legacy_config_node(a, report), ConfigError);
   YAML::Node b = load("reconstruction:\n  engine: foo\n");
   ConfigMigrationReport r2;
   REQUIRE_THROWS_AS(migrate_legacy_config_node(b, r2), ConfigError);
+}
+
+TEST_CASE("migration strips the removed aqmh block wholesale (plan 6.5)") {
+  YAML::Node a = load(
+      "aqmh:\n  reconstruction:\n    engine: cuda\n  pyramid:\n    scales: 4\n"
+      "normalization:\n  enabled: true\n");
+  ConfigMigrationReport report;
+  REQUIRE_NOTHROW(migrate_legacy_config_node(a, report));
+  REQUIRE(report.applied);
+  REQUIRE(has(report.stripped_keys, "aqmh"));
+  REQUIRE_FALSE(a["aqmh"]);
+  REQUIRE(a["normalization"]);
 }
 
 TEST_CASE("migration strips removed structural blocks with a report (plan 6.5)") {
@@ -85,28 +94,49 @@ TEST_CASE("migration strips removed sub-keys but keeps their parent block "
       "stacking:\n  method: rej\n  common_overlap_required_fraction: 1\n"
       "  sigma_clip:\n    sigma_low: 2\n"
       "validation:\n  min_fwhm_improvement_percent: 5\n"
-      "  require_no_tile_pattern: true\n  min_tile_weight_variance: 0.1\n";
+      "  require_no_tile_pattern: true\n  min_tile_weight_variance: 0.1\n"
+      "runtime_limits:\n  allow_emergency_mode: true\n"
+      "  tile_analysis_max_factor_vs_stack: 3\n"
+      "  tile_reconstruction_diagnostics: full\n  parallel_workers: 8\n"
+      "pipeline:\n  mode: production\n"
+      "assumptions:\n  frames_min: 50\n";
   YAML::Node n = load(yaml);
   ConfigMigrationReport report;
   REQUIRE_NOTHROW(migrate_legacy_config_node(n, report));
 
-  REQUIRE(has(report.stripped_keys, "dithering.min_shift_px"));
+  // dithering.min_shift_px is live config and must survive untouched.
+  REQUIRE_FALSE(has(report.stripped_keys, "dithering.min_shift_px"));
   REQUIRE(has(report.stripped_keys, "stacking.method"));
   REQUIRE(has(report.stripped_keys, "stacking.sigma_clip"));
-  REQUIRE(has(report.stripped_keys, "validation.require_no_tile_pattern"));
-  REQUIRE(has(report.stripped_keys, "validation.min_tile_weight_variance"));
+  REQUIRE(has(report.stripped_keys, "validation"));
+  REQUIRE(has(report.stripped_keys, "runtime_limits.allow_emergency_mode"));
+  REQUIRE(has(report.stripped_keys,
+              "runtime_limits.tile_analysis_max_factor_vs_stack"));
+  REQUIRE(has(report.stripped_keys,
+              "runtime_limits.tile_reconstruction_diagnostics"));
+  REQUIRE(has(report.stripped_keys, "pipeline"));
+  REQUIRE(has(report.stripped_keys, "assumptions"));
 
   REQUIRE(n["dithering"]);
   REQUIRE(n["dithering"]["enabled"]);
-  REQUIRE_FALSE(n["dithering"]["min_shift_px"]);
+  REQUIRE(n["dithering"]["min_shift_px"]);
+
+  REQUIRE(n["runtime_limits"]);
+  REQUIRE(n["runtime_limits"]["parallel_workers"]);
+  REQUIRE_FALSE(n["runtime_limits"]["allow_emergency_mode"]);
+  REQUIRE_FALSE(n["runtime_limits"]["tile_analysis_max_factor_vs_stack"]);
+  REQUIRE_FALSE(n["runtime_limits"]["tile_reconstruction_diagnostics"]);
+
+  REQUIRE_FALSE(n["pipeline"]);
+  REQUIRE_FALSE(n["assumptions"]);
 
   REQUIRE(n["stacking"]);
-  REQUIRE(n["stacking"]["common_overlap_required_fraction"]);  // kept
+  REQUIRE_FALSE(n["stacking"]["common_overlap_required_fraction"]);
+  REQUIRE(n["reconstruction"]["common_overlap_required_fraction"]);
   REQUIRE_FALSE(n["stacking"]["method"]);
   REQUIRE_FALSE(n["stacking"]["sigma_clip"]);
 
-  REQUIRE(n["validation"]["min_fwhm_improvement_percent"]);  // kept
-  REQUIRE_FALSE(n["validation"]["require_no_tile_pattern"]);
+  REQUIRE_FALSE(n["validation"]);
 }
 
 TEST_CASE("migration is a no-op on an already-clean config (plan 6.5)") {

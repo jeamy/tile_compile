@@ -2,7 +2,7 @@
 
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/metrics/metrics.hpp"
-#include "tile_compile/reconstruction/aqmh_validation.hpp"
+#include "tile_compile/reconstruction/stack_validation.hpp"
 
 #include <nlohmann/json.hpp>
 #include <opencv2/core.hpp>
@@ -153,7 +153,7 @@ std::vector<ValidationStar> prepare_validation_samples(
   // Star detection is a general validation helper (plan 15.4) --- reused from
   // the existing pairwise path; no legacy decision code is touched.
   const auto ref =
-      prepare_aqmh_validation_reference(uniform_control, validation_mask);
+      prepare_stack_validation_reference(uniform_control, validation_mask);
   std::vector<ValidationStar> stars;
   stars.reserve(ref.stars.size());
   for (const auto &s : ref.stars) {
@@ -354,16 +354,16 @@ MultibandValidationResult select_reconstruction_candidate(
     if (s.multiband_effective) ++r.stars_multiband_effective;
 
   // --- field / tail metrics at the fixed star set (measurement reuse) -------
-  AqmhValidationReference ref;
+  StackValidationReference ref;
   ref.width = width;
   ref.height = height;
   for (const auto &s : stars) ref.stars.push_back({s.x, s.y, s.peak});
   ref.metrics =
-      compare_aqmh_to_reference(drizzle_uniform, ref, validation_mask).aqmh;
+      compare_stack_to_reference(drizzle_uniform, ref, validation_mask).candidate;
   const auto raw_cmp =
-      compare_aqmh_to_reference(drizzle_raw, ref, validation_mask);
+      compare_stack_to_reference(drizzle_raw, ref, validation_mask);
   const auto mb_cmp =
-      compare_aqmh_to_reference(drizzle_multiband, ref, validation_mask);
+      compare_stack_to_reference(drizzle_multiband, ref, validation_mask);
 
   auto fill_field = [](ValidationMetric &m, double value, bool applicable,
                        int count, const char *why) {
@@ -378,11 +378,11 @@ MultibandValidationResult select_reconstruction_candidate(
   // change background noise).
   fill_field(r.uniform.background_rms, ref.metrics.background_rms, true,
              ref.metrics.star_count, "");
-  fill_field(r.raw.background_rms, raw_cmp.aqmh.background_rms,
-             raw_cmp.background_rms_applicable, raw_cmp.aqmh.star_count,
+  fill_field(r.raw.background_rms, raw_cmp.candidate.background_rms,
+             raw_cmp.background_rms_applicable, raw_cmp.candidate.star_count,
              "control background_rms degenerate");
-  fill_field(r.multiband.background_rms, mb_cmp.aqmh.background_rms,
-             mb_cmp.background_rms_applicable, mb_cmp.aqmh.star_count,
+  fill_field(r.multiband.background_rms, mb_cmp.candidate.background_rms,
+             mb_cmp.background_rms_applicable, mb_cmp.candidate.star_count,
              "control background_rms degenerate");
 
   // seam: a fresh interior-edge metric (plan 14.7), NOT the legacy
@@ -414,17 +414,17 @@ MultibandValidationResult select_reconstruction_candidate(
   fill_field(r.multiband.seam_score, seam_m, seam_applicable,
              static_cast<int>(seam_edge.size()), "seam not measurable");
 
-  const int nstar = mb_cmp.aqmh.star_count;
+  const int nstar = mb_cmp.candidate.star_count;
   const bool tail_count_ok =
       nstar >= cfg.min_stars_p90_tail_elongation &&
-      raw_cmp.aqmh.star_count >= cfg.min_stars_p90_tail_elongation;
-  fill_field(r.raw.tail, raw_cmp.aqmh.tail11_abs_median, tail_count_ok,
-             raw_cmp.aqmh.star_count, "fewer than 30 matched stars");
-  fill_field(r.multiband.tail, mb_cmp.aqmh.tail11_abs_median, tail_count_ok,
+      raw_cmp.candidate.star_count >= cfg.min_stars_p90_tail_elongation;
+  fill_field(r.raw.tail, raw_cmp.candidate.tail11_abs_median, tail_count_ok,
+             raw_cmp.candidate.star_count, "fewer than 30 matched stars");
+  fill_field(r.multiband.tail, mb_cmp.candidate.tail11_abs_median, tail_count_ok,
              nstar, "fewer than 30 matched stars");
-  fill_field(r.raw.elongation, raw_cmp.aqmh.elongation_median, tail_count_ok,
-             raw_cmp.aqmh.star_count, "fewer than 30 matched stars");
-  fill_field(r.multiband.elongation, mb_cmp.aqmh.elongation_median, tail_count_ok,
+  fill_field(r.raw.elongation, raw_cmp.candidate.elongation_median, tail_count_ok,
+             raw_cmp.candidate.star_count, "fewer than 30 matched stars");
+  fill_field(r.multiband.elongation, mb_cmp.candidate.elongation_median, tail_count_ok,
              nstar, "fewer than 30 matched stars");
 
   // --- per-star FWHM (new in plan 15): compare raw vs multiband on the SAME
