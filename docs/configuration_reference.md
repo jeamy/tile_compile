@@ -2022,6 +2022,14 @@ VeraLux HyperMetric Stretch (HMS) ist eine optionale finale RGB-Stretch-Phase na
 
 **Zweck:** Direkte VeraLux-Parameter. `linear_expansion` wirkt nur in `mode: scientific`; in `ready_to_use` wird es wie in der Python-Vorlage ignoriert.
 
+### `hypermetric_stretch.highlight_ceiling_percentile`
+
+| Key | Typ | Default | Constraint |
+|-----|-----|---------|------------|
+| `hypermetric_stretch.highlight_ceiling_percentile` | number | `100.0` | 90 – 100 |
+
+**Zweck:** In `ready_to_use` berechnet `adaptive_output_scaling` den finalen Kontrast-Scale als `min(contrast_scale, physical_scale)`, wobei `physical_scale` standardmäßig (`100`) so gewählt wird, dass der **tatsächlich hellste reale Pixel** nie über 1.0 geht. Bei einem Ziel mit einem einzelnen sehr hellen, kompakten Highlight (z. B. einem Nebelkern) deckelt das den Kontrast des **gesamten** Bildes weit unter das, was der Rest des Bildes sonst nutzen könnte — auf einem realen M42-Run lag `physical_scale` dadurch bei nur ~0,6 % von `contrast_scale`, obwohl `black_clip_percent`/`white_clip_percent` beide exakt `0.0` blieben. Ein niedrigerer Wert (z. B. `99.9`) ersetzt den exakten Max-Pixel durch ein Perzentil und lässt damit einen kleinen, begrenzten Anteil der hellsten Pixel bewusst clippen, im Tausch gegen deutlich mehr Kontrast in Sternen/Highlight-Bereichen. Wichtig: Das bewegt nur die obersten ~1–2 % der Helligkeitsverteilung — der Median/Hintergrund bleibt exakt bei `target_bg` gepinnt (der finale MTF-Abgleich sorgt dafür, unabhängig vom Ceiling-Wert). Um auch den dunklen/mittleren Bildbereich (Himmel, schwache Nebelschwaden) aufzuhellen, muss zusätzlich `target_bg` angehoben werden — beide Hebel sind unabhängig und additiv, keine Alternativen.
+
 ### `hypermetric_stretch.write_channels`, `hypermetric_stretch.output_rgb`
 
 | Key | Typ | Default |
@@ -2464,6 +2472,7 @@ HMS ist per Default aktiv. Die Detailparameter entsprechen dem normalen Tile-Com
 | `hypermetric_stretch.color_grip` | number | `1.0` |
 | `hypermetric_stretch.shadow_convergence` | number | `0.0` |
 | `hypermetric_stretch.linear_expansion` | number | `0.0` |
+| `hypermetric_stretch.highlight_ceiling_percentile` | number | `100.0` |
 | `hypermetric_stretch.write_channels` | boolean | `false` |
 | `hypermetric_stretch.output_rgb` | string | `stacked_rgb_hms.fits` |
 
@@ -2616,6 +2625,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `hypermetric_stretch.log_d_mode`, `fixed_log_d`: automatische oder fixe Stretch-Stärke.
 - `hypermetric_stretch.color_strategy`, `fixed_color_strategy`, `color_grip`, `shadow_convergence`: Farbstrategie und Hybrid-Grip-Parameter.
 - `hypermetric_stretch.linear_expansion`: nur in `mode: scientific` wirksame lineare Expansion.
+- `hypermetric_stretch.highlight_ceiling_percentile`: Perzentil-Ceiling (statt des tatsächlichen Max-Pixels) für den Highlight-Schutz in `ready_to_use`; niedriger als 100 tauscht begrenztes Clipping gegen mehr Kontrast, ohne den an `target_bg` gepinnten Hintergrund zu bewegen.
 - `hypermetric_stretch.write_channels`, `output_rgb`: HMS-Ausgabeoptionen.
 - `runtime_limits.parallel_workers`: Obergrenze für Worker-Threads.
 - `runtime_limits.memory_budget`: Speicherbudget, das effektive Parallelität begrenzen kann.

@@ -267,6 +267,69 @@ pcc:
 
 ---
 
+## Chroma Denoise / Background Color Bias (`chroma_denoise.*`)
+
+**When to enable:**
+- Chroma noise ("confetti") in the background after the stack
+- Broad color casts/blotches that `chroma_wavelet`/`chroma_bilateral` alone
+  don't remove
+
+**`large_scale_bias` — only for objects whose full extent is covered by the mask:**
+
+`large_scale_bias` fits a smooth "background" color surface from every pixel
+**outside** `extended_source_protection` (plus star/structure protection)
+and subtracts it. This is safe only when that mask covers the visible
+object completely — otherwise real object color outside the mask gets read
+as bias and removed.
+
+```yaml
+# Compact object (e.g. a galaxy like M31): a genuinely flat sky remains
+# outside the object, so extended_source_protection can cover it fully.
+chroma_denoise:
+  extended_source_protection:
+    enabled: true
+    luma_sigma: 2.5
+    dilate_px: 15
+  large_scale_bias:
+    enabled: true
+    block_size: 32
+    blur_sigma: 24.0
+    strength: 1.0
+```
+
+```yaml
+# Large diffuse emission nebula (M42-class): the nebula fills most of the
+# frame and fades gradually into the sky — no luma threshold isolates
+# "just the nebula" from background. Keep large_scale_bias off.
+chroma_denoise:
+  extended_source_protection:
+    enabled: true
+    luma_sigma: 2.5
+    dilate_px: 15
+  large_scale_bias:
+    enabled: false
+```
+
+- **Background:** on a real M42 run, `luma_sigma: 2.5` (the schema default)
+  covered only `extended_source_protected_fraction ≈ 0.01`
+  (`artifacts/chroma_denoise.json`) — just the bright Trapezium core. The
+  remaining ~99% of the frame, mostly real colored nebulosity, was treated
+  as background and subtracted, leaving a blue ring at the mask boundary
+  and yellow/green blotches across the nebula
+  (`large_scale_bias_removed_rms_c1`/`_c2` was clearly > 0). A `luma_sigma`
+  scan on the same frame found no safe middle ground either: `1.0` → ~7%
+  coverage, `0.75` → already ~49% — there is no threshold between "misses
+  the nebula" and "protects half the frame".
+- **Diagnose it:** compare `extended_source_protected_fraction` in
+  `artifacts/chroma_denoise.json` against the target's true visual extent
+  (not just against `extended_source_sky_sigma`). A large gap plus a
+  nonzero `large_scale_bias_removed_rms_c1`/`_c2` is this failure mode.
+- Both the C++ struct default and the schema default for
+  `large_scale_bias.enabled` are `false` (opt-in); only enable it for
+  compact targets where mask coverage is verified.
+
+---
+
 ## HyperMetric Stretch after PCC
 
 HMS is optional and runs after PCC. Keep it disabled when you only need the linear calibrated output; enable it when the run should also produce a directly viewable VeraLux-stretched RGB file.
@@ -301,6 +364,25 @@ hypermetric_stretch:
 ```
 
 `scientific` skips the final ready-to-use scaling/soft clip and allows `linear_expansion`. Use it when you want a less polished, more controlled stretch for later processing.
+
+**More dynamics/"punch" (consumer-stack-style look):**
+
+In `ready_to_use` mode, `adaptive_output_scaling` computes the final contrast scale as `min(contrast_scale, physical_scale)`, where `physical_scale` by default is chosen so the **single brightest real pixel** (e.g. a very bright, compact nebula core) never exceeds 1.0. On a real M42 run this made `physical_scale` only **0.6%** of `contrast_scale` — the rest of the frame was compressed into a tiny fraction of the achievable contrast, even though `black_clip_percent`/`white_clip_percent` both stayed exactly `0.0`. Consumer stacks (e.g. DWARF II's onboard processing) go the opposite way: they deliberately blow out the core to give the rest more contrast.
+
+```yaml
+hypermetric_stretch:
+  enabled: true
+  mode: ready_to_use
+  target_bg: 0.20                    # lifts sky/faint nebulosity uniformly
+  highlight_ceiling_percentile: 99.9  # 100 = never clip (default); lower = deliberate, bounded clipping of the brightest pixels for more contrast
+```
+
+Important, backed by numbers from the same simulation:
+- `highlight_ceiling_percentile` alone moves **only the top ~1-2%** of the brightness distribution (stars, core edge) — the median/background stays pinned exactly at `target_bg` (the final MTF match anchors it there regardless of the ceiling value). p20/p50/p90 percentiles change by < 2%.
+- To also brighten/"fill out" the **dark/mid-tone** area (sky, faint nebula wisps), `target_bg` must be raised as well — it scales p20/p50/p90 almost proportionally.
+- Both levers are independent and **additive**, not alternatives.
+- Remaining gap to a strongly saturated consumer look (e.g. DWARF II): pure **color saturation** — there is currently no HMS parameter for that; `color_grip`/`chroma_strength` only control how strongly color is pulled into the stretch, not the overall saturation afterward.
+- `highlight_ceiling_percentile` is clamped to `[90, 100]` (validated); values below that would clip too large a share of the frame.
 
 ---
 

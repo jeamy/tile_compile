@@ -996,6 +996,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
          {"color_strategy", hms_diag.color_strategy},
          {"color_grip", hms_diag.color_grip},
          {"shadow_convergence", hms_diag.shadow_convergence},
+         {"highlight_ceiling_percentile", hms_diag.highlight_ceiling_percentile},
          {"black_clip_percent", hms_diag.black_clip_percent},
          {"white_clip_percent", hms_diag.white_clip_percent}},
         log_file);

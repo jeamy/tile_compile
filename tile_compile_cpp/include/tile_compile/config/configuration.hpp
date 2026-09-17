@@ -515,6 +515,13 @@ struct HyperMetricStretchConfig {
   float color_grip = 1.0f;
   float shadow_convergence = 0.0f;
   float linear_expansion = 0.0f;
+  // Percentile used as the "must not clip" highlight reference in
+  // ready_to_use's adaptive output scaling; 100 = true brightest pixel
+  // (never clips, previous behaviour). Lowering it (e.g. 99.9) allows a
+  // small, bounded top fraction of pixels to clip in exchange for more
+  // contrast in stars/highlights; it does not move the mid-tone/background
+  // level, which stays pinned to target_bg regardless.
+  float highlight_ceiling_percentile = 100.0f;
   bool write_channels = false;
   std::string output_rgb = "stacked_rgb_hms.fits";
 };

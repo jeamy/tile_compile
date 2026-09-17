@@ -25,6 +25,18 @@ struct HyperMetricStretchConfig {
   float color_grip = 1.0f;
   float shadow_convergence = 0.0f;
   float linear_expansion = 0.0f;
+  // Percentile (per output channel, sampled the same way as the 99th-
+  // percentile contrast ceiling) used as the "must not clip" highlight
+  // reference in ready_to_use's adaptive_output_scaling. 100 (default)
+  // reproduces the previous behaviour exactly: the true brightest real
+  // pixel never clips, which on a target with one very bright, compact
+  // highlight (e.g. a nebula's core) caps the contrast scale far below
+  // what the rest of the frame could otherwise use. Lowering it (e.g. to
+  // 99.9) allows that small, bounded top fraction of pixels to clip in
+  // exchange for materially more contrast in stars and highlight regions;
+  // it does not change the mid-tone/background level, which stays pinned
+  // to target_bg regardless.
+  float highlight_ceiling_percentile = 100.0f;
   bool write_channels = false;
   std::string output_rgb = "stacked_rgb_hms.fits";
 };
@@ -47,6 +59,7 @@ struct HyperMetricStretchDiagnostics {
   float color_grip = 1.0f;
   float shadow_convergence = 0.0f;
   float linear_expansion = 0.0f;
+  float highlight_ceiling_percentile = 100.0f;
   float black_clip_percent = 0.0f;
   float white_clip_percent = 0.0f;
   std::string error_message;

@@ -1817,10 +1817,13 @@ VeraLux HyperMetric Stretch (HMS) is an optional final RGB stretch phase after P
 | `hypermetric_stretch.color_grip` | number | `1.0` | 0 - 1 |
 | `hypermetric_stretch.shadow_convergence` | number | `0.0` | >= 0 |
 | `hypermetric_stretch.linear_expansion` | number | `0.0` | 0 - 1 |
+| `hypermetric_stretch.highlight_ceiling_percentile` | number | `100.0` | 90 - 100 |
 | `hypermetric_stretch.write_channels` | boolean | `false` | |
 | `hypermetric_stretch.output_rgb` | string | `stacked_rgb_hms.fits` | non-empty |
 
 `ready_to_use` follows the VeraLux GUI default with output scaling to `target_bg` and final soft clip. `scientific` skips the ready-to-use final scaling/soft clip and allows `linear_expansion`.
+
+**`highlight_ceiling_percentile`:** in `ready_to_use`, `adaptive_output_scaling` computes the final contrast scale as `min(contrast_scale, physical_scale)`, where `physical_scale` by default (`100`) is chosen so the **true brightest real pixel** never exceeds 1.0. On a target with one very bright, compact highlight (e.g. a nebula core), this caps the contrast of the **entire** frame far below what the rest of the image could otherwise use — on a real M42 run this left `physical_scale` at only ~0.6% of `contrast_scale`, even though `black_clip_percent`/`white_clip_percent` both stayed exactly `0.0`. A lower value (e.g. `99.9`) replaces the exact max pixel with a percentile, deliberately clipping a small, bounded fraction of the brightest pixels in exchange for materially more contrast in stars/highlight regions. Important: this only moves the top ~1-2% of the tone range — the median/background stays pinned exactly at `target_bg` (the final MTF match anchors it there regardless of the ceiling value). To also brighten the dark/mid-tone body (sky, faint nebulosity), raise `target_bg` as well — both levers are independent and additive, not alternatives.
 
 The default is the explicit `rec709` profile. Concrete VeraLux profile names can be set directly. `auto` remains accepted for compatibility and currently uses `fallback_profile`, but it is no longer recommended as the default. The sensor profiles are defined in `tile_compile_cpp/src/image/hypermetric_stretch.cpp` in `profiles()`. Profile matching is normalized, so case, spaces, and punctuation are tolerated; the recommended YAML values are:
 
@@ -2052,6 +2055,7 @@ HMS is enabled by default. Its detailed parameters match the normal Tile-Compile
 | `hypermetric_stretch.color_grip` | number | `1.0` |
 | `hypermetric_stretch.shadow_convergence` | number | `0.0` |
 | `hypermetric_stretch.linear_expansion` | number | `0.0` |
+| `hypermetric_stretch.highlight_ceiling_percentile` | number | `100.0` |
 | `hypermetric_stretch.write_channels` | boolean | `false` |
 | `hypermetric_stretch.output_rgb` | string | `stacked_rgb_hms.fits` |
 
@@ -2202,6 +2206,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `hypermetric_stretch.log_d_mode`, `fixed_log_d`: automatic or fixed stretch strength.
 - `hypermetric_stretch.color_strategy`, `fixed_color_strategy`, `color_grip`, `shadow_convergence`: color strategy and hybrid grip controls.
 - `hypermetric_stretch.linear_expansion`: scientific-mode-only linear expansion.
+- `hypermetric_stretch.highlight_ceiling_percentile`: percentile ceiling (instead of the true max pixel) for ready_to_use's highlight-protection scale; lower than 100 trades bounded clipping for more contrast, without moving the target_bg-pinned background.
 - `hypermetric_stretch.write_channels`, `output_rgb`: HMS output controls.
 - `runtime_limits.parallel_workers`: upper bound for worker threads.
 - `runtime_limits.memory_budget`: memory budget that can cap effective parallelism.

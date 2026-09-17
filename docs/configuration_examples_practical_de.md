@@ -269,6 +269,72 @@ pcc:
 
 ---
 
+## Chroma-Denoise / Hintergrund-Farbbias (`chroma_denoise.*`)
+
+**Wann aktivieren:**
+- Farbrauschen ("Konfetti") im Hintergrund nach dem Stack
+- Breitflächige Farbstiche/-flecken, die `chroma_wavelet`/`chroma_bilateral`
+  allein nicht entfernen
+
+**`large_scale_bias` — nur für Objekte, deren gesamte Fläche die Maske abdeckt:**
+
+`large_scale_bias` schätzt eine glatte "Hintergrund"-Farbfläche aus allen
+Pixeln **außerhalb** von `extended_source_protection` (plus Stern-/
+Struktur-Schutz) und zieht sie ab. Das ist nur sicher, wenn diese Maske das
+sichtbare Objekt vollständig abdeckt — sonst wird echte Objektfarbe
+außerhalb der Maske als "Bias" fehlinterpretiert und herausgerechnet.
+
+```yaml
+# Kompaktes Objekt (z.B. Galaxie M31): außerhalb bleibt echter, flacher
+# Himmelshintergrund — extended_source_protection kann das Objekt
+# vollständig abdecken.
+chroma_denoise:
+  extended_source_protection:
+    enabled: true
+    luma_sigma: 2.5
+    dilate_px: 15
+  large_scale_bias:
+    enabled: true
+    block_size: 32
+    blur_sigma: 24.0
+    strength: 1.0
+```
+
+```yaml
+# Großflächiger diffuser Emissionsnebel (M42-Klasse): der Nebel füllt
+# einen Großteil des Bildfelds und geht graduell in den Himmel über —
+# kein Schwellenwert trennt "nur den Nebel" vom Hintergrund.
+# large_scale_bias deaktiviert lassen.
+chroma_denoise:
+  extended_source_protection:
+    enabled: true
+    luma_sigma: 2.5
+    dilate_px: 15
+  large_scale_bias:
+    enabled: false
+```
+
+- **Hintergrund:** In einem realen M42-Run deckte `luma_sigma: 2.5`
+  (Schema-Default) nur `extended_source_protected_fraction ≈ 0.01`
+  (`artifacts/chroma_denoise.json`) ab — nur der helle Trapez-Kern. Die
+  übrigen ~99% des Bildes, größtenteils echter, farbiger Nebel, wurden als
+  Hintergrund behandelt und herausgerechnet: Ergebnis war ein blauer Ring
+  an der Maskengrenze und gelbgrüne Flecken über den gesamten Nebel
+  (`large_scale_bias_removed_rms_c1`/`_c2` war deutlich > 0). Ein
+  `luma_sigma`-Scan auf demselben Frame fand ebenfalls keinen brauchbaren
+  Mittelweg: `1.0` → ~7% Abdeckung, `0.75` → bereits ~49% — es gibt keinen
+  Schwellenwert zwischen "verfehlt den Nebel" und "schützt halbes Bild".
+- **Diagnose:** `extended_source_protected_fraction` in
+  `artifacts/chroma_denoise.json` gegen den tatsächlichen sichtbaren
+  Objektumfang prüfen (nicht nur gegen `extended_source_sky_sigma`). Eine
+  große Lücke zusammen mit `large_scale_bias_removed_rms_c1`/`_c2` > 0 ist
+  genau dieses Fehlerbild.
+- Sowohl der C++-Struct-Default als auch der Schema-Default von
+  `large_scale_bias.enabled` sind `false` (Opt-in); nur bei kompakten
+  Zielen aktivieren, bei denen die Maskenabdeckung verifiziert ist.
+
+---
+
 ## HyperMetric Stretch nach PCC
 
 HMS ist optional und läuft nach PCC. Deaktiviert lassen, wenn nur das lineare kalibrierte Ergebnis benötigt wird; aktivieren, wenn der Run zusätzlich ein direkt betrachtbares VeraLux-gestretchtes RGB erzeugen soll.
@@ -303,6 +369,25 @@ hypermetric_stretch:
 ```
 
 `scientific` überspringt das finale Ready-to-Use-Scaling und den Soft Clip und erlaubt `linear_expansion`. Sinnvoll, wenn ein weniger poliertes, kontrollierteres Stretch-Ergebnis für weitere Bearbeitung gewünscht ist.
+
+**Mehr Dynamik/"Punch" (Consumer-Stack-artiger Look):**
+
+Im `ready_to_use`-Modus berechnet `adaptive_output_scaling` den finalen Kontrast-Scale als `min(contrast_scale, physical_scale)`, wobei `physical_scale` standardmäßig so gewählt wird, dass der **hellste einzelne reale Pixel** (z. B. ein sehr heller, kompakter Nebelkern) nie über 1.0 geht. Auf einem realen M42-Run war `physical_scale` dadurch nur **0,6 %** von `contrast_scale` — der komplette Rest des Bildes wurde auf einen winzigen Bruchteil des möglichen Kontrasts gestaucht, obwohl `black_clip_percent`/`white_clip_percent` beide exakt `0.0` blieben. Consumer-Stacks (z. B. das DWARF-II-Onboard-Processing) gehen den umgekehrten Weg: sie lassen den Kern bewusst ausbrennen, um dem Rest mehr Kontrast zu geben.
+
+```yaml
+hypermetric_stretch:
+  enabled: true
+  mode: ready_to_use
+  target_bg: 0.20                    # hebt Himmel/schwachen Nebel gleichmäßig an
+  highlight_ceiling_percentile: 99.9  # 100 = nie clippen (Default); niedriger = bewusstes, begrenztes Clipping der hellsten Pixel für mehr Kontrast
+```
+
+Wichtig, mit Zahlen aus derselben Simulation belegt:
+- `highlight_ceiling_percentile` allein bewegt **nur die obersten ~1–2 %** der Helligkeitsverteilung (Sterne, Kernrand) — der Median/Hintergrund bleibt exakt bei `target_bg` (der finale MTF-Abgleich pinnt ihn dorthin, unabhängig vom Ceiling-Wert). p20/p50/p90-Perzentile ändern sich um < 2 %.
+- Um auch den **dunklen/mittleren Bereich** (Himmel, schwache Nebelschwaden) heller/"voller" zu machen, muss zusätzlich `target_bg` angehoben werden — es skaliert p20/p50/p90 praktisch proportional mit.
+- Beide Hebel sind unabhängig und **additiv**, keine Alternativen.
+- Verbleibender Rest-Unterschied zu einem stark sättigenden Consumer-Look (z. B. DWARF II): reine **Farbsättigung** — dafür gibt es aktuell keinen HMS-Parameter; `color_grip`/`chroma_strength` steuern nur, wie stark Farbe beim Stretch mitgezogen wird, nicht die globale Sättigung danach.
+- `highlight_ceiling_percentile` ist auf `[90, 100]` begrenzt (Validierung); Werte darunter würden einen zu großen Anteil des Bildes clippen.
 
 ---
 

@@ -226,6 +226,77 @@ TEST_CASE("hypermetric_ready_to_use_preserves_extended_highlight_headroom") {
   REQUIRE(B(kSize / 2, kSize / 2) < 1.0f);
 }
 
+TEST_CASE("hypermetric_highlight_ceiling_percentile_trades_clip_for_contrast") {
+  // Mirrors the real-world failure mode this parameter addresses: a large,
+  // moderately bright extended body (most of the frame, up to ~p99) plus a
+  // small, much brighter compact core (a handful of pixels, well above
+  // p99) -- e.g. a nebula body vs. its bright Trapezium-like core. At the
+  // default ceiling (100 = true max), that one small spike caps the
+  // contrast scale for the *entire* frame. Lowering the ceiling percentile
+  // should (a) leave the background/median level unchanged -- it stays
+  // pinned to target_bg by the final MTF match, independent of the ceiling
+  // -- while (b) increasing contrast/brightness for the extended body, in
+  // exchange for a small, bounded amount of intentional clipping confined
+  // to the spike.
+  auto run_with_ceiling = [](float ceiling_percentile) {
+    constexpr int kSize = 160;
+    tile_compile::Matrix2Df R(kSize, kSize);
+    tile_compile::Matrix2Df G(kSize, kSize);
+    tile_compile::Matrix2Df B(kSize, kSize);
+    for (int y = 0; y < kSize; ++y) {
+      for (int x = 0; x < kSize; ++x) {
+        const float dx = static_cast<float>(x - kSize / 2);
+        const float dy = static_cast<float>(y - kSize / 2);
+        const float r2 = dx * dx + dy * dy;
+        // Broad, extended body: most of the frame sits on this shoulder.
+        const float body = 0.10f * std::exp(-r2 / 4000.0f);
+        // Small, compact, much brighter core: only a few dozen pixels.
+        const float spike = 0.85f * std::exp(-r2 / 8.0f);
+        const float base = 0.006f + body + spike;
+        R(y, x) = base * 1.03f;
+        G(y, x) = base;
+        B(y, x) = base * 0.92f;
+      }
+    }
+
+    tile_compile::image::HyperMetricStretchConfig cfg;
+    cfg.enabled = true;
+    cfg.mode = "ready_to_use";
+    cfg.adaptive_anchor = false;
+    cfg.log_d_mode = "fixed";
+    cfg.fixed_log_d = 3.5f;
+    cfg.target_bg = 0.12f;
+    cfg.highlight_ceiling_percentile = ceiling_percentile;
+
+    const auto diag =
+        tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);
+    REQUIRE(diag.success);
+    // A point out on the extended body, far from the compact core --
+    // representative of the "relatively dark/mid-tone" nebula-body pixels
+    // the ceiling change is meant to brighten.
+    const int body_pt = kSize / 2 + 30;
+    return std::tuple<float, float, float>{
+        median_matrix(G), G(body_pt, kSize / 2), diag.white_clip_percent};
+  };
+
+  const auto [g_med_default, g_body_default, white_clip_default] =
+      run_with_ceiling(100.0f);
+  const auto [g_med_relaxed, g_body_relaxed, white_clip_relaxed] =
+      run_with_ceiling(99.0f);
+
+  // Background/median stays pinned to target_bg regardless of the ceiling.
+  REQUIRE(g_med_relaxed == Catch::Approx(g_med_default).margin(0.01f));
+  // The extended body gets materially more contrast once it no longer has
+  // to share headroom with the small, much brighter core.
+  REQUIRE(g_body_relaxed > g_body_default * 1.05f);
+  // The traded-off cost is a small, bounded amount of highlight clipping --
+  // not the ~0 % the fully protective default guarantees, but nowhere near
+  // the whole frame (it stays confined to the compact core).
+  REQUIRE(white_clip_default == Catch::Approx(0.0f).margin(1e-4f));
+  REQUIRE(white_clip_relaxed > white_clip_default);
+  REQUIRE(white_clip_relaxed < 5.0f);
+}
+
 TEST_CASE("hypermetric_resolves_dwarf_ii_imx415_profile") {
   tile_compile::Matrix2Df R(16, 16);
   tile_compile::Matrix2Df G(16, 16);

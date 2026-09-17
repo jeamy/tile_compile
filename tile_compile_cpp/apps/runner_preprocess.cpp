@@ -398,6 +398,9 @@ prep::Config parse_preprocessing_config(const json& j) {
         json_float(h, "shadow_convergence", cfg.hypermetric_stretch.shadow_convergence);
     cfg.hypermetric_stretch.linear_expansion =
         json_float(h, "linear_expansion", cfg.hypermetric_stretch.linear_expansion);
+    cfg.hypermetric_stretch.highlight_ceiling_percentile =
+        json_float(h, "highlight_ceiling_percentile",
+                   cfg.hypermetric_stretch.highlight_ceiling_percentile);
     cfg.hypermetric_stretch.write_channels =
         json_bool(h, "write_channels", cfg.hypermetric_stretch.write_channels);
     cfg.hypermetric_stretch.output_rgb =
@@ -512,6 +515,8 @@ json config_to_json(const prep::Config& cfg) {
           {"color_grip", cfg.hypermetric_stretch.color_grip},
           {"shadow_convergence", cfg.hypermetric_stretch.shadow_convergence},
           {"linear_expansion", cfg.hypermetric_stretch.linear_expansion},
+          {"highlight_ceiling_percentile",
+           cfg.hypermetric_stretch.highlight_ceiling_percentile},
           {"write_channels", cfg.hypermetric_stretch.write_channels},
           {"output_rgb", cfg.hypermetric_stretch.output_rgb},
       }},
@@ -1669,6 +1674,8 @@ PreprocessPostprocessResult run_preprocess_postprocess(
         hms_cfg.color_grip = cfg.hypermetric_stretch.color_grip;
         hms_cfg.shadow_convergence = cfg.hypermetric_stretch.shadow_convergence;
         hms_cfg.linear_expansion = cfg.hypermetric_stretch.linear_expansion;
+        hms_cfg.highlight_ceiling_percentile =
+            cfg.hypermetric_stretch.highlight_ceiling_percentile;
         hms_cfg.write_channels = cfg.hypermetric_stretch.write_channels;
         hms_cfg.output_rgb = cfg.hypermetric_stretch.output_rgb;
         const auto hms_diag = image::run_hypermetric_stretch_rgb(rgb.R, rgb.G, rgb.B, hms_cfg);

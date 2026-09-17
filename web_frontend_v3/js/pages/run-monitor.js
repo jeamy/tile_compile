@@ -365,6 +365,11 @@ function renderCompletionAnalysis(analysis) {
       el("div", { class: "tc-text-sm tc-text-warning" },
         t("ui.message.resume_requires_dry_run", "Die Machbarkeit wird vor dem Resume per Dry-Run geprüft.")),
     ));
+  } else if (resume.reason) {
+    content.appendChild(el("div", {},
+      el("div", { class: "tc-label" }, t("ui.title.resume_recommendation", "Resume-Empfehlung")),
+      el("div", { class: "tc-text-sm tc-text-warning" }, resume.reason),
+    ));
   }
 
   content.appendChild(el("div", { class: "tc-flex tc-gap-2 tc-flex-wrap" },
@@ -2057,6 +2062,7 @@ async function resumeRun() {
     refreshRunStatus(currentRunId);
     connectWebSocket(currentRunId, true, currentRunDir || "");
     startPolling(currentRunId);
+    if (jobId) monitorResumeStartup(jobId, phase, currentRunId);
     activateRunMonitorTab("log");
     toastSuccess(t("ui.toast.run_resumed", "Run fortgesetzt"), `${phase}`);
     return true;
@@ -2064,6 +2070,37 @@ async function resumeRun() {
     const formatted = formatResumeError(e, phase);
     toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), formatted.body || formatted.title);
     return false;
+  }
+}
+
+async function monitorResumeStartup(jobId, phase, runId) {
+  for (let attempt = 0; attempt < 20 && getResumePending(); attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    let job;
+    try {
+      job = await api.get(API_ENDPOINTS.jobs.byId(jobId));
+    } catch {
+      continue;
+    }
+    const state = String(job?.state || "").toLowerCase();
+    if (!["error", "failed", "cancelled"].includes(state)) continue;
+
+    setResumePending(false);
+    setResumeActive(false);
+    setResumeFromPhase("");
+    if (resumePendingTimer) {
+      clearTimeout(resumePendingTimer);
+      resumePendingTimer = null;
+    }
+    stopPolling();
+    disconnectWebSocket();
+    setRunButtonsActive(false);
+    const detail = String(job?.data?.stderr || job?.data?.stdout || job?.error ||
+      t("ui.toast.resume_failed", "Resume fehlgeschlagen")).trim();
+    if (activeLogViewer) activeLogViewer.addLine(formatTime(), "ERROR", `Resume | failed | ${phase} | ${detail}`);
+    toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), detail);
+    await refreshRunStatus(runId);
+    return;
   }
 }
 

@@ -1805,10 +1805,11 @@ void register_runs_routes(CrowApp& app,
             std::error_code ec;
             const fs::path provenance_path = run_dir / "artifacts" / "run_provenance.json";
             bool scope_ok = false;
+            nlohmann::json provenance;
             if (fs::is_regular_file(provenance_path, ec)) {
                 try {
-                    const auto provenance =
-                        nlohmann::json::parse(tile_compile::routes::read_file_str(provenance_path));
+                    provenance = nlohmann::json::parse(
+                        tile_compile::routes::read_file_str(provenance_path));
                     scope_ok = provenance.value("execution_scope", std::string()) ==
                                "forward_drizzle_m1_m3";
                 } catch (...) {
@@ -1819,6 +1820,53 @@ void register_runs_routes(CrowApp& app,
                 return err_resp("RESUME_PHASE_NOT_FEASIBLE",
                     "Cannot resume from phase '" + from_phase + "': artifacts/run_provenance.json is missing or was not produced by the forward-drizzle pipeline. Legacy runs cannot be resumed; start a new reconstruction.",
                     409, {{"from_phase", from_phase}, {"reason", "run_scope_unsupported"}});
+            }
+
+            if (from_phase == "GLOBAL_QUALITY" || from_phase == "FORWARD_DRIZZLE") {
+                const fs::path checkpoint_path =
+                    run_dir / "artifacts" / "forward_drizzle_checkpoint.json";
+                bool source_cache_retained = false;
+                if (fs::is_regular_file(checkpoint_path, ec)) {
+                    try {
+                        const auto checkpoint = nlohmann::json::parse(
+                            tile_compile::routes::read_file_str(checkpoint_path));
+                        source_cache_retained = checkpoint.value("source_cache_retained", false);
+                    } catch (...) {
+                        source_cache_retained = false;
+                    }
+                }
+                const bool normalized_cache_present = fs::is_directory(
+                    run_dir / "cache" / "normalized_frames", ec);
+                ec.clear();
+                const bool quality_cache_present = fs::is_directory(
+                    run_dir / "cache" / "source_quality_maps", ec);
+                if (!source_cache_retained || !normalized_cache_present || !quality_cache_present) {
+                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                        "Cannot resume from phase '" + from_phase +
+                        "': the normalized source cache or source-quality cache was deleted after the run. Start a new reconstruction.",
+                        409, {{"from_phase", from_phase},
+                              {"reason", "normalized_source_cache_missing"},
+                              {"source_cache_retained", source_cache_retained},
+                              {"normalized_cache_present", normalized_cache_present},
+                              {"source_quality_cache_present", quality_cache_present}});
+                }
+
+                const std::string expected_config_sha = provenance.contains("config") &&
+                        provenance["config"].is_object()
+                    ? provenance["config"].value("sha256", std::string())
+                    : std::string();
+                const std::string candidate_yaml = !requested_yaml.empty()
+                    ? requested_yaml
+                    : tile_compile::routes::read_file_str(run_config_path);
+                if (expected_config_sha.empty() ||
+                    pi_provenance_sha256_hex(candidate_yaml) != expected_config_sha) {
+                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                        "Cannot apply a changed config when resuming from phase '" +
+                        from_phase +
+                        "': the persisted reconstruction predecessors are bound to the run-start config. Start a new reconstruction for these parameter changes.",
+                        409, {{"from_phase", from_phase},
+                              {"reason", "config_scope_mismatch"}});
+                }
             }
 
             // Same section-scope gate the runner itself enforces for the

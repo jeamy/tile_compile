@@ -226,7 +226,12 @@ int main(int argc, char** argv) {
         // Forward-drizzle provenance is required by the resume-reconstruction
         // contract (the backend mirrors the runner's scope gate).
         harness.make_file("runs/resume_overlay_without_events/artifacts/run_provenance.json",
-                          "{\"execution_scope\": \"forward_drizzle_m1_m3\"}\n");
+                          "{\"execution_scope\":\"forward_drizzle_m1_m3\","
+                          "\"config\":{\"sha256\":\"63658274d524a01f2a8389c8627580d2507c43533e6c97dcb37c5b3f2a9cffdb\"}}\n");
+        harness.make_file("runs/resume_overlay_without_events/artifacts/forward_drizzle_checkpoint.json",
+                          "{\"source_cache_retained\":true}\n");
+        harness.make_file("runs/resume_overlay_without_events/cache/normalized_frames/manifest.json", "{}\n");
+        harness.make_file("runs/resume_overlay_without_events/cache/source_quality_maps/manifest.json", "{}\n");
 
         // Phases outside the resume contract are rejected. MULTIBAND is not a
         // resume entry: it always re-runs together with FORWARD_DRIZZLE.
@@ -283,6 +288,48 @@ int main(int argc, char** argv) {
         }
         expect_true(found_overlay_fd, "resume overlay target phase present");
         expect_true(found_overlay_multiband, "resume overlay later phase present");
+
+        harness.create_run("reconstruction_resume_without_cache", {
+            {{"ts", "2026-03-10T15:00:00Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+        harness.make_file("runs/reconstruction_resume_without_cache/artifacts/run_provenance.json",
+                          "{\"execution_scope\":\"forward_drizzle_m1_m3\","
+                          "\"config\":{\"sha256\":\"63658274d524a01f2a8389c8627580d2507c43533e6c97dcb37c5b3f2a9cffdb\"}}\n");
+        harness.make_file("runs/reconstruction_resume_without_cache/artifacts/forward_drizzle_checkpoint.json",
+                          "{\"source_cache_retained\":false}\n");
+        const auto missing_cache_resume = harness.post_json(
+            "/api/runs/reconstruction_resume_without_cache/resume", {
+                {"from_phase", "GLOBAL_QUALITY"},
+                {"run_dir", "runs/reconstruction_resume_without_cache"},
+                {"config_yaml", "data:\n  color_mode: OSC\n"},
+                {"dry_run", true}
+            });
+        expect_equal(missing_cache_resume["_http_status"].get<long>(), 409L,
+                     "reconstruction resume without retained caches rejected");
+        expect_equal(missing_cache_resume["error"]["details"]["reason"].get<std::string>(),
+                     "normalized_source_cache_missing",
+                     "missing reconstruction cache has an actionable reason");
+        expect_true(!std::filesystem::exists(
+                        harness.fixture_root() /
+                        "runs/reconstruction_resume_without_cache/artifacts/config_revisions/index.json"),
+                    "failed dry-run does not create config revisions");
+        expect_equal(slurp_file(harness.fixture_root() /
+                                   "runs/reconstruction_resume_without_cache/config.yaml"),
+                     "data:\n  color_mode: OSC\n",
+                     "failed dry-run leaves the run config unchanged");
+
+        const auto changed_reconstruction_config = harness.post_json(
+            "/api/runs/resume_overlay_without_events/resume", {
+                {"from_phase", "GLOBAL_QUALITY"},
+                {"run_dir", "runs/resume_overlay_without_events"},
+                {"config_yaml", "data:\n  color_mode: OSC\nglobal_metrics:\n  weight_exponent_scale: 1.2\n"},
+                {"dry_run", true}
+            });
+        expect_equal(changed_reconstruction_config["_http_status"].get<long>(), 409L,
+                     "changed reconstruction config rejected before resume");
+        expect_equal(changed_reconstruction_config["error"]["details"]["reason"].get<std::string>(),
+                     "config_scope_mismatch",
+                     "changed reconstruction config has an actionable reason");
 
         const auto overlay_logs = harness.get_json(
             "/api/runs/resume_overlay_without_events/logs?tail=20&run_dir=runs%2Fresume_overlay_without_events");

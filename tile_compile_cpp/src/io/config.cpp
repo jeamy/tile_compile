@@ -976,6 +976,9 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (yaml_has_value(h["linear_expansion"]))
       cfg.hypermetric_stretch.linear_expansion =
           h["linear_expansion"].as<float>();
+    if (yaml_has_value(h["highlight_ceiling_percentile"]))
+      cfg.hypermetric_stretch.highlight_ceiling_percentile =
+          h["highlight_ceiling_percentile"].as<float>();
     if (yaml_has_value(h["write_channels"]))
       cfg.hypermetric_stretch.write_channels = h["write_channels"].as<bool>();
     if (yaml_has_value(h["output_rgb"]))
@@ -1314,6 +1317,8 @@ YAML::Node Config::to_yaml() const {
       hypermetric_stretch.shadow_convergence;
   node["hypermetric_stretch"]["linear_expansion"] =
       hypermetric_stretch.linear_expansion;
+  node["hypermetric_stretch"]["highlight_ceiling_percentile"] =
+      hypermetric_stretch.highlight_ceiling_percentile;
   node["hypermetric_stretch"]["write_channels"] =
       hypermetric_stretch.write_channels;
   node["hypermetric_stretch"]["output_rgb"] = hypermetric_stretch.output_rgb;
@@ -2015,6 +2020,12 @@ void Config::validate() const {
     throw ValidationError(
         "hypermetric_stretch.linear_expansion must be in [0,1]");
   }
+  if (hypermetric_stretch.highlight_ceiling_percentile < 90.0f ||
+      hypermetric_stretch.highlight_ceiling_percentile > 100.0f) {
+    throw ValidationError(
+        "hypermetric_stretch.highlight_ceiling_percentile must be in "
+        "[90,100]");
+  }
   if (hypermetric_stretch.output_rgb.empty()) {
     throw ValidationError("hypermetric_stretch.output_rgb must not be empty");
   }
@@ -2192,6 +2203,7 @@ std::string get_schema_json() {
                       "color_grip":{"type":"number","minimum":0,"maximum":1},
                       "shadow_convergence":{"type":"number","minimum":0},
                       "linear_expansion":{"type":"number","minimum":0,"maximum":1},
+                      "highlight_ceiling_percentile":{"type":"number","minimum":90,"maximum":100},
                       "write_channels":{"type":"boolean"},
                       "output_rgb":{"type":"string"} } },
     "stacking": { "type":"object",

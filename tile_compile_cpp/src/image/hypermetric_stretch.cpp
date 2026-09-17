@@ -439,7 +439,8 @@ void adaptive_output_scaling(
     Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     const std::array<float, 3> &w, float target_bg,
     const std::vector<uint8_t> *statistics_mask,
-    const std::vector<uint8_t> *output_mask, int mask_rows, int mask_cols) {
+    const std::vector<uint8_t> *output_mask, int mask_rows, int mask_cols,
+    float highlight_ceiling_percentile = 100.0f) {
   const int rows = static_cast<int>(R.rows());
   const int cols = static_cast<int>(R.cols());
 
@@ -568,11 +569,32 @@ void adaptive_output_scaling(
     physical_highlight = neighbors == 0 || neighbor_max >= max_luma * 0.20f;
   }
 
+  // highlight_ceiling_percentile < 100 intentionally trades the "never clip
+  // the single brightest real pixel" guarantee above for more contrast: the
+  // physical ceiling becomes a per-channel percentile of the sampled data
+  // instead of the true max, so a small, bounded fraction of the brightest
+  // pixels (stars, a compact bright core) is allowed to clip. Percentile
+  // ceilings are already outlier-robust, so the single-pixel neighbour
+  // check above (meant to distinguish a real highlight from a hot pixel)
+  // does not apply here.
+  float ceil_r_phys = max_r;
+  float ceil_g_phys = max_g;
+  float ceil_b_phys = max_b;
+  bool use_physical_ceiling = physical_highlight;
+  if (highlight_ceiling_percentile < 99.999f) {
+    const float p = std::clamp(highlight_ceiling_percentile, 0.0f, 100.0f);
+    ceil_r_phys = percentile(sr, p);
+    ceil_g_phys = percentile(sg, p);
+    ceil_b_phys = percentile(sb, p);
+    use_physical_ceiling = true;
+  }
+
   const float contrast_scale = (0.98f - pedestal) / (shared_span + 1e-9f);
   float scale = contrast_scale;
-  if (physical_highlight) {
+  if (use_physical_ceiling) {
     const float physical_span = std::max(
-        {max_r - floor_r, max_g - floor_g, max_b - floor_b, 1e-6f});
+        {ceil_r_phys - floor_r, ceil_g_phys - floor_g, ceil_b_phys - floor_b,
+         1e-6f});
     const float physical_scale = (0.999f - pedestal) / physical_span;
     scale = std::min(contrast_scale, physical_scale);
   }
@@ -808,6 +830,7 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
   diag.protect_b = cfg.protect_b;
   diag.convergence_power = cfg.convergence_power;
   diag.linear_expansion = cfg.linear_expansion;
+  diag.highlight_ceiling_percentile = cfg.highlight_ceiling_percentile;
 
   if (R.rows() <= 0 || R.cols() <= 0 || G.rows() != R.rows() ||
       B.rows() != R.rows() || G.cols() != R.cols() || B.cols() != R.cols()) {
@@ -977,7 +1000,8 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
 
   if (cfg.mode == "ready_to_use") {
     adaptive_output_scaling(R, G, B, w, target_bg, statistics_mask,
-                            output_mask, mask_rows, mask_cols);
+                            output_mask, mask_rows, mask_cols,
+                            cfg.highlight_ceiling_percentile);
     soft_clip(R, 0.98f, 2.0f);
     soft_clip(G, 0.98f, 2.0f);
     soft_clip(B, 0.98f, 2.0f);

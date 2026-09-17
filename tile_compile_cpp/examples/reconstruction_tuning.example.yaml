@@ -165,19 +165,37 @@ chroma_denoise:
     # overall background chroma level is preserved; only spatial variation
     # across it is flattened). Enable when residual color blotches remain
     # after the wavelet/bilateral stages.
-    enabled: true
-    block_size: 32     # px, grid cell size for the block-median estimate
-    blur_sigma: 24.0    # px, smoothing of the block grid into a continuous surface
-    strength: 1.0       # 0..1, fraction of the estimated bias removed
-    # This relies entirely on extended_source_protection (above) to exclude
-    # the galaxy from the background estimate. There is no automatic
-    # statistical fallback for a missing/insufficient extended_source_
+    #
+    # SAFE ONLY when extended_source_protection (above) achieves near-full
+    # coverage of the target, because this stage treats every pixel OUTSIDE
+    # that mask as "background" and subtracts a surface fitted to it. There
+    # is no automatic statistical fallback for a missing/insufficient
     # protection dilation: both the median used for the background reference
     # and any outlier-style check share the same ~50%-breakdown behaviour,
     # so neither can reliably separate "sky" from "large foreground object"
     # on chroma values alone once the object is large enough to matter.
-    # Always verify extended_source_protection.dilate_px fully covers the
-    # target before enabling this.
+    #
+    # Compact objects (e.g. a galaxy like M31) usually work: the object has
+    # a genuinely flat sky around it, so extended_source_protection can
+    # cover it fully at a reasonable luma_sigma/dilate_px.
+    #
+    # Large diffuse emission nebulae (M42-class) usually do NOT: the nebula
+    # fills a large fraction of the frame with real color that fades
+    # gradually into the sky, so there is no clean luma threshold between
+    # "nebula" and "background". On a real M42 run, the default
+    # luma_sigma: 2.5 protected only ~1% of the frame (the bright core);
+    # the other ~99% -- most of it real, colored nebulosity -- was treated
+    # as background and subtracted, producing a blue ring at the mask edge
+    # and yellow/green blotches across the nebula. A luma_sigma scan on
+    # that frame found no safe middle ground either (1.0 -> ~7% coverage,
+    # 0.75 -> ~49%: no threshold isolates "just the nebula"). Default off;
+    # before enabling, check artifacts/chroma_denoise.json ->
+    # extended_source_protected_fraction against the target's true visual
+    # extent, not just against sky_sigma.
+    enabled: false
+    block_size: 32     # px, grid cell size for the block-median estimate
+    blur_sigma: 24.0    # px, smoothing of the block grid into a continuous surface
+    strength: 1.0       # 0..1, fraction of the estimated bias removed
 
 astrometry:
   enabled: true
@@ -296,6 +314,20 @@ hypermetric_stretch:
   color_grip: 1
   shadow_convergence: 0
   linear_expansion: 0
+  # Highlight ceiling used by ready_to_use's adaptive_output_scaling: 100
+  # (default) means the single brightest real pixel never clips, which on a
+  # target with one very bright, compact highlight (e.g. a nebula core) caps
+  # the whole frame's contrast far below what the rest of the image could
+  # otherwise use -- on a real M42 run this cut the achievable contrast
+  # scale to ~0.6%, with black/white_clip_percent both staying exactly 0.0.
+  # Lower (e.g. 99.9) trades a small, bounded top fraction of pixels
+  # clipping for materially more contrast/"punch" in stars and highlight
+  # regions. Only moves the top ~1-2% of the tone range -- it does NOT
+  # brighten the dark/mid-tone body (sky, faint nebulosity); that stays
+  # pinned to target_bg by the final MTF match regardless. To lift the
+  # faint/dark regions too, raise target_bg as well (independent, additive
+  # lever). Range [90,100].
+  highlight_ceiling_percentile: 100
   write_channels: false
   output_rgb: stacked_rgb_hms.fits
 

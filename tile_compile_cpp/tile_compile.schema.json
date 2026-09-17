@@ -1391,6 +1391,13 @@
           "description": "Linear expansion at the lower end of the stretch curve. Increases detail in very dark regions. Range 0–1. Recommended: 0.0.",
           "default": 0.0
         },
+        "highlight_ceiling_percentile": {
+          "type": "number",
+          "minimum": 90,
+          "maximum": 100,
+          "description": "Percentile used as the \"must not clip\" highlight ceiling in ready_to_use output scaling, instead of the true brightest pixel. 100 = never clip (default): on a target with one very bright, compact highlight (e.g. a nebula core), this can cap the whole frame's contrast far below what the rest of the image could use. Lower (e.g. 99.9) allows a small, bounded top fraction of pixels to clip in exchange for more contrast/\"punch\" in stars and highlight regions. Only affects the top ~1-2% of the tone range; does not move the mid-tone/background level, which stays pinned to target_bg regardless -- raise target_bg too if the dark/mid-tone body should also be brighter. Range 90-100. Recommended: 100 (off) unless residual highlights look flat.",
+          "default": 100.0
+        },
         "write_channels": {
           "type": "boolean",
           "description": "When true, writes individual R, G, B channel files in addition to the RGB output. Default: false.",
