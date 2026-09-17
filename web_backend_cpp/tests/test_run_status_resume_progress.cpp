@@ -318,11 +318,16 @@ int main(int argc, char** argv) {
                      "data:\n  color_mode: OSC\n",
                      "failed dry-run leaves the run config unchanged");
 
+        // `reconstruction` stays out of scope even for the reconstruction
+        // resume points themselves: reconstruction.quality.pyramid is only
+        // consumed while SOURCE_QUALITY_MAPS is (re)built, which a
+        // GLOBAL_QUALITY/FORWARD_DRIZZLE resume skips and reuses
+        // unvalidated -- an edit there would otherwise be silently ignored.
         const auto changed_reconstruction_config = harness.post_json(
             "/api/runs/resume_overlay_without_events/resume", {
                 {"from_phase", "GLOBAL_QUALITY"},
                 {"run_dir", "runs/resume_overlay_without_events"},
-                {"config_yaml", "data:\n  color_mode: OSC\nglobal_metrics:\n  weight_exponent_scale: 1.2\n"},
+                {"config_yaml", "data:\n  color_mode: OSC\nreconstruction:\n  common_overlap_required_fraction: 0.9\n"},
                 {"dry_run", true}
             });
         expect_equal(changed_reconstruction_config["_http_status"].get<long>(), 409L,
@@ -434,6 +439,96 @@ int main(int argc, char** argv) {
         });
         expect_equal(scope_ok["_http_status"].get<long>(), 200L, "in-scope-only HMS resume config accepted");
         expect_true(scope_ok.value("feasible", false), "in-scope-only HMS resume reports feasible");
+
+        // GLOBAL_QUALITY/FORWARD_DRIZZLE resume: config sections that never
+        // feed the reused reconstruction predecessors are in scope, mirroring
+        // the runner's own allowed_reconstruction_resume_sections. This is
+        // the actual bug fix -- GLOBAL_QUALITY/FORWARD_DRIZZLE used to
+        // require a byte-identical config, making the resume-config editor
+        // pointless for them whenever anything at all had changed.
+        harness.create_run("global_quality_resume_scope_check", {
+            {{"ts", "2026-03-10T18:00:00Z"}, {"type", "phase_start"}, {"phase_name", "GLOBAL_QUALITY"}},
+            {{"ts", "2026-03-10T18:00:01Z"}, {"type", "phase_end"}, {"phase_name", "GLOBAL_QUALITY"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T18:00:02Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+        harness.make_file("runs/global_quality_resume_scope_check/artifacts/run_provenance.json",
+                          "{\"execution_scope\": \"forward_drizzle_m1_m3\"}\n");
+        harness.make_file("runs/global_quality_resume_scope_check/artifacts/config_revisions/orig.yaml",
+                          "data:\n  color_mode: OSC\nglobal_metrics:\n  weight_exponent_scale: 1.0\n"
+                          "chroma_denoise:\n  enabled: true\nreconstruction:\n  common_overlap_required_fraction: 1.0\n");
+        harness.make_file("runs/global_quality_resume_scope_check/artifacts/config_revisions/index.json",
+                          "[{\"revision_id\":\"orig_runstart\",\"file_name\":\"orig.yaml\",\"source\":\"run_start\","
+                          "\"created_at\":\"2026-03-10T18:00:00Z\",\"run_id\":\"global_quality_resume_scope_check\"}]\n");
+        harness.make_file("runs/global_quality_resume_scope_check/artifacts/forward_drizzle_checkpoint.json",
+                          "{\"source_cache_retained\":true}\n");
+        harness.make_file("runs/global_quality_resume_scope_check/cache/normalized_frames/manifest.json", "{}\n");
+        harness.make_file("runs/global_quality_resume_scope_check/cache/source_quality_maps/manifest.json", "{}\n");
+
+        // `reconstruction` stays out of scope even for the reconstruction
+        // resume points themselves: reconstruction.quality.pyramid is only
+        // consumed while SOURCE_QUALITY_MAPS is (re)built, which a
+        // GLOBAL_QUALITY/FORWARD_DRIZZLE resume skips and reuses
+        // unvalidated -- an edit there would otherwise be silently ignored.
+        const auto reconstruction_out_of_scope = harness.post_json(
+            "/api/runs/global_quality_resume_scope_check/resume", {
+                {"from_phase", "GLOBAL_QUALITY"},
+                {"run_dir", "runs/global_quality_resume_scope_check"},
+                {"config_yaml", "data:\n  color_mode: OSC\nglobal_metrics:\n  weight_exponent_scale: 1.0\n"
+                                 "chroma_denoise:\n  enabled: true\nreconstruction:\n  common_overlap_required_fraction: 0.9\n"},
+                {"dry_run", true}
+            });
+        expect_equal(reconstruction_out_of_scope["_http_status"].get<long>(), 409L,
+                     "reconstruction change rejected for GLOBAL_QUALITY resume");
+        expect_equal(reconstruction_out_of_scope["error"]["details"]["reason"].get<std::string>(),
+                     "config_scope_mismatch", "reconstruction change has an actionable reason");
+
+        // global_metrics IS in scope for GLOBAL_QUALITY: it is the section
+        // that phase exists to let you retune (it re-reads global_metrics to
+        // recompute frame weighting), unlike reconstruction above.
+        const auto global_metrics_ok = harness.post_json(
+            "/api/runs/global_quality_resume_scope_check/resume", {
+                {"from_phase", "GLOBAL_QUALITY"},
+                {"run_dir", "runs/global_quality_resume_scope_check"},
+                {"config_yaml", "data:\n  color_mode: OSC\nglobal_metrics:\n  weight_exponent_scale: 1.2\n"
+                                 "chroma_denoise:\n  enabled: true\nreconstruction:\n  common_overlap_required_fraction: 1.0\n"},
+                {"dry_run", true}
+            });
+        expect_equal(global_metrics_ok["_http_status"].get<long>(), 200L,
+                     "global_metrics change accepted for GLOBAL_QUALITY resume");
+        expect_true(global_metrics_ok.value("feasible", false),
+                    "global_metrics change is feasible for GLOBAL_QUALITY resume");
+
+        // The same global_metrics change is OUT of scope for FORWARD_DRIZZLE:
+        // that resume point does not recompute GLOBAL_QUALITY, so the edit
+        // would be silently ignored instead of applying.
+        const auto global_metrics_forward_drizzle = harness.post_json(
+            "/api/runs/global_quality_resume_scope_check/resume", {
+                {"from_phase", "FORWARD_DRIZZLE"},
+                {"run_dir", "runs/global_quality_resume_scope_check"},
+                {"config_yaml", "data:\n  color_mode: OSC\nglobal_metrics:\n  weight_exponent_scale: 1.2\n"
+                                 "chroma_denoise:\n  enabled: true\nreconstruction:\n  common_overlap_required_fraction: 1.0\n"},
+                {"dry_run", true}
+            });
+        expect_equal(global_metrics_forward_drizzle["_http_status"].get<long>(), 409L,
+                     "global_metrics change rejected for FORWARD_DRIZZLE resume");
+        expect_equal(global_metrics_forward_drizzle["error"]["details"]["reason"].get<std::string>(),
+                     "config_scope_mismatch",
+                     "global_metrics change on FORWARD_DRIZZLE has an actionable reason");
+
+        // A downstream-only section change (chroma_denoise) IS in scope for
+        // both reconstruction resume points.
+        const auto chroma_ok_for_forward_drizzle = harness.post_json(
+            "/api/runs/global_quality_resume_scope_check/resume", {
+                {"from_phase", "FORWARD_DRIZZLE"},
+                {"run_dir", "runs/global_quality_resume_scope_check"},
+                {"config_yaml", "data:\n  color_mode: OSC\nglobal_metrics:\n  weight_exponent_scale: 1.0\n"
+                                 "chroma_denoise:\n  enabled: false\nreconstruction:\n  common_overlap_required_fraction: 1.0\n"},
+                {"dry_run", true}
+            });
+        expect_equal(chroma_ok_for_forward_drizzle["_http_status"].get<long>(), 200L,
+                     "downstream-only section change accepted for FORWARD_DRIZZLE resume");
+        expect_true(chroma_ok_for_forward_drizzle.value("feasible", false),
+                    "downstream-only section change is feasible for FORWARD_DRIZZLE resume");
 
         // Runs without forward-drizzle provenance cannot be resumed; the
         // runner would fail its provenance check anyway, so the backend

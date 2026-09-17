@@ -99,7 +99,7 @@ chroma_denoise:
     mode: chroma_only
     amount: 1
   extended_source_protection:
-    enabled: true
+    enabled: false
     luma_sigma: 2.5
     dilate_px: 15
   large_scale_bias:
@@ -201,7 +201,7 @@ hypermetric_stretch:
   sensor_profile: Sony IMX415 (DWARF II)
   fallback_profile: Sony IMX415 (DWARF II)
   adaptive_anchor: true
-  target_bg: 0.12
+  target_bg: 0.2
   protect_b: 6
   convergence_power: 4
   log_d_mode: fixed

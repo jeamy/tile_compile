@@ -103,12 +103,121 @@ reconstruction::GlobalQualityConfig quality_config(const config::Config &cfg) {
   q.weight_exponent_scale=cfg.global_metrics.weight_exponent_scale;
   return q;
 }
+// The YAML that produced the persisted predecessors: the recorded run-start
+// config revision when present (it survives config.yaml edits made for a
+// resume), else config.yaml itself iff its sha256 still matches run
+// provenance. Empty when neither can be verified.
+std::string original_run_config_yaml(const fs::path &dir,
+                                     const json &provenance) {
+  const auto idx_path = dir/"artifacts/config_revisions/index.json";
+  std::error_code ec;
+  if (fs::is_regular_file(idx_path,ec)) {
+    try {
+      const auto idx = json::parse(core::read_text(idx_path));
+      for (const auto &e : idx) {
+        if (e.value("source",std::string())=="run_start" &&
+            e.contains("file_name")) {
+          const auto rev =
+              idx_path.parent_path()/e["file_name"].get<std::string>();
+          if (fs::is_regular_file(rev,ec)) return core::read_text(rev);
+        }
+      }
+    } catch (...) {
+    }
+  }
+  if (provenance.at("config").at("sha256")==
+      core::sha256_file(dir/"config.yaml"))
+    return core::read_text(dir/"config.yaml");
+  return {};
+}
+
+// Config sections allowed to differ for a GLOBAL_QUALITY/FORWARD_DRIZZLE
+// resume: the reconstruction predecessors (NORMALIZED_CACHE, SAMPLING_
+// GEOMETRY, COMMON_OVERLAP, SOURCE_QUALITY_MAPS) are reused from cache and
+// never recomputed from the current config on this path -- they are only
+// validated against their OWN recorded checkpoint hashes, not against
+// these sections -- so a change confined to them cannot desync cache from
+// config. Verified by reading every cfg.* access in run_forward_drizzle_
+// stages: only reconstruction, global_metrics (GLOBAL_QUALITY only) and
+// runtime_limits, plus the astrometry/bge/pcc/hypermetric_stretch
+// .enabled/.method booleans (guarded separately, fail loud on mismatch via
+// FORWARD_STAGE_NORMALIZATION_PREDECESSOR_MISMATCH), are ever read.
+// `reconstruction` itself is deliberately NOT included: reconstruction.
+// quality.pyramid is consumed only when SOURCE_QUALITY_MAPS is (re)built,
+// which this path skips and reuses unvalidated -- so a pyramid-only edit
+// would otherwise be silently ignored instead of failing loud or applying.
+const std::set<std::string> &allowed_reconstruction_resume_sections(
+    const std::string &p) {
+  static const std::set<std::string> base = {
+      "output","data","linearity","calibration","normalization",
+      "registration","dithering","chroma_denoise","astrometry","pcc",
+      "hypermetric_stretch","bge","stacking","runtime_limits"};
+  static const std::set<std::string> global_quality = [] {
+    auto s = base; s.insert("global_metrics"); return s;
+  }();
+  return p=="GLOBAL_QUALITY" ? global_quality : base;
+}
+
+// Per-top-level-key YAML serialisation for the scoped resume comparison,
+// operating directly on YAML text (no config parse/validate needed here) --
+// mirrors the equivalent check the web backend runs as a preflight
+// (web_backend_cpp's downstream_resume_scope_violation).
+std::map<std::string,std::string> yaml_section_map(
+    const std::string &yaml_text) {
+  std::map<std::string,std::string> out;
+  try {
+    const YAML::Node root = YAML::Load(yaml_text);
+    for (const auto &kv : root) {
+      YAML::Emitter e;
+      e << kv.second;
+      out[kv.first.as<std::string>()] = e.c_str();
+    }
+  } catch (...) {
+  }
+  return out;
+}
+
 json validate_provenance(const fs::path &dir,
-                         const registration::RegistrationSamplingPlan &plan) {
+                         const registration::RegistrationSamplingPlan &plan,
+                         const std::string &resume_from) {
   const auto provenance=checked_json(dir/"artifacts/run_provenance.json");
-  if (provenance.at("execution_scope")!=scope ||
-      provenance.at("config").at("sha256")!=core::sha256_file(dir/"config.yaml"))
+  if (provenance.at("execution_scope")!=scope)
     throw std::runtime_error("FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH");
+  const std::string expected_sha =
+      provenance.at("config").at("sha256").get<std::string>();
+  if (expected_sha!=core::sha256_file(dir/"config.yaml")) {
+    // A fresh run (resume_from empty) must always match exactly -- there is
+    // no earlier phase to have legitimately changed config since. A
+    // GLOBAL_QUALITY/FORWARD_DRIZZLE resume may differ, but only within
+    // allowed_reconstruction_resume_sections; anything else must still
+    // match, so the reused predecessor artifacts remain valid.
+    if (resume_from.empty())
+      throw std::runtime_error("FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH");
+    const std::string orig_yaml = original_run_config_yaml(dir,provenance);
+    if (orig_yaml.empty())
+      throw std::runtime_error("FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH");
+    const auto before = yaml_section_map(orig_yaml);
+    const auto after = yaml_section_map(core::read_text(dir/"config.yaml"));
+    const auto &allowed = allowed_reconstruction_resume_sections(resume_from);
+    std::set<std::string> keys;
+    for (const auto &[k,v] : before) keys.insert(k);
+    for (const auto &[k,v] : after)  keys.insert(k);
+    std::string bad;
+    for (const auto &k : keys) {
+      if (allowed.count(k)) continue;
+      const auto ia = before.find(k), ib = after.find(k);
+      const std::string va =
+          ia==before.end() ? std::string("<absent>") : ia->second;
+      const std::string vb =
+          ib==after.end() ? std::string("<absent>") : ib->second;
+      if (va!=vb) { if (!bad.empty()) bad+=", "; bad+=k; }
+    }
+    if (!bad.empty())
+      throw std::runtime_error(
+          "FORWARD_STAGE_CONFIG_SCOPE_MISMATCH: "+resume_from+
+          " resume allows changes only in sections that do not feed the "
+          "reused reconstruction predecessors; changed outside scope: "+bad);
+  }
   const auto identity=provenance.at("input_manifest").at("sha256").get<std::string>()+":"+
                       provenance.at("config").at("sha256").get<std::string>();
   if (plan.source_identity_hash!=core::sha256_bytes(std::vector<uint8_t>(identity.begin(),identity.end())))
@@ -158,7 +267,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
   try {
     if (!resume_from.empty() && resume_from!="GLOBAL_QUALITY" && resume_from!="FORWARD_DRIZZLE")
       throw std::invalid_argument("FORWARD_STAGE_UNSUPPORTED_RESUME_PHASE");
-    const auto provenance=validate_provenance(dir,sampling);
+    const auto provenance=validate_provenance(dir,sampling,resume_from);
     auto reconstruction_cfg=cfg.reconstruction;
     if (!reconstruction_cfg.drizzle.memory_budget_mb)
       reconstruction_cfg.drizzle.memory_budget_mb=static_cast<size_t>(std::max(1,cfg.runtime_limits.memory_budget));
@@ -1281,6 +1390,12 @@ std::map<std::string,std::string> config_section_map(
 // config revision when present (it survives config.yaml edits made for a
 // downstream resume), else config.yaml itself iff its sha256 still matches
 // run provenance. Empty when neither can be verified.
+//
+// Duplicated (not shared) from the same-named helper near validate_
+// provenance above: this file has two separate anonymous namespaces (this
+// one is not nested in tile_compile::runner, so run_forward_drizzle_stages
+// -- defined directly in tile_compile::runner -- can call it from outside),
+// and symbols in one are not visible in the other.
 std::string original_run_config_yaml(const fs::path &dir,
                                      const json &provenance) {
   const auto idx_path = dir/"artifacts/config_revisions/index.json";
@@ -1407,8 +1522,11 @@ int resume_forward_drizzle_command(const std::string &path,const std::string &ph
       throw std::runtime_error("FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH");
     if (is_downstream_resume_phase(phase_upper))
       return resume_downstream_command(dir,provenance,phase_upper);
-    if (provenance.at("config").at("sha256")!=core::sha256_file(dir/"config.yaml"))
-      throw std::runtime_error("FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH");
+    // The full (possibly section-relaxed) config-vs-provenance check runs
+    // once, inside run_forward_drizzle_stages -> validate_provenance, which
+    // has the resume phase and can apply
+    // allowed_reconstruction_resume_sections; no separate exact-hash gate
+    // here to avoid two diverging implementations of the same rule.
     config::ConfigMigrationReport migration;
     const auto cfg=config::Config::from_yaml_text_migrated(core::read_text(dir/"config.yaml"),migration);
     cfg.validate();

@@ -61,32 +61,63 @@ static crow::response err_resp(const std::string& code,
 // `method:` key (the runner rejects it fail-closed).
 static constexpr const char* kSingleReconstructionMethod = "cfa_forward_drizzle_multiband";
 
-/// @brief Downstream-resume section-scope check, mirroring the runner's own
-/// `resume_downstream_command` gate (apps/runner_forward_drizzle.cpp) for
-/// ASTROMETRY/BGE/PCC/HYPERMETRIC_STRETCH. Duplicated here deliberately: the
-/// backend previously wrote a new config revision AND launched the resume
-/// subprocess unconditionally, only to have the runner reject the exact
-/// same mismatch a moment later after the write already happened -- e.g. the
-/// HMS config dialog's "Apply & start resume" saved the edited config but
-/// the actual re-stretch never visibly ran, because the runner's own gate
-/// rejected changes outside {hypermetric_stretch, runtime_limits} (such as
-/// stale chroma_denoise/pcc drift from an earlier resume) without the
-/// backend ever surfacing that as an error. Checking it here, before any
-/// write or subprocess launch, turns that silent no-op into an immediate,
-/// visible 409 the existing resume-error toast already knows how to show.
-/// Returns std::nullopt when the phase isn't one of these downstream-only
-/// resume points (its own separate provenance/cache-based checks apply
-/// instead) or when the check cannot be evaluated (missing run_start
-/// revision) -- in both cases the runner remains the fail-closed authority.
+/// @brief Resume section-scope check, mirroring the runner's own gates in
+/// apps/runner_forward_drizzle.cpp: `resume_downstream_command` for
+/// ASTROMETRY/BGE/PCC/HYPERMETRIC_STRETCH, and (since the config-scope
+/// relaxation for the reconstruction resume points)
+/// `validate_provenance`'s section-scoped path for GLOBAL_QUALITY/
+/// FORWARD_DRIZZLE. Duplicated here deliberately: the backend previously
+/// wrote a new config revision AND launched the resume subprocess
+/// unconditionally, only to have the runner reject the exact same mismatch
+/// a moment later after the write already happened -- e.g. the HMS config
+/// dialog's "Apply & start resume" saved the edited config but the actual
+/// re-stretch never visibly ran, because the runner's own gate rejected
+/// changes outside {hypermetric_stretch, runtime_limits} (such as stale
+/// chroma_denoise/pcc drift from an earlier resume) without the backend
+/// ever surfacing that as an error. Checking it here, before any write or
+/// subprocess launch, turns that silent no-op into an immediate, visible
+/// 409 the existing resume-error toast already knows how to show.
+/// GLOBAL_QUALITY/FORWARD_DRIZZLE additionally still require the
+/// normalized-source/quality caches to exist (checked separately, not by
+/// this function) since those are provenance/cache-based, not section-based.
+/// Returns std::nullopt when the phase has no scope restriction (its own
+/// separate provenance/cache-based checks apply instead) or when the check
+/// cannot be evaluated (missing run_start revision) -- in both cases the
+/// runner remains the fail-closed authority.
+static std::string pi_provenance_sha256_hex(const std::string& value);
+
 std::optional<std::string> downstream_resume_scope_violation(
         const fs::path& run_dir, const std::string& phase_upper,
-        const std::string& new_yaml) {
+        const std::string& new_yaml, const nlohmann::json& provenance) {
+    // GLOBAL_QUALITY/FORWARD_DRIZZLE: the reused reconstruction predecessors
+    // (NORMALIZED_CACHE, SAMPLING_GEOMETRY, COMMON_OVERLAP, SOURCE_QUALITY_
+    // MAPS) are validated against their own recorded checkpoint hashes, not
+    // against these config sections, so a change confined to them cannot
+    // desync cache from config -- mirrors
+    // allowed_reconstruction_resume_sections in the runner exactly.
+    // `reconstruction` is deliberately excluded for both: its
+    // `quality.pyramid` sub-key is only consumed while SOURCE_QUALITY_MAPS
+    // is (re)built, which this path skips and reuses unvalidated, so an
+    // edit there would otherwise be silently ignored instead of failing
+    // loud or applying.
+    static const std::set<std::string> kReconstructionResumeBase = {
+        "output", "data", "linearity", "calibration", "normalization",
+        "registration", "dithering", "chroma_denoise", "astrometry", "pcc",
+        "hypermetric_stretch", "bge", "stacking", "runtime_limits"};
     static const std::unordered_map<std::string, std::set<std::string>> kAllowed = {
         {"HYPERMETRIC_STRETCH", {"hypermetric_stretch", "runtime_limits"}},
         {"PCC", {"pcc", "chroma_denoise", "hypermetric_stretch", "runtime_limits"}},
         {"BGE", {"bge", "pcc", "chroma_denoise", "hypermetric_stretch", "runtime_limits"}},
         {"ASTROMETRY", {"astrometry", "bge", "pcc", "chroma_denoise",
                         "hypermetric_stretch", "runtime_limits"}},
+        // GLOBAL_QUALITY additionally allows global_metrics -- it is the
+        // section GLOBAL_QUALITY re-reads and exists to let you retune;
+        // FORWARD_DRIZZLE-only resume does NOT recompute GLOBAL_QUALITY, so
+        // a global_metrics edit there would be silently ignored instead.
+        {"GLOBAL_QUALITY", [] {
+            auto s = kReconstructionResumeBase; s.insert("global_metrics"); return s;
+        }()},
+        {"FORWARD_DRIZZLE", kReconstructionResumeBase},
     };
     const auto allowed_it = kAllowed.find(phase_upper);
     if (allowed_it == kAllowed.end()) return std::nullopt;
@@ -104,7 +135,34 @@ std::optional<std::string> downstream_resume_scope_violation(
             break;
         }
     }
-    if (orig_yaml.empty()) return std::nullopt;
+    if (orig_yaml.empty()) {
+        // No recorded run-start config text to diff section-by-section
+        // against (e.g. no artifacts/config_revisions/index.json at all --
+        // older or lightly-instrumented runs). For GLOBAL_QUALITY/
+        // FORWARD_DRIZZLE this used to be the ONLY check (a whole-file
+        // sha256 compare against run_provenance.json's recorded hash, which
+        // is always present once run_scope_ok passed); preserve that
+        // stricter fallback here instead of silently accepting an
+        // unverifiable config, since the runner's own validate_provenance
+        // has the identical fallback (fails closed via
+        // FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH when it can't resolve an
+        // original config either) -- keeps the dry-run preflight honest
+        // about what the resume subprocess will actually do.
+        if (phase_upper == "GLOBAL_QUALITY" || phase_upper == "FORWARD_DRIZZLE") {
+            const std::string expected_sha = provenance.contains("config") &&
+                    provenance["config"].is_object()
+                ? provenance["config"].value("sha256", std::string())
+                : std::string();
+            if (expected_sha.empty() ||
+                pi_provenance_sha256_hex(new_yaml) != expected_sha) {
+                return "FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH: " + phase_upper +
+                       " resume requires the run-start config unchanged when "
+                       "no config revision history is available to verify a "
+                       "scoped change against.";
+            }
+        }
+        return std::nullopt;
+    }
 
     auto section_map = [](const std::string& yaml_text) {
         std::map<std::string, std::string> out;
@@ -1850,33 +1908,23 @@ void register_runs_routes(CrowApp& app,
                               {"normalized_cache_present", normalized_cache_present},
                               {"source_quality_cache_present", quality_cache_present}});
                 }
-
-                const std::string expected_config_sha = provenance.contains("config") &&
-                        provenance["config"].is_object()
-                    ? provenance["config"].value("sha256", std::string())
-                    : std::string();
-                const std::string candidate_yaml = !requested_yaml.empty()
-                    ? requested_yaml
-                    : tile_compile::routes::read_file_str(run_config_path);
-                if (expected_config_sha.empty() ||
-                    pi_provenance_sha256_hex(candidate_yaml) != expected_config_sha) {
-                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
-                        "Cannot apply a changed config when resuming from phase '" +
-                        from_phase +
-                        "': the persisted reconstruction predecessors are bound to the run-start config. Start a new reconstruction for these parameter changes.",
-                        409, {{"from_phase", from_phase},
-                              {"reason", "config_scope_mismatch"}});
-                }
+                // Config-content validation is no longer a blanket exact-hash
+                // requirement here: it falls through to the same section-
+                // scoped downstream_resume_scope_violation check below, which
+                // now also covers GLOBAL_QUALITY/FORWARD_DRIZZLE (mirroring
+                // the runner's own allowed_reconstruction_resume_sections).
             }
 
             // Same section-scope gate the runner itself enforces for the
-            // downstream-only resume points, checked here BEFORE writing any
-            // config revision or launching a subprocess -- see
-            // downstream_resume_scope_violation's own comment for why.
+            // downstream-only AND (since the relaxation above) the
+            // GLOBAL_QUALITY/FORWARD_DRIZZLE reconstruction-resume points,
+            // checked here BEFORE writing any config revision or launching a
+            // subprocess -- see downstream_resume_scope_violation's own
+            // comment for why.
             const std::string yaml_to_check = !requested_yaml.empty()
                 ? requested_yaml
                 : tile_compile::routes::read_file_str(run_config_path);
-            if (auto violation = downstream_resume_scope_violation(run_dir, from_phase, yaml_to_check)) {
+            if (auto violation = downstream_resume_scope_violation(run_dir, from_phase, yaml_to_check, provenance)) {
                 return err_resp("RESUME_PHASE_NOT_FEASIBLE", *violation, 409,
                     {{"from_phase", from_phase}, {"reason", "config_scope_mismatch"}});
             }

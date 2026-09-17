@@ -239,16 +239,26 @@ let completionAnalysisLoading = false;
 const completionAnalysisCacheLoads = new Set();
 const runChatStore = getStore("run-chat", { chats: {} });
 const RESUME_PENDING_TIMEOUT_MS = 120000;
+// Kept in sync with the top-level keys of the config schema
+// (tile_compile_cpp/tile_compile.schema.json properties) -- every top-level
+// section gets a jump-chip, not just a hand-picked subset.
 const RESUME_CONFIG_SECTIONS = [
-  { key: "reconstruction", label: "RECON" },
-  { key: "stacking", label: "STACKING" },
   { key: "output", label: "OUTPUT" },
+  { key: "data", label: "DATA" },
+  { key: "calibration", label: "CAL" },
   { key: "normalization", label: "NORM" },
+  { key: "dithering", label: "DITHER" },
+  { key: "linearity", label: "LIN" },
+  { key: "registration", label: "REG" },
+  { key: "global_metrics", label: "GMETRICS" },
+  { key: "chroma_denoise", label: "CHROMA" },
+  { key: "astrometry", label: "ASTRO" },
+  { key: "stacking", label: "STACKING" },
   { key: "bge", label: "BGE" },
   { key: "pcc", label: "PCC" },
   { key: "hypermetric_stretch", label: "HMS" },
-  { key: "registration", label: "REG" },
-  { key: "astrometry", label: "ASTRO" },
+  { key: "runtime_limits", label: "RUNTIME" },
+  { key: "reconstruction", label: "RECON" },
 ];
 
 // Returns the most specific run key for API calls: full path if known, else run_id.
@@ -2251,7 +2261,15 @@ async function loadRevisionIntoEditor() {
     toastSuccess(t("ui.toast.revision_loaded", "Revision geladen"));
   } catch (e) {
     toastError(t("ui.toast.revision_load_failed", "Revision laden fehlgeschlagen"), e.message);
+    return;
   }
+  // The loaded revision can differ from the config the last feasibility
+  // check ran against (or from the run-start config the button's current
+  // enabled/disabled state reflects) -- re-check against what is now
+  // actually in the editor so the button state and hint match it, instead
+  // of silently keeping a stale result from before the revision was loaded.
+  const phase = getSelectedPhase();
+  if (phase) await checkResumeFeasibility(phase);
 }
 
 function handleWsMessage(data, logViewer, phases, warningBanner) {
