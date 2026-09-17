@@ -203,6 +203,23 @@ cv::Mat build_protection_mask(const cv::Mat& y,
 /// global background median (so the overall background chroma level, e.g.
 /// real sky-glow color, is preserved -- only spatial variation across it is
 /// flattened).
+///
+/// This relies entirely on `protect_mask` (star_protection / structure_
+/// protection / extended_source_protection) to exclude any large foreground
+/// object from the estimate. There is deliberately no additional statistical
+/// safeguard against an incompletely-protected object: both the median used
+/// for the reference level and a MAD-based outlier check share the same
+/// ~50%-breakdown point, so neither can distinguish "sky" from "foreground"
+/// once the object is large enough to matter, and both are already immune
+/// to a strict minority -- there is no regime where a same-channel numeric
+/// safeguard adds real protection beyond protect_mask. A target with a large
+/// extended object MUST enable extended_source_protection (with a dilation
+/// covering the object) for this stage to be safe to use.
+///
+/// The correction is also faded out inside protected pixels before being
+/// subtracted: there the surface is only interpolated from surrounding sky
+/// blocks and may be contaminated by unprotected faint halo, so applying it
+/// would subtract part of the object's own color.
 double flatten_large_scale_chroma_bias(
         cv::Mat& c, const cv::Mat& protect_mask,
         const config::ChromaDenoiseConfig::LargeScaleBiasConfig& cfg,
@@ -241,7 +258,7 @@ double flatten_large_scale_chroma_bias(
     }
 
     const int n_cells = gy * gx;
-    int n_valid = cv::countNonZero(grid_valid);
+    const int n_valid = cv::countNonZero(grid_valid);
     if (n_valid == 0) return 0.0;  // fully protected image: nothing to estimate from
     if (holes_filled_fraction)
         *holes_filled_fraction =
@@ -294,6 +311,17 @@ double flatten_large_scale_chroma_bias(
                          cfg.blur_sigma, cv::BORDER_REFLECT_101);
 
     cv::Mat correction = (surface - ref) * cfg.strength;
+    if (!protect_mask.empty()) {
+        // The surface inside protected regions is only a push-pull
+        // interpolation -- the least reliable part of the estimate -- and
+        // can additionally be contaminated by unprotected faint-halo pixels
+        // leaking into neighbouring block medians. Subtracting it there
+        // removes the foreground's own chroma (the M31 regression). Fail
+        // closed: fade the correction out inside protected areas. Residual
+        // sky variation underneath a protected object is preferable to
+        // destroying real object color.
+        correction = correction.mul(1.0f - protect_mask);
+    }
     cv::Scalar mean, stddev;
     cv::meanStdDev(correction, mean, stddev);
     c -= correction;

@@ -461,6 +461,36 @@ void apply_job_state_to_run_status(nlohmann::json& status, const std::optional<J
     if (!job.has_value()) return;
 
     const std::string state = job_state_str(job->state);
+
+    // A `resume` job is a SECONDARY action taken against an already-existing
+    // run, potentially long after that run itself finished. If the run's own
+    // event log (read_run_status, already applied to `status` before this
+    // call) already shows a terminal outcome, a later resume attempt's own
+    // result must not silently overwrite it -- most importantly, a resume
+    // that fails before writing a single event to the run's log (e.g. a
+    // config/scope mismatch caught at startup) would otherwise permanently
+    // relabel an already-completed run as "failed". Surface the resume
+    // attempt's own outcome in a separate field instead and leave the
+    // primary status alone. A still-pending/running resume is unaffected
+    // (handled below) since that IS the run's current live activity.
+    static const std::unordered_set<std::string> kTerminalRunStates = {
+        "completed", "failed", "cancelled"};
+    const std::string pre_job_status = status.value("status", std::string());
+    if (job->type == "resume" && state != "pending" && state != "running" &&
+        kTerminalRunStates.count(pre_job_status) > 0) {
+        nlohmann::json resume_attempt = {
+            {"state", state},
+            {"started_at", job->started_at},
+            {"ended_at", job->ended_at},
+        };
+        if (!job->error_message.empty()) resume_attempt["error"] = job->error_message;
+        if (job->data.is_object() && job->data.contains("exit_code")) {
+            resume_attempt["exit_code"] = job->data["exit_code"];
+        }
+        status["resume_attempt"] = std::move(resume_attempt);
+        return;
+    }
+
     if (state == "pending" || state == "running") {
         status["status"] = state;
         if (!status.contains("progress") || !status["progress"].is_number()) {

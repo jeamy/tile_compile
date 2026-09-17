@@ -23,6 +23,7 @@
 #include <thread>
 #include <chrono>
 #include <ctime>
+#include <map>
 #include <set>
 #include <unordered_map>
 #include <cctype>
@@ -59,6 +60,84 @@ static crow::response err_resp(const std::string& code,
 // There is exactly one reconstruction method; configs no longer carry a
 // `method:` key (the runner rejects it fail-closed).
 static constexpr const char* kSingleReconstructionMethod = "cfa_forward_drizzle_multiband";
+
+/// @brief Downstream-resume section-scope check, mirroring the runner's own
+/// `resume_downstream_command` gate (apps/runner_forward_drizzle.cpp) for
+/// ASTROMETRY/BGE/PCC/HYPERMETRIC_STRETCH. Duplicated here deliberately: the
+/// backend previously wrote a new config revision AND launched the resume
+/// subprocess unconditionally, only to have the runner reject the exact
+/// same mismatch a moment later after the write already happened -- e.g. the
+/// HMS config dialog's "Apply & start resume" saved the edited config but
+/// the actual re-stretch never visibly ran, because the runner's own gate
+/// rejected changes outside {hypermetric_stretch, runtime_limits} (such as
+/// stale chroma_denoise/pcc drift from an earlier resume) without the
+/// backend ever surfacing that as an error. Checking it here, before any
+/// write or subprocess launch, turns that silent no-op into an immediate,
+/// visible 409 the existing resume-error toast already knows how to show.
+/// Returns std::nullopt when the phase isn't one of these downstream-only
+/// resume points (its own separate provenance/cache-based checks apply
+/// instead) or when the check cannot be evaluated (missing run_start
+/// revision) -- in both cases the runner remains the fail-closed authority.
+std::optional<std::string> downstream_resume_scope_violation(
+        const fs::path& run_dir, const std::string& phase_upper,
+        const std::string& new_yaml) {
+    static const std::unordered_map<std::string, std::set<std::string>> kAllowed = {
+        {"HYPERMETRIC_STRETCH", {"hypermetric_stretch", "runtime_limits"}},
+        {"PCC", {"pcc", "chroma_denoise", "hypermetric_stretch", "runtime_limits"}},
+        {"BGE", {"bge", "pcc", "chroma_denoise", "hypermetric_stretch", "runtime_limits"}},
+        {"ASTROMETRY", {"astrometry", "bge", "pcc", "chroma_denoise",
+                        "hypermetric_stretch", "runtime_limits"}},
+    };
+    const auto allowed_it = kAllowed.find(phase_upper);
+    if (allowed_it == kAllowed.end()) return std::nullopt;
+    const auto& allowed = allowed_it->second;
+
+    std::string orig_yaml;
+    for (const auto& rev : list_run_config_revisions(run_dir)) {
+        // list_run_config_revisions only populates path/source/created_at,
+        // not yaml_text (that is read lazily elsewhere) -- read the file.
+        if (rev.source == "run_start") {
+            try {
+                orig_yaml = tile_compile::routes::read_file_str(rev.path);
+            } catch (...) {
+            }
+            break;
+        }
+    }
+    if (orig_yaml.empty()) return std::nullopt;
+
+    auto section_map = [](const std::string& yaml_text) {
+        std::map<std::string, std::string> out;
+        try {
+            const YAML::Node root = YAML::Load(yaml_text);
+            for (const auto& kv : root) {
+                YAML::Emitter e;
+                e << kv.second;
+                out[kv.first.as<std::string>()] = e.c_str();
+            }
+        } catch (...) {
+        }
+        return out;
+    };
+    const auto before = section_map(orig_yaml);
+    const auto after = section_map(new_yaml);
+
+    std::set<std::string> keys;
+    for (const auto& [k, v] : before) keys.insert(k);
+    for (const auto& [k, v] : after) keys.insert(k);
+    std::string bad;
+    for (const auto& k : keys) {
+        if (allowed.count(k)) continue;
+        const auto ia = before.find(k), ib = after.find(k);
+        const std::string va = ia == before.end() ? std::string("<absent>") : ia->second;
+        const std::string vb = ib == after.end() ? std::string("<absent>") : ib->second;
+        if (va != vb) { if (!bad.empty()) bad += ", "; bad += k; }
+    }
+    if (bad.empty()) return std::nullopt;
+    return "FORWARD_STAGE_CONFIG_SCOPE_MISMATCH: " + phase_upper +
+           " resume allows changes only in the downstream sections; "
+           "changed outside scope: " + bad;
+}
 
 /// @brief Implements sanitize run id.
 /// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
@@ -1487,6 +1566,7 @@ void register_runs_routes(CrowApp& app,
                 {"progress", status.value("progress", 0.0)},
                 {"phases", status.value("phases", nlohmann::json::array())},
                 {"events", status.value("events", nlohmann::json::array())},
+                {"resume_attempt", status.contains("resume_attempt") ? status["resume_attempt"] : nlohmann::json(nullptr)},
             });
         } catch (const std::exception& e) {
             if (auto pending = pending_run_status(state, run_id)) {
@@ -1739,6 +1819,18 @@ void register_runs_routes(CrowApp& app,
                 return err_resp("RESUME_PHASE_NOT_FEASIBLE",
                     "Cannot resume from phase '" + from_phase + "': artifacts/run_provenance.json is missing or was not produced by the forward-drizzle pipeline. Legacy runs cannot be resumed; start a new reconstruction.",
                     409, {{"from_phase", from_phase}, {"reason", "run_scope_unsupported"}});
+            }
+
+            // Same section-scope gate the runner itself enforces for the
+            // downstream-only resume points, checked here BEFORE writing any
+            // config revision or launching a subprocess -- see
+            // downstream_resume_scope_violation's own comment for why.
+            const std::string yaml_to_check = !requested_yaml.empty()
+                ? requested_yaml
+                : tile_compile::routes::read_file_str(run_config_path);
+            if (auto violation = downstream_resume_scope_violation(run_dir, from_phase, yaml_to_check)) {
+                return err_resp("RESUME_PHASE_NOT_FEASIBLE", *violation, 409,
+                    {{"from_phase", from_phase}, {"reason", "config_scope_mismatch"}});
             }
         }
 

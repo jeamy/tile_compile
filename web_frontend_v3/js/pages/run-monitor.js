@@ -23,11 +23,26 @@ import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/r
 
 function createCompletionAnalysisPanel() {
   const trafficId = "completion-analysis-traffic";
+  const trafficArrow = el("span", { "aria-hidden": "true" }, "\u25be");
+  const trafficHeader = el("div", {
+    class: "tc-accordion-header",
+    role: "button",
+    tabindex: "0",
+    "aria-expanded": "true",
+    onclick: toggleTraffic,
+    onkeydown: (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      toggleTraffic();
+    },
+  }, trafficArrow, " " + t("ui.title.ai_traffic", "KI-Datenverkehr"));
+  function toggleTraffic() {
+    const open = traffic.classList.toggle("open");
+    trafficArrow.textContent = open ? "\u25be" : "\u25b8";
+    trafficHeader.setAttribute("aria-expanded", String(open));
+  }
   const traffic = el("div", { class: "tc-accordion open", id: "completion-analysis-traffic-panel" },
-    el("div", {
-      class: "tc-accordion-header",
-      onclick: () => document.getElementById("completion-analysis-traffic-panel")?.classList.toggle("open"),
-    }, "\u25b8 " + t("ui.title.ai_traffic", "KI-Datenverkehr")),
+    trafficHeader,
     el("div", { class: "tc-accordion-body" },
       el("div", { class: "tc-flex tc-gap-2 tc-items-center tc-mb-2" },
         el("button", {
@@ -74,9 +89,19 @@ export function createRunMonitorPage() {
   const startBtn = el("button", { class: "tc-btn tc-btn-primary", id: "run-start-btn", onclick: () => startRun() }, t("ui.button.run_start", "Start"));
   const stopBtn = el("button", { class: "tc-btn", id: "run-stop-btn", disabled: true, onclick: () => stopRun() }, t("ui.button.stop", "Stop"));
   const resumeBtn = el("button", { class: "tc-btn", id: "run-resume-btn", onclick: () => resumeRun() }, t("ui.button.resume", "Resume"));
+  const dashboardBtn = el("button", {
+    class: "tc-btn",
+    id: "run-dashboard-btn",
+    onclick: () => {
+      const { currentRunId, currentRunDir } = getRunState();
+      if (!currentRunId && !currentRunDir) return;
+      const rd = currentRunDir ? `&run_dir=${encodeURIComponent(currentRunDir)}` : "";
+      window.open(`/ui/run_dashboard.html?run=${encodeURIComponent(currentRunId || "")}${rd}`, "_blank");
+    },
+  }, t("ui.button.open_dashboard", "Live-Dashboard"));
   const control = el("div", { class: "tc-card" },
     el("div", { class: "tc-card-title" }, t("ui.title.run_control", "Run Control")),
-    el("div", { class: "tc-flex tc-gap-3" }, startBtn, stopBtn, resumeBtn),
+    el("div", { class: "tc-flex tc-gap-3" }, startBtn, stopBtn, resumeBtn, dashboardBtn),
   );
 
   // Run info box

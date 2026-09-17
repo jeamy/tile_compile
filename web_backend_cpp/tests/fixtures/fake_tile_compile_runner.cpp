@@ -80,6 +80,28 @@ int main(int argc, char** argv) {
         } catch (...) {}
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+
+    // Test-controlled failure injection for resume-reconstruction, so tests
+    // can exercise a resume attempt that fails immediately (before writing
+    // any event to the target run's log) -- e.g. mirroring a real
+    // FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH exit. Driven by a marker FILE
+    // (not an env var) in the target --run-dir: the backend process (and
+    // this fake runner, forked from it) is already running by the time a
+    // test wants to control one specific resume call, so a var set in the
+    // test process itself would arrive too late to be inherited.
+    const bool is_resume = argc > 1 && std::string(argv[1]) == "resume-reconstruction";
+    if (is_resume) {
+        std::string run_dir;
+        for (int i = 2; i < argc; ++i) {
+            if (std::string(argv[i]) == "--run-dir" && i + 1 < argc) run_dir = argv[++i];
+        }
+        if (!run_dir.empty() &&
+            std::filesystem::exists(std::filesystem::path(run_dir) / "FAIL_RESUME_MARKER")) {
+            std::cerr << "FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH" << std::endl;
+            return 1;
+        }
+    }
+
     nlohmann::json args = nlohmann::json::array();
     for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
     std::cout << nlohmann::json{{"ok", true}, {"args", args}}.dump() << std::endl;

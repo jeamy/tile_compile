@@ -1121,6 +1121,7 @@
   "ui.button.delete": "Delete",
   "ui.button.compare": "Compare",
   "ui.button.clear": "Reset",
+  "ui.button.open_dashboard": "Live dashboard",
   "ui.button.generate_stats": "Generate stats",
   "ui.button.open_stats_folder": "Open stats folder",
   "ui.button.open_stats_report": "Open report",

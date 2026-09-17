@@ -310,6 +310,84 @@ int main(int argc, char** argv) {
             expect_true(found_normalized_run_dir_arg, "relative resume run_dir is normalized before runner launch");
         }
 
+        // A resume attempt is a SECONDARY action against an already-finished
+        // run. If it fails immediately -- before the runner writes a single
+        // event to the run's own log, e.g. a real
+        // FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH exit -- that failure must
+        // not silently overwrite the already-completed run's status; it is
+        // surfaced separately via `resume_attempt` instead.
+        harness.create_run("resume_fails_after_completion", {
+            {{"ts", "2026-03-10T16:00:00Z"}, {"type", "phase_start"}, {"phase_name", "PCC"}},
+            {{"ts", "2026-03-10T16:00:01Z"}, {"type", "phase_end"}, {"phase_name", "PCC"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T16:00:02Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+        harness.make_file("runs/resume_fails_after_completion/artifacts/run_provenance.json",
+                          "{\"execution_scope\": \"forward_drizzle_m1_m3\"}\n");
+        // Tells the fake runner to exit non-zero on the resume-reconstruction
+        // call for THIS run_dir, mirroring a real FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH.
+        harness.make_file("runs/resume_fails_after_completion/FAIL_RESUME_MARKER", "1\n");
+
+        const auto pre_resume_status = harness.get_json("/api/runs/resume_fails_after_completion/status");
+        expect_equal(pre_resume_status["status"].get<std::string>(), "completed",
+                     "run completed before resume attempt");
+
+        const auto failing_resume = harness.post_json("/api/runs/resume_fails_after_completion/resume", {
+            {"from_phase", "PCC"},
+            {"run_dir", "runs/resume_fails_after_completion"},
+            {"config_yaml", "data:\n  color_mode: OSC\n"}
+        });
+        expect_equal(failing_resume["_http_status"].get<long>(), 202L, "failing resume launch accepted");
+        const auto failed_job = harness.wait_for_job(failing_resume["job_id"].get<std::string>(), 5.0);
+        expect_equal(failed_job["state"].get<std::string>(), "error", "resume job reports error");
+
+        const auto post_resume_status = harness.get_json("/api/runs/resume_fails_after_completion/status");
+        expect_equal(post_resume_status["_http_status"].get<long>(), 200L, "status after failed resume attempt");
+        expect_equal(post_resume_status["status"].get<std::string>(), "completed",
+                     "a failed resume attempt does not overwrite the already-completed run's status");
+        expect_true(post_resume_status.contains("resume_attempt") && post_resume_status["resume_attempt"].is_object(),
+                    "failed resume attempt is surfaced separately");
+        expect_equal(post_resume_status["resume_attempt"]["state"].get<std::string>(), "error",
+                     "resume_attempt reports the failed state");
+
+        // The backend applies the SAME downstream-resume section-scope gate
+        // the runner itself enforces, checked before any config write or
+        // subprocess launch (see downstream_resume_scope_violation). This is
+        // exactly the HMS-dialog bug: "Apply & start resume" silently saved
+        // an edited config but the re-stretch never visibly ran because the
+        // runner rejected out-of-scope drift (e.g. chroma_denoise) after the
+        // write already happened. It must now be rejected immediately.
+        harness.create_run("hms_resume_scope_check", {
+            {{"ts", "2026-03-10T17:00:00Z"}, {"type", "phase_start"}, {"phase_name", "HYPERMETRIC_STRETCH"}},
+            {{"ts", "2026-03-10T17:00:01Z"}, {"type", "phase_end"}, {"phase_name", "HYPERMETRIC_STRETCH"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T17:00:02Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+        harness.make_file("runs/hms_resume_scope_check/artifacts/run_provenance.json",
+                          "{\"execution_scope\": \"forward_drizzle_m1_m3\"}\n");
+        harness.make_file("runs/hms_resume_scope_check/artifacts/config_revisions/orig.yaml",
+                          "data:\n  color_mode: OSC\nchroma_denoise:\n  enabled: true\nhypermetric_stretch:\n  sensor_profile: rec709\n");
+        harness.make_file("runs/hms_resume_scope_check/artifacts/config_revisions/index.json",
+                          "[{\"revision_id\":\"orig_runstart\",\"file_name\":\"orig.yaml\",\"source\":\"run_start\","
+                          "\"created_at\":\"2026-03-10T17:00:00Z\",\"run_id\":\"hms_resume_scope_check\"}]\n");
+
+        const auto scope_violation = harness.post_json("/api/runs/hms_resume_scope_check/resume", {
+            {"from_phase", "HYPERMETRIC_STRETCH"},
+            {"run_dir", "runs/hms_resume_scope_check"},
+            {"config_yaml", "data:\n  color_mode: OSC\nchroma_denoise:\n  enabled: false\nhypermetric_stretch:\n  sensor_profile: rec709\n"},
+            {"dry_run", true}
+        });
+        expect_equal(scope_violation["_http_status"].get<long>(), 409L, "out-of-scope HMS resume config rejected");
+        expect_equal(scope_violation["error"]["details"]["reason"].get<std::string>(), "config_scope_mismatch",
+                     "out-of-scope HMS resume reports config_scope_mismatch");
+
+        const auto scope_ok = harness.post_json("/api/runs/hms_resume_scope_check/resume", {
+            {"from_phase", "HYPERMETRIC_STRETCH"},
+            {"run_dir", "runs/hms_resume_scope_check"},
+            {"config_yaml", "data:\n  color_mode: OSC\nchroma_denoise:\n  enabled: true\nhypermetric_stretch:\n  sensor_profile: \"Sony IMX415 (DWARF II)\"\n"},
+            {"dry_run", true}
+        });
+        expect_equal(scope_ok["_http_status"].get<long>(), 200L, "in-scope-only HMS resume config accepted");
+        expect_true(scope_ok.value("feasible", false), "in-scope-only HMS resume reports feasible");
+
         // Runs without forward-drizzle provenance cannot be resumed; the
         // runner would fail its provenance check anyway, so the backend
         // rejects early with a clear error.

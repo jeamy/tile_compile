@@ -204,6 +204,15 @@ async function selectRun(runId) {
 
       actions.appendChild(el("button", { class: "tc-btn tc-btn-sm", onclick: () => setRunCurrent(runId) }, t("ui.button.set_current", "Als aktuell setzen")));
 
+      const dashboardBtn = el("button", {
+        class: "tc-btn tc-btn-sm",
+        onclick: () => {
+          const rd = status?.run_dir ? `&run_dir=${encodeURIComponent(status.run_dir)}` : "";
+          window.open(`/ui/run_dashboard.html?run=${encodeURIComponent(runId)}${rd}`, "_blank");
+        },
+      }, t("ui.button.open_dashboard", "Live-Dashboard"));
+      actions.appendChild(dashboardBtn);
+
       const genBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !isTerminal, onclick: () => generateStatsForRun(runId) }, t("ui.button.generate_stats", "Generate Stats"));
       const openBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !hasReport, onclick: () => openStatsFolder(runId, status?.run_dir) }, t("ui.button.open_stats_folder", "Open Stats Folder"));
       const reportBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !hasReport, onclick: () => openStatsReport(runId, status?.run_dir) }, t("ui.button.open_stats_report", "Open Report"));

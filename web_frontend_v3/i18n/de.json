@@ -1121,6 +1121,7 @@
   "ui.button.delete": "Löschen",
   "ui.button.compare": "Vergleichen",
   "ui.button.clear": "Zurücksetzen",
+  "ui.button.open_dashboard": "Live-Dashboard",
   "ui.button.generate_stats": "Stats erzeugen",
   "ui.button.open_stats_folder": "Stats-Ordner öffnen",
   "ui.button.open_stats_report": "Report öffnen",

@@ -113,17 +113,27 @@ chroma_denoise:
   apply_stage: both
   protect_luma: true
   luma_guard_strength: 0.85
+  # Reference chroma-to-luma noise-sigma ratio used to scale the wavelet/
+  # bilateral strength to the dataset's actual noise level. Expressed
+  # relative to the image's own measured luma-noise sigma, so it stays
+  # meaningful across normalized, ADU, and stretched data.
+  adaptation_reference_ratio: 1.0
   star_protection:
     enabled: true
-    threshold_sigma: 4   # must stay sparse: at 2 the dilated mask covers ~94% of a dense field
+    # Keep the protected footprint small: protected pixels get only
+    # (1 - luma_guard_strength) of the denoise, so every protected sky
+    # pixel keeps near-raw chroma noise. On a dense M31 field the combined
+    # mask reached ~44% at sigma 4 and visibly re-introduced the raw
+    # confetti; sigma 8 still catches the bright stars whose halos matter.
+    threshold_sigma: 8
     dilate_px: 8         # must cover the full PSF (core+wings); 3 caused green halos
   structure_protection:
     enabled: true
-    gradient_percentile: 90
+    gradient_percentile: 95   # top-5% gradients only; 90 masked another ~10% of sky
   chroma_wavelet:
     enabled: true
     levels: 4
-    threshold_scale: 2.0
+    threshold_scale: 2.5
     soft_k: 1.0
   chroma_bilateral:
     enabled: true
@@ -141,7 +151,33 @@ chroma_denoise:
     # is blended back to its original chroma.
     enabled: true
     luma_sigma: 2.5   # detection threshold in sky-sigma; lower = protect more
-    dilate_px: 30     # dilation covering PSF wings and halos around the source
+    dilate_px: 15     # margin around the detected source; keep it tight --
+                      # every protected pixel keeps near-raw chroma noise
+  large_scale_bias:
+    # The wavelet/bilateral stages above only shrink *detail* relative to a
+    # progressively-blurred low-pass version and by construction never touch
+    # that low-pass remainder, so a background color cast wider than roughly
+    # the wavelet's coarsest scale (2^(chroma_wavelet.levels-1)*0.75 px)
+    # passes through untouched regardless of blend/protection settings. This
+    # stage estimates a coarse block-median surface from unprotected
+    # (background-only) pixels, smooths it, and subtracts `strength` of its
+    # deviation from the surface's own global background median (the
+    # overall background chroma level is preserved; only spatial variation
+    # across it is flattened). Enable when residual color blotches remain
+    # after the wavelet/bilateral stages.
+    enabled: true
+    block_size: 32     # px, grid cell size for the block-median estimate
+    blur_sigma: 24.0    # px, smoothing of the block grid into a continuous surface
+    strength: 1.0       # 0..1, fraction of the estimated bias removed
+    # This relies entirely on extended_source_protection (above) to exclude
+    # the galaxy from the background estimate. There is no automatic
+    # statistical fallback for a missing/insufficient extended_source_
+    # protection dilation: both the median used for the background reference
+    # and any outlier-style check share the same ~50%-breakdown behaviour,
+    # so neither can reliably separate "sky" from "large foreground object"
+    # on chroma values alone once the object is large enough to matter.
+    # Always verify extended_source_protection.dilate_px fully covers the
+    # target before enabling this.
 
 astrometry:
   enabled: true
@@ -237,7 +273,7 @@ pcc:
   min_aperture_px: 4
   siril_catalog_dir: /media/data/Astro/siril_catalog
   apply_attenuation: true
-  chroma_strength: 0.7
+  chroma_strength: 1.0
   k_max: 2.4
   max_condition_number: 3
   max_residual_rms: 0.9

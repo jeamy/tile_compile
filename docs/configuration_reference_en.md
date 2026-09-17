@@ -850,6 +850,74 @@ Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches whil
 
 **Purpose:** Spatial sigma for bilateral filter. Controls the spatial extent of smoothing. Larger values smooth over larger areas. Range > 0. Recommended: 1.5–3.0.
 
+### `chroma_denoise.extended_source_protection.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Protects extended smooth sources (galaxy disks, large nebulae, diffuse halos) from chroma denoising. Detection uses a heavily blurred luma map; pixels whose smoothed luma exceeds `sky_median + luma_sigma * sky_sigma` are blended back toward their original chroma. Enable whenever the field contains a galaxy or large nebula -- without it the wavelet threshold treats the object's smooth color excess as noise and erases it (observed as a green cast after stretching).
+
+### `chroma_denoise.extended_source_protection.luma_sigma`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `1.0 – 5.0` |
+| **Default** | `2.5` |
+
+**Purpose:** Detection threshold in sky-sigma units above the smoothed sky median. Lower values protect more area (also faint halos); higher values protect only the brightest core. Keep the protected footprint small: protected pixels receive only `(1 - luma_guard_strength)` of the denoise and therefore keep near-raw chroma noise.
+
+### `chroma_denoise.extended_source_protection.dilate_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Range** | `0 – 100` |
+| **Default** | `30` |
+
+**Purpose:** Dilation radius (pixels) applied after detection to cover the object's faint outskirts and PSF halos. Keep it tight -- every protected sky pixel keeps near-raw chroma noise.
+
+### `chroma_denoise.large_scale_bias.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Removes large-scale chroma bias (background color gradients wider than the coarsest wavelet level) before the wavelet/bilateral stages. Estimates a coarse block-median surface from unprotected pixels only, fills blocks without unprotected coverage via normalized-convolution fill, smooths it, and subtracts `strength` of its deviation from the surface's own global background median (the overall background chroma level is preserved; only spatial variation is flattened). The correction is faded out inside the protection mask, where the surface is only interpolated and may be contaminated by unprotected faint halo. Requires a sufficiently dilated `extended_source_protection` mask for large objects.
+
+### `chroma_denoise.large_scale_bias.block_size`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Range** | `>= 4` |
+| **Default** | `32` |
+
+**Purpose:** Grid cell size in pixels for the block-median bias estimate.
+
+### `chroma_denoise.large_scale_bias.blur_sigma`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `>= 0` |
+| **Default** | `24.0` |
+
+**Purpose:** Gaussian sigma in pixels used to interpolate the block grid into a continuous surface. `0` disables smoothing.
+
+### `chroma_denoise.large_scale_bias.strength`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `0 – 1` |
+| **Default** | `1.0` |
+
+**Purpose:** Fraction of the estimated bias deviation subtracted from the chroma planes.
+
 ---
 
 ## 10. Global Metrics
@@ -2081,6 +2149,10 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `chroma_denoise.extended_source_protection.enabled`: protect extended smooth sources (galaxy disks, large nebulae) from chroma denoising. Enable whenever the field contains a galaxy or large nebula to prevent the wavelet threshold from erasing real object color.
 - `chroma_denoise.extended_source_protection.luma_sigma`: detection threshold above sky background in sigma units (range 1.0–5.0). Lower values protect more area.
 - `chroma_denoise.extended_source_protection.dilate_px`: dilation radius (pixels) after detection, to cover PSF halos.
+- `chroma_denoise.large_scale_bias.enabled`: removes large-scale chroma bias (sky color gradients wider than the coarsest wavelet level) before the wavelet/bilateral stages.
+- `chroma_denoise.large_scale_bias.block_size`: block size in pixels for the block-median bias-surface estimate (>= 4).
+- `chroma_denoise.large_scale_bias.blur_sigma`: smoothing sigma in pixels that interpolates the block grid into a continuous surface (>= 0).
+- `chroma_denoise.large_scale_bias.strength`: fraction of the estimated deviation subtracted ([0,1]; the global background median is preserved, only spatial variation is flattened). The estimate uses unprotected pixels only, and the correction is faded out inside the protection mask -- there the surface is only interpolated and may be contaminated by unprotected faint halo. Large extended sources therefore require a sufficiently dilated `extended_source_protection` mask.
 
 ### A.5 Global metrics / Reconstruction
 

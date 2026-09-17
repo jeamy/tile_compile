@@ -819,6 +819,26 @@ chroma_denoise:
   blend:
     mode: chroma_only
     amount: 0.85                   # 0..1
+  extended_source_protection:
+    # Schuetzt Galaxien-Discs/grosse Nebel: Pixel, deren stark geglaettetes
+    # Luma ueber sky_median + luma_sigma * sky_sigma liegt, behalten ihre
+    # Original-Chroma. Ohne diese Maske glaettet der Denoiser die echte
+    # Objektfarbe weg (beobachtet als Gruenstich nach dem Stretch).
+    enabled: true
+    luma_sigma: 2.5                # 1.0-5.0, kleiner = groessere Schutzflaeche
+    dilate_px: 15                  # 0-100, Rand um die detektierte Quelle;
+                                   # jeder geschuetzte Pixel behaelt nahezu
+                                   # ungedaempftes Chroma-Rauschen
+  large_scale_bias:
+    # Entfernt grossflaechige Chroma-Fehlfarben (Himmels-Farbgradienten
+    # breiter als die groebste Wavelet-Ebene): Block-Median-Oberflaeche aus
+    # ungeschuetzten Pixeln, Loecher per Push-Pull-Fuellung, Subtraktion der
+    # Abweichung vom globalen Hintergrund-Median. Die Korrektur wird
+    # innerhalb der Schutzmaske ausgeblendet.
+    enabled: true
+    block_size: 32                 # >= 4
+    blur_sigma: 24.0               # >= 0
+    strength: 1.0                  # 0..1
 ```
 
 #### Presets
@@ -2541,6 +2561,10 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `chroma_denoise.extended_source_protection.enabled`: Schutz für Extended Sources (Galaxien-Discs, große Nebel) vor Chroma-Denoising. Aktivieren, wenn das Feld eine Galaxie oder einen großen Nebel enthält, damit der Denoiser die echte Farbe der Quelle nicht als Rauschen behandelt.
 - `chroma_denoise.extended_source_protection.luma_sigma`: Detektionsschwelle über dem Himmelshintergrund in σ-Einheiten (0–5). Niedrigere Werte schützen mehr; höhere nur den hellsten Kern.
 - `chroma_denoise.extended_source_protection.dilate_px`: Dilations-Radius (Pixel) nach der Erkennung, um PSF-Halos abzudecken.
+- `chroma_denoise.large_scale_bias.enabled`: entfernt großflächige Chroma-Fehlfarben (Himmels-Farbgradienten, die breiter sind als die gröbste Wavelet-Ebene), bevor Wavelet/Bilateral laufen.
+- `chroma_denoise.large_scale_bias.block_size`: Blockgröße in Pixeln für die Block-Median-Schätzung der Bias-Oberfläche (>= 4).
+- `chroma_denoise.large_scale_bias.blur_sigma`: Glättungs-σ in Pixeln, mit dem das Block-Raster zu einer kontinuierlichen Oberfläche interpoliert wird (>= 0).
+- `chroma_denoise.large_scale_bias.strength`: Anteil der geschätzten Abweichung, der subtrahiert wird ([0,1]; der globale Hintergrund-Median bleibt erhalten, nur räumliche Variation wird geebnet). Die Schätzung nutzt ausschließlich ungeschützte Pixel, und die Korrektur wird innerhalb der Schutzmaske ausgeblendet — dort ist die Oberfläche nur interpoliert und kann durch ungeschützte Halo-Ränder kontaminiert sein. Erfordert daher für große Extended Sources eine ausreichend dilatierte `extended_source_protection`-Maske.
 
 ### A.5 Global Metrics / Reconstruction
 
