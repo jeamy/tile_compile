@@ -106,6 +106,10 @@ json plan_to_json(const ForwardDrizzleV2RunPlan &p, bool with_hash) {
   // reproducible (the hash input then matches the old serialization).
   if (!p.source_quality_cache_hash.empty())
     j["source_quality_cache_hash"] = p.source_quality_cache_hash;
+  if (p.shared_frame_rejection) {
+    j["shared_frame_rejection"] = p.shared_frame_rejection;
+    j["shared_frame_rejection_consensus"] = p.shared_frame_rejection_consensus;
+  }
   if (with_hash) j["plan_hash"] = p.plan_hash;
   return j;
 }
@@ -132,6 +136,9 @@ ForwardDrizzleV2RunPlan plan_from_json(const json &j) {
   p.robust_passes = j.at("robust_passes").get<int>();
   p.sigma_low = j.at("sigma_low").get<double>();
   p.sigma_high = j.at("sigma_high").get<double>();
+  p.shared_frame_rejection = j.value("shared_frame_rejection", false);
+  p.shared_frame_rejection_consensus =
+      j.value("shared_frame_rejection_consensus", 0.5);
   p.support_fold_contract = j.at("support_fold_contract").get<std::string>();
   p.numerics = j.at("numerics").get<std::string>();
   p.sigma2_enabled = j.at("sigma2_enabled").get<bool>();

@@ -48,6 +48,8 @@ ForwardDrizzleV2KernelConfig kernel_config_for_band(
   k.robust_passes = plan.robust_passes;
   k.sigma_low = plan.sigma_low;
   k.sigma_high = plan.sigma_high;
+  k.shared_frame_rejection = plan.shared_frame_rejection;
+  k.shared_frame_rejection_consensus = plan.shared_frame_rejection_consensus;
   k.half = 0.5 * plan.pixfrac;
   k.bayer_pattern = plan.bayer_pattern;
   k.cfa_origin_x = plan.cfa_origin_x;

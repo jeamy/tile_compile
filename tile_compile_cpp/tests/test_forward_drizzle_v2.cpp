@@ -5830,6 +5830,216 @@ TEST_CASE("forward drizzle v2 gate10 host kernel validation",
 
 namespace {
 
+// 12-frame fixture (extended from make_fixture's 5 via small y-jitter,
+// mirroring the gate9 test's extension) where `outlier_frame`'s whole image
+// has been pushed +500 off the rest, so every (pixel, channel) it
+// contributes a candidate to reliably trips the sigma clip -- this exercises
+// shared_frame_rejection's consensus step without depending on incidental
+// noise to produce a clip event.
+Fixture sfr_fixture(ColorMode mode, int outlier_frame) {
+  auto f = make_fixture(mode, BayerPattern::GRBG, 1, -1, 1);
+  const std::size_t base_frames = f.plan.frames.size();
+  for (std::size_t i = base_frames; i < 12; ++i) {
+    FrameSamplingTransform frame = f.plan.frames[i % base_frames];
+    frame.frame_id = "v2-sfr-" + std::to_string(i);
+    frame.source_index = i;
+    frame.source_to_canvas(0, 2) +=
+        static_cast<float>(0.011 * static_cast<double>(i - base_frames));
+    f.plan.frames.push_back(frame);
+    f.images.push_back(f.images[i % base_frames]);
+  }
+  auto &img = f.images[static_cast<std::size_t>(outlier_frame)];
+  for (int y = 0; y < img.rows(); ++y)
+    for (int x = 0; x < img.cols(); ++x)
+      if (std::isfinite(img(y, x))) img(y, x) += 500.0f;
+  return f;
+}
+
+struct SfrRun {
+  std::vector<ForwardDrizzleV2PixelResult> results;
+  std::vector<ForwardDrizzleV2ProfileResult> profiles;
+  int channels = 0;
+};
+
+SfrRun run_sfr(const Fixture &f, bool mono, bool shared, double consensus) {
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const int channels = mono ? 1 : 3;
+  const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = f.cfg.internal_scale;
+  kcfg.stream_length = static_cast<int>(f.plan.frames.size());
+  kcfg.half = 0.5 * f.cfg.pixfrac;
+  kcfg.bayer_pattern = static_cast<int>(f.plan.bayer_pattern);
+  kcfg.cfa_origin_x = f.plan.cfa_origin_x;
+  kcfg.cfa_origin_y = f.plan.cfa_origin_y;
+  kcfg.mono = mono;
+  kcfg.emit_profiles = true;
+  kcfg.shared_frame_rejection = shared;
+  kcfg.shared_frame_rejection_consensus = consensus;
+
+  ForwardDrizzleV2CpuKernel kernel;
+  REQUIRE(kernel.reserve(nc, nr, f.plan.source_width, f.plan.source_height,
+                         kcfg));
+  ForwardDrizzleV2FrameMeta meta{1.0f, 0.9f, 1, 0};
+  for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+    const auto &m = f.plan.frames[fr].source_to_canvas;
+    const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                          m(1, 0), m(1, 1), m(1, 2)};
+    REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), nullptr, fr,
+                                    nullptr, &meta));
+  }
+  SfrRun out;
+  out.channels = channels;
+  out.results.resize(nplane * channels);
+  out.profiles.resize(nplane * channels);
+  std::uint64_t dense = 0;
+  REQUIRE(kernel.finalize(out.results.data(), out.profiles.data(), &dense));
+  return out;
+}
+
+void require_pixel_result_equal(const ForwardDrizzleV2PixelResult &a,
+                                const ForwardDrizzleV2PixelResult &b) {
+  REQUIRE(a.value == b.value);
+  REQUIRE(a.b == b.b);
+  REQUIRE(a.n_eff == b.n_eff);
+  REQUIRE(a.confidence == b.confidence);
+  REQUIRE(a.geometry_fraction == b.geometry_fraction);
+  REQUIRE(a.source_fraction == b.source_fraction);
+  REQUIRE(a.estimator_fraction == b.estimator_fraction);
+  REQUIRE(a.profile_fraction == b.profile_fraction);
+  REQUIRE(a.contributors == b.contributors);
+  REQUIRE(a.robust_state == b.robust_state);
+  REQUIRE(a.confidence_state == b.confidence_state);
+  REQUIRE(a.conf_degraded == b.conf_degraded);
+}
+
+void require_profile_output_equal(const ForwardDrizzleV2ProfileOutput &a,
+                                  const ForwardDrizzleV2ProfileOutput &b) {
+  REQUIRE(a.support == b.support);
+  if (a.support) {
+    REQUIRE(a.value == b.value);
+    REQUIRE(a.weight_sum == b.weight_sum);
+    REQUIRE(a.n_eff == b.n_eff);
+  }
+}
+
+void require_profile_result_equal(const ForwardDrizzleV2ProfileResult &a,
+                                  const ForwardDrizzleV2ProfileResult &b) {
+  require_profile_output_equal(a.uniform, b.uniform);
+  require_profile_output_equal(a.raw, b.raw);
+  require_profile_output_equal(a.fine, b.fine);
+  require_profile_output_equal(a.medium, b.medium);
+  REQUIRE(a.a_separation == b.a_separation);
+  REQUIRE(a.a_artifact == b.a_artifact);
+  REQUIRE(a.a_registration == b.a_registration);
+  REQUIRE(a.artifact_applicable == b.artifact_applicable);
+}
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 shared_frame_rejection consensus=1.0 is "
+          "bit-identical to disabled",
+          "[forward-drizzle-v2][shared-frame-rejection]") {
+  // shared_frame_rejection_consensus=1.0 means `frac > 1.0` never fires, so
+  // the consensus step never revises any channel's own clip decision --
+  // the accepted set it produces must reduce exactly to what the
+  // shared_frame_rejection=false fast path computes. This is the
+  // discriminating test for the finalize() restructuring itself (the
+  // ChannelWork/px-ch reorganization): any divergence here is a bug in the
+  // hand-copy of the clip algorithm into the two branches, not a property
+  // of the consensus feature.
+  for (ColorMode mode : {ColorMode::OSC, ColorMode::MONO}) {
+    const auto f = sfr_fixture(mode, /*outlier_frame=*/5);
+    const bool mono = mode == ColorMode::MONO;
+    const auto off = run_sfr(f, mono, false, 0.5);
+    const auto on = run_sfr(f, mono, true, 1.0);
+    REQUIRE(off.channels == on.channels);
+    REQUIRE(off.results.size() == on.results.size());
+    bool saw_clip = false;
+    for (std::size_t i = 0; i < off.results.size(); ++i) {
+      require_pixel_result_equal(off.results[i], on.results[i]);
+      require_profile_result_equal(off.profiles[i], on.profiles[i]);
+      if (off.results[i].robust_state ==
+          static_cast<std::uint8_t>(
+              ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip))
+        saw_clip = true;
+    }
+    // The +500 outlier frame must actually have triggered the clip somewhere
+    // -- otherwise this test would pass vacuously without exercising the
+    // clip/finalize code path at all.
+    REQUIRE(saw_clip);
+  }
+}
+
+TEST_CASE("forward drizzle v2 shared_frame_rejection consensus drops a "
+          "cross-channel outlier frame",
+          "[forward-drizzle-v2][shared-frame-rejection]") {
+  // OSC only: consensus across channels requires nch > 1. `r.b` is the raw
+  // full-stream folded weight (set once from the pre-clip accumulator and
+  // never revised by the clip or consensus step), so it can't show a
+  // consensus effect; `r.value` (the accepted-candidate weighted mean) and
+  // `r.confidence` are what the consensus step's `cwv.accepted[i] = 0`
+  // revision actually feeds into. This sweeps outlier magnitudes at the
+  // fixture's production-range pixfrac (0.8, from make_fixture) and
+  // requires that at least one configuration produces a pixel where a
+  // SUBSET (not all) of the clipped channels change `value` -- a uniform
+  // change across every clipped channel at a pixel wouldn't distinguish
+  // "consensus fired" from some unrelated global effect, but a change
+  // isolated to some channels and not others at the same pixel can only
+  // come from the per-frame vote-counting logic actually revising that
+  // specific channel's accepted set.
+  bool saw_partial_value_change = false;
+  for (const double magnitude : {4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0}) {
+    for (const int outlier_frame : {3, 5, 7}) {
+      auto f = sfr_fixture(ColorMode::OSC, outlier_frame);
+      // Undo the fixture's uniform +500 bump and instead perturb only the
+      // source pixels that feed the R and G channel planes, leaving B's
+      // candidate for this frame at baseline -- since each channel plane is
+      // built only from its own CFA-colored source pixels, this makes the
+      // outlier frame a clear per-channel outlier in R/G while B's own clip
+      // pass has no reason to reject it. If R and G's rejection then also
+      // shows up in B's accepted set, that can only be the cross-channel
+      // consensus vote, not B's own independent clip.
+      auto &img = f.images[static_cast<std::size_t>(outlier_frame)];
+      for (int y = 0; y < img.rows(); ++y)
+        for (int x = 0; x < img.cols(); ++x) {
+          if (!std::isfinite(img(y, x))) continue;
+          img(y, x) -= 500.0f;
+          const auto c = cfa_channel_for_source_pixel(
+              x, y, f.plan.bayer_pattern, f.plan.cfa_origin_x,
+              f.plan.cfa_origin_y);
+          if (c == CfaChannel::R || c == CfaChannel::G)
+            img(y, x) += static_cast<float>(magnitude);
+        }
+      const auto off = run_sfr(f, false, false, 0.5);
+      const auto on = run_sfr(f, false, true, 0.5);
+      REQUIRE(off.results.size() == on.results.size());
+      const std::size_t nplane = off.results.size() / 3;
+      for (std::size_t px = 0; px < nplane; ++px) {
+        int clipped = 0, changed = 0;
+        for (int c = 0; c < 3; ++c) {
+          const std::size_t i = static_cast<std::size_t>(c) * nplane + px;
+          const auto &o = off.results[i];
+          const auto &n = on.results[i];
+          if (o.robust_state !=
+              static_cast<std::uint8_t>(
+                  ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip))
+            continue;
+          ++clipped;
+          if (std::fabs(o.value - n.value) > 1e-6) ++changed;
+        }
+        if (clipped >= 2 && changed >= 1 && changed < clipped)
+          saw_partial_value_change = true;
+      }
+    }
+  }
+  REQUIRE(saw_partial_value_change);
+}
+
+namespace {
+
 // Builds a driver-ready run plan over the small fixture canvas.
 ForwardDrizzleV2RunPlan g10_driver_plan(const Fixture &f, int band_rows,
                                         int channels, bool emit_profiles) {

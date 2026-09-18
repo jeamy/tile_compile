@@ -13,10 +13,11 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
-#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <new>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "tile_compile/core/types.hpp"
@@ -462,7 +463,9 @@ static bool v2_fixed_cfg_equal(const ForwardDrizzleV2KernelConfig &a,
          a.canvas_width_native == b.canvas_width_native &&
          a.canvas_height_native == b.canvas_height_native &&
          a.band_origin_x_native == b.band_origin_x_native &&
-         a.cached_leaf_capacity == b.cached_leaf_capacity;
+         a.cached_leaf_capacity == b.cached_leaf_capacity &&
+         a.shared_frame_rejection == b.shared_frame_rejection &&
+         a.shared_frame_rejection_consensus == b.shared_frame_rejection_consensus;
 }
 
 bool ForwardDrizzleV2CpuKernel::begin_band(
@@ -1544,223 +1547,535 @@ bool ForwardDrizzleV2CpuKernel::finalize(
   pcfg.fine_quality_exponent = im.cfg.fine_quality_exponent;
   pcfg.medium_quality_exponent = im.cfg.medium_quality_exponent;
   std::uint64_t dense = 0;
+  const int nch = im.channels;
 
-  std::vector<ForwardDrizzleV2RobustCandidate> cands;
-  std::vector<double> sigma2s;
-  std::vector<std::uint8_t> accepted;
-  std::vector<ForwardDrizzleV2ProfileCandidate> pcands;
-  std::vector<std::uint64_t> kept_order;
+  // Fast path: shared_frame_rejection is opt-in and defaults to false, so
+  // this must stay byte-for-byte (and timing-for-timing) identical to the
+  // pre-existing single-pass algorithm for every run that doesn't use it --
+  // the two-pass/consensus machinery below has measurable overhead (an
+  // extra ForwardDrizzleV2PixelResult copy and per-pixel channel grouping)
+  // that has no business affecting a stage as latency-sensitive as this one
+  // when the feature is off. See the shared_frame_rejection branch below
+  // for the consensus algorithm itself.
+  if (!im.cfg.shared_frame_rejection) {
+    std::vector<ForwardDrizzleV2RobustCandidate> cands;
+    std::vector<double> sigma2s;
+    std::vector<std::uint8_t> accepted;
+    std::vector<ForwardDrizzleV2ProfileCandidate> pcands;
+    std::vector<std::uint64_t> kept_order;
 
-  for (std::size_t tid = 0; tid < im.pc_elems; ++tid) {
-    const std::size_t px = tid % np;
-    ForwardDrizzleV2PixelResult r;
-    const double a_acc = im.accA[tid];
-    const double b_acc = im.accB[tid];
-    const double b2_acc = im.accB2[tid];
-    r.contributors = im.contrib[tid];
-    r.conf_degraded = im.degraded[tid];
-    r.b = b_acc;
-    r.n_eff = b2_acc > 0.0 ? b_acc * b_acc / b2_acc : 0.0;
-    const unsigned int mask = im.supp[tid];
-    r.geometry_fraction = static_cast<float>(
-        static_cast<double>(std::popcount(mask & 0xFu)) / subpixels);
-    r.source_fraction = static_cast<float>(
-        static_cast<double>(std::popcount((mask >> 4) & 0xFu)) / subpixels);
-    r.estimator_fraction = r.source_fraction;
-    r.profile_fraction = r.source_fraction;
-    if ((tid / np) == 0 && im.footprint[px] == im.frames && im.frames > 0)
-      ++dense;
+    for (std::size_t tid = 0; tid < im.pc_elems; ++tid) {
+      const std::size_t px = tid % np;
+      ForwardDrizzleV2PixelResult r;
+      const double a_acc = im.accA[tid];
+      const double b_acc = im.accB[tid];
+      const double b2_acc = im.accB2[tid];
+      r.contributors = im.contrib[tid];
+      r.conf_degraded = im.degraded[tid];
+      r.b = b_acc;
+      r.n_eff = b2_acc > 0.0 ? b_acc * b_acc / b2_acc : 0.0;
+      const unsigned int mask = im.supp[tid];
+      r.geometry_fraction = static_cast<float>(
+          static_cast<double>(std::popcount(mask & 0xFu)) / subpixels);
+      r.source_fraction = static_cast<float>(
+          static_cast<double>(std::popcount((mask >> 4) & 0xFu)) / subpixels);
+      r.estimator_fraction = r.source_fraction;
+      r.profile_fraction = r.source_fraction;
+      if ((tid / np) == 0 && im.footprint[px] == im.frames && im.frames > 0)
+        ++dense;
 
-    auto finish_conf = [&](double cb, double cs, double cc) {
-      if (!(cb > 0.0)) {
-        r.confidence = 0.0;
+      auto finish_conf = [&](double cb, double cs, double cc) {
+        if (!(cb > 0.0)) {
+          r.confidence = 0.0;
+          r.confidence_state = static_cast<std::uint8_t>(
+              ForwardDrizzleV2ConfidenceState::no_source_support);
+          return;
+        }
+        if (cc > 0.0 && std::isfinite(cc)) {
+          r.confidence = (cs * cs) / (cs * cs + cc);
+          r.confidence_state = static_cast<std::uint8_t>(
+              ForwardDrizzleV2ConfidenceState::modeled);
+          return;
+        }
+        r.confidence = r.n_eff > 0.0 ? r.n_eff / (r.n_eff + 1.0) : 0.0;
         r.confidence_state = static_cast<std::uint8_t>(
+            ForwardDrizzleV2ConfidenceState::fallback_n_eff);
+      };
+      auto emit_fallback_profiles = [&]() {
+        if (profiles_or_null == nullptr) return;
+        ForwardDrizzleV2ProfileResult pr;
+        if (b_acc > 0.0) {
+          const float v = static_cast<float>(a_acc / b_acc);
+          const float w = static_cast<float>(b_acc);
+          const float ne = static_cast<float>(r.n_eff);
+          for (auto *o : {&pr.uniform, &pr.raw, &pr.fine, &pr.medium}) {
+            o->value = v;
+            o->weight_sum = w;
+            o->n_eff = ne;
+            o->support = 1;
+          }
+        }
+        profiles_or_null[tid] = pr;
+      };
+
+      const unsigned int n_kept = im.kept[tid];
+      const bool no_support = !(b_acc > 0.0);
+      const bool overflow = n_kept > slots;
+      const bool too_few =
+          r.contributors <
+              static_cast<unsigned int>(im.cfg.min_candidates) ||
+          n_kept < static_cast<unsigned int>(im.cfg.min_clip_contributors);
+      if (no_support || overflow || too_few) {
+        if (no_support) {
+          r.robust_state = static_cast<std::uint8_t>(
+              ForwardDrizzleV2RobustState::no_source_support);
+          finish_conf(0.0, 0.0, 0.0);
+        } else {
+          r.value = a_acc / b_acc;
+          r.robust_state = static_cast<std::uint8_t>(
+              overflow
+                  ? ForwardDrizzleV2RobustState::reservoir_overflow_fallback
+                  : ForwardDrizzleV2RobustState::too_few_candidates_fallback);
+          finish_conf(b_acc, im.confS[tid], im.confC[tid]);
+        }
+        emit_fallback_profiles();
+        results[tid] = r;
+        continue;
+      }
+
+      // Load + sort the kept set by (x, order); the quality side array
+      // moves with the records (it is indexed by reservoir slot).
+      cands.clear();
+      sigma2s.clear();
+      pcands.clear();
+      kept_order.clear();
+      cands.reserve(n_kept);
+      sigma2s.reserve(n_kept);
+      kept_order.reserve(n_kept);
+      for (unsigned int i = 0; i < n_kept; ++i) kept_order.push_back(i);
+      std::sort(kept_order.begin(), kept_order.end(),
+                [&](std::uint64_t i, std::uint64_t j) {
+                  const auto &ri = im.res[tid * slots + i];
+                  const auto &rj = im.res[tid * slots + j];
+                  if (ri.x != rj.x) return ri.x < rj.x;
+                  return ri.order < rj.order;
+                });
+      for (unsigned int pos = 0; pos < n_kept; ++pos) {
+        const auto &rc = im.res[tid * slots + kept_order[pos]];
+        ForwardDrizzleV2RobustCandidate cand;
+        cand.frame_order = static_cast<std::size_t>(rc.order);
+        cand.x = rc.x;
+        cand.b = rc.b;
+        cands.push_back(cand);
+        sigma2s.push_back(rc.sigma2);
+        if (im.cfg.emit_profiles) {
+          const auto &qv = im.resq[tid * slots + kept_order[pos]];
+          ForwardDrizzleV2ProfileCandidate pc;
+          pc.frame_order = cand.frame_order;
+          pc.x = rc.x;
+          pc.b = rc.b;
+          pc.q = qv.qc;
+          pc.q0 = qv.q0;
+          pc.q1 = qv.q1;
+          pc.qa = qv.qa >= 0.0f ? static_cast<double>(qv.qa) : 1.0;
+          pc.qa_has_data = qv.qa >= 0.0f;
+          pcands.push_back(pc);
+        }
+      }
+
+      // Iterative clip identical to k_finalize_v2 / robust_frame_oracle_v2:
+      // (x, order) order, weighted median at >= total/2, deviation-ordered
+      // weighted MAD, asymmetric bounds, early stop on an unchanged mask.
+      accepted.assign(n_kept, std::uint8_t{1});
+      for (int pass = 0; pass < im.cfg.robust_passes; ++pass) {
+        double total_w = 0.0;
+        unsigned int n_active = 0;
+        for (unsigned int i = 0; i < n_kept; ++i)
+          if (accepted[i]) {
+            total_w += cands[i].b;
+            ++n_active;
+          }
+        if (n_active == 0) break;
+        double median = 0.0;
+        {
+          double cum = 0.0;
+          unsigned int last_on = 0;
+          bool picked = false;
+          for (unsigned int i = 0; i < n_kept; ++i) {
+            if (!accepted[i]) continue;
+            last_on = i;
+            cum += cands[i].b;
+            if (total_w > 0.0 && cum >= total_w / 2.0) {
+              median = cands[i].x;
+              picked = true;
+              break;
+            }
+          }
+          if (!picked) median = cands[last_on].x;
+        }
+        std::vector<unsigned int> ord;
+        ord.reserve(n_kept);
+        for (unsigned int i = 0; i < n_kept; ++i)
+          if (accepted[i]) ord.push_back(i);
+        std::sort(ord.begin(), ord.end(),
+                  [&](unsigned int i, unsigned int j) {
+                    const double di = std::fabs(cands[i].x - median);
+                    const double dj = std::fabs(cands[j].x - median);
+                    if (di != dj) return di < dj;
+                    return cands[i].frame_order < cands[j].frame_order;
+                  });
+        double mad = std::fabs(cands[ord.back()].x - median);
+        if (total_w > 0.0) {
+          double cum = 0.0;
+          for (unsigned int idx : ord) {
+            cum += cands[idx].b;
+            if (cum >= total_w / 2.0) {
+              mad = std::fabs(cands[idx].x - median);
+              break;
+            }
+          }
+        }
+        const double lower = median - im.cfg.sigma_low * mad;
+        const double upper = median + im.cfg.sigma_high * mad;
+        bool changed = false;
+        for (unsigned int idx : ord) {
+          const double xv = cands[idx].x;
+          if (!(xv >= lower && xv <= upper)) {
+            accepted[idx] = 0;
+            changed = true;
+          }
+        }
+        if (!changed) break;
+      }
+
+      double ca = 0.0, cb = 0.0, cs = 0.0, cc = 0.0;
+      for (unsigned int i = 0; i < n_kept; ++i) {
+        if (!accepted[i]) continue;
+        ca += cands[i].b * cands[i].x;
+        cb += cands[i].b;
+        const double s2v = sigma2s[i];
+        if (std::isfinite(s2v) && s2v > 0.0) {
+          cs += cands[i].b * std::sqrt(s2v);
+          cc += cands[i].b * cands[i].b * s2v;
+        }
+      }
+      r.value = cb > 0.0 ? ca / cb : 0.0;
+      r.robust_state = static_cast<std::uint8_t>(
+          ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip);
+      finish_conf(cb, cs, cc);
+
+      if (profiles_or_null != nullptr) {
+        const bool fully_degraded =
+            r.contributors > 0 && im.degraded[tid] == r.contributors;
+        try {
+          profiles_or_null[tid] = forward_drizzle_v2_profile_reduce(
+              pcands, accepted, im.meta, pcfg, r.confidence, fully_degraded);
+        } catch (const std::invalid_argument &) {
+          return false;
+        }
+      }
+      results[tid] = r;
+    }
+  } else {
+    // shared_frame_rejection path: see
+    // config::ReconstructionClippingConfig::shared_frame_rejection for the
+    // algorithm. Pixel-major/channel-minor iteration (instead of the flat
+    // tid loop above) so every channel of a pixel can reach its own
+    // independent clip decision before the cross-channel consensus step
+    // revises them; each channel's OWN clip pass is otherwise identical to
+    // the fast path above.
+    struct ChannelWork {
+      std::vector<ForwardDrizzleV2RobustCandidate> cands;
+      std::vector<double> sigma2s;
+      std::vector<std::uint8_t> accepted;
+      std::vector<ForwardDrizzleV2ProfileCandidate> pcands;
+      ForwardDrizzleV2PixelResult r{};
+      bool has_clip = false;  // false: early-exit path, r already final
+    };
+    std::vector<ChannelWork> chwork(static_cast<std::size_t>(nch));
+    std::vector<std::uint64_t> kept_order;
+    // frame_order -> (channels that rejected it, channels that saw it as a
+    // clip candidate at all), rebuilt fresh per pixel.
+    std::unordered_map<std::uint64_t, std::pair<int, int>> votes;
+
+    auto finish_conf_for = [](ForwardDrizzleV2PixelResult &rr, double cb,
+                              double cs, double cc) {
+      if (!(cb > 0.0)) {
+        rr.confidence = 0.0;
+        rr.confidence_state = static_cast<std::uint8_t>(
             ForwardDrizzleV2ConfidenceState::no_source_support);
         return;
       }
       if (cc > 0.0 && std::isfinite(cc)) {
-        r.confidence = (cs * cs) / (cs * cs + cc);
-        r.confidence_state = static_cast<std::uint8_t>(
+        rr.confidence = (cs * cs) / (cs * cs + cc);
+        rr.confidence_state = static_cast<std::uint8_t>(
             ForwardDrizzleV2ConfidenceState::modeled);
         return;
       }
-      r.confidence = r.n_eff > 0.0 ? r.n_eff / (r.n_eff + 1.0) : 0.0;
-      r.confidence_state = static_cast<std::uint8_t>(
+      rr.confidence = rr.n_eff > 0.0 ? rr.n_eff / (rr.n_eff + 1.0) : 0.0;
+      rr.confidence_state = static_cast<std::uint8_t>(
           ForwardDrizzleV2ConfidenceState::fallback_n_eff);
     };
-    auto emit_fallback_profiles = [&]() {
-      if (profiles_or_null == nullptr) return;
-      ForwardDrizzleV2ProfileResult pr;
-      if (b_acc > 0.0) {
-        const float v = static_cast<float>(a_acc / b_acc);
-        const float w = static_cast<float>(b_acc);
-        const float ne = static_cast<float>(r.n_eff);
-        for (auto *o : {&pr.uniform, &pr.raw, &pr.fine, &pr.medium}) {
-          o->value = v;
-          o->weight_sum = w;
-          o->n_eff = ne;
-          o->support = 1;
+
+    for (std::size_t px = 0; px < np; ++px) {
+    for (int ch = 0; ch < nch; ++ch) {
+      const std::size_t tid = static_cast<std::size_t>(ch) * np + px;
+      ChannelWork &cw = chwork[static_cast<std::size_t>(ch)];
+      cw.has_clip = false;
+      ForwardDrizzleV2PixelResult r;
+      const double a_acc = im.accA[tid];
+      const double b_acc = im.accB[tid];
+      const double b2_acc = im.accB2[tid];
+      r.contributors = im.contrib[tid];
+      r.conf_degraded = im.degraded[tid];
+      r.b = b_acc;
+      r.n_eff = b2_acc > 0.0 ? b_acc * b_acc / b2_acc : 0.0;
+      const unsigned int mask = im.supp[tid];
+      r.geometry_fraction = static_cast<float>(
+          static_cast<double>(std::popcount(mask & 0xFu)) / subpixels);
+      r.source_fraction = static_cast<float>(
+          static_cast<double>(std::popcount((mask >> 4) & 0xFu)) / subpixels);
+      r.estimator_fraction = r.source_fraction;
+      r.profile_fraction = r.source_fraction;
+      if ((tid / np) == 0 && im.footprint[px] == im.frames && im.frames > 0)
+        ++dense;
+
+      auto finish_conf = [&](double cb, double cs, double cc) {
+        if (!(cb > 0.0)) {
+          r.confidence = 0.0;
+          r.confidence_state = static_cast<std::uint8_t>(
+              ForwardDrizzleV2ConfidenceState::no_source_support);
+          return;
         }
-      }
-      profiles_or_null[tid] = pr;
-    };
-
-    const unsigned int n_kept = im.kept[tid];
-    const bool no_support = !(b_acc > 0.0);
-    const bool overflow = n_kept > slots;
-    const bool too_few =
-        r.contributors <
-            static_cast<unsigned int>(im.cfg.min_candidates) ||
-        n_kept < static_cast<unsigned int>(im.cfg.min_clip_contributors);
-    if (no_support || overflow || too_few) {
-      if (no_support) {
-        r.robust_state = static_cast<std::uint8_t>(
-            ForwardDrizzleV2RobustState::no_source_support);
-        finish_conf(0.0, 0.0, 0.0);
-      } else {
-        r.value = a_acc / b_acc;
-        r.robust_state = static_cast<std::uint8_t>(
-            overflow
-                ? ForwardDrizzleV2RobustState::reservoir_overflow_fallback
-                : ForwardDrizzleV2RobustState::too_few_candidates_fallback);
-        finish_conf(b_acc, im.confS[tid], im.confC[tid]);
-      }
-      emit_fallback_profiles();
-      results[tid] = r;
-      continue;
-    }
-
-    // Load + sort the kept set by (x, order); the quality side array moves
-    // with the records (it is indexed by reservoir slot).
-    cands.clear();
-    sigma2s.clear();
-    pcands.clear();
-    kept_order.clear();
-    cands.reserve(n_kept);
-    sigma2s.reserve(n_kept);
-    kept_order.reserve(n_kept);
-    for (unsigned int i = 0; i < n_kept; ++i) kept_order.push_back(i);
-    std::sort(kept_order.begin(), kept_order.end(), [&](std::uint64_t i,
-                                                      std::uint64_t j) {
-      const auto &ri = im.res[tid * slots + i];
-      const auto &rj = im.res[tid * slots + j];
-      if (ri.x != rj.x) return ri.x < rj.x;
-      return ri.order < rj.order;
-    });
-    for (unsigned int pos = 0; pos < n_kept; ++pos) {
-      const auto &rc = im.res[tid * slots + kept_order[pos]];
-      ForwardDrizzleV2RobustCandidate cand;
-      cand.frame_order = static_cast<std::size_t>(rc.order);
-      cand.x = rc.x;
-      cand.b = rc.b;
-      cands.push_back(cand);
-      sigma2s.push_back(rc.sigma2);
-      if (im.cfg.emit_profiles) {
-        const auto &qv = im.resq[tid * slots + kept_order[pos]];
-        ForwardDrizzleV2ProfileCandidate pc;
-        pc.frame_order = cand.frame_order;
-        pc.x = rc.x;
-        pc.b = rc.b;
-        pc.q = qv.qc;
-        pc.q0 = qv.q0;
-        pc.q1 = qv.q1;
-        pc.qa = qv.qa >= 0.0f ? static_cast<double>(qv.qa) : 1.0;
-        pc.qa_has_data = qv.qa >= 0.0f;
-        pcands.push_back(pc);
-      }
-    }
-
-    // Iterative clip identical to k_finalize_v2 / robust_frame_oracle_v2:
-    // (x, order) order, weighted median at >= total/2, deviation-ordered
-    // weighted MAD, asymmetric bounds, early stop on an unchanged mask.
-    accepted.assign(n_kept, std::uint8_t{1});
-    for (int pass = 0; pass < im.cfg.robust_passes; ++pass) {
-      double total_w = 0.0;
-      unsigned int n_active = 0;
-      for (unsigned int i = 0; i < n_kept; ++i)
-        if (accepted[i]) {
-          total_w += cands[i].b;
-          ++n_active;
+        if (cc > 0.0 && std::isfinite(cc)) {
+          r.confidence = (cs * cs) / (cs * cs + cc);
+          r.confidence_state = static_cast<std::uint8_t>(
+              ForwardDrizzleV2ConfidenceState::modeled);
+          return;
         }
-      if (n_active == 0) break;
-      double median = 0.0;
-      {
-        double cum = 0.0;
-        unsigned int last_on = 0;
-        bool picked = false;
-        for (unsigned int i = 0; i < n_kept; ++i) {
-          if (!accepted[i]) continue;
-          last_on = i;
-          cum += cands[i].b;
-          if (total_w > 0.0 && cum >= total_w / 2.0) {
-            median = cands[i].x;
-            picked = true;
-            break;
+        r.confidence = r.n_eff > 0.0 ? r.n_eff / (r.n_eff + 1.0) : 0.0;
+        r.confidence_state = static_cast<std::uint8_t>(
+            ForwardDrizzleV2ConfidenceState::fallback_n_eff);
+      };
+      auto emit_fallback_profiles = [&]() {
+        if (profiles_or_null == nullptr) return;
+        ForwardDrizzleV2ProfileResult pr;
+        if (b_acc > 0.0) {
+          const float v = static_cast<float>(a_acc / b_acc);
+          const float w = static_cast<float>(b_acc);
+          const float ne = static_cast<float>(r.n_eff);
+          for (auto *o : {&pr.uniform, &pr.raw, &pr.fine, &pr.medium}) {
+            o->value = v;
+            o->weight_sum = w;
+            o->n_eff = ne;
+            o->support = 1;
           }
         }
-        if (!picked) median = cands[last_on].x;
+        profiles_or_null[tid] = pr;
+      };
+
+      const unsigned int n_kept = im.kept[tid];
+      const bool no_support = !(b_acc > 0.0);
+      const bool overflow = n_kept > slots;
+      const bool too_few =
+          r.contributors <
+              static_cast<unsigned int>(im.cfg.min_candidates) ||
+          n_kept < static_cast<unsigned int>(im.cfg.min_clip_contributors);
+      if (no_support || overflow || too_few) {
+        if (no_support) {
+          r.robust_state = static_cast<std::uint8_t>(
+              ForwardDrizzleV2RobustState::no_source_support);
+          finish_conf(0.0, 0.0, 0.0);
+        } else {
+          r.value = a_acc / b_acc;
+          r.robust_state = static_cast<std::uint8_t>(
+              overflow
+                  ? ForwardDrizzleV2RobustState::reservoir_overflow_fallback
+                  : ForwardDrizzleV2RobustState::too_few_candidates_fallback);
+          finish_conf(b_acc, im.confS[tid], im.confC[tid]);
+        }
+        emit_fallback_profiles();
+        cw.has_clip = false;
+        results[tid] = r;
+        continue;
       }
-      std::vector<unsigned int> ord;
-      ord.reserve(n_kept);
-      for (unsigned int i = 0; i < n_kept; ++i)
-        if (accepted[i]) ord.push_back(i);
-      std::sort(ord.begin(), ord.end(), [&](unsigned int i, unsigned int j) {
-        const double di = std::fabs(cands[i].x - median);
-        const double dj = std::fabs(cands[j].x - median);
-        if (di != dj) return di < dj;
-        return cands[i].frame_order < cands[j].frame_order;
-      });
-      double mad = std::fabs(cands[ord.back()].x - median);
-      if (total_w > 0.0) {
-        double cum = 0.0;
+
+      cw.cands.clear();
+      cw.sigma2s.clear();
+      cw.pcands.clear();
+      kept_order.clear();
+      cw.cands.reserve(n_kept);
+      cw.sigma2s.reserve(n_kept);
+      kept_order.reserve(n_kept);
+      for (unsigned int i = 0; i < n_kept; ++i) kept_order.push_back(i);
+      std::sort(kept_order.begin(), kept_order.end(),
+                [&](std::uint64_t i, std::uint64_t j) {
+                  const auto &ri = im.res[tid * slots + i];
+                  const auto &rj = im.res[tid * slots + j];
+                  if (ri.x != rj.x) return ri.x < rj.x;
+                  return ri.order < rj.order;
+                });
+      for (unsigned int pos = 0; pos < n_kept; ++pos) {
+        const auto &rc = im.res[tid * slots + kept_order[pos]];
+        ForwardDrizzleV2RobustCandidate cand;
+        cand.frame_order = static_cast<std::size_t>(rc.order);
+        cand.x = rc.x;
+        cand.b = rc.b;
+        cw.cands.push_back(cand);
+        cw.sigma2s.push_back(rc.sigma2);
+        if (im.cfg.emit_profiles) {
+          const auto &qv = im.resq[tid * slots + kept_order[pos]];
+          ForwardDrizzleV2ProfileCandidate pc;
+          pc.frame_order = cand.frame_order;
+          pc.x = rc.x;
+          pc.b = rc.b;
+          pc.q = qv.qc;
+          pc.q0 = qv.q0;
+          pc.q1 = qv.q1;
+          pc.qa = qv.qa >= 0.0f ? static_cast<double>(qv.qa) : 1.0;
+          pc.qa_has_data = qv.qa >= 0.0f;
+          cw.pcands.push_back(pc);
+        }
+      }
+
+      cw.accepted.assign(n_kept, std::uint8_t{1});
+      for (int pass = 0; pass < im.cfg.robust_passes; ++pass) {
+        double total_w = 0.0;
+        unsigned int n_active = 0;
+        for (unsigned int i = 0; i < n_kept; ++i)
+          if (cw.accepted[i]) {
+            total_w += cw.cands[i].b;
+            ++n_active;
+          }
+        if (n_active == 0) break;
+        double median = 0.0;
+        {
+          double cum = 0.0;
+          unsigned int last_on = 0;
+          bool picked = false;
+          for (unsigned int i = 0; i < n_kept; ++i) {
+            if (!cw.accepted[i]) continue;
+            last_on = i;
+            cum += cw.cands[i].b;
+            if (total_w > 0.0 && cum >= total_w / 2.0) {
+              median = cw.cands[i].x;
+              picked = true;
+              break;
+            }
+          }
+          if (!picked) median = cw.cands[last_on].x;
+        }
+        std::vector<unsigned int> ord;
+        ord.reserve(n_kept);
+        for (unsigned int i = 0; i < n_kept; ++i)
+          if (cw.accepted[i]) ord.push_back(i);
+        std::sort(ord.begin(), ord.end(),
+                  [&](unsigned int i, unsigned int j) {
+                    const double di = std::fabs(cw.cands[i].x - median);
+                    const double dj = std::fabs(cw.cands[j].x - median);
+                    if (di != dj) return di < dj;
+                    return cw.cands[i].frame_order < cw.cands[j].frame_order;
+                  });
+        double mad = std::fabs(cw.cands[ord.back()].x - median);
+        if (total_w > 0.0) {
+          double cum = 0.0;
+          for (unsigned int idx : ord) {
+            cum += cw.cands[idx].b;
+            if (cum >= total_w / 2.0) {
+              mad = std::fabs(cw.cands[idx].x - median);
+              break;
+            }
+          }
+        }
+        const double lower = median - im.cfg.sigma_low * mad;
+        const double upper = median + im.cfg.sigma_high * mad;
+        bool changed = false;
         for (unsigned int idx : ord) {
-          cum += cands[idx].b;
-          if (cum >= total_w / 2.0) {
-            mad = std::fabs(cands[idx].x - median);
-            break;
+          const double xv = cw.cands[idx].x;
+          if (!(xv >= lower && xv <= upper)) {
+            cw.accepted[idx] = 0;
+            changed = true;
+          }
+        }
+        if (!changed) break;
+      }
+
+      cw.r = r;
+      cw.has_clip = true;
+    }  // end per-channel build pass
+
+    // Shared-frame-rejection consensus: each channel's clip pass above is
+    // untouched -- this only revises which of its ALREADY-KEPT candidates
+    // stay accepted, by requiring more than shared_frame_rejection_
+    // consensus of the channels that had a candidate from a given frame to
+    // have independently rejected it. A frame seen by only one channel at
+    // this pixel is left exactly as that channel's own clip decided
+    // (nothing to reach consensus with).
+    if (nch > 1) {
+      votes.clear();
+      for (int ch = 0; ch < nch; ++ch) {
+        ChannelWork &cwv = chwork[static_cast<std::size_t>(ch)];
+        if (!cwv.has_clip) continue;
+        for (std::size_t i = 0; i < cwv.cands.size(); ++i) {
+          auto &vote = votes[cwv.cands[i].frame_order];
+          ++vote.second;
+          if (!cwv.accepted[i]) ++vote.first;
+        }
+      }
+      if (!votes.empty()) {
+        for (int ch = 0; ch < nch; ++ch) {
+          ChannelWork &cwv = chwork[static_cast<std::size_t>(ch)];
+          if (!cwv.has_clip) continue;
+          for (std::size_t i = 0; i < cwv.cands.size(); ++i) {
+            if (!cwv.accepted[i]) continue;  // already rejected
+            const auto it = votes.find(cwv.cands[i].frame_order);
+            if (it == votes.end() || it->second.second <= 1) continue;
+            const double frac = static_cast<double>(it->second.first) /
+                                static_cast<double>(it->second.second);
+            if (frac > static_cast<double>(
+                           im.cfg.shared_frame_rejection_consensus))
+              cwv.accepted[i] = 0;
           }
         }
       }
-      const double lower = median - im.cfg.sigma_low * mad;
-      const double upper = median + im.cfg.sigma_high * mad;
-      bool changed = false;
-      for (unsigned int idx : ord) {
-        const double xv = cands[idx].x;
-        if (!(xv >= lower && xv <= upper)) {
-          accepted[idx] = 0;
-          changed = true;
+    }
+
+    for (int ch = 0; ch < nch; ++ch) {
+      ChannelWork &cw = chwork[static_cast<std::size_t>(ch)];
+      if (!cw.has_clip) continue;
+      const std::size_t tid = static_cast<std::size_t>(ch) * np + px;
+      ForwardDrizzleV2PixelResult &r = cw.r;
+      const unsigned int n_kept = static_cast<unsigned int>(cw.cands.size());
+      double ca = 0.0, cb = 0.0, cs = 0.0, cc = 0.0;
+      for (unsigned int i = 0; i < n_kept; ++i) {
+        if (!cw.accepted[i]) continue;
+        ca += cw.cands[i].b * cw.cands[i].x;
+        cb += cw.cands[i].b;
+        const double s2v = cw.sigma2s[i];
+        if (std::isfinite(s2v) && s2v > 0.0) {
+          cs += cw.cands[i].b * std::sqrt(s2v);
+          cc += cw.cands[i].b * cw.cands[i].b * s2v;
         }
       }
-      if (!changed) break;
-    }
+      r.value = cb > 0.0 ? ca / cb : 0.0;
+      r.robust_state = static_cast<std::uint8_t>(
+          ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip);
+      finish_conf_for(r, cb, cs, cc);
 
-    double ca = 0.0, cb = 0.0, cs = 0.0, cc = 0.0;
-    for (unsigned int i = 0; i < n_kept; ++i) {
-      if (!accepted[i]) continue;
-      ca += cands[i].b * cands[i].x;
-      cb += cands[i].b;
-      const double s2v = sigma2s[i];
-      if (std::isfinite(s2v) && s2v > 0.0) {
-        cs += cands[i].b * std::sqrt(s2v);
-        cc += cands[i].b * cands[i].b * s2v;
+      if (profiles_or_null != nullptr) {
+        const bool fully_degraded =
+            r.contributors > 0 && im.degraded[tid] == r.contributors;
+        try {
+          profiles_or_null[tid] = forward_drizzle_v2_profile_reduce(
+              cw.pcands, cw.accepted, im.meta, pcfg, r.confidence,
+              fully_degraded);
+        } catch (const std::invalid_argument &) {
+          return false;
+        }
       }
+      results[tid] = r;
     }
-    r.value = cb > 0.0 ? ca / cb : 0.0;
-    r.robust_state = static_cast<std::uint8_t>(
-        ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip);
-    finish_conf(cb, cs, cc);
-
-    if (profiles_or_null != nullptr) {
-      const bool fully_degraded =
-          r.contributors > 0 && im.degraded[tid] == r.contributors;
-      try {
-        profiles_or_null[tid] = forward_drizzle_v2_profile_reduce(
-            pcands, accepted, im.meta, pcfg, r.confidence, fully_degraded);
-      } catch (const std::invalid_argument &) {
-        return false;
-      }
-    }
-    results[tid] = r;
+    }  // end for px
   }
   if (dense_overlap_count != nullptr) *dense_overlap_count = dense;
   im.finalized = true;

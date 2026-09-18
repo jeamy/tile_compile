@@ -70,6 +70,11 @@ struct ForwardDrizzleV2RunPlan {
   int robust_passes = 3;
   double sigma_low = 3.0;
   double sigma_high = 3.0;
+  // See config::ReconstructionClippingConfig::shared_frame_rejection.
+  // Default false: identical to the pre-existing independent-per-channel
+  // clip. CPU-only when true (see caller).
+  bool shared_frame_rejection = false;
+  double shared_frame_rejection_consensus = 0.5;
   std::string support_fold_contract = "gate2_v1";   // gate 2
   std::string numerics = "fp64_accumulators";       // gate 4
   bool sigma2_enabled = true;

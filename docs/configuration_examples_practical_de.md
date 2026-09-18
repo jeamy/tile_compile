@@ -335,6 +335,89 @@ chroma_denoise:
 
 ---
 
+## Luminanz-Denoise (`luma_denoise.*`)
+
+**Wann aktivieren:** feinkörniges Luminanzrauschen im rekonstruierten Bild,
+das bereits vor der Multiband-Fusion sichtbar ist (nicht nur Farbrauschen —
+dafür ist `chroma_denoise` zuständig).
+
+```yaml
+luma_denoise:
+  enabled: true
+  luma_guard_strength: 0.85
+  blend_amount: 0.85
+  star_protection:
+    enabled: true
+    threshold_sigma: 6
+    dilate_px: 8
+  structure_protection:
+    enabled: true
+    gradient_percentile: 90
+  wavelet:
+    enabled: true
+    levels: 3
+    threshold_scale: 1.5
+    soft_k: 1.0
+```
+
+- **Hintergrund:** Die vorherige Architektur hatte eine Luminanz-Denoise-Stufe,
+  die bei einem Cutover entfernt und nie ersetzt wurde. `luma_denoise` läuft
+  standardmäßig **Post-Stack, vor Multiband** — vor `chroma_denoise`, das nur
+  die Farbkomponenten glättet.
+- Die Rekonstruktion ist additiv (`R_neu = R + (Y_denoised − Y)` usw.), nicht
+  ratio-basiert. Eine frühere Implementierung nutzte `R * (Y_denoised / Y)`;
+  das verstärkt das Rauschen in schwachen oder teilweise geschützten
+  Bildbereichen und erzeugte in echten M42-Testläufen dunkle Einzelpixel und
+  Chroma-Fransen an Sternrändern. Die additive Form ist für die
+  0.25/0.5/0.25-Luma-Gewichtung exakt und erhält jede Farbdifferenz.
+- `star_protection`/`structure_protection` verhindern, dass Sternschärfe
+  oder feine, schwache Nebeldetails (z. B. bei M42) durch das Wavelet-
+  Soft-Thresholding weichgezeichnet werden — vor einer Aktivierung an
+  strukturreichen Zielen die Crop-Vorschau prüfen.
+- Default: deaktiviert (Opt-in), wie alle Denoise-Stufen.
+
+---
+
+## CFA-Kanal-Konsens gegen Chroma-Rauschen (`reconstruction.clipping.shared_frame_rejection`)
+
+**Wann aktivieren:** feines Farb-Speckle/-Fleckenmuster um Sterne oder in
+strukturreichen Bereichen, das auch nach `chroma_denoise`/`luma_denoise`
+bestehen bleibt und sich mit sinkender Kanal-Kreuzkorrelation deckt
+(negative `corr(R,B)` im Crop ist das charakteristische Signal, nicht
+positive — echte punktförmige Quellen korrelieren positiv über Kanäle).
+
+```yaml
+reconstruction:
+  clipping:
+    shared_frame_rejection: true
+    shared_frame_rejection_consensus: 0.5
+```
+
+- **Ursache:** R/G/B werden aus disjunkten Sensor-Pixeln rekonstruiert
+  (CFA-aware Forward-Drizzle, ohne vorheriges Debayering: R≈1/4, G≈1/2,
+  B≈1/4 der Pixel). Der Sigma-Clip in `finalize()` entscheidet pro
+  (Pixel, Kanal) unabhängig, welche Frames als Ausreißer verworfen werden —
+  eine bewusste Architekturentscheidung, die aber dazu führt, dass ein
+  Frame in einem Kanal verworfen und im anderen behalten werden kann, obwohl
+  beide dieselbe physische Szene an leicht versetzten Sensorpositionen
+  abtasten. Das erzeugt anti-korreliertes Rauschen zwischen den Kanälen, das
+  wie Farb-Speckle aussieht.
+- `shared_frame_rejection` gleicht diese Entscheidung über die Kanäle ab:
+  ein Frame wird auch in einem Kanal verworfen, der es selbst behalten
+  hätte, wenn der Anteil der Kanäle, die es unabhängig ablehnten, über
+  `shared_frame_rejection_consensus` liegt (Default `0.5` = Mehrheit). Ein
+  Frame, das nur in einem einzigen Kanal als Kandidat auftritt, bleibt von
+  der Konsens-Regel unberührt — es gibt nichts, worüber abgestimmt werden
+  könnte.
+- Nur CPU-Pfad: das Aktivieren erzwingt intern das CPU-Backend für die
+  betroffene Reproduktion, unabhängig von `runtime_limits.acceleration_backend`.
+- `shared_frame_rejection_consensus: 1.0` deaktiviert die Konsens-Revision
+  effektiv (bit-identisch zu `shared_frame_rejection: false`) — nützlich als
+  Kontroll-Lauf.
+- Default: deaktiviert (Opt-in).
+
+---
+
 ## HyperMetric Stretch nach PCC
 
 HMS ist optional und läuft nach PCC. Deaktiviert lassen, wenn nur das lineare kalibrierte Ergebnis benötigt wird; aktivieren, wenn der Run zusätzlich ein direkt betrachtbares VeraLux-gestretchtes RGB erzeugen soll.

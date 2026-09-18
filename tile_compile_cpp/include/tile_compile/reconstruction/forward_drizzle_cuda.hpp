@@ -352,6 +352,11 @@ struct ForwardDrizzleV2KernelConfig {
   bool emit_profiles = false;
   float fine_quality_exponent = 4.0f;
   float medium_quality_exponent = 2.0f;
+  // See config::ReconstructionClippingConfig::shared_frame_rejection.
+  // CPU kernel only; the CUDA driver forces CPU execution whenever this is
+  // set (no device implementation), so the CUDA kernel never reads it.
+  bool shared_frame_rejection = false;
+  double shared_frame_rejection_consensus = 0.5;
 };
 
 // One uploaded source buffer and its active launch rect. `source` points at

@@ -320,6 +320,48 @@ struct ReconstructionClippingConfig {
   // trading the veto's noise guarantee for never leaving a geometrically
   // covered pixel black. See robust_clip_core in forward_drizzle.cpp.
   bool guard_fallback = false;
+  // Off by default (opt-in): the CFA forward-drizzle kernel runs the sigma/
+  // MAD clip independently per (output pixel, color channel), because R/G/B
+  // are drizzled straight from the raw, still-mosaiced Bayer samples --
+  // each channel has its own native sub-pixel sampling grid (R and B each
+  // ~1/4 of raw pixels, G ~1/2), by design (see
+  // docs/forward_drizzle_v2_zielarchitektur_2026-09-12_de.md). In faint
+  // regions, where per-channel candidate counts sit near
+  // min_clip_contributors, that independence means the surviving frame set
+  // is effectively an independent coin-flip per channel: verified on a
+  // real M42 run, corr(R,B) detail = -0.41 in faint sky (negative --
+  // anti-correlated -- vs. the positive correlation a real, achromatic
+  // source would show), present already in forward_drizzle_multiband_*.fit
+  // before any downstream chroma/luma denoise runs.
+  //
+  // When enabled, a FRAME is rejected consistently across every channel it
+  // contributes to at a given output pixel, instead of each channel
+  // re-deriving its own independent reject decision: each channel still
+  // runs its own weighted-median/MAD clip pass unchanged (per-channel
+  // VALUES are never compared against each other -- R and B sample
+  // physically different sub-pixel positions, so there is no shared value
+  // to test), but a frame is only actually dropped if
+  // shared_frame_rejection_consensus or more of the channels that had a
+  // candidate from it flagged it as an outlier. This targets exactly the
+  // failure mode above (independent per-channel noise in the survivor
+  // *set*) without touching per-channel weights, footprints, sample
+  // counts, or geometry -- so point-source (star) sharpness is
+  // structurally unaffected, and a consensus (not union) rule means a
+  // frame is kept unless most channels that saw it agree it's bad, so a
+  // real per-channel faint-detail difference (not every source is equally
+  // bright in R/G/B) does not itself get treated as an outlier vote.
+  //
+  // CPU-only for now: enabling this forces the forward-drizzle stage to
+  // run on CPU even when acceleration_backend is "cuda" (no CUDA
+  // implementation yet), to avoid silently breaking CPU/CUDA bit-exact
+  // parity on a run that enables it.
+  bool shared_frame_rejection = false;
+  // Fraction (0,1] of the channels that had a candidate from a given frame
+  // at a given pixel that must flag it as an outlier before it is rejected
+  // for ALL of those channels. 0.5 = majority. Lower values reject more
+  // aggressively (closer to "any channel objects" = union); higher values
+  // reject more conservatively (closer to "every channel must agree").
+  float shared_frame_rejection_consensus = 0.5f;
 };
 
 struct ReconstructionCoverageGateConfig {

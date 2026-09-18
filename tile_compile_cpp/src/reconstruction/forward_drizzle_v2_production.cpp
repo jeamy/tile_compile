@@ -365,6 +365,9 @@ ForwardDrizzleV2RunPlan make_forward_drizzle_v2_run_plan(
   plan.robust_passes = drizzle_cfg.robust_passes;
   plan.sigma_low = clipping_cfg.clip_sigma_low;
   plan.sigma_high = clipping_cfg.clip_sigma_high;
+  plan.shared_frame_rejection = clipping_cfg.shared_frame_rejection;
+  plan.shared_frame_rejection_consensus =
+      clipping_cfg.shared_frame_rejection_consensus;
   plan.sigma2_enabled = true;
   bool any_local = false;
   for (const auto &f : sampling.frames)
@@ -859,7 +862,11 @@ ForwardDrizzleV2ProductionResult persist_forward_drizzle_v2_from_predecessors(
   const std::uint64_t geom_bytes0 =
       geometry_cache != nullptr ? geometry_cache->leaf_record_bytes_read() : 0;
   ForwardDrizzleV2DriverOptions opts;
-  opts.prefer_cuda = acceleration_backend == "cuda";
+  // shared_frame_rejection has no CUDA implementation yet (see
+  // ReconstructionClippingConfig::shared_frame_rejection): force CPU rather
+  // than silently ignoring it or breaking CPU/CUDA parity.
+  opts.prefer_cuda =
+      acceleration_backend == "cuda" && !out.plan.shared_frame_rejection;
   opts.cached_leaf_capacity = leaf_capacity;
   if (progress) opts.progress = progress;
   out.driver = run_forward_drizzle_v2(

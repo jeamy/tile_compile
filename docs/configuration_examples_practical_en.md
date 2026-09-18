@@ -330,6 +330,87 @@ chroma_denoise:
 
 ---
 
+## Luminance denoise (`luma_denoise.*`)
+
+**When to enable:** fine-grained luminance noise in the reconstructed image
+that is already visible before multiband fusion (not just color noise --
+that's `chroma_denoise`'s job).
+
+```yaml
+luma_denoise:
+  enabled: true
+  luma_guard_strength: 0.85
+  blend_amount: 0.85
+  star_protection:
+    enabled: true
+    threshold_sigma: 6
+    dilate_px: 8
+  structure_protection:
+    enabled: true
+    gradient_percentile: 90
+  wavelet:
+    enabled: true
+    levels: 3
+    threshold_scale: 1.5
+    soft_k: 1.0
+```
+
+- **Background:** the previous architecture had a luminance denoise stage
+  that was removed in a cutover and never replaced. `luma_denoise` runs by
+  default **post-stack, before multiband** -- ahead of `chroma_denoise`,
+  which only smooths the color components.
+- Reconstruction is additive (`R_new = R + (Y_denoised - Y)` etc.), not
+  ratio-based. An earlier implementation used `R * (Y_denoised / Y)`; that
+  amplifies noise in faint or partially protected regions and produced dark
+  single pixels and chroma fringing at star edges in real M42 test runs.
+  The additive form is exact for the 0.25/0.5/0.25 luma weighting and
+  preserves every color difference.
+- `star_protection`/`structure_protection` keep star sharpness and fine,
+  faint nebula detail (e.g. in M42) from being blurred by the wavelet
+  soft-thresholding -- check a crop preview before enabling on
+  structure-rich targets.
+- Default: disabled (opt-in), like every denoise stage.
+
+---
+
+## Cross-channel CFA consensus against chroma noise (`reconstruction.clipping.shared_frame_rejection`)
+
+**When to enable:** fine color speckle/blotching around stars or in
+structure-rich regions that persists after `chroma_denoise`/`luma_denoise`
+and correlates with dropping cross-channel correlation (a *negative*
+`corr(R,B)` in the crop is the characteristic signal, not positive -- real
+point sources correlate positively across channels).
+
+```yaml
+reconstruction:
+  clipping:
+    shared_frame_rejection: true
+    shared_frame_rejection_consensus: 0.5
+```
+
+- **Root cause:** R/G/B are reconstructed from disjoint sensor pixels
+  (CFA-aware forward drizzle, without prior debayering: R≈1/4, G≈1/2, B≈1/4
+  of pixels). The sigma clip in `finalize()` decides which frames are
+  outliers independently per (pixel, channel) -- a deliberate architectural
+  tradeoff, but one that lets a frame be rejected in one channel and kept in
+  another even though both sample the same physical scene at slightly
+  offset sensor positions. That produces anti-correlated noise between
+  channels that looks like color speckle.
+- `shared_frame_rejection` reconciles that decision across channels: a
+  frame is rejected in a channel even if that channel's own clip pass kept
+  it, if the fraction of channels that independently rejected it exceeds
+  `shared_frame_rejection_consensus` (default `0.5` = majority). A frame
+  seen as a candidate by only one channel is left untouched by the
+  consensus rule -- there is nothing to vote against.
+- CPU path only: enabling it forces the CPU backend internally for the
+  affected reproduction, regardless of `runtime_limits.acceleration_backend`.
+- `shared_frame_rejection_consensus: 1.0` effectively disables the
+  consensus revision (bit-identical to `shared_frame_rejection: false`) --
+  useful as a control run.
+- Default: disabled (opt-in).
+
+---
+
 ## HyperMetric Stretch after PCC
 
 HMS is optional and runs after PCC. Keep it disabled when you only need the linear calibrated output; enable it when the run should also produce a directly viewable VeraLux-stretched RGB file.

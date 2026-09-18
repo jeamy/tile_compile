@@ -1120,6 +1120,8 @@ Steuerung der Laplacian-Pyramide für die lokalen Qualitätskarten (Source Quali
 | `reconstruction.clipping.min_fraction` | number | `0.4` | Mindestanteil belegbarer Samples pro Pixel `(0, 1]`. |
 | `reconstruction.clipping.min_n_eff` | number | `3.0` | Minimale effektive Beitragszahl fuer einen validen Output-Pixel (`>= 1`). |
 | `reconstruction.clipping.guard_fallback` | boolean | `false` | `false` = striktes Veto (Pixel bleibt unbelegt); `true` = Survivor-/Unclipped-Fallback statt schwarzer Pixel. |
+| `reconstruction.clipping.shared_frame_rejection` | boolean | `false` | Nur CPU-Pfad (erzwingt CPU-Backend, wenn aktiv). Gleicht die pro-Kanal unabhängigen Sigma-Clip-Entscheidungen zwischen R/G/B ab: verwirft ein Kandidaten-Frame auch in Kanälen, die es selbst behalten hätten, wenn genug andere Kanäle es unabhängig abgelehnt haben (siehe `shared_frame_rejection_consensus`). Adressiert CFA-bedingtes Chroma-Rauschen (anti-korrelierte Clip-Entscheidungen zwischen Kanälen, da R/G/B aus disjunkten Sensor-Pixeln stammen). Frames, die nur in einem Kanal als Kandidat auftreten, bleiben von der jeweiligen Kanal-Entscheidung unberührt. |
+| `reconstruction.clipping.shared_frame_rejection_consensus` | number | `0.5` | `(0, 1]`. Schwelle des Ablehnungs-Anteils über die Kanäle, die ein Frame als Kandidat sahen, ab dem `shared_frame_rejection` es in allen dieser Kanäle verwirft. `1.0` deaktiviert die Konsens-Revision effektiv (bit-identisch zu `shared_frame_rejection: false`). |
 | `reconstruction.coverage_gate.min_frames` | integer | `2` | Mindestzahl nutzbarer Frames. |
 | `reconstruction.coverage_gate.min_supported_fraction` | number | `0.995` | Mindestanteil gestuetzter Output-Pixel `(0, 1]`. |
 | `reconstruction.coverage_gate.min_channel_n_eff_floor` | number | `3.0` | N_eff-Minimum fuer einen als belegt geltenden Kanal. |
@@ -2575,6 +2577,30 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `chroma_denoise.large_scale_bias.blur_sigma`: Glättungs-σ in Pixeln, mit dem das Block-Raster zu einer kontinuierlichen Oberfläche interpoliert wird (>= 0).
 - `chroma_denoise.large_scale_bias.strength`: Anteil der geschätzten Abweichung, der subtrahiert wird ([0,1]; der globale Hintergrund-Median bleibt erhalten, nur räumliche Variation wird geebnet). Die Schätzung nutzt ausschließlich ungeschützte Pixel, und die Korrektur wird innerhalb der Schutzmaske ausgeblendet — dort ist die Oberfläche nur interpoliert und kann durch ungeschützte Halo-Ränder kontaminiert sein. Erfordert daher für große Extended Sources eine ausreichend dilatierte `extended_source_protection`-Maske.
 
+### A.4b Luma Denoise
+
+Eigenständige Luminanz-Rauschunterdrückung zwischen Post-Stack und Multiband
+(Standard: deaktiviert). Adressiert Rauschen, das bereits im rekonstruierten
+Luminanzsignal steckt, bevor es in die Multiband-Fusion läuft — anders als
+`chroma_denoise`, das nur die Farbkomponenten glättet.
+
+- `luma_denoise.enabled`: aktiviert die Luma-Wavelet-Denoise-Stufe.
+- `luma_denoise.luma_guard_strength`: Stärke des Luma-Schutzes gegen Detailverlust ([0,1]).
+- `luma_denoise.blend_amount`: Mischanteil Original vs. denoised Luma ([0,1]).
+- `luma_denoise.star_protection.enabled`: Sternmasken-Schutz, damit Sternkerne/-halos scharf bleiben.
+- `luma_denoise.star_protection.threshold_sigma`: Schwelle für Sternmaskenbildung.
+- `luma_denoise.star_protection.dilate_px`: Ausdehnungsradius der Sternmaske.
+- `luma_denoise.structure_protection.enabled`: kanten-/strukturabhängiger Schutz feiner Details (z. B. schwache Nebelstrukturen).
+- `luma_denoise.structure_protection.gradient_percentile`: Gradient-Cutoff für die Strukturmaske.
+- `luma_denoise.wavelet.enabled`: Wavelet-Soft-Threshold-Denoise.
+- `luma_denoise.wavelet.levels`: Anzahl Wavelet-Zerlegungsebenen.
+- `luma_denoise.wavelet.threshold_scale`: Wavelet-Schwellen-Multiplikator.
+- `luma_denoise.wavelet.soft_k`: Weichheit der Wavelet-Schrumpfung.
+
+Die Rekonstruktion ist additiv (`R_neu = R + (Y_denoised − Y)` usw.), nicht
+ratio-basiert — Letzteres verstärkt Rauschen in schwachen/teilgeschützten
+Bereichen und erzeugt dunkle Pixel/Chroma-Fransen an Sternrändern.
+
 ### A.5 Global Metrics / Reconstruction
 
 - `global_metrics.weights.background`, `noise`, `gradient`, `fwhm`, `roundness`, `star_count`: gewichtete Terme der globalen Frame-Qualität.
@@ -2593,6 +2619,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `reconstruction.clipping.clip_sigma_low`, `clip_sigma_high`: MAD-Rejection-Schwellen.
 - `reconstruction.clipping.min_fraction`, `min_n_eff`: Belegbarkeits-Gates pro Pixel.
 - `reconstruction.clipping.guard_fallback`: Fallback statt striktem Veto bei Clip-Versagen.
+- `reconstruction.clipping.shared_frame_rejection`, `shared_frame_rejection_consensus`: kanalübergreifender Konsens gegen anti-korreliertes CFA-Chroma-Rauschen (nur CPU-Pfad); siehe §14-Tabelle oben.
 - `reconstruction.coverage_gate.*`: Fail-closed Deckungs-/Qualitaets-Gates vor FORWARD_DRIZZLE.
 - `reconstruction.multiband.*`: Bandfusion-Steuerung (Ebenen, Alpha-Cap, Qualitaets-/N_eff-Schwellen).
 - `reconstruction.quality.pyramid.*`: Lokale Qualitaetskarten (siehe §14).
