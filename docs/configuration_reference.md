@@ -1120,7 +1120,7 @@ Steuerung der Laplacian-Pyramide für die lokalen Qualitätskarten (Source Quali
 | `reconstruction.clipping.min_fraction` | number | `0.4` | Mindestanteil belegbarer Samples pro Pixel `(0, 1]`. |
 | `reconstruction.clipping.min_n_eff` | number | `3.0` | Minimale effektive Beitragszahl fuer einen validen Output-Pixel (`>= 1`). |
 | `reconstruction.clipping.guard_fallback` | boolean | `false` | `false` = striktes Veto (Pixel bleibt unbelegt); `true` = Survivor-/Unclipped-Fallback statt schwarzer Pixel. |
-| `reconstruction.clipping.shared_frame_rejection` | boolean | `false` | Nur CPU-Pfad (erzwingt CPU-Backend, wenn aktiv). Gleicht die pro-Kanal unabhängigen Sigma-Clip-Entscheidungen zwischen R/G/B ab: verwirft ein Kandidaten-Frame auch in Kanälen, die es selbst behalten hätten, wenn genug andere Kanäle es unabhängig abgelehnt haben (siehe `shared_frame_rejection_consensus`). Adressiert CFA-bedingtes Chroma-Rauschen (anti-korrelierte Clip-Entscheidungen zwischen Kanälen, da R/G/B aus disjunkten Sensor-Pixeln stammen). Frames, die nur in einem Kanal als Kandidat auftreten, bleiben von der jeweiligen Kanal-Entscheidung unberührt. |
+| `reconstruction.clipping.shared_frame_rejection` | boolean | `false` | Läuft sowohl CPU- als auch CUDA-beschleunigt. Gleicht die pro-Kanal unabhängigen Sigma-Clip-Entscheidungen zwischen R/G/B ab: verwirft ein Kandidaten-Frame auch in Kanälen, die es selbst behalten hätten, wenn genug andere Kanäle es unabhängig abgelehnt haben (siehe `shared_frame_rejection_consensus`). Adressiert CFA-bedingtes Chroma-Rauschen (anti-korrelierte Clip-Entscheidungen zwischen Kanälen, da R/G/B aus disjunkten Sensor-Pixeln stammen). Frames, die nur in einem Kanal als Kandidat auftreten, bleiben von der jeweiligen Kanal-Entscheidung unberührt. |
 | `reconstruction.clipping.shared_frame_rejection_consensus` | number | `0.5` | `(0, 1]`. Schwelle des Ablehnungs-Anteils über die Kanäle, die ein Frame als Kandidat sahen, ab dem `shared_frame_rejection` es in allen dieser Kanäle verwirft. `1.0` deaktiviert die Konsens-Revision effektiv (bit-identisch zu `shared_frame_rejection: false`). |
 | `reconstruction.coverage_gate.min_frames` | integer | `2` | Mindestzahl nutzbarer Frames. |
 | `reconstruction.coverage_gate.min_supported_fraction` | number | `0.995` | Mindestanteil gestuetzter Output-Pixel `(0, 1]`. |
@@ -2619,7 +2619,7 @@ Bereichen und erzeugt dunkle Pixel/Chroma-Fransen an Sternrändern.
 - `reconstruction.clipping.clip_sigma_low`, `clip_sigma_high`: MAD-Rejection-Schwellen.
 - `reconstruction.clipping.min_fraction`, `min_n_eff`: Belegbarkeits-Gates pro Pixel.
 - `reconstruction.clipping.guard_fallback`: Fallback statt striktem Veto bei Clip-Versagen.
-- `reconstruction.clipping.shared_frame_rejection`, `shared_frame_rejection_consensus`: kanalübergreifender Konsens gegen anti-korreliertes CFA-Chroma-Rauschen (nur CPU-Pfad); siehe §14-Tabelle oben.
+- `reconstruction.clipping.shared_frame_rejection`, `shared_frame_rejection_consensus`: kanalübergreifender Konsens gegen anti-korreliertes CFA-Chroma-Rauschen (CPU und CUDA); siehe §14-Tabelle oben.
 - `reconstruction.coverage_gate.*`: Fail-closed Deckungs-/Qualitaets-Gates vor FORWARD_DRIZZLE.
 - `reconstruction.multiband.*`: Bandfusion-Steuerung (Ebenen, Alpha-Cap, Qualitaets-/N_eff-Schwellen).
 - `reconstruction.quality.pyramid.*`: Lokale Qualitaetskarten (siehe §14).

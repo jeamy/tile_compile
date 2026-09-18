@@ -107,6 +107,22 @@ chroma_denoise:
     block_size: 32
     blur_sigma: 24
     strength: 1
+luma_denoise:
+  enabled: true
+  luma_guard_strength: 0.85
+  blend_amount: 0.85
+  star_protection:
+    enabled: true
+    threshold_sigma: 6
+    dilate_px: 8
+  structure_protection:
+    enabled: true
+    gradient_percentile: 90
+  wavelet:
+    enabled: true
+    levels: 3
+    threshold_scale: 1.5
+    soft_k: 1
 astrometry:
   enabled: true
   astap_data_dir: /media/data/Astro/astap
@@ -242,6 +258,8 @@ reconstruction:
     min_fraction: 0.4
     min_n_eff: 2
     guard_fallback: false
+    shared_frame_rejection: true
+    shared_frame_rejection_consensus: 0.5
   coverage_gate:
     min_frames: 2
     min_supported_fraction: 0.995

@@ -83,6 +83,26 @@ float sanitize01(float v) {
   return std::clamp(v, 0.0f, 1.0f);
 }
 
+// Smooth replacement for max(v - anchor, 0): a hard clamp there means any
+// pixel whose value dips even slightly below anchor in ALL THREE channels
+// (ordinary background sky noise straddles it by design -- anchor IS the
+// estimated black point / typical sky level) gets ra=ga=ba=0 exactly, hence
+// L=0, hence the stretched luminance Ls=0 -- a pure black pixel, though its
+// neighbors just above anchor stretch normally. That turns routine,
+// sub-ADU-scale noise into stark black-dot speckle in the shadows/sky
+// background instead of a smoothly darker pixel. This is the standard
+// smooth approximation to max(d,0) (0.5*(d + sqrt(d^2 + eps^2))): equals d
+// for d >> eps, eps/2 at d=0, and approaches 0 asymptotically (never
+// negative) for d << -eps, removing the discontinuity at anchor while
+// leaving well-above-anchor pixels (nebula, stars) unchanged. eps is tied
+// to the same 0.00025 normalized-unit scale calculate_anchor_statistical_
+// sample already uses as its anchor safety margin, matching this codebase's
+// existing sense of "background noise scale" in this unit.
+float soft_floor(float v, float anchor, float eps = 0.00025f) {
+  const float d = v - anchor;
+  return 0.5f * (d + std::sqrt(d * d + eps * eps));
+}
+
 void normalize_rgb_input_inplace(
     Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     const std::vector<uint8_t> *statistics_mask,
@@ -894,9 +914,9 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
         L(y, x) = 0.0f;
         continue;
       }
-      const float ra = std::max(sanitize01(R(y, x)) - diag.anchor, 0.0f);
-      const float ga = std::max(sanitize01(G(y, x)) - diag.anchor, 0.0f);
-      const float ba = std::max(sanitize01(B(y, x)) - diag.anchor, 0.0f);
+      const float ra = soft_floor(sanitize01(R(y, x)), diag.anchor);
+      const float ga = soft_floor(sanitize01(G(y, x)), diag.anchor);
+      const float ba = soft_floor(sanitize01(B(y, x)), diag.anchor);
       const float l = w[0] * ra + w[1] * ga + w[2] * ba;
       L(y, x) = l;
       if (linear % stride == 0 && l > 1e-7f &&
@@ -964,9 +984,9 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
         R(y, x) = G(y, x) = B(y, x) = 0.0f;
         continue;
       }
-      const float ra = std::max(sanitize01(R(y, x)) - diag.anchor, 0.0f);
-      const float ga = std::max(sanitize01(G(y, x)) - diag.anchor, 0.0f);
-      const float ba = std::max(sanitize01(B(y, x)) - diag.anchor, 0.0f);
+      const float ra = soft_floor(sanitize01(R(y, x)), diag.anchor);
+      const float ga = soft_floor(sanitize01(G(y, x)), diag.anchor);
+      const float ba = soft_floor(sanitize01(B(y, x)), diag.anchor);
       const float safe_l = L(y, x) + 1e-9f;
       const float k = std::pow(Ls(y, x), cfg.convergence_power);
       float rf = (ra / safe_l) * (1.0f - k) + k;

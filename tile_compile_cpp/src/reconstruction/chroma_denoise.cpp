@@ -115,6 +115,20 @@ cv::Mat build_protection_mask(const cv::Mat& y,
         }
         if (stats && pixels > 0.0)
             stats->star_protected_fraction = cv::countNonZero(stars > 0.5f) / pixels;
+        // Feather this component's own boundary, scaled to ITS OWN dilation
+        // radius -- not the combined mask's largest radius. star_protection's
+        // disk is typically much smaller than extended_source_protection's
+        // (a handful of px vs. tens of px for a galaxy disc); feathering it
+        // by the latter's scale would smear the precise star mask far more
+        // than the ring artifact requires, and the reverse -- feathering a
+        // large extended-source disc by only the star mask's small scale --
+        // would leave the extended-source boundary just as sharp as before.
+        {
+            const float star_feather = std::max(
+                1.0f, static_cast<float>(cfg.star_protection.dilate_px) / 3.0f);
+            cv::GaussianBlur(stars, stars, cv::Size(0, 0), star_feather,
+                             star_feather, cv::BORDER_REFLECT_101);
+        }
         cv::max(mask, stars, mask);
     }
 
@@ -175,9 +189,22 @@ cv::Mat build_protection_mask(const cv::Mat& y,
         if (stats && pixels > 0.0)
             stats->extended_source_protected_fraction =
                 cv::countNonZero(ext_src > 0.5f) / pixels;
+        // Own-scale feather -- see the star_protection block above for why
+        // this must not share a radius with the other components.
+        {
+            const float ext_feather = std::max(
+                1.0f,
+                static_cast<float>(cfg.extended_source_protection.dilate_px) /
+                    3.0f);
+            cv::GaussianBlur(ext_src, ext_src, cv::Size(0, 0), ext_feather,
+                             ext_feather, cv::BORDER_REFLECT_101);
+        }
         cv::max(mask, ext_src, mask);
     }
 
+    // Final small anti-aliasing pass on the combined mask (star_protection
+    // and extended_source_protection are already feathered at their own
+    // scale above; this just smooths the max() seams between components).
     cv::GaussianBlur(mask, mask, cv::Size(0, 0), 1.0, 1.0, cv::BORDER_REFLECT_101);
     cv::min(mask, 1.0, mask);
     cv::max(mask, 0.0, mask);

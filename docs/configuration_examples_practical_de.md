@@ -409,8 +409,10 @@ reconstruction:
   Frame, das nur in einem einzigen Kanal als Kandidat auftritt, bleibt von
   der Konsens-Regel unberührt — es gibt nichts, worüber abgestimmt werden
   könnte.
-- Nur CPU-Pfad: das Aktivieren erzwingt intern das CPU-Backend für die
-  betroffene Reproduktion, unabhängig von `runtime_limits.acceleration_backend`.
+- Läuft sowohl CPU- als auch CUDA-beschleunigt (CUDA nutzt eine eigene
+  Drei-Kernel-Implementierung — Build, kanalübergreifende Abstimmung,
+  Reduktion —, gegen den ursprünglichen Nicht-SFR-CUDA-Kernel bei
+  `consensus: 1.0` bit-genau verifiziert).
 - `shared_frame_rejection_consensus: 1.0` deaktiviert die Konsens-Revision
   effektiv (bit-identisch zu `shared_frame_rejection: false`) — nützlich als
   Kontroll-Lauf.

@@ -862,11 +862,7 @@ ForwardDrizzleV2ProductionResult persist_forward_drizzle_v2_from_predecessors(
   const std::uint64_t geom_bytes0 =
       geometry_cache != nullptr ? geometry_cache->leaf_record_bytes_read() : 0;
   ForwardDrizzleV2DriverOptions opts;
-  // shared_frame_rejection has no CUDA implementation yet (see
-  // ReconstructionClippingConfig::shared_frame_rejection): force CPU rather
-  // than silently ignoring it or breaking CPU/CUDA parity.
-  opts.prefer_cuda =
-      acceleration_backend == "cuda" && !out.plan.shared_frame_rejection;
+  opts.prefer_cuda = acceleration_backend == "cuda";
   opts.cached_leaf_capacity = leaf_capacity;
   if (progress) opts.progress = progress;
   out.driver = run_forward_drizzle_v2(

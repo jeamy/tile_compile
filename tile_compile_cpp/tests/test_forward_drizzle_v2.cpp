@@ -27,6 +27,7 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <memory>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -5861,7 +5862,8 @@ struct SfrRun {
   int channels = 0;
 };
 
-SfrRun run_sfr(const Fixture &f, bool mono, bool shared, double consensus) {
+SfrRun run_sfr(const Fixture &f, bool mono, bool shared, double consensus,
+              bool use_cuda = false) {
   const int nc = f.plan.canvas_width_native;
   const int nr = f.plan.canvas_height_native;
   const int channels = mono ? 1 : 3;
@@ -5879,7 +5881,12 @@ SfrRun run_sfr(const Fixture &f, bool mono, bool shared, double consensus) {
   kcfg.shared_frame_rejection = shared;
   kcfg.shared_frame_rejection_consensus = consensus;
 
-  ForwardDrizzleV2CpuKernel kernel;
+  std::unique_ptr<ForwardDrizzleV2Kernel> kernel_holder =
+      use_cuda ? std::unique_ptr<ForwardDrizzleV2Kernel>(
+                     std::make_unique<ForwardDrizzleV2CudaKernel>())
+               : std::unique_ptr<ForwardDrizzleV2Kernel>(
+                     std::make_unique<ForwardDrizzleV2CpuKernel>());
+  ForwardDrizzleV2Kernel &kernel = *kernel_holder;
   REQUIRE(kernel.reserve(nc, nr, f.plan.source_width, f.plan.source_height,
                          kcfg));
   ForwardDrizzleV2FrameMeta meta{1.0f, 0.9f, 1, 0};
@@ -6015,6 +6022,105 @@ TEST_CASE("forward drizzle v2 shared_frame_rejection consensus drops a "
         }
       const auto off = run_sfr(f, false, false, 0.5);
       const auto on = run_sfr(f, false, true, 0.5);
+      REQUIRE(off.results.size() == on.results.size());
+      const std::size_t nplane = off.results.size() / 3;
+      for (std::size_t px = 0; px < nplane; ++px) {
+        int clipped = 0, changed = 0;
+        for (int c = 0; c < 3; ++c) {
+          const std::size_t i = static_cast<std::size_t>(c) * nplane + px;
+          const auto &o = off.results[i];
+          const auto &n = on.results[i];
+          if (o.robust_state !=
+              static_cast<std::uint8_t>(
+                  ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip))
+            continue;
+          ++clipped;
+          if (std::fabs(o.value - n.value) > 1e-6) ++changed;
+        }
+        if (clipped >= 2 && changed >= 1 && changed < clipped)
+          saw_partial_value_change = true;
+      }
+    }
+  }
+  REQUIRE(saw_partial_value_change);
+}
+
+TEST_CASE("forward drizzle v2 shared_frame_rejection CUDA matches the "
+          "original (non-SFR) CUDA kernel at consensus=1.0",
+          "[forward-drizzle-v2][shared-frame-rejection][cuda-parity]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  // Bit-exactness against the CPU oracle is NOT checkable here: comparing
+  // run_sfr(..., shared=false, use_cuda=false) against
+  // run_sfr(..., shared=false, use_cuda=true) on THIS fixture already
+  // disagrees in the last 2-3 ULPs of `value` on a per-pixel basis --
+  // confirmed independent of shared_frame_rejection (same mismatch at
+  // magnitude=0, i.e. no injected outlier at all, and identical whether
+  // shared_frame_rejection is compiled in or not). That is a pre-existing
+  // CPU<->CUDA gap in the original k_finalize_v2/CPU-oracle pair on this
+  // specific fixture shape (12 frames, GRBG/(1,-1), uniform per-frame meta),
+  // not something introduced by the SFR kernels -- see the session notes;
+  // out of scope to chase here.
+  //
+  // What IS checkable, and is the actual correctness claim for the new
+  // device code (k_finalize_v2_sfr_build/_vote/_reduce in
+  // forward_drizzle_cuda_device.cu): with shared_frame_rejection_consensus
+  // = 1.0, kernel B's vote never revises anything (frac > 1.0 is never
+  // true), so the SFR kernel path must reduce to bit-identical output
+  // against the ORIGINAL k_finalize_v2 kernel on the SAME device, for both
+  // OSC (kernel B's cross-channel loop active) and MONO (kernel B's grid is
+  // skipped: channels <= 1).
+  for (ColorMode mode : {ColorMode::OSC, ColorMode::MONO}) {
+    const auto f = sfr_fixture(mode, /*outlier_frame=*/5);
+    const bool mono = mode == ColorMode::MONO;
+    const auto off = run_sfr(f, mono, false, 1.0, /*use_cuda=*/true);
+    const auto on = run_sfr(f, mono, true, 1.0, /*use_cuda=*/true);
+    REQUIRE(off.results.size() == on.results.size());
+    bool saw_clip = false;
+    for (std::size_t i = 0; i < off.results.size(); ++i) {
+      require_pixel_result_equal(off.results[i], on.results[i]);
+      require_profile_result_equal(off.profiles[i], on.profiles[i]);
+      if (off.results[i].robust_state ==
+          static_cast<std::uint8_t>(
+              ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip))
+        saw_clip = true;
+    }
+    REQUIRE(saw_clip);
+  }
+}
+
+TEST_CASE("forward drizzle v2 shared_frame_rejection CUDA consensus vote "
+          "fires and matches the CPU vote's qualitative behavior",
+          "[forward-drizzle-v2][shared-frame-rejection][cuda-parity]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  // GPU counterpart of the CPU-only "consensus drops a cross-channel
+  // outlier frame" sweep above -- same R/G-only perturbation technique (so
+  // B's own clip has no reason to reject the outlier frame, isolating the
+  // cross-channel vote), but comparing GPU consensus=0.5 against GPU
+  // consensus=1.0 instead of CPU on vs off, to stay clear of the pre-existing
+  // CPU<->CUDA gap noted in the test above.
+  bool saw_partial_value_change = false;
+  for (const double magnitude : {4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0}) {
+    for (const int outlier_frame : {3, 5, 7}) {
+      auto f = sfr_fixture(ColorMode::OSC, outlier_frame);
+      auto &img = f.images[static_cast<std::size_t>(outlier_frame)];
+      for (int y = 0; y < img.rows(); ++y)
+        for (int x = 0; x < img.cols(); ++x) {
+          if (!std::isfinite(img(y, x))) continue;
+          img(y, x) -= 500.0f;
+          const auto c = cfa_channel_for_source_pixel(
+              x, y, f.plan.bayer_pattern, f.plan.cfa_origin_x,
+              f.plan.cfa_origin_y);
+          if (c == CfaChannel::R || c == CfaChannel::G)
+            img(y, x) += static_cast<float>(magnitude);
+        }
+      const auto off = run_sfr(f, false, true, 1.0, /*use_cuda=*/true);
+      const auto on = run_sfr(f, false, true, 0.5, /*use_cuda=*/true);
       REQUIRE(off.results.size() == on.results.size());
       const std::size_t nplane = off.results.size() / 3;
       for (std::size_t px = 0; px < nplane; ++px) {

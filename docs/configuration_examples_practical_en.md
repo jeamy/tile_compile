@@ -402,8 +402,9 @@ reconstruction:
   `shared_frame_rejection_consensus` (default `0.5` = majority). A frame
   seen as a candidate by only one channel is left untouched by the
   consensus rule -- there is nothing to vote against.
-- CPU path only: enabling it forces the CPU backend internally for the
-  affected reproduction, regardless of `runtime_limits.acceleration_backend`.
+- Runs on both the CPU and CUDA backends (CUDA uses a separate three-kernel
+  implementation -- build, cross-channel vote, reduce -- verified bit-exact
+  against the original, non-SFR CUDA kernel at `consensus: 1.0`).
 - `shared_frame_rejection_consensus: 1.0` effectively disables the
   consensus revision (bit-identical to `shared_frame_rejection: false`) --
   useful as a control run.

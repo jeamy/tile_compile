@@ -351,10 +351,12 @@ struct ReconstructionClippingConfig {
   // real per-channel faint-detail difference (not every source is equally
   // bright in R/G/B) does not itself get treated as an outlier vote.
   //
-  // CPU-only for now: enabling this forces the forward-drizzle stage to
-  // run on CPU even when acceleration_backend is "cuda" (no CUDA
-  // implementation yet), to avoid silently breaking CPU/CUDA bit-exact
-  // parity on a run that enables it.
+  // Implemented on both the CPU and CUDA forward-drizzle kernels (the CUDA
+  // path splits finalize() into three kernels -- build the per-channel
+  // clip, vote per pixel across channels, reduce -- since the vote step
+  // needs a pixel's channels visible to the same thread; verified
+  // bit-exact against the original single-kernel CUDA path at
+  // shared_frame_rejection_consensus = 1.0, where the vote is a no-op).
   bool shared_frame_rejection = false;
   // Fraction (0,1] of the channels that had a candidate from a given frame
   // at a given pixel that must flag it as an outlier before it is rejected

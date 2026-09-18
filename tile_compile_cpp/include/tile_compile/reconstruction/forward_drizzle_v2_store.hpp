@@ -72,7 +72,7 @@ struct ForwardDrizzleV2RunPlan {
   double sigma_high = 3.0;
   // See config::ReconstructionClippingConfig::shared_frame_rejection.
   // Default false: identical to the pre-existing independent-per-channel
-  // clip. CPU-only when true (see caller).
+  // clip. Implemented on both the CPU and CUDA forward-drizzle kernels.
   bool shared_frame_rejection = false;
   double shared_frame_rejection_consensus = 0.5;
   std::string support_fold_contract = "gate2_v1";   // gate 2

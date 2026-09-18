@@ -1101,7 +1101,7 @@ Controls the Laplacian pyramid for the local quality maps (Source Quality Maps) 
 | `reconstruction.clipping.min_fraction` | number | `0.4` | Minimum usable sample fraction per pixel `(0, 1]`. |
 | `reconstruction.clipping.min_n_eff` | number | `3.0` | Minimum effective contribution count for a valid output pixel (`>= 1`). |
 | `reconstruction.clipping.guard_fallback` | boolean | `false` | `false` = strict veto (pixel stays unassigned); `true` = survivor/unclipped fallback instead of a black pixel. |
-| `reconstruction.clipping.shared_frame_rejection` | boolean | `false` | CPU path only (forces the CPU backend when enabled). Reconciles the per-channel independent sigma-clip decisions across R/G/B: rejects a candidate frame in a channel that would otherwise have kept it, if enough other channels independently rejected it (see `shared_frame_rejection_consensus`). Addresses CFA-driven chroma noise (anti-correlated clip decisions across channels, since R/G/B are sampled from disjoint sensor pixels). A frame seen as a candidate by only one channel is left exactly as that channel's own clip decided. |
+| `reconstruction.clipping.shared_frame_rejection` | boolean | `false` | Runs on both the CPU and CUDA backends. Reconciles the per-channel independent sigma-clip decisions across R/G/B: rejects a candidate frame in a channel that would otherwise have kept it, if enough other channels independently rejected it (see `shared_frame_rejection_consensus`). Addresses CFA-driven chroma noise (anti-correlated clip decisions across channels, since R/G/B are sampled from disjoint sensor pixels). A frame seen as a candidate by only one channel is left exactly as that channel's own clip decided. |
 | `reconstruction.clipping.shared_frame_rejection_consensus` | number | `0.5` | `(0, 1]`. Fraction of the channels that saw a frame as a candidate that must have independently rejected it before `shared_frame_rejection` rejects it in every one of those channels. `1.0` effectively disables the consensus revision (bit-identical to `shared_frame_rejection: false`). |
 | `reconstruction.coverage_gate.min_frames` | integer | `2` | Minimum number of usable frames. |
 | `reconstruction.coverage_gate.min_supported_fraction` | number | `0.995` | Minimum supported output-pixel fraction `(0, 1]`. |
@@ -2202,7 +2202,7 @@ protected regions and produces dark pixels/chroma fringing at star edges.
 - `reconstruction.clipping.clip_sigma_low`, `clip_sigma_high`: MAD rejection thresholds.
 - `reconstruction.clipping.min_fraction`, `min_n_eff`: coverage gates per pixel.
 - `reconstruction.clipping.guard_fallback`: fallback instead of strict veto on clip failure.
-- `reconstruction.clipping.shared_frame_rejection`, `shared_frame_rejection_consensus`: cross-channel consensus against anti-correlated CFA chroma noise (CPU path only); see the §14 table above.
+- `reconstruction.clipping.shared_frame_rejection`, `shared_frame_rejection_consensus`: cross-channel consensus against anti-correlated CFA chroma noise (CPU and CUDA); see the §14 table above.
 - `reconstruction.coverage_gate.*`: fail-closed coverage/quality gates before FORWARD_DRIZZLE.
 - `reconstruction.multiband.*`: band-fusion control (levels, alpha cap, quality/N_eff thresholds).
 - `reconstruction.quality.pyramid.*`: local quality maps (see §14).

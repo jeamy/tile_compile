@@ -1733,6 +1733,490 @@ __global__ void k_finalize_v2(
   out[pc] = r;
 }
 
+// shared_frame_rejection (config::ReconstructionClippingConfig::
+// shared_frame_rejection, mirrored on ForwardDrizzleV2KernelConfig) device
+// path: reconciles each channel's independent sigma-clip decision against
+// the other channels that saw the same frame as a candidate at the same
+// pixel, since R/G/B are sampled from disjoint CFA sensor positions and can
+// otherwise reject a frame in one channel while keeping it in another --
+// producing anti-correlated chroma noise. Split into three kernels (build /
+// vote / reduce) instead of one thread per pixel doing all channels: a
+// single thread holding the full per-channel clip state (V2ReservoirRecord
+// recs[128] + float4 qvs[128], per channel) for up to 3 channels would
+// multiply k_finalize_v2's already-heavy per-thread local-memory footprint
+// threefold. Three launches give a free global barrier between phases
+// instead, and only the per-pixel vote kernel (B) needs cross-channel data,
+// kept to the minimum (x, order) it actually needs for that.
+struct V2SortKey {
+  double x;
+  unsigned long long order;
+};
+
+__device__ void v2_sort_keys(V2SortKey *keys, unsigned int n) {
+  for (unsigned int i = 1; i < n; ++i) {
+    const V2SortKey v = keys[i];
+    unsigned int j = i;
+    while (j > 0 && (keys[j - 1].x > v.x ||
+                     (keys[j - 1].x == v.x && keys[j - 1].order > v.order))) {
+      keys[j] = keys[j - 1];
+      --j;
+    }
+    keys[j] = v;
+  }
+}
+
+// Kernel A (build): identical to k_finalize_v2 through the clip passes for
+// every (pixel, channel) tid. Early-exit tids (no support / overflow / too
+// few candidates) finalize exactly as k_finalize_v2 does and are done, same
+// as today. Clip-eligible tids stop right after the clip loop instead of
+// reducing: they record has_clip=1 and the accepted bitmask (2 x u64,
+// res_slots can reach 128 = 2*reservoir_size) for kernel B to read and
+// possibly revise, and kernel C to reduce from.
+__global__ void k_finalize_v2_sfr_build(
+    int ncols, int nrows, int channels, int subpixels, int res_slots,
+    unsigned long long frames_processed,
+    int min_candidates, int min_clip,
+    int passes, double s_low, double s_high,
+    const double *accA, const double *accB, const double *accB2,
+    const double *confS, const double *confC,
+    const unsigned int *contrib, const unsigned int *kept,
+    const unsigned int *footprint, const unsigned short *supp,
+    const unsigned long long *degraded, const V2ReservoirRecord *res,
+    ForwardDrizzleV2ProfileResult *pout,
+    ForwardDrizzleV2PixelResult *out, unsigned long long *dense_overlap,
+    unsigned char *has_clip, unsigned long long *sfr_accepted) {
+  const long long tid =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const long long nplane = static_cast<long long>(ncols) * nrows;
+  if (tid >= nplane * channels) return;
+  const long long pc = tid;
+  const long long px = tid % nplane;
+  const int c = static_cast<int>(tid / nplane);
+
+  ForwardDrizzleV2PixelResult r;
+  const double a_acc = accA[pc];
+  const double b_acc = accB[pc];
+  const double b2_acc = accB2[pc];
+  r.contributors = contrib[pc];
+  r.conf_degraded = degraded[pc];
+  r.b = b_acc;
+  r.n_eff = b2_acc > 0.0 ? b_acc * b_acc / b2_acc : 0.0;
+  const unsigned int mask = supp[pc];
+  r.geometry_fraction = static_cast<float>(
+      __popc(mask & 0xFu) / static_cast<double>(subpixels));
+  r.source_fraction = static_cast<float>(
+      __popc((mask >> 4) & 0xFu) / static_cast<double>(subpixels));
+  r.estimator_fraction = r.source_fraction;
+  r.profile_fraction = r.source_fraction;
+
+  if (c == 0 && footprint[px] == frames_processed && frames_processed > 0)
+    atomicAdd(dense_overlap, 1ULL);
+
+  const unsigned int n_kept = kept[pc];
+  auto finish_conf = [&](double cb, double cs, double cc) {
+    if (!(cb > 0.0)) {
+      r.confidence = 0.0;
+      r.confidence_state = static_cast<std::uint8_t>(
+          ForwardDrizzleV2ConfidenceState::no_source_support);
+      return;
+    }
+    if (cc > 0.0 && isfinite(cc)) {
+      r.confidence = (cs * cs) / (cs * cs + cc);
+      r.confidence_state =
+          static_cast<std::uint8_t>(ForwardDrizzleV2ConfidenceState::modeled);
+      return;
+    }
+    r.confidence = r.n_eff > 0.0 ? r.n_eff / (r.n_eff + 1.0) : 0.0;
+    r.confidence_state = static_cast<std::uint8_t>(
+        ForwardDrizzleV2ConfidenceState::fallback_n_eff);
+  };
+  auto finish_uniform = [&](ForwardDrizzleV2RobustState state) {
+    r.value = a_acc / b_acc;
+    r.robust_state = static_cast<std::uint8_t>(state);
+    finish_conf(b_acc, confS[pc], confC[pc]);
+  };
+  auto emit_fallback_profiles = [&]() {
+    if (pout == nullptr) return;
+    ForwardDrizzleV2ProfileResult pr;
+    if (b_acc > 0.0) {
+      const float v = static_cast<float>(a_acc / b_acc);
+      const float w = static_cast<float>(b_acc);
+      const float ne = static_cast<float>(r.n_eff);
+      for (auto *o : {&pr.uniform, &pr.raw, &pr.fine, &pr.medium}) {
+        o->value = v;
+        o->weight_sum = w;
+        o->n_eff = ne;
+        o->support = 1;
+      }
+    }
+    pout[pc] = pr;
+  };
+
+  if (!(b_acc > 0.0)) {
+    r.robust_state = static_cast<std::uint8_t>(
+        ForwardDrizzleV2RobustState::no_source_support);
+    finish_conf(0.0, 0.0, 0.0);
+    emit_fallback_profiles();
+    out[pc] = r;
+    has_clip[pc] = 0;
+    return;
+  }
+  if (n_kept > static_cast<unsigned int>(res_slots)) {
+    finish_uniform(ForwardDrizzleV2RobustState::reservoir_overflow_fallback);
+    emit_fallback_profiles();
+    out[pc] = r;
+    has_clip[pc] = 0;
+    return;
+  }
+  if (r.contributors < static_cast<unsigned int>(min_candidates) ||
+      n_kept < static_cast<unsigned int>(min_clip)) {
+    finish_uniform(ForwardDrizzleV2RobustState::too_few_candidates_fallback);
+    emit_fallback_profiles();
+    out[pc] = r;
+    has_clip[pc] = 0;
+    return;
+  }
+
+  V2ReservoirRecord recs[kV2MaxResSlots];
+  for (unsigned int i = 0; i < n_kept; ++i) recs[i] = res[pc * res_slots + i];
+  for (unsigned int i = 1; i < n_kept; ++i) {
+    const V2ReservoirRecord v = recs[i];
+    unsigned int j = i;
+    while (j > 0 &&
+           (recs[j - 1].x > v.x ||
+            (recs[j - 1].x == v.x && recs[j - 1].order > v.order))) {
+      recs[j] = recs[j - 1];
+      --j;
+    }
+    recs[j] = v;
+  }
+  unsigned long long acc_lo = ~0ULL, acc_hi = ~0ULL;
+  for (int pass = 0; pass < passes; ++pass) {
+    double total_w = 0.0;
+    unsigned int n_active = 0;
+    for (unsigned int i = 0; i < n_kept; ++i) {
+      const bool on = i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
+      if (on) {
+        total_w += recs[i].b;
+        ++n_active;
+      }
+    }
+    if (n_active == 0) break;
+    double median = 0.0;
+    {
+      double cum = 0.0;
+      unsigned int last_on = 0;
+      bool picked = false;
+      for (unsigned int i = 0; i < n_kept; ++i) {
+        const bool on =
+            i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
+        if (!on) continue;
+        last_on = i;
+        cum += recs[i].b;
+        if (total_w > 0.0 && cum >= total_w / 2.0) {
+          median = recs[i].x;
+          picked = true;
+          break;
+        }
+      }
+      if (!picked) median = recs[last_on].x;
+    }
+    unsigned int ord[kV2MaxResSlots];
+    unsigned int m = 0;
+    for (unsigned int i = 0; i < n_kept; ++i) {
+      const bool on = i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
+      if (on) ord[m++] = i;
+    }
+    for (unsigned int i = 1; i < m; ++i) {
+      const unsigned int v = ord[i];
+      const double dv = fabs(recs[v].x - median);
+      unsigned int j = i;
+      while (j > 0) {
+        const unsigned int u = ord[j - 1];
+        const double du = fabs(recs[u].x - median);
+        if (du < dv || (du == dv && recs[u].order < recs[v].order)) break;
+        ord[j] = u;
+        --j;
+      }
+      ord[j] = v;
+    }
+    double mad = fabs(recs[ord[m - 1]].x - median);
+    if (total_w > 0.0) {
+      double cum = 0.0;
+      for (unsigned int i = 0; i < m; ++i) {
+        cum += recs[ord[i]].b;
+        if (cum >= total_w / 2.0) {
+          mad = fabs(recs[ord[i]].x - median);
+          break;
+        }
+      }
+    }
+    const double lower = median - s_low * mad;
+    const double upper = median + s_high * mad;
+    bool changed = false;
+    for (unsigned int i = 0; i < m; ++i) {
+      const unsigned int idx = ord[i];
+      const double x = recs[idx].x;
+      if (!(x >= lower && x <= upper)) {
+        if (idx < 64) acc_lo &= ~(1ULL << idx);
+        else acc_hi &= ~(1ULL << (idx - 64));
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  // .value/.robust_state/.confidence/.confidence_state are not yet valid
+  // (the accepted set can still change in kernel B) -- everything else
+  // computed above (contributors, conf_degraded, b, n_eff, the *_fraction
+  // fields) is already final and must reach kernel C, which starts from
+  // out[pc] rather than recomputing it.
+  out[pc] = r;
+  has_clip[pc] = 1;
+  sfr_accepted[2 * pc] = acc_lo;
+  sfr_accepted[2 * pc + 1] = acc_hi;
+}
+
+// Kernel B (vote): one thread per NATIVE PIXEL (not pixel*channel), looping
+// its up to 3 channels itself -- consensus is inherently a cross-channel
+// operation, so the channels of one pixel must be visible to the same
+// thread. Only (x, order) per candidate is needed to reproduce kernel A's
+// sort (and so map each accepted-bitmask bit back to its frame_order), not
+// the full V2ReservoirRecord/quality state kernel A and C need -- keeping
+// this thread's local footprint well under three full copies of theirs.
+__global__ void k_finalize_v2_sfr_vote(
+    int ncols, int nrows, int channels, int res_slots,
+    double consensus_threshold, const unsigned int *kept,
+    const V2ReservoirRecord *res, const unsigned char *has_clip,
+    unsigned long long *sfr_accepted) {
+  const long long px =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const long long nplane = static_cast<long long>(ncols) * nrows;
+  if (px >= nplane || channels <= 1) return;
+
+  V2SortKey keys[3][kV2MaxResSlots];
+  unsigned long long acc_lo[3] = {0, 0, 0}, acc_hi[3] = {0, 0, 0};
+  unsigned int nk[3] = {0, 0, 0};
+  bool present[3] = {false, false, false};
+  for (int ch = 0; ch < channels; ++ch) {
+    const long long pc = static_cast<long long>(ch) * nplane + px;
+    if (!has_clip[pc]) continue;
+    present[ch] = true;
+    nk[ch] = kept[pc];
+    for (unsigned int i = 0; i < nk[ch]; ++i) {
+      const V2ReservoirRecord &rec = res[pc * res_slots + i];
+      keys[ch][i] = V2SortKey{rec.x, rec.order};
+    }
+    v2_sort_keys(keys[ch], nk[ch]);
+    acc_lo[ch] = sfr_accepted[2 * pc];
+    acc_hi[ch] = sfr_accepted[2 * pc + 1];
+  }
+
+  auto bit = [](unsigned long long lo, unsigned long long hi,
+               unsigned int i) {
+    return i < 64 ? (lo >> i) & 1ULL : (hi >> (i - 64)) & 1ULL;
+  };
+
+  // Per (channel, sorted-slot) vote tally: how many channels saw this exact
+  // candidate's frame_order at all, and how many of those rejected it.
+  // Bounded by channels(<=3) * res_slots(<=128) candidates per pixel -- a
+  // small, fixed nested search, no hash map needed.
+  for (int ch = 0; ch < channels; ++ch) {
+    if (!present[ch]) continue;
+    for (unsigned int i = 0; i < nk[ch]; ++i) {
+      if (!bit(acc_lo[ch], acc_hi[ch], i))
+        continue;  // already rejected by its own channel's clip
+      const unsigned long long order = keys[ch][i].order;
+      int seen = 0, rejected = 0;
+      for (int och = 0; och < channels; ++och) {
+        if (!present[och]) continue;
+        for (unsigned int j = 0; j < nk[och]; ++j) {
+          if (keys[och][j].order != order) continue;
+          ++seen;
+          if (!bit(acc_lo[och], acc_hi[och], j)) ++rejected;
+          break;  // a frame contributes at most one candidate per channel
+        }
+      }
+      if (seen <= 1) continue;  // only this channel saw it: nothing to vote
+      const double frac =
+          static_cast<double>(rejected) / static_cast<double>(seen);
+      if (frac > consensus_threshold) {
+        if (i < 64) acc_lo[ch] &= ~(1ULL << i);
+        else acc_hi[ch] &= ~(1ULL << (i - 64));
+      }
+    }
+  }
+
+  for (int ch = 0; ch < channels; ++ch) {
+    if (!present[ch]) continue;
+    const long long pc = static_cast<long long>(ch) * nplane + px;
+    sfr_accepted[2 * pc] = acc_lo[ch];
+    sfr_accepted[2 * pc + 1] = acc_hi[ch];
+  }
+}
+
+// Kernel C (reduce): identical grid/threading to kernel A and to
+// k_finalize_v2 (one thread per (pixel, channel)); for has_clip tids only
+// (early-exit tids were already finalized by kernel A), reloads and
+// re-sorts the reservoir exactly as kernel A did -- deterministic, so this
+// reproduces the same bit-index <-> record mapping without kernel A having
+// to persist the sorted order -- then reduces using the (possibly
+// consensus-revised) accepted bitmask instead of recomputing the clip.
+__global__ void k_finalize_v2_sfr_reduce(
+    int ncols, int nrows, int channels, int res_slots,
+    unsigned long long meta_capacity,
+    const unsigned int *kept, const V2ReservoirRecord *res,
+    const float4 *resq, const V2FrameMetaDev *meta,
+    double fine_exp, double medium_exp, AlphaConfidenceParams alpha,
+    const unsigned char *has_clip, const unsigned long long *sfr_accepted,
+    ForwardDrizzleV2ProfileResult *pout, ForwardDrizzleV2PixelResult *out) {
+  const long long tid =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const long long nplane = static_cast<long long>(ncols) * nrows;
+  if (tid >= nplane * channels) return;
+  const long long pc = tid;
+  if (!has_clip[pc]) return;  // kernel A already wrote out[pc]/pout[pc]
+
+  const unsigned int n_kept = kept[pc];
+  V2ReservoirRecord recs[kV2MaxResSlots];
+  float4 qvs[kV2MaxResSlots];
+  for (unsigned int i = 0; i < n_kept; ++i) {
+    recs[i] = res[pc * res_slots + i];
+    if (resq != nullptr) qvs[i] = resq[pc * res_slots + i];
+  }
+  for (unsigned int i = 1; i < n_kept; ++i) {
+    const V2ReservoirRecord v = recs[i];
+    const float4 qv = qvs[i];
+    unsigned int j = i;
+    while (j > 0 &&
+           (recs[j - 1].x > v.x ||
+            (recs[j - 1].x == v.x && recs[j - 1].order > v.order))) {
+      recs[j] = recs[j - 1];
+      qvs[j] = qvs[j - 1];
+      --j;
+    }
+    recs[j] = v;
+    qvs[j] = qv;
+  }
+  const unsigned long long acc_lo = sfr_accepted[2 * pc];
+  const unsigned long long acc_hi = sfr_accepted[2 * pc + 1];
+  auto bit = [&](unsigned int i) {
+    return i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
+  };
+
+  ForwardDrizzleV2PixelResult r = out[pc];
+  auto finish_conf = [&](double cb, double cs, double cc) {
+    if (!(cb > 0.0)) {
+      r.confidence = 0.0;
+      r.confidence_state = static_cast<std::uint8_t>(
+          ForwardDrizzleV2ConfidenceState::no_source_support);
+      return;
+    }
+    if (cc > 0.0 && isfinite(cc)) {
+      r.confidence = (cs * cs) / (cs * cs + cc);
+      r.confidence_state =
+          static_cast<std::uint8_t>(ForwardDrizzleV2ConfidenceState::modeled);
+      return;
+    }
+    r.confidence = r.n_eff > 0.0 ? r.n_eff / (r.n_eff + 1.0) : 0.0;
+    r.confidence_state = static_cast<std::uint8_t>(
+        ForwardDrizzleV2ConfidenceState::fallback_n_eff);
+  };
+
+  double ca = 0.0, cb = 0.0, cs = 0.0, cc = 0.0;
+  for (unsigned int i = 0; i < n_kept; ++i) {
+    if (!bit(i)) continue;
+    ca += recs[i].b * recs[i].x;
+    cb += recs[i].b;
+    const double s2 = recs[i].sigma2;
+    if (isfinite(s2) && s2 > 0.0) {
+      cs += recs[i].b * sqrt(s2);
+      cc += recs[i].b * recs[i].b * s2;
+    }
+  }
+  r.value = cb > 0.0 ? ca / cb : 0.0;
+  r.robust_state = static_cast<std::uint8_t>(
+      ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip);
+  finish_conf(cb, cs, cc);
+
+  if (pout != nullptr) {
+    ForwardDrizzleV2ProfileResult pr;
+    double uwx = 0.0, uw = 0.0, uw2 = 0.0;
+    double rwx = 0.0, rw = 0.0, rw2 = 0.0;
+    double fwx = 0.0, fw = 0.0, fw2 = 0.0;
+    double mwx = 0.0, mw = 0.0, mw2 = 0.0;
+    double b_total = 0.0, b_direct = 0.0;
+    double art_v[kV2MaxResSlots], art_w[kV2MaxResSlots];
+    double res_v[kV2MaxResSlots], res_w[kV2MaxResSlots];
+    int n_art = 0, n_res = 0;
+    for (unsigned int i = 0; i < n_kept; ++i) {
+      if (!bit(i)) continue;
+      const float4 qv = qvs[i];
+      V2FrameMetaDev m{};
+      if (meta != nullptr && recs[i].order < meta_capacity)
+        m = meta[recs[i].order];
+      double g = static_cast<double>(m.g_eff);
+      if (!(g >= 0.0)) g = 0.0;
+      const double b = recs[i].b;
+      const double x = recs[i].x;
+      const double wu = b;
+      const double wr = b * g * static_cast<double>(qv.x);
+      const double wf = b * g * pow(static_cast<double>(qv.y), fine_exp);
+      const double wm = b * g * pow(static_cast<double>(qv.z), medium_exp);
+      uwx += wu * x; uw += wu; uw2 += wu * wu;
+      rwx += wr * x; rw += wr; rw2 += wr * wr;
+      fwx += wf * x; fw += wf; fw2 += wf * wf;
+      mwx += wm * x; mw += wm; mw2 += wm * wm;
+      b_total += b;
+      if (m.is_direct != 0u) b_direct += b;
+      if (qv.w >= 0.0f) {
+        double av = static_cast<double>(qv.w);
+        if (av < 0.0) av = 0.0;
+        if (av > 1.0) av = 1.0;
+        art_v[n_art] = av;
+        art_w[n_art] = b;
+        ++n_art;
+      }
+      res_v[n_res] = static_cast<double>(m.residual_factor);
+      res_w[n_res] = b;
+      ++n_res;
+    }
+    auto write = [](ForwardDrizzleV2ProfileOutput &o, double wx, double w,
+                    double w2) {
+      if (!(w > 0.0)) return;
+      o.value = static_cast<float>(wx / w);
+      o.weight_sum = static_cast<float>(w);
+      o.n_eff = static_cast<float>(w2 > 0.0 ? (w * w) / w2 : 0.0);
+      o.support = 1;
+    };
+    write(pr.uniform, uwx, uw, uw2);
+    write(pr.raw, rwx, rw, rw2);
+    write(pr.fine, fwx, fw, fw2);
+    write(pr.medium, mwx, mw, mw2);
+    double sep = r.confidence;
+    if (r.contributors > 0 && r.conf_degraded == r.contributors) sep = 0.0;
+    if (sep < 0.0) sep = 0.0;
+    if (sep > 1.0) sep = 1.0;
+    pr.a_separation = static_cast<float>(sep);
+    if (n_art >= alpha.min_artifact_contributors) {
+      const double a_p10 = d_hazen_percentile(art_v, art_w, n_art, 0.10);
+      pr.a_artifact = static_cast<float>(
+          d_smoothstep(alpha.artifact_lo, alpha.artifact_hi, a_p10));
+      pr.artifact_applicable = true;
+    }
+    const double direct_fraction = b_total > 0.0 ? b_direct / b_total : 0.0;
+    const double residual_p20 = d_hazen_percentile(res_v, res_w, n_res, 0.20);
+    const double reg_dir = d_smoothstep(alpha.direct_fraction_lo,
+                                        alpha.direct_fraction_hi,
+                                        direct_fraction);
+    const double reg_res = d_smoothstep(alpha.residual_p20_lo,
+                                        alpha.residual_p20_hi, residual_p20);
+    pr.a_registration =
+        static_cast<float>(reg_res < reg_dir ? reg_res : reg_dir);
+    pout[pc] = pr;
+  }
+  out[pc] = r;
+}
+
 // Host-side executability contract of a local-warp descriptor. Everything
 // the CPU oracle can express (invalid model, non-finite values, negative
 // margin or depth) degrades on device to the oracle's own per-sample
@@ -2684,6 +3168,12 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
   V2FrameMetaDev *meta = nullptr;
   ForwardDrizzleV2PixelResult *out = nullptr;
   ForwardDrizzleV2ProfileResult *pout = nullptr;
+  // shared_frame_rejection only: has_clip[pc] (1 byte) and the accepted
+  // bitmask (2 x u64 per pc, res_slots can reach 128) that kernel A writes,
+  // kernel B may revise, and kernel C reduces from. Null when the feature
+  // is off for this workspace.
+  unsigned char *sfr_has_clip = nullptr;
+  unsigned long long *sfr_accepted = nullptr;
   std::vector<cudaEvent_t> ev_up0, ev_up1, ev_k0, ev_k1;
   // Host flag per frame order: the four events were recorded for a real
   // accumulate in the CURRENT band (skip frames leave it false so stale
@@ -2743,6 +3233,8 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
     cudaFree(meta);
     cudaFree(out);
     cudaFree(pout);
+    cudaFree(sfr_has_clip);
+    cudaFree(sfr_accepted);
     for (auto *v : {&ev_up0, &ev_up1, &ev_k0, &ev_k1})
       for (cudaEvent_t e : *v) cudaEventDestroy(e);
     if (stream) cudaStreamDestroy(stream);
@@ -2779,7 +3271,9 @@ bool v2_fixed_cfg_equal(const ForwardDrizzleV2KernelConfig &a,
          a.canvas_width_native == b.canvas_width_native &&
          a.canvas_height_native == b.canvas_height_native &&
          a.band_origin_x_native == b.band_origin_x_native &&
-         a.cached_leaf_capacity == b.cached_leaf_capacity;
+         a.cached_leaf_capacity == b.cached_leaf_capacity &&
+         a.shared_frame_rejection == b.shared_frame_rejection &&
+         a.shared_frame_rejection_consensus == b.shared_frame_rejection_consensus;
 }
 
 }  // namespace
@@ -2913,6 +3407,10 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
       (cfg.emit_profiles &&
        (!mul(pc_elems, sizeof(ForwardDrizzleV2ProfileResult), tmp) ||
         !add_bytes(tmp))) ||
+      (cfg.shared_frame_rejection &&
+       (!mul(pc_elems, sizeof(unsigned char), tmp) || !add_bytes(tmp) ||
+        !mul(pc_elems, 2 * sizeof(unsigned long long), tmp) ||
+        !add_bytes(tmp))) ||
       !add_bytes(leaf_bytes) ||
       !add_bytes(3 * sizeof(unsigned long long)))
     return false;
@@ -3025,7 +3523,13 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
                     pc_elems * sizeof(ForwardDrizzleV2ProfileResult)) ==
              cudaSuccess)) &&
        cudaMalloc(&im->out, pc_elems * sizeof(ForwardDrizzleV2PixelResult)) ==
-           cudaSuccess;
+           cudaSuccess &&
+       (!cfg.shared_frame_rejection ||
+        (cudaMalloc(&im->sfr_has_clip, pc_elems * sizeof(unsigned char)) ==
+             cudaSuccess &&
+         cudaMalloc(&im->sfr_accepted,
+                    pc_elems * 2 * sizeof(unsigned long long)) ==
+             cudaSuccess));
   if (!ok) {
     // Capture BEFORE delete im: the destructor's cudaFree calls would
     // overwrite the pending error.
@@ -4139,22 +4643,65 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
   const long long total = static_cast<long long>(n_pc);
   const unsigned int grid =
       static_cast<unsigned int>((total + block - 1) / block);
-  k_finalize_v2<<<grid, block, 0, st>>>(
-      im.ncols, im.nrows, im.channels,
-      im.cfg.internal_scale * im.cfg.internal_scale, im.res_slots, im.frames,
-      im.cfg.stream_length,
-      im.cfg.min_candidates, im.cfg.min_clip_contributors,
-      im.cfg.robust_passes, im.cfg.sigma_low, im.cfg.sigma_high, im.accA,
-      im.accB, im.accB2, im.confS, im.confC, im.contrib, im.kept, im.footprint,
-      im.supp, im.degraded, im.res, im.resq, im.meta,
-      static_cast<double>(im.cfg.fine_quality_exponent),
-      static_cast<double>(im.cfg.medium_quality_exponent),
-      AlphaConfidenceParams{}, im.pout, im.out, im.scalars + 1);
-  if (const cudaError_t launch_err = cudaGetLastError();
-      launch_err != cudaSuccess) {
-    last_device_error_ = std::string("k_finalize_v2 launch: ") +
-                         cudaGetErrorString(launch_err);
-    return false;
+  if (!im.cfg.shared_frame_rejection) {
+    k_finalize_v2<<<grid, block, 0, st>>>(
+        im.ncols, im.nrows, im.channels,
+        im.cfg.internal_scale * im.cfg.internal_scale, im.res_slots,
+        im.frames, im.cfg.stream_length,
+        im.cfg.min_candidates, im.cfg.min_clip_contributors,
+        im.cfg.robust_passes, im.cfg.sigma_low, im.cfg.sigma_high, im.accA,
+        im.accB, im.accB2, im.confS, im.confC, im.contrib, im.kept,
+        im.footprint, im.supp, im.degraded, im.res, im.resq, im.meta,
+        static_cast<double>(im.cfg.fine_quality_exponent),
+        static_cast<double>(im.cfg.medium_quality_exponent),
+        AlphaConfidenceParams{}, im.pout, im.out, im.scalars + 1);
+    if (const cudaError_t launch_err = cudaGetLastError();
+        launch_err != cudaSuccess) {
+      last_device_error_ = std::string("k_finalize_v2 launch: ") +
+                           cudaGetErrorString(launch_err);
+      return false;
+    }
+  } else {
+    k_finalize_v2_sfr_build<<<grid, block, 0, st>>>(
+        im.ncols, im.nrows, im.channels,
+        im.cfg.internal_scale * im.cfg.internal_scale, im.res_slots,
+        im.frames,
+        im.cfg.min_candidates, im.cfg.min_clip_contributors,
+        im.cfg.robust_passes, im.cfg.sigma_low, im.cfg.sigma_high, im.accA,
+        im.accB, im.accB2, im.confS, im.confC, im.contrib, im.kept,
+        im.footprint, im.supp, im.degraded, im.res, im.pout, im.out,
+        im.scalars + 1, im.sfr_has_clip, im.sfr_accepted);
+    if (const cudaError_t e = cudaGetLastError(); e != cudaSuccess) {
+      last_device_error_ =
+          std::string("k_finalize_v2_sfr_build launch: ") +
+          cudaGetErrorString(e);
+      return false;
+    }
+    if (im.channels > 1) {
+      const unsigned int grid_px = static_cast<unsigned int>(
+          (static_cast<long long>(im.nplane) + block - 1) / block);
+      k_finalize_v2_sfr_vote<<<grid_px, block, 0, st>>>(
+          im.ncols, im.nrows, im.channels, im.res_slots,
+          static_cast<double>(im.cfg.shared_frame_rejection_consensus),
+          im.kept, im.res, im.sfr_has_clip, im.sfr_accepted);
+      if (const cudaError_t e = cudaGetLastError(); e != cudaSuccess) {
+        last_device_error_ = std::string("k_finalize_v2_sfr_vote launch: ") +
+                             cudaGetErrorString(e);
+        return false;
+      }
+    }
+    k_finalize_v2_sfr_reduce<<<grid, block, 0, st>>>(
+        im.ncols, im.nrows, im.channels, im.res_slots, im.cfg.stream_length,
+        im.kept, im.res, im.resq, im.meta,
+        static_cast<double>(im.cfg.fine_quality_exponent),
+        static_cast<double>(im.cfg.medium_quality_exponent),
+        AlphaConfidenceParams{}, im.sfr_has_clip, im.sfr_accepted, im.pout,
+        im.out);
+    if (const cudaError_t e = cudaGetLastError(); e != cudaSuccess) {
+      last_device_error_ = std::string("k_finalize_v2_sfr_reduce launch: ") +
+                           cudaGetErrorString(e);
+      return false;
+    }
   }
   unsigned long long h_scalars[3] = {0, 0, 0};
   std::vector<unsigned int> h_kept(n_pc), h_contrib(n_pc);
