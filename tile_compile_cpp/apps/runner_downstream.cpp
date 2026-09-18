@@ -17,6 +17,7 @@
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/reconstruction/chroma_denoise.hpp"
+#include "tile_compile/reconstruction/luma_denoise.hpp"
 #include "tile_compile/pipeline/adaptive_tile_grid.hpp"
 
 #include "runner_shared.hpp"
@@ -193,6 +194,26 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     core::write_text_atomic(
         run_dir / "artifacts" / "chroma_denoise.json",
         core::json({{"version", 1}, {"passes", chroma_denoise_passes}})
+            .dump(2));
+  };
+  core::json luma_denoise_passes = core::json::array();
+  auto record_luma_denoise = [&](
+      const char *stage,
+      const reconstruction::LumaDenoiseStats &stats) {
+    luma_denoise_passes.push_back({
+        {"stage", stage},
+        {"applied", stats.applied},
+        {"valid_pixels", stats.valid_pixels},
+        {"input_luma_sigma", stats.input_luma_sigma},
+        {"star_protected_fraction", stats.star_protected_fraction},
+        {"structure_protected_fraction", stats.structure_protected_fraction},
+        {"combined_protected_fraction", stats.combined_protected_fraction},
+        {"mean_protection", stats.mean_protection},
+        {"mean_denoise_fraction", stats.mean_denoise_fraction},
+    });
+    core::write_text_atomic(
+        run_dir / "artifacts" / "luma_denoise.json",
+        core::json({{"version", 1}, {"passes", luma_denoise_passes}})
             .dump(2));
   };
 
@@ -1026,6 +1047,16 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     (void)run_astrometry_if_needed();
     if (abort_if_runtime_limit_exceeded("ASTROMETRY")) {
       return 1;
+    }
+    // Luma denoise runs first (opt-in, off by default): it smooths
+    // brightness noise on the rawest available post-stack linear RGB,
+    // before chroma_denoise, BGE, PCC or HMS touch it. See
+    // config::LumaDenoiseConfig's comment for why this stage exists.
+    if (rgb.G.rows() > 0 && rgb.B.rows() > 0 && cfg.luma_denoise.enabled) {
+      const auto luma_stats = reconstruction::luma_denoise_rgb_inplace(
+          rgb.R, rgb.G, rgb.B, cfg.luma_denoise);
+      record_luma_denoise("post_stack_linear", luma_stats);
+      std::cout << "[LUMA_DENOISE] applied post_stack_linear" << std::endl;
     }
     if (rgb.G.rows() > 0 && rgb.B.rows() > 0 &&
         cfg.chroma_denoise.enabled &&

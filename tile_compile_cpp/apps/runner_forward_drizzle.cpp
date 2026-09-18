@@ -150,8 +150,9 @@ const std::set<std::string> &allowed_reconstruction_resume_sections(
     const std::string &p) {
   static const std::set<std::string> base = {
       "output","data","linearity","calibration","normalization",
-      "registration","dithering","chroma_denoise","astrometry","pcc",
-      "hypermetric_stretch","bge","stacking","runtime_limits"};
+      "registration","dithering","chroma_denoise","luma_denoise",
+      "astrometry","pcc","hypermetric_stretch","bge","stacking",
+      "runtime_limits"};
   static const std::set<std::string> global_quality = [] {
     auto s = base; s.insert("global_metrics"); return s;
   }();
@@ -1361,10 +1362,11 @@ const std::set<std::string> &allowed_resume_sections(const std::string &p) {
   static const std::set<std::string> pcc =
       {"pcc","chroma_denoise","hypermetric_stretch","runtime_limits"};
   static const std::set<std::string> bge =
-      {"bge","pcc","chroma_denoise","hypermetric_stretch","runtime_limits"};
-  static const std::set<std::string> astro =
-      {"astrometry","bge","pcc","chroma_denoise","hypermetric_stretch",
+      {"bge","pcc","chroma_denoise","luma_denoise","hypermetric_stretch",
        "runtime_limits"};
+  static const std::set<std::string> astro =
+      {"astrometry","bge","pcc","chroma_denoise","luma_denoise",
+       "hypermetric_stretch","runtime_limits"};
   if (p=="HYPERMETRIC_STRETCH"||p=="HMS") return hms;
   if (p=="PCC") return pcc;
   if (p=="BGE") return bge;

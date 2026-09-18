@@ -107,6 +107,32 @@ global_metrics:
     roundness: 0.1
     star_count: 0.0
 
+luma_denoise:
+  # Off by default (opt-in): the CFA-forward-drizzle pipeline has no luma
+  # denoise stage of its own -- the single-method cutover retired the old
+  # Classic pipeline's per-tile soft-threshold + Wiener denoise
+  # (tile_denoise) and it was never reimplemented; chroma_denoise only ever
+  # touches chroma. Runs once, on the post-stack linear RGB before BGE/PCC/
+  # HMS. Verified on a real 610-frame M42 run: linear background-noise
+  # sigma reduced ~1-9% across four independent flat-sky ROIs at these
+  # defaults (blend_amount 0.85) -- raise blend_amount toward 1.0 and/or
+  # wavelet.levels for a stronger effect.
+  enabled: false
+  luma_guard_strength: 0.85  # 1.0 = protected pixels keep their raw value entirely
+  blend_amount: 0.85
+  star_protection:
+    enabled: true
+    threshold_sigma: 6
+    dilate_px: 8    # must cover the full PSF (core+wings), same reasoning as chroma_denoise's
+  structure_protection:
+    enabled: true
+    gradient_percentile: 90   # protects nebula filaments/edges from being smoothed
+  wavelet:
+    enabled: true
+    levels: 3
+    threshold_scale: 1.5
+    soft_k: 1.0
+
 chroma_denoise:
   enabled: true
   color_space: ycbcr_linear

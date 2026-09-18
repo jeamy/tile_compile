@@ -484,6 +484,7 @@ set(LIB_SOURCES
     src/metrics/robust_stats.cpp
     src/reconstruction/stack_validation.cpp
     src/reconstruction/chroma_denoise.cpp
+    src/reconstruction/luma_denoise.cpp
     src/pipeline/adaptive_tile_grid.cpp
     src/preprocessing/contract.cpp
     src/astrometry/wcs.cpp
@@ -676,6 +677,7 @@ if(BUILD_TESTS)
             tests/test_background_extraction.cpp
             tests/test_autobge.cpp
             tests/test_chroma_denoise.cpp
+            tests/test_luma_denoise.cpp
             tests/test_utils.cpp
             tests/test_fits.cpp
             tests/test_fits_hdu_selection.cpp

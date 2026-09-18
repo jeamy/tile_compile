@@ -504,6 +504,81 @@ properties:
             maximum: 1
             description: 'Fraction of the estimated large-scale bias removed. 0 = no removal, 1 = full removal. Range 0–1. Recommended: 1.0.'
             default: 1.0
+  luma_denoise:
+    type: object
+    description: 'Luminance noise reduction on the post-stack linear RGB, applied before BGE/PCC/HMS. Off by default (opt-in): the CFA-forward-drizzle pipeline has no luma denoise stage of its own -- the single-method cutover retired the old Classic pipeline''s per-tile soft-threshold + Wiener denoise (tile_denoise) and it was never reimplemented; chroma_denoise only ever touches chroma. A multi-level wavelet soft-threshold denoise on the derived luma, reconstructed by adding the same smooth per-pixel brightness delta to R, G and B, which preserves every channel DIFFERENCE (chroma) exactly while only brightness moves -- avoiding the noise amplification a per-channel RATIO reconstruction causes in faint or partially-protected regions.'
+    properties:
+      enabled:
+        type: boolean
+        description: 'Enable luma denoise. Default: false.'
+        default: false
+      luma_guard_strength:
+        type: number
+        minimum: 0
+        maximum: 1
+        description: 'How strongly star/structure-protected pixels are excluded from denoising: at 1.0 a fully-protected pixel keeps its raw value entirely. Range 0–1. Recommended: 0.85.'
+        default: 0.85
+      blend_amount:
+        type: number
+        minimum: 0
+        maximum: 1
+        description: 'Overall blend of denoised vs. original luma outside protected regions. Range 0–1. Recommended: 0.85; raise toward 1.0 for a stronger effect.'
+        default: 0.85
+      star_protection:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            description: 'Protects bright stars (their peak and PSF wings) from being smoothed. Default: true.'
+            default: true
+          threshold_sigma:
+            type: number
+            minimum: 0
+            exclusiveMinimum: true
+            description: 'Detection threshold above the mean luma, in robust sigma. Lower = protects more. Range > 0. Recommended: 6.0.'
+            default: 6.0
+          dilate_px:
+            type: integer
+            minimum: 0
+            description: 'Dilation radius (px) after star detection; must cover the full PSF including wings. Recommended: 8.'
+            default: 8
+      structure_protection:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            description: 'Protects high-gradient pixels (nebula filaments, edges) via a gradient-magnitude percentile threshold. Default: true.'
+            default: true
+          gradient_percentile:
+            type: number
+            minimum: 0
+            maximum: 100
+            description: 'Percentile of the gradient-magnitude distribution above which pixels are protected. Range 0–100. Recommended: 90.'
+            default: 90.0
+      wavelet:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            description: 'Enable the multi-level wavelet soft-threshold denoise. Default: true.'
+            default: true
+          levels:
+            type: integer
+            minimum: 1
+            description: 'Number of Gaussian-pyramid decomposition levels. More levels reach coarser noise structure. Recommended: 3.'
+            default: 3
+          threshold_scale:
+            type: number
+            minimum: 0
+            exclusiveMinimum: true
+            description: 'Soft-threshold multiplier on each level''s measured detail-noise sigma. Higher = more aggressive suppression. Recommended: 1.5.'
+            default: 1.5
+          soft_k:
+            type: number
+            minimum: 0
+            exclusiveMinimum: true
+            description: 'Additional multiplier on the soft-threshold. Recommended: 1.0.'
+            default: 1.0
   global_metrics:
     type: object
     properties:

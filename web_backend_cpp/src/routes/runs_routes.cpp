@@ -102,14 +102,16 @@ std::optional<std::string> downstream_resume_scope_violation(
     // loud or applying.
     static const std::set<std::string> kReconstructionResumeBase = {
         "output", "data", "linearity", "calibration", "normalization",
-        "registration", "dithering", "chroma_denoise", "astrometry", "pcc",
-        "hypermetric_stretch", "bge", "stacking", "runtime_limits"};
+        "registration", "dithering", "chroma_denoise", "luma_denoise",
+        "astrometry", "pcc", "hypermetric_stretch", "bge", "stacking",
+        "runtime_limits"};
     static const std::unordered_map<std::string, std::set<std::string>> kAllowed = {
         {"HYPERMETRIC_STRETCH", {"hypermetric_stretch", "runtime_limits"}},
         {"PCC", {"pcc", "chroma_denoise", "hypermetric_stretch", "runtime_limits"}},
-        {"BGE", {"bge", "pcc", "chroma_denoise", "hypermetric_stretch", "runtime_limits"}},
+        {"BGE", {"bge", "pcc", "chroma_denoise", "luma_denoise",
+                 "hypermetric_stretch", "runtime_limits"}},
         {"ASTROMETRY", {"astrometry", "bge", "pcc", "chroma_denoise",
-                        "hypermetric_stretch", "runtime_limits"}},
+                        "luma_denoise", "hypermetric_stretch", "runtime_limits"}},
         // GLOBAL_QUALITY additionally allows global_metrics -- it is the
         // section GLOBAL_QUALITY re-reads and exists to let you retune;
         // FORWARD_DRIZZLE-only resume does NOT recompute GLOBAL_QUALITY, so

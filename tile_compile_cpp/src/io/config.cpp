@@ -502,6 +502,48 @@ Config Config::from_yaml(const YAML::Node &node) {
     }
   }
 
+  if (node["luma_denoise"]) {
+    auto ld = node["luma_denoise"];
+    if (yaml_has_value(ld["enabled"]))
+      cfg.luma_denoise.enabled = ld["enabled"].as<bool>();
+    if (yaml_has_value(ld["luma_guard_strength"]))
+      cfg.luma_denoise.luma_guard_strength = ld["luma_guard_strength"].as<float>();
+    if (yaml_has_value(ld["blend_amount"]))
+      cfg.luma_denoise.blend_amount = ld["blend_amount"].as<float>();
+
+    if (yaml_has_value(ld["star_protection"])) {
+      auto sp = ld["star_protection"];
+      if (yaml_has_value(sp["enabled"]))
+        cfg.luma_denoise.star_protection.enabled = sp["enabled"].as<bool>();
+      if (yaml_has_value(sp["threshold_sigma"]))
+        cfg.luma_denoise.star_protection.threshold_sigma =
+            sp["threshold_sigma"].as<float>();
+      if (yaml_has_value(sp["dilate_px"]))
+        cfg.luma_denoise.star_protection.dilate_px = sp["dilate_px"].as<int>();
+    }
+
+    if (yaml_has_value(ld["structure_protection"])) {
+      auto st = ld["structure_protection"];
+      if (yaml_has_value(st["enabled"]))
+        cfg.luma_denoise.structure_protection.enabled = st["enabled"].as<bool>();
+      if (yaml_has_value(st["gradient_percentile"]))
+        cfg.luma_denoise.structure_protection.gradient_percentile =
+            st["gradient_percentile"].as<float>();
+    }
+
+    if (yaml_has_value(ld["wavelet"])) {
+      auto w = ld["wavelet"];
+      if (yaml_has_value(w["enabled"]))
+        cfg.luma_denoise.wavelet.enabled = w["enabled"].as<bool>();
+      if (yaml_has_value(w["levels"]))
+        cfg.luma_denoise.wavelet.levels = w["levels"].as<int>();
+      if (yaml_has_value(w["threshold_scale"]))
+        cfg.luma_denoise.wavelet.threshold_scale = w["threshold_scale"].as<float>();
+      if (yaml_has_value(w["soft_k"]))
+        cfg.luma_denoise.wavelet.soft_k = w["soft_k"].as<float>();
+    }
+  }
+
   if (node["global_metrics"]) {
     auto gm = node["global_metrics"];
     if (yaml_has_value(gm["adaptive_weights"]))
@@ -1162,6 +1204,25 @@ YAML::Node Config::to_yaml() const {
   node["chroma_denoise"]["large_scale_bias"]["strength"] =
       chroma_denoise.large_scale_bias.strength;
 
+  node["luma_denoise"]["enabled"] = luma_denoise.enabled;
+  node["luma_denoise"]["luma_guard_strength"] = luma_denoise.luma_guard_strength;
+  node["luma_denoise"]["blend_amount"] = luma_denoise.blend_amount;
+  node["luma_denoise"]["star_protection"]["enabled"] =
+      luma_denoise.star_protection.enabled;
+  node["luma_denoise"]["star_protection"]["threshold_sigma"] =
+      luma_denoise.star_protection.threshold_sigma;
+  node["luma_denoise"]["star_protection"]["dilate_px"] =
+      luma_denoise.star_protection.dilate_px;
+  node["luma_denoise"]["structure_protection"]["enabled"] =
+      luma_denoise.structure_protection.enabled;
+  node["luma_denoise"]["structure_protection"]["gradient_percentile"] =
+      luma_denoise.structure_protection.gradient_percentile;
+  node["luma_denoise"]["wavelet"]["enabled"] = luma_denoise.wavelet.enabled;
+  node["luma_denoise"]["wavelet"]["levels"] = luma_denoise.wavelet.levels;
+  node["luma_denoise"]["wavelet"]["threshold_scale"] =
+      luma_denoise.wavelet.threshold_scale;
+  node["luma_denoise"]["wavelet"]["soft_k"] = luma_denoise.wavelet.soft_k;
+
   node["global_metrics"]["adaptive_weights"] = global_metrics.adaptive_weights;
   node["global_metrics"]["weight_exponent_scale"] = global_metrics.weight_exponent_scale;
   node["global_metrics"]["weights"]["background"] =
@@ -1743,6 +1804,34 @@ void Config::validate() const {
         "chroma_denoise.large_scale_bias.strength must be in [0,1]");
   }
 
+  if (!is_between_0_1(luma_denoise.luma_guard_strength)) {
+    throw ValidationError("luma_denoise.luma_guard_strength must be in [0,1]");
+  }
+  if (!is_between_0_1(luma_denoise.blend_amount)) {
+    throw ValidationError("luma_denoise.blend_amount must be in [0,1]");
+  }
+  if (luma_denoise.star_protection.threshold_sigma <= 0.0f) {
+    throw ValidationError(
+        "luma_denoise.star_protection.threshold_sigma must be > 0");
+  }
+  if (luma_denoise.star_protection.dilate_px < 0) {
+    throw ValidationError("luma_denoise.star_protection.dilate_px must be >= 0");
+  }
+  if (luma_denoise.structure_protection.gradient_percentile < 0.0f ||
+      luma_denoise.structure_protection.gradient_percentile > 100.0f) {
+    throw ValidationError(
+        "luma_denoise.structure_protection.gradient_percentile must be in [0,100]");
+  }
+  if (luma_denoise.wavelet.levels < 1) {
+    throw ValidationError("luma_denoise.wavelet.levels must be >= 1");
+  }
+  if (luma_denoise.wavelet.threshold_scale <= 0.0f) {
+    throw ValidationError("luma_denoise.wavelet.threshold_scale must be > 0");
+  }
+  if (luma_denoise.wavelet.soft_k <= 0.0f) {
+    throw ValidationError("luma_denoise.wavelet.soft_k must be > 0");
+  }
+
   auto check_weight_sum = [](std::initializer_list<float> weights,
                              const char *name) {
     float sum = 0.0f;
@@ -2170,6 +2259,23 @@ std::string get_schema_json() {
                         "enabled":{"type":"boolean"},
                         "luma_sigma":{"type":"number","minimum":1.0,"maximum":5.0},
                         "dilate_px":{"type":"integer","minimum":0,"maximum":100}}} } },
+    "luma_denoise": { "type":"object",
+      "description": "Luminance noise reduction on the post-stack linear RGB, before BGE/PCC/HMS. Off by default (opt-in): the CFA-forward-drizzle pipeline has no luma denoise stage of its own; chroma_denoise only ever touches chroma. A multi-level wavelet soft-threshold denoise on the derived luma, reconstructed by adding the same smooth per-pixel brightness delta to R, G and B, which preserves every channel DIFFERENCE (chroma) exactly while only brightness moves -- avoiding the noise amplification a per-channel RATIO reconstruction causes in faint or partially-protected regions.",
+      "properties": { "enabled":{"type":"boolean","default":false},
+                      "luma_guard_strength":{"type":"number","minimum":0,"maximum":1},
+                      "blend_amount":{"type":"number","minimum":0,"maximum":1},
+                      "star_protection":{"type":"object","properties":{
+                        "enabled":{"type":"boolean"},
+                        "threshold_sigma":{"type":"number","exclusiveMinimum":0},
+                        "dilate_px":{"type":"integer","minimum":0}}},
+                      "structure_protection":{"type":"object","properties":{
+                        "enabled":{"type":"boolean"},
+                        "gradient_percentile":{"type":"number","minimum":0,"maximum":100}}},
+                      "wavelet":{"type":"object","properties":{
+                        "enabled":{"type":"boolean"},
+                        "levels":{"type":"integer","minimum":1},
+                        "threshold_scale":{"type":"number","exclusiveMinimum":0},
+                        "soft_k":{"type":"number","exclusiveMinimum":0}}} } },
     "global_metrics": { "type":"object",
       "properties": { "adaptive_weights":{"type":"boolean"},
                       "weight_exponent_scale":{"type":"number","exclusiveMinimum":0,"description":"Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames."},

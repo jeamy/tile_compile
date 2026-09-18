@@ -623,6 +623,86 @@
         }
       }
     },
+    "luma_denoise": {
+      "type": "object",
+      "description": "Luminance noise reduction on the post-stack linear RGB, before BGE/PCC/HMS. Off by default (opt-in): the CFA-forward-drizzle pipeline has no luma denoise stage of its own; chroma_denoise only ever touches chroma. A multi-level wavelet soft-threshold denoise on the derived luma, reconstructed by adding the same smooth per-pixel brightness delta to R, G and B, which preserves every channel DIFFERENCE (chroma) exactly while only brightness moves -- avoiding the noise amplification a per-channel RATIO reconstruction causes in faint or partially-protected regions.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "luma_guard_strength": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.85
+        },
+        "blend_amount": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.85
+        },
+        "star_protection": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "threshold_sigma": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 6.0
+            },
+            "dilate_px": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 8
+            }
+          }
+        },
+        "structure_protection": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "gradient_percentile": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100,
+              "default": 90.0
+            }
+          }
+        },
+        "wavelet": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "levels": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 3
+            },
+            "threshold_scale": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 1.5
+            },
+            "soft_k": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 1.0
+            }
+          }
+        }
+      }
+    },
     "global_metrics": {
       "type": "object",
       "properties": {

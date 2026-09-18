@@ -17,6 +17,9 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   mask covers ~94% of a dense field and the denoiser degenerates to a no-op),
   `chroma_denoise.large_scale_bias.enabled: false` (default off — see
   tuning note 4 below before turning it on),
+  `luma_denoise.enabled: false` (default off — new luminance denoise stage,
+  runs once on the post-stack linear RGB before BGE/PCC/HMS; the pipeline
+  had no luma denoise of its own before this),
   `runtime_limits.memory_budget: 16384`.
   Use this file to diff your own configuration against current production
   values.

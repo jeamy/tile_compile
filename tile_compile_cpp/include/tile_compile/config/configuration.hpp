@@ -204,6 +204,43 @@ struct ChromaDenoiseConfig {
   float adaptation_reference_ratio = 1.0f;
 };
 
+// Luminance noise reduction on the post-stack linear RGB, applied before
+// BGE/PCC/HMS. The CFA-forward-drizzle pipeline has no luma denoise stage
+// of its own -- the single-method cutover retired the old Classic
+// pipeline's per-tile soft-threshold + Wiener denoise (tile_denoise) and it
+// was never reimplemented for forward-drizzle output; chroma_denoise only
+// ever touches chroma (protect_luma is unconditional there). This closes
+// that gap: a multi-level wavelet soft-threshold denoise on the derived
+// luma, reconstructed by adding the same smooth per-pixel brightness delta
+// to R/G/B (not by rescaling each channel's RATIO to luma -- that divides
+// two independently-noisy, correlated quantities and amplifies noise
+// exactly where it is proportionally largest: faint background and the
+// partially-protected PSF wings around stars). The additive delta leaves
+// every channel DIFFERENCE, hence all perceived color, exactly unchanged.
+struct LumaDenoiseConfig {
+  struct StarProtectionConfig {
+    bool enabled = true;
+    float threshold_sigma = 6.0f;
+    int dilate_px = 8;
+  } star_protection;
+
+  struct StructureProtectionConfig {
+    bool enabled = true;
+    float gradient_percentile = 90.0f;
+  } structure_protection;
+
+  struct WaveletConfig {
+    bool enabled = true;
+    int levels = 3;
+    float threshold_scale = 1.5f;
+    float soft_k = 1.0f;
+  } wavelet;
+
+  bool enabled = false;
+  float luma_guard_strength = 0.85f;
+  float blend_amount = 0.85f;
+};
+
 struct DitheringConfig {
   bool enabled = false;
   float min_shift_px = 0.5f;
@@ -542,6 +579,7 @@ struct Config {
   RegistrationConfig registration;
   DitheringConfig dithering;
   ChromaDenoiseConfig chroma_denoise;
+  LumaDenoiseConfig luma_denoise;
   GlobalMetricsConfig global_metrics;
   TileConfig tile;
   ReconstructionConfig reconstruction;
