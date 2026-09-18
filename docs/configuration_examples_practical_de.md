@@ -420,6 +420,61 @@ reconstruction:
 
 ---
 
+## Farbrauschen um Sterne (`chroma_denoise`/`luma_denoise`-Schutzmaske)
+
+**Symptom:** sichtbare farbige Ringe/Halos um Sterne und erhöhtes
+Farbrauschen innerhalb der Schutzzonen (`star_protection`,
+`structure_protection`, `extended_source_protection`), mit einem
+erkennbaren Übergang genau an der Maskengrenze.
+
+**Ursache:** `star_protection`/`extended_source_protection` reduzieren die
+Denoise-Stärke innerhalb ihrer Maske (`luma_guard_strength`), verwerfen sie
+aber nicht auf 0 — Ziel ist "innerhalb schwächer, nicht aus". Zwei separate
+Probleme trugen zum sichtbaren Übergang bei:
+
+1. **Harte Maskenkante:** `structure_protection` wurde (anders als die
+   beiden anderen Masken) nie geglättet — ein reiner Pixel-für-Pixel-
+   Schwellenwert. Seit dieser Session sind alle drei Masken-Komponenten
+   auf ihrer eigenen Skala weichgezeichnet, bevor sie kombiniert werden.
+2. **Großer Stärke-Sprung:** Mit den Default-Werten (`blend.amount: 1.0`,
+   `luma_guard_strength: 0.85`) fällt die Denoise-Stärke von ~100% außerhalb
+   auf ~15% innerhalb einer vollständig geschützten Zone — ein großer
+   Sprung, den auch eine weichgezeichnete Maskenkante nicht vollständig
+   kaschiert.
+
+**Beide Enden näher zusammenziehen:**
+
+```yaml
+chroma_denoise:
+  blend:
+    amount: 0.9        # war 1.0 — etwas weniger aggressiv außerhalb
+  luma_guard_strength: 0.5   # war 0.85 — deutlich mehr Wirkung innerhalb
+luma_denoise:
+  blend_amount: 0.8     # war 0.85
+  luma_guard_strength: 0.5   # war 0.85
+```
+
+- **Gemessen** (reale M42-Testläufe, Farbrausch-Standardabweichung R−G/B−G
+  in einem Ring um einen Teststern, gleicher Run, nur diese Parameter
+  geändert):
+
+  | Konfiguration | std(R−G) | std(B−G) |
+  |---|---|---|
+  | Default (`amount: 1.0`, `guard: 0.85`) | 21.05 | 25.26 |
+  | Aggressiv (`amount: 0.8`, `guard: 0.5`) | 7.92 | 9.24 |
+  | Empfohlen (`amount: 0.9`, `guard: 0.5`) | 8.22 | 9.58 |
+
+- **Kompromiss:** ein niedrigeres `blend.amount` reduziert die Denoise-
+  Stärke *überall*, nicht nur am Übergang — im aggressiven Fall stieg die
+  Anzahl isolierter dunkler Speckle-Pixel in einem Testcrop von 65 auf 206
+  (bei `amount: 0.9` nur auf 151). `amount: 0.85–0.9` ist meist ein guter
+  Mittelweg zwischen Ring-Reduktion und Hintergrundrauschen.
+- Default bleibt unverändert (`blend.amount: 1.0`, `luma_guard_strength:
+  0.85`) — diese Werte sind Opt-in-Tuning für Ziele mit sichtbaren
+  Stern-Halos, keine neue Grundeinstellung.
+
+---
+
 ## HyperMetric Stretch nach PCC
 
 HMS ist optional und läuft nach PCC. Deaktiviert lassen, wenn nur das lineare kalibrierte Ergebnis benötigt wird; aktivieren, wenn der Run zusätzlich ein direkt betrachtbares VeraLux-gestretchtes RGB erzeugen soll.

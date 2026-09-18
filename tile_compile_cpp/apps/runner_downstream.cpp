@@ -265,6 +265,24 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
                      log_file);
     return 1;
   }
+  // Diagnostic only (reconstruction.diagnostics.level == "full"): the
+  // combined protection mask (star_protection/structure_protection/
+  // extended_source_protection, feathered and combined, in [0,1]) that
+  // chroma_denoise_rgb_inplace/luma_denoise_rgb_inplace scaled denoise
+  // strength by for this pass -- lets a config change like blend.amount/
+  // luma_guard_strength tuning be checked against where and how strongly
+  // denoise was actually held back, not just the mask-fraction summary
+  // stats already in chroma_denoise.json/luma_denoise.json.
+  auto save_protection_mask = [&](const char *stage_tag,
+                                  const Matrix2Df &mask) {
+    if (cfg.reconstruction.diagnostics.level != "full") return;
+    if (mask.size() <= 0) return;
+    io::FitsHeader hdr = rgb.header;
+    io::write_fits_float(
+        run_dir / "artifacts" /
+            (std::string("protection_mask_") + stage_tag + ".fits"),
+        mask, hdr);
+  };
 
   auto inject_wcs_keywords = [](io::FitsHeader &hdr, const astro::WCS &wcs) {
     hdr.numeric_values["CRVAL1"] = wcs.crval1;
@@ -1053,18 +1071,22 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     // before chroma_denoise, BGE, PCC or HMS touch it. See
     // config::LumaDenoiseConfig's comment for why this stage exists.
     if (rgb.G.rows() > 0 && rgb.B.rows() > 0 && cfg.luma_denoise.enabled) {
+      Matrix2Df luma_mask;
       const auto luma_stats = reconstruction::luma_denoise_rgb_inplace(
-          rgb.R, rgb.G, rgb.B, cfg.luma_denoise);
+          rgb.R, rgb.G, rgb.B, cfg.luma_denoise, &luma_mask);
       record_luma_denoise("post_stack_linear", luma_stats);
+      save_protection_mask("luma_post_stack_linear", luma_mask);
       std::cout << "[LUMA_DENOISE] applied post_stack_linear" << std::endl;
     }
     if (rgb.G.rows() > 0 && rgb.B.rows() > 0 &&
         cfg.chroma_denoise.enabled &&
         (cfg.chroma_denoise.apply_stage == "post_stack_linear" ||
          cfg.chroma_denoise.apply_stage == "both")) {
+      Matrix2Df chroma_mask;
       const auto chroma_stats = reconstruction::chroma_denoise_rgb_inplace(
-          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise);
+          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise, &chroma_mask);
       record_chroma_denoise("post_stack_linear", chroma_stats);
+      save_protection_mask("chroma_post_stack_linear", chroma_mask);
       std::cout << "[CHROMA_DENOISE] applied post_stack_linear (chroma-only)"
                 << std::endl;
     }
@@ -1322,9 +1344,11 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
         cfg.chroma_denoise.enabled &&
         (cfg.chroma_denoise.apply_stage == "post_pcc" ||
          cfg.chroma_denoise.apply_stage == "both")) {
+      Matrix2Df chroma_mask;
       const auto chroma_stats = reconstruction::chroma_denoise_rgb_inplace(
-          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise);
+          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise, &chroma_mask);
       record_chroma_denoise("post_pcc", chroma_stats);
+      save_protection_mask("chroma_post_pcc", chroma_mask);
       std::cout << "[CHROMA_DENOISE] applied post_pcc (chroma-only)"
                 << std::endl;
     }

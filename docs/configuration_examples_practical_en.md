@@ -412,6 +412,59 @@ reconstruction:
 
 ---
 
+## Color noise around stars (`chroma_denoise`/`luma_denoise` protection mask)
+
+**Symptom:** visible colored rings/halos around stars and elevated color
+noise inside the protection zones (`star_protection`, `structure_
+protection`, `extended_source_protection`), with a noticeable transition
+right at the mask boundary.
+
+**Cause:** `star_protection`/`extended_source_protection` reduce denoise
+strength inside their mask (`luma_guard_strength`) but don't drop it to 0 --
+the intent is "weaker inside, not off". Two separate issues contributed to
+the visible transition:
+
+1. **Hard mask edge:** unlike the other two mask components, `structure_
+   protection` was never feathered -- a plain per-pixel threshold. As of
+   this session all three mask components are feathered at their own
+   scale before being combined.
+2. **Large strength jump:** with the defaults (`blend.amount: 1.0`,
+   `luma_guard_strength: 0.85`), denoise strength drops from ~100% outside
+   to ~15% inside a fully protected zone -- a big step that a feathered
+   mask edge alone doesn't fully hide.
+
+**Pull both ends closer together:**
+
+```yaml
+chroma_denoise:
+  blend:
+    amount: 0.9        # was 1.0 -- slightly less aggressive outside
+  luma_guard_strength: 0.5   # was 0.85 -- notably more effect inside
+luma_denoise:
+  blend_amount: 0.8     # was 0.85
+  luma_guard_strength: 0.5   # was 0.85
+```
+
+- **Measured** (real M42 test runs, color-noise standard deviation R-G/B-G
+  in a ring around a test star, same run, only these parameters changed):
+
+  | Configuration | std(R-G) | std(B-G) |
+  |---|---|---|
+  | Default (`amount: 1.0`, `guard: 0.85`) | 21.05 | 25.26 |
+  | Aggressive (`amount: 0.8`, `guard: 0.5`) | 7.92 | 9.24 |
+  | Recommended (`amount: 0.9`, `guard: 0.5`) | 8.22 | 9.58 |
+
+- **Trade-off:** a lower `blend.amount` reduces denoise strength
+  *everywhere*, not just at the transition -- in the aggressive case,
+  isolated dark speckle pixel count in a test crop rose from 65 to 206
+  (only to 151 at `amount: 0.9`). `amount: 0.85-0.9` is usually a good
+  middle ground between ring reduction and background noise.
+- Default is unchanged (`blend.amount: 1.0`, `luma_guard_strength: 0.85`) --
+  these values are opt-in tuning for targets with visible star halos, not
+  a new baseline.
+
+---
+
 ## HyperMetric Stretch after PCC
 
 HMS is optional and runs after PCC. Keep it disabled when you only need the linear calibrated output; enable it when the run should also produce a directly viewable VeraLux-stretched RGB file.

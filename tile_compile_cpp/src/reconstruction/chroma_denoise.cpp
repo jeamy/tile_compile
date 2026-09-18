@@ -144,6 +144,20 @@ cv::Mat build_protection_mask(const cv::Mat& y,
         if (stats && pixels > 0.0)
             stats->structure_protected_fraction =
                 cv::countNonZero(structures > 0.5f) / pixels;
+        // Own-scale feather, same reasoning as star_protection/
+        // extended_source_protection above. This component has no
+        // dilate_px to derive a radius from (a raw gradient threshold, not
+        // a disk), so a fixed sigma matched to the other two components'
+        // typical scale is used instead. Without this, structure_
+        // protection was the one piece of the combined mask left as a hard
+        // per-pixel binary threshold, relying only on the final 1px
+        // anti-aliasing pass below -- for a percentile threshold that
+        // catches scattered single/few-pixel gradient spikes (real edges
+        // and noise both), that leaves sharp, per-pixel denoise/no-denoise
+        // transitions exactly where this whole feathering fix was meant to
+        // remove them.
+        cv::GaussianBlur(structures, structures, cv::Size(0, 0), 2.0f, 2.0f,
+                         cv::BORDER_REFLECT_101);
         cv::max(mask, structures, mask);
     }
 
@@ -391,7 +405,8 @@ void denoise_chroma_plane_inplace(cv::Mat& c,
 } // namespace
 ChromaDenoiseStats chroma_denoise_rgb_inplace(
         Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
-        const config::ChromaDenoiseConfig& cfg) {
+        const config::ChromaDenoiseConfig& cfg,
+        Matrix2Df* protection_mask_out) {
     ChromaDenoiseStats stats;
     if (!cfg.enabled) return stats;
     if (r.size() <= 0 || g.size() <= 0 || b.size() <= 0) return stats;
@@ -442,6 +457,15 @@ ChromaDenoiseStats chroma_denoise_rgb_inplace(
     // only pixels) and for the final blend-back amount_map.
     cv::Mat protect;
     if (tuned.protect_luma) protect = build_protection_mask(Y, tuned, &stats);
+    if (protection_mask_out != nullptr) {
+        protection_mask_out->resize(r.rows(), r.cols());
+        if (!protect.empty()) {
+            cv::Mat out_view(r.rows(), r.cols(), CV_32F, protection_mask_out->data());
+            protect.copyTo(out_view);
+        } else {
+            protection_mask_out->setZero();
+        }
+    }
 
     cv::Mat C1_orig = C1.clone();
     cv::Mat C2_orig = C2.clone();
