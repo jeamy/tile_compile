@@ -531,6 +531,19 @@ Config Config::from_yaml(const YAML::Node &node) {
             st["gradient_percentile"].as<float>();
     }
 
+    if (yaml_has_value(ld["extended_source_protection"])) {
+      auto es = ld["extended_source_protection"];
+      if (yaml_has_value(es["enabled"]))
+        cfg.luma_denoise.extended_source_protection.enabled =
+            es["enabled"].as<bool>();
+      if (yaml_has_value(es["luma_sigma"]))
+        cfg.luma_denoise.extended_source_protection.luma_sigma =
+            es["luma_sigma"].as<float>();
+      if (yaml_has_value(es["dilate_px"]))
+        cfg.luma_denoise.extended_source_protection.dilate_px =
+            es["dilate_px"].as<int>();
+    }
+
     if (yaml_has_value(ld["wavelet"])) {
       auto w = ld["wavelet"];
       if (yaml_has_value(w["enabled"]))
@@ -541,6 +554,18 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.luma_denoise.wavelet.threshold_scale = w["threshold_scale"].as<float>();
       if (yaml_has_value(w["soft_k"]))
         cfg.luma_denoise.wavelet.soft_k = w["soft_k"].as<float>();
+      if (yaml_has_value(w["boost"]))
+        cfg.luma_denoise.wavelet.boost = w["boost"].as<float>();
+    }
+
+    if (yaml_has_value(ld["bilateral"])) {
+      auto lb = ld["bilateral"];
+      if (yaml_has_value(lb["enabled"]))
+        cfg.luma_denoise.bilateral.enabled = lb["enabled"].as<bool>();
+      if (yaml_has_value(lb["sigma_spatial"]))
+        cfg.luma_denoise.bilateral.sigma_spatial = lb["sigma_spatial"].as<float>();
+      if (yaml_has_value(lb["sigma_range"]))
+        cfg.luma_denoise.bilateral.sigma_range = lb["sigma_range"].as<float>();
     }
   }
 
@@ -1027,6 +1052,17 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (yaml_has_value(h["highlight_ceiling_percentile"]))
       cfg.hypermetric_stretch.highlight_ceiling_percentile =
           h["highlight_ceiling_percentile"].as<float>();
+    if (yaml_has_value(h["local_contrast"])) {
+      auto lc = h["local_contrast"];
+      if (yaml_has_value(lc["enabled"]))
+        cfg.hypermetric_stretch.local_contrast.enabled = lc["enabled"].as<bool>();
+      if (yaml_has_value(lc["radius_px"]))
+        cfg.hypermetric_stretch.local_contrast.radius_px =
+            lc["radius_px"].as<float>();
+      if (yaml_has_value(lc["strength"]))
+        cfg.hypermetric_stretch.local_contrast.strength =
+            lc["strength"].as<float>();
+    }
     if (yaml_has_value(h["write_channels"]))
       cfg.hypermetric_stretch.write_channels = h["write_channels"].as<bool>();
     if (yaml_has_value(h["output_rgb"]))
@@ -1223,11 +1259,22 @@ YAML::Node Config::to_yaml() const {
       luma_denoise.structure_protection.enabled;
   node["luma_denoise"]["structure_protection"]["gradient_percentile"] =
       luma_denoise.structure_protection.gradient_percentile;
+  node["luma_denoise"]["extended_source_protection"]["enabled"] =
+      luma_denoise.extended_source_protection.enabled;
+  node["luma_denoise"]["extended_source_protection"]["luma_sigma"] =
+      luma_denoise.extended_source_protection.luma_sigma;
+  node["luma_denoise"]["extended_source_protection"]["dilate_px"] =
+      luma_denoise.extended_source_protection.dilate_px;
   node["luma_denoise"]["wavelet"]["enabled"] = luma_denoise.wavelet.enabled;
   node["luma_denoise"]["wavelet"]["levels"] = luma_denoise.wavelet.levels;
   node["luma_denoise"]["wavelet"]["threshold_scale"] =
       luma_denoise.wavelet.threshold_scale;
   node["luma_denoise"]["wavelet"]["soft_k"] = luma_denoise.wavelet.soft_k;
+  node["luma_denoise"]["bilateral"]["enabled"] = luma_denoise.bilateral.enabled;
+  node["luma_denoise"]["bilateral"]["sigma_spatial"] =
+      luma_denoise.bilateral.sigma_spatial;
+  node["luma_denoise"]["bilateral"]["sigma_range"] =
+      luma_denoise.bilateral.sigma_range;
 
   node["global_metrics"]["adaptive_weights"] = global_metrics.adaptive_weights;
   node["global_metrics"]["weight_exponent_scale"] = global_metrics.weight_exponent_scale;
@@ -1386,6 +1433,12 @@ YAML::Node Config::to_yaml() const {
       hypermetric_stretch.linear_expansion;
   node["hypermetric_stretch"]["highlight_ceiling_percentile"] =
       hypermetric_stretch.highlight_ceiling_percentile;
+  node["hypermetric_stretch"]["local_contrast"]["enabled"] =
+      hypermetric_stretch.local_contrast.enabled;
+  node["hypermetric_stretch"]["local_contrast"]["radius_px"] =
+      hypermetric_stretch.local_contrast.radius_px;
+  node["hypermetric_stretch"]["local_contrast"]["strength"] =
+      hypermetric_stretch.local_contrast.strength;
   node["hypermetric_stretch"]["write_channels"] =
       hypermetric_stretch.write_channels;
   node["hypermetric_stretch"]["output_rgb"] = hypermetric_stretch.output_rgb;
@@ -1837,6 +1890,16 @@ void Config::validate() const {
     throw ValidationError(
         "luma_denoise.structure_protection.gradient_percentile must be in [0,100]");
   }
+  if (luma_denoise.extended_source_protection.luma_sigma < 1.0f ||
+      luma_denoise.extended_source_protection.luma_sigma > 5.0f) {
+    throw ValidationError(
+        "luma_denoise.extended_source_protection.luma_sigma must be in [1,5]");
+  }
+  if (luma_denoise.extended_source_protection.dilate_px < 0 ||
+      luma_denoise.extended_source_protection.dilate_px > 100) {
+    throw ValidationError(
+        "luma_denoise.extended_source_protection.dilate_px must be in [0,100]");
+  }
   if (luma_denoise.wavelet.levels < 1 || luma_denoise.wavelet.levels > 8) {
     throw ValidationError("luma_denoise.wavelet.levels must be in [1,8]");
   }
@@ -1845,6 +1908,13 @@ void Config::validate() const {
   }
   if (luma_denoise.wavelet.soft_k <= 0.0f) {
     throw ValidationError("luma_denoise.wavelet.soft_k must be > 0");
+  }
+  if (luma_denoise.bilateral.sigma_spatial <= 0.0f ||
+      luma_denoise.bilateral.sigma_spatial > 64.0f ||
+      luma_denoise.bilateral.sigma_range <= 0.0f ||
+      luma_denoise.bilateral.sigma_range > 20.0f) {
+    throw ValidationError(
+        "luma_denoise.bilateral sigma_spatial must be in (0,64] and sigma_range in (0,20]");
   }
 
   auto check_weight_sum = [](std::initializer_list<float> weights,
@@ -2130,6 +2200,16 @@ void Config::validate() const {
         "hypermetric_stretch.highlight_ceiling_percentile must be in "
         "[90,100]");
   }
+  if (hypermetric_stretch.local_contrast.radius_px <= 0.0f ||
+      hypermetric_stretch.local_contrast.radius_px > 256.0f) {
+    throw ValidationError(
+        "hypermetric_stretch.local_contrast.radius_px must be in (0,256]");
+  }
+  if (hypermetric_stretch.local_contrast.strength < 0.0f ||
+      hypermetric_stretch.local_contrast.strength > 3.0f) {
+    throw ValidationError(
+        "hypermetric_stretch.local_contrast.strength must be in [0,3]");
+  }
   if (hypermetric_stretch.output_rgb.empty()) {
     throw ValidationError("hypermetric_stretch.output_rgb must not be empty");
   }
@@ -2286,11 +2366,19 @@ std::string get_schema_json() {
                       "structure_protection":{"type":"object","properties":{
                         "enabled":{"type":"boolean"},
                         "gradient_percentile":{"type":"number","minimum":0,"maximum":100}}},
+                      "extended_source_protection":{"type":"object","properties":{
+                        "enabled":{"type":"boolean","default":false},
+                        "luma_sigma":{"type":"number","minimum":1,"maximum":5},
+                        "dilate_px":{"type":"integer","minimum":0,"maximum":100}}},
                       "wavelet":{"type":"object","properties":{
                         "enabled":{"type":"boolean"},
                         "levels":{"type":"integer","minimum":1,"maximum":8},
                         "threshold_scale":{"type":"number","exclusiveMinimum":0},
-                        "soft_k":{"type":"number","exclusiveMinimum":0}}} } },
+                        "soft_k":{"type":"number","exclusiveMinimum":0}}},
+                      "bilateral":{"type":"object","description":"Edge-preserving spatial smoothing applied after the wavelet stage. The wavelet reconstruction always adds back its coarsest approximation level unmodified, which still carries real background noise no amount of wavelet levels/threshold_scale removes; bilateral targets that residual directly. Off by default.","properties":{
+                        "enabled":{"type":"boolean","default":false},
+                        "sigma_spatial":{"type":"number","exclusiveMinimum":0,"maximum":64},
+                        "sigma_range":{"type":"number","exclusiveMinimum":0,"maximum":20,"description":"Multiplier of the measured unprotected background luma sigma."}}} } },
     "global_metrics": { "type":"object",
       "properties": { "adaptive_weights":{"type":"boolean"},
                       "weight_exponent_scale":{"type":"number","exclusiveMinimum":0,"description":"Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames."},
@@ -2325,6 +2413,10 @@ std::string get_schema_json() {
                       "shadow_convergence":{"type":"number","minimum":0},
                       "linear_expansion":{"type":"number","minimum":0,"maximum":1},
                       "highlight_ceiling_percentile":{"type":"number","minimum":90,"maximum":100},
+                      "local_contrast":{"type":"object","properties":{
+                        "enabled":{"type":"boolean","default":false},
+                        "radius_px":{"type":"number","exclusiveMinimum":0,"maximum":256},
+                        "strength":{"type":"number","minimum":0,"maximum":3}}},
                       "write_channels":{"type":"boolean"},
                       "output_rgb":{"type":"string"} } },
     "stacking": { "type":"object",

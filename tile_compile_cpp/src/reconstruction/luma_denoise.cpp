@@ -162,6 +162,77 @@ cv::Mat build_protection_mask(const cv::Mat& y,
     cv::max(mask, structures, mask);
   }
 
+  if (cfg.extended_source_protection.enabled) {
+    // Heavily blur Y to suppress point sources; only extended smooth
+    // emission survives at this scale (sigma ~= 2% of image short axis).
+    // Mirrors chroma_denoise's build_protection_mask extended_source_
+    // protection block -- see there for the reasoning on each step.
+    const float blur_sigma = std::max(
+        5.0f, static_cast<float>(std::min(y.rows, y.cols)) * 0.02f);
+    cv::Mat y_smooth = masked_gaussian_blur(y, valid, blur_sigma);
+
+    const float sky_med = percentile_from_mat(y_smooth, 50.0f, valid);
+    std::vector<float> sky_vals;
+    sky_vals.reserve(static_cast<size_t>(y_smooth.total()));
+    for (int row = 0; row < y_smooth.rows; ++row) {
+      const float* ptr = y_smooth.ptr<float>(row);
+      for (int col = 0; col < y_smooth.cols; ++col)
+        if (valid.at<std::uint8_t>(row, col) != 0 && std::isfinite(ptr[col]))
+          sky_vals.push_back(ptr[col]);
+    }
+    const float sky_sigma = tile_compile::core::robust_sigma_mad(sky_vals);
+    const float thr =
+        sky_med + cfg.extended_source_protection.luma_sigma * sky_sigma;
+
+    cv::Mat ext_src;
+    cv::threshold(y_smooth, ext_src, static_cast<double>(thr), 1.0,
+                  cv::THRESH_BINARY);
+    ext_src.convertTo(ext_src, CV_32F);
+    ext_src.setTo(0.0f, valid == 0);
+    // A large Gaussian turns bright stars into smooth islands as well; keep
+    // only connected regions whose area is large at the detection scale so
+    // compact sources stay covered by star_protection instead of inflating
+    // this mask into broad stellar discs.
+    cv::Mat labels, cc_stats, centroids;
+    cv::Mat ext_u8;
+    ext_src.convertTo(ext_u8, CV_8U, 255.0);
+    const int n_labels = cv::connectedComponentsWithStats(
+        ext_u8, labels, cc_stats, centroids, 8, CV_32S);
+    cv::Mat extended_only = cv::Mat::zeros(ext_src.size(), CV_32F);
+    const int min_component_area = std::max(
+        64, static_cast<int>(std::ceil(4.0 * CV_PI * blur_sigma * blur_sigma)));
+    for (int label = 1; label < n_labels; ++label) {
+      if (cc_stats.at<int>(label, cv::CC_STAT_AREA) >= min_component_area)
+        extended_only.setTo(1.0f, labels == label);
+    }
+    ext_src = extended_only;
+    if (stats) {
+      stats->extended_source_sky_median = sky_med;
+      stats->extended_source_sky_sigma = sky_sigma;
+      stats->extended_source_threshold = thr;
+      if (pixels > 0.0)
+        stats->extended_source_raw_fraction =
+            cv::countNonZero(ext_src > 0.5f) / pixels;
+    }
+    if (cfg.extended_source_protection.dilate_px > 0) {
+      const int k = std::max(1, cfg.extended_source_protection.dilate_px * 2 + 1);
+      cv::Mat ker = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(k, k));
+      cv::dilate(ext_src, ext_src, ker);
+    }
+    if (stats && pixels > 0.0)
+      stats->extended_source_protected_fraction =
+          cv::countNonZero(ext_src > 0.5f) / pixels;
+    {
+      const float ext_feather = std::max(
+          1.0f,
+          static_cast<float>(cfg.extended_source_protection.dilate_px) / 3.0f);
+      cv::GaussianBlur(ext_src, ext_src, cv::Size(0, 0), ext_feather,
+                       ext_feather, cv::BORDER_REFLECT_101);
+    }
+    if (diagnostics) copy_to_matrix(ext_src, diagnostics->extended_source_mask);
+    cv::max(mask, ext_src, mask);
+  }
+
   // Final small anti-aliasing pass (star_protection is already feathered at
   // its own scale above; this only smooths the max() seam with
   // structure_protection).
@@ -205,9 +276,42 @@ void denoise_luma_plane_inplace(cv::Mat& y,
     cv::pow(ratio, cfg.soft_k, ratio);
     cv::Mat gain = 1.0f - ratio;
     cv::max(gain, 0.0f, gain);
+    if (cfg.boost > 0.0f) {
+      // Only coefficients clearly above the noise floor (>= 2*tau) get any
+      // extra amplification; the ramp is 0 at 2*tau, reaching cfg.boost as
+      // |detail| grows well past it -- coefficients near tau stay at the
+      // plain denoised gain above, never boosted.
+      cv::Mat boost_ratio;
+      cv::divide(2.0f * tau, cv::abs(detail) + 1.0e-12f, boost_ratio);
+      cv::Mat extra = 1.0f - boost_ratio;
+      cv::max(extra, 0.0f, extra);
+      gain += extra * cfg.boost;
+    }
     reconstructed += detail.mul(gain);
   }
   y = reconstructed;
+}
+
+/// @brief Edge-preserving bilateral smoothing, applied after the wavelet
+/// stage. Identical structure to chroma_denoise's chroma_bilateral, applied
+/// here to luma instead of a chroma plane.
+void denoise_luma_bilateral_inplace(
+    cv::Mat& y, const config::LumaDenoiseConfig::BilateralConfig& cfg,
+    const cv::Mat& valid, const cv::Mat& protect) {
+  if (!cfg.enabled) return;
+  cv::Mat noise_mask = valid.clone();
+  if (!protect.empty()) noise_mask.setTo(0, protect > 0.1f);
+  const float sigma_noise = robust_sigma_mad_from_mat(y, noise_mask);
+  cv::Mat bilateral_input = y.clone();
+  cv::Mat boundary_fill =
+      masked_gaussian_blur(y, valid, std::max(0.5f, cfg.sigma_spatial));
+  boundary_fill.copyTo(bilateral_input, valid == 0);
+  cv::Mat out;
+  cv::bilateralFilter(bilateral_input, out, 0,
+                      std::max(1.0e-6f, cfg.sigma_range * sigma_noise),
+                      cfg.sigma_spatial, cv::BORDER_REFLECT_101);
+  y.copyTo(out, valid == 0);
+  y = out;
 }
 
 } // namespace
@@ -247,6 +351,7 @@ LumaDenoiseStats luma_denoise_rgb_inplace(
 
   cv::Mat Y_denoised = Y.clone();
   denoise_luma_plane_inplace(Y_denoised, cfg.wavelet, valid, protect);
+  denoise_luma_bilateral_inplace(Y_denoised, cfg.bilateral, valid, protect);
 
   cv::Mat amount_map(Y.size(), CV_32F, cv::Scalar(cfg.blend_amount));
   amount_map = amount_map.mul(1.0f - cfg.luma_guard_strength * protect);

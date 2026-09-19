@@ -230,12 +230,52 @@ struct LumaDenoiseConfig {
     float gradient_percentile = 90.0f;
   } structure_protection;
 
+  // Same concept as chroma_denoise's extended_source_protection: star_
+  // protection covers only bright point sources, and structure_protection
+  // only pixels with a locally steep gradient (a real edge) -- neither
+  // protects broad, smoothly-varying but real nebulosity (diffuse gas,
+  // large galaxy discs), whose local point-to-point gradient is often
+  // comparable in scale to background noise itself. Off by default.
+  struct ExtendedSourceProtectionConfig {
+    bool enabled = false;
+    float luma_sigma = 2.5f; // detection threshold above sky background (in σ)
+    int   dilate_px  = 30;   // dilation applied after detection; covers PSF halos
+  } extended_source_protection;
+
   struct WaveletConfig {
     bool enabled = true;
     int levels = 3;
     float threshold_scale = 1.5f;
     float soft_k = 1.0f;
+    // Amplifies (rather than only denoises) per-level detail coefficients
+    // that are robustly above the noise floor (> ~2x threshold_scale*sigma
+    // at that level). 0 = pure denoise (previous behaviour). Coefficients
+    // near the noise floor are never boosted -- only clearly-above-noise
+    // ones -- so this is safe at coarser levels where spatial averaging has
+    // already improved real-structure-vs-noise separation, but should stay
+    // low/off at fine levels on data with poor per-pixel SNR (verified:
+    // faint real nebula structure at ~1.5x noise sigma per pixel cannot be
+    // boosted at a fine scale without amplifying noise by the same factor).
+    float boost = 0.0f;
   } wavelet;
+
+  // Edge-preserving spatial smoothing applied after the wavelet stage, same
+  // pattern as chroma_denoise's chroma_bilateral. The wavelet stage's
+  // soft-thresholded reconstruction always adds back its coarsest
+  // Gaussian-pyramid approximation level unmodified (see
+  // denoise_luma_plane_inplace) -- that band still carries real background
+  // noise the wavelet path structurally cannot remove, no matter how
+  // aggressive levels/threshold_scale get. A bilateral pass targets that
+  // residual directly instead of pushing wavelet levels past where
+  // structure_protection can reliably keep real, low-contrast nebula
+  // texture intact (measured on real M42 data: pushing wavelet levels to
+  // the schema max stops improving background noise but does measurably
+  // reduce nebula-core detail).
+  struct BilateralConfig {
+    bool enabled = false;
+    float sigma_spatial = 1.5f;
+    float sigma_range = 2.0f; // multiplier of measured background luma sigma
+  } bilateral;
 
   bool enabled = false;
   float luma_guard_strength = 0.85f;
@@ -604,6 +644,15 @@ struct HyperMetricStretchConfig {
   // contrast in stars/highlights; it does not move the mid-tone/background
   // level, which stays pinned to target_bg regardless.
   float highlight_ceiling_percentile = 100.0f;
+  // Local contrast ("clarity"): boosts mid/large-scale luma detail the
+  // single global floor/ceiling/MTF curve above compresses away. See
+  // image::HyperMetricStretchConfig::LocalContrastConfig for the mechanism.
+  // Off by default.
+  struct LocalContrastConfig {
+    bool enabled = false;
+    float radius_px = 40.0f;
+    float strength = 0.6f;
+  } local_contrast;
   bool write_channels = false;
   std::string output_rgb = "stacked_rgb_hms.fits";
 };

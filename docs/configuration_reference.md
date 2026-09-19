@@ -2596,6 +2596,12 @@ Luminanzsignal steckt, bevor es in die Multiband-Fusion läuft — anders als
 - `luma_denoise.wavelet.levels`: Anzahl Wavelet-Zerlegungsebenen.
 - `luma_denoise.wavelet.threshold_scale`: Wavelet-Schwellen-Multiplikator.
 - `luma_denoise.wavelet.soft_k`: Exponent der Shrinkage-Form; 1 entspricht klassischem Soft-Thresholding.
+- `luma_denoise.extended_source_protection.enabled`: Schutz für diffuse Nebel/große Galaxien vor Luma-Denoise, analog zu `chroma_denoise.extended_source_protection`. Default: `false`. Nötig, weil weder `star_protection` (nur Punktquellen) noch `structure_protection` (nur steile lokale Gradienten) breitflächige, kontrastarme aber reale Nebelstruktur erkennt.
+- `luma_denoise.extended_source_protection.luma_sigma`: Erkennungsschwelle über dem Himmelshintergrund in σ. Recommended: 2.5.
+- `luma_denoise.extended_source_protection.dilate_px`: Dilatationsradius nach Erkennung. Recommended: 30.
+- `luma_denoise.bilateral.enabled`: Bilateraler Filter nach der Wavelet-Stufe, analog zu `chroma_denoise.chroma_bilateral`. Default: `false`. Die Wavelet-Rekonstruktion addiert ihre gröbste Approximationsebene immer unverändert zurück — dieser Rest trägt reales Hintergrundrauschen, das keine Wavelet-Stärke entfernt; Bilateral adressiert das direkt.
+- `luma_denoise.bilateral.sigma_spatial`: Räumliches Sigma. Recommended: 1.5; für Hintergrundrauschen nahe DWARF-Onboard-Niveau eher 6–10.
+- `luma_denoise.bilateral.sigma_range`: Multiplikator der gemessenen Hintergrund-Luma-Sigma. Recommended: 2.0.
 
 Die Rekonstruktion ist additiv (`R_neu = R + (Y_denoised − Y)` usw.), nicht
 ratio-basiert — Letzteres verstärkt Rauschen in schwachen/teilgeschützten

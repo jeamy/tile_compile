@@ -557,6 +557,26 @@ properties:
             maximum: 100
             description: 'Percentile of the gradient-magnitude distribution above which pixels are protected. Range 0–100. Recommended: 90.'
             default: 90.0
+      extended_source_protection:
+        type: object
+        description: Protects extended smooth-emission regions (diffuse nebulae, large galaxy disks) from luma denoising. Detection uses a heavily-blurred luma image; pixels above sky_median + luma_sigma * sky_sigma are protected. Neither star_protection (point sources only) nor structure_protection (steep local gradients only) covers broad, low-contrast real nebulosity whose point-to-point gradient can be comparable in scale to background noise itself.
+        properties:
+          enabled:
+            type: boolean
+            description: 'Enable extended-source protection. Set true when the field contains a galaxy disk or large diffuse nebula and luma_denoise is enabled. Default: false.'
+            default: false
+          luma_sigma:
+            type: number
+            minimum: 1.0
+            maximum: 5.0
+            description: 'Detection threshold in sky-sigma units. Range 1.0–5.0. Recommended: 2.5.'
+            default: 2.5
+          dilate_px:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: 'Dilation radius (px) applied after detection to cover halos. Range 0–100. Recommended: 30.'
+            default: 30
       wavelet:
         type: object
         properties:
@@ -582,6 +602,26 @@ properties:
             exclusiveMinimum: true
             description: 'Shrinkage-shape exponent. 1 is standard soft thresholding; higher values approach a sharper hard-threshold transition. Recommended: 1.0.'
             default: 1.0
+      bilateral:
+        type: object
+        description: 'Edge-preserving spatial smoothing applied after the wavelet stage. Off by default. The wavelet reconstruction always adds back its coarsest Gaussian-pyramid approximation level unmodified -- that band still carries real background noise no amount of wavelet levels/threshold_scale removes; this stage targets that residual directly instead of pushing wavelet levels past where structure_protection can reliably keep real, low-contrast nebula texture intact.'
+        properties:
+          enabled:
+            type: boolean
+            description: 'Enable bilateral filter for luma denoise, applied after the wavelet stage. Default: false.'
+            default: false
+          sigma_spatial:
+            type: number
+            exclusiveMinimum: 0
+            maximum: 64
+            description: 'Spatial sigma for bilateral filter. Controls the spatial extent of smoothing. Range 0.5–5.0. Recommended: 1.5.'
+            default: 1.5
+          sigma_range:
+            type: number
+            exclusiveMinimum: 0
+            maximum: 20
+            description: 'Range-sigma multiplier relative to the measured unprotected background luma sigma. This makes the bilateral filter scale-invariant for normalized and ADU-valued data. Recommended: 2.0.'
+            default: 2.0
   global_metrics:
     type: object
     properties:

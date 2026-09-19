@@ -37,6 +37,17 @@ struct HyperMetricStretchConfig {
   // it does not change the mid-tone/background level, which stays pinned
   // to target_bg regardless.
   float highlight_ceiling_percentile = 100.0f;
+  // Local contrast ("clarity"): boosts mid/large-scale luma detail that the
+  // single GLOBAL tone curve above compresses away when it also has to lift
+  // a faint background up to target_bg. Verified on real M42 data that the
+  // dynamic range IS present in the linear input (stacked_rgb.fits) -- the
+  // compression happens entirely in this stage's global floor/ceiling/MTF
+  // curve, which has no per-pixel/local awareness. Off by default.
+  struct LocalContrastConfig {
+    bool enabled = false;
+    float radius_px = 40.0f;  // structure scale to boost (nebula filaments)
+    float strength = 0.6f;    // 0 = no effect
+  } local_contrast;
   bool write_channels = false;
   std::string output_rgb = "stacked_rgb_hms.fits";
 };

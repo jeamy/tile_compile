@@ -14,6 +14,11 @@ struct LumaDenoiseStats {
   double input_luma_sigma = 0.0;
   double star_protected_fraction = 0.0;
   double structure_protected_fraction = 0.0;
+  double extended_source_raw_fraction = 0.0;
+  double extended_source_protected_fraction = 0.0;
+  double extended_source_sky_median = 0.0;
+  double extended_source_sky_sigma = 0.0;
+  double extended_source_threshold = 0.0;
   double combined_protected_fraction = 0.0;
   double mean_protection = 0.0;
   double mean_denoise_fraction = 0.0;
@@ -22,6 +27,7 @@ struct LumaDenoiseStats {
 struct LumaDenoiseDiagnostics {
   Matrix2Df star_mask;
   Matrix2Df structure_mask;
+  Matrix2Df extended_source_mask;
   Matrix2Df combined_mask;
   Matrix2Df effective_amount;
 };

@@ -118,11 +118,19 @@ luma_denoise:
   structure_protection:
     enabled: true
     gradient_percentile: 90
+  extended_source_protection:
+    enabled: false
+    luma_sigma: 2.5
+    dilate_px: 30
   wavelet:
     enabled: true
     levels: 3
     threshold_scale: 1.5
     soft_k: 1
+  bilateral:
+    enabled: false
+    sigma_spatial: 1.5
+    sigma_range: 2
 astrometry:
   enabled: true
   astap_data_dir: /media/data/Astro/astap

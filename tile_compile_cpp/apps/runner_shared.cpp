@@ -1088,6 +1088,9 @@ image::HyperMetricStretchConfig to_image_hms_config(
   dst.shadow_convergence = src.shadow_convergence;
   dst.linear_expansion = src.linear_expansion;
   dst.highlight_ceiling_percentile = src.highlight_ceiling_percentile;
+  dst.local_contrast.enabled = src.local_contrast.enabled;
+  dst.local_contrast.radius_px = src.local_contrast.radius_px;
+  dst.local_contrast.strength = src.local_contrast.strength;
   dst.write_channels = src.write_channels;
   dst.output_rgb = src.output_rgb;
   return dst;

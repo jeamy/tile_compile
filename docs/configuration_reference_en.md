@@ -2179,6 +2179,12 @@ luminance signal before it reaches multiband fusion -- unlike
 - `luma_denoise.wavelet.levels`: number of wavelet decomposition levels.
 - `luma_denoise.wavelet.threshold_scale`: wavelet threshold multiplier.
 - `luma_denoise.wavelet.soft_k`: softness of wavelet shrinkage.
+- `luma_denoise.extended_source_protection.enabled`: protects diffuse nebulae/large galaxies from luma denoising, mirroring `chroma_denoise.extended_source_protection`. Default: `false`. Needed because neither `star_protection` (point sources only) nor `structure_protection` (steep local gradients only) covers broad, low-contrast but real nebulosity.
+- `luma_denoise.extended_source_protection.luma_sigma`: detection threshold above sky background, in sigma. Recommended: 2.5.
+- `luma_denoise.extended_source_protection.dilate_px`: dilation radius after detection. Recommended: 30.
+- `luma_denoise.bilateral.enabled`: bilateral filter applied after the wavelet stage, mirroring `chroma_denoise.chroma_bilateral`. Default: `false`. The wavelet reconstruction always adds its coarsest approximation level back unmodified -- that residual carries real background noise no wavelet strength removes; bilateral targets it directly.
+- `luma_denoise.bilateral.sigma_spatial`: spatial sigma. Recommended: 1.5; for background noise closer to a DWARF-onboard-style live-stack, 6-10.
+- `luma_denoise.bilateral.sigma_range`: multiplier of the measured background luma sigma. Recommended: 2.0.
 
 Reconstruction is additive (`R_new = R + (Y_denoised - Y)` etc.), not
 ratio-based -- a ratio reconstruction amplifies noise in faint/partially
