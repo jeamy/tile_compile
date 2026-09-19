@@ -157,7 +157,7 @@ struct ChromaDenoiseConfig {
   struct ChromaBilateralConfig {
     bool enabled = true;
     float sigma_spatial = 1.2f;
-    float sigma_range = 0.035f;
+    float sigma_range = 2.0f; // multiplier of measured background chroma sigma
   } chroma_bilateral;
 
   struct BlendConfig {
@@ -189,7 +189,7 @@ struct ChromaDenoiseConfig {
 
   bool enabled = false;
   std::string color_space = "ycbcr_linear";      // ycbcr_linear | opponent_linear
-  std::string apply_stage = "post_stack_linear"; // pre_stack_tiles | post_stack_linear
+  std::string apply_stage = "post_pcc"; // post_stack_linear | post_pcc
   bool protect_luma = true;
   float luma_guard_strength = 0.75f;
   // Reference chroma-to-luma noise-sigma ratio used to scale the wavelet/
@@ -216,7 +216,8 @@ struct ChromaDenoiseConfig {
 // two independently-noisy, correlated quantities and amplifies noise
 // exactly where it is proportionally largest: faint background and the
 // partially-protected PSF wings around stars). The additive delta leaves
-// every channel DIFFERENCE, hence all perceived color, exactly unchanged.
+// every additive channel difference exactly. It does not preserve RGB ratios
+// or perceptual saturation when the brightness correction is large.
 struct LumaDenoiseConfig {
   struct StarProtectionConfig {
     bool enabled = true;

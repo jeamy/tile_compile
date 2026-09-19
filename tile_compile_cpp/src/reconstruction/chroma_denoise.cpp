@@ -8,27 +8,85 @@
 
 namespace tile_compile::reconstruction {
 namespace {
-static float robust_sigma_mad_from_mat(const cv::Mat& m) {
+static float robust_sigma_mad_from_mat(const cv::Mat& m,
+                                       const cv::Mat& valid = cv::Mat()) {
     if (m.empty()) return 0.0f;
     std::vector<float> vals;
     vals.reserve(m.total());
     for (int y = 0; y < m.rows; ++y) {
         const float* row = m.ptr<float>(y);
-        vals.insert(vals.end(), row, row + m.cols);
+        const std::uint8_t* vrow = valid.empty() ? nullptr : valid.ptr<std::uint8_t>(y);
+        for (int x = 0; x < m.cols; ++x)
+            if ((!vrow || vrow[x] != 0) && std::isfinite(row[x])) vals.push_back(row[x]);
     }
     return tile_compile::core::robust_sigma_mad(vals);
 }
 
-static float percentile_from_mat(const cv::Mat& m, float p) {
+static float percentile_from_mat(const cv::Mat& m, float p,
+                                 const cv::Mat& valid = cv::Mat()) {
     if (m.empty()) return 0.0f;
     std::vector<float> vals;
     vals.reserve(m.total());
     for (int y = 0; y < m.rows; ++y) {
         const float* row = m.ptr<float>(y);
-        vals.insert(vals.end(), row, row + m.cols);
+        const std::uint8_t* vrow = valid.empty() ? nullptr : valid.ptr<std::uint8_t>(y);
+        for (int x = 0; x < m.cols; ++x)
+            if ((!vrow || vrow[x] != 0) && std::isfinite(row[x])) vals.push_back(row[x]);
     }
     if (vals.empty()) return 0.0f;
     return tile_compile::core::percentile_of(vals, p);
+}
+
+cv::Mat build_valid_mask(const cv::Mat& r, const cv::Mat& g, const cv::Mat& b,
+                         const std::vector<std::uint8_t>* supplied) {
+    cv::Mat valid(r.size(), CV_8U, cv::Scalar(0));
+    const bool have_supplied = supplied && supplied->size() == r.total();
+    for (int y = 0; y < r.rows; ++y) {
+        const float* rr = r.ptr<float>(y);
+        const float* gg = g.ptr<float>(y);
+        const float* bb = b.ptr<float>(y);
+        std::uint8_t* vv = valid.ptr<std::uint8_t>(y);
+        for (int x = 0; x < r.cols; ++x) {
+            const size_t i = static_cast<size_t>(y) * r.cols + x;
+            vv[x] = static_cast<std::uint8_t>(
+                (!have_supplied || (*supplied)[i] != 0) &&
+                std::isfinite(rr[x]) && std::isfinite(gg[x]) &&
+                std::isfinite(bb[x]));
+        }
+    }
+    return valid;
+}
+
+float high_frequency_sigma(const cv::Mat& src, const cv::Mat& valid) {
+    cv::Mat valid_f;
+    valid.convertTo(valid_f, CV_32F);
+    cv::Mat numerator, denominator, low;
+    cv::GaussianBlur(src.mul(valid_f), numerator, cv::Size(0, 0), 0.75, 0.75,
+                     cv::BORDER_REFLECT_101);
+    cv::GaussianBlur(valid_f, denominator, cv::Size(0, 0), 0.75, 0.75,
+                     cv::BORDER_REFLECT_101);
+    cv::divide(numerator, denominator + 1.0e-12f, low);
+    return robust_sigma_mad_from_mat(src - low, valid);
+}
+
+cv::Mat masked_gaussian_blur(const cv::Mat& src, const cv::Mat& valid,
+                             double sigma) {
+    cv::Mat valid_f;
+    valid.convertTo(valid_f, CV_32F);
+    cv::Mat numerator, denominator, out;
+    cv::GaussianBlur(src.mul(valid_f), numerator, cv::Size(0, 0), sigma, sigma,
+                     cv::BORDER_REFLECT_101);
+    cv::GaussianBlur(valid_f, denominator, cv::Size(0, 0), sigma, sigma,
+                     cv::BORDER_REFLECT_101);
+    cv::divide(numerator, denominator + 1.0e-12f, out);
+    src.copyTo(out, denominator < 1.0e-6f);
+    return out;
+}
+
+void copy_to_matrix(const cv::Mat& src, Matrix2Df& dst) {
+    dst.resize(src.rows, src.cols);
+    cv::Mat view(src.rows, src.cols, CV_32F, dst.data());
+    src.copyTo(view);
 }
 
 /// @brief Implements quantize to step.
@@ -69,45 +127,27 @@ void chroma_space_to_rgb(const cv::Mat& Y, const cv::Mat& C1, const cv::Mat& C2,
     G = 2.0f * Y - 0.5f * (R + B);
 }
 
-/// @brief Implements soft threshold signed.
-/// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-cv::Mat soft_threshold_signed(const cv::Mat& src, float tau) {
-    if (!(tau > 0.0f)) return src.clone();
-    cv::Mat abs_src = cv::abs(src);
-    cv::Mat shrunk;
-    cv::subtract(abs_src, tau, shrunk);
-    cv::threshold(shrunk, shrunk, 0.0, 0.0, cv::THRESH_TOZERO);
-
-    cv::Mat neg_mask;
-    cv::compare(src, 0.0f, neg_mask, cv::CMP_LT);
-    cv::Mat neg_shrunk;
-    cv::subtract(cv::Scalar(0.0f), shrunk, neg_shrunk);
-    neg_shrunk.copyTo(shrunk, neg_mask);
-    return shrunk;
-}
-
 /// @brief Builds protection mask.
 /// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-cv::Mat build_protection_mask(const cv::Mat& y,
+cv::Mat build_protection_mask(const cv::Mat& y, const cv::Mat& c1,
+                              const cv::Mat& c2, const cv::Mat& valid,
                               const config::ChromaDenoiseConfig& cfg,
-                              ChromaDenoiseStats* stats) {
+                              ChromaDenoiseStats* stats,
+                              ChromaDenoiseDiagnostics* diagnostics) {
     cv::Mat mask = cv::Mat::zeros(y.size(), CV_32F);
-    const double pixels = static_cast<double>(y.total());
+    const double pixels = static_cast<double>(cv::countNonZero(valid));
 
     if (cfg.star_protection.enabled) {
-        const float sigma = robust_sigma_mad_from_mat(y);
-        cv::Scalar mean_y;
-        cv::Scalar std_y;
-        cv::meanStdDev(y, mean_y, std_y);
-        const float med_like = static_cast<float>(mean_y[0]);
-        const float thr = med_like + cfg.star_protection.threshold_sigma * (sigma + 1.0e-6f);
+        const float sigma = robust_sigma_mad_from_mat(y, valid);
+        const float sky_median = percentile_from_mat(y, 50.0f, valid);
+        const float thr = sky_median + cfg.star_protection.threshold_sigma *
+                                           (sigma + 1.0e-6f);
         cv::Mat stars;
         cv::threshold(y, stars, thr, 1.0, cv::THRESH_BINARY);
         stars.convertTo(stars, CV_32F);
+        stars.setTo(0.0f, valid == 0);
         if (cfg.star_protection.dilate_px > 0) {
             const int k = std::max(1, cfg.star_protection.dilate_px * 2 + 1);
             cv::Mat ker = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(k, k));
@@ -126,21 +166,39 @@ cv::Mat build_protection_mask(const cv::Mat& y,
         {
             const float star_feather = std::max(
                 1.0f, static_cast<float>(cfg.star_protection.dilate_px) / 3.0f);
-            cv::GaussianBlur(stars, stars, cv::Size(0, 0), star_feather,
+        cv::GaussianBlur(stars, stars, cv::Size(0, 0), star_feather,
                              star_feather, cv::BORDER_REFLECT_101);
         }
+        if (diagnostics) copy_to_matrix(stars, diagnostics->star_mask);
         cv::max(mask, stars, mask);
     }
 
     if (cfg.structure_protection.enabled) {
-        cv::Mat gx, gy, mag;
-        cv::Sobel(y, gx, CV_32F, 1, 0, 3);
-        cv::Sobel(y, gy, CV_32F, 0, 1, 3);
-        cv::magnitude(gx, gy, mag);
-        const float p = percentile_from_mat(mag, cfg.structure_protection.gradient_percentile);
+        cv::Mat gx, gy, mag_y, mag_c1, mag_c2, mag;
+        const cv::Mat y_grad = masked_gaussian_blur(y, valid, 0.5);
+        const cv::Mat c1_grad = masked_gaussian_blur(c1, valid, 0.5);
+        const cv::Mat c2_grad = masked_gaussian_blur(c2, valid, 0.5);
+        cv::Sobel(y_grad, gx, CV_32F, 1, 0, 3);
+        cv::Sobel(y_grad, gy, CV_32F, 0, 1, 3);
+        cv::magnitude(gx, gy, mag_y);
+        cv::Sobel(c1_grad, gx, CV_32F, 1, 0, 3);
+        cv::Sobel(c1_grad, gy, CV_32F, 0, 1, 3);
+        cv::magnitude(gx, gy, mag_c1);
+        cv::Sobel(c2_grad, gx, CV_32F, 1, 0, 3);
+        cv::Sobel(c2_grad, gy, CV_32F, 0, 1, 3);
+        cv::magnitude(gx, gy, mag_c2);
+        mag = cv::max(mag_y, cv::max(mag_c1, mag_c2));
+        const float med = percentile_from_mat(mag, 50.0f, valid);
+        cv::Mat deviation = cv::abs(mag - med);
+        const float sig = robust_sigma_mad_from_mat(deviation, valid);
+        const float p = std::max(
+            percentile_from_mat(mag, cfg.structure_protection.gradient_percentile,
+                                valid),
+            med + 3.0f * sig);
         cv::Mat structures;
         cv::threshold(mag, structures, p, 1.0, cv::THRESH_BINARY);
         structures.convertTo(structures, CV_32F);
+        structures.setTo(0.0f, valid == 0);
         if (stats && pixels > 0.0)
             stats->structure_protected_fraction =
                 cv::countNonZero(structures > 0.5f) / pixels;
@@ -158,6 +216,8 @@ cv::Mat build_protection_mask(const cv::Mat& y,
         // remove them.
         cv::GaussianBlur(structures, structures, cv::Size(0, 0), 2.0f, 2.0f,
                          cv::BORDER_REFLECT_101);
+        if (diagnostics)
+            copy_to_matrix(structures, diagnostics->structure_mask);
         cv::max(mask, structures, mask);
     }
 
@@ -167,26 +227,43 @@ cv::Mat build_protection_mask(const cv::Mat& y,
         const float blur_sigma = std::max(5.0f, static_cast<float>(
             std::min(y.rows, y.cols)) * 0.02f);
         cv::Mat y_smooth;
-        cv::GaussianBlur(y, y_smooth, cv::Size(0, 0), blur_sigma, blur_sigma,
-                         cv::BORDER_REFLECT_101);
+        y_smooth = masked_gaussian_blur(y, valid, blur_sigma);
 
         // Estimate sky stats from the lowest-brightness half of the smoothed luma.
-        const float p50 = percentile_from_mat(y_smooth, 50.0f);
+        const float sky_med = percentile_from_mat(y_smooth, 50.0f, valid);
         std::vector<float> sky_vals;
         sky_vals.reserve(static_cast<size_t>(y_smooth.total()));
         for (int row = 0; row < y_smooth.rows; ++row) {
             const float* ptr = y_smooth.ptr<float>(row);
             for (int col = 0; col < y_smooth.cols; ++col)
-                if (ptr[col] <= p50) sky_vals.push_back(ptr[col]);
+                if (valid.at<std::uint8_t>(row, col) != 0 &&
+                    std::isfinite(ptr[col])) sky_vals.push_back(ptr[col]);
         }
         const float sky_sigma = tile_compile::core::robust_sigma_mad(sky_vals);
-        const float sky_med   = sky_vals.empty() ? p50 :
-            tile_compile::core::percentile_of(sky_vals, 50.0f);
         const float thr = sky_med + cfg.extended_source_protection.luma_sigma * sky_sigma;
 
         cv::Mat ext_src;
         cv::threshold(y_smooth, ext_src, static_cast<double>(thr), 1.0, cv::THRESH_BINARY);
         ext_src.convertTo(ext_src, CV_32F);
+        ext_src.setTo(0.0f, valid == 0);
+        // A large Gaussian turns bright stars into smooth islands as well; a
+        // threshold alone therefore cannot distinguish a point source from an
+        // extended target. Keep only connected regions whose area is large at
+        // the detection scale. Compact sources remain covered by the separate
+        // star mask instead of inflating this mask into broad stellar discs.
+        cv::Mat labels, cc_stats, centroids;
+        cv::Mat ext_u8;
+        ext_src.convertTo(ext_u8, CV_8U, 255.0);
+        const int n_labels = cv::connectedComponentsWithStats(
+            ext_u8, labels, cc_stats, centroids, 8, CV_32S);
+        cv::Mat extended_only = cv::Mat::zeros(ext_src.size(), CV_32F);
+        const int min_component_area = std::max(
+            64, static_cast<int>(std::ceil(4.0 * CV_PI * blur_sigma * blur_sigma)));
+        for (int label = 1; label < n_labels; ++label) {
+            if (cc_stats.at<int>(label, cv::CC_STAT_AREA) >= min_component_area)
+                extended_only.setTo(1.0f, labels == label);
+        }
+        ext_src = extended_only;
         if (stats) {
             stats->extended_source_sky_median = sky_med;
             stats->extended_source_sky_sigma = sky_sigma;
@@ -213,6 +290,8 @@ cv::Mat build_protection_mask(const cv::Mat& y,
             cv::GaussianBlur(ext_src, ext_src, cv::Size(0, 0), ext_feather,
                              ext_feather, cv::BORDER_REFLECT_101);
         }
+        if (diagnostics)
+            copy_to_matrix(ext_src, diagnostics->extended_source_mask);
         cv::max(mask, ext_src, mask);
     }
 
@@ -222,11 +301,13 @@ cv::Mat build_protection_mask(const cv::Mat& y,
     cv::GaussianBlur(mask, mask, cv::Size(0, 0), 1.0, 1.0, cv::BORDER_REFLECT_101);
     cv::min(mask, 1.0, mask);
     cv::max(mask, 0.0, mask);
+    mask.setTo(0.0f, valid == 0);
     if (stats && pixels > 0.0) {
         stats->combined_protected_fraction =
             cv::countNonZero(mask > 0.5f) / pixels;
-        stats->mean_protection = cv::mean(mask)[0];
+        stats->mean_protection = cv::mean(mask, valid)[0];
     }
+    if (diagnostics) copy_to_matrix(mask, diagnostics->combined_mask);
     return mask;
 }
 
@@ -262,7 +343,7 @@ cv::Mat build_protection_mask(const cv::Mat& y,
 /// blocks and may be contaminated by unprotected faint halo, so applying it
 /// would subtract part of the object's own color.
 double flatten_large_scale_chroma_bias(
-        cv::Mat& c, const cv::Mat& protect_mask,
+        cv::Mat& c, const cv::Mat& protect_mask, const cv::Mat& valid_mask,
         const config::ChromaDenoiseConfig::LargeScaleBiasConfig& cfg,
         double* holes_filled_fraction) {
     if (holes_filled_fraction) *holes_filled_fraction = 0.0;
@@ -280,16 +361,23 @@ double flatten_large_scale_chroma_bias(
         for (int bx = 0; bx < gx; ++bx) {
             const int c0 = bx * bs, c1 = std::min(c.cols, c0 + bs);
             block_vals.clear();
+            int valid_background = 0;
+            int valid_total = 0;
             for (int r = r0; r < r1; ++r) {
                 const float* crow = c.ptr<float>(r);
                 const float* mrow =
                     protect_mask.empty() ? nullptr : protect_mask.ptr<float>(r);
+                const std::uint8_t* vrow = valid_mask.ptr<std::uint8_t>(r);
                 for (int cc = c0; cc < c1; ++cc) {
-                    if (mrow && mrow[cc] > 0.5f) continue;  // background-only
+                    if (vrow[cc] == 0 || !std::isfinite(crow[cc])) continue;
+                    ++valid_total;
+                    if (mrow && mrow[cc] > 0.1f) continue;
                     block_vals.push_back(crow[cc]);
+                    ++valid_background;
                 }
             }
-            if (block_vals.empty()) continue;
+            if (valid_total == 0 || valid_background < 16 ||
+                valid_background * 2 < valid_total) continue;
             std::nth_element(block_vals.begin(),
                              block_vals.begin() + block_vals.size() / 2,
                              block_vals.end());
@@ -300,7 +388,9 @@ double flatten_large_scale_chroma_bias(
 
     const int n_cells = gy * gx;
     const int n_valid = cv::countNonZero(grid_valid);
-    if (n_valid == 0) return 0.0;  // fully protected image: nothing to estimate from
+    const int required_valid = std::min(
+        n_cells, std::max(4, static_cast<int>(std::ceil(0.25 * n_cells))));
+    if (n_valid < required_valid) return 0.0;
     if (holes_filled_fraction)
         *holes_filled_fraction =
             static_cast<double>(n_cells - n_valid) / static_cast<double>(n_cells);
@@ -352,19 +442,9 @@ double flatten_large_scale_chroma_bias(
                          cfg.blur_sigma, cv::BORDER_REFLECT_101);
 
     cv::Mat correction = (surface - ref) * cfg.strength;
-    if (!protect_mask.empty()) {
-        // The surface inside protected regions is only a push-pull
-        // interpolation -- the least reliable part of the estimate -- and
-        // can additionally be contaminated by unprotected faint-halo pixels
-        // leaking into neighbouring block medians. Subtracting it there
-        // removes the foreground's own chroma (the M31 regression). Fail
-        // closed: fade the correction out inside protected areas. Residual
-        // sky variation underneath a protected object is preferable to
-        // destroying real object color.
-        correction = correction.mul(1.0f - protect_mask);
-    }
+    correction.setTo(0.0f, valid_mask == 0);
     cv::Scalar mean, stddev;
-    cv::meanStdDev(correction, mean, stddev);
+    cv::meanStdDev(correction, mean, stddev, valid_mask);
     c -= correction;
     return stddev[0];
 }
@@ -374,30 +454,54 @@ double flatten_large_scale_chroma_bias(
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 void denoise_chroma_plane_inplace(cv::Mat& c,
-                                  const config::ChromaDenoiseConfig& cfg) {
+                                  const config::ChromaDenoiseConfig& cfg,
+                                  const cv::Mat& valid,
+                                  const cv::Mat& protect) {
     if (cfg.chroma_wavelet.enabled) {
-        cv::Mat cur = c.clone();
+        cv::Mat approximation = c.clone();
+        std::vector<cv::Mat> details;
+        details.reserve(static_cast<size_t>(std::max(1, cfg.chroma_wavelet.levels)));
         const int levels = std::max(1, cfg.chroma_wavelet.levels);
         for (int lvl = 0; lvl < levels; ++lvl) {
             const double sigma = std::pow(2.0, static_cast<double>(lvl)) * 0.75;
             cv::Mat low;
-            cv::GaussianBlur(cur, low, cv::Size(0, 0), sigma, sigma,
-                             cv::BORDER_REFLECT_101);
-            cv::Mat detail = cur - low;
-            const float sigma_n = robust_sigma_mad_from_mat(detail);
-            const float tau = cfg.chroma_wavelet.threshold_scale *
-                              cfg.chroma_wavelet.soft_k * sigma_n;
-            cv::Mat shrunk = soft_threshold_signed(detail, tau);
-            cur = low + shrunk;
+            low = masked_gaussian_blur(approximation, valid, sigma);
+            details.push_back(approximation - low);
+            approximation = low;
         }
-        c = cur;
+        cv::Mat reconstructed = approximation;
+        cv::Mat noise_mask = valid.clone();
+        if (!protect.empty()) noise_mask.setTo(0, protect > 0.1f);
+        for (cv::Mat& detail : details) {
+            const float sigma_n = robust_sigma_mad_from_mat(detail, noise_mask);
+            const float tau = cfg.chroma_wavelet.threshold_scale *
+                              sigma_n;
+            cv::Mat abs_detail = cv::abs(detail);
+            cv::Mat ratio;
+            cv::divide(tau, abs_detail + 1.0e-12f, ratio);
+            cv::pow(ratio, cfg.chroma_wavelet.soft_k, ratio);
+            cv::Mat gain = 1.0f - ratio;
+            cv::max(gain, 0.0f, gain);
+            reconstructed += detail.mul(gain);
+        }
+        c = reconstructed;
     }
 
     if (cfg.chroma_bilateral.enabled) {
+        cv::Mat noise_mask = valid.clone();
+        if (!protect.empty()) noise_mask.setTo(0, protect > 0.1f);
+        const float sigma_noise = robust_sigma_mad_from_mat(c, noise_mask);
+        cv::Mat bilateral_input = c.clone();
+        cv::Mat boundary_fill = masked_gaussian_blur(
+            c, valid, std::max(0.5f, cfg.chroma_bilateral.sigma_spatial));
+        boundary_fill.copyTo(bilateral_input, valid == 0);
         cv::Mat out;
-        cv::bilateralFilter(c, out, 0, cfg.chroma_bilateral.sigma_range,
+        cv::bilateralFilter(bilateral_input, out, 0,
+                            std::max(1.0e-6f,
+                                     cfg.chroma_bilateral.sigma_range * sigma_noise),
                             cfg.chroma_bilateral.sigma_spatial,
                             cv::BORDER_REFLECT_101);
+        c.copyTo(out, valid == 0);
         c = out;
     }
 }
@@ -406,7 +510,9 @@ void denoise_chroma_plane_inplace(cv::Mat& c,
 ChromaDenoiseStats chroma_denoise_rgb_inplace(
         Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
         const config::ChromaDenoiseConfig& cfg,
-        Matrix2Df* protection_mask_out) {
+        Matrix2Df* protection_mask_out,
+        const std::vector<std::uint8_t>* valid_mask,
+        ChromaDenoiseDiagnostics* diagnostics) {
     ChromaDenoiseStats stats;
     if (!cfg.enabled) return stats;
     if (r.size() <= 0 || g.size() <= 0 || b.size() <= 0) return stats;
@@ -418,6 +524,9 @@ ChromaDenoiseStats chroma_denoise_rgb_inplace(
     cv::Mat R(r.rows(), r.cols(), CV_32F, r.data());
     cv::Mat G(g.rows(), g.cols(), CV_32F, g.data());
     cv::Mat B(b.rows(), b.cols(), CV_32F, b.data());
+    const cv::Mat valid = build_valid_mask(R, G, B, valid_mask);
+    const auto valid_pixels = static_cast<std::uint64_t>(cv::countNonZero(valid));
+    if (valid_pixels == 0) return stats;
 
     if (cfg.blend.mode != "chroma_only") return stats;
 
@@ -431,10 +540,10 @@ ChromaDenoiseStats chroma_denoise_rgb_inplace(
     // ADU-scale data, where absolute chroma sigma is routinely in the tens).
     // This keeps fine detail on clean data and increases suppression on noisy data.
     config::ChromaDenoiseConfig tuned = cfg;
-    const float sigma_c1 = robust_sigma_mad_from_mat(C1);
-    const float sigma_c2 = robust_sigma_mad_from_mat(C2);
+    const float sigma_c1 = high_frequency_sigma(C1, valid);
+    const float sigma_c2 = high_frequency_sigma(C2, valid);
     const float chroma_sigma = 0.5f * (sigma_c1 + sigma_c2);
-    const float luma_sigma = std::max(1.0e-6f, robust_sigma_mad_from_mat(Y));
+    const float luma_sigma = std::max(1.0e-6f, high_frequency_sigma(Y, valid));
     const float ref_ratio = std::max(1.0e-6f, cfg.adaptation_reference_ratio);
     const float adapt =
         std::clamp((chroma_sigma / luma_sigma) / ref_ratio, 0.8f, 1.4f);
@@ -444,7 +553,7 @@ ChromaDenoiseStats chroma_denoise_rgb_inplace(
     tuned.chroma_bilateral.sigma_range =
         std::max(1.0e-4f, cfg.chroma_bilateral.sigma_range * std::sqrt(adapt));
     stats.applied = true;
-    stats.valid_pixels = static_cast<std::uint64_t>(r.size());
+    stats.valid_pixels = valid_pixels;
     stats.input_chroma_sigma = chroma_sigma;
     stats.input_luma_sigma = luma_sigma;
     stats.adaptation = adapt;
@@ -456,7 +565,9 @@ ChromaDenoiseStats chroma_denoise_rgb_inplace(
     // is reused both for the large-scale bias estimate below (background-
     // only pixels) and for the final blend-back amount_map.
     cv::Mat protect;
-    if (tuned.protect_luma) protect = build_protection_mask(Y, tuned, &stats);
+    if (tuned.protect_luma)
+        protect = build_protection_mask(Y, C1, C2, valid, tuned, &stats,
+                                        diagnostics);
     if (protection_mask_out != nullptr) {
         protection_mask_out->resize(r.rows(), r.cols());
         if (!protect.empty()) {
@@ -473,15 +584,26 @@ ChromaDenoiseStats chroma_denoise_rgb_inplace(
     if (tuned.large_scale_bias.enabled) {
         double holes_c1 = 0.0, holes_c2 = 0.0;
         stats.large_scale_bias_removed_rms_c1 = flatten_large_scale_chroma_bias(
-            C1, protect, tuned.large_scale_bias, &holes_c1);
+            C1, protect, valid, tuned.large_scale_bias, &holes_c1);
         stats.large_scale_bias_removed_rms_c2 = flatten_large_scale_chroma_bias(
-            C2, protect, tuned.large_scale_bias, &holes_c2);
+            C2, protect, valid, tuned.large_scale_bias, &holes_c2);
         stats.large_scale_bias_grid_holes_filled_fraction =
             std::max(holes_c1, holes_c2);
     }
 
-    denoise_chroma_plane_inplace(C1, tuned);
-    denoise_chroma_plane_inplace(C2, tuned);
+    if (tuned.large_scale_bias.enabled) {
+        cv::Mat bias_amount(Y.size(), CV_32F,
+                            cv::Scalar(tuned.blend.amount));
+        if (!protect.empty()) bias_amount = bias_amount.mul(1.0f - protect);
+        C1 = C1_orig.mul(1.0f - bias_amount) + C1.mul(bias_amount);
+        C2 = C2_orig.mul(1.0f - bias_amount) + C2.mul(bias_amount);
+    }
+
+    cv::Mat C1_bias = C1.clone();
+    cv::Mat C2_bias = C2.clone();
+
+    denoise_chroma_plane_inplace(C1, tuned, valid, protect);
+    denoise_chroma_plane_inplace(C2, tuned, valid, protect);
 
     cv::Mat amount_map(Y.size(), CV_32F, cv::Scalar(tuned.blend.amount));
     if (tuned.protect_luma) {
@@ -489,11 +611,14 @@ ChromaDenoiseStats chroma_denoise_rgb_inplace(
         cv::min(amount_map, tuned.blend.amount, amount_map);
         cv::max(amount_map, 0.0, amount_map);
     }
-    stats.mean_denoise_fraction = cv::mean(amount_map)[0];
+    stats.mean_denoise_fraction = cv::mean(amount_map, valid)[0];
+    if (diagnostics) copy_to_matrix(amount_map, diagnostics->effective_amount);
 
     cv::Mat one_minus = 1.0f - amount_map;
-    cv::Mat C1_mix = C1_orig.mul(one_minus) + C1.mul(amount_map);
-    cv::Mat C2_mix = C2_orig.mul(one_minus) + C2.mul(amount_map);
+    cv::Mat C1_mix = C1_bias.mul(one_minus) + C1.mul(amount_map);
+    cv::Mat C2_mix = C2_bias.mul(one_minus) + C2.mul(amount_map);
+    C1_orig.copyTo(C1_mix, valid == 0);
+    C2_orig.copyTo(C2_mix, valid == 0);
 
     cv::Mat R_new, G_new, B_new;
     chroma_space_to_rgb(Y, C1_mix, C2_mix, cfg.color_space, R_new, G_new, B_new);

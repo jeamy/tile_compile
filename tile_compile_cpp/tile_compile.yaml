@@ -73,9 +73,9 @@ global_metrics:
     roundness: 0.1
     star_count: 0
 chroma_denoise:
-  enabled: true
+  enabled: false
   color_space: ycbcr_linear
-  apply_stage: both
+  apply_stage: post_pcc
   protect_luma: true
   luma_guard_strength: 0.85
   adaptation_reference_ratio: 1
@@ -94,7 +94,7 @@ chroma_denoise:
   chroma_bilateral:
     enabled: true
     sigma_spatial: 2
-    sigma_range: 0.05
+    sigma_range: 2
   blend:
     mode: chroma_only
     amount: 1
@@ -103,12 +103,12 @@ chroma_denoise:
     luma_sigma: 2.5
     dilate_px: 15
   large_scale_bias:
-    enabled: true
+    enabled: false
     block_size: 32
     blur_sigma: 24
     strength: 1
 luma_denoise:
-  enabled: true
+  enabled: false
   luma_guard_strength: 0.85
   blend_amount: 0.85
   star_protection:

@@ -791,13 +791,13 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 
 Optionale, **chroma-selektive** Denoise-Erweiterung für OSC-Daten. Idee: Luminanz/Struktur möglichst erhalten, Farbrauschen primär in Cb/Cr (oder äquivalenten Opponent-Kanälen) reduzieren.
 
-> Hinweis: Wirkt nur im OSC-Pfad. `apply_stage` steuert, ob vor dem Tile-Overlap-Add (`pre_stack_tiles`), auf dem finalen linearen RGB-Stack (`post_stack_linear`), nach der photometrischen Farbkalibrierung (`post_pcc`) oder an beiden Stack-Stellen (`both`) gefiltert wird. `post_pcc` faengt Chroma-Rauschen ab, das durch die PCC-Matrix-Verstaerkung neu entsteht.
+> Hinweis: Wirkt nur im OSC-Pfad. Standardmäßig deaktiviert (`enabled: false`) -- die folgenden Beispiele zeigen es aktiviert. `apply_stage` waehlt genau eine Stelle: auf dem finalen linearen RGB-Stack vor BGE/PCC (`post_stack_linear`) oder nach der photometrischen Farbkalibrierung (`post_pcc`). `post_pcc` faengt Chroma-Rauschen ab, das durch die PCC-Matrix-Verstaerkung neu entsteht, und ist der Default unter den `apply_stage`-Werten.
 
 ```yaml
 chroma_denoise:
   enabled: true
   color_space: ycbcr_linear        # ycbcr_linear | opponent_linear
-  apply_stage: post_stack_linear   # pre_stack_tiles | post_stack_linear | post_pcc | both
+  apply_stage: post_pcc            # post_stack_linear | post_pcc
   protect_luma: true
   luma_guard_strength: 0.75        # 0..1
   star_protection:
@@ -815,7 +815,7 @@ chroma_denoise:
   chroma_bilateral:
     enabled: true
     sigma_spatial: 1.2
-    sigma_range: 0.035
+    sigma_range: 2.0
   blend:
     mode: chroma_only
     amount: 0.85                   # 0..1
@@ -857,7 +857,7 @@ chroma_denoise:
   star_protection: { enabled: true, threshold_sigma: 2.6, dilate_px: 2 }
   structure_protection: { enabled: true, gradient_percentile: 88 }
   chroma_wavelet: { enabled: true, levels: 2, threshold_scale: 0.95, soft_k: 1.0 }
-  chroma_bilateral: { enabled: true, sigma_spatial: 1.0, sigma_range: 0.025 }
+  chroma_bilateral: { enabled: true, sigma_spatial: 1.0, sigma_range: 2.0 }
   blend: { mode: chroma_only, amount: 0.65 }
 ```
 
@@ -875,7 +875,7 @@ chroma_denoise:
   star_protection: { enabled: true, threshold_sigma: 2.2, dilate_px: 2 }
   structure_protection: { enabled: true, gradient_percentile: 85 }
   chroma_wavelet: { enabled: true, levels: 3, threshold_scale: 1.25, soft_k: 1.0 }
-  chroma_bilateral: { enabled: true, sigma_spatial: 1.2, sigma_range: 0.035 }
+  chroma_bilateral: { enabled: true, sigma_spatial: 1.2, sigma_range: 2.0 }
   blend: { mode: chroma_only, amount: 0.85 }
 ```
 
@@ -893,7 +893,7 @@ chroma_denoise:
   star_protection: { enabled: true, threshold_sigma: 1.9, dilate_px: 3 }
   structure_protection: { enabled: true, gradient_percentile: 80 }
   chroma_wavelet: { enabled: true, levels: 4, threshold_scale: 1.55, soft_k: 1.1 }
-  chroma_bilateral: { enabled: true, sigma_spatial: 1.6, sigma_range: 0.05 }
+  chroma_bilateral: { enabled: true, sigma_spatial: 1.6, sigma_range: 2.0 }
   blend: { mode: chroma_only, amount: 1.0 }
 ```
 
@@ -2220,7 +2220,7 @@ chroma_denoise:
   chroma_bilateral:
     enabled: true
     sigma_spatial: 1.2
-    sigma_range: 0.035
+    sigma_range: 2.0
   blend:
     mode: chroma_only
     amount: 0.85
@@ -2550,10 +2550,10 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 ### A.4 Chroma Denoise
 
 
-- `chroma_denoise.enabled`: aktiviert chroma-fokussierte Denoise (OSC-Pfad).
+- `chroma_denoise.enabled`: aktiviert chroma-fokussierte Denoise (OSC-Pfad). Standard: `false` (opt-in).
 - `chroma_denoise.color_space`: Chroma/Luma-Transform (`ycbcr_linear` oder `opponent_linear`).
-- `chroma_denoise.apply_stage`: Ausführung vor Tile-OLA, nach finalem linearem Stack, nach PCC oder an beiden Stack-Stellen (`both`).
-- `chroma_denoise.protect_luma`: schützt Luminanzstrukturen vor Chroma-Nebenwirkungen.
+- `chroma_denoise.apply_stage`: waehlt genau eine unterstuetzte Stelle: nach dem finalen linearen Stack oder nach PCC.
+- `chroma_denoise.protect_luma`: aktiviert die luminanzbasierten Schutzmasken; die lineare Luminanz bleibt immer unverändert.
 - `chroma_denoise.luma_guard_strength`: Stärke der Luma-Schutzmaske.
 - `chroma_denoise.star_protection.enabled`: Sternmasken-Schutz für Kerne/Halos.
 - `chroma_denoise.star_protection.threshold_sigma`: Schwelle für Sternmaskenbildung.
@@ -2563,7 +2563,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `chroma_denoise.chroma_wavelet.enabled`: Wavelet-basierte Chroma-Dämpfung.
 - `chroma_denoise.chroma_wavelet.levels`: Anzahl Wavelet-Zerlegungsebenen.
 - `chroma_denoise.chroma_wavelet.threshold_scale`: Wavelet-Schwellen-Multiplikator.
-- `chroma_denoise.chroma_wavelet.soft_k`: Weichheit der Wavelet-Schrumpfung.
+- `chroma_denoise.chroma_wavelet.soft_k`: Exponent der Shrinkage-Form; 1 entspricht klassischem Soft-Thresholding.
 - `chroma_denoise.chroma_bilateral.enabled`: bilaterale Glättung auf Chroma-Komponenten.
 - `chroma_denoise.chroma_bilateral.sigma_spatial`: räumliche bilaterale Stärke.
 - `chroma_denoise.chroma_bilateral.sigma_range`: Farbdistanz-Selektivität bilateral.
@@ -2584,7 +2584,7 @@ Eigenständige Luminanz-Rauschunterdrückung zwischen Post-Stack und Multiband
 Luminanzsignal steckt, bevor es in die Multiband-Fusion läuft — anders als
 `chroma_denoise`, das nur die Farbkomponenten glättet.
 
-- `luma_denoise.enabled`: aktiviert die Luma-Wavelet-Denoise-Stufe.
+- `luma_denoise.enabled`: aktiviert die Luma-Wavelet-Denoise-Stufe. Standard: `false` (opt-in).
 - `luma_denoise.luma_guard_strength`: Stärke des Luma-Schutzes gegen Detailverlust ([0,1]).
 - `luma_denoise.blend_amount`: Mischanteil Original vs. denoised Luma ([0,1]).
 - `luma_denoise.star_protection.enabled`: Sternmasken-Schutz, damit Sternkerne/-halos scharf bleiben.
@@ -2595,7 +2595,7 @@ Luminanzsignal steckt, bevor es in die Multiband-Fusion läuft — anders als
 - `luma_denoise.wavelet.enabled`: Wavelet-Soft-Threshold-Denoise.
 - `luma_denoise.wavelet.levels`: Anzahl Wavelet-Zerlegungsebenen.
 - `luma_denoise.wavelet.threshold_scale`: Wavelet-Schwellen-Multiplikator.
-- `luma_denoise.wavelet.soft_k`: Weichheit der Wavelet-Schrumpfung.
+- `luma_denoise.wavelet.soft_k`: Exponent der Shrinkage-Form; 1 entspricht klassischem Soft-Thresholding.
 
 Die Rekonstruktion ist additiv (`R_neu = R + (Y_denoised − Y)` usw.), nicht
 ratio-basiert — Letzteres verstärkt Rauschen in schwachen/teilgeschützten

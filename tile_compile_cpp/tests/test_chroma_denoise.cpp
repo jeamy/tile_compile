@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <random>
+#include <vector>
 
 using tile_compile::Matrix2Df;
 
@@ -301,9 +303,127 @@ TEST_CASE("chroma denoise adaptation_reference_ratio keeps adaptation "
   REQUIRE(stats_small.adaptation == Catch::Approx(stats_large.adaptation).margin(1.0e-3));
 }
 
+TEST_CASE("chroma bilateral range is invariant to normalized versus ADU scale",
+          "[chroma-denoise][adaptation]") {
+  constexpr int W = 96, H = 72;
+  auto make = [&](float scale) {
+    std::array<Matrix2Df, 3> rgb{Matrix2Df(H, W), Matrix2Df(H, W),
+                                 Matrix2Df(H, W)};
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x) {
+        const float n = ((x * 17 + y * 11) % 13 - 6) * 0.01f;
+        const float c = (x < W / 2 ? -0.12f : 0.12f) + n;
+        rgb[0](y, x) = scale * (1.0f + c);
+        rgb[1](y, x) = scale;
+        rgb[2](y, x) = scale * (1.0f - c);
+      }
+    return rgb;
+  };
+  auto normalized = make(1.0f);
+  auto adu = make(500.0f);
+  tile_compile::config::ChromaDenoiseConfig cfg;
+  cfg.enabled = true;
+  cfg.protect_luma = false;
+  cfg.chroma_wavelet.enabled = false;
+  cfg.chroma_bilateral.enabled = true;
+  cfg.chroma_bilateral.sigma_range = 2.0f;
+  cfg.blend.amount = 1.0f;
+  tile_compile::reconstruction::chroma_denoise_rgb_inplace(
+      normalized[0], normalized[1], normalized[2], cfg);
+  tile_compile::reconstruction::chroma_denoise_rgb_inplace(
+      adu[0], adu[1], adu[2], cfg);
+  for (int ch = 0; ch < 3; ++ch)
+    REQUIRE((normalized[ch] - adu[ch] / 500.0f).cwiseAbs().maxCoeff() < 2.0e-5f);
+}
+
+TEST_CASE("chroma denoise excludes invalid canvas pixels from statistics and output",
+          "[chroma-denoise][mask]") {
+  constexpr int W = 64, H = 48;
+  Matrix2Df r = Matrix2Df::Constant(H, W, 10.0f);
+  Matrix2Df g = r;
+  Matrix2Df b = r;
+  std::vector<std::uint8_t> valid(static_cast<size_t>(W * H), 1);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < 8; ++x) {
+      const size_t i = static_cast<size_t>(y * W + x);
+      valid[i] = 0;
+      r(y, x) = 10000.0f;
+      g(y, x) = -5000.0f;
+      b(y, x) = 3000.0f;
+    }
+  }
+  const Matrix2Df r0 = r, g0 = g, b0 = b;
+  tile_compile::config::ChromaDenoiseConfig cfg;
+  cfg.enabled = true;
+  cfg.star_protection.enabled = false;
+  cfg.structure_protection.enabled = false;
+  cfg.extended_source_protection.enabled = false;
+  const auto stats = tile_compile::reconstruction::chroma_denoise_rgb_inplace(
+      r, g, b, cfg, nullptr, &valid);
+  REQUIRE(stats.valid_pixels == static_cast<std::uint64_t>((W - 8) * H));
+  REQUIRE((r.leftCols(8) - r0.leftCols(8)).cwiseAbs().maxCoeff() == 0.0f);
+  REQUIRE((g.leftCols(8) - g0.leftCols(8)).cwiseAbs().maxCoeff() == 0.0f);
+  REQUIRE((b.leftCols(8) - b0.leftCols(8)).cwiseAbs().maxCoeff() == 0.0f);
+  REQUIRE((r.rightCols(W - 8).array() - 10.0f).abs().maxCoeff() < 1.0e-4f);
+  REQUIRE((g.rightCols(W - 8).array() - 10.0f).abs().maxCoeff() < 1.0e-4f);
+  REQUIRE((b.rightCols(W - 8).array() - 10.0f).abs().maxCoeff() < 1.0e-4f);
+}
+
+TEST_CASE("chroma structure protection detects a pure chroma edge",
+          "[chroma-denoise][mask]") {
+  constexpr int W = 128, H = 64;
+  Matrix2Df r(H, W), g(H, W), b(H, W);
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < W; ++x) {
+      const float c = x < W / 2 ? -0.25f : 0.25f;
+      r(y, x) = 1.0f + c;
+      g(y, x) = 1.0f;
+      b(y, x) = 1.0f - c;
+    }
+  tile_compile::config::ChromaDenoiseConfig cfg;
+  cfg.enabled = true;
+  cfg.star_protection.enabled = false;
+  cfg.extended_source_protection.enabled = false;
+  cfg.structure_protection.enabled = true;
+  Matrix2Df mask;
+  tile_compile::reconstruction::ChromaDenoiseDiagnostics diagnostics;
+  const auto stats = tile_compile::reconstruction::chroma_denoise_rgb_inplace(
+      r, g, b, cfg, &mask, nullptr, &diagnostics);
+  REQUIRE(stats.structure_protected_fraction > 0.0);
+  REQUIRE(mask(H / 2, W / 2) > 0.25f);
+  REQUIRE(diagnostics.structure_mask.rows() == H);
+  REQUIRE(diagnostics.effective_amount.rows() == H);
+}
+
+TEST_CASE("chroma extended-source mask does not classify a quarter of Gaussian sky",
+          "[chroma-denoise][mask]") {
+  constexpr int W = 320, H = 240;
+  Matrix2Df r(H, W), g(H, W), b(H, W);
+  std::mt19937 rng(7);
+  std::normal_distribution<float> noise(0.0f, 0.02f);
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < W; ++x)
+      r(y, x) = g(y, x) = b(y, x) = 1.0f + noise(rng);
+  tile_compile::config::ChromaDenoiseConfig cfg;
+  cfg.enabled = true;
+  cfg.star_protection.enabled = false;
+  cfg.structure_protection.enabled = false;
+  cfg.extended_source_protection.enabled = true;
+  cfg.extended_source_protection.dilate_px = 0;
+  const auto stats = tile_compile::reconstruction::chroma_denoise_rgb_inplace(
+      r, g, b, cfg);
+  REQUIRE(stats.extended_source_raw_fraction < 0.05);
+}
+
 TEST_CASE("new BGE and chroma protection ranges are validated",
           "[config][chroma-denoise][autobge]") {
   tile_compile::config::Config cfg;
+
+  cfg.chroma_denoise.apply_stage = "pre_stack_tiles";
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.chroma_denoise.apply_stage = "both";
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.chroma_denoise.apply_stage = "post_pcc";
 
   cfg.bge.auto_detect.gradient_threshold = 0.0f;
   REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);

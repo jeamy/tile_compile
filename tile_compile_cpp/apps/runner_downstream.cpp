@@ -159,7 +159,26 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     io::write_fits_rgb(out.path(),r,g,b,header);
     out.commit();
   };
-  core::json chroma_denoise_passes = core::json::array();
+  // Seeded from any existing artifacts/chroma_denoise.json on disk (a full
+  // run or an earlier resume), not started fresh: a resume that only
+  // re-executes some phases must not erase the record of passes an EARLIER
+  // phase already applied and won't re-run this time -- the file is meant
+  // to be the full history of every pass this run has ever recorded, not
+  // just this process invocation's.
+  auto load_existing_passes = [&](const fs::path &path) {
+    core::json out = core::json::array();
+    std::error_code ec;
+    if (!fs::is_regular_file(path, ec)) return out;
+    try {
+      const auto doc = core::json::parse(core::read_text(path));
+      if (doc.contains("passes") && doc["passes"].is_array())
+        out = doc["passes"];
+    } catch (...) {
+    }
+    return out;
+  };
+  core::json chroma_denoise_passes =
+      load_existing_passes(run_dir / "artifacts" / "chroma_denoise.json");
   auto record_chroma_denoise = [&](
       const char *stage,
       const reconstruction::ChromaDenoiseStats &stats) {
@@ -196,7 +215,8 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
         core::json({{"version", 1}, {"passes", chroma_denoise_passes}})
             .dump(2));
   };
-  core::json luma_denoise_passes = core::json::array();
+  core::json luma_denoise_passes =
+      load_existing_passes(run_dir / "artifacts" / "luma_denoise.json");
   auto record_luma_denoise = [&](
       const char *stage,
       const reconstruction::LumaDenoiseStats &stats) {
@@ -265,6 +285,28 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
                      log_file);
     return 1;
   }
+  std::vector<std::uint8_t> denoise_valid_mask;
+  bool denoise_mask_loaded = false;
+  auto ensure_denoise_valid_mask = [&]() -> bool {
+    if (denoise_mask_loaded) return true;
+    int mask_rows = static_cast<int>(rgb.R.rows());
+    int mask_cols = static_cast<int>(rgb.R.cols());
+    std::string mask_error;
+    if (!tile_compile::runner::load_canvas_mask_for_rgb(
+            run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
+            denoise_valid_mask, mask_rows, mask_cols, mask_error)) {
+      std::cerr << "Error: invalid denoise canvas mask: " << mask_error
+                << std::endl;
+      core::emit_event("downstream_end", run_id,
+                       {{"success", false},
+                        {"status", "output_canvas_mask_invalid"},
+                        {"error", mask_error}},
+                       log_file);
+      return false;
+    }
+    denoise_mask_loaded = true;
+    return true;
+  };
   // Diagnostic only (reconstruction.diagnostics.level == "full"): the
   // combined protection mask (star_protection/structure_protection/
   // extended_source_protection, feathered and combined, in [0,1]) that
@@ -282,6 +324,32 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
         run_dir / "artifacts" /
             (std::string("protection_mask_") + stage_tag + ".fits"),
         mask, hdr);
+  };
+  auto save_chroma_diagnostics = [&](
+      const char *stage_tag,
+      const reconstruction::ChromaDenoiseDiagnostics &diag) {
+    save_protection_mask((std::string("chroma_star_") + stage_tag).c_str(),
+                         diag.star_mask);
+    save_protection_mask(
+        (std::string("chroma_structure_") + stage_tag).c_str(),
+        diag.structure_mask);
+    save_protection_mask(
+        (std::string("chroma_extended_") + stage_tag).c_str(),
+        diag.extended_source_mask);
+    save_protection_mask(
+        (std::string("chroma_amount_") + stage_tag).c_str(),
+        diag.effective_amount);
+  };
+  auto save_luma_diagnostics = [&](
+      const char *stage_tag,
+      const reconstruction::LumaDenoiseDiagnostics &diag) {
+    save_protection_mask((std::string("luma_star_") + stage_tag).c_str(),
+                         diag.star_mask);
+    save_protection_mask(
+        (std::string("luma_structure_") + stage_tag).c_str(),
+        diag.structure_mask);
+    save_protection_mask((std::string("luma_amount_") + stage_tag).c_str(),
+                         diag.effective_amount);
   };
 
   auto inject_wcs_keywords = [](io::FitsHeader &hdr, const astro::WCS &wcs) {
@@ -1070,25 +1138,42 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     // brightness noise on the rawest available post-stack linear RGB,
     // before chroma_denoise, BGE, PCC or HMS touch it. See
     // config::LumaDenoiseConfig's comment for why this stage exists.
+    const bool needs_post_stack_denoise =
+        cfg.luma_denoise.enabled ||
+        (cfg.chroma_denoise.enabled &&
+         cfg.chroma_denoise.apply_stage == "post_stack_linear");
+    if (needs_post_stack_denoise && !ensure_denoise_valid_mask()) return 1;
     if (rgb.G.rows() > 0 && rgb.B.rows() > 0 && cfg.luma_denoise.enabled) {
       Matrix2Df luma_mask;
+      reconstruction::LumaDenoiseDiagnostics luma_diag;
+      const bool full_diag = cfg.reconstruction.diagnostics.level == "full";
       const auto luma_stats = reconstruction::luma_denoise_rgb_inplace(
-          rgb.R, rgb.G, rgb.B, cfg.luma_denoise, &luma_mask);
+          rgb.R, rgb.G, rgb.B, cfg.luma_denoise,
+          full_diag ? &luma_mask : nullptr, &denoise_valid_mask,
+          full_diag ? &luma_diag : nullptr);
       record_luma_denoise("post_stack_linear", luma_stats);
       save_protection_mask("luma_post_stack_linear", luma_mask);
-      std::cout << "[LUMA_DENOISE] applied post_stack_linear" << std::endl;
+      if (full_diag) save_luma_diagnostics("post_stack_linear", luma_diag);
+      if (luma_stats.applied)
+        std::cout << "[LUMA_DENOISE] applied post_stack_linear" << std::endl;
     }
     if (rgb.G.rows() > 0 && rgb.B.rows() > 0 &&
         cfg.chroma_denoise.enabled &&
-        (cfg.chroma_denoise.apply_stage == "post_stack_linear" ||
-         cfg.chroma_denoise.apply_stage == "both")) {
+        cfg.chroma_denoise.apply_stage == "post_stack_linear") {
       Matrix2Df chroma_mask;
+      reconstruction::ChromaDenoiseDiagnostics chroma_diag;
+      const bool full_diag = cfg.reconstruction.diagnostics.level == "full";
       const auto chroma_stats = reconstruction::chroma_denoise_rgb_inplace(
-          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise, &chroma_mask);
+          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise,
+          full_diag ? &chroma_mask : nullptr, &denoise_valid_mask,
+          full_diag ? &chroma_diag : nullptr);
       record_chroma_denoise("post_stack_linear", chroma_stats);
       save_protection_mask("chroma_post_stack_linear", chroma_mask);
-      std::cout << "[CHROMA_DENOISE] applied post_stack_linear (chroma-only)"
-                << std::endl;
+      if (full_diag)
+        save_chroma_diagnostics("post_stack_linear", chroma_diag);
+      if (chroma_stats.applied)
+        std::cout << "[CHROMA_DENOISE] applied post_stack_linear (chroma-only)"
+                  << std::endl;
     }
     if (!run_bge_phase()) {
       core::emit_event("downstream_end", run_id,
@@ -1206,6 +1291,34 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
         std::cout << "[PCC][resume] Warning: failed to load stacked_rgb_bge_linear.fits: "
                   << e.what() << std::endl;
       }
+    }
+    if (!have_bge_linear && cfg.luma_denoise.enabled) {
+      if (!ensure_denoise_valid_mask()) return 1;
+      Matrix2Df luma_mask;
+      reconstruction::LumaDenoiseDiagnostics luma_diag;
+      const bool full_diag = cfg.reconstruction.diagnostics.level == "full";
+      const auto stats = reconstruction::luma_denoise_rgb_inplace(
+          rgb.R, rgb.G, rgb.B, cfg.luma_denoise,
+          full_diag ? &luma_mask : nullptr, &denoise_valid_mask,
+          full_diag ? &luma_diag : nullptr);
+      record_luma_denoise("post_stack_linear", stats);
+      save_protection_mask("luma_post_stack_linear", luma_mask);
+      if (full_diag) save_luma_diagnostics("post_stack_linear", luma_diag);
+    }
+    if (!have_bge_linear && cfg.chroma_denoise.enabled &&
+        cfg.chroma_denoise.apply_stage == "post_stack_linear") {
+      if (!ensure_denoise_valid_mask()) return 1;
+      Matrix2Df chroma_mask;
+      reconstruction::ChromaDenoiseDiagnostics chroma_diag;
+      const bool full_diag = cfg.reconstruction.diagnostics.level == "full";
+      const auto stats = reconstruction::chroma_denoise_rgb_inplace(
+          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise,
+          full_diag ? &chroma_mask : nullptr, &denoise_valid_mask,
+          full_diag ? &chroma_diag : nullptr);
+      record_chroma_denoise("post_stack_linear", stats);
+      save_protection_mask("chroma_post_stack_linear", chroma_mask);
+      if (full_diag)
+        save_chroma_diagnostics("post_stack_linear", chroma_diag);
     }
 
     const fs::path pcc_input_rgb_path =
@@ -1342,15 +1455,21 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     }
     if (rgb.G.rows() > 0 && rgb.B.rows() > 0 &&
         cfg.chroma_denoise.enabled &&
-        (cfg.chroma_denoise.apply_stage == "post_pcc" ||
-         cfg.chroma_denoise.apply_stage == "both")) {
+        cfg.chroma_denoise.apply_stage == "post_pcc") {
+      if (!ensure_denoise_valid_mask()) return 1;
       Matrix2Df chroma_mask;
+      reconstruction::ChromaDenoiseDiagnostics chroma_diag;
+      const bool full_diag = cfg.reconstruction.diagnostics.level == "full";
       const auto chroma_stats = reconstruction::chroma_denoise_rgb_inplace(
-          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise, &chroma_mask);
+          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise,
+          full_diag ? &chroma_mask : nullptr, &denoise_valid_mask,
+          full_diag ? &chroma_diag : nullptr);
       record_chroma_denoise("post_pcc", chroma_stats);
       save_protection_mask("chroma_post_pcc", chroma_mask);
-      std::cout << "[CHROMA_DENOISE] applied post_pcc (chroma-only)"
-                << std::endl;
+      if (full_diag) save_chroma_diagnostics("post_pcc", chroma_diag);
+      if (chroma_stats.applied)
+        std::cout << "[CHROMA_DENOISE] applied post_pcc (chroma-only)"
+                  << std::endl;
     }
 
     const fs::path pcc_r_path = run_dir / "outputs" / "pcc_R.fit";

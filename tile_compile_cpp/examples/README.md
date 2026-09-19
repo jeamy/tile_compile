@@ -9,7 +9,7 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   Canonical full OSC reference configuration, kept in sync with the production
   `tile_compile.yaml` tuning: `drizzle.pixfrac: 0.6`,
   `registration.prewarp_interpolation: cubic`,
-  `chroma_denoise` active at `apply_stage: both` (pre-BGE and post-PCC) with
+  `chroma_denoise` configured for the single `post_pcc` stage with
   `star_protection.threshold_sigma: 4` / `dilate_px: 8`
   (the dilate radius must cover the full PSF including wings — a too-small
   radius lets the chroma wavelet erode star wings into green halos — while

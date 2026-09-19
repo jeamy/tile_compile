@@ -349,27 +349,24 @@ properties:
         enum:
         - ycbcr_linear
         - opponent_linear
-        description: 'Color space for chroma denoise. ycbcr_linear = YCbCr (standard, good for most cameras). opponent_linear = opponent color space (better for unusual sensor response). Default: ycbcr_linear.'
+        description: 'Linear chroma transform. ycbcr_linear is the project-specific invertible Y=0.25R+0.5G+0.25B, C1=B-Y, C2=R-Y transform; it is not a Rec.601/Rec.709 YCbCr encoding. opponent_linear uses Y=(R+G+B)/3, C1=R-G, C2=B-G. Default: ycbcr_linear.'
         default: ycbcr_linear
       apply_stage:
         type: string
         enum:
-        - pre_stack_tiles
         - post_stack_linear
         - post_pcc
-        - both
-        description: 'Pipeline stage for chroma denoise. pre_stack_tiles = per-tile before reconstruction (preserves per-frame noise characteristics). post_stack_linear = on final stacked linear image (more
-          effective for residual color noise). post_pcc = after photometric color calibration (catches noise re-amplified by PCC gains). both = post_stack_linear and post_pcc. Default: post_stack_linear.'
-        default: post_stack_linear
+        description: 'Single pipeline stage for chroma denoise. post_stack_linear = before BGE/PCC. post_pcc = after photometric color calibration and catches noise re-amplified by PCC gains. Default: post_pcc.'
+        default: post_pcc
       protect_luma:
         type: boolean
-        description: 'When true, luma channel is protected from denoise — only chroma is filtered. Preserves star sharpness and detail. Default: true.'
+        description: 'Enable the luma-derived star, structure and extended-source protection masks that reduce chroma denoise strength and exclude foreground from large-scale-bias estimation. Chroma denoise always preserves the chosen linear luma exactly. Default: true.'
         default: true
       luma_guard_strength:
         type: number
         minimum: 0
         maximum: 1
-        description: 'Strength of luma protection guard. 0 = no protection, 1 = full protection. Higher values prevent any luma modification. Range 0–1. Recommended: 0.75.'
+        description: 'Strength of the protection-mask guard. 0 = masks do not reduce denoise, 1 = fully masked pixels keep original chroma. Range 0–1. Recommended: 0.75.'
         default: 0.75
       adaptation_reference_ratio:
         type: number
@@ -391,6 +388,7 @@ properties:
           dilate_px:
             type: integer
             minimum: 0
+            maximum: 100
             description: 'Dilation radius for star protection mask in pixels. Expands protection zone around stars. Range 0–10. Recommended: 2.'
             default: 2
       structure_protection:
@@ -416,6 +414,7 @@ properties:
           levels:
             type: integer
             minimum: 1
+            maximum: 8
             description: 'Number of wavelet decomposition levels. More levels capture larger-scale noise. Range 1–5. Recommended: 3.'
             default: 3
           threshold_scale:
@@ -426,7 +425,7 @@ properties:
           soft_k:
             type: number
             exclusiveMinimum: 0
-            description: 'Soft-thresholding parameter k. Controls smoothness of threshold transition. Higher values = smoother. Range 0.1–3.0. Recommended: 1.0.'
+            description: 'Shrinkage-shape exponent. 1 is standard soft thresholding; higher values approach a sharper hard-threshold transition. Range > 0. Recommended: 1.0.'
             default: 1.0
       chroma_bilateral:
         type: object
@@ -438,13 +437,15 @@ properties:
           sigma_spatial:
             type: number
             exclusiveMinimum: 0
+            maximum: 64
             description: 'Spatial sigma for bilateral filter. Controls the spatial extent of smoothing. Range 0.5–5.0. Recommended: 1.5.'
             default: 1.2
           sigma_range:
             type: number
             exclusiveMinimum: 0
-            description: 'Range (color) sigma for bilateral filter. Controls how much color difference is tolerated. Range 0.01–0.5. Recommended: 0.065.'
-            default: 0.035
+            maximum: 20
+            description: 'Range-sigma multiplier relative to the measured unprotected background chroma sigma. This makes the bilateral filter scale-invariant for normalized and ADU-valued data. Recommended: 2.0.'
+            default: 2.0
       blend:
         type: object
         properties:
@@ -540,6 +541,7 @@ properties:
           dilate_px:
             type: integer
             minimum: 0
+            maximum: 100
             description: 'Dilation radius (px) after star detection; must cover the full PSF including wings. Recommended: 8.'
             default: 8
       structure_protection:
@@ -565,6 +567,7 @@ properties:
           levels:
             type: integer
             minimum: 1
+            maximum: 8
             description: 'Number of Gaussian-pyramid decomposition levels. More levels reach coarser noise structure. Recommended: 3.'
             default: 3
           threshold_scale:
@@ -577,7 +580,7 @@ properties:
             type: number
             minimum: 0
             exclusiveMinimum: true
-            description: 'Additional multiplier on the soft-threshold. Recommended: 1.0.'
+            description: 'Shrinkage-shape exponent. 1 is standard soft thresholding; higher values approach a sharper hard-threshold transition. Recommended: 1.0.'
             default: 1.0
   global_metrics:
     type: object

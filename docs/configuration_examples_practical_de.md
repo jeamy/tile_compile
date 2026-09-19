@@ -271,6 +271,8 @@ pcc:
 
 ## Chroma-Denoise / Hintergrund-Farbbias (`chroma_denoise.*`)
 
+Default: deaktiviert (Opt-in), wie alle Denoise-Stufen (`chroma_denoise.enabled: false`).
+
 **Wann aktivieren:**
 - Farbrauschen ("Konfetti") im Hintergrund nach dem Stack
 - Breitflächige Farbstiche/-flecken, die `chroma_wavelet`/`chroma_bilateral`
@@ -332,13 +334,17 @@ chroma_denoise:
 - Sowohl der C++-Struct-Default als auch der Schema-Default von
   `large_scale_bias.enabled` sind `false` (Opt-in); nur bei kompakten
   Zielen aktivieren, bei denen die Maskenabdeckung verifiziert ist.
+- Bei `reconstruction.diagnostics.level: full` werden neben der kombinierten
+  Schutzmaske auch Stern-, Struktur- und Extended-Source-Maske sowie die
+  tatsaechlich angewandte Denoise-Mengenkarte als FITS unter `artifacts/`
+  geschrieben. Damit lassen sich Halo- und Maskengrenzen getrennt pruefen.
 
 ---
 
 ## Luminanz-Denoise (`luma_denoise.*`)
 
 **Wann aktivieren:** feinkörniges Luminanzrauschen im rekonstruierten Bild,
-das bereits vor der Multiband-Fusion sichtbar ist (nicht nur Farbrauschen —
+das bereits auf dem rekonstruierten linearen Bild vor BGE/PCC sichtbar ist (nicht nur Farbrauschen —
 dafür ist `chroma_denoise` zuständig).
 
 ```yaml
@@ -362,7 +368,7 @@ luma_denoise:
 
 - **Hintergrund:** Die vorherige Architektur hatte eine Luminanz-Denoise-Stufe,
   die bei einem Cutover entfernt und nie ersetzt wurde. `luma_denoise` läuft
-  standardmäßig **Post-Stack, vor Multiband** — vor `chroma_denoise`, das nur
+  standardmäßig **auf dem rekonstruierten linearen Bild vor BGE/PCC** — vor `chroma_denoise`, das nur
   die Farbkomponenten glättet.
 - Die Rekonstruktion ist additiv (`R_neu = R + (Y_denoised − Y)` usw.), nicht
   ratio-basiert. Eine frühere Implementierung nutzte `R * (Y_denoised / Y)`;

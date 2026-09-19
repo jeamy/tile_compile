@@ -664,7 +664,7 @@ All chained warps are validated with NCC against the reference frame. Particular
 
 ## 9b. Chroma Denoise {#chroma-denoise}
 
-Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches while preserving luma detail and star colors. Operates in a transformed color space (YCbCr or opponent) to isolate chroma from luma.
+Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches while preserving luma detail and star colors. Operates in a transformed color space (YCbCr or opponent) to isolate chroma from luma. Disabled by default (`enabled: false`); the examples below show it turned on.
 
 ### `chroma_denoise.enabled`
 
@@ -683,17 +683,17 @@ Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches whil
 | **Values** | `ycbcr_linear`, `opponent_linear` |
 | **Default** | `"ycbcr_linear"` |
 
-**Purpose:** Color space transform used to isolate chroma channels. `ycbcr_linear` is the standard choice. `opponent_linear` uses an opponent color space which may perform better for certain sensors.
+**Purpose:** Color space transform used to isolate chroma channels. `ycbcr_linear` is the project-specific invertible 0.25/0.5/0.25 linear transform, not a Rec.601/Rec.709 encoding. `opponent_linear` uses an opponent color space which may perform better for certain sensors.
 
 ### `chroma_denoise.apply_stage`
 
 | Property | Value |
 |----------|-------|
 | **Type** | string (enum) |
-| **Values** | `pre_stack_tiles`, `post_stack_linear`, `post_pcc`, `both` |
-| **Default** | `"post_stack_linear"` |
+| **Values** | `post_stack_linear`, `post_pcc` |
+| **Default** | `"post_pcc"` |
 
-**Purpose:** Pipeline stage at which chroma denoise is applied. `pre_stack_tiles` applies denoise to individual tiles before reconstruction. `post_stack_linear` applies denoise to the final linear stacked image (recommended). `post_pcc` runs after photometric color calibration and catches chroma noise re-amplified by the PCC gains. `both` runs at `post_stack_linear` and `post_pcc`.
+**Purpose:** Single pipeline stage for chroma denoise. `post_stack_linear` runs before BGE and PCC. `post_pcc` runs after photometric color calibration, catches noise re-amplified by PCC gains, and is the default.
 
 ### `chroma_denoise.protect_luma`
 
@@ -702,7 +702,7 @@ Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches whil
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** When true, the luma channel is protected from denoise — only chroma channels are filtered. Preserves star sharpness and fine detail.
+**Purpose:** Enables luma-derived star, structure and extended-source masks. They reduce chroma denoise strength and exclude foreground from the large-scale-bias estimate. Linear luma is always preserved exactly.
 
 ### `chroma_denoise.luma_guard_strength`
 
@@ -712,7 +712,7 @@ Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches whil
 | **Range** | `0 – 1` |
 | **Default** | `0.75` |
 
-**Purpose:** Strength of luma protection guard. 0 = no protection, 1 = full protection. Higher values prevent any luma modification from chroma denoise side effects.
+**Purpose:** Strength of the protection-mask guard. 0 disables mask influence; 1 keeps original chroma in fully protected pixels.
 
 ### `chroma_denoise.blend.mode`
 
@@ -836,9 +836,9 @@ Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches whil
 |----------|-------|
 | **Type** | number |
 | **Range** | `> 0` |
-| **Default** | `0.065` |
+| **Default** | `2.0` |
 
-**Purpose:** Range (color) sigma for bilateral filter. Controls how much color difference is tolerated before smoothing kicks in. Range > 0. Recommended: 0.05–0.08.
+**Purpose:** Multiplier on the measured unprotected background chroma sigma used as the bilateral range sigma. This is invariant to normalized versus ADU-valued inputs. Recommended: 2.0.
 
 ### `chroma_denoise.chroma_bilateral.sigma_spatial`
 
@@ -2133,9 +2133,9 @@ This appendix provides a compact but explicit **runtime behavior** description f
 ### A.4 Chroma denoise
 
 
-- `chroma_denoise.enabled`: enables chroma-focused denoise (OSC path).
+- `chroma_denoise.enabled`: enables chroma-focused denoise (OSC path). Default: `false` (opt-in).
 - `chroma_denoise.color_space`: chroma/luma transform (`ycbcr_linear` or `opponent_linear`).
-- `chroma_denoise.apply_stage`: execute before tile OLA, after final linear stack, after PCC, or at both stack stages (`both`).
+- `chroma_denoise.apply_stage`: selects one supported stage: after the final linear stack or after PCC.
 - `chroma_denoise.protect_luma`: protects luminance structures from chroma denoise side effects.
 - `chroma_denoise.luma_guard_strength`: strength of luma protection mask.
 - `chroma_denoise.star_protection.enabled`: star-mask protection for color cores/halos.
@@ -2167,7 +2167,7 @@ Standalone luminance denoise stage between post-stack and multiband
 luminance signal before it reaches multiband fusion -- unlike
 `chroma_denoise`, which only smooths the color components.
 
-- `luma_denoise.enabled`: enables the luma wavelet denoise stage.
+- `luma_denoise.enabled`: enables the luma wavelet denoise stage. Default: `false` (opt-in).
 - `luma_denoise.luma_guard_strength`: strength of the luma guard against detail loss ([0,1]).
 - `luma_denoise.blend_amount`: blend fraction between original and denoised luma ([0,1]).
 - `luma_denoise.star_protection.enabled`: star-mask protection so star cores/halos stay sharp.

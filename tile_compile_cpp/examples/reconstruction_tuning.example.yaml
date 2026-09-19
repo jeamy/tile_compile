@@ -134,9 +134,12 @@ luma_denoise:
     soft_k: 1.0
 
 chroma_denoise:
+  # Off by default (opt-in), same as luma_denoise above -- enabled here to
+  # demonstrate the tuned parameters below (values verified on a real M42/
+  # M31 run per the comments further down).
   enabled: true
   color_space: ycbcr_linear
-  apply_stage: both
+  apply_stage: post_pcc
   protect_luma: true
   luma_guard_strength: 0.85
   # Reference chroma-to-luma noise-sigma ratio used to scale the wavelet/
@@ -164,7 +167,7 @@ chroma_denoise:
   chroma_bilateral:
     enabled: true
     sigma_spatial: 2
-    sigma_range: 0.05
+    sigma_range: 2.0
   blend:
     mode: chroma_only
     amount: 1.0

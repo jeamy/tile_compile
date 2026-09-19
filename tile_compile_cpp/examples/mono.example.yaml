@@ -78,7 +78,7 @@ dithering:
 chroma_denoise:
   enabled: false # bei MONO deaktiviert; Block bleibt fuer Vollstaendigkeit enthalten
   color_space: ycbcr_linear # ycbcr_linear|opponent_linear
-  apply_stage: post_stack_linear # pre_stack_tiles|post_stack_linear
+  apply_stage: post_stack_linear # post_stack_linear|post_pcc
   protect_luma: true # relevant nur wenn enabled=true
   luma_guard_strength: 0.75 # 0..1
   adaptation_reference_ratio: 1.0 # relativ zum Luma-Rausch-Sigma, nicht absolut
@@ -97,7 +97,7 @@ chroma_denoise:
   chroma_bilateral:
     enabled: true
     sigma_spatial: 1.2
-    sigma_range: 0.04
+    sigma_range: 2.0
   blend:
     mode: chroma_only
     amount: 0.85
@@ -107,9 +107,9 @@ chroma_denoise:
     blur_sigma: 24.0
     strength: 1.0
   # Preset-Hinweis (nur fuer OSC/RGB sinnvoll):
-  # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.03
-  # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.04
-  # aggressive:   amount 0.95, threshold_scale 1.5, sigma_range 0.05
+  # conservative: amount 0.65, threshold_scale 1.0, sigma_range 1.5
+  # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 2.0
+  # aggressive:   amount 0.95, threshold_scale 1.5, sigma_range 2.5
 
 global_metrics:
   adaptive_weights: true # adaptive Gewichtung nach Metrikvarianz

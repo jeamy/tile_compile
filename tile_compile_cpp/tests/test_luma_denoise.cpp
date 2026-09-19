@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <random>
+#include <vector>
 
 using tile_compile::Matrix2Df;
 
@@ -79,6 +80,8 @@ TEST_CASE("luma denoise reduces flat-background brightness noise without "
   const float ratio_r_before = r.mean() / g_mean_before;
   const float ratio_b_before = b.mean() / g_mean_before;
   const double g_sigma_before = stddev_of(g);
+  const Matrix2Df rg_before = r - g;
+  const Matrix2Df bg_before = b - g;
 
   const auto stats = tile_compile::reconstruction::luma_denoise_rgb_inplace(
       r, g, b, cfg);
@@ -97,6 +100,8 @@ TEST_CASE("luma denoise reduces flat-background brightness noise without "
   const float ratio_b_after = b.mean() / g.mean();
   REQUIRE(ratio_r_after == Catch::Approx(ratio_r_before).margin(0.01f));
   REQUIRE(ratio_b_after == Catch::Approx(ratio_b_before).margin(0.01f));
+  REQUIRE(((r - g) - rg_before).cwiseAbs().maxCoeff() < 1.0e-5f);
+  REQUIRE(((b - g) - bg_before).cwiseAbs().maxCoeff() < 1.0e-5f);
 }
 
 TEST_CASE("luma denoise star protection keeps a bright point source sharp",
@@ -157,4 +162,26 @@ TEST_CASE("luma_denoise config ranges are validated", "[config][luma-denoise]") 
   cfg.luma_denoise.wavelet.levels = 3;
 
   REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("luma denoise excludes invalid canvas pixels",
+          "[luma-denoise][mask]") {
+  constexpr int W = 80, H = 48;
+  Matrix2Df r = Matrix2Df::Constant(H, W, 20.0f);
+  Matrix2Df g = r;
+  Matrix2Df b = r;
+  std::vector<std::uint8_t> valid(static_cast<size_t>(W * H), 1);
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < 10; ++x) {
+      valid[static_cast<size_t>(y * W + x)] = 0;
+      r(y, x) = g(y, x) = b(y, x) = -1000.0f;
+    }
+  const Matrix2Df before = r;
+  tile_compile::config::LumaDenoiseConfig cfg;
+  cfg.enabled = true;
+  const auto stats = tile_compile::reconstruction::luma_denoise_rgb_inplace(
+      r, g, b, cfg, nullptr, &valid);
+  REQUIRE(stats.valid_pixels == static_cast<std::uint64_t>((W - 10) * H));
+  REQUIRE((r.leftCols(10) - before.leftCols(10)).cwiseAbs().maxCoeff() == 0.0f);
+  REQUIRE((r.rightCols(W - 10).array() - 20.0f).abs().maxCoeff() < 1.0e-4f);
 }

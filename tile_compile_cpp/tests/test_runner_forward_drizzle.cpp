@@ -218,6 +218,41 @@ TEST_CASE("forward downstream resume from HYPERMETRIC_STRETCH fails closed "
   REQUIRE(saw_failure);
 }
 
+TEST_CASE("forward downstream PCC resume reapplies post-stack denoise when BGE is disabled",
+          "[forward-runner][forward-downstream][denoise]") {
+  core::AtomicOutput temporary(
+      fs::temp_directory_path() / "forward-pcc-resume-denoise");
+  const auto dir = temporary.path();
+  fs::create_directories(dir / "outputs");
+  fs::create_directories(dir / "artifacts");
+  fs::create_directories(dir / "logs");
+  Matrix2Df r(16, 16), g(16, 16), b(16, 16);
+  for (int y = 0; y < 16; ++y)
+    for (int x = 0; x < 16; ++x) {
+      const float n = ((x + y) & 1) ? 1.0f : -1.0f;
+      r(y, x) = g(y, x) = b(y, x) = 20.0f + n;
+    }
+  io::write_fits_rgb(dir / "outputs/stacked_rgb.fits", r, g, b, {});
+  io::write_fits_float(dir / "outputs/canvas_mask.fits",
+                       Matrix2Df::Ones(16, 16), {});
+  config::Config cfg;
+  cfg.astrometry.enabled = false;
+  cfg.bge.method = "none";
+  cfg.pcc.enabled = false;
+  cfg.luma_denoise.enabled = true;
+  cfg.luma_denoise.star_protection.enabled = false;
+  cfg.luma_denoise.structure_protection.enabled = false;
+  std::ostringstream evlog;
+  REQUIRE(runner::run_rgb_downstream(
+              dir, "synthetic", cfg, "PCC", evlog,
+              [](const std::string &) { return false; }) == 0);
+  const auto artifact = core::json::parse(
+      core::read_text(dir / "artifacts/luma_denoise.json"));
+  REQUIRE(artifact.at("passes").size() == 1);
+  REQUIRE(artifact.at("passes").at(0).at("stage") == "post_stack_linear");
+  REQUIRE(artifact.at("passes").at(0).at("applied") == true);
+}
+
 TEST_CASE("forward runner: ordered phases retain cache and never create prewarp frames", "[forward-runner]") {
   Fixture f; std::ostringstream log;
   REQUIRE(f.execute(log));

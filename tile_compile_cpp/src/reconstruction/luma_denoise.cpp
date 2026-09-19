@@ -8,67 +8,109 @@
 namespace tile_compile::reconstruction {
 namespace {
 
-float robust_sigma_mad_from_mat(const cv::Mat& m) {
+float robust_sigma_mad_from_mat(const cv::Mat& m,
+                                const cv::Mat& valid = cv::Mat()) {
   if (m.empty()) return 0.0f;
   std::vector<float> vals;
   vals.reserve(m.total());
   for (int y = 0; y < m.rows; ++y) {
     const float* row = m.ptr<float>(y);
-    vals.insert(vals.end(), row, row + m.cols);
+    const std::uint8_t* vrow = valid.empty() ? nullptr : valid.ptr<std::uint8_t>(y);
+    for (int x = 0; x < m.cols; ++x)
+      if ((!vrow || vrow[x] != 0) && std::isfinite(row[x])) vals.push_back(row[x]);
   }
   return tile_compile::core::robust_sigma_mad(vals);
 }
 
-float percentile_from_mat(const cv::Mat& m, float p) {
+float percentile_from_mat(const cv::Mat& m, float p,
+                          const cv::Mat& valid = cv::Mat()) {
   if (m.empty()) return 0.0f;
   std::vector<float> vals;
   vals.reserve(m.total());
   for (int y = 0; y < m.rows; ++y) {
     const float* row = m.ptr<float>(y);
-    vals.insert(vals.end(), row, row + m.cols);
+    const std::uint8_t* vrow = valid.empty() ? nullptr : valid.ptr<std::uint8_t>(y);
+    for (int x = 0; x < m.cols; ++x)
+      if ((!vrow || vrow[x] != 0) && std::isfinite(row[x])) vals.push_back(row[x]);
   }
   if (vals.empty()) return 0.0f;
   return tile_compile::core::percentile_of(vals, p);
 }
 
-cv::Mat soft_threshold_signed(const cv::Mat& src, float tau) {
-  if (!(tau > 0.0f)) return src.clone();
-  cv::Mat abs_src = cv::abs(src);
-  cv::Mat shrunk;
-  cv::subtract(abs_src, tau, shrunk);
-  cv::threshold(shrunk, shrunk, 0.0, 0.0, cv::THRESH_TOZERO);
+cv::Mat build_valid_mask(const cv::Mat& r, const cv::Mat& g, const cv::Mat& b,
+                         const std::vector<std::uint8_t>* supplied) {
+  cv::Mat valid(r.size(), CV_8U, cv::Scalar(0));
+  const bool have_supplied = supplied && supplied->size() == r.total();
+  for (int y = 0; y < r.rows; ++y) {
+    const float* rr = r.ptr<float>(y);
+    const float* gg = g.ptr<float>(y);
+    const float* bb = b.ptr<float>(y);
+    std::uint8_t* vv = valid.ptr<std::uint8_t>(y);
+    for (int x = 0; x < r.cols; ++x) {
+      const size_t i = static_cast<size_t>(y) * r.cols + x;
+      vv[x] = static_cast<std::uint8_t>(
+          (!have_supplied || (*supplied)[i] != 0) && std::isfinite(rr[x]) &&
+          std::isfinite(gg[x]) && std::isfinite(bb[x]));
+    }
+  }
+  return valid;
+}
 
-  cv::Mat neg_mask;
-  cv::compare(src, 0.0f, neg_mask, cv::CMP_LT);
-  cv::Mat neg_shrunk;
-  cv::subtract(cv::Scalar(0.0f), shrunk, neg_shrunk);
-  neg_shrunk.copyTo(shrunk, neg_mask);
-  return shrunk;
+float high_frequency_sigma(const cv::Mat& src, const cv::Mat& valid) {
+  cv::Mat valid_f;
+  valid.convertTo(valid_f, CV_32F);
+  cv::Mat numerator, denominator, low;
+  cv::GaussianBlur(src.mul(valid_f), numerator, cv::Size(0, 0), 0.75, 0.75,
+                   cv::BORDER_REFLECT_101);
+  cv::GaussianBlur(valid_f, denominator, cv::Size(0, 0), 0.75, 0.75,
+                   cv::BORDER_REFLECT_101);
+  cv::divide(numerator, denominator + 1.0e-12f, low);
+  return robust_sigma_mad_from_mat(src - low, valid);
+}
+
+cv::Mat masked_gaussian_blur(const cv::Mat& src, const cv::Mat& valid,
+                             double sigma) {
+  cv::Mat valid_f;
+  valid.convertTo(valid_f, CV_32F);
+  cv::Mat numerator, denominator, out;
+  cv::GaussianBlur(src.mul(valid_f), numerator, cv::Size(0, 0), sigma, sigma,
+                   cv::BORDER_REFLECT_101);
+  cv::GaussianBlur(valid_f, denominator, cv::Size(0, 0), sigma, sigma,
+                   cv::BORDER_REFLECT_101);
+  cv::divide(numerator, denominator + 1.0e-12f, out);
+  src.copyTo(out, denominator < 1.0e-6f);
+  return out;
+}
+
+void copy_to_matrix(const cv::Mat& src, Matrix2Df& dst) {
+  dst.resize(src.rows, src.cols);
+  cv::Mat view(src.rows, src.cols, CV_32F, dst.data());
+  src.copyTo(view);
 }
 
 /// @brief Builds the star/structure protection mask for luma denoise.
 /// @details Mirrors chroma_denoise's build_protection_mask (star_protection
-/// + structure_protection only -- extended_source_protection and
-/// large_scale_bias exist there to keep real object COLOR out of a
-/// background-bias estimate, which has no equivalent here: smoothing a
-/// smooth, extended, low-gradient region is exactly the low-risk case for
-/// luma denoise, not a hazard to guard against).
+/// + structure_protection only. Broad smooth emission remains in the final
+/// low-pass remainder of the fixed multiscale decomposition; fine extended
+/// detail is protected only when its gradient is significant above the local
+/// noise floor. There is no background-bias subtraction in the luma path.
 cv::Mat build_protection_mask(const cv::Mat& y,
+                              const cv::Mat& valid,
                               const config::LumaDenoiseConfig& cfg,
-                              LumaDenoiseStats* stats) {
+                              LumaDenoiseStats* stats,
+                              LumaDenoiseDiagnostics* diagnostics) {
   cv::Mat mask = cv::Mat::zeros(y.size(), CV_32F);
-  const double pixels = static_cast<double>(y.total());
+  const double pixels = static_cast<double>(cv::countNonZero(valid));
 
   if (cfg.star_protection.enabled) {
-    const float sigma = robust_sigma_mad_from_mat(y);
-    cv::Scalar mean_y;
-    cv::Scalar std_y;
-    cv::meanStdDev(y, mean_y, std_y);
-    const float med_like = static_cast<float>(mean_y[0]);
-    const float thr = med_like + cfg.star_protection.threshold_sigma * (sigma + 1.0e-6f);
+    const float sigma = robust_sigma_mad_from_mat(y, valid);
+    const float sky_median = percentile_from_mat(y, 50.0f, valid);
+    const float thr = sky_median + cfg.star_protection.threshold_sigma *
+                                      (sigma + 1.0e-6f);
     cv::Mat stars;
     cv::threshold(y, stars, thr, 1.0, cv::THRESH_BINARY);
     stars.convertTo(stars, CV_32F);
+    stars.setTo(0.0f, valid == 0);
     if (cfg.star_protection.dilate_px > 0) {
       const int k = std::max(1, cfg.star_protection.dilate_px * 2 + 1);
       cv::Mat ker = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(k, k));
@@ -86,18 +128,26 @@ cv::Mat build_protection_mask(const cv::Mat& y,
       cv::GaussianBlur(stars, stars, cv::Size(0, 0), star_feather, star_feather,
                        cv::BORDER_REFLECT_101);
     }
+    if (diagnostics) copy_to_matrix(stars, diagnostics->star_mask);
     cv::max(mask, stars, mask);
   }
 
   if (cfg.structure_protection.enabled) {
     cv::Mat gx, gy, mag;
-    cv::Sobel(y, gx, CV_32F, 1, 0, 3);
-    cv::Sobel(y, gy, CV_32F, 0, 1, 3);
+    const cv::Mat y_grad = masked_gaussian_blur(y, valid, 0.5);
+    cv::Sobel(y_grad, gx, CV_32F, 1, 0, 3);
+    cv::Sobel(y_grad, gy, CV_32F, 0, 1, 3);
     cv::magnitude(gx, gy, mag);
-    const float p = percentile_from_mat(mag, cfg.structure_protection.gradient_percentile);
+    const float med = percentile_from_mat(mag, 50.0f, valid);
+    const float sig = robust_sigma_mad_from_mat(cv::abs(mag - med), valid);
+    const float p = std::max(
+        percentile_from_mat(mag, cfg.structure_protection.gradient_percentile,
+                            valid),
+        med + 3.0f * sig);
     cv::Mat structures;
     cv::threshold(mag, structures, p, 1.0, cv::THRESH_BINARY);
     structures.convertTo(structures, CV_32F);
+    structures.setTo(0.0f, valid == 0);
     if (stats && pixels > 0.0)
       stats->structure_protected_fraction =
           cv::countNonZero(structures > 0.5f) / pixels;
@@ -107,6 +157,8 @@ cv::Mat build_protection_mask(const cv::Mat& y,
     // spikes, real edges and noise both).
     cv::GaussianBlur(structures, structures, cv::Size(0, 0), 2.0f, 2.0f,
                      cv::BORDER_REFLECT_101);
+    if (diagnostics)
+      copy_to_matrix(structures, diagnostics->structure_mask);
     cv::max(mask, structures, mask);
   }
 
@@ -116,10 +168,12 @@ cv::Mat build_protection_mask(const cv::Mat& y,
   cv::GaussianBlur(mask, mask, cv::Size(0, 0), 1.0, 1.0, cv::BORDER_REFLECT_101);
   cv::min(mask, 1.0, mask);
   cv::max(mask, 0.0, mask);
+  mask.setTo(0.0f, valid == 0);
   if (stats && pixels > 0.0) {
     stats->combined_protected_fraction = cv::countNonZero(mask > 0.5f) / pixels;
-    stats->mean_protection = cv::mean(mask)[0];
+    stats->mean_protection = cv::mean(mask, valid)[0];
   }
+  if (diagnostics) copy_to_matrix(mask, diagnostics->combined_mask);
   return mask;
 }
 
@@ -127,21 +181,33 @@ cv::Mat build_protection_mask(const cv::Mat& y,
 /// @details Identical structure to chroma_denoise's chroma_wavelet stage,
 /// applied here to luma instead of a chroma plane.
 void denoise_luma_plane_inplace(cv::Mat& y,
-                                const config::LumaDenoiseConfig::WaveletConfig& cfg) {
+                                const config::LumaDenoiseConfig::WaveletConfig& cfg,
+                                const cv::Mat& valid, const cv::Mat& protect) {
   if (!cfg.enabled) return;
-  cv::Mat cur = y.clone();
+  cv::Mat approximation = y.clone();
+  std::vector<cv::Mat> details;
   const int levels = std::max(1, cfg.levels);
   for (int lvl = 0; lvl < levels; ++lvl) {
     const double sigma = std::pow(2.0, static_cast<double>(lvl)) * 0.75;
     cv::Mat low;
-    cv::GaussianBlur(cur, low, cv::Size(0, 0), sigma, sigma, cv::BORDER_REFLECT_101);
-    cv::Mat detail = cur - low;
-    const float sigma_n = robust_sigma_mad_from_mat(detail);
-    const float tau = cfg.threshold_scale * cfg.soft_k * sigma_n;
-    cv::Mat shrunk = soft_threshold_signed(detail, tau);
-    cur = low + shrunk;
+    low = masked_gaussian_blur(approximation, valid, sigma);
+    details.push_back(approximation - low);
+    approximation = low;
   }
-  y = cur;
+  cv::Mat noise_mask = valid.clone();
+  if (!protect.empty()) noise_mask.setTo(0, protect > 0.1f);
+  cv::Mat reconstructed = approximation;
+  for (cv::Mat& detail : details) {
+    const float sigma_n = robust_sigma_mad_from_mat(detail, noise_mask);
+    const float tau = cfg.threshold_scale * sigma_n;
+    cv::Mat ratio;
+    cv::divide(tau, cv::abs(detail) + 1.0e-12f, ratio);
+    cv::pow(ratio, cfg.soft_k, ratio);
+    cv::Mat gain = 1.0f - ratio;
+    cv::max(gain, 0.0f, gain);
+    reconstructed += detail.mul(gain);
+  }
+  y = reconstructed;
 }
 
 } // namespace
@@ -149,7 +215,9 @@ void denoise_luma_plane_inplace(cv::Mat& y,
 LumaDenoiseStats luma_denoise_rgb_inplace(
     Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
     const config::LumaDenoiseConfig& cfg,
-    Matrix2Df* protection_mask_out) {
+    Matrix2Df* protection_mask_out,
+    const std::vector<std::uint8_t>* valid_mask,
+    LumaDenoiseDiagnostics* diagnostics) {
   LumaDenoiseStats stats;
   if (!cfg.enabled) return stats;
   if (r.size() <= 0 || g.size() <= 0 || b.size() <= 0) return stats;
@@ -161,13 +229,16 @@ LumaDenoiseStats luma_denoise_rgb_inplace(
   cv::Mat R(r.rows(), r.cols(), CV_32F, r.data());
   cv::Mat G(g.rows(), g.cols(), CV_32F, g.data());
   cv::Mat B(b.rows(), b.cols(), CV_32F, b.data());
+  const cv::Mat valid = build_valid_mask(R, G, B, valid_mask);
+  const auto valid_pixels = static_cast<std::uint64_t>(cv::countNonZero(valid));
+  if (valid_pixels == 0) return stats;
 
   cv::Mat Y = 0.25f * R + 0.5f * G + 0.25f * B;
   stats.applied = true;
-  stats.valid_pixels = static_cast<std::uint64_t>(r.size());
-  stats.input_luma_sigma = robust_sigma_mad_from_mat(Y);
+  stats.valid_pixels = valid_pixels;
+  stats.input_luma_sigma = high_frequency_sigma(Y, valid);
 
-  cv::Mat protect = build_protection_mask(Y, cfg, &stats);
+  cv::Mat protect = build_protection_mask(Y, valid, cfg, &stats, diagnostics);
   if (protection_mask_out != nullptr) {
     protection_mask_out->resize(r.rows(), r.cols());
     cv::Mat out_view(r.rows(), r.cols(), CV_32F, protection_mask_out->data());
@@ -175,13 +246,14 @@ LumaDenoiseStats luma_denoise_rgb_inplace(
   }
 
   cv::Mat Y_denoised = Y.clone();
-  denoise_luma_plane_inplace(Y_denoised, cfg.wavelet);
+  denoise_luma_plane_inplace(Y_denoised, cfg.wavelet, valid, protect);
 
   cv::Mat amount_map(Y.size(), CV_32F, cv::Scalar(cfg.blend_amount));
   amount_map = amount_map.mul(1.0f - cfg.luma_guard_strength * protect);
   cv::min(amount_map, cfg.blend_amount, amount_map);
   cv::max(amount_map, 0.0, amount_map);
-  stats.mean_denoise_fraction = cv::mean(amount_map)[0];
+  stats.mean_denoise_fraction = cv::mean(amount_map, valid)[0];
+  if (diagnostics) copy_to_matrix(amount_map, diagnostics->effective_amount);
 
   cv::Mat one_minus = 1.0f - amount_map;
   cv::Mat Y_mix = Y.mul(one_minus) + Y_denoised.mul(amount_map);
@@ -196,13 +268,17 @@ LumaDenoiseStats luma_denoise_rgb_inplace(
   // removing them. Adding the same smooth delta (Y_mix - Y) to every
   // channel is mathematically exact (0.25+0.5+0.25 == 1, so the new
   // weighted luma of R+delta/G+delta/B+delta is exactly Y_mix) and leaves
-  // every channel DIFFERENCE, hence all perceived color, completely
-  // unchanged -- only brightness moves, with none of the ratio's noise
-  // amplification.
+  // every additive channel DIFFERENCE unchanged. This deliberately does not
+  // claim invariant RGB ratios or perceptual saturation: a large common offset
+  // changes both, so the blend and protection masks remain part of the
+  // scientific contract.
   cv::Mat delta = Y_mix - Y;
   cv::Mat R_new = R + delta;
   cv::Mat G_new = G + delta;
   cv::Mat B_new = B + delta;
+  R.copyTo(R_new, valid == 0);
+  G.copyTo(G_new, valid == 0);
+  B.copyTo(B_new, valid == 0);
 
   R_new.copyTo(R);
   G_new.copyTo(G);

@@ -1746,12 +1746,10 @@ void Config::validate() const {
     throw ValidationError(
         "chroma_denoise.color_space must be 'ycbcr_linear' or 'opponent_linear'");
   }
-  if (chroma_denoise.apply_stage != "pre_stack_tiles" &&
-      chroma_denoise.apply_stage != "post_stack_linear" &&
-      chroma_denoise.apply_stage != "post_pcc" &&
-      chroma_denoise.apply_stage != "both") {
+  if (chroma_denoise.apply_stage != "post_stack_linear" &&
+      chroma_denoise.apply_stage != "post_pcc") {
     throw ValidationError(
-        "chroma_denoise.apply_stage must be 'pre_stack_tiles', 'post_stack_linear', 'post_pcc' or 'both'");
+        "chroma_denoise.apply_stage must be 'post_stack_linear' or 'post_pcc'");
   }
   if (!is_between_0_1(chroma_denoise.luma_guard_strength)) {
     throw ValidationError("chroma_denoise.luma_guard_strength must be in [0,1]");
@@ -1760,16 +1758,18 @@ void Config::validate() const {
     throw ValidationError(
         "chroma_denoise.star_protection.threshold_sigma must be > 0");
   }
-  if (chroma_denoise.star_protection.dilate_px < 0) {
-    throw ValidationError("chroma_denoise.star_protection.dilate_px must be >= 0");
+  if (chroma_denoise.star_protection.dilate_px < 0 ||
+      chroma_denoise.star_protection.dilate_px > 100) {
+    throw ValidationError("chroma_denoise.star_protection.dilate_px must be in [0,100]");
   }
   if (chroma_denoise.structure_protection.gradient_percentile < 0.0f ||
       chroma_denoise.structure_protection.gradient_percentile > 100.0f) {
     throw ValidationError(
         "chroma_denoise.structure_protection.gradient_percentile must be in [0,100]");
   }
-  if (chroma_denoise.chroma_wavelet.levels < 1) {
-    throw ValidationError("chroma_denoise.chroma_wavelet.levels must be >= 1");
+  if (chroma_denoise.chroma_wavelet.levels < 1 ||
+      chroma_denoise.chroma_wavelet.levels > 8) {
+    throw ValidationError("chroma_denoise.chroma_wavelet.levels must be in [1,8]");
   }
   if (chroma_denoise.chroma_wavelet.threshold_scale <= 0.0f) {
     throw ValidationError(
@@ -1779,9 +1779,11 @@ void Config::validate() const {
     throw ValidationError("chroma_denoise.chroma_wavelet.soft_k must be > 0");
   }
   if (chroma_denoise.chroma_bilateral.sigma_spatial <= 0.0f ||
-      chroma_denoise.chroma_bilateral.sigma_range <= 0.0f) {
+      chroma_denoise.chroma_bilateral.sigma_spatial > 64.0f ||
+      chroma_denoise.chroma_bilateral.sigma_range <= 0.0f ||
+      chroma_denoise.chroma_bilateral.sigma_range > 20.0f) {
     throw ValidationError(
-        "chroma_denoise.chroma_bilateral sigma values must be > 0");
+        "chroma_denoise.chroma_bilateral sigma_spatial must be in (0,64] and sigma_range in (0,20]");
   }
   if (chroma_denoise.blend.mode != "chroma_only") {
     throw ValidationError("chroma_denoise.blend.mode must be 'chroma_only'");
@@ -1826,16 +1828,17 @@ void Config::validate() const {
     throw ValidationError(
         "luma_denoise.star_protection.threshold_sigma must be > 0");
   }
-  if (luma_denoise.star_protection.dilate_px < 0) {
-    throw ValidationError("luma_denoise.star_protection.dilate_px must be >= 0");
+  if (luma_denoise.star_protection.dilate_px < 0 ||
+      luma_denoise.star_protection.dilate_px > 100) {
+    throw ValidationError("luma_denoise.star_protection.dilate_px must be in [0,100]");
   }
   if (luma_denoise.structure_protection.gradient_percentile < 0.0f ||
       luma_denoise.structure_protection.gradient_percentile > 100.0f) {
     throw ValidationError(
         "luma_denoise.structure_protection.gradient_percentile must be in [0,100]");
   }
-  if (luma_denoise.wavelet.levels < 1) {
-    throw ValidationError("luma_denoise.wavelet.levels must be >= 1");
+  if (luma_denoise.wavelet.levels < 1 || luma_denoise.wavelet.levels > 8) {
+    throw ValidationError("luma_denoise.wavelet.levels must be in [1,8]");
   }
   if (luma_denoise.wavelet.threshold_scale <= 0.0f) {
     throw ValidationError("luma_denoise.wavelet.threshold_scale must be > 0");
@@ -2245,25 +2248,25 @@ std::string get_schema_json() {
     "chroma_denoise": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "color_space":{"type":"string","enum":["ycbcr_linear","opponent_linear"]},
-                      "apply_stage":{"type":"string","enum":["pre_stack_tiles","post_stack_linear","post_pcc","both"]},
+                      "apply_stage":{"type":"string","enum":["post_stack_linear","post_pcc"]},
                       "protect_luma":{"type":"boolean"},
                       "luma_guard_strength":{"type":"number","minimum":0,"maximum":1},
                       "star_protection":{"type":"object","properties":{
                         "enabled":{"type":"boolean"},
                         "threshold_sigma":{"type":"number","exclusiveMinimum":0},
-                        "dilate_px":{"type":"integer","minimum":0}}},
+                        "dilate_px":{"type":"integer","minimum":0,"maximum":100}}},
                       "structure_protection":{"type":"object","properties":{
                         "enabled":{"type":"boolean"},
                         "gradient_percentile":{"type":"number","minimum":0,"maximum":100}}},
                       "chroma_wavelet":{"type":"object","properties":{
                         "enabled":{"type":"boolean"},
-                        "levels":{"type":"integer","minimum":1},
+                        "levels":{"type":"integer","minimum":1,"maximum":8},
                         "threshold_scale":{"type":"number","exclusiveMinimum":0},
                         "soft_k":{"type":"number","exclusiveMinimum":0}}},
                       "chroma_bilateral":{"type":"object","properties":{
                         "enabled":{"type":"boolean"},
-                        "sigma_spatial":{"type":"number","exclusiveMinimum":0},
-                        "sigma_range":{"type":"number","exclusiveMinimum":0}}},
+                        "sigma_spatial":{"type":"number","exclusiveMinimum":0,"maximum":64},
+                        "sigma_range":{"type":"number","exclusiveMinimum":0,"maximum":20}}},
                       "blend":{"type":"object","properties":{
                         "mode":{"type":"string","enum":["chroma_only"]},
                         "amount":{"type":"number","minimum":0,"maximum":1}}},
@@ -2279,13 +2282,13 @@ std::string get_schema_json() {
                       "star_protection":{"type":"object","properties":{
                         "enabled":{"type":"boolean"},
                         "threshold_sigma":{"type":"number","exclusiveMinimum":0},
-                        "dilate_px":{"type":"integer","minimum":0}}},
+                        "dilate_px":{"type":"integer","minimum":0,"maximum":100}}},
                       "structure_protection":{"type":"object","properties":{
                         "enabled":{"type":"boolean"},
                         "gradient_percentile":{"type":"number","minimum":0,"maximum":100}}},
                       "wavelet":{"type":"object","properties":{
                         "enabled":{"type":"boolean"},
-                        "levels":{"type":"integer","minimum":1},
+                        "levels":{"type":"integer","minimum":1,"maximum":8},
                         "threshold_scale":{"type":"number","exclusiveMinimum":0},
                         "soft_k":{"type":"number","exclusiveMinimum":0}}} } },
     "global_metrics": { "type":"object",

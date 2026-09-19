@@ -269,6 +269,8 @@ pcc:
 
 ## Chroma Denoise / Background Color Bias (`chroma_denoise.*`)
 
+Default: disabled (opt-in), like every denoise stage (`chroma_denoise.enabled: false`).
+
 **When to enable:**
 - Chroma noise ("confetti") in the background after the stack
 - Broad color casts/blotches that `chroma_wavelet`/`chroma_bilateral` alone
@@ -327,13 +329,17 @@ chroma_denoise:
 - Both the C++ struct default and the schema default for
   `large_scale_bias.enabled` are `false` (opt-in); only enable it for
   compact targets where mask coverage is verified.
+- With `reconstruction.diagnostics.level: full`, the runner writes the star,
+  structure and extended-source component masks plus the effective denoise
+  amount map as FITS artifacts in addition to the combined protection mask.
+  This separates halo detection from mask-transition effects.
 
 ---
 
 ## Luminance denoise (`luma_denoise.*`)
 
 **When to enable:** fine-grained luminance noise in the reconstructed image
-that is already visible before multiband fusion (not just color noise --
+that is already visible on the reconstructed linear image before BGE/PCC (not just color noise --
 that's `chroma_denoise`'s job).
 
 ```yaml
@@ -357,7 +363,7 @@ luma_denoise:
 
 - **Background:** the previous architecture had a luminance denoise stage
   that was removed in a cutover and never replaced. `luma_denoise` runs by
-  default **post-stack, before multiband** -- ahead of `chroma_denoise`,
+  default **on the reconstructed linear image before BGE/PCC** -- ahead of `chroma_denoise`,
   which only smooths the color components.
 - Reconstruction is additive (`R_new = R + (Y_denoised - Y)` etc.), not
   ratio-based. An earlier implementation used `R * (Y_denoised / Y)`; that
