@@ -922,7 +922,7 @@
             "full_frame_estimator": {
               "type": "boolean",
               "default": false,
-              "description": "Pilot + full-frame estimator: the hash-selected reservoir frames (at most 64) define per-pixel clip bounds, then every frame's folded candidate is tested against them and accumulated, so all frames determine the value instead of only the reservoir. Runs on CPU and CUDA; reads source quality maps for all frames. Needs wide symmetric clip bounds (about clip_sigma_low = clip_sigma_high = 4)."
+              "description": "Pilot + full-frame estimator: the hash-selected reservoir frames (at most 64) define per-pixel clip bounds, then every frame's folded candidate is tested against them and accumulated, so all frames determine the value instead of only the reservoir. Runs on CPU and CUDA; reads source quality maps for all frames. Needs wide symmetric clip bounds (about clip_sigma_low = clip_sigma_high = 4) and reconstruction.multiband.enabled. The schema default is false; the shipped tile_compile.yaml enables it."
             },
             "chunk_rows": {
               "type": "integer",

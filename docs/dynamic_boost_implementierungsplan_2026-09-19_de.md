@@ -428,6 +428,52 @@ Stacks. Kosten: FORWARD_DRIZZLE 291 s auf 488 s (+68 %), Phasensumme 1800 s
 auf 2113 s; dem Modus zuzurechnen sind FORWARD_DRIZZLE +197 s (+10,9 %) und
 MULTIBAND +29 s, zusammen +12,6 %. Das 10 %-Gate bleibt knapp verfehlt.
 
+### P2-Bewertung: `luma_denoise` auf dem neuen M42-Stack, 2026-09-20
+
+Test auf einer schlanken Kopie des CUDA-Laufs (`p2_m42_base`, Resume ab
+ASTROMETRY, nur `luma_denoise` geändert; die Basisvariante ohne Denoise
+reproduziert `stacked_rgb_hms.fits` bitidentisch). `luma_denoise` wirkt auf das
+lineare RGB vor BGE/PCC/HMS; das Ausgabe-`stacked_rgb.fits` bleibt unverändert,
+gemessen wird deshalb auf `stacked_rgb_pcc.fits` (linear) und
+`stacked_rgb_hms.fits`. Varianten: A = Wavelet (Levels 3, Schwelle 1,5) +
+`extended_source_protection` (`luma_sigma` 2,5, `dilate_px` 30), Bilateral aus;
+B = A + Bilateral (1,5 / 2); C = stärker (Blend 1,0, Levels 4, Schwelle 2,5,
+Bilateral 2,5 / 3).
+
+| Variante | Himmel-Sigma PCC (1x1) | Nebel/Himmel W/N, PCC, 4x4 | dito HMS | Kernbereich Laplace-Varianz PCC / HMS |
+| --- | ---: | ---: | ---: | ---: |
+| Basis (kein Denoise) | 0,585 | 12,5 / 13,9 | 12,6 / 14,0 | 1,00 / 1,00 |
+| A Wavelet + ESP | 0,257 (x0,44) | 16,6 / 18,6 | 16,7 / 18,8 | 1,00 / 0,88 |
+| B + Bilateral | 0,251 (x0,43) | 16,7 / 18,7 | 17,0 / 19,0 | 1,00 / 0,77 |
+| C stärker | 0,255 (x0,44) | 15,7 / 17,7 | 16,1 / 18,1 | 1,00 / 0,71 |
+| DWARF (§0) | | | 15,2 / 16,8 | |
+
+Sternfluss (143 Sterne, PCC linear) und Halbflussradius gegen die Basis:
+1,000 in allen Varianten (Median, p16/p84 innerhalb 0,4 %); Nebelhelligkeit über
+Himmel bleibt erhalten (PCC 2,99/3,36 gegen 3,02/3,35). Nullhimmel (PCC, sechs
+Boxen, Sterne maskiert): Basis +73/-0 kohärente Flecken über 5 sigma, A +3/-0,
+B +10/-0; alle 3 Flecken von A sind auch in der Basis vorhanden (z > 2,5).
+
+Bewertung: Variante A (Standard-Wavelet plus `extended_source_protection`,
+Bilateral aus) ist der Sweet Spot. Das Himmelsrauschen sinkt auf 44 %, der
+Kontrast im Vorschau-Maßstab steigt im HMS-Produkt auf 16,7/18,8, also über
+den DWARF-Werten von 15,2/16,8, ohne Sternfluss oder -größe zu ändern und ohne
+neue Himmelsstruktur. Bilateral bringt nur +1,5 % Kontrast, senkt aber die
+HMS-Laplace-Varianz weiter (0,77) und ist nicht zu empfehlen; stärkere
+Parameter (C) sind schlechter. Einschränkungen: Der Laplace-Wert im HMS-Kern
+enthält auch Rauschen und ist kein reines Detailmaß; der Kontrast im
+4x4-Maßstab profitiert davon, dass das Denoise korreliertes Rauschen glättet,
+er ist keine Detektionssignifikanz; die DWARF-Zahlen stammen aus einer
+interpolierten Registrierung (§0). M31 (kompaktes Objekt) ist damit noch nicht
+geprüft. Empfohlener Block für M42:
+
+```yaml
+luma_denoise:
+  enabled: true
+  extended_source_protection: {enabled: true, luma_sigma: 2.5, dilate_px: 30}
+  bilateral: {enabled: false}
+```
+
 Offen: Kanalweise Sternfluss gegen einen unverzerrten Bezug, Nullhimmel an
 weiteren Objekten (M31), Runner-/GUI-Sichtbarkeit der Zähler.
 

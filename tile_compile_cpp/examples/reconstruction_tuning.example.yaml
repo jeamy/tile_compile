@@ -379,12 +379,13 @@ reconstruction:
     pixfrac: 0.6
     robust_passes: 4
     min_clip_contributors: 5
-    full_frame_estimator: false
+    # See tile_compile.yaml: needs clip 4/4, multiband enabled, CUDA recommended.
+    full_frame_estimator: true
     chunk_rows: 0
     chunk_halo_rows: -1
     memory_budget_mb: 0
   clipping:
-    clip_sigma_low: 2.0
+    clip_sigma_low: 4.0
     clip_sigma_high: 4.0
     min_fraction: 0.4
     min_n_eff: 2.0

@@ -24,6 +24,14 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   Use this file to diff your own configuration against current production
   values.
 
+  **Shipped defaults:** `tile_compile.yaml` and this file now enable
+  `reconstruction.drizzle.full_frame_estimator: true` with
+  `reconstruction.clipping.clip_sigma_low/high: 4/4` (code and schema default
+  stay `false` and `3.0`, so configs that omit the keys keep the legacy
+  behaviour). The mode needs `reconstruction.multiband.enabled`, costs about
+  +65 to +70 % FORWARD_DRIZZLE time and is ~25x slower on the host kernel, so
+  keep it for CUDA runs; the runner warns when no CUDA device is used.
+
 - `mono.example.yaml`
   Full reference for MONO datasets: `data.color_mode: MONO`,
   `chroma_denoise.enabled: false`, `pcc.enabled: false`.

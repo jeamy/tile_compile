@@ -574,6 +574,14 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     const std::string fd_backend=
         fd_accel.selected==core::AccelerationBackend::cuda ? "cuda" : "cpu";
     std::string fd_backend_used="cpu", fd_cuda_fallback_reason;
+    // The pilot/full-frame estimator is ~25x slower on the host kernel than on
+    // CUDA (M42: 9632 s vs 383 s reservoir path); say so up front.
+    if (cfg.reconstruction.drizzle.full_frame_estimator &&
+        (fd_backend!="cuda" || !reconstruction::forward_drizzle_cuda_runtime_available()))
+      emitter.warning(run_id,
+          "reconstruction.drizzle.full_frame_estimator is enabled but no CUDA "
+          "device is used for FORWARD_DRIZZLE: the host kernel is roughly 25x "
+          "slower. Set full_frame_estimator: false or use a CUDA device.",log);
 
     // Plan 11.11.1: probe the GPU name for the throughput-baseline machine
     // BEFORE any phase begins --- the AccelerationContext ctor calls

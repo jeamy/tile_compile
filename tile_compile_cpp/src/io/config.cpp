@@ -1568,6 +1568,9 @@ void ReconstructionConfig::validate() const {
       "drizzle.robust_passes must be in [1, 6]");
   req(drizzle.min_clip_contributors >= 2,
       "drizzle.min_clip_contributors must be >= 2");
+  req(!drizzle.full_frame_estimator || multiband.enabled,
+      "drizzle.full_frame_estimator requires reconstruction.multiband.enabled "
+      "(the profile weights need the quality/meta streams)");
   req(drizzle.chunk_rows >= 0, "drizzle.chunk_rows must be >= 0");
   req(drizzle.chunk_halo_rows == -1 || drizzle.chunk_halo_rows >= 1,
       "drizzle.chunk_halo_rows must be -1 (auto) or >= 1");

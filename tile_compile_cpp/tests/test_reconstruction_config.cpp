@@ -225,4 +225,9 @@ TEST_CASE("reconstruction: drizzle.full_frame_estimator defaults off and parses"
       "reconstruction:\n  drizzle:\n    full_frame_estimator: true\n");
   REQUIRE(on.reconstruction.drizzle.full_frame_estimator);
   REQUIRE_NOTHROW(on.reconstruction.validate());
+  // The estimator needs the multiband profile streams.
+  Config no_mb = parse(
+      "reconstruction:\n  drizzle:\n    full_frame_estimator: true\n"
+      "  multiband:\n    enabled: false\n");
+  REQUIRE_THROWS_AS(no_mb.reconstruction.validate(), ValidationError);
 }

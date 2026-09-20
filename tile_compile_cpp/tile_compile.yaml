@@ -257,12 +257,15 @@ reconstruction:
     pixfrac: 0.8
     robust_passes: 4
     min_clip_contributors: 5
-    full_frame_estimator: false
+    # All frames (not only the ~64 hash-selected reservoir frames) determine the
+    # value. Needs the wide symmetric clip below (4/4), reconstruction.multiband.
+    # enabled and, for sane runtimes, a CUDA device (host kernel ~25x slower).
+    full_frame_estimator: true
     chunk_rows: 0
     chunk_halo_rows: -1
     memory_budget_mb: 0
   clipping:
-    clip_sigma_low: 2
+    clip_sigma_low: 4
     clip_sigma_high: 4
     min_fraction: 0.4
     min_n_eff: 2
