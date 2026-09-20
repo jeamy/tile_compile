@@ -53,6 +53,17 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   master and the astap/siril data) before running. Background and
   measurements: `docs/dynamic_boost_implementierungsplan_2026-09-19_de.md`.
 
+- `m42_dwarf2_full_frame_luma.example.yaml`, `m31_dwarf2_full_frame_luma.example.yaml`
+  The two profiles above with the recommended `luma_denoise` stage enabled:
+  wavelet + `extended_source_protection`, bilateral off. Each `luma_denoise`
+  block is commented parameter by parameter. Against the same profile without
+  luma denoise: sky sigma x0.44 on both targets; faint-structure contrast in
+  the HMS product 12.6/14.0 -> 16.7/18.8 (M42, above the DWARF reference
+  15.2/16.8) and 8.4/8.0 -> 11.8/11.2 (M31); star flux and size unchanged; no
+  new sky structure. The bilateral filter and stronger wavelet settings were
+  not better (details in the plan). The stage is applied to the working image
+  only; `outputs/stacked_rgb.fits` stays the plain reconstruction.
+
 - `forward_drizzle_streaming.example.yaml`
   Minimal fragment documenting the bounded drizzle streaming/memory options
   (`chunk_rows`, `chunk_halo_rows`, `memory_budget_mb`, diagnostic store).

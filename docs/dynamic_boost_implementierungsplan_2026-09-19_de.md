@@ -474,6 +474,19 @@ luma_denoise:
   bilateral: {enabled: false}
 ```
 
+M31-Bestätigung P2 (Kopie `p2_m31_base` des Voll-Frame-Laufs, Resume ab
+ASTROMETRY, Variante A mit dem Block aus `m31_dwarf2_full_frame_luma.example.yaml`;
+Basis ohne Denoise reproduziert `stacked_rgb_hms.fits` bitidentisch): Himmel-Sigma
+PCC 0,949 auf 0,422 (x0,44); Nebel/Himmel der Außenarme NE/SW (4x4) PCC
+8,00/7,56 auf 11,55/10,81, HMS 8,35/7,96 auf 11,76/11,19; Armhelligkeit über
+dem Himmel erhalten (PCC 3,387/3,171 gegen 3,398/3,211); Kern-Laplace-Varianz
+0,93 (PCC) und 0,92 (HMS); Sternfluss (247 Sterne) 1,0008, Halbflussradius
+1,000; Nullhimmel 0 gegen 29 kohärente Flecken über 5 sigma (keine neue
+Struktur). Damit gilt Variante A auf beiden Zielen (M42, M31); Beispielprofile
+`m42_dwarf2_full_frame_luma.example.yaml` und `m31_dwarf2_full_frame_luma.example.yaml`
+enthalten sie mit kommentiertem `luma_denoise`-Block. Die Defaults in
+`tile_compile.yaml` bleiben unverändert (`luma_denoise.enabled: false`).
+
 Offen: Kanalweise Sternfluss gegen einen unverzerrten Bezug, Nullhimmel an
 weiteren Objekten (M31), Runner-/GUI-Sichtbarkeit der Zähler.
 
