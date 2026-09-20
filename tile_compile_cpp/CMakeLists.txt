@@ -445,6 +445,7 @@ set(LIB_SOURCES
     src/image/background_extraction.cpp
     src/image/autobge.cpp
     src/image/hypermetric_stretch.cpp
+    src/image/color_cast_correction.cpp
     src/registration/registration.cpp
     src/registration/global_registration.cpp
     src/registration/astrometric_rescue.cpp
@@ -718,6 +719,7 @@ if(BUILD_TESTS)
             tests/test_profile_store_manifest.cpp
             tests/test_coverage_filtered_grid.cpp
             tests/test_hypermetric_stretch.cpp
+            tests/test_color_cast_correction.cpp
             tests/test_photometric_color_cal.cpp
             ${_tile_compile_build_info_source}
         )

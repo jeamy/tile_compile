@@ -1549,6 +1549,17 @@
           "description": "Percentile used as the \"must not clip\" highlight ceiling in ready_to_use output scaling, instead of the true brightest pixel. 100 = never clip (default): on a target with one very bright, compact highlight (e.g. a nebula core), this can cap the whole frame's contrast far below what the rest of the image could use. Lower (e.g. 99.9) allows a small, bounded top fraction of pixels to clip in exchange for more contrast/\"punch\" in stars and highlight regions. Only affects the top ~1-2% of the tone range; does not move the mid-tone/background level, which stays pinned to target_bg regardless -- raise target_bg too if the dark/mid-tone body should also be brighter. Range 90-100. Recommended: 100 (off) unless residual highlights look flat.",
           "default": 100.0
         },
+        "color_cast_correction": {
+          "type": "object",
+          "description": "Adaptive average-neutral colour-cast correction applied to the stretched RGB after HMS (Siril SCNR average neutral, made automatic). Per pixel G is pulled back towards the mean of R and B measured above the per-channel sky level, so the sky level is preserved; the strength is chosen so that the median G/((R+B)/2) over the object pixels reaches target_ratio (capped at max_amount). Nothing is changed when the measured ratio is already <= min_excess, which protects genuinely green/teal objects (e.g. OIII emission). Off by default.",
+          "properties": {
+            "enabled": {"type": "boolean", "default": false, "description": "Enable the adaptive average-neutral colour-cast correction after HMS."},
+            "max_amount": {"type": "number", "exclusiveMinimum": 0, "maximum": 1, "default": 1.0, "description": "Upper limit of the correction strength (0-1]. The actual strength is chosen automatically up to this cap."},
+            "target_ratio": {"type": "number", "exclusiveMinimum": 0.5, "maximum": 1.5, "default": 1.0, "description": "Median G/((R+B)/2) over the object pixels the automatic strength aims for. 1.0 = neutral; slightly above 1 keeps some green."},
+            "min_excess": {"type": "number", "minimum": 1, "maximum": 2, "default": 1.02, "description": "Protection threshold: if the measured ratio is at or below this value the image is left unchanged."},
+            "object_sigma": {"type": "number", "exclusiveMinimum": 0, "maximum": 50, "default": 3.0, "description": "Object pixels are those whose blurred luminance is more than this many sky sigmas above the sky; the brightest 1 % (stars) are excluded."}
+          }
+        },
         "write_channels": {
           "type": "boolean",
           "description": "When true, writes individual R, G, B channel files in addition to the RGB output. Default: false.",

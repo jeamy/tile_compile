@@ -2030,6 +2030,11 @@ VeraLux HyperMetric Stretch (HMS) ist eine optionale finale RGB-Stretch-Phase na
 | Key | Typ | Default | Constraint |
 |-----|-----|---------|------------|
 | `hypermetric_stretch.highlight_ceiling_percentile` | number | `100.0` | 90 – 100 |
+| `hypermetric_stretch.color_cast_correction.enabled` | boolean | `false` | Adaptive Average-Neutral-Korrektur eines Grünstichs nach HMS (Standard aus). |
+| `hypermetric_stretch.color_cast_correction.max_amount` | number | `1.0` | Obergrenze der automatischen Stärke, (0, 1]. |
+| `hypermetric_stretch.color_cast_correction.target_ratio` | number | `1.0` | Median G/((R+B)/2) auf Objektpixeln, den die Korrektur anstrebt, (0,5, 1,5]. |
+| `hypermetric_stretch.color_cast_correction.min_excess` | number | `1.02` | Keine Änderung, wenn das gemessene Verhältnis auf oder unter diesem Wert liegt, [1, 2] (schützt grüne/türkise Objekte). |
+| `hypermetric_stretch.color_cast_correction.object_sigma` | number | `3.0` | Objektpixel: geglättete Helligkeit über Himmel + k Sigma, (0, 50]; hellste 1 % ausgeschlossen. |
 
 **Zweck:** In `ready_to_use` berechnet `adaptive_output_scaling` den finalen Kontrast-Scale als `min(contrast_scale, physical_scale)`, wobei `physical_scale` standardmäßig (`100`) so gewählt wird, dass der **tatsächlich hellste reale Pixel** nie über 1.0 geht. Bei einem Ziel mit einem einzelnen sehr hellen, kompakten Highlight (z. B. einem Nebelkern) deckelt das den Kontrast des **gesamten** Bildes weit unter das, was der Rest des Bildes sonst nutzen könnte — auf einem realen M42-Run lag `physical_scale` dadurch bei nur ~0,6 % von `contrast_scale`, obwohl `black_clip_percent`/`white_clip_percent` beide exakt `0.0` blieben. Ein niedrigerer Wert (z. B. `99.9`) ersetzt den exakten Max-Pixel durch ein Perzentil und lässt damit einen kleinen, begrenzten Anteil der hellsten Pixel bewusst clippen, im Tausch gegen deutlich mehr Kontrast in Sternen/Highlight-Bereichen. Wichtig: Das bewegt nur die obersten ~1–2 % der Helligkeitsverteilung — der Median/Hintergrund bleibt exakt bei `target_bg` gepinnt (der finale MTF-Abgleich sorgt dafür, unabhängig vom Ceiling-Wert). Um auch den dunklen/mittleren Bildbereich (Himmel, schwache Nebelschwaden) aufzuhellen, muss zusätzlich `target_bg` angehoben werden — beide Hebel sind unabhängig und additiv, keine Alternativen.
 

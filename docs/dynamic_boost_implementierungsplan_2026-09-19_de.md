@@ -520,6 +520,26 @@ auf Objektpixeln gegen 1,0), sonst entsteht ein Magenta-Bias, und sie wirkt
 nach HMS deutlich besser als davor. Nicht umgesetzt; M42 (natürlich
 grün-türkisfarbene OIII-Anteile) ist ungeprüft und braucht eine Schutzregel.
 
+Umsetzung der Farbstich-Korrektur (2026-09-20): Neuer Schritt
+`hypermetric_stretch.color_cast_correction` (Default aus; `src/image/
+color_cast_correction.cpp`), angewandt nach HMS auf das gestreckte RGB
+(`run_hms_phase`, auch im Resume ab HMS). G wird pixelweise auf das Mittel aus
+R und B zurückgezogen, gemessen über dem Himmelsniveau je Kanal. Die Stärke ist
+adaptiv: Sie wird per Bisektion so gewählt, dass der Median G/((R+B)/2) auf den
+Objektpixeln `target_ratio` (1,0) erreicht, gedeckelt durch `max_amount`; bei
+gemessenem Verhältnis <= `min_excess` (1,02) bleibt das Bild unverändert.
+Objektpixel: geglättete Helligkeit (9x9, ohne das Mittelpunktspixel, damit die
+Auswahl nicht vom eigenen G-Rauschen abhängt) über Himmel + `object_sigma` x
+Rauschen (aus Differenzen geglätteter Werte im Abstand 9 px), die hellsten 1 %
+(Sterne) ausgenommen. Die Tests deckten zwei Messfehler auf (Selektionsbias
+durch das eigene G-Rauschen, zu kleine Himmelsstreuung aus den dunkelsten 30 %),
+beide behoben. Realdaten (Resume ab HMS): M31 Verhältnis 1,23 auf 1,00,
+Stärke 0,40; G/((R+B)/2) Arme 1,055 auf 1,007, Kern 1,148 auf 1,078 (ein
+globaler Wert, der Kern bleibt etwas grün; `target_ratio` unter 1 zieht ihn
+weiter), Himmel-G -0,7 %, R und B unverändert, Sternkerne (obere 0,05 %) G
+-1,5 %; M42 gemessen 0,78, damit unverändert (bitidentisch). Die Beispielprofile
+der M31 enthalten den Schritt eingeschaltet, M42 ausgeschaltet.
+
 Offen: Kanalweise Sternfluss gegen einen unverzerrten Bezug, Nullhimmel an
 weiteren Objekten (M31), Runner-/GUI-Sichtbarkeit der Zähler.
 

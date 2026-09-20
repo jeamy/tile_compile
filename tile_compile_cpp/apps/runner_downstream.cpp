@@ -12,6 +12,7 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/background_extraction.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
+#include "tile_compile/image/color_cast_correction.hpp"
 #include "tile_compile/image/hypermetric_stretch.hpp"
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/image/processing.hpp"
@@ -1064,6 +1065,25 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       return 1;
     }
 
+    // Adaptive colour-cast (average neutral) correction on the stretched RGB.
+    image::ColorCastCorrectionResult cast_res;
+    if (cfg.hypermetric_stretch.color_cast_correction.enabled &&
+        rgb.G.rows() > 0 && rgb.B.rows() > 0) {
+      const auto &cc = cfg.hypermetric_stretch.color_cast_correction;
+      image::ColorCastCorrectionConfig icc;
+      icc.enabled = cc.enabled;
+      icc.max_amount = cc.max_amount;
+      icc.target_ratio = cc.target_ratio;
+      icc.min_excess = cc.min_excess;
+      icc.object_sigma = cc.object_sigma;
+      cast_res = image::apply_color_cast_correction(
+          rgb.R, rgb.G, rgb.B, icc, &pcc_cfg.output_valid_mask);
+      std::cout << "[HMS] color cast correction: " << cast_res.status
+                << " amount=" << cast_res.amount
+                << " ratio " << cast_res.ratio_before << " -> "
+                << cast_res.ratio_after << std::endl;
+    }
+
     io::FitsHeader hms_hdr = out_hdr;
     hms_hdr.set("HMS", true);
     hms_hdr.set("HMSVER", std::string("1"));
@@ -1105,7 +1125,14 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
          {"shadow_convergence", hms_diag.shadow_convergence},
          {"highlight_ceiling_percentile", hms_diag.highlight_ceiling_percentile},
          {"black_clip_percent", hms_diag.black_clip_percent},
-         {"white_clip_percent", hms_diag.white_clip_percent}},
+         {"white_clip_percent", hms_diag.white_clip_percent},
+         {"color_cast_correction",
+          {{"status", cast_res.status},
+           {"applied", cast_res.applied},
+           {"amount", cast_res.amount},
+           {"ratio_before", cast_res.ratio_before},
+           {"ratio_after", cast_res.ratio_after},
+           {"object_pixels", cast_res.object_pixels}}}},
         log_file);
     if (abort_if_runtime_limit_exceeded("HYPERMETRIC_STRETCH")) {
       return 1;

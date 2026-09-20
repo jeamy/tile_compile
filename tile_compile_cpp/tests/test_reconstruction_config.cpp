@@ -231,3 +231,27 @@ TEST_CASE("reconstruction: drizzle.full_frame_estimator defaults off and parses"
       "  multiband:\n    enabled: false\n");
   REQUIRE_THROWS_AS(no_mb.reconstruction.validate(), ValidationError);
 }
+
+TEST_CASE("hypermetric_stretch.color_cast_correction defaults off, parses and validates") {
+  Config def = parse("hypermetric_stretch:\n  enabled: true\n");
+  REQUIRE_FALSE(def.hypermetric_stretch.color_cast_correction.enabled);
+  REQUIRE(def.hypermetric_stretch.color_cast_correction.max_amount == 1.0f);
+  REQUIRE(def.hypermetric_stretch.color_cast_correction.min_excess == 1.02f);
+  Config on = parse(
+      "hypermetric_stretch:\n  color_cast_correction:\n    enabled: true\n"
+      "    max_amount: 0.8\n    target_ratio: 1.05\n    min_excess: 1.03\n"
+      "    object_sigma: 4\n");
+  const auto& c = on.hypermetric_stretch.color_cast_correction;
+  REQUIRE(c.enabled);
+  REQUIRE(c.max_amount == 0.8f);
+  REQUIRE(c.target_ratio == 1.05f);
+  REQUIRE(c.min_excess == 1.03f);
+  REQUIRE(c.object_sigma == 4.0f);
+  REQUIRE_NOTHROW(on.validate());
+  for (const char* bad : {"max_amount: 0", "max_amount: 1.5", "target_ratio: 0.4",
+                          "min_excess: 0.9", "object_sigma: 0"}) {
+    Config b = parse(std::string("hypermetric_stretch:\n  color_cast_correction:\n    ") +
+                     bad + "\n");
+    REQUIRE_THROWS_AS(b.validate(), ValidationError);
+  }
+}

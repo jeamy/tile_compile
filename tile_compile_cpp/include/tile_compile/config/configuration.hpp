@@ -657,6 +657,15 @@ struct HyperMetricStretchConfig {
     float radius_px = 40.0f;
     float strength = 0.6f;
   } local_contrast;
+  // Adaptive average-neutral colour-cast correction applied to the stretched
+  // RGB (see image/color_cast_correction.hpp). Off by default.
+  struct ColorCastCorrectionConfig {
+    bool enabled = false;
+    float max_amount = 1.0f;    // (0, 1]
+    float target_ratio = 1.0f;  // (0.5, 1.5]
+    float min_excess = 1.02f;   // [1, 2]
+    float object_sigma = 3.0f;  // (0, 50]
+  } color_cast_correction;
   bool write_channels = false;
   std::string output_rgb = "stacked_rgb_hms.fits";
 };

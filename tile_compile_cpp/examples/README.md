@@ -64,6 +64,14 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   not better (details in the plan). The stage is applied to the working image
   only; `outputs/stacked_rgb.fits` stays the plain reconstruction.
 
+- Colour-cast correction (`hypermetric_stretch.color_cast_correction`):
+  optional adaptive average-neutral (SCNR-style) correction of a green cast,
+  applied to the stretched RGB after HMS. The strength is chosen automatically
+  from the object pixels and the image is left unchanged when no cast is
+  measured (protects genuinely green/teal objects). Enabled in the M31
+  profiles (green ratio 1.23 -> 1.00), disabled in the M42 profiles (measured
+  0.78, unchanged either way); off in `tile_compile.yaml`.
+
 - `forward_drizzle_streaming.example.yaml`
   Minimal fragment documenting the bounded drizzle streaming/memory options
   (`chunk_rows`, `chunk_halo_rows`, `memory_budget_mb`, diagnostic store).

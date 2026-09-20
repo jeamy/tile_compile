@@ -1065,6 +1065,15 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.hypermetric_stretch.local_contrast.strength =
             lc["strength"].as<float>();
     }
+    if (yaml_has_value(h["color_cast_correction"])) {
+      auto cc = h["color_cast_correction"];
+      auto &c = cfg.hypermetric_stretch.color_cast_correction;
+      if (yaml_has_value(cc["enabled"])) c.enabled = cc["enabled"].as<bool>();
+      if (yaml_has_value(cc["max_amount"])) c.max_amount = cc["max_amount"].as<float>();
+      if (yaml_has_value(cc["target_ratio"])) c.target_ratio = cc["target_ratio"].as<float>();
+      if (yaml_has_value(cc["min_excess"])) c.min_excess = cc["min_excess"].as<float>();
+      if (yaml_has_value(cc["object_sigma"])) c.object_sigma = cc["object_sigma"].as<float>();
+    }
     if (yaml_has_value(h["write_channels"]))
       cfg.hypermetric_stretch.write_channels = h["write_channels"].as<bool>();
     if (yaml_has_value(h["output_rgb"]))
@@ -1441,6 +1450,15 @@ YAML::Node Config::to_yaml() const {
       hypermetric_stretch.local_contrast.radius_px;
   node["hypermetric_stretch"]["local_contrast"]["strength"] =
       hypermetric_stretch.local_contrast.strength;
+  {
+    const auto &c = hypermetric_stretch.color_cast_correction;
+    auto n = node["hypermetric_stretch"]["color_cast_correction"];
+    n["enabled"] = c.enabled;
+    n["max_amount"] = c.max_amount;
+    n["target_ratio"] = c.target_ratio;
+    n["min_excess"] = c.min_excess;
+    n["object_sigma"] = c.object_sigma;
+  }
   node["hypermetric_stretch"]["write_channels"] =
       hypermetric_stretch.write_channels;
   node["hypermetric_stretch"]["output_rgb"] = hypermetric_stretch.output_rgb;
@@ -2216,6 +2234,21 @@ void Config::validate() const {
     throw ValidationError(
         "hypermetric_stretch.local_contrast.strength must be in [0,3]");
   }
+  {
+    const auto &c = hypermetric_stretch.color_cast_correction;
+    if (!(c.max_amount > 0.0f && c.max_amount <= 1.0f))
+      throw ValidationError(
+          "hypermetric_stretch.color_cast_correction.max_amount must be in (0,1]");
+    if (!(c.target_ratio > 0.5f && c.target_ratio <= 1.5f))
+      throw ValidationError(
+          "hypermetric_stretch.color_cast_correction.target_ratio must be in (0.5,1.5]");
+    if (!(c.min_excess >= 1.0f && c.min_excess <= 2.0f))
+      throw ValidationError(
+          "hypermetric_stretch.color_cast_correction.min_excess must be in [1,2]");
+    if (!(c.object_sigma > 0.0f && c.object_sigma <= 50.0f))
+      throw ValidationError(
+          "hypermetric_stretch.color_cast_correction.object_sigma must be in (0,50]");
+  }
   if (hypermetric_stretch.output_rgb.empty()) {
     throw ValidationError("hypermetric_stretch.output_rgb must not be empty");
   }
@@ -2423,6 +2456,12 @@ std::string get_schema_json() {
                         "enabled":{"type":"boolean","default":false},
                         "radius_px":{"type":"number","exclusiveMinimum":0,"maximum":256},
                         "strength":{"type":"number","minimum":0,"maximum":3}}},
+                      "color_cast_correction":{"type":"object","properties":{
+                        "enabled":{"type":"boolean","default":false},
+                        "max_amount":{"type":"number","exclusiveMinimum":0,"maximum":1},
+                        "target_ratio":{"type":"number","exclusiveMinimum":0.5,"maximum":1.5},
+                        "min_excess":{"type":"number","minimum":1,"maximum":2},
+                        "object_sigma":{"type":"number","exclusiveMinimum":0,"maximum":50}}},
                       "write_channels":{"type":"boolean"},
                       "output_rgb":{"type":"string"} } },
     "stacking": { "type":"object",
