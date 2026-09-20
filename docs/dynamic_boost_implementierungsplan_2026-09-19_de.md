@@ -506,6 +506,20 @@ geeignetes Kriterium; der ungeclippte Mittelwert (ungewichtet) liegt noch
 tiefer (0,94-0,97 der Kontrolle) und ist als Bezug wegen der fehlenden
 Qualitätsgewichte ebenfalls ungeeignet.
 
+Grünstich M31 und Average Neutral (SCNR), Vorversuch 2026-09-20: Maß ist
+G/((R+B)/2) auf Himmel/Außenarmen/Kern. Im HMS-Produkt 0,937/1,055/1,148; im
+linearen PCC-Bild (Hintergrund je Kanal abgezogen) sind die Arme nicht grün
+(0,85), der Kern +10 %: HMS verstärkt den Grünanteil also selbst. Average
+Neutral (G minus max(0, G - (R+B)/2), hintergrundbezogen) *vor* HMS ergibt nach
+HMS 0,916/1,010/1,072 (nur teilweise), *nach* HMS (auf den Himmel bezogen,
+Himmel unverändert) mit Stärke 1,0: 0,932/0,927/0,969 (Arme überkorrigiert,
+G-Rauschen wird pixelweise abgeschnitten), mit Stärke 0,5: 0,935/0,989/1,057.
+Folge: Ohne Hintergrundbezug ist SCNR auf linearen Daten falsch; eine
+automatische Korrektur braucht eine adaptive Stärke (Median des Grünüberschusses
+auf Objektpixeln gegen 1,0), sonst entsteht ein Magenta-Bias, und sie wirkt
+nach HMS deutlich besser als davor. Nicht umgesetzt; M42 (natürlich
+grün-türkisfarbene OIII-Anteile) ist ungeprüft und braucht eine Schutzregel.
+
 Offen: Kanalweise Sternfluss gegen einen unverzerrten Bezug, Nullhimmel an
 weiteren Objekten (M31), Runner-/GUI-Sichtbarkeit der Zähler.
 
