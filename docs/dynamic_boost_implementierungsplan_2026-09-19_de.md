@@ -404,6 +404,30 @@ Zeit, nicht der Host. Hinweis zur Messung: Ein Resume ab FORWARD_DRIZZLE
 verwendet einen vollständigen Store wieder (Bänder `reused`); für eine
 Neurechnung muss `artifacts/forward_drizzle_v2` entfernt werden.
 
+M31-Bestätigung (2026-09-20, 645 Frames, Läufe `20260920_192029_aeae0417`
+Voll-Frame und `20260920_195715_74d67b31` Kontrolle Reservoir `4/4`, dazu
+`m31-c1` mit `2/4`), gemessen auf dem PCC- und HMS-Produkt (`m31-c1` hat kein
+lineares `stacked_rgb.fits` mehr), Regionen: drei Himmelsboxen und die
+äußeren Scheibenarme (Nordost, Südwest):
+
+| Produkt | Himmel-Sigma (1x1, PCC) | Arm NE / SW (4x4, HMS) |
+| --- | ---: | ---: |
+| Reservoir `2/4` (`m31-c1`) | 2,819 | 2,86 / 4,00 |
+| Reservoir `4/4` (Kontrolle) | 2,256 | 4,17 / 3,98 |
+| Pilot + Voll-Frame `4/4` | 0,949 | 8,35 / 7,96 |
+
+Die Frame-Zahl allein senkt das Sigma um 2,38 und verdoppelt den Kontrast
+(gegen `2/4`: 2,97 bzw. 2,9-fach). Sternfluss (248 Sterne) gegen die
+Kontrolle: Median 0,996 (p16 0,977, p84 1,014), Halbflussradius 0,987; der
+Reservoir-Lauf `2/4` liegt bei 1,053 (Clip-Bias). Damit ist die Schwelle
++-1 % hier erfüllt, bei M42 (-1,9 %) knapp verfehlt. Nullhimmel (sechs Boxen
+mit dem niedrigsten Himmelsmedian, Sterne maskiert): Voll-Frame 29 positive
+und 1 negative kohärente Flecken über 5 sigma gegen 135/0 (Kontrolle) und
+154/0 (`2/4`); alle 29 liegen an derselben Stelle auch in beiden anderen
+Stacks. Kosten: FORWARD_DRIZZLE 291 s auf 488 s (+68 %), Phasensumme 1800 s
+auf 2113 s; dem Modus zuzurechnen sind FORWARD_DRIZZLE +197 s (+10,9 %) und
+MULTIBAND +29 s, zusammen +12,6 %. Das 10 %-Gate bleibt knapp verfehlt.
+
 Offen: Kanalweise Sternfluss gegen einen unverzerrten Bezug, Nullhimmel an
 weiteren Objekten (M31), Runner-/GUI-Sichtbarkeit der Zähler.
 

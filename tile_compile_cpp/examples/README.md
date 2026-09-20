@@ -36,11 +36,12 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   the wide, symmetric clip bounds it needs (`reconstruction.clipping.
   clip_sigma_low` / `clip_sigma_high` both `4`). All frames, not only the
   hash-selected reservoir (about 64 per pixel), determine the pixel value.
-  On M42, against a matched control with the same config and
-  `full_frame_estimator: false`, sky sigma drops from 1.47 to 0.57 and the
-  faint-nebula contrast in the HMS product from 5.9/6.4 to 12.6/14.0; the
-  mode costs about +65 % FORWARD_DRIZZLE time (Q maps for all frames) and is
-  off by default. Adapt the placeholder paths (`/path/to/...` for the dark
+  Against a matched control with the same config and
+  `full_frame_estimator: false`: M42 sky sigma 1.47 to 0.57, faint-nebula
+  contrast in the HMS product 5.9/6.4 to 12.6/14.0; M31 sky sigma 2.26 to
+  0.95, faint outer-arm contrast 4.2/4.0 to 8.4/8.0. The mode costs about
+  +65 to +70 % FORWARD_DRIZZLE time (Q maps for all frames) and is off by
+  default. Adapt the placeholder paths (`/path/to/...` for the dark
   master and the astap/siril data) before running. Background and
   measurements: `docs/dynamic_boost_implementierungsplan_2026-09-19_de.md`.
 

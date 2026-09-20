@@ -2,9 +2,13 @@
 #
 # Same pilot + full-frame estimator setup as m42_dwarf2_full_frame.example.yaml
 # (reconstruction.drizzle.full_frame_estimator: true, clip_sigma_low/high 4/4)
-# on a compact object with a flat sky around it. Only the M42 dataset has been
-# measured so far; treat the denoise values here as the M31 baseline used for
-# the comparison runs, not as a tuned optimum.
+# on a compact object with a flat sky around it. Measured against a matched
+# control (same config, full_frame_estimator: false): sky sigma 2.26 -> 0.95,
+# faint outer-arm contrast (HMS, 4x4 binned) 4.2/4.0 -> 8.4/8.0, star flux
+# -0.4 % and half-flux radius x0.99 versus the control, no structure that the
+# other stacks do not show; FORWARD_DRIZZLE about +68 %. The denoise values
+# here are the M31 baseline used for these comparison runs, not a tuned
+# optimum.
 #
 # Adapt the machine-specific paths below (dark master, astap/siril data).
 #
