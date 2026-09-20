@@ -29,6 +29,21 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   `chroma_denoise.enabled: false`, `pcc.enabled: false`.
   Shows only the overrides that differ from schema defaults.
 
+- `m42_dwarf2_full_frame.example.yaml`, `m31_dwarf2_full_frame.example.yaml`
+  Complete DWARF II (OSC) profiles of the two reference datasets (M42, 610 x
+  10 s, gain 60; M31, 645 lights, gain 80) with the pilot + full-frame
+  estimator enabled: `reconstruction.drizzle.full_frame_estimator: true` and
+  the wide, symmetric clip bounds it needs (`reconstruction.clipping.
+  clip_sigma_low` / `clip_sigma_high` both `4`). All frames, not only the
+  hash-selected reservoir (about 64 per pixel), determine the pixel value.
+  On M42, against a matched control with the same config and
+  `full_frame_estimator: false`, sky sigma drops from 1.47 to 0.57 and the
+  faint-nebula contrast in the HMS product from 5.9/6.4 to 12.6/14.0; the
+  mode costs about +65 % FORWARD_DRIZZLE time (Q maps for all frames) and is
+  off by default. Adapt the placeholder paths (`/path/to/...` for the dark
+  master and the astap/siril data) before running. Background and
+  measurements: `docs/dynamic_boost_implementierungsplan_2026-09-19_de.md`.
+
 - `forward_drizzle_streaming.example.yaml`
   Minimal fragment documenting the bounded drizzle streaming/memory options
   (`chunk_rows`, `chunk_halo_rows`, `memory_budget_mb`, diagnostic store).
