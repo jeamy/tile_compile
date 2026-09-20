@@ -4,7 +4,16 @@ Zusammenfassung der Untersuchung zu zwei beobachteten Problemen auf der 610-Fram
 
 ## Ausgangslage
 
-Zwei reale Runs (`run_20260916_154152`, Commit `ababbfba9`/tatsächlich `b9f6ccc8`, und `m42-canon-c1_20260919_084906`, Commit `083401c1c`) zeigten einen scheinbar großen Schärfeunterschied (Laplace-Varianz −71%) und der neuere Run wirkte gegenüber dem DWARF-II-Onboard-Stack (derselbe Beobachtungsabend, dieselben Rohframes) deutlich kontrastärmer/rauschiger.
+Zwei 30-Frame-Testruns (`run_20260916_154152`, Commit `ababbfba9`/tatsächlich `b9f6ccc8`, und `m42-canon-c1_20260919_084906`, Commit `083401c1c`) zeigten einen scheinbar großen Schärfeunterschied (Laplace-Varianz −71%). Separat davon steht die Dynamik-/Kontrastlücke der 610-Frame-M42-Serie gegenüber dem DWARF-II-Onboard-Stack.
+
+**Klarstellung zur Datenbasis:** Die beiden hier namentlich genannten Runs
+melden in `artifacts/forward_drizzle.json` jeweils 30 verwendete Frames.
+Sie gehören zur separaten Commit-/HMS-Isolation und dürfen nicht als
+610-Frame-Vergleich zur DWARF-FITS gelesen werden. Für den direkten
+610-Frame-Befund wird unter anderem `runs/m42-c1` verwendet
+(`frames_used: 610`). Die fortgesetzte, ausschließlich auf dieser Serie
+beruhende Analyse steht im
+[Dynamic-Boost-Plan](dynamic_boost_implementierungsplan_2026-09-19_de.md).
 
 ## Methodik
 

@@ -119,6 +119,10 @@ class ForwardDrizzleV2Kernel {
   virtual bool skip_frame(
       std::uint64_t frame_order,
       const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr) = 0;
+  // Full-frame estimator barrier: call once after the last pilot frame of a
+  // band (cfg.full_frame_estimator only). Freezes the clip bounds and folds
+  // the accepted pilot candidates into the full-frame sums.
+  virtual bool end_pilot() { return false; }
   virtual bool finalize(ForwardDrizzleV2PixelResult *results,
                         ForwardDrizzleV2ProfileResult *profiles_or_null,
                         std::uint64_t *dense_overlap_count) = 0;
@@ -203,6 +207,7 @@ class ForwardDrizzleV2CpuKernel final : public ForwardDrizzleV2Kernel {
   bool skip_frame(std::uint64_t frame_order,
                   const ForwardDrizzleV2FrameMeta *meta_or_null =
                       nullptr) override;
+  bool end_pilot() override;
   bool finalize(ForwardDrizzleV2PixelResult *results,
                 ForwardDrizzleV2ProfileResult *profiles_or_null,
                 std::uint64_t *dense_overlap_count) override;
@@ -352,6 +357,7 @@ class ForwardDrizzleV2CudaKernel final : public ForwardDrizzleV2Kernel {
                       nullptr) override {
     return kernel_.skip_frame(frame_order, meta_or_null);
   }
+  bool end_pilot() override { return kernel_.end_pilot(); }
   bool finalize(ForwardDrizzleV2PixelResult *results,
                 ForwardDrizzleV2ProfileResult *profiles_or_null,
                 std::uint64_t *dense_overlap_count) override {

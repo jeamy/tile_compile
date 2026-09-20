@@ -43,6 +43,13 @@ namespace tile_compile::reconstruction {
 // result depends on is recorded; plan_hash binds the canonical
 // serialization of all other fields, so two contexts produce different
 // hashes iff any bound field differs.
+// Plan estimator contracts. The default keeps the historical reservoir value;
+// the pilot/full-frame contract streams the hash-selected pilot frames first,
+// freezes their clip bounds and accumulates every accepted frame.
+inline constexpr const char *kFdV2EstimatorReservoir = "reservoir_sigma_clip";
+inline constexpr const char *kFdV2EstimatorPilotFullFrame =
+    "reservoir_pilot_full_frame";
+
 struct ForwardDrizzleV2RunPlan {
   static constexpr int kSchemaVersion = 1;
   int schema_version = kSchemaVersion;

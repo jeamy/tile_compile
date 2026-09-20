@@ -353,10 +353,16 @@ struct ForwardDrizzleV2KernelConfig {
   float fine_quality_exponent = 4.0f;
   float medium_quality_exponent = 2.0f;
   // See config::ReconstructionClippingConfig::shared_frame_rejection.
-  // CPU kernel only; the CUDA driver forces CPU execution whenever this is
-  // set (no device implementation), so the CUDA kernel never reads it.
+  // Implemented on the CPU and CUDA kernels.
   bool shared_frame_rejection = false;
   double shared_frame_rejection_consensus = 0.5;
+  // Pilot + full-frame estimator (plan estimator "reservoir_pilot_full_frame").
+  // The hash-selected reservoir frames are streamed first as the pilot; after
+  // end_pilot() the pilot's clip bounds are frozen per (pixel, channel) and
+  // every remaining frame's folded candidate is tested against them and added
+  // to the profile/value sums. Requires emit_profiles. Implemented on the CPU
+  // and CUDA kernels.
+  bool full_frame_estimator = false;
 };
 
 // One uploaded source buffer and its active launch rect. `source` points at
@@ -505,6 +511,14 @@ struct ForwardDrizzleV2PrototypeStats {
   std::uint64_t quality_bytes_uploaded = 0;
   std::uint64_t source_samples_launched = 0;
   std::uint64_t quality_frames_processed = 0;
+  // Full-frame estimator diagnostics (per band delta): candidate contributions
+  // accepted/rejected against the frozen pilot bounds, pixel-channels whose
+  // pilot scale was degenerate (MAD 0, pilot value kept), and pixel-channels
+  // without usable bounds (pre-existing reservoir/fallback value kept).
+  std::uint64_t full_frame_accepted = 0;
+  std::uint64_t full_frame_rejected = 0;
+  std::uint64_t full_frame_degenerate_pilot = 0;
+  std::uint64_t full_frame_no_bounds = 0;
   // Frames whose source window was empty for the band (bookkeeping only:
   // no scatter/fold, no source/Q bytes, still a slot transition).
   std::uint64_t frames_skipped_empty_window = 0;
@@ -672,6 +686,10 @@ class ForwardDrizzleV2CudaPrototypeKernel {
   // upload/scatter/fold. Counted in stats().frames_skipped_empty_window.
   bool skip_frame(std::uint64_t frame_order,
                   const ForwardDrizzleV2FrameMeta *meta_or_null = nullptr);
+  // Full-frame estimator barrier (cfg.full_frame_estimator): call once after
+  // the last pilot frame of a band; freezes the pilot clip bounds and seeds
+  // the full-frame sums on the device.
+  bool end_pilot();
   // Band end: finalize kernel + single stream sync + result download.
   // results must hold native_cols*native_rows*channels entries
   // (channel-major); when cfg.emit_profiles is set, profiles_or_null must

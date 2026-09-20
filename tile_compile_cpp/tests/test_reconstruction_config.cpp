@@ -217,3 +217,12 @@ TEST_CASE("reconstruction: the removed prewarp cache key is not read here "
       "reconstruction:\n  delete_prewarped_cache_after_run: true\n");
   REQUIRE(cfg.reconstruction.delete_source_cache_after_run == false);
 }
+
+TEST_CASE("reconstruction: drizzle.full_frame_estimator defaults off and parses") {
+  Config def = parse("reconstruction:\n  drizzle:\n    pixfrac: 0.8\n");
+  REQUIRE_FALSE(def.reconstruction.drizzle.full_frame_estimator);
+  Config on = parse(
+      "reconstruction:\n  drizzle:\n    full_frame_estimator: true\n");
+  REQUIRE(on.reconstruction.drizzle.full_frame_estimator);
+  REQUIRE_NOTHROW(on.reconstruction.validate());
+}

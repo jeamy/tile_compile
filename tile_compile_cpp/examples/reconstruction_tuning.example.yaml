@@ -379,6 +379,7 @@ reconstruction:
     pixfrac: 0.6
     robust_passes: 4
     min_clip_contributors: 5
+    full_frame_estimator: false
     chunk_rows: 0
     chunk_halo_rows: -1
     memory_budget_mb: 0

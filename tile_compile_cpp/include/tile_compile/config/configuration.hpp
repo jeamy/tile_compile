@@ -341,6 +341,10 @@ struct ReconstructionDrizzleConfig {
   std::string kernel = "square";     // MVP: only "square"
   float pixfrac = 0.8f;              // (0, 1]
   int robust_passes = 2;            // [1, 6]
+  // Pilot + full-frame estimator: the hash-selected reservoir frames only
+  // define the sigma-clip bounds; every frame is then tested against the
+  // frozen bounds and accumulated. CPU and CUDA; default off.
+  bool full_frame_estimator = false;
   int min_clip_contributors = 5;    // >= 2; below this no sigma/MAD clipping
   int chunk_rows = 0;               // 0 = budgeted stripes, <=256 rows; >0 budget-checked
   int chunk_halo_rows = -1;         // compatibility; exact footprint enumeration needs no output halo

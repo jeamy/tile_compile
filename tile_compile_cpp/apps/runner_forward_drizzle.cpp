@@ -686,6 +686,15 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
             v2_result.driver.totals.source_samples_launched;
         extra["v2_quality_frames_processed"]=
             v2_result.driver.totals.quality_frames_processed;
+        extra["v2_estimator"]=v2_result.plan.estimator;
+        extra["v2_full_frame_accepted"]=
+            v2_result.driver.totals.full_frame_accepted;
+        extra["v2_full_frame_rejected"]=
+            v2_result.driver.totals.full_frame_rejected;
+        extra["v2_full_frame_degenerate_pilot"]=
+            v2_result.driver.totals.full_frame_degenerate_pilot;
+        extra["v2_full_frame_no_bounds"]=
+            v2_result.driver.totals.full_frame_no_bounds;
         extra["v2_upload_seconds"]=v2_result.driver.totals.upload_seconds;
         extra["v2_kernel_seconds"]=v2_result.driver.totals.kernel_seconds;
         extra["v2_download_seconds"]=v2_result.driver.totals.download_seconds;

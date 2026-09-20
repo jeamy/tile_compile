@@ -63,6 +63,7 @@ ForwardDrizzleV2KernelConfig kernel_config_for_band(
   k.fine_quality_exponent = plan.fine_quality_exponent;
   k.medium_quality_exponent = plan.medium_quality_exponent;
   k.cached_leaf_capacity = cached_leaf_capacity;
+  k.full_frame_estimator = plan.estimator == kFdV2EstimatorPilotFullFrame;
   return k;
 }
 
@@ -87,6 +88,10 @@ void add_stats(ForwardDrizzleV2PrototypeStats &t,
   t.quality_bytes_uploaded += s.quality_bytes_uploaded;
   t.source_samples_launched += s.source_samples_launched;
   t.quality_frames_processed += s.quality_frames_processed;
+  t.full_frame_accepted += s.full_frame_accepted;
+  t.full_frame_rejected += s.full_frame_rejected;
+  t.full_frame_degenerate_pilot += s.full_frame_degenerate_pilot;
+  t.full_frame_no_bounds += s.full_frame_no_bounds;
   t.frames_skipped_empty_window += s.frames_skipped_empty_window;
   t.quality_expanded_floats += s.quality_expanded_floats;
   t.workspace_reservations += s.workspace_reservations;
@@ -173,6 +178,30 @@ bool attempt_backend(const fs::path &store_root,
   int committed_this_attempt = 0;
   std::uint64_t nonfinite_in_support = 0;
 
+  // Frame stream permutation. Historical plans stream 0..N-1. The
+  // pilot/full-frame contract streams the hash-selected pilot frames first
+  // (ascending original order), then every other frame (ascending).
+  const bool full_frame = plan.estimator == kFdV2EstimatorPilotFullFrame;
+  std::vector<std::uint64_t> frame_seq;
+  frame_seq.reserve(static_cast<std::size_t>(plan.frame_count));
+  std::size_t pilot_count = 0;
+  if (full_frame) {
+    const auto pilot = forward_drizzle_v2_selected_frame_orders(
+        plan.frame_count, plan.reservoir_size, plan.reservoir_seed);
+    std::vector<std::uint8_t> is_pilot(
+        static_cast<std::size_t>(plan.frame_count), 0);
+    for (const auto o : pilot) {
+      frame_seq.push_back(o);
+      is_pilot[static_cast<std::size_t>(o)] = 1;
+    }
+    pilot_count = frame_seq.size();
+    for (std::uint64_t o = 0; o < plan.frame_count; ++o)
+      if (!is_pilot[static_cast<std::size_t>(o)]) frame_seq.push_back(o);
+  } else {
+    for (std::uint64_t o = 0; o < plan.frame_count; ++o)
+      frame_seq.push_back(o);
+  }
+
   for (int band = first_band; band < plan.band_count; ++band) {
     // Test hook: pretend the device dies before this band's kernel work.
     if (cuda && g_fd_v2_cuda_fault_after_bands.load() >= 0 &&
@@ -195,7 +224,9 @@ bool attempt_backend(const fs::path &store_root,
       fail_device("begin_band()");
       return false;
     }
-    for (std::uint64_t fr = 0; fr < plan.frame_count; ++fr) {
+    for (std::size_t frame_pos = 0; frame_pos < frame_seq.size();
+         ++frame_pos) {
+      const std::uint64_t fr = frame_seq[frame_pos];
       const auto frame_t0 = std::chrono::steady_clock::now();
       // Piece-stream contract (tranche 7): the provider invokes the sink
       // exactly once with skip=true, or with one-or-more non-skip pieces.
@@ -363,6 +394,13 @@ bool attempt_backend(const fs::path &store_root,
           std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                         frame_t0)
               .count());
+      // Pilot barrier: the frame stream position is the permuted order; the
+      // frame_order handed to the kernel/provider stays the original index.
+      if (full_frame && frame_pos + 1 == pilot_count && !kernel->end_pilot()) {
+        if (!cuda) throw std::runtime_error("FDV2_DRIVER_END_PILOT_FAILED");
+        fail_device("end_pilot()");
+        return false;
+      }
     }
     const std::size_t nrec = static_cast<std::size_t>(rows) * cols *
                              static_cast<std::size_t>(plan.channels);

@@ -1094,6 +1094,7 @@ Controls the Laplacian pyramid for the local quality maps (Source Quality Maps) 
 | `reconstruction.drizzle.pixfrac` | number | `0.8` | Drop-shrink factor of contributions `(0, 1]`. |
 | `reconstruction.drizzle.robust_passes` | integer | `2` | Robust reprojection passes `[1, 6]` (migrated from `clip_iterations`). |
 | `reconstruction.drizzle.min_clip_contributors` | integer | `5` | Minimum contributors before sigma/MAD clipping activates. |
+| `reconstruction.drizzle.full_frame_estimator` | boolean | `false` | Pilot + full-frame estimator: the hash-selected reservoir frames (at most 64) define the clip bounds, then every frame's folded candidate is tested against them and accumulated, so all frames determine the value. Runs on CPU and CUDA and reads quality maps for all frames; needs wide symmetric clip bounds (about `clip_sigma_low` = `clip_sigma_high` = 4). |
 | `reconstruction.drizzle.chunk_rows` | integer | `0` | `0` = budgeted stripes (<=256 rows); `>0` is budget-checked. |
 | `reconstruction.drizzle.chunk_halo_rows` | integer | `-1` | Compatibility field; exact footprint enumeration needs no output halo. |
 | `reconstruction.drizzle.memory_budget_mb` | integer | `0` | MiB; `0` inherits `runtime_limits.memory_budget`. |
@@ -2204,6 +2205,7 @@ protected regions and produces dark pixels/chroma fringing at star edges.
 - `reconstruction.drizzle.kernel`, `pixfrac`: kernel and drop-shrink of forward-drizzle contributions.
 - `reconstruction.drizzle.robust_passes`: robust reprojection passes.
 - `reconstruction.drizzle.min_clip_contributors`: minimum contributors for sample clipping.
+- `reconstruction.drizzle.full_frame_estimator`: all frames instead of only the reservoir determine the value (pilot clip bounds frozen, default off).
 - `reconstruction.drizzle.chunk_rows`, `chunk_halo_rows`, `memory_budget_mb`: streaming/memory profile of the reprojector.
 - `reconstruction.clipping.clip_sigma_low`, `clip_sigma_high`: MAD rejection thresholds.
 - `reconstruction.clipping.min_fraction`, `min_n_eff`: coverage gates per pixel.

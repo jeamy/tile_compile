@@ -268,6 +268,130 @@ bool cpu_collect_local_leaves(
                                   leaves);
 }
 
+// Full-frame estimator (pilot + all-frame accumulation) per (pixel, channel).
+// state: 0 = no bounds (the pixel keeps the pre-existing reservoir/fallback
+// value), 1 = active (frozen pilot clip bounds), 2 = degenerate pilot scale
+// (MAD == 0): the pilot-accepted set alone defines the value.
+struct CpuFullAcc {
+  double wx[4] = {0.0, 0.0, 0.0, 0.0};
+  double w[4] = {0.0, 0.0, 0.0, 0.0};
+  double w2[4] = {0.0, 0.0, 0.0, 0.0};
+  double ca = 0.0, cb = 0.0, cb2 = 0.0, cs = 0.0, cc = 0.0;
+  double lo = 0.0, hi = 0.0;
+  std::uint32_t n_acc = 0, n_rej = 0;
+  std::uint8_t state = 0;
+};
+
+static_assert(sizeof(CpuFullAcc) == 168,
+              "kV2CpuFullAccBytes in forward_drizzle_v2_production.cpp must "
+              "mirror CpuFullAcc");
+
+// Adds one accepted candidate to the four profile sums and the value sums.
+// Weights follow forward_drizzle_v2_profile_reduce: uniform b, raw b*g*q,
+// fine b*g*q0^fe, medium b*g*q1^me.
+void cpu_full_add(CpuFullAcc &f, double b, double x, double sigma2, double g,
+                  double qc, double q0, double q1, float fine_exp,
+                  float medium_exp) {
+  const double wgt[4] = {b, b * g * qc,
+                         b * g * std::pow(q0, static_cast<double>(fine_exp)),
+                         b * g * std::pow(q1, static_cast<double>(medium_exp))};
+  for (int k = 0; k < 4; ++k) {
+    f.wx[k] += wgt[k] * x;
+    f.w[k] += wgt[k];
+    f.w2[k] += wgt[k] * wgt[k];
+  }
+  f.ca += b * x;
+  f.cb += b;
+  f.cb2 += b * b;
+  if (std::isfinite(sigma2) && sigma2 > 0.0) {
+    f.cs += b * std::sqrt(sigma2);
+    f.cc += b * b * sigma2;
+  }
+  ++f.n_acc;
+}
+
+// Iterative weighted-median/MAD asymmetric clip shared by the reservoir
+// finalizer and the full-frame pilot barrier. `cands` must be sorted by
+// (x, frame_order). Returns the bounds of the last evaluated pass and the
+// MAD used there (0 when no pass ran).
+struct CpuClipBounds {
+  double lower = 0.0, upper = 0.0, mad = 0.0;
+  bool evaluated = false;
+};
+
+CpuClipBounds cpu_sigma_clip_passes(
+    const std::vector<ForwardDrizzleV2RobustCandidate> &cands,
+    std::vector<std::uint8_t> &accepted, int robust_passes, double sigma_low,
+    double sigma_high) {
+  CpuClipBounds out;
+  const unsigned int n_kept = static_cast<unsigned int>(cands.size());
+  std::vector<unsigned int> ord;
+  for (int pass = 0; pass < robust_passes; ++pass) {
+    double total_w = 0.0;
+    unsigned int n_active = 0;
+    for (unsigned int i = 0; i < n_kept; ++i)
+      if (accepted[i]) {
+        total_w += cands[i].b;
+        ++n_active;
+      }
+    if (n_active == 0) break;
+    double median = 0.0;
+    {
+      double cum = 0.0;
+      unsigned int last_on = 0;
+      bool picked = false;
+      for (unsigned int i = 0; i < n_kept; ++i) {
+        if (!accepted[i]) continue;
+        last_on = i;
+        cum += cands[i].b;
+        if (total_w > 0.0 && cum >= total_w / 2.0) {
+          median = cands[i].x;
+          picked = true;
+          break;
+        }
+      }
+      if (!picked) median = cands[last_on].x;
+    }
+    ord.clear();
+    ord.reserve(n_kept);
+    for (unsigned int i = 0; i < n_kept; ++i)
+      if (accepted[i]) ord.push_back(i);
+    std::sort(ord.begin(), ord.end(), [&](unsigned int i, unsigned int j) {
+      const double di = std::fabs(cands[i].x - median);
+      const double dj = std::fabs(cands[j].x - median);
+      if (di != dj) return di < dj;
+      return cands[i].frame_order < cands[j].frame_order;
+    });
+    double mad = std::fabs(cands[ord.back()].x - median);
+    if (total_w > 0.0) {
+      double cum = 0.0;
+      for (unsigned int idx : ord) {
+        cum += cands[idx].b;
+        if (cum >= total_w / 2.0) {
+          mad = std::fabs(cands[idx].x - median);
+          break;
+        }
+      }
+    }
+    const double lower = median - sigma_low * mad;
+    const double upper = median + sigma_high * mad;
+    out.lower = lower;
+    out.upper = upper;
+    out.mad = mad;
+    out.evaluated = true;
+    bool changed = false;
+    for (unsigned int idx : ord) {
+      const double xv = cands[idx].x;
+      if (!(xv >= lower && xv <= upper)) {
+        accepted[idx] = 0;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return out;
+}
+
 }  // namespace
 
 struct ForwardDrizzleV2CpuKernel::Impl {
@@ -292,6 +416,9 @@ struct ForwardDrizzleV2CpuKernel::Impl {
   std::vector<CpuReservoirRecord> res;
   std::vector<CpuReservoirQuality> resq;
   std::vector<ForwardDrizzleV2FrameMeta> meta;
+  // Full-frame estimator state (empty unless cfg.full_frame_estimator).
+  std::vector<CpuFullAcc> full;
+  bool pilot_done = false;
 
   ~Impl() = default;
 };
@@ -306,6 +433,7 @@ bool ForwardDrizzleV2CpuKernel::reserve(int native_cols, int native_rows,
   if (native_cols <= 0 || native_rows <= 0 || source_w <= 0 || source_h <= 0 ||
       cfg.internal_scale < 1 || cfg.internal_scale > 2 ||
       cfg.reservoir_size < 1 || cfg.reservoir_size > 64 ||
+      (cfg.full_frame_estimator && !cfg.emit_profiles) ||
       cfg.stream_length == 0 || cfg.stream_length > 65536 ||
       cfg.min_clip_contributors < 1 || cfg.min_candidates < 1 ||
       cfg.robust_passes < 1 || !std::isfinite(cfg.sigma_low) ||
@@ -393,7 +521,8 @@ bool ForwardDrizzleV2CpuKernel::reserve(int native_cols, int native_rows,
         !account(static_cast<std::size_t>(cfg.stream_length),
                  sizeof(ForwardDrizzleV2FrameMeta)) ||
         !account(pc_elems, sizeof(ForwardDrizzleV2ProfileResult)))) ||
-      !account(pc_elems, sizeof(ForwardDrizzleV2PixelResult)))
+      !account(pc_elems, sizeof(ForwardDrizzleV2PixelResult)) ||
+      (cfg.full_frame_estimator && !account(pc_elems, sizeof(CpuFullAcc))))
     return false;
 
   try {
@@ -421,6 +550,7 @@ bool ForwardDrizzleV2CpuKernel::reserve(int native_cols, int native_rows,
     im->supp.assign(pc_elems, 0u);
     im->degraded.assign(pc_elems, 0ull);
     im->res.assign(res_elems, CpuReservoirRecord{});
+    if (cfg.full_frame_estimator) im->full.assign(pc_elems, CpuFullAcc{});
     if (cfg.emit_profiles) {
       im->resq.assign(res_elems, CpuReservoirQuality{});
       im->meta.assign(static_cast<std::size_t>(cfg.stream_length),
@@ -464,6 +594,7 @@ static bool v2_fixed_cfg_equal(const ForwardDrizzleV2KernelConfig &a,
          a.canvas_height_native == b.canvas_height_native &&
          a.band_origin_x_native == b.band_origin_x_native &&
          a.cached_leaf_capacity == b.cached_leaf_capacity &&
+         a.full_frame_estimator == b.full_frame_estimator &&
          a.shared_frame_rejection == b.shared_frame_rejection &&
          a.shared_frame_rejection_consensus == b.shared_frame_rejection_consensus;
 }
@@ -502,6 +633,9 @@ bool ForwardDrizzleV2CpuKernel::begin_band(
   std::fill_n(im.footprint.begin(), im.nplane, 0u);
   std::fill_n(im.supp.begin(), im.pc_elems, 0u);
   std::fill_n(im.degraded.begin(), im.pc_elems, 0ull);
+  if (cfg.full_frame_estimator)
+    std::fill_n(im.full.begin(), im.pc_elems, CpuFullAcc{});
+  im.pilot_done = false;
   if (cfg.emit_profiles)
     std::fill(im.meta.begin(), im.meta.end(), ForwardDrizzleV2FrameMeta{});
   im.frames = 0;
@@ -601,7 +735,10 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
   const bool keep_frame =
       keep_all ||
       cpu_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold;
-  const bool q_frame = qp && keep_frame;
+  // Full-frame mode: pilot frames strictly before end_pilot(), all other
+  // frames strictly after; every frame carries quality.
+  if (im.cfg.full_frame_estimator && keep_frame == im.pilot_done) return false;
+  const bool q_frame = qp && (keep_frame || im.cfg.full_frame_estimator);
   // Each stream supplies a float plane XOR a packed storage-grid window;
   // both set or a malformed descriptor fails the call.
   ForwardDrizzleV2FrameQuality q_in{};
@@ -913,6 +1050,15 @@ void ForwardDrizzleV2CpuKernel::fold_native_range(
     const std::size_t px =
         static_cast<std::size_t>(ny) * ncols + static_cast<std::size_t>(nx);
     bool any_geo = false;
+    // Full-frame mode: non-pilot candidates of this pixel, one per channel.
+    struct FullCand {
+      bool has = false;
+      double x = 0.0, b = 0.0, s2 = 0.0, qc = 1.0, q0 = 1.0, q1 = 1.0;
+    } fcand[3];
+    const bool full_nonpilot =
+        im.cfg.full_frame_estimator &&
+        !(keep_all ||
+          cpu_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold);
     for (int c = 0; c < im.channels; ++c) {
       const std::size_t pc = static_cast<std::size_t>(c) * np + px;
       double a = 0.0, b_src = 0.0, b_geo = 0.0, s2w = 0.0;
@@ -964,6 +1110,16 @@ void ForwardDrizzleV2CpuKernel::fold_native_range(
         im.confS[pc] += b_src * std::sqrt(s2c);
         im.confC[pc] += b_src * b_src * s2c;
       }
+      if (full_nonpilot) {
+        FullCand &fc = fcand[c];
+        fc.has = true;
+        fc.x = xv;
+        fc.b = b_src;
+        fc.s2 = s2c;
+        fc.qc = (qmask & 1u) ? qc_s / b_src : 1.0;
+        fc.q0 = (qmask & 2u) ? q0_s / b_src : 1.0;
+        fc.q1 = (qmask & 4u) ? q1_s / b_src : 1.0;
+      }
       if (keep_all || cpu_splitmix64(frame_order ^ im.cfg.reservoir_seed) <
                           threshold) {
         const unsigned int k = im.kept[pc]++;
@@ -983,6 +1139,50 @@ void ForwardDrizzleV2CpuKernel::fold_native_range(
             qv.qa =
                 qa_data ? static_cast<float>(qa_s / b_src) : -1.0f;
           }
+        }
+      }
+    }
+    if (full_nonpilot) {
+      // Test each channel's candidate against its frozen pilot bounds, then
+      // apply the same cross-channel consensus as the pilot finalizer.
+      bool rej[3] = {false, false, false};
+      int voters = 0, rejected = 0;
+      for (int c = 0; c < im.channels; ++c) {
+        if (!fcand[c].has) continue;
+        const CpuFullAcc &f = im.full[static_cast<std::size_t>(c) * np + px];
+        if (f.state != 1) continue;
+        ++voters;
+        if (!(std::isfinite(fcand[c].x) && fcand[c].x >= f.lo &&
+              fcand[c].x <= f.hi)) {
+          rej[c] = true;
+          ++rejected;
+        }
+      }
+      if (im.cfg.shared_frame_rejection && voters > 1 &&
+          static_cast<double>(rejected) / static_cast<double>(voters) >
+              static_cast<double>(im.cfg.shared_frame_rejection_consensus)) {
+        for (int c = 0; c < im.channels; ++c) {
+          if (!fcand[c].has || im.full[static_cast<std::size_t>(c) * np + px]
+                                       .state != 1)
+            continue;
+          rej[c] = true;
+        }
+      }
+      const double g =
+          im.meta[static_cast<std::size_t>(frame_order)].g_eff;
+      for (int c = 0; c < im.channels; ++c) {
+        if (!fcand[c].has) continue;
+        CpuFullAcc &f = im.full[static_cast<std::size_t>(c) * np + px];
+        if (f.state != 1) continue;
+        if (rej[c]) {
+          ++f.n_rej;
+          ++stats_.full_frame_rejected;
+        } else {
+          cpu_full_add(f, fcand[c].b, fcand[c].x, fcand[c].s2, g,
+                       fcand[c].qc, fcand[c].q0, fcand[c].q1,
+                       im.cfg.fine_quality_exponent,
+                       im.cfg.medium_quality_exponent);
+          ++stats_.full_frame_accepted;
         }
       }
     }
@@ -1125,7 +1325,10 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_affine_samples(
   const bool keep_frame =
       keep_all ||
       cpu_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold;
-  const bool q_frame = qp && keep_frame;
+  // Full-frame mode: pilot frames strictly before end_pilot(), all other
+  // frames strictly after; every frame carries quality.
+  if (im.cfg.full_frame_estimator && keep_frame == im.pilot_done) return false;
+  const bool q_frame = qp && (keep_frame || im.cfg.full_frame_estimator);
   const ForwardDrizzleV2AlignedQuality aq =
       (q_frame && quality_or_null != nullptr)
           ? *quality_or_null
@@ -1241,15 +1444,18 @@ bool ForwardDrizzleV2CpuKernel::begin_affine_frame(
                      (static_cast<unsigned __int128>(im.cfg.reservoir_size)
                       << 64) /
                      n);
+  const bool pilot_frame =
+      keep_all ||
+      cpu_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold;
+  if (im.cfg.full_frame_estimator && pilot_frame == im.pilot_done)
+    return false;
   frame_open_ = true;
   open_order_ = frame_order;
   open_pieces_ = 0;
   open_tx_end_ = 0;
   open_qmask_ = 0;
-  open_qframe_ =
-      im.cfg.emit_profiles &&
-      (keep_all || cpu_splitmix64(frame_order ^ im.cfg.reservoir_seed) <
-                       threshold);
+  open_qframe_ = im.cfg.emit_profiles &&
+                 (pilot_frame || im.cfg.full_frame_estimator);
   return true;
 }
 
@@ -1527,6 +1733,116 @@ bool ForwardDrizzleV2CpuKernel::skip_frame(
   return true;
 }
 
+bool ForwardDrizzleV2CpuKernel::end_pilot() {
+  if (impl_ == nullptr || frame_open_ || impl_->finalized ||
+      !impl_->cfg.full_frame_estimator || impl_->pilot_done)
+    return false;
+  Impl &im = *impl_;
+  const std::size_t np = im.nplane;
+  const unsigned int slots = static_cast<unsigned int>(im.res_slots);
+  const int nch = im.channels;
+  struct Ch {
+    std::vector<ForwardDrizzleV2RobustCandidate> cands;
+    std::vector<unsigned int> slot;
+    std::vector<std::uint8_t> accepted;
+    CpuClipBounds bd;
+    bool ok = false;
+  };
+  std::vector<Ch> chs(static_cast<std::size_t>(nch));
+  std::vector<unsigned int> kept_order;
+  std::unordered_map<std::uint64_t, std::pair<int, int>> votes;
+  for (std::size_t px = 0; px < np; ++px) {
+    for (int ch = 0; ch < nch; ++ch) {
+      Ch &c = chs[static_cast<std::size_t>(ch)];
+      c.cands.clear();
+      c.slot.clear();
+      c.ok = false;
+      const std::size_t tid = static_cast<std::size_t>(ch) * np + px;
+      const unsigned int n_kept = im.kept[tid];
+      // Same eligibility as the reservoir finalizer's clip stage (the
+      // all-frame contributor guard is evaluated at finalize).
+      if (!(im.accB[tid] > 0.0) || n_kept > slots ||
+          n_kept < static_cast<unsigned int>(im.cfg.min_clip_contributors)) {
+        if (im.contrib[tid] > 0) ++stats_.full_frame_no_bounds;
+        continue;
+      }
+      kept_order.clear();
+      for (unsigned int i = 0; i < n_kept; ++i) kept_order.push_back(i);
+      std::sort(kept_order.begin(), kept_order.end(),
+                [&](unsigned int i, unsigned int j) {
+                  const auto &ri = im.res[tid * slots + i];
+                  const auto &rj = im.res[tid * slots + j];
+                  if (ri.x != rj.x) return ri.x < rj.x;
+                  return ri.order < rj.order;
+                });
+      for (unsigned int pos = 0; pos < n_kept; ++pos) {
+        const auto &rc = im.res[tid * slots + kept_order[pos]];
+        ForwardDrizzleV2RobustCandidate cand;
+        cand.frame_order = static_cast<std::size_t>(rc.order);
+        cand.x = rc.x;
+        cand.b = rc.b;
+        c.cands.push_back(cand);
+        c.slot.push_back(kept_order[pos]);
+      }
+      c.accepted.assign(n_kept, std::uint8_t{1});
+      c.bd = cpu_sigma_clip_passes(c.cands, c.accepted, im.cfg.robust_passes,
+                                   im.cfg.sigma_low, im.cfg.sigma_high);
+      c.ok = true;
+    }
+    if (im.cfg.shared_frame_rejection && nch > 1) {
+      votes.clear();
+      for (int ch = 0; ch < nch; ++ch) {
+        Ch &c = chs[static_cast<std::size_t>(ch)];
+        if (!c.ok) continue;
+        for (std::size_t i = 0; i < c.cands.size(); ++i) {
+          auto &vote = votes[c.cands[i].frame_order];
+          ++vote.second;
+          if (!c.accepted[i]) ++vote.first;
+        }
+      }
+      for (int ch = 0; ch < nch; ++ch) {
+        Ch &c = chs[static_cast<std::size_t>(ch)];
+        if (!c.ok) continue;
+        for (std::size_t i = 0; i < c.cands.size(); ++i) {
+          if (!c.accepted[i]) continue;
+          const auto it = votes.find(c.cands[i].frame_order);
+          if (it == votes.end() || it->second.second <= 1) continue;
+          if (static_cast<double>(it->second.first) /
+                  static_cast<double>(it->second.second) >
+              static_cast<double>(im.cfg.shared_frame_rejection_consensus))
+            c.accepted[i] = 0;
+        }
+      }
+    }
+    for (int ch = 0; ch < nch; ++ch) {
+      Ch &c = chs[static_cast<std::size_t>(ch)];
+      if (!c.ok) continue;
+      const std::size_t tid = static_cast<std::size_t>(ch) * np + px;
+      CpuFullAcc &f = im.full[tid];
+      if (c.bd.evaluated && c.bd.mad > 0.0) {
+        f.state = 1;
+        f.lo = c.bd.lower;
+        f.hi = c.bd.upper;
+      } else {
+        f.state = 2;
+        ++stats_.full_frame_degenerate_pilot;
+      }
+      for (std::size_t i = 0; i < c.cands.size(); ++i) {
+        if (!c.accepted[i]) continue;
+        const unsigned int sl = c.slot[i];
+        const auto &rc = im.res[tid * slots + sl];
+        const auto &qv = im.resq[tid * slots + sl];
+        const double g = im.meta[static_cast<std::size_t>(rc.order)].g_eff;
+        cpu_full_add(f, rc.b, rc.x, rc.sigma2, g, qv.qc, qv.q0, qv.q1,
+                     im.cfg.fine_quality_exponent,
+                     im.cfg.medium_quality_exponent);
+      }
+    }
+  }
+  im.pilot_done = true;
+  return true;
+}
+
 bool ForwardDrizzleV2CpuKernel::finalize(
     ForwardDrizzleV2PixelResult *results,
     ForwardDrizzleV2ProfileResult *profiles_or_null,
@@ -1536,6 +1852,7 @@ bool ForwardDrizzleV2CpuKernel::finalize(
     return false;
   Impl &im = *impl_;
   if (im.cfg.emit_profiles && profiles_or_null == nullptr) return false;
+  if (im.cfg.full_frame_estimator && !im.pilot_done) return false;
   const std::size_t np = im.nplane;
   const unsigned int slots = static_cast<unsigned int>(im.res_slots);
   const int subpixels = im.cfg.internal_scale * im.cfg.internal_scale;
@@ -1687,66 +2004,8 @@ bool ForwardDrizzleV2CpuKernel::finalize(
       // (x, order) order, weighted median at >= total/2, deviation-ordered
       // weighted MAD, asymmetric bounds, early stop on an unchanged mask.
       accepted.assign(n_kept, std::uint8_t{1});
-      for (int pass = 0; pass < im.cfg.robust_passes; ++pass) {
-        double total_w = 0.0;
-        unsigned int n_active = 0;
-        for (unsigned int i = 0; i < n_kept; ++i)
-          if (accepted[i]) {
-            total_w += cands[i].b;
-            ++n_active;
-          }
-        if (n_active == 0) break;
-        double median = 0.0;
-        {
-          double cum = 0.0;
-          unsigned int last_on = 0;
-          bool picked = false;
-          for (unsigned int i = 0; i < n_kept; ++i) {
-            if (!accepted[i]) continue;
-            last_on = i;
-            cum += cands[i].b;
-            if (total_w > 0.0 && cum >= total_w / 2.0) {
-              median = cands[i].x;
-              picked = true;
-              break;
-            }
-          }
-          if (!picked) median = cands[last_on].x;
-        }
-        std::vector<unsigned int> ord;
-        ord.reserve(n_kept);
-        for (unsigned int i = 0; i < n_kept; ++i)
-          if (accepted[i]) ord.push_back(i);
-        std::sort(ord.begin(), ord.end(),
-                  [&](unsigned int i, unsigned int j) {
-                    const double di = std::fabs(cands[i].x - median);
-                    const double dj = std::fabs(cands[j].x - median);
-                    if (di != dj) return di < dj;
-                    return cands[i].frame_order < cands[j].frame_order;
-                  });
-        double mad = std::fabs(cands[ord.back()].x - median);
-        if (total_w > 0.0) {
-          double cum = 0.0;
-          for (unsigned int idx : ord) {
-            cum += cands[idx].b;
-            if (cum >= total_w / 2.0) {
-              mad = std::fabs(cands[idx].x - median);
-              break;
-            }
-          }
-        }
-        const double lower = median - im.cfg.sigma_low * mad;
-        const double upper = median + im.cfg.sigma_high * mad;
-        bool changed = false;
-        for (unsigned int idx : ord) {
-          const double xv = cands[idx].x;
-          if (!(xv >= lower && xv <= upper)) {
-            accepted[idx] = 0;
-            changed = true;
-          }
-        }
-        if (!changed) break;
-      }
+      (void)cpu_sigma_clip_passes(cands, accepted, im.cfg.robust_passes,
+                                  im.cfg.sigma_low, im.cfg.sigma_high);
 
       double ca = 0.0, cb = 0.0, cs = 0.0, cc = 0.0;
       for (unsigned int i = 0; i < n_kept; ++i) {
@@ -1939,66 +2198,8 @@ bool ForwardDrizzleV2CpuKernel::finalize(
       }
 
       cw.accepted.assign(n_kept, std::uint8_t{1});
-      for (int pass = 0; pass < im.cfg.robust_passes; ++pass) {
-        double total_w = 0.0;
-        unsigned int n_active = 0;
-        for (unsigned int i = 0; i < n_kept; ++i)
-          if (cw.accepted[i]) {
-            total_w += cw.cands[i].b;
-            ++n_active;
-          }
-        if (n_active == 0) break;
-        double median = 0.0;
-        {
-          double cum = 0.0;
-          unsigned int last_on = 0;
-          bool picked = false;
-          for (unsigned int i = 0; i < n_kept; ++i) {
-            if (!cw.accepted[i]) continue;
-            last_on = i;
-            cum += cw.cands[i].b;
-            if (total_w > 0.0 && cum >= total_w / 2.0) {
-              median = cw.cands[i].x;
-              picked = true;
-              break;
-            }
-          }
-          if (!picked) median = cw.cands[last_on].x;
-        }
-        std::vector<unsigned int> ord;
-        ord.reserve(n_kept);
-        for (unsigned int i = 0; i < n_kept; ++i)
-          if (cw.accepted[i]) ord.push_back(i);
-        std::sort(ord.begin(), ord.end(),
-                  [&](unsigned int i, unsigned int j) {
-                    const double di = std::fabs(cw.cands[i].x - median);
-                    const double dj = std::fabs(cw.cands[j].x - median);
-                    if (di != dj) return di < dj;
-                    return cw.cands[i].frame_order < cw.cands[j].frame_order;
-                  });
-        double mad = std::fabs(cw.cands[ord.back()].x - median);
-        if (total_w > 0.0) {
-          double cum = 0.0;
-          for (unsigned int idx : ord) {
-            cum += cw.cands[idx].b;
-            if (cum >= total_w / 2.0) {
-              mad = std::fabs(cw.cands[idx].x - median);
-              break;
-            }
-          }
-        }
-        const double lower = median - im.cfg.sigma_low * mad;
-        const double upper = median + im.cfg.sigma_high * mad;
-        bool changed = false;
-        for (unsigned int idx : ord) {
-          const double xv = cw.cands[idx].x;
-          if (!(xv >= lower && xv <= upper)) {
-            cw.accepted[idx] = 0;
-            changed = true;
-          }
-        }
-        if (!changed) break;
-      }
+      (void)cpu_sigma_clip_passes(cw.cands, cw.accepted, im.cfg.robust_passes,
+                                  im.cfg.sigma_low, im.cfg.sigma_high);
 
       cw.r = r;
       cw.has_clip = true;
@@ -2076,6 +2277,59 @@ bool ForwardDrizzleV2CpuKernel::finalize(
       results[tid] = r;
     }
     }  // end for px
+  }
+  if (im.cfg.full_frame_estimator) {
+    // Replace the pilot-only value/profiles by the all-frame accepted sums
+    // for every pixel-channel that has frozen bounds and did not take a
+    // fallback. Alpha/artifact/registration factors stay pilot-derived;
+    // a_separation follows the new confidence per the v2 contract.
+    for (std::size_t tid = 0; tid < im.pc_elems; ++tid) {
+      const CpuFullAcc &f = im.full[tid];
+      ForwardDrizzleV2PixelResult &r = results[tid];
+      if (f.state == 0 ||
+          r.robust_state !=
+              static_cast<std::uint8_t>(
+                  ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip))
+        continue;
+      if (f.state == 2) {
+        r.robust_state = static_cast<std::uint8_t>(
+            ForwardDrizzleV2RobustState::degenerate_scale);
+        continue;
+      }
+      if (!(f.cb > 0.0)) continue;
+      r.value = f.ca / f.cb;
+      r.robust_state = static_cast<std::uint8_t>(
+          ForwardDrizzleV2RobustState::primary_reservoir_pilot_full_frame);
+      r.n_eff = f.cb2 > 0.0 ? f.cb * f.cb / f.cb2 : 0.0;
+      if (f.cc > 0.0 && std::isfinite(f.cc)) {
+        r.confidence = (f.cs * f.cs) / (f.cs * f.cs + f.cc);
+        r.confidence_state = static_cast<std::uint8_t>(
+            ForwardDrizzleV2ConfidenceState::modeled);
+      } else {
+        r.confidence = r.n_eff > 0.0 ? r.n_eff / (r.n_eff + 1.0) : 0.0;
+        r.confidence_state = static_cast<std::uint8_t>(
+            ForwardDrizzleV2ConfidenceState::fallback_n_eff);
+      }
+      if (profiles_or_null == nullptr) continue;
+      ForwardDrizzleV2ProfileResult &pr = profiles_or_null[tid];
+      ForwardDrizzleV2ProfileOutput *outs[4] = {&pr.uniform, &pr.raw,
+                                                &pr.fine, &pr.medium};
+      for (int k = 0; k < 4; ++k) {
+        *outs[k] = ForwardDrizzleV2ProfileOutput{};
+        if (!(f.w[k] > 0.0)) continue;
+        outs[k]->value = static_cast<float>(f.wx[k] / f.w[k]);
+        outs[k]->weight_sum = static_cast<float>(f.w[k]);
+        outs[k]->n_eff = static_cast<float>(
+            f.w2[k] > 0.0 ? (f.w[k] * f.w[k]) / f.w2[k] : 0.0);
+        outs[k]->support = 1;
+      }
+      if (pcfg.emit_alpha_confidence) {
+        const bool fully_degraded =
+            r.contributors > 0 && im.degraded[tid] == r.contributors;
+        pr.a_separation = static_cast<float>(
+            fully_degraded ? 0.0 : std::clamp(r.confidence, 0.0, 1.0));
+      }
+    }
   }
   if (dense_overlap_count != nullptr) *dense_overlap_count = dense;
   im.finalized = true;

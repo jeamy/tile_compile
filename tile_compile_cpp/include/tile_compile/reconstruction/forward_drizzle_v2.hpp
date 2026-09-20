@@ -141,7 +141,9 @@ enum class ForwardDrizzleV2RobustState {
   // Device-only gate-6 state: the bounded reservoir slot array (2*R) could
   // not hold the whole hash-keep set; the pixel degrades to the uniform
   // stream value while keeping its support.
-  reservoir_overflow_fallback
+  reservoir_overflow_fallback,
+  // Pilot bounds frozen, value accumulated over all accepted frames.
+  primary_reservoir_pilot_full_frame
 };
 
 // Gate-3 estimator candidates. All selectable candidates must be single-pass

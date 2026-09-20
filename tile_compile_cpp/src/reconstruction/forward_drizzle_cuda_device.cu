@@ -642,6 +642,37 @@ struct V2FrameMetaDev {
   unsigned int pad;
 };
 
+// Full-frame estimator accumulator per (pixel, channel); mirrors CpuFullAcc.
+// state: 0 no bounds, 1 active (frozen pilot bounds), 2 degenerate pilot.
+// n_acc/n_rej count NON-pilot contributions only (diagnostics).
+struct V2FullAcc {
+  double wx[4], w[4], w2[4];
+  double ca, cb, cb2, cs, cc, lo, hi;
+  unsigned int n_acc, n_rej;
+  unsigned char state;
+};
+
+__device__ __forceinline__ void d_full_add(V2FullAcc &f, double b, double x,
+                                           double sigma2, double g, double qc,
+                                           double q0, double q1,
+                                           double fine_exp,
+                                           double medium_exp) {
+  const double wgt[4] = {b, b * g * qc, b * g * pow(q0, fine_exp),
+                         b * g * pow(q1, medium_exp)};
+  for (int k = 0; k < 4; ++k) {
+    f.wx[k] += wgt[k] * x;
+    f.w[k] += wgt[k];
+    f.w2[k] += wgt[k] * wgt[k];
+  }
+  f.ca += b * x;
+  f.cb += b;
+  f.cb2 += b * b;
+  if (isfinite(sigma2) && sigma2 > 0.0) {
+    f.cs += b * sqrt(sigma2);
+    f.cc += b * b * sigma2;
+  }
+}
+
 __host__ __device__ unsigned long long d_splitmix64(unsigned long long x) {
   x += 0x9e3779b97f4a7c15ULL;
   x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -1267,7 +1298,9 @@ __global__ void k_fold_accumulate_v2(
     double *covB, double *covB2, double *confS, double *confC,
     unsigned int *contrib, unsigned int *kept, unsigned int *footprint,
     unsigned short *supp, unsigned long long *degraded,
-    V2ReservoirRecord *res, float4 *resq) {
+    V2ReservoirRecord *res, float4 *resq,
+    V2FullAcc *full, const V2FrameMetaDev *fmeta, double fine_exp,
+    double medium_exp, int sfr, double consensus) {
   // Threads cover native columns [nx_begin, nx_begin + nx_count) only; the
   // one-shot path passes (0, ncols).
   const long long t =
@@ -1281,6 +1314,14 @@ __global__ void k_fold_accumulate_v2(
   const long long iplane = static_cast<long long>(icols) * irows;
   const double inv_s2 = 1.0 / (static_cast<double>(scale) * scale);
   bool any_geo = false;
+  // Full-frame mode: non-pilot candidates of this pixel, one per channel.
+  const bool full_nonpilot =
+      full != nullptr &&
+      !(keep_all || d_splitmix64(order ^ seed) < threshold);
+  bool f_has[3] = {false, false, false};
+  double f_x[3] = {0.0, 0.0, 0.0}, f_b[3] = {0.0, 0.0, 0.0},
+         f_s2[3] = {0.0, 0.0, 0.0}, f_qc[3] = {1.0, 1.0, 1.0},
+         f_q0[3] = {1.0, 1.0, 1.0}, f_q1[3] = {1.0, 1.0, 1.0};
   for (int c = 0; c < channels; ++c) {
     const long long pc = static_cast<long long>(c) * nplane + px;
     double a = 0.0, b_src = 0.0, b_geo = 0.0, s2w = 0.0;
@@ -1331,6 +1372,15 @@ __global__ void k_fold_accumulate_v2(
       confS[pc] += b_src * sqrt(s2c);
       confC[pc] += b_src * b_src * s2c;
     }
+    if (full_nonpilot) {
+      f_has[c] = true;
+      f_x[c] = x;
+      f_b[c] = b_src;
+      f_s2[c] = s2c;
+      f_qc[c] = (qmask & 1u) ? qc_s / b_src : 1.0;
+      f_q0[c] = (qmask & 2u) ? q0_s / b_src : 1.0;
+      f_q1[c] = (qmask & 4u) ? q1_s / b_src : 1.0;
+    }
     if (keep_all || d_splitmix64(order ^ seed) < threshold) {
       const unsigned int k = kept[pc]++;
       if (k < static_cast<unsigned int>(res_slots)) {
@@ -1352,6 +1402,44 @@ __global__ void k_fold_accumulate_v2(
           qv.w = qa_data ? static_cast<float>(qa_s / b_src) : -1.0f;
           resq[pc * res_slots + k] = qv;
         }
+      }
+    }
+  }
+  if (full_nonpilot) {
+    // Frozen pilot bounds + cross-channel consensus (see the CPU fold).
+    bool rej[3] = {false, false, false};
+    int voters = 0, rejected = 0;
+    for (int c = 0; c < channels; ++c) {
+      if (!f_has[c]) continue;
+      const V2FullAcc &fa_ = full[static_cast<long long>(c) * nplane + px];
+      if (fa_.state != 1) continue;
+      ++voters;
+      if (!(isfinite(f_x[c]) && f_x[c] >= fa_.lo && f_x[c] <= fa_.hi)) {
+        rej[c] = true;
+        ++rejected;
+      }
+    }
+    if (sfr != 0 && voters > 1 &&
+        static_cast<double>(rejected) / static_cast<double>(voters) >
+            consensus) {
+      for (int c = 0; c < channels; ++c) {
+        if (!f_has[c] ||
+            full[static_cast<long long>(c) * nplane + px].state != 1)
+          continue;
+        rej[c] = true;
+      }
+    }
+    const double g = static_cast<double>(fmeta[order].g_eff);
+    for (int c = 0; c < channels; ++c) {
+      if (!f_has[c]) continue;
+      V2FullAcc &fa_ = full[static_cast<long long>(c) * nplane + px];
+      if (fa_.state != 1) continue;
+      if (rej[c]) {
+        ++fa_.n_rej;
+      } else {
+        d_full_add(fa_, f_b[c], f_x[c], f_s2[c], g, f_qc[c], f_q0[c],
+                   f_q1[c], fine_exp, medium_exp);
+        ++fa_.n_acc;
       }
     }
   }
@@ -1784,7 +1872,8 @@ __global__ void k_finalize_v2_sfr_build(
     const unsigned long long *degraded, const V2ReservoirRecord *res,
     ForwardDrizzleV2ProfileResult *pout,
     ForwardDrizzleV2PixelResult *out, unsigned long long *dense_overlap,
-    unsigned char *has_clip, unsigned long long *sfr_accepted) {
+    unsigned char *has_clip, unsigned long long *sfr_accepted,
+    double *bounds) {
   const long long tid =
       static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
   const long long nplane = static_cast<long long>(ncols) * nrows;
@@ -1891,6 +1980,7 @@ __global__ void k_finalize_v2_sfr_build(
     recs[j] = v;
   }
   unsigned long long acc_lo = ~0ULL, acc_hi = ~0ULL;
+  double last_lower = 0.0, last_upper = 0.0, last_mad = -1.0;
   for (int pass = 0; pass < passes; ++pass) {
     double total_w = 0.0;
     unsigned int n_active = 0;
@@ -1953,6 +2043,9 @@ __global__ void k_finalize_v2_sfr_build(
     }
     const double lower = median - s_low * mad;
     const double upper = median + s_high * mad;
+    last_lower = lower;
+    last_upper = upper;
+    last_mad = mad;
     bool changed = false;
     for (unsigned int i = 0; i < m; ++i) {
       const unsigned int idx = ord[i];
@@ -1970,6 +2063,11 @@ __global__ void k_finalize_v2_sfr_build(
   // computed above (contributors, conf_degraded, b, n_eff, the *_fraction
   // fields) is already final and must reach kernel C, which starts from
   // out[pc] rather than recomputing it.
+  if (bounds != nullptr) {
+    bounds[3 * pc] = last_lower;
+    bounds[3 * pc + 1] = last_upper;
+    bounds[3 * pc + 2] = last_mad;
+  }
   out[pc] = r;
   has_clip[pc] = 1;
   sfr_accepted[2 * pc] = acc_lo;
@@ -2215,6 +2313,140 @@ __global__ void k_finalize_v2_sfr_reduce(
     pout[pc] = pr;
   }
   out[pc] = r;
+}
+
+// Full-frame estimator pilot barrier, kernel D: after sfr_build (bounds
+// requested) and sfr_vote, every clip-eligible (pixel, channel) tid holds the
+// pilot's accepted bitmask (sorted-position indexed) and its final clip
+// bounds. This freezes the bounds and folds the accepted pilot candidates
+// into the full-frame sums in (x, order) order, exactly like the CPU
+// end_pilot(). Counters: [2] degenerate pilots, [3] pixel-channels without
+// bounds that had candidates.
+__global__ void k_full_seed(
+    int ncols, int nrows, int channels, int res_slots, const unsigned int *kept,
+    const unsigned int *contrib, const V2ReservoirRecord *res,
+    const float4 *resq, const V2FrameMetaDev *meta,
+    unsigned long long meta_capacity, double fine_exp, double medium_exp,
+    const unsigned char *has_clip, const unsigned long long *sfr_accepted,
+    const double *bounds, V2FullAcc *full, unsigned long long *counters) {
+  const long long tid =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const long long nplane = static_cast<long long>(ncols) * nrows;
+  if (tid >= nplane * channels) return;
+  const long long pc = tid;
+  if (!has_clip[pc]) {
+    if (contrib[pc] > 0) atomicAdd(counters + 3, 1ULL);
+    return;
+  }
+  const unsigned int n_kept = kept[pc];
+  V2ReservoirRecord recs[kV2MaxResSlots];
+  float4 qvs[kV2MaxResSlots];
+  for (unsigned int i = 0; i < n_kept; ++i) {
+    recs[i] = res[pc * res_slots + i];
+    qvs[i] = resq[pc * res_slots + i];
+  }
+  for (unsigned int i = 1; i < n_kept; ++i) {
+    const V2ReservoirRecord v = recs[i];
+    const float4 qv = qvs[i];
+    unsigned int j = i;
+    while (j > 0 &&
+           (recs[j - 1].x > v.x ||
+            (recs[j - 1].x == v.x && recs[j - 1].order > v.order))) {
+      recs[j] = recs[j - 1];
+      qvs[j] = qvs[j - 1];
+      --j;
+    }
+    recs[j] = v;
+    qvs[j] = qv;
+  }
+  const unsigned long long acc_lo = sfr_accepted[2 * pc];
+  const unsigned long long acc_hi = sfr_accepted[2 * pc + 1];
+  V2FullAcc f = full[pc];
+  const double mad = bounds[3 * pc + 2];
+  if (mad > 0.0) {
+    f.state = 1;
+    f.lo = bounds[3 * pc];
+    f.hi = bounds[3 * pc + 1];
+  } else {
+    f.state = 2;
+    atomicAdd(counters + 2, 1ULL);
+  }
+  for (unsigned int i = 0; i < n_kept; ++i) {
+    const bool on = i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
+    if (!on) continue;
+    V2FrameMetaDev m{};
+    if (meta != nullptr && recs[i].order < meta_capacity) m = meta[recs[i].order];
+    d_full_add(f, recs[i].b, recs[i].x, recs[i].sigma2,
+               static_cast<double>(m.g_eff), static_cast<double>(qvs[i].x),
+               static_cast<double>(qvs[i].y), static_cast<double>(qvs[i].z),
+               fine_exp, medium_exp);
+  }
+  full[pc] = f;
+}
+
+// Full-frame estimator finalize override, kernel E (after sfr_reduce): the
+// device twin of the CPU finalize override. Counters: [0] non-pilot accepted,
+// [1] non-pilot rejected.
+__global__ void k_full_apply(
+    int ncols, int nrows, int channels, const unsigned int *contrib,
+    const unsigned long long *degraded, const V2FullAcc *full,
+    ForwardDrizzleV2PixelResult *out, ForwardDrizzleV2ProfileResult *pout,
+    unsigned long long *counters) {
+  const long long tid =
+      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const long long nplane = static_cast<long long>(ncols) * nrows;
+  if (tid >= nplane * channels) return;
+  const long long pc = tid;
+  const V2FullAcc f = full[pc];
+  if (f.n_acc != 0) atomicAdd(counters + 0, static_cast<unsigned long long>(f.n_acc));
+  if (f.n_rej != 0) atomicAdd(counters + 1, static_cast<unsigned long long>(f.n_rej));
+  ForwardDrizzleV2PixelResult r = out[pc];
+  if (f.state == 0 ||
+      r.robust_state !=
+          static_cast<std::uint8_t>(
+              ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip))
+    return;
+  if (f.state == 2) {
+    r.robust_state = static_cast<std::uint8_t>(
+        ForwardDrizzleV2RobustState::degenerate_scale);
+    out[pc] = r;
+    return;
+  }
+  if (!(f.cb > 0.0)) return;
+  r.value = f.ca / f.cb;
+  r.robust_state = static_cast<std::uint8_t>(
+      ForwardDrizzleV2RobustState::primary_reservoir_pilot_full_frame);
+  r.n_eff = f.cb2 > 0.0 ? f.cb * f.cb / f.cb2 : 0.0;
+  if (f.cc > 0.0 && isfinite(f.cc)) {
+    r.confidence = (f.cs * f.cs) / (f.cs * f.cs + f.cc);
+    r.confidence_state =
+        static_cast<std::uint8_t>(ForwardDrizzleV2ConfidenceState::modeled);
+  } else {
+    r.confidence = r.n_eff > 0.0 ? r.n_eff / (r.n_eff + 1.0) : 0.0;
+    r.confidence_state = static_cast<std::uint8_t>(
+        ForwardDrizzleV2ConfidenceState::fallback_n_eff);
+  }
+  out[pc] = r;
+  if (pout == nullptr) return;
+  ForwardDrizzleV2ProfileResult pr = pout[pc];
+  ForwardDrizzleV2ProfileOutput *outs[4] = {&pr.uniform, &pr.raw, &pr.fine,
+                                            &pr.medium};
+  for (int k = 0; k < 4; ++k) {
+    *outs[k] = ForwardDrizzleV2ProfileOutput{};
+    if (!(f.w[k] > 0.0)) continue;
+    outs[k]->value = static_cast<float>(f.wx[k] / f.w[k]);
+    outs[k]->weight_sum = static_cast<float>(f.w[k]);
+    outs[k]->n_eff =
+        static_cast<float>(f.w2[k] > 0.0 ? (f.w[k] * f.w[k]) / f.w2[k] : 0.0);
+    outs[k]->support = 1;
+  }
+  double sep = (r.contributors > 0 && degraded[pc] == r.contributors)
+                   ? 0.0
+                   : r.confidence;
+  if (sep < 0.0) sep = 0.0;
+  if (sep > 1.0) sep = 1.0;
+  pr.a_separation = static_cast<float>(sep);
+  pout[pc] = pr;
 }
 
 // Host-side executability contract of a local-warp descriptor. Everything
@@ -3174,6 +3406,14 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
   // is off for this workspace.
   unsigned char *sfr_has_clip = nullptr;
   unsigned long long *sfr_accepted = nullptr;
+  // Full-frame estimator (cfg.full_frame_estimator): per-pc accumulators,
+  // pilot clip bounds (lower, upper, mad per pc) and counters
+  // [0] accepted, [1] rejected, [2] degenerate pilot, [3] no bounds,
+  // [4] dense-overlap scratch for the pilot-barrier build launch.
+  V2FullAcc *dfull = nullptr;
+  double *dbounds = nullptr;
+  unsigned long long *fcounters = nullptr;
+  bool pilot_done = false;
   std::vector<cudaEvent_t> ev_up0, ev_up1, ev_k0, ev_k1;
   // Host flag per frame order: the four events were recorded for a real
   // accumulate in the CURRENT band (skip frames leave it false so stale
@@ -3235,6 +3475,9 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
     cudaFree(pout);
     cudaFree(sfr_has_clip);
     cudaFree(sfr_accepted);
+    cudaFree(dfull);
+    cudaFree(dbounds);
+    cudaFree(fcounters);
     for (auto *v : {&ev_up0, &ev_up1, &ev_k0, &ev_k1})
       for (cudaEvent_t e : *v) cudaEventDestroy(e);
     if (stream) cudaStreamDestroy(stream);
@@ -3272,6 +3515,7 @@ bool v2_fixed_cfg_equal(const ForwardDrizzleV2KernelConfig &a,
          a.canvas_height_native == b.canvas_height_native &&
          a.band_origin_x_native == b.band_origin_x_native &&
          a.cached_leaf_capacity == b.cached_leaf_capacity &&
+         a.full_frame_estimator == b.full_frame_estimator &&
          a.shared_frame_rejection == b.shared_frame_rejection &&
          a.shared_frame_rejection_consensus == b.shared_frame_rejection_consensus;
 }
@@ -3294,6 +3538,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
   if (native_cols <= 0 || native_rows <= 0 || source_w <= 0 ||
       source_h <= 0 || cfg.internal_scale < 1 || cfg.internal_scale > 2 ||
       cfg.reservoir_size < 1 || cfg.reservoir_size > 64 ||
+      (cfg.full_frame_estimator && !cfg.emit_profiles) ||
       cfg.stream_length == 0 || cfg.stream_length > 65536 ||
       cfg.min_clip_contributors < 1 || cfg.min_candidates < 1 ||
       cfg.robust_passes < 1 || !std::isfinite(cfg.sigma_low) ||
@@ -3407,10 +3652,13 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
       (cfg.emit_profiles &&
        (!mul(pc_elems, sizeof(ForwardDrizzleV2ProfileResult), tmp) ||
         !add_bytes(tmp))) ||
-      (cfg.shared_frame_rejection &&
+      ((cfg.shared_frame_rejection || cfg.full_frame_estimator) &&
        (!mul(pc_elems, sizeof(unsigned char), tmp) || !add_bytes(tmp) ||
         !mul(pc_elems, 2 * sizeof(unsigned long long), tmp) ||
         !add_bytes(tmp))) ||
+      (cfg.full_frame_estimator &&
+       (!mul(pc_elems, sizeof(V2FullAcc) + 3 * sizeof(double), tmp) ||
+        !add_bytes(tmp) || !add_bytes(5 * sizeof(unsigned long long)))) ||
       !add_bytes(leaf_bytes) ||
       !add_bytes(3 * sizeof(unsigned long long)))
     return false;
@@ -3524,11 +3772,18 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
              cudaSuccess)) &&
        cudaMalloc(&im->out, pc_elems * sizeof(ForwardDrizzleV2PixelResult)) ==
            cudaSuccess &&
-       (!cfg.shared_frame_rejection ||
+       (!(cfg.shared_frame_rejection || cfg.full_frame_estimator) ||
         (cudaMalloc(&im->sfr_has_clip, pc_elems * sizeof(unsigned char)) ==
              cudaSuccess &&
          cudaMalloc(&im->sfr_accepted,
                     pc_elems * 2 * sizeof(unsigned long long)) ==
+             cudaSuccess)) &&
+       (!cfg.full_frame_estimator ||
+        (cudaMalloc(&im->dfull, pc_elems * sizeof(V2FullAcc)) ==
+             cudaSuccess &&
+         cudaMalloc(&im->dbounds, pc_elems * 3 * sizeof(double)) ==
+             cudaSuccess &&
+         cudaMalloc(&im->fcounters, 5 * sizeof(unsigned long long)) ==
              cudaSuccess));
   if (!ok) {
     // Capture BEFORE delete im: the destructor's cudaFree calls would
@@ -3566,7 +3821,12 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
        cudaMemsetAsync(im->degraded, 0, pc_elems * sizeof(unsigned long long),
                        im->stream) == cudaSuccess &&
        cudaMemsetAsync(im->scalars, 0, 3 * sizeof(unsigned long long),
-                       im->stream) == cudaSuccess;
+                       im->stream) == cudaSuccess &&
+       (!cfg.full_frame_estimator ||
+        (cudaMemsetAsync(im->dfull, 0, pc_elems * sizeof(V2FullAcc),
+                         im->stream) == cudaSuccess &&
+         cudaMemsetAsync(im->fcounters, 0, 5 * sizeof(unsigned long long),
+                         im->stream) == cudaSuccess));
   if (!ok) {
     const cudaError_t memset_err = cudaGetLastError();
     if (memset_err != cudaSuccess)
@@ -3650,11 +3910,17 @@ bool ForwardDrizzleV2CudaPrototypeKernel::begin_band(
       cudaMemsetAsync(im.degraded, 0, pc_elems * sizeof(unsigned long long),
                       im.stream) == cudaSuccess &&
       cudaMemsetAsync(im.scalars, 0, 3 * sizeof(unsigned long long),
-                      im.stream) == cudaSuccess;
+                      im.stream) == cudaSuccess &&
+      (!im.cfg.full_frame_estimator ||
+       (cudaMemsetAsync(im.dfull, 0, pc_elems * sizeof(V2FullAcc),
+                        im.stream) == cudaSuccess &&
+        cudaMemsetAsync(im.fcounters, 0, 5 * sizeof(unsigned long long),
+                        im.stream) == cudaSuccess));
   if (!ok) {
     cudaGetLastError();
     return false;
   }
+  im.pilot_done = false;
   std::fill(im.event_recorded.begin(), im.event_recorded.end(), char{0});
   im.frames = 0;
   im.finalized = false;
@@ -3780,7 +4046,10 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
   const bool keep_frame =
       keep_all ||
       d_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold;
-  const bool q_frame = qp && keep_frame;
+  // Full-frame mode: pilot frames strictly before end_pilot(), all other
+  // frames strictly after; every frame carries quality.
+  if (im.cfg.full_frame_estimator && keep_frame == im.pilot_done) return false;
+  const bool q_frame = qp && (keep_frame || im.cfg.full_frame_estimator);
   // Each stream supplies a float plane XOR a packed storage-grid window;
   // both set or a malformed descriptor fails the call. Packed descriptors
   // must cover every storage cell the active rect maps to.
@@ -3969,7 +4238,11 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
         keep_all ? 1 : 0, threshold, im.res_slots, im.cfg.reservoir_seed,
         im.accA, im.accB, im.accB2, im.covB, im.covB2, im.confS, im.confC,
         im.contrib, im.kept, im.footprint, im.supp, im.degraded, im.res,
-        im.resq);
+        im.resq, im.dfull, im.meta,
+        static_cast<double>(im.cfg.fine_quality_exponent),
+        static_cast<double>(im.cfg.medium_quality_exponent),
+        im.cfg.shared_frame_rejection ? 1 : 0,
+        static_cast<double>(im.cfg.shared_frame_rejection_consensus));
   }
   ok = cudaGetLastError() == cudaSuccess &&
        cudaEventRecord(im.ev_k1[f], st) == cudaSuccess;
@@ -4151,9 +4424,12 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_affine_samples(
                       << 64) /
                      n);
   const bool qp = im.cfg.emit_profiles;
-  const bool q_frame =
-      qp && (keep_all ||
-             d_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold);
+  const bool pilot_frame =
+      keep_all ||
+      d_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold;
+  if (im.cfg.full_frame_estimator && pilot_frame == im.pilot_done)
+    return false;
+  const bool q_frame = qp && (pilot_frame || im.cfg.full_frame_estimator);
   const ForwardDrizzleV2AlignedQuality h_q =
       (q_frame && quality_or_null != nullptr) ? *quality_or_null
                                             : ForwardDrizzleV2AlignedQuality{};
@@ -4254,7 +4530,11 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_affine_samples(
         frame_order, keep_all ? 1 : 0, threshold, im.res_slots,
         im.cfg.reservoir_seed, im.accA, im.accB, im.accB2, im.covB, im.covB2,
         im.confS, im.confC, im.contrib, im.kept, im.footprint, im.supp,
-        im.degraded, im.res, im.resq);
+        im.degraded, im.res, im.resq, im.dfull, im.meta,
+        static_cast<double>(im.cfg.fine_quality_exponent),
+        static_cast<double>(im.cfg.medium_quality_exponent),
+        im.cfg.shared_frame_rejection ? 1 : 0,
+        static_cast<double>(im.cfg.shared_frame_rejection_consensus));
   }
   ok = cudaGetLastError() == cudaSuccess &&
        cudaEventRecord(im.ev_k1[f], st) == cudaSuccess;
@@ -4324,10 +4604,15 @@ bool ForwardDrizzleV2CudaPrototypeKernel::begin_affine_frame(
   open_pieces_ = 0;
   open_tx_end_ = 0;
   open_qmask_ = 0;
-  open_qframe_ =
-      im.cfg.emit_profiles &&
-      (keep_all ||
-       d_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold);
+  const bool pilot_frame =
+      keep_all ||
+      d_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold;
+  if (im.cfg.full_frame_estimator && pilot_frame == im.pilot_done) {
+    frame_open_ = false;
+    return false;
+  }
+  open_qframe_ = im.cfg.emit_profiles &&
+                 (pilot_frame || im.cfg.full_frame_estimator);
   return true;
 }
 
@@ -4550,7 +4835,11 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_affine_piece(
         keep_all ? 1 : 0, threshold, im.res_slots, im.cfg.reservoir_seed,
         im.accA, im.accB, im.accB2, im.covB, im.covB2, im.confS, im.confC,
         im.contrib, im.kept, im.footprint, im.supp, im.degraded, im.res,
-        im.resq);
+        im.resq, im.dfull, im.meta,
+        static_cast<double>(im.cfg.fine_quality_exponent),
+        static_cast<double>(im.cfg.medium_quality_exponent),
+        im.cfg.shared_frame_rejection ? 1 : 0,
+        static_cast<double>(im.cfg.shared_frame_rejection_consensus));
     ok = cudaGetLastError() == cudaSuccess &&
          cudaEventRecord(im.ev_k1[f], st) == cudaSuccess;
   }
@@ -4628,6 +4917,60 @@ bool ForwardDrizzleV2CudaPrototypeKernel::skip_frame(
   return true;
 }
 
+bool ForwardDrizzleV2CudaPrototypeKernel::end_pilot() {
+  last_device_error_.clear();
+  if (impl_ == nullptr || frame_open_ || impl_->finalized ||
+      !impl_->cfg.full_frame_estimator || impl_->pilot_done)
+    return false;
+  Impl &im = *impl_;
+  cudaStream_t st = im.stream;
+  const std::size_t n_pc = im.nplane * static_cast<std::size_t>(im.channels);
+  const int block = 128;
+  const unsigned int grid = static_cast<unsigned int>(
+      (static_cast<long long>(n_pc) + block - 1) / block);
+  // Build with min_candidates = 0: the all-frame contributor guard is
+  // evaluated at finalize, exactly like the CPU end_pilot().
+  k_finalize_v2_sfr_build<<<grid, block, 0, st>>>(
+      im.ncols, im.nrows, im.channels,
+      im.cfg.internal_scale * im.cfg.internal_scale, im.res_slots, im.frames,
+      0, im.cfg.min_clip_contributors, im.cfg.robust_passes,
+      im.cfg.sigma_low, im.cfg.sigma_high, im.accA, im.accB, im.accB2,
+      im.confS, im.confC, im.contrib, im.kept, im.footprint, im.supp,
+      im.degraded, im.res, im.pout, im.out, im.fcounters + 4,
+      im.sfr_has_clip, im.sfr_accepted, im.dbounds);
+  if (const cudaError_t e = cudaGetLastError(); e != cudaSuccess) {
+    last_device_error_ = std::string("end_pilot build launch: ") +
+                         cudaGetErrorString(e);
+    return false;
+  }
+  if (im.channels > 1 && im.cfg.shared_frame_rejection) {
+    const unsigned int grid_px = static_cast<unsigned int>(
+        (static_cast<long long>(im.nplane) + block - 1) / block);
+    k_finalize_v2_sfr_vote<<<grid_px, block, 0, st>>>(
+        im.ncols, im.nrows, im.channels, im.res_slots,
+        static_cast<double>(im.cfg.shared_frame_rejection_consensus), im.kept,
+        im.res, im.sfr_has_clip, im.sfr_accepted);
+    if (const cudaError_t e = cudaGetLastError(); e != cudaSuccess) {
+      last_device_error_ = std::string("end_pilot vote launch: ") +
+                           cudaGetErrorString(e);
+      return false;
+    }
+  }
+  k_full_seed<<<grid, block, 0, st>>>(
+      im.ncols, im.nrows, im.channels, im.res_slots, im.kept, im.contrib,
+      im.res, im.resq, im.meta, im.cfg.stream_length,
+      static_cast<double>(im.cfg.fine_quality_exponent),
+      static_cast<double>(im.cfg.medium_quality_exponent), im.sfr_has_clip,
+      im.sfr_accepted, im.dbounds, im.dfull, im.fcounters);
+  if (const cudaError_t e = cudaGetLastError(); e != cudaSuccess) {
+    last_device_error_ = std::string("end_pilot seed launch: ") +
+                         cudaGetErrorString(e);
+    return false;
+  }
+  im.pilot_done = true;
+  return true;
+}
+
 bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
     ForwardDrizzleV2PixelResult *results,
     ForwardDrizzleV2ProfileResult *profiles_or_null,
@@ -4637,13 +4980,19 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
     return false;
   Impl &im = *impl_;
   if (im.cfg.emit_profiles && profiles_or_null == nullptr) return false;
+  if (im.cfg.full_frame_estimator && !im.pilot_done) return false;
   cudaStream_t st = im.stream;
   const std::size_t n_pc = im.nplane * static_cast<std::size_t>(im.channels);
   const int block = 128;
   const long long total = static_cast<long long>(n_pc);
   const unsigned int grid =
       static_cast<unsigned int>((total + block - 1) / block);
-  if (!im.cfg.shared_frame_rejection) {
+  // The full-frame estimator always finalizes through the build/vote/reduce
+  // kernels (the pilot bounds come from the same clip); the consensus vote
+  // only runs when shared_frame_rejection is on.
+  const bool use_sfr =
+      im.cfg.shared_frame_rejection || im.cfg.full_frame_estimator;
+  if (!use_sfr) {
     k_finalize_v2<<<grid, block, 0, st>>>(
         im.ncols, im.nrows, im.channels,
         im.cfg.internal_scale * im.cfg.internal_scale, im.res_slots,
@@ -4670,14 +5019,14 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
         im.cfg.robust_passes, im.cfg.sigma_low, im.cfg.sigma_high, im.accA,
         im.accB, im.accB2, im.confS, im.confC, im.contrib, im.kept,
         im.footprint, im.supp, im.degraded, im.res, im.pout, im.out,
-        im.scalars + 1, im.sfr_has_clip, im.sfr_accepted);
+        im.scalars + 1, im.sfr_has_clip, im.sfr_accepted, nullptr);
     if (const cudaError_t e = cudaGetLastError(); e != cudaSuccess) {
       last_device_error_ =
           std::string("k_finalize_v2_sfr_build launch: ") +
           cudaGetErrorString(e);
       return false;
     }
-    if (im.channels > 1) {
+    if (im.channels > 1 && im.cfg.shared_frame_rejection) {
       const unsigned int grid_px = static_cast<unsigned int>(
           (static_cast<long long>(im.nplane) + block - 1) / block);
       k_finalize_v2_sfr_vote<<<grid_px, block, 0, st>>>(
@@ -4702,8 +5051,19 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
                            cudaGetErrorString(e);
       return false;
     }
+    if (im.cfg.full_frame_estimator) {
+      k_full_apply<<<grid, block, 0, st>>>(
+          im.ncols, im.nrows, im.channels, im.contrib, im.degraded,
+          im.dfull, im.out, im.pout, im.fcounters);
+      if (const cudaError_t e = cudaGetLastError(); e != cudaSuccess) {
+        last_device_error_ = std::string("k_full_apply launch: ") +
+                             cudaGetErrorString(e);
+        return false;
+      }
+    }
   }
   unsigned long long h_scalars[3] = {0, 0, 0};
+  unsigned long long h_fcounters[5] = {0, 0, 0, 0, 0};
   std::vector<unsigned int> h_kept(n_pc), h_contrib(n_pc);
   const std::size_t out_bytes = n_pc * sizeof(ForwardDrizzleV2PixelResult);
   const std::size_t prof_bytes =
@@ -4729,6 +5089,10 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
       step("cudaMemcpyAsync(scalars)",
            cudaMemcpyAsync(h_scalars, im.scalars, sizeof(h_scalars),
                            cudaMemcpyDeviceToHost, st)) &&
+      (!im.cfg.full_frame_estimator ||
+       step("cudaMemcpyAsync(full counters)",
+            cudaMemcpyAsync(h_fcounters, im.fcounters, sizeof(h_fcounters),
+                            cudaMemcpyDeviceToHost, st))) &&
       step("cudaMemcpyAsync(kept)",
            cudaMemcpyAsync(h_kept.data(), im.kept, cnt_bytes,
                            cudaMemcpyDeviceToHost, st)) &&
@@ -4768,6 +5132,12 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
       frame_s += static_cast<double>(k_ms) * 1e-3;
     }
     stats_.max_frame_seconds = std::max(stats_.max_frame_seconds, frame_s);
+  }
+  if (im.cfg.full_frame_estimator) {
+    stats_.full_frame_accepted = h_fcounters[0];
+    stats_.full_frame_rejected = h_fcounters[1];
+    stats_.full_frame_degenerate_pilot = h_fcounters[2];
+    stats_.full_frame_no_bounds = h_fcounters[3];
   }
   stats_.positive_overlaps = h_scalars[0];
   if (dense_overlap_count) *dense_overlap_count = h_scalars[1];

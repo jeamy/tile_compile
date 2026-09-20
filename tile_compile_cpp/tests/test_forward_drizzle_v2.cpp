@@ -9685,3 +9685,327 @@ TEST_CASE("forward drizzle v2 ragged spans bound source launches under "
     REQUIRE(static_cast<double>(rlaunched) / rbaseline <= 1.1);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Pilot + full-frame estimator (plan estimator "reservoir_pilot_full_frame")
+// ---------------------------------------------------------------------------
+namespace {
+
+struct FullFrameRun {
+  std::vector<ForwardDrizzleV2PixelResult> results;
+  std::vector<ForwardDrizzleV2ProfileResult> profiles;
+  ForwardDrizzleV2PrototypeStats stats;
+};
+
+// Deterministic per-(frame, pixel) noise in [-sqrt(3), sqrt(3)] (variance 1).
+double ff_noise(std::uint64_t frame, int x, int y) {
+  std::uint64_t z = frame * 0x9e3779b97f4a7c15ULL +
+                    static_cast<std::uint64_t>(x) * 0xbf58476d1ce4e5b9ULL +
+                    static_cast<std::uint64_t>(y) * 0x94d049bb133111ebULL;
+  z ^= z >> 30;
+  z *= 0xbf58476d1ce4e5b9ULL;
+  z ^= z >> 27;
+  z *= 0x94d049bb133111ebULL;
+  z ^= z >> 31;
+  const double u = static_cast<double>(z >> 11) * (1.0 / 9007199254740992.0);
+  return (2.0 * u - 1.0) * 1.7320508075688772;
+}
+
+// N frames sharing frame 0's geometry; each frame is the fixture's base image
+// plus noise*sigma and, for frames with (frame % 10) < outlier_tenths, a
+// +outlier_shift bump. full=true streams pilot frames first, calls end_pilot
+// and then streams the rest; full=false streams the historical 0..N-1 order.
+FullFrameRun run_full_frame(const Fixture &f, std::uint64_t n, double sigma,
+                            int outlier_tenths, double outlier_shift,
+                            bool full, std::uint64_t noise_seed = 0,
+                            bool use_cuda = false) {
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = f.cfg.internal_scale;
+  kcfg.stream_length = n;
+  kcfg.half = 0.5 * f.cfg.pixfrac;
+  kcfg.bayer_pattern = static_cast<int>(f.plan.bayer_pattern);
+  kcfg.cfa_origin_x = f.plan.cfa_origin_x;
+  kcfg.cfa_origin_y = f.plan.cfa_origin_y;
+  kcfg.mono = false;
+  kcfg.emit_profiles = true;
+  kcfg.robust_passes = 4;
+  // Wide symmetric bounds (raw MAD): the frozen pilot bounds only protect
+  // against outliers. With the production 2/4 asymmetric bounds the pilot
+  // sample's bound jitter dominates the full-frame error (see the plan).
+  kcfg.sigma_low = 4.0;
+  kcfg.sigma_high = 4.0;
+  kcfg.min_clip_contributors = 5;
+  kcfg.min_candidates = 5;
+  kcfg.shared_frame_rejection = true;
+  kcfg.shared_frame_rejection_consensus = 0.5;
+  kcfg.full_frame_estimator = full;
+  std::unique_ptr<ForwardDrizzleV2Kernel> kernel_holder =
+      use_cuda ? std::unique_ptr<ForwardDrizzleV2Kernel>(
+                     std::make_unique<ForwardDrizzleV2CudaKernel>())
+               : std::unique_ptr<ForwardDrizzleV2Kernel>(
+                     std::make_unique<ForwardDrizzleV2CpuKernel>());
+  ForwardDrizzleV2Kernel &kernel = *kernel_holder;
+  REQUIRE(kernel.reserve(nc, nr, f.plan.source_width, f.plan.source_height,
+                         kcfg));
+  const auto &m = f.plan.frames[0].source_to_canvas;
+  const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1), m(1, 2)};
+  ForwardDrizzleV2FrameMeta meta{1.0f, 0.9f, 1, 0};
+  std::vector<std::uint64_t> seq;
+  std::size_t pilot_n = 0;
+  if (full) {
+    const auto pilot = forward_drizzle_v2_selected_frame_orders(
+        n, kcfg.reservoir_size, kcfg.reservoir_seed);
+    std::vector<char> is_pilot(static_cast<std::size_t>(n), 0);
+    for (const auto o : pilot) {
+      seq.push_back(o);
+      is_pilot[static_cast<std::size_t>(o)] = 1;
+    }
+    pilot_n = seq.size();
+    for (std::uint64_t o = 0; o < n; ++o)
+      if (!is_pilot[static_cast<std::size_t>(o)]) seq.push_back(o);
+  } else {
+    for (std::uint64_t o = 0; o < n; ++o) seq.push_back(o);
+  }
+  Matrix2Df img = f.images[0];
+  const Matrix2Df base = f.images[0];
+  for (std::size_t pos = 0; pos < seq.size(); ++pos) {
+    const std::uint64_t fr = seq[pos];
+    for (int y = 0; y < img.rows(); ++y)
+      for (int x = 0; x < img.cols(); ++x) {
+        if (!std::isfinite(base(y, x))) {
+          img(y, x) = base(y, x);
+          continue;
+        }
+        double v = static_cast<double>(base(y, x)) +
+                   sigma * ff_noise(fr + noise_seed * 1000003ULL, x, y);
+        if (static_cast<int>(fr % 10) < outlier_tenths) v += outlier_shift;
+        img(y, x) = static_cast<float>(v);
+      }
+    REQUIRE(kernel.accumulate_frame(a6, img.data(), nullptr, fr, nullptr,
+                                    &meta));
+    if (full && pos + 1 == pilot_n) REQUIRE(kernel.end_pilot());
+  }
+  FullFrameRun out;
+  out.results.resize(nplane * 3);
+  out.profiles.resize(nplane * 3);
+  std::uint64_t dense = 0;
+  REQUIRE(kernel.finalize(out.results.data(), out.profiles.data(), &dense));
+  out.stats = kernel.stats();
+  return out;
+}
+
+constexpr std::uint8_t kStatePilotFull = static_cast<std::uint8_t>(
+    ForwardDrizzleV2RobustState::primary_reservoir_pilot_full_frame);
+
+}  // namespace
+
+TEST_CASE("forward drizzle v2 full-frame estimator equals the reservoir value "
+          "when every frame is a pilot frame",
+          "[forward-drizzle-v2][full-frame]") {
+  // N <= reservoir size keeps every frame in the reservoir, so the pilot IS
+  // the full stream: value and the four profile outputs must be bit-equal
+  // to the historical path (same (x, order) summation order).
+  const auto f = sfr_fixture(ColorMode::OSC, /*outlier_frame=*/5);
+  const auto ref = run_full_frame(f, 12, 1.0, 0, 0.0, false);
+  const auto ff = run_full_frame(f, 12, 1.0, 0, 0.0, true);
+  REQUIRE(ref.results.size() == ff.results.size());
+  int compared = 0;
+  for (std::size_t i = 0; i < ref.results.size(); ++i) {
+    const auto &a = ref.results[i];
+    const auto &b = ff.results[i];
+    if (a.robust_state !=
+        static_cast<std::uint8_t>(
+            ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip))
+      continue;
+    REQUIRE(b.robust_state == kStatePilotFull);
+    REQUIRE(a.value == b.value);
+    require_profile_output_equal(ref.profiles[i].uniform,
+                                 ff.profiles[i].uniform);
+    require_profile_output_equal(ref.profiles[i].raw, ff.profiles[i].raw);
+    require_profile_output_equal(ref.profiles[i].fine, ff.profiles[i].fine);
+    require_profile_output_equal(ref.profiles[i].medium,
+                                 ff.profiles[i].medium);
+    ++compared;
+  }
+  REQUIRE(compared > 0);
+  REQUIRE(ff.stats.full_frame_rejected == 0);
+}
+
+TEST_CASE("forward drizzle v2 full-frame estimator lowers the noise floor "
+          "beyond the reservoir at N=610-like streams",
+          "[forward-drizzle-v2][full-frame]") {
+  // 200 frames, pure noise, no contamination. The reservoir keeps ~64 of them
+  // (the keep set is bounded by the reservoir size), the full-frame value
+  // uses every accepted frame: its error against the noise-free value must
+  // be at least 1.5x smaller (theory: sqrt(200/64) = 1.77 before the clip's
+  // own efficiency loss).
+  const auto f = sfr_fixture(ColorMode::OSC, /*outlier_frame=*/5);
+  const std::uint64_t n = 200;
+  // Two independent noise realisations per estimator. The clip's upward bias
+  // is a property of the pixel's scatter, identical in both realisations, so
+  // it cancels in the difference; what remains is the estimator noise.
+  const auto res_a = run_full_frame(f, n, 3.0, 0, 0.0, false, 1);
+  const auto res_b = run_full_frame(f, n, 3.0, 0, 0.0, false, 2);
+  const auto ff_a = run_full_frame(f, n, 3.0, 0, 0.0, true, 1);
+  const auto ff_b = run_full_frame(f, n, 3.0, 0, 0.0, true, 2);
+  double q_res = 0.0, q_ff = 0.0;
+  int used = 0;
+  for (std::size_t i = 0; i < res_a.results.size(); ++i) {
+    if (ff_a.results[i].robust_state != kStatePilotFull ||
+        ff_b.results[i].robust_state != kStatePilotFull)
+      continue;
+    const double dr = res_a.results[i].value - res_b.results[i].value;
+    const double df = ff_a.results[i].value - ff_b.results[i].value;
+    q_res += dr * dr;
+    q_ff += df * df;
+    ++used;
+  }
+  REQUIRE(used > 5);
+  REQUIRE(ff_a.stats.full_frame_accepted > 0);
+  const double sd_res = std::sqrt(q_res / used), sd_ff = std::sqrt(q_ff / used);
+  double neff_ff = 0.0, neff_res = 0.0;
+  int nn = 0;
+  for (std::size_t i = 0; i < ff_a.results.size(); ++i) {
+    if (ff_a.results[i].robust_state != kStatePilotFull) continue;
+    neff_ff += ff_a.profiles[i].uniform.n_eff;
+    neff_res += res_a.profiles[i].uniform.n_eff;
+    ++nn;
+  }
+  INFO("noise reservoir " << sd_res << " noise full-frame " << sd_ff
+       << " mean uniform n_eff res " << neff_res / nn << " ff " << neff_ff / nn
+       << " accepted " << ff_a.stats.full_frame_accepted << " rejected "
+       << ff_a.stats.full_frame_rejected << " no_bounds "
+       << ff_a.stats.full_frame_no_bounds << " degenerate "
+       << ff_a.stats.full_frame_degenerate_pilot);
+  REQUIRE(sd_ff * 1.5 < sd_res);
+}
+
+TEST_CASE("forward drizzle v2 full-frame estimator keeps the contamination "
+          "protection of the clip",
+          "[forward-drizzle-v2][full-frame]") {
+  // 30% of the frames (periodic, so also inside the pilot) carry a +8 shift
+  // on top of unit noise, the gate-3 contamination shape. A plain mean would
+  // be biased by ~+2.4; the frozen pilot bounds must keep the mean error
+  // well below that.
+  const auto f = sfr_fixture(ColorMode::OSC, /*outlier_frame=*/5);
+  const std::uint64_t n = 200;
+  const auto truth = run_full_frame(f, n, 0.0, 0, 0.0, false);
+  const auto ff = run_full_frame(f, n, 1.0, 3, 8.0, true);
+  double bias = 0.0;
+  int used = 0;
+  for (std::size_t i = 0; i < truth.results.size(); ++i) {
+    if (ff.results[i].robust_state != kStatePilotFull) continue;
+    bias += ff.results[i].value - truth.results[i].value;
+    ++used;
+  }
+  REQUIRE(used > 5);
+  INFO("mean bias " << bias / used);
+  REQUIRE(std::fabs(bias / used) < 0.6);
+  REQUIRE(ff.stats.full_frame_rejected > 0);
+}
+
+TEST_CASE("forward drizzle v2 full-frame estimator enforces its stream "
+          "contract",
+          "[forward-drizzle-v2][full-frame]") {
+  const auto f = sfr_fixture(ColorMode::OSC, /*outlier_frame=*/5);
+  const int nc = f.plan.canvas_width_native, nr = f.plan.canvas_height_native;
+  const std::uint64_t n = 200;
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = f.cfg.internal_scale;
+  kcfg.stream_length = n;
+  kcfg.half = 0.5 * f.cfg.pixfrac;
+  kcfg.bayer_pattern = static_cast<int>(f.plan.bayer_pattern);
+  kcfg.cfa_origin_x = f.plan.cfa_origin_x;
+  kcfg.cfa_origin_y = f.plan.cfa_origin_y;
+  kcfg.emit_profiles = true;
+  kcfg.full_frame_estimator = true;
+  {
+    auto bad = kcfg;
+    bad.emit_profiles = false;  // profile weights need the Q/meta streams
+    ForwardDrizzleV2CpuKernel k;
+    REQUIRE_FALSE(k.reserve(nc, nr, f.plan.source_width, f.plan.source_height,
+                            bad));
+  }
+  ForwardDrizzleV2CpuKernel k;
+  REQUIRE(k.reserve(nc, nr, f.plan.source_width, f.plan.source_height, kcfg));
+  const auto pilot = forward_drizzle_v2_selected_frame_orders(
+      n, kcfg.reservoir_size, kcfg.reservoir_seed);
+  std::vector<char> is_pilot(static_cast<std::size_t>(n), 0);
+  for (const auto o : pilot) is_pilot[static_cast<std::size_t>(o)] = 1;
+  std::uint64_t non_pilot = 0, pilot0 = pilot.front();
+  while (is_pilot[static_cast<std::size_t>(non_pilot)]) ++non_pilot;
+  const auto &m = f.plan.frames[0].source_to_canvas;
+  const double a6[6] = {m(0, 0), m(0, 1), m(0, 2), m(1, 0), m(1, 1), m(1, 2)};
+  ForwardDrizzleV2FrameMeta meta{1.0f, 0.9f, 1, 0};
+  // A non-pilot frame before the barrier and a pilot frame after it fail.
+  REQUIRE_FALSE(k.accumulate_frame(a6, f.images[0].data(), nullptr, non_pilot,
+                                   nullptr, &meta));
+  std::vector<ForwardDrizzleV2PixelResult> res(
+      static_cast<std::size_t>(nc) * nr * 3);
+  std::vector<ForwardDrizzleV2ProfileResult> prof(res.size());
+  std::uint64_t dense = 0;
+  REQUIRE_FALSE(k.finalize(res.data(), prof.data(), &dense));  // no barrier
+  REQUIRE(k.accumulate_frame(a6, f.images[0].data(), nullptr, pilot0, nullptr,
+                             &meta));
+  REQUIRE(k.end_pilot());
+  REQUIRE_FALSE(k.end_pilot());  // once per band
+  REQUIRE_FALSE(k.accumulate_frame(a6, f.images[0].data(), nullptr,
+                                   pilot.back(), nullptr, &meta));
+  REQUIRE(k.accumulate_frame(a6, f.images[0].data(), nullptr, non_pilot,
+                             nullptr, &meta));
+}
+
+TEST_CASE("forward drizzle v2 full-frame estimator CUDA matches the CPU "
+          "oracle",
+          "[forward-drizzle-v2][full-frame][cuda-parity]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  // Discrete decisions (states, accepted/rejected counts) must be identical;
+  // values may differ in the last ULPs (pre-existing CPU<->CUDA gap of the
+  // reservoir pair on this fixture shape, see the shared_frame_rejection
+  // parity test), so they are compared with a tight relative tolerance.
+  const auto f = sfr_fixture(ColorMode::OSC, /*outlier_frame=*/5);
+  struct Case { std::uint64_t n; double sigma; int tenths; double shift; };
+  for (const Case c : {Case{12, 1.0, 0, 0.0}, Case{200, 1.0, 3, 8.0},
+                       Case{200, 3.0, 0, 0.0}}) {
+    const auto cpu = run_full_frame(f, c.n, c.sigma, c.tenths, c.shift, true,
+                                    0, false);
+    const auto gpu = run_full_frame(f, c.n, c.sigma, c.tenths, c.shift, true,
+                                    0, true);
+    REQUIRE(cpu.results.size() == gpu.results.size());
+    int full_px = 0;
+    for (std::size_t i = 0; i < cpu.results.size(); ++i) {
+      const auto &a = cpu.results[i];
+      const auto &b = gpu.results[i];
+      REQUIRE(a.robust_state == b.robust_state);
+      REQUIRE(a.contributors == b.contributors);
+      if (a.robust_state == kStatePilotFull) ++full_px;
+      if (std::isfinite(a.value))
+        REQUIRE(std::fabs(a.value - b.value) <=
+                1e-9 * (1.0 + std::fabs(a.value)));
+      for (int k = 0; k < 4; ++k) {
+        const ForwardDrizzleV2ProfileOutput *pa[4] = {
+            &cpu.profiles[i].uniform, &cpu.profiles[i].raw,
+            &cpu.profiles[i].fine, &cpu.profiles[i].medium};
+        const ForwardDrizzleV2ProfileOutput *pb[4] = {
+            &gpu.profiles[i].uniform, &gpu.profiles[i].raw,
+            &gpu.profiles[i].fine, &gpu.profiles[i].medium};
+        REQUIRE(pa[k]->support == pb[k]->support);
+        if (pa[k]->support)
+          REQUIRE(std::fabs(pa[k]->value - pb[k]->value) <=
+                  1e-5f * (1.0f + std::fabs(pa[k]->value)));
+      }
+    }
+    REQUIRE(full_px > 5);
+    REQUIRE(cpu.stats.full_frame_accepted == gpu.stats.full_frame_accepted);
+    REQUIRE(cpu.stats.full_frame_rejected == gpu.stats.full_frame_rejected);
+    REQUIRE(cpu.stats.full_frame_degenerate_pilot ==
+            gpu.stats.full_frame_degenerate_pilot);
+    REQUIRE(cpu.stats.full_frame_no_bounds == gpu.stats.full_frame_no_bounds);
+  }
+}

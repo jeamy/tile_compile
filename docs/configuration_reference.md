@@ -1113,6 +1113,7 @@ Steuerung der Laplacian-Pyramide für die lokalen Qualitätskarten (Source Quali
 | `reconstruction.drizzle.pixfrac` | number | `0.8` | Tropfen-Schrumpffaktor der Beitraege `(0, 1]`. |
 | `reconstruction.drizzle.robust_passes` | integer | `2` | Robuste Reprojektions-Durchlaeufe `[1, 6]` (migriert von `clip_iterations`). |
 | `reconstruction.drizzle.min_clip_contributors` | integer | `5` | Mindestbeitraege, ab denen Sigma/MAD-Clipping aktiv wird. |
+| `reconstruction.drizzle.full_frame_estimator` | boolean | `false` | Pilot + Vollframe-Schaetzer: die per Hash gewaehlten Reservoir-Frames (max. 64) legen die Clip-Grenzen fest, danach wird der gefaltete Kandidat jedes Frames gegen diese Grenzen geprueft und akkumuliert; alle Frames bestimmen den Wert. Laeuft auf CPU und CUDA, liest Qualitaetskarten aller Frames; braucht weite, symmetrische Clip-Grenzen (etwa `clip_sigma_low` = `clip_sigma_high` = 4). |
 | `reconstruction.drizzle.chunk_rows` | integer | `0` | `0` = budgetierte Streifen (<=256 Zeilen); `>0` wird gegen das Budget geprueft. |
 | `reconstruction.drizzle.chunk_halo_rows` | integer | `-1` | Kompatibilitaetsfeld; exakte Footprint-Enumeration braucht keinen Output-Halo. |
 | `reconstruction.drizzle.memory_budget_mb` | integer | `0` | MeB; `0` erbt `runtime_limits.memory_budget`. |
@@ -2621,6 +2622,7 @@ Bereichen und erzeugt dunkle Pixel/Chroma-Fransen an Sternrändern.
 - `reconstruction.drizzle.kernel`, `pixfrac`: Kernel und Tropfen-Schrumpfung der Forward-Drizzle-Beiträge.
 - `reconstruction.drizzle.robust_passes`: robuste Reprojektions-Durchläufe.
 - `reconstruction.drizzle.min_clip_contributors`: Mindestbeitraege für Sample-Clipping.
+- `reconstruction.drizzle.full_frame_estimator`: alle Frames statt nur des Reservoirs bestimmen den Wert (Pilot-Clip-Grenzen eingefroren, Standard aus).
 - `reconstruction.drizzle.chunk_rows`, `chunk_halo_rows`, `memory_budget_mb`: Streaming-/Speicherprofil des Reprojekters.
 - `reconstruction.clipping.clip_sigma_low`, `clip_sigma_high`: MAD-Rejection-Schwellen.
 - `reconstruction.clipping.min_fraction`, `min_n_eff`: Belegbarkeits-Gates pro Pixel.

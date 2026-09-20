@@ -30,6 +30,9 @@ constexpr std::size_t kV2ReservoirQualityBytes = 16;  // CpuReservoirQuality
 constexpr std::size_t kV2PixelResultBytes = 64;       // ForwardDrizzleV2PixelResult
 constexpr std::size_t kV2ProfileResultBytes = 80;     // ForwardDrizzleV2ProfileResult
 constexpr std::size_t kV2FrameMetaBytes = 16;         // per stream slot
+// Full-frame estimator accumulator per (pixel, channel); mirrors CpuFullAcc
+// (static_assert in forward_drizzle_v2_cpu.cpp).
+constexpr std::size_t kV2CpuFullAccBytes = 168;
 
 std::size_t v2_checked_mul(std::size_t a, std::size_t b) {
   if (a != 0 && b > std::numeric_limits<std::size_t>::max() / a)
@@ -284,7 +287,7 @@ void forward_drizzle_v2_build_affine_samples(
 
 std::size_t forward_drizzle_v2_cpu_bytes_per_native_pixel(
     int channels, int internal_scale, int reservoir_slots, bool sigma2_plane,
-    bool emit_profiles) {
+    bool emit_profiles, bool full_frame_estimator) {
   const std::size_t res_slots =
       static_cast<std::size_t>(reservoir_slots);
   std::size_t per_ch =
@@ -293,6 +296,7 @@ std::size_t forward_drizzle_v2_cpu_bytes_per_native_pixel(
       res_slots * kV2ReservoirRecordBytes + kV2PixelResultBytes;
   if (emit_profiles)
     per_ch += res_slots * kV2ReservoirQualityBytes + kV2ProfileResultBytes;
+  if (full_frame_estimator) per_ch += kV2CpuFullAccBytes;
   const std::size_t frame_planes =
       (sigma2_plane ? 4 : 3) + (emit_profiles ? 5 : 0);
   const std::size_t internal =
@@ -334,7 +338,7 @@ ForwardDrizzleV2RunPlan make_forward_drizzle_v2_run_plan(
       channels, drizzle_cfg.internal_scale,
       static_cast<int>(std::max<std::size_t>(
           1, std::min(selected_frame_orders.size(), std::size_t{2 * 64}))),
-      true /*sigma2*/, emit_profiles);
+      true /*sigma2*/, emit_profiles, drizzle_cfg.full_frame_estimator);
   // The band workspace shares the host budget with the source/Q caches and
   // the fusion working set; give it half. When a device path is planned the
   // nominal device bound additionally caps it (deterministic across resume;
@@ -353,7 +357,11 @@ ForwardDrizzleV2RunPlan make_forward_drizzle_v2_run_plan(
       band_budget / row_bytes, 1,
       static_cast<std::size_t>(sampling.canvas_height_native)));
 
+  if (drizzle_cfg.full_frame_estimator && !emit_profiles)
+    throw std::invalid_argument("FDV2_PROD_FULL_FRAME_REQUIRES_PROFILES");
   ForwardDrizzleV2RunPlan plan;
+  if (drizzle_cfg.full_frame_estimator)
+    plan.estimator = kFdV2EstimatorPilotFullFrame;
   plan.source_identity_hash = sampling.source_identity_hash;
   plan.normalized_cache_hash = normalized_cache_hash;
   plan.quality_plan_hash = quality_plan_hash;
@@ -524,6 +532,11 @@ ForwardDrizzleV2ProductionResult persist_forward_drizzle_v2_from_predecessors(
   for (const std::uint64_t o : selected_frame_orders)
     if (o < selected_order.size())
       selected_order[static_cast<std::size_t>(o)] = 1;
+  // Pilot/full-frame contract: every frame's candidate is tested against the
+  // frozen pilot bounds and folded into the profile sums, so every frame
+  // needs its quality maps.
+  if (out.plan.estimator == kFdV2EstimatorPilotFullFrame)
+    std::fill(selected_order.begin(), selected_order.end(), char{1});
 
   // Provider-owned per-frame buffers; the driver is serial, so a single
   // reused set satisfies the "valid until the next provider call" contract.

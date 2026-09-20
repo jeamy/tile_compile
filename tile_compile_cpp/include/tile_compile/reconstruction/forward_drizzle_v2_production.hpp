@@ -64,7 +64,7 @@ std::vector<float> forward_drizzle_v2_sigma2_rect(
 // host budget.
 std::size_t forward_drizzle_v2_cpu_bytes_per_native_pixel(
     int channels, int internal_scale, int reservoir_slots, bool sigma2_plane,
-    bool emit_profiles);
+    bool emit_profiles, bool full_frame_estimator = false);
 
 // Builds and finalizes the v2 run plan bound to the given predecessor
 // identities. `frame_count` is the participating-frame stream length the
