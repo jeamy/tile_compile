@@ -236,14 +236,16 @@ hypermetric_stretch:
   shadow_convergence: 0
   linear_expansion: 0
   # Adaptive average-neutral colour-cast (SCNR) correction of the stretched RGB.
-  # Strength is chosen automatically (median G/((R+B)/2) on object pixels -> target_ratio),
-  # capped at max_amount; skipped when the ratio is already <= min_excess.
+  # Strength depends on the brightness (brightness_bins classes) and is chosen per class
+  # (median G/((R+B)/2) -> target_ratio), capped at max_amount; a class whose ratio is
+  # already <= min_excess is left unchanged.
   color_cast_correction:
     enabled: false
     max_amount: 1.0
     target_ratio: 1.0
     min_excess: 1.02
     object_sigma: 3.0
+    brightness_bins: 8
   write_channels: false
   output_rgb: stacked_rgb_hms.fits
 runtime_limits:

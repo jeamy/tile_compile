@@ -1133,7 +1133,7 @@ properties:
         default: 100.0
       color_cast_correction:
         type: object
-        description: "Adaptive average-neutral colour-cast correction applied to the stretched RGB after HMS (Siril SCNR average neutral, made automatic). Per pixel G is pulled back towards the mean of R and B measured above the per-channel sky level, so the sky level is preserved; the strength is chosen so that the median G/((R+B)/2) over the object pixels reaches target_ratio (capped at max_amount). Nothing is changed when the measured ratio is already <= min_excess, which protects genuinely green/teal objects (e.g. OIII emission). Off by default."
+        description: "Adaptive average-neutral colour-cast correction applied to the stretched RGB after HMS (Siril SCNR average neutral, made automatic). Per pixel G is pulled back towards the mean of R and B measured above the per-channel sky level, so the sky level is preserved; the strength depends on the brightness and is chosen per brightness class so that the median G/((R+B)/2) reaches target_ratio (capped at max_amount). Nothing is changed when the measured ratio is already <= min_excess, which protects genuinely green/teal objects (e.g. OIII emission). Off by default."
         properties:
           enabled:
             type: boolean
@@ -1163,6 +1163,12 @@ properties:
             maximum: 50
             default: 3.0
             description: 'Object pixels are those whose blurred luminance is more than this many sky sigmas above the sky; the brightest 1 % (stars) are excluded.'
+          brightness_bins:
+            type: integer
+            minimum: 1
+            maximum: 32
+            default: 8
+            description: 'Number of equal-count brightness classes of the object pixels; the strength is chosen per class (targets and protection apply per class) and interpolated over the pixel brightness, so a cast that differs between faint and bright regions is corrected in both. 1 = a single global strength.'
       write_channels:
         type: boolean
         description: 'When true, writes individual R, G, B channel files in addition to the RGB output. Default: false.'

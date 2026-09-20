@@ -1073,6 +1073,7 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (yaml_has_value(cc["target_ratio"])) c.target_ratio = cc["target_ratio"].as<float>();
       if (yaml_has_value(cc["min_excess"])) c.min_excess = cc["min_excess"].as<float>();
       if (yaml_has_value(cc["object_sigma"])) c.object_sigma = cc["object_sigma"].as<float>();
+      if (yaml_has_value(cc["brightness_bins"])) c.brightness_bins = cc["brightness_bins"].as<int>();
     }
     if (yaml_has_value(h["write_channels"]))
       cfg.hypermetric_stretch.write_channels = h["write_channels"].as<bool>();
@@ -1458,6 +1459,7 @@ YAML::Node Config::to_yaml() const {
     n["target_ratio"] = c.target_ratio;
     n["min_excess"] = c.min_excess;
     n["object_sigma"] = c.object_sigma;
+    n["brightness_bins"] = c.brightness_bins;
   }
   node["hypermetric_stretch"]["write_channels"] =
       hypermetric_stretch.write_channels;
@@ -2245,6 +2247,9 @@ void Config::validate() const {
     if (!(c.min_excess >= 1.0f && c.min_excess <= 2.0f))
       throw ValidationError(
           "hypermetric_stretch.color_cast_correction.min_excess must be in [1,2]");
+    if (c.brightness_bins < 1 || c.brightness_bins > 32)
+      throw ValidationError(
+          "hypermetric_stretch.color_cast_correction.brightness_bins must be in [1,32]");
     if (!(c.object_sigma > 0.0f && c.object_sigma <= 50.0f))
       throw ValidationError(
           "hypermetric_stretch.color_cast_correction.object_sigma must be in (0,50]");
@@ -2461,7 +2466,8 @@ std::string get_schema_json() {
                         "max_amount":{"type":"number","exclusiveMinimum":0,"maximum":1},
                         "target_ratio":{"type":"number","exclusiveMinimum":0.5,"maximum":1.5},
                         "min_excess":{"type":"number","minimum":1,"maximum":2},
-                        "object_sigma":{"type":"number","exclusiveMinimum":0,"maximum":50}}},
+                        "object_sigma":{"type":"number","exclusiveMinimum":0,"maximum":50},
+                        "brightness_bins":{"type":"integer","minimum":1,"maximum":32}}},
                       "write_channels":{"type":"boolean"},
                       "output_rgb":{"type":"string"} } },
     "stacking": { "type":"object",

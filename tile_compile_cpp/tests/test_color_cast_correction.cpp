@@ -121,7 +121,11 @@ TEST_CASE("color cast correction respects max_amount and target_ratio",
     cfg.max_amount = 0.3f;
     const auto r = apply_color_cast_correction(im.R, im.G, im.B, cfg, nullptr);
     REQUIRE(r.applied);
-    REQUIRE(r.amount == Catch::Approx(0.3f).margin(1e-4));
+    // The largest class amount sits at the cap (the faintest class, made of
+    // marginal edge pixels, may legitimately get less).
+    REQUIRE(*std::max_element(r.amounts.begin(), r.amounts.end()) ==
+            Catch::Approx(0.3f).margin(1e-4));
+    REQUIRE(r.amount <= 0.3f + 1e-4f);
     REQUIRE(r.ratio_after > 1.05);  // capped before reaching the target
   }
   {
@@ -160,6 +164,71 @@ TEST_CASE("color cast correction honours the valid mask and disabled state",
     Matrix2Df small = Matrix2Df::Constant(10, 10, 0.1f);
     const auto r = apply_color_cast_correction(im.R, small, im.B, on(), nullptr);
     REQUIRE(r.status == "error");
+  }
+}
+
+namespace {
+
+// Brightness-dependent cast: a bright core (r < 30) with a strong green excess
+// (x1.25), surrounded by a faint ring (30 < r < 70) that is already neutral.
+Img make_two_zone_image() {
+  Img im;
+  im.R = Matrix2Df::Constant(kN, kN, 0.12f);
+  im.G = im.R;
+  im.B = im.R;
+  std::mt19937 rng(7);
+  std::normal_distribution<float> nd(0.0f, 0.01f);
+  for (int y = 0; y < kN; ++y) {
+    for (int x = 0; x < kN; ++x) {
+      const double d = std::hypot(y - 150.0, x - 150.0);
+      double s = 0.0, gf = 1.0;
+      if (d < 30.0) { s = 0.30; gf = 1.25; }
+      else if (d < 70.0) { s = 0.05; gf = 1.0; }
+      im.R(y, x) += static_cast<float>(s) + nd(rng);
+      im.B(y, x) += static_cast<float>(s) + nd(rng);
+      im.G(y, x) += static_cast<float>(s * gf) + nd(rng);
+    }
+  }
+  return im;
+}
+
+double zone_ratio(const Img &im, int y0, int y1, int x0, int x1) {
+  const double r = region_median(im.R, y0, y1, x0, x1) - 0.12;
+  const double g = region_median(im.G, y0, y1, x0, x1) - 0.12;
+  const double b = region_median(im.B, y0, y1, x0, x1) - 0.12;
+  return g / (0.5 * (r + b));
+}
+
+}  // namespace
+
+TEST_CASE("color cast correction is brightness dependent: bright core and "
+          "neutral faint ring are both handled", "[color-cast]") {
+  // Core box r < ~20, ring box well inside 30 < r < 70 (rows 100..115, cols 130..170).
+  {
+    Img im = make_two_zone_image();
+    REQUIRE(zone_ratio(im, 135, 165, 135, 165) == Catch::Approx(1.25).margin(0.04));
+    REQUIRE(zone_ratio(im, 95, 110, 130, 170) == Catch::Approx(1.0).margin(0.06));
+    auto cfg = on();
+    cfg.brightness_bins = 8;
+    const auto r = apply_color_cast_correction(im.R, im.G, im.B, cfg, nullptr);
+    REQUIRE(r.applied);
+    REQUIRE(r.amounts.size() == 8);
+    REQUIRE(zone_ratio(im, 135, 165, 135, 165) == Catch::Approx(1.0).margin(0.05));
+    REQUIRE(zone_ratio(im, 95, 110, 130, 170) == Catch::Approx(1.0).margin(0.06));
+    // Bright classes get a larger amount than the faint ones.
+    REQUIRE(r.amounts.back() > r.amounts.front() + 0.2f);
+  }
+  {
+    // One global amount cannot do both: it either leaves the core green or
+    // pushes the neutral ring below neutral.
+    Img im = make_two_zone_image();
+    auto cfg = on();
+    cfg.brightness_bins = 1;
+    const auto r = apply_color_cast_correction(im.R, im.G, im.B, cfg, nullptr);
+    REQUIRE(r.amounts.size() == 1);
+    const double core = zone_ratio(im, 135, 165, 135, 165);
+    const double ring = zone_ratio(im, 95, 110, 130, 170);
+    REQUIRE((core > 1.05 || ring < 0.97));
   }
 }
 #endif

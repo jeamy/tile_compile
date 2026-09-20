@@ -540,6 +540,25 @@ weiter), Himmel-G -0,7 %, R und B unverändert, Sternkerne (obere 0,05 %) G
 -1,5 %; M42 gemessen 0,78, damit unverändert (bitidentisch). Die Beispielprofile
 der M31 enthalten den Schritt eingeschaltet, M42 ausgeschaltet.
 
+Farbstich-Korrektur, helligkeitsabhängige Stärke (2026-09-20): Ein globaler
+Wert überkorrigierte die schwachen Arme und ließ den Kern grün (Kontrolllauf:
+Arme 0,997 auf 0,972, Kern 1,105 auf 1,058). Neu: `brightness_bins` (Standard 8)
+teilt die Objektpixel in gleich große Helligkeitsklassen, die Stärke wird je
+Klasse per Bisektion gewählt (Ziel und Schutzschwelle gelten je Klasse) und über
+die eigene Pixelhelligkeit interpoliert. Zwei Tests deckten Schwächen auf (die
+3-Punkt-Glättung über die Klassen schwächte die hellste Klasse um 25 %, sie ist
+entfernt). Messung auf dem Voll-Frame-Lauf: Grünüberschuss über dem Himmel
+(Himmelsniveau abgezogen) Arme 1,73 auf 1,19, Kern 1,30 auf 1,02; das Rohverhältnis
+G/((R+B)/2) Himmel 0,937 (unverändert), Arme 1,055 auf 0,974, Kern 1,148 auf
+0,988. Kontrolllauf: Kern 1,105 auf 0,970, Arme 0,997 auf 0,970, Himmel
+unverändert. Wichtige Erkenntnis: Der Schritt korrigiert den Überschuss *über dem
+Himmel* und lässt den Himmel unverändert; der Himmel des HMS-Produkts ist aber
+selbst leicht magenta (G/((R+B)/2) 0,89-0,94). Das Rohverhältnis der schwachen
+Bereiche liegt deshalb nach der Korrektur unter 1, obwohl der Überschuss noch
+über 1 liegt. Ein Kern, der im Rohbild als grün wirkt, wird korrigiert; ein
+neutraler Himmel (Grün-Offset des Himmels auf (R+B)/2) ist ein separater,
+nicht gebauter Schritt.
+
 Offen: Kanalweise Sternfluss gegen einen unverzerrten Bezug, Nullhimmel an
 weiteren Objekten (M31), Runner-/GUI-Sichtbarkeit der Zähler.
 

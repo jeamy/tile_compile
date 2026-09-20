@@ -6,12 +6,17 @@
 // Per pixel the green channel is pulled back towards the mean of red and blue,
 //   G' = G - amount * max(0, (G - b_g) - max(0, ((R - b_r) + (B - b_b)) / 2)),
 // with b_c the per-channel sky level, so the sky itself is left at its level and
-// only excess above the sky is reduced. The amount is not a user constant: it is
-// chosen so that the median green excess over the object pixels (blurred
-// luminance clearly above the sky, brightest 1 % of the object excluded, which
-// removes star cores) reaches `target_ratio`, capped at `max_amount`. When the
-// measured excess is already <= `min_excess` nothing is changed (protects
-// objects that are genuinely green/teal, e.g. OIII emission).
+// only excess above the sky is reduced. The amount is not a user constant and
+// depends on the brightness: the object pixels (blurred luminance clearly above
+// the sky, brightest 1 % excluded, which removes star cores) are split into
+// `brightness_bins` equal-count classes by brightness; per class the amount is
+// chosen so that the median green excess reaches `target_ratio` (capped at
+// `max_amount`; a class whose measured excess is already <= `min_excess` gets
+// amount 0, which protects genuinely green/teal objects such as OIII emission).
+// The per-class amounts are interpolated over the pixel's own
+// brightness (blurred, without the pixel itself), so a cast that differs between
+// faint arms and a bright core is corrected in both without overcorrecting
+// either. brightness_bins = 1 gives a single global amount.
 
 #include "tile_compile/core/types.hpp"
 
@@ -27,6 +32,7 @@ struct ColorCastCorrectionConfig {
   float target_ratio = 1.0f;  // median G/((R+B)/2) on object pixels to reach
   float min_excess = 1.02f;   // >= 1: measured ratio at/below this -> no-op
   float object_sigma = 3.0f;  // object = blurred luminance > sky + k * sigma
+  int brightness_bins = 8;    // [1, 32] brightness classes; 1 = global amount
 };
 
 struct ColorCastCorrectionResult {
@@ -34,7 +40,8 @@ struct ColorCastCorrectionResult {
   // "applied" | "not_needed" | "too_few_object_pixels" | "disabled" | "error"
   std::string status = "disabled";
   std::string error_message;
-  float amount = 0.0f;         // chosen strength in [0, max_amount]
+  float amount = 0.0f;         // mean chosen strength over the object pixels
+  std::vector<float> amounts;  // per-brightness-class strengths
   double ratio_before = 0.0;   // median G/((R+B)/2) on object pixels
   double ratio_after = 0.0;
   std::size_t object_pixels = 0;

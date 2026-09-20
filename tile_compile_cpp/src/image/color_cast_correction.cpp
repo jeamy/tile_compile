@@ -73,7 +73,8 @@ ColorCastCorrectionResult apply_color_cast_correction(
   }
   if (!(cfg.max_amount > 0.0f && cfg.max_amount <= 1.0f) ||
       !(cfg.target_ratio > 0.0f) || !(cfg.min_excess >= 1.0f) ||
-      !(cfg.object_sigma > 0.0f)) {
+      !(cfg.object_sigma > 0.0f) || cfg.brightness_bins < 1 ||
+      cfg.brightness_bins > 32) {
     res.status = "error";
     res.error_message = "invalid color_cast_correction parameters";
     return res;
@@ -162,7 +163,8 @@ ColorCastCorrectionResult apply_color_cast_correction(
       if (valid[i]) excess.push_back(lb[i] - sky_l);
     const double upper = percentile_of(excess, 0.99);
     const double lower = static_cast<double>(cfg.object_sigma) * std::max(sigma, 1e-9);
-    std::vector<double> xg, avg;
+    struct Sample { double e, xg, avg; };
+    std::vector<Sample> smp;
     std::size_t n_obj = 0;
     for (std::size_t i = 0; i < n; ++i) {
       if (!valid[i]) continue;
@@ -177,52 +179,108 @@ ColorCastCorrectionResult apply_color_cast_correction(
       if (!(e > lower && e <= upper)) continue;
       if ((seen++ % ostep) != 0) continue;
       const int y = static_cast<int>(i / cols), x = static_cast<int>(i % cols);
-      xg.push_back(G(y, x) - res.sky_g);
-      avg.push_back(0.5 * ((R(y, x) - res.sky_r) + (B(y, x) - res.sky_b)));
+      smp.push_back({e, G(y, x) - res.sky_g,
+                     0.5 * ((R(y, x) - res.sky_r) + (B(y, x) - res.sky_b))});
     }
-    res.object_pixels = xg.size();
-    if (xg.size() < 1000) {
+    res.object_pixels = smp.size();
+    if (smp.size() < 1000) {
       res.status = "too_few_object_pixels";
       return res;
     }
-    auto ratio_at = [&](double a) {
-      std::vector<double> g(xg.size()), m(xg.size());
-      for (std::size_t k = 0; k < xg.size(); ++k) {
-        const double ref = std::max(avg[k], 0.0);
-        g[k] = xg[k] - a * std::max(0.0, xg[k] - ref);
-        m[k] = avg[k];
+    std::sort(smp.begin(), smp.end(),
+              [](const Sample &a, const Sample &b) { return a.e < b.e; });
+    // Equal-count brightness classes (fewer when the object is small).
+    const int bins = std::max(1, std::min<int>(cfg.brightness_bins,
+                                               static_cast<int>(smp.size() / 1000)));
+    auto class_ratio = [&](std::size_t b0, std::size_t b1, double a) {
+      std::vector<double> g, m;
+      g.reserve(b1 - b0);
+      m.reserve(b1 - b0);
+      for (std::size_t k = b0; k < b1; ++k) {
+        const double ref = std::max(smp[k].avg, 0.0);
+        g.push_back(smp[k].xg - a * std::max(0.0, smp[k].xg - ref));
+        m.push_back(smp[k].avg);
       }
       const double mg = median_of(g), mm = median_of(m);
       return mm > 0.0 ? mg / mm : 0.0;
     };
-    res.ratio_before = ratio_at(0.0);
-    res.ratio_after = res.ratio_before;
-    if (!(res.ratio_before > static_cast<double>(cfg.min_excess))) {
+    std::vector<double> centers(static_cast<std::size_t>(bins)), amt(static_cast<std::size_t>(bins), 0.0);
+    std::vector<std::size_t> edge(static_cast<std::size_t>(bins) + 1);
+    for (int k = 0; k <= bins; ++k) edge[k] = smp.size() * static_cast<std::size_t>(k) / bins;
+    const double max_a = static_cast<double>(cfg.max_amount);
+    const double target = static_cast<double>(cfg.target_ratio);
+    for (int k = 0; k < bins; ++k) {
+      const std::size_t b0 = edge[k], b1 = edge[k + 1];
+      centers[k] = smp[(b0 + b1) / 2].e;
+      if (!(class_ratio(b0, b1, 0.0) > static_cast<double>(cfg.min_excess))) continue;
+      double a = max_a;
+      if (class_ratio(b0, b1, a) < target) {
+        double lo = 0.0, hi = a;  // the ratio decreases with the amount
+        for (int it = 0; it < 24; ++it) {
+          const double mid = 0.5 * (lo + hi);
+          if (class_ratio(b0, b1, mid) > target) lo = mid;
+          else hi = mid;
+        }
+        a = 0.5 * (lo + hi);
+      }
+      amt[k] = a;
+    }
+    // The class amounts are used as they are: the classes hold many pixels, and
+    // the interpolation over the pixel brightness below already smooths the
+    // transition between them.
+    const std::vector<double> &sm = amt;
+    // Amount as a function of a pixel's own blurred excess: 0 at/below half the
+    // object threshold, rising to the first class amount at the threshold,
+    // linear between class centres, constant above the last centre.
+    auto amount_at = [&](double e) {
+      if (e <= 0.5 * lower) return 0.0;
+      if (e < lower) return sm[0] * (e - 0.5 * lower) / (0.5 * lower);
+      if (e <= centers.front() || bins == 1) return sm.front();
+      if (e >= centers.back()) return sm.back();
+      const auto it = std::upper_bound(centers.begin(), centers.end(), e);
+      const std::size_t j = static_cast<std::size_t>(it - centers.begin());
+      const double t = (e - centers[j - 1]) / std::max(centers[j] - centers[j - 1], 1e-12);
+      return sm[j - 1] + t * (sm[j] - sm[j - 1]);
+    };
+    // Overall ratios (median over all samples) before / after with per-pixel amounts.
+    {
+      std::vector<double> g0, g1, m;
+      for (const auto &q : smp) {
+        const double ref = std::max(q.avg, 0.0);
+        g0.push_back(q.xg);
+        g1.push_back(q.xg - amount_at(q.e) * std::max(0.0, q.xg - ref));
+        m.push_back(q.avg);
+      }
+      const double mm = median_of(m);
+      res.ratio_before = mm > 0.0 ? median_of(g0) / mm : 0.0;
+      res.ratio_after = mm > 0.0 ? median_of(g1) / mm : 0.0;
+    }
+    res.amounts.assign(sm.begin(), sm.end());
+    double asum = 0.0, amax = 0.0;
+    for (const auto &q : smp) {
+      const double v = amount_at(q.e);
+      asum += v;
+      amax = std::max(amax, v);
+    }
+    res.amount = static_cast<float>(asum / static_cast<double>(smp.size()));
+    if (!(amax > 1e-6)) {
       res.status = "not_needed";
+      res.amount = 0.0f;
+      res.ratio_after = res.ratio_before;
       return res;
     }
-    double amount = static_cast<double>(cfg.max_amount);
-    if (ratio_at(amount) < static_cast<double>(cfg.target_ratio)) {
-      double lo = 0.0, hi = amount;  // ratio decreases with the amount
-      for (int it = 0; it < 24; ++it) {
-        const double mid = 0.5 * (lo + hi);
-        if (ratio_at(mid) > static_cast<double>(cfg.target_ratio)) lo = mid;
-        else hi = mid;
+    // Apply to every valid pixel with the amount of its own brightness.
+    for (int y = 0; y < rows; ++y) {
+      for (int x = 0; x < cols; ++x) {
+        const std::size_t i = static_cast<std::size_t>(y) * cols + x;
+        if (!valid[i]) continue;
+        const double a = amount_at(static_cast<double>(lb[i]) - sky_l);
+        if (a <= 0.0) continue;
+        const double xg = G(y, x) - res.sky_g;
+        const double ref = std::max(0.0, 0.5 * ((R(y, x) - res.sky_r) + (B(y, x) - res.sky_b)));
+        const double ex = std::max(0.0, xg - ref);
+        if (ex > 0.0) G(y, x) = static_cast<float>(G(y, x) - a * ex);
       }
-      amount = 0.5 * (lo + hi);
-    }
-    res.amount = static_cast<float>(amount);
-    res.ratio_after = ratio_at(amount);
-  }
-  // Apply to every valid pixel.
-  const double a = static_cast<double>(res.amount);
-  for (int y = 0; y < rows; ++y) {
-    for (int x = 0; x < cols; ++x) {
-      if (!valid[static_cast<std::size_t>(y) * cols + x]) continue;
-      const double xg = G(y, x) - res.sky_g;
-      const double ref = std::max(0.0, 0.5 * ((R(y, x) - res.sky_r) + (B(y, x) - res.sky_b)));
-      const double ex = std::max(0.0, xg - ref);
-      if (ex > 0.0) G(y, x) = static_cast<float>(G(y, x) - a * ex);
     }
   }
   res.applied = true;
