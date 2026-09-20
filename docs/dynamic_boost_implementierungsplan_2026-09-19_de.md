@@ -487,6 +487,25 @@ Struktur). Damit gilt Variante A auf beiden Zielen (M42, M31); Beispielprofile
 enthalten sie mit kommentiertem `luma_denoise`-Block. Die Defaults in
 `tile_compile.yaml` bleiben unverändert (`luma_denoise.enabled: false`).
 
+Sternfluss-Abweichung M42 (-1,9 % gegen die Reservoir-Kontrolle), Analyse
+2026-09-20: Das Verhältnis Voll-Frame zu Kontrolle ist über Kanäle und
+Helligkeitsdrittel praktisch konstant (R 0,976/0,976/0,981, G 0,979/0,981/0,987,
+B 0,961/0,975/0,979 für schwach/mittel/hell). Ein Clip-Effekt hinge von
+Helligkeit und Verteilung ab; ein gemeinsamer Faktor spricht für die
+Zusammensetzung der Stichprobe. Die 58 Reservoir-Frames weichen tatsächlich von
+den 610 ab: mittleres `global_weight` 1,518 gegen 1,375 (+10 %, bei einer
+Streuung der Gewichte von 1,15, also einem Variationskoeffizienten von 0,84),
+Hintergrund -1,8 sigma, Sternzahl -1,2 sigma, `wfwhm` +1,3 sigma des jeweiligen
+Stichprobenmittels. Bei so ungleichen Gewichten bestimmen wenige gut bewertete
+Frames die Reservoir-Summe. Wahrscheinlich ist daher der Reservoir-Fluss, nicht
+der Voll-Frame-Fluss, um dieses Stichprobenmaß verschoben; M31 liegt mit -0,4 %
+im erwartbaren Streubereich. Nicht bewiesen: Beweisen ließe sich das nur durch
+einen Reservoir-Lauf mit anderem Auswahl-Seed (der Seed ist heute nicht
+konfigurierbar). Damit ist die Schwelle +-1 % gegen das Reservoir kein
+geeignetes Kriterium; der ungeclippte Mittelwert (ungewichtet) liegt noch
+tiefer (0,94-0,97 der Kontrolle) und ist als Bezug wegen der fehlenden
+Qualitätsgewichte ebenfalls ungeeignet.
+
 Offen: Kanalweise Sternfluss gegen einen unverzerrten Bezug, Nullhimmel an
 weiteren Objekten (M31), Runner-/GUI-Sichtbarkeit der Zähler.
 
