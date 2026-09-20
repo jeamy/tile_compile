@@ -388,6 +388,22 @@ Aufbewahrung: Von den Testläufen vom 20.09. bleiben für Nachmessungen nur
 wurden entfernt. `20260920_165534_959962ce` (CUDA-Lauf) ist vollständig und
 resumierbar erhalten.
 
+Pinned Staging (2026-09-20): `cudaMemcpyAsync` aus den pageable
+Provider-Vektoren blockierte den Host hinter den bereits eingereihten Kerneln.
+Der Samples-Pfad kopiert jetzt in zwei page-locked Slots (Freigabe über das
+Upload-Event des Vor-Vor-Frames; bei fehlgeschlagener Pinned-Allokation gilt
+der alte Weg). Ergebnis per Resume ab FORWARD_DRIZZLE auf dem CUDA-Lauf:
+FORWARD_DRIZZLE 853 s auf 781 s, `stacked_rgb.fits` und `stacked_rgb_hms.fits`
+bitidentisch zur Referenz, v2-Suite (83 Fälle) grün. Die Wall-Zeit liegt jetzt
+knapp über der reinen Device-Kernelzeit (575 s gegen 334 s in der Kontrolle);
+die Provider-Arbeit (ca. 335 s) ist weitgehend verdeckt. Das 10 %-Gate bleibt
+verfehlt: FORWARD_DRIZZLE +306 s (+10,6 % der Kontrollkette), mit MULTIBAND
+(292 s gegen 225 s) etwa +13 %. Der verbleibende Hebel ist die Device-
+Kernelzeit der Q-Scatter-Ebenen für alle Frames (+241 s) und die MULTIBAND-
+Zeit, nicht der Host. Hinweis zur Messung: Ein Resume ab FORWARD_DRIZZLE
+verwendet einen vollständigen Store wieder (Bänder `reused`); für eine
+Neurechnung muss `artifacts/forward_drizzle_v2` entfernt werden.
+
 Offen: Kanalweise Sternfluss gegen einen unverzerrten Bezug, Nullhimmel an
 weiteren Objekten (M31), Runner-/GUI-Sichtbarkeit der Zähler.
 

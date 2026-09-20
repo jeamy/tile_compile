@@ -3414,6 +3414,17 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
   double *dbounds = nullptr;
   unsigned long long *fcounters = nullptr;
   bool pilot_done = false;
+  // Pinned host staging for the affine-sample upload path: two slots so the
+  // host never waits for the device to drain before the async copy (a
+  // cudaMemcpyAsync from pageable memory blocks the host behind queued
+  // kernels). Slot s is reusable once the uploads of the frame that last used
+  // it (pin_last[s], event ev_up1) completed. pinned_ok is false when the
+  // page-locked allocation failed: the pageable path is used unchanged.
+  bool pinned_ok = false;
+  ForwardDrizzleV2SourceSample *hsamples[2] = {nullptr, nullptr};
+  unsigned short *hpq[2][4] = {};
+  unsigned char *hpv[2][4] = {};
+  long long pin_last[2] = {-1, -1};
   std::vector<cudaEvent_t> ev_up0, ev_up1, ev_k0, ev_k1;
   // Host flag per frame order: the four events were recorded for a real
   // accumulate in the CURRENT band (skip frames leave it false so stale
@@ -3478,6 +3489,13 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
     cudaFree(dfull);
     cudaFree(dbounds);
     cudaFree(fcounters);
+    for (int sl = 0; sl < 2; ++sl) {
+      if (hsamples[sl] != nullptr) cudaFreeHost(hsamples[sl]);
+      for (int k = 0; k < 4; ++k) {
+        if (hpq[sl][k] != nullptr) cudaFreeHost(hpq[sl][k]);
+        if (hpv[sl][k] != nullptr) cudaFreeHost(hpv[sl][k]);
+      }
+    }
     for (auto *v : {&ev_up0, &ev_up1, &ev_k0, &ev_k1})
       for (cudaEvent_t e : *v) cudaEventDestroy(e);
     if (stream) cudaStreamDestroy(stream);
@@ -3795,6 +3813,39 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
     delete im;
     return false;
   }
+  // Best-effort pinned staging for the sample upload path (see Impl).
+  {
+    const std::size_t src_cap_s =
+        static_cast<std::size_t>(source_w) * static_cast<std::size_t>(source_h);
+    bool pin_ok = true;
+    for (int sl = 0; sl < 2 && pin_ok; ++sl) {
+      pin_ok = cudaMallocHost(reinterpret_cast<void **>(&im->hsamples[sl]),
+                              src_cap_s *
+                                  sizeof(ForwardDrizzleV2SourceSample)) ==
+               cudaSuccess;
+      if (!cfg.emit_profiles) continue;
+      for (int k = 0; k < 4 && pin_ok; ++k)
+        pin_ok = cudaMallocHost(reinterpret_cast<void **>(&im->hpq[sl][k]),
+                                src_cap_s * sizeof(unsigned short)) ==
+                     cudaSuccess &&
+                 cudaMallocHost(reinterpret_cast<void **>(&im->hpv[sl][k]),
+                                src_cap_s) == cudaSuccess;
+    }
+    if (!pin_ok) {
+      cudaGetLastError();
+      for (int sl = 0; sl < 2; ++sl) {
+        if (im->hsamples[sl] != nullptr) cudaFreeHost(im->hsamples[sl]);
+        im->hsamples[sl] = nullptr;
+        for (int k = 0; k < 4; ++k) {
+          if (im->hpq[sl][k] != nullptr) cudaFreeHost(im->hpq[sl][k]);
+          if (im->hpv[sl][k] != nullptr) cudaFreeHost(im->hpv[sl][k]);
+          im->hpq[sl][k] = nullptr;
+          im->hpv[sl][k] = nullptr;
+        }
+      }
+    }
+    im->pinned_ok = pin_ok;
+  }
   // Queue zero-init on the workspace stream; ordered before any kernel.
   ok = cudaMemsetAsync(im->accA, 0, pc_elems * sizeof(double), im->stream) ==
            cudaSuccess &&
@@ -3921,6 +3972,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::begin_band(
     return false;
   }
   im.pilot_done = false;
+  im.pin_last[0] = im.pin_last[1] = -1;
   std::fill(im.event_recorded.begin(), im.event_recorded.end(), char{0});
   im.frames = 0;
   im.finalized = false;
@@ -4451,17 +4503,47 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_affine_samples(
                                   static_cast<std::size_t>(im.channels);
   const std::size_t rec_bytes =
       sample_count * sizeof(ForwardDrizzleV2SourceSample);
+  // Pinned staging (see Impl): wait only for the uploads of the frame that
+  // last used this slot, copy the provider buffers into page-locked memory
+  // and issue the async copies from there so the host returns immediately.
+  const int pin_slot = static_cast<int>(f & 1u);
+  const bool use_pin = im.pinned_ok;
+  const ForwardDrizzleV2SourceSample *up_samples = samples;
+  const std::uint16_t *up_q[4] = {aqc[0], aqc[1], aqc[2], aqc[3]};
+  const std::uint8_t *up_v[4] = {avc[0], avc[1], avc[2], avc[3]};
+  if (use_pin) {
+    if (im.pin_last[pin_slot] >= 0 &&
+        cudaEventSynchronize(im.ev_up1[im.pin_last[pin_slot]]) !=
+            cudaSuccess) {
+      cudaGetLastError();
+      return false;
+    }
+    std::memcpy(im.hsamples[pin_slot], samples, rec_bytes);
+    up_samples = im.hsamples[pin_slot];
+    if (q_frame) {
+      for (int k = 0; k < 4; ++k) {
+        if ((qmask & (1u << k)) == 0) continue;
+        std::memcpy(im.hpq[pin_slot][k], aqc[k],
+                    sample_count * sizeof(unsigned short));
+        up_q[k] = im.hpq[pin_slot][k];
+        if (avc[k] != nullptr) {
+          std::memcpy(im.hpv[pin_slot][k], avc[k], sample_count);
+          up_v[k] = im.hpv[pin_slot][k];
+        }
+      }
+    }
+  }
   bool ok = cudaEventRecord(im.ev_up0[f], st) == cudaSuccess &&
-            cudaMemcpyAsync(im.dsamples, samples, rec_bytes,
+            cudaMemcpyAsync(im.dsamples, up_samples, rec_bytes,
                             cudaMemcpyHostToDevice, st) == cudaSuccess;
   if (ok && q_frame) {
     for (int k = 0; k < 4 && ok; ++k) {
       if ((qmask & (1u << k)) == 0) continue;
-      ok = cudaMemcpyAsync(dpq[k], aqc[k],
+      ok = cudaMemcpyAsync(dpq[k], up_q[k],
                            sample_count * sizeof(unsigned short),
                            cudaMemcpyHostToDevice, st) == cudaSuccess &&
-           (avc[k] == nullptr ||
-            cudaMemcpyAsync(dpv[k], avc[k], sample_count,
+           (up_v[k] == nullptr ||
+            cudaMemcpyAsync(dpv[k], up_v[k], sample_count,
                             cudaMemcpyHostToDevice, st) == cudaSuccess);
     }
   }
@@ -4486,6 +4568,9 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_affine_samples(
     cudaGetLastError();
     return false;
   }
+  // ev_up1[f] marks the end of this frame's uploads: the pinned slot is
+  // free again once it completes.
+  if (use_pin) im.pin_last[pin_slot] = static_cast<long long>(f);
   V2AlignedQualityDev aq{};
   V2QualityIO qio;
   if (q_frame && qmask != 0u) {
