@@ -1826,6 +1826,7 @@ VeraLux HyperMetric Stretch (HMS) is an optional final RGB stretch phase after P
 | `hypermetric_stretch.color_cast_correction.target_ratio` | number | `1.0` | Median G/((R+B)/2) on object pixels the correction aims for, (0.5, 1.5]. |
 | `hypermetric_stretch.color_cast_correction.min_excess` | number | `1.02` | No change if the measured ratio is at or below this value, [1, 2] (protects green/teal objects). |
 | `hypermetric_stretch.color_cast_correction.brightness_bins` | integer | `8` | Brightness classes of the object pixels, [1, 32]; the strength is chosen per class and interpolated over the pixel brightness (1 = one global strength). |
+| `hypermetric_stretch.color_cast_correction.neutralize_sky` | boolean | `false` | Also shift G so the sky is neutral: `G += (sky R + sky B)/2 - sky G` (skipped above 25 % offset). |
 | `hypermetric_stretch.color_cast_correction.object_sigma` | number | `3.0` | Object pixels: blurred luminance above sky + k sigma, (0, 50]; brightest 1 % excluded. |
 | `hypermetric_stretch.write_channels` | boolean | `false` | |
 | `hypermetric_stretch.output_rgb` | string | `stacked_rgb_hms.fits` | non-empty |

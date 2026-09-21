@@ -71,7 +71,7 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   so a cast that is stronger in a bright core than in faint arms is corrected
   in both; a class without a measured cast is left unchanged (protects
   genuinely green/teal objects). It corrects the excess ABOVE the sky and does
-  not change the sky level: a tinted sky stays tinted. Enabled in the M31
+  not change the sky level unless `neutralize_sky: true` is set, which also shifts G so the sky itself is neutral (a tinted sky otherwise stays tinted). Enabled in the M31
   profiles (green excess above the sky: arms 1.73 -> 1.19, core 1.30 -> 1.02),
   disabled in the M42 profiles (measured 0.78, unchanged either way); off in
   `tile_compile.yaml`.

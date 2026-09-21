@@ -1163,6 +1163,10 @@ properties:
             maximum: 50
             default: 3.0
             description: 'Object pixels are those whose blurred luminance is more than this many sky sigmas above the sky; the brightest 1 % (stars) are excluded.'
+          neutralize_sky:
+            type: boolean
+            default: false
+            description: 'Also shift G by (sky R + sky B)/2 - sky G so the sky itself is neutral (G level = mean of R and B). Without it the correction leaves a tinted sky tinted. Skipped when the offset would exceed 25 % of the R/B sky level.'
           brightness_bins:
             type: integer
             minimum: 1

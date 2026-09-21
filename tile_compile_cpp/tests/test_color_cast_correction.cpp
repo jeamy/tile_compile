@@ -231,4 +231,67 @@ TEST_CASE("color cast correction is brightness dependent: bright core and "
     REQUIRE((core > 1.05 || ring < 0.97));
   }
 }
+
+TEST_CASE("color cast correction can neutralize the sky", "[color-cast]") {
+  // Neutral nebula on a slightly magenta sky (G sky 0.105 instead of 0.12).
+  auto build = [] {
+    Img im = make_image(1.0);
+    for (int y = 0; y < kN; ++y)
+      for (int x = 0; x < kN; ++x) im.G(y, x) -= 0.015f;
+    return im;
+  };
+  {
+    Img im = build();
+    const double sky_before = region_median(im.G, 0, 60, 0, 60);
+    REQUIRE(sky_before == Catch::Approx(0.105).margin(0.003));
+    auto cfg = on();
+    cfg.neutralize_sky = true;
+    const auto r = apply_color_cast_correction(im.R, im.G, im.B, cfg, nullptr);
+    REQUIRE(r.applied);
+    REQUIRE(r.sky_neutralized);
+    REQUIRE(r.sky_offset_g == Catch::Approx(0.015).margin(0.003));
+    REQUIRE(r.status == "sky_neutralized");  // no cast excess to correct
+    REQUIRE(region_median(im.G, 0, 60, 0, 60) == Catch::Approx(0.12).margin(0.003));
+    // The whole G plane moves (nebula included), R and B do not.
+    const Img ref = build();
+    REQUIRE(im.R == ref.R);
+    REQUIRE(im.B == ref.B);
+  }
+  {
+    // Off by default: nothing changes although the sky is tinted.
+    Img im = build();
+    const Img before = im;
+    const auto r = apply_color_cast_correction(im.R, im.G, im.B, on(), nullptr);
+    REQUIRE_FALSE(r.sky_neutralized);
+    REQUIRE(im.G == before.G);
+  }
+  {
+    // Combined with a real cast: excess corrected and sky neutral.
+    Img im = build();
+    for (int y = 0; y < kN; ++y)
+      for (int x = 0; x < kN; ++x) {
+        const double d = std::hypot(y - 150.0, x - 150.0);
+        if (d < 70.0) im.G(y, x) += 0.25f * 0.2f;
+      }
+    auto cfg = on();
+    cfg.neutralize_sky = true;
+    const auto r = apply_color_cast_correction(im.R, im.G, im.B, cfg, nullptr);
+    REQUIRE(r.status == "applied");
+    REQUIRE(r.sky_neutralized);
+    REQUIRE(region_median(im.G, 0, 60, 0, 60) == Catch::Approx(0.12).margin(0.004));
+    REQUIRE(nebula_ratio(im) == Catch::Approx(1.0).margin(0.04));
+  }
+  {
+    // An implausibly large offset is not applied.
+    Img im = make_image(1.0);
+    for (int y = 0; y < kN; ++y)
+      for (int x = 0; x < kN; ++x) im.G(y, x) -= 0.06f;  // 50 % of the sky level
+    const Img before = im;
+    auto cfg = on();
+    cfg.neutralize_sky = true;
+    const auto r = apply_color_cast_correction(im.R, im.G, im.B, cfg, nullptr);
+    REQUIRE_FALSE(r.sky_neutralized);
+  }
+}
 #endif
+

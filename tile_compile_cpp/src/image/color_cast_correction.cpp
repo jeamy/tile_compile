@@ -56,6 +56,26 @@ std::vector<float> box_blur9(const std::vector<float> &src, int rows, int cols) 
   return out;
 }
 
+// Grün-offset of the sky: G += (sky_r + sky_b) / 2 - sky_g on every valid pixel,
+// so the sky ends up neutral (G level = mean of R and B). Skipped when the
+// offset is implausibly large (> 25 % of the R/B sky level), which points to a
+// mis-measured sky rather than a tint. Values are kept >= 0.
+void apply_sky_offset(Matrix2Df &G, const std::vector<std::uint8_t> &valid,
+                      const ColorCastCorrectionConfig &cfg,
+                      ColorCastCorrectionResult &res) {
+  if (!cfg.neutralize_sky) return;
+  const double target = 0.5 * (res.sky_r + res.sky_b);
+  const double delta = target - res.sky_g;
+  if (!(std::fabs(delta) <= 0.25 * std::max(std::fabs(target), 1e-9))) return;
+  const int rows = static_cast<int>(G.rows()), cols = static_cast<int>(G.cols());
+  for (int y = 0; y < rows; ++y)
+    for (int x = 0; x < cols; ++x)
+      if (valid[static_cast<std::size_t>(y) * cols + x])
+        G(y, x) = static_cast<float>(std::max(0.0, static_cast<double>(G(y, x)) + delta));
+  res.sky_offset_g = delta;
+  res.sky_neutralized = true;
+}
+
 }  // namespace
 
 ColorCastCorrectionResult apply_color_cast_correction(
@@ -185,6 +205,8 @@ ColorCastCorrectionResult apply_color_cast_correction(
     res.object_pixels = smp.size();
     if (smp.size() < 1000) {
       res.status = "too_few_object_pixels";
+      apply_sky_offset(G, valid, cfg, res);
+      res.applied = res.sky_neutralized;
       return res;
     }
     std::sort(smp.begin(), smp.end(),
@@ -267,6 +289,11 @@ ColorCastCorrectionResult apply_color_cast_correction(
       res.status = "not_needed";
       res.amount = 0.0f;
       res.ratio_after = res.ratio_before;
+      apply_sky_offset(G, valid, cfg, res);
+      if (res.sky_neutralized) {
+        res.applied = true;
+        res.status = "sky_neutralized";
+      }
       return res;
     }
     // Apply to every valid pixel with the amount of its own brightness.
@@ -283,6 +310,7 @@ ColorCastCorrectionResult apply_color_cast_correction(
       }
     }
   }
+  apply_sky_offset(G, valid, cfg, res);
   res.applied = true;
   res.status = "applied";
   return res;

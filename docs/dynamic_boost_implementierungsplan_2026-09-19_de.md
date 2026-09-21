@@ -559,6 +559,20 @@ Bereiche liegt deshalb nach der Korrektur unter 1, obwohl der Überschuss noch
 neutraler Himmel (Grün-Offset des Himmels auf (R+B)/2) ist ein separater,
 nicht gebauter Schritt.
 
+Himmels-Offset (`neutralize_sky`, 2026-09-21, Default aus): Addiert zu G eine
+Konstante `(Himmel R + Himmel B)/2 - Himmel G` auf allen gültigen Pixeln, wenn
+der Offset höchstens 25 % des R/B-Himmelsniveaus beträgt; sonst wird er als
+Fehlmessung übersprungen. Er läuft nach der Überschuss-Korrektur, auch wenn
+diese `not_needed` ergibt (Status `sky_neutralized`). Messung auf dem M31-
+Kontrolllauf (Resume ab HMS), Rohverhältnis G/((R+B)/2) Himmel/Arme/Kern:
+vorher 0,895/0,997/1,105, nur Überschuss-Korrektur 0,894/0,970/0,970, mit
+`neutralize_sky` 0,984/1,048/1,012; G-Himmelsniveau 0,1073 auf 0,1180 (R/B
+0,1208/0,1191), R und B unverändert. Die größte Abweichung von 1,0 sinkt damit
+von 10,5 % auf 4,8 %; die Arme sind leicht grün (Überschuss je Klasse auf den
+Median normiert, der Offset hebt G überall um dieselbe Konstante). Tests: vier
+neue Fälle (Himmel neutral, Kern/Arme unberührt bei reinem Offset, kombiniert mit
+echtem Stich, unplausibler Offset übersprungen).
+
 Offen: Kanalweise Sternfluss gegen einen unverzerrten Bezug, Nullhimmel an
 weiteren Objekten (M31), Runner-/GUI-Sichtbarkeit der Zähler.
 

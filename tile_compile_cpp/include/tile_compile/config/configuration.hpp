@@ -666,6 +666,7 @@ struct HyperMetricStretchConfig {
     float min_excess = 1.02f;   // [1, 2]
     float object_sigma = 3.0f;  // (0, 50]
     int brightness_bins = 8;    // [1, 32]; 1 = one global amount
+    bool neutralize_sky = false;  // also shift G so the sky is neutral
   } color_cast_correction;
   bool write_channels = false;
   std::string output_rgb = "stacked_rgb_hms.fits";

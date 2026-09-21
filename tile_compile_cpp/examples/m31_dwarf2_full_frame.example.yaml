@@ -257,9 +257,11 @@ hypermetric_stretch:
   # M31 (full-frame run, 8 brightness classes, mean strength 0.49): green excess
   # ABOVE the sky (G/((R+B)/2) after subtracting the sky level) arms 1.73 -> 1.19,
   # core 1.30 -> 1.02; the raw ratio (what the stretched image shows) arms 1.055 ->
-  # 0.974, core 1.148 -> 0.988, sky 0.937 unchanged. The step corrects the excess
-  # above the sky and leaves the sky level alone, so a slightly magenta sky
+  # 0.974, core 1.148 -> 0.988, sky 0.937 unchanged WITHOUT neutralize_sky. The
+  # excess correction leaves the sky level alone, so a slightly magenta sky
   # (0.937 here) stays and pulls the raw ratio of faint areas below 1.
+  # neutralize_sky: true additionally shifts G by (skyR+skyB)/2 - skyG so the sky
+  # is neutral and the raw ratio of sky, arms and core moves towards 1.
   color_cast_correction:
     enabled: true
     max_amount: 1.0      # cap of the automatic strength, (0, 1]
@@ -267,6 +269,7 @@ hypermetric_stretch:
     min_excess: 1.02     # no change when the measured ratio is <= this
     object_sigma: 3.0    # object = blurred luminance > sky + 3 sigma
     brightness_bins: 8   # strength chosen per brightness class (1 = one global strength)
+    neutralize_sky: true   # also shift G so the SKY is neutral: G += (skyR+skyB)/2 - skyG
   write_channels: false
   output_rgb: stacked_rgb_hms.fits
 runtime_limits:

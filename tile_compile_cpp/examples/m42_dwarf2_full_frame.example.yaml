@@ -271,6 +271,7 @@ hypermetric_stretch:
     min_excess: 1.02     # no change when the measured ratio is <= this
     object_sigma: 3.0    # object = blurred luminance > sky + 3 sigma
     brightness_bins: 8   # strength chosen per brightness class (1 = one global strength)
+    neutralize_sky: false   # also shift G so the SKY is neutral: G += (skyR+skyB)/2 - skyG
   write_channels: false
   output_rgb: stacked_rgb_hms.fits
 runtime_limits:

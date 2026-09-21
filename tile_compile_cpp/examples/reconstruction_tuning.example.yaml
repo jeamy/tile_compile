@@ -368,6 +368,7 @@ hypermetric_stretch:
     min_excess: 1.02
     object_sigma: 3.0
     brightness_bins: 8
+    neutralize_sky: false
   write_channels: false
   output_rgb: stacked_rgb_hms.fits
 

@@ -33,11 +33,16 @@ struct ColorCastCorrectionConfig {
   float min_excess = 1.02f;   // >= 1: measured ratio at/below this -> no-op
   float object_sigma = 3.0f;  // object = blurred luminance > sky + k * sigma
   int brightness_bins = 8;    // [1, 32] brightness classes; 1 = global amount
+  // Optional: also shift G by (sky_r + sky_b) / 2 - sky_g so the sky itself is
+  // neutral. Without it the correction leaves a tinted sky tinted, and faint
+  // areas (sky + small excess) keep the sky's tint in the displayed image.
+  bool neutralize_sky = false;
 };
 
 struct ColorCastCorrectionResult {
   bool applied = false;
-  // "applied" | "not_needed" | "too_few_object_pixels" | "disabled" | "error"
+  // "applied" | "sky_neutralized" (only the sky offset) | "not_needed" |
+  // "too_few_object_pixels" | "disabled" | "error"
   std::string status = "disabled";
   std::string error_message;
   float amount = 0.0f;         // mean chosen strength over the object pixels
@@ -45,6 +50,8 @@ struct ColorCastCorrectionResult {
   double ratio_before = 0.0;   // median G/((R+B)/2) on object pixels
   double ratio_after = 0.0;
   std::size_t object_pixels = 0;
+  bool sky_neutralized = false;  // neutralize_sky was applied
+  double sky_offset_g = 0.0;     // offset added to G
   double sky_r = 0.0, sky_g = 0.0, sky_b = 0.0;  // per-channel sky level
 };
 

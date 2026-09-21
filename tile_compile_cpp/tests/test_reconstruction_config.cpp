@@ -238,10 +238,11 @@ TEST_CASE("hypermetric_stretch.color_cast_correction defaults off, parses and va
   REQUIRE(def.hypermetric_stretch.color_cast_correction.max_amount == 1.0f);
   REQUIRE(def.hypermetric_stretch.color_cast_correction.min_excess == 1.02f);
   REQUIRE(def.hypermetric_stretch.color_cast_correction.brightness_bins == 8);
+  REQUIRE_FALSE(def.hypermetric_stretch.color_cast_correction.neutralize_sky);
   Config on = parse(
       "hypermetric_stretch:\n  color_cast_correction:\n    enabled: true\n"
       "    max_amount: 0.8\n    target_ratio: 1.05\n    min_excess: 1.03\n"
-      "    object_sigma: 4\n    brightness_bins: 5\n");
+      "    object_sigma: 4\n    brightness_bins: 5\n    neutralize_sky: true\n");
   const auto& c = on.hypermetric_stretch.color_cast_correction;
   REQUIRE(c.enabled);
   REQUIRE(c.max_amount == 0.8f);
@@ -249,6 +250,7 @@ TEST_CASE("hypermetric_stretch.color_cast_correction defaults off, parses and va
   REQUIRE(c.min_excess == 1.03f);
   REQUIRE(c.object_sigma == 4.0f);
   REQUIRE(c.brightness_bins == 5);
+  REQUIRE(c.neutralize_sky);
   REQUIRE_NOTHROW(on.validate());
   for (const char* bad : {"max_amount: 0", "max_amount: 1.5", "target_ratio: 0.4",
                           "min_excess: 0.9", "object_sigma: 0", "brightness_bins: 0",

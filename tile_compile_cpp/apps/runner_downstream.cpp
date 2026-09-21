@@ -1077,6 +1077,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       icc.min_excess = cc.min_excess;
       icc.object_sigma = cc.object_sigma;
       icc.brightness_bins = cc.brightness_bins;
+      icc.neutralize_sky = cc.neutralize_sky;
       cast_res = image::apply_color_cast_correction(
           rgb.R, rgb.G, rgb.B, icc, &pcc_cfg.output_valid_mask);
       std::cout << "[HMS] color cast correction: " << cast_res.status
@@ -1134,7 +1135,9 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
            {"ratio_before", cast_res.ratio_before},
            {"ratio_after", cast_res.ratio_after},
            {"object_pixels", cast_res.object_pixels},
-           {"amounts", cast_res.amounts}}}},
+           {"amounts", cast_res.amounts},
+           {"sky_neutralized", cast_res.sky_neutralized},
+           {"sky_offset_g", cast_res.sky_offset_g}}}},
         log_file);
     if (abort_if_runtime_limit_exceeded("HYPERMETRIC_STRETCH")) {
       return 1;

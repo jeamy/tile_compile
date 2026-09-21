@@ -1074,6 +1074,7 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (yaml_has_value(cc["min_excess"])) c.min_excess = cc["min_excess"].as<float>();
       if (yaml_has_value(cc["object_sigma"])) c.object_sigma = cc["object_sigma"].as<float>();
       if (yaml_has_value(cc["brightness_bins"])) c.brightness_bins = cc["brightness_bins"].as<int>();
+      if (yaml_has_value(cc["neutralize_sky"])) c.neutralize_sky = cc["neutralize_sky"].as<bool>();
     }
     if (yaml_has_value(h["write_channels"]))
       cfg.hypermetric_stretch.write_channels = h["write_channels"].as<bool>();
@@ -1460,6 +1461,7 @@ YAML::Node Config::to_yaml() const {
     n["min_excess"] = c.min_excess;
     n["object_sigma"] = c.object_sigma;
     n["brightness_bins"] = c.brightness_bins;
+    n["neutralize_sky"] = c.neutralize_sky;
   }
   node["hypermetric_stretch"]["write_channels"] =
       hypermetric_stretch.write_channels;
@@ -2467,7 +2469,8 @@ std::string get_schema_json() {
                         "target_ratio":{"type":"number","exclusiveMinimum":0.5,"maximum":1.5},
                         "min_excess":{"type":"number","minimum":1,"maximum":2},
                         "object_sigma":{"type":"number","exclusiveMinimum":0,"maximum":50},
-                        "brightness_bins":{"type":"integer","minimum":1,"maximum":32}}},
+                        "brightness_bins":{"type":"integer","minimum":1,"maximum":32},
+                        "neutralize_sky":{"type":"boolean","default":false}}},
                       "write_channels":{"type":"boolean"},
                       "output_rgb":{"type":"string"} } },
     "stacking": { "type":"object",
