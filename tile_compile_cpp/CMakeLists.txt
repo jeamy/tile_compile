@@ -451,6 +451,7 @@ set(LIB_SOURCES
     src/registration/astrometric_rescue.cpp
     src/registration/registration_sampling_plan.cpp
     src/registration/sampling_geometry.cpp
+    src/registration/warp_prediction_gate.cpp
     src/reconstruction/forward_drizzle.cpp
     src/reconstruction/forward_drizzle_contrib_list.cpp
     src/reconstruction/forward_drizzle_v2.cpp
@@ -689,6 +690,7 @@ if(BUILD_TESTS)
             tests/test_registration_new_features.cpp
             tests/test_registration_outlier_utils.cpp
             tests/test_registration_sampling_plan.cpp
+            tests/test_warp_prediction_gate.cpp
             tests/test_legacy_config_migration.cpp
             tests/test_input_class_policy.cpp
             tests/test_reconstruction_config.cpp

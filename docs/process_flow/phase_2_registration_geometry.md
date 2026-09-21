@@ -14,6 +14,15 @@ Misst die Geometrie, die später jeden Quellpixel ins Ausgaberaster abbildet.
   (downsampled, CFA-sicher für OSC)
 - Kaskadierte Fallbacks; fehlgeschlagene Frames fallen auf Identitäts-Warp
   mit CC=0 zurück (keine harte Frame-Selektion)
+- Fehlgeschlagene/verworfene Frames bekommen einen modellvorhergesagten
+  Warp (Feldrotations-Polynom, Blending, Interpolation, Nearest-Copy) nur,
+  wenn das immer aktive Plausibilitäts-Gate die Vorhersage gegen die
+  benachbarten gemessenen Anker akzeptiert (Winkel: `1 deg + 2x` lokale/
+  globale Rate, gedeckelt 5 deg; Shift: `60 px + 2x` Rate, gedeckelt
+  400 px; Extrapolation max. 3 Frames). Unplausible Vorhersagen bleiben
+  `unresolved` und fallen aus Canvas/Prewarp/Drizzle heraus; Zähler unter
+  `diag.reg_model_predicted_implausible{,_reasons,_frames}` in
+  `global_registration.json`
 - Ergebnis pro Frame: **affine Transformation** + optional **glattes lokales
   Warp-Modell** (`has_smooth_local_model`)
 - Dithering-Diagnostik (`dithering.min_shift_px` als Gate)

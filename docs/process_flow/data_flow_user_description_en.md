@@ -126,6 +126,17 @@ Input frames (FITS, MONO or OSC/CFA)
 - Produces an affine transform and optionally a smooth local warp model
   per frame; failures degrade to identity warp with CC=0 — no hard frame
   rejection.
+- Failed or rejected frames receive a model-predicted warp (field-rotation
+  polynomial / blended / interpolated / nearest-copy) only when an
+  always-on plausibility gate accepts it: the prediction must stay within
+  `1 deg + 2x` the measured local/global rotation rate (capped at 5 deg)
+  and within `60 px + 2x` the measured shift rate (capped at 400 px) of
+  the neighbouring measured anchors, and extrapolation past the anchor
+  span is limited to 3 frames. Implausible predictions leave the frame
+  `unresolved` (excluded from canvas, prewarp and drizzle). Counts are
+  reported in `global_registration.json` under
+  `diag.reg_model_predicted_implausible`,
+  `..._reasons` and `..._frames`.
 - Writes `global_registration.json` and the frozen
   `registration_sampling.json` plan (output dimensions, `internal_scale`,
   `cfa_origin`, per-frame transforms).

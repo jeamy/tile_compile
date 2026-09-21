@@ -129,6 +129,19 @@ Eingabe-Frames (FITS, MONO oder OSC/CFA)
 - Liefert affine Transformation und optional ein glattes lokales
   Warp-Modell pro Frame; Fehlschläge degradieren auf Identitäts-Warp mit
   CC=0 — keine harte Frame-Ablehnung.
+- Fehlgeschlagene oder verworfene Frames erhalten nur dann einen
+  modellvorhergesagten Warp (Feldrotations-Polynom / Blending /
+  Interpolation / Nearest-Copy), wenn ein immer aktives
+  Plausibilitäts-Gate ihn akzeptiert: Die Vorhersage muss innerhalb von
+  `1 deg + 2x` der gemessenen lokalen/globalen Rotationsrate (gedeckelt
+  auf 5 deg) und innerhalb von `60 px + 2x` der gemessenen Shift-Rate
+  (gedeckelt auf 400 px) der benachbarten gemessenen Anker liegen;
+  Extrapolation über die Anker-Spanne hinaus ist auf 3 Frames begrenzt.
+  Unplausible Vorhersagen lassen den Frame `unresolved` (aus Canvas,
+  Prewarp und Drizzle ausgeschlossen). Zähler stehen in
+  `global_registration.json` unter
+  `diag.reg_model_predicted_implausible`,
+  `..._reasons` und `..._frames`.
 - Schreibt `global_registration.json` und den eingefrorenen Plan
   `registration_sampling.json` (Ausgabedimensionen, `internal_scale`,
   `cfa_origin`, Transformationen pro Frame).

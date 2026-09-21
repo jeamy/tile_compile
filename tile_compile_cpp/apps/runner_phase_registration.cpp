@@ -16,6 +16,7 @@
 #include "tile_compile/reconstruction/profile_store_manifest.hpp"
 #include "tile_compile/registration/registration_sampling_plan.hpp"
 #include "tile_compile/registration/sampling_geometry.hpp"
+#include "tile_compile/registration/warp_prediction_gate.hpp"
 #include "tile_compile/runner/registration_outlier_utils.hpp"
 
 #include <Eigen/Dense>
@@ -34,6 +35,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -3767,6 +3769,9 @@ bool run_phase_registration_prewarp(
       int reg_model_local_refined = 0;
       int reg_model_interpolated = 0;
       int reg_model_blended = 0;
+      int reg_model_predicted_implausible = 0;
+      std::map<std::string, int> reg_model_implausible_reasons;
+      std::vector<int> reg_model_implausible_frames;
 
       if (nv >= 3) {
         const std::vector<float> vang = unwrap_angle_sequence(vang_raw);
@@ -3806,6 +3811,14 @@ bool run_phase_registration_prewarp(
               {vfi[static_cast<size_t>(i)], vang[static_cast<size_t>(i)],
                vtx[static_cast<size_t>(i)], vty[static_cast<size_t>(i)],
                vcc[static_cast<size_t>(i)]});
+        }
+
+        // Plausibility-gate anchors: the same measured warps, in the same
+        // sorted order, used to vet model predictions before they are applied.
+        std::vector<registration::WarpPredictionAnchor> gate_anchors;
+        gate_anchors.reserve(valid_samples.size());
+        for (const auto &s : valid_samples) {
+          gate_anchors.push_back({s.fi, s.ang, s.tx, s.ty});
         }
 
         auto build_local_candidate = [&](size_t fi, int support_count)
@@ -4062,15 +4075,32 @@ bool run_phase_registration_prewarp(
             chosen.ty = wl * best_local.ty + wb * bridge_candidate.ty;
             chosen.score = std::min(best_local.score, bridge_candidate.score);
             chosen_provenance = RegistrationProvenance::model_blended;
-            ++reg_model_blended;
           } else if (!outside_valid_span && best_local.ok) {
             chosen = best_local;
             chosen_provenance = RegistrationProvenance::model_local_poly;
-            ++reg_model_local_refined;
           } else if (bridge_candidate.ok) {
             chosen = bridge_candidate;
             chosen_provenance = RegistrationProvenance::model_interpolated;
-            ++reg_model_interpolated;
+          }
+
+          // Plausibility gate: a prediction that is inconsistent with the
+          // neighbouring measured anchors (angle/shift discontinuity or too
+          // far outside the anchor span) must not be applied — the frame stays
+          // unresolved and is excluded from canvas, prewarp and drizzle.
+          const auto gate = registration::evaluate_warp_prediction(
+              static_cast<float>(fi), chosen.ang, chosen.tx, chosen.ty,
+              gate_anchors);
+          if (!gate.ok) {
+            set_registration_state(fi, registration::identity_warp(), 0.0f,
+                                   false, -1,
+                                   RegistrationProvenance::unresolved);
+            ++reg_model_predicted_implausible;
+            ++reg_model_implausible_reasons[
+                registration::warp_prediction_gate_reason_name(gate.reason)];
+            if (reg_model_implausible_frames.size() < 200) {
+              reg_model_implausible_frames.push_back(static_cast<int>(fi));
+            }
+            continue;
           }
 
           // Reject predictions that fall outside the anchor shift hull: these
@@ -4101,6 +4131,19 @@ bool run_phase_registration_prewarp(
           set_registration_state(fi, w, 1.0e-4f, false, -1,
                                  chosen_provenance);
           ++reg_model_predicted;
+          switch (chosen_provenance) {
+            case RegistrationProvenance::model_blended:
+              ++reg_model_blended;
+              break;
+            case RegistrationProvenance::model_local_poly:
+              ++reg_model_local_refined;
+              break;
+            case RegistrationProvenance::model_interpolated:
+              ++reg_model_interpolated;
+              break;
+            default:
+              break;
+          }
           if (is_rejected) {
             ++reg_model_predicted_rejected;
           } else {
@@ -4138,6 +4181,15 @@ bool run_phase_registration_prewarp(
         }
       } else if (nv >= 1) {
         // Too few points for polynomial — copy nearest valid warp.
+        const std::vector<float> vang_nc = unwrap_angle_sequence(vang_raw);
+        std::vector<registration::WarpPredictionAnchor> gate_anchors;
+        gate_anchors.reserve(static_cast<size_t>(nv));
+        for (int i = 0; i < nv; ++i) {
+          gate_anchors.push_back({vfi[static_cast<size_t>(i)],
+                                  vang_nc[static_cast<size_t>(i)],
+                                  vtx[static_cast<size_t>(i)],
+                                  vty[static_cast<size_t>(i)]});
+        }
         const float nc_tx_min = *std::min_element(vtx.begin(), vtx.end());
         const float nc_tx_max = *std::max_element(vtx.begin(), vtx.end());
         const float nc_ty_min = *std::min_element(vty.begin(), vty.end());
@@ -4165,6 +4217,24 @@ bool run_phase_registration_prewarp(
           }
           if (best >= 0) {
             const auto &bw = global_frame_warps[static_cast<size_t>(best)];
+            // Same plausibility gate as the polynomial path: the copied warp
+            // acts as the prediction for frame fi.
+            const auto gate = registration::evaluate_warp_prediction(
+                static_cast<float>(fi),
+                std::atan2(bw(0, 1), bw(0, 0)), bw(0, 2), bw(1, 2),
+                gate_anchors);
+            if (!gate.ok) {
+              set_registration_state(fi, registration::identity_warp(), 0.0f,
+                                     false, -1,
+                                     RegistrationProvenance::unresolved);
+              ++reg_model_predicted_implausible;
+              ++reg_model_implausible_reasons[
+                  registration::warp_prediction_gate_reason_name(gate.reason)];
+              if (reg_model_implausible_frames.size() < 200) {
+                reg_model_implausible_frames.push_back(static_cast<int>(fi));
+              }
+              continue;
+            }
             if (bw(0, 2) < nc_tx_lo || bw(0, 2) > nc_tx_hi ||
                 bw(1, 2) < nc_ty_lo || bw(1, 2) > nc_ty_hi) {
               set_registration_state(fi, registration::identity_warp(), 0.0f,
@@ -4196,6 +4266,36 @@ bool run_phase_registration_prewarp(
         }
       }
 
+      if (reg_model_predicted_implausible > 0) {
+        std::ostringstream msg;
+        msg << "REGISTRATION field-rotation model: "
+            << reg_model_predicted_implausible
+            << " predictions rejected by plausibility gate (";
+        bool first_reason = true;
+        for (const auto &[reason, count] : reg_model_implausible_reasons) {
+          if (!first_reason) {
+            msg << ", ";
+          }
+          msg << reason << "=" << count;
+          first_reason = false;
+        }
+        msg << ") frames=[";
+        const size_t show =
+            std::min<size_t>(20, reg_model_implausible_frames.size());
+        for (size_t i = 0; i < show; ++i) {
+          if (i > 0) {
+            msg << ",";
+          }
+          msg << reg_model_implausible_frames[i];
+        }
+        if (reg_model_implausible_frames.size() > show) {
+          msg << ",...";
+        }
+        msg << "]";
+        emitter.warning(run_id, msg.str(), log_file);
+        std::cout << "[REG-MODEL] " << msg.str() << std::endl;
+      }
+
       global_reg_extra["diag"]["reg_model_predicted"] = reg_model_predicted;
       global_reg_extra["diag"]["reg_model_predicted_rejected"] =
           reg_model_predicted_rejected;
@@ -4204,6 +4304,18 @@ bool run_phase_registration_prewarp(
       global_reg_extra["diag"]["reg_model_local_refined"] = reg_model_local_refined;
       global_reg_extra["diag"]["reg_model_interpolated"] = reg_model_interpolated;
       global_reg_extra["diag"]["reg_model_blended"] = reg_model_blended;
+      global_reg_extra["diag"]["reg_model_predicted_implausible"] =
+          reg_model_predicted_implausible;
+      {
+        core::json reasons_json = core::json::object();
+        for (const auto &[reason, count] : reg_model_implausible_reasons) {
+          reasons_json[reason] = count;
+        }
+        global_reg_extra["diag"]["reg_model_predicted_implausible_reasons"] =
+            reasons_json;
+        global_reg_extra["diag"]["reg_model_predicted_implausible_frames"] =
+            reg_model_implausible_frames;
+      }
     }
 
     // ================================================================
