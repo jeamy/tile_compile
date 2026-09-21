@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "tile_compile/core/types.hpp"
+#include "tile_compile/core/utils.hpp"
 #include "tile_compile/registration/registration_sampling_plan.hpp"
 
 namespace tile_compile::reconstruction {
@@ -1045,6 +1046,27 @@ void ForwardDrizzleV2CpuKernel::fold_native_range(
   const int ncols = im.ncols, nrows = im.nrows;
   const std::size_t np = im.nplane;
   const unsigned int slots = static_cast<unsigned int>(im.res_slots);
+  // The reservoir keep decision is per FRAME (hashes frame_order), not per
+  // pixel: every pixel in this call sees the same outcome, so hash it once
+  // instead of twice per pixel (full_nonpilot below + the keep test inside
+  // the channel loop used to both recompute it independently).
+  const bool frame_kept =
+      keep_all || cpu_splitmix64(frame_order ^ im.cfg.reservoir_seed) <
+                      threshold;
+  // Per-pixel accumulators below (im.accA/accB/.../im.kept/im.res, indexed by
+  // pc = c*np+px) are written by exactly one (ny, nx) iteration each, so
+  // rows can run on independent threads without races. The four stats_
+  // counters are the only cross-iteration state; fold them via reduction
+  // instead of touching stats_ directly from worker threads.
+  std::uint64_t candidates_streamed_local = 0;
+  std::uint64_t reservoir_kept_local = 0;
+  std::uint64_t full_frame_rejected_local = 0;
+  std::uint64_t full_frame_accepted_local = 0;
+  const int omp_threads = core::omp_effective_threads(
+      static_cast<int>(std::thread::hardware_concurrency()), nrows);
+#pragma omp parallel for schedule(static) num_threads(omp_threads) \
+    reduction(+ : candidates_streamed_local, reservoir_kept_local, \
+              full_frame_rejected_local, full_frame_accepted_local)
   for (int ny = 0; ny < nrows; ++ny)
    for (int nx = nx0; nx < nx1; ++nx) {
     const std::size_t px =
@@ -1055,10 +1077,7 @@ void ForwardDrizzleV2CpuKernel::fold_native_range(
       bool has = false;
       double x = 0.0, b = 0.0, s2 = 0.0, qc = 1.0, q0 = 1.0, q1 = 1.0;
     } fcand[3];
-    const bool full_nonpilot =
-        im.cfg.full_frame_estimator &&
-        !(keep_all ||
-          cpu_splitmix64(frame_order ^ im.cfg.reservoir_seed) < threshold);
+    const bool full_nonpilot = im.cfg.full_frame_estimator && !frame_kept;
     for (int c = 0; c < im.channels; ++c) {
       const std::size_t pc = static_cast<std::size_t>(c) * np + px;
       double a = 0.0, b_src = 0.0, b_geo = 0.0, s2w = 0.0;
@@ -1103,7 +1122,7 @@ void ForwardDrizzleV2CpuKernel::fold_native_range(
       im.accB[pc] += b_src;
       im.accB2[pc] += b_src * b_src;
       ++im.contrib[pc];
-      ++stats_.candidates_streamed;
+      ++candidates_streamed_local;
       if (!im.fs2.empty() && (!std::isfinite(s2c) || s2c < 0.0)) {
         ++im.degraded[pc];
       } else if (s2c > 0.0) {
@@ -1120,10 +1139,9 @@ void ForwardDrizzleV2CpuKernel::fold_native_range(
         fc.q0 = (qmask & 2u) ? q0_s / b_src : 1.0;
         fc.q1 = (qmask & 4u) ? q1_s / b_src : 1.0;
       }
-      if (keep_all || cpu_splitmix64(frame_order ^ im.cfg.reservoir_seed) <
-                          threshold) {
+      if (frame_kept) {
         const unsigned int k = im.kept[pc]++;
-        ++stats_.reservoir_kept_total;
+        ++reservoir_kept_local;
         if (k < slots) {
           CpuReservoirRecord &r = im.res[pc * slots + k];
           r.x = xv;
@@ -1176,18 +1194,22 @@ void ForwardDrizzleV2CpuKernel::fold_native_range(
         if (f.state != 1) continue;
         if (rej[c]) {
           ++f.n_rej;
-          ++stats_.full_frame_rejected;
+          ++full_frame_rejected_local;
         } else {
           cpu_full_add(f, fcand[c].b, fcand[c].x, fcand[c].s2, g,
                        fcand[c].qc, fcand[c].q0, fcand[c].q1,
                        im.cfg.fine_quality_exponent,
                        im.cfg.medium_quality_exponent);
-          ++stats_.full_frame_accepted;
+          ++full_frame_accepted_local;
         }
       }
     }
     if (any_geo) ++im.footprint[px];
   }
+  stats_.candidates_streamed += candidates_streamed_local;
+  stats_.reservoir_kept_total += reservoir_kept_local;
+  stats_.full_frame_rejected += full_frame_rejected_local;
+  stats_.full_frame_accepted += full_frame_accepted_local;
 }
 
 bool ForwardDrizzleV2CpuKernel::accumulate_frame(
