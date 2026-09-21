@@ -19,6 +19,7 @@ import { promptGrantRoot } from "../components/path-picker-modal.js";
 import { openHmsPreview } from "../components/hms-preview.js";
 import { openBgePreview } from "../components/bge-preview.js";
 import { createYamlDiff } from "../components/yaml-diff.js";
+import { getEffectiveCalValues } from "./input-scan.js";
 import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
 
 function createCompletionAnalysisPanel() {
@@ -1946,8 +1947,11 @@ async function startRun() {
       configYaml = injectAstapDataDir(configYaml, astapDataDir);
     }
 
-    // Inject calibration settings from Input & Scan tab into config YAML
-    const calValues = inputStore.getState().calValues || {};
+    // Inject calibration settings from Input & Scan tab into config YAML.
+    // Effective = panel state if the user touched it, else derived from the
+    // config draft itself — an untouched panel must not silently drop a
+    // calibration block (or keep one the UI shows as disabled).
+    const calValues = getEffectiveCalValues();
     if (configYaml && calValues && Object.keys(calValues).length > 0) {
       configYaml = injectCalibrationIntoYaml(configYaml, calValues);
     }

@@ -67,7 +67,7 @@ bool forward_drizzle_cuda_affine_target_gather(
 }
 bool forward_drizzle_cuda_affine_coverage_gather(
     const double *, const double *, int, double, int, int, int, int, int, int,
-    int, int, int, int, bool, double *) {
+    int, int, int, bool, double *) {
   return false;
 }
 bool forward_drizzle_cuda_affine_dense_scatter(
@@ -162,6 +162,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::skip_frame(
     std::uint64_t, const ForwardDrizzleV2FrameMeta *) {
   return false;
 }
+bool ForwardDrizzleV2CudaPrototypeKernel::end_pilot() { return false; }
 bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
     ForwardDrizzleV2PixelResult *, ForwardDrizzleV2ProfileResult *,
     std::uint64_t *) {

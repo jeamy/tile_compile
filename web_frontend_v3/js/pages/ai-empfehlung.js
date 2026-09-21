@@ -7,7 +7,7 @@ import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { pollJob } from "../utils/poll.js";
-import { getScanData, getQueueItems, getCalValues } from "./input-scan.js";
+import { getScanData, getQueueItems, getEffectiveCalValues } from "./input-scan.js";
 import { getScanState } from "../state/scan-state.js";
 import { getConfigState, setConfigState, deepClone } from "../state/config-state.js";
 import { parseYaml, stringifyYaml } from "../utils/yaml-parse.js";
@@ -766,7 +766,7 @@ async function autoScanForAnalysis() {
     sort: sd.sort || "numeric",
     with_checksums: Boolean(sd.with_checksums),
     queue: getQueueItems(),
-    calibration: getCalValues(),
+    calibration: getEffectiveCalValues(),
   };
   const jobStart = await api.post(API_ENDPOINTS.scan.root, payload);
   if (!jobStart?.job_id) {

@@ -11,6 +11,7 @@ import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { getScanState, setScanState } from "../state/scan-state.js";
 import { setAiState } from "../state/ai-state.js";
 import { getStore } from "../state/store.js";
+import { getConfigState } from "../state/config-state.js";
 import { setRunState } from "../state/run-state.js";
 import { refreshGuardrails } from "../services/guardrail-service.js";
 import { pollJob } from "../utils/poll.js";
@@ -54,6 +55,43 @@ export function getQueueItems() { return inputStore.getState().queueItems; }
 function setQueueItems(items) { inputStore.setState({ queueItems: items }); }
 export function getCalValues() { return inputStore.getState().calValues; }
 function setCalValues(v) { inputStore.setState({ calValues: v }); }
+
+// calValues is only populated once the user edits the calibration panel —
+// until then the config draft is the source of truth, otherwise an untouched
+// panel would display "all disabled" while the run still loads e.g. a master
+// dark from the config. Config dir keys differ per type: bias_dir/darks_dir/
+// flats_dir.
+const CFG_CAL_DIR_KEYS = { bias: "bias_dir", dark: "darks_dir", flat: "flats_dir" };
+
+function calBool(v) {
+  if (v === true || v === "true") return true;
+  if (v === false || v === "false") return false;
+  return undefined;
+}
+
+export function deriveCalValuesFromConfig(draft) {
+  const cal = draft?.calibration;
+  if (!cal || typeof cal !== "object") return {};
+  const out = {};
+  for (const type of ["bias", "dark", "flat"]) {
+    const master = typeof cal[`${type}_master`] === "string" ? cal[`${type}_master`] : "";
+    const dir = typeof cal[CFG_CAL_DIR_KEYS[type]] === "string" ? cal[CFG_CAL_DIR_KEYS[type]] : "";
+    const useMaster = calBool(cal[`${type}_use_master`]) ??
+      (Boolean(master.trim()) && !dir.trim());
+    out[`${type}_enabled`] = calBool(cal[`use_${type}`]) === true;
+    out[`${type}_source`] = useMaster ? "master" : "dir";
+    out[`${type}_use_master`] = useMaster;
+    out[`${type}_dir`] = dir;
+    out[`${type}_master`] = master;
+  }
+  return out;
+}
+
+export function getEffectiveCalValues() {
+  const cal = getCalValues();
+  if (cal && Object.keys(cal).length > 0) return cal;
+  return deriveCalValuesFromConfig(getConfigState().draft);
+}
 
 export function createInputScanPage() {
   ensureRunsDir();
@@ -155,7 +193,7 @@ export function createInputScanPage() {
 
   // Calibration panel
   const calPanel = createCalibrationPanel({
-    values: getCalValues(),
+    values: getEffectiveCalValues(),
     onChange: (v) => { setCalValues(v); },
   });
 
@@ -203,7 +241,7 @@ async function doScan() {
       sort: sd.sort,
       with_checksums: sd.with_checksums,
       queue: getQueueItems(),
-      calibration: getCalValues(),
+      calibration: getEffectiveCalValues(),
     };
     const jobResult = await api.post(API_ENDPOINTS.scan.root, payload);
     const jobId = jobResult?.job_id;
