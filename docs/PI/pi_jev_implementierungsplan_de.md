@@ -1,11 +1,11 @@
 # PI Jev — Detaillierter Implementierungsplan
 
-> **Stand:** 2026-09-20.
-> **Status:** Alle Implementierungsmeilensteine offen; nur Design und Planung erstellt.
+> **Stand:** 2026-09-22.
+> **Status:** M0 teilweise begonnen (Katalog/Schemas), M1-M7 offen; kein Backend-/Frontend-Code.
 > **Verbindliche Reihenfolge:** Pre-Run-Beratung zuerst, Post-Run-Beratung danach.
 > **Lieferumfang:** Vorschläge; kein automatischer Run/Resume und kein zweiter Bildeditor.
 
-Grundlagen: [Zielbild](pi_jev_decisions_plan_de.md), [korrigierter Regelkatalog](pi_scan_pre_rules_de.md), [lokaler Lernplan](pi_local_learning_plan_de.md).
+Grundlagen: [Zielbild](pi_jev_decisions_plan_de.md), [korrigierter Regelkatalog](pi_scan_pre_rules_de.md), [lokaler Lernplan](pi_local_learning_plan_de.md), [M0-Feld-Inventar](pi_jev_m0_field_inventory_de.md).
 
 ## 1. Abgrenzung und Abhängigkeiten
 
@@ -145,18 +145,18 @@ Run-Outcomes referenzieren später `proposal_id` und die tatsächlich gestartete
 
 ## 4. M0 — Verträge, Quellen und Testgrundlage einfrieren
 
-**Status:** offen. **Abhängigkeit:** keine.
+**Status:** teilweise (2026-09-22). **Abhängigkeit:** keine.
 
 Arbeit:
 
-- [ ] Aktuelle Scan-JSONs, Feature-Vektor, Schema und ausführbare Validatoren inventarisieren; Herkunft jedes State-Feldes tabellarisch hinterlegen.
-- [ ] Geschützte Pfade, Nutzer-Locks und erste Kandidaten-Allowlist im maschinenlesbaren Katalog definieren.
-- [ ] Anwendungsschemas für State, Vorschlag, Adapter und Katalog erstellen; Status-/Fehlercodes festlegen.
-- [ ] Provider-Protokoll aus offiziellen Quellen verifizieren; redigierte Request-/Response-/Fehlerfixtures erstellen. Live-Verifikation ausdrücklich von Mock-Tests unterscheiden.
-- [ ] Review der alten „HARD RULE“-Texte: tatsächliche Enforcement-Stelle oder offene Policy markieren. Keine implizite Änderung von Pipeline-Defaults.
+- [x] Aktuelle Scan-JSONs, Feature-Vektor, Schema und ausführbare Validatoren inventarisieren; Herkunft jedes State-Feldes tabellarisch hinterlegen. -> [Feld-Inventar](pi_jev_m0_field_inventory_de.md), gegen `cli_main.cpp`/`metrics.cpp`/`pi_feature_vector.cpp` verifiziert.
+- [x] Geschützte Pfade, Nutzer-Locks und erste Kandidaten-Allowlist im maschinenlesbaren Katalog definieren. -> `web_backend_cpp/config/pi_decisions/protected_paths_v1.json`, `candidates_v1.json`.
+- [x] Anwendungsschemas für State, Vorschlag, Adapter und Katalog erstellen; Status-/Fehlercodes festlegen. -> `web_backend_cpp/config/pi_decisions/schemas/pi.decision-state.v1.schema.json`, `pi.config-proposal.v1.schema.json`, `pi.decisions.request.v1.schema.json`, `pi.decisions.response.v1.schema.json` (JSON Schema draft-07, wie `tile_compile.schema.json`).
+- [ ] Provider-Protokoll aus offiziellen Quellen verifizieren; redigierte Request-/Response-/Fehlerfixtures erstellen. Live-Verifikation ausdrücklich von Mock-Tests unterscheiden. **Noch offen** — die Schemas oben sind das Anwendungscontract laut Abschnitt 3.3, nicht der verifizierte Provider-Wire-Vertrag; letzterer braucht einen echten Abgleich gegen die OpenRouter-/Jev-Dokumentation, bevor `decisionsService.ts` (M3) beginnen darf.
+- [ ] Review der alten „HARD RULE“-Texte: tatsächliche Enforcement-Stelle oder offene Policy markieren. Keine implizite Änderung von Pipeline-Defaults. Für den Pre-Run-Regelkatalog bereits in `pi_scan_pre_rules_de.md` erledigt; ein analoger Review für etwaige Post-Run-„HARD RULE“-Texte (M6-Umfeld) steht noch aus.
 - [ ] Lokale Fixtures aus synthetischen Daten oder freigegebenen anonymisierten Scans anlegen; bestehende Run-Dateien nicht verändern.
 
-**Abnahme:** Jedes verwendete Feld hat Quelle, Einheit, Fehlend-Verhalten und Testfixture; jede als hart deklarierte Bedingung besitzt eine geplante ausführbare Prüfung. Unbekannte Provider-Details blockieren Adapter-Freigabe, nicht State-/Policy-Arbeit.
+**Abnahme:** Jedes verwendete Feld hat Quelle, Einheit, Fehlend-Verhalten und Testfixture; jede als hart deklarierte Bedingung besitzt eine geplante ausführbare Prüfung. Unbekannte Provider-Details blockieren Adapter-Freigabe, nicht State-/Policy-Arbeit. Katalog-/Schemaarbeit ist erledigt; Testfixtures und der verifizierte Provider-Vertrag fehlen noch — M1 (State-Builder) kann auf Basis der vorliegenden Schemas beginnen, M3 (Adapter) nicht vor Abschluss der offenen Punkte.
 
 ## 5. M1 — State-Builder und Gruppenstatistik
 

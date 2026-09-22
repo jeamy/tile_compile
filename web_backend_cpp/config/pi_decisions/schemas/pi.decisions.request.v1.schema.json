@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "pi.decisions.request.v1",
+  "description": "Backend -> sidecar request for the Jev Decisions adapter, per docs/PI/pi_jev_implementierungsplan_de.md section 3.3. This is an APPLICATION contract; decisionsService.ts translates it into whatever the verified provider wire format turns out to be (M0/M3) and never forwards it byte-for-byte.",
+  "type": "object",
+  "required": ["request_id", "state_hash", "question_set_version", "state_projection", "allowed_candidates"],
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1},
+    "state_hash": {"type": "string", "minLength": 1},
+    "question_set_version": {"type": "string", "minLength": 1},
+    "state_projection": {
+      "type": "object",
+      "description": "Allowlist projection of pi.decision-state.v1: no secrets, absolute paths, full FITS headers, or unnecessary free text (pi_jev_decisions_plan_de.md section 9). The exact projected field set is frozen in M0."
+    },
+    "allowed_candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1},
+      "description": "candidate_id values the provider may choose among; always includes keep_current and insufficient_evidence (pi_jev_decisions_plan_de.md section 3)."
+    }
+  }
+}

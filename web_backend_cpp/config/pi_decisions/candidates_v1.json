@@ -1,0 +1,48 @@
+{
+  "catalog_version": 1,
+  "schema_version": "pi.candidate-catalog.v1",
+  "generated": "2026-09-22",
+  "domain": "pre_run",
+  "source": "docs/PI/pi_scan_pre_rules_de.md section 5, docs/PI/pi_jev_decisions_plan_de.md section 5",
+  "candidates": [
+    {
+      "candidate_id": "keep_current",
+      "candidate_version": 1,
+      "group": "none",
+      "preconditions": ["base_config_valid"],
+      "updates": [],
+      "requires_review": false,
+      "validation_status": "contract_tested",
+      "description": "Always available. Produces zero config updates; a full success, not a fallback."
+    },
+    {
+      "candidate_id": "insufficient_evidence",
+      "candidate_version": 1,
+      "group": "none",
+      "preconditions": [],
+      "updates": [],
+      "requires_review": false,
+      "validation_status": "contract_tested",
+      "description": "Always selectable abstention. No success/failure score is attached to choosing it."
+    },
+    {
+      "candidate_id": "enable_adaptive_weights",
+      "candidate_version": 1,
+      "group": "global_weighting",
+      "preconditions": [
+        "adaptive_weights_is_false",
+        "path_unlocked:global_metrics.adaptive_weights"
+      ],
+      "required_evidence": ["quality_spread", "measurement_coverage"],
+      "updates": [
+        {"path": "global_metrics.adaptive_weights", "value": true}
+      ],
+      "expected_effect_code": "redistribute_frame_weights",
+      "risk_code": "quality_gain_unproven",
+      "requires_review": true,
+      "validation_status": "unvalidated",
+      "applicability": "experimental_only",
+      "description": "Hypothesis-stage. First applicable ONLY once M5 freezes the minimum measurement-coverage / quality-spread threshold policy this candidate's preconditions require (pi_scan_pre_rules_de.md section 5, last paragraph). Until then this entry exists for schema/contract testing but pi_decision_policy must resolve it to abstain in every real evaluation."
+    }
+  ]
+}

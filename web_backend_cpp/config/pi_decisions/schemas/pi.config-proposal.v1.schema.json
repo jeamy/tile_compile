@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "pi.config-proposal.v1",
+  "description": "Result of a resolved Jev decision, per docs/PI/pi_jev_implementierungsplan_de.md section 3.4. Persisted server-side; the frontend only ever displays/applies this shape, never constructs one.",
+  "type": "object",
+  "required": [
+    "proposal_id", "domain", "identity", "state_hash", "candidate_id",
+    "candidate_version", "question_set_version", "policy_version", "model",
+    "status", "updates", "evidence_refs", "reason_codes", "review_required",
+    "validation", "created_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "proposal_id": {"type": "string", "minLength": 1},
+    "domain": {"enum": ["pre_run", "post_run"]},
+    "identity": {
+      "type": "object",
+      "required": ["dataset_fingerprint", "scan_hash", "config_hash", "locks_hash"],
+      "additionalProperties": false,
+      "properties": {
+        "dataset_fingerprint": {"type": "string"},
+        "scan_hash": {"type": "string"},
+        "config_hash": {"type": "string"},
+        "locks_hash": {"type": "string"}
+      }
+    },
+    "state_hash": {"type": "string", "minLength": 1},
+    "candidate_id": {"type": "string", "minLength": 1},
+    "candidate_version": {"type": "integer", "minimum": 1},
+    "question_set_version": {"type": "string", "minLength": 1},
+    "policy_version": {"type": "string", "minLength": 1},
+    "model": {
+      "type": "object",
+      "required": ["requested", "provider_reported"],
+      "additionalProperties": false,
+      "properties": {
+        "requested": {"type": "string", "minLength": 1},
+        "provider_reported": {"type": ["string", "null"], "description": "null means the provider did not report a version; never inferred from the requested alias."}
+      }
+    },
+    "status": {"enum": ["applied_to_draft", "no_change", "blocked", "abstain", "unavailable", "stale", "rejected"]},
+    "updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "old_value", "value", "group_id"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "old_value": {},
+          "value": {},
+          "group_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+    "reason_codes": {"type": "array", "items": {"type": "string"}},
+    "review_required": {"type": "boolean"},
+    "validation": {
+      "type": "object",
+      "required": ["schema_ok", "policy_ok", "evidence_ok", "config_ok"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_ok": {"type": "boolean"},
+        "policy_ok": {"type": "boolean"},
+        "evidence_ok": {"type": "boolean"},
+        "config_ok": {"type": "boolean"}
+      }
+    },
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"enum": ["no_change", "blocked", "abstain", "unavailable", "stale", "rejected"]}}
+      },
+      "then": {
+        "properties": {"updates": {"const": []}}
+      }
+    }
+  ]
+}

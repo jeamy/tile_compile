@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "pi.decisions.response.v1",
+  "description": "Sidecar -> backend normalized response, per docs/PI/pi_jev_implementierungsplan_de.md section 3.3. Provider JSON is untrusted input; decisionsService.ts must reject anything that does not already satisfy this shape (unknown candidate_id, non-finite/out-of-range probabilities) before this object is ever constructed.",
+  "type": "object",
+  "required": ["request_id", "state_hash", "status", "model_requested"],
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1},
+    "state_hash": {"type": "string", "minLength": 1},
+    "status": {"enum": ["ok", "unavailable", "invalid_response"]},
+    "model_requested": {"type": "string", "minLength": 1},
+    "model_reported": {"type": ["string", "null"], "description": "Version the provider actually reported, if any; null (not the requested alias) when absent."},
+    "selection": {
+      "type": ["object", "null"],
+      "description": "Present only when status=ok.",
+      "required": ["candidate_id", "probabilities"],
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {"type": "string", "minLength": 1},
+        "probabilities": {
+          "type": "object",
+          "description": "candidate_id -> raw probability as reported by the provider. Every value must be finite and in [0,1]; a response containing NaN/Infinity anywhere is rejected wholesale, not clamped.",
+          "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "noul_answers": {
+      "type": "array",
+      "description": "Independent scenario/noul-question answers, only meaningful when evidence for them exists (pi_jev_decisions_plan_de.md section 3).",
+      "items": {
+        "type": "object",
+        "required": ["question_id", "answer"],
+        "additionalProperties": false,
+        "properties": {
+          "question_id": {"type": "string", "minLength": 1},
+          "answer": {}
+        }
+      }
+    },
+    "error_code": {
+      "type": "string",
+      "description": "Present when status != ok; a stable application error code, never a raw provider error string."
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "ok"}}},
+      "then": {"required": ["selection"]}
+    },
+    {
+      "if": {"not": {"properties": {"status": {"const": "ok"}}}},
+      "then": {"required": ["error_code"]}
+    }
+  ]
+}

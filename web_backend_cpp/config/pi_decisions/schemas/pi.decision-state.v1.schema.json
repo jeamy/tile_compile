@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "pi.decision-state.v1",
+  "description": "Pre-run decision state, per docs/PI/pi_jev_implementierungsplan_de.md section 3.1. Built server-side only by pi_decision_state (M1); never accepted as authoritative input from a client.",
+  "type": "object",
+  "required": [
+    "schema_version", "domain", "identity", "measurement_contract",
+    "coverage", "groups", "session_facts", "capabilities",
+    "base_config", "locked_paths", "blocking_findings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "pi.decision-state.v1"},
+    "domain": {"enum": ["pre_run"]},
+    "identity": {
+      "type": "object",
+      "required": ["dataset_fingerprint", "scan_id", "scan_hash", "config_hash", "locks_hash", "software_version", "identity_strength"],
+      "additionalProperties": false,
+      "properties": {
+        "dataset_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "scan_id": {"type": "string", "minLength": 1},
+        "scan_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "config_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "locks_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "software_version": {"type": "string", "minLength": 1},
+        "identity_strength": {
+          "enum": ["content_digest", "metadata"],
+          "description": "metadata: no content digest was available for every selected input; the dataset_fingerprint is a metadata (id/size/mtime) manifest hash only, not proof of content identity (pi_jev_implementierungsplan_de.md section 3.1)."
+        }
+      }
+    },
+    "measurement_contract": {
+      "type": "object",
+      "required": ["method_version", "pixel_grid", "calibration_state"],
+      "additionalProperties": false,
+      "properties": {
+        "method_version": {"type": "string", "minLength": 1},
+        "pixel_grid": {"enum": ["source"]},
+        "calibration_state": {"enum": ["unknown", "uncalibrated", "calibrated"]}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["detected", "measured", "read_ok"],
+      "additionalProperties": false,
+      "properties": {
+        "detected": {"type": "integer", "minimum": 0},
+        "measured": {"type": "integer", "minimum": 0},
+        "read_ok": {"type": "integer", "minimum": 0}
+      }
+    },
+    "groups": {"type": "array", "items": {"$ref": "#/definitions/group"}},
+    "session_facts": {"type": "object"},
+    "capabilities": {"type": "object"},
+    "base_config": {"type": "object", "description": "Effective config as validated by the existing runner config loader; opaque to this schema."},
+    "locked_paths": {"type": "array", "items": {"type": "string"}},
+    "blocking_findings": {"type": "array", "items": {"type": "string"}}
+  },
+  "definitions": {
+    "measurement": {
+      "type": "object",
+      "description": "Uniform measurement-value contract (pi_jev_implementierungsplan_de.md section 3.1). value is null unless status=valid.",
+      "required": ["value", "status", "unit", "source_ref", "method_version", "valid_count", "total_count"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {"type": ["number", "null"]},
+        "status": {"enum": ["valid", "missing", "invalid", "not_applicable"]},
+        "unit": {"type": "string"},
+        "source_ref": {"type": "string", "minLength": 1},
+        "method_version": {"type": "string", "minLength": 1},
+        "valid_count": {"type": "integer", "minimum": 0},
+        "total_count": {"type": "integer", "minimum": 0}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "valid"}}},
+          "then": {"properties": {"value": {"type": "number"}}}
+        },
+        {
+          "if": {"not": {"properties": {"status": {"const": "valid"}}}},
+          "then": {"properties": {"value": {"type": "null"}}}
+        }
+      ]
+    },
+    "group": {
+      "type": "object",
+      "description": "A compatible-acquisition-condition frame group (pi_scan_pre_rules_de.md section 2/M1). Unknown header values are their own explicit bucket, never merged into a known one.",
+      "required": ["group_id", "frame_count", "camera", "color_mode", "bayer_pattern", "filter", "exposure_seconds", "metrics"],
+      "additionalProperties": false,
+      "properties": {
+        "group_id": {"type": "string", "minLength": 1},
+        "frame_count": {"type": "integer", "minimum": 1},
+        "camera": {"type": ["string", "null"], "description": "null means unknown; never a substring-matched inference."},
+        "color_mode": {"enum": ["OSC", "MONO", "UNKNOWN"]},
+        "bayer_pattern": {"type": ["string", "null"]},
+        "filter": {"type": ["string", "null"]},
+        "exposure_seconds": {"type": ["number", "null"]},
+        "metrics": {
+          "type": "object",
+          "description": "keyed by metric name (e.g. background, noise, gradient_energy, sky_gradient, fwhm, axis_asymmetry, star_count); each value is a #/definitions/measurement plus optional spread fields.",
+          "additionalProperties": {"$ref": "#/definitions/measurement"}
+        }
+      }
+    }
+  }
+}

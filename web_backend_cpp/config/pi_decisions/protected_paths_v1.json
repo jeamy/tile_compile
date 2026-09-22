@@ -1,0 +1,74 @@
+{
+  "catalog_version": 1,
+  "schema_version": "pi.protected-paths.v1",
+  "generated": "2026-09-22",
+  "purpose": "guard_quality / guard_scope source of truth (pi_scan_pre_rules_de.md section 3): any config path NOT explicitly present in candidate_allowlist_v1.json's updates is rejected fail-closed by pi_decision_policy, regardless of what a Jev response proposes. This file additionally documents WHY the listed prefixes must never be reachable by any future candidate group without a separate, explicitly reviewed change to this file.",
+  "verified_against": [
+    "tile_compile_cpp/include/tile_compile/config/configuration.hpp",
+    "tile_compile_cpp/src/io/config.cpp",
+    "tile_compile_cpp/tile_compile.schema.json"
+  ],
+  "protected_path_prefixes": [
+    {
+      "prefix": "reconstruction.coverage_gate.",
+      "reason": "Post-registration coverage/QC pass-fail thresholds (min_frames, min_supported_fraction, min_channel_n_eff_floor/fraction, min_analysis_pixels, max_internal_hole_area_px). Loosening any of these to make a marginal dataset pass is exactly the kind of silent quality erosion the guard exists to block."
+    },
+    {
+      "prefix": "reconstruction.multiband_validation.",
+      "reason": "Candidate-selection gates (fwhm_ratio_max, p90_fwhm_ratio_max, tail_ratio_max, elongation_ratio_max, background_rms_ratio_max, seam_ratio_max, min_stars_fwhm, min_stars_p90_tail_elongation, max_fwhm_ci_relative_width) that decide whether Multiband is promoted over Raw. These are the acceptance contract from AGENTS.md's architecture boundaries, not tuning knobs."
+    },
+    {
+      "prefix": "reconstruction.drizzle.min_clip_contributors",
+      "reason": "Below this per-pixel candidate count the forward-drizzle v2 kernel takes the unclipped, outlier-unprotected fallback path (ForwardDrizzleV2RobustState::too_few_candidates_fallback). Lowering it trades outlier protection for coverage; verified real-world impact (2026-09-22 IC5070 fix, see docs/PI history) makes this a safety-relevant parameter, not a coverage tuning knob."
+    },
+    {
+      "prefix": "reconstruction.clipping.guard_fallback",
+      "reason": "Controls whether a min_fraction/min_n_eff veto failure leaves a pixel unsupported (fail-closed, current default) or falls back to unclipped survivors. Changes what \"unsupported\" means for every downstream consumer."
+    },
+    {
+      "prefix": "reconstruction.clipping.shared_frame_rejection",
+      "reason": "Cross-channel outlier-rejection consensus mechanism; changes which frames get excluded per pixel across all three color channels simultaneously."
+    },
+    {
+      "prefix": "reconstruction.clipping.bimodal_veto",
+      "reason": "Coherent-second-population outlier veto; empirically proven (M31 case) to have narrow, easy-to-misjudge applicability. Not a general-purpose quality dial."
+    },
+    {
+      "prefix": "reconstruction.common_overlap_required_fraction",
+      "reason": "Drives the COMMON_OVERLAP coverage QC decision independent of the delivered crop."
+    },
+    {
+      "prefix": "output.crop_to_nonzero_bbox",
+      "reason": "Changes the delivered canvas extent (union-of-footprint bbox vs. a narrower crop); directly interacts with the coverage guards above."
+    },
+    {
+      "prefix": "pcc.k_max",
+      "reason": "PCC color-calibration acceptance gate."
+    },
+    {
+      "prefix": "pcc.max_residual_rms",
+      "reason": "PCC color-calibration acceptance gate."
+    },
+    {
+      "prefix": "pcc.max_condition_number",
+      "reason": "PCC color-calibration acceptance gate; rejects unstable calibration matrices."
+    },
+    {
+      "prefix": "method",
+      "reason": "AGENTS.md: the pipeline has exactly one reconstruction method (CFA Forward Drizzle + Multiband); no top-level method selector exists or may be reintroduced by any patch."
+    },
+    {
+      "prefix": "bge.method",
+      "reason": "pi_jev_decisions_plan_de.md section 6: explicitly excluded from Jev's reach in v1; not the same axis as the removed top-level `method` selector, but still requires its own dedicated, evidence-gated candidate before it can be patchable (pi_scan_pre_rules_de.md section 4.8)."
+    },
+    {
+      "prefix": "calibration.",
+      "reason": "Master matching/scaling and use_* toggles remain outside the v1 patch allowlist per pi_scan_pre_rules_de.md section 4.1."
+    },
+    {
+      "prefix": "runtime_limits.",
+      "reason": "System/runtime values (CPU/GPU choice, memory/parallelism budgets), not reconstruction-quality tuning; pi_jev_decisions_plan_de.md section 6."
+    }
+  ],
+  "note": "This list is deliberately conservative and additive-only in v1: it documents known-dangerous prefixes, but the actual enforcement in pi_decision_policy is an ALLOWLIST (candidate_allowlist_v1.json's updates[].path), not a denylist walk of this file. A path missing from both files is rejected either way; this file exists so a reviewer changing the allowlist can see, in one place, which prefixes require extra scrutiny before ever being added to it."
+}
