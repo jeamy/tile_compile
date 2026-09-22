@@ -703,6 +703,10 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
             v2_result.driver.totals.full_frame_degenerate_pilot;
         extra["v2_full_frame_no_bounds"]=
             v2_result.driver.totals.full_frame_no_bounds;
+        extra["v2_bimodal_veto_rejected_candidates"]=
+            v2_result.driver.totals.bimodal_veto_rejected_candidates;
+        extra["v2_bimodal_veto_pixels"]=
+            v2_result.driver.totals.bimodal_veto_pixels;
         extra["v2_upload_seconds"]=v2_result.driver.totals.upload_seconds;
         extra["v2_kernel_seconds"]=v2_result.driver.totals.kernel_seconds;
         extra["v2_download_seconds"]=v2_result.driver.totals.download_seconds;

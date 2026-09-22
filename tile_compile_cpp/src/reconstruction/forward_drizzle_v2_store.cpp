@@ -110,6 +110,10 @@ json plan_to_json(const ForwardDrizzleV2RunPlan &p, bool with_hash) {
     j["shared_frame_rejection"] = p.shared_frame_rejection;
     j["shared_frame_rejection_consensus"] = p.shared_frame_rejection_consensus;
   }
+  if (p.bimodal_veto) {
+    j["bimodal_veto"] = p.bimodal_veto;
+    j["bimodal_veto_gap_sigma"] = p.bimodal_veto_gap_sigma;
+  }
   if (with_hash) j["plan_hash"] = p.plan_hash;
   return j;
 }
@@ -139,6 +143,8 @@ ForwardDrizzleV2RunPlan plan_from_json(const json &j) {
   p.shared_frame_rejection = j.value("shared_frame_rejection", false);
   p.shared_frame_rejection_consensus =
       j.value("shared_frame_rejection_consensus", 0.5);
+  p.bimodal_veto = j.value("bimodal_veto", false);
+  p.bimodal_veto_gap_sigma = j.value("bimodal_veto_gap_sigma", 2.5);
   p.support_fold_contract = j.at("support_fold_contract").get<std::string>();
   p.numerics = j.at("numerics").get<std::string>();
   p.sigma2_enabled = j.at("sigma2_enabled").get<bool>();

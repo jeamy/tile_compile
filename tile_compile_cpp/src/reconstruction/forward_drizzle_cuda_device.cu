@@ -1496,6 +1496,125 @@ __device__ double d_hazen_percentile(double *vals, double *wts, int n,
   return vals[n - 1];
 }
 
+// cfg.bimodal_veto (see forward_drizzle_cuda.hpp / cpu_bimodal_veto): on the
+// currently accepted subset of `recs` (index range [0, n_kept), already
+// x-sorted, `on` decoded from the acc_lo/acc_hi bitmask), find the largest
+// gap between consecutive accepted values. If it exceeds gap_sigma*mad and
+// splits off a minority side of >= 2 candidates holding < half the accepted
+// weight, clear that side's bits. Mirrors cpu_bimodal_veto exactly (same
+// order, same comparisons) for CPU/CUDA parity. Returns candidates rejected.
+__device__ unsigned int d_bimodal_veto(const V2ReservoirRecord *recs,
+                                       unsigned int n_kept,
+                                       unsigned long long &acc_lo,
+                                       unsigned long long &acc_hi, double mad,
+                                       double gap_sigma) {
+  if (!(mad > 0.0) || !(gap_sigma > 0.0)) return 0;
+  unsigned int on[kV2MaxResSlots];
+  unsigned int n_on = 0;
+  for (unsigned int i = 0; i < n_kept; ++i) {
+    const bool bit = i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
+    if (bit) on[n_on++] = i;
+  }
+  if (n_on < 4) return 0;
+  unsigned int split = 0;
+  double best_gap = -1.0;
+  for (unsigned int k = 1; k < n_on; ++k) {
+    const double gap = recs[on[k]].x - recs[on[k - 1]].x;
+    if (gap > best_gap) {
+      best_gap = gap;
+      split = k;
+    }
+  }
+  if (!(best_gap > gap_sigma * mad)) return 0;
+  double w_lo = 0.0, w_hi = 0.0;
+  for (unsigned int k = 0; k < split; ++k) w_lo += recs[on[k]].b;
+  for (unsigned int k = split; k < n_on; ++k) w_hi += recs[on[k]].b;
+  const unsigned int n_lo = split, n_hi = n_on - split;
+  const bool lo_is_minority = w_lo < w_hi;
+  const unsigned int minority_n = lo_is_minority ? n_lo : n_hi;
+  const double minority_w = lo_is_minority ? w_lo : w_hi;
+  const double total_w = w_lo + w_hi;
+  if (minority_n < 2 || !(total_w > 0.0) || !(minority_w < 0.5 * total_w))
+    return 0;
+  unsigned int rejected = 0;
+  const unsigned int lo_bound = lo_is_minority ? split : n_on;
+  const unsigned int begin = lo_is_minority ? 0 : split;
+  for (unsigned int k = begin; k < lo_bound; ++k) {
+    const unsigned int idx = on[k];
+    if (idx < 64) acc_lo &= ~(1ULL << idx);
+    else acc_hi &= ~(1ULL << (idx - 64));
+    ++rejected;
+  }
+  return rejected;
+}
+
+// Recomputes the weighted median/MAD/asymmetric bounds from scratch on the
+// CURRENT accepted set of `recs` (x-sorted). Used only to refresh the
+// full-frame pilot's FROZEN bounds after d_bimodal_veto has removed a
+// minority cluster from a pilot: the standard clip loop's bounds were
+// captured before the veto ran, so without this they would still admit the
+// rejected population's non-pilot frames later. Mirrors the per-pass
+// median/MAD computation exactly (same weighted-median tie rule, same
+// deviation-order MAD), just without the accept/reject sweep (the veto
+// already produced the accepted set this recomputes bounds for).
+__device__ void d_recompute_bounds(const V2ReservoirRecord *recs,
+                                   unsigned int n_kept,
+                                   unsigned long long acc_lo,
+                                   unsigned long long acc_hi, double s_low,
+                                   double s_high, double &out_lower,
+                                   double &out_upper, double &out_mad) {
+  double total_w = 0.0;
+  unsigned int on[kV2MaxResSlots];
+  unsigned int n_on = 0;
+  for (unsigned int i = 0; i < n_kept; ++i) {
+    const bool bit = i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
+    if (!bit) continue;
+    on[n_on++] = i;
+    total_w += recs[i].b;
+  }
+  if (n_on == 0 || !(total_w > 0.0)) return;
+  double median = recs[on[n_on - 1]].x;
+  {
+    double cum = 0.0;
+    for (unsigned int k = 0; k < n_on; ++k) {
+      cum += recs[on[k]].b;
+      if (cum >= total_w / 2.0) {
+        median = recs[on[k]].x;
+        break;
+      }
+    }
+  }
+  unsigned int ord[kV2MaxResSlots];
+  for (unsigned int k = 0; k < n_on; ++k) ord[k] = on[k];
+  for (unsigned int i = 1; i < n_on; ++i) {
+    const unsigned int v = ord[i];
+    const double dv = fabs(recs[v].x - median);
+    unsigned int j = i;
+    while (j > 0) {
+      const unsigned int u = ord[j - 1];
+      const double du = fabs(recs[u].x - median);
+      if (du < dv || (du == dv && recs[u].order < recs[v].order)) break;
+      ord[j] = u;
+      --j;
+    }
+    ord[j] = v;
+  }
+  double mad = fabs(recs[ord[n_on - 1]].x - median);
+  {
+    double cum = 0.0;
+    for (unsigned int k = 0; k < n_on; ++k) {
+      cum += recs[ord[k]].b;
+      if (cum >= total_w / 2.0) {
+        mad = fabs(recs[ord[k]].x - median);
+        break;
+      }
+    }
+  }
+  out_lower = median - s_low * mad;
+  out_upper = median + s_high * mad;
+  out_mad = mad;
+}
+
 // Band-end finalize: per (pixel, channel) runs the bit-exact gate-3 clip on
 // the reservoir (identical evaluation order to robust_frame_oracle_v2:
 // (x, order) sort, cumulative-weight median at >= total/2, (|x-med|, order)
@@ -1520,7 +1639,10 @@ __global__ void k_finalize_v2(
     const float4 *resq, const V2FrameMetaDev *meta,
     double fine_exp, double medium_exp, AlphaConfidenceParams alpha,
     ForwardDrizzleV2ProfileResult *pout,
-    ForwardDrizzleV2PixelResult *out, unsigned long long *dense_overlap) {
+    ForwardDrizzleV2PixelResult *out, unsigned long long *dense_overlap,
+    int bimodal_veto, double bimodal_veto_gap_sigma,
+    unsigned long long *bimodal_rejected_total,
+    unsigned long long *bimodal_pixels_total) {
   const long long tid =
       static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
   const long long nplane = static_cast<long long>(ncols) * nrows;
@@ -1637,6 +1759,8 @@ __global__ void k_finalize_v2(
     qvs[j] = qv;
   }
   unsigned long long acc_lo = ~0ULL, acc_hi = ~0ULL;  // accepted bitmask
+  double last_mad = 0.0;
+  bool clip_evaluated = false;
   for (int pass = 0; pass < passes; ++pass) {
     double total_w = 0.0;
     unsigned int n_active = 0;
@@ -1700,6 +1824,8 @@ __global__ void k_finalize_v2(
     }
     const double lower = median - s_low * mad;
     const double upper = median + s_high * mad;
+    last_mad = mad;
+    clip_evaluated = true;
     bool changed = false;
     for (unsigned int i = 0; i < m; ++i) {
       const unsigned int idx = ord[i];
@@ -1711,6 +1837,15 @@ __global__ void k_finalize_v2(
       }
     }
     if (!changed) break;
+  }
+  if (bimodal_veto != 0 && clip_evaluated) {
+    const unsigned int rej = d_bimodal_veto(recs, n_kept, acc_lo, acc_hi,
+                                            last_mad, bimodal_veto_gap_sigma);
+    if (rej > 0) {
+      atomicAdd(bimodal_rejected_total,
+               static_cast<unsigned long long>(rej));
+      atomicAdd(bimodal_pixels_total, 1ULL);
+    }
   }
   double ca = 0.0, cb = 0.0, cb2 = 0.0, cs = 0.0, cc = 0.0;
   for (unsigned int i = 0; i < n_kept; ++i) {
@@ -1873,7 +2008,9 @@ __global__ void k_finalize_v2_sfr_build(
     ForwardDrizzleV2ProfileResult *pout,
     ForwardDrizzleV2PixelResult *out, unsigned long long *dense_overlap,
     unsigned char *has_clip, unsigned long long *sfr_accepted,
-    double *bounds) {
+    double *bounds, int bimodal_veto, double bimodal_veto_gap_sigma,
+    unsigned long long *bimodal_rejected_total,
+    unsigned long long *bimodal_pixels_total) {
   const long long tid =
       static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
   const long long nplane = static_cast<long long>(ncols) * nrows;
@@ -2057,6 +2194,22 @@ __global__ void k_finalize_v2_sfr_build(
       }
     }
     if (!changed) break;
+  }
+  if (bimodal_veto != 0 && last_mad > 0.0) {
+    const unsigned int rej = d_bimodal_veto(recs, n_kept, acc_lo, acc_hi,
+                                            last_mad, bimodal_veto_gap_sigma);
+    if (rej > 0) {
+      atomicAdd(bimodal_rejected_total,
+               static_cast<unsigned long long>(rej));
+      atomicAdd(bimodal_pixels_total, 1ULL);
+      // The frozen bounds (below) were captured from the standard clip's
+      // last pass, before this veto ran: without refreshing them here, a
+      // full-frame pilot's frozen bounds would still admit the just-removed
+      // population's non-pilot frames later (see d_recompute_bounds).
+      if (bounds != nullptr)
+        d_recompute_bounds(recs, n_kept, acc_lo, acc_hi, s_low, s_high,
+                           last_lower, last_upper, last_mad);
+    }
   }
   // .value/.robust_state/.confidence/.confidence_state are not yet valid
   // (the accepted set can still change in kernel B) -- everything else
@@ -3413,6 +3566,10 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
   V2FullAcc *dfull = nullptr;
   double *dbounds = nullptr;
   unsigned long long *fcounters = nullptr;
+  // cfg.bimodal_veto counters, always allocated (like `scalars`): [0]
+  // candidates rejected, [1] (pixel, channel) instances that rejected at
+  // least once.
+  unsigned long long *bimodal_counters = nullptr;
   bool pilot_done = false;
   // Pinned host staging for the affine-sample upload path: two slots so the
   // host never waits for the device to drain before the async copy (a
@@ -3489,6 +3646,7 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
     cudaFree(dfull);
     cudaFree(dbounds);
     cudaFree(fcounters);
+    cudaFree(bimodal_counters);
     for (int sl = 0; sl < 2; ++sl) {
       if (hsamples[sl] != nullptr) cudaFreeHost(hsamples[sl]);
       for (int k = 0; k < 4; ++k) {
@@ -3534,6 +3692,8 @@ bool v2_fixed_cfg_equal(const ForwardDrizzleV2KernelConfig &a,
          a.band_origin_x_native == b.band_origin_x_native &&
          a.cached_leaf_capacity == b.cached_leaf_capacity &&
          a.full_frame_estimator == b.full_frame_estimator &&
+         a.bimodal_veto == b.bimodal_veto &&
+         a.bimodal_veto_gap_sigma == b.bimodal_veto_gap_sigma &&
          a.shared_frame_rejection == b.shared_frame_rejection &&
          a.shared_frame_rejection_consensus == b.shared_frame_rejection_consensus;
 }
@@ -3557,6 +3717,9 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
       source_h <= 0 || cfg.internal_scale < 1 || cfg.internal_scale > 2 ||
       cfg.reservoir_size < 1 || cfg.reservoir_size > 64 ||
       (cfg.full_frame_estimator && !cfg.emit_profiles) ||
+      (cfg.bimodal_veto &&
+       (!std::isfinite(cfg.bimodal_veto_gap_sigma) ||
+        cfg.bimodal_veto_gap_sigma <= 0.0)) ||
       cfg.stream_length == 0 || cfg.stream_length > 65536 ||
       cfg.min_clip_contributors < 1 || cfg.min_candidates < 1 ||
       cfg.robust_passes < 1 || !std::isfinite(cfg.sigma_low) ||
@@ -3678,7 +3841,8 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
        (!mul(pc_elems, sizeof(V2FullAcc) + 3 * sizeof(double), tmp) ||
         !add_bytes(tmp) || !add_bytes(5 * sizeof(unsigned long long)))) ||
       !add_bytes(leaf_bytes) ||
-      !add_bytes(3 * sizeof(unsigned long long)))
+      !add_bytes(3 * sizeof(unsigned long long)) ||
+      !add_bytes(2 * sizeof(unsigned long long)))
     return false;
 
   Impl *im = new (std::nothrow) Impl();
@@ -3777,6 +3941,8 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
            cudaSuccess &&
        cudaMalloc(&im->scalars, 3 * sizeof(unsigned long long)) ==
            cudaSuccess &&
+       cudaMalloc(&im->bimodal_counters, 2 * sizeof(unsigned long long)) ==
+           cudaSuccess &&
        cudaMalloc(&im->res, pc_elems * static_cast<std::size_t>(res_slots) *
                               sizeof(V2ReservoirRecord)) == cudaSuccess &&
        (!cfg.emit_profiles ||
@@ -3873,6 +4039,9 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
                        im->stream) == cudaSuccess &&
        cudaMemsetAsync(im->scalars, 0, 3 * sizeof(unsigned long long),
                        im->stream) == cudaSuccess &&
+       cudaMemsetAsync(im->bimodal_counters, 0,
+                       2 * sizeof(unsigned long long),
+                       im->stream) == cudaSuccess &&
        (!cfg.full_frame_estimator ||
         (cudaMemsetAsync(im->dfull, 0, pc_elems * sizeof(V2FullAcc),
                          im->stream) == cudaSuccess &&
@@ -3961,6 +4130,8 @@ bool ForwardDrizzleV2CudaPrototypeKernel::begin_band(
       cudaMemsetAsync(im.degraded, 0, pc_elems * sizeof(unsigned long long),
                       im.stream) == cudaSuccess &&
       cudaMemsetAsync(im.scalars, 0, 3 * sizeof(unsigned long long),
+                      im.stream) == cudaSuccess &&
+      cudaMemsetAsync(im.bimodal_counters, 0, 2 * sizeof(unsigned long long),
                       im.stream) == cudaSuccess &&
       (!im.cfg.full_frame_estimator ||
        (cudaMemsetAsync(im.dfull, 0, pc_elems * sizeof(V2FullAcc),
@@ -5022,7 +5193,9 @@ bool ForwardDrizzleV2CudaPrototypeKernel::end_pilot() {
       im.cfg.sigma_low, im.cfg.sigma_high, im.accA, im.accB, im.accB2,
       im.confS, im.confC, im.contrib, im.kept, im.footprint, im.supp,
       im.degraded, im.res, im.pout, im.out, im.fcounters + 4,
-      im.sfr_has_clip, im.sfr_accepted, im.dbounds);
+      im.sfr_has_clip, im.sfr_accepted, im.dbounds,
+      im.cfg.bimodal_veto ? 1 : 0, im.cfg.bimodal_veto_gap_sigma,
+      im.bimodal_counters, im.bimodal_counters + 1);
   if (const cudaError_t e = cudaGetLastError(); e != cudaSuccess) {
     last_device_error_ = std::string("end_pilot build launch: ") +
                          cudaGetErrorString(e);
@@ -5088,7 +5261,9 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
         im.footprint, im.supp, im.degraded, im.res, im.resq, im.meta,
         static_cast<double>(im.cfg.fine_quality_exponent),
         static_cast<double>(im.cfg.medium_quality_exponent),
-        AlphaConfidenceParams{}, im.pout, im.out, im.scalars + 1);
+        AlphaConfidenceParams{}, im.pout, im.out, im.scalars + 1,
+        im.cfg.bimodal_veto ? 1 : 0, im.cfg.bimodal_veto_gap_sigma,
+        im.bimodal_counters, im.bimodal_counters + 1);
     if (const cudaError_t launch_err = cudaGetLastError();
         launch_err != cudaSuccess) {
       last_device_error_ = std::string("k_finalize_v2 launch: ") +
@@ -5104,7 +5279,9 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
         im.cfg.robust_passes, im.cfg.sigma_low, im.cfg.sigma_high, im.accA,
         im.accB, im.accB2, im.confS, im.confC, im.contrib, im.kept,
         im.footprint, im.supp, im.degraded, im.res, im.pout, im.out,
-        im.scalars + 1, im.sfr_has_clip, im.sfr_accepted, nullptr);
+        im.scalars + 1, im.sfr_has_clip, im.sfr_accepted, nullptr,
+        im.cfg.bimodal_veto ? 1 : 0, im.cfg.bimodal_veto_gap_sigma,
+        im.bimodal_counters, im.bimodal_counters + 1);
     if (const cudaError_t e = cudaGetLastError(); e != cudaSuccess) {
       last_device_error_ =
           std::string("k_finalize_v2_sfr_build launch: ") +
@@ -5149,6 +5326,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
   }
   unsigned long long h_scalars[3] = {0, 0, 0};
   unsigned long long h_fcounters[5] = {0, 0, 0, 0, 0};
+  unsigned long long h_bimodal[2] = {0, 0};
   std::vector<unsigned int> h_kept(n_pc), h_contrib(n_pc);
   const std::size_t out_bytes = n_pc * sizeof(ForwardDrizzleV2PixelResult);
   const std::size_t prof_bytes =
@@ -5178,6 +5356,9 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
        step("cudaMemcpyAsync(full counters)",
             cudaMemcpyAsync(h_fcounters, im.fcounters, sizeof(h_fcounters),
                             cudaMemcpyDeviceToHost, st))) &&
+      step("cudaMemcpyAsync(bimodal counters)",
+           cudaMemcpyAsync(h_bimodal, im.bimodal_counters, sizeof(h_bimodal),
+                           cudaMemcpyDeviceToHost, st)) &&
       step("cudaMemcpyAsync(kept)",
            cudaMemcpyAsync(h_kept.data(), im.kept, cnt_bytes,
                            cudaMemcpyDeviceToHost, st)) &&
@@ -5224,6 +5405,8 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
     stats_.full_frame_degenerate_pilot = h_fcounters[2];
     stats_.full_frame_no_bounds = h_fcounters[3];
   }
+  stats_.bimodal_veto_rejected_candidates = h_bimodal[0];
+  stats_.bimodal_veto_pixels = h_bimodal[1];
   stats_.positive_overlaps = h_scalars[0];
   if (dense_overlap_count) *dense_overlap_count = h_scalars[1];
   stats_.local_samples_discarded = h_scalars[2];

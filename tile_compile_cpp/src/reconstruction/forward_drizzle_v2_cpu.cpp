@@ -311,6 +311,60 @@ void cpu_full_add(CpuFullAcc &f, double b, double x, double sigma2, double g,
   ++f.n_acc;
 }
 
+// cfg.bimodal_veto (see forward_drizzle_cuda.hpp): on the CURRENTLY accepted
+// subset of `cands` (already sorted ascending by x), find the largest gap
+// between consecutive accepted values. If it exceeds `gap_sigma * mad` and
+// splits off a minority side of >= 2 candidates holding < half the accepted
+// weight, reject that minority. `mad` <= 0 (degenerate scale) disables the
+// check -- there is no reliable notion of "large" to compare the gap to.
+// Returns the number of candidates rejected (0 if none).
+unsigned int cpu_bimodal_veto(
+    const std::vector<ForwardDrizzleV2RobustCandidate> &cands,
+    std::vector<std::uint8_t> &accepted, double mad, double gap_sigma) {
+  if (!(mad > 0.0) || !(gap_sigma > 0.0)) return 0;
+  const unsigned int n = static_cast<unsigned int>(cands.size());
+  std::vector<unsigned int> on;
+  on.reserve(n);
+  for (unsigned int i = 0; i < n; ++i)
+    if (accepted[i]) on.push_back(i);
+  if (on.size() < 4) return 0;
+  // cands is globally sorted by (x, order); the accepted subset inherits
+  // that order, so consecutive `on` entries are consecutive in x too.
+  std::size_t split = 0;
+  double best_gap = -1.0;
+  for (std::size_t k = 1; k < on.size(); ++k) {
+    const double gap = cands[on[k]].x - cands[on[k - 1]].x;
+    if (gap > best_gap) {
+      best_gap = gap;
+      split = k;
+    }
+  }
+  if (!(best_gap > gap_sigma * mad)) return 0;
+  double w_lo = 0.0, w_hi = 0.0;
+  for (std::size_t k = 0; k < split; ++k) w_lo += cands[on[k]].b;
+  for (std::size_t k = split; k < on.size(); ++k) w_hi += cands[on[k]].b;
+  const std::size_t n_lo = split, n_hi = on.size() - split;
+  const bool lo_is_minority = w_lo < w_hi;
+  const std::size_t minority_n = lo_is_minority ? n_lo : n_hi;
+  const double minority_w = lo_is_minority ? w_lo : w_hi;
+  const double total_w = w_lo + w_hi;
+  if (minority_n < 2 || !(total_w > 0.0) || !(minority_w < 0.5 * total_w))
+    return 0;
+  unsigned int rejected = 0;
+  if (lo_is_minority) {
+    for (std::size_t k = 0; k < split; ++k) {
+      accepted[on[k]] = 0;
+      ++rejected;
+    }
+  } else {
+    for (std::size_t k = split; k < on.size(); ++k) {
+      accepted[on[k]] = 0;
+      ++rejected;
+    }
+  }
+  return rejected;
+}
+
 // Iterative weighted-median/MAD asymmetric clip shared by the reservoir
 // finalizer and the full-frame pilot barrier. `cands` must be sorted by
 // (x, frame_order). Returns the bounds of the last evaluated pass and the
@@ -318,12 +372,14 @@ void cpu_full_add(CpuFullAcc &f, double b, double x, double sigma2, double g,
 struct CpuClipBounds {
   double lower = 0.0, upper = 0.0, mad = 0.0;
   bool evaluated = false;
+  unsigned int bimodal_rejected = 0;
 };
 
 CpuClipBounds cpu_sigma_clip_passes(
     const std::vector<ForwardDrizzleV2RobustCandidate> &cands,
     std::vector<std::uint8_t> &accepted, int robust_passes, double sigma_low,
-    double sigma_high) {
+    double sigma_high, bool bimodal_veto = false,
+    double bimodal_veto_gap_sigma = 0.0) {
   CpuClipBounds out;
   const unsigned int n_kept = static_cast<unsigned int>(cands.size());
   std::vector<unsigned int> ord;
@@ -390,6 +446,9 @@ CpuClipBounds cpu_sigma_clip_passes(
     }
     if (!changed) break;
   }
+  if (bimodal_veto && out.evaluated)
+    out.bimodal_rejected = cpu_bimodal_veto(cands, accepted, out.mad,
+                                            bimodal_veto_gap_sigma);
   return out;
 }
 
@@ -435,6 +494,9 @@ bool ForwardDrizzleV2CpuKernel::reserve(int native_cols, int native_rows,
       cfg.internal_scale < 1 || cfg.internal_scale > 2 ||
       cfg.reservoir_size < 1 || cfg.reservoir_size > 64 ||
       (cfg.full_frame_estimator && !cfg.emit_profiles) ||
+      (cfg.bimodal_veto &&
+       (!std::isfinite(cfg.bimodal_veto_gap_sigma) ||
+        cfg.bimodal_veto_gap_sigma <= 0.0)) ||
       cfg.stream_length == 0 || cfg.stream_length > 65536 ||
       cfg.min_clip_contributors < 1 || cfg.min_candidates < 1 ||
       cfg.robust_passes < 1 || !std::isfinite(cfg.sigma_low) ||
@@ -596,6 +658,8 @@ static bool v2_fixed_cfg_equal(const ForwardDrizzleV2KernelConfig &a,
          a.band_origin_x_native == b.band_origin_x_native &&
          a.cached_leaf_capacity == b.cached_leaf_capacity &&
          a.full_frame_estimator == b.full_frame_estimator &&
+         a.bimodal_veto == b.bimodal_veto &&
+         a.bimodal_veto_gap_sigma == b.bimodal_veto_gap_sigma &&
          a.shared_frame_rejection == b.shared_frame_rejection &&
          a.shared_frame_rejection_consensus == b.shared_frame_rejection_consensus;
 }
@@ -1808,7 +1872,26 @@ bool ForwardDrizzleV2CpuKernel::end_pilot() {
       }
       c.accepted.assign(n_kept, std::uint8_t{1});
       c.bd = cpu_sigma_clip_passes(c.cands, c.accepted, im.cfg.robust_passes,
-                                   im.cfg.sigma_low, im.cfg.sigma_high);
+                                   im.cfg.sigma_low, im.cfg.sigma_high,
+                                   im.cfg.bimodal_veto,
+                                   im.cfg.bimodal_veto_gap_sigma);
+      if (c.bd.bimodal_rejected > 0) {
+        stats_.bimodal_veto_rejected_candidates += c.bd.bimodal_rejected;
+        ++stats_.bimodal_veto_pixels;
+        // The frozen bounds above were captured before the veto ran: without
+        // refreshing them, the full-frame pilot's frozen bounds would still
+        // admit the just-removed population's non-pilot frames later. One
+        // more (veto-off) pass recomputes median/MAD/bounds from the now-
+        // reduced accepted set; it will not reduce further (already
+        // unimodal) so this only refreshes c.bd.lower/upper/mad.
+        const auto refreshed = cpu_sigma_clip_passes(
+            c.cands, c.accepted, /*robust_passes=*/1, im.cfg.sigma_low,
+            im.cfg.sigma_high);
+        c.bd.lower = refreshed.lower;
+        c.bd.upper = refreshed.upper;
+        c.bd.mad = refreshed.mad;
+        c.bd.evaluated = refreshed.evaluated;
+      }
       c.ok = true;
     }
     if (im.cfg.shared_frame_rejection && nch > 1) {
@@ -2026,8 +2109,16 @@ bool ForwardDrizzleV2CpuKernel::finalize(
       // (x, order) order, weighted median at >= total/2, deviation-ordered
       // weighted MAD, asymmetric bounds, early stop on an unchanged mask.
       accepted.assign(n_kept, std::uint8_t{1});
-      (void)cpu_sigma_clip_passes(cands, accepted, im.cfg.robust_passes,
-                                  im.cfg.sigma_low, im.cfg.sigma_high);
+      {
+        const auto bd = cpu_sigma_clip_passes(
+            cands, accepted, im.cfg.robust_passes, im.cfg.sigma_low,
+            im.cfg.sigma_high, im.cfg.bimodal_veto,
+            im.cfg.bimodal_veto_gap_sigma);
+        if (bd.bimodal_rejected > 0) {
+          stats_.bimodal_veto_rejected_candidates += bd.bimodal_rejected;
+          ++stats_.bimodal_veto_pixels;
+        }
+      }
 
       double ca = 0.0, cb = 0.0, cs = 0.0, cc = 0.0;
       for (unsigned int i = 0; i < n_kept; ++i) {
@@ -2220,8 +2311,16 @@ bool ForwardDrizzleV2CpuKernel::finalize(
       }
 
       cw.accepted.assign(n_kept, std::uint8_t{1});
-      (void)cpu_sigma_clip_passes(cw.cands, cw.accepted, im.cfg.robust_passes,
-                                  im.cfg.sigma_low, im.cfg.sigma_high);
+      {
+        const auto bd = cpu_sigma_clip_passes(
+            cw.cands, cw.accepted, im.cfg.robust_passes, im.cfg.sigma_low,
+            im.cfg.sigma_high, im.cfg.bimodal_veto,
+            im.cfg.bimodal_veto_gap_sigma);
+        if (bd.bimodal_rejected > 0) {
+          stats_.bimodal_veto_rejected_candidates += bd.bimodal_rejected;
+          ++stats_.bimodal_veto_pixels;
+        }
+      }
 
       cw.r = r;
       cw.has_clip = true;

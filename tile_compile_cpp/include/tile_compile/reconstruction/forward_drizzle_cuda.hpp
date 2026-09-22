@@ -363,6 +363,18 @@ struct ForwardDrizzleV2KernelConfig {
   // to the profile/value sums. Requires emit_profiles. Implemented on the CPU
   // and CUDA kernels.
   bool full_frame_estimator = false;
+  // See config::ReconstructionClippingConfig::bimodal_veto. Runs once after
+  // each clip pass's bounds are computed, on the pass's accepted set (sorted
+  // by x already): if the largest gap between consecutive accepted values
+  // exceeds bimodal_veto_gap_sigma * mad (the pass's own MAD) and splits off
+  // a minority side of >= 2 candidates with < 50% of the accepted weight,
+  // that minority is rejected -- a coherent second population (e.g. a
+  // registration-drift or trail-contaminated subset of frames) that the
+  // ordinary asymmetric median/MAD bound alone does not separate from the
+  // majority when the configured sigma bounds are wide. Implemented on the
+  // CPU and CUDA kernels.
+  bool bimodal_veto = false;
+  double bimodal_veto_gap_sigma = 2.5;
 };
 
 // One uploaded source buffer and its active launch rect. `source` points at
@@ -519,6 +531,13 @@ struct ForwardDrizzleV2PrototypeStats {
   std::uint64_t full_frame_rejected = 0;
   std::uint64_t full_frame_degenerate_pilot = 0;
   std::uint64_t full_frame_no_bounds = 0;
+  // cfg.bimodal_veto: candidate contributions rejected as the minority side
+  // of a detected coherent second population, and the (pixel, channel)
+  // instances where that veto fired at least once (a pixel/channel can fire
+  // it again on a later clip pass; only the count of PIXELS is tracked here,
+  // not passes).
+  std::uint64_t bimodal_veto_rejected_candidates = 0;
+  std::uint64_t bimodal_veto_pixels = 0;
   // Frames whose source window was empty for the band (bookkeeping only:
   // no scatter/fold, no source/Q bytes, still a slot transition).
   std::uint64_t frames_skipped_empty_window = 0;

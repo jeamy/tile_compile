@@ -409,6 +409,22 @@ struct ReconstructionClippingConfig {
   // aggressively (closer to "any channel objects" = union); higher values
   // reject more conservatively (closer to "every channel must agree").
   float shared_frame_rejection_consensus = 0.5f;
+  // Off by default. After the asymmetric median/MAD clip pass converges,
+  // check the accepted set for a coherent SECOND population the ordinary
+  // bound alone did not separate from the majority (e.g. a subset of frames
+  // with a small but real registration/tracking offset at this exact pixel --
+  // common with wide clip_sigma_low/clip_sigma_high, since those are
+  // deliberately loosened to preserve genuine signal variance and so also
+  // admit a coherent minority more readily). If the largest gap between
+  // consecutive accepted values exceeds bimodal_veto_gap_sigma times the
+  // pass's own MAD and splits off a minority side of at least 2 candidates
+  // holding less than half the accepted weight, that minority is dropped.
+  // Implemented on both the CPU and CUDA forward-drizzle kernels.
+  bool bimodal_veto = false;
+  // Multiple of the clip pass's MAD the largest accepted-value gap must
+  // exceed before the split counts as a coherent second population rather
+  // than ordinary spread. Lower values fire more readily.
+  float bimodal_veto_gap_sigma = 2.5f;
 };
 
 struct ReconstructionCoverageGateConfig {
