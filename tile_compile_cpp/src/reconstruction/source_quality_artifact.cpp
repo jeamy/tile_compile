@@ -166,34 +166,56 @@ QualityFrameWeightPlan persist_source_quality_artifact(
       cache.manifest_hash(),ma,merr))
     throw std::runtime_error("SOURCE_QUALITY_METRICS_UNUSABLE: "+merr);
 
-  // Map metrics to plan frame order (by source_index slot).
-  std::size_t slots=0;
-  for (const auto &f:sampling.frames)
-    slots=std::max(slots,f.source_index+1);
-  std::vector<FrameMetrics> frame_metrics(slots);
-  std::vector<metrics::FrameStarMetrics> star_metrics(slots);
-  // Build a lookup by source_index.
+  // Map metrics to plan frame order (by source_index slot). Frames marked
+  // !f.valid in the sampling plan (unresolved registration) legitimately
+  // have no SOURCE_QUALITY_MAPS metrics record: they get g_quality = 0 and
+  // must not enter the weight normalisation statistics.
   std::map<std::size_t,std::size_t> by_idx;
   for (std::size_t i=0;i<ma.frames.size();++i)
     by_idx[ma.frames[i].source_index]=i;
-  for (const auto &f:sampling.frames) {
+  std::vector<FrameMetrics> frame_metrics_valid;
+  std::vector<metrics::FrameStarMetrics> star_metrics_valid;
+  std::vector<size_t> plan_pos_valid;
+  frame_metrics_valid.reserve(sampling.frames.size());
+  star_metrics_valid.reserve(sampling.frames.size());
+  plan_pos_valid.reserve(sampling.frames.size());
+  size_t invalid_without_metrics=0;
+  for (std::size_t i=0;i<sampling.frames.size();++i) {
+    const auto &f=sampling.frames[i];
     auto it=by_idx.find(f.source_index);
-    if (it==by_idx.end())
+    if (it==by_idx.end()) {
+      if (!f.valid) {
+        ++invalid_without_metrics;
+        continue;
+      }
       throw std::invalid_argument("SOURCE_QUALITY_METRICS_FRAME_MISSING");
+    }
     const auto &fm=ma.frames[it->second];
-    frame_metrics[f.source_index]={fm.background,fm.noise,
-        fm.gradient_energy,fm.sky_gradient,fm.quality_score};
-    star_metrics[f.source_index]={fm.fwhm,fm.fwhm_x,fm.fwhm_y,
-        fm.roundness,fm.wfwhm,fm.star_count};
+    frame_metrics_valid.push_back({fm.background,fm.noise,
+        fm.gradient_energy,fm.sky_gradient,fm.quality_score});
+    star_metrics_valid.push_back({fm.fwhm,fm.fwhm_x,fm.fwhm_y,
+        fm.roundness,fm.wfwhm,fm.star_count});
+    plan_pos_valid.push_back(i);
   }
+  if (plan_pos_valid.empty())
+    throw std::runtime_error("SOURCE_QUALITY_NO_VALID_FRAMES");
+  const auto compact=compute_global_quality_weights_from_metrics(
+      frame_metrics_valid,star_metrics_valid,cfg);
+  VectorXf weights=VectorXf::Zero(static_cast<Eigen::Index>(sampling.frames.size()));
+  for (std::size_t k=0;k<plan_pos_valid.size();++k)
+    weights(static_cast<Eigen::Index>(plan_pos_valid[k]))=
+        compact(static_cast<Eigen::Index>(k));
+  if (invalid_without_metrics>0)
+    std::cout<<"[SOURCE_QUALITY] "<<invalid_without_metrics
+             <<" unresolved frame(s) without metrics -> g_quality=0"
+             <<std::endl;
 
-  const auto weights=compute_global_quality_weights_from_metrics(
-      frame_metrics,star_metrics,cfg);
   auto plan=build_quality_frame_weight_plan(sampling,weights,compute_source_quality_config_hash(cfg));
   resolve_quality_frame_weights(plan,sampling,cfg,mb);
   json artifact={{"schema_version",1},{"normalized_cache_hash",cache.manifest_hash()},
                  {"quality_plan",json::parse(serialize_quality_frame_weight_plan(plan))},
-                 {"metrics_source",metrics_path.filename().string()}};
+                 {"metrics_source",metrics_path.filename().string()},
+                 {"frames_without_metrics_invalid",invalid_without_metrics}};
   core::write_text_atomic(path,artifact.dump(2));
   return plan;
 }

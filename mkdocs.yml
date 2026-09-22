@@ -105,6 +105,8 @@ nav:
     - PI Scan-AI for Parameter Studio (EN): PI/scan_ai_parameter_studio_en.md
     - PI Recommendations (EN): PI/pi_ai_recommendations_en.md
     - PI Empfehlungen (DE): PI/pi_ki_empfehlungen_de.md
+    - PI Jev Decisions (DE): PI/pi_jev_decisions_plan_de.md
+    - PI Pre-Rules (DE): PI/pi_scan_pre_rules_de.md
     - Forward Drizzle Pipeline (EN): guides/cfa_forward_drizzle_pipeline_en.md
     - Forward-Drizzle-Pipeline (DE): guides/cfa_forward_drizzle_pipeline_de.md
     - Process Flow Overview: process_flow/phase_0_overview.md

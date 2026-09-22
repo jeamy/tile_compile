@@ -1,4 +1,5 @@
 #include "tile_compile/reconstruction/source_quality_artifact.hpp"
+#include "tile_compile/reconstruction/source_quality_map_cache.hpp"
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2_production.hpp"
 #include "tile_compile/core/atomic_output.hpp"
@@ -456,4 +457,57 @@ TEST_CASE("tranche 8 ragged samples: storage spans + sample builder equal "
       active, storage, storage_vals, false, sig_n, sig_reg, half, sw, sh,
       rs, soff, samples);
   for (const auto &smp : samples) REQUIRE(smp.sigma2 == 0.0f);
+}
+
+TEST_CASE("quality artifact: unresolved frames without metrics get g_quality=0",
+          "[source-predecessors]") {
+  Fixture f;
+  // Frame 1 has an unresolved registration: valid=false, so SOURCE_QUALITY_MAPS
+  // produced no metrics record for it.
+  f.plan.frames[1].valid=false;
+  f.plan.frames[1].source_to_canvas_affine_valid=false;
+  f.plan.plan_hash=registration::compute_plan_hash(f.plan);
+  publish_normalized_source_manifest(f.root,f.plan);
+  VerifiedNormalizedSourceCache cache(f.root,f.plan,32);
+  GlobalQualityConfig cfg;
+
+  SourceQualityMetricsArtifact ma;
+  ma.source_identity_hash=
+      compute_source_quality_identity_hash(f.plan,cache.manifest_hash());
+  ma.normalized_cache_hash=cache.manifest_hash();
+  SourceQualityFrameMetrics fm;
+  fm.source_index=0;
+  fm.frame_id="source:0";
+  fm.background=10.0f;
+  fm.noise=1.0f;
+  fm.quality_score=0.8f;
+  fm.fwhm=2.0f;
+  fm.fwhm_x=2.0f;
+  fm.fwhm_y=2.0f;
+  fm.roundness=0.9f;
+  fm.wfwhm=2.0f;
+  fm.star_count=10;
+  ma.frames.push_back(fm);
+  const auto metrics_path=f.root/"metrics.json";
+  write_source_quality_metrics(metrics_path,ma);
+
+  const auto artifact=f.root/"quality.json";
+  const auto plan=persist_source_quality_artifact(
+      artifact,f.plan,cache,cfg,metrics_path,512,1);
+  REQUIRE(plan.frames.size()==2);
+  REQUIRE(plan.frames[1].g_quality==0.0f);
+  REQUIRE(plan.frames[1].g_eff==0.0f);
+  REQUIRE(plan.frames[0].g_quality>0.0f);
+  const auto written=json::parse(core::read_text(artifact));
+  REQUIRE(written.at("frames_without_metrics_invalid").get<int>()==1);
+
+  // A missing metrics record for a VALID frame still fails closed.
+  SourceQualityMetricsArtifact bad=ma;
+  bad.frames.clear();
+  const auto bad_path=f.root/"metrics_bad.json";
+  write_source_quality_metrics(bad_path,bad);
+  REQUIRE_THROWS_WITH(
+      persist_source_quality_artifact(f.root/"quality2.json",f.plan,cache,cfg,
+                                      bad_path,512,1),
+      Catch::Matchers::ContainsSubstring("SOURCE_QUALITY_METRICS_FRAME_MISSING"));
 }
