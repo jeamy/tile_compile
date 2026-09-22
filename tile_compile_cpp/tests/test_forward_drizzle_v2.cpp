@@ -6935,6 +6935,14 @@ TEST_CASE("forward drizzle v2 gate10 v2 store fuses to the reference image",
           static_cast<std::uint64_t>(nplane) *
               sizeof(ForwardDrizzleV2ProfileResult));
   REQUIRE(stats.record_bytes_no_reuse > stats.record_bytes_read);
+  // Unclipped-fallback veto: this fixture's 5 frames meet the plan's default
+  // min_clip_contributors of 5, so the veto is active, reads its own
+  // dedicated byte counter (not folded into record_bytes_read, checked
+  // above), and this 14x13 5-frame canvas has sparse-edge pixels that
+  // actually hit it.
+  REQUIRE(stats.unclipped_fallback_veto_active);
+  REQUIRE(stats.robust_state_bytes_read > 0);
+  REQUIRE(stats.unclipped_fallback_pixels_vetoed > 0);
   REQUIRE(mp.fits);
   REQUIRE(spool.populated);
   REQUIRE(fs::file_size(fits_path) > 0);
@@ -6942,10 +6950,27 @@ TEST_CASE("forward drizzle v2 gate10 v2 store fuses to the reference image",
   REQUIRE(cand.height == nr);
 
   // Parity: the v2-adapted striped fusion must equal the whole-canvas
-  // fusion over the same committed profile records.
+  // fusion over the same committed profile records. fuse_multiband_v2_store_to_image
+  // additionally vetoes too_few_candidates_fallback / too_few_groups_fallback
+  // pixels (unclipped, outlier-unprotected) whenever frame_count allows clip
+  // protection somewhere in the run -- this fixture's 5 frames meet its
+  // default min_clip_contributors of 5, so the reference built here must
+  // apply the identical veto to stay a valid parity check.
   std::vector<ForwardDrizzleV2PixelResult> records;
   std::vector<ForwardDrizzleV2ProfileResult> profiles;
   g10_read_store(fx.root, plan, records, &profiles);
+  REQUIRE(plan.frame_count >= static_cast<std::uint64_t>(plan.min_clip_contributors));
+  for (std::size_t i = 0; i < profiles.size(); ++i) {
+    const auto rs = records[i].robust_state;
+    if (rs != static_cast<std::uint8_t>(ForwardDrizzleV2RobustState::too_few_candidates_fallback) &&
+        rs != static_cast<std::uint8_t>(ForwardDrizzleV2RobustState::too_few_groups_fallback))
+      continue;
+    for (auto *out : {&profiles[i].uniform, &profiles[i].raw,
+                      &profiles[i].fine, &profiles[i].medium}) {
+      out->support = 0;
+      out->value = std::numeric_limits<float>::quiet_NaN();
+    }
+  }
   const auto U = forward_drizzle_v2_profiles_to_uniform_result(
       profiles, nc, nr, 1, ColorMode::MONO, 0);
   const auto R = forward_drizzle_v2_profiles_to_uniform_result(

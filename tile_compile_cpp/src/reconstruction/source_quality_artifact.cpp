@@ -431,6 +431,18 @@ long long fuse_multiband_v2_store_to_image(
       window_rows*static_cast<std::size_t>(W)*
       static_cast<std::size_t>(nch_plan)*rec_bytes;
   mem_plan.stripe_working_bytes+=window_record_bytes;
+  // robust_state veto (see band_robust_states below): a retained 1 B/record
+  // window (~1/64 of window_record_bytes) plus one transient full-size
+  // ForwardDrizzleV2PixelResult band decode (freed once its states are
+  // extracted) sized by the store's own band_rows, not the fusion chunk.
+  const std::size_t robust_state_window_bytes=
+      window_rows*static_cast<std::size_t>(W)*static_cast<std::size_t>(nch_plan);
+  const std::size_t one_band_pixel_result_bytes=
+      static_cast<std::size_t>(std::max(plan.band_rows,1))*
+      static_cast<std::size_t>(W)*static_cast<std::size_t>(nch_plan)*
+      sizeof(ForwardDrizzleV2PixelResult);
+  mem_plan.stripe_working_bytes+=
+      robust_state_window_bytes+one_band_pixel_result_bytes;
   {
     std::size_t sum=mem_plan.final_image_bytes+mem_plan.stripe_working_bytes+
         mem_plan.candidate_luma_bytes+mem_plan.spool_stripe_bytes+
@@ -516,7 +528,57 @@ long long fuse_multiband_v2_store_to_image(
     return band_cache.emplace(bi,std::move(recs)).first->second;
   };
 
+  // The Gate-9 profile reduce (persisted above) folds the clip-accepted set
+  // regardless of HOW that set was selected: a normal sigma-clip pass and a
+  // too-few-candidates fallback (the unclipped raw mean over whatever few
+  // candidates existed, config::ReconstructionDrizzleConfig::min_clip_contributors)
+  // both come out as an ordinary supported profile value here -- the profile
+  // result carries no memory of which. A single uncorrected hot/saturated
+  // source pixel landing in a fallback pixel's tiny candidate set therefore
+  // reaches the delivered image unclipped. band-%04d.bin (ForwardDrizzleV2PixelResult,
+  // written in the same commit_band transaction as the profiles, so always
+  // present for a complete store) still carries robust_state per (pixel,
+  // channel); read just that byte back and veto uniform/raw/fine/medium
+  // support wherever it reports a fallback state, before any fusion math
+  // runs. Interior pixels (hundreds of contributors, normal clip) are
+  // untouched; only sparse-coverage regions -- typically mosaic borders --
+  // lose the pixels that were never outlier-protected to begin with.
+  //
+  // Only meaningful when clip protection was structurally reachable for at
+  // least part of the run: a run with fewer total frames than
+  // min_clip_contributors is in the fallback state EVERYWHERE (there is no
+  // better-covered interior to contrast against), and vetoing then would
+  // blank the whole delivered image instead of fixing a sparse pocket. Stays
+  // off in that case, matching the pre-existing unconditional-delivery
+  // behaviour for small frame counts.
+  const bool apply_fallback_veto=
+      plan.frame_count>=static_cast<std::uint64_t>(std::max(plan.min_clip_contributors,1));
+  stats.unclipped_fallback_veto_active=apply_fallback_veto;
+  std::map<int,std::vector<std::uint8_t>> robust_state_cache;
+  auto band_robust_states=[&](int bi)->const std::vector<std::uint8_t>& {
+    auto it=robust_state_cache.find(bi);
+    if (it!=robust_state_cache.end()) return it->second;
+    if (bi<0 || bi>=static_cast<int>(committed.size()))
+      throw std::runtime_error("FUSE_V2_BAND_INDEX_RANGE");
+    auto recs=read_forward_drizzle_v2_band(gen,committed[static_cast<std::size_t>(bi)]);
+    const auto &bc=committed[static_cast<std::size_t>(bi)];
+    if (recs.size()!=static_cast<std::size_t>(bc.rows)*bc.native_cols*bc.channels)
+      throw std::runtime_error("FUSE_V2_BAND_RECORD_COUNT");
+    stats.robust_state_bytes_read+=
+        static_cast<std::uint64_t>(recs.size())*sizeof(ForwardDrizzleV2PixelResult);
+    std::vector<std::uint8_t> states(recs.size());
+    for (std::size_t i=0;i<recs.size();++i) states[i]=recs[i].robust_state;
+    return robust_state_cache.emplace(bi,std::move(states)).first->second;
+  };
+  auto is_unclipped_fallback=[](std::uint8_t rs) {
+    return rs==static_cast<std::uint8_t>(
+               ForwardDrizzleV2RobustState::too_few_candidates_fallback) ||
+           rs==static_cast<std::uint8_t>(
+               ForwardDrizzleV2RobustState::too_few_groups_fallback);
+  };
+
   std::vector<ForwardDrizzleV2ProfileResult> win;
+  std::vector<std::uint8_t> rwin;
   for (int y0=0;y0<H;y0+=chunk) {
     const int y1=std::min(H,y0+chunk);
     const int ys=std::max(0,y0-halo), ye=std::min(H,y1+halo);
@@ -533,9 +595,14 @@ long long fuse_multiband_v2_store_to_image(
     // Evict bands no stripe can still need (window start only advances).
     while (!band_cache.empty() && band_cache.begin()->first<b_lo)
       band_cache.erase(band_cache.begin());
+    if (apply_fallback_veto)
+      while (!robust_state_cache.empty() && robust_state_cache.begin()->first<b_lo)
+        robust_state_cache.erase(robust_state_cache.begin());
     // Assemble the channel-major record window [ys,ye).
     win.assign(sub_n*static_cast<std::size_t>(nch),
                ForwardDrizzleV2ProfileResult{});
+    if (apply_fallback_veto)
+      rwin.assign(sub_n*static_cast<std::size_t>(nch),std::uint8_t{0});
     for (int b=b_lo;b<=b_hi;++b) {
       const auto &bc=committed[static_cast<std::size_t>(b)];
       const auto &recs=band_records(b);
@@ -551,8 +618,37 @@ long long fuse_multiband_v2_store_to_image(
                     static_cast<std::size_t>(hi-lo)*W,
                     win.data()+dst_base);
       }
+      if (apply_fallback_veto) {
+        const auto &states=band_robust_states(b);
+        for (int c=0;c<nch;++c) {
+          const std::size_t src_base=
+              static_cast<std::size_t>(c)*bc.rows*static_cast<std::size_t>(W)+
+              static_cast<std::size_t>(lo-bc.y_begin)*W;
+          const std::size_t dst_base=
+              static_cast<std::size_t>(c)*sub_n+
+              static_cast<std::size_t>(lo-ys)*W;
+          std::copy_n(states.data()+src_base,
+                      static_cast<std::size_t>(hi-lo)*W,
+                      rwin.data()+dst_base);
+        }
+      }
     }
     no_reuse_bytes+=sub_n*static_cast<std::size_t>(nch)*rec_bytes;
+    if (apply_fallback_veto) {
+      for (std::size_t idx=0;idx<win.size();++idx) {
+        if (!is_unclipped_fallback(rwin[idx])) continue;
+        ++stats.unclipped_fallback_pixels_vetoed;
+        // NaN, not just support=0: the raw/uniform candidates below (uv3/rv3)
+        // are written to the spool straight from .value with no support
+        // check (only the multiband path re-checks support downstream) --
+        // only NaN is honoured everywhere a candidate plane is consumed.
+        for (auto *out : {&win[idx].uniform,&win[idx].raw,
+                          &win[idx].fine,&win[idx].medium}) {
+          out->support=0;
+          out->value=std::numeric_limits<float>::quiet_NaN();
+        }
+      }
+    }
 
     auto U=forward_drizzle_v2_profiles_to_uniform_result(win,W,sub_h,nch,mode,0);
     auto R=forward_drizzle_v2_profiles_to_uniform_result(win,W,sub_h,nch,mode,1);
