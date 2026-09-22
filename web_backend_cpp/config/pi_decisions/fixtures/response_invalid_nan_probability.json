@@ -1,0 +1,16 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "candidate_selection": {
+      "type": "choice",
+      "choice": "keep_current",
+      "probabilities": {
+        "keep_current": "NaN",
+        "insufficient_evidence": 0.1,
+        "enable_adaptive_weights": 0.2
+      },
+      "confidence": 0.61
+    }
+  },
+  "usage": {"input_tokens": 412, "output_tokens": 9}
+}

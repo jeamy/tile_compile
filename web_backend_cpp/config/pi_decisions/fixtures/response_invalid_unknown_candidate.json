@@ -1,0 +1,16 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "candidate_selection": {
+      "type": "choice",
+      "choice": "disable_bge",
+      "probabilities": {
+        "keep_current": 0.2,
+        "insufficient_evidence": 0.1,
+        "disable_bge": 0.7
+      },
+      "confidence": 0.7
+    }
+  },
+  "usage": {"input_tokens": 412, "output_tokens": 9}
+}

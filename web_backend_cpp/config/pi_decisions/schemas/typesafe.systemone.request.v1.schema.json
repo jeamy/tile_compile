@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "typesafe.systemone.request.v1",
+  "description": "Verified wire format for POST https://api.typesafe.ai/v1/systemone, per docs/PI/pi_jev_m0_provider_protocol_de.md section 2 (live-verified against docs.typesafe.ai/api.md, 2026-09-22). decisionsService.ts (M3) constructs this FROM pi.decisions.request.v1 -- it is never the same object.",
+  "type": "object",
+  "required": ["state", "model", "questions"],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "description": "Content to evaluate. In this project: the allowlist projection carried in pi.decisions.request.v1.state_projection."
+    },
+    "model": {
+      "type": "string",
+      "description": "Pinned version (e.g. jev-1.13.0) for released policy; jev-latest/jev-preview are aliases and must not be used once confidence thresholds are calibrated against a specific version (docs.typesafe.ai/models.md)."
+    },
+    "questions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/definitions/question"}
+    }
+  },
+  "definitions": {
+    "question": {
+      "oneOf": [
+        {"$ref": "#/definitions/choiceQuestion"},
+        {"$ref": "#/definitions/noulQuestion"},
+        {"$ref": "#/definitions/scoreQuestion"}
+      ]
+    },
+    "choiceQuestion": {
+      "type": "object",
+      "required": ["type", "instructions", "criteria"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "choice"},
+        "instructions": {},
+        "criteria": {
+          "type": "object",
+          "maxProperties": 255,
+          "description": "candidate_id -> optional description (string/object/array/null)."
+        }
+      }
+    },
+    "noulQuestion": {
+      "type": "object",
+      "required": ["type", "instructions"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "noul"},
+        "instructions": {},
+        "criteria": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "true": {},
+            "false": {}
+          }
+        }
+      }
+    },
+    "scoreQuestion": {
+      "type": "object",
+      "required": ["type", "instructions", "criteria"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "score"},
+        "instructions": {},
+        "criteria": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 10,
+          "description": "Not used by this project (M0-M7 only emits choice/noul questions); documented for wire-format completeness."
+        }
+      }
+    }
+  }
+}

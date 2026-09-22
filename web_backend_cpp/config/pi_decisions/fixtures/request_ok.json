@@ -1,0 +1,29 @@
+{
+  "state": {
+    "domain": "pre_run",
+    "groups": [
+      {
+        "group_id": "g0",
+        "frame_count": 118,
+        "color_mode": "OSC",
+        "bayer_pattern": "GRBG",
+        "metrics": {
+          "quality_spread": {"value": 1.24, "status": "valid", "unit": "ratio", "valid_count": 118, "total_count": 120}
+        }
+      }
+    ],
+    "measurement_coverage": {"value": 0.983, "status": "valid", "unit": "ratio", "valid_count": 118, "total_count": 120}
+  },
+  "model": "jev-1.13.0",
+  "questions": {
+    "candidate_selection": {
+      "type": "choice",
+      "instructions": "Given the frame-quality spread and measurement coverage for this dataset, should adaptive per-frame quality weighting be enabled for this reconstruction run?",
+      "criteria": {
+        "keep_current": "Leave global_metrics.adaptive_weights at its current value.",
+        "insufficient_evidence": "Abstain; the available evidence does not support a confident choice.",
+        "enable_adaptive_weights": "Set global_metrics.adaptive_weights to true."
+      }
+    }
+  }
+}

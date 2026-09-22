@@ -46,9 +46,9 @@ Die frühere Jev-Operationsliste war unvollständig und enthielt `curves`, obwoh
 
 ## 3. Jev-Vertrag und Aussagegrenzen
 
-Jev ist ein Modell für strukturierte Entscheidungen; der Adapter verwendet die Decisions API statt Chat Completions. Als Integrationsreferenzen dienen die [OpenRouter-Beispiele](https://openrouter.ai/labs/jev/compile), die [Modellseite](https://openrouter.ai/typesafe/jev-1.13/) und die [TypeSafe-Einordnung](https://typesafe.ai/blog/introducing-system-one-models-and-jev).
+Jev ist TypeSafes Modell für strukturierte Entscheidungen ("System One", drei Primitive `choice`/`score`/`noul`); der Adapter ruft TypeSafes eigene HTTP-API auf, nicht OpenRouter Chat Completions. **Korrektur (M0, 2026-09-22):** Jev ist entgegen der ursprünglichen Annahme *kein* über OpenRouter geroutetes Modell — `openrouter.ai/typesafe/jev-1.13/` liefert HTTP 404, die OpenRouter-Labs-Seite ist reines Cross-Promotion-Material. Maßgebliche, live verifizierte Quelle ist `docs.typesafe.ai` (Details und Vertrag: [M0 Provider-Protokoll](pi_jev_m0_provider_protocol_de.md)). Jeder frühere Verweis auf einen "OpenRouter-Key" in diesem und im Implementierungsplan meint einen eigenständigen `TYPESAFE_API_KEY`.
 
-Die exakte Request-/Response-Form, Modellkennung, Limits und Fehlerantworten werden in M0/M3 des Implementierungsplans gegen den dann aktuellen Anbieter-Vertrag geprüft und als Fixtures eingefroren. Keine Annahme über garantierte Antwortlatenz, State-Größe oder eine Patchversion im Response.
+Die exakte Request-/Response-Form, Modellkennung, Limits und Fehlerantworten sind in [M0 Provider-Protokoll](pi_jev_m0_provider_protocol_de.md) gegen den aktuellen Anbieter-Vertrag geprüft und als Fixtures eingefroren (`web_backend_cpp/config/pi_decisions/fixtures/`). Keine Annahme über garantierte Antwortlatenz oder State-Größe; laut Anbieter ändern sich Rate Limits "ohne Ankündigung".
 
 - Anwendung kennt `choice`, optionale unabhängige `noul`-Fragen und Enthaltung.
 - Auswahloptionen enthalten immer `keep_current` und `insufficient_evidence`.

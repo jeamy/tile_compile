@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "typesafe.systemone.response.v1",
+  "description": "Verified wire format returned by POST https://api.typesafe.ai/v1/systemone on HTTP 200, per docs/PI/pi_jev_m0_provider_protocol_de.md section 2. Untrusted input: decisionsService.ts must validate against this schema and reject anything else BEFORE constructing a pi.decisions.response.v1 -- an unknown answer type, a non-finite probability, or an extra field is a hard rejection, not a best-effort parse.",
+  "type": "object",
+  "required": ["model", "answers", "usage"],
+  "additionalProperties": false,
+  "properties": {
+    "model": {
+      "type": "string",
+      "description": "The actually-processing pinned version (never the requested alias) -- maps to pi.decisions.response.v1.model_reported."
+    },
+    "answers": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/definitions/answer"}
+    },
+    "usage": {
+      "type": "object",
+      "required": ["input_tokens", "output_tokens"],
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0}
+      }
+    }
+  },
+  "definitions": {
+    "answer": {
+      "oneOf": [
+        {"$ref": "#/definitions/choiceAnswer"},
+        {"$ref": "#/definitions/noulAnswer"},
+        {"$ref": "#/definitions/scoreAnswer"}
+      ]
+    },
+    "choiceAnswer": {
+      "type": "object",
+      "required": ["type", "choice", "probabilities", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "choice"},
+        "choice": {"type": "string", "minLength": 1},
+        "probabilities": {
+          "type": "object",
+          "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1},
+          "description": "Every value MUST be finite and in [0,1]; a NaN/Infinity anywhere rejects the whole response (pi_jev_m0_provider_protocol_de.md section 4)."
+        },
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "noulAnswer": {
+      "type": "object",
+      "required": ["type", "noul", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "noul"},
+        "noul": {"type": "number", "minimum": 0, "maximum": 1},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "scoreAnswer": {
+      "type": "object",
+      "required": ["type", "score", "legend", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "score"},
+        "score": {"type": "number"},
+        "legend": {"type": "object", "additionalProperties": {"type": "string"}},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "description": "Not used by this project; documented for wire-format completeness (see request schema)."
+    }
+  }
+}

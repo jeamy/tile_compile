@@ -1,0 +1,4 @@
+{
+  "http_status": 422,
+  "body": {"error": {"message": "Request body failed validation", "field": "questions.candidate_selection.criteria"}}
+}

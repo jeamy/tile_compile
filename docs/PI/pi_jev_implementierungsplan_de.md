@@ -1,11 +1,11 @@
 # PI Jev — Detaillierter Implementierungsplan
 
 > **Stand:** 2026-09-22.
-> **Status:** M0 teilweise begonnen (Katalog/Schemas), M1-M7 offen; kein Backend-/Frontend-Code.
+> **Status:** M0 inhaltlich abgeschlossen (Katalog, Schemas, verifizierter Provider-Vertrag, HARD-RULE-Review, Fixtures); M1-M7 offen; kein Backend-/Frontend-Code.
 > **Verbindliche Reihenfolge:** Pre-Run-Beratung zuerst, Post-Run-Beratung danach.
 > **Lieferumfang:** Vorschläge; kein automatischer Run/Resume und kein zweiter Bildeditor.
 
-Grundlagen: [Zielbild](pi_jev_decisions_plan_de.md), [korrigierter Regelkatalog](pi_scan_pre_rules_de.md), [lokaler Lernplan](pi_local_learning_plan_de.md), [M0-Feld-Inventar](pi_jev_m0_field_inventory_de.md).
+Grundlagen: [Zielbild](pi_jev_decisions_plan_de.md), [korrigierter Regelkatalog](pi_scan_pre_rules_de.md), [lokaler Lernplan](pi_local_learning_plan_de.md), [M0-Feld-Inventar](pi_jev_m0_field_inventory_de.md), [M0-Provider-Protokoll](pi_jev_m0_provider_protocol_de.md), [M0-HARD-RULE-Review](pi_jev_m0_hard_rule_review_de.md).
 
 ## 1. Abgrenzung und Abhängigkeiten
 
@@ -28,7 +28,7 @@ Keine Veränderung der Rekonstruktionsmethode, keine neue Runner-Netzwerkabhäng
 | `web_backend_cpp/src/services/pi/pi_storage_paths.cpp` | Persistenz unter bestehendem Backend-State-Root; keine impliziten Writes in fremde Runs |
 | `web_backend_cpp/src/services/pi/pi_outcome_recorder.cpp` | Vorschlag -> tatsächliche Config -> Ergebnis verknüpfen, Labels sauber trennen |
 | `web_backend_cpp/src/services/config_revisions.cpp`, `run_inspector.cpp`, `routes/runs_routes.cpp` | Aktuelle Config und bestehende Resume-Machbarkeit wiederverwenden |
-| `agent_service/src/config.ts`, `types.ts`, `server.ts` | Optionalen Decisions-Adapter konfigurieren und anbieten; eigener, vom bestehenden `openrouter`-Allowlist-Eintrag getrennt benannter Key (siehe 2.1) |
+| `agent_service/src/config.ts`, `types.ts`, `server.ts` | Optionalen Decisions-Adapter konfigurieren und anbieten; neuer `typesafe`-Allowlist-Eintrag (`TYPESAFE_API_KEY`), siehe 2.1 |
 | `agent_service/src/services/frameAnalysisService.ts` | Bestehende PI-Beratung als unabhängige Vergleichs-/Fallback-Option erhalten |
 | `web_frontend_v3/js/pages/input-scan.js`, `js/state/scan-state.js` | Vorschläge, Status, Wiederherstellung und atomare Übernahme |
 | `web_frontend_v3/js/pages/tools.js`, `js/pages/ai-empfehlung.js` | Neue, eigenständige Jev-Konfigurationskarte neben der bestehenden AI-&-API-Karte (siehe 2.1); kein zusätzlicher Eintrag im bestehenden Provider-Dropdown |
@@ -54,7 +54,7 @@ Jev wird als zweite, parallele, von der bestehenden PI-Beratung unabhängige Que
 Konsequenzen für die Umsetzung:
 
 - **Tools -> AI & API**: eine zweite, eigenständige Karte „Jev (Decisions API)“ neben der bestehenden AI-&-API-Karte, mit eigenem `PI_DECISIONS_MODE`-Schalter (`off|shadow|suggest`), eigenem Modellfeld (gepinnte Kennung, Abschnitt 7/M3) und eigenem API-Key-Feld. Eigener Backend-Endpoint statt Wiederverwendung von `ai.config`, damit Umschalten der bestehenden PI-Provider-Auswahl den Jev-Zustand nicht mitbewegt.
-- **Key-Namensraum**: `agent_service/src/config.ts` führt bereits `openrouter: ["OPENROUTER_API_KEY"]` in der Provider-Allowlist (potenziell schon für die bestehende AI-&-API-Karte nutzbar). Jev braucht eine eigene, getrennt benannte Env-Var/Secret-Referenz, keine Wiederverwendung desselben Schlüssels — sonst kollidieren zwei fachlich unabhängige OpenRouter-Zugänge auf demselben Namen.
+- **Key-Namensraum**: Korrektur nach M0-Providerverifikation ([Details](pi_jev_m0_provider_protocol_de.md)) — Jev läuft entgegen der ursprünglichen Annahme nicht über OpenRouter, sondern über TypeSafes eigene API (`api.typesafe.ai`). Der ursprüngliche Kollisionsgrund (geteilter `openrouter`-Allowlist-Eintrag) entfällt damit; `agent_service/src/config.ts` braucht stattdessen einen neuen, eigenständigen `typesafe: ["TYPESAFE_API_KEY"]`-Eintrag. Die Karten-Trennung aus 2.1 (eigene Jev-Karte statt Dropdown-Eintrag) bleibt trotzdem nötig, weil die bestehende AI-&-API-Karte weiterhin nur einen einzigen aktiven Provider/Modell-Slot verwaltet.
 - **Parameter-Tab**: `web_frontend_v3/js/pages/parameter.js` hat heute exakt zwei Sub-Tabs (`Parameter`, `AI Empfehlung`) über ein einfaches `switchView(view, page, paramTab, aiTab)`-Muster (Klassen-/Sichtbarkeits-Toggle, lazy gemountete Containerseite). Ein dritter Tab „Jev-Empfehlungen“ ist eine direkte Erweiterung desselben Musters (neuer Button + neuer lazy gemounteter Container + zusätzlicher `switchView`-Zweig), keine strukturelle Änderung nötig.
 - Über diese drei Stellen hinaus (Jev-Karte unter Tools, dritter Parameter-Tab, spätere Run-Monitor-Anbindung in M6) wird kein weiterer UI-Einstiegspunkt ergänzt, um den in Abschnitt 1 festgelegten Scope nicht zu überschreiten.
 
@@ -145,18 +145,18 @@ Run-Outcomes referenzieren später `proposal_id` und die tatsächlich gestartete
 
 ## 4. M0 — Verträge, Quellen und Testgrundlage einfrieren
 
-**Status:** teilweise (2026-09-22). **Abhängigkeit:** keine.
+**Status:** inhaltlich abgeschlossen (2026-09-22). **Abhängigkeit:** keine.
 
 Arbeit:
 
 - [x] Aktuelle Scan-JSONs, Feature-Vektor, Schema und ausführbare Validatoren inventarisieren; Herkunft jedes State-Feldes tabellarisch hinterlegen. -> [Feld-Inventar](pi_jev_m0_field_inventory_de.md), gegen `cli_main.cpp`/`metrics.cpp`/`pi_feature_vector.cpp` verifiziert.
 - [x] Geschützte Pfade, Nutzer-Locks und erste Kandidaten-Allowlist im maschinenlesbaren Katalog definieren. -> `web_backend_cpp/config/pi_decisions/protected_paths_v1.json`, `candidates_v1.json`.
 - [x] Anwendungsschemas für State, Vorschlag, Adapter und Katalog erstellen; Status-/Fehlercodes festlegen. -> `web_backend_cpp/config/pi_decisions/schemas/pi.decision-state.v1.schema.json`, `pi.config-proposal.v1.schema.json`, `pi.decisions.request.v1.schema.json`, `pi.decisions.response.v1.schema.json` (JSON Schema draft-07, wie `tile_compile.schema.json`).
-- [ ] Provider-Protokoll aus offiziellen Quellen verifizieren; redigierte Request-/Response-/Fehlerfixtures erstellen. Live-Verifikation ausdrücklich von Mock-Tests unterscheiden. **Noch offen** — die Schemas oben sind das Anwendungscontract laut Abschnitt 3.3, nicht der verifizierte Provider-Wire-Vertrag; letzterer braucht einen echten Abgleich gegen die OpenRouter-/Jev-Dokumentation, bevor `decisionsService.ts` (M3) beginnen darf.
-- [ ] Review der alten „HARD RULE“-Texte: tatsächliche Enforcement-Stelle oder offene Policy markieren. Keine implizite Änderung von Pipeline-Defaults. Für den Pre-Run-Regelkatalog bereits in `pi_scan_pre_rules_de.md` erledigt; ein analoger Review für etwaige Post-Run-„HARD RULE“-Texte (M6-Umfeld) steht noch aus.
-- [ ] Lokale Fixtures aus synthetischen Daten oder freigegebenen anonymisierten Scans anlegen; bestehende Run-Dateien nicht verändern.
+- [x] Provider-Protokoll aus offiziellen Quellen verifizieren; redigierte Request-/Response-/Fehlerfixtures erstellen. Live-Verifikation ausdrücklich von Mock-Tests unterscheiden. -> [M0 Provider-Protokoll](pi_jev_m0_provider_protocol_de.md), live gegen `docs.typesafe.ai` verifiziert (2026-09-22); Wire-Schemas `schemas/typesafe.systemone.request.v1`/`.response.v1`, Fixtures unter `fixtures/`. Ergab eine Korrektur: Jev läuft nicht über OpenRouter, sondern über TypeSafes eigene API — an allen betroffenen Stellen in diesem und im Zielbild-Dokument nachgezogen. Offen bleibt eine SDK-Entscheidung (offizielles `@typesafe-ai/sdk` vs. eigener HTTP-Client für Testbarkeit, siehe Provider-Protokoll §5) — vor M3-Start zu treffen.
+- [x] Review der alten „HARD RULE“-Texte: tatsächliche Enforcement-Stelle oder offene Policy markieren. Keine implizite Änderung von Pipeline-Defaults. Pre-Run bereits in `pi_scan_pre_rules_de.md` erledigt; Post-Run-Teil jetzt in [M0 HARD-RULE-Review](pi_jev_m0_hard_rule_review_de.md) — fand `docs/PI/attic/pi_run_chat_empfehlungs_chat_datenplan.md` (nie implementiert, reiner Prompt-Text) und den realen M42-Vorfall, der die bestehenden M6-Guards begründet; empfiehlt `min_resume_phase` als neues Feld für M6 (siehe dortige Checkliste).
+- [x] Lokale Fixtures aus synthetischen Daten oder freigegebenen anonymisierten Scans anlegen; bestehende Run-Dateien nicht verändern. -> `web_backend_cpp/config/pi_decisions/fixtures/scan_metrics_synthetic.json`, rein synthetisch, Aggregatwerte gegenrechnet; plus die Provider-Fixtures aus dem vorigen Punkt.
 
-**Abnahme:** Jedes verwendete Feld hat Quelle, Einheit, Fehlend-Verhalten und Testfixture; jede als hart deklarierte Bedingung besitzt eine geplante ausführbare Prüfung. Unbekannte Provider-Details blockieren Adapter-Freigabe, nicht State-/Policy-Arbeit. Katalog-/Schemaarbeit ist erledigt; Testfixtures und der verifizierte Provider-Vertrag fehlen noch — M1 (State-Builder) kann auf Basis der vorliegenden Schemas beginnen, M3 (Adapter) nicht vor Abschluss der offenen Punkte.
+**Abnahme:** Jedes verwendete Feld hat Quelle, Einheit, Fehlend-Verhalten und Testfixture; jede als hart deklarierte Bedingung besitzt eine geplante ausführbare Prüfung. Unbekannte Provider-Details blockieren Adapter-Freigabe, nicht State-/Policy-Arbeit. **M0 ist damit inhaltlich vollständig** (Katalog, Schemas, Provider-Vertrag, HARD-RULE-Review, Fixtures); es existiert noch kein Backend-/Frontend-Code. M1 (State-Builder) kann auf Basis der vorliegenden Schemas/Fixtures beginnen; M3 (Adapter) kann auf Basis des verifizierten Provider-Vertrags beginnen, sobald die offene SDK-Entscheidung (Provider-Protokoll §5) getroffen ist.
 
 ## 5. M1 — State-Builder und Gruppenstatistik
 
@@ -205,7 +205,7 @@ Tests neu: `test_pi_pre_rules.cpp`, `test_pi_decision_policy.cpp`; bestehend `te
 **Status:** offen. **Abhängigkeit:** M0-Vertrag, für Integration M2.
 
 - [ ] `decisionsService.ts` mit injizierbarem HTTP-Transport für Tests erstellen; Endpoint/Modell aus zentraler Konfiguration.
-- [ ] `PI_DECISIONS_MODE=off|shadow|suggest` vorsehen, Default `off`; unabhängiger OpenRouter-Key aus bestehendem Secret-Mechanismus, unter eigenem Namen getrennt von `OPENROUTER_API_KEY` der bestehenden AI-&-API-Karte (Abschnitt 2.1). Keine neuen Top-Level-Pipelineparameter.
+- [ ] `PI_DECISIONS_MODE=off|shadow|suggest` vorsehen, Default `off`; eigenständiger `TYPESAFE_API_KEY` aus bestehendem Secret-Mechanismus, unter neuem `typesafe`-Allowlist-Eintrag (Abschnitt 2.1). Keine neuen Top-Level-Pipelineparameter.
 - [ ] `allow_experimental_suggestions` mit Default false ergänzen: nur in `suggest` wirksam, Kandidaten immer sichtbar experimentell markieren; nicht mit regulärer Qualitätsfreigabe verwechseln.
 - [ ] Gepinnte Modellkennung verlangen für freigegebene Policy; Aliaswechsel invalidiert Kalibrierungsfreigabe.
 - [ ] Request- und Response-Schemas prüfen, unbekannte Kandidaten/Fragen und nicht endliche oder unzulässige Wahrscheinlichkeiten ablehnen.
@@ -266,7 +266,7 @@ Zunächst die tatsächlichen Producer/Consumer von Qualitätsartefakten inventar
 - [ ] `pi_post_run_advisor` mit vier Ergebnissen `no_change`, `diagnose`, `suggest_downstream`, `suggest_reconstruction` implementieren.
 - [ ] Erster diagnostischer Fall: validiert gemessener Unterschied zwischen benannten Vor-/Nachbearbeitungsständen. Ohne lokalisierbare Ursache nur Diagnosehinweis.
 - [ ] Pipelineparameter und sichtbare PI-Bildoperationen getrennt halten. Ein PI-Edit darf nicht ungeprüft ein Trainingslabel für Run-Config werden.
-- [ ] Resume-Vorschlag anhand vorhandener Config-Scope-, Cache-, Masken- und Provenienzprüfung erstellen. Kein frei vom Modell erzeugter Phasenname.
+- [ ] Resume-Vorschlag anhand vorhandener Config-Scope-, Cache-, Masken- und Provenienzprüfung erstellen. Kein frei vom Modell erzeugter Phasenname. Jede vorgeschlagene Action trägt `min_resume_phase` (serverseitig aus der Pfad-Phase-Zuordnung berechnet, nie vom Modell) — Konzept aus [M0 HARD-RULE-Review](pi_jev_m0_hard_rule_review_de.md) übernommen, dort erstmals (unimplementiert) skizziert.
 - [ ] Bisheriges Ergebnis, Patch-ID und Ablehnungshistorie erhalten; kein identischer erneut verworfener Patch ohne neue Evidenz.
 - [ ] Im Run-Monitor Befund, Unsicherheit und früheste geprüfte Phase anzeigen. Übernahme bereitet Entwurf vor; Start bleibt separate Aktion.
 - [ ] Optional strukturierte Diagnose an vorhandenen PI-Kontext übergeben; PI entscheidet im bestehenden Nachbearbeitungsworkflow mit dem Nutzer.
