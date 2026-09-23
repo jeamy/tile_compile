@@ -1,17 +1,17 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "typesafe.systemone.request.v1",
-  "description": "NOT the integration path used by this project -- see openrouter.decisions.request.v1.schema.json for that. This documents TypeSafe's own direct API (POST https://api.typesafe.ai/v1/systemone), kept for background because OpenRouter's alpha/decisions endpoint is a thin proxy over the same choice/score/noul primitive contract (docs/PI/pi_jev_m0_provider_protocol_de.md section 4). decisionsService.ts (M3) targets OpenRouter, not this endpoint.",
+  "title": "openrouter.decisions.request.v1",
+  "description": "Verified wire format for POST https://openrouter.ai/api/alpha/decisions, per docs/PI/pi_jev_m0_provider_protocol_de.md section 1 (empirically verified against the live endpoint with the existing JEV_OPENROUTER_API_KEY, 2026-09-22). This is the ACTUAL integration path for this project -- not the standard chat/completions endpoint, and not TypeSafe's own api.typesafe.ai (that direct API exists but is not used here). decisionsService.ts (M3) constructs this FROM pi.decisions.request.v1.",
   "type": "object",
-  "required": ["state", "model", "questions"],
+  "required": ["model", "state", "questions"],
   "additionalProperties": false,
   "properties": {
-    "state": {
-      "description": "Content to evaluate. In this project: the allowlist projection carried in pi.decisions.request.v1.state_projection."
-    },
     "model": {
       "type": "string",
-      "description": "Pinned version (e.g. jev-1.13.0) for released policy; jev-latest/jev-preview are aliases and must not be used once confidence thresholds are calibrated against a specific version (docs.typesafe.ai/models.md)."
+      "description": "OpenRouter vendor/model id for the decisions model, e.g. \"typesafe/jev-1.13\". Confirmed valid; jev-1.13.0 / jev-latest / jev-preview (the TypeSafe-direct alias scheme) were tried and rejected with \"is not a valid model ID\" -- do not reuse those on this endpoint."
+    },
+    "state": {
+      "description": "Content to evaluate. In this project: the allowlist projection carried in pi.decisions.request.v1.state_projection."
     },
     "questions": {
       "type": "object",
@@ -21,6 +21,7 @@
   },
   "definitions": {
     "question": {
+      "description": "Only the choice shape was empirically exercised against this endpoint; noul/score are carried over from the underlying TypeSafe primitive contract (docs.typesafe.ai/api.md) and still need a live test before production use (pi_jev_m0_provider_protocol_de.md section 6).",
       "oneOf": [
         {"$ref": "#/definitions/choiceQuestion"},
         {"$ref": "#/definitions/noulQuestion"},
@@ -51,10 +52,7 @@
         "criteria": {
           "type": "object",
           "additionalProperties": false,
-          "properties": {
-            "true": {},
-            "false": {}
-          }
+          "properties": {"true": {}, "false": {}}
         }
       }
     },
@@ -65,12 +63,7 @@
       "properties": {
         "type": {"const": "score"},
         "instructions": {},
-        "criteria": {
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 10,
-          "description": "Not used by this project (M0-M7 only emits choice/noul questions); documented for wire-format completeness."
-        }
+        "criteria": {"type": "array", "minItems": 2, "maxItems": 10}
       }
     }
   }

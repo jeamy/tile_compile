@@ -1,0 +1,5 @@
+{
+  "_fixture_note": "NOT empirically verified against /api/alpha/decisions (no provider outage was available to test). Assumed shape, standard OpenRouter upstream-error convention. Verify before relying on this in production (docs/PI/pi_jev_m0_provider_protocol_de.md section 6).",
+  "http_status": 502,
+  "body": {"error": {"message": "Upstream provider error", "code": 502}}
+}

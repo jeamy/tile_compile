@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "typesafe.systemone.response.v1",
-  "description": "Verified wire format returned by POST https://api.typesafe.ai/v1/systemone on HTTP 200, per docs/PI/pi_jev_m0_provider_protocol_de.md section 2. Untrusted input: decisionsService.ts must validate against this schema and reject anything else BEFORE constructing a pi.decisions.response.v1 -- an unknown answer type, a non-finite probability, or an extra field is a hard rejection, not a best-effort parse.",
+  "description": "NOT the integration path used by this project -- see openrouter.decisions.response.v1.schema.json for that. Documents TypeSafe's own direct API response shape, kept for background (docs/PI/pi_jev_m0_provider_protocol_de.md section 4): notably it lacks OpenRouter's id/provider/usage.cost fields and reports the model version without OpenRouter's date-stamp suffix.",
   "type": "object",
   "required": ["model", "answers", "usage"],
   "additionalProperties": false,

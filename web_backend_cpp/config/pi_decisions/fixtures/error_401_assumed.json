@@ -1,0 +1,5 @@
+{
+  "_fixture_note": "NOT empirically verified against /api/alpha/decisions (no invalid key was tested, to avoid burning a real key's request budget on a negative test). Assumed to follow standard OpenRouter auth-error conventions. Verify before relying on this shape in production error handling (docs/PI/pi_jev_m0_provider_protocol_de.md section 6).",
+  "http_status": 401,
+  "body": {"error": {"message": "No auth credentials found", "code": 401}}
+}

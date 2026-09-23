@@ -1,5 +1,5 @@
 {
-  "model": "jev-1.13.0",
+  "model": "typesafe/jev-1.13-20260917",
   "answers": {
     "candidate_selection": {
       "type": "choice",
@@ -12,5 +12,7 @@
       "confidence": 0.61
     }
   },
-  "usage": {"input_tokens": 412, "output_tokens": 9}
+  "usage": {"input_tokens": 412, "output_tokens": 9, "cost": 0.0000147},
+  "id": "gen-dec-0000000002-SyntheticFixtureId02",
+  "provider": "TypeSafe"
 }

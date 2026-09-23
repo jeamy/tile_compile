@@ -14,7 +14,7 @@
     ],
     "measurement_coverage": {"value": 0.983, "status": "valid", "unit": "ratio", "valid_count": 118, "total_count": 120}
   },
-  "model": "jev-1.13.0",
+  "model": "typesafe/jev-1.13",
   "questions": {
     "candidate_selection": {
       "type": "choice",
