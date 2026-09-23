@@ -26,7 +26,7 @@ Keine Veränderung der Rekonstruktionsmethode, keine neue Runner-Netzwerkabhäng
 | `web_backend_cpp/src/services/pi/pi_parameter_catalog.cpp` | Metadaten referenzieren; keine automatische Freigabe aus Description/Enum |
 | `web_backend_cpp/src/services/pi/pi_action_plan.cpp` und `pi_action_validator.cpp` | Jev-Vorschlag ohne Ausführungsaktion darstellen; Kandidaten-/Evidenzbindung prüfen |
 | `web_backend_cpp/src/services/pi/pi_storage_paths.cpp` | Persistenz unter bestehendem Backend-State-Root; keine impliziten Writes in fremde Runs |
-| `web_backend_cpp/src/services/pi/pi_outcome_recorder.cpp` | Vorschlag -> tatsächliche Config -> Ergebnis verknüpfen, Labels sauber trennen |
+| `web_backend_cpp/src/services/pi/pi_outcome_recorder.cpp` | **Nicht ändern** (Entscheidung 2026-09-23, [Feld-Inventar §4](pi_jev_m0_field_inventory_de.md#4-entschieden-verh%C3%A4ltnis-zum-lokalen-lernsystem-2026-09-23)). Jev-Outcomes laufen über das neue Modul `pi_decision_outcome`; nur die zwei bestehenden Aufrufstellen (Status-Poll, Run-Delete) rufen zusätzlich `record_jev_outcome_if_needed()` auf |
 | `web_backend_cpp/src/services/config_revisions.cpp`, `run_inspector.cpp`, `routes/runs_routes.cpp` | Aktuelle Config und bestehende Resume-Machbarkeit wiederverwenden |
 | `agent_service/src/config.ts`, `types.ts`, `server.ts` | Optionalen Decisions-Adapter konfigurieren und anbieten; nutzt den bereits vorhandenen `.env`-Key `JEV_OPENROUTER_API_KEY`, siehe 2.1 |
 | `agent_service/src/services/frameAnalysisService.ts` | Bestehende PI-Beratung als unabhängige Vergleichs-/Fallback-Option erhalten |
@@ -43,6 +43,7 @@ Neue Backend-Module jeweils mit Header unter `include/services/pi/` und Implemen
 - `pi_pre_rules`: Voraussetzungen, Befunde, freigegebene Kandidaten.
 - `pi_decision_policy`: Allowlist, Locks, Auswahl-/Enthaltungsprüfung, atomare Validierung.
 - `pi_decision_service`: Orchestrierung, Sidecar-Aufruf, Status und Persistenz.
+- `pi_decision_outcome`: `record_jev_outcome_if_needed()` — Run -> Jev-Vorschlag, eigener Marker, eigener Fehlerpfad (siehe 3.6).
 - `pi_post_run_advisor`: erst M6; Zwischenstandsdiagnose und Resume-Vorschlag.
 
 Adapter neu: `agent_service/src/services/decisionsService.ts`. Versionierte Anwendungsschemas und Kandidaten-/Fragenkataloge neu unter `web_backend_cpp/config/pi_decisions/`. Diese sind Source-Artefakte; Laufzeitantworten gehören nicht in diesen Ordner.
@@ -143,6 +144,14 @@ Große Rohantworten nur größenbegrenzt und ohne Secrets speichern. Request-Has
 
 Run-Outcomes referenzieren später `proposal_id` und die tatsächlich gestartete Config. Vorhandene Runs bei Beratung nicht umschreiben. Für neue Runs darf die normale Run-Erzeugung eine Referenz übernehmen; nachträgliche Beratungsdaten bleiben im Backend-State-Store.
 
+**Outcome-Vertrag (Entscheidung 2026-09-23, Begründung und Codebefunde in [Feld-Inventar §4](pi_jev_m0_field_inventory_de.md#4-entschieden-verh%C3%A4ltnis-zum-lokalen-lernsystem-2026-09-23)):**
+
+- Jev schreibt **nie** in den `PiMemoryStore` (weder Kandidat noch Outcome). Vorschläge und Outcomes liegen nur unter `pi_decisions/<proposal_id>/` (`outcome.json`). Dadurch können Auto-Promotion-Zähler und der kNN-Retrain-Export Jev strukturell nicht sehen; `pi_outcome_recorder.cpp`/`PiMemoryStore` bleiben unverändert.
+- `record_jev_outcome_if_needed(state, run_id, run_dir)` (neues Modul `pi_decision_outcome`): liest `pi_run_provenance.json` und die `config.yaml` des Runs **read-only** und prüft, ob jeder `updates[].path` eines übernommenen Vorschlags dort den vorgeschlagenen Wert trägt; Marker `runs/<run_id>/artifacts/jev_outcome_recorded.json`; Fehler dort blockieren den bestehenden Recorder nicht und umgekehrt.
+- Verknüpfung über Werteprüfung, nicht über Config-Hash-Gleichheit (Serializer nicht garantiert byte-gleich). `attribution` ∈ `paths_present | paths_partial | paths_absent` (letzteres erzeugt keinen Eintrag). Outcome trägt kein `quality_delta` und keine Verbesserungsaussage (`comparison_kind: "unpaired"`); auch `paths_present` bleibt konfundiert. Kausale Aussagen erst über den gepaarten Vergleich in M5.
+- Übernahme in den Entwurf speichert `applied_at`, `updates[]`, `config_hash_before/after`; eine dabei entstehende Revision trägt den Autor `jev_proposal`.
+- Wechselwirkung mit dem lokalen Lernsystem nur offline (M5-Replay liest beide Speicher read-only); Jev trainiert keine lokalen Modelle und wird von ihnen nicht verändert.
+
 ## 4. M0 — Verträge, Quellen und Testgrundlage einfrieren
 
 **Status:** inhaltlich abgeschlossen (2026-09-22). **Abhängigkeit:** keine.
@@ -199,6 +208,7 @@ Arbeit:
 - [ ] Locks, Evidenz-Referenzen, `old_value`, aktuelle Versionen und Abhängigkeiten prüfen.
 - [ ] Bestehenden Validator um expliziten atomaren Modus/Wrapper ergänzen; bestehende Aufrufer behalten ihren Vertrag.
 - [ ] Rationale aus versionierten Textbausteinen und echten Messreferenzen erzeugen; keine LLM-Erklärung nötig, um einen Vorschlag darzustellen.
+- [ ] `pi_decision_outcome` (Modul + `test_pi_decision_outcome.cpp`) gemäß Outcome-Vertrag in 3.6 anlegen; Tests: `paths_present`/`partial`/`absent`, Marker-Idempotenz, kein Schreibzugriff auf den Run, kein `PiMemoryStore`-Zugriff (Regression: Store-Dateien vor/nach byte-identisch).
 
 Tests neu: `test_pi_pre_rules.cpp`, `test_pi_decision_policy.cpp`; bestehend `test_ai_routes.cpp`, `test_pi_action_plan.cpp`. Ein Gate-Patch, ein ungültiger Wert oder eine Lock-Verletzung verwirft die ganze Gruppe. Reihenfolge der Regeln darf das Ergebnis nicht ändern.
 
@@ -235,6 +245,7 @@ Tests neu: `agent_service/tests/decisionsService.test.ts`; Testskript mit vorhan
 - [ ] Persistierten Status nach Reload, Navigation und History wiederherstellen. Veraltete Responses dürfen neuere Auswahl nicht überschreiben.
 - [ ] DE/EN-Texte ergänzen; gemeinsame Styles und mobile Darstellung erhalten.
 - [ ] Bestehende PI-Beratung als getrennt bezeichnete Alternative erhalten. Keine automatische zweite Provider-Anfrage als versteckter Fallback.
+- [ ] `record_jev_outcome_if_needed()` an den beiden bestehenden Aufrufstellen des PI-Outcome-Recorders (Status-Poll, Run-Delete) zusätzlich aufrufen, jeweils in eigenem `try/catch`; Test, dass ein Fehler in einem Recorder den anderen nicht verhindert und `record_run_outcome_if_needed()` unverändert bleibt.
 
 Tests: Backend-Route mit Fake-Sidecar; bestehendes Apply ohne Jev bleibt kompatibel. UI-Fixtures für alle Zustände bei Desktop/Mobil. Rennen zwischen Config-Edit und Response/Apply, Reload und doppelte Übernahme testen. Prüfen, dass kein Run-/Resume-Job entsteht.
 
@@ -246,7 +257,7 @@ Tests: Backend-Route mit Fake-Sidecar; bestehendes Apply ohne Jev bleibt kompati
 
 Arbeit:
 
-- [ ] Neues Replay-Werkzeug `web_backend_cpp/scripts/evaluate_pi_decisions.py` und maschinenlesbaren Evaluationsbericht mit State-/Policy-/Modelldigests erstellen; Vorschlagsauswertung ohne Runner-Start ermöglichen.
+- [ ] Neues Replay-Werkzeug `web_backend_cpp/scripts/evaluate_pi_decisions.py` und maschinenlesbaren Evaluationsbericht mit State-/Policy-/Modelldigests erstellen; Vorschlagsauswertung ohne Runner-Start ermöglichen. Das Werkzeug liest `pi_decisions/` und (falls vorhanden) den `PiMemoryStore` **nur lesend**; es schreibt in keinen von beiden.
 - [ ] Datensatzregister mit Session-, Geräte-, Filter- und Qualitätsgruppen aufbauen. Kalibrierung und Test auf Sessionebene trennen; gleiche Frames nicht in beide Mengen aufnehmen.
 - [ ] Vier Baselines protokollieren: aktuelle Config, Regeln allein, bestehende PI-Beratung, Regeln plus Jev. kNN optional separat ausweisen.
 - [ ] Nutzerzustimmung, angewendete Config und Qualitätslabel in getrennten Feldern speichern. Abgebrochene/fehlgeschlagene Runs nicht als negative Bildqualität ohne Ursache etikettieren.
