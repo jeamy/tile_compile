@@ -182,6 +182,9 @@ set(BACKEND_SOURCES
     src/services/pi/pi_storage_paths.cpp
     src/services/pi/pi_context_builder.cpp
     src/services/pi/pi_decision_state.cpp
+    src/services/pi/pi_decision_policy.cpp
+    src/services/pi/pi_pre_rules.cpp
+    src/services/pi/pi_decision_outcome.cpp
     src/services/pi/pi_context_v2.cpp
     src/services/pi/pi_parameter_catalog.cpp
     src/services/pi/pi_recommendation_validator.cpp
@@ -390,6 +393,26 @@ if(BUILD_TESTS)
         src/services/pi/pi_decision_state.cpp
     )
     target_link_libraries(web_backend_cpp_pi_decision_state PRIVATE OpenSSL::Crypto)
+    add_backend_cpp_test(web_backend_cpp_pi_decision_policy tests/test_pi_decision_policy.cpp)
+    target_sources(web_backend_cpp_pi_decision_policy PRIVATE
+        src/services/pi/pi_decision_state.cpp
+        src/services/pi/pi_decision_policy.cpp
+    )
+    target_link_libraries(web_backend_cpp_pi_decision_policy PRIVATE OpenSSL::Crypto)
+    add_backend_cpp_test(web_backend_cpp_pi_pre_rules tests/test_pi_pre_rules.cpp)
+    target_sources(web_backend_cpp_pi_pre_rules PRIVATE
+        src/services/pi/pi_decision_state.cpp
+        src/services/pi/pi_decision_policy.cpp
+        src/services/pi/pi_pre_rules.cpp
+    )
+    target_link_libraries(web_backend_cpp_pi_pre_rules PRIVATE OpenSSL::Crypto)
+    add_backend_cpp_test(web_backend_cpp_pi_decision_outcome tests/test_pi_decision_outcome.cpp)
+    target_sources(web_backend_cpp_pi_decision_outcome PRIVATE
+        src/services/pi/pi_decision_policy.cpp
+        src/services/pi/pi_decision_outcome.cpp
+    )
+    target_include_directories(web_backend_cpp_pi_decision_outcome PRIVATE ${YAML_CPP_INCLUDE_DIRS})
+    target_link_libraries(web_backend_cpp_pi_decision_outcome PRIVATE ${YAML_CPP_LIBRARIES})
     add_backend_cpp_test(web_backend_cpp_pi_routes tests/test_pi_routes.cpp)
     target_sources(web_backend_cpp_pi_routes PRIVATE
         src/services/pi/pi_context_v2.cpp

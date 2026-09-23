@@ -1,6 +1,7 @@
 #include "services/pi/pi_decision_state.hpp"
 
 #include "backend_test_harness.hpp"
+#include "pi_json_schema_check.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -12,78 +13,6 @@ using nlohmann::json;
 using namespace tile_compile::pi;
 
 namespace {
-
-// ---- minimal JSON-Schema (draft-07 subset) checker: enough to prove the builder's output and
-// the committed pi.decision-state.v1 schema agree (required / additionalProperties / $ref /
-// type / enum / const / properties / items). Returns an empty string when valid. ----
-std::string check(const json& schema, const json& inst, const json& root, const std::string& path) {
-    if (schema.contains("$ref")) {
-        const std::string ref = schema["$ref"].get<std::string>();
-        json node = root;
-        size_t pos = 2;  // skip "#/"
-        while (pos <= ref.size()) {
-            const size_t next = ref.find('/', pos);
-            node = node.at(ref.substr(pos, next == std::string::npos ? std::string::npos : next - pos));
-            if (next == std::string::npos) break;
-            pos = next + 1;
-        }
-        return check(node, inst, root, path);
-    }
-    if (schema.contains("not")) return check(schema["not"], inst, root, path).empty() ? path + ": matched 'not'" : "";
-    if (schema.contains("const") && inst != schema["const"]) return path + ": const mismatch";
-    if (schema.contains("enum")) {
-        bool hit = false;
-        for (const auto& e : schema["enum"]) hit = hit || e == inst;
-        if (!hit) return path + ": not in enum (" + inst.dump() + ")";
-    }
-    if (schema.contains("type")) {
-        std::vector<std::string> types;
-        if (schema["type"].is_string()) types.push_back(schema["type"]);
-        else for (const auto& t : schema["type"]) types.push_back(t);
-        bool ok = false;
-        for (const auto& t : types) {
-            ok = ok || (t == "object" && inst.is_object()) || (t == "array" && inst.is_array()) ||
-                 (t == "string" && inst.is_string()) || (t == "null" && inst.is_null()) ||
-                 (t == "boolean" && inst.is_boolean()) || (t == "integer" && inst.is_number_integer()) ||
-                 (t == "number" && inst.is_number());
-        }
-        if (!ok) return path + ": wrong type " + inst.dump().substr(0, 60);
-    }
-    if (schema.contains("allOf"))
-        for (const auto& sub : schema["allOf"]) {
-            if (sub.contains("if")) {
-                if (check(sub["if"], inst, root, path).empty() && sub.contains("then")) {
-                    const auto e = check(sub["then"], inst, root, path);
-                    if (!e.empty()) return e;
-                }
-            }
-        }
-    if (inst.is_object()) {
-        if (schema.contains("required"))
-            for (const auto& k : schema["required"])
-                if (!inst.contains(k.get<std::string>())) return path + ": missing required '" + k.get<std::string>() + "'";
-        const json props = schema.value("properties", json::object());
-        for (auto it = inst.begin(); it != inst.end(); ++it) {
-            if (props.contains(it.key())) {
-                const auto e = check(props[it.key()], it.value(), root, path + "." + it.key());
-                if (!e.empty()) return e;
-            } else if (schema.contains("additionalProperties")) {
-                const json& ap = schema["additionalProperties"];
-                if (ap.is_boolean() && !ap.get<bool>()) return path + ": unexpected property '" + it.key() + "'";
-                if (ap.is_object()) {
-                    const auto e = check(ap, it.value(), root, path + "." + it.key());
-                    if (!e.empty()) return e;
-                }
-            }
-        }
-    }
-    if (inst.is_array() && schema.contains("items"))
-        for (size_t i = 0; i < inst.size(); ++i) {
-            const auto e = check(schema["items"], inst[i], root, path + "[" + std::to_string(i) + "]");
-            if (!e.empty()) return e;
-        }
-    return "";
-}
 
 json frame(int idx, bool ok, const char* filter, double exposure, double bg, double noise, double fwhm, double round_,
            int stars) {
@@ -159,7 +88,7 @@ int main(int argc, char** argv) {
             in.scan["frames_detected"] = 5;
             in.locked_paths = {"bge.method"};
             const auto r = build_pre_run_decision_state(in);
-            const std::string err = check(schema, r.state, schema, "state");
+            const std::string err = pi_test::schema_check(schema, r.state, schema, "state");
             expect_true(err.empty(), "state satisfies committed schema: " + err);
             expect_equal(static_cast<long>(r.state["coverage"]["read_ok"].get<int>()), 4L, "read_ok");
             // frame 3 (read error) has no header -> its own unknown bucket, never merged with known
@@ -197,7 +126,7 @@ int main(int argc, char** argv) {
             expect_true(has_code(r.state["blocking_findings"], "color_mode_unresolved"), "empty: color mode unresolved");
             expect_true(has_code(r.state["blocking_findings"], "base_config_invalid"), "empty: base config invalid");
             expect_equal(static_cast<long>(r.state["groups"].size()), 0L, "empty: no groups");
-            expect_true(check(schema, r.state, schema, "state").empty(), "empty state still schema-valid");
+            expect_true(pi_test::schema_check(schema, r.state, schema, "state").empty(), "empty state still schema-valid");
         }
 
         // --- color modes ---
@@ -235,7 +164,7 @@ int main(int argc, char** argv) {
             expect_equal(rs["status"].get<std::string>(), "invalid", "zero denominator invalid");
             expect_equal(rs["reason"].get<std::string>(), "zero_denominator", "reason zero_denominator");
             expect_true(rs["value"].is_null(), "no number for zero denominator");
-            expect_true(check(schema, r.state, schema, "state").empty(), "NaN/missing case schema-valid");
+            expect_true(pi_test::schema_check(schema, r.state, schema, "state").empty(), "NaN/missing case schema-valid");
             expect_true(!r.state_hash.empty(), "hash computable despite NaN input");
         }
 

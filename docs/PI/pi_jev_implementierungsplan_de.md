@@ -1,7 +1,7 @@
 # PI Jev — Detaillierter Implementierungsplan
 
 > **Stand:** 2026-09-22.
-> **Status:** M0 abgeschlossen, M1 (State-Builder) umgesetzt und getestet; M2-M7 offen; noch keine Routen-/UI-Verdrahtung.
+> **Status:** M0, M1 (State-Builder) und M2 (Pre-Rules, Kandidaten, atomare Validierung, Outcome-Modul) umgesetzt und getestet; M3-M7 offen; noch keine Routen-/UI-Verdrahtung.
 > **Verbindliche Reihenfolge:** Pre-Run-Beratung zuerst, Post-Run-Beratung danach.
 > **Lieferumfang:** Vorschläge; kein automatischer Run/Resume und kein zweiter Bildeditor.
 
@@ -191,28 +191,38 @@ Tests: `tests/test_pi_decision_state.cpp` (CMake-Target `web_backend_cpp_pi_deci
 
 ## 6. M2 — Pre-Rules, Kandidaten und atomare Validierung
 
-**Status:** offen. **Abhängigkeit:** M1.
+**Status:** umgesetzt und getestet (2026-09-23); nicht in Routen verdrahtet (M4), der Produktions-`ConfigValidator` (`validate-config`-CLI) folgt mit M4. **Abhängigkeit:** M1.
 
-Geplante APIs:
+Umgesetzt (alle rein funktional, ohne `AppState`, ohne Uhr, ohne I/O außer dem Outcome-Modul):
 
-- `build_pre_run_candidates(state, catalog, policy)` -> zulässige Kandidaten und Ausschlussgründe.
-- `validate_decision_candidate(candidate, state, current_config)` -> validierter Gesamtpatch oder Ablehnung.
-- `resolve_decision(answer, candidates, policy)` -> Vorschlag, Beibehalten oder Enthaltung.
+- `pi_decision_policy` (`load_decision_catalog`, `validate_decision_candidate`, `resolve_decision`, `stale_reasons`, Pfad-/Lock-/Config-Helfer),
+- `pi_pre_rules` (`build_pre_run_candidates`),
+- `pi_decision_outcome` (`record_jev_outcome_if_needed`, Outcome-Vertrag aus 3.6).
 
-Arbeit:
+Entscheidungen der Umsetzung:
 
-- [ ] Erste Kandidaten aus Abschnitt 3.2 implementieren. Bereits aktive adaptive Gewichtung ergibt keinen Änderungs-Patch.
-- [ ] Experimentelle Zulässigkeit und reguläre Freigabe trennen; unbelegte numerische Confidence-Schwellen nicht als Defaults einbauen.
-- [ ] Exakte Allowlist und geschützte Pfade vor Schema-Validierung prüfen.
-- [ ] Vollständigen Kandidaten auf Ausgangsconfig anwenden und per bestehendem `validate-config` prüfen; keine Rettung einzelner Werte aus gescheitertem Kandidaten.
-- [ ] Locks, Evidenz-Referenzen, `old_value`, aktuelle Versionen und Abhängigkeiten prüfen.
-- [ ] Bestehenden Validator um expliziten atomaren Modus/Wrapper ergänzen; bestehende Aufrufer behalten ihren Vertrag.
-- [ ] Rationale aus versionierten Textbausteinen und echten Messreferenzen erzeugen; keine LLM-Erklärung nötig, um einen Vorschlag darzustellen.
-- [ ] `pi_decision_outcome` (Modul + `test_pi_decision_outcome.cpp`) gemäß Outcome-Vertrag in 3.6 anlegen; Tests: `paths_present`/`partial`/`absent`, Marker-Idempotenz, kein Schreibzugriff auf den Run, kein `PiMemoryStore`-Zugriff (Regression: Store-Dateien vor/nach byte-identisch).
+- **Ein Codepfad für "angeboten" und "akzeptiert":** `build_pre_run_candidates` ruft für jeden Kandidaten `validate_decision_candidate` auf; `resolve_decision` validiert die Modellwahl erneut, genau so. Ein angebotener Kandidat kann später nicht aus einem schon bekannten Grund scheitern (Test).
+- **Atomar, ohne Kurzschluss:** Alle Probleme werden gesammelt (sortiert, eindeutig), der Kandidat wird als Ganzes verworfen, nichts wird gerettet (`updates` leer, `merged_config` null). Dadurch kann die Regelreihenfolge das Ergebnis nicht ändern (Test mit umgekehrtem Katalog).
+- **Allowlist statt Vertrauen:** Ein Kandidat aus Modell/Client zählt nur mit `candidate_id` + Version; Pfad/Wert müssen dem Katalogeintrag **exakt** entsprechen (`path_not_allowlisted`, `value_not_allowlisted`, `incomplete_group`, `candidate_version_mismatch`). Der Katalog selbst wird beim Laden abgelehnt, wenn ein Kandidat einen geschützten Pfad trifft, wenn `keep_current`/`insufficient_evidence` fehlen oder die Schutzliste leer ist (fail closed).
+- **Geschützte Pfade und Locks mit Präfixgrenzen:** `bge.method` ist geschützt, `bge.methodology` nicht; ein Elternpfad-Lock sperrt Kindpfade, ein Schreibzugriff auf einen Elternpfad, der ein gesperrtes Blatt überschreiben würde, ebenfalls.
+- **Keine erfundenen Schwellen:** `DecisionPolicy.min_measurement_coverage`/`min_quality_spread` sind `optional`; ohne eingefrorenen Wert ist der Kandidat unanwendbar (`policy_thresholds_not_frozen`). Produktiv ist daher nur `keep_current`/`insufficient_evidence` anwendbar, bis M5 die Werte freigibt. Experimentelle Kandidaten zusätzlich nur mit `allow_experimental`.
+- **Evidenz aus demselben State:** `measurement_coverage` = `read_ok/measured`; `quality_spread` = größere relative Streuung aus `fwhm` und `noise` **einer einzigen** lesbaren Gruppe (mehrere lesbare Gruppen -> `mixed_groups_no_single_evidence`, nie gepoolt). Belegreferenzen (`evidence_refs`) zeigen auf die State-Felder; die Begründung ist ein Textschlüssel plus gemessene Zahlen (`rationale`), kein LLM-Text.
+- **Modell-Wahrscheinlichkeit ist nie ein Gate:** Eine niedrige Wahrscheinlichkeit verhindert einen ansonsten gültigen Kandidaten nicht, eine hohe rettet keinen ungültigen (Test).
+- **Statuswerte des Vorschlags:** `validated`, `no_change`, `abstain`, `unavailable`, `rejected` (+ `presented`, `applied_to_draft`, `stale` für spätere Stufen); `pi.config-proposal.v1` um `validated`/`presented` sowie optionales `applied_at`, `config_hash_before/after` erweitert. Bereits aktive adaptive Gewichtung erzeugt keinen Patch, sondern `already_active`.
+- **Outcome-Marker im Backend-State, nicht im Run:** Abweichend von der ersten Skizze liegt der Idempotenz-Marker unter `pi_decisions/_run_markers/<run_id>.json`; das Modul schreibt nie in ein Run-Verzeichnis (Test: Run byte-identisch), berührt den `PiMemoryStore` nicht (Test: Sentinel-Dateien unverändert) und behandelt Lesefehler als wiederholbar. Default-Loader liest die `config.yaml` des Runs mit yaml-cpp (Typen bleiben erhalten, quotierte Skalare bleiben Strings).
 
-Tests neu: `test_pi_pre_rules.cpp`, `test_pi_decision_policy.cpp`; bestehend `test_ai_routes.cpp`, `test_pi_action_plan.cpp`. Ein Gate-Patch, ein ungültiger Wert oder eine Lock-Verletzung verwirft die ganze Gruppe. Reihenfolge der Regeln darf das Ergebnis nicht ändern.
+- [x] Erste Kandidaten aus Abschnitt 3.2; bereits aktive adaptive Gewichtung ergibt keinen Änderungs-Patch.
+- [x] Experimentelle Zulässigkeit und reguläre Freigabe getrennt; keine Confidence-Schwellen als Defaults.
+- [x] Exakte Allowlist und geschützte Pfade werden vor der Config-Validierung geprüft; die Config-Validierung läuft nur, wenn nichts Strukturelles fehlschlug.
+- [x] Vollständiger Kandidat wird auf die Ausgangsconfig angewandt und über einen injizierten `ConfigValidator` geprüft; ohne Validator fail closed (`config_validator_missing`). **Offen (M4):** Produktions-Validator über die bestehende `validate-config`-CLI.
+- [x] Locks, Evidenz-Referenzen, `old_value`, Versionen und Vorbedingungen (unbekannte Vorbedingung -> fail closed).
+- [x] Legacy-Validator (`pi_recommendation_validator.cpp`) unverändert; der atomare Pfad ist ein eigenes Modul statt eines Modus im Legacy-Validator, damit dessen Teilpatch-Vertrag für PI unangetastet bleibt.
+- [x] Begründung aus versionierten Textschlüsseln und echten Messwerten; i18n-Texte folgen mit M4.
+- [x] `pi_decision_outcome` mit Tests (`paths_present`/`paths_partial`/`paths_absent`, Marker-Idempotenz, kein Schreibzugriff auf den Run, kein `PiMemoryStore`-Zugriff, retryable Fehler, ungültige Run-ID).
 
-**Abnahme:** Kein Modellresultat kann einen neuen Pfad/Wert einschleusen. `keep_current` und Enthaltung sind überall darstellbar. Aktuelle Config bleibt bei jeder Ablehnung byte-/semantikgleich gemäß Speichervertrag.
+Tests: `test_pi_decision_policy.cpp`, `test_pi_pre_rules.cpp`, `test_pi_decision_outcome.cpp` (CMake-Targets `web_backend_cpp_pi_decision_policy`, `..._pi_pre_rules`, `..._pi_decision_outcome`); gemeinsame Helfer `tests/pi_decision_test_support.hpp` und `tests/pi_json_schema_check.hpp` (Draft-07-Teilprüfer, prüft Proposal und State gegen die committeten Schemas). Bestehende PI-Tests (`pi_param_model`, `pi_action_plan`, `pi_memory_store`, `pi_decision_state`) unverändert grün. `test_ai_routes.cpp` wurde nicht berührt (keine Routen geändert).
+
+**Abnahme:** Kein Modellresultat kann einen neuen Pfad/Wert einschleusen (Tests: injizierter geschützter Pfad, neuer Pfad, geänderter Wert, Teilgruppe, unbekannte ID). `keep_current` und Enthaltung sind auch bei blockiertem State darstellbar. Die aktuelle Config bleibt bei jeder Ablehnung unverändert (Test: Eingabe-Config nach Validierung unverändert, `merged_config` nur bei Erfolg).
 
 ## 7. M3 — Jev-Adapter, Fehlerbehandlung und Betriebsmodus
 
