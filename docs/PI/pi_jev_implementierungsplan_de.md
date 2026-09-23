@@ -1,7 +1,7 @@
 # PI Jev — Detaillierter Implementierungsplan
 
 > **Stand:** 2026-09-22.
-> **Status:** M0, M1 (State-Builder) und M2 (Pre-Rules, Kandidaten, atomare Validierung, Outcome-Modul) und M3 (Sidecar-Adapter) umgesetzt und getestet; M4-M7 offen; noch keine Routen-/UI-Verdrahtung.
+> **Status:** M0, M1 (State-Builder) und M2 (Pre-Rules, Kandidaten, atomare Validierung, Outcome-Modul) M3 (Sidecar-Adapter) und M4 (Workflow: Service, Routen, Sidecar-Einstellungen, UI; Routen/UI nicht im Betrieb geprüft) umgesetzt; M5-M7 offen; noch keine Routen-/UI-Verdrahtung.
 > **Verbindliche Reihenfolge:** Pre-Run-Beratung zuerst, Post-Run-Beratung danach.
 > **Lieferumfang:** Vorschläge; kein automatischer Run/Resume und kein zweiter Bildeditor.
 
@@ -249,22 +249,30 @@ Tests (`npm test`, `node --test` über `tsx`, Fake-Transport): Modus/Key ohne Re
 
 ## 8. M4 — Vollständiger Pre-Run-Workflow
 
-**Status:** offen. **Abhängigkeit:** M1–M3.
+**Status:** Backend, Sidecar-Einstellungen und Frontend umgesetzt (2026-09-23); Backend-Service und Sidecar getestet, **Routen und UI nicht im laufenden System geprüft** (kein Backend-/Sidecar-Start ohne Auftrag). Erste Auswertung an M31/M42: [Evaluation](pi_jev_m4_evaluation_m31_m42_de.md) — **keine verwertbare Empfehlung mit solider Basis**. **Abhängigkeit:** M1–M3.
 
-- [ ] Asynchrone Beratungsroute und Statusabruf nach Abschnitt 3.5 anbinden; vorhandene Scan-Ergebnisse wiederverwenden.
-- [ ] In `input-scan.js` bestehende Komponenten nutzen: Empfehlung anfordern, läuft, Vorschlag, keine Änderung, fehlende Evidenz, nicht verfügbar, veraltet.
-- [ ] Eigenständige Jev-Karte unter Tools -> AI & API (`tools.js`/`ai-empfehlung.js`) und dritten Parameter-Sub-Tab „Jev-Empfehlungen“ (`parameter.js`) gemäß Abschnitt 2.1 umsetzen; Mode-/Key-/Modellstatus dort, Vorschlagsdarstellung/-übernahme weiterhin im Scan-Flow.
-- [ ] Tabelle mit alter/neuer Einstellung, Evidenz, Risiko und experimentellem/freigegebenem Status anzeigen. Keine Formulierung „verbessert“, solange nur erwarteter Nutzen vorliegt.
-- [ ] Ganze Kandidatengruppe auswählen; keine Checkboxen, die abhängige Einzelwerte auseinandernehmen.
-- [ ] Übernahme nur in Config-Entwurf; kein impliziter Start. Lock-Auswahl und Revision serverseitig prüfen.
-- [ ] Persistierten Status nach Reload, Navigation und History wiederherstellen. Veraltete Responses dürfen neuere Auswahl nicht überschreiben.
-- [ ] DE/EN-Texte ergänzen; gemeinsame Styles und mobile Darstellung erhalten.
-- [ ] Bestehende PI-Beratung als getrennt bezeichnete Alternative erhalten. Keine automatische zweite Provider-Anfrage als versteckter Fallback.
-- [ ] `record_jev_outcome_if_needed()` an den beiden bestehenden Aufrufstellen des PI-Outcome-Recorders (Status-Poll, Run-Delete) zusätzlich aufrufen, jeweils in eigenem `try/catch`; Test, dass ein Fehler in einem Recorder den anderen nicht verhindert und `record_run_outcome_if_needed()` unverändert bleibt.
+Umgesetzt:
 
-Tests: Backend-Route mit Fake-Sidecar; bestehendes Apply ohne Jev bleibt kompatibel. UI-Fixtures für alle Zustände bei Desktop/Mobil. Rennen zwischen Config-Edit und Response/Apply, Reload und doppelte Übernahme testen. Prüfen, dass kein Run-/Resume-Job entsteht.
+- `pi_decision_service` (`DecisionService`): State (M1) -> Kandidaten (M2) -> optionaler Sidecar-Aufruf -> `resolve_decision` -> Persistenz unter `pi_decisions/<id>/` (`status`, `state`, `candidates`, `request`, `response`, `proposal`, `events.jsonl`). Kein Provider-Aufruf, wenn nur Baselines anwendbar sind (nichts zu entscheiden; nichts wird dem Modell zugeschrieben); aus, kein Key und nicht erreichbarer Sidecar werden zu ehrlichen `unavailable`-Vorschlägen. Shadow speichert den vollständigen Vorschlag, zeigt aber nie einen anwendbaren Patch und verweigert Apply (403). Schwellen lassen sich nur über eine lokale `policy_override.json` einfrieren (fließt versioniert in `policy_version`).
+- Apply (`DecisionService::apply`): leitet den State aus dem mitgesendeten Entwurf neu ab (CAS über `stale_reasons`: Dataset, Scan, Config, Locks, Policy- und Kandidatenversion), validiert erneut inklusive `old_value`, ist idempotent (auch nach Neustart), schreibt keine Datei und startet keinen Run. Fehlercodes: 404, 409 `NOT_READY`/`NOT_APPLICABLE`/`PROPOSAL_STALE`/`DRAFT_CHANGED`, 403 `SHADOW_MODE`, 422 `VALIDATION_FAILED`.
+- Routen (`pi_decision_routes`): `POST /api/scan/decisions` (202, asynchron), `GET /api/scan/decisions/<id>`, `POST /api/scan/decisions/<id>/apply` (liefert den Entwurf als YAML), `GET /api/pi/decisions/status`, `POST /api/pi/decisions/settings`. Scan und Scan-Metriken werden serverseitig rekonstruiert (Browser liefert nur Entwurf und Sperren). Der Produktions-`ConfigValidator` ist die bestehende `validate-config`-CLI. **Abweichung vom ursprünglichen Plan:** Apply ist eine eigene Route statt eines Zweigs in `/api/scan/analysis/apply`; dadurch bleibt der PI-Apply unberührt.
+- Sidecar: `POST /decisions/settings` und `decisionsSettings.ts` (Modus, Experimental-Flag, schreibgeschützter API-Key in `jev_decisions_settings.json`, Modus 0600, getrennt von PIs Provider-Speicher; der Key wird nie zurückgegeben, geloggt oder im Status gezeigt). Ein gespeicherter Key hat Vorrang vor der Umgebung.
+- Frontend: eigene Karte „Jev (Decisions API)“ unter Tools -> AI & API (`jev-empfehlung.js`, getrennt von der PI-Karte), dritter Parameter-Sub-Tab „Jev-Empfehlungen“ (bestehendes `switchView`-Muster), Ergebnisdarstellung mit Vergleich Aktuell/Vorgeschlagen, gemessenen Belegen, Ausschlussgründen, Experimentell-Kennzeichnung und „In Entwurf übernehmen“ (ändert nur den Entwurf); Wiederherstellung über die gemerkte Vorschlags-ID nach Reload; DE/EN-Texte (56 Schlüssel je Sprache) und `API_ENDPOINTS.decisions`.
 
-**Abnahme:** Eine synthetische geeignete Eingabe kann einen validierten, als experimentell markierten Vorschlag bis in den Entwurf führen. Ein ungeeigneter Fall bleibt unverändert mit nachvollziehbarem Grund. Dies ist funktionale Abnahme, noch kein Nachweis besserer Bilder.
+- [x] Asynchrone Beratungsroute und Statusabruf; vorhandene Scan-Ergebnisse werden wiederverwendet.
+- [x] Zustände: anfordern, läuft, Vorschlag, keine Änderung, Enthaltung, nicht verfügbar, verworfen, veraltet, übernommen.
+- [x] Tabelle alt/neu mit Belegen und experimentellem Status; keine Formulierung „verbessert“.
+- [x] Ganze Kandidatengruppe (keine Einzel-Checkboxen); Übernahme nur in den Entwurf; Revision serverseitig geprüft.
+- [x] Persistierter Status nach Reload/Neustart (Backend), Wiederherstellung im UI über die gemerkte ID.
+- [x] DE/EN-Texte, bestehende Styles wiederverwendet (`tc-frame-table`, `tc-badge-*`, `tc-tab`).
+- [x] Bestehende PI-Beratung bleibt unverändert und getrennt.
+- [ ] **Nicht geprüft:** HTTP-Routen im laufenden Backend (kein Test mit Fake-Sidecar über den `BackendHarness`), UI im Browser bei Desktop/Mobil (nur Syntaxprüfung der Module und Vollständigkeit der Übersetzungsschlüssel), Rennen zwischen Config-Edit und Antwort im UI (Serverseite ist durch die Staleness-Prüfung abgesichert und getestet).
+- [ ] Sperren (`locked_paths`): das UI sendet derzeit eine leere Liste; eine Sperr-Oberfläche existiert noch nicht.
+- [ ] Der dritte Parameter-Tab und die Jev-Karte müssen vor einer Freigabe einmal im Browser gesichtet werden.
+
+Tests: `test_pi_decision_service.cpp` (Modus aus, nur Baselines, Sidecar aus/kein Key/ungültige und eingeschleuste Antworten, Shadow, vollständiger Suggest-Pfad mit Staleness, Apply, Idempotenz, Neustart, Validator-Veto, nur `pi_decisions/` beschrieben, keine Pfade/Geheimnisse in der Provider-Anfrage) und drei neue Sidecar-Tests für die Einstellungen (`npm test`, jetzt 47).
+
+**Abnahme (funktional):** Eine synthetische geeignete Eingabe führt über Service und Apply bis in den Entwurf (getestet); ein ungeeigneter Fall bleibt unverändert mit Grund (getestet). Das ist keine Qualitätsabnahme: die Auswertung an M31/M42 zeigt, dass die aktuelle Evidenz (`quality_spread`) den Effekt der adaptiven Gewichtung nicht vorhersagt und Jev in 20 von 20 Aufrufen `keep_current` wählt — Evidenz und Nutzennachweis sind M5.
 
 ## 9. M5 — Evaluation und Freigabe pro Kandidat
 

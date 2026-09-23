@@ -142,6 +142,27 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         }
     });
 
+    // Jev card settings (mode / experimental flag / write-only API key) are stored by the sidecar in its own
+    // file, independent of PI's provider settings. The body is forwarded untouched and never logged here.
+    CROW_ROUTE(app, "/api/pi/decisions/settings").methods("POST"_method)
+    ([](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object()) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        json filtered = json::object();
+        for (const char* key : {"mode", "allow_experimental_suggestions", "api_key"})
+            if (body->contains(key)) filtered[key] = (*body)[key];
+        try {
+            ai::AiSidecarClient client(ai::default_ai_config());
+            json s = client.post("/decisions/settings", filtered);
+            s["available"] = true;
+            return json_resp(s);
+        } catch (const ai::AiSidecarHttpError& e) {
+            return err_resp("SETTINGS_REJECTED", e.payload().value("message", std::string("settings rejected")), static_cast<int>(e.status()));
+        } catch (const std::exception&) {
+            return err_resp("SIDECAR_UNREACHABLE", "PI sidecar is not reachable", 502);
+        }
+    });
+
     CROW_ROUTE(app, "/api/scan/decisions").methods("POST"_method)
     ([state, holder](const crow::request& req) {
         auto body = parse_body(req);

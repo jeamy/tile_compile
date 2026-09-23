@@ -7,6 +7,7 @@ import { getConfigState, loadSchema, loadConfig, validateConfig, saveConfig, get
 import { t } from "../i18n/i18n.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { createAiEmpfehlungPage } from "./ai-empfehlung.js";
+import { createJevEmpfehlungPage } from "./jev-empfehlung.js";
 import { createExplainPanel, updateExplainPanel } from "../components/explain-panel.js";
 import { createSituationAssistant, getScenarioDeltas } from "../components/situation-assistant.js";
 import { createYamlDiff } from "../components/yaml-diff.js";
@@ -33,12 +34,19 @@ export function createParameterPage() {
     role: "tab",
     "aria-selected": paramView === "ai" ? "true" : "false",
   }, t("ui.tab.ai", "AI Empfehlung"));
+  const jevTab = el("button", {
+    class: `tc-tab${paramView === "jev" ? " active" : ""}`,
+    id: "tab-jev",
+    role: "tab",
+    "aria-selected": paramView === "jev" ? "true" : "false",
+  }, t("ui.tab.jev", "Jev-Empfehlungen"));
   paramTab.onclick = () => switchView("parameter", page, paramTab, aiTab);
   aiTab.onclick = () => switchView("ai", page, paramTab, aiTab);
+  jevTab.onclick = () => switchView("jev", page, paramTab, aiTab);
 
   const topBar = el("div", { class: "tc-card", id: "param-switchbar" },
     el("div", { class: "tc-card-title" }, t("ui.title.view", "Ansicht")),
-    el("div", { class: "tc-tabs", role: "tablist" }, paramTab, aiTab),
+    el("div", { class: "tc-tabs", role: "tablist" }, paramTab, aiTab, jevTab),
   );
 
   // 3-column grid
@@ -122,39 +130,50 @@ export function createParameterPage() {
   page.append(topBar, grid, situationPanel, nextBar);
 
   // Load schema + config from API, then render categories
-  initParameterData(paramView === "ai" ? "ai" : null, page, paramTab, aiTab);
+  initParameterData(paramView === "ai" || paramView === "jev" ? paramView : null, page, paramTab, aiTab);
 
   return page;
 }
 
 function switchView(view, page, paramTab, aiTab) {
   setUiState({ paramView: view });
+  const jevTab = document.getElementById("tab-jev");
   paramTab.classList.toggle("active", view === "parameter");
   aiTab.classList.toggle("active", view === "ai");
+  jevTab?.classList.toggle("active", view === "jev");
   paramTab.setAttribute("aria-selected", view === "parameter" ? "true" : "false");
   aiTab.setAttribute("aria-selected", view === "ai" ? "true" : "false");
+  jevTab?.setAttribute("aria-selected", view === "jev" ? "true" : "false");
 
   const grid = document.getElementById("param-grid");
   const nextBar = document.getElementById("param-nextbar");
   const sitPanel = document.getElementById("param-situation-panel");
   const aiPage = document.getElementById("param-ai-page");
+  const jevPage = document.getElementById("param-jev-page");
 
-  if (view === "parameter") {
-    if (grid) grid.style.display = "";
-    if (nextBar) nextBar.style.display = "";
-    if (sitPanel) sitPanel.style.display = "";
-    if (aiPage) aiPage.style.display = "none";
-  } else {
-    if (grid) grid.style.display = "none";
-    if (nextBar) nextBar.style.display = "none";
-    if (sitPanel) sitPanel.style.display = "none";
-    if (!aiPage) {
-      const ai = createAiEmpfehlungPage();
-      ai.id = "param-ai-page";
-      page.appendChild(ai);
-    } else {
-      aiPage.style.display = "";
-    }
+  const showParam = view === "parameter";
+  if (grid) grid.style.display = showParam ? "" : "none";
+  if (nextBar) nextBar.style.display = showParam ? "" : "none";
+  if (sitPanel) sitPanel.style.display = showParam ? "" : "none";
+
+  if (aiPage) aiPage.style.display = view === "ai" ? "" : "none";
+  if (view === "ai" && !aiPage) {
+    const ai = createAiEmpfehlungPage();
+    ai.id = "param-ai-page";
+    page.appendChild(ai);
+  }
+
+  if (jevPage) jevPage.style.display = view === "jev" ? "" : "none";
+  if (view === "jev" && !jevPage) {
+    // After applying a proposal the editor and YAML diff are refreshed so the draft change is visible.
+    const jev = createJevEmpfehlungPage({
+      onDraftApplied: () => {
+        renderEditorForCategory(getUiState()?.selectedCategory || "all");
+        updateDiff();
+      },
+    });
+    jev.id = "param-jev-page";
+    page.appendChild(jev);
   }
 }
 
@@ -178,7 +197,7 @@ async function initParameterData(restoreView = null, page = null, paramTab = nul
   const savedCat = getUiState().selectedCategory || "all";
   renderEditorForCategory(savedCat);
   loadPresets();
-  if (restoreView === "ai" && page && paramTab && aiTab) {
+  if ((restoreView === "ai" || restoreView === "jev") && page && paramTab && aiTab) {
     switchView("ai", page, paramTab, aiTab);
   }
 }

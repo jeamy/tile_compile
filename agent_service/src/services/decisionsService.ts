@@ -347,6 +347,7 @@ export class DecisionsService {
   private readonly transport: DecisionsTransport;
   private readonly sleep: SleepFn;
   private readonly resolveApiKey: ApiKeyResolver;
+  private storedApiKey: string | undefined;
   private readonly log: (line: string) => void;
   private readonly now: () => number;
   private readonly limiter: Limiter;
@@ -361,10 +362,22 @@ export class DecisionsService {
     if (url.protocol !== "https:" && !localTest) throw new Error("decisions endpoint must be https");
     this.transport = deps.transport ?? fetchTransport;
     this.sleep = deps.sleep ?? abortableSleep;
-    this.resolveApiKey = deps.resolveApiKey ?? (() => process.env.JEV_OPENROUTER_API_KEY);
+    // A key saved through the Jev card wins over the environment; neither is ever returned or logged.
+    this.resolveApiKey = deps.resolveApiKey ?? (() => this.storedApiKey || process.env.JEV_OPENROUTER_API_KEY);
     this.log = deps.log ?? (() => {});
     this.now = deps.now ?? Date.now;
     this.limiter = new Limiter(this.cfg.maxConcurrent, this.cfg.maxQueued);
+  }
+
+  /** Runtime settings from the Jev card. Invalid values throw and leave the previous settings intact. */
+  applySettings(settings: { mode?: string; allowExperimentalSuggestions?: boolean; apiKey?: string | null }) {
+    if (settings.mode !== undefined && !["off", "shadow", "suggest"].includes(settings.mode))
+      throw new Error(`mode must be off|shadow|suggest, got ${String(settings.mode)}`);
+    if (settings.apiKey !== undefined && settings.apiKey !== null && (typeof settings.apiKey !== "string" || /\s/.test(settings.apiKey)))
+      throw new Error("api key must be a single token without whitespace");
+    if (settings.mode !== undefined) this.cfg.mode = settings.mode as DecisionsMode;
+    if (settings.allowExperimentalSuggestions !== undefined) this.cfg.allowExperimentalSuggestions = Boolean(settings.allowExperimentalSuggestions);
+    if (settings.apiKey !== undefined) this.storedApiKey = settings.apiKey || undefined;
   }
 
   async status() {

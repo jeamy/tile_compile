@@ -17,6 +17,8 @@ import {
   type TransportResponse,
 } from "../src/services/decisionsService.js";
 import { redactTrafficLogText } from "../src/services/trafficLog.js";
+import { decisionsSettingsPath, loadDecisionsSettings, saveDecisionsSettings } from "../src/services/decisionsSettings.js";
+import os from "node:os";
 
 const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../web_backend_cpp/config/pi_decisions/fixtures");
 const fixture = (name: string) => JSON.parse(fs.readFileSync(path.join(FIXTURES, name), "utf8"));
@@ -355,5 +357,56 @@ describe("secrets and logging", () => {
     const out = redactTrafficLogText(`env JEV_OPENROUTER_API_KEY=${KEY} and header Authorization: Bearer ${KEY} and bare ${KEY}`);
     assert.ok(!out.includes(KEY), out);
     assert.ok(out.includes("JEV_OPENROUTER_API_KEY=<redacted>"));
+  });
+});
+
+describe("runtime settings (Jev card)", () => {
+  it("applySettings switches mode at runtime and validates before mutating", async () => {
+    const t = fakeTransport([ok200(fixture("response_ok.json"))]);
+    const svc = new DecisionsService({ mode: "off" }, { transport: t.fn, sleep: async () => {}, resolveApiKey: () => KEY });
+    assert.equal((await svc.decide(goodRequest())).error_code, "mode_off");
+    svc.applySettings({ mode: "shadow" });
+    assert.equal((await svc.decide(goodRequest())).status, "ok");
+    assert.throws(() => svc.applySettings({ mode: "auto" }), /mode must be/);
+    assert.throws(() => svc.applySettings({ apiKey: "has space" }), /single token/);
+    assert.equal((await svc.status()).mode, "shadow", "a rejected update leaves the settings intact");
+    svc.applySettings({ allowExperimentalSuggestions: true });
+    assert.equal((await svc.status()).allow_experimental_suggestions, true);
+  });
+  it("a stored key wins over the environment and is never exposed", async () => {
+    const seen: string[] = [];
+    const svc = new DecisionsService({ mode: "suggest" }, {
+      transport: async (r) => { seen.push(r.headers.Authorization); return ok200(fixture("response_ok.json")); },
+    });
+    const prev = process.env.JEV_OPENROUTER_API_KEY;
+    process.env.JEV_OPENROUTER_API_KEY = "sk-or-v1-ENVKEY-0000";
+    try {
+      await svc.decide(goodRequest());
+      svc.applySettings({ apiKey: "sk-or-v1-STOREDKEY-1111" });
+      await svc.decide(goodRequest({ state_hash: "h2" }));
+      svc.applySettings({ apiKey: null });
+      await svc.decide(goodRequest({ state_hash: "h3" }));
+      assert.deepEqual(seen, ["Bearer sk-or-v1-ENVKEY-0000", "Bearer sk-or-v1-STOREDKEY-1111", "Bearer sk-or-v1-ENVKEY-0000"]);
+      svc.applySettings({ apiKey: "sk-or-v1-STOREDKEY-1111" });
+      const st = JSON.stringify(await svc.status());
+      assert.ok(!st.includes("STOREDKEY") && !st.includes("ENVKEY"), "status never contains a key");
+      assert.equal((await svc.status()).has_api_key, true);
+    } finally {
+      if (prev === undefined) delete process.env.JEV_OPENROUTER_API_KEY; else process.env.JEV_OPENROUTER_API_KEY = prev;
+    }
+  });
+  it("the settings file is 0600, tolerant on read, and filters junk", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jev-settings-"));
+    const file = path.join(dir, "nested", "jev_decisions_settings.json");
+    assert.deepEqual(loadDecisionsSettings(file), {}, "missing file -> empty");
+    saveDecisionsSettings(file, { mode: "shadow", allow_experimental_suggestions: true, api_key: "sk-or-v1-abc" });
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    assert.deepEqual(loadDecisionsSettings(file), { mode: "shadow", allow_experimental_suggestions: true, api_key: "sk-or-v1-abc" });
+    fs.writeFileSync(file, JSON.stringify({ mode: "hack", api_key: "has space", allow_experimental_suggestions: "yes", extra: 1 }));
+    assert.deepEqual(loadDecisionsSettings(file), {}, "invalid values are dropped, not trusted");
+    fs.writeFileSync(file, "not json");
+    assert.deepEqual(loadDecisionsSettings(file), {});
+    assert.ok(decisionsSettingsPath({ TILE_COMPILE_PI_STORAGE_DIR: "/x" } as any).endsWith("/x/jev_decisions_settings.json"));
+    fs.rmSync(dir, { recursive: true });
   });
 });

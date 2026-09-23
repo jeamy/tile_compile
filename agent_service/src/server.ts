@@ -7,6 +7,7 @@ import { LiveImageChatService } from "./services/liveImageChatService.js";
 import { RunChatService } from "./services/runChatService.js";
 import { appendTrafficLog, readTrafficLog } from "./services/trafficLog.js";
 import { DecisionsRequestError, DecisionsService, decisionsConfigFromEnv } from "./services/decisionsService.js";
+import { decisionsSettingsPath, loadDecisionsSettings, saveDecisionsSettings } from "./services/decisionsSettings.js";
 import type { AnalysisProgressEvent } from "./types.js";
 
 const config = runtimeConfig();
@@ -20,6 +21,13 @@ let decisionsConfigError = "";
 try {
   decisionsService = new DecisionsService(decisionsConfigFromEnv(), {
     log: (line) => appendTrafficLog(line),
+  });
+  // Settings saved through the Jev card override the environment defaults.
+  const stored = loadDecisionsSettings(decisionsSettingsPath());
+  decisionsService.applySettings({
+    mode: stored.mode,
+    allowExperimentalSuggestions: stored.allow_experimental_suggestions,
+    apiKey: stored.api_key,
   });
 } catch (error) {
   decisionsConfigError = error instanceof Error ? error.message : String(error);
@@ -137,6 +145,39 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
         return;
       }
       sendJson(res, 200, await decisionsService.status());
+      return;
+    }
+    if (url.pathname === "/decisions/settings" && req.method === "POST") {
+      if (!decisionsService) {
+        sendJson(res, 503, { error: true, code: "DECISIONS_CONFIG_INVALID", message: decisionsConfigError });
+        return;
+      }
+      // Never logged: the body may contain the API key.
+      try {
+        const body = await readJsonLimited(req, 16 * 1024);
+        const file = decisionsSettingsPath();
+        const current = loadDecisionsSettings(file);
+        const next = { ...current };
+        if (body.mode !== undefined) next.mode = body.mode;
+        if (body.allow_experimental_suggestions !== undefined) next.allow_experimental_suggestions = Boolean(body.allow_experimental_suggestions);
+        if (body.api_key !== undefined) {
+          if (body.api_key === "" || body.api_key === null) delete next.api_key;
+          else next.api_key = String(body.api_key);
+        }
+        decisionsService.applySettings({
+          mode: next.mode,
+          allowExperimentalSuggestions: next.allow_experimental_suggestions,
+          apiKey: next.api_key ?? null,
+        });
+        saveDecisionsSettings(file, next);
+        sendJson(res, 200, await decisionsService.status());
+      } catch (error) {
+        if (error instanceof DecisionsRequestError) {
+          sendJson(res, 400, { error: true, code: "INVALID_REQUEST", message: error.reason });
+          return;
+        }
+        sendJson(res, 400, { error: true, code: "INVALID_SETTINGS", message: error instanceof Error ? error.message : "invalid settings" });
+      }
       return;
     }
     if (url.pathname === "/decisions" && req.method === "POST") {

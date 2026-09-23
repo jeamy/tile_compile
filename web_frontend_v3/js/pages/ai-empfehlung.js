@@ -13,9 +13,11 @@ import { getConfigState, setConfigState, deepClone } from "../state/config-state
 import { parseYaml, stringifyYaml } from "../utils/yaml-parse.js";
 import { renderEditorForCategory, updateDiff, setConfigValue } from "./parameter.js";
 import { getUiState } from "../state/ui-state.js";
+import { createJevSettingsCard } from "./jev-empfehlung.js";
 
 export function createAiModelSettingsPage() {
-  const page = el("div", { class: "tc-flex-col tc-gap-4" }, createAiModelSettingsCard());
+  // The Jev card is its own card with its own endpoint/state: it does not share the provider slot above.
+  const page = el("div", { class: "tc-flex-col tc-gap-4" }, createAiModelSettingsCard(), createJevSettingsCard());
   loadAiConfig().finally(() => loadModels());
   return page;
 }

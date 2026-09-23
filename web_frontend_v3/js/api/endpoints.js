@@ -42,6 +42,14 @@ export const API_ENDPOINTS = {
     authProvider: (provider = "") => `/api/ai/auth/${encodeURIComponent(String(provider || ""))}`,
     test: "/api/ai/test",
   },
+  // Jev pre-run advice (independent of the PI provider slot under `ai`)
+  decisions: {
+    advice: "/api/scan/decisions",
+    byId: (id) => `/api/scan/decisions/${encodeURIComponent(String(id || ""))}`,
+    apply: (id) => `/api/scan/decisions/${encodeURIComponent(String(id || ""))}/apply`,
+    status: "/api/pi/decisions/status",
+    settings: "/api/pi/decisions/settings",
+  },
   pi: {
     tools: "/api/pi/tools",
     toolsCall: "/api/pi/tools/call",
