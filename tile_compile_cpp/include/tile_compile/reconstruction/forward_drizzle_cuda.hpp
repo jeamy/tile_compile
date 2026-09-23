@@ -566,6 +566,13 @@ struct ForwardDrizzleV2PrototypeStats {
   // Worst per-frame upload+kernel time (event deltas); the gate-1 bound is
   // checked against this, not the mean.
   double max_frame_seconds = 0.0;
+  // CPU host kernel only: the largest scatter thread count any single
+  // accumulate_* call actually used. accumulate_affine_piece() reports its
+  // real OpenMP row-parallel count (core::omp_effective_threads' result);
+  // the still-serial local-warp/cached-leaf/sample paths report 1. Stays 0
+  // only when the CPU kernel never scattered a frame, and always 0 on the
+  // CUDA kernel.
+  std::uint64_t max_scatter_threads_used = 0;
 };
 
 class ForwardDrizzleV2CudaPrototypeKernel {

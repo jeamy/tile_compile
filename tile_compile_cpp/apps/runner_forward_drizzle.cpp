@@ -1118,7 +1118,11 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           {"cuda_fallback_reason",
            fd_cuda_fallback_reason.empty() ? json(nullptr)
                                            : json(fd_cuda_fallback_reason)},
-          {"workers_used",0},
+          // CPU host kernel only: the largest OpenMP thread count any single
+          // band's row-parallel scatter actually used (0 on the CUDA path
+          // and on the still-serial local-warp/cached-leaf/sample paths).
+          {"workers_used",
+           static_cast<long long>(v2_result.driver.totals.max_scatter_threads_used)},
           {"resolved_chunk_rows",0},
           // The v2 driver owns banding; no legacy per-stripe CUDA path exists.
           {"cuda_stripe_path",json(nullptr)}}},
@@ -1211,7 +1215,11 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
                        ? json(gpu_device_name) : json(nullptr)}}},
           {"threads",{
             {"parallel_workers_config",cfg.runtime_limits.parallel_workers},
-            {"workers_used",0}}}}},
+            // Same source as acceleration.workers_used: the largest OpenMP
+            // thread count any single band's row-parallel scatter actually
+            // used. 0 only on the CUDA forward-drizzle path.
+            {"workers_used",
+             static_cast<long long>(v2_result.driver.totals.max_scatter_threads_used)}}}}},
         // Plan 23.1 (M4 carry-over -> M8 report): state the flux space of the
         // delivered planes unambiguously. The STACKING 17.4 normalisation undo
         // is applied only to the separate canonical downstream products.

@@ -111,6 +111,8 @@ void add_stats(ForwardDrizzleV2PrototypeStats &t,
   t.kernel_seconds += s.kernel_seconds;
   t.download_seconds += s.download_seconds;
   t.max_frame_seconds = std::max(t.max_frame_seconds, s.max_frame_seconds);
+  t.max_scatter_threads_used =
+      std::max(t.max_scatter_threads_used, s.max_scatter_threads_used);
 }
 
 // One backend attempt over the committed-prefix tail of the store.

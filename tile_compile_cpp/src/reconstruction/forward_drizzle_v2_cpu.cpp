@@ -1001,6 +1001,12 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
           im.fqaf);
     }
     stats_.cached_leaf_records_launched += leaf_count;
+    // Parity with the CUDA kernel (forward_drizzle_cuda_device.cu): the
+    // committed leaf array is this frame's upload payload for the cached
+    // path, same as source_bytes_uploaded is for the dense path.
+    stats_.cached_leaf_bytes_uploaded +=
+        static_cast<std::uint64_t>(leaf_count) *
+        sizeof(ForwardDrizzleV2CachedLeaf);
   } else
   for (std::size_t tid = 0; tid < source_n; ++tid) {
     const int lx = static_cast<int>(tid % static_cast<std::size_t>(act_w));
@@ -1083,6 +1089,12 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
   }
   stats_.positive_overlaps += positive;
   stats_.local_samples_discarded += discarded;
+  // Local-warp/cached-leaf/sample scatter above is still serial (unlike
+  // accumulate_affine_piece's row-parallel scatter); record 1 worker so
+  // max_scatter_threads_used stays a truthful "at least this many" signal
+  // for every CPU-backend path, not just the parallel one.
+  stats_.max_scatter_threads_used =
+      std::max(stats_.max_scatter_threads_used, std::uint64_t{1});
 
   // --- fold: k-fold the frame planes into accumulators + reservoir --------
   fold_native_range(0, im.ncols, q_frame, qmask, frame_order, keep_all,
@@ -1513,6 +1525,11 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_affine_samples(
   ++im.frames;
   ++stats_.frames_processed;
   ++stats_.slot_transitions;
+  // Tranche 8 canonical affine-samples scatter is serial (no row-parallel
+  // path like accumulate_affine_piece); record 1 worker for the same reason
+  // accumulate_frame_impl does.
+  stats_.max_scatter_threads_used =
+      std::max(stats_.max_scatter_threads_used, std::uint64_t{1});
   stats_.source_samples_launched += sample_count;
   stats_.affine_samples_processed += sample_count;
   stats_.affine_span_rows += span_rows;
@@ -1597,7 +1614,12 @@ bool cpu_affine_source_row_bound(const double affine6[6], double half,
                                  int act_w, int abs_y0, int act_h, int ty0,
                                  int ty1, int &ly_lo, int &ly_hi) {
   const double A = affine6[3], B = affine6[4], C = affine6[5];
-  constexpr double kEps = 1e-9;
+  // 1e-6, not 1e-9: sy_lo_real/sy_hi_real below divide by scale*B, and a
+  // near-but-not-quite-singular B still blows the quotient up to a
+  // magnitude that overflows int (UB) once cast, well before it gets
+  // anywhere near a real determinant-singularity threshold. 1e-6 keeps that
+  // quotient bounded for any realistic image/canvas size.
+  constexpr double kEps = 1e-6;
   if (!std::isfinite(A) || !std::isfinite(B) || !std::isfinite(C) ||
       std::abs(B) < kEps)
     return false;
@@ -1623,14 +1645,29 @@ bool cpu_affine_source_row_bound(const double affine6[6], double half,
     sy_lo_real = (static_cast<double>(ty1) - k_min) / sB;
     sy_hi_real = (static_cast<double>(ty0) - k_max) / sB;
   }
-  if (!std::isfinite(sy_lo_real) || !std::isfinite(sy_hi_real)) return false;
+  // Guard the double-to-long-long conversions below: a quotient this large
+  // is already many orders of magnitude past any real image extent, so
+  // there is nothing left to narrow correctly --- fall back instead of
+  // risking a conversion that overflows long long (UB).
+  constexpr double kMaxAbsSy = 1e12;
+  if (!std::isfinite(sy_lo_real) || !std::isfinite(sy_hi_real) ||
+      std::abs(sy_lo_real) > kMaxAbsSy || std::abs(sy_hi_real) > kMaxAbsSy)
+    return false;
   constexpr int kPad = 2;  // native source rows; absorbs FP boundary rounding
   const long long ly_lo_ll =
       static_cast<long long>(std::floor(sy_lo_real - abs_y0)) - kPad;
   const long long ly_hi_ll =
       static_cast<long long>(std::ceil(sy_hi_real - abs_y0)) + kPad;
-  ly_lo = static_cast<int>(std::max<long long>(0, ly_lo_ll));
-  ly_hi = static_cast<int>(std::min<long long>(act_h - 1, ly_hi_ll));
+  // Clamp BOTH bounds against BOTH limits before narrowing to int: clamping
+  // ly_lo only against 0 (or ly_hi only against act_h-1) still lets an
+  // out-of-range long long reach the int cast on the other side, which is
+  // undefined behaviour, not a large-but-harmless value.
+  const auto clamp_to_range = [act_h](long long v) -> int {
+    v = std::max<long long>(0, std::min<long long>(act_h - 1, v));
+    return static_cast<int>(v);
+  };
+  ly_lo = clamp_to_range(ly_lo_ll);
+  ly_hi = clamp_to_range(ly_hi_ll);
   if (ly_lo > ly_hi) return false;
   return true;
 }
@@ -1808,6 +1845,9 @@ bool ForwardDrizzleV2CpuKernel::accumulate_affine_piece(
   const int omp_threads =
       core::omp_effective_threads(
           static_cast<int>(std::thread::hardware_concurrency()), act_h);
+  stats_.max_scatter_threads_used = std::max(
+      stats_.max_scatter_threads_used,
+      static_cast<std::uint64_t>(omp_threads));
 #pragma omp parallel num_threads(omp_threads) reduction(+ : positive)
   {
 #if defined(_OPENMP)
