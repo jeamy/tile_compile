@@ -1,7 +1,7 @@
 # PI Jev — Detaillierter Implementierungsplan
 
 > **Stand:** 2026-09-22.
-> **Status:** M0, M1 (State-Builder) und M2 (Pre-Rules, Kandidaten, atomare Validierung, Outcome-Modul) umgesetzt und getestet; M3-M7 offen; noch keine Routen-/UI-Verdrahtung.
+> **Status:** M0, M1 (State-Builder) und M2 (Pre-Rules, Kandidaten, atomare Validierung, Outcome-Modul) und M3 (Sidecar-Adapter) umgesetzt und getestet; M4-M7 offen; noch keine Routen-/UI-Verdrahtung.
 > **Verbindliche Reihenfolge:** Pre-Run-Beratung zuerst, Post-Run-Beratung danach.
 > **Lieferumfang:** Vorschläge; kein automatischer Run/Resume und kein zweiter Bildeditor.
 
@@ -226,21 +226,26 @@ Tests: `test_pi_decision_policy.cpp`, `test_pi_pre_rules.cpp`, `test_pi_decision
 
 ## 7. M3 — Jev-Adapter, Fehlerbehandlung und Betriebsmodus
 
-**Status:** offen. **Abhängigkeit:** M0-Vertrag, für Integration M2.
+**Status:** umgesetzt und getestet (2026-09-23) für Adapter, Sidecar-Route und Fehlermatrix; **die Route selbst wurde nicht gestartet** (kein Sidecar-Start ohne Auftrag), sie ist per `tsc` typgeprüft, ihre Logik liegt vollständig im getesteten Service. Kein realer Provider-Smoke. **Abhängigkeit:** M0-Vertrag, für Integration M2.
 
-- [ ] `decisionsService.ts` mit injizierbarem HTTP-Transport für Tests erstellen; Endpoint/Modell aus zentraler Konfiguration.
-- [ ] `PI_DECISIONS_MODE=off|shadow|suggest` vorsehen, Default `off`; vorhandenen `JEV_OPENROUTER_API_KEY` aus bestehendem Secret-Mechanismus nutzen, eigener Allowlist-Eintrag getrennt vom generischen `openrouter`-Eintrag (Abschnitt 2.1). Keine neuen Top-Level-Pipelineparameter.
-- [ ] `allow_experimental_suggestions` mit Default false ergänzen: nur in `suggest` wirksam, Kandidaten immer sichtbar experimentell markieren; nicht mit regulärer Qualitätsfreigabe verwechseln.
-- [ ] Gepinnte Modellkennung verlangen für freigegebene Policy; Aliaswechsel invalidiert Kalibrierungsfreigabe.
-- [ ] Request- und Response-Schemas prüfen, unbekannte Kandidaten/Fragen und nicht endliche oder unzulässige Wahrscheinlichkeiten ablehnen.
-- [ ] Gesamtdeadline und Größenlimit konfigurieren; höchstens ein Retry bei vorübergehendem Fehler innerhalb derselben Deadline, keiner bei Schema-/Authfehlern; `Retry-After` nur innerhalb Budget.
-- [ ] Abbruch, parallele Deduplizierung und begrenzte Parallelität implementieren. Keine Run-Slots durch unbeschränkte Requests blockieren.
-- [ ] Im Sidecar Fehler in stabile Anwendungscodes übersetzen; bestehende Traffic-Logs dürfen für diesen Pfad keinen vollständigen State/API-Key ausgeben.
-- [ ] `pi_decision_service` baut auf M1/M2 auf, persistiert Status und verwirft verspätete Antworten zu veralteten Inputs.
+Umgesetzt: `agent_service/src/services/decisionsService.ts` (eigener, injizierbarer HTTP-Client, keine Abhängigkeit von `@earendil-works/pi-ai`, siehe Provider-Protokoll §5), Route `POST /decisions` und `GET /decisions/status` in `server.ts`, Test `agent_service/tests/decisionsService.test.ts` (44 Fälle, `npm test`).
 
-Tests neu: `agent_service/tests/decisionsService.test.ts`; Testskript mit vorhandenem TypeScript-/Node-Werkzeug ergänzen. Fake-Transport für Timeout, 429, 5xx, 401, ungültiges JSON, übergroße Antwort, falsche ID, NaN-artige Werte, Versionsabweichung und Abbruch.
+- [x] `decisionsService.ts` mit injizierbarem Transport, Sleep, Key-Resolver und Logger; Endpoint/Modell aus `PI_DECISIONS_*` (Default `https://openrouter.ai/api/alpha/decisions`, `typesafe/jev-1.13`). Nicht-https-Endpoints nur für Loopback (Tests).
+- [x] `PI_DECISIONS_MODE=off|shadow|suggest`, Default `off`: `off` und fehlender Key senden **null** Requests (getestet). `shadow`/`suggest` unterscheiden sich im Sidecar nicht; dass `shadow` keine anwendbaren UI-Patches erzeugt, setzt der Backend-Service in M4 durch. Key nur aus `JEV_OPENROUTER_API_KEY` (Env); ein in der Jev-Karte gespeicherter Key braucht einen Speicherpfad und ist M4.
+- [x] `allow_experimental_suggestions` (`PI_DECISIONS_ALLOW_EXPERIMENTAL`, Default false) wird gelesen und über `/decisions/status` gemeldet; die Wirkung (nur in `suggest`, Kandidaten sichtbar experimentell) erzwingt der Backend-Service (M4), nicht der Sidecar.
+- [x] Gepinnte Modellkennung erzwungen: Aliase (`*-latest`, `*-preview`) und unversionierte Kennungen lassen den Service gar nicht erst starten. Die vom Provider gemeldete Kennung muss zum gepinnten Modell gehören (`typesafe/jev-1.13` oder `typesafe/jev-1.13-<Datum>`), sonst `model_version_mismatch`; sie wird als `model_reported` protokolliert.
+- [x] Strikte Antwortprüfung gegen `openrouter.decisions.response.v1`: unbekannte Kandidaten-ID, Wahrscheinlichkeit nicht endlich oder außerhalb [0,1], falscher Antworttyp, zusätzliches Feld, fehlende `usage`/`id`, ungültiges JSON, Nicht-Objekt, übergroße Antwort führen zu `invalid_response` — ganz oder gar nicht, nie repariert oder geklemmt. Die Provider-`confidence` wird nur als `provider_confidence` weitergereicht (nie Gate).
+- [x] Anfrage lokal geprüft, bevor irgendetwas das Netz erreicht: bekannte `question_set_version`, gültige/duplikatfreie IDs inkl. beider Baselines, Größenlimit, und ein Leak-Scan des State (Pfade, URLs, `sk-or-`, `api_key`) — Verstoß ist ein `DecisionsRequestError` (HTTP 400), kein Providerergebnis.
+- [x] Gesamtdeadline (Default 30 s) für den ganzen Aufruf inkl. Retry; Antwortgrößenlimit (Default 256 KiB); höchstens ein Retry bei 429/5xx/Netzfehler; keiner bei 401/403/400/422; `Retry-After` wird nur befolgt, wenn es in das Restbudget passt.
+- [x] Abbruch über den Verbindungsabbruch des Aufrufers, Deduplizierung gleicher gleichzeitiger Entscheidungen (ein Provideraufruf, jeder Aufrufer behält seine `request_id`, kein Ergebnis-Cache), begrenzte Parallelität mit begrenzter Warteschlange (`busy` statt Blockieren).
+- [x] Stabile Anwendungscodes (Liste in `pi.decisions.response.v1`); der Traffic-Log erhält pro Aufruf nur eine Zeile (`request_id`, `state_hash`, Anzahl Kandidaten, Status, Code, Dauer, Kosten) — nie State, Body oder Key. Zusätzlich fängt `redactTrafficLogText` jetzt `JEV_*_API_KEY=` und rohe `sk-or-…`-Token ab (Lücke: das `\b` der bisherigen Anbieterliste griff bei `JEV_OPENROUTER_API_KEY` nicht).
+- [ ] `pi_decision_service` (Orchestrierung, Persistenz, Verwerfen verspäteter Antworten) — Backend-Teil, gehört zu M4, weil er die Sidecar-Route, `ConfigValidator` und die Speicherung zusammensteckt.
 
-**Abnahme:** `off` erzeugt null Requests; `shadow` erzeugt keine anwendbaren UI-Patches; Provider-Ausfall ändert keine Config. Mock-Vertrag und optionaler realer Provider-Smoke werden getrennt ausgewiesen.
+Tests (`npm test`, `node --test` über `tsx`, Fake-Transport): Modus/Key ohne Request, Wire-Body gegen das echte Request-Fixture, lokale Request-Ablehnung (12 Fälle), Antwortprüfung mit den erfassten Fixtures plus 15 feindlichen Varianten, alle HTTP-Fehler (400/401/403/422/429/5xx/404), Retry-Logik mit Sleep-Aufzeichnung, Retry-After über Budget, Timeout, Abbruch, Deduplizierung, Parallelitäts-/Queue-Grenze, Geheimnisfreiheit, Schemakonformität jedes möglichen Ausgangs. Mutationsprobe: das Entfernen der Wahrscheinlichkeitsgrenze, der Modellprüfung bzw. der Retry-Budgetprüfung lässt jeweils Tests fehlschlagen.
+
+**Nicht verifiziert:** Verhalten des echten Alpha-Endpunkts bei 401/429/5xx und `noul` (Provider-Protokoll §6) — die Fehlerfixtures `*_assumed.json` sind Annahmen; ein realer Smoke (bewusst mit ungültigem Key, ohne Kosten) steht aus. Der Fake-Transport belegt den Vertrag, nicht den Anbieter.
+
+**Abnahme:** `off` erzeugt null Requests (getestet); ein Providerausfall verändert keine Config (der Sidecar kennt keine Config); Mock-Vertrag und realer Provider-Smoke werden getrennt ausgewiesen — der reale Smoke ist offen.
 
 ## 8. M4 — Vollständiger Pre-Run-Workflow
 

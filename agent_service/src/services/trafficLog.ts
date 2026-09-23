@@ -38,6 +38,9 @@ export function redactTrafficLogText(message: string): string {
     /\b((?:ANTHROPIC|ANT_LING|OPENAI|DEEPSEEK|GOOGLE|GEMINI|MISTRAL|GROQ|CEREBRAS|OPENROUTER|XAI|HF|FIREWORKS|TOGETHER|KIMI|KIRO|MINIMAX|NVIDIA|CLOUDFLARE|AZURE_OPENAI|AI_GATEWAY|ZAI|OPENCODE|XIAOMI|AWS)[A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|CREDENTIALS)[A-Z0-9_]*)\s*=\s*([^\s,;]+)/gi,
     "$1=<redacted>",
   );
+  // JEV_OPENROUTER_API_KEY=... (the JEV_ prefix defeats the \b anchor of the provider list above)
+  redacted = redacted.replace(/\b(JEV_[A-Z0-9_]*(?:API_KEY|TOKEN|SECRET)[A-Z0-9_]*)\s*=\s*([^\s,;]+)/gi, "$1=<redacted>");
+  redacted = redacted.replace(/\bsk-or-[A-Za-z0-9_-]+/g, "sk-or-<redacted>");
   redacted = redacted.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer <redacted>");
 
   if (projectRoot && projectRoot !== path.parse(projectRoot).root) {

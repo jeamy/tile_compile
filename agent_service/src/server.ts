@@ -6,11 +6,25 @@ import { ModelService } from "./services/modelService.js";
 import { LiveImageChatService } from "./services/liveImageChatService.js";
 import { RunChatService } from "./services/runChatService.js";
 import { appendTrafficLog, readTrafficLog } from "./services/trafficLog.js";
+import { DecisionsRequestError, DecisionsService, decisionsConfigFromEnv } from "./services/decisionsService.js";
 import type { AnalysisProgressEvent } from "./types.js";
 
 const config = runtimeConfig();
 const modelService = new ModelService(config.projectRoot);
 const authService = new AuthService(modelService);
+
+// Jev decisions adapter (independent of PI's provider slot). An invalid PI_DECISIONS_* setting must not
+// take the whole sidecar down: the route answers 503 with the reason instead.
+let decisionsService: DecisionsService | null = null;
+let decisionsConfigError = "";
+try {
+  decisionsService = new DecisionsService(decisionsConfigFromEnv(), {
+    log: (line) => appendTrafficLog(line),
+  });
+} catch (error) {
+  decisionsConfigError = error instanceof Error ? error.message : String(error);
+  appendTrafficLog(`decisions config invalid: ${decisionsConfigError}`);
+}
 
 function sendJson(res: http.ServerResponse, status: number, payload: unknown) {
   const body = JSON.stringify(payload);
@@ -19,6 +33,24 @@ function sendJson(res: http.ServerResponse, status: number, payload: unknown) {
     "Content-Length": Buffer.byteLength(body),
   });
   res.end(body);
+}
+
+async function readJsonLimited(req: http.IncomingMessage, maxBytes: number): Promise<any> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of req) {
+    const buf = Buffer.from(chunk);
+    total += buf.length;
+    if (total > maxBytes) throw new DecisionsRequestError("body_too_large");
+    chunks.push(buf);
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
+  if (!raw.trim()) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new DecisionsRequestError("body_not_json");
+  }
 }
 
 async function readJson(req: http.IncomingMessage): Promise<any> {
@@ -97,6 +129,35 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       const result = await service.analyze(body);
       appendTrafficLog(`POST /analyze response ${JSON.stringify(result).substring(0, 10000)}`);
       sendJson(res, 200, result);
+      return;
+    }
+    if (url.pathname === "/decisions/status" && req.method === "GET") {
+      if (!decisionsService) {
+        sendJson(res, 503, { error: true, code: "DECISIONS_CONFIG_INVALID", message: decisionsConfigError });
+        return;
+      }
+      sendJson(res, 200, await decisionsService.status());
+      return;
+    }
+    if (url.pathname === "/decisions" && req.method === "POST") {
+      if (!decisionsService) {
+        sendJson(res, 503, { error: true, code: "DECISIONS_CONFIG_INVALID", message: decisionsConfigError });
+        return;
+      }
+      // The body carries the provider state projection: it is never written to the traffic log
+      // (DecisionsService logs a one-line summary itself).
+      try {
+        const abort = new AbortController();
+        res.on("close", () => { if (!res.writableEnded) abort.abort(); });
+        const result = await decisionsService.decide(await readJsonLimited(req, 256 * 1024), abort.signal);
+        sendJson(res, 200, result);
+      } catch (error) {
+        if (error instanceof DecisionsRequestError) {
+          sendJson(res, 400, { error: true, code: "INVALID_REQUEST", message: error.reason });
+          return;
+        }
+        throw error;
+      }
       return;
     }
     if (req.method === "POST" && url.pathname === "/analyze/stream") {
