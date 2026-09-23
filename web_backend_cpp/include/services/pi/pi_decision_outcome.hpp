@@ -11,6 +11,9 @@ namespace tile_compile::pi {
 // read-only. Injectable so tests need no YAML round trip.
 using RunConfigLoader = std::function<nlohmann::json(const std::filesystem::path& run_dir)>;
 nlohmann::json load_run_config_yaml(const std::filesystem::path& run_dir);
+// Same conversion for YAML text (e.g. the config draft the UI sends): scalar types are recovered
+// (bool/int/double/null), quoted scalars stay strings. Throws on malformed YAML.
+nlohmann::json yaml_text_to_json(const std::string& yaml_text);
 
 // Links a finished/started run to Jev proposals that were applied to the config draft BEFORE the run
 // started (proposal.status == "applied_to_draft", applied_at <= provenance.started_at), by checking

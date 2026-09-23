@@ -184,7 +184,9 @@ set(BACKEND_SOURCES
     src/services/pi/pi_decision_state.cpp
     src/services/pi/pi_decision_policy.cpp
     src/services/pi/pi_pre_rules.cpp
+    src/services/pi/pi_decision_service.cpp
     src/services/pi/pi_decision_outcome.cpp
+    src/routes/pi_decision_routes.cpp
     src/services/pi/pi_context_v2.cpp
     src/services/pi/pi_parameter_catalog.cpp
     src/services/pi/pi_recommendation_validator.cpp
@@ -406,6 +408,14 @@ if(BUILD_TESTS)
         src/services/pi/pi_pre_rules.cpp
     )
     target_link_libraries(web_backend_cpp_pi_pre_rules PRIVATE OpenSSL::Crypto)
+    add_backend_cpp_test(web_backend_cpp_pi_decision_service tests/test_pi_decision_service.cpp)
+    target_sources(web_backend_cpp_pi_decision_service PRIVATE
+        src/services/pi/pi_decision_state.cpp
+        src/services/pi/pi_decision_policy.cpp
+        src/services/pi/pi_pre_rules.cpp
+        src/services/pi/pi_decision_service.cpp
+    )
+    target_link_libraries(web_backend_cpp_pi_decision_service PRIVATE OpenSSL::Crypto)
     add_backend_cpp_test(web_backend_cpp_pi_decision_outcome tests/test_pi_decision_outcome.cpp)
     target_sources(web_backend_cpp_pi_decision_outcome PRIVATE
         src/services/pi/pi_decision_policy.cpp
@@ -454,4 +464,17 @@ if(BUILD_TESTS)
     )
     target_include_directories(web_backend_cpp_pi_live_edit_recorder PRIVATE ${OPENCV4_INCLUDE_DIRS})
     target_link_libraries(web_backend_cpp_pi_live_edit_recorder PRIVATE ${OPENCV4_LINK_LIBRARIES})
+endif()
+
+if(TRUE)
+    add_executable(pi_decisions_eval tools/pi_decisions_eval.cpp
+        src/services/pi/pi_decision_state.cpp src/services/pi/pi_decision_policy.cpp
+        src/services/pi/pi_pre_rules.cpp src/services/pi/pi_decision_outcome.cpp)
+    target_include_directories(pi_decisions_eval PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${YAML_CPP_INCLUDE_DIRS})
+    if(TARGET nlohmann_json::nlohmann_json)
+        target_link_libraries(pi_decisions_eval PRIVATE nlohmann_json::nlohmann_json)
+    else()
+        target_include_directories(pi_decisions_eval PRIVATE ${NLOHMANN_JSON_INCLUDE_DIRS})
+    endif()
+    target_link_libraries(pi_decisions_eval PRIVATE OpenSSL::Crypto ${YAML_CPP_LIBRARIES})
 endif()

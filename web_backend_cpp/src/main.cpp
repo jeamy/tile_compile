@@ -5,6 +5,7 @@
 #include "routes/scan_routes.hpp"
 #include "routes/ai_routes.hpp"
 #include "routes/pi_routes.hpp"
+#include "routes/pi_decision_routes.hpp"
 #include "routes/config_routes.hpp"
 #include "routes/runs_routes.hpp"
 #include "routes/ws_routes.hpp"
@@ -312,6 +313,7 @@ int main(int argc, char* argv[]) {
         register_scan_routes(app, state);
         tile_compile::routes::register_ai_routes(app, state);
         tile_compile::routes::register_pi_routes(app, state);
+        tile_compile::routes::register_pi_decision_routes(app, state);
         register_config_routes(app, state, nullptr);
         register_runs_routes(app, state);
         register_ws_routes(app, state);

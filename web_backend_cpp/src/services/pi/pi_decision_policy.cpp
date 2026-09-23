@@ -329,10 +329,19 @@ json resolve_decision(const json& response, const json& state, const json& curre
     };
 
     const std::string rstatus = response.is_object() ? response.value("status", std::string()) : std::string();
-    if (rstatus == "unavailable") return reject("unavailable", {"provider_unavailable", "validation_not_run"});
+    // The application error code (never a raw provider string) stays visible next to the generic reason.
+    std::vector<std::string> provider_codes;
+    if (response.is_object() && response.contains("error_code") && response["error_code"].is_string())
+        provider_codes.push_back("provider:" + response["error_code"].get<std::string>());
+    if (rstatus == "unavailable") {
+        provider_codes.insert(provider_codes.end(), {"provider_unavailable", "validation_not_run"});
+        return reject("unavailable", provider_codes);
+    }
     if (rstatus != "ok" || !response.contains("selection") || !response["selection"].is_object() ||
-        !response["selection"].contains("candidate_id") || !response["selection"]["candidate_id"].is_string())
-        return reject("rejected", {"provider_invalid_response", "validation_not_run"});
+        !response["selection"].contains("candidate_id") || !response["selection"]["candidate_id"].is_string()) {
+        provider_codes.insert(provider_codes.end(), {"provider_invalid_response", "validation_not_run"});
+        return reject("rejected", provider_codes);
+    }
 
     const std::string chosen = response["selection"]["candidate_id"].get<std::string>();
     const json* entry = find_catalog_candidate(catalog, chosen);

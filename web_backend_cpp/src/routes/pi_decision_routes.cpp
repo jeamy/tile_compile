@@ -1,0 +1,192 @@
+#include "routes/pi_decision_routes.hpp"
+
+#include "routes/route_utils.hpp"
+#include "services/ai_service.hpp"
+#include "services/pi/pi_decision_outcome.hpp"
+#include "services/pi/pi_decision_service.hpp"
+#include "services/pi/pi_json_io.hpp"
+#include "services/pi/pi_storage_paths.hpp"
+#include "services/scan_summary.hpp"
+#include "subprocess_manager.hpp"
+#include "time_utils.hpp"
+
+#include <algorithm>
+#include <mutex>
+#include <random>
+#include <thread>
+
+namespace tile_compile::routes {
+namespace {
+
+using nlohmann::json;
+namespace fs = std::filesystem;
+using namespace tile_compile::pi;
+
+std::string new_proposal_id() {
+    std::random_device rd;
+    static const char* hex = "0123456789abcdef";
+    std::string suffix;
+    for (int i = 0; i < 8; ++i) suffix += hex[rd() % 16];
+    std::string ts = utc_now_iso();
+    ts.erase(std::remove_if(ts.begin(), ts.end(), [](char c) { return c == '-' || c == ':'; }), ts.end());
+    return "dec_" + ts + "_" + suffix;
+}
+
+fs::path catalog_dir(const std::shared_ptr<AppState>& state) {
+    if (const char* e = std::getenv("PI_DECISIONS_CATALOG_DIR"); e && *e) return e;
+    return state->runtime.project_root / "web_backend_cpp" / "config" / "pi_decisions";
+}
+
+std::optional<json> read_json_path(const fs::path& p) { return read_json_file_opt(p); }
+
+// One service per process, created on first use so a missing catalog only breaks Jev routes.
+struct ServiceHolder {
+    std::mutex m;
+    std::shared_ptr<DecisionService> svc;
+    std::string error;
+};
+
+std::shared_ptr<DecisionService> get_service(const std::shared_ptr<AppState>& state, ServiceHolder& h, std::string& error) {
+    std::lock_guard<std::mutex> lock(h.m);
+    if (h.svc) return h.svc;
+    try {
+        const auto dir = catalog_dir(state);
+        const auto cands = read_json_path(dir / "candidates_v1.json");
+        const auto prot = read_json_path(dir / "protected_paths_v1.json");
+        if (!cands || !prot) throw std::runtime_error("decision catalog not found under " + dir.string());
+        DecisionServiceDeps deps;
+        deps.sidecar = [](const std::string& method, const std::string& endpoint, const json& payload) -> json {
+            ai::AiSidecarClient client(ai::default_ai_config());
+            try {
+                return method == "GET" ? client.get(endpoint) : client.post(endpoint, payload);
+            } catch (const ai::AiSidecarHttpError& e) {
+                throw SidecarHttpError(e.status(), e.payload());
+            }
+        };
+        const std::shared_ptr<AppState> st = state;
+        deps.validate_config = [st](const json& merged) -> ConfigCheck {
+            // The existing validate-config CLI is the single authority for "is this a valid config".
+            const SubprocessResult res = run_subprocess({st->runtime.cli_exe, "validate-config", "--stdin"}, st->runtime.project_root.string(), yaml_dump(merged));
+            const json parsed = json::parse(res.stdout_str, nullptr, false);
+            const bool valid = res.exit_code == 0 && parsed.is_object() && parsed.value("valid", false);
+            return {valid, valid ? std::string() : (parsed.is_object() ? parsed.dump().substr(0, 300) : std::string("validate-config failed"))};
+        };
+        deps.now_iso = [] { return utc_now_iso(); };
+        deps.new_id = [] { return new_proposal_id(); };
+        h.svc = std::make_shared<DecisionService>(tile_compile::pi::pi_storage_dir(state) / "pi_decisions", load_decision_catalog(*cands, *prot), deps);
+        return h.svc;
+    } catch (const std::exception& e) {
+        error = e.what();
+        return nullptr;
+    }
+}
+
+// Server-side reconstruction of the scan inputs: the browser only supplies the config draft and locks.
+std::optional<AdviceRequest> build_request(const std::shared_ptr<AppState>& state, const json& body, crow::response& error_out) {
+    AdviceRequest r;
+    if (!body.contains("yaml") || !body["yaml"].is_string() || body["yaml"].get<std::string>().empty()) {
+        error_out = err_resp("DRAFT_MISSING", "yaml (the config draft) is required", 400);
+        return std::nullopt;
+    }
+    try {
+        r.base_config = yaml_text_to_json(body["yaml"].get<std::string>());
+    } catch (const std::exception& e) {
+        error_out = err_resp("DRAFT_INVALID", std::string("config draft is not valid YAML: ") + e.what(), 400);
+        return std::nullopt;
+    }
+    if (!r.base_config.is_object()) {
+        error_out = err_resp("DRAFT_INVALID", "config draft must be a YAML mapping", 400);
+        return std::nullopt;
+    }
+    const auto job = latest_scan_job(state->job_store);
+    r.scan = summarize_scan_job(job, state->last_scan_input_path);
+    if (!r.scan.value("has_scan", false) || !r.scan.value("ok", false)) {
+        error_out = err_resp("NO_SCAN", "no successful scan available", 400);
+        return std::nullopt;
+    }
+    r.scan_id = r.scan.value("job_id", std::string());
+    const std::string input_path = r.scan.value("input_path", std::string());
+    std::string best_id;
+    for (const auto& j : state->job_store.list()) {
+        if (j.type != "scan-metrics" || j.state != JobState::ok || !j.data.contains("result") || !j.data["result"].is_object()) continue;
+        const json& res = j.data["result"];
+        if (!res.value("ok", false)) continue;
+        if (j.data.value("input_path", std::string()) != input_path) continue;
+        if (j.job_id > best_id) { best_id = j.job_id; r.metrics = res; }
+    }
+    if (best_id.empty()) {
+        error_out = err_resp("NO_SCAN_METRICS", "no scan-metrics result for the current scan; run scan metrics first", 400);
+        return std::nullopt;
+    }
+    if (body.contains("locked_paths") && body["locked_paths"].is_array())
+        for (const auto& p : body["locked_paths"]) if (p.is_string()) r.locked_paths.push_back(p.get<std::string>());
+    if (body.contains("session_context") && body["session_context"].is_object()) r.session_context = body["session_context"];
+    r.software_version = "tile_compile_web_backend";
+    return r;
+}
+
+} // namespace
+
+void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) {
+    auto holder = std::make_shared<ServiceHolder>();
+
+    CROW_ROUTE(app, "/api/pi/decisions/status").methods("GET"_method)
+    ([]() {
+        try {
+            ai::AiSidecarClient client(ai::default_ai_config());
+            json s = client.get("/decisions/status");
+            s["available"] = true;
+            return json_resp(s);
+        } catch (const std::exception& e) {
+            return json_resp({{"available", false}, {"reason", "sidecar_unreachable"}});
+        }
+    });
+
+    CROW_ROUTE(app, "/api/scan/decisions").methods("POST"_method)
+    ([state, holder](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        std::string error;
+        auto svc = get_service(state, *holder, error);
+        if (!svc) return err_resp("DECISIONS_UNAVAILABLE", error, 503);
+        crow::response failure;
+        auto advice = build_request(state, *body, failure);
+        if (!advice) return failure;
+        std::string id;
+        try { id = svc->create(); } catch (const std::exception& e) { return err_resp("STORE_FAILED", e.what(), 500); }
+        AdviceRequest copy = *advice;
+        std::thread([svc, id, copy]() { svc->run(id, copy); }).detach();
+        return json_resp({{"proposal_id", id}, {"state", "running"}}, 202);
+    });
+
+    CROW_ROUTE(app, "/api/scan/decisions/<string>").methods("GET"_method)
+    ([state, holder](const crow::request&, const std::string& id) {
+        std::string error;
+        auto svc = get_service(state, *holder, error);
+        if (!svc) return err_resp("DECISIONS_UNAVAILABLE", error, 503);
+        auto v = svc->view(id);
+        if (!v) return err_resp("NOT_FOUND", "proposal not found", 404);
+        return json_resp(*v);
+    });
+
+    CROW_ROUTE(app, "/api/scan/decisions/<string>/apply").methods("POST"_method)
+    ([state, holder](const crow::request& req, const std::string& id) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        std::string error;
+        auto svc = get_service(state, *holder, error);
+        if (!svc) return err_resp("DECISIONS_UNAVAILABLE", error, 503);
+        crow::response failure;
+        auto advice = build_request(state, *body, failure);
+        if (!advice) return failure;
+        ServiceResult r = svc->apply(id, *advice);
+        if (r.http_status == 200 && r.body.contains("patched_config")) {
+            // The draft is handed back as YAML; the caller decides whether/when to save it (no file is written here).
+            r.body["patched_yaml"] = yaml_dump(r.body["patched_config"]);
+            r.body.erase("patched_config");
+        }
+        return json_resp(r.body, r.http_status);
+    });
+}
+
+} // namespace tile_compile::routes

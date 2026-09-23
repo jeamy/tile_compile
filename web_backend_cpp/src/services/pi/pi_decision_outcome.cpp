@@ -72,6 +72,8 @@ bool safe_run_id(const std::string& id) {
 
 } // namespace
 
+json yaml_text_to_json(const std::string& yaml_text) { return yaml_to_json(YAML::Load(yaml_text)); }
+
 json load_run_config_yaml(const fs::path& run_dir) {
     const fs::path p = run_dir / "config.yaml";
     if (!fs::is_regular_file(p)) throw std::runtime_error("run config.yaml not found");
