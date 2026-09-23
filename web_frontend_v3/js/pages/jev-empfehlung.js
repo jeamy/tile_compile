@@ -74,7 +74,7 @@ export function createJevSettingsCard() {
     }
   }
 
-  const card = el("div", { class: "tc-card", id: "jev-settings-card" },
+  const card = el("div", { class: "tc-card tc-jev", id: "jev-settings-card" },
     el("div", { class: "tc-card-title" }, t("ui.jev.title", "Jev (Decisions API)")),
     el("div", { class: "tc-text-sm tc-text-muted tc-mb-2" }, t("ui.jev.intro", "Zweite, unabhängige Empfehlungsquelle. Läuft getrennt von der KI-Karte oben; Umschalten dort ändert Jev nicht.")),
     el("div", { class: "tc-grid-2" },
@@ -87,16 +87,16 @@ export function createJevSettingsCard() {
         model,
       ),
     ),
-    el("div", { class: "tc-mt-2 tc-flex tc-items-center tc-gap-2" },
+    el("div", { class: "tc-mt-2 tc-jev-row" },
       experimental,
       el("label", { for: "jev-experimental", class: "tc-text-sm" }, t("ui.jev.allow_experimental", "Experimentelle Kandidaten anzeigen (nicht validiert)")),
     ),
-    el("div", { class: "tc-mt-2 tc-flex tc-items-center tc-gap-2" },
-      el("div", { style: { flex: "1 1 auto", minWidth: "0" } }, keyInput),
-      el("button", { class: "tc-btn", style: { flexShrink: "0" }, onclick: () => { if (keyInput.value.trim()) save({ api_key: keyInput.value.trim() }); } }, t("ui.jev.save_key", "Key speichern")),
-      el("button", { class: "tc-btn", style: { flexShrink: "0" }, onclick: () => save({ api_key: "" }) }, t("ui.jev.remove_key", "Key entfernen")),
+    el("div", { class: "tc-mt-2 tc-jev-row" },
+      el("div", { class: "tc-jev-grow" }, keyInput),
+      el("button", { class: "tc-btn", onclick: () => { if (keyInput.value.trim()) save({ api_key: keyInput.value.trim() }); } }, t("ui.jev.save_key", "Key speichern")),
+      el("button", { class: "tc-btn", onclick: () => save({ api_key: "" }) }, t("ui.jev.remove_key", "Key entfernen")),
     ),
-    el("div", { class: "tc-mt-2 tc-flex tc-items-center tc-gap-2" },
+    el("div", { class: "tc-mt-2 tc-jev-row" },
       el("button", { class: "tc-btn tc-btn-primary", onclick: () => save({ mode: modeSelect.value, allow_experimental_suggestions: experimental.checked }) }, t("ui.jev.save_settings", "Modus speichern")),
       statusLine,
     ),
@@ -123,8 +123,8 @@ const STATUS_TEXT = {
 export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
   const resultBox = el("div", { class: "tc-mt-4", id: "jev-result" });
   const requestBtn = el("button", { class: "tc-btn tc-btn-primary", id: "jev-request", onclick: () => requestAdvice() }, t("ui.jev.request", "Jev-Empfehlung anfordern"));
-  const page = el("div", { class: "tc-flex-col tc-gap-4" },
-    el("div", { class: "tc-card" },
+  const page = el("div", { class: "tc-flex-col tc-gap-4 tc-jev" },
+    el("div", { class: "tc-card tc-jev" },
       el("div", { class: "tc-card-title" }, t("ui.jev.page_title", "Jev-Empfehlungen")),
       el("div", { class: "tc-text-sm tc-text-muted tc-mb-2" }, t("ui.jev.page_intro", "Prüft den aktuellen Config-Entwurf gegen die Scan-Statistiken. Vorschläge sind experimentell: es gibt noch keinen Nachweis, dass sie Ergebnisse verbessern. Übernehmen ändert nur den Entwurf.")),
       el("div", { class: "tc-flex tc-items-center tc-gap-2" }, requestBtn),

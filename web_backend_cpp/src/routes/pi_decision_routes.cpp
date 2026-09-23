@@ -6,6 +6,7 @@
 #include "services/pi/pi_decision_service.hpp"
 #include "services/pi/pi_json_io.hpp"
 #include "services/pi/pi_storage_paths.hpp"
+#include "services/scan_metrics_cache.hpp"
 #include "services/scan_summary.hpp"
 #include "subprocess_manager.hpp"
 #include "time_utils.hpp"
@@ -106,18 +107,16 @@ std::optional<AdviceRequest> build_request(const std::shared_ptr<AppState>& stat
     }
     r.scan_id = r.scan.value("job_id", std::string());
     const std::string input_path = r.scan.value("input_path", std::string());
-    std::string best_id;
-    for (const auto& j : state->job_store.list()) {
-        if (j.type != "scan-metrics" || j.state != JobState::ok || !j.data.contains("result") || !j.data["result"].is_object()) continue;
-        const json& res = j.data["result"];
-        if (!res.value("ok", false)) continue;
-        if (j.data.value("input_path", std::string()) != input_path) continue;
-        if (j.job_id > best_id) { best_id = j.job_id; r.metrics = res; }
-    }
-    if (best_id.empty()) {
+    // Same lookup the scan-metrics route performs: a finished job in the job store, else the on-disk cache.
+    const std::string object_name = r.scan.value("object_name", r.scan.value("target", std::string()));
+    const int frame_count = r.scan.value("frames_detected", r.scan.value("frames_total", 0));
+    json metrics = find_cached_scan_metrics(state, input_path, object_name, frame_count);
+    if (metrics.empty()) metrics = find_disk_cached_scan_metrics(state, scan_metrics_cache_key(input_path, object_name, frame_count));
+    if (metrics.empty() || !metrics.value("ok", false)) {
         error_out = err_resp("NO_SCAN_METRICS", "no scan-metrics result for the current scan; run scan metrics first", 400);
         return std::nullopt;
     }
+    r.metrics = metrics;
     if (body.contains("locked_paths") && body["locked_paths"].is_array())
         for (const auto& p : body["locked_paths"]) if (p.is_string()) r.locked_paths.push_back(p.get<std::string>());
     if (body.contains("session_context") && body["session_context"].is_object()) r.session_context = body["session_context"];

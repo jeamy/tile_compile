@@ -1,7 +1,7 @@
 # PI Jev — Detaillierter Implementierungsplan
 
 > **Stand:** 2026-09-22.
-> **Status:** M0, M1 (State-Builder) und M2 (Pre-Rules, Kandidaten, atomare Validierung, Outcome-Modul) M3 (Sidecar-Adapter) und M4 (Workflow: Service, Routen, Sidecar-Einstellungen, UI; Routen/UI nicht im Betrieb geprüft) umgesetzt; M5-M7 offen; noch keine Routen-/UI-Verdrahtung.
+> **Status:** M0, M1 (State-Builder) und M2 (Pre-Rules, Kandidaten, atomare Validierung, Outcome-Modul) M3 (Sidecar-Adapter) und M4 (Workflow: Service, Routen, Sidecar-Einstellungen, UI; live in isolierter Instanz geprüft) umgesetzt; M5-M7 offen; noch keine Routen-/UI-Verdrahtung.
 > **Verbindliche Reihenfolge:** Pre-Run-Beratung zuerst, Post-Run-Beratung danach.
 > **Lieferumfang:** Vorschläge; kein automatischer Run/Resume und kein zweiter Bildeditor.
 
@@ -249,7 +249,7 @@ Tests (`npm test`, `node --test` über `tsx`, Fake-Transport): Modus/Key ohne Re
 
 ## 8. M4 — Vollständiger Pre-Run-Workflow
 
-**Status:** Backend, Sidecar-Einstellungen und Frontend umgesetzt (2026-09-23); Backend-Service und Sidecar getestet, **Routen und UI nicht im laufenden System geprüft** (kein Backend-/Sidecar-Start ohne Auftrag). Erste Auswertung an M31/M42: [Evaluation](pi_jev_m4_evaluation_m31_m42_de.md) — **keine verwertbare Empfehlung mit solider Basis**. **Abhängigkeit:** M1–M3.
+**Status:** Backend, Sidecar-Einstellungen und Frontend umgesetzt (2026-09-23); Backend-Service und Sidecar getestet; Routen und UI live geprüft (manuell) (Live-Prüfung am 2026-09-23 in isolierter Instanz, siehe unten). Erste Auswertung an M31/M42: [Evaluation](pi_jev_m4_evaluation_m31_m42_de.md) — **keine verwertbare Empfehlung mit solider Basis**. **Abhängigkeit:** M1–M3.
 
 Umgesetzt:
 
@@ -266,9 +266,11 @@ Umgesetzt:
 - [x] Persistierter Status nach Reload/Neustart (Backend), Wiederherstellung im UI über die gemerkte ID.
 - [x] DE/EN-Texte, bestehende Styles wiederverwendet (`tc-frame-table`, `tc-badge-*`, `tc-tab`).
 - [x] Bestehende PI-Beratung bleibt unverändert und getrennt.
-- [ ] **Nicht geprüft:** HTTP-Routen im laufenden Backend (kein Test mit Fake-Sidecar über den `BackendHarness`), UI im Browser bei Desktop/Mobil (nur Syntaxprüfung der Module und Vollständigkeit der Übersetzungsschlüssel), Rennen zwischen Config-Edit und Antwort im UI (Serverseite ist durch die Staleness-Prüfung abgesichert und getestet).
+- [x] **Live geprüft (2026-09-23)** in isolierter Instanz (Sidecar :3011 bzw. Fake-Sidecar :3012, Backend mit temporärem PI-Speicher, echte `validate-config`-CLI, echte M31-Daten, headless Chromium per DevTools-Protokoll): Einstellungen (0600-Datei, ungültiger Modus/Key mit 400, Status ohne Key), alle Fehlercodes der Routen, Beratung mit echtem Jev (`keep_current`, gleiche Wahrscheinlichkeiten wie in der Offline-Auswertung), Shadow (kein anwendbarer Patch), Suggest-Pfad mit Fake-Sidecar: `validated` -> Apply -> 409 bei editiertem Entwurf -> 200 -> idempotent -> `DRAFT_CHANGED`, UI-Ablauf inkl. Übernahme in den Entwurf (`dirty`, Wert `true`) und Wiederherstellung nach Reload; Desktop 1440 px und Mobil 390 px ohne horizontales Überlaufen.
+- Beim Live-Test gefunden und behoben: (1) die Beratungsroute fand zwischengespeicherte Scan-Metriken nicht (nur Job-Store, nicht der Disk-Cache) -> `NO_SCAN_METRICS` trotz vorhandener Metriken; die Cache-Suche liegt jetzt in `services/scan_metrics_cache` und wird von `scan_routes.cpp` und der Jev-Route gemeinsam genutzt; (2) Text in den Jev-Ansichten brach mitten im Wort um (globales `word-break: break-all` der `.tc-card`) und die Key-Zeile war auf Mobil zu schmal -> `.tc-jev`/`.tc-jev-row` in `pages.css`.
+- [ ] Nicht automatisiert: die HTTP-Routen haben weiterhin keinen `BackendHarness`-Test (der Live-Test war manuell), und die UI hat keinen automatisierten Test.
 - [ ] Sperren (`locked_paths`): das UI sendet derzeit eine leere Liste; eine Sperr-Oberfläche existiert noch nicht.
-- [ ] Der dritte Parameter-Tab und die Jev-Karte müssen vor einer Freigabe einmal im Browser gesichtet werden.
+- Hinweis zum Betrieb: Das UI nimmt den Port 8080 an (`api.setBase`, sobald der Port abweicht); ein Backend auf anderem Port ruft das UI nicht an.
 
 Tests: `test_pi_decision_service.cpp` (Modus aus, nur Baselines, Sidecar aus/kein Key/ungültige und eingeschleuste Antworten, Shadow, vollständiger Suggest-Pfad mit Staleness, Apply, Idempotenz, Neustart, Validator-Veto, nur `pi_decisions/` beschrieben, keine Pfade/Geheimnisse in der Provider-Anfrage) und drei neue Sidecar-Tests für die Einstellungen (`npm test`, jetzt 47).
 

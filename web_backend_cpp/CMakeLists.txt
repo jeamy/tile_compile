@@ -170,6 +170,7 @@ set(BACKEND_SOURCES
     src/services/run_inspector.cpp
     src/services/report_generator.cpp
     src/services/scan_summary.cpp
+    src/services/scan_metrics_cache.cpp
     src/services/ai_service.cpp
     src/services/config_revisions.cpp
     src/services/pi/pi_action_plan.cpp
