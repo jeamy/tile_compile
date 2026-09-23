@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
             for (const auto& a : c.applicable) if (a["candidate_id"] == "enable_adaptive_weights") enable = &a;
             expect_true(enable && (*enable)["experimental"] == true && (*enable)["requires_review"] == true, "flagged experimental + review");
             expect_true((*enable)["updates"][0]["old_value"] == false && (*enable)["updates"][0]["value"] == true, "concrete update");
-            expect_true((*enable)["rationale"]["params"].contains("quality_spread"), "rationale from real measurement");
+            expect_true((*enable)["rationale"]["params"].contains("metric_agreement"), "rationale from real measurement");
             // offered == accepted later: one code path
             for (const auto& a : c.applicable) {
                 if (a["updates"].empty()) continue;
@@ -77,8 +77,8 @@ int main(int argc, char** argv) {
             expect_true(has_reason(build_pre_run_candidates(build_pre_run_decision_state(inputs_for(mix)).state, cfg, frozen_test_policy(), catalog, ok).excluded,
                                    "enable_adaptive_weights", "mixed_groups_no_single_evidence"), "mixed groups are never pooled");
 
-            DecisionPolicy strict = frozen_test_policy(); strict.min_quality_spread = 0.99;
-            expect_true(has_reason(build_pre_run_candidates(state, cfg, strict, catalog, ok).excluded, "enable_adaptive_weights", "evidence_below_threshold:quality_spread"), "below spread threshold");
+            DecisionPolicy strict = frozen_test_policy(); strict.min_metric_agreement = 0.99;
+            expect_true(has_reason(build_pre_run_candidates(state, cfg, strict, catalog, ok).excluded, "enable_adaptive_weights", "evidence_below_threshold:metric_agreement"), "below spread threshold");
 
             json partial = spread_frames(10);
             for (int i = 6; i < 10; ++i) partial[i] = make_frame(i, "L", 0, 0, false);  // 4 unreadable

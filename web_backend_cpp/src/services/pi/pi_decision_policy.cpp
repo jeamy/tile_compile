@@ -56,31 +56,31 @@ EvidenceResult resolve_measurement_coverage(const json& state, const DecisionPol
     return r;
 }
 
-EvidenceResult resolve_quality_spread(const json& state, const DecisionPolicy& policy) {
+// Agreement between the frame-quality metrics (median pairwise Spearman rho of background, noise,
+// fwhm) is what makes adaptive weighting act: the weights follow leave-one-out metric correlation,
+// not the size of the spread. It says the option will have an effect, never that the effect is good.
+EvidenceResult resolve_metric_agreement(const json& state, const DecisionPolicy& policy) {
     EvidenceResult r;
-    // Pooling groups with different acquisition conditions would blur the spread; with several
+    // Pooling groups with different acquisition conditions would blur the agreement; with several
     // readable groups there is no single honest number, so the evidence is unavailable.
     const json groups = state.value("groups", json::array());  // named: readable[] points into it
     std::vector<const json*> readable;
     for (const auto& g : groups)
         if (g.value("frame_count", 0) - g.value("frames_read_failed", 0) > 0) readable.push_back(&g);
-    if (readable.empty()) { r.reasons.push_back("evidence_unavailable:quality_spread"); return r; }
+    if (readable.empty()) { r.reasons.push_back("evidence_unavailable:metric_agreement"); return r; }
     if (readable.size() > 1) { r.reasons.push_back("mixed_groups_no_single_evidence"); return r; }
     const json& g = *readable.front();
     const std::string gid = g.value("group_id", std::string("?"));
-    double worst = 0.0;
-    for (const char* metric : {"fwhm", "noise"}) {
-        r.refs.push_back("groups[" + gid + "].metrics." + metric + ".relative_spread");
-        const json rs = g.value("metrics", json::object()).value(metric, json::object()).value("relative_spread", json::object());
-        if (rs.value("status", std::string()) != "valid" || !rs.contains("value") || !rs["value"].is_number()) {
-            r.reasons.push_back("evidence_unavailable:quality_spread");
-            return r;
-        }
-        worst = std::max(worst, rs["value"].get<double>());
+    r.refs.push_back("groups[" + gid + "].metric_agreement.median");
+    const json med = g.value("metric_agreement", json::object()).value("median", json::object());
+    if (med.value("status", std::string()) != "valid" || !med.contains("value") || !med["value"].is_number()) {
+        r.reasons.push_back("evidence_unavailable:metric_agreement");
+        return r;
     }
-    r.params["quality_spread"] = worst;
-    if (!policy.min_quality_spread) { r.reasons.push_back("policy_thresholds_not_frozen"); return r; }
-    if (worst < *policy.min_quality_spread) { r.reasons.push_back("evidence_below_threshold:quality_spread"); return r; }
+    const double agreement = med["value"].get<double>();
+    r.params["metric_agreement"] = agreement;
+    if (!policy.min_metric_agreement) { r.reasons.push_back("policy_thresholds_not_frozen"); return r; }
+    if (agreement < *policy.min_metric_agreement) { r.reasons.push_back("evidence_below_threshold:metric_agreement"); return r; }
     r.ok = true;
     return r;
 }
@@ -253,7 +253,7 @@ CandidateValidation validate_decision_candidate(const json& candidate, const jso
         const std::string k = key.get<std::string>();
         EvidenceResult ev;
         if (k == "measurement_coverage") ev = resolve_measurement_coverage(state, policy);
-        else if (k == "quality_spread") ev = resolve_quality_spread(state, policy);
+        else if (k == "metric_agreement") ev = resolve_metric_agreement(state, policy);
         else { ev.reasons.push_back("evidence_unavailable:" + fmt_key(k)); }
         for (const auto& r : ev.reasons) reasons.insert(r);
         for (const auto& ref : ev.refs) out.evidence_refs.push_back(ref);

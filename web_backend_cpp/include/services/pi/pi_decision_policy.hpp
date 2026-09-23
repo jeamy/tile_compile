@@ -19,7 +19,7 @@ struct DecisionPolicy {
     // (allow_experimental_suggestions, default false).
     bool allow_experimental = false;
     std::optional<double> min_measurement_coverage;  // read_ok / measured, in (0, 1]
-    std::optional<double> min_quality_spread;        // relative spread, > 0
+    std::optional<double> min_metric_agreement;      // median pairwise Spearman rho, in (-1, 1]
 };
 
 struct DecisionCatalog {

@@ -9,7 +9,7 @@ using nlohmann::json;
 namespace {
 bool has(const std::vector<std::string>& v, const std::string& x) { return std::find(v.begin(), v.end(), x) != v.end(); }
 json enable_candidate() {
-    return {{"candidate_id", "enable_adaptive_weights"}, {"candidate_version", 1},
+    return {{"candidate_id", "enable_adaptive_weights"}, {"candidate_version", 2},
             {"updates", json::array({{{"path", "global_metrics.adaptive_weights"}, {"value", true}}})}};
 }
 } // namespace
@@ -73,7 +73,7 @@ int main(int argc, char** argv) {
             expect_true(config_get(v.merged_config, "global_metrics.adaptive_weights") == true, "merged config carries the value");
             expect_true(config_get(cfg, "global_metrics.adaptive_weights") == false, "input config untouched");
             expect_true(v.evidence_refs.size() >= 3, "evidence refs recorded");
-            expect_true(v.rationale["params"].contains("quality_spread") && v.rationale["params"].contains("measurement_coverage"), "rationale carries measured numbers");
+            expect_true(v.rationale["params"].contains("metric_agreement") && v.rationale["params"].contains("measurement_coverage"), "rationale carries measured numbers");
             expect_true(v.schema_ok && v.policy_ok && v.evidence_ok && v.config_ok, "all check families passed");
         }
 
@@ -107,8 +107,8 @@ int main(int argc, char** argv) {
             expect_rejected(json(nullptr), good, cfg, pol, accepting_validator(), "malformed_candidate", "non-object candidate");
             expect_rejected(enable_candidate(), good, cfg, frozen_test_policy(false), accepting_validator(), "experimental_not_enabled", "experimental off");
             expect_rejected(enable_candidate(), good, cfg, DecisionPolicy{}, accepting_validator(), "policy_thresholds_not_frozen", "thresholds not frozen");
-            DecisionPolicy strict = pol; strict.min_quality_spread = 0.99;
-            v = expect_rejected(enable_candidate(), good, cfg, strict, accepting_validator(), "evidence_below_threshold:quality_spread", "spread below threshold");
+            DecisionPolicy strict = pol; strict.min_metric_agreement = 0.99;
+            v = expect_rejected(enable_candidate(), good, cfg, strict, accepting_validator(), "evidence_below_threshold:metric_agreement", "spread below threshold");
             expect_true(!v.evidence_ok && v.policy_ok, "evidence family isolated");
             json active = {{"global_metrics", {{"adaptive_weights", true}}}};
             expect_rejected(enable_candidate(), good, active, pol, accepting_validator(), "already_active", "already active");
@@ -124,7 +124,7 @@ int main(int argc, char** argv) {
                 for (auto& f : b) f["file_name"] = "r_" + f["file_name"].get<std::string>(); for (auto& f : b) a.push_back(f); return a; }())).state;
             expect_rejected(enable_candidate(), mixed, cfg, pol, accepting_validator(), "mixed_groups_no_single_evidence", "mixed groups");
             const auto few = build_pre_run_decision_state(inputs_for(spread_frames(3))).state;  // 3 valid < floor -> spread not applicable
-            expect_rejected(enable_candidate(), few, cfg, pol, accepting_validator(), "evidence_unavailable:quality_spread", "spread not computable");
+            expect_rejected(enable_candidate(), few, cfg, pol, accepting_validator(), "evidence_unavailable:metric_agreement", "spread not computable");
             // sorted, unique reasons regardless of discovery order
             const auto multi = validate_decision_candidate(enable_candidate(), locked_state, active, frozen_test_policy(false), catalog, accepting_validator());
             expect_true(std::is_sorted(multi.reasons.begin(), multi.reasons.end()) &&
@@ -183,7 +183,7 @@ int main(int argc, char** argv) {
             expect_true(has(r, "stale:config_hash") && has(r, "stale:state_hash"), "config change makes the proposal stale");
             DecisionPolicy p2 = pol; p2.version = "pi.decision-policy.v2";
             expect_true(has(stale_reasons(prop, good, good_state_r.state_hash, p2, catalog), "stale:policy_version"), "policy version bump");
-            DecisionCatalog c2 = catalog; c2.candidates[2]["candidate_version"] = 2;
+            DecisionCatalog c2 = catalog; c2.candidates[2]["candidate_version"] = 3;
             expect_true(has(stale_reasons(prop, good, good_state_r.state_hash, pol, c2), "stale:candidate_version"), "candidate version bump");
             auto locked_in = inputs_for(spread_frames(10)); locked_in.locked_paths = {"x.y"};
             const auto locked = build_pre_run_decision_state(locked_in);

@@ -46,7 +46,7 @@ struct Harness {
     }
     int posts() const { return static_cast<int>(std::count(calls.begin(), calls.end(), "POST /decisions")); }
     void freeze_thresholds() {
-        tile_compile::pi::write_json_file_atomic(dir / "policy_override.json", {{"min_measurement_coverage", 0.9}, {"min_quality_spread", 0.05}});
+        tile_compile::pi::write_json_file_atomic(dir / "policy_override.json", {{"min_measurement_coverage", 0.9}, {"min_metric_agreement", 0.05}});
     }
     ~Harness() { fs::remove_all(root); }
 };
@@ -182,7 +182,7 @@ int main(int argc, char** argv) {
             expect_true(v["proposal"]["review_required"] == true && v["evidence"]["experimental"] == true, "experimental flagged");
             expect_equal(static_cast<long>(v["comparison"].size()), 1L, "one comparison row");
             expect_true(v["comparison"][0]["current"] == false && v["comparison"][0]["proposed"] == true && v["comparison"][0]["changed"] == true, "current vs proposed");
-            expect_true(v["evidence"]["rationale"]["params"].contains("quality_spread"), "evidence carries the measured number");
+            expect_true(v["evidence"]["rationale"]["params"].contains("metric_agreement"), "evidence carries the measured number");
             expect_true(v["offered"].size() == 3, "offered list");
             expect_equal(static_cast<long>(sent["allowed_candidates"].size()), 3L, "provider saw the allowed ids");
             const std::string request_text = slurp_file(h.dir / id / "request.json");

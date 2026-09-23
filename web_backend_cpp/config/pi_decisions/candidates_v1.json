@@ -27,13 +27,13 @@
     },
     {
       "candidate_id": "enable_adaptive_weights",
-      "candidate_version": 1,
+      "candidate_version": 2,
       "group": "global_weighting",
       "preconditions": [
         "adaptive_weights_is_false",
         "path_unlocked:global_metrics.adaptive_weights"
       ],
-      "required_evidence": ["quality_spread", "measurement_coverage"],
+      "required_evidence": ["metric_agreement", "measurement_coverage"],
       "updates": [
         {"path": "global_metrics.adaptive_weights", "value": true}
       ],
@@ -42,7 +42,7 @@
       "requires_review": true,
       "validation_status": "unvalidated",
       "applicability": "experimental_only",
-      "description": "Hypothesis-stage. First applicable ONLY once M5 freezes the minimum measurement-coverage / quality-spread threshold policy this candidate's preconditions require (pi_scan_pre_rules_de.md section 5, last paragraph). Until then this entry exists for schema/contract testing but pi_decision_policy must resolve it to abstain in every real evaluation."
+      "description": "Hypothesis-stage. First applicable ONLY once M5 freezes the minimum measurement-coverage / metric-agreement threshold policy this candidate's preconditions require (pi_scan_pre_rules_de.md section 5, last paragraph). Until then this entry exists for schema/contract testing but pi_decision_policy must resolve it to abstain in every real evaluation."
     }
   ]
 }

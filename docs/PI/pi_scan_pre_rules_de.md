@@ -153,7 +153,7 @@ Geplanter Anwendungsvertrag, kein Provider-Request:
   "group": "global_weighting",
   "validation_status": "unvalidated",
   "requires_review": true,
-  "required_evidence": ["quality_spread", "measurement_coverage"],
+  "required_evidence": ["metric_agreement", "measurement_coverage"],
   "preconditions": ["adaptive_weights_is_false", "path_unlocked"],
   "updates": [{"path": "global_metrics.adaptive_weights", "value": true}],
   "expected_effect_code": "redistribute_frame_weights",

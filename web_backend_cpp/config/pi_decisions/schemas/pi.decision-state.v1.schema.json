@@ -284,7 +284,8 @@
         "metrics",
         "gain",
         "frames_read_failed",
-        "metric_coverage"
+        "metric_coverage",
+        "metric_agreement"
       ],
       "additionalProperties": false,
       "properties": {
@@ -365,6 +366,13 @@
                 "minimum": 0
               }
             }
+          }
+        },
+        "metric_agreement": {
+          "type": "object",
+          "description": "pair name (\"background~noise\", \"background~fwhm\", \"noise~fwhm\") and \"median\" -> Spearman rank correlation measurement over frames valid in both metrics. not_applicable below policy.min_valid_for_spread frames; invalid when a metric is constant.",
+          "additionalProperties": {
+            "$ref": "#/definitions/measurement"
           }
         }
       }

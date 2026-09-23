@@ -1,5 +1,5 @@
 // Offline evaluation harness for the Jev pre-run advice (no backend, no sidecar, no run).
-//   prepare --scan S.json --metrics M.json --config C.yaml --out DIR [--min-coverage X --min-spread Y]
+//   prepare --scan S.json --metrics M.json --config C.yaml --out DIR [--min-coverage X --min-agreement Y]
 //           [--mode shadow|suggest] [--adaptive-override true|false]
 //   resolve --dir DIR --response R.json
 // `prepare` writes DIR/{state,candidates,request}.json; the provider call itself is made by
@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
         DecisionPolicy policy;
         policy.allow_experimental = (a.count("--mode") ? a["--mode"] : "shadow") != "off";
         if (a.count("--min-coverage")) policy.min_measurement_coverage = std::stod(a["--min-coverage"]);
-        if (a.count("--min-spread")) policy.min_quality_spread = std::stod(a["--min-spread"]);
+        if (a.count("--min-agreement")) policy.min_metric_agreement = std::stod(a["--min-agreement"]);
         auto accept = [](const json&) { return ConfigCheck{true, ""}; };  // eval only: real validate-config is a CLI call
 
         if (cmd == "prepare") {

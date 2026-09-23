@@ -3,6 +3,7 @@
 #include <openssl/sha.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iomanip>
 #include <map>
@@ -118,6 +119,7 @@ struct GroupAcc {
     int frames = 0;
     int read_failed = 0;
     std::map<std::string, MetricAcc> metrics;
+    std::vector<std::array<double, 3>> agreement_rows;  // background, noise, fwhm of frames valid in all three
 };
 
 json nonempty_string_or_null(const json& v) {
@@ -183,6 +185,73 @@ json summarize_metric(const std::string& name, const MetricAcc& acc, int total, 
         s["relative_spread"] = measurement(nullptr, "invalid", "ratio", ref, valid, total, "zero_denominator");
     }
     return s;
+}
+
+// Average ranks (ties share the mean rank) for Spearman's rho.
+std::vector<double> average_ranks(const std::vector<double>& v) {
+    std::vector<size_t> idx(v.size());
+    for (size_t i = 0; i < idx.size(); ++i) idx[i] = i;
+    std::sort(idx.begin(), idx.end(), [&](size_t a, size_t b) { return v[a] < v[b]; });
+    std::vector<double> ranks(v.size());
+    for (size_t i = 0; i < idx.size();) {
+        size_t j = i;
+        while (j + 1 < idx.size() && v[idx[j + 1]] == v[idx[i]]) ++j;
+        const double r = 0.5 * static_cast<double>(i + j) + 1.0;
+        for (size_t k = i; k <= j; ++k) ranks[idx[k]] = r;
+        i = j + 1;
+    }
+    return ranks;
+}
+
+// Spearman rank correlation; false when either side is constant (rho undefined).
+bool spearman_rho(const std::vector<double>& x, const std::vector<double>& y, double& out) {
+    if (x.size() != y.size() || x.size() < 2) return false;
+    const std::vector<double> rx = average_ranks(x), ry = average_ranks(y);
+    const double n = static_cast<double>(x.size());
+    double mx = 0.0, my = 0.0;
+    for (size_t i = 0; i < rx.size(); ++i) { mx += rx[i]; my += ry[i]; }
+    mx /= n; my /= n;
+    double sxy = 0.0, sxx = 0.0, syy = 0.0;
+    for (size_t i = 0; i < rx.size(); ++i) {
+        sxy += (rx[i] - mx) * (ry[i] - my);
+        sxx += (rx[i] - mx) * (rx[i] - mx);
+        syy += (ry[i] - my) * (ry[i] - my);
+    }
+    if (sxx <= 0.0 || syy <= 0.0) return false;
+    out = sxy / std::sqrt(sxx * syy);
+    return true;
+}
+
+// Per-group agreement between the frame-quality metrics that drive adaptive weighting. Uses only
+// frames where BOTH metrics of a pair are valid; the median needs all three pairs.
+json summarize_metric_agreement(const std::vector<std::array<double, 3>>& rows, int total, int min_valid) {
+    static const char* kNames[3] = {"background", "noise", "fwhm"};
+    static const int kPairs[3][2] = {{0, 1}, {0, 2}, {1, 2}};
+    json out = json::object();
+    std::vector<double> rhos;
+    for (const auto& pr : kPairs) {
+        const std::string key = std::string(kNames[pr[0]]) + "~" + kNames[pr[1]];
+        const std::string ref = "derived:spearman(scan-metrics.frames[]." + std::string(kNames[pr[0]]) + ",." + kNames[pr[1]] + ")";
+        std::vector<double> x, y;
+        for (const auto& r : rows) { x.push_back(r[pr[0]]); y.push_back(r[pr[1]]); }
+        const int valid = static_cast<int>(rows.size());
+        double rho = 0.0;
+        if (valid < min_valid) {
+            out[key] = measurement(nullptr, "not_applicable", "ratio", ref, valid, total, "insufficient_sample");
+        } else if (!spearman_rho(x, y, rho)) {
+            out[key] = measurement(nullptr, "invalid", "ratio", ref, valid, total, "constant_metric");
+        } else {
+            out[key] = measurement(rho, "valid", "ratio", ref, valid, total);
+            rhos.push_back(rho);
+        }
+    }
+    const std::string mref = "derived:median(pairwise spearman of background,noise,fwhm)";
+    if (rhos.size() == 3)
+        out["median"] = measurement(median_of(rhos), "valid", "ratio", mref, static_cast<int>(rows.size()), total);
+    else
+        out["median"] = measurement(nullptr, "not_applicable", "ratio", mref, static_cast<int>(rows.size()), total,
+                                    "needs_all_three_pairs");
+    return out;
 }
 
 json finding(const std::string& code, const std::string& severity, const std::string& detail) {
@@ -325,6 +394,10 @@ PreRunDecisionResult build_pre_run_decision_state(const PreRunDecisionInputs& in
         }
         ++read_ok;
         for (const char* name : kMetricNames) feed_metric(g.metrics[name], frame, name);
+        double bg, nz, fw;
+        if (frame.contains("background") && frame.contains("noise") && frame.contains("fwhm") &&
+            as_finite(frame["background"], bg) && as_finite(frame["noise"], nz) && as_finite(frame["fwhm"], fw) && fw > 0.0)
+            g.agreement_rows.push_back({bg, nz, fw});
     }
     if (read_ok == 0) blocking.push_back("no_readable_frames");
 
@@ -354,7 +427,8 @@ PreRunDecisionResult build_pre_run_decision_state(const PreRunDecisionInputs& in
                                {"gain", g.gain},
                                {"frames_read_failed", g.read_failed},
                                {"metrics", metrics_json},
-                               {"metric_coverage", coverage_json}});
+                               {"metric_coverage", coverage_json},
+                               {"metric_agreement", summarize_metric_agreement(g.agreement_rows, g.frames, in.options.min_valid_for_spread)}});
     }
     if (groups_json.size() > 1)
         findings.push_back(finding("mixed_acquisition_groups", "info",
@@ -490,6 +564,14 @@ PreRunDecisionResult build_pre_run_decision_state(const PreRunDecisionInputs& in
             }
             pm[it.key()] = pmetric;
         }
+        json pagree = json::object();
+        for (auto sit = g["metric_agreement"].begin(); sit != g["metric_agreement"].end(); ++sit) {
+            const json& m = sit.value();
+            json compact = {{"value", m["value"]}, {"status", m["status"]}, {"unit", m["unit"]},
+                            {"valid_count", m["valid_count"]}, {"total_count", m["total_count"]}};
+            if (m.contains("reason")) compact["reason"] = m["reason"];
+            pagree[sit.key()] = compact;
+        }
         json filter = g["filter"];
         if (filter.is_string() && !std::regex_match(filter.get<std::string>(), std::regex("^[A-Za-z0-9 _.+-]{1,32}$"))) {
             filter = nullptr;
@@ -498,7 +580,8 @@ PreRunDecisionResult build_pre_run_decision_state(const PreRunDecisionInputs& in
         proj_groups.push_back({{"group_id", g["group_id"]}, {"frame_count", g["frame_count"]},
                                {"color_mode", g["color_mode"]}, {"bayer_pattern", g["bayer_pattern"]},
                                {"filter", filter}, {"exposure_seconds", g["exposure_seconds"]},
-                               {"gain", g["gain"]}, {"frames_read_failed", g["frames_read_failed"]}, {"metrics", pm}});
+                               {"gain", g["gain"]}, {"frames_read_failed", g["frames_read_failed"]}, {"metrics", pm},
+                               {"metric_agreement", pagree}});
     }
     json config_facts = json::object();
     json locked = json::object();

@@ -114,3 +114,24 @@ Nebenbefund: `fwhm` aus dem Scan und `fwhm` aus den Run-Metriken sind praktisch 
    mehreren gleichwertigen Alternativen und gemischten Belegen, für die es keine einfache Regel gibt.
 4. **Weitere Kandidaten** einzeln nach dem Erweiterungsverfahren des Regelkatalogs; bis dahin bleibt die
    Produktionseinstellung bei den Baselines (Schwellen nicht eingefroren).
+
+## 8. Nachtrag M5 (Teil 1): Metrik-Übereinstimmung im State
+
+Stand 2026-09-23. Der State enthält je Gruppe `metric_agreement`: Spearman-Rangkorrelation für `background~noise`,
+`background~fwhm`, `noise~fwhm` und deren Median (nur Frames, in denen beide Metriken gültig sind; `fwhm<=0` wird
+ausgeschlossen; unter `min_valid_for_spread` Frames `not_applicable`; konstante Metrik `invalid/constant_metric`, nie 0).
+Die Zahlen gehen in die Provider-Projektion. Die Evidenz des Kandidaten `enable_adaptive_weights` (jetzt Version 2)
+ist `metric_agreement` statt `quality_spread`; die Schwelle `min_metric_agreement` bleibt ungefroren.
+
+Offline aus denselben Scan-Metriken (kein Run, kein Provider-Aufruf):
+
+| | M31 | M42 |
+|---|---|---|
+| background~noise | 0,926 | 0,966 |
+| background~fwhm | 0,877 | 0,754 |
+| noise~fwhm | 0,827 | 0,728 |
+| Median | 0,877 | 0,754 |
+
+Die C++-Werte stimmen mit der unabhängigen Python-Auswertung in Abschnitt 4 überein. Noch offen: Eine Schwelle ist
+damit nicht begründet (zwei Datensätze, gleiche Kamera, kein gepaarter Lauf), und eine "erwartete n_eff/N" wurde
+bewusst nicht implementiert, solange sie nicht gegen das Gewichtungsverfahren des Runners validiert ist.

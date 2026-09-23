@@ -31,7 +31,7 @@ json policy_snapshot(const DecisionPolicy& p) {
     return {{"version", p.version},
             {"allow_experimental", p.allow_experimental},
             {"min_measurement_coverage", p.min_measurement_coverage ? json(*p.min_measurement_coverage) : json(nullptr)},
-            {"min_quality_spread", p.min_quality_spread ? json(*p.min_quality_spread) : json(nullptr)}};
+            {"min_metric_agreement", p.min_metric_agreement ? json(*p.min_metric_agreement) : json(nullptr)}};
 }
 
 DecisionPolicy policy_from_snapshot(const json& s) {
@@ -39,7 +39,7 @@ DecisionPolicy policy_from_snapshot(const json& s) {
     p.version = s.value("version", std::string(kDecisionPolicyVersion));
     p.allow_experimental = s.value("allow_experimental", false);
     if (s.contains("min_measurement_coverage") && s["min_measurement_coverage"].is_number()) p.min_measurement_coverage = s["min_measurement_coverage"].get<double>();
-    if (s.contains("min_quality_spread") && s["min_quality_spread"].is_number()) p.min_quality_spread = s["min_quality_spread"].get<double>();
+    if (s.contains("min_metric_agreement") && s["min_metric_agreement"].is_number()) p.min_metric_agreement = s["min_metric_agreement"].get<double>();
     return p;
 }
 
@@ -81,7 +81,7 @@ DecisionPolicy DecisionService::policy_for_mode(const std::string& mode, bool al
     if (auto o = read_json_file_opt(dir_ / "policy_override.json"); o && o->is_object()) {
         override_json = *o;
         if (o->contains("min_measurement_coverage") && (*o)["min_measurement_coverage"].is_number()) p.min_measurement_coverage = (*o)["min_measurement_coverage"].get<double>();
-        if (o->contains("min_quality_spread") && (*o)["min_quality_spread"].is_number()) p.min_quality_spread = (*o)["min_quality_spread"].get<double>();
+        if (o->contains("min_metric_agreement") && (*o)["min_metric_agreement"].is_number()) p.min_metric_agreement = (*o)["min_metric_agreement"].get<double>();
         p.version = std::string(kDecisionPolicyVersion) + "+override:" + sha256_prefixed(canonical_json_dump(override_json)).substr(7, 8);
     }
     return p;

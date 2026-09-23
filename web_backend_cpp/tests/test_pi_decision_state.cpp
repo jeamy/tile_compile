@@ -117,6 +117,61 @@ int main(int argc, char** argv) {
             expect_true(r2.state_hash != r.state_hash, "policy change changes the state hash");
         }
 
+        // --- metric agreement: Spearman rho between background/noise/fwhm per group ---
+        {
+            auto agree = [&](json frames, int floor_n = 5) {
+                PreRunDecisionInputs in = base_inputs(frames);
+                in.options.min_valid_for_spread = floor_n;
+                return build_pre_run_decision_state(in);
+            };
+            json fr = json::array();
+            for (int i = 0; i < 6; ++i) fr.push_back(frame(i, true, "L", 60, 10.0 + i, 1.0 + i, 10.0 - i, 1.0, 100));
+            const auto r = agree(fr);
+            const std::string err = pi_test::schema_check(schema, r.state, schema, "state");
+            expect_true(err.empty(), "state with metric_agreement satisfies schema: " + err);
+            const json& ma = r.state["groups"][0]["metric_agreement"];
+            expect_equal(ma["background~noise"]["value"].get<double>(), 1.0, "perfectly concordant metrics -> rho 1");
+            expect_equal(ma["background~fwhm"]["value"].get<double>(), -1.0, "perfectly discordant -> rho -1");
+            expect_equal(ma["median"]["value"].get<double>(), -1.0, "median of the three pairs");
+            expect_equal(static_cast<long>(ma["median"]["valid_count"].get<int>()), 6L, "valid_count = frames valid in all three");
+            expect_true(r.provider_projection["groups"][0].contains("metric_agreement") &&
+                            r.provider_projection["groups"][0]["metric_agreement"]["median"]["value"].get<double>() == -1.0,
+                        "agreement reaches the provider projection (numbers only)");
+
+            // ties share the mean rank: background {1,1,2,2,3,3} vs noise 1..6 -> 16/sqrt(16*17.5)
+            json tied = json::array();
+            const double bgs[6] = {1, 1, 2, 2, 3, 3};
+            for (int i = 0; i < 6; ++i) tied.push_back(frame(i, true, "L", 60, bgs[i], 1.0 + i, 10.0 - i, 1.0, 100));
+            expect_equal(agree(tied).state["groups"][0]["metric_agreement"]["background~noise"]["value"].get<double>(),
+                         16.0 / std::sqrt(16.0 * 17.5), "tied ranks use average rank", 1e-12);
+
+            // a constant metric has no rho: invalid, never 0 or NaN; the median then is not applicable
+            json flat = json::array();
+            for (int i = 0; i < 6; ++i) flat.push_back(frame(i, true, "L", 60, 10.0 + i, 5.0, 10.0 - i, 1.0, 100));
+            const auto flat_result = agree(flat);
+            const json& fm = flat_result.state["groups"][0]["metric_agreement"];
+            expect_equal(fm["background~noise"]["status"].get<std::string>(), "invalid", "constant noise -> invalid");
+            expect_equal(fm["background~noise"]["reason"].get<std::string>(), "constant_metric", "reason kept");
+            expect_equal(fm["median"]["status"].get<std::string>(), "not_applicable", "median needs all three pairs");
+            expect_true(fm["median"]["value"].is_null(), "no fabricated median");
+
+            // below the sample floor: not_applicable, not a number
+            json few = json::array();
+            for (int i = 0; i < 3; ++i) few.push_back(frame(i, true, "L", 60, 10.0 + i, 1.0 + i, 10.0 - i, 1.0, 100));
+            expect_equal(agree(few).state["groups"][0]["metric_agreement"]["median"]["status"].get<std::string>(), "not_applicable",
+                         "insufficient sample -> not_applicable");
+
+            // a frame without a reliable star fit (fwhm=-1) is excluded from the pairs, not counted as a value
+            json partial = fr;
+            partial.push_back(frame(6, true, "L", 60, 99.0, 99.0, -1.0, 1.0, 100));
+            expect_equal(static_cast<long>(agree(partial).state["groups"][0]["metric_agreement"]["median"]["valid_count"].get<int>()), 6L,
+                         "fwhm<=0 frame excluded from agreement");
+            // frame order is not semantic
+            json rev = json::array();
+            for (size_t i = fr.size(); i-- > 0;) rev.push_back(fr[i]);
+            expect_equal(agree(rev).state_hash, r.state_hash, "agreement does not depend on frame order");
+        }
+
         // --- empty inputs: blocking, no fabricated groups ---
         {
             PreRunDecisionInputs in;
