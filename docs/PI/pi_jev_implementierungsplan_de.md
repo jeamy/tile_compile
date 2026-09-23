@@ -1,7 +1,7 @@
 # PI Jev — Detaillierter Implementierungsplan
 
 > **Stand:** 2026-09-22.
-> **Status:** M0 inhaltlich abgeschlossen (Katalog, Schemas, verifizierter Provider-Vertrag, HARD-RULE-Review, Fixtures); M1-M7 offen; kein Backend-/Frontend-Code.
+> **Status:** M0 abgeschlossen, M1 (State-Builder) umgesetzt und getestet; M2-M7 offen; noch keine Routen-/UI-Verdrahtung.
 > **Verbindliche Reihenfolge:** Pre-Run-Beratung zuerst, Post-Run-Beratung danach.
 > **Lieferumfang:** Vorschläge; kein automatischer Run/Resume und kein zweiter Bildeditor.
 
@@ -160,21 +160,25 @@ Arbeit:
 
 ## 5. M1 — State-Builder und Gruppenstatistik
 
-**Status:** offen. **Abhängigkeit:** M0.
+**Status:** umgesetzt und getestet (2026-09-23), noch nirgends in Routen/UI verdrahtet (das ist M4). **Abhängigkeit:** M0.
 
-Geplante API: `build_pre_run_decision_state(scan, metrics, base_config, session_context, capabilities, locks)` -> State plus strukturierte Findings. Keine Seiteneffekte und keine Modellaufrufe.
+Umgesetzte API (`web_backend_cpp/include/services/pi/pi_decision_state.hpp`, `src/services/pi/pi_decision_state.cpp`): `build_pre_run_decision_state(PreRunDecisionInputs)` -> `PreRunDecisionResult{state, findings, state_hash, provider_projection}`. Rein funktional: kein I/O, keine Uhr, keine Modellaufrufe; keine `AppState`-Abhängigkeit. Zusätzlich exportiert: `canonical_json_dump`, `sha256_prefixed`, `axis_asymmetry`.
 
-- [ ] Gruppen nach kompatiblen Aufnahmebedingungen bilden; unbekannte Headerwerte nicht mit bekannten gleichsetzen.
-- [ ] Messabdeckung pro Metrik/Gruppe berechnen; fehlende und ungültige Werte mit Ursachen erhalten.
-- [ ] Vergleichbare Spreads deterministisch berechnen; Nullnenner und unterschiedliche Einheiten abfangen.
-- [ ] Symmetrische Achsenabweichung pro Frame ableiten, Roh-`roundness` unverändert erhalten; Messgrenzen dokumentieren.
-- [ ] Session-Schätzungen und Nutzerangaben mit Herkunft übernehmen; keine Montierung/Objektklasse aus schwachen Proxies erfinden.
-- [ ] State-/Dataset-/Config-/Lock-Hashes und Provider-Allowlist-Projektion implementieren.
-- [ ] Bestehendes `pi.feature-vector.v1` und kNN-Shadow-Ausgaben regressionsfrei erhalten.
+- [x] Gruppen nach kompatiblen Aufnahmebedingungen (Kamera, Filter, Belichtung, Gain) bilden; ein unbekannter (fehlender/leerer) Headerwert ist ein eigener Bucket und wird nie einem bekannten gleichgesetzt. Farbmodus/Bayer sind Session-Fakten aus dem Scan-Ergebnis (nicht pro Frame gemessen).
+- [x] Messabdeckung pro Metrik/Gruppe: `valid_count`/`total_count` je Messwert plus `metric_coverage{missing, invalid}`; nicht lesbare Frames zählen als `frames_read_failed`, nie als Messwert 0. `fwhm`/`roundness` <= 0 (Scan-Sentinel -1) gelten als ungültig, wie in `cli_main.cpp`.
+- [x] Vergleichbare Spreads deterministisch (`median`, `p10`, `p90`, `mad`, `relative_spread`) je Gruppe aus den Frame-Werten, nicht aus dem globalen Scan-Aggregat. Nullnenner -> `invalid`/`zero_denominator`; unter `policy.min_valid_for_spread` gültigen Frames -> `not_applicable`/`insufficient_sample`. **Der Default 5 ist ein Platzhalter, keine Freigabepolicy** (bleibt M5-Thema); er steht im State (`policy`) und damit im Hash.
+- [x] Symmetrische Achsenabweichung `abs(ln(roundness))` pro Frame, danach aggregiert (gegenläufige Elongationen verdecken sich nicht: Test mit 0.5/2 -> Median der Rohrundheit 1.25, Median der Achsenabweichung ln 2); Roh-`roundness` bleibt unverändert im State.
+- [x] Session-Schätzungen (`field_rotation_deg`, als `kind=estimate`) getrennt von Nutzerangaben (`user_stated`, nur mit `source=user`, sonst Finding `session_context_ignored`). Keine Montierung/Objektklasse abgeleitet.
+- [x] State-/Dataset-/Config-/Lock-Hashes (kanonisches JSON: sortierte Keys, `3` == `3.0`, Frame-Reihenfolge und flüchtige Zeitstempel nicht semantisch, NaN/Infinity -> `invalid_argument` im Kanonisierer bzw. Finding `non_finite_input` im Builder) und Provider-Allowlist-Projektion (kein Kamera-/Zielname, keine Scan-ID/Pfade/Secrets, Filter und Nutzerfakten nur als kurze Klartext-Token, Capabilities nur Booleans; danach defensive Leak-Prüfung). Projizierte Config-Pfade sind bis M2 eine Konstante (`global_metrics.adaptive_weights`).
+- [x] Bestehendes `pi.feature-vector.v1`/kNN unberührt: `pi_feature_vector.*` und `pi_param_model.*` nicht angefasst, `web_backend_cpp_pi_param_model` läuft unverändert grün.
 
-Tests neu: `tests/test_pi_decision_state.cpp` und JSON-Fixtures. Fälle: vollständig, leer, nur einzelne Metrik fehlend, NaN/Infinity, 0/negative Nenner, gemischte Filter/Belichtungen, RGB/MONO/OSC/UNKNOWN, Roundness 0.5/1/2, gegenläufige Elongationen, stabile Hashes und geänderte Auswahl.
+Blockierende Befunde (Codes in `state.blocking_findings`): `color_mode_unresolved`, `bayer_pattern_missing` (OSC), `scan_errors_present`, `no_readable_frames`, `metrics_missing`, `base_config_invalid`. Nicht blockierend (`findings`): `mixed_acquisition_groups`, `coverage_partial`, `identity_strength_metadata`, `scan_id_unspecified`, `non_finite_input`, Scan-Warnungen, ignorierte/zurückgehaltene Eingaben.
 
-**Abnahme:** Gleiche semantische Inputs ergeben denselben State-Hash; unzureichende Inputs können nicht versehentlich einen zulässigen Tuning-Fall ergeben. Provider-Projektion enthält keine Secrets oder absoluten Pfade.
+Schema-Anpassungen gegenüber M0 (`pi.decision-state.v1.schema.json`): Gruppen erhielten `gain`, `frames_read_failed`, `metric_coverage`; `metrics` ist je Metrik eine `metricSummary`; `measurement` hat ein optionales `reason`; neuer Top-Level-Block `policy`; `session_facts` ist `{measured, user_stated}`.
+
+Tests: `tests/test_pi_decision_state.cpp` (CMake-Target `web_backend_cpp_pi_decision_state`). Enthält einen kleinen Draft-07-Teilprüfer, der den Builder-Output gegen das committete Schema prüft, damit Code und Schema nicht auseinanderlaufen. Abgedeckt: vollständig (synthetisches Scan-Fixture), leer, einzelne Metrik fehlend, NaN/Infinity/falscher Typ, Nullnenner, gemischte Filter/Belichtungen inkl. unbekanntem Bucket, OSC/MONO/UNKNOWN/unbekannter String, Roundness 0.5/1/2, gegenläufige Elongationen, Hash-Stabilität und -Änderung (Sperren, Config, Metrik, Policy, Digest-Stärke), Projektion ohne Geheimnisse/Pfade.
+
+**Abnahme:** Gleiche semantische Inputs ergeben denselben State-Hash (getestet: Key-/Frame-/Lock-Reihenfolge, 100 vs 100.0, Zeitstempel). Unzureichende Inputs erzeugen nur blockierende Befunde bzw. `missing`/`not_applicable`-Messwerte, keinen scheinbar gültigen Wert. Nicht Teil dieser Abnahme: Verdrahtung in Routen (M4), Kandidatenbildung (M2).
 
 ## 6. M2 — Pre-Rules, Kandidaten und atomare Validierung
 
