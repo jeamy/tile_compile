@@ -13,7 +13,7 @@
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.84.1",
+    "@earendil-works/pi-coding-agent": "^0.87.1",
     "dotenv": "^17.4.2",
     "pi-kiro-api": "^0.3.0"
   },
