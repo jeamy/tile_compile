@@ -3277,6 +3277,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 ai_model_configured = true;
                 tile_compile::ai::AiSidecarClient client(ai_config);
                 nlohmann::json payload = {
+                    {"model", ai_config.model},
                     {"prompt", message},
                     {"image_base64", vision_b64},
                     {"image_mime", "image/jpeg"},
@@ -3284,7 +3285,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                     {"image_height", analysis_image.rows},
                     {"operation_history", prompt_history}
                 };
-        auto response = client.post("/live-image-chat", payload);
+                auto response = client.post("/live-image-chat", payload);
                 if (response.contains("operations")) {
                     ai_result = response;
                     sidecar_ok = true;

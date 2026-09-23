@@ -4999,6 +4999,75 @@ TEST_CASE("forward drizzle v2 gate10 host kernel reservoir sampling N > R",
   REQUIRE(kernel.stats().reservoir_kept_total > 0);
 }
 
+// accumulate_affine_piece scatters its source pixels across OpenMP row
+// bands (cpu_affine_source_row_bound narrows each band's source scan via a
+// closed-form inverse of the affine, falling back to the full range when
+// |a11| is too small to trust). Both properties are load-bearing:
+//   - the per-band partition must stay bit-identical to the single-frame
+//     independent oracle (gate6_cpu_reference) regardless of how many
+//     OpenMP threads actually ran, and
+//   - a near-90-degree frame (a11 close to zero) must hit the bound's
+//     fallback rather than silently narrow to an empty/wrong row range.
+// This is a regression test for the row-parallel scatter, not a new
+// mathematical contract: the reference oracle and parity check already
+// exist for the serial path.
+TEST_CASE("forward drizzle v2 gate10 host kernel row-parallel scatter "
+          "matches the serial oracle",
+          "[forward-drizzle-v2][gate10][cpu-parallel]") {
+  auto f = make_fixture(ColorMode::OSC, BayerPattern::GBRG, 0, 0, 2);
+  // Append a near-90-degree rotation frame: a11 ~ 0 must trip the
+  // cpu_affine_source_row_bound fallback (|a11| below its epsilon) instead
+  // of computing a division-by-near-zero row bound.
+  {
+    FrameSamplingTransform frame = f.plan.frames[0];
+    frame.frame_id = "v2-near90";
+    frame.source_index = f.plan.frames.size();
+    frame.source_to_canvas = affine(0.0, 1.0, 2.0, -1.0, 0.0, 2.0);
+    f.plan.frames.push_back(frame);
+    f.images.push_back(f.images[0]);
+  }
+  const int nc = f.plan.canvas_width_native;
+  const int nr = f.plan.canvas_height_native;
+  const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
+  ForwardDrizzleV2KernelConfig kcfg;
+  kcfg.internal_scale = 2;
+  kcfg.stream_length = f.plan.frames.size();
+  kcfg.half = 0.5 * f.cfg.pixfrac;
+  kcfg.bayer_pattern = static_cast<int>(BayerPattern::GBRG);
+  kcfg.mono = false;
+  const auto ref = gate6_cpu_reference(f, {}, kcfg);
+
+  auto run_once = [&] {
+    ForwardDrizzleV2CpuKernel kernel;
+    REQUIRE(kernel.reserve(nc, nr, f.plan.source_width, f.plan.source_height,
+                           kcfg));
+    for (std::size_t fr = 0; fr < f.plan.frames.size(); ++fr) {
+      const auto &m = f.plan.frames[fr].source_to_canvas;
+      const double a6[6] = {m(0, 0), m(0, 1), m(0, 2),
+                            m(1, 0), m(1, 1), m(1, 2)};
+      REQUIRE(kernel.accumulate_frame(a6, f.images[fr].data(), nullptr, fr));
+    }
+    std::vector<ForwardDrizzleV2PixelResult> got(nplane * 3);
+    std::uint64_t dense = 0;
+    REQUIRE(kernel.finalize(got.data(), nullptr, &dense));
+    return std::pair{got, dense};
+  };
+
+  const auto [got1, dense1] = run_once();
+  require_gate6_parity(ref, got1, nc, nr, 3);
+  REQUIRE(dense1 == ref.dense_overlap);
+
+  // Bit-exact repeatability: the row-parallel scatter must not depend on
+  // OpenMP scheduling order (unlike an atomics-based scatter, whose
+  // summation order is not fixed). A second independent run has to match
+  // the first exactly, not just within tolerance.
+  const auto [got2, dense2] = run_once();
+  REQUIRE(dense1 == dense2);
+  REQUIRE(got1.size() == got2.size());
+  REQUIRE(std::memcmp(got1.data(), got2.data(),
+                      got1.size() * sizeof(ForwardDrizzleV2PixelResult)) == 0);
+}
+
 TEST_CASE("forward drizzle v2 selected frame orders are the exact keep set",
           "[forward-drizzle-v2]") {
   // Golden keep set for the shared splitmix64 predicate.
