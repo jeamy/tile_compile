@@ -306,6 +306,11 @@ reconstruction:
     guard_fallback: false
     shared_frame_rejection: true
     shared_frame_rejection_consensus: 0.5
+    # See docs/dynamic_boost_implementierungsplan_2026-09-19_de.md: a coherent
+    # minority of frames with a small real registration/tracking offset can
+    # otherwise survive the wide clip bounds and show as a faint double star.
+    bimodal_veto: true
+    bimodal_veto_gap_sigma: 2.5
   coverage_gate:
     min_frames: 2
     min_supported_fraction: 0.995

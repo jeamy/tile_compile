@@ -376,6 +376,8 @@ ForwardDrizzleV2RunPlan make_forward_drizzle_v2_run_plan(
   plan.shared_frame_rejection = clipping_cfg.shared_frame_rejection;
   plan.shared_frame_rejection_consensus =
       clipping_cfg.shared_frame_rejection_consensus;
+  plan.bimodal_veto = clipping_cfg.bimodal_veto;
+  plan.bimodal_veto_gap_sigma = clipping_cfg.bimodal_veto_gap_sigma;
   plan.sigma2_enabled = true;
   bool any_local = false;
   for (const auto &f : sampling.frames)

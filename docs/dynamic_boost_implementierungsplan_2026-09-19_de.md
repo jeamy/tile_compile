@@ -573,6 +573,68 @@ Median normiert, der Offset hebt G überall um dieselbe Konstante). Tests: vier
 neue Fälle (Himmel neutral, Kern/Arme unberührt bei reinem Offset, kombiniert mit
 echtem Stich, unplausibler Offset übersprungen).
 
+### Doppelsterne / Geisterartefakte: Ursache und Gegenmaßnahme (2026-09-22)
+
+Befund am neuen M31-Vollrun (`stacked_rgb.fits`, Voll-Frame-Schätzer, Clip
+`4/4`): mehrere Sterne erscheinen als zwei getrennte, vergleichbar helle
+Lichtflecken (Momentenanalyse, Exzentrizität > 0,8 bei Paaren mit 6-9 px
+Abstand, z. B. Canvas (1878,948)/(1885,952)). Alle drei geprüften Fälle liegen
+in vollständig gestützten Bildbereichen (100 % gültige Pixel in einem 80x80-px
+Fenster), also nicht am Rand mit wenigen Frames. Dasselbe Muster (Streak statt
+Doppelpunkt, in eine Ecke mit geringer Stützung auslaufend) fand sich unabhängig
+in einem IC5070-Lauf ohne `full_frame_estimator` (reiner Reservoir-Pfad,
+Standard-Clip `2/4`), damit ist es kein durch diese Sitzung neu eingeführter
+Fehler, sondern ein vorbestehendes Pipeline-Verhalten, das der Voll-Frame-Modus
+mit seinen bewusst weiten `4/4`-Grenzen sichtbarer macht.
+
+**Ursache, direkt an Rohdaten verifiziert:** Für Canvas-Position B wurde je
+Frame die Quellposition über `canvas_to_source` bestimmt und im kalibrierten
+Rohframe gemessen. Kontrollframes (z. B. Index 268, 296, 308) zeigen den
+Bildpunkt exakt an der vorhergesagten Stelle (Offset 0,0). Für einen
+zusammenhängenden Frame-Bereich (ungefähr Index 260-416 von 645, ca. 24 % der
+Serie) liegt der tatsächliche Bildpunkt konsistent 6-7 px versetzt (-6,-3
+bzw. -7,-3/-7,-4). Die globale Rotation je Frame (`global_registration.json`,
+Feld `warps`) ist dabei glatt (Residuum gegen den gleitenden Median < 0,003°,
+kein Ausreißer-Frame), das schließt einen fehlerhaften einzelnen Rotationswert
+aus. Plausibelste Erklärung: Das reine Affin-Modell bildet eine nicht-lineare
+Restverzeichnung nicht ab, die sich mit dem Feldrotationswinkel dreht (Alt/Az-
+Nachführung); für ein `quality_segmented_multi_anchor`-Segment (16 Anker über
+645 Frames) reicht das, um einen mehrere-Pixel-Versatz weit vom Rand zu
+erzeugen. Diese Ursache ist eine Registrierungs-/Verzeichnungsfrage und in
+dieser Sitzung nicht behoben; siehe „Offen" unten.
+
+**Gegenmaßnahme: `reconstruction.clipping.bimodal_veto`** (Default aus, in
+`tile_compile.yaml` und allen `_dwarf2_full_frame*`-Beispielprofilen an).
+Nach Konvergenz des Median/MAD-Clips wird auf der akzeptierten Menge die
+größte Lücke zwischen benachbarten Werten gesucht; überschreitet sie
+`bimodal_veto_gap_sigma` (Standard 2,5) mal die MAD dieses Durchgangs und
+trennt eine Minderheitsseite mit mindestens 2 Kandidaten und unter der Hälfte
+des Gewichts ab, wird diese Minderheit verworfen. Beim Voll-Frame-Piloten
+werden zusätzlich die eingefrorenen Grenzen aus der bereinigten Menge neu
+berechnet, sonst würden spätere Nicht-Pilot-Frames der verworfenen Population
+weiter zugelassen. Auf CPU und CUDA implementiert (neuer, gemeinsam genutzter
+Zweig in `cpu_sigma_clip_passes`, `k_finalize_v2` und
+`k_finalize_v2_sfr_build`/Pilot-Barriere), sechs neue Tests (Fast-Path,
+Voll-Frame-Barriere mit Grenzen-Auffrischung, CUDA-Parität, zwei
+Nichtauslösungs-Regressionstests, Config-Parsing).
+
+**Mathematische Grenze, an Simulationen nachgewiesen:** Der Test kann eine
+Minderheit nur erkennen, wenn nach dem Standard-Clip tatsächlich eine Lücke in
+der akzeptierten Menge existiert. Für zwei Populationen mit vergleichbarer
+Streuung und einer Verschiebung, die *gerade eben* innerhalb der
+`sigma_low`/`sigma_high`-Grenze bleibt, überlappen sich die Randbereiche
+rechnerisch fast immer geringfügig — es gibt dann keine Lücke zu finden. Der
+Test wirkt zuverlässig, wenn (a) die Populationen durch einen echten
+Helligkeits- oder Positionskontrast weiter getrennt sind als es die
+allgemeine `sigma`-Schranke allein zulassen würde, oder (b) eine Minderheit
+nahe null Streuung hat. Reale Sternpositions-Geister passen eher zu Fall (a);
+die Einheitstests belegen das Mechanismus-Verhalten mit `clip_sigma=8` (dem
+Bereich, in dem eine gemischte Stichprobe die Kontamination zulässt, die
+gereinigte Mehrheit sie mit derselben Schranke aber wieder ausschließt), nicht
+mit dem Produktions-`4/4`. Ob `bimodal_veto` die konkreten M31-Geister im
+Realdatensatz tatsächlich entfernt, ist eine empirische Frage; siehe „Neuer
+Lauf" unten für das Ergebnis auf dem echten M31-Datensatz.
+
 Offen: Kanalweise Sternfluss gegen einen unverzerrten Bezug, Nullhimmel an
 weiteren Objekten (M31), Runner-/GUI-Sichtbarkeit der Zähler.
 

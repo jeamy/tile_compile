@@ -7004,6 +7004,14 @@ TEST_CASE("forward drizzle v2 gate10 v2 store fuses to the reference image",
           static_cast<std::uint64_t>(nplane) *
               sizeof(ForwardDrizzleV2ProfileResult));
   REQUIRE(stats.record_bytes_no_reuse > stats.record_bytes_read);
+  // Unclipped-fallback veto: this fixture's 5 frames meet the plan's default
+  // min_clip_contributors of 5, so the veto is active, reads its own
+  // dedicated byte counter (not folded into record_bytes_read, checked
+  // above), and this 14x13 5-frame canvas has sparse-edge pixels that
+  // actually hit it.
+  REQUIRE(stats.unclipped_fallback_veto_active);
+  REQUIRE(stats.robust_state_bytes_read > 0);
+  REQUIRE(stats.unclipped_fallback_pixels_vetoed > 0);
   REQUIRE(mp.fits);
   REQUIRE(spool.populated);
   REQUIRE(fs::file_size(fits_path) > 0);
@@ -7011,10 +7019,27 @@ TEST_CASE("forward drizzle v2 gate10 v2 store fuses to the reference image",
   REQUIRE(cand.height == nr);
 
   // Parity: the v2-adapted striped fusion must equal the whole-canvas
-  // fusion over the same committed profile records.
+  // fusion over the same committed profile records. fuse_multiband_v2_store_to_image
+  // additionally vetoes too_few_candidates_fallback / too_few_groups_fallback
+  // pixels (unclipped, outlier-unprotected) whenever frame_count allows clip
+  // protection somewhere in the run -- this fixture's 5 frames meet its
+  // default min_clip_contributors of 5, so the reference built here must
+  // apply the identical veto to stay a valid parity check.
   std::vector<ForwardDrizzleV2PixelResult> records;
   std::vector<ForwardDrizzleV2ProfileResult> profiles;
   g10_read_store(fx.root, plan, records, &profiles);
+  REQUIRE(plan.frame_count >= static_cast<std::uint64_t>(plan.min_clip_contributors));
+  for (std::size_t i = 0; i < profiles.size(); ++i) {
+    const auto rs = records[i].robust_state;
+    if (rs != static_cast<std::uint8_t>(ForwardDrizzleV2RobustState::too_few_candidates_fallback) &&
+        rs != static_cast<std::uint8_t>(ForwardDrizzleV2RobustState::too_few_groups_fallback))
+      continue;
+    for (auto *out : {&profiles[i].uniform, &profiles[i].raw,
+                      &profiles[i].fine, &profiles[i].medium}) {
+      out->support = 0;
+      out->value = std::numeric_limits<float>::quiet_NaN();
+    }
+  }
   const auto U = forward_drizzle_v2_profiles_to_uniform_result(
       profiles, nc, nr, 1, ColorMode::MONO, 0);
   const auto R = forward_drizzle_v2_profiles_to_uniform_result(
@@ -9787,7 +9812,11 @@ double ff_noise(std::uint64_t frame, int x, int y) {
 FullFrameRun run_full_frame(const Fixture &f, std::uint64_t n, double sigma,
                             int outlier_tenths, double outlier_shift,
                             bool full, std::uint64_t noise_seed = 0,
-                            bool use_cuda = false) {
+                            bool use_cuda = false,
+                            bool shared_frame_rejection = true,
+                            bool bimodal_veto = false,
+                            double bimodal_veto_gap_sigma = 2.5,
+                            double clip_sigma = 4.0) {
   const int nc = f.plan.canvas_width_native;
   const int nr = f.plan.canvas_height_native;
   const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
@@ -9804,13 +9833,15 @@ FullFrameRun run_full_frame(const Fixture &f, std::uint64_t n, double sigma,
   // Wide symmetric bounds (raw MAD): the frozen pilot bounds only protect
   // against outliers. With the production 2/4 asymmetric bounds the pilot
   // sample's bound jitter dominates the full-frame error (see the plan).
-  kcfg.sigma_low = 4.0;
-  kcfg.sigma_high = 4.0;
+  kcfg.sigma_low = clip_sigma;
+  kcfg.sigma_high = clip_sigma;
   kcfg.min_clip_contributors = 5;
   kcfg.min_candidates = 5;
-  kcfg.shared_frame_rejection = true;
+  kcfg.shared_frame_rejection = shared_frame_rejection;
   kcfg.shared_frame_rejection_consensus = 0.5;
   kcfg.full_frame_estimator = full;
+  kcfg.bimodal_veto = bimodal_veto;
+  kcfg.bimodal_veto_gap_sigma = bimodal_veto_gap_sigma;
   std::unique_ptr<ForwardDrizzleV2Kernel> kernel_holder =
       use_cuda ? std::unique_ptr<ForwardDrizzleV2Kernel>(
                      std::make_unique<ForwardDrizzleV2CudaKernel>())
@@ -10076,5 +10107,192 @@ TEST_CASE("forward drizzle v2 full-frame estimator CUDA matches the CPU "
     REQUIRE(cpu.stats.full_frame_degenerate_pilot ==
             gpu.stats.full_frame_degenerate_pilot);
     REQUIRE(cpu.stats.full_frame_no_bounds == gpu.stats.full_frame_no_bounds);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bimodal minority veto (reconstruction.clipping.bimodal_veto)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("forward drizzle v2 bimodal veto rejects a coherent minority the "
+          "wide bound alone admits (fast path, no shared_frame_rejection)",
+          "[forward-drizzle-v2][bimodal-veto]") {
+  // 200 frames, unit noise; 30% carry a +8 shift. clip_sigma=20 here isolates
+  // the veto itself: with sigma this wide EVERY candidate is accepted by the
+  // ordinary median/MAD bound regardless of the shift (mad computed over a
+  // 30/70 mixture of comparable-width populations is itself inflated by the
+  // mixture, so a *production* sigma_low/high of 4 can admit a contaminating
+  // minority without ever producing the kind of isolated gap this veto looks
+  // for -- the two are structurally coupled for populations of comparable
+  // width; see the plan doc). What must hold regardless of sigma is: given an
+  // ACCEPTED set that ends up genuinely bimodal, the veto identifies and
+  // drops the minority. shared_frame_rejection is off here so this exercises
+  // the plain (non-SFR) CPU fast path and CUDA's k_finalize_v2.
+  const auto f = sfr_fixture(ColorMode::OSC, /*outlier_frame=*/5);
+  const std::uint64_t n = 200;
+  const auto truth = run_full_frame(f, n, 1.0, 0, 0.0, false, 1, false, false,
+                                    false, 2.5, 20.0);
+  const auto novote = run_full_frame(f, n, 1.0, 3, 8.0, false, 1, false, false,
+                                     false, 2.5, 20.0);
+  const auto veto = run_full_frame(f, n, 1.0, 3, 8.0, false, 1, false, false,
+                                   /*bimodal_veto=*/true, 2.5, 20.0);
+  int compared = 0;
+  double se_novote = 0.0, se_veto = 0.0;
+  for (std::size_t i = 0; i < truth.results.size(); ++i) {
+    if (truth.results[i].robust_state !=
+            static_cast<std::uint8_t>(
+                ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip) ||
+        novote.results[i].robust_state !=
+            static_cast<std::uint8_t>(
+                ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip) ||
+        veto.results[i].robust_state !=
+            static_cast<std::uint8_t>(
+                ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip))
+      continue;
+    const double t = truth.results[i].value;
+    se_novote += (novote.results[i].value - t) * (novote.results[i].value - t);
+    se_veto += (veto.results[i].value - t) * (veto.results[i].value - t);
+    ++compared;
+  }
+  REQUIRE(compared > 5);
+  const double rms_novote = std::sqrt(se_novote / compared);
+  const double rms_veto = std::sqrt(se_veto / compared);
+  INFO("rms without veto " << rms_novote << " with veto " << rms_veto
+       << " bimodal_veto_rejected_candidates "
+       << veto.stats.bimodal_veto_rejected_candidates
+       << " bimodal_veto_pixels " << veto.stats.bimodal_veto_pixels);
+  // The unclipped contamination should be clearly visible without the veto
+  // (well above the noise floor) and the veto should remove most of it.
+  REQUIRE(rms_novote > 1.0);
+  REQUIRE(rms_veto * 3.0 < rms_novote);
+  REQUIRE(veto.stats.bimodal_veto_rejected_candidates > 0);
+  REQUIRE(veto.stats.bimodal_veto_pixels > 0);
+  REQUIRE(novote.stats.bimodal_veto_rejected_candidates == 0);
+}
+
+TEST_CASE("forward drizzle v2 bimodal veto also protects the full-frame "
+          "pilot-barrier path (pilot fold and frozen non-pilot bounds)",
+          "[forward-drizzle-v2][bimodal-veto][full-frame]") {
+  // Same contamination shape as above, but full_frame_estimator streams the
+  // pilot first (its OWN accepted sum benefits from the veto directly) and
+  // then tests every remaining frame against the pilot's FROZEN bounds
+  // (end_pilot refreshes those bounds after the veto specifically so the
+  // rejected population's non-pilot frames are not re-admitted there).
+  // clip_sigma=8: wide enough that the ordinary bound admits the full
+  // contaminated mixture (mad inflated by the mixture, ~1.4 here, so 8x that
+  // covers the +8 shift) -- exactly like a production sigma that is wide
+  // enough to admit a real bimodal minority once (see the other test's
+  // comment on why sigma=4 alone cannot reach this admitting regime for a
+  // comparable-width mixture). Once the veto purifies the pilot's accepted
+  // set to just the majority, that population's OWN (much smaller) MAD makes
+  // the SAME sigma*mad bound tight enough to exclude the contamination going
+  // forward -- which is exactly the frozen-bounds refresh this test checks.
+  const auto f = sfr_fixture(ColorMode::OSC, /*outlier_frame=*/5);
+  const std::uint64_t n = 200;
+  const auto truth = run_full_frame(f, n, 1.0, 0, 0.0, false, 1, false, false,
+                                    false, 2.5, 8.0);
+  const auto veto = run_full_frame(f, n, 1.0, 3, 8.0, /*full=*/true, 1, false,
+                                   /*shared_frame_rejection=*/true,
+                                   /*bimodal_veto=*/true, 2.5, 8.0);
+  int compared = 0;
+  double se = 0.0;
+  for (std::size_t i = 0; i < truth.results.size(); ++i) {
+    if (veto.results[i].robust_state !=
+            static_cast<std::uint8_t>(
+                ForwardDrizzleV2RobustState::primary_reservoir_pilot_full_frame) ||
+        truth.results[i].robust_state == 0)
+      continue;
+    const double d = veto.results[i].value - truth.results[i].value;
+    se += d * d;
+    ++compared;
+  }
+  REQUIRE(compared > 5);
+  const double rms = std::sqrt(se / compared);
+  INFO("full-frame rms with veto " << rms << " accepted "
+       << veto.stats.full_frame_accepted << " rejected "
+       << veto.stats.full_frame_rejected << " bimodal_rejected "
+       << veto.stats.bimodal_veto_rejected_candidates);
+  // Without the fix this converges on a blend well above the noise floor;
+  // with pilot-fold veto + frozen-bounds refresh it should track the clean
+  // truth about as closely as the full-frame noise floor itself.
+  REQUIRE(rms < 1.0);
+  REQUIRE(veto.stats.bimodal_veto_rejected_candidates > 0);
+}
+
+TEST_CASE("forward drizzle v2 bimodal veto CUDA matches the CPU oracle",
+          "[forward-drizzle-v2][bimodal-veto][cuda-parity]") {
+  if (!forward_drizzle_cuda_runtime_available()) {
+    SUCCEED("CUDA device unavailable");
+    return;
+  }
+  const auto f = sfr_fixture(ColorMode::OSC, /*outlier_frame=*/5);
+  const std::uint64_t n = 200;
+  struct Case {
+    bool full, shared_frame_rejection;
+  };
+  for (const Case c : {Case{false, false}, Case{false, true}, Case{true, true}}) {
+    const auto cpu = run_full_frame(f, n, 1.0, 3, 8.0, c.full, 1, false,
+                                    c.shared_frame_rejection, true, 2.5, 20.0);
+    const auto gpu = run_full_frame(f, n, 1.0, 3, 8.0, c.full, 1, true,
+                                    c.shared_frame_rejection, true, 2.5, 20.0);
+    REQUIRE(cpu.results.size() == gpu.results.size());
+    int compared = 0;
+    for (std::size_t i = 0; i < cpu.results.size(); ++i) {
+      const auto &a = cpu.results[i];
+      const auto &b = gpu.results[i];
+      REQUIRE(a.robust_state == b.robust_state);
+      if (std::isfinite(a.value)) {
+        REQUIRE(std::fabs(a.value - b.value) <= 1e-9 * (1.0 + std::fabs(a.value)));
+        ++compared;
+      }
+    }
+    REQUIRE(compared > 5);
+    REQUIRE(cpu.stats.bimodal_veto_rejected_candidates ==
+            gpu.stats.bimodal_veto_rejected_candidates);
+    REQUIRE(cpu.stats.bimodal_veto_pixels == gpu.stats.bimodal_veto_pixels);
+    REQUIRE(cpu.stats.bimodal_veto_rejected_candidates > 0);
+  }
+}
+
+TEST_CASE("forward drizzle v2 bimodal veto does not fire on ordinary "
+          "unimodal noise or an already-excluded outlier",
+          "[forward-drizzle-v2][bimodal-veto]") {
+  // Regression guard: the veto must be a no-op whenever the accepted set is
+  // not genuinely bimodal, so it cannot regress the existing gate-3 shape
+  // (a single population, however noisy, or an outlier already excluded by
+  // the ordinary bound before the veto ever sees it).
+  const auto f = sfr_fixture(ColorMode::OSC, /*outlier_frame=*/5);
+  const std::uint64_t n = 200;
+  {
+    // Clean unit-noise population, no contamination at all.
+    const auto off = run_full_frame(f, n, 1.0, 0, 0.0, false, 1, false, false,
+                                    false);
+    const auto on = run_full_frame(f, n, 1.0, 0, 0.0, false, 1, false, false,
+                                   true);
+    REQUIRE(on.results.size() == off.results.size());
+    for (std::size_t i = 0; i < off.results.size(); ++i)
+      REQUIRE(off.results[i].value == on.results[i].value);
+    REQUIRE(on.stats.bimodal_veto_rejected_candidates == 0);
+  }
+  {
+    // A small, already-clipped outlier fraction (5%, shift 40 -- far outside
+    // even the wide bound, so the ordinary clip alone excludes it and the
+    // remaining accepted set is unimodal single-population noise again).
+    const auto off = run_full_frame(f, n, 1.0, 1, 40.0, false, 1, false, false,
+                                    false);
+    const auto on = run_full_frame(f, n, 1.0, 1, 40.0, false, 1, false, false,
+                                   true);
+    REQUIRE(on.results.size() == off.results.size());
+    int compared = 0;
+    for (std::size_t i = 0; i < off.results.size(); ++i) {
+      if (off.results[i].robust_state !=
+          static_cast<std::uint8_t>(
+              ForwardDrizzleV2RobustState::primary_reservoir_sigma_clip))
+        continue;
+      REQUIRE(off.results[i].value == on.results[i].value);
+      ++compared;
+    }
+    REQUIRE(compared > 5);
+    REQUIRE(on.stats.bimodal_veto_rejected_candidates == 0);
   }
 }

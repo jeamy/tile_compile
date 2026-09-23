@@ -129,6 +129,14 @@ struct ForwardDrizzleV2FusionStats {
   std::uint64_t record_bytes_no_reuse = 0; // window bytes if re-read per stripe
   double read_amplification = 1.0;         // read / logical store bytes
   ForwardDrizzleV2AlphaDiagnostic alpha{};
+  // Unclipped-fallback veto (band-%04d.bin ForwardDrizzleV2PixelResult.robust_state
+  // re-read alongside the profiles): only active when plan.frame_count allows
+  // clip protection somewhere in the run (frame_count >= min_clip_contributors);
+  // a run too small for that everywhere leaves this all-zero and every pixel
+  // gets the pre-existing unconditional fallback delivery.
+  bool unclipped_fallback_veto_active = false;
+  std::uint64_t robust_state_bytes_read = 0;
+  std::uint64_t unclipped_fallback_pixels_vetoed = 0;
 };
 long long fuse_multiband_v2_store_to_image(
     const fs::path &store_root, const ForwardDrizzleV2RunPlan &plan,

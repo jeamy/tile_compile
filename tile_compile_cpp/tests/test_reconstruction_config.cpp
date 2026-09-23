@@ -232,6 +232,21 @@ TEST_CASE("reconstruction: drizzle.full_frame_estimator defaults off and parses"
   REQUIRE_THROWS_AS(no_mb.reconstruction.validate(), ValidationError);
 }
 
+TEST_CASE("reconstruction: clipping.bimodal_veto defaults off, parses and validates") {
+  Config def = parse("reconstruction:\n  clipping:\n    clip_sigma_low: 2\n");
+  REQUIRE_FALSE(def.reconstruction.clipping.bimodal_veto);
+  REQUIRE(def.reconstruction.clipping.bimodal_veto_gap_sigma == 2.5f);
+  Config on = parse(
+      "reconstruction:\n  clipping:\n    bimodal_veto: true\n"
+      "    bimodal_veto_gap_sigma: 3.0\n");
+  REQUIRE(on.reconstruction.clipping.bimodal_veto);
+  REQUIRE(on.reconstruction.clipping.bimodal_veto_gap_sigma == 3.0f);
+  REQUIRE_NOTHROW(on.reconstruction.validate());
+  Config bad = parse(
+      "reconstruction:\n  clipping:\n    bimodal_veto_gap_sigma: 0\n");
+  REQUIRE_THROWS_AS(bad.reconstruction.validate(), ValidationError);
+}
+
 TEST_CASE("hypermetric_stretch.color_cast_correction defaults off, parses and validates") {
   Config def = parse("hypermetric_stretch:\n  enabled: true\n");
   REQUIRE_FALSE(def.hypermetric_stretch.color_cast_correction.enabled);

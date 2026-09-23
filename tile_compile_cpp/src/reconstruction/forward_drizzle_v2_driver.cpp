@@ -50,6 +50,8 @@ ForwardDrizzleV2KernelConfig kernel_config_for_band(
   k.sigma_high = plan.sigma_high;
   k.shared_frame_rejection = plan.shared_frame_rejection;
   k.shared_frame_rejection_consensus = plan.shared_frame_rejection_consensus;
+  k.bimodal_veto = plan.bimodal_veto;
+  k.bimodal_veto_gap_sigma = plan.bimodal_veto_gap_sigma;
   k.half = 0.5 * plan.pixfrac;
   k.bayer_pattern = plan.bayer_pattern;
   k.cfa_origin_x = plan.cfa_origin_x;
@@ -92,6 +94,8 @@ void add_stats(ForwardDrizzleV2PrototypeStats &t,
   t.full_frame_rejected += s.full_frame_rejected;
   t.full_frame_degenerate_pilot += s.full_frame_degenerate_pilot;
   t.full_frame_no_bounds += s.full_frame_no_bounds;
+  t.bimodal_veto_rejected_candidates += s.bimodal_veto_rejected_candidates;
+  t.bimodal_veto_pixels += s.bimodal_veto_pixels;
   t.frames_skipped_empty_window += s.frames_skipped_empty_window;
   t.quality_expanded_floats += s.quality_expanded_floats;
   t.workspace_reservations += s.workspace_reservations;

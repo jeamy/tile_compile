@@ -82,6 +82,10 @@ struct ForwardDrizzleV2RunPlan {
   // clip. Implemented on both the CPU and CUDA forward-drizzle kernels.
   bool shared_frame_rejection = false;
   double shared_frame_rejection_consensus = 0.5;
+  // See config::ReconstructionClippingConfig::bimodal_veto. Implemented on
+  // both the CPU and CUDA forward-drizzle kernels.
+  bool bimodal_veto = false;
+  double bimodal_veto_gap_sigma = 2.5;
   std::string support_fold_contract = "gate2_v1";   // gate 2
   std::string numerics = "fp64_accumulators";       // gate 4
   bool sigma2_enabled = true;
