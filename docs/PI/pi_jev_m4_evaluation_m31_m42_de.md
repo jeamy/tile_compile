@@ -135,3 +135,29 @@ Offline aus denselben Scan-Metriken (kein Run, kein Provider-Aufruf):
 Die C++-Werte stimmen mit der unabhängigen Python-Auswertung in Abschnitt 4 überein. Noch offen: Eine Schwelle ist
 damit nicht begründet (zwei Datensätze, gleiche Kamera, kein gepaarter Lauf), und eine "erwartete n_eff/N" wurde
 bewusst nicht implementiert, solange sie nicht gegen das Gewichtungsverfahren des Runners validiert ist.
+
+## 9. Gepaarter Lauf M31 mit/ohne adaptive Gewichtung (M5, Teil 2)
+
+Stand 2026-09-23. Zwei vollständige `reconstruct`-Läufe auf denselben 645 Frames (`/media/tc_ssd/M31_ligths_all`) mit
+demselben Binary; die Configs unterscheiden sich nur in `global_metrics.adaptive_weights` (A: `true`
+`20260923_204346_5a30a6f0`, B: `false` `20260923_212703_e8a50695`). Die Auswertung war rein lesend.
+
+| | A (an) | B (aus) |
+|---|---|---|
+| Gewichte min / Median / max | 0,26 / 1,11 / 10,2 | 0,40 / 1,08 / 3,95 |
+| n_eff / N | 0,54 | 0,83 |
+| Median-FWHM raw (px), 95%-KI | 3,757 [3,726-3,782] | 3,750 [3,728-3,782] |
+| Elongation raw | 1,1222 | 1,1204 |
+| Hintergrund-RMS raw | 0,734 | 0,718 |
+| Rangeschwanz (tail) | 0,480 | 0,481 |
+| gewählter Kandidat | `drizzle_raw` | `drizzle_raw` |
+| robustes Rauschen im Endbild (rMAD), R/G/B | 1,645 / 1,572 / 1,576 | 1,606 / 1,542 / 1,537 |
+
+`adaptive_weights: false` heißt nicht gleichgewichtet: die statischen Gewichte bleiben aktiv (n_eff/N 0,83).
+Die Schärfe ändert sich nicht messbar (Differenz 0,17 % innerhalb der Konfidenzintervalle), die adaptive Variante
+hat etwa 2,4 % mehr Hintergrundrauschen, passend zur geringeren effektiven Stichprobe. Fluss der hellsten 1 % Pixel
+stimmt auf 0,05 % überein. **Auf M31 gibt es keinen belegten Nutzen der adaptiven Gewichtung.**
+
+Grenzen: ein Datensatz, je ein Lauf pro Arm (kein Wiederholungslauf, also keine Run-zu-Run-Grundstreuung);
+die Stern-Stichproben der Validierung sind nicht identisch (247 gegen 248 Sterne), das Ergebnis ist deshalb kein
+Vergleich an gematchten Positionen im Sinne der Projektregel; M42 wurde nicht gepaart gelaufen.
