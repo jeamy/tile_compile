@@ -109,7 +109,7 @@ Ausgangsconfig, Sternform an gematchten Positionen).
 
 | # | Kandidat | Patch (Beispiel) | Evidenz | Nachweis / Blocker |
 |---|---|---|---|---|
-| A1 | Sensorprofil für Stretch | `hypermetric_stretch.sensor_profile`, `fallback_profile` | exakter Kameramodell-String im Header, versionierte Tabelle, Unknown-Fall | Tabelle nötig; Regelkatalog verbietet Substring-Zuordnung; eher deterministisch als Jev |
+| A1 (umgesetzt 2026-09-24, experimentell) | Sensorprofil für Stretch | `hypermetric_stretch.sensor_profile`, `fallback_profile` | exakter Kameramodell-String im Header, versionierte Tabelle, Unknown-Fall | Tabelle nötig; Regelkatalog verbietet Substring-Zuordnung; eher deterministisch als Jev |
 | A2 | Registrierung bei starker Feldrotation | `registration.allow_rotation`, `star_shift_radius_px` (Handbuch: Alt/Az 200-400, Äquatorial 60) | geschätzte Rotation, Montierungsangabe vom Nutzer | Rotation nur Schätzung; Montierung ist nicht im Scan; Nutzerangabe nötig |
 | A3 | Sternarme Daten | `registration.engine` = `robust_phase_ecc` | Scan-Sternzahl, aber Regelkatalog sagt: nicht allein daraus | `auto_engine` deckt Teile schon ab; Nachweis gegen Registrierungserfolg fehlt |
 

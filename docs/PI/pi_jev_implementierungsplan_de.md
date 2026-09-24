@@ -303,6 +303,22 @@ Ziel: die Infrastruktur, damit weitere Kandidaten einzeln aufgenommen werden kö
 **Abnahme:** bestehende Tests grün; neue Tests für Gitter (auf/neben/außerhalb, Rundung, Typ), mehrere Fragen je Anfrage,
 Objektklasse (gesetzt/fehlt), Schutzliste (erreichbar mit/ohne Katalogeintrag).
 
+### 8.2 Erste Kandidatengruppe A1 und Anfrageinhalt (2026-09-24)
+
+- [x] Kandidat `set_sensor_profile_dwarf_ii` (tabellengetrieben): Kamera-Header nach fester Normalisierung (Großbuchstaben, nur Buchstaben und
+  Ziffern) gegen `camera_aliases` des Katalogeintrags; kein Teilstring-Abgleich; beide real beobachteten Schreibweisen `DWARFII` und `DWARF II`.
+  Mehrdeutige Alias-Tabellen werden beim Laden abgelehnt. Experimentell, `requires_review`; auf allen echten DWARF-II-Configs No-op
+  (`already_active`), weil dort das Profil schon gesetzt ist.
+- [x] Beschreibung und geprüfte Fakten je Änderungskandidat kommen aus dem Backend (`provider_description` im Katalog, 1..240 Zeichen
+  druckbares ASCII ohne Pfad/URL/Schlüssel; Fakten = aufgelöste Evidenz als einfache Skalare, nie Kamera- oder Pfadnamen) und werden in
+  `candidate_descriptions`/`candidate_facts` der Anfrage an den Sidecar übergeben; dieser schreibt die Fakten in `state.candidate_facts`.
+  Fragen-Set `decision-questions.v2`; ein neuer Katalogeintrag braucht keine Sidecar-Änderung mehr. Befund: ohne Beschreibung und Fakt
+  gab Jev dem Kandidaten P=0,01 (Kamera unsichtbar, Text `null`), mit beidem 5 von 5 Mal P=0,94 (M31, Entwurf mit `rec709`).
+- [x] Jev-Protokoll: `agent_service/src/services/decisionsLog.ts` schreibt je Anfrage die tatsächlich gesendete Wire-Anfrage, die rohe
+  Provider-Antwort und das normalisierte Ergebnis als eine JSON-Zeile in `runs/.pi_memory/jev_decisions.log` (Pfad überschreibbar mit
+  `JEV_DECISIONS_LOG_PATH`, abschaltbar mit `JEV_LOG=off`). Sidecar und Auswertungsskript schreiben in dieselbe Datei (Feld `source`).
+  Nie enthalten: API-Key und Header; zusätzlich Schwärzung wie im Traffic-Log.
+
 ## 9. M5 — Evaluation und Freigabe pro Kandidat
 
 **Status:** offen. **Abhängigkeit:** M4; Bildqualitätsfreigabe benötigt reale Vergleichsevidenz.

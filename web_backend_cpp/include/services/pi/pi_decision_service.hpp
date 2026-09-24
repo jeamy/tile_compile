@@ -55,7 +55,7 @@ struct ServiceResult {
 class DecisionService {
 public:
     DecisionService(std::filesystem::path decisions_dir, DecisionCatalog catalog, DecisionServiceDeps deps,
-                    std::string question_set_version = "decision-questions.v1");
+                    std::string question_set_version = "decision-questions.v2");
 
     // Registers a proposal as running (status.json) and returns its id.
     std::string create();

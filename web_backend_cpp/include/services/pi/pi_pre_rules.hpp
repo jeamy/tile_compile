@@ -20,6 +20,12 @@ struct PreRunCandidates {
     std::vector<std::string> allowed_ids() const;
 };
 
+// What the provider is told about each offered change candidate, taken from the catalog and the evidence the
+// backend already resolved: {"descriptions": {id: text}, "facts": {id: {name: scalar}}}. Baselines are described
+// by the question set itself. Facts are only plain scalars (numbers, booleans, short tokens); a camera name or a
+// path can never appear here.
+nlohmann::json provider_candidate_info(const PreRunCandidates& candidates, const DecisionCatalog& catalog);
+
 // Pure. Uses validate_decision_candidate() for every candidate, so what is OFFERED and what would
 // later be ACCEPTED come from one code path (a candidate offered here cannot be rejected later for
 // a reason that was already knowable).

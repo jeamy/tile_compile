@@ -70,7 +70,7 @@ int main(int argc, char** argv) {
                 c["candidates"].push_back({{"candidate_id", id}, {"candidate_version", 1}, {"group", "drizzle_sampling"},
                                            {"preconditions", json::array()}, {"required_evidence", json::array({"measurement_coverage"})},
                                            {"updates", json::array()}, {"requires_review", true}, {"applicability", "experimental_only"},
-                                           {"value_grid", grid}});
+                                           {"provider_description", "Set the drizzle pixel fraction."}, {"value_grid", grid}});
                 return c;
             };
             auto throws = [&](const json& c) {
@@ -164,7 +164,7 @@ int main(int argc, char** argv) {
             json c = json::parse(slurp_file(dir / "candidates_v1.json"));
             c["candidates"].push_back({{"candidate_id", "diffuse_only"}, {"candidate_version", 1}, {"group", "denoise"},
                                        {"preconditions", json::array()}, {"required_evidence", json::array({"object_class"})},
-                                       {"object_classes", json::array({"diffuse"})},
+                                       {"object_classes", json::array({"diffuse"})}, {"provider_description", "Enable luma denoise for a diffuse target."},
                                        {"updates", json::array({{{"path", "luma_denoise.enabled"}, {"value", true}}})},
                                        {"requires_review", true}, {"applicability", "experimental_only"}});
             const DecisionCatalog oc = load_decision_catalog(c, json::parse(slurp_file(dir / "protected_paths_v1.json")));
@@ -189,6 +189,72 @@ int main(int argc, char** argv) {
             expect_true(!not_user.ok && has(not_user.reasons, "evidence_unavailable:object_class"), "only source=user counts");
             expect_true(state_with({{"object_class", {{"value", "diffuse"}, {"source", "user"}}}}).state_hash !=
                             state_with(json::object()).state_hash, "the class is part of the state hash (proposals go stale when it changes)");
+        }
+
+        // ---- table-driven camera match (set_sensor_profile_dwarf_ii) ----
+        {
+            const json cfg_rec = {{"hypermetric_stretch", {{"sensor_profile", "rec709"}, {"fallback_profile", "rec709"}}}};
+            const json cand = {{"candidate_id", "set_sensor_profile_dwarf_ii"}, {"candidate_version", 1},
+                               {"updates", json::array({{{"path", "hypermetric_stretch.sensor_profile"}, {"value", "Sony IMX415 (DWARF II)"}},
+                                                        {{"path", "hypermetric_stretch.fallback_profile"}, {"value", "Sony IMX415 (DWARF II)"}}})}};
+            auto with_camera = [&](const json& camera) {
+                json fr = spread_frames(10);
+                for (auto& f : fr) { if (camera.is_null()) f["header"].erase("camera"); else f["header"]["camera"] = camera; }
+                return build_pre_run_decision_state(inputs_for(fr)).state;
+            };
+            auto check = [&](const json& camera, const json& cfg_in = json()) {
+                return validate_decision_candidate(cand, with_camera(camera), cfg_in.is_null() ? cfg_rec : cfg_in, pol, catalog, accepting_validator());
+            };
+            for (const char* spelling : {"DWARFII", "DWARF II", "dwarf-ii", " Dwarf_II "}) {
+                const auto v = check(spelling);
+                expect_true(v.ok && v.updates.size() == 2, std::string("both DWARF II spellings and their case/space variants match: ") + spelling);
+            }
+            expect_true(check("DWARFII").rationale["params"]["camera_match"] == true, "match reported");
+            for (const char* other : {"DWARF", "DWARF II PRO", "Camera DWARF II", "DWARFIII", "ZWO ASI2600"}) {
+                const auto v = check(other);
+                expect_true(!v.ok && has(v.reasons, "evidence_below_threshold:camera_match") && !v.evidence_ok, std::string("no substring or prefix matching: ") + other);
+            }
+            const auto missing = check(json(nullptr));
+            expect_true(!missing.ok && has(missing.reasons, "evidence_unavailable:camera_match"), "no camera in the header -> abstain");
+            const auto empty = check("  -- ");
+            expect_true(!empty.ok && has(empty.reasons, "evidence_unavailable:camera_match"), "a camera string with no letters/digits -> abstain");
+            const json cfg_done = {{"hypermetric_stretch", {{"sensor_profile", "Sony IMX415 (DWARF II)"}, {"fallback_profile", "Sony IMX415 (DWARF II)"}}}};
+            const auto noop = check("DWARF II", cfg_done);
+            expect_true(!noop.ok && has(noop.reasons, "already_active"), "config already carries the profile -> nothing to propose");
+            const json cfg_half = {{"hypermetric_stretch", {{"sensor_profile", "Sony IMX415 (DWARF II)"}, {"fallback_profile", "rec709"}}}};
+            expect_true(check("DWARF II", cfg_half).ok, "a half-set group is still proposed as a whole");
+            json fr_mixed = spread_frames(6, "L"); json fr_b = spread_frames(6, "R");
+            for (auto& f : fr_mixed) f["header"]["camera"] = "DWARF II";
+            for (auto& f : fr_b) { f["header"]["camera"] = "DWARF II"; f["file_name"] = "r_" + f["file_name"].get<std::string>(); fr_mixed.push_back(f); }
+            const auto mixed_v = validate_decision_candidate(cand, build_pre_run_decision_state(inputs_for(fr_mixed)).state, cfg_rec, pol, catalog, accepting_validator());
+            expect_true(!mixed_v.ok && has(mixed_v.reasons, "mixed_groups_no_single_evidence"), "several acquisition groups -> no single evidence");
+            json locked_state = with_camera("DWARF II"); locked_state["locked_paths"] = json::array({"hypermetric_stretch.fallback_profile"});
+            const auto locked = validate_decision_candidate(cand, locked_state, cfg_rec, pol, catalog, accepting_validator());
+            expect_true(!locked.ok && has(locked.reasons, "path_locked"), "a locked member blocks the whole group");
+
+            // the alias table itself is validated at load
+            const auto dir = repo / "web_backend_cpp/config/pi_decisions";
+            const json base_c = json::parse(slurp_file(dir / "candidates_v1.json"));
+            const json prot_c = json::parse(slurp_file(dir / "protected_paths_v1.json"));
+            auto throws_c = [&](const json& c) { try { load_decision_catalog(c, prot_c); } catch (const std::invalid_argument&) { return true; } return false; };
+            auto find_idx = [&](const json& c) { for (size_t i = 0; i < c["candidates"].size(); ++i) if (c["candidates"][i]["candidate_id"] == "set_sensor_profile_dwarf_ii") return i; return size_t(0); };
+            json ambiguous = base_c; json twin = ambiguous["candidates"][find_idx(ambiguous)];
+            twin["candidate_id"] = "set_sensor_profile_other"; twin["camera_aliases"] = json::array({"dwarf ii"});
+            ambiguous["candidates"].push_back(twin);
+            expect_true(throws_c(ambiguous), "one camera selecting two candidates for the same parameter refused at load");
+            json empty_alias = base_c; empty_alias["candidates"][find_idx(empty_alias)]["camera_aliases"] = json::array({"--"});
+            expect_true(throws_c(empty_alias), "alias without letters/digits refused");
+            auto find_ci = [&](const json& c, const std::string& id) { for (size_t i = 0; i < c["candidates"].size(); ++i) if (c["candidates"][i]["candidate_id"] == id) return i; return size_t(0); };
+            for (const char* bad_text : {"", "/etc/passwd style", "see https://example.org", "contains api_key here", "non-ascii \xC3\xA4", "sk-or-v1-abc"}) {
+                json bt = base_c; bt["candidates"][find_ci(bt, "enable_adaptive_weights")]["provider_description"] = bad_text;
+                expect_true(throws_c(bt), std::string("provider_description refused: ") + bad_text);
+            }
+            json too_long = base_c; too_long["candidates"][find_ci(too_long, "enable_adaptive_weights")]["provider_description"] = std::string(241, 'a');
+            expect_true(throws_c(too_long), "provider_description over 240 characters refused");
+            json missing_desc = base_c; missing_desc["candidates"][find_ci(missing_desc, "enable_adaptive_weights")].erase("provider_description");
+            expect_true(throws_c(missing_desc), "a change candidate without provider_description refused");
+            json no_aliases = base_c; no_aliases["candidates"][find_idx(no_aliases)]["camera_aliases"] = json::array();
+            expect_true(throws_c(no_aliases), "empty alias list refused");
         }
 
         expect_true(path_is_protected(catalog, "reconstruction.coverage_gate.min_frames"), "coverage_gate protected");

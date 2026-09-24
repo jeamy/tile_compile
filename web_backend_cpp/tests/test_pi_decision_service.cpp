@@ -185,6 +185,11 @@ int main(int argc, char** argv) {
             expect_true(v["evidence"]["rationale"]["params"].contains("metric_agreement"), "evidence carries the measured number");
             expect_true(v["offered"].size() == 3, "offered list");
             expect_equal(static_cast<long>(sent["allowed_candidates"].size()), 3L, "provider saw the allowed ids");
+            expect_true(sent["candidate_descriptions"].contains("enable_adaptive_weights") &&
+                            !sent["candidate_descriptions"].contains("keep_current"), "provider is told what each change candidate does (baselines are described by the question set)");
+            expect_true(sent["candidate_facts"]["enable_adaptive_weights"].contains("metric_agreement") &&
+                            sent["candidate_facts"]["enable_adaptive_weights"].contains("measurement_coverage"), "and which evidence the backend already resolved for it");
+            expect_equal(sent["question_set_version"].get<std::string>(), "decision-questions.v2", "current question set");
             const std::string request_text = slurp_file(h.dir / id / "request.json");
             for (const char* banned : {"/home/x", "runs_dir", "Cam", "scan-1"})
                 expect_true(request_text.find(banned) == std::string::npos, std::string("provider request leaks ") + banned);

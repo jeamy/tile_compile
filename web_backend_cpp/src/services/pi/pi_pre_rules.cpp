@@ -1,6 +1,8 @@
 #include "services/pi/pi_pre_rules.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 
 namespace tile_compile::pi {
 
@@ -46,6 +48,33 @@ PreRunCandidates build_pre_run_candidates(const json& state, const json& current
         }
     }
     return out;
+}
+
+json provider_candidate_info(const PreRunCandidates& candidates, const DecisionCatalog& catalog) {
+    json descriptions = json::object(), facts = json::object();
+    for (const auto& a : candidates.applicable) {
+        if (a["updates"].empty()) continue;
+        const std::string id = a["candidate_id"].get<std::string>();
+        for (const auto& entry : catalog.candidates) {
+            if (entry.value("candidate_id", std::string()) != id) continue;
+            std::string text = entry.value("provider_description", std::string());
+            if (entry.contains("grid_value")) {
+                std::string v = entry["grid_value"].dump();
+                text += " Chosen level: " + v + (entry.contains("grid_unit") ? " " + entry["grid_unit"].get<std::string>() : std::string()) + ".";
+            }
+            descriptions[id] = text;
+        }
+        json f = json::object();
+        const json params = a.value("rationale", json::object()).value("params", json::object());
+        for (auto it = params.begin(); it != params.end(); ++it) {
+            const json& v = it.value();
+            const bool plain = v.is_boolean() || (v.is_number() && std::isfinite(v.get<double>())) ||
+                               (v.is_string() && v.get<std::string>().size() <= 32 && std::all_of(v.get<std::string>().begin(), v.get<std::string>().end(), [](unsigned char ch) { return std::isalnum(ch) || ch == '_' || ch == ' ' || ch == '-'; }));
+            if (plain) f[it.key()] = v;
+        }
+        if (!f.empty()) facts[id] = f;
+    }
+    return {{"descriptions", descriptions}, {"facts", facts}};
 }
 
 } // namespace tile_compile::pi

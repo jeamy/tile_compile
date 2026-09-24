@@ -132,8 +132,11 @@ void DecisionService::run(const std::string& id, const AdviceRequest& request) {
             response = {{"status", "ok"}, {"selection", {{"candidate_id", "keep_current"}, {"probabilities", json::object()}}}, {"model_reported", nullptr}};
             synthetic_baseline = true;
         } else {
-            const json req = {{"request_id", id}, {"state_hash", sr.state_hash}, {"question_set_version", question_set_version_},
-                              {"state_projection", sr.provider_projection}, {"allowed_candidates", cands.allowed_ids()}};
+            json req = {{"request_id", id}, {"state_hash", sr.state_hash}, {"question_set_version", question_set_version_},
+                        {"state_projection", sr.provider_projection}, {"allowed_candidates", cands.allowed_ids()}};
+            const json info = provider_candidate_info(cands, catalog_);
+            if (!info["descriptions"].empty()) req["candidate_descriptions"] = info["descriptions"];
+            if (!info["facts"].empty()) req["candidate_facts"] = info["facts"];
             write_json_file_atomic(pdir(id) / "request.json", req);
             try {
                 response = deps_.sidecar("POST", "/decisions", req);

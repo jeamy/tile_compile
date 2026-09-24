@@ -43,10 +43,33 @@ int main(int argc, char** argv) {
         // ---- experimental + frozen test thresholds: offered, flagged ----
         {
             const auto c = build_pre_run_candidates(state, cfg, frozen_test_policy(), catalog, ok);
-            expect_equal(static_cast<long>(c.applicable.size()), 3L, "three candidates offered");
-            expect_true(c.excluded.empty(), "nothing excluded");
+            expect_equal(static_cast<long>(c.applicable.size()), 3L, "three candidates offered (baselines + adaptive weights)");
+            expect_equal(static_cast<long>(c.excluded.size()), 1L, "only the camera-table candidate is excluded (test camera is not a DWARF II)");
+            expect_true(has_reason(c.excluded, "set_sensor_profile_dwarf_ii", "evidence_below_threshold:camera_match"), "excluded because the camera does not match the table");
+            {
+                json fr = spread_frames(10);
+                for (auto& f : fr) f["header"]["camera"] = "DWARF II";
+                const auto dwarf_state = build_pre_run_decision_state(inputs_for(fr)).state;
+                const auto d = build_pre_run_candidates(dwarf_state, cfg, frozen_test_policy(), catalog, ok);
+                bool offered = false;
+                for (const auto& a : d.applicable) if (a["candidate_id"] == "set_sensor_profile_dwarf_ii") offered = a["updates"].size() == 2 && a["requires_review"] == true && a["experimental"] == true;
+                expect_true(offered, "a DWARF II header with an unset profile offers the sensor-profile candidate (experimental, review)");
+                expect_true(build_pre_run_candidates(dwarf_state, cfg, DecisionPolicy{}, catalog, ok).allowed_ids().size() == 2,
+                            "in production (experimental off, thresholds not frozen) it is still not offered");
+            }
             const json* enable = nullptr;
             for (const auto& a : c.applicable) if (a["candidate_id"] == "enable_adaptive_weights") enable = &a;
+            {
+                const json info = provider_candidate_info(c, catalog);
+                expect_true(info["descriptions"].size() == 1 && info["descriptions"].contains("enable_adaptive_weights"), "descriptions only for offered change candidates");
+                expect_true(info["facts"]["enable_adaptive_weights"]["metric_agreement"].is_number(), "resolved measurements are passed as plain facts");
+                expect_true(info.dump().find("Cam") == std::string::npos, "no camera name in what the provider is told");
+                json fr = spread_frames(10);
+                for (auto& f : fr) f["header"]["camera"] = "Secret Camera 9000";
+                const auto cs = build_pre_run_decision_state(inputs_for(fr)).state;
+                const json info2 = provider_candidate_info(build_pre_run_candidates(cs, cfg, frozen_test_policy(), catalog, ok), catalog);
+                expect_true(info2.dump().find("Secret") == std::string::npos, "camera name never reaches provider info");
+            }
             expect_true(enable && (*enable)["experimental"] == true && (*enable)["requires_review"] == true, "flagged experimental + review");
             expect_true((*enable)["updates"][0]["old_value"] == false && (*enable)["updates"][0]["value"] == true, "concrete update");
             expect_true((*enable)["rationale"]["params"].contains("metric_agreement"), "rationale from real measurement");

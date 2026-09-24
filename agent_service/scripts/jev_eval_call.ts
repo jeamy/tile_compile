@@ -6,12 +6,13 @@ import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 import { DecisionsService } from "../src/services/decisionsService.js";
+import { createJevLogger } from "../src/services/decisionsLog.js";
 
 dotenv.config({ path: path.resolve(process.cwd(), "..", ".env") });
 const [reqPath, outPath, repeatsArg] = process.argv.slice(2);
 if (!reqPath || !outPath) throw new Error("usage: jev_eval_call.ts <request.json> <out.jsonl> [repeats]");
 const request = JSON.parse(fs.readFileSync(reqPath, "utf8"));
-const svc = new DecisionsService({ mode: "shadow", maxConcurrent: 1 });
+const svc = new DecisionsService({ mode: "shadow", maxConcurrent: 1 }, { trace: createJevLogger("eval") });
 const lines: string[] = [];
 for (let i = 0; i < Number(repeatsArg || 5); i++) {
   // a distinct request_id per repeat; identical state_hash is fine because calls are sequential (no dedup overlap)

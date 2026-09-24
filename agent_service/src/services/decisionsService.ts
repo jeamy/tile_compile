@@ -56,6 +56,10 @@ export interface DecisionsRequest {
   question_set_version: string;
   state_projection: Record<string, unknown>;
   allowed_candidates: string[];
+  /** What each change candidate does (from the backend catalog); baselines are described by the question set. */
+  candidate_descriptions?: Record<string, string>;
+  /** Evidence the backend already resolved per candidate: plain scalars only. */
+  candidate_facts?: Record<string, Record<string, string | number | boolean>>;
 }
 
 export type DecisionsStatus = "ok" | "unavailable" | "invalid_response";
@@ -110,8 +114,14 @@ export interface DecisionsDeps {
   transport?: DecisionsTransport;
   sleep?: SleepFn;
   resolveApiKey?: ApiKeyResolver;
-  /** Never receives state, request bodies or keys. */
+  /** Summary lines only: never state, request bodies or keys. */
   log?: (line: string) => void;
+  /**
+   * Operator trace (see decisionsLog.ts): one entry per provider attempt with the wire body actually sent (never
+   * headers, so never the key) and the raw provider response, plus the normalized result. Bodies are cut to
+   * MAX_TRACE_CHARS. The state projection is an allowlist projection without paths, secrets or camera names.
+   */
+  trace?: (entry: Record<string, unknown>) => void;
   now?: () => number;
 }
 
@@ -128,6 +138,22 @@ interface QuestionSet {
 const BASELINE_CANDIDATES = ["keep_current", "insufficient_evidence"] as const;
 
 export const QUESTION_SETS: Record<string, QuestionSet> = {
+  // v2: descriptions and checked facts of change candidates come from the request, so a new catalog entry needs no
+  // change here. The conservative default of v1 is kept.
+  "decision-questions.v2": {
+    questionId: "candidate_selection",
+    instructions:
+      "You are given pre-run acquisition statistics for an astrophotography stacking run in `state`. " +
+      "Choose exactly one option. Choose keep_current unless a change is clearly warranted by the measurements in `state` " +
+      "and by the facts listed for that option in `state.candidate_facts`; those facts were already checked by the application, " +
+      "so an option whose description states a condition that its listed facts confirm may be chosen even when that condition " +
+      "is not visible in the other statistics. Choose insufficient_evidence when the evidence does not support a confident choice. " +
+      "A missing or not_applicable measurement is unknown, never zero.",
+    describe: {
+      keep_current: "Leave the configuration unchanged.",
+      insufficient_evidence: "Abstain: the available evidence does not support a confident choice.",
+    },
+  },
   "decision-questions.v1": {
     questionId: "candidate_selection",
     instructions:
@@ -150,6 +176,9 @@ export const QUESTION_SETS: Record<string, QuestionSet> = {
 const CANDIDATE_ID_RE = /^[a-z0-9_]{1,64}$/;
 const LEAK_RE = /^\/|^[A-Za-z]:[\\/]|^\\\\|sk-or-|:\/\/|api[_-]?key/i;
 const MAX_STATE_BYTES = 64 * 1024;
+const MAX_DESCRIPTION_CHARS = 240;
+const MAX_FACTS_PER_CANDIDATE = 8;
+const MAX_TRACE_CHARS = 32_000;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -196,16 +225,50 @@ export function validateRequest(req: unknown): DecisionsRequest {
     ids.add(id);
   }
   for (const base of BASELINE_CANDIDATES) if (!ids.has(base)) throw new DecisionsRequestError(`allowed_candidates_missing_${base}`);
-  return { request_id, state_hash, question_set_version, state_projection, allowed_candidates: [...allowed_candidates] };
+  const out: DecisionsRequest = { request_id, state_hash, question_set_version, state_projection, allowed_candidates: [...allowed_candidates] };
+  const { candidate_descriptions, candidate_facts } = req;
+  if (candidate_descriptions !== undefined) {
+    if (!isPlainObject(candidate_descriptions)) throw new DecisionsRequestError("candidate_descriptions");
+    const d: Record<string, string> = {};
+    for (const [id, text] of Object.entries(candidate_descriptions)) {
+      if (!ids.has(id) || (BASELINE_CANDIDATES as readonly string[]).includes(id)) throw new DecisionsRequestError("candidate_descriptions_id");
+      if (typeof text !== "string" || !text || text.length > MAX_DESCRIPTION_CHARS || /[^\x20-\x7e]/.test(text)) throw new DecisionsRequestError("candidate_descriptions_text");
+      if (findLeak(text, "candidate_descriptions")) throw new DecisionsRequestError("candidate_descriptions_leak");
+      d[id] = text;
+    }
+    if (Object.keys(d).length) out.candidate_descriptions = d;
+  }
+  if (candidate_facts !== undefined) {
+    if (!isPlainObject(candidate_facts)) throw new DecisionsRequestError("candidate_facts");
+    const f: Record<string, Record<string, string | number | boolean>> = {};
+    for (const [id, facts] of Object.entries(candidate_facts)) {
+      if (!ids.has(id) || (BASELINE_CANDIDATES as readonly string[]).includes(id) || !isPlainObject(facts)) throw new DecisionsRequestError("candidate_facts_id");
+      const entries = Object.entries(facts);
+      if (entries.length > MAX_FACTS_PER_CANDIDATE) throw new DecisionsRequestError("candidate_facts_size");
+      const clean: Record<string, string | number | boolean> = {};
+      for (const [name, value] of entries) {
+        const scalar = typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value)) ||
+          (typeof value === "string" && value.length <= 32 && /^[A-Za-z0-9_ -]*$/.test(value));
+        if (!/^[a-z0-9_]{1,48}$/.test(name) || !scalar) throw new DecisionsRequestError("candidate_facts_value");
+        if (typeof value === "string" && findLeak(value, "candidate_facts")) throw new DecisionsRequestError("candidate_facts_leak");
+        clean[name] = value as string | number | boolean;
+      }
+      if (Object.keys(clean).length) f[id] = clean;
+    }
+    if (Object.keys(f).length) out.candidate_facts = f;
+  }
+  return out;
 }
 
 export function buildProviderBody(req: DecisionsRequest, model: string): string {
   const qs = QUESTION_SETS[req.question_set_version];
   const criteria: Record<string, string | null> = {};
-  for (const id of [...req.allowed_candidates].sort()) criteria[id] = qs.describe[id] ?? null;
+  for (const id of [...req.allowed_candidates].sort()) criteria[id] = qs.describe[id] ?? req.candidate_descriptions?.[id] ?? null;
+  // Checked facts travel inside `state` (the only place the provider reads evidence from).
+  const state = req.candidate_facts ? { ...req.state_projection, candidate_facts: req.candidate_facts } : req.state_projection;
   return JSON.stringify({
     model,
-    state: req.state_projection,
+    state,
     questions: { [qs.questionId]: { type: "choice", instructions: qs.instructions, criteria } },
   });
 }
@@ -349,6 +412,7 @@ export class DecisionsService {
   private readonly resolveApiKey: ApiKeyResolver;
   private storedApiKey: string | undefined;
   private readonly log: (line: string) => void;
+  private readonly trace: (entry: Record<string, unknown>) => void;
   private readonly now: () => number;
   private readonly limiter: Limiter;
   private readonly inflight = new Map<string, Promise<DecisionsResponse>>();
@@ -365,6 +429,9 @@ export class DecisionsService {
     // A key saved through the Jev card wins over the environment; neither is ever returned or logged.
     this.resolveApiKey = deps.resolveApiKey ?? (() => this.storedApiKey || process.env.JEV_OPENROUTER_API_KEY);
     this.log = deps.log ?? (() => {});
+    const sink = deps.trace;
+    // A broken log sink must never change or break a decision.
+    this.trace = sink ? (entry) => { try { sink(entry); } catch { /* ignored */ } } : () => {};
     this.now = deps.now ?? Date.now;
     this.limiter = new Limiter(this.cfg.maxConcurrent, this.cfg.maxQueued);
   }
@@ -404,7 +471,7 @@ export class DecisionsService {
 
     // Identical concurrent decisions share one provider call.
     const key = crypto.createHash("sha256")
-      .update(JSON.stringify([req.state_hash, req.question_set_version, this.cfg.model, [...req.allowed_candidates].sort()]))
+      .update(JSON.stringify([req.state_hash, req.question_set_version, this.cfg.model, [...req.allowed_candidates].sort(), req.candidate_descriptions ?? null, req.candidate_facts ?? null]))
       .digest("hex");
     let shared = this.inflight.get(key);
     if (!shared) {
@@ -425,6 +492,10 @@ export class DecisionsService {
     // Summary only: never state, request body or key.
     this.log(`decisions request_id=${req.request_id} state_hash=${req.state_hash} candidates=${req.allowed_candidates.length} ` +
              `status=${result.status} code=${result.error_code ?? "-"} ms=${this.now() - started} cost=${result.usage?.cost ?? "-"}`);
+    this.trace({ kind: "result", request_id: req.request_id, state_hash: req.state_hash, ran: out.ran, status: result.status, error_code: result.error_code ?? null,
+                 model_reported: result.model_reported ?? null, choice: result.selection?.candidate_id ?? null,
+                 probabilities: result.selection?.probabilities ?? null, provider_confidence: result.selection?.provider_confidence ?? null,
+                 usage: result.usage ?? null, generation_id: result.generation_id ?? null, ms: this.now() - started });
     return result;
   }
 
@@ -439,18 +510,27 @@ export class DecisionsService {
     const startedAt = this.now();
     const body = buildProviderBody(req, this.cfg.model);
     const headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
+    const cut = (text: string) => (text.length > MAX_TRACE_CHARS ? `${text.slice(0, MAX_TRACE_CHARS)}...[truncated ${text.length - MAX_TRACE_CHARS} chars]` : text);
+    // Bodies are logged as parsed JSON when possible so the log stays readable; never the headers.
+    const asJson = (text: string): unknown => { try { return JSON.parse(text); } catch { return cut(text); } };
+    const ids = { request_id: req.request_id, state_hash: req.state_hash, question_set_version: req.question_set_version };
     const classifyAbort = () => (callerSignal?.aborted ? "aborted" : "timeout");
     try {
       for (let attempt = 0; ; attempt++) {
         let res: TransportResponse;
+        const attemptStart = this.now();
+        this.trace({ kind: "request", ...ids, attempt: attempt + 1, url: this.cfg.endpoint, model: this.cfg.model, body: body.length > MAX_TRACE_CHARS ? cut(body) : asJson(body) });
         try {
           res = await this.transport({ url: this.cfg.endpoint, headers, body, signal, maxResponseBytes: this.cfg.maxResponseBytes });
         } catch (e) {
+          this.trace({ kind: "transport_error", ...ids, attempt: attempt + 1, ms: this.now() - attemptStart, error: e instanceof TransportError ? e.code : "network" });
           if (signal.aborted) return fail("unavailable", classifyAbort());
           if (e instanceof TransportError && e.code !== "network") return fail("unavailable", e.code);
           if (attempt < this.cfg.maxRetries && await this.waitBeforeRetry(this.cfg.retryBackoffMs, startedAt, signal)) continue;
           return fail("unavailable", "network_error");
         }
+        this.trace({ kind: "response", ...ids, attempt: attempt + 1, http: res.status, ms: this.now() - attemptStart, truncated: res.truncated,
+                     body: res.truncated || res.bodyText.length > MAX_TRACE_CHARS ? cut(res.bodyText) : asJson(res.bodyText) });
         if (res.truncated) return fail("invalid_response", "response_too_large");
         if (res.status === 200) {
           let parsed: unknown;

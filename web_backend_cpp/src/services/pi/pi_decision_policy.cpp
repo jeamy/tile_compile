@@ -1,6 +1,7 @@
 #include "services/pi/pi_decision_policy.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -161,6 +162,40 @@ std::vector<json> expand_candidate(const json& cand) {
     return out;
 }
 
+// Header camera strings are matched exactly after a fixed normalisation (ASCII upper case, letters and digits
+// only), against an alias table in the catalog: "DWARFII" and "DWARF II" are the same model, but "DWARF" alone
+// or "Camera DWARF II Pro" is not. No substring rule, no guessing.
+std::string normalize_camera_name(const std::string& raw) {
+    std::string out;
+    for (unsigned char ch : raw)
+        if (std::isalnum(ch) && ch < 128) out.push_back(static_cast<char>(std::toupper(ch)));
+    return out;
+}
+
+EvidenceResult resolve_camera_match(const json& state, const json* entry) {
+    EvidenceResult r;
+    const json groups = state.value("groups", json::array());
+    std::vector<const json*> readable;
+    for (const auto& g : groups)
+        if (g.value("frame_count", 0) - g.value("frames_read_failed", 0) > 0) readable.push_back(&g);
+    if (readable.empty()) { r.reasons.push_back("evidence_unavailable:camera_match"); return r; }
+    if (readable.size() > 1) { r.reasons.push_back("mixed_groups_no_single_evidence"); return r; }
+    const json& g = *readable.front();
+    r.refs = json::array({"groups[" + g.value("group_id", std::string("?")) + "].camera"});
+    if (!g.contains("camera") || !g["camera"].is_string() || normalize_camera_name(g["camera"].get<std::string>()).empty()) {
+        r.reasons.push_back("evidence_unavailable:camera_match");
+        return r;
+    }
+    const std::string norm = normalize_camera_name(g["camera"].get<std::string>());
+    bool listed = false;
+    if (entry && entry->contains("camera_aliases"))
+        for (const auto& a : (*entry)["camera_aliases"]) listed = listed || (a.is_string() && normalize_camera_name(a.get<std::string>()) == norm);
+    if (!listed) { r.reasons.push_back("evidence_below_threshold:camera_match"); return r; }
+    r.params["camera_match"] = true;
+    r.ok = true;
+    return r;
+}
+
 // The object class is a user statement (compact / diffuse / star_field), never inferred from the scan.
 // A candidate may list the classes it applies to (`object_classes`); without a statement it abstains.
 EvidenceResult resolve_object_class(const json& state, const json* entry) {
@@ -180,6 +215,16 @@ EvidenceResult resolve_object_class(const json& state, const json* entry) {
     }
     r.ok = true;
     return r;
+}
+
+// The provider sees this text, so it must be a short plain sentence: printable ASCII, no path/URL/secret shapes.
+bool valid_provider_text(const std::string& t) {
+    if (t.empty() || t.size() > 240) return false;
+    for (unsigned char ch : t) if (ch < 0x20 || ch > 0x7E) return false;
+    if (t.front() == '/' || t.find("://") != std::string::npos || t.find("sk-or-") != std::string::npos) return false;
+    std::string lower;
+    for (unsigned char ch : t) lower.push_back(static_cast<char>(std::tolower(ch)));
+    return lower.find("api_key") == std::string::npos && lower.find("api-key") == std::string::npos && lower.find("apikey") == std::string::npos;
 }
 
 bool starts_with(const std::string& s, const char* p) { return s.rfind(p, 0) == 0; }
@@ -255,6 +300,7 @@ DecisionCatalog load_decision_catalog(const json& candidates_v1, const json& pro
     }
     if (c.protected_prefixes.empty()) throw std::invalid_argument("protected paths: empty list (fail closed)");
     std::set<std::string> ids;
+    std::set<std::string> camera_alias_paths;
     std::vector<json> expanded;
     for (const auto& template_entry : candidates_v1["candidates"]) {
         if (!template_entry.is_object() || template_entry.value("candidate_id", std::string()).empty() ||
@@ -268,6 +314,28 @@ DecisionCatalog load_decision_catalog(const json& candidates_v1, const json& pro
         if (id.empty() || !cand.contains("candidate_version") || !cand.contains("group") || !cand.contains("updates") || !cand["updates"].is_array())
             throw std::invalid_argument("candidate catalog: malformed candidate entry");
         if (!std::regex_match(id, kIdRe)) throw std::invalid_argument("candidate catalog: id outside [a-z0-9_]{1,64}: " + id);
+        if (!cand["updates"].empty() &&
+            (!cand.contains("provider_description") || !cand["provider_description"].is_string() ||
+             !valid_provider_text(cand["provider_description"].get<std::string>())))
+            throw std::invalid_argument("candidate catalog: " + id + " needs a provider_description (1..240 printable ASCII characters, no path/URL/key)");
+        if (cand.contains("camera_aliases")) {
+            if (!cand["camera_aliases"].is_array() || cand["camera_aliases"].empty())
+                throw std::invalid_argument("candidate catalog: " + id + " camera_aliases must be a non-empty array");
+            std::set<std::string> own_norms;  // spellings of one camera inside one candidate are the same entry
+            for (const auto& a : cand["camera_aliases"]) {
+                const std::string norm = a.is_string() ? normalize_camera_name(a.get<std::string>()) : std::string();
+                if (norm.empty()) throw std::invalid_argument("candidate catalog: " + id + " has an empty or non-string camera alias");
+                own_norms.insert(norm);
+            }
+            for (const auto& norm : own_norms) {
+                // The table must be unambiguous: one camera can not select two candidates that change the same parameter.
+                for (const auto& u : cand["updates"]) {
+                    const std::string key = norm + "|" + u.value("path", std::string());
+                    if (!camera_alias_paths.insert(key).second)
+                        throw std::invalid_argument("candidate catalog: camera alias '" + norm + "' is ambiguous for " + u.value("path", std::string()));
+                }
+            }
+        }
         if (!ids.insert(id).second) throw std::invalid_argument("candidate catalog: duplicate id " + id);
         for (const auto& u : cand["updates"]) {
             if (!u.is_object() || !u.contains("path") || !u.contains("value") || !u["path"].is_string())
@@ -373,6 +441,7 @@ CandidateValidation validate_decision_candidate(const json& candidate, const jso
         if (k == "measurement_coverage") ev = resolve_measurement_coverage(state, policy);
         else if (k == "metric_agreement") ev = resolve_metric_agreement(state, policy);
         else if (k == "object_class") ev = resolve_object_class(state, entry);
+        else if (k == "camera_match") ev = resolve_camera_match(state, entry);
         else { ev.reasons.push_back("evidence_unavailable:" + fmt_key(k)); }
         for (const auto& r : ev.reasons) reasons.insert(r);
         for (const auto& ref : ev.refs) out.evidence_refs.push_back(ref);

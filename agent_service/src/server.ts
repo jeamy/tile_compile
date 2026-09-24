@@ -6,6 +6,7 @@ import { ModelService } from "./services/modelService.js";
 import { LiveImageChatService } from "./services/liveImageChatService.js";
 import { RunChatService } from "./services/runChatService.js";
 import { appendTrafficLog, readTrafficLog } from "./services/trafficLog.js";
+import { createJevLogger } from "./services/decisionsLog.js";
 import { DecisionsRequestError, DecisionsService, decisionsConfigFromEnv } from "./services/decisionsService.js";
 import { decisionsSettingsPath, loadDecisionsSettings, saveDecisionsSettings } from "./services/decisionsSettings.js";
 import type { AnalysisProgressEvent } from "./types.js";
@@ -21,6 +22,8 @@ let decisionsConfigError = "";
 try {
   decisionsService = new DecisionsService(decisionsConfigFromEnv(), {
     log: (line) => appendTrafficLog(line),
+    // Every wire request, raw response and normalized result go to their own file (jevLogPath()).
+    trace: createJevLogger("sidecar"),
   });
   // Settings saved through the Jev card override the environment defaults.
   const stored = loadDecisionsSettings(decisionsSettingsPath());

@@ -9,7 +9,9 @@
       "candidate_id": "keep_current",
       "candidate_version": 1,
       "group": "none",
-      "preconditions": ["base_config_valid"],
+      "preconditions": [
+        "base_config_valid"
+      ],
       "updates": [],
       "requires_review": false,
       "validation_status": "contract_tested",
@@ -33,16 +35,56 @@
         "adaptive_weights_is_false",
         "path_unlocked:global_metrics.adaptive_weights"
       ],
-      "required_evidence": ["metric_agreement", "measurement_coverage"],
+      "required_evidence": [
+        "metric_agreement",
+        "measurement_coverage"
+      ],
       "updates": [
-        {"path": "global_metrics.adaptive_weights", "value": true}
+        {
+          "path": "global_metrics.adaptive_weights",
+          "value": true
+        }
       ],
       "expected_effect_code": "redistribute_frame_weights",
       "risk_code": "quality_gain_unproven",
       "requires_review": true,
       "validation_status": "unvalidated",
       "applicability": "experimental_only",
-      "description": "Hypothesis-stage. First applicable ONLY once M5 freezes the minimum measurement-coverage / metric-agreement threshold policy this candidate's preconditions require (pi_scan_pre_rules_de.md section 5, last paragraph). Until then this entry exists for schema/contract testing but pi_decision_policy must resolve it to abstain in every real evaluation."
+      "description": "Hypothesis-stage. First applicable ONLY once M5 freezes the minimum measurement-coverage / metric-agreement threshold policy this candidate's preconditions require (pi_scan_pre_rules_de.md section 5, last paragraph). Until then this entry exists for schema/contract testing but pi_decision_policy must resolve it to abstain in every real evaluation.",
+      "provider_description": "Enable adaptive per-frame quality weighting (global_metrics.adaptive_weights = true). Its benefit is unproven; measured evidence is listed in candidate_facts."
+    },
+    {
+      "candidate_id": "set_sensor_profile_dwarf_ii",
+      "candidate_version": 1,
+      "group": "stretch_sensor_profile",
+      "preconditions": [
+        "path_unlocked:hypermetric_stretch.sensor_profile",
+        "path_unlocked:hypermetric_stretch.fallback_profile"
+      ],
+      "required_evidence": [
+        "camera_match"
+      ],
+      "camera_aliases": [
+        "DWARFII",
+        "DWARF II"
+      ],
+      "updates": [
+        {
+          "path": "hypermetric_stretch.sensor_profile",
+          "value": "Sony IMX415 (DWARF II)"
+        },
+        {
+          "path": "hypermetric_stretch.fallback_profile",
+          "value": "Sony IMX415 (DWARF II)"
+        }
+      ],
+      "expected_effect_code": "sensor_luminance_profile",
+      "risk_code": "quality_gain_unproven",
+      "requires_review": true,
+      "validation_status": "unvalidated",
+      "applicability": "experimental_only",
+      "description": "Table-driven: the header camera string, after normalisation (upper case, letters and digits only), must be one of camera_aliases. Both spellings were observed in real DWARF II data ('DWARFII' in M31, 'DWARF II' in M42/IC5070/M66). The pipeline's sensor profile enum names this profile explicitly; every DWARF II example and production config already sets it, so on those configs the candidate is a no-op (already_active). Whether it improves the stretch is unproven; the value only changes when the draft still carries another profile. The provider never sees the camera name; applicability is decided by the backend.",
+      "provider_description": "Set the stretch sensor profile to the DWARF II profile. Offered only when the backend matched the frame-header camera to a DWARF II; candidate_facts.camera_match confirms it."
     }
   ]
 }

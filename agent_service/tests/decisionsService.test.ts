@@ -51,16 +51,18 @@ function fakeTransport(steps: Step[]) {
 }
 const noSleep = () => { const waits: number[] = []; return { waits, fn: async (ms: number) => { waits.push(ms); } }; };
 
-function service(steps: Step[], cfg: Record<string, unknown> = {}, extra: { key?: string | undefined; logs?: string[] } = {}) {
+function service(steps: Step[], cfg: Record<string, unknown> = {}, extra: { key?: string | undefined; logs?: string[]; traces?: Array<Record<string, unknown>> } = {}) {
   const t = fakeTransport(steps);
   const s = noSleep();
   const logs = extra.logs ?? [];
+  const traces = extra.traces ?? [];
   const svc = new DecisionsService({ mode: "suggest", ...cfg } as any, {
     transport: t.fn, sleep: s.fn,
     resolveApiKey: () => ("key" in extra ? extra.key : KEY),
     log: (l) => logs.push(l),
+    trace: (e) => traces.push(e),
   });
-  return { svc, t, sleeps: s.waits, logs };
+  return { svc, t, sleeps: s.waits, logs, traces };
 }
 
 describe("configuration", () => {
@@ -120,6 +122,69 @@ describe("request handling", () => {
     assert.equal(q.type, "choice");
     assert.deepEqual(Object.keys(q.criteria).sort(), ["enable_adaptive_weights", "insufficient_evidence", "keep_current"]);
     assert.deepEqual(Object.keys(q).sort(), Object.keys(ref.questions.candidate_selection).sort());
+  });
+  it("v2: candidate descriptions and checked facts reach the provider from the request, not from code", async () => {
+    const { svc, t } = service([ok200(fixture("response_ok.json"))]);
+    const projection = { domain: "pre_run", coverage: { detected: 10, measured: 10, read_ok: 10 } };
+    await svc.decide(goodRequest({
+      question_set_version: "decision-questions.v2",
+      state_projection: projection,
+      allowed_candidates: ["keep_current", "insufficient_evidence", "brand_new_candidate"],
+      candidate_descriptions: { brand_new_candidate: "Set a made-up parameter." },
+      candidate_facts: { brand_new_candidate: { metric_agreement: 0.88, camera_match: true, object_class: "diffuse" } },
+    }));
+    const body = JSON.parse(t.calls[0].body);
+    const q = body.questions.candidate_selection;
+    assert.equal(q.criteria.brand_new_candidate, "Set a made-up parameter.");
+    assert.equal(q.criteria.keep_current, "Leave the configuration unchanged.");
+    assert.deepEqual(body.state.candidate_facts, { brand_new_candidate: { metric_agreement: 0.88, camera_match: true, object_class: "diffuse" } });
+    assert.equal(body.state.domain, "pre_run", "the projection itself is untouched");
+    assert.ok(q.instructions.includes("candidate_facts"), "the question tells the provider where the checked facts are");
+    assert.ok(!("candidate_facts" in projection), "the caller's projection object is not mutated");
+  });
+  it("v2 without facts leaves the state exactly as the projection; an undescribed change candidate has no criterion text", async () => {
+    const req = validateRequest(goodRequest({ question_set_version: "decision-questions.v2", allowed_candidates: ["keep_current", "insufficient_evidence", "x_candidate"] }));
+    const body = JSON.parse(buildProviderBody(req, "typesafe/jev-1.13"));
+    assert.deepEqual(body.state, req.state_projection);
+    assert.equal(body.questions.candidate_selection.criteria.x_candidate, null);
+  });
+  it("rejects bad candidate descriptions and facts locally", async () => {
+    const { svc, t } = service([ok200(fixture("response_ok.json"))]);
+    const base = { question_set_version: "decision-questions.v2", allowed_candidates: ["keep_current", "insufficient_evidence", "c_one"] };
+    const many = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`f${i}`, i]));
+    const cases: Array<[string, unknown]> = [
+      ["description not object", goodRequest({ ...base, candidate_descriptions: "x" as never })],
+      ["description for a baseline", goodRequest({ ...base, candidate_descriptions: { keep_current: "Do nothing." } })],
+      ["description for an unknown id", goodRequest({ ...base, candidate_descriptions: { other: "text" } })],
+      ["description path", goodRequest({ ...base, candidate_descriptions: { c_one: "/home/lux/x" } })],
+      ["description url", goodRequest({ ...base, candidate_descriptions: { c_one: "see https://x.example" } })],
+      ["description key", goodRequest({ ...base, candidate_descriptions: { c_one: "uses api_key here" } })],
+      ["description non-ascii", goodRequest({ ...base, candidate_descriptions: { c_one: "caf\u00e9" } })],
+      ["description too long", goodRequest({ ...base, candidate_descriptions: { c_one: "a".repeat(241) } })],
+      ["description empty", goodRequest({ ...base, candidate_descriptions: { c_one: "" } })],
+      ["facts for unknown id", goodRequest({ ...base, candidate_facts: { other: { a: 1 } } })],
+      ["facts for a baseline", goodRequest({ ...base, candidate_facts: { keep_current: { a: 1 } } })],
+      ["fact object value", goodRequest({ ...base, candidate_facts: { c_one: { a: { b: 1 } as never } } })],
+      ["fact path value", goodRequest({ ...base, candidate_facts: { c_one: { a: "/etc/passwd" } } })],
+      ["fact NaN", goodRequest({ ...base, candidate_facts: { c_one: { a: Number.NaN } } })],
+      ["fact bad name", goodRequest({ ...base, candidate_facts: { c_one: { "Bad Name": 1 } } })],
+      ["too many facts", goodRequest({ ...base, candidate_facts: { c_one: many } })],
+    ];
+    for (const [name, req] of cases) await assert.rejects(() => svc.decide(req), DecisionsRequestError, name);
+    assert.equal(t.calls.length, 0);
+  });
+  it("requests that differ only in candidate facts are not deduplicated", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((res) => { release = res; });
+    const step = async () => { await gate; return ok200(fixture("response_ok.json")); };
+    const { svc, t } = service([step, step], { maxConcurrent: 2 });
+    const base = { question_set_version: "decision-questions.v2", allowed_candidates: ["keep_current", "insufficient_evidence", "c_one"] };
+    const a = svc.decide(goodRequest({ ...base, request_id: "A", candidate_facts: { c_one: { v: 1 } } }));
+    const b = svc.decide(goodRequest({ ...base, request_id: "B", candidate_facts: { c_one: { v: 2 } } }));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(t.calls.length, 2, "different facts are different questions");
+    release();
+    await Promise.all([a, b]);
   });
   it("rejects malformed requests locally, before any network", async () => {
     const { svc, t } = service([ok200(fixture("response_ok.json"))]);
@@ -333,6 +398,64 @@ describe("deadline, abort, concurrency", () => {
     release();
     assert.deepEqual([(await p1).status, (await p2).status], ["ok", "ok"]);
     assert.equal(t.calls.length, 2);
+  });
+});
+
+describe("operator trace (dedicated Jev log)", () => {
+  it("records the wire request, the raw response and the normalized result of a call", async () => {
+    const { svc, traces } = service([ok200(fixture("response_ok.json"))]);
+    const r = await svc.decide(goodRequest({ request_id: "R1" }));
+    assert.deepEqual(traces.map((e) => e.kind), ["request", "response", "result"]);
+    const [req, res, out] = traces as any[];
+    assert.equal(req.request_id, "R1");
+    assert.equal(req.attempt, 1);
+    assert.equal(req.model, "typesafe/jev-1.13");
+    assert.deepEqual(req.body.state, goodRequest().state_projection, "the state the provider saw");
+    assert.ok(req.body.questions.candidate_selection.criteria, "and the question with its options");
+    assert.equal(res.http, 200);
+    assert.deepEqual(res.body, fixture("response_ok.json"), "the raw provider response, unmodified");
+    assert.equal(out.status, "ok");
+    assert.equal(out.choice, r.selection?.candidate_id);
+    assert.deepEqual(out.probabilities, r.selection?.probabilities);
+    assert.ok(typeof out.ms === "number");
+  });
+  it("never contains the API key or any header", async () => {
+    const { svc, traces } = service([ok200(fixture("response_ok.json"))]);
+    await svc.decide(goodRequest());
+    const blob = JSON.stringify(traces);
+    assert.ok(!blob.includes(KEY) && !/authorization|bearer/i.test(blob), "no key, no Authorization header");
+  });
+  it("logs every retry attempt and a failed call with its code", async () => {
+    const { svc, traces } = service([status(503), status(503), status(503)], { maxRetries: 2 });
+    const r = await svc.decide(goodRequest());
+    assert.equal(r.status, "unavailable");
+    const kinds = traces.map((e) => e.kind);
+    assert.deepEqual(kinds, ["request", "response", "request", "response", "request", "response", "result"]);
+    assert.deepEqual((traces as any[]).filter((e) => e.kind === "request").map((e) => e.attempt), [1, 2, 3]);
+    assert.equal((traces as any[]).at(-1).error_code, "provider_error");
+  });
+  it("logs transport errors and calls that never reached the provider", async () => {
+    const { svc, traces } = service([new Error("boom")], { maxRetries: 0 });
+    await svc.decide(goodRequest());
+    assert.deepEqual(traces.map((e) => e.kind), ["request", "transport_error", "result"]);
+    const off = service([], { mode: "off" });
+    await off.svc.decide(goodRequest());
+    assert.deepEqual(off.traces, [], "mode off makes no provider call and writes no trace");
+  });
+  it("cuts oversized response bodies instead of dumping them", async () => {
+    const big = "x".repeat(40_000);
+    const { svc, traces } = service([{ status: 200, headers: {}, bodyText: big, truncated: false }]);
+    await svc.decide(goodRequest());
+    const res = (traces as any[]).find((e) => e.kind === "response");
+    assert.ok(typeof res.body === "string" && res.body.includes("[truncated 8000 chars]") && res.body.length < 33_000);
+  });
+  it("a failing trace sink never breaks a decision", async () => {
+    const tr = fakeTransport([ok200(fixture("response_ok.json"))]);
+    const svc = new DecisionsService({ mode: "suggest" } as any, {
+      transport: tr.fn, sleep: noSleep().fn, resolveApiKey: () => KEY, trace: () => { throw new Error("disk full"); },
+    });
+    const r = await svc.decide(goodRequest());
+    assert.equal(r.status, "ok");
   });
 });
 
