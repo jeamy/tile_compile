@@ -278,21 +278,27 @@ Tests: `test_pi_decision_service.cpp` (Modus aus, nur Baselines, Sidecar aus/kei
 
 ## 8.1 M5.1 — Katalog v2: Wertegitter, Objektklasse, Schutzliste (Entscheidungen 2026-09-24)
 
-**Status:** offen. **Abhängigkeit:** M4, Nutzerentscheidungen in [pi_jev_decisions_plan_de.md](pi_jev_decisions_plan_de.md) 1.1.
+**Status:** bis auf die Mehrfachfragen umgesetzt (2026-09-24). **Abhängigkeit:** M4, Nutzerentscheidungen in [pi_jev_decisions_plan_de.md](pi_jev_decisions_plan_de.md) 1.1.
 Ziel: die Infrastruktur, damit weitere Kandidaten einzeln aufgenommen werden können; noch kein neuer Kandidat wird freigegeben.
 
-- [ ] Katalogformat `pi.candidate-catalog.v2`: Kandidaten mit `value_grid` (Minimum, Maximum, Schritt oder Stufenliste, Einheit,
-  Herkunft/Begründung). Der Katalog erzeugt daraus feste Kandidaten-IDs je Stufe (`<id>@<stufe>`); Ablehnung von Werten
-  außerhalb des Gitters (`value_not_on_grid`); Gitter, die einen geschützten Pfad treffen, werden beim Laden abgelehnt.
-- [ ] Mehrere unabhängige Fragen je Anfrage (eine je Kandidatengruppe); jede Antwort wird einzeln aufgelöst, keine
+- [x] Katalog: Kandidaten-Vorlage mit `value_grid` (`levels` oder `min`/`max`/`step`, `unit` und `basis` Pflicht, höchstens 32 Stufen,
+  `integer` optional). Beim Laden wird je Stufe ein normaler Kandidat `<id>__<label>` erzeugt (Stufen auf 9 signifikante Stellen
+  gerundet, Vorlage nicht wählbar, Kennung nur `[a-z0-9_]`, weil der Sidecar genau dieses Alphabet annimmt); Gitter auf
+  geschütztem Pfad, ungültige Gitter und ein Gitterpfad zusätzlich in `updates` werden abgelehnt. Ein Wert neben dem Gitter
+  ergibt `value_not_allowlisted` (Stufen-ID mit falschem Wert) oder `unknown_candidate` (Stufe existiert nicht); die Stufe,
+  die dem aktuellen Wert entspricht, ist ein No-op (`already_active`). Tests: `test_pi_decision_policy` (mit Mutationsprüfung).
+- [ ] (offen, wird mit der zweiten Kandidatengruppe gebraucht) Mehrere unabhängige Fragen je Anfrage (eine je Kandidatengruppe); jede Antwort wird einzeln aufgelöst, keine
   automatische Kombination mehrerer Gruppen.
-- [ ] State: geprüfte Nutzerangabe `object_class` (Enum kompakt/diffus/Sternfeld/unbekannt); UI-Feld in der Jev-Ansicht;
-  Kandidaten mit Bedarf enthalten sich ohne Angabe (`evidence_unavailable:object_class`).
+- [x] State: geprüfte Nutzerangabe `session_context.object_class` (`compact`/`diffuse`/`star_field`, Herkunft `user`; alles andere
+  ergibt Finding `object_class_invalid`); Teil des State-Hashs und der Provider-Projektion. Evidenz `object_class` mit optionaler
+  Kandidatenliste `object_classes`; ohne Angabe `evidence_unavailable:object_class`, falsche Klasse
+  `evidence_below_threshold:object_class`. UI-Auswahl in der Jev-Ansicht (DE/EN), wird bei Anfrage und Übernahme mitgesendet.
 - [x] Schutzliste überarbeitet (Schema `pi.protected-paths.v2`, Stufen `hard`/`user_domain`, `released_for_candidates` mit
   Bedingung je Pfad; Lader lehnt fehlende Stufe, altes Schema und einen zugleich geschützten und freigegebenen Pfad ab).
   Tests für beide Richtungen: `test_pi_decision_policy`.
-- [ ] Aufbewahrungsregel für Nachweisläufe dokumentieren und im Auswertungswerkzeug festhalten (nur Ergebnisartefakte,
-  Metriken, Configs, Logs; kein Cache, keine kalibrierten Frames).
+- [x] Aufbewahrungsregel für Nachweisläufe: `tile_compile_cpp/scripts/prune_evaluation_run.py` (Trockenlauf als Standard;
+  entfernt nur `cache/` und `outputs/calibrated/` eines erfolgreich beendeten Runs; lehnt fremde Ordner, unfertige oder
+  fehlgeschlagene Runs und symbolische Links ab).
 
 **Abnahme:** bestehende Tests grün; neue Tests für Gitter (auf/neben/außerhalb, Rundung, Typ), mehrere Fragen je Anfrage,
 Objektklasse (gesetzt/fehlt), Schutzliste (erreichbar mit/ohne Katalogeintrag).
