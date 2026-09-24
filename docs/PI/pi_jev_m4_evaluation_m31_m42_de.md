@@ -161,3 +161,63 @@ stimmt auf 0,05 % überein. **Auf M31 gibt es keinen belegten Nutzen der adaptiv
 Grenzen: ein Datensatz, je ein Lauf pro Arm (kein Wiederholungslauf, also keine Run-zu-Run-Grundstreuung);
 die Stern-Stichproben der Validierung sind nicht identisch (247 gegen 248 Sterne), das Ergebnis ist deshalb kein
 Vergleich an gematchten Positionen im Sinne der Projektregel; M42 wurde nicht gepaart gelaufen.
+
+## 10. Gepaarte Läufe M42 und IC5070, Jev-Abfragen für vier Datensätze (M5, Teil 3)
+
+Stand 2026-09-24. Gleiches Vorgehen wie Abschnitt 9 (gleiches Binary, nur `global_metrics.adaptive_weights` verschieden,
+Auswertung lesend). A = Gewichtung an, B = aus.
+
+| | M42 A / B (610 Frames) | IC5070 A / B (466 Frames) |
+|---|---|---|
+| Run-IDs | `20260923_223614_ce66cf2d` / `20260923_232436_95ed29f7` | `20260924_001226_8c66f570` / `20260924_004750_bbc7b433` |
+| Gewichte min / Median / max | 0,027 / 1,13 / 9,99 gegen 0,12 / 1,01 / 4,27 | 0,027 / 1,05 / 4,70 gegen 0,027 / 0,95 / 2,93 |
+| n_eff / N | 0,59 / 0,80 | 0,64 / 0,77 |
+| Median-FWHM raw (px) | 3,969 / 3,957 (KI überlappen) | 4,412 / 4,403 (KI überlappen) |
+| Elongation raw | 1,0365 / 1,0342 | 1,1238 / 1,1246 |
+| Hintergrund-RMS raw | 1,988 / 1,949 | 1,848 / 1,848 |
+| Rauschen Endbild rMAD (R/G/B) | 4,63/3,56/4,00 gegen 4,53/3,49/3,92 (A etwa +2 %) | 4,43/3,47/3,91 gegen 4,43/3,48/3,91 (gleich) |
+| gewählter Kandidat | `drizzle_raw` / `drizzle_raw` | `drizzle_raw` / `drizzle_raw` |
+
+**Jev** (je 5 Aufrufe, Kandidat `enable_adaptive_weights` durch Setzen des Entwurfs auf `false` angeboten, Testschwellen
+`min_measurement_coverage=0,9`, `min_metric_agreement=0,5`, willkürlich; Modell `typesafe/jev-1.13-20260917`; Kosten gesamt 0,0031 USD):
+
+| Datensatz | Median-Übereinstimmung | Wahl | P(keep_current) | P(enable) |
+|---|---|---|---|---|
+| M31 | 0,877 | 5x `keep_current` | 0,86-0,88 | 0,05-0,06 |
+| M42 | 0,754 | 5x `keep_current` | 0,85-0,89 | 0,05-0,08 |
+| M66 | 0,685 | 5x `keep_current` | 0,78-0,85 | 0,07-0,12 |
+| IC5070 (Schwelle 0) | 0,330 | 5x `keep_current` | 0,84-0,86 | 0,06-0,09 |
+
+Mit Schwelle 0,5 wird der Kandidat bei IC5070 vor dem Modell ausgeschlossen (`evidence_below_threshold:metric_agreement`).
+
+**Lesart:** Auf M31, M42 und IC5070 bringt die adaptive Gewichtung keinen messbaren Schärfegewinn; bei M31 und M42 kostet
+sie etwa 2 % Rauschen, bei IC5070 nichts. Jevs stetiges `keep_current` deckt sich damit. Die Übereinstimmung der Metriken
+unterscheidet die Datensätze (0,33 bis 0,88), sagt aber keinen Nutzen voraus: eine Schwelle ist auch mit vier
+Datensätzen nicht begründbar. Grenzen wie in Abschnitt 9 (ein Lauf je Arm, kein Wiederholungslauf, keine gematchten
+Sternpositionen).
+
+### 10.1 M66 (975 Frames)
+
+A (Gewichtung an, `20260924_013435_a39a9e30`) gegen B (aus, `20260924_040232_e0b8cac7`), gleiche Bedingungen.
+
+| | A | B |
+|---|---|---|
+| Gewichte min / Median / max | 0,027 / 1,19 / 5,29 | 0,027 / 0,96 / 3,39 |
+| n_eff / N | 0,63 | 0,73 |
+| Median-FWHM raw (px), 95%-KI | 5,820 [5,537-6,052] | 5,779 [5,616-6,155] |
+| Elongation raw | 1,0925 | 1,0881 |
+| Hintergrund-RMS raw | 1,119 | 1,103 |
+| tail | 0,267 | 0,230 |
+| Rauschen Endbild rMAD (R/G/B) | 2,22/1,88/2,09 | 2,19/1,85/2,05 (A etwa +1,4 %) |
+| gewählter Kandidat | `drizzle_raw` | `drizzle_raw` |
+
+Schärfe: keine messbare Änderung (0,7 %, Konfidenzintervalle überlappen breit). Rauschen: A etwa 1,4 % höher.
+**Auffällig:** der Fluss der hellsten 1 % Pixel unterscheidet sich um +9 bis +16 % (A/B: 1,16 / 1,09 / 1,15), bei
+M31/M42/IC5070 lag er unter 1,3 %. Die Ursache wurde nicht untersucht (mögliche Gründe: die Gewichte verschieben die
+Anteile heller/dunkler Frames bei einem Objekt mit sehr hellem Kern, oder die Validierungs- und Supportmasken
+unterscheiden sich); nicht als Qualitätsaussage lesen. Zusammenfassend bleibt es bei allen vier Datensätzen dabei: kein
+belegter Vorteil der adaptiven Gewichtung, ein Rauschnachteil von 0 bis 2 %.
+
+**Betrieb (nicht Ergebnis):** Die Geometrie-Vorprüfung der Forward-Drizzle-Phase (`runner_forward_drizzle.cpp`) verlangt
+das 1,5-fache von etwa 118 GiB frei; bei M66 mit 975 Frames braucht ein Lauf beim Start rund 250 GB freien Platz
+(kalibrierte Frames und Normalisierungs-Cache liegen dann schon auf dem Datenträger).
