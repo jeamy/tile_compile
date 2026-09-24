@@ -3,7 +3,10 @@
 #include <sstream>
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
+#include <ctime>
 #include <deque>
 #include <functional>
 #include <iomanip>
@@ -143,6 +146,40 @@ double overall_progress(const nlohmann::json& phases,
     if (progress < 0.0) return 0.0;
     if (progress > 1.0) return 1.0;
     return progress;
+}
+
+/// @brief Parses an ISO-8601 UTC event timestamp (with optional fraction) to epoch seconds.
+std::optional<double> event_ts_seconds(const nlohmann::json& ev) {
+    if (!ev.contains("ts") || !ev["ts"].is_string()) return std::nullopt;
+    const std::string raw = ev["ts"].get<std::string>();
+    int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+    if (raw.size() < 19 ||
+        std::sscanf(raw.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d", &year, &month, &day, &hour, &minute, &second) != 6) {
+        return std::nullopt;
+    }
+    double fractional = 0.0;
+    const auto dot = raw.find('.');
+    if (dot != std::string::npos) {
+        const auto end = raw.find_first_of("Z+-", dot);
+        const std::string frac = raw.substr(dot + 1, end == std::string::npos ? std::string::npos : end - dot - 1);
+        if (!frac.empty() && std::all_of(frac.begin(), frac.end(), [](unsigned char c) { return std::isdigit(c); })) {
+            fractional = std::stod("0." + frac);
+        }
+    }
+    std::tm tm{};
+    tm.tm_year = year - 1900;
+    tm.tm_mon = month - 1;
+    tm.tm_mday = day;
+    tm.tm_hour = hour;
+    tm.tm_min = minute;
+    tm.tm_sec = second;
+#ifdef _WIN32
+    const auto epoch = _mkgmtime(&tm);
+#else
+    const auto epoch = timegm(&tm);
+#endif
+    if (epoch < 0) return std::nullopt;
+    return static_cast<double>(epoch) + fractional;
 }
 
 void normalize_phase_list_for_status(nlohmann::json& phase_list) {
@@ -650,6 +687,10 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
     nlohmann::json extra_phases = nlohmann::json::object();
     nlohmann::json progress_map = nlohmann::json::object();
     std::deque<nlohmann::json> events_tail;
+    // Phase durations are derived from the whole event file: the 200-event tail
+    // drops early phases (SCAN_INPUT, NORMALIZATION) once later phases emit many
+    // progress events.
+    std::map<std::string, double> phase_start_secs;
     std::string run_status = "unknown";
     std::string current_phase;
     std::string resume_from_phase;
@@ -662,6 +703,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         }
         extra_phases = nlohmann::json::object();
         progress_map = nlohmann::json::object();
+        phase_start_secs.clear();
         run_status = "unknown";
         current_phase.clear();
         resume_from_phase.clear();
@@ -701,6 +743,9 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
             }
 
             if (event_type == "phase_start") {
+                phase_state->erase("duration_s");
+                if (const auto secs = event_ts_seconds(ev)) phase_start_secs[phase_name] = *secs;
+                else phase_start_secs.erase(phase_name);
                 if ((*phase_state).value("status", std::string()) != "running" ||
                     (*phase_state).value("pct", 0.0) >= 1.0) {
                     (*phase_state)["pct"] = 0.0;
@@ -733,6 +778,12 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                     raw = "ok";
                 }
                 (*phase_state)["status"] = raw;
+                if (const auto start_it = phase_start_secs.find(phase_name); start_it != phase_start_secs.end()) {
+                    if (const auto end_secs = event_ts_seconds(ev)) {
+                        (*phase_state)["duration_s"] = std::round(std::max(0.0, *end_secs - start_it->second) * 1000.0) / 1000.0;
+                    }
+                    phase_start_secs.erase(start_it);
+                }
                 if (raw == "ok" || raw == "skipped") (*phase_state)["pct"] = 1.0;
                 if (!is_resume_prereq_phase(phase_name) &&
                     current_phase == phase_name &&
@@ -771,6 +822,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                         if (phases.contains(*pit)) {
                             phases[*pit]["status"] = (*pit == resume_from_phase) ? "running" : "pending";
                             phases[*pit]["pct"] = 0.0;
+                            phases[*pit].erase("duration_s");
                         }
                     }
                 }

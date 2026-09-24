@@ -214,6 +214,48 @@ int main(int argc, char** argv) {
         expect_true(found_astrometry_after_pcc_resume, "astrometry phase present after pcc resume");
         expect_true(found_pcc_after_pcc_resume, "pcc phase present after pcc resume");
 
+        {
+            // Early phases must keep their duration even when later progress
+            // events push their start/end out of the 200-event status tail.
+            std::vector<nlohmann::json> events;
+            events.push_back({{"ts", "2026-03-10T15:00:00Z"}, {"type", "run_start"}, {"run_id", "phase_durations_beyond_tail"}});
+            events.push_back({{"ts", "2026-03-10T15:00:00.000Z"}, {"type", "phase_start"}, {"phase_name", "SCAN_INPUT"}});
+            events.push_back({{"ts", "2026-03-10T15:00:17.500Z"}, {"type", "phase_end"}, {"phase_name", "SCAN_INPUT"}, {"status", "ok"}});
+            events.push_back({{"ts", "2026-03-10T15:00:17.500Z"}, {"type", "phase_start"}, {"phase_name", "CHANNEL_SPLIT"}});
+            events.push_back({{"ts", "2026-03-10T15:00:17.500Z"}, {"type", "phase_end"}, {"phase_name", "CHANNEL_SPLIT"}, {"status", "ok"}});
+            events.push_back({{"ts", "2026-03-10T15:00:17.500Z"}, {"type", "phase_start"}, {"phase_name", "NORMALIZATION"}});
+            for (int i = 0; i < 300; ++i) {
+                events.push_back({{"ts", "2026-03-10T15:04:00Z"}, {"type", "phase_progress"},
+                                  {"phase_name", "NORMALIZATION"}, {"progress", (i + 1) / 300.0}});
+            }
+            events.push_back({{"ts", "2026-03-10T15:04:17Z"}, {"type", "phase_end"}, {"phase_name", "NORMALIZATION"}, {"status", "ok"}});
+            events.push_back({{"ts", "2026-03-10T15:04:18Z"}, {"type", "phase_start"}, {"phase_name", "REGISTRATION"}});
+            harness.create_run("phase_durations_beyond_tail", events, "OSC");
+
+            const auto durations_status = harness.get_json("/api/runs/phase_durations_beyond_tail/status");
+            expect_equal(durations_status["_http_status"].get<long>(), 200L, "phase durations status code");
+            expect_true(durations_status["events"].size() <= 200, "status events stay capped");
+            bool found_scan = false, found_split = false, found_norm = false, running_has_duration = true;
+            for (const auto& item : durations_status["phases"]) {
+                const std::string phase = test_phase_name(item);
+                if (phase == "SCAN_INPUT") {
+                    found_scan = true;
+                    expect_equal(item["duration_s"].get<double>(), 17.5, "scan input duration beyond event tail", 1e-9);
+                }
+                if (phase == "CHANNEL_SPLIT") {
+                    found_split = true;
+                    expect_equal(item["duration_s"].get<double>(), 0.0, "zero-length phase reports 0 duration", 1e-9);
+                }
+                if (phase == "NORMALIZATION") {
+                    found_norm = true;
+                    expect_equal(item["duration_s"].get<double>(), 239.5, "normalization duration beyond event tail", 1e-9);
+                }
+                if (phase == "REGISTRATION") running_has_duration = item.contains("duration_s");
+            }
+            expect_true(found_scan && found_split && found_norm, "early phases present in status");
+            expect_true(!running_has_duration, "running phase has no duration yet");
+        }
+
         harness.create_run("resume_overlay_without_events", {
             {{"ts", "2026-03-10T14:00:00Z"}, {"type", "phase_start"}, {"phase_name", "FORWARD_DRIZZLE"}},
             {{"ts", "2026-03-10T14:00:01Z"}, {"type", "phase_end"}, {"phase_name", "FORWARD_DRIZZLE"}, {"status", "ok"}},

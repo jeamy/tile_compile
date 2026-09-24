@@ -223,9 +223,10 @@ async function renderArtifacts() {
   }
 }
 
-// Derive per-phase durations from the status response's `events` tail
-// (phase_start/phase_end pairs) -- the /status endpoint itself carries no
-// timing, only pct/status per phase.
+// Fallback for backends without `duration_s` in `status.phases`: derive
+// per-phase durations from the `events` tail (phase_start/phase_end pairs).
+// The tail is capped, so early phases (SCAN_INPUT, NORMALIZATION) get lost on
+// long runs -- the backend-provided `duration_s` covers the whole event file.
 function phaseDurations(events) {
   const durations = {};
   const starts = {};
@@ -279,7 +280,8 @@ async function renderStatus() {
     const name = p.phase || p.name || "?";
     const st = (p.status || "pending");
     const cls = st === "running" ? "run" : (st === "ok" || st === "done" ? "ok" : (st === "pending" ? "" : "err"));
-    const dur = durations[name] != null ? fmtDur(durations[name]) : "–";
+    const durMs = typeof p.duration_s === "number" ? p.duration_s * 1000 : durations[name];
+    const dur = durMs != null ? fmtDur(durMs) : "–";
     tbody.innerHTML += `<tr><td>${name}</td><td><span class="pill ${cls}">${st}</span></td><td class="num">${dur}</td></tr>`;
   }
 
