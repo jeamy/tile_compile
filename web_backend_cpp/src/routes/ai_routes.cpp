@@ -1016,22 +1016,73 @@ json completion_config_schema(const SchemaInfo& schema) {
     return result;
 }
 
-json extract_resume_recommendation(const json& analysis) {
-    static const std::set<std::string> supported = {
-        "SCAN_INPUT", "REGISTRATION", "PREWARP", "CHANNEL_SPLIT", "NORMALIZATION",
-        "GLOBAL_METRICS", "TILE_GRID", "COMMON_OVERLAP", "LOCAL_METRICS",
-        "TILE_RECONSTRUCTION", "STATE_CLUSTERING", "SYNTHETIC_FRAMES", "AQMH_MAPS",
-        "AQMH_GLOBAL_QUALITY", "AQMH_METRICS", "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS",
-        "STACKING", "DEBAYER", "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"
-    };
+json extract_resume_recommendation(const json& analysis,
+                                   const json& validated_updates,
+                                   const fs::path& run_dir) {
     json recommendation = analysis.value("resume_recommendation", json::object());
     if (!recommendation.is_object()) recommendation = json::object();
-    const std::string phase = recommendation.value("from_phase", std::string());
-    if (!supported.count(phase)) {
-        recommendation["from_phase"] = "DEBAYER";
-        recommendation["reason"] = "Fallback to the earliest safe phase that regenerates stacked_rgb.fits.";
-        recommendation["model_phase_rejected"] = phase;
+
+    std::set<std::string> changed_sections;
+    if (validated_updates.is_array()) {
+        for (const auto& update : validated_updates) {
+            if (!update.is_object()) continue;
+            const std::string path = update.value("path", std::string());
+            if (path.empty()) continue;
+            changed_sections.insert(path.substr(0, path.find('.')));
+        }
     }
+    recommendation["changed_sections"] = changed_sections;
+
+    static const std::set<std::string> downstream_sections = {
+        "astrometry", "bge", "pcc", "chroma_denoise",
+        "hypermetric_stretch", "runtime_limits"
+    };
+    std::vector<std::string> upstream_sections;
+    for (const auto& section : changed_sections) {
+        if (!downstream_sections.count(section)) upstream_sections.push_back(section);
+    }
+    if (!upstream_sections.empty()) {
+        recommendation["from_phase"] = "";
+        recommendation["feasibility"] = "new_run_required";
+        recommendation["blocked_reason"] = "predecessor_config_changed";
+        recommendation["upstream_sections"] = upstream_sections;
+        recommendation["reason"] =
+            "The validated updates change predecessor configuration. Persisted reconstruction artifacts are bound to the run-start config; apply these updates to a new run.";
+        return recommendation;
+    }
+
+    std::string phase;
+    if (changed_sections.count("astrometry")) phase = "ASTROMETRY";
+    else if (changed_sections.count("bge")) phase = "BGE";
+    else if (changed_sections.count("pcc") || changed_sections.count("chroma_denoise")) phase = "PCC";
+    else if (changed_sections.count("hypermetric_stretch")) phase = "HYPERMETRIC_STRETCH";
+
+    if (phase.empty()) {
+        recommendation["from_phase"] = "";
+        recommendation["feasibility"] = "new_run_required";
+        recommendation["blocked_reason"] = changed_sections.empty()
+            ? "no_validated_updates"
+            : "no_effective_downstream_resume_phase";
+        recommendation["reason"] = changed_sections.empty()
+            ? "No validated parameter update is available to apply."
+            : "The validated changes do not map to a downstream image-processing phase; apply them to a new run.";
+        return recommendation;
+    }
+
+    const fs::path outputs = run_dir / "outputs";
+    const bool rgb_ok = fs::is_regular_file(outputs / "stacked_rgb.fits") ||
+                        fs::is_regular_file(outputs / "stacked_rgb_solve.fits");
+    const bool pcc_ok = fs::is_regular_file(outputs / "stacked_rgb_pcc.fits");
+    if (!rgb_ok || (phase == "HYPERMETRIC_STRETCH" && !pcc_ok)) {
+        recommendation["from_phase"] = "";
+        recommendation["feasibility"] = "new_run_required";
+        recommendation["blocked_reason"] = "downstream_input_missing";
+        recommendation["reason"] =
+            "The persisted downstream input required for the validated changes is missing; start a new run.";
+        return recommendation;
+    }
+
+    recommendation["from_phase"] = phase;
     recommendation["feasibility"] = "requires_dry_run";
     return recommendation;
 }
@@ -1933,8 +1984,8 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             "(array of objects with path, value, reason, confidence, risk), and resume_recommendation "
             "(object with from_phase and reason). Recommend object-agnostic parameter improvements for a new "
             "run. Use only allowed_config_paths and config_schema. Do not infer defects that are hidden by the "
-            "preview. AQMH and Classic Tile Compile are independent: never feed Classic local/tile quality "
-            "metrics into AQMH weights. Select the earliest necessary supported resume phase and explain why; "
+            "preview. Select the earliest necessary supported resume phase (GLOBAL_QUALITY or "
+            "FORWARD_DRIZZLE) and explain why; "
             "the backend will verify feasibility separately.";
 
         json image_info = preview;
@@ -2053,7 +2104,8 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
                 analysis["rejected_updates"] = validated["rejected_updates"];
                 analysis["validation"] = validated["validation"];
                 analysis["config_yaml"] = validated["patched_config_yaml"];
-                analysis["resume_recommendation"] = extract_resume_recommendation(analysis);
+                analysis["resume_recommendation"] = extract_resume_recommendation(
+                    analysis, validated["validated_updates"], run_dir);
                 analysis["analysis_id"] = analysis_id;
                 if (!persist_completion_analysis(state, run_id, analysis)) {
                     throw std::runtime_error("Completion analysis could not be persisted");

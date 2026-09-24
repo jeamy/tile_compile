@@ -1,0 +1,339 @@
+# M31 (Andromeda Galaxy), DWARF II, OSC -- 645 lights, gain 80.
+#
+# Same pilot + full-frame estimator setup as m42_dwarf2_full_frame.example.yaml
+# (reconstruction.drizzle.full_frame_estimator: true, clip_sigma_low/high 4/4)
+# on a compact object with a flat sky around it. Measured against a matched
+# control (same config, full_frame_estimator: false): sky sigma 2.26 -> 0.95,
+# faint outer-arm contrast (HMS, 4x4 binned) 4.2/4.0 -> 8.4/8.0, star flux
+# -0.4 % and half-flux radius x0.99 versus the control, no structure that the
+# other stacks do not show; FORWARD_DRIZZLE about +68 %. The denoise values
+# here are the M31 baseline used for these comparison runs, not a tuned
+# optimum.
+#
+# Adapt the machine-specific paths below (dark master, astap/siril data).
+#
+output:
+  registered_dir: registered
+  write_registered_frames: false
+  crop_to_nonzero_bbox: true
+data:
+  image_width: 0
+  image_height: 0
+  color_mode: OSC
+  bayer_pattern: auto
+calibration:
+  use_bias: false
+  use_dark: true
+  use_flat: false
+  bias_use_master: false
+  dark_use_master: true
+  dark_already_bias_corrected: false
+  flat_use_master: false
+  dark_auto_select: false
+  dark_match_exposure_tolerance_percent: 10
+  dark_match_use_temp: false
+  dark_match_temp_tolerance_c: 5
+  pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
+  dark_master: /path/to/dark_exp_10.000000_gain_80_bin_1_stack_10.fits
+normalization:
+  enabled: true
+  mode: background
+  per_channel: true
+dithering:
+  enabled: true
+  min_shift_px: 0.7
+linearity:
+  enabled: true
+  max_frames: 64
+  min_overall_linearity: 0.9
+  strictness: strict
+registration:
+  engine: triangle_star_matching
+  enable_star_pair_fallback: true
+  allow_rotation: true
+  transform_model: affine
+  star_topk: 80
+  star_min_inliers: 4
+  star_inlier_tol_px: 4
+  star_dist_bin_px: 5
+  reject_outliers: true
+  reject_cc_min_abs: 0.25
+  reject_shift_px_min: 100
+  reject_shift_median_multiplier: 5
+  reject_scale_min: 0.92
+  reject_scale_max: 1.08
+  auto_engine: true
+  auto_engine_rotation_threshold_deg: 0.05
+  max_blind_chain_depth: 0
+  blind_chain_strong_anchor_cc: 0.05
+  blind_chain_drift_threshold_px: 2
+  use_astrometry: true
+  enable_local_background_subtraction: false
+  star_shift_radius_px: 200
+  affine_refinement_enabled: true
+  smooth_local_refinement_enabled: true
+  prewarp_interpolation: cubic
+  debayer_first: true
+  pre_debayer_method: edge_aware
+global_metrics:
+  adaptive_weights: true
+  weight_exponent_scale: 1.2
+  clamp: [-3, 3]
+  weights:
+    background: 0.25
+    fwhm: 0.25
+    gradient: 0.2
+    noise: 0.2
+    roundness: 0.1
+    star_count: 0
+luma_denoise:
+  enabled: false
+  luma_guard_strength: 0.85
+  blend_amount: 0.85
+  star_protection:
+    enabled: true
+    threshold_sigma: 6
+    dilate_px: 8
+  structure_protection:
+    enabled: true
+    gradient_percentile: 90
+  wavelet:
+    enabled: true
+    levels: 3
+    threshold_scale: 1.5
+    soft_k: 1
+chroma_denoise:
+  enabled: false
+  color_space: ycbcr_linear
+  apply_stage: post_stack_linear
+  protect_luma: true
+  luma_guard_strength: 0.85
+  adaptation_reference_ratio: 1
+  star_protection:
+    enabled: true
+    threshold_sigma: 3
+    dilate_px: 3
+  structure_protection:
+    enabled: true
+    gradient_percentile: 90
+  chroma_wavelet:
+    enabled: true
+    levels: 4
+    threshold_scale: 1.5
+    soft_k: 1
+  chroma_bilateral:
+    enabled: true
+    sigma_spatial: 2
+    sigma_range: 2
+  blend:
+    mode: chroma_only
+    amount: 0.8
+  extended_source_protection:
+    enabled: true
+    luma_sigma: 2.5
+    dilate_px: 30
+  large_scale_bias:
+    enabled: true
+    block_size: 32
+    blur_sigma: 24
+    strength: 1
+astrometry:
+  enabled: true
+  astap_data_dir: /path/to/astap
+  search_radius: 183
+stacking:
+  per_frame_cosmetic_correction: true
+  per_frame_cosmetic_correction_sigma: 5
+bge:
+  method: auto
+  auto_detect:
+    gradient_threshold: 0.05
+    extended_source_sigma: 3
+    extended_source_dilate_px: 50
+  autobge:
+    num_sample_points: 800
+    poly_degree: 2
+    rbf_smooth: 0.5
+    downsample_scale: 4
+    patch_size: 25
+    stretch_mode: linear
+    stretch_target_median: 0.25
+    border_margin: 10
+    bright_exclusion_fraction: 0.3
+    gradient_descent_max_iters: 100
+    random_seed: 42
+    normalize_between_stages: true
+    apply_guards: true
+    mono_mode: rgb_duplicate
+    exclusion_polygons: []
+    user_sample_points: []
+  tile_weight_lambda_structure: 1
+  autotune:
+    enabled: true
+    strategy: conservative
+    max_evals: 24
+    holdout_fraction: 0.25
+    alpha_flatness: 0.25
+    beta_roughness: 0.1
+  sample_estimator: quantile
+  min_sample_bg_value: 1
+  sample_quantile: 0.2
+  structure_thresh_percentile: 0.8
+  min_tiles_per_cell: 3
+  min_valid_sample_fraction_for_apply: 0.3
+  min_valid_samples_for_apply: 96
+  mask:
+    star_dilate_px: 4
+    sat_dilate_px: 4
+  grid:
+    N_g: 32
+    G_min_px: 64
+    G_max_fraction: 0.25
+    insufficient_cell_strategy: discard
+  fit:
+    method: rbf
+    robust_loss: huber
+    huber_delta: 1.5
+    irls_max_iterations: 10
+    irls_tolerance: 0.0001
+    polynomial_order: 2
+    rbf_phi: multiquadric
+    rbf_mu_factor: 1.5
+    rbf_lambda: 0.01
+    rbf_epsilon: 1
+pcc:
+  enabled: true
+  source: siril
+  mag_limit: 14
+  mag_bright_limit: 6
+  aperture_radius_px: 8
+  annulus_inner_px: 10
+  annulus_outer_px: 16
+  min_stars: 3
+  sigma_clip: 2.5
+  background_model: plane
+  background_neutralization_mode: auto
+  radii_mode: auto_fwhm
+  aperture_fwhm_mult: 1.8
+  annulus_inner_fwhm_mult: 3
+  annulus_outer_fwhm_mult: 5
+  min_aperture_px: 4
+  siril_catalog_dir: /path/to/siril_catalog
+  apply_attenuation: true
+  chroma_strength: 0.7
+  k_max: 2.4
+  max_condition_number: 3
+  max_residual_rms: 0.9
+hypermetric_stretch:
+  enabled: true
+  require_successful_pcc: true
+  mode: ready_to_use
+  sensor_profile: Sony IMX415 (DWARF II)
+  fallback_profile: Sony IMX415 (DWARF II)
+  adaptive_anchor: true
+  target_bg: 0.12
+  protect_b: 6
+  convergence_power: 4
+  log_d_mode: fixed
+  fixed_log_d: 3.5
+  color_strategy: fixed
+  fixed_color_strategy: 0
+  color_grip: 1
+  shadow_convergence: 0
+  linear_expansion: 0
+  # Adaptive average-neutral colour-cast correction (Siril SCNR "average neutral",
+  # made automatic), applied to the stretched RGB AFTER HMS. HMS itself can raise
+  # the green share, so correcting before HMS only removes about half of a cast.
+  # Per pixel G is pulled back towards the mean of R and B measured ABOVE the
+  # per-channel sky level (the sky level is kept). The strength is not a constant:
+  # it is chosen so that the median G/((R+B)/2) over the object pixels (blurred
+  # luminance clearly above the sky, brightest 1 % = stars excluded) reaches
+  # target_ratio, capped at max_amount. The strength depends on the brightness:
+  # the object pixels are split into brightness_bins classes, the strength is
+  # chosen per class and interpolated over the pixel brightness, so a cast that
+  # differs between faint arms and a bright core is corrected in both. A class
+  # whose measured ratio is already <= min_excess is left unchanged, which
+  # protects genuinely green/teal objects.
+  # M31 (full-frame run, 8 brightness classes, mean strength 0.49): green excess
+  # ABOVE the sky (G/((R+B)/2) after subtracting the sky level) arms 1.73 -> 1.19,
+  # core 1.30 -> 1.02; the raw ratio (what the stretched image shows) arms 1.055 ->
+  # 0.974, core 1.148 -> 0.988, sky 0.937 unchanged WITHOUT neutralize_sky. The
+  # excess correction leaves the sky level alone, so a slightly magenta sky
+  # (0.937 here) stays and pulls the raw ratio of faint areas below 1.
+  # neutralize_sky: true additionally shifts G by (skyR+skyB)/2 - skyG so the sky
+  # is neutral and the raw ratio of sky, arms and core moves towards 1.
+  color_cast_correction:
+    enabled: true
+    max_amount: 1.0      # cap of the automatic strength, (0, 1]
+    target_ratio: 1.0    # median G/((R+B)/2) on object pixels to reach (1.0 = neutral)
+    min_excess: 1.02     # no change when the measured ratio is <= this
+    object_sigma: 3.0    # object = blurred luminance > sky + 3 sigma
+    brightness_bins: 8   # strength chosen per brightness class (1 = one global strength)
+    neutralize_sky: true   # also shift G so the SKY is neutral: G += (skyR+skyB)/2 - skyG
+  write_channels: false
+  output_rgb: stacked_rgb_hms.fits
+runtime_limits:
+  memory_budget: 16384
+  parallel_workers: 8
+  acceleration_backend: auto
+  hard_abort_hours: 6
+reconstruction:
+  common_overlap_required_fraction: 1
+  delete_source_cache_after_run: false
+  keep_profile_cache_after_run: false
+  diagnostics:
+    level: full
+    preview_forward_drizzle_uniform: false
+    persist_forward_drizzle_uniform_store: false
+  drizzle:
+    internal_scale: 2
+    output_scale: 1
+    kernel: square
+    pixfrac: 0.8
+    robust_passes: 4
+    min_clip_contributors: 5
+    full_frame_estimator: true
+    chunk_rows: 0
+    chunk_halo_rows: -1
+    memory_budget_mb: 0
+  clipping:
+    clip_sigma_low: 4
+    clip_sigma_high: 4
+    min_fraction: 0.4
+    min_n_eff: 2
+    guard_fallback: false
+    shared_frame_rejection: true
+    shared_frame_rejection_consensus: 0.5
+    # See docs/dynamic_boost_implementierungsplan_2026-09-19_de.md: a coherent
+    # minority of frames with a small real registration/tracking offset can
+    # otherwise survive the wide clip bounds and show as a faint double star.
+    bimodal_veto: true
+    bimodal_veto_gap_sigma: 2.5
+  coverage_gate:
+    min_frames: 2
+    min_supported_fraction: 0.995
+    min_channel_n_eff_floor: 3
+    min_channel_n_eff_fraction: 0.15
+    min_analysis_pixels: 1024
+    max_internal_hole_area_px: 0
+  quality:
+    pyramid:
+      scales: 4
+      base_window_px: 4
+      sharpness_weight: 0.6
+      snr_weight: 0.4
+      score_scale: 0.6
+      artifact_sigma: 3
+      max_artifact_fraction: 0.25
+  multiband:
+    enabled: true
+    levels: 3
+    alpha_cap: 1
+    fine_quality_exponent: 4
+    medium_quality_exponent: 2
+    min_quality_separation: 0.05
+    full_quality_separation: 0.2
+    min_effective_samples: 8
+    full_effective_samples: 24
+  multiband_validation:
+    background_rms_ratio_max: 1.5

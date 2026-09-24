@@ -16,6 +16,11 @@ subdirectories may add or override rules for their subtree.
 - Do not revert unrelated worktree changes. Work with existing edits and keep
   changes scoped to the request.
 - Do not use destructive Git or filesystem commands without explicit approval.
+- **Never give time or effort estimates.** No "~1 day", "~1 week", "weeks",
+  "quick", "medium effort", "1-2 days", story points, or any calendar/duration
+  guess for implementing something. State scope, risk, blast radius, dependency
+  order, and what must be verified — never how long it takes. (User directive
+  2026-09-09.)
 
 ## Running Services
 
@@ -68,13 +73,14 @@ running when finishing a task.
 
 ## Architecture Boundaries
 
-- AQMH and Classic Tile Compile are independent reconstruction methods. Do not
-  feed Classic local/tile quality metrics into AQMH weights.
+- The pipeline has exactly one reconstruction method: CFA Forward Drizzle +
+  Multiband (`tile_compile_runner reconstruct` / `resume-reconstruction`).
+  There are no AQMH or Classic implementations and no method dispatch; configs
+  must not contain a top-level `method:` selector. The legacy config migration
+  layer strips removed `aqmh`/Classic blocks and rejects method selectors
+  fail-closed.
 - Shared scan, calibration, registration, prewarp, normalization, masks, logging,
-  and run-management infrastructure may be reused by both methods.
-- AQMH post-processing candidates must be validated against both the uniform
-  control and the immutable raw AQMH baseline. If no candidate passes, preserve
-  raw AQMH.
+  and run-management infrastructure is shared pipeline infrastructure.
 - Comparative star-tail and elongation metrics must use matched star positions,
   not independently detected candidate/control populations.
 - Preserve resume contracts and phase artifacts when changing pipeline phases.
@@ -165,8 +171,9 @@ non-applicable.
 - Compare runs using their effective config, phase events, metrics, validation
   artifacts, and final output measurements. Do not infer causality from final
   FWHM alone.
-- Distinguish raw AQMH, neutralized, structure-masked, blended, and final selected
-  candidates. Report which gate selected or rejected each candidate.
+- Distinguish the raw, uniform, and multiband reconstruction candidates and the
+  final selected output. Report which selection gate chose or rejected each
+  candidate.
 - Recommendations must be object-agnostic by default. Object-specific overrides
   require evidence and must not weaken global safety invariants.
 - State clearly when conclusions are inferred from artifacts rather than verified

@@ -23,6 +23,7 @@
 #include <thread>
 #include <chrono>
 #include <ctime>
+#include <map>
 #include <set>
 #include <unordered_map>
 #include <cctype>
@@ -56,73 +57,146 @@ static crow::response err_resp(const std::string& code,
     return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
 }
 
-static std::string read_method_from_yaml_text_local(const std::string& yaml_text) {
-    if (yaml_text.empty()) return "";
-    try {
-        YAML::Node root = YAML::Load(yaml_text);
-        if (root["method"] && root["method"].IsScalar()) {
-            return root["method"].as<std::string>();
-        }
-    } catch (...) {}
-    return "";
-}
+// There is exactly one reconstruction method; configs no longer carry a
+// `method:` key (the runner rejects it fail-closed).
+static constexpr const char* kSingleReconstructionMethod = "cfa_forward_drizzle_multiband";
 
-static std::string read_run_method_local(const fs::path& run_dir, const std::string& yaml_override = "") {
-    std::string method = read_method_from_yaml_text_local(yaml_override);
-    if (!method.empty()) return method;
-    std::ifstream f(run_dir / "config.yaml");
-    if (f) {
-        try {
-            YAML::Node root = YAML::Load(f);
-            if (root["method"] && root["method"].IsScalar()) {
-                return root["method"].as<std::string>();
+/// @brief Resume section-scope check, mirroring the runner's own gates in
+/// apps/runner_forward_drizzle.cpp: `resume_downstream_command` for
+/// ASTROMETRY/BGE/PCC/HYPERMETRIC_STRETCH, and (since the config-scope
+/// relaxation for the reconstruction resume points)
+/// `validate_provenance`'s section-scoped path for GLOBAL_QUALITY/
+/// FORWARD_DRIZZLE. Duplicated here deliberately: the backend previously
+/// wrote a new config revision AND launched the resume subprocess
+/// unconditionally, only to have the runner reject the exact same mismatch
+/// a moment later after the write already happened -- e.g. the HMS config
+/// dialog's "Apply & start resume" saved the edited config but the actual
+/// re-stretch never visibly ran, because the runner's own gate rejected
+/// changes outside {hypermetric_stretch, runtime_limits} (such as stale
+/// chroma_denoise/pcc drift from an earlier resume) without the backend
+/// ever surfacing that as an error. Checking it here, before any write or
+/// subprocess launch, turns that silent no-op into an immediate, visible
+/// 409 the existing resume-error toast already knows how to show.
+/// GLOBAL_QUALITY/FORWARD_DRIZZLE additionally still require the
+/// normalized-source/quality caches to exist (checked separately, not by
+/// this function) since those are provenance/cache-based, not section-based.
+/// Returns std::nullopt when the phase has no scope restriction (its own
+/// separate provenance/cache-based checks apply instead) or when the check
+/// cannot be evaluated (missing run_start revision) -- in both cases the
+/// runner remains the fail-closed authority.
+static std::string pi_provenance_sha256_hex(const std::string& value);
+
+std::optional<std::string> downstream_resume_scope_violation(
+        const fs::path& run_dir, const std::string& phase_upper,
+        const std::string& new_yaml, const nlohmann::json& provenance) {
+    // GLOBAL_QUALITY/FORWARD_DRIZZLE: the reused reconstruction predecessors
+    // (NORMALIZED_CACHE, SAMPLING_GEOMETRY, COMMON_OVERLAP, SOURCE_QUALITY_
+    // MAPS) are validated against their own recorded checkpoint hashes, not
+    // against these config sections, so a change confined to them cannot
+    // desync cache from config -- mirrors
+    // allowed_reconstruction_resume_sections in the runner exactly.
+    // `reconstruction` is deliberately excluded for both: its
+    // `quality.pyramid` sub-key is only consumed while SOURCE_QUALITY_MAPS
+    // is (re)built, which this path skips and reuses unvalidated, so an
+    // edit there would otherwise be silently ignored instead of failing
+    // loud or applying.
+    static const std::set<std::string> kReconstructionResumeBase = {
+        "output", "data", "linearity", "calibration", "normalization",
+        "registration", "dithering", "chroma_denoise", "luma_denoise",
+        "astrometry", "pcc", "hypermetric_stretch", "bge", "stacking",
+        "runtime_limits"};
+    static const std::unordered_map<std::string, std::set<std::string>> kAllowed = {
+        {"HYPERMETRIC_STRETCH", {"hypermetric_stretch", "runtime_limits"}},
+        {"PCC", {"pcc", "chroma_denoise", "hypermetric_stretch", "runtime_limits"}},
+        {"BGE", {"bge", "pcc", "chroma_denoise", "luma_denoise",
+                 "hypermetric_stretch", "runtime_limits"}},
+        {"ASTROMETRY", {"astrometry", "bge", "pcc", "chroma_denoise",
+                        "luma_denoise", "hypermetric_stretch", "runtime_limits"}},
+        // GLOBAL_QUALITY additionally allows global_metrics -- it is the
+        // section GLOBAL_QUALITY re-reads and exists to let you retune;
+        // FORWARD_DRIZZLE-only resume does NOT recompute GLOBAL_QUALITY, so
+        // a global_metrics edit there would be silently ignored instead.
+        {"GLOBAL_QUALITY", [] {
+            auto s = kReconstructionResumeBase; s.insert("global_metrics"); return s;
+        }()},
+        {"FORWARD_DRIZZLE", kReconstructionResumeBase},
+    };
+    const auto allowed_it = kAllowed.find(phase_upper);
+    if (allowed_it == kAllowed.end()) return std::nullopt;
+    const auto& allowed = allowed_it->second;
+
+    std::string orig_yaml;
+    for (const auto& rev : list_run_config_revisions(run_dir)) {
+        // list_run_config_revisions only populates path/source/created_at,
+        // not yaml_text (that is read lazily elsewhere) -- read the file.
+        if (rev.source == "run_start") {
+            try {
+                orig_yaml = tile_compile::routes::read_file_str(rev.path);
+            } catch (...) {
             }
-        } catch (...) {}
-    }
-    return "";
-}
-
-static bool has_nonempty_prewarped_cache(const fs::path& run_dir) {
-    std::error_code ec;
-    const fs::path cache_dir = run_dir / "cache" / "prewarped_frames";
-    if (!fs::is_directory(cache_dir, ec)) return false;
-    return !fs::is_empty(cache_dir, ec);
-}
-
-static std::string read_resume_input_dir_from_events(const fs::path& run_dir) {
-    std::ifstream f(run_dir / "logs" / "run_events.jsonl");
-    if (!f) return "";
-    std::string line;
-    std::string last_input_dir;
-    while (std::getline(f, line)) {
-        if (line.find("input_dir") == std::string::npos) continue;
-        try {
-            auto ev = nlohmann::json::parse(line);
-            if (ev.contains("input_dir") && ev["input_dir"].is_string()) {
-                last_input_dir = ev["input_dir"].get<std::string>();
-            } else if (ev.contains("payload") && ev["payload"].is_object() &&
-                       ev["payload"].contains("input_dir") && ev["payload"]["input_dir"].is_string()) {
-                last_input_dir = ev["payload"]["input_dir"].get<std::string>();
-            }
-        } catch (...) {}
-    }
-    return last_input_dir;
-}
-
-static bool has_synthetic_outputs(const fs::path& run_dir) {
-    std::error_code ec;
-    const fs::path outputs_dir = run_dir / "outputs";
-    if (!fs::is_directory(outputs_dir, ec)) return false;
-    for (const auto& entry : fs::directory_iterator(outputs_dir, ec)) {
-        if (ec || !entry.is_regular_file(ec)) continue;
-        const fs::path path = entry.path();
-        const std::string stem = path.stem().string();
-        const std::string ext = path.extension().string();
-        if (stem.rfind("synthetic_", 0) == 0 && (ext == ".fit" || ext == ".fits")) {
-            return true;
+            break;
         }
     }
-    return false;
+    if (orig_yaml.empty()) {
+        // No recorded run-start config text to diff section-by-section
+        // against (e.g. no artifacts/config_revisions/index.json at all --
+        // older or lightly-instrumented runs). For GLOBAL_QUALITY/
+        // FORWARD_DRIZZLE this used to be the ONLY check (a whole-file
+        // sha256 compare against run_provenance.json's recorded hash, which
+        // is always present once run_scope_ok passed); preserve that
+        // stricter fallback here instead of silently accepting an
+        // unverifiable config, since the runner's own validate_provenance
+        // has the identical fallback (fails closed via
+        // FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH when it can't resolve an
+        // original config either) -- keeps the dry-run preflight honest
+        // about what the resume subprocess will actually do.
+        if (phase_upper == "GLOBAL_QUALITY" || phase_upper == "FORWARD_DRIZZLE") {
+            const std::string expected_sha = provenance.contains("config") &&
+                    provenance["config"].is_object()
+                ? provenance["config"].value("sha256", std::string())
+                : std::string();
+            if (expected_sha.empty() ||
+                pi_provenance_sha256_hex(new_yaml) != expected_sha) {
+                return "FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH: " + phase_upper +
+                       " resume requires the run-start config unchanged when "
+                       "no config revision history is available to verify a "
+                       "scoped change against.";
+            }
+        }
+        return std::nullopt;
+    }
+
+    auto section_map = [](const std::string& yaml_text) {
+        std::map<std::string, std::string> out;
+        try {
+            const YAML::Node root = YAML::Load(yaml_text);
+            for (const auto& kv : root) {
+                YAML::Emitter e;
+                e << kv.second;
+                out[kv.first.as<std::string>()] = e.c_str();
+            }
+        } catch (...) {
+        }
+        return out;
+    };
+    const auto before = section_map(orig_yaml);
+    const auto after = section_map(new_yaml);
+
+    std::set<std::string> keys;
+    for (const auto& [k, v] : before) keys.insert(k);
+    for (const auto& [k, v] : after) keys.insert(k);
+    std::string bad;
+    for (const auto& k : keys) {
+        if (allowed.count(k)) continue;
+        const auto ia = before.find(k), ib = after.find(k);
+        const std::string va = ia == before.end() ? std::string("<absent>") : ia->second;
+        const std::string vb = ib == after.end() ? std::string("<absent>") : ib->second;
+        if (va != vb) { if (!bad.empty()) bad += ", "; bad += k; }
+    }
+    if (bad.empty()) return std::nullopt;
+    return "FORWARD_STAGE_CONFIG_SCOPE_MISMATCH: " + phase_upper +
+           " resume allows changes only in the downstream sections; "
+           "changed outside scope: " + bad;
 }
 
 /// @brief Implements sanitize run id.
@@ -804,6 +878,7 @@ static std::string apply_astrometry_paths_to_yaml(const std::string& base_yaml,
     }
 }
 
+
 static std::string effective_config_yaml(const std::shared_ptr<AppState>& state,
                                          const std::string& config_yaml,
                                          const std::string& color_mode,
@@ -1058,7 +1133,6 @@ static std::optional<nlohmann::json> pending_run_status(const std::shared_ptr<Ap
         {"run_dir", predicted_run_dir.string()},
         {"status", "unknown"},
         {"color_mode", "UNKNOWN"},
-        {"aqmh_enabled", nullptr},
         {"queue", queue_items_for_run(state->job_store, run_id)},
         {"queue_filters", queue_filters_for_run(state->job_store, run_id)},
         {"current_phase", nullptr},
@@ -1139,7 +1213,7 @@ static std::vector<int> terminate_orphan_runner_processes(const BackendRuntime& 
         const std::string exe_name = fs::path(argv.front()).filename().string();
         if (exe_name != runner_name && exe_name.find("tile_compile_runner") == std::string::npos) continue;
         const bool is_runner = std::any_of(argv.begin() + 1, argv.end(), [](const std::string& arg) {
-            return arg == "run" || arg == "resume";
+            return arg == "reconstruct" || arg == "resume-reconstruction";
         });
         if (!is_runner) continue;
 
@@ -1161,7 +1235,7 @@ static std::vector<std::string> runner_run_args(const std::shared_ptr<AppState>&
                                                 const std::string& input_dir,
                                                 const std::string& runs_dir,
                                                 const std::string& run_id) {
-    std::vector<std::string> args = {state->runtime.runner_exe, "run"};
+    std::vector<std::string> args = {state->runtime.runner_exe, "reconstruct"};
     args.push_back("--config"); args.push_back(config_path);
     args.push_back("--input-dir"); args.push_back(input_dir);
     args.push_back("--runs-dir"); args.push_back(runs_dir);
@@ -1261,6 +1335,24 @@ void register_runs_routes(CrowApp& app,
         if (prepared_config_yaml.empty()) {
             return err_resp("CONFIG_EMPTY", "effective run config is empty", 422,
                             nlohmann::json::object());
+        }
+        // Fail closed before snapshotting/launching: validate-config applies the
+        // legacy migration, so a stale `method:` draft is rejected here instead
+        // of starting a runner that exits immediately with no events.
+        const SubprocessResult cfg_check = run_subprocess(
+            {state->runtime.cli_exe, "validate-config", "--stdin"},
+            state->runtime.project_root.string(), prepared_config_yaml);
+        const auto cfg_parsed = tile_compile::routes::parse_json_string(cfg_check.stdout_str);
+        const bool cfg_valid = cfg_check.exit_code == 0 && cfg_parsed &&
+                               cfg_parsed->is_object() && cfg_parsed->value("valid", false);
+        if (!cfg_valid) {
+            nlohmann::json details = (cfg_parsed && cfg_parsed->is_object())
+                ? cfg_parsed->value("errors", nlohmann::json::array())
+                : nlohmann::json::array({cfg_check.stderr_str.empty()
+                                             ? std::string("config validation backend unavailable")
+                                             : cfg_check.stderr_str});
+            return err_resp("CONFIG_INVALID", "run config failed validation", 422,
+                            {{"errors", details}});
         }
         // Captured before revision_store.add()/the branches below overwrite
         // state->active_config_revision_id: whichever revision was last applied (AI-apply or
@@ -1527,14 +1619,14 @@ void register_runs_routes(CrowApp& app,
                 {"run_dir", run_dir.string()},
                 {"status", status.value("status", "unknown")},
                 {"color_mode", status.value("color_mode", "UNKNOWN")},
-                {"method", status.value("method", "aqmh")},
-                {"aqmh_enabled", status.contains("aqmh_enabled") ? status["aqmh_enabled"] : nlohmann::json(nullptr)},
+                {"method", kSingleReconstructionMethod},
                 {"queue", queue_items_for_run(state->job_store, run_id)},
                 {"queue_filters", queue_filters_for_run(state->job_store, run_id)},
                 {"current_phase", status.contains("current_phase") ? status["current_phase"] : nlohmann::json(nullptr)},
                 {"progress", status.value("progress", 0.0)},
                 {"phases", status.value("phases", nlohmann::json::array())},
                 {"events", status.value("events", nlohmann::json::array())},
+                {"resume_attempt", status.contains("resume_attempt") ? status["resume_attempt"] : nlohmann::json(nullptr)},
             });
         } catch (const std::exception& e) {
             if (auto pending = pending_run_status(state, run_id)) {
@@ -1752,129 +1844,91 @@ void register_runs_routes(CrowApp& app,
         }
 
         // Validate that the requested resume phase is feasible given the
-        // artifacts that actually exist in the run directory. This must mirror
-        // the runner's resume path. AQMH map/reconstruction phases need the
-        // prewarp cache; AQMH STACKING uses the immutable raw CFA artifact or
-        // regenerates it from the cache for legacy runs.
+        // run's provenance. This mirrors the runner's resume-reconstruction
+        // contract: reconstruction resume points are GLOBAL_QUALITY and
+        // FORWARD_DRIZZLE; downstream resume points (ASTROMETRY, BGE, PCC,
+        // HYPERMETRIC_STRETCH) re-run only the downstream chain and require
+        // the persisted reconstruction outputs. The runner additionally
+        // validates artifacts/run_provenance.json (execution_scope + scoped
+        // config comparison) and predecessor artifacts fail-closed.
         {
-            static const std::set<std::string> inplace_rerun_phases = {
-                "SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION", "GLOBAL_METRICS",
-                "TILE_GRID", "REGISTRATION", "PREWARP", "COMMON_OVERLAP",
-                "LOCAL_METRICS", "TILE_RECONSTRUCTION", "STATE_CLUSTERING",
-                "SYNTHETIC_FRAMES", "DEBAYER"
-            };
-            static const std::set<std::string> aqmh_cache_resume_phases = {
-                "AQMH_MAPS", "AQMH_GLOBAL_QUALITY", "AQMH_METRICS",
-                "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS"
-            };
-            static const std::map<std::string, std::vector<std::string>> phase_required_files = {
-                {"DEBAYER",            {"outputs/stacked.fits"}},
-                {"ASTROMETRY",         {"outputs/stacked_rgb.fits"}},
-                {"BGE",                {"outputs/stacked_rgb_solve.fits"}},
-                {"PCC",                {"outputs/stacked_rgb_solve.fits"}},
-                {"HYPERMETRIC_STRETCH",{"outputs/pcc_R.fit", "outputs/pcc_G.fit", "outputs/pcc_B.fit"}},
-            };
             static const std::set<std::string> supported_resume_phases = {
-                "SCAN_INPUT", "REGISTRATION", "PREWARP", "CHANNEL_SPLIT",
-                "NORMALIZATION", "GLOBAL_METRICS", "TILE_GRID", "COMMON_OVERLAP",
-                "LOCAL_METRICS", "TILE_RECONSTRUCTION", "STATE_CLUSTERING",
-                "SYNTHETIC_FRAMES", "AQMH_MAPS", "AQMH_GLOBAL_QUALITY",
-                "AQMH_METRICS", "AQMH_RECONSTRUCTION", "AQMH_DIAGNOSTICS",
-                "STACKING", "DEBAYER", "ASTROMETRY", "BGE", "PCC",
-                "HYPERMETRIC_STRETCH"
+                "GLOBAL_QUALITY", "FORWARD_DRIZZLE", "ASTROMETRY", "BGE",
+                "PCC", "HYPERMETRIC_STRETCH"
             };
             if (!supported_resume_phases.count(from_phase)) {
                 return err_resp("RESUME_PHASE_NOT_FEASIBLE",
-                    "Cannot resume from phase '" + from_phase + "': this phase is not a supported resume start point.",
-                    409, {{"from_phase", from_phase}, {"reason", "unsupported_resume_phase"}});
+                    "Cannot resume from phase '" + from_phase + "': resume-reconstruction supports GLOBAL_QUALITY, FORWARD_DRIZZLE, ASTROMETRY, BGE, PCC and HYPERMETRIC_STRETCH; MULTIBAND always re-runs with FORWARD_DRIZZLE.",
+                    409, {{"from_phase", from_phase}, {"reason", "unsupported_resume_phase"},
+                          {"feasible_phases", nlohmann::json::array({"GLOBAL_QUALITY", "FORWARD_DRIZZLE", "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"})}});
             }
-            const std::string method = read_run_method_local(run_dir, requested_yaml);
-
             std::error_code ec;
-            if (inplace_rerun_phases.count(from_phase)) {
-                const fs::path config_path = run_dir / "config.yaml";
-                if (!fs::is_regular_file(config_path, ec) || tile_compile::routes::read_file_str(config_path).empty()) {
-                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
-                        "Cannot resume from phase '" + from_phase + "': config.yaml is missing or empty, so the runner cannot replay the run in place.",
-                        409, {{"from_phase", from_phase}, {"reason", "config_missing"}});
+            const fs::path provenance_path = run_dir / "artifacts" / "run_provenance.json";
+            bool scope_ok = false;
+            nlohmann::json provenance;
+            if (fs::is_regular_file(provenance_path, ec)) {
+                try {
+                    provenance = nlohmann::json::parse(
+                        tile_compile::routes::read_file_str(provenance_path));
+                    scope_ok = provenance.value("execution_scope", std::string()) ==
+                               "forward_drizzle_m1_m3";
+                } catch (...) {
+                    scope_ok = false;
                 }
-                const std::string input_dir = read_resume_input_dir_from_events(run_dir);
-                if (input_dir.empty()) {
-                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
-                        "Cannot resume from phase '" + from_phase + "': the original input_dir is missing from logs/run_events.jsonl, so the runner cannot replay the run in place.",
-                        409, {{"from_phase", from_phase}, {"reason", "input_dir_missing"}});
-                }
-            } else if (method == "aqmh" && aqmh_cache_resume_phases.count(from_phase)) {
-                bool cache_exists = has_nonempty_prewarped_cache(run_dir);
-                if (!cache_exists) {
-                    nlohmann::json feasible_phases = nlohmann::json::array(
-                        {"SCAN_INPUT", "REGISTRATION", "PREWARP", "STACKING", "DEBAYER",
-                         "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"});
-                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
-                        "Cannot resume from phase '" + from_phase + "': runner would resume at '" +
-                        "AQMH_RECONSTRUCTION' and requires cache/prewarped_frames frames, but no reusable "
-                        "cache/prewarped_frames frames are present in the run directory. "
-                        "Use an in-place rerun phase such as SCAN_INPUT/REGISTRATION/PREWARP, or resume from a persisted downstream artifact. "
-                        "Feasible resume phases for this run: " +
-                        [&feasible_phases]() {
-                            std::string out;
-                            for (const auto& phase : feasible_phases) {
-                                if (!out.empty()) out += ", ";
-                                out += phase.get<std::string>();
-                            }
-                            return out;
-                        }() + ".",
-                        409, {{"from_phase", from_phase}, {"effective_runner_phase", "AQMH_RECONSTRUCTION"},
-                              {"reason", "prewarped_cache_missing"},
-                              {"cache_dir", (run_dir / "cache" / "prewarped_frames").string()},
-                              {"feasible_phases", feasible_phases}});
-                }
-            } else {
-                if (from_phase == "STACKING") {
-                    if (method == "aqmh") {
-                        const fs::path raw_reconstruction =
-                            run_dir / "outputs" / "aqmh_reconstructed_raw.fit";
-                        if (!fs::is_regular_file(raw_reconstruction, ec) &&
-                            !has_nonempty_prewarped_cache(run_dir)) {
-                            return err_resp("RESUME_PHASE_NOT_FEASIBLE",
-                                "Cannot resume from phase 'STACKING': outputs/aqmh_reconstructed_raw.fit is missing and cannot be regenerated because no reusable cache/prewarped_frames frames are present. Resume from PREWARP or an earlier in-place phase first.",
-                                409, {{"from_phase", from_phase},
-                                      {"effective_runner_phase", "AQMH_RECONSTRUCTION"},
-                                      {"reason", "aqmh_raw_and_prewarped_cache_missing"},
-                                      {"missing_files", nlohmann::json::array({"outputs/aqmh_reconstructed_raw.fit"})},
-                                      {"cache_dir", (run_dir / "cache" / "prewarped_frames").string()}});
-                        }
-                    } else if (!has_synthetic_outputs(run_dir)) {
-                        return err_resp("RESUME_PHASE_NOT_FEASIBLE",
-                            "Cannot resume from phase 'STACKING': synthetic_*.fit outputs are missing.",
-                            409, {{"from_phase", from_phase}, {"reason", "missing_synthetic_outputs"}});
+            }
+            if (!scope_ok) {
+                return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                    "Cannot resume from phase '" + from_phase + "': artifacts/run_provenance.json is missing or was not produced by the forward-drizzle pipeline. Legacy runs cannot be resumed; start a new reconstruction.",
+                    409, {{"from_phase", from_phase}, {"reason", "run_scope_unsupported"}});
+            }
+
+            if (from_phase == "GLOBAL_QUALITY" || from_phase == "FORWARD_DRIZZLE") {
+                const fs::path checkpoint_path =
+                    run_dir / "artifacts" / "forward_drizzle_checkpoint.json";
+                bool source_cache_retained = false;
+                if (fs::is_regular_file(checkpoint_path, ec)) {
+                    try {
+                        const auto checkpoint = nlohmann::json::parse(
+                            tile_compile::routes::read_file_str(checkpoint_path));
+                        source_cache_retained = checkpoint.value("source_cache_retained", false);
+                    } catch (...) {
+                        source_cache_retained = false;
                     }
                 }
-                auto it = phase_required_files.find(from_phase);
-                if (it != phase_required_files.end()) {
-                    std::vector<std::string> missing;
-                    for (const auto& rel_path : it->second) {
-                        if (!fs::is_regular_file(run_dir / rel_path, ec)) {
-                            missing.push_back(rel_path);
-                        }
-                    }
-                    if (!missing.empty()) {
-                        // Special case: HYPERMETRIC_STRETCH can also work from stacked_rgb_pcc.fits
-                        bool fallback_ok = false;
-                        if (from_phase == "HYPERMETRIC_STRETCH") {
-                            fallback_ok = fs::is_regular_file(run_dir / "outputs" / "stacked_rgb_pcc.fits", ec);
-                        }
-                        if (!fallback_ok) {
-                            nlohmann::json missing_arr = nlohmann::json::array();
-                            for (const auto& m : missing) missing_arr.push_back(m);
-                            return err_resp("RESUME_PHASE_NOT_FEASIBLE",
-                                "Cannot resume from phase '" + from_phase + "': required artifacts missing: " +
-                                missing_arr.dump(),
-                                409, {{"from_phase", from_phase}, {"reason", "artifacts_missing"},
-                                      {"missing_files", missing_arr}});
-                        }
-                    }
+                const bool normalized_cache_present = fs::is_directory(
+                    run_dir / "cache" / "normalized_frames", ec);
+                ec.clear();
+                const bool quality_cache_present = fs::is_directory(
+                    run_dir / "cache" / "source_quality_maps", ec);
+                if (!source_cache_retained || !normalized_cache_present || !quality_cache_present) {
+                    return err_resp("RESUME_PHASE_NOT_FEASIBLE",
+                        "Cannot resume from phase '" + from_phase +
+                        "': the normalized source cache or source-quality cache was deleted after the run. Start a new reconstruction.",
+                        409, {{"from_phase", from_phase},
+                              {"reason", "normalized_source_cache_missing"},
+                              {"source_cache_retained", source_cache_retained},
+                              {"normalized_cache_present", normalized_cache_present},
+                              {"source_quality_cache_present", quality_cache_present}});
                 }
+                // Config-content validation is no longer a blanket exact-hash
+                // requirement here: it falls through to the same section-
+                // scoped downstream_resume_scope_violation check below, which
+                // now also covers GLOBAL_QUALITY/FORWARD_DRIZZLE (mirroring
+                // the runner's own allowed_reconstruction_resume_sections).
+            }
+
+            // Same section-scope gate the runner itself enforces for the
+            // downstream-only AND (since the relaxation above) the
+            // GLOBAL_QUALITY/FORWARD_DRIZZLE reconstruction-resume points,
+            // checked here BEFORE writing any config revision or launching a
+            // subprocess -- see downstream_resume_scope_violation's own
+            // comment for why.
+            const std::string yaml_to_check = !requested_yaml.empty()
+                ? requested_yaml
+                : tile_compile::routes::read_file_str(run_config_path);
+            if (auto violation = downstream_resume_scope_violation(run_dir, from_phase, yaml_to_check, provenance)) {
+                return err_resp("RESUME_PHASE_NOT_FEASIBLE", *violation, 409,
+                    {{"from_phase", from_phase}, {"reason", "config_scope_mismatch"}});
             }
         }
 
@@ -1908,7 +1962,7 @@ void register_runs_routes(CrowApp& app,
             }
         }
 
-        std::vector<std::string> args = {state->runtime.runner_exe, "resume"};
+        std::vector<std::string> args = {state->runtime.runner_exe, "resume-reconstruction"};
         args.push_back("--run-dir"); args.push_back(run_dir.string());
         args.push_back("--from-phase"); args.push_back(from_phase);
 

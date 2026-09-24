@@ -17,11 +17,18 @@ int main(int argc, char** argv) {
         const auto constants = harness.get_json("/api/app/constants");
         expect_equal(constants["_http_status"].get<long>(), 200L, "constants status");
         expect_true(constants["phases"].is_array(), "constants phases array");
+        // resume-reconstruction contract: GLOBAL_QUALITY and FORWARD_DRIZZLE
+        // are reconstruction resume origins; ASTROMETRY, BGE, PCC and
+        // HYPERMETRIC_STRETCH are downstream resume origins on the persisted
+        // outputs. MULTIBAND always re-runs with FORWARD_DRIZZLE.
         expect_true(constants["resume_from"].is_array(), "constants resume array");
-        expect_true(std::find(constants["resume_from"].begin(), constants["resume_from"].end(), "STACKING") != constants["resume_from"].end(),
-                    "constants resume includes STACKING");
-        expect_true(std::find(constants["resume_from"].begin(), constants["resume_from"].end(), "PCC") != constants["resume_from"].end(),
-                    "constants resume includes PCC");
+        expect_true(constants["resume_from"].size() == 6, "constants resume size");
+        for (const char* phase : {"GLOBAL_QUALITY", "FORWARD_DRIZZLE", "ASTROMETRY", "BGE", "PCC", "HYPERMETRIC_STRETCH"}) {
+            expect_true(std::find(constants["resume_from"].begin(), constants["resume_from"].end(), phase) != constants["resume_from"].end(),
+                        std::string("constants resume includes ") + phase);
+        }
+        expect_true(std::find(constants["resume_from"].begin(), constants["resume_from"].end(), "MULTIBAND") == constants["resume_from"].end(),
+                    "constants resume excludes MULTIBAND");
         expect_equal(constants["color_modes"][0].get<std::string>(), "OSC", "constants color mode 0");
         expect_equal(constants["color_modes"][1].get<std::string>(), "MONO", "constants color mode 1");
         expect_equal(constants["color_modes"][2].get<std::string>(), "RGB", "constants color mode 2");
@@ -45,9 +52,11 @@ int main(int argc, char** argv) {
         const auto ui = harness.get("/ui");
         expect_equal(ui.status_code, 200L, "ui status");
         expect_true(ui.body.find("<html") != std::string::npos || ui.body.find("<HTML") != std::string::npos, "ui html body");
-        const auto raw_stack_ui = harness.get("/raw-stack.html");
+        // web_frontend_v3 is a SPA: raw-stack is a tab inside index.html, not a
+        // standalone page. Assert the page module is served instead.
+        const auto raw_stack_ui = harness.get("/ui/js/pages/raw-stack.js");
         expect_equal(raw_stack_ui.status_code, 200L, "raw stack ui status");
-        expect_true(raw_stack_ui.body.find("raw-stack-start") != std::string::npos, "raw stack ui body");
+        expect_true(raw_stack_ui.body.find("raw-stack-status") != std::string::npos, "raw stack ui body");
 
         const auto astrometry_detect = harness.post_json("/api/tools/astrometry/detect", nlohmann::json::object());
         expect_equal(astrometry_detect["_http_status"].get<long>(), 200L, "astrometry detect status");

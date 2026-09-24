@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "gate": 7,
+  "status": "frozen_decided",
+  "scope": "v2 artifact schema, checkpoint identities, resume granularity, atomic commit, failure/restart matrix for the unpublished forward-drizzle-v2 band pipeline. Library-level contract; not wired into the production runner.",
+  "resume_granularity_decision": {
+    "chosen": "band_boundary_resume",
+    "rejected": [
+      {
+        "option": "full_phase_restart",
+        "reason": "spec section 18.2 permits it, but it discards up to a whole reconstruction phase of durable band work; band artifacts are already the bounded, deterministic unit produced by finalize."
+      },
+      {
+        "option": "mid_band_frame_resume",
+        "reason": "would require persisting the complete per-pixel accumulator and reservoir workspace (the full device state); transient by design and consumed at finalize. Rejected as disproportionate and unbounded relative to the band artifact."
+      }
+    ],
+    "rule": "Resume is possible exclusively at atomically committed band boundaries. A partially written or uncommitted band is discarded and recomputed. A phase event alone never establishes resumability; only checkpoint.json content does."
+  },
+  "artifact_layout": {
+    "store_root": "<caller-chosen root>/",
+    "generation_dir": "forward_drizzle_v2_generation-<unique>/",
+    "files": {
+      "plan.json": "binding run plan, written first, immutable afterwards",
+      "checkpoint.json": "committed band prefix, rewritten atomically after every band commit",
+      "band-%04d.bin": "self-describing binary band artifact: 64-byte fixed header + record_count * 64-byte ForwardDrizzleV2PixelResult records",
+      "commit.json": "final marker inside the generation, written only after full re-verification and commit-gate checks"
+    },
+    "pointer": "current.json at the store root; written atomically as the LAST step of publish; identical content to commit.json plus the generation name"
+  },
+  "plan_binding_fields": [
+    "schema_version",
+    "pipeline_contract + contract_version",
+    "source_identity_hash",
+    "normalized_cache_hash",
+    "quality_plan_hash",
+    "sampling_plan_hash",
+    "config_snapshot_hash",
+    "enumeration (dense_scatter, gate 1)",
+    "estimator + reservoir_size + reservoir_seed + clip parameters (gate 3)",
+    "support_fold_contract (gate 2)",
+    "numerics (fp64_accumulators, gate 4) + sigma2_enabled",
+    "local_warp_representation (affine_only placeholder until gate 8)",
+    "trusted_run",
+    "native geometry: width, height, channels, internal_scale, color_mode, pixfrac, bayer/cfa",
+    "frame_count",
+    "band_rows, band_count, tile_cols, halo_rows, x_tiled",
+    "plan_hash = sha256 over the canonical serialization of every field above"
+  ],
+  "checkpoint_identity": {
+    "fields": ["schema_version", "plan_hash", "band_count", "bands[]"],
+    "band_entry": ["band_index", "y_begin", "rows", "native_cols", "channels", "dense_overlap_count", "artifact", "bytes", "sha256"],
+    "checkpoint_hash": "sha256 over canonical serialization; recomputed on every read",
+    "ordering_invariant": "bands form a contiguous prefix of band indices 0..k-1 with contiguous y ranges"
+  },
+  "atomic_commit_order_per_band": [
+    "1. write band payload to a uniquely staged sibling inside the unpublished generation (AtomicOutput)",
+    "2. fsync payload, rename to band-%04d.bin, fsync directory",
+    "3. compute sha256 of the committed artifact",
+    "4. rewrite checkpoint.json atomically with the new band appended (commit mark LAST)"
+  ],
+  "publication_order": [
+    "1. all band artifacts committed and checkpointed",
+    "2. finish(): verify bands == band_count and contiguous, re-verify every artifact (size + sha256), evaluate commit gates",
+    "3. write commit.json atomically inside the generation",
+    "4. write current.json atomically at the root (last step)",
+    "5. a writer destroyed without publish removes only its own unpublished generation; after a publication attempt the generation is never deleted"
+  ],
+  "commit_gates": {
+    "nonfinite_pixels_inside_source_support": "must be 0, else finish() throws and the generation stays unpublished",
+    "bands_processed": "must equal plan.band_count",
+    "telemetry": "caller-supplied JSON recorded verbatim in commit.json"
+  },
+  "resume_semantics": {
+    "inspection_order": [
+      "current.json present -> validate schema, generation existence, commit_hash and plan_hash -> complete",
+      "no current.json, exactly one generation dir -> verify plan.json (parse + plan_hash vs expected), verify checkpoint.json (hash, plan_hash, contiguous prefix), verify every listed artifact (exists, size, sha256) -> resumable at k",
+      "no current.json, zero generations -> fresh",
+      "no current.json, more than one generation -> ambiguous -> corrupt (fail closed)"
+    ],
+    "fail_closed": [
+      "unparseable or hash-mismatched plan.json or checkpoint.json",
+      "plan_hash differs from the expected plan",
+      "checkpoint lists a band whose artifact is missing, truncated or hash-mismatched",
+      "non-contiguous band list",
+      "schema_version mismatch",
+      "current.json pointing at a missing or hash-mismatched generation"
+    ],
+    "ignored_state": "artifacts or stage directories present but not listed in checkpoint.json are uncommitted residue of an interrupted band write; they are ignored and overwritten by the recomputation",
+    "verification_cost_note": "size + sha256 verification runs once per phase resume on derived output artifacts, never in the frame hot path; trusted-run source payload hashing stays untouched"
+  },
+  "determinism_requirement": "an uninterrupted run and a crash-resumed run over identical inputs produce byte-identical band artifacts, the same plan_hash and the same checkpoint_hash; commit.json content is identical modulo the per-run generation directory name (which enters commit_hash by design)",
+  "error_matrix_required": [
+    "round_trip_complete",
+    "residue_artifact_without_checkpoint_ignored",
+    "residue_stage_dir_ignored",
+    "corrupt_artifact_content_fail_closed",
+    "truncated_artifact_fail_closed",
+    "checkpoint_lists_missing_artifact_fail_closed",
+    "non_contiguous_checkpoint_fail_closed",
+    "checkpoint_plan_hash_mismatch_fail_closed",
+    "plan_json_tampered_fail_closed",
+    "expected_plan_mismatch_fail_closed",
+    "schema_version_mismatch_fail_closed",
+    "multiple_generations_ambiguous_fail_closed",
+    "unpublished_writer_removes_generation",
+    "commit_gate_nonfinite_blocks_publish",
+    "crash_between_bands_resume_appends",
+    "resumed_run_same_commit_hash",
+    "already_complete_store_resume_status",
+    "current_json_missing_generation_fail_closed"
+  ],
+  "out_of_scope": [
+    "wiring into persist_forward_drizzle_multiband or the production runner",
+    "historical run migration",
+    "multiband halo/ring state (gate 9)",
+    "local warp checkpoint fields beyond the placeholder"
+  ]
+}

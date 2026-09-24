@@ -19,15 +19,31 @@ import { promptGrantRoot } from "../components/path-picker-modal.js";
 import { openHmsPreview } from "../components/hms-preview.js";
 import { openBgePreview } from "../components/bge-preview.js";
 import { createYamlDiff } from "../components/yaml-diff.js";
+import { getEffectiveCalValues } from "./input-scan.js";
 import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
 
 function createCompletionAnalysisPanel() {
   const trafficId = "completion-analysis-traffic";
+  const trafficArrow = el("span", { "aria-hidden": "true" }, "\u25be");
+  const trafficHeader = el("div", {
+    class: "tc-accordion-header",
+    role: "button",
+    tabindex: "0",
+    "aria-expanded": "true",
+    onclick: toggleTraffic,
+    onkeydown: (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      toggleTraffic();
+    },
+  }, trafficArrow, " " + t("ui.title.ai_traffic", "KI-Datenverkehr"));
+  function toggleTraffic() {
+    const open = traffic.classList.toggle("open");
+    trafficArrow.textContent = open ? "\u25be" : "\u25b8";
+    trafficHeader.setAttribute("aria-expanded", String(open));
+  }
   const traffic = el("div", { class: "tc-accordion open", id: "completion-analysis-traffic-panel" },
-    el("div", {
-      class: "tc-accordion-header",
-      onclick: () => document.getElementById("completion-analysis-traffic-panel")?.classList.toggle("open"),
-    }, "\u25b8 " + t("ui.title.ai_traffic", "KI-Datenverkehr")),
+    trafficHeader,
     el("div", { class: "tc-accordion-body" },
       el("div", { class: "tc-flex tc-gap-2 tc-items-center tc-mb-2" },
         el("button", {
@@ -74,9 +90,19 @@ export function createRunMonitorPage() {
   const startBtn = el("button", { class: "tc-btn tc-btn-primary", id: "run-start-btn", onclick: () => startRun() }, t("ui.button.run_start", "Start"));
   const stopBtn = el("button", { class: "tc-btn", id: "run-stop-btn", disabled: true, onclick: () => stopRun() }, t("ui.button.stop", "Stop"));
   const resumeBtn = el("button", { class: "tc-btn", id: "run-resume-btn", onclick: () => resumeRun() }, t("ui.button.resume", "Resume"));
+  const dashboardBtn = el("button", {
+    class: "tc-btn",
+    id: "run-dashboard-btn",
+    onclick: () => {
+      const { currentRunId, currentRunDir } = getRunState();
+      if (!currentRunId && !currentRunDir) return;
+      const rd = currentRunDir ? `&run_dir=${encodeURIComponent(currentRunDir)}` : "";
+      window.open(`/ui/run_dashboard.html?run=${encodeURIComponent(currentRunId || "")}${rd}`, "_blank");
+    },
+  }, t("ui.button.open_dashboard", "Live-Dashboard"));
   const control = el("div", { class: "tc-card" },
     el("div", { class: "tc-card-title" }, t("ui.title.run_control", "Run Control")),
-    el("div", { class: "tc-flex tc-gap-3" }, startBtn, stopBtn, resumeBtn),
+    el("div", { class: "tc-flex tc-gap-3" }, startBtn, stopBtn, resumeBtn, dashboardBtn),
   );
 
   // Run info box
@@ -214,17 +240,26 @@ let completionAnalysisLoading = false;
 const completionAnalysisCacheLoads = new Set();
 const runChatStore = getStore("run-chat", { chats: {} });
 const RESUME_PENDING_TIMEOUT_MS = 120000;
+// Kept in sync with the top-level keys of the config schema
+// (tile_compile_cpp/tile_compile.schema.json properties) -- every top-level
+// section gets a jump-chip, not just a hand-picked subset.
 const RESUME_CONFIG_SECTIONS = [
-  { key: "aqmh", label: "AQMH" },
-  { key: "common_overlap", label: "COMMON" },
-  { key: "stacking", label: "STACKING" },
   { key: "output", label: "OUTPUT" },
+  { key: "data", label: "DATA" },
+  { key: "calibration", label: "CAL" },
   { key: "normalization", label: "NORM" },
+  { key: "dithering", label: "DITHER" },
+  { key: "linearity", label: "LIN" },
+  { key: "registration", label: "REG" },
+  { key: "global_metrics", label: "GMETRICS" },
+  { key: "chroma_denoise", label: "CHROMA" },
+  { key: "astrometry", label: "ASTRO" },
+  { key: "stacking", label: "STACKING" },
   { key: "bge", label: "BGE" },
   { key: "pcc", label: "PCC" },
   { key: "hypermetric_stretch", label: "HMS" },
-  { key: "registration", label: "REG" },
-  { key: "astrometry", label: "ASTRO" },
+  { key: "runtime_limits", label: "RUNTIME" },
+  { key: "reconstruction", label: "RECON" },
 ];
 
 // Returns the most specific run key for API calls: full path if known, else run_id.
@@ -340,6 +375,11 @@ function renderCompletionAnalysis(analysis) {
       resume.reason ? el("div", { class: "tc-text-sm tc-text-muted" }, resume.reason) : null,
       el("div", { class: "tc-text-sm tc-text-warning" },
         t("ui.message.resume_requires_dry_run", "Die Machbarkeit wird vor dem Resume per Dry-Run geprüft.")),
+    ));
+  } else if (resume.reason) {
+    content.appendChild(el("div", {},
+      el("div", { class: "tc-label" }, t("ui.title.resume_recommendation", "Resume-Empfehlung")),
+      el("div", { class: "tc-text-sm tc-text-warning" }, resume.reason),
     ));
   }
 
@@ -1746,49 +1786,15 @@ function stopLogTailPolling() {
   logTailTimer = null;
 }
 
-const PHASE_I18N_KEYS = {
-  AQMH_MAPS: "phase.aqmh_maps",
-  AQMH_GLOBAL_QUALITY: "phase.aqmh_global_quality",
-  AQMH_RECONSTRUCTION: "phase.aqmh_reconstruction",
-  AQMH_DIAGNOSTICS: "phase.aqmh_diagnostics",
-};
-
-function localizedPhaseName(value) {
-  const raw = String(value || "");
-  const key = PHASE_I18N_KEYS[raw];
-  return key ? t(key, raw) : raw;
-}
-
-function localizedAqmhSubstep(pass, rawSubstep) {
-  const substep = String(rawSubstep || "");
-  const key = `monitor.log.aqmh.${pass || ""}`;
-  const params = {};
-  const rowMatch = substep.match(/(\d+)\/(\d+)$/);
-  if (rowMatch) {
-    params.current = rowMatch[1];
-    params.total = rowMatch[2];
-  }
-  const alphaMatch = substep.match(/alpha=([0-9.eE+-]+)/);
-  if (alphaMatch) params.alpha = alphaMatch[1];
-  const iterationMatch = substep.match(/(?:Schritt|step)\s+(\d+)\/4/i);
-  if (iterationMatch) params.iteration = iterationMatch[1];
-  const translated = t(key, "", params);
-  return translated || substep;
-}
-
 function formatEventMessage(ev) {
   const type = ev.type || "";
   const payload = ev.payload || ev;
-  const phase = localizedPhaseName(ev.phase_name || ev.phase || payload.phase_name || payload.phase);
+  const phase = String(ev.phase_name || ev.phase || payload.phase_name || payload.phase || "");
   if (type === "phase_start") return `${phase} | ${t("monitor.log.start", "start")}`;
   if (type === "phase_progress") {
     const pctValue = normalizedEventPercent(ev.pct ?? payload.pct ?? ev.progress ?? payload.progress);
     const pct = pctValue != null ? ` (${Math.round(pctValue)}%)` : "";
-    const substep = payload.substep || ev.substep || "";
-    const pass = payload.pass || ev.pass || "";
-    const detail = pass.startsWith("core_") || pass.startsWith("rgb_") || pass
-      ? localizedAqmhSubstep(pass, substep)
-      : substep;
+    const detail = payload.substep || ev.substep || "";
     return `${phase} | ${t("monitor.log.progress", "progress")}${pct}${detail ? ` | ${detail}` : ""}`;
   }
   if (type === "phase_end") {
@@ -1799,12 +1805,12 @@ function formatEventMessage(ev) {
   if (type === "run_start") return t("monitor.log.run_started", "Run started");
   if (type === "run_end") return `${t("monitor.log.run_finished", "Run finished")} | ${t(`monitor.log.status.${payload.status || ev.status || "ok"}`, payload.status || ev.status || "ok")}`;
   if (type === "resume_start") {
-    const fromPhase = localizedPhaseName(payload.from_phase || ev.from_phase);
+    const fromPhase = payload.from_phase || ev.from_phase || "";
     return `${t("monitor.log.resume", "Resume")} | ${t("monitor.log.start", "start")} | ${fromPhase}`;
   }
   if (type === "resume_end") {
     const ok = payload.success ?? ev.success ?? false;
-    const fromPhase = localizedPhaseName(payload.from_phase || ev.from_phase);
+    const fromPhase = payload.from_phase || ev.from_phase || "";
     return `${t("monitor.log.resume", "Resume")} | ${ok ? t("monitor.log.ok", "OK") : t("monitor.log.error", "ERROR")} | ${fromPhase}`;
   }
   if (type === "queue_progress") return payload.message || ev.message || t("monitor.log.queue_progress", "Queue progress");
@@ -1843,11 +1849,9 @@ async function refreshRunStatus(runId) {
     // newer local phase progress while a resume is active.
     const keepLiveResumePhases = getResumePending() || getResumeActive();
     if (status.phases && Array.isArray(status.phases) && !keepLiveResumePhases) {
-      // Merge backend statuses into the correct phase order for the run method.
-      // This prevents backend-specific or out-of-order phases (e.g. GLOBAL_METRICS
-      // for AQMH) from appearing at the bottom of the list.
-      const method = status.method || (status.aqmh_enabled ? "aqmh" : "classic_tile_compile");
-      const basePhases = getPhasesForConfig({ method, aqmh: { enabled: method === "aqmh" } });
+      // Merge backend statuses into the canonical phase order; out-of-order or
+      // stale phase names from older runs must not appear at the bottom.
+      const basePhases = getPhasesForConfig();
       const statusMap = new Map();
       for (const p of status.phases) {
         const name = p.phase || p.phase_name || "";
@@ -1875,7 +1879,7 @@ async function refreshRunStatus(runId) {
     });
     maybeLoadCompletionAnalysis(status.status);
     updateStat("info-color-mode", status.color_mode || "\u2014");
-    updateStat("info-pipeline", status.method || (status.aqmh_enabled ? "AQMH" : "Classic") || "\u2014");
+    updateStat("info-pipeline", "Forward Drizzle");
 
     if (status.run_dir) {
       updateStat("info-output-dir", status.run_dir + "/outputs");
@@ -1943,8 +1947,11 @@ async function startRun() {
       configYaml = injectAstapDataDir(configYaml, astapDataDir);
     }
 
-    // Inject calibration settings from Input & Scan tab into config YAML
-    const calValues = inputStore.getState().calValues || {};
+    // Inject calibration settings from Input & Scan tab into config YAML.
+    // Effective = panel state if the user touched it, else derived from the
+    // config draft itself — an untouched panel must not silently drop a
+    // calibration block (or keep one the UI shows as disabled).
+    const calValues = getEffectiveCalValues();
     if (configYaml && calValues && Object.keys(calValues).length > 0) {
       configYaml = injectCalibrationIntoYaml(configYaml, calValues);
     }
@@ -2069,6 +2076,7 @@ async function resumeRun() {
     refreshRunStatus(currentRunId);
     connectWebSocket(currentRunId, true, currentRunDir || "");
     startPolling(currentRunId);
+    if (jobId) monitorResumeStartup(jobId, phase, currentRunId);
     activateRunMonitorTab("log");
     toastSuccess(t("ui.toast.run_resumed", "Run fortgesetzt"), `${phase}`);
     return true;
@@ -2076,6 +2084,37 @@ async function resumeRun() {
     const formatted = formatResumeError(e, phase);
     toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), formatted.body || formatted.title);
     return false;
+  }
+}
+
+async function monitorResumeStartup(jobId, phase, runId) {
+  for (let attempt = 0; attempt < 20 && getResumePending(); attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    let job;
+    try {
+      job = await api.get(API_ENDPOINTS.jobs.byId(jobId));
+    } catch {
+      continue;
+    }
+    const state = String(job?.state || "").toLowerCase();
+    if (!["error", "failed", "cancelled"].includes(state)) continue;
+
+    setResumePending(false);
+    setResumeActive(false);
+    setResumeFromPhase("");
+    if (resumePendingTimer) {
+      clearTimeout(resumePendingTimer);
+      resumePendingTimer = null;
+    }
+    stopPolling();
+    disconnectWebSocket();
+    setRunButtonsActive(false);
+    const detail = String(job?.data?.stderr || job?.data?.stdout || job?.error ||
+      t("ui.toast.resume_failed", "Resume fehlgeschlagen")).trim();
+    if (activeLogViewer) activeLogViewer.addLine(formatTime(), "ERROR", `Resume | failed | ${phase} | ${detail}`);
+    toastError(t("ui.toast.resume_failed", "Resume fehlgeschlagen"), detail);
+    await refreshRunStatus(runId);
+    return;
   }
 }
 
@@ -2226,7 +2265,15 @@ async function loadRevisionIntoEditor() {
     toastSuccess(t("ui.toast.revision_loaded", "Revision geladen"));
   } catch (e) {
     toastError(t("ui.toast.revision_load_failed", "Revision laden fehlgeschlagen"), e.message);
+    return;
   }
+  // The loaded revision can differ from the config the last feasibility
+  // check ran against (or from the run-start config the button's current
+  // enabled/disabled state reflects) -- re-check against what is now
+  // actually in the editor so the button state and hint match it, instead
+  // of silently keeping a stale result from before the revision was loaded.
+  const phase = getSelectedPhase();
+  if (phase) await checkResumeFeasibility(phase);
 }
 
 function handleWsMessage(data, logViewer, phases, warningBanner) {

@@ -102,6 +102,11 @@ async function loadRuns() {
   }
 }
 
+function methodLabel(method) {
+  if (!method || method === "cfa_forward_drizzle_multiband") return "Forward Drizzle";
+  return method;
+}
+
 function runItem(run) {
   const status = run.status || "UNKNOWN";
   const badgeClass = status === "OK" || status === "done" ? "tc-badge-success" :
@@ -114,7 +119,7 @@ function runItem(run) {
     "data-run-id": runId,
     onclick: () => selectRun(runId),
   },
-    el("span", { class: "tc-badge" }, run.pipeline || "AQMH"),
+    el("span", { class: "tc-badge" }, methodLabel(run.method)),
     el("span", { class: `tc-badge ${badgeClass}` }, status),
     el("span", { class: "tc-mono tc-text-sm" }, runId),
     el("span", { class: "tc-text-sm" }, run.run_name || run.name || ""),
@@ -198,6 +203,15 @@ async function selectRun(runId) {
       } catch {}
 
       actions.appendChild(el("button", { class: "tc-btn tc-btn-sm", onclick: () => setRunCurrent(runId) }, t("ui.button.set_current", "Als aktuell setzen")));
+
+      const dashboardBtn = el("button", {
+        class: "tc-btn tc-btn-sm",
+        onclick: () => {
+          const rd = status?.run_dir ? `&run_dir=${encodeURIComponent(status.run_dir)}` : "";
+          window.open(`/ui/run_dashboard.html?run=${encodeURIComponent(runId)}${rd}`, "_blank");
+        },
+      }, t("ui.button.open_dashboard", "Live-Dashboard"));
+      actions.appendChild(dashboardBtn);
 
       const genBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !isTerminal, onclick: () => generateStatsForRun(runId) }, t("ui.button.generate_stats", "Generate Stats"));
       const openBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !hasReport, onclick: () => openStatsFolder(runId, status?.run_dir) }, t("ui.button.open_stats_folder", "Open Stats Folder"));
@@ -302,7 +316,7 @@ async function loadRunSnapshot(runId) {
     let elapsed = "-";
     let firstTs = null;
     let lastTs = null;
-    let method = status.method || "-";
+    let method = status.method || "Forward Drizzle";
 
     const events = status.events || [];
     for (const ev of events) {

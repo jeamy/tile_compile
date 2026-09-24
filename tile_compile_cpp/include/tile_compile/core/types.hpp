@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
-#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -41,6 +40,24 @@ inline BayerOffsets get_bayer_offsets(BayerPattern pattern) {
         case BayerPattern::GBRG: return {1, 0, 0, 1};
         default: return {0, 0, 1, 1};
     }
+}
+
+// Shared CFA-channel classification (plan section 11.4): the colour of a
+// source sample is determined *exclusively* from its integer cache
+// coordinates, the Bayer pattern and the persisted CFA origin --- never from
+// canvas offset, rotation or dither. This is the single implementation; do
+// not duplicate the parity arithmetic elsewhere (M1's sampling_geometry.cpp
+// and M2's forward_drizzle.cpp both call this).
+enum class CfaChannel { R, G, B, L };
+
+inline CfaChannel cfa_channel_for_source_pixel(int sx, int sy, BayerPattern bayer,
+                                               int cfa_origin_x, int cfa_origin_y) {
+    const BayerOffsets off = get_bayer_offsets(bayer);
+    const int px = (sx + cfa_origin_x) & 1;
+    const int py = (sy + cfa_origin_y) & 1;
+    if (py == off.r_row && px == off.r_col) return CfaChannel::R;
+    if (py == off.b_row && px == off.b_col) return CfaChannel::B;
+    return CfaChannel::G;
 }
 
 inline std::string bayer_pattern_to_string(BayerPattern pattern) {
@@ -172,31 +189,27 @@ struct RegistrationResult {
 };
 
 // Pipeline phase enumeration
+// Single-method CFA forward-drizzle pipeline phases. Numeric values are part
+// of the persisted run-event contract and must remain stable; removed legacy
+// values (5,6,8-11,13,19-23) must not be reused.
 enum class Phase {
     SCAN_INPUT = 0,
     REGISTRATION = 1,
     PREWARP = 2,
     CHANNEL_SPLIT = 3,
     NORMALIZATION = 4,
-    GLOBAL_METRICS = 5,
-    TILE_GRID = 6,
     COMMON_OVERLAP = 7,
-    LOCAL_METRICS = 8,
-    TILE_RECONSTRUCTION = 9,
-    STATE_CLUSTERING = 10,
-    SYNTHETIC_FRAMES = 11,
     STACKING = 12,
-    DEBAYER = 13,
     ASTROMETRY = 14,
     BGE = 15,
     PCC = 16,
     HYPERMETRIC_STRETCH = 17,
-    DONE = 18,
-    AQMH_MAPS = 19,
-    AQMH_GLOBAL_QUALITY = 20,
-    AQMH_RECONSTRUCTION = 21,
-    AQMH_DIAGNOSTICS = 22,
-    AQMH_BGE_INPUTS = 23
+    NORMALIZED_CACHE = 24,
+    SAMPLING_GEOMETRY = 25,
+    GLOBAL_QUALITY = 26,
+    FORWARD_DRIZZLE = 27,
+    SOURCE_QUALITY_MAPS = 28,
+    MULTIBAND = 29
 };
 
 inline std::string phase_to_string(Phase phase) {
@@ -206,25 +219,19 @@ inline std::string phase_to_string(Phase phase) {
         case Phase::PREWARP: return "PREWARP";
         case Phase::CHANNEL_SPLIT: return "CHANNEL_SPLIT";
         case Phase::NORMALIZATION: return "NORMALIZATION";
-        case Phase::GLOBAL_METRICS: return "GLOBAL_METRICS";
-        case Phase::TILE_GRID: return "TILE_GRID";
         case Phase::COMMON_OVERLAP: return "COMMON_OVERLAP";
-        case Phase::LOCAL_METRICS: return "LOCAL_METRICS";
-        case Phase::TILE_RECONSTRUCTION: return "TILE_RECONSTRUCTION";
-        case Phase::STATE_CLUSTERING: return "STATE_CLUSTERING";
-        case Phase::SYNTHETIC_FRAMES: return "SYNTHETIC_FRAMES";
         case Phase::STACKING: return "STACKING";
-        case Phase::DEBAYER: return "DEBAYER";
         case Phase::ASTROMETRY: return "ASTROMETRY";
         case Phase::BGE: return "BGE";
         case Phase::PCC: return "PCC";
         case Phase::HYPERMETRIC_STRETCH: return "HYPERMETRIC_STRETCH";
-        case Phase::DONE: return "DONE";
-        case Phase::AQMH_MAPS: return "AQMH_MAPS";
-        case Phase::AQMH_GLOBAL_QUALITY: return "AQMH_GLOBAL_QUALITY";
-        case Phase::AQMH_RECONSTRUCTION: return "AQMH_RECONSTRUCTION";
-        case Phase::AQMH_DIAGNOSTICS: return "AQMH_DIAGNOSTICS";
-        case Phase::AQMH_BGE_INPUTS: return "AQMH_BGE_INPUTS";
+        case Phase::NORMALIZED_CACHE: return "NORMALIZED_CACHE";
+        case Phase::SAMPLING_GEOMETRY: return "SAMPLING_GEOMETRY";
+        case Phase::GLOBAL_QUALITY: return "GLOBAL_QUALITY";
+        case Phase::FORWARD_DRIZZLE: return "FORWARD_DRIZZLE";
+        case Phase::SOURCE_QUALITY_MAPS: return "SOURCE_QUALITY_MAPS";
+        case Phase::MULTIBAND: return "MULTIBAND";
+
         default: return "UNKNOWN";
     }
 }
@@ -234,7 +241,13 @@ inline int phase_to_int(Phase phase) {
 }
 
 inline Phase int_to_phase(int i) {
-    if (i >= 0 && i <= 23) {
+    // Phase has values 0 (SCAN_INPUT) through 29 (MULTIBAND) -- was
+    // previously clamped to 0-23, silently mapping NORMALIZED_CACHE,
+    // SAMPLING_GEOMETRY, GLOBAL_QUALITY, FORWARD_DRIZZLE,
+    // SOURCE_QUALITY_MAPS, and MULTIBAND (24-29) to SCAN_INPUT. No current
+    // caller (verified: grep-only match is this declaration), but the range
+    // must track the enum's actual span if this is ever used.
+    if (i >= 0 && i <= 29) {
         return static_cast<Phase>(i);
     }
     return Phase::SCAN_INPUT;

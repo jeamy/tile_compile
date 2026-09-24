@@ -114,3 +114,19 @@ TEST_CASE("diagonal PCC auto neutralizes realistic noisy background with green c
   REQUIRE(median(G) == Catch::Approx(expected_bg).margin(0.15f));
   REQUIRE(median(B) == Catch::Approx(expected_bg).margin(0.15f));
 }
+
+TEST_CASE("PCC aperture flux accepts a valid star on a low sloped background") {
+  Matrix2Df image(64, 64);
+  for (int y = 0; y < 64; ++y)
+    for (int x = 0; x < 64; ++x)
+      image(y, x) = 0.1f + 0.03f * static_cast<float>(x);
+  image(32, 32) += 10.0f;
+  std::vector<uint8_t> mask(64 * 64, 1);
+
+  const double flux =
+      tile_compile::astrometry::detail::measure_aperture_flux(
+          image, 32.0, 32.0, 4.0, 10.0, 20.0, "plane", &mask);
+
+  REQUIRE(flux > 0.0);
+  REQUIRE(flux == Catch::Approx(10.0).margin(0.05));
+}

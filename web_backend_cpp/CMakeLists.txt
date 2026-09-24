@@ -395,9 +395,12 @@ if(BUILD_TESTS)
     add_backend_cpp_test(web_backend_cpp_run_queue_status_alias tests/test_run_queue_status_alias.cpp)
     add_backend_cpp_test(web_backend_cpp_run_status_resume_progress tests/test_run_status_resume_progress.cpp)
     add_backend_cpp_test(web_backend_cpp_run_start_naming tests/test_run_start_naming.cpp)
+    target_include_directories(web_backend_cpp_run_start_naming PRIVATE ${YAML_CPP_INCLUDE_DIRS})
+    target_link_libraries(web_backend_cpp_run_start_naming PRIVATE ${YAML_CPP_LIBRARIES})
     add_backend_cpp_test(web_backend_cpp_run_stop_status_overlay tests/test_run_stop_status_overlay.cpp)
     add_backend_cpp_test(web_backend_cpp_memory_guards tests/test_memory_guards.cpp)
     add_backend_cpp_test(web_backend_cpp_report_phase_issues tests/test_report_phase_issues.cpp)
+    add_backend_cpp_test(web_backend_cpp_report_forward_drizzle tests/test_report_forward_drizzle.cpp)
     add_backend_cpp_test(web_backend_cpp_pi_image_ops tests/test_pi_image_ops.cpp)
     target_sources(web_backend_cpp_pi_image_ops PRIVATE
         src/services/pi/pi_image_ops.cpp

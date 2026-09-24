@@ -3,38 +3,41 @@
 The standard user workflow with GUI3 involves three steps:
 
 1. **Scan input** — Tab *Processing → Input & Scan*: Select input folder with FITS lights, optionally specify calibration frames (bias/dark/flat), start scan. The scan detects frames, resolution, and color mode.
-2. **Adjust parameters** — Tab *Processing → Parameter*: Load an example config or adjust values. Key parameters: registration (rotation, transform model), AQMH (cherry-pick, pyramid scales), stacking method, Bayer pattern. Validate and save configuration.
+2. **Adjust parameters** — Tab *Processing → Parameter*: Load an example config or adjust values. Key parameters: registration (rotation, transform model), reconstruction (`internal_scale`/`output_scale`, `pixfrac`, coverage gate, multiband), cache retention, Bayer pattern. There is no reconstruction-method selector — every run uses CFA forward drizzle + multiband. Validate and save configuration.
 3. **Start and monitor run** — Tab *Processing → Run Monitor*: Start run, track phase progress in real time, abort or resume from a specific phase as needed.
 
 After completion: Results are in `runs/<run_id>/outputs/`. Generate a diagnostic report via *Generate Stats* in the Run Monitor or via Run History.
 
-Full guide: [GUI3 User Guide](../gui3_user_guide_en.md)
+Full guide: [GUI3 User Guide](../gui3_user_guide_en.md) · Method: [CFA Forward Drizzle + Multiband](cfa_forward_drizzle_pipeline_en.md)
 
 ## Pipeline Phases
 
-| ID | Phase | Description |
-|----|-------|-------------|
-| 0 | SCAN_INPUT | Input discovery, mode detection, linearity check, disk-space precheck |
-| 1 | REGISTRATION | Cascaded global registration |
-| 2 | PREWARP | Full-frame canvas prewarp (CFA-safe for OSC) |
-| 3 | CHANNEL_SPLIT | Metadata phase (channel model) |
-| 4 | NORMALIZATION | Linear background-based normalization |
-| 5 | GLOBAL_METRICS | Global frame metrics and weights |
-| 6 | TILE_GRID | Adaptive tile geometry (used by classic TILE_RECONSTRUCTION) |
-| 7 | COMMON_OVERLAP | Common valid-data overlap (global/tile-local masks) |
-| 8 | LOCAL_METRICS | Local tile metrics + **AQMH quality map computation** |
-| 9 | TILE_RECONSTRUCTION | **AQMH per-pixel weighted reconstruction** (default) or tile-weighted OLA (classic) |
-| 10 | STATE_CLUSTERING | Optional state clustering |
-| 11 | SYNTHETIC_FRAMES | Optional synthetic frame generation |
-| 12 | STACKING | Final linear stacking |
-| 13 | DEBAYER | OSC demosaic to RGB (MONO pass-through) |
-| 14 | ASTROMETRY | Plate solving / WCS |
-| 15 | BGE | Optional RGB background gradient extraction before PCC |
-| 16 | PCC | Photometric color calibration |
-| 17 | HYPERMETRIC_STRETCH | Optional VeraLux HyperMetric Stretch after PCC |
-| 18 | DONE | Final status (`ok` or `validation_failed`) |
+Reconstruction is CFA forward drizzle + multiband — see
+[CFA Forward Drizzle + Multiband](cfa_forward_drizzle_pipeline_en.md) for the
+detail. The active phase order:
 
-Detailed phase docs: [Process Flow](../process_flow/phase_0_overview.md)
+| Phase | Description |
+|----|-------|
+| SCAN_INPUT | Input discovery, mode detection, linearity check, disk-space precheck |
+| CHANNEL_SPLIT | Channel metadata (Bayer pattern, CFA origin) — no materialized split |
+| NORMALIZATION | Per-channel background `B` and scale `P` estimation |
+| REGISTRATION | Cascaded global registration |
+| NORMALIZED_CACHE | Normalized CFA source cache (metadata-tagged) |
+| SAMPLING_GEOMETRY | Sampling plan, direct channel support / `n_eff` / hole coverage, **coverage gate** |
+| COMMON_OVERLAP | Common valid-data overlap across accepted frames |
+| SOURCE_QUALITY_MAPS | Per-frame source quality maps (pyramid) |
+| GLOBAL_QUALITY | Global per-frame quality weights |
+| FORWARD_DRIZZLE | CFA forward drizzle → transactional U/R/F/M profile store (CPU or CUDA) |
+| MULTIBAND | À-trous fusion to `X_out`, three-way candidate selection, per-channel delivery |
+| STACKING | Linear stacking pass-through marker |
+| ASTROMETRY | Plate solving / WCS |
+| BGE | Optional RGB background gradient extraction before PCC |
+| PCC | Photometric color calibration |
+| HYPERMETRIC_STRETCH | Optional VeraLux HyperMetric Stretch after PCC |
+| DONE | Final status (`ok` or `validation_failed`) |
+
+> The *Process Flow* documents describe the current CFA Forward Drizzle +
+> Multiband pipeline, phase by phase.
 
 ## Registration Cascade (Fallback Strategy)
 
@@ -67,8 +70,8 @@ Complete standalone example configs are available under `tile_compile_cpp/exampl
 - `very_bright_star_anti_seam.example.yaml`
 - `canon_equatorial_balanced.example.yaml`
 - `mono_full_mode.example.yaml`
-- `mono_small_n_anti_grid.example.yaml` (recommended for MONO low-frame datasets, e.g. ~10..40, to reduce tile-pattern risk)
-- `mono_small_n_ultra_conservative.example.yaml` (recommended for very small MONO datasets, e.g. ~8..25, when seam stability matters more than aggressive enhancement)
+- `mono_small_n_anti_grid.example.yaml` (recommended for MONO low-frame datasets, e.g. ~10..40, to reduce drizzle hole/artifact risk)
+- `mono_small_n_ultra_conservative.example.yaml` (recommended for very small MONO datasets, e.g. ~8..25, when reconstruction stability matters more than aggressive enhancement)
 
 See also: [Examples README](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/README.md) for the intended use case and tuning focus of each profile.
 

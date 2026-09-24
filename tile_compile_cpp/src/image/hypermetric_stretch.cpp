@@ -1,4 +1,5 @@
 #include "tile_compile/image/hypermetric_stretch.hpp"
+#include <opencv2/opencv.hpp>
 
 #include <algorithm>
 #include <array>
@@ -81,6 +82,26 @@ float sanitize01(float v) {
     return 0.0f;
   }
   return std::clamp(v, 0.0f, 1.0f);
+}
+
+// Smooth replacement for max(v - anchor, 0): a hard clamp there means any
+// pixel whose value dips even slightly below anchor in ALL THREE channels
+// (ordinary background sky noise straddles it by design -- anchor IS the
+// estimated black point / typical sky level) gets ra=ga=ba=0 exactly, hence
+// L=0, hence the stretched luminance Ls=0 -- a pure black pixel, though its
+// neighbors just above anchor stretch normally. That turns routine,
+// sub-ADU-scale noise into stark black-dot speckle in the shadows/sky
+// background instead of a smoothly darker pixel. This is the standard
+// smooth approximation to max(d,0) (0.5*(d + sqrt(d^2 + eps^2))): equals d
+// for d >> eps, eps/2 at d=0, and approaches 0 asymptotically (never
+// negative) for d << -eps, removing the discontinuity at anchor while
+// leaving well-above-anchor pixels (nebula, stars) unchanged. eps is tied
+// to the same 0.00025 normalized-unit scale calculate_anchor_statistical_
+// sample already uses as its anchor safety margin, matching this codebase's
+// existing sense of "background noise scale" in this unit.
+float soft_floor(float v, float anchor, float eps = 0.00025f) {
+  const float d = v - anchor;
+  return 0.5f * (d + std::sqrt(d * d + eps * eps));
 }
 
 void normalize_rgb_input_inplace(
@@ -439,7 +460,8 @@ void adaptive_output_scaling(
     Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     const std::array<float, 3> &w, float target_bg,
     const std::vector<uint8_t> *statistics_mask,
-    const std::vector<uint8_t> *output_mask, int mask_rows, int mask_cols) {
+    const std::vector<uint8_t> *output_mask, int mask_rows, int mask_cols,
+    float highlight_ceiling_percentile = 100.0f) {
   const int rows = static_cast<int>(R.rows());
   const int cols = static_cast<int>(R.cols());
 
@@ -470,16 +492,39 @@ void adaptive_output_scaling(
     return;
   }
 
-  auto channel_floor = [](std::vector<float> &vals) {
+  auto channel_stats = [](std::vector<float> &vals) {
     const float med = median(vals);
     const float sd = stddev(vals, med);
     const float min_v = *std::min_element(vals.begin(), vals.end());
-    return std::max(min_v, med - 2.7f * sd);
+    const float sky = percentile(vals, 20.0f);
+    return std::array<float, 4>{med, sd, min_v, sky};
   };
 
-  const float floor_r = channel_floor(sr);
-  const float floor_g = channel_floor(sg);
-  const float floor_b = channel_floor(sb);
+  const auto stat_r = channel_stats(sr);
+  const auto stat_g = channel_stats(sg);
+  const auto stat_b = channel_stats(sb);
+  // Floors anchor at each channel's own sky level (p20) minus one shared
+  // gap, so sky pixels map to the same output level in all channels. A
+  // per-channel sigma margin would leave a noise-proportional residual
+  // pedestal (Bayer G carries ~2x the samples of R/B, hence a smaller
+  // sigma), and a per-channel minimum clamp diverges the floors because
+  // CFA coverage holes pull R/B minima to 0 while G's stays near the sky.
+  // Both produced a magenta cast in production. Anchoring at p20 also
+  // keeps the equal gap on the *sky band*: the channel histograms are
+  // asymmetric, so median anchoring equalizes mid-tones but leaves the
+  // visible dark sky biased.
+  // The shared gap is capped by the widest channel's p20-to-min span --
+  // the smallest gap that never clips a channel's own minimum. Floors may
+  // go negative; that merely adds headroom below the data.
+  const float shared_margin =
+      2.7f * std::max({stat_r[1], stat_g[1], stat_b[1]});
+  const float margin = std::min(
+      shared_margin,
+      std::max({stat_r[3] - stat_r[2], stat_g[3] - stat_g[2],
+                stat_b[3] - stat_b[2]}));
+  const float floor_r = stat_r[3] - margin;
+  const float floor_g = stat_g[3] - margin;
+  const float floor_b = stat_b[3] - margin;
   constexpr float pedestal = 0.001f;
 
   // Per-channel soft ceilings define candidate dynamic ranges. The expansion
@@ -545,11 +590,32 @@ void adaptive_output_scaling(
     physical_highlight = neighbors == 0 || neighbor_max >= max_luma * 0.20f;
   }
 
+  // highlight_ceiling_percentile < 100 intentionally trades the "never clip
+  // the single brightest real pixel" guarantee above for more contrast: the
+  // physical ceiling becomes a per-channel percentile of the sampled data
+  // instead of the true max, so a small, bounded fraction of the brightest
+  // pixels (stars, a compact bright core) is allowed to clip. Percentile
+  // ceilings are already outlier-robust, so the single-pixel neighbour
+  // check above (meant to distinguish a real highlight from a hot pixel)
+  // does not apply here.
+  float ceil_r_phys = max_r;
+  float ceil_g_phys = max_g;
+  float ceil_b_phys = max_b;
+  bool use_physical_ceiling = physical_highlight;
+  if (highlight_ceiling_percentile < 99.999f) {
+    const float p = std::clamp(highlight_ceiling_percentile, 0.0f, 100.0f);
+    ceil_r_phys = percentile(sr, p);
+    ceil_g_phys = percentile(sg, p);
+    ceil_b_phys = percentile(sb, p);
+    use_physical_ceiling = true;
+  }
+
   const float contrast_scale = (0.98f - pedestal) / (shared_span + 1e-9f);
   float scale = contrast_scale;
-  if (physical_highlight) {
+  if (use_physical_ceiling) {
     const float physical_span = std::max(
-        {max_r - floor_r, max_g - floor_g, max_b - floor_b, 1e-6f});
+        {ceil_r_phys - floor_r, ceil_g_phys - floor_g, ceil_b_phys - floor_b,
+         1e-6f});
     const float physical_scale = (0.999f - pedestal) / physical_span;
     scale = std::min(contrast_scale, physical_scale);
   }
@@ -703,6 +769,121 @@ void apply_linear_expansion(Matrix2Df &L, float factor,
   }
 }
 
+/// @brief Local contrast ("clarity") boost on the near-final output.
+/// @details adaptive_output_scaling above applies a single GLOBAL floor/
+/// ceiling/MTF curve to hit target_bg -- verified against the linear input
+/// (stacked_rgb.fits) that real dynamic range and detail exist at the
+/// nebula-filament scale (tens of px) well before this stage, but a single
+/// global curve compresses a wide dynamic-range target's midtones/
+/// highlights together with the background lift, flattening real local
+/// variation. This recovers it: blur luma at the structure scale, take the
+/// high-frequency-relative-to-that-scale residual as "detail", and boost it
+/// additively into all three channels (same additive-delta reconstruction
+/// used throughout this codebase -- see luma_denoise.cpp -- which preserves
+/// every channel DIFFERENCE exactly, only local brightness moves). Applied
+/// BEFORE soft_clip so the boosted local contrast still has clean headroom
+/// to round off, instead of recovering detail from an already-flattened
+/// plateau.
+void apply_local_contrast(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
+                          const HyperMetricStretchConfig::LocalContrastConfig &cfg,
+                          const std::vector<uint8_t> *output_mask,
+                          int mask_rows, int mask_cols) {
+  if (!cfg.enabled || cfg.strength <= 0.0f) return;
+  const int rows = static_cast<int>(R.rows());
+  const int cols = static_cast<int>(R.cols());
+  if (rows <= 0 || cols <= 0) return;
+
+  cv::Mat Rm(rows, cols, CV_32F, R.data());
+  cv::Mat Gm(rows, cols, CV_32F, G.data());
+  cv::Mat Bm(rows, cols, CV_32F, B.data());
+  cv::Mat Y = 0.25f * Rm + 0.5f * Gm + 0.25f * Bm;
+  cv::Mat Yblur;
+  const float sigma = std::max(1.0f, cfg.radius_px);
+  cv::GaussianBlur(Y, Yblur, cv::Size(0, 0), sigma, sigma, cv::BORDER_REFLECT_101);
+  cv::Mat detail = Y - Yblur;
+
+  // Gate the boost spatially, not just by magnitude: a pure noise-floor
+  // threshold cannot separate faint-but-real nebula gradients from
+  // background noise once both have been compressed into a similar
+  // amplitude range by the global tone curve above (verified on real M42
+  // data -- a magnitude-only gate either left real structure unboosted or
+  // let noise leak through, never both at once). Instead, detect the
+  // extended-source silhouette directly (same recipe as chroma_denoise/
+  // luma_denoise's extended_source_protection: heavily blur to suppress
+  // point sources, threshold above sky background, keep only large
+  // connected components) and boost detail only inside it, feathered at
+  // the boundary. Flat sky far from any real structure is never boosted,
+  // regardless of its own noise statistics.
+  const float mask_blur_sigma =
+      std::max(5.0f, static_cast<float>(std::min(rows, cols)) * 0.02f);
+  cv::Mat Ywide;
+  cv::GaussianBlur(Y, Ywide, cv::Size(0, 0), mask_blur_sigma, mask_blur_sigma,
+                   cv::BORDER_REFLECT_101);
+  std::vector<float> sky_sample;
+  const int total = rows * cols;
+  const int stride = std::max(1, total / 200000);
+  sky_sample.reserve(static_cast<size_t>(total / stride) + 1);
+  for (int y = 0; y < rows; ++y) {
+    const float *row = Ywide.ptr<float>(y);
+    for (int x = 0; x < cols; ++x) {
+      const int lin = y * cols + x;
+      if (lin % stride != 0) continue;
+      if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) continue;
+      sky_sample.push_back(row[x]);
+    }
+  }
+  cv::Mat spatial_gate = cv::Mat::zeros(Y.size(), CV_32F);
+  if (!sky_sample.empty()) {
+    const float sky_med = median(sky_sample);
+    std::vector<float> abs_dev;
+    abs_dev.reserve(sky_sample.size());
+    for (float v : sky_sample) abs_dev.push_back(std::abs(v - sky_med));
+    const float sky_sigma =
+        std::max(1.0e-6f, 1.4826f * median(std::move(abs_dev)));
+    const float thr = sky_med + 2.0f * sky_sigma;
+
+    cv::Mat ext;
+    cv::threshold(Ywide, ext, static_cast<double>(thr), 1.0, cv::THRESH_BINARY);
+    ext.convertTo(ext, CV_8U, 255.0);
+    cv::Mat labels, cc_stats, centroids;
+    const int n_labels = cv::connectedComponentsWithStats(ext, labels, cc_stats,
+                                                           centroids, 8, CV_32S);
+    const int min_area = std::max(
+        64, static_cast<int>(std::ceil(4.0 * CV_PI * mask_blur_sigma * mask_blur_sigma)));
+    for (int label = 1; label < n_labels; ++label) {
+      if (cc_stats.at<int>(label, cv::CC_STAT_AREA) >= min_area)
+        spatial_gate.setTo(1.0f, labels == label);
+    }
+    const float feather = std::max(5.0f, mask_blur_sigma / 2.0f);
+    cv::GaussianBlur(spatial_gate, spatial_gate, cv::Size(0, 0), feather, feather,
+                     cv::BORDER_REFLECT_101);
+  }
+  cv::Mat delta = detail.mul(spatial_gate) * cfg.strength;
+
+  cv::Mat R_new = Rm + delta;
+  cv::Mat G_new = Gm + delta;
+  cv::Mat B_new = Bm + delta;
+  cv::min(R_new, 1.0f, R_new);
+  cv::max(R_new, 0.0f, R_new);
+  cv::min(G_new, 1.0f, G_new);
+  cv::max(G_new, 0.0f, G_new);
+  cv::min(B_new, 1.0f, B_new);
+  cv::max(B_new, 0.0f, B_new);
+
+  for (int y = 0; y < rows; ++y) {
+    for (int x = 0; x < cols; ++x) {
+      if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
+        R_new.at<float>(y, x) = Rm.at<float>(y, x);
+        G_new.at<float>(y, x) = Gm.at<float>(y, x);
+        B_new.at<float>(y, x) = Bm.at<float>(y, x);
+      }
+    }
+  }
+  R_new.copyTo(Rm);
+  G_new.copyTo(Gm);
+  B_new.copyTo(Bm);
+}
+
 } // namespace
 
 std::array<float, 3> hypermetric_profile_weights(
@@ -785,6 +966,7 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
   diag.protect_b = cfg.protect_b;
   diag.convergence_power = cfg.convergence_power;
   diag.linear_expansion = cfg.linear_expansion;
+  diag.highlight_ceiling_percentile = cfg.highlight_ceiling_percentile;
 
   if (R.rows() <= 0 || R.cols() <= 0 || G.rows() != R.rows() ||
       B.rows() != R.rows() || G.cols() != R.cols() || B.cols() != R.cols()) {
@@ -848,9 +1030,9 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
         L(y, x) = 0.0f;
         continue;
       }
-      const float ra = std::max(sanitize01(R(y, x)) - diag.anchor, 0.0f);
-      const float ga = std::max(sanitize01(G(y, x)) - diag.anchor, 0.0f);
-      const float ba = std::max(sanitize01(B(y, x)) - diag.anchor, 0.0f);
+      const float ra = soft_floor(sanitize01(R(y, x)), diag.anchor);
+      const float ga = soft_floor(sanitize01(G(y, x)), diag.anchor);
+      const float ba = soft_floor(sanitize01(B(y, x)), diag.anchor);
       const float l = w[0] * ra + w[1] * ga + w[2] * ba;
       L(y, x) = l;
       if (linear % stride == 0 && l > 1e-7f &&
@@ -918,9 +1100,9 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
         R(y, x) = G(y, x) = B(y, x) = 0.0f;
         continue;
       }
-      const float ra = std::max(sanitize01(R(y, x)) - diag.anchor, 0.0f);
-      const float ga = std::max(sanitize01(G(y, x)) - diag.anchor, 0.0f);
-      const float ba = std::max(sanitize01(B(y, x)) - diag.anchor, 0.0f);
+      const float ra = soft_floor(sanitize01(R(y, x)), diag.anchor);
+      const float ga = soft_floor(sanitize01(G(y, x)), diag.anchor);
+      const float ba = soft_floor(sanitize01(B(y, x)), diag.anchor);
       const float safe_l = L(y, x) + 1e-9f;
       const float k = std::pow(Ls(y, x), cfg.convergence_power);
       float rf = (ra / safe_l) * (1.0f - k) + k;
@@ -954,7 +1136,10 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
 
   if (cfg.mode == "ready_to_use") {
     adaptive_output_scaling(R, G, B, w, target_bg, statistics_mask,
-                            output_mask, mask_rows, mask_cols);
+                            output_mask, mask_rows, mask_cols,
+                            cfg.highlight_ceiling_percentile);
+    apply_local_contrast(R, G, B, cfg.local_contrast, output_mask, mask_rows,
+                         mask_cols);
     soft_clip(R, 0.98f, 2.0f);
     soft_clip(G, 0.98f, 2.0f);
     soft_clip(B, 0.98f, 2.0f);

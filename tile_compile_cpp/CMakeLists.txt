@@ -432,48 +432,61 @@ endif()
 
 # Library sources
 set(LIB_SOURCES
-    src/core/mode_gating.cpp
     src/core/utils.cpp
     src/core/events.cpp
     src/core/acceleration.cpp
     src/core/cfa_warp.cpp
     src/io/fits_io.cpp
     src/io/config.cpp
+    src/io/legacy_config_migration.cpp
     src/image/processing.cpp
     src/image/cfa_processing.cpp
     src/image/normalization.cpp
     src/image/background_extraction.cpp
     src/image/autobge.cpp
     src/image/hypermetric_stretch.cpp
+    src/image/color_cast_correction.cpp
     src/registration/registration.cpp
     src/registration/global_registration.cpp
     src/registration/astrometric_rescue.cpp
+    src/registration/registration_sampling_plan.cpp
+    src/registration/sampling_geometry.cpp
+    src/registration/warp_prediction_gate.cpp
+    src/reconstruction/forward_drizzle.cpp
+    src/reconstruction/forward_drizzle_contrib_list.cpp
+    src/reconstruction/forward_drizzle_v2.cpp
+    src/reconstruction/forward_drizzle_v2_store.cpp
+    src/reconstruction/forward_drizzle_v2_cpu.cpp
+    src/reconstruction/forward_drizzle_v2_driver.cpp
+    src/reconstruction/forward_drizzle_v2_production.cpp
+    src/reconstruction/drizzle_geometry_stats.cpp
+    src/reconstruction/drizzle_geometry_cache.cpp
+    src/reconstruction/source_quality_proxy.cpp
+    src/reconstruction/source_quality_maps.cpp
+    src/reconstruction/source_quality_map_cache.cpp
+    src/reconstruction/atrous_decomposition.cpp
+    src/reconstruction/multiband_fusion.cpp
+    src/reconstruction/adaptive_alpha.cpp
+    src/reconstruction/alpha_guard.cpp
+    src/reconstruction/alpha_confidence.cpp
+    src/reconstruction/multiband_validation.cpp
+    src/reconstruction/global_quality.cpp
+    src/reconstruction/quality_frame_weight_plan.cpp
+    src/reconstruction/source_quality_artifact.cpp
+    src/reconstruction/normalized_source_cache.cpp
+    src/reconstruction/drizzle_profile_store.cpp
+    src/reconstruction/forward_drizzle_cuda.cpp
+    src/reconstruction/output_scale.cpp
+    src/reconstruction/profile_store_manifest.cpp
     src/metrics/metrics.cpp
     src/metrics/tile_metrics.cpp
     src/metrics/linearity.cpp
-    src/metrics/aqmh_quality_map.cpp
-    src/metrics/aqmh_quality_map_cache.cpp
-    src/metrics/aqmh_binary_diagnostics.cpp
-    src/metrics/aqmh_eps.cpp
-    src/metrics/aqmh_global_quality.cpp
-    src/metrics/aqmh_frame_valid_mask.cpp
-    src/metrics/aqmh_regions.cpp
+    src/metrics/source_quality_map.cpp
     src/metrics/psf_fit.cpp
-    src/reconstruction/reconstruction.cpp
-    src/reconstruction/aqmh_reconstruction.cpp
-    src/reconstruction/aqmh_pipeline_overlap.cpp
-    src/reconstruction/aqmh_sigma_clip.cpp
-    src/reconstruction/aqmh_reconstruction_opencl.cpp
-    src/reconstruction/aqmh_validation.cpp
-    src/reconstruction/aqmh_cherry_pick.cpp
-    src/reconstruction/memory_budget.cpp
-    src/reconstruction/dead_tile_detector.cpp
-    src/reconstruction/progress_reporter.cpp
-    src/reconstruction/tile_scheduler.cpp
-    src/reconstruction/local_weight_regularization.cpp
-    src/reconstruction/tile_boundary_diagnostics.cpp
-    src/reconstruction/tile_normalization.cpp
-    src/reconstruction/tile_weight_profile_diagnostics.cpp
+    src/metrics/robust_stats.cpp
+    src/reconstruction/stack_validation.cpp
+    src/reconstruction/chroma_denoise.cpp
+    src/reconstruction/luma_denoise.cpp
     src/pipeline/adaptive_tile_grid.cpp
     src/preprocessing/contract.cpp
     src/astrometry/wcs.cpp
@@ -482,7 +495,50 @@ set(LIB_SOURCES
 )
 
 if(TILE_COMPILE_WITH_CUDA)
-    list(APPEND LIB_SOURCES src/reconstruction/aqmh_reconstruction_cuda.cu)
+    list(APPEND LIB_SOURCES src/reconstruction/forward_drizzle_cuda_device.cu)
+endif()
+
+# Plan 19.6 numerical contract --- LOAD-BEARING FOR CORRECTNESS, NOT AN
+# OPTIMISATION KNOB. The CFA-forward-drizzle reference path has an EXPLICITLY
+# fixed FP-contraction policy so the CPU reference and the CUDA path agree
+# BIT-FOR-BIT on the geometry that feeds discrete (clip / veto / mask)
+# decisions. CPU: -ffp-contract=off (GCC/Clang default at -O2/-O3 is "fast",
+# which fuses a*b+c and breaks CPU<->CUDA bit-exactness). CUDA: --fmad=false.
+#
+# Any NEW translation unit on this path --- a new src/reconstruction/forward_*
+# file, OR a test that re-implements a reference computation inline --- MUST be
+# added to the list below, or bit-exactness silently regresses with no failing
+# test until a parity case happens to exercise the drifted code.
+# The parity gate: tests/test_forward_drizzle.cpp [cuda-parity].
+if(NOT MSVC)
+    set_source_files_properties(
+        src/reconstruction/forward_drizzle.cpp
+        # The canonical record-sort/reduce oracle for the v2 gather; shares the
+        # FP-contraction contract with the path it validates.
+        src/reconstruction/forward_drizzle_contrib_list.cpp
+        src/reconstruction/forward_drizzle_v2.cpp
+        src/reconstruction/forward_drizzle_v2_cpu.cpp
+        # Gate-10 production wiring: sigma2 gradients and transforms feed the
+        # kernel's clip/confidence decisions, so it shares the FP-contraction
+        # contract with the reference path.
+        src/reconstruction/forward_drizzle_v2_production.cpp
+        src/reconstruction/forward_drizzle_cuda.cpp
+        # P0 geometry instrumentation: integer counters + diagnostic timers
+        # only, but it lives on the forward-drizzle path, so pin it identically.
+        src/reconstruction/drizzle_geometry_stats.cpp
+        # P1/P2 geometry cache: replays the exact leaf-bbox clamp + cell loop
+        # the enumerator uses, so it MUST share the FP-contraction contract.
+        src/reconstruction/drizzle_geometry_cache.cpp
+        # The parity tests re-implement the CPU reference inline; they must be
+        # pinned identically to the path they validate.
+        tests/test_forward_drizzle.cpp
+        tests/test_forward_drizzle_v2.cpp
+        PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+endif()
+if(TILE_COMPILE_WITH_CUDA)
+    set_source_files_properties(
+        src/reconstruction/forward_drizzle_cuda_device.cu
+        PROPERTIES COMPILE_OPTIONS "--fmad=false")
 endif()
 
 # Main library
@@ -524,24 +580,22 @@ if(TILE_COMPILE_WITH_CUDA)
 endif()
 
 # CLI Runner executable
-add_executable(tile_compile_runner
+set(_tile_compile_runner_sources
     apps/runner_main.cpp
     apps/runner_pipeline.cpp
     apps/runner_phase_metrics.cpp
-    apps/runner_phase_local_metrics.cpp
-    apps/runner_phase_aqmh_maps.cpp
-    apps/runner_phase_aqmh_diagnostics.cpp
-    apps/runner_phase_aqmh_global_quality.cpp
-    apps/runner_phase_aqmh_reconstruction.cpp
-    apps/runner_aqmh_pipeline.cpp
+    apps/runner_forward_drizzle.cpp
+    apps/runner_downstream.cpp
+    apps/runner_forward_output.cpp
     apps/runner_phase_registration.cpp
     apps/runner_phase_preprocess_pipeline.cpp
     apps/runner_phase_quality_analysis.cpp
     apps/runner_preprocess.cpp
     apps/runner_shared.cpp
-    apps/runner_resume.cpp
     apps/runner_phase_post_stack_output.cpp
 )
+
+add_executable(tile_compile_runner ${_tile_compile_runner_sources})
 target_link_libraries(tile_compile_runner PRIVATE tile_compile_lib)
 
 if(CLI11_FOUND)
@@ -617,35 +671,71 @@ if(BUILD_TESTS)
         add_executable(tests
             tests/test_main.cpp
             tests/test_acceleration_backend.cpp
+            apps/runner_forward_drizzle.cpp
+            apps/runner_downstream.cpp
+            apps/runner_forward_output.cpp
             apps/runner_shared.cpp
             apps/runner_phase_post_stack_output.cpp
             tests/test_background_extraction.cpp
             tests/test_autobge.cpp
+            tests/test_chroma_denoise.cpp
+            tests/test_luma_denoise.cpp
             tests/test_utils.cpp
             tests/test_fits.cpp
             tests/test_fits_hdu_selection.cpp
             tests/test_debayer.cpp
             tests/test_linearity.cpp
-            tests/test_mode_gating.cpp
             tests/test_preprocessing_contract.cpp
             tests/test_registration_cascade.cpp
             tests/test_registration_new_features.cpp
             tests/test_registration_outlier_utils.cpp
-            tests/test_reconstruction_regression.cpp
-            tests/test_stacking_quality_weighting.cpp
-            tests/test_memory_budget.cpp
-            tests/test_dead_tile_detector.cpp
+            tests/test_registration_sampling_plan.cpp
+            tests/test_warp_prediction_gate.cpp
+            tests/test_legacy_config_migration.cpp
+            tests/test_input_class_policy.cpp
+            tests/test_reconstruction_config.cpp
+            tests/test_sampling_geometry.cpp
+            tests/test_forward_drizzle.cpp
+            tests/test_forward_drizzle_v2.cpp
+            tests/test_forward_drizzle_synthetic_quality.cpp
+            tests/test_forward_drizzle_geometry_scaling.cpp
+            tests/test_drizzle_geometry_cache.cpp
+            tests/test_geometry_scaling_ladder.cpp
+            tests/test_forward_drizzle_local_basis_profile.cpp
+            tests/test_coverage_hotspot_profile.cpp
+            tests/test_source_quality_proxy.cpp
+            tests/test_source_quality_maps.cpp
+            tests/test_source_quality_map_cache.cpp
+            tests/test_atrous_decomposition.cpp
+            tests/test_multiband_fusion.cpp
+            tests/test_adaptive_alpha.cpp
+            tests/test_alpha_guard.cpp
+            tests/test_alpha_confidence.cpp
+            tests/test_multiband_validation.cpp
+            tests/test_global_quality.cpp
+            tests/test_quality_frame_weight_plan.cpp
+            tests/test_runner_forward_drizzle.cpp
+            tests/test_source_quality_artifact.cpp
+            tests/test_drizzle_profile_store.cpp
+            tests/test_output_scale.cpp
+            tests/test_profile_store_manifest.cpp
             tests/test_coverage_filtered_grid.cpp
-            tests/test_tile_scheduler.cpp
-            tests/test_reconstruction_parallel.cpp
             tests/test_hypermetric_stretch.cpp
+            tests/test_color_cast_correction.cpp
             tests/test_photometric_color_cal.cpp
-            tests/test_aqmh_quality_map.cpp
-            tests/test_aqmh_quality_map_cache.cpp
-            tests/test_aqmh_reconstruction.cpp
-            tests/test_aqmh_validation.cpp
-            tests/test_aqmh_config.cpp
+            ${_tile_compile_build_info_source}
         )
+        # runner_forward_drizzle.cpp (compiled into `tests`) now reports
+        # core::build_info_json() in forward_drizzle.json; give the test binary
+        # its own generated build-info translation unit, like the other targets.
+        tile_compile_add_build_info(tests
+            COMPONENT tests
+            PROJECT_VERSION "${PROJECT_VERSION}"
+            SOURCE_ROOT "${TILE_COMPILE_REPOSITORY_ROOT}"
+            OPENCV_VERSION "${OpenCV_VERSION}"
+            CUDA_VERSION "${CUDAToolkit_VERSION}"
+            FEATURE_FLAGS "${_tile_compile_feature_flags}"
+            BUILD_INFO_SOURCE "${_tile_compile_build_info_source}")
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)
         include(Catch)

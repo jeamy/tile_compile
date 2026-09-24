@@ -17,7 +17,13 @@ struct SamplePoint {
 // BGE Configuration (matches YAML structure from v3.3 §6.3)
 struct BGEConfig {
     bool enabled = false;
-    std::string method = "none"; // none | classic | autobge
+    std::string method = "none"; // none | classic | autobge | auto
+    // Parameters for method == "auto" (gradient detection + extended-source exclusion).
+    struct AutoDetectConfig {
+        float gradient_threshold = 0.05f;
+        float extended_source_sigma = 3.0f;
+        int   extended_source_dilate_px = 50;
+    } auto_detect;
     struct AutoBGEConfig {
         int num_sample_points = 0;
         int poly_degree = 2;
@@ -224,6 +230,13 @@ struct BGEDiagnostics {
     int image_height = 0;
     int grid_spacing = 0;
     std::string bge_method = "none";
+    float auto_gradient_strength = 0.0f;
+    float auto_gradient_threshold = 0.0f;
+    float auto_sky_median = 0.0f;
+    float auto_sky_sigma = 0.0f;
+    float auto_extended_source_threshold = 0.0f;
+    int auto_extended_source_blocks = 0;
+    float auto_extended_source_excluded_fraction = 0.0f;
     std::string method;
     std::string robust_loss;
     std::string insufficient_cell_strategy;
@@ -243,6 +256,9 @@ struct BGEDiagnostics {
     float autotune_selected_structure_thresh_percentile = 0.0f;
     float autotune_selected_rbf_mu_factor = 0.0f;
     bool autotune_fallback_used = false;
+    // Set when a per-channel slope_worsened veto was overridden because the
+    // correction still improved the inter-channel background level spread.
+    std::string guard_override;
     bool safety_fallback_triggered = false;
     std::string safety_fallback_method;
     std::string safety_fallback_reason;

@@ -222,6 +222,11 @@ void validate(const Config& config) {
   if (!in_unit_interval(config.hypermetric_stretch.linear_expansion)) {
     throw ValidationError("preprocessing.hypermetric_stretch.linear_expansion must be in [0,1]");
   }
+  if (config.hypermetric_stretch.highlight_ceiling_percentile < 90.0f ||
+      config.hypermetric_stretch.highlight_ceiling_percentile > 100.0f) {
+    throw ValidationError(
+        "preprocessing.hypermetric_stretch.highlight_ceiling_percentile must be in [90,100]");
+  }
   if (config.hypermetric_stretch.output_rgb.empty()) {
     throw ValidationError("preprocessing.hypermetric_stretch.output_rgb must not be empty");
   }

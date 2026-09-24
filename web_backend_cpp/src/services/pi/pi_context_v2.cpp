@@ -30,20 +30,6 @@ void add_fact(nlohmann::json& facts,
     facts[id] = std::move(fact);
 }
 
-const nlohmann::json* get_dotted_ptr(const nlohmann::json& root, const std::string& dotted_path) {
-    const nlohmann::json* cur = &root;
-    size_t start = 0;
-    while (start < dotted_path.size()) {
-        const size_t dot = dotted_path.find('.', start);
-        const std::string key = dotted_path.substr(start, dot == std::string::npos ? std::string::npos : dot - start);
-        if (!cur->is_object() || !cur->contains(key)) return nullptr;
-        cur = &(*cur)[key];
-        if (dot == std::string::npos) break;
-        start = dot + 1;
-    }
-    return cur;
-}
-
 } // namespace
 
 nlohmann::json build_scan_pi_context(const SchemaPathMap& schema_paths,
@@ -52,13 +38,7 @@ nlohmann::json build_scan_pi_context(const SchemaPathMap& schema_paths,
                                      const nlohmann::json& scan_metrics,
                                      const std::string& context_kind) {
     nlohmann::json facts = nlohmann::json::object();
-    if (const nlohmann::json* method = get_dotted_ptr(base_config, "method")) {
-        add_fact(facts, "pipeline.method", *method, "base_config.method");
-    } else if (const nlohmann::json* aqmh_enabled = get_dotted_ptr(base_config, "aqmh.enabled")) {
-        if (aqmh_enabled->is_boolean() && aqmh_enabled->get<bool>()) {
-            add_fact(facts, "pipeline.method", "aqmh", "base_config.aqmh.enabled");
-        }
-    }
+    add_fact(facts, "pipeline.method", "cfa_forward_drizzle_multiband", "single_method_pipeline");
 
     if (scan_result.is_object()) {
         if (scan_result.contains("frames_detected")) add_fact(facts, "dataset.frame_count", scan_result["frames_detected"], "scan_result.frames_detected");
@@ -141,26 +121,12 @@ nlohmann::json build_run_completed_pi_context(const SchemaPathMap& schema_paths,
                     if (diag.contains(key)) add_fact(facts, "registration." + key, diag[key], "logs/run_events.jsonl:REGISTRATION.phase_end.diag");
                 }
             }
-        } else if (phase == "AQMH_RECONSTRUCTION") {
-            for (const std::string key : {"cherry_pick_enabled", "cherry_pick_active_frac", "uniform_control_gate_triggered", "raw_aqmh_preserved_by_guard"}) {
-                if (parsed.contains(key)) add_fact(facts, "aqmh." + key, parsed[key], "logs/run_events.jsonl:AQMH_RECONSTRUCTION.phase_end");
-            }
         } else if (phase == "ASTROMETRY") {
             if (parsed.contains("status")) add_fact(facts, "astrometry.status", parsed["status"], "logs/run_events.jsonl:ASTROMETRY.phase_end");
             if (parsed.contains("pixel_scale_arcsec")) add_fact(facts, "astrometry.pixel_scale_arcsec", parsed["pixel_scale_arcsec"], "logs/run_events.jsonl:ASTROMETRY.phase_end", "arcsec/px");
         }
     }
 
-    if (auto validation = parse_json_file(run_dir / "artifacts" / "validation.json")) {
-        for (const std::string key : {"background_rms_increase_percent", "background_rms_ok", "fwhm_improvement_percent", "fwhm_improvement_ok", "input_background_rms", "output_background_rms"}) {
-            if (validation->contains(key)) add_fact(facts, "validation." + key, (*validation)[key], "artifacts/validation.json");
-        }
-    }
-    if (auto aqmh = parse_json_file(run_dir / "artifacts" / "aqmh_reconstruction.json")) {
-        for (const std::string key : {"cherry_pick_active", "cherry_pick_enabled", "cherry_pick_forced_disabled", "selected_candidate", "uniform_control_gate_triggered", "raw_aqmh_preserved_by_guard"}) {
-            if (aqmh->contains(key)) add_fact(facts, "aqmh." + key, (*aqmh)[key], "artifacts/aqmh_reconstruction.json");
-        }
-    }
     return context;
 }
 

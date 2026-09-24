@@ -25,10 +25,9 @@ const SCENARIO_DELTAS = {
     ["bge.mask.star_dilate_px", 6],
   ],
   few_frames: [
-    ["assumptions.frames_reduced_threshold", 200],
-    ["assumptions.reduced_mode_skip_clustering", true],
-    ["synthetic.frames_min", 4],
-    ["synthetic.clustering.cluster_count_range", [3, 10]],
+    ["reconstruction.drizzle.min_clip_contributors", 3],
+    ["reconstruction.clipping.min_n_eff", 2.0],
+    ["reconstruction.clipping.min_fraction", 0.3],
   ],
   gradient: [
     ["bge.method", "autobge"],
@@ -45,7 +44,7 @@ const SCENARIO_DELTAS = {
   low_snr: [
     ["registration.reject_cc_min_abs", 0.15],
     ["registration.star_topk", 250],
-    ["aqmh.pyramid.w_snr", 1.5],
+    ["reconstruction.quality.pyramid.snr_weight", 1.5],
   ],
   wide_field: [
     ["registration.transform_model", "affine"],

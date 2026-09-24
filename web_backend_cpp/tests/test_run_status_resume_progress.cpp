@@ -59,122 +59,46 @@ int main(int argc, char** argv) {
         }
         expect_true(found_bge, "bge phase present");
 
-        const auto skipped_phase_run_dir = harness.create_run("skipped_phase_run", {
-            {{"ts", "2026-03-10T11:00:00Z"}, {"type", "phase_start"}, {"phase_name", "STATE_CLUSTERING"}},
-            {{"ts", "2026-03-10T11:00:01Z"}, {"type", "phase_end"}, {"phase_name", "STATE_CLUSTERING"}, {"status", "skipped"}},
+        harness.create_run("skipped_phase_run", {
+            {{"ts", "2026-03-10T11:00:00Z"}, {"type", "phase_start"}, {"phase_name", "MULTIBAND"}},
+            {{"ts", "2026-03-10T11:00:01Z"}, {"type", "phase_end"}, {"phase_name", "MULTIBAND"}, {"status", "skipped"}},
             {{"ts", "2026-03-10T11:00:02Z"}, {"type", "run_end"}, {"success", true}}
         }, "OSC");
-        {
-            std::ofstream config(skipped_phase_run_dir / "config.yaml");
-            config << "method: classic_tile_compile\n"
-                   << "data:\n  color_mode: OSC\n";
-        }
 
         const auto skipped_status = harness.get_json("/api/runs/skipped_phase_run/status");
         expect_equal(skipped_status["_http_status"].get<long>(), 200L, "skipped status code");
         bool found_skipped = false;
         for (const auto& item : skipped_status["phases"]) {
-            if (test_phase_name(item) == "STATE_CLUSTERING") {
+            if (test_phase_name(item) == "MULTIBAND") {
                 found_skipped = true;
-                expect_equal(item["status"].get<std::string>(), "skipped", "state clustering skipped status");
-                expect_equal(item["pct"].get<double>(), 1.0, "state clustering skipped pct", 1e-9);
+                expect_equal(item["status"].get<std::string>(), "skipped", "multiband skipped status");
+                expect_equal(item["pct"].get<double>(), 1.0, "multiband skipped pct", 1e-9);
             }
         }
-        expect_true(found_skipped, "state clustering phase present");
+        expect_true(found_skipped, "multiband phase present");
 
-        const auto aqmh_run_dir = harness.create_run("aqmh_hides_classic_phases", {
-            {{"ts", "2026-03-10T11:10:00Z"}, {"type", "phase_start"}, {"phase_name", "STATE_CLUSTERING"}},
-            {{"ts", "2026-03-10T11:10:01Z"}, {"type", "phase_end"}, {"phase_name", "STATE_CLUSTERING"}, {"status", "skipped"}},
-            {{"ts", "2026-03-10T11:10:02Z"}, {"type", "phase_start"}, {"phase_name", "SYNTHETIC_FRAMES"}},
-            {{"ts", "2026-03-10T11:10:03Z"}, {"type", "phase_end"}, {"phase_name", "SYNTHETIC_FRAMES"}, {"status", "skipped"}},
-            {{"ts", "2026-03-10T11:10:04Z"}, {"type", "run_end"}, {"success", true}}
-        }, "OSC");
-        {
-            std::ofstream config(aqmh_run_dir / "config.yaml");
-            config << "method: aqmh\n"
-                   << "data:\n  color_mode: OSC\n";
-        }
-
-        const auto aqmh_status = harness.get_json("/api/runs/aqmh_hides_classic_phases/status");
-        expect_equal(aqmh_status["_http_status"].get<long>(), 200L, "aqmh status code");
-        expect_true(aqmh_status["aqmh_enabled"].is_boolean(), "aqmh flag is boolean");
-        expect_true(aqmh_status["aqmh_enabled"].get<bool>(), "aqmh flag derived from method");
-        expect_equal(aqmh_status["method"].get<std::string>(), "aqmh", "aqmh method parsed from config");
-        bool found_aqmh_maps = false;
-        bool found_aqmh_local_metrics = false;
-        bool found_aqmh_state_clustering = false;
-        bool found_aqmh_synthetic_frames = false;
-        for (const auto& item : aqmh_status["phases"]) {
-            const std::string phase = test_phase_name(item);
-            if (phase == "AQMH_MAPS") found_aqmh_maps = true;
-            if (phase == "LOCAL_METRICS") found_aqmh_local_metrics = true;
-            if (phase == "STATE_CLUSTERING") found_aqmh_state_clustering = true;
-            if (phase == "SYNTHETIC_FRAMES") found_aqmh_synthetic_frames = true;
-        }
-        expect_true(found_aqmh_maps, "aqmh maps phase present");
-        expect_true(!found_aqmh_local_metrics, "aqmh hides classic local metrics phase");
-        expect_true(!found_aqmh_state_clustering, "aqmh hides state clustering");
-        expect_true(!found_aqmh_synthetic_frames, "aqmh hides synthetic frames");
-
-        harness.create_run("aqmh_hides_classic_phases_from_events", {
-            {{"ts", "2026-03-10T11:20:00Z"}, {"type", "phase_start"}, {"phase_name", "AQMH_QUALITY_MAPS"}},
-            {{"ts", "2026-03-10T11:20:01Z"}, {"type", "phase_end"}, {"phase_name", "LOCAL_METRICS"}, {"status", "ok"}},
-            {{"ts", "2026-03-10T11:20:02Z"}, {"type", "phase_start"}, {"phase_name", "STATE_CLUSTERING"}},
-            {{"ts", "2026-03-10T11:20:03Z"}, {"type", "phase_end"}, {"phase_name", "STATE_CLUSTERING"}, {"status", "skipped"}},
-            {{"ts", "2026-03-10T11:20:04Z"}, {"type", "phase_start"}, {"phase_name", "SYNTHETIC_FRAMES"}},
-            {{"ts", "2026-03-10T11:20:05Z"}, {"type", "phase_end"}, {"phase_name", "SYNTHETIC_FRAMES"}, {"status", "skipped"}},
-            {{"ts", "2026-03-10T11:20:06Z"}, {"type", "run_end"}, {"success", true}}
+        // Runs without a stored method belong to the single-method
+        // forward-drizzle pipeline: canonical phase order, no aqmh aliases.
+        harness.create_run("default_method_forward_drizzle", {
+            {{"ts", "2026-03-10T11:28:00Z"}, {"type", "phase_start"}, {"phase_name", "FORWARD_DRIZZLE"}},
+            {{"ts", "2026-03-10T11:28:01Z"}, {"type", "phase_end"}, {"phase_name", "FORWARD_DRIZZLE"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T11:28:02Z"}, {"type", "run_end"}, {"success", true}}
         }, "OSC");
 
-        const auto aqmh_event_status = harness.get_json("/api/runs/aqmh_hides_classic_phases_from_events/status");
-        expect_equal(aqmh_event_status["_http_status"].get<long>(), 200L, "default-method aqmh status code");
-        expect_true(aqmh_event_status["aqmh_enabled"].is_boolean(), "default-method aqmh flag is boolean");
-        expect_true(aqmh_event_status["aqmh_enabled"].get<bool>(), "missing method defaults to aqmh");
-        expect_equal(aqmh_event_status["method"].get<std::string>(), "aqmh", "missing method reports aqmh");
-        bool found_event_aqmh_maps = false;
-        bool found_event_local_metrics = false;
-        for (const auto& item : aqmh_event_status["phases"]) {
+        const auto default_method_status = harness.get_json("/api/runs/default_method_forward_drizzle/status");
+        expect_equal(default_method_status["_http_status"].get<long>(), 200L, "default-method status code");
+        expect_equal(default_method_status["method"].get<std::string>(), "cfa_forward_drizzle_multiband",
+                     "missing method reports forward-drizzle pipeline");
+        expect_true(!default_method_status.contains("aqmh_enabled"), "status has no aqmh flag");
+        bool found_fd_phase = false;
+        for (const auto& item : default_method_status["phases"]) {
             const std::string phase = test_phase_name(item);
-            if (phase == "AQMH_MAPS") {
-                found_event_aqmh_maps = true;
-                expect_equal(item["status"].get<std::string>(), "ok", "aqmh maps consumes local_metrics phase_end");
-                expect_equal(item["pct"].get<double>(), 1.0, "aqmh maps done pct", 1e-9);
-            }
-            if (phase == "LOCAL_METRICS") found_event_local_metrics = true;
-            expect_true(phase != "STATE_CLUSTERING", "event-derived aqmh hides state clustering");
-            expect_true(phase != "SYNTHETIC_FRAMES", "event-derived aqmh hides synthetic frames");
+            if (phase == "FORWARD_DRIZZLE") found_fd_phase = true;
+            expect_true(phase != "AQMH_MAPS", "no aqmh phase aliases");
+            expect_true(phase != "TILE_RECONSTRUCTION", "no classic tile reconstruction phase");
+            expect_true(phase != "STATE_CLUSTERING", "no classic state clustering phase");
         }
-        expect_true(found_event_aqmh_maps, "event-derived aqmh maps phase present");
-        expect_true(!found_event_local_metrics, "event-derived aqmh hides classic local metrics");
-
-        const auto aqmh_reconstruction_run_dir = harness.create_run("aqmh_reconstruction_alias_status", {
-            {{"ts", "2026-03-10T11:25:00Z"}, {"type", "phase_start"}, {"phase_name", "AQMH_QUALITY_MAPS"}},
-            {{"ts", "2026-03-10T11:25:01Z"}, {"type", "phase_end"}, {"phase_name", "LOCAL_METRICS"}, {"status", "ok"}},
-            {{"ts", "2026-03-10T11:25:02Z"}, {"type", "phase_start"}, {"phase_name", "TILE_RECONSTRUCTION"}},
-            {{"ts", "2026-03-10T11:25:03Z"}, {"type", "phase_end"}, {"phase_name", "TILE_RECONSTRUCTION"}, {"status", "ok"}},
-            {{"ts", "2026-03-10T11:25:04Z"}, {"type", "run_end"}, {"success", true}}
-        }, "OSC");
-        {
-            std::ofstream config(aqmh_reconstruction_run_dir / "config.yaml");
-            config << "method: aqmh\n"
-                   << "data:\n  color_mode: OSC\n";
-        }
-
-        const auto aqmh_reconstruction_status = harness.get_json("/api/runs/aqmh_reconstruction_alias_status/status");
-        expect_equal(aqmh_reconstruction_status["_http_status"].get<long>(), 200L, "aqmh reconstruction alias status code");
-        bool found_aqmh_reconstruction = false;
-        bool found_tile_reconstruction = false;
-        for (const auto& item : aqmh_reconstruction_status["phases"]) {
-            const std::string phase = test_phase_name(item);
-            if (phase == "AQMH_RECONSTRUCTION") {
-                found_aqmh_reconstruction = true;
-                expect_equal(item["status"].get<std::string>(), "ok", "aqmh reconstruction consumes tile reconstruction phase_end");
-                expect_equal(item["pct"].get<double>(), 1.0, "aqmh reconstruction done pct", 1e-9);
-            }
-            if (phase == "TILE_RECONSTRUCTION") found_tile_reconstruction = true;
-        }
-        expect_true(found_aqmh_reconstruction, "aqmh reconstruction phase present");
-        expect_true(!found_tile_reconstruction, "aqmh hides classic tile reconstruction phase");
+        expect_true(found_fd_phase, "forward_drizzle phase present for default method");
 
         harness.create_run("completed_without_run_end", {
             {{"ts", "2026-03-10T11:30:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},
@@ -189,50 +113,45 @@ int main(int argc, char** argv) {
         expect_equal(completed_without_run_end["_http_status"].get<long>(), 200L, "completed without run_end status code");
         expect_equal(completed_without_run_end["status"].get<std::string>(), "completed", "pcc terminal phase implies completed");
 
-        const auto aqmh_rerun_order_dir = harness.create_run("aqmh_rerun_resets_phase_status", {
-            {{"ts", "2026-03-10T11:35:00Z"}, {"type", "run_start"}, {"run_id", "aqmh_rerun_resets_phase_status"}},
+        harness.create_run("rerun_resets_phase_status", {
+            {{"ts", "2026-03-10T11:35:00Z"}, {"type", "run_start"}, {"run_id", "rerun_resets_phase_status"}},
             {{"ts", "2026-03-10T11:35:01Z"}, {"type", "phase_start"}, {"phase_name", "SCAN_INPUT"}},
             {{"ts", "2026-03-10T11:35:02Z"}, {"type", "phase_end"}, {"phase_name", "SCAN_INPUT"}, {"status", "ok"}},
             {{"ts", "2026-03-10T11:35:03Z"}, {"type", "phase_start"}, {"phase_name", "REGISTRATION"}},
             {{"ts", "2026-03-10T11:35:04Z"}, {"type", "phase_end"}, {"phase_name", "REGISTRATION"}, {"status", "ok"}},
-            {{"ts", "2026-03-10T11:35:05Z"}, {"type", "phase_start"}, {"phase_name", "PREWARP"}},
-            {{"ts", "2026-03-10T11:35:06Z"}, {"type", "phase_end"}, {"phase_name", "PREWARP"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T11:35:05Z"}, {"type", "phase_start"}, {"phase_name", "NORMALIZATION"}},
+            {{"ts", "2026-03-10T11:35:06Z"}, {"type", "phase_end"}, {"phase_name", "NORMALIZATION"}, {"status", "ok"}},
             {{"ts", "2026-03-10T11:35:07Z"}, {"type", "run_end"}, {"success", true}},
-            {{"ts", "2026-03-10T11:40:00Z"}, {"type", "run_start"}, {"run_id", "aqmh_rerun_resets_phase_status"}},
+            {{"ts", "2026-03-10T11:40:00Z"}, {"type", "run_start"}, {"run_id", "rerun_resets_phase_status"}},
             {{"ts", "2026-03-10T11:40:01Z"}, {"type", "phase_start"}, {"phase_name", "SCAN_INPUT"}},
             {{"ts", "2026-03-10T11:40:02Z"}, {"type", "phase_end"}, {"phase_name", "SCAN_INPUT"}, {"status", "ok"}},
             {{"ts", "2026-03-10T11:40:03Z"}, {"type", "phase_start"}, {"phase_name", "CHANNEL_SPLIT"}},
             {{"ts", "2026-03-10T11:40:04Z"}, {"type", "phase_end"}, {"phase_name", "CHANNEL_SPLIT"}, {"status", "ok"}},
-            {{"ts", "2026-03-10T11:40:05Z"}, {"type", "phase_start"}, {"phase_name", "NORMALIZATION"}}
+            {{"ts", "2026-03-10T11:40:05Z"}, {"type", "phase_start"}, {"phase_name", "NORMALIZED_CACHE"}}
         }, "OSC");
-        {
-            std::ofstream config(aqmh_rerun_order_dir / "config.yaml");
-            config << "method: aqmh\n"
-                   << "data:\n  color_mode: OSC\n";
-        }
 
-        const auto aqmh_rerun_status = harness.get_json("/api/runs/aqmh_rerun_resets_phase_status/status");
-        expect_equal(aqmh_rerun_status["_http_status"].get<long>(), 200L, "aqmh rerun status code");
+        const auto rerun_status = harness.get_json("/api/runs/rerun_resets_phase_status/status");
+        expect_equal(rerun_status["_http_status"].get<long>(), 200L, "rerun status code");
         int channel_split_index = -1;
         int registration_index = -1;
         bool found_pending_registration = false;
-        bool found_pending_prewarp = false;
-        for (size_t i = 0; i < aqmh_rerun_status["phases"].size(); ++i) {
-            const auto& item = aqmh_rerun_status["phases"][i];
+        bool found_pending_normalization = false;
+        for (size_t i = 0; i < rerun_status["phases"].size(); ++i) {
+            const auto& item = rerun_status["phases"][i];
             const std::string phase = test_phase_name(item);
             if (phase == "CHANNEL_SPLIT") channel_split_index = static_cast<int>(i);
             if (phase == "REGISTRATION") {
                 registration_index = static_cast<int>(i);
                 found_pending_registration = item["status"].get<std::string>() == "pending";
             }
-            if (phase == "PREWARP") {
-                found_pending_prewarp = item["status"].get<std::string>() == "pending";
+            if (phase == "NORMALIZATION") {
+                found_pending_normalization = item["status"].get<std::string>() == "pending";
             }
         }
         expect_true(channel_split_index >= 0 && registration_index >= 0 && channel_split_index < registration_index,
-                    "aqmh phase list follows runner order before registration");
+                    "phase list follows runner order before registration");
         expect_true(found_pending_registration, "new run_start resets stale registration status");
-        expect_true(found_pending_prewarp, "new run_start resets stale prewarp status");
+        expect_true(found_pending_normalization, "new run_start resets stale normalization status");
 
         harness.create_run("partial_without_run_end", {
             {{"ts", "2026-03-10T11:45:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},
@@ -295,20 +214,97 @@ int main(int argc, char** argv) {
         expect_true(found_astrometry_after_pcc_resume, "astrometry phase present after pcc resume");
         expect_true(found_pcc_after_pcc_resume, "pcc phase present after pcc resume");
 
+        {
+            // Early phases must keep their duration even when later progress
+            // events push their start/end out of the 200-event status tail.
+            std::vector<nlohmann::json> events;
+            events.push_back({{"ts", "2026-03-10T15:00:00Z"}, {"type", "run_start"}, {"run_id", "phase_durations_beyond_tail"}});
+            events.push_back({{"ts", "2026-03-10T15:00:00.000Z"}, {"type", "phase_start"}, {"phase_name", "SCAN_INPUT"}});
+            events.push_back({{"ts", "2026-03-10T15:00:17.500Z"}, {"type", "phase_end"}, {"phase_name", "SCAN_INPUT"}, {"status", "ok"}});
+            events.push_back({{"ts", "2026-03-10T15:00:17.500Z"}, {"type", "phase_start"}, {"phase_name", "CHANNEL_SPLIT"}});
+            events.push_back({{"ts", "2026-03-10T15:00:17.500Z"}, {"type", "phase_end"}, {"phase_name", "CHANNEL_SPLIT"}, {"status", "ok"}});
+            events.push_back({{"ts", "2026-03-10T15:00:17.500Z"}, {"type", "phase_start"}, {"phase_name", "NORMALIZATION"}});
+            for (int i = 0; i < 300; ++i) {
+                events.push_back({{"ts", "2026-03-10T15:04:00Z"}, {"type", "phase_progress"},
+                                  {"phase_name", "NORMALIZATION"}, {"progress", (i + 1) / 300.0}});
+            }
+            events.push_back({{"ts", "2026-03-10T15:04:17Z"}, {"type", "phase_end"}, {"phase_name", "NORMALIZATION"}, {"status", "ok"}});
+            events.push_back({{"ts", "2026-03-10T15:04:18Z"}, {"type", "phase_start"}, {"phase_name", "REGISTRATION"}});
+            harness.create_run("phase_durations_beyond_tail", events, "OSC");
+
+            const auto durations_status = harness.get_json("/api/runs/phase_durations_beyond_tail/status");
+            expect_equal(durations_status["_http_status"].get<long>(), 200L, "phase durations status code");
+            expect_true(durations_status["events"].size() <= 200, "status events stay capped");
+            bool found_scan = false, found_split = false, found_norm = false, running_has_duration = true;
+            for (const auto& item : durations_status["phases"]) {
+                const std::string phase = test_phase_name(item);
+                if (phase == "SCAN_INPUT") {
+                    found_scan = true;
+                    expect_equal(item["duration_s"].get<double>(), 17.5, "scan input duration beyond event tail", 1e-9);
+                }
+                if (phase == "CHANNEL_SPLIT") {
+                    found_split = true;
+                    expect_equal(item["duration_s"].get<double>(), 0.0, "zero-length phase reports 0 duration", 1e-9);
+                }
+                if (phase == "NORMALIZATION") {
+                    found_norm = true;
+                    expect_equal(item["duration_s"].get<double>(), 239.5, "normalization duration beyond event tail", 1e-9);
+                }
+                if (phase == "REGISTRATION") running_has_duration = item.contains("duration_s");
+            }
+            expect_true(found_scan && found_split && found_norm, "early phases present in status");
+            expect_true(!running_has_duration, "running phase has no duration yet");
+        }
+
         harness.create_run("resume_overlay_without_events", {
-            {{"ts", "2026-03-10T14:00:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},
-            {{"ts", "2026-03-10T14:00:01Z"}, {"type", "phase_end"}, {"phase_name", "ASTROMETRY"}, {"status", "ok"}},
-            {{"ts", "2026-03-10T14:00:02Z"}, {"type", "phase_start"}, {"phase_name", "BGE"}},
-            {{"ts", "2026-03-10T14:00:03Z"}, {"type", "phase_end"}, {"phase_name", "BGE"}, {"status", "ok"}},
-            {{"ts", "2026-03-10T14:00:04Z"}, {"type", "phase_start"}, {"phase_name", "PCC"}},
-            {{"ts", "2026-03-10T14:00:05Z"}, {"type", "phase_end"}, {"phase_name", "PCC"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T14:00:00Z"}, {"type", "phase_start"}, {"phase_name", "FORWARD_DRIZZLE"}},
+            {{"ts", "2026-03-10T14:00:01Z"}, {"type", "phase_end"}, {"phase_name", "FORWARD_DRIZZLE"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T14:00:02Z"}, {"type", "phase_start"}, {"phase_name", "MULTIBAND"}},
+            {{"ts", "2026-03-10T14:00:03Z"}, {"type", "phase_end"}, {"phase_name", "MULTIBAND"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T14:00:04Z"}, {"type", "phase_start"}, {"phase_name", "BGE"}},
+            {{"ts", "2026-03-10T14:00:05Z"}, {"type", "phase_end"}, {"phase_name", "BGE"}, {"status", "ok"}},
             {{"ts", "2026-03-10T14:00:06Z"}, {"type", "run_end"}, {"success", true}}
         }, "OSC");
-        // Create required artifact so resume validation passes
-        harness.make_file("runs/resume_overlay_without_events/outputs/stacked_rgb_solve.fits", "fixture");
+        // Forward-drizzle provenance is required by the resume-reconstruction
+        // contract (the backend mirrors the runner's scope gate).
+        harness.make_file("runs/resume_overlay_without_events/artifacts/run_provenance.json",
+                          "{\"execution_scope\":\"forward_drizzle_m1_m3\","
+                          "\"config\":{\"sha256\":\"63658274d524a01f2a8389c8627580d2507c43533e6c97dcb37c5b3f2a9cffdb\"}}\n");
+        harness.make_file("runs/resume_overlay_without_events/artifacts/forward_drizzle_checkpoint.json",
+                          "{\"source_cache_retained\":true}\n");
+        harness.make_file("runs/resume_overlay_without_events/cache/normalized_frames/manifest.json", "{}\n");
+        harness.make_file("runs/resume_overlay_without_events/cache/source_quality_maps/manifest.json", "{}\n");
+
+        // Phases outside the resume contract are rejected. MULTIBAND is not a
+        // resume entry: it always re-runs together with FORWARD_DRIZZLE.
+        const auto unsupported_phase = harness.post_json("/api/runs/resume_overlay_without_events/resume", {
+            {"from_phase", "MULTIBAND"},
+            {"run_dir", "runs/resume_overlay_without_events"},
+            {"config_yaml", "data:\n  color_mode: OSC\n"},
+            {"dry_run", true}
+        });
+        expect_equal(unsupported_phase["_http_status"].get<long>(), 409L,
+                     "unsupported resume phase rejected");
+        expect_equal(unsupported_phase["error"]["details"]["reason"].get<std::string>(),
+                     "unsupported_resume_phase", "unsupported resume phase reason");
+
+        // Downstream phases are resume entries: they reuse the persisted
+        // reconstruction outputs and re-run only the downstream chain.
+        for (const char* downstream_phase : {"BGE", "PCC", "HYPERMETRIC_STRETCH", "ASTROMETRY"}) {
+            const auto downstream_resume = harness.post_json("/api/runs/resume_overlay_without_events/resume", {
+                {"from_phase", downstream_phase},
+                {"run_dir", "runs/resume_overlay_without_events"},
+                {"config_yaml", "data:\n  color_mode: OSC\n"},
+                {"dry_run", true}
+            });
+            expect_equal(downstream_resume["_http_status"].get<long>(), 200L,
+                         std::string("downstream resume phase accepted: ") + downstream_phase);
+            expect_true(downstream_resume.value("feasible", false),
+                        std::string("downstream resume feasible: ") + downstream_phase);
+        }
 
         const auto resumed = harness.post_json("/api/runs/resume_overlay_without_events/resume", {
-            {"from_phase", "BGE"},
+            {"from_phase", "FORWARD_DRIZZLE"},
             {"run_dir", "runs/resume_overlay_without_events"},
             {"config_yaml", "data:\n  color_mode: OSC\n"}
         });
@@ -317,23 +313,70 @@ int main(int argc, char** argv) {
         const auto overlay_status = harness.get_json("/api/runs/resume_overlay_without_events/status");
         expect_equal(overlay_status["_http_status"].get<long>(), 200L, "resume overlay status code");
         expect_equal(overlay_status["status"].get<std::string>(), "running", "resume overlay run status");
-        expect_equal(overlay_status["current_phase"].get<std::string>(), "BGE", "resume overlay current phase");
-        bool found_overlay_bge = false;
-        bool found_overlay_pcc = false;
+        expect_equal(overlay_status["current_phase"].get<std::string>(), "FORWARD_DRIZZLE", "resume overlay current phase");
+        bool found_overlay_fd = false;
+        bool found_overlay_multiband = false;
         for (const auto& item : overlay_status["phases"]) {
-            if (test_phase_name(item) == "BGE") {
-                found_overlay_bge = true;
-                expect_equal(item["status"].get<std::string>(), "running", "resume overlay bge status");
-                expect_equal(item["pct"].get<double>(), 0.0, "resume overlay bge pct", 1e-9);
+            if (test_phase_name(item) == "FORWARD_DRIZZLE") {
+                found_overlay_fd = true;
+                expect_equal(item["status"].get<std::string>(), "running", "resume overlay forward_drizzle status");
+                expect_equal(item["pct"].get<double>(), 0.0, "resume overlay forward_drizzle pct", 1e-9);
             }
-            if (test_phase_name(item) == "PCC") {
-                found_overlay_pcc = true;
+            if (test_phase_name(item) == "MULTIBAND") {
+                found_overlay_multiband = true;
                 expect_equal(item["status"].get<std::string>(), "pending", "resume overlay resets later phases");
                 expect_equal(item["pct"].get<double>(), 0.0, "resume overlay resets later phase pct", 1e-9);
             }
         }
-        expect_true(found_overlay_bge, "resume overlay target phase present");
-        expect_true(found_overlay_pcc, "resume overlay later phase present");
+        expect_true(found_overlay_fd, "resume overlay target phase present");
+        expect_true(found_overlay_multiband, "resume overlay later phase present");
+
+        harness.create_run("reconstruction_resume_without_cache", {
+            {{"ts", "2026-03-10T15:00:00Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+        harness.make_file("runs/reconstruction_resume_without_cache/artifacts/run_provenance.json",
+                          "{\"execution_scope\":\"forward_drizzle_m1_m3\","
+                          "\"config\":{\"sha256\":\"63658274d524a01f2a8389c8627580d2507c43533e6c97dcb37c5b3f2a9cffdb\"}}\n");
+        harness.make_file("runs/reconstruction_resume_without_cache/artifacts/forward_drizzle_checkpoint.json",
+                          "{\"source_cache_retained\":false}\n");
+        const auto missing_cache_resume = harness.post_json(
+            "/api/runs/reconstruction_resume_without_cache/resume", {
+                {"from_phase", "GLOBAL_QUALITY"},
+                {"run_dir", "runs/reconstruction_resume_without_cache"},
+                {"config_yaml", "data:\n  color_mode: OSC\n"},
+                {"dry_run", true}
+            });
+        expect_equal(missing_cache_resume["_http_status"].get<long>(), 409L,
+                     "reconstruction resume without retained caches rejected");
+        expect_equal(missing_cache_resume["error"]["details"]["reason"].get<std::string>(),
+                     "normalized_source_cache_missing",
+                     "missing reconstruction cache has an actionable reason");
+        expect_true(!std::filesystem::exists(
+                        harness.fixture_root() /
+                        "runs/reconstruction_resume_without_cache/artifacts/config_revisions/index.json"),
+                    "failed dry-run does not create config revisions");
+        expect_equal(slurp_file(harness.fixture_root() /
+                                   "runs/reconstruction_resume_without_cache/config.yaml"),
+                     "data:\n  color_mode: OSC\n",
+                     "failed dry-run leaves the run config unchanged");
+
+        // `reconstruction` stays out of scope even for the reconstruction
+        // resume points themselves: reconstruction.quality.pyramid is only
+        // consumed while SOURCE_QUALITY_MAPS is (re)built, which a
+        // GLOBAL_QUALITY/FORWARD_DRIZZLE resume skips and reuses
+        // unvalidated -- an edit there would otherwise be silently ignored.
+        const auto changed_reconstruction_config = harness.post_json(
+            "/api/runs/resume_overlay_without_events/resume", {
+                {"from_phase", "GLOBAL_QUALITY"},
+                {"run_dir", "runs/resume_overlay_without_events"},
+                {"config_yaml", "data:\n  color_mode: OSC\nreconstruction:\n  common_overlap_required_fraction: 0.9\n"},
+                {"dry_run", true}
+            });
+        expect_equal(changed_reconstruction_config["_http_status"].get<long>(), 409L,
+                     "changed reconstruction config rejected before resume");
+        expect_equal(changed_reconstruction_config["error"]["details"]["reason"].get<std::string>(),
+                     "config_scope_mismatch",
+                     "changed reconstruction config has an actionable reason");
 
         const auto overlay_logs = harness.get_json(
             "/api/runs/resume_overlay_without_events/logs?tail=20&run_dir=runs%2Fresume_overlay_without_events");
@@ -341,7 +384,7 @@ int main(int argc, char** argv) {
         expect_true(!overlay_logs["lines"].empty(), "resume logs with run_dir returns event lines");
 
         const auto resumed_job = harness.wait_for_job(resumed["job_id"].get<std::string>(), 5.0);
-        // fake_tile_compile_cli may not implement resume; accept ok or error
+        // fake_tile_compile_runner may not implement resume-reconstruction; accept ok or error
         expect_true(resumed_job["state"].get<std::string>() == "ok" || resumed_job["state"].get<std::string>() == "error",
                     "resume overlay job terminates");
         if (resumed_job["state"].get<std::string>() == "ok") {
@@ -349,6 +392,8 @@ int main(int argc, char** argv) {
                          (harness.fixture_root() / "runs" / "resume_overlay_without_events").string(),
                          "relative resume run_dir is normalized in job data");
             const auto& resume_command = resumed_job["data"]["command"];
+            expect_equal(resume_command[1].get<std::string>(), "resume-reconstruction",
+                         "resume launches the resume-reconstruction subcommand");
             bool found_normalized_run_dir_arg = false;
             for (size_t i = 0; i + 1 < resume_command.size(); ++i) {
                 if (resume_command[i].get<std::string>() == "--run-dir" &&
@@ -359,82 +404,192 @@ int main(int argc, char** argv) {
             expect_true(found_normalized_run_dir_arg, "relative resume run_dir is normalized before runner launch");
         }
 
-        const auto aqmh_resume_overlay_run_dir = harness.create_run("aqmh_resume_overlay_alias", {
-            {{"ts", "2026-03-10T14:59:59Z"}, {"type", "run_start"}, {"input_dir", (harness.fixture_root() / "input").string()}},
-            {{"ts", "2026-03-10T15:00:00Z"}, {"type", "phase_start"}, {"phase_name", "AQMH_QUALITY_MAPS"}},
-            {{"ts", "2026-03-10T15:00:01Z"}, {"type", "phase_end"}, {"phase_name", "LOCAL_METRICS"}, {"status", "ok"}},
-            {{"ts", "2026-03-10T15:00:02Z"}, {"type", "phase_start"}, {"phase_name", "TILE_RECONSTRUCTION"}},
-            {{"ts", "2026-03-10T15:00:03Z"}, {"type", "phase_end"}, {"phase_name", "TILE_RECONSTRUCTION"}, {"status", "ok"}},
-            {{"ts", "2026-03-10T15:00:04Z"}, {"type", "run_end"}, {"success", true}}
+        // A resume attempt is a SECONDARY action against an already-finished
+        // run. If it fails immediately -- before the runner writes a single
+        // event to the run's own log, e.g. a real
+        // FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH exit -- that failure must
+        // not silently overwrite the already-completed run's status; it is
+        // surfaced separately via `resume_attempt` instead.
+        harness.create_run("resume_fails_after_completion", {
+            {{"ts", "2026-03-10T16:00:00Z"}, {"type", "phase_start"}, {"phase_name", "PCC"}},
+            {{"ts", "2026-03-10T16:00:01Z"}, {"type", "phase_end"}, {"phase_name", "PCC"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T16:00:02Z"}, {"type", "run_end"}, {"success", true}}
         }, "OSC");
-        {
-            std::ofstream config(aqmh_resume_overlay_run_dir / "config.yaml");
-            config << "method: aqmh\n"
-                   << "data:\n  color_mode: OSC\n";
-        }
+        harness.make_file("runs/resume_fails_after_completion/artifacts/run_provenance.json",
+                          "{\"execution_scope\": \"forward_drizzle_m1_m3\"}\n");
+        // Tells the fake runner to exit non-zero on the resume-reconstruction
+        // call for THIS run_dir, mirroring a real FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH.
+        harness.make_file("runs/resume_fails_after_completion/FAIL_RESUME_MARKER", "1\n");
 
-        const auto aqmh_rerun_dry_run = harness.post_json("/api/runs/aqmh_resume_overlay_alias/resume", {
-            {"from_phase", "TILE_RECONSTRUCTION"},
-            {"run_dir", (harness.fixture_root() / "runs" / "aqmh_resume_overlay_alias").string()},
-            {"config_yaml", "method: aqmh\ndata:\n  color_mode: OSC\n"},
+        const auto pre_resume_status = harness.get_json("/api/runs/resume_fails_after_completion/status");
+        expect_equal(pre_resume_status["status"].get<std::string>(), "completed",
+                     "run completed before resume attempt");
+
+        const auto failing_resume = harness.post_json("/api/runs/resume_fails_after_completion/resume", {
+            {"from_phase", "PCC"},
+            {"run_dir", "runs/resume_fails_after_completion"},
+            {"config_yaml", "data:\n  color_mode: OSC\n"}
+        });
+        expect_equal(failing_resume["_http_status"].get<long>(), 202L, "failing resume launch accepted");
+        const auto failed_job = harness.wait_for_job(failing_resume["job_id"].get<std::string>(), 5.0);
+        expect_equal(failed_job["state"].get<std::string>(), "error", "resume job reports error");
+
+        const auto post_resume_status = harness.get_json("/api/runs/resume_fails_after_completion/status");
+        expect_equal(post_resume_status["_http_status"].get<long>(), 200L, "status after failed resume attempt");
+        expect_equal(post_resume_status["status"].get<std::string>(), "completed",
+                     "a failed resume attempt does not overwrite the already-completed run's status");
+        expect_true(post_resume_status.contains("resume_attempt") && post_resume_status["resume_attempt"].is_object(),
+                    "failed resume attempt is surfaced separately");
+        expect_equal(post_resume_status["resume_attempt"]["state"].get<std::string>(), "error",
+                     "resume_attempt reports the failed state");
+
+        // The backend applies the SAME downstream-resume section-scope gate
+        // the runner itself enforces, checked before any config write or
+        // subprocess launch (see downstream_resume_scope_violation). This is
+        // exactly the HMS-dialog bug: "Apply & start resume" silently saved
+        // an edited config but the re-stretch never visibly ran because the
+        // runner rejected out-of-scope drift (e.g. chroma_denoise) after the
+        // write already happened. It must now be rejected immediately.
+        harness.create_run("hms_resume_scope_check", {
+            {{"ts", "2026-03-10T17:00:00Z"}, {"type", "phase_start"}, {"phase_name", "HYPERMETRIC_STRETCH"}},
+            {{"ts", "2026-03-10T17:00:01Z"}, {"type", "phase_end"}, {"phase_name", "HYPERMETRIC_STRETCH"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T17:00:02Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+        harness.make_file("runs/hms_resume_scope_check/artifacts/run_provenance.json",
+                          "{\"execution_scope\": \"forward_drizzle_m1_m3\"}\n");
+        harness.make_file("runs/hms_resume_scope_check/artifacts/config_revisions/orig.yaml",
+                          "data:\n  color_mode: OSC\nchroma_denoise:\n  enabled: true\nhypermetric_stretch:\n  sensor_profile: rec709\n");
+        harness.make_file("runs/hms_resume_scope_check/artifacts/config_revisions/index.json",
+                          "[{\"revision_id\":\"orig_runstart\",\"file_name\":\"orig.yaml\",\"source\":\"run_start\","
+                          "\"created_at\":\"2026-03-10T17:00:00Z\",\"run_id\":\"hms_resume_scope_check\"}]\n");
+
+        const auto scope_violation = harness.post_json("/api/runs/hms_resume_scope_check/resume", {
+            {"from_phase", "HYPERMETRIC_STRETCH"},
+            {"run_dir", "runs/hms_resume_scope_check"},
+            {"config_yaml", "data:\n  color_mode: OSC\nchroma_denoise:\n  enabled: false\nhypermetric_stretch:\n  sensor_profile: rec709\n"},
             {"dry_run", true}
         });
-        expect_equal(aqmh_rerun_dry_run["_http_status"].get<long>(), 200L,
-                     "aqmh in-place rerun phase dry-run status");
-        expect_true(aqmh_rerun_dry_run["dry_run"].get<bool>(), "aqmh in-place rerun dry-run flag");
+        expect_equal(scope_violation["_http_status"].get<long>(), 409L, "out-of-scope HMS resume config rejected");
+        expect_equal(scope_violation["error"]["details"]["reason"].get<std::string>(), "config_scope_mismatch",
+                     "out-of-scope HMS resume reports config_scope_mismatch");
 
-        // AQMH runs can regenerate the missing immutable CFA artifact from
-        // their reusable prewarp cache before entering STACKING.
-        {
-            const std::filesystem::path cache_dir =
-                aqmh_resume_overlay_run_dir / "cache" / "prewarped_frames";
-            std::filesystem::create_directories(cache_dir);
-            std::ofstream(cache_dir / "frame_0.fixture") << "fixture";
-        }
-        const auto aqmh_legacy_stacking_dry_run = harness.post_json("/api/runs/aqmh_resume_overlay_alias/resume", {
-            {"from_phase", "STACKING"},
-            {"run_dir", (harness.fixture_root() / "runs" / "aqmh_resume_overlay_alias").string()},
-            {"config_yaml", "method: aqmh\ndata:\n  color_mode: OSC\n"},
+        const auto scope_ok = harness.post_json("/api/runs/hms_resume_scope_check/resume", {
+            {"from_phase", "HYPERMETRIC_STRETCH"},
+            {"run_dir", "runs/hms_resume_scope_check"},
+            {"config_yaml", "data:\n  color_mode: OSC\nchroma_denoise:\n  enabled: true\nhypermetric_stretch:\n  sensor_profile: \"Sony IMX415 (DWARF II)\"\n"},
             {"dry_run", true}
         });
-        expect_equal(aqmh_legacy_stacking_dry_run["_http_status"].get<long>(), 200L,
-                     "legacy aqmh STACKING regenerates raw artifact from prewarp cache");
+        expect_equal(scope_ok["_http_status"].get<long>(), 200L, "in-scope-only HMS resume config accepted");
+        expect_true(scope_ok.value("feasible", false), "in-scope-only HMS resume reports feasible");
 
-        // AQMH STACKING resumes from the immutable raw CFA reconstruction.
-        // reconstructed_L.fit is a downstream luminance output and must not be
-        // debayered again.
-        {
-            const std::filesystem::path outputs_dir = aqmh_resume_overlay_run_dir / "outputs";
-            std::filesystem::create_directories(outputs_dir);
-            std::ofstream(outputs_dir / "aqmh_reconstructed_raw.fit") << "fixture";
-        }
-        const auto aqmh_stacking_dry_run = harness.post_json("/api/runs/aqmh_resume_overlay_alias/resume", {
-            {"from_phase", "STACKING"},
-            {"run_dir", (harness.fixture_root() / "runs" / "aqmh_resume_overlay_alias").string()},
-            {"config_yaml", "method: aqmh\ndata:\n  color_mode: OSC\n"},
+        // GLOBAL_QUALITY/FORWARD_DRIZZLE resume: config sections that never
+        // feed the reused reconstruction predecessors are in scope, mirroring
+        // the runner's own allowed_reconstruction_resume_sections. This is
+        // the actual bug fix -- GLOBAL_QUALITY/FORWARD_DRIZZLE used to
+        // require a byte-identical config, making the resume-config editor
+        // pointless for them whenever anything at all had changed.
+        harness.create_run("global_quality_resume_scope_check", {
+            {{"ts", "2026-03-10T18:00:00Z"}, {"type", "phase_start"}, {"phase_name", "GLOBAL_QUALITY"}},
+            {{"ts", "2026-03-10T18:00:01Z"}, {"type", "phase_end"}, {"phase_name", "GLOBAL_QUALITY"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T18:00:02Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+        harness.make_file("runs/global_quality_resume_scope_check/artifacts/run_provenance.json",
+                          "{\"execution_scope\": \"forward_drizzle_m1_m3\"}\n");
+        harness.make_file("runs/global_quality_resume_scope_check/artifacts/config_revisions/orig.yaml",
+                          "data:\n  color_mode: OSC\nglobal_metrics:\n  weight_exponent_scale: 1.0\n"
+                          "chroma_denoise:\n  enabled: true\nreconstruction:\n  common_overlap_required_fraction: 1.0\n");
+        harness.make_file("runs/global_quality_resume_scope_check/artifacts/config_revisions/index.json",
+                          "[{\"revision_id\":\"orig_runstart\",\"file_name\":\"orig.yaml\",\"source\":\"run_start\","
+                          "\"created_at\":\"2026-03-10T18:00:00Z\",\"run_id\":\"global_quality_resume_scope_check\"}]\n");
+        harness.make_file("runs/global_quality_resume_scope_check/artifacts/forward_drizzle_checkpoint.json",
+                          "{\"source_cache_retained\":true}\n");
+        harness.make_file("runs/global_quality_resume_scope_check/cache/normalized_frames/manifest.json", "{}\n");
+        harness.make_file("runs/global_quality_resume_scope_check/cache/source_quality_maps/manifest.json", "{}\n");
+
+        // `reconstruction` stays out of scope even for the reconstruction
+        // resume points themselves: reconstruction.quality.pyramid is only
+        // consumed while SOURCE_QUALITY_MAPS is (re)built, which a
+        // GLOBAL_QUALITY/FORWARD_DRIZZLE resume skips and reuses
+        // unvalidated -- an edit there would otherwise be silently ignored.
+        const auto reconstruction_out_of_scope = harness.post_json(
+            "/api/runs/global_quality_resume_scope_check/resume", {
+                {"from_phase", "GLOBAL_QUALITY"},
+                {"run_dir", "runs/global_quality_resume_scope_check"},
+                {"config_yaml", "data:\n  color_mode: OSC\nglobal_metrics:\n  weight_exponent_scale: 1.0\n"
+                                 "chroma_denoise:\n  enabled: true\nreconstruction:\n  common_overlap_required_fraction: 0.9\n"},
+                {"dry_run", true}
+            });
+        expect_equal(reconstruction_out_of_scope["_http_status"].get<long>(), 409L,
+                     "reconstruction change rejected for GLOBAL_QUALITY resume");
+        expect_equal(reconstruction_out_of_scope["error"]["details"]["reason"].get<std::string>(),
+                     "config_scope_mismatch", "reconstruction change has an actionable reason");
+
+        // global_metrics IS in scope for GLOBAL_QUALITY: it is the section
+        // that phase exists to let you retune (it re-reads global_metrics to
+        // recompute frame weighting), unlike reconstruction above.
+        const auto global_metrics_ok = harness.post_json(
+            "/api/runs/global_quality_resume_scope_check/resume", {
+                {"from_phase", "GLOBAL_QUALITY"},
+                {"run_dir", "runs/global_quality_resume_scope_check"},
+                {"config_yaml", "data:\n  color_mode: OSC\nglobal_metrics:\n  weight_exponent_scale: 1.2\n"
+                                 "chroma_denoise:\n  enabled: true\nreconstruction:\n  common_overlap_required_fraction: 1.0\n"},
+                {"dry_run", true}
+            });
+        expect_equal(global_metrics_ok["_http_status"].get<long>(), 200L,
+                     "global_metrics change accepted for GLOBAL_QUALITY resume");
+        expect_true(global_metrics_ok.value("feasible", false),
+                    "global_metrics change is feasible for GLOBAL_QUALITY resume");
+
+        // The same global_metrics change is OUT of scope for FORWARD_DRIZZLE:
+        // that resume point does not recompute GLOBAL_QUALITY, so the edit
+        // would be silently ignored instead of applying.
+        const auto global_metrics_forward_drizzle = harness.post_json(
+            "/api/runs/global_quality_resume_scope_check/resume", {
+                {"from_phase", "FORWARD_DRIZZLE"},
+                {"run_dir", "runs/global_quality_resume_scope_check"},
+                {"config_yaml", "data:\n  color_mode: OSC\nglobal_metrics:\n  weight_exponent_scale: 1.2\n"
+                                 "chroma_denoise:\n  enabled: true\nreconstruction:\n  common_overlap_required_fraction: 1.0\n"},
+                {"dry_run", true}
+            });
+        expect_equal(global_metrics_forward_drizzle["_http_status"].get<long>(), 409L,
+                     "global_metrics change rejected for FORWARD_DRIZZLE resume");
+        expect_equal(global_metrics_forward_drizzle["error"]["details"]["reason"].get<std::string>(),
+                     "config_scope_mismatch",
+                     "global_metrics change on FORWARD_DRIZZLE has an actionable reason");
+
+        // A downstream-only section change (chroma_denoise) IS in scope for
+        // both reconstruction resume points.
+        const auto chroma_ok_for_forward_drizzle = harness.post_json(
+            "/api/runs/global_quality_resume_scope_check/resume", {
+                {"from_phase", "FORWARD_DRIZZLE"},
+                {"run_dir", "runs/global_quality_resume_scope_check"},
+                {"config_yaml", "data:\n  color_mode: OSC\nglobal_metrics:\n  weight_exponent_scale: 1.0\n"
+                                 "chroma_denoise:\n  enabled: false\nreconstruction:\n  common_overlap_required_fraction: 1.0\n"},
+                {"dry_run", true}
+            });
+        expect_equal(chroma_ok_for_forward_drizzle["_http_status"].get<long>(), 200L,
+                     "downstream-only section change accepted for FORWARD_DRIZZLE resume");
+        expect_true(chroma_ok_for_forward_drizzle.value("feasible", false),
+                    "downstream-only section change is feasible for FORWARD_DRIZZLE resume");
+
+        // Runs without forward-drizzle provenance cannot be resumed; the
+        // runner would fail its provenance check anyway, so the backend
+        // rejects early with a clear error.
+        harness.create_run("legacy_run_no_provenance", {
+            {{"ts", "2026-03-10T15:00:00Z"}, {"type", "run_start"}, {"input_dir", (harness.fixture_root() / "input").string()}},
+            {{"ts", "2026-03-10T15:00:01Z"}, {"type", "phase_start"}, {"phase_name", "TILE_RECONSTRUCTION"}},
+            {{"ts", "2026-03-10T15:00:02Z"}, {"type", "phase_end"}, {"phase_name", "TILE_RECONSTRUCTION"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T15:00:03Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+        const auto legacy_resume = harness.post_json("/api/runs/legacy_run_no_provenance/resume", {
+            {"from_phase", "FORWARD_DRIZZLE"},
+            {"run_dir", (harness.fixture_root() / "runs" / "legacy_run_no_provenance").string()},
             {"dry_run", true}
         });
-        expect_equal(aqmh_stacking_dry_run["_http_status"].get<long>(), 200L,
-                     "aqmh resume from STACKING dry-run launch status");
-        expect_true(aqmh_stacking_dry_run["dry_run"].get<bool>(), "aqmh resume dry-run flag");
-
-        const auto aqmh_stacking_resumed = harness.post_json("/api/runs/aqmh_resume_overlay_alias/resume", {
-            {"from_phase", "STACKING"},
-            {"run_dir", (harness.fixture_root() / "runs" / "aqmh_resume_overlay_alias").string()},
-            {"config_yaml", "method: aqmh\ndata:\n  color_mode: OSC\n"}
-        });
-        expect_equal(aqmh_stacking_resumed["_http_status"].get<long>(), 202L, "aqmh resume from STACKING launch status");
-
-        const auto aqmh_overlay_status = harness.get_json("/api/runs/aqmh_resume_overlay_alias/status");
-        expect_equal(aqmh_overlay_status["_http_status"].get<long>(), 200L, "aqmh resume overlay status code");
-        expect_equal(aqmh_overlay_status["status"].get<std::string>(), "running", "aqmh resume overlay run status");
-        bool found_overlay_stack = false;
-        for (const auto& item : aqmh_overlay_status["phases"]) {
-            if (test_phase_name(item) == "STACKING") {
-                found_overlay_stack = true;
-            }
-        }
-        expect_true(found_overlay_stack, "aqmh resume overlay from STACKING keeps stacking phase visible");
+        expect_equal(legacy_resume["_http_status"].get<long>(), 409L,
+                     "legacy run without forward-drizzle provenance rejected");
+        expect_equal(legacy_resume["error"]["details"]["reason"].get<std::string>(),
+                     "run_scope_unsupported", "legacy run scope rejection reason");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());

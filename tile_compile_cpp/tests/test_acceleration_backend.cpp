@@ -2,7 +2,6 @@
 #include "../apps/runner_shared.hpp"
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/acceleration.hpp"
-#include "tile_compile/metrics/aqmh_frame_valid_mask.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -57,13 +56,10 @@ data:
   frames_min: 1
   color_mode: MONO
 runtime_limits:
-  tile_analysis_max_factor_vs_stack: 2.5
   hard_abort_hours: 3.5
 )");
 
   auto cfg = tile_compile::config::Config::from_yaml(node);
-  REQUIRE(cfg.runtime_limits.tile_analysis_max_factor_vs_stack ==
-          Catch::Approx(2.5f));
   REQUIRE(cfg.runtime_limits.hard_abort_hours == Catch::Approx(3.5f));
   REQUIRE_NOTHROW(cfg.validate());
 }
@@ -74,7 +70,6 @@ data:
   frames_min: 1
   color_mode: MONO
 runtime_limits:
-  tile_analysis_max_factor_vs_stack: 0.0
   hard_abort_hours: -1.0
 )");
 
@@ -94,93 +89,16 @@ TEST_CASE("acceleration_backend_selection_keeps_cpu_requests") {
   REQUIRE_FALSE(selection.using_gpu);
 }
 
-TEST_CASE("aqmh_map_workers_are_not_capped_with_sufficient_memory") {
-  YAML::Node node = YAML::Load(R"(
-data:
-  frames_min: 1
-  color_mode: MONO
-runtime_limits:
-  parallel_workers: 8
-  memory_budget: 4096
-aqmh:
-  enabled: true
-  reconstruction:
-    memory_budget_mb: 0
-  storage:
-    resolution_divisor: 2
-    max_resident_maps: 2
-)");
-
-  const auto cfg = tile_compile::config::Config::from_yaml(node);
-  const auto plan = tile_compile::runner::compute_aqmh_map_worker_plan(
-      cfg, 610, {}, 4530, 3382, 64ull * 1024ull * 1024ull * 1024ull);
-
-  REQUIRE(plan.requested_workers == 8);
-  REQUIRE(plan.effective_workers == plan.requested_workers);
-  REQUIRE_FALSE(plan.memory_capped);
-  REQUIRE(plan.estimated_bytes_per_worker > 0);
-}
-
-TEST_CASE("aqmh_map_workers_are_capped_only_when_available_memory_is_low") {
-  YAML::Node node = YAML::Load(R"(
-data:
-  frames_min: 1
-  color_mode: MONO
-runtime_limits:
-  parallel_workers: 8
-  memory_budget: 4096
-aqmh:
-  enabled: true
-)");
-
-  const auto cfg = tile_compile::config::Config::from_yaml(node);
-  const auto plan = tile_compile::runner::compute_aqmh_map_worker_plan(
-      cfg, 610, {}, 4530, 3382, 2ull * 1024ull * 1024ull * 1024ull);
-
-  REQUIRE(plan.requested_workers == 8);
-  REQUIRE(plan.effective_workers < plan.requested_workers);
-  REQUIRE(plan.effective_workers >= 1);
-  REQUIRE(plan.memory_capped);
-}
-
-TEST_CASE("aqmh_map_worker_cap_uses_explicit_reconstruction_budget") {
-  YAML::Node node = YAML::Load(R"(
-data:
-  frames_min: 1
-  color_mode: MONO
-runtime_limits:
-  parallel_workers: 8
-  memory_budget: 4096
-aqmh:
-  enabled: true
-  reconstruction:
-    memory_budget_mb: 8192
-)");
-
-  const auto cfg = tile_compile::config::Config::from_yaml(node);
-  const auto plan = tile_compile::runner::compute_aqmh_map_worker_plan(
-      cfg, 610, {}, 4530, 3382);
-
-  REQUIRE(plan.memory_budget_bytes == 8192ull * 1024ull * 1024ull);
-  REQUIRE(plan.effective_workers >= 1);
-  REQUIRE(plan.effective_workers <= plan.requested_workers);
-}
-
-TEST_CASE("acceleration_backend_selection_auto_chooses_supported_stacking_backend") {
+TEST_CASE("acceleration_backend_selection_auto_chooses_supported_backend") {
   const auto selection = tile_compile::core::select_acceleration_backend(
-      "auto", tile_compile::core::AccelerationPhase::stacking);
+      "auto", tile_compile::core::AccelerationPhase::forward_drizzle);
 
   REQUIRE(selection.requested_name == "auto");
   REQUIRE(selection.auto_requested);
   REQUIRE(selection.request_honored);
-  if (selection.opencv_cuda_headers && selection.opencv_cuda_runtime) {
+  if (selection.tile_compile_with_cuda) {
     REQUIRE(tile_compile::core::acceleration_backend_name(selection.selected) ==
-            "opencv_cuda");
-    REQUIRE(selection.using_gpu);
-  } else if (selection.opencv_opencl_headers &&
-             selection.opencv_opencl_runtime) {
-    REQUIRE(tile_compile::core::acceleration_backend_name(selection.selected) ==
-            "opencv_opencl");
+            "cuda");
     REQUIRE(selection.using_gpu);
   } else {
     REQUIRE(tile_compile::core::acceleration_backend_name(selection.selected) ==
@@ -197,7 +115,7 @@ TEST_CASE("acceleration_backend_selection_parses_opencl_requests") {
           "opencv_opencl");
 
   const auto selection = tile_compile::core::select_acceleration_backend(
-      "opencl", tile_compile::core::AccelerationPhase::stacking);
+      "opencl", tile_compile::core::AccelerationPhase::prewarp);
   REQUIRE(selection.requested_name == "opencl");
   REQUIRE(tile_compile::core::acceleration_backend_name(selection.requested) ==
           "opencv_opencl");
@@ -231,10 +149,7 @@ TEST_CASE("acceleration_context_keeps_run_scoped_cpu_selection") {
   tile_compile::core::AccelerationContext context("cpu");
   for (const auto phase : {
            tile_compile::core::AccelerationPhase::prewarp,
-           tile_compile::core::AccelerationPhase::aqmh_maps,
-           tile_compile::core::AccelerationPhase::aqmh_reconstruction,
-           tile_compile::core::AccelerationPhase::tile_reconstruction,
-           tile_compile::core::AccelerationPhase::stacking}) {
+           tile_compile::core::AccelerationPhase::forward_drizzle}) {
     const auto selection = context.selection_for(phase);
     REQUIRE(selection.request_honored);
     REQUIRE(selection.selected ==
@@ -243,24 +158,34 @@ TEST_CASE("acceleration_context_keeps_run_scoped_cpu_selection") {
   }
   const auto artifact = context.to_json();
   REQUIRE(artifact["requested_backend"] == "cpu");
-  REQUIRE(artifact["phases"].contains("AQMH_MAPS"));
-  REQUIRE(artifact["phases"].contains("AQMH_RECONSTRUCTION"));
+  REQUIRE(artifact["phases"].contains("PREWARP"));
+  REQUIRE(artifact["phases"].contains("FORWARD_DRIZZLE"));
 }
 
-TEST_CASE("acceleration_context_keeps_aqmh_maps_cpu_only") {
+TEST_CASE("acceleration_context_selects_supported_forward_drizzle_backend") {
   tile_compile::core::AccelerationContext context("opencv_cuda");
   const auto selection =
-      context.selection_for(tile_compile::core::AccelerationPhase::aqmh_maps);
-  REQUIRE(selection.selected == tile_compile::core::AccelerationBackend::cpu);
-  REQUIRE_FALSE(selection.using_gpu);
-  REQUIRE_FALSE(selection.request_honored);
-  REQUIRE_FALSE(selection.fallback_reason.empty());
+      context.selection_for(tile_compile::core::AccelerationPhase::forward_drizzle);
+  const bool cuda_available = selection.opencv_cuda_headers &&
+                              selection.opencv_cuda_runtime;
+  if (cuda_available) {
+    REQUIRE(selection.selected ==
+            tile_compile::core::AccelerationBackend::opencv_cuda);
+    REQUIRE(selection.using_gpu);
+    REQUIRE(selection.request_honored);
+    REQUIRE(selection.fallback_reason.empty());
+  } else {
+    REQUIRE(selection.selected == tile_compile::core::AccelerationBackend::cpu);
+    REQUIRE_FALSE(selection.using_gpu);
+    REQUIRE_FALSE(selection.request_honored);
+    REQUIRE_FALSE(selection.fallback_reason.empty());
+  }
 }
 
 TEST_CASE("worker_cuda_streams_match_selected_cuda_backend") {
   tile_compile::core::AccelerationContext context("auto");
   const auto selection =
-      context.selection_for(tile_compile::core::AccelerationPhase::aqmh_maps);
+      context.selection_for(tile_compile::core::AccelerationPhase::forward_drizzle);
   const bool use_cuda =
       selection.selected == tile_compile::core::AccelerationBackend::opencv_cuda;
   tile_compile::core::WorkerCudaStreams streams(use_cuda, 3);
@@ -272,42 +197,6 @@ TEST_CASE("worker_cuda_streams_match_selected_cuda_backend") {
   } else {
     REQUIRE(streams.size() == 0);
     REQUIRE(streams.get(0) == nullptr);
-  }
-}
-
-TEST_CASE("opencv_opencl_sigma_clip_is_safe_across_worker_threads") {
-  tile_compile::core::AccelerationContext context("opencv_opencl");
-  const auto selection =
-      context.selection_for(tile_compile::core::AccelerationPhase::stacking);
-  if (selection.selected !=
-      tile_compile::core::AccelerationBackend::opencv_opencl) {
-    return;
-  }
-
-  const tile_compile::core::AccelerationOps ops(
-      context, tile_compile::core::AccelerationPhase::stacking);
-  std::vector<tile_compile::Matrix2Df> frames;
-  for (int i = 0; i < 4; ++i) {
-    frames.push_back(tile_compile::Matrix2Df::Constant(
-        64, 64, 10.0f + static_cast<float>(i)));
-  }
-  const std::vector<float> weights(frames.size(), 1.0f);
-  std::vector<tile_compile::Matrix2Df> results(4);
-  std::vector<std::thread> workers;
-  for (size_t worker = 0; worker < results.size(); ++worker) {
-    workers.emplace_back([&, worker] {
-      results[worker] =
-          ops.sigma_clip_reduce(frames, weights, 3.0f, 3.0f, 2, 0.5f,
-                                1.0e-6f)
-              .tile;
-    });
-  }
-  for (auto &worker : workers)
-    worker.join();
-  for (const auto &result : results) {
-    REQUIRE(result.rows() == 64);
-    REQUIRE(result.cols() == 64);
-    REQUIRE(result(0, 0) == Catch::Approx(11.5f).margin(1.0e-3f));
   }
 }
 
@@ -388,8 +277,10 @@ TEST_CASE("warp_affine_frame_marks_expanded_canvas_outside_support_nonfinite") {
   REQUIRE_FALSE(std::isfinite(warped(0, 0)));
   REQUIRE_FALSE(std::isfinite(warped(3, 4)));
 
-  const auto derived = tile_compile::metrics::compute_aqmh_frame_valid_mask(
-      warped, {}, 5, 4);
+  std::vector<uint8_t> derived;
+  derived.reserve(static_cast<size_t>(warped.size()));
+  for (int i = 0; i < warped.size(); ++i)
+    derived.push_back(std::isfinite(warped.data()[i]) ? 1u : 0u);
   REQUIRE(derived == valid_mask);
   REQUIRE(std::count(derived.begin(), derived.end(), uint8_t{1}) == 4);
 }
@@ -415,15 +306,17 @@ TEST_CASE("warp_affine_frame_mask_matches_non_identity_warp_support") {
                                 5, 0, 0, warped, &valid_mask, &has_data));
   REQUIRE(has_data);
 
-  const auto derived = tile_compile::metrics::compute_aqmh_frame_valid_mask(
-      warped, {}, 5, 5);
+  std::vector<uint8_t> derived;
+  derived.reserve(static_cast<size_t>(warped.size()));
+  for (int i = 0; i < warped.size(); ++i)
+    derived.push_back(std::isfinite(warped.data()[i]) ? 1u : 0u);
   REQUIRE(derived == valid_mask);
   REQUIRE(std::count(derived.begin(), derived.end(), uint8_t{1}) == 6);
   REQUIRE(std::count_if(warped.data(), warped.data() + warped.size(),
                         [](float v) { return !std::isfinite(v); }) == 19);
 }
 
-TEST_CASE("aqmh_overlap_masks_preserve_low_coverage_output_support") {
+TEST_CASE("overlap_masks_preserve_low_coverage_output_support") {
   const std::vector<uint16_t> coverage = {0u, 1u, 2u, 12u, 13u, 610u};
   const auto masks =
       tile_compile::runner::compute_overlap_masks(coverage, 13);

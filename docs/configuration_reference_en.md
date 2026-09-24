@@ -6,19 +6,17 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 **Schema version:** v3  
 **Reference:** Methodology v3.3
 
-**Documentation status (2026-07-13):**
-- `aqmh.*` updated for v0.2.1: `pyramid`, `storage`, `cherry_pick`, `diagnostics`, `global_quality`, `reconstruction`, `validation`.
+**Documentation status:**
+- Single-method pipeline: CFA Forward Drizzle + Multiband is the only
+  reconstruction method. The old `aqmh.*`, Classic and `method:` blocks no
+  longer exist.
 - `data.bayer_pattern` default is `auto`; FITS header (`BAYERPAT`/`COLORTYP`) takes precedence over the config value.
 - Removed `data.linear_required` (deprecated; non-linear frames are now only warned about).
-- `aqmh.storage.dtype` covers `float32`, `uint16`, `uint8`.
-- Renamed `aqmh.cherry_pick.k_min` to `k_min_required` (default `20`).
-- `aqmh.diagnostics.binary_block_size_px` default is `64`.
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are documented and user-configurable.
 - `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented as BGE channel-apply guards.
 - PCC coverage includes active stability and apply controls (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
-- `TILE_RECONSTRUCTION` boundary diagnostics are documented as runtime artifacts; there is currently no dedicated seam-correction config block.
 - `bge.tile_weight_lambda_structure` is aligned with the current default `1.0`.
-- `stacking.common_overlap_required_fraction` and `stacking.tile_common_valid_min_fraction` are documented as active stacking controls with strict defaults `1.0 / 1.0`.
+- The classic/AQMH stacking parameters were removed; `stacking.common_overlap_required_fraction` lives on as `reconstruction.common_overlap_required_fraction` (§1, §14).
 
 **💡 For practical examples and use cases, see:** [Configuration Examples & Best Practices](configuration_examples_practical_en.md)
 
@@ -29,24 +27,17 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 3. [Data](#3-data)
 4. [Linearity](#4-linearity)
 5. [Calibration](#5-calibration)
-6. [Assumptions](#6-assumptions)
 7. [Normalization](#7-normalization)
 8. [Registration](#8-registration)
-9. [Tile Denoise](#9-tile-denoise)
-9b. [Chroma Denoise](#chroma-denoise) **NEW**
+9b. [Chroma Denoise](#chroma-denoise)
 10. [Global Metrics](#10-global-metrics)
-11. [Tile](#11-tile)
-12. [Local Metrics](#12-local-metrics)
-12b. [AQMH (Adaptive Quality Map Harvesting)](#12b-aqmh-adaptive-quality-map-harvesting) **NEW**
-13. [Synthetic](#13-synthetic)
 14. [Reconstruction](#14-reconstruction)
-15. [Debayer (automatic phase)](#15-debayer-automatic-phase)
+15. [Debayer](#15-debayer)
 16. [Astrometry](#16-astrometry)
-17. [BGE (Background Gradient Extraction)](#17-bge-background-gradient-extraction) **NEW in v3.3**
+17. [BGE (Background Gradient Extraction)](#17-bge-background-gradient-extraction)
 18. [PCC](#18-pcc)
 19. [HyperMetric Stretch](#19-hypermetric-stretch)
 20. [Stacking](#20-stacking)
-21. [Validation](#21-validation)
 22. [Runtime Limits](#22-runtime-limits)
 23. [Raw Stack / Preprocessing](#raw-stack-preprocessing)
 
@@ -54,20 +45,36 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 
 ## 1. Pipeline
 
-Basic pipeline control.
+The pipeline is fixed to a single reconstruction method:
+**CFA Forward Drizzle + Multiband** (`tile_compile_runner reconstruct`).
+There is no method selector anymore.
 
-### `pipeline.mode`
+### Removed legacy keys (migration)
 
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `production`, `test` |
-| **Default** | `"production"` |
+The following keys were removed by the single-method cutover. When a config
+still contains them they are discarded with a warning on load;
+`tile_compile_cli migrate-config <in> <out>` writes a cleaned-up
+configuration. Semantic method selectors are rejected fail-closed.
 
-**Purpose:** Determines the execution mode of the pipeline.
+| Old key | Status |
+|---------|--------|
+| `method` | **Fail-closed** — there is exactly one method; remove the key or migrate |
+| `reconstruction.engine` | **Fail-closed** — method selector |
+| `aqmh.*` | removed; the whole block is discarded with a warning |
+| `pipeline.*` | removed (unused) |
+| `assumptions.*` | removed (reduced/emergency mode gating dropped) |
+| `tile.*`, `tile_denoise.*`, `local_metrics.*`, `synthetic.*`, `validation.*` | removed (classic tile path) |
+| `runtime_limits.allow_emergency_mode` | removed |
+| `runtime_limits.tile_analysis_max_factor_vs_stack`, `runtime_limits.tile_reconstruction_diagnostics` | removed |
+| `stacking.method`, `stacking.sigma_clip.*`, `stacking.cluster_quality_weighting.*`, `stacking.output_stretch`, `stacking.tile_common_valid_min_fraction`, `stacking.cosmetic_correction*` | removed (STACKING is a pass-through) |
 
-- **`production`**: Complete processing with all quality checks and phases
-- **`test`**: Reduced processing for testing purposes (may skip some validations)
+**Mapped (migrated) keys:**
+
+| Old | New |
+|-----|-----|
+| `stacking.common_overlap_required_fraction` | `reconstruction.common_overlap_required_fraction` |
+
+---
 
 ## 2. Output
 
@@ -297,57 +304,6 @@ source:
 | **Default** | `"*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"` |
 
 **Purpose:** Glob pattern used for calibration file discovery.
-
----
-
-## 6. Assumptions
-
-Frame-count assumptions and reduced-mode behavior.
-
-### `assumptions.frames_min`
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Minimum** | `1` |
-| **Default** | `50` |
-
-**Purpose:** Minimum usable frame count before the run aborts or drops into emergency reduced mode.
-
-### `assumptions.frames_reduced_threshold`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Minimum** | `1` |
-| **Default** | `200` |
-
-**Purpose:** Switch point between reduced and full pipeline behavior.
-
-Runtime uses `frames_min` and `frames_reduced_threshold` directly:
-
-| Frame count | Mode |
-|-------------|------|
-| `< frames_min` | abort / emergency reduced mode |
-| `frames_min <= N < frames_reduced_threshold` | **Reduced Mode** |
-| `N >= frames_reduced_threshold` | **Full Mode** |
-
-### `assumptions.reduced_mode_skip_clustering`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Skip expensive clustering in reduced mode.
-
-### `assumptions.reduced_mode_cluster_range`
-
-| Property | Value |
-|----------|-------|
-| **Type** | array [2 integers] |
-| **Default** | `[5, 10]` |
-
-**Purpose:** Cluster search range used when reduced mode still runs clustering.
 
 ---
 
@@ -625,7 +581,7 @@ All chained warps are validated with NCC against the reference frame. Particular
 
 **Purpose:** Enable the default-gated smooth local per-frame correction after global registration and, when accepted, after affine refinement. Mutual nearest-neighbor star residuals fit a regularized 4x4 Gaussian inverse displacement field. A deterministic 25% held-out star set must improve in median, p90, and RMS; the full matched set, spatial coverage, maximum displacement, dense Jacobian/local-scale sampling, common-support NCC, and overlap must also pass.
 
-**Units, limits, and interactions:** Residuals and the internal maximum displacement use proxy pixels; the displacement is scaled to full resolution during prewarp. Internal conservative limits include at least 32 matches, at least 24 training and 8 held-out stars, 15% convex-hull coverage, 1.5 proxy-pixel maximum displacement, Jacobian determinant 0.94–1.06, and local singular values 0.96–1.04. The model tapers to zero near the image boundary and is composed directly with the inverse global/affine map, avoiding a second full-resolution resampling. It currently applies only to MONO and OSC with AQMH `debayer_first` and a known Bayer pattern; CFA-mosaic and unsupported color paths keep the unchanged global/affine warp. Any failed gate, non-applicable frame, or exception preserves the unchanged global/affine warp. Per-frame evidence is written to `global_registration.json`. Set it to `false` for a global/affine-only control or diagnostic run.
+**Units, limits, and interactions:** Residuals and the internal maximum displacement use proxy pixels; the displacement is scaled to full resolution during prewarp. Internal conservative limits include at least 32 matches, at least 24 training and 8 held-out stars, 15% convex-hull coverage, 1.5 proxy-pixel maximum displacement, Jacobian determinant 0.94–1.06, and local singular values 0.96–1.04. The model tapers to zero near the image boundary and is composed directly with the inverse global/affine map, avoiding a second full-resolution resampling. It currently applies only to MONO and OSC with `registration.debayer_first` and a known Bayer pattern; CFA-mosaic and unsupported color paths keep the unchanged global/affine warp. Any failed gate, non-applicable frame, or exception preserves the unchanged global/affine warp. Per-frame evidence is written to `global_registration.json`. Set it to `false` for a global/affine-only control or diagnostic run.
 
 ---
 
@@ -649,6 +605,41 @@ All chained warps are validated with NCC against the reference frame. Particular
 
 ----
 
+### `registration.prewarp_interpolation`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `bilinear`, `cubic`, `lanczos4` |
+| **Default** | `"lanczos4"` |
+
+**Purpose:** Interpolation method for the warp/resample steps in REGISTRATION (prewarp of frames into the shared output geometry). `lanczos4` is the sharpest/recommended method; `bilinear` is faster but softer.
+
+---
+
+### `registration.debayer_first`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** OSC only. When `true`, frames are demosaiced before the prewarp and the R/G/B planes are reconstructed directly. When `false`, a CFA prewarp is used and the final CFA stack is demosaiced after reconstruction. See §15.
+
+---
+
+### `registration.pre_debayer_method`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `linear`, `vng`, `edge_aware`, `mask` |
+| **Default** | `"linear"` |
+
+**Purpose:** Demosaicing method used on the `debayer_first` path.
+
+---
+
 ## 8b. Dithering
 
 ### `dithering.enabled`
@@ -671,105 +662,9 @@ All chained warps are validated with NCC against the reference frame. Particular
 
 ---
 
-## 9. Tile Denoise
-
-Tile-based denoising settings.
-
-### `tile_denoise.soft_threshold.enabled`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Enable soft-threshold denoising (default active path).
-
-### `tile_denoise.soft_threshold.blur_kernel`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `31` |
-
-**Purpose:** Gaussian blur kernel size for local background/noise estimation. Must be odd. Larger kernels produce smoother noise estimates but may average over real structure. Range: >= 3. Recommended: 21–31.
-
-### `tile_denoise.soft_threshold.alpha`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `1.5` |
-
-**Purpose:** Soft-thresholding strength factor (`tau = alpha * sigma_tile`). Higher values remove more noise but may blur faint detail. Range: > 0. Recommended: 1.5–2.0.
-
-### `tile_denoise.soft_threshold.skip_star_tiles`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Skip denoising on STAR-classified tiles to protect stellar detail and PSF shape.
-
-### `tile_denoise.wiener.enabled`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `false` |
-
-**Purpose:** Enable Wiener filter denoise on tiles. Estimates SNR per tile and applies adaptive frequency-domain filtering. Disabled by default; enable for noisy data where soft-thresholding alone is insufficient.
-
-### `tile_denoise.wiener.snr_threshold`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `5.0` |
-
-**Purpose:** SNR threshold; tiles above this SNR are typically not filtered (signal is strong enough). Range: >= 0. Recommended: 4–6.
-
-### `tile_denoise.wiener.q_min` / `tile_denoise.wiener.q_max`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number / number |
-| **Default** | `-0.5` / `1.0` |
-
-**Purpose:** Quality parameter search range for Wiener optimization. `q_min` is the lower bound, `q_max` is the upper bound of the adaptive filter parameter. Range: q_min >= -1, q_max <= 1.
-
-### `tile_denoise.wiener.q_step`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.1` |
-
-**Purpose:** Step size for q-parameter search. Smaller steps = finer adaptation but slower. Range: > 0. Recommended: 0.1.
-
-### `tile_denoise.wiener.min_snr`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `2.0` |
-
-**Purpose:** Minimum SNR for applying Wiener filter at all. Tiles below this SNR are not filtered (too noisy for stable estimation). Range: >= 0. Recommended: 2.
-
-### `tile_denoise.wiener.max_iterations`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `10` |
-
-**Purpose:** Maximum iterations for Wiener filter convergence. More iterations = better convergence but slower. Range: >= 1. Recommended: 10.
-
----
-
 ## 9b. Chroma Denoise {#chroma-denoise}
 
-Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches while preserving luma detail and star colors. Operates in a transformed color space (YCbCr or opponent) to isolate chroma from luma.
+Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches while preserving luma detail and star colors. Operates in a transformed color space (YCbCr or opponent) to isolate chroma from luma. Disabled by default (`enabled: false`); the examples below show it turned on.
 
 ### `chroma_denoise.enabled`
 
@@ -788,17 +683,17 @@ Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches whil
 | **Values** | `ycbcr_linear`, `opponent_linear` |
 | **Default** | `"ycbcr_linear"` |
 
-**Purpose:** Color space transform used to isolate chroma channels. `ycbcr_linear` is the standard choice. `opponent_linear` uses an opponent color space which may perform better for certain sensors.
+**Purpose:** Color space transform used to isolate chroma channels. `ycbcr_linear` is the project-specific invertible 0.25/0.5/0.25 linear transform, not a Rec.601/Rec.709 encoding. `opponent_linear` uses an opponent color space which may perform better for certain sensors.
 
 ### `chroma_denoise.apply_stage`
 
 | Property | Value |
 |----------|-------|
 | **Type** | string (enum) |
-| **Values** | `pre_stack_tiles`, `post_stack_linear` |
-| **Default** | `"post_stack_linear"` |
+| **Values** | `post_stack_linear`, `post_pcc` |
+| **Default** | `"post_pcc"` |
 
-**Purpose:** Pipeline stage at which chroma denoise is applied. `pre_stack_tiles` applies denoise to individual tiles before reconstruction. `post_stack_linear` applies denoise to the final linear stacked image (recommended).
+**Purpose:** Single pipeline stage for chroma denoise. `post_stack_linear` runs before BGE and PCC. `post_pcc` runs after photometric color calibration, catches noise re-amplified by PCC gains, and is the default.
 
 ### `chroma_denoise.protect_luma`
 
@@ -807,7 +702,7 @@ Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches whil
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** When true, the luma channel is protected from denoise — only chroma channels are filtered. Preserves star sharpness and fine detail.
+**Purpose:** Enables luma-derived star, structure and extended-source masks. They reduce chroma denoise strength and exclude foreground from the large-scale-bias estimate. Linear luma is always preserved exactly.
 
 ### `chroma_denoise.luma_guard_strength`
 
@@ -817,7 +712,7 @@ Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches whil
 | **Range** | `0 – 1` |
 | **Default** | `0.75` |
 
-**Purpose:** Strength of luma protection guard. 0 = no protection, 1 = full protection. Higher values prevent any luma modification from chroma denoise side effects.
+**Purpose:** Strength of the protection-mask guard. 0 disables mask influence; 1 keeps original chroma in fully protected pixels.
 
 ### `chroma_denoise.blend.mode`
 
@@ -941,9 +836,9 @@ Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches whil
 |----------|-------|
 | **Type** | number |
 | **Range** | `> 0` |
-| **Default** | `0.065` |
+| **Default** | `2.0` |
 
-**Purpose:** Range (color) sigma for bilateral filter. Controls how much color difference is tolerated before smoothing kicks in. Range > 0. Recommended: 0.05–0.08.
+**Purpose:** Multiplier on the measured unprotected background chroma sigma used as the bilateral range sigma. This is invariant to normalized versus ADU-valued inputs. Recommended: 2.0.
 
 ### `chroma_denoise.chroma_bilateral.sigma_spatial`
 
@@ -954,6 +849,74 @@ Chroma (color) noise denoise for OSC/RGB data. Removes color noise blotches whil
 | **Default** | `1.5` |
 
 **Purpose:** Spatial sigma for bilateral filter. Controls the spatial extent of smoothing. Larger values smooth over larger areas. Range > 0. Recommended: 1.5–3.0.
+
+### `chroma_denoise.extended_source_protection.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Protects extended smooth sources (galaxy disks, large nebulae, diffuse halos) from chroma denoising. Detection uses a heavily blurred luma map; pixels whose smoothed luma exceeds `sky_median + luma_sigma * sky_sigma` are blended back toward their original chroma. Enable whenever the field contains a galaxy or large nebula -- without it the wavelet threshold treats the object's smooth color excess as noise and erases it (observed as a green cast after stretching).
+
+### `chroma_denoise.extended_source_protection.luma_sigma`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `1.0 – 5.0` |
+| **Default** | `2.5` |
+
+**Purpose:** Detection threshold in sky-sigma units above the smoothed sky median. Lower values protect more area (also faint halos); higher values protect only the brightest core. Keep the protected footprint small: protected pixels receive only `(1 - luma_guard_strength)` of the denoise and therefore keep near-raw chroma noise.
+
+### `chroma_denoise.extended_source_protection.dilate_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Range** | `0 – 100` |
+| **Default** | `30` |
+
+**Purpose:** Dilation radius (pixels) applied after detection to cover the object's faint outskirts and PSF halos. Keep it tight -- every protected sky pixel keeps near-raw chroma noise.
+
+### `chroma_denoise.large_scale_bias.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Removes large-scale chroma bias (background color gradients wider than the coarsest wavelet level) before the wavelet/bilateral stages. Estimates a coarse block-median surface from unprotected pixels only, fills blocks without unprotected coverage via normalized-convolution fill, smooths it, and subtracts `strength` of its deviation from the surface's own global background median (the overall background chroma level is preserved; only spatial variation is flattened). The correction is faded out inside the protection mask, where the surface is only interpolated and may be contaminated by unprotected faint halo. Requires a sufficiently dilated `extended_source_protection` mask for large objects.
+
+### `chroma_denoise.large_scale_bias.block_size`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Range** | `>= 4` |
+| **Default** | `32` |
+
+**Purpose:** Grid cell size in pixels for the block-median bias estimate.
+
+### `chroma_denoise.large_scale_bias.blur_sigma`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `>= 0` |
+| **Default** | `24.0` |
+
+**Purpose:** Gaussian sigma in pixels used to interpolate the block grid into a continuous surface. `0` disables smoothing.
+
+### `chroma_denoise.large_scale_bias.strength`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `0 – 1` |
+| **Default** | `1.0` |
+
+**Purpose:** Fraction of the estimated bias deviation subtracted from the chroma planes.
 
 ---
 
@@ -1017,207 +980,15 @@ Global quality metrics.
 
 ---
 
-## 11. Tile
+## 14. Reconstruction
 
-Tile processing configuration.
+The `reconstruction:` block groups the parameters of the CFA forward-drizzle reconstruction with multiband fusion. Besides `quality.pyramid` it contains `drizzle.*` (kernel, pixfrac, chunking, memory budget), `clipping.*` (robust sample clipping), `coverage_gate.*` (coverage gates), and `multiband.*` (band fusion); the full field list is in `tile_compile.schema.yaml`.
 
-### `tile.size_factor`
+### `reconstruction.quality.pyramid.*` — Local quality maps
 
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `32` |
+Controls the Laplacian pyramid for the local quality maps (Source Quality Maps) that Forward Drizzle uses to weight every image region of the input frames by sharpness and SNR. Produced in the `SOURCE_QUALITY_MAPS` phase.
 
-**Purpose:** Base tile size factor. Tile size is computed as `T0 = size_factor * FWHM` where FWHM is the median seeing FWHM in pixels. Larger values produce larger tiles (fewer tiles, faster but less spatial resolution). Range >= 1. Recommended: 32.
-
-### `tile.min_size`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `64` |
-
-**Purpose:** Minimum tile size in pixels. Prevents tiles from becoming too small when FWHM is very small. Range >= 1. Recommended: 64.
-
-### `tile.max_divisor`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `6` |
-
-**Purpose:** Upper tile size bound via shorter side divisor. The maximum tile size is `min(shorter_side, shorter_side / max_divisor)`. Prevents tiles from becoming too large on big images. Range >= 1. Recommended: 6.
-
-### `tile.overlap_fraction`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.25` |
-
-**Purpose:** Fractional overlap between adjacent tiles for overlap-add (OLA) blending. Higher values produce smoother tile boundaries but increase compute. Range 0–0.5. Recommended: 0.25.
-
-### `tile.star_min_count`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `10` |
-
-**Purpose:** Threshold for STAR vs STRUCTURE tile classification. Tiles with more than this many detected stars are classified as STAR tiles (stellar quality metrics apply). Range >= 0. Recommended: 10.
-
----
-
-## 12. Local Metrics
-
-Local quality metrics.
-
-### `local_metrics.clamp`
-
-| Property | Value |
-|----------|-------|
-| **Type** | array [2 numbers] |
-| **Default** | `[-3.0, 3.0]` |
-
-**Purpose:** Clamp range before local exponential weighting.
-
-### `local_metrics.neighborhood_normalization.enabled`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Enables neighborhood-pooled robust normalization of local tile metrics before local score composition.
-
-### `local_metrics.neighborhood_normalization.radius`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Minimum** | `0` |
-| **Default** | `1` |
-
-**Purpose:** Tile-neighborhood radius on the tile grid used to pool metric statistics for robust local z-score normalization.
-
-### `local_metrics.neighborhood_normalization.blend`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | `0 .. 1` |
-| **Default** | `0.5` |
-
-**Purpose:** Blend factor between tile-local robust z-scores and neighborhood-pooled robust z-scores.
-
-### `local_metrics.spatial_regularization.enabled`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Enables neighbor-aware regularization of local tile quality scores before exponential weight mapping.
-
-### `local_metrics.spatial_regularization.lambda`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | `0 .. 1` |
-| **Default** | `0.35` |
-
-**Purpose:** Coupling strength between a tile-local score and the mean score of its direct tile neighbors.
-
-### `local_metrics.spatial_regularization.passes`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Minimum** | `0` |
-| **Default** | `1` |
-
-**Purpose:** Number of regularization passes over the tile-neighborhood graph before `L_f,t = exp(Q_f,t)`.
-
-### `local_metrics.star_mode.weights.fwhm`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.6` |
-
-**Purpose:** Weight of FWHM in STAR-tile local quality.
-
-### `local_metrics.star_mode.weights.roundness`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.2` |
-
-**Purpose:** Weight of roundness in STAR-tile local quality.
-
-### `local_metrics.star_mode.weights.contrast`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.2` |
-
-**Purpose:** Weight of contrast in STAR-tile local quality.
-
-### `local_metrics.structure_mode.metric_weight`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.7` |
-
-**Purpose:** Weight of structure metric in STRUCTURE-tile mode.
-
-### `local_metrics.structure_mode.background_weight`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.3` |
-
-**Purpose:** Weight of background penalty in STRUCTURE-tile mode.
-
-### `local_metrics.k_local`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | `> 0` |
-| **Default** | `1.0` |
-
-**Purpose:** Exponent scale for local weight `L_{f,t} = exp(k_local * Q_local)`. Default `1.0`; values `> 1` increase local differentiation, `< 1` soften it. Symmetric to `global_metrics.weight_exponent_scale`.
-
----
-
-## 12b. AQMH (Adaptive Quality Map Harvesting)
-
-AQMH is an independent, per-pixel reconstruction path that can replace the tile-based OLA stacking. For each frame a quality map is computed combining sharpness and SNR information. Reconstruction is performed as a per-pixel weighted average using AQMH weights.
-
-> **Experimental.** When `aqmh.enabled: true`, AQMH fully replaces the tile-OLA reconstruction. Logs appear under `[AQMH]`.
-
-### `aqmh.enabled`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Enables the AQMH reconstruction path. When `false`, the classic tile-OLA reconstruction is used.
-
----
-
-### `aqmh.pyramid.*` — Pyramid quality metrics
-
-Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
-
-#### `aqmh.pyramid.scales`
+#### `reconstruction.quality.pyramid.scales`
 
 | Property | Value |
 |----------|-------|
@@ -1229,7 +1000,7 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 
 ---
 
-#### `aqmh.pyramid.base_window_px`
+#### `reconstruction.quality.pyramid.base_window_px`
 
 | Property | Value |
 |----------|-------|
@@ -1241,7 +1012,7 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 
 ---
 
-#### `aqmh.pyramid.w_sharp`
+#### `reconstruction.quality.pyramid.sharpness_weight`
 
 | Property | Value |
 |----------|-------|
@@ -1249,11 +1020,11 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 | **Minimum** | 0 |
 | **Default** | `0.6` |
 
-**Purpose:** Weight of the sharpness metric in the combined quality index `Q = w_sharp * Q_sharp + w_snr * Q_snr`. Together with `w_snr` it controls the relative importance of sharpness vs. SNR.
+**Purpose:** Weight of the sharpness metric in the combined quality index `Q = sharpness_weight * Q_sharp + snr_weight * Q_snr`. Together with `snr_weight` it controls the relative importance of sharpness vs. SNR; the sum of both weights must be greater than 0.
 
 ---
 
-#### `aqmh.pyramid.w_snr`
+#### `reconstruction.quality.pyramid.snr_weight`
 
 | Property | Value |
 |----------|-------|
@@ -1265,7 +1036,7 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 
 ---
 
-#### `aqmh.pyramid.score_scale`
+#### `reconstruction.quality.pyramid.score_scale`
 
 | Property | Value |
 |----------|-------|
@@ -1273,11 +1044,11 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 | **Minimum** | >0 |
 | **Default** | `1.8` |
 
-**Purpose:** Scales the combined local AQMH score before the sigmoid. Higher values increase per-pixel quality-map selectivity so sharper frames are favored more strongly; the map remains bounded to `[0,1]`.
+**Purpose:** Scales the combined local quality score before the sigmoid. Higher values increase per-pixel quality-map selectivity so sharper frames are favored more strongly; the map remains bounded to `[0,1]`.
 
 ---
 
-#### `aqmh.pyramid.k_artifact`
+#### `reconstruction.quality.pyramid.artifact_sigma`
 
 | Property | Value |
 |----------|-------|
@@ -1285,14 +1056,14 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 | **Minimum** | >0 |
 | **Default** | `3.0` |
 
-**Purpose:** MAD multiplier for artifact detection. Pixels whose local variance exceeds `k_artifact * MAD` are flagged as artifacts and receive reduced AQMH weight.
+**Purpose:** MAD multiplier for artifact detection. Pixels whose local deviation exceeds `artifact_sigma * MAD` are flagged as artifacts and receive reduced quality weight.
 
 - **Higher (e.g. 7–10):** More tolerant of outliers — more pixels receive normal weight
 - **Lower (e.g. 3–4):** More aggressive artifact suppression
 
 ---
 
-#### `aqmh.pyramid.frac_artifact_max`
+#### `reconstruction.quality.pyramid.max_artifact_fraction`
 
 | Property | Value |
 |----------|-------|
@@ -1300,725 +1071,77 @@ Controls the Laplacian pyramid used to derive per-frame sharpness and SNR.
 | **Range** | >0 – 1 |
 | **Default** | `0.25` |
 
-**Purpose:** Maximum tolerated artifact fraction per evaluation window. Windows with more artifacts than `frac_artifact_max` are discarded entirely (no AQMH contribution).
+**Purpose:** Maximum tolerated artifact fraction per evaluation window. Windows with more artifacts than `max_artifact_fraction` are discarded entirely (no quality contribution).
 
 - **Increase (e.g. 0.30–0.40):** When known tolerable artifacts are present (e.g. satellite trails)
 - **Decrease:** Stricter quality gates
 
 ---
 
-### `aqmh.storage.*` — Quality map storage
+#### Further `reconstruction.*` keys
 
-#### `aqmh.storage.resolution_divisor`
+| Key | Type | Default | Purpose |
+|-----|------|---------|---------|
+| `reconstruction.common_overlap_required_fraction` | number | `1.0` | Minimum fraction of usable frames in which a pixel must be valid to belong to `COMMON_OVERLAP` (migrated from `stacking.common_overlap_required_fraction`). |
+| `reconstruction.delete_source_cache_after_run` | boolean | `false` | Deletes the source/normalization cache after a successful run (disk space). |
+| `reconstruction.keep_profile_cache_after_run` | boolean | `false` | Keeps the `drizzle_profile` cache for reuse/final-render paths. |
+| `reconstruction.diagnostics.level` | enum | `summary` | Diagnostics verbosity: `summary`, `full`. |
+| `reconstruction.diagnostics.preview_forward_drizzle_uniform` | boolean | `false` | Best-effort uniform-control diagnostic after SAMPLING_GEOMETRY (`forward_drizzle_uniform_diagnostic.json`). |
+| `reconstruction.diagnostics.persist_forward_drizzle_uniform_store` | boolean | `false` | Transactionally persists unclipped uniform planes under `artifacts/forward_drizzle_uniform_store/`. |
+| `reconstruction.drizzle.internal_scale` | integer | `2` | Internal working scale of the drizzle grid (`1` or `2`). |
+| `reconstruction.drizzle.output_scale` | integer | `1` | Output raster relative to the internal grid (`1` or `2`, `<= internal_scale`). |
+| `reconstruction.drizzle.kernel` | enum | `square` | Drizzle kernel; currently only `square`. |
+| `reconstruction.drizzle.pixfrac` | number | `0.8` | Drop-shrink factor of contributions `(0, 1]`. |
+| `reconstruction.drizzle.robust_passes` | integer | `2` | Robust reprojection passes `[1, 6]` (migrated from `clip_iterations`). |
+| `reconstruction.drizzle.min_clip_contributors` | integer | `5` | Minimum contributors before sigma/MAD clipping activates. |
+| `reconstruction.drizzle.full_frame_estimator` | boolean | `false` | Pilot + full-frame estimator: the hash-selected reservoir frames (at most 64) define the clip bounds, then every frame's folded candidate is tested against them and accumulated, so all frames determine the value. Runs on CPU and CUDA and reads quality maps for all frames; needs wide symmetric clip bounds (about `clip_sigma_low` = `clip_sigma_high` = 4) and `reconstruction.multiband.enabled`. Schema default `false`; the shipped `tile_compile.yaml` sets `true` (with clip 4/4). |
+| `reconstruction.drizzle.chunk_rows` | integer | `0` | `0` = budgeted stripes (<=256 rows); `>0` is budget-checked. |
+| `reconstruction.drizzle.chunk_halo_rows` | integer | `-1` | Compatibility field; exact footprint enumeration needs no output halo. |
+| `reconstruction.drizzle.memory_budget_mb` | integer | `0` | MiB; `0` inherits `runtime_limits.memory_budget`. |
+| `reconstruction.clipping.clip_sigma_low` / `clip_sigma_high` | number | `3.0` / `3.0` | MAD sigma thresholds of the robust contribution control. |
+| `reconstruction.clipping.min_fraction` | number | `0.4` | Minimum usable sample fraction per pixel `(0, 1]`. |
+| `reconstruction.clipping.min_n_eff` | number | `3.0` | Minimum effective contribution count for a valid output pixel (`>= 1`). |
+| `reconstruction.clipping.guard_fallback` | boolean | `false` | `false` = strict veto (pixel stays unassigned); `true` = survivor/unclipped fallback instead of a black pixel. |
+| `reconstruction.clipping.shared_frame_rejection` | boolean | `false` | Runs on both the CPU and CUDA backends. Reconciles the per-channel independent sigma-clip decisions across R/G/B: rejects a candidate frame in a channel that would otherwise have kept it, if enough other channels independently rejected it (see `shared_frame_rejection_consensus`). Addresses CFA-driven chroma noise (anti-correlated clip decisions across channels, since R/G/B are sampled from disjoint sensor pixels). A frame seen as a candidate by only one channel is left exactly as that channel's own clip decided. |
+| `reconstruction.clipping.shared_frame_rejection_consensus` | number | `0.5` | `(0, 1]`. Fraction of the channels that saw a frame as a candidate that must have independently rejected it before `shared_frame_rejection` rejects it in every one of those channels. `1.0` effectively disables the consensus revision (bit-identical to `shared_frame_rejection: false`). |
+| `reconstruction.clipping.bimodal_veto` | boolean | `false` | Runs on both the CPU and CUDA backends. After the asymmetric median/MAD clip pass converges, checks the accepted set for a coherent second population the ordinary bound alone did not separate from the majority (e.g. a subset of frames with a small but real registration/tracking offset at this exact pixel) -- more likely with wide `clip_sigma_low`/`clip_sigma_high`, which are deliberately loosened to preserve genuine signal variance and so also admit a coherent minority more readily. If the largest gap between consecutive accepted values exceeds `bimodal_veto_gap_sigma` times the pass's own MAD and splits off a minority side of at least 2 candidates holding less than half the accepted weight, that minority is dropped. Also refreshes the full-frame estimator's frozen pilot bounds when it fires, so the rejected population's non-pilot frames are not re-admitted later. |
+| `reconstruction.clipping.bimodal_veto_gap_sigma` | number | `2.5` | `> 0`. Multiple of the clip pass's MAD the largest accepted-value gap must exceed before `bimodal_veto` treats the split as a coherent second population rather than ordinary spread. Lower values fire more readily. |
+| `reconstruction.coverage_gate.min_frames` | integer | `2` | Minimum number of usable frames. |
+| `reconstruction.coverage_gate.min_supported_fraction` | number | `0.995` | Minimum supported output-pixel fraction `(0, 1]`. |
+| `reconstruction.coverage_gate.min_channel_n_eff_floor` | number | `3.0` | N_eff floor for a channel to count as covered. |
+| `reconstruction.coverage_gate.min_channel_n_eff_fraction` | number | `0.15` | Minimum fraction of channels above the N_eff floor. |
+| `reconstruction.coverage_gate.min_analysis_pixels` | integer | `1024` | Minimum number of analyzable pixels. |
+| `reconstruction.coverage_gate.max_internal_hole_area_px` | integer | `0` | Maximum internal hole area in the footprint. |
+| `reconstruction.multiband.enabled` | boolean | `true` | Enable multiband fusion. |
+| `reconstruction.multiband.levels` | integer | `3` | Band levels `[1, 4]`; `>=2` requires `quality.pyramid.scales >= 2`. |
+| `reconstruction.multiband.alpha_cap` | number | `1.0` | Upper bound of the blend alpha `[0, 1]`. |
+| `reconstruction.multiband.fine_quality_exponent` / `medium_quality_exponent` | number | `4.0` / `2.0` | Quality exponents of the fine/medium band weights. |
+| `reconstruction.multiband.min_quality_separation` / `full_quality_separation` | number | `0.05` / `0.20` | Quality separation thresholds of the band fusion. |
+| `reconstruction.multiband.min_effective_samples` / `full_effective_samples` | number | `8.0` / `24.0` | N_eff thresholds for minimal/full band usage. |
+| `reconstruction.multiband_validation.fwhm_ratio_max` | number | `0.95` | `> 0`; multiband median FWHM must be `<= x *` raw. |
+| `reconstruction.multiband_validation.p90_fwhm_ratio_max` | number | `1.0` | `> 0`; multiband p90 FWHM vs. raw. |
+| `reconstruction.multiband_validation.tail_ratio_max` | number | `1.1` | `> 0`; multiband star-tail metric vs. raw. |
+| `reconstruction.multiband_validation.elongation_ratio_max` | number | `1.08` | `> 0`; multiband star elongation vs. raw. |
+| `reconstruction.multiband_validation.background_rms_ratio_max` | number | `1.05` | `> 0`; background RMS vs. `drizzle_uniform` (raw veto and multiband promotion gate). Raise it when the sampled "background" contains real faint structure (e.g. a field-filling galaxy) whose higher RMS is signal, not noise. |
+| `reconstruction.multiband_validation.seam_ratio_max` | number | `1.05` | `> 0`; seam contrast vs. `drizzle_uniform` at the support boundary. |
+| `reconstruction.multiband_validation.min_stars_fwhm` | integer | `20` | `>= 0`; matched stars required for the FWHM metric. |
+| `reconstruction.multiband_validation.min_stars_p90_tail_elongation` | integer | `30` | `>= 0`; matched stars for p90/tail/elongation metrics. |
+| `reconstruction.multiband_validation.max_fwhm_ci_relative_width` | number | `0.1` | `> 0`; veto when the bootstrap 95% CI of the FWHM ratio is wider than this relative width. |
 
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Values** | `1`, `2`, `4` |
-| **Default** | `2` |
-
-**Purpose:** Resolution reduction factor for stored quality maps. `2` is the storage-efficient, object-agnostic default. `1` is the full-resolution reference mode and is required for cherry-pick; `4` saves more storage at the cost of spatial accuracy.
-
----
-
-#### `aqmh.storage.dtype`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `float32`, `uint16`, `uint8` |
-| **Default** | `"uint16"` |
-
-**Purpose:** Data type for cached quality maps. `uint16` is the compact default. `float32` is the exact reference mode and is required for cherry-pick; `uint8` saves the most storage but quantises quality values more coarsely.
-
----
-
-#### `aqmh.storage.max_resident_maps`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Range** | 0 – 16 |
-| **Default** | `2` |
-
-**Purpose:** Maximum number of full-resolution quality maps held simultaneously in RAM. Caps read-cache memory use during AQMH reconstruction. `0` disables the resident read cache and reads maps directly from cache storage when needed.
-
----
-
-### `aqmh.cherry_pick.*` — Frame selection
-
-#### `aqmh.cherry_pick.enabled`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `false` |
-
-**Purpose:** Enables selective AQMH frame handling during reconstruction. The default mode keeps almost all usable frames and rejects only clear local low-score outliers.
-
----
-
-#### `aqmh.cherry_pick.mode`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string |
-| **Values** | `auto_reject`, `top_k` |
-| **Default** | `auto_reject` |
-
-**Purpose:** `auto_reject` is the conservative mode for production stacking: it keeps most locally rankable frames and only removes extreme local quality outliers. `top_k` is the legacy fixed-fraction selector and can increase noise when it discards many otherwise useful frames.
+Fail-closed gates: `FORWARD_DRIZZLE` and `MULTIBAND` abort in a controlled
+way when coverage/confidence gates or validation thresholds are not met.
+When a multiband-validation gate rejects a candidate the run keeps the
+`drizzle_uniform` control instead of failing.
 
 ---
 
-#### `aqmh.cherry_pick.k_min_required`
+## 15. Debayer
 
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Minimum** | 1 |
-| **Default** | `20` |
+There is no standalone `debayer` config key.
 
-**Purpose:** Minimum number of frames always included even in cherry-pick mode. Prevents under-determination on small datasets. This is the run-level gate and per-pixel retained-sample floor.
-
----
-
-#### `aqmh.cherry_pick.k_frac`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | >0 – 1 |
-| **Default** | `0.30` |
-
-**Purpose:** Fraction of best frames used only when `aqmh.cherry_pick.mode: top_k`. It is ignored by the default `auto_reject` mode.
-
----
-
-#### `aqmh.cherry_pick.reject_below_best_fraction`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | >0 – 1 |
-| **Default** | `0.25` |
-
-**Purpose:** In `auto_reject` mode, a local sample becomes rejectable only when its AQMH score is below this fraction of the local best score.
-
----
-
-#### `aqmh.cherry_pick.min_keep_fraction`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | >0 – 1 |
-| **Default** | `0.90` |
-
-**Purpose:** In `auto_reject` mode, retains at least this fraction of locally rankable samples. This limits noise growth by preventing aggressive per-pixel frame removal.
-
----
-
-### `aqmh.diagnostics.*` — Diagnostic outputs
-
-#### `aqmh.diagnostics.enabled`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Master switch for AQMH diagnostic output.
-
-----
-
-#### `aqmh.diagnostics.level`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `none`, `summary`, `full` |
-| **Default** | `"full"` |
-
-**Purpose:** Verbosity level of the diagnostics. `none` disables diagnostic writing, `summary` writes only aggregate statistics, `full` writes per-frame and regional data.
-
-----
-
-#### `aqmh.diagnostics.per_frame_blocks`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Write per-frame block-level diagnostics and heatmaps.
-
-----
-
-#### `aqmh.diagnostics.heatmaps`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Emit spatial heatmap arrays.
-
-----
-
-#### `aqmh.diagnostics.regions`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Extract and write high/low quality regions to `artifacts/aqmh_regions.json`.
-
-----
-
-#### `aqmh.diagnostics.format`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `json`, `binary` |
-| **Default** | `"json"` |
-
-**Purpose:** Output format for diagnostic arrays.
-
-----
-
-#### `aqmh.diagnostics.binary_block_size_px`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `64` |
-
-**Purpose:** Block size in pixels for binary diagnostic output. Default is 64; `0` falls back to `r_morph_canvas_px`.
-
-----
-
-#### `aqmh.diagnostics.tau_artifact`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | 0 – 1 |
-| **Default** | `0.20` |
-
-**Purpose:** Threshold for artifact diagnostics written to `artifacts/aqmh.json`. Pixels with artifact probability > `tau_artifact` are flagged as problematic in the diagnostic output.
-
----
-
-#### `aqmh.diagnostics.q_region`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | 0 – 1 |
-| **Default** | `0.75` |
-
-**Purpose:** Quantile for regional quality statistics in the AQMH diagnostic output. `0.75` = 75th percentile of quality values.
-
----
-
-#### `aqmh.diagnostics.r_morph_canvas_px`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Minimum** | 1 |
-| **Default** | `6` |
-
-**Purpose:** Morphological radius in canvas pixels for the regional diagnostic map. Controls spatial smoothing when generating the diagnostic quality-map overview.
-
----
-
-### `aqmh.global_quality.*` — Frame-level global quality
-
-Global AQMH frame weighting. Combines per-frame sharpness and SNR summaries with an optional background-gradient penalty via a robust z-score sigmoid.
-
-#### `aqmh.global_quality.g_floor`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | 0 – 1 |
-| **Default** | `0.03` |
-
-**Purpose:** Minimum global weight any frame receives. Prevents a frame from being completely ignored by the AQMH reconstruction.
-
-----
-
-#### `aqmh.global_quality.g_w_sharp`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | >= 0 |
-| **Default** | `0.55` |
-
-**Purpose:** Weight of the sharpness summary in the global quality score. Higher values make seeing/FWHM differences more influential across frames.
-
-----
-
-#### `aqmh.global_quality.g_w_snr`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | >= 0 |
-| **Default** | `0.30` |
-
-**Purpose:** Weight of the SNR summary in the global quality score.
-
-----
-
-#### `aqmh.global_quality.g_w_background_penalty`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | >= 0 |
-| **Default** | `0.25` |
-
-**Purpose:** Weight of the background-gradient penalty. Penalises frames with strong large-scale background gradients (e.g. moon glow, light pollution). Setting it to `0.0` disables only this penalty; the bounded v0.2.1 sigmoid mapping remains active.
-
-----
-
-#### `aqmh.global_quality.g_k_scale`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | > 0 |
-| **Default** | `1.5` |
-
-**Purpose:** Sigmoid temperature for the global quality score. Larger values separate strong and weak frames more aggressively, while the resulting weight remains bounded to `[g_floor, 1]`.
-
-----
-
-### `aqmh.reconstruction.*` — Weighted reconstruction
-
-Per-pixel weighted reconstruction parameters.
-
-#### `aqmh.reconstruction.clip_sigma` / `clip_sigma_low` / `clip_sigma_high`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `clip_sigma: 2.0`, `clip_sigma_low: 2.0`, `clip_sigma_high: 2.0` |
-
-**Purpose:** Sigma thresholds for iterative outlier rejection during the weighted mean. The symmetric `2.0/2.0` baseline avoids a negative location bias when diffuse backgrounds are clipped repeatedly. Asymmetric values are reserved for intentionally one-sided rejection. When only `clip_sigma` is set, it is copied to both limits for compatibility.
-
-----
-
-#### `aqmh.reconstruction.clip_iterations`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `4` |
-
-**Purpose:** Number of sigma-clipping iterations.
-
-----
-
-#### `aqmh.reconstruction.min_fraction`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | 0 – 1 |
-| **Default** | `0.4` |
-
-**Purpose:** Minimum fraction of valid pixels in the output canvas that must have enough samples to produce a non-zero result.
-
-----
-
-#### `aqmh.reconstruction.min_n_eff`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `2.0` |
-
-**Purpose:** Minimum effective sample count per output pixel. Pixels with fewer effective samples are rejected.
-
-----
-
-#### `aqmh.reconstruction.chunk_rows`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `0` |
-
-**Purpose:** Vertical chunk size for the reconstruction pass. `0` lets the backend choose an automatic size; values > 0 force a fixed row count.
-
-----
-
-#### `aqmh.reconstruction.memory_budget_mb`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `0` |
-
-**Purpose:** Per-phase memory budget in MiB for the AQMH reconstruction pass. `0` means the global `runtime_limits.memory_budget` is used.
-
-----
-
-#### `aqmh.reconstruction.delete_prewarped_cache_after_run`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Controls whether the disk-backed `cache/prewarped_frames` directory is deleted after a successful run. Set it to `false` to retain the cache and allow a later resume from `AQMH_RECONSTRUCTION` or `STACKING` without repeating registration and prewarp. Retaining the cache requires additional disk space.
-
-----
-
-#### `aqmh.reconstruction.prewarp_interpolation`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string |
-| **Values** | `linear`, `cubic`, `lanczos4` |
-| **Default** | `cubic` |
-
-**Purpose:** Selects the interpolation kernel used when registered frames are prewarped onto the common canvas before AQMH reconstruction and stacking. `cubic` is the evidence-based sharpness default: controlled comparisons improved technical output and AQMH FWHM over `linear`, with a smaller background increase than `lanczos4`. `linear` remains the conservative low-noise fallback. `lanczos4` may preserve marginally more high-frequency detail but has a higher background-noise and ringing risk.
-
-----
-
-#### `aqmh.reconstruction.debayer_first`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `false` |
-
-**Purpose:** Enables a real RGB path for OSC data before PREWARP/AQMH. When a Bayer pattern is known, each calibrated frame is demosaiced first, then R/G/B are geometrically prewarped. AQMH computes quality maps on a luma plane and reconstructs the final R/G/B channels directly from the prewarped RGB planes. This avoids reconstructing a geometrically warped CFA mosaic and debayering it only after stacking.
-
-**Fallback:** For mono/RGB input, unknown Bayer patterns, or `false`, the previous path remains active.
-
-----
-
-#### `aqmh.reconstruction.pre_debayer_method`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string |
-| **Values** | `bilinear`, `nearest`, `vng`, `edge_aware` |
-| **Default** | `edge_aware` |
-
-**Purpose:** Selects the demosaicing method for `debayer_first`. `bilinear` is robust and conservative; `vng` and `edge_aware` can preserve stronger edges but may amplify artificial chroma/pixel patterns on very low-SNR data. `nearest` is mainly diagnostic.
-
-----
-
-#### `aqmh.reconstruction.rgb_q_map_mode`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string |
-| **Values** | `shared_luma` |
-| **Default** | `shared_luma` |
-
-**Purpose:** Defines which quality maps are used for RGB reconstruction when `debayer_first` is active. `shared_luma` reuses the same luma Q-maps and global weights for R, G, and B so the color planes remain geometrically and weight-wise consistent.
-
-----
-
-#### `aqmh.reconstruction.rgb_memory_strategy`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string |
-| **Values** | `sequential` |
-| **Default** | `sequential` |
-
-**Purpose:** Controls the memory path for RGB reconstruction when `debayer_first` is active. `sequential` reconstructs R, G, and B one after another to bound RAM/VRAM peaks.
-
-----
-
-#### `aqmh.reconstruction.registration_weight_guard`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Enable the registration-confidence guard. Direct and reference registrations receive factor `1.0` at or above `registration_cc_floor`; only direct solutions below that floor and sequential, predicted, interpolated, or unknown solutions are damped. `chain_depth` applies only to non-direct solutions.
-
-----
-
-#### `aqmh.reconstruction.registration_weight_floor`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | 0 – 1 |
-| **Default** | `0.30` |
-
-**Purpose:** Lower bound for the per-frame registration-confidence factor.
-
-----
-
-#### `aqmh.reconstruction.registration_cc_floor`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | 0 – 1 |
-| **Default** | `0.35` |
-
-**Purpose:** Cross-correlation value mapped to `registration_weight_floor`.
-
-----
-
-#### `aqmh.reconstruction.registration_cc_full`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | 0 – 1 |
-| **Default** | `0.80` |
-
-**Purpose:** Cross-correlation value mapped to factor `1.0` for non-direct registrations. It must exceed `registration_cc_floor`. Direct and reference solutions reach factor `1.0` at the floor.
-
-----
-
-#### `aqmh.reconstruction.registration_sequential_factor`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | 0 – 1 |
-| **Default** | `0.92` |
-
-**Purpose:** Additional damping applied to frames whose registration source is `sequential_refined`.
-
-----
-
-#### `aqmh.reconstruction.registration_predicted_factor`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | 0 – 1 |
-| **Default** | `0.50` |
-
-**Purpose:** Additional damping applied to predicted, interpolated, or unknown registration sources.
-
-----
-
-#### `aqmh.reconstruction.registration_chain_depth_penalty`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | 0 – 0.5 |
-| **Default** | `0.03` |
-
-**Purpose:** Per-step penalty for chain depth beyond the immediate neighbour. `max(0, depth - 1) * penalty` is subtracted from the factor.
-
-----
-
-#### `aqmh.reconstruction.registration_chain_depth_max_penalty`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | 0 – 1 |
-| **Default** | `0.15` |
-
-**Purpose:** Maximum chain-depth penalty applied to the factor.
-
-----
-
-#### `aqmh.reconstruction.structure_mask_low_q` / `structure_mask_high_q`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | 0 – 1, `low_q < high_q` |
-| **Defaults** | `0.40` / `0.90` |
-
-**Purpose:** Lower and upper gradient quantiles for the soft structure mask. Below `low_q`, a candidate follows the uniform control more closely; above `high_q`, AQMH detail is fully retained.
-
-----
-
-#### `aqmh.reconstruction.structure_mask_blur_sigma_px`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | > 0 |
-| **Default** | `4.0` |
-
-**Purpose:** Gaussian sigma for the soft transition of the structure mask.
-
-----
-
-#### `aqmh.reconstruction.gpu_half_qmaps`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** CUDA reconstruction path only. Stages Q-Maps as `fp16` instead of `float32` for the host-to-device transfer (halves that step's transfer volume), dequantized back to `float32` on-device before the reconstruction kernel runs. Set to `false` if fp16 rounding is suspected of shifting cherry-pick or sigma-clip decisions at a tolerance boundary.
-
-----
-
-#### `aqmh.reconstruction.gpu_packed_masks`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** CUDA reconstruction path only. Stages per-frame validity masks bit-packed (1 bit/pixel instead of 1 byte/pixel) for the host-to-device transfer, unpacked back to `uint8` on-device before the kernel runs.
-
-----
-
-### `aqmh.validation.*` — Output validation
-
-Regression thresholds comparing every post-processing candidate against both the uniform-control mean and the immutable raw AQMH baseline. Tail and elongation are measured at the same star positions detected in the respective reference.
-
-#### `aqmh.validation.max_seam_score_regression`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.05` |
-
-**Purpose:** Maximum allowed seam-score regression relative to the uniform-control mean.
-
-----
-
-#### `aqmh.validation.max_fwhm_regression`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.02` |
-
-**Purpose:** Maximum allowed FWHM regression.
-
-----
-
-#### `aqmh.validation.max_background_rms_regression`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.05` |
-
-**Purpose:** Maximum relative regression of robust local background noise
-against uniform control. The measurement uses the MAD of neighbouring pixel
-differences, so large-scale astronomical structure is not counted as background
-noise. If exceeded, an optional post-processing candidate is rejected and raw
-AQMH is preserved. Range: `>= 0`.
-
-----
-
-#### `aqmh.validation.max_tail11_abs_regression`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.10` |
-
-**Purpose:** Maximum allowed tail-11 absolute regression.
-
-----
-
-#### `aqmh.validation.max_elongation_regression`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.08` |
-
-**Purpose:** Maximum allowed elongation regression.
-
-----
-
-## 13. Synthetic
-
-Synthetic frame generation.
-
-### `synthetic.weighting`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `global`, `tile_weighted` |
-| **Default** | `"global"` |
-
-**Purpose:** Weighting strategy for synthetic frame creation. `global` uses frame-level global quality weights. `tile_weighted` uses per-tile quality weights for more spatially selective synthesis.
-
-### `synthetic.frames_min`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `5` |
-
-**Purpose:** Minimum cluster size required to generate a synthetic output frame. Clusters smaller than this are merged or skipped. Range >= 1. Recommended: 5.
-
-### `synthetic.frames_max`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `30` |
-
-**Purpose:** Upper limit for generated synthetic frames. Prevents excessive synthesis on very large datasets. Range >= 1. Recommended: 30.
-
-### `synthetic.clustering.mode`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `kmeans`, `quantile` |
-| **Default** | `"kmeans"` |
-
-**Purpose:** Clustering method for synthetic frame generation. `kmeans` partitions frames into K clusters by quality. `quantile` uses quantile-based binning. Recommended: `kmeans`.
-
-### `synthetic.clustering.cluster_count_range`
-
-| Property | Value |
-|----------|-------|
-| **Type** | array [2 integers] |
-| **Default** | `[5, 30]` |
-
-**Purpose:** Min/max cluster count search range for K-means clustering. The algorithm searches for the optimal K within this range. Recommended: [5, 30].
-
----
-
-## 14. Reconstruction
-
-The current C++ config has **no standalone `reconstruction:` block**.
-
-Weighted tile reconstruction, Hanning OLA, and boundary diagnostics are runtime behavior of the runner, not separate top-level config keys. Relevant knobs currently live under:
-
-- `synthetic.*`
-- `stacking.*`
-- `tile.*`
-- `tile_denoise.*`
-
----
-
-## 15. Debayer (automatic phase)
-
-There is no standalone `debayer` config key anymore.
-
-Debayering is automatic:
-- `OSC`: the runner always debayers the final CFA stack into RGB outputs after stacking.
-- `MONO`: the phase is a no-op and ends as `ok/MONO`.
+- `OSC` with `registration.debayer_first: true` (default): frames are demosaiced before the prewarp; the R/G/B planes are reconstructed directly.
+- `OSC` with `debayer_first: false`: CFA prewarp; the final CFA stack is demosaiced after reconstruction.
+- `MONO`: no demosaicing.
 
 ---
 
@@ -2079,13 +1202,13 @@ Gaia catalogue is unavailable or the star match is not robust, the existing
 
 BGE removes large-scale background gradients (light pollution, moonlight, airglow) **before** photometric color calibration to avoid color bias from spectrally non-uniform gradients.
 
-**Implementation note (v3.3.6):** BGE directly uses tile-quality data from `LOCAL_METRICS` for sample selection/weighting:
+**Implementation note:** BGE uses tile-quality data derived from the reconstructed image for sample selection/weighting:
 - `type` + `star_count`: star-dense STAR tiles are conservatively excluded or down-weighted.
 - `fwhm`: scales effective star-mask dilation per tile.
 - `quality_score`: applied as an additional tile-sample reliability factor.
 
 **Key BGE parameters:**
-- `bge.method`: Engine selector `none|classic|autobge` (default: `none`). Sole on/off switch -- `none` disables BGE.
+- `bge.method`: Engine selector `none|classic|autobge|auto` (default: `none`). Sole on/off switch -- `none` disables BGE. `auto` measures the background gradient first and only runs AutoBGE when the gradient exceeds `auto_detect.gradient_threshold`.
 - `bge.tile_weight_lambda_structure`: Lambda in tile reliability weight `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)` (range `> 0`, default `1.0`)
 - `bge.sample_quantile`: Tile background quantile (range `(0, 0.5]`, default `0.20`)
 - `bge.min_valid_sample_fraction_for_apply`: Minimum valid tile-sample fraction required per channel before BGE apply (range `(0, 1]`, default `0.30`)
@@ -2101,19 +1224,49 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 - `bge.autotune.alpha_flatness`: objective weight for flatness term (minimum `0`, default `0.25`)
 - `bge.autotune.beta_roughness`: objective weight for roughness term (minimum `0`, default `0.10`)
 
-**Recommendation:** Set `bge.method: classic` or `bge.method: autobge` when gradients are visible (urban light pollution, moonlight) or when PCC shows color shifts across the field.
+**Recommendation:** Use `bge.method: auto` as the general production default — it skips BGE on flat fields (no gradient → no color corruption) and runs AutoBGE with extended-source exclusion on fields with real gradients. Use `none` to unconditionally skip, or `autobge` to unconditionally run.
 
 ### `bge.method`
 
 | Property | Value |
 |----------|-------|
 | **Type** | string |
-| **Values** | `none`, `classic`, `autobge` |
+| **Values** | `none`, `classic`, `autobge`, `auto` |
 | **Default** | `none` |
 
-**Purpose:** Selects the BGE engine. `none` disables BGE, `classic` uses the existing grid/tile BGE implementation, and `autobge` selects the two-stage poly+RBF AutoBGE implementation. This is the sole on/off switch for BGE.
+**Purpose:** Selects the BGE engine. `none` disables BGE, `classic` uses the existing grid/tile BGE implementation, `autobge` selects the two-stage poly+RBF AutoBGE implementation, and `auto` programmatically detects the background gradient and only triggers AutoBGE when the gradient amplitude exceeds `bge.auto_detect.gradient_threshold` — with an automatically derived extended-source exclusion mask so galaxy disks and large nebulae are excluded from the BGE fit. This is the sole on/off switch for BGE.
 
 > **Migration note:** `bge.enabled` (a legacy boolean mirror of this field) has been removed. It could silently disagree with `bge.method` -- e.g. `enabled: false` next to a stale `method: classic` still ran BGE, because `method` was always authoritative whenever present. A config that still sets `bge.enabled` now fails to load with a validation error naming `bge.method`. Replace `enabled: true` with `method: classic` (or `autobge`), and `enabled: false` with `method: none`.
+
+### `bge.auto_detect.gradient_threshold`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `0` |
+| **Default** | `0.05` |
+
+**Purpose:** Minimum relative gradient amplitude to trigger AutoBGE when `bge.method: auto`. Amplitude = `(max − min of linear sky-plane fit) / sky_median` over the G channel. Values below this skip BGE. Range 0.01–0.50; recommended 0.05.
+
+### `bge.auto_detect.extended_source_sigma`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `0` |
+| **Default** | `3.0` |
+
+**Purpose:** Detection threshold for extended sources in the block-median grid. Blocks exceeding `sky_median + N × sky_sigma` are excluded from the AutoBGE sample set, so the poly/RBF fit uses only real sky pixels. Range 1.0–6.0; recommended 3.0.
+
+### `bge.auto_detect.extended_source_dilate_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `0` |
+| **Default** | `50` |
+
+**Purpose:** Morphological dilation (pixels) applied to the detected extended-source exclusion mask. Provides a safety margin around galaxy halos and nebula edges. Range 0–200; recommended 50.
 
 ### `bge.autobge.num_sample_points`
 
@@ -2669,10 +1822,20 @@ VeraLux HyperMetric Stretch (HMS) is an optional final RGB stretch phase after P
 | `hypermetric_stretch.color_grip` | number | `1.0` | 0 - 1 |
 | `hypermetric_stretch.shadow_convergence` | number | `0.0` | >= 0 |
 | `hypermetric_stretch.linear_expansion` | number | `0.0` | 0 - 1 |
+| `hypermetric_stretch.highlight_ceiling_percentile` | number | `100.0` | 90 - 100 |
+| `hypermetric_stretch.color_cast_correction.enabled` | boolean | `false` | Adaptive average-neutral green-cast correction after HMS (off by default). |
+| `hypermetric_stretch.color_cast_correction.max_amount` | number | `1.0` | Upper limit of the automatic strength, (0, 1]. |
+| `hypermetric_stretch.color_cast_correction.target_ratio` | number | `1.0` | Median G/((R+B)/2) on object pixels the correction aims for, (0.5, 1.5]. |
+| `hypermetric_stretch.color_cast_correction.min_excess` | number | `1.02` | No change if the measured ratio is at or below this value, [1, 2] (protects green/teal objects). |
+| `hypermetric_stretch.color_cast_correction.brightness_bins` | integer | `8` | Brightness classes of the object pixels, [1, 32]; the strength is chosen per class and interpolated over the pixel brightness (1 = one global strength). |
+| `hypermetric_stretch.color_cast_correction.neutralize_sky` | boolean | `false` | Also shift G so the sky is neutral: `G += (sky R + sky B)/2 - sky G` (skipped above 25 % offset). |
+| `hypermetric_stretch.color_cast_correction.object_sigma` | number | `3.0` | Object pixels: blurred luminance above sky + k sigma, (0, 50]; brightest 1 % excluded. |
 | `hypermetric_stretch.write_channels` | boolean | `false` | |
 | `hypermetric_stretch.output_rgb` | string | `stacked_rgb_hms.fits` | non-empty |
 
 `ready_to_use` follows the VeraLux GUI default with output scaling to `target_bg` and final soft clip. `scientific` skips the ready-to-use final scaling/soft clip and allows `linear_expansion`.
+
+**`highlight_ceiling_percentile`:** in `ready_to_use`, `adaptive_output_scaling` computes the final contrast scale as `min(contrast_scale, physical_scale)`, where `physical_scale` by default (`100`) is chosen so the **true brightest real pixel** never exceeds 1.0. On a target with one very bright, compact highlight (e.g. a nebula core), this caps the contrast of the **entire** frame far below what the rest of the image could otherwise use — on a real M42 run this left `physical_scale` at only ~0.6% of `contrast_scale`, even though `black_clip_percent`/`white_clip_percent` both stayed exactly `0.0`. A lower value (e.g. `99.9`) replaces the exact max pixel with a percentile, deliberately clipping a small, bounded fraction of the brightest pixels in exchange for materially more contrast in stars/highlight regions. Important: this only moves the top ~1-2% of the tone range — the median/background stays pinned exactly at `target_bg` (the final MTF match anchors it there regardless of the ceiling value). To also brighten the dark/mid-tone body (sky, faint nebulosity), raise `target_bg` as well — both levers are independent and additive, not alternatives.
 
 The default is the explicit `rec709` profile. Concrete VeraLux profile names can be set directly. `auto` remains accepted for compatibility and currently uses `fallback_profile`, but it is no longer recommended as the default. The sensor profiles are defined in `tile_compile_cpp/src/image/hypermetric_stretch.cpp` in `profiles()`. Profile matching is normalized, so case, spaces, and punctuation are tolerated; the recommended YAML values are:
 
@@ -2712,164 +1875,10 @@ The default is the explicit `rec709` profile. Concrete VeraLux profile names can
 
 ## 20. Stacking
 
-Final stacking settings.
-
-### `stacking.method`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `rej`, `average` |
-| **Default** | `"rej"` |
-
-**Purpose:** Final stacking method. `rej` = sigma-clipped rejection (recommended, removes outliers like cosmic rays). `average` = simple average (faster, no outlier rejection).
-
-### `stacking.common_overlap_required_fraction`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | `(0, 1]` |
-| **Default** | `1.0` |
-
-**Purpose:** Required fraction of usable frames in which a pixel must be valid to belong to `COMMON_OVERLAP`.
-
-- **`1.0`**: strict intersection across all usable frames
-- **`< 1.0`**: allows edge pixels that are present in only a subset of frames
-
-**Note:** Lower values increase border area but can bias background and color statistics through uneven edge coverage.
-
-**Note (Strict v3.3.9):** Keep this at `1.0`.
-
-### `stacking.tile_common_valid_min_fraction`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | `(0, 1]` |
-| **Default** | `1.0` |
-
-**Purpose:** Minimum fraction of the **full tile area** that must lie inside `COMMON_OVERLAP` for a tile to remain valid for local metrics and downstream processing.
-
-- **`1.0`**: only tiles fully inside the support mask are valid
-- **`< 1.0`**: allows partially covered edge tiles
-
-**Note:** The ratio is computed over the full tile area, not only the in-bounds remainder.
-
-**Note (Strict v3.3.9):** Keep this at `1.0`.
-
-### `stacking.sigma_clip.sigma_low` / `stacking.sigma_clip.sigma_high`
-
-| Property | Value |
-|----------|---------|
-| **Type** | number |
-| **Default** | `2.0` / `2.0` |
-
-**Purpose:** Lower/upper sigma thresholds for rejection. Pixel rejected when `z < -sigma_low` or `z > sigma_high`.
-
-### `stacking.sigma_clip.max_iters`
-
-| Property | Value |
-|----------|---------|
-| **Type** | integer |
-| **Default** | `3` |
-
-**Purpose:** Maximum sigma-clipping iterations.
-
-### `stacking.sigma_clip.min_fraction`
-
-| Property | Value |
-|----------|---------|
-| **Type** | number |
-| **Default** | `0.5` |
-
-**Purpose:** Minimum surviving frame fraction per pixel. Falls back to unclipped mean if violated.
-
-### `stacking.cluster_quality_weighting.enabled`
-
-| Property | Value |
-|----------|---------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Enable cluster-quality weighting (`w_k = exp(kappa_cluster * Q_k)`) in final combination.
-
-### `stacking.cluster_quality_weighting.kappa_cluster`
-
-| Property | Value |
-|----------|---------|
-| **Type** | number |
-| **Default** | `1.0` |
-
-**Purpose:** Exponent factor for cluster quality influence. Larger values increase separation between good/bad clusters.
-
-### `stacking.cluster_quality_weighting.cap_enabled` / `stacking.cluster_quality_weighting.cap_ratio`
-
-| Property | Value |
-|----------|---------|
-| **Type** | boolean / number |
-| **Default** | `false` / `20.0` |
-
-**Purpose:** Optional dominance cap: `w_k ≤ cap_ratio * median(w_j)` (only active when `cap_enabled=true`).
-
-### Boundary Diagnostics in `TILE_RECONSTRUCTION`
-
-There is currently **no dedicated seam-correction parameter block** in the active C++ config.
-
-Visible tile boundaries are instead analyzed through runtime artifacts written by `TILE_RECONSTRUCTION`, especially:
-
-- `tile_boundary_raw_pair_mean_abs_diff_p95`
-- `tile_boundary_normalized_pair_mean_abs_diff_p95`
-- `tile_boundary_pair_count`
-- `tile_boundary_observation_count`
-- `tile_boundary_pair_mean_abs_diff_mean`
-- `tile_boundary_pair_mean_abs_diff_p95`
-- `tile_boundary_post_background_delta_p95_abs`
-- `tile_boundary_top_pairs`
-- `tile_norm_bg_r` / `tile_norm_bg_g` / `tile_norm_bg_b`
-- `tile_norm_scale`
-
-`tile_boundary_raw_*` measures the mismatch before the optional per-tile normalization, `tile_boundary_normalized_*` on the actual OLA input. These diagnostics use the common canvas-valid mask, describe the actual mismatch of neighboring tiles at the OLA input stage, and do not modify the reconstruction result.
-
-### `stacking.output_stretch`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `false` |
-
-**Purpose:** Optional linear post-scaling of the output data from `0..max` to the full `0..65535` range.
-
-### `stacking.cosmetic_correction`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `false` |
-
-**Purpose:** Optional cosmetic correction after stacking.
-
----
-
-### `stacking.cosmetic_correction_sigma`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Minimum** | >0 |
-| **Default** | `5.0` |
-
-**Purpose:** MAD-sigma threshold for `stacking.cosmetic_correction`.
-
-- Lower value = more aggressive.
-- **Note:** In the stacked image, bright object cores can have high local contrast. Too aggressive settings can treat real signal peaks as hot pixels.
-
-**Recommendation:**
-
-- MONO / calibrated data: `5.0`
-- OSC / smart telescope without darks: `10.0` (more conservative)
-
----
+In the forward-drizzle pipeline the classic stacking step is a
+pass-through: the reconstructed image comes from FORWARD_DRIZZLE/MULTIBAND;
+no stack methods, sigma clips or cluster weightings are executed anymore.
+Only the optional per-frame cosmetic correction before the warp remains.
 
 ### `stacking.per_frame_cosmetic_correction`
 
@@ -2878,9 +1887,9 @@ Visible tile boundaries are instead analyzed through runtime artifacts written b
 | **Type** | boolean |
 | **Default** | `false` |
 
-**Purpose:** Hot-pixel correction **per frame before PREWARP/stacking**.
+**Purpose:** Hot-pixel correction **per frame before the warp**.
 
-This targets **fixed sensor defects** (RGB single-pixel speckles) that appear at the same coordinates in every frame and therefore can survive stack sigma clipping.
+This targets **fixed sensor defects** (RGB single-pixel speckles) that appear at the same coordinates in every frame and therefore are not reliably removed by the robust contribution control in FORWARD_DRIZZLE.
 
 ---
 
@@ -2895,48 +1904,6 @@ This targets **fixed sensor defects** (RGB single-pixel speckles) that appear at
 **Purpose:** MAD-sigma threshold for `stacking.per_frame_cosmetic_correction`.
 
 **Recommendation:** `5.0` (often suitable for OSC/Seestar/DWARF).
-
----
-
-## 21. Validation
-
-Validation and quality control.
-
-### `validation.min_fwhm_improvement_percent`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.0` |
-
-**Purpose:** Required minimum FWHM improvement in %. If the output FWHM is not at least this much better than the input median FWHM, a warning is issued. 0 = no check. Recommended: 0–5.
-
-### `validation.max_background_rms_increase_percent`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.0` |
-
-**Purpose:** Maximum allowed background RMS increase in % from processing (e.g., cherry_pick or tile reconstruction). If exceeded, the feature is auto-disabled. 0 = no check. Range 0–100. Recommended: 2–5.
-
-### `validation.min_tile_weight_variance`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `0.1` |
-
-**Purpose:** Minimum local tile-weight variance sanity threshold. If all tiles have nearly equal weights, quality-based weighting may not be effective. 0 = no check. Range >= 0. Recommended: 0.05.
-
-### `validation.require_no_tile_pattern`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Enforce tile-pattern detector check. When true, validates that the output has no visible tile pattern artifacts. If detected, a warning is issued. Recommended: true.
 
 ---
 
@@ -2963,18 +1930,7 @@ Runtime and resource limits.
 
 **Purpose:** Memory cap that can reduce effective worker parallelism (especially for OSC).
 
-### `runtime_limits.tile_analysis_max_factor_vs_stack`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `3.0` |
-
-**Purpose:** Warn when tile analysis exceeds this factor vs baseline stack time.
-
-**Runtime behavior:** The runner writes the measured ratio to
-`artifacts/runtime_limits.json` and emits a warning when the configured
-threshold is exceeded. This parameter does not stop the run by itself.
+**Autogrow:** The configured value is a starting point, not a hard ceiling. When the planned working set (e.g. retained registration proxies, source images, stripe scratch) does not fit, the memory planner raises the effective budget in 1 GiB steps while free RAM remains (capped at ~80% of currently available memory). Each increase is logged as a run warning. If the working set still does not fit at the headroom cap, the run keeps failing closed with `DRIZZLE_MEMORY_BUDGET`.
 
 ### `runtime_limits.hard_abort_hours`
 
@@ -2989,17 +1945,6 @@ threshold is exceeded. This parameter does not stop the run by itself.
 resume path. Exceeding the limit aborts the run with
 `runtime_limit_exceeded`.
 
-### `runtime_limits.allow_emergency_mode`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `false` |
-
-**Purpose:** Allow processing very small datasets in emergency mode.
-
----
-
 ### `runtime_limits.acceleration_backend`
 
 | Property | Value |
@@ -3008,7 +1953,7 @@ resume path. Exceeding the limit aborts the run with
 | **Default** | `auto` |
 | **Valid values** | `auto`, `cpu`, `opencv_cuda`, `opencv_opencl`, `opencl`, `cuda` |
 
-**Purpose:** GPU acceleration backend selection for PREWARP, TILE_RECONSTRUCTION, and STACKING phases.
+**Purpose:** GPU acceleration backend selection for the warp/resample steps (REGISTRATION prewarp).
 
 **Options:**
 - `auto` (default): Automatically detects available GPU backends at runtime. Priority: CUDA → OpenCL → CPU. Falls back gracefully if hardware unavailable.
@@ -3122,6 +2067,7 @@ HMS is enabled by default. Its detailed parameters match the normal Tile-Compile
 | `hypermetric_stretch.color_grip` | number | `1.0` |
 | `hypermetric_stretch.shadow_convergence` | number | `0.0` |
 | `hypermetric_stretch.linear_expansion` | number | `0.0` |
+| `hypermetric_stretch.highlight_ceiling_percentile` | number | `100.0` |
 | `hypermetric_stretch.write_channels` | boolean | `false` |
 | `hypermetric_stretch.output_rgb` | string | `stacked_rgb_hms.fits` |
 
@@ -3148,7 +2094,6 @@ This appendix provides a compact but explicit **runtime behavior** description f
 
 ### A.1 Pipeline / Output / Data
 
-- `pipeline.mode`: selects production vs test control flow (same core phases, different strictness/debug posture).
 - `output.registered_dir`: target folder name for registered frame outputs.
 - `output.write_registered_frames`: writes per-frame registered FITS; increases IO and disk usage significantly.
 - `output.crop_to_nonzero_bbox`: crops the final stack to its non-empty bounding box.
@@ -3156,7 +2101,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `data.color_mode`: expected acquisition mode; runtime auto-detection can override with warning.
 - `data.bayer_pattern`: CFA layout for OSC processing and color reconstruction consistency.
 
-### A.2 Linearity / Calibration / Assumptions
+### A.2 Linearity / Calibration
 
 - `linearity.enabled`: enables linearity diagnostics in scan/early validation.
 - `linearity.max_frames`: sample size for linearity checks (tradeoff speed vs certainty).
@@ -3171,10 +2116,6 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `calibration.bias_dir`, `darks_dir`, `flats_dir`: source folders for calibration frame discovery.
 - `calibration.bias_master`, `dark_master`, `flat_master`: explicit master calibration file paths.
 - `calibration.pattern`: file glob for calibration frame loading.
-- `assumptions.frames_min`: minimum usable frame count before the run aborts or enters emergency reduced mode.
-- `assumptions.frames_reduced_threshold`: switch point between reduced and full pipeline behavior.
-- `assumptions.reduced_mode_skip_clustering`: disables expensive state clustering in reduced mode.
-- `assumptions.reduced_mode_cluster_range`: reduced-mode cluster search range when clustering still runs.
 
 ### A.3 Normalization / Registration / Dithering
 
@@ -3193,23 +2134,18 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `registration.reject_shift_px_min`: absolute shift floor for shift-outlier rejection.
 - `registration.reject_shift_median_multiplier`: relative shift threshold scale from median shift.
 - `registration.reject_scale_min`, `reject_scale_max`: accepted similarity scale band.
+- `registration.prewarp_interpolation`: interpolation method of the warp/resample steps.
+- `registration.debayer_first`: OSC — demosaic before prewarp instead of CFA prewarp.
+- `registration.pre_debayer_method`: demosaicing method for the `debayer_first` path.
 - `dithering.enabled`: enables dither diagnostics output in registration artifacts.
 - `dithering.min_shift_px`: minimum frame-to-frame shift to count as dither.
 
-### A.4 Tile denoise / Chroma denoise
+### A.4 Chroma denoise
 
-- `tile_denoise.soft_threshold.enabled`: enables spatial highpass soft-threshold denoise.
-- `tile_denoise.soft_threshold.blur_kernel`: background estimation kernel size for residual extraction.
-- `tile_denoise.soft_threshold.alpha`: denoise aggressiveness (`tau = alpha * sigma`).
-- `tile_denoise.soft_threshold.skip_star_tiles`: bypass denoise on star-dominant tiles.
-- `tile_denoise.wiener.enabled`: enables frequency-domain Wiener branch.
-- `tile_denoise.wiener.snr_threshold`: Wiener gate; low-SNR tiles are filtered more likely.
-- `tile_denoise.wiener.q_min`, `q_max`, `q_step`: internal Wiener quality search range and step.
-- `tile_denoise.wiener.min_snr`: minimum accepted SNR for stable Wiener parameterization.
-- `tile_denoise.wiener.max_iterations`: iterative Wiener tuning loop bound.
-- `chroma_denoise.enabled`: enables chroma-focused denoise (OSC path).
+
+- `chroma_denoise.enabled`: enables chroma-focused denoise (OSC path). Default: `false` (opt-in).
 - `chroma_denoise.color_space`: chroma/luma transform (`ycbcr_linear` or `opponent_linear`).
-- `chroma_denoise.apply_stage`: execute before tile OLA or after final linear stack.
+- `chroma_denoise.apply_stage`: selects one supported stage: after the final linear stack or after PCC.
 - `chroma_denoise.protect_luma`: protects luminance structures from chroma denoise side effects.
 - `chroma_denoise.luma_guard_strength`: strength of luma protection mask.
 - `chroma_denoise.star_protection.enabled`: star-mask protection for color cores/halos.
@@ -3226,33 +2162,72 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `chroma_denoise.chroma_bilateral.sigma_range`: color-distance bilateral selectivity.
 - `chroma_denoise.blend.mode`: currently chroma-only blending mode.
 - `chroma_denoise.blend.amount`: blend fraction between original and denoised chroma.
+- `chroma_denoise.extended_source_protection.enabled`: protect extended smooth sources (galaxy disks, large nebulae) from chroma denoising. Enable whenever the field contains a galaxy or large nebula to prevent the wavelet threshold from erasing real object color.
+- `chroma_denoise.extended_source_protection.luma_sigma`: detection threshold above sky background in sigma units (range 1.0–5.0). Lower values protect more area.
+- `chroma_denoise.extended_source_protection.dilate_px`: dilation radius (pixels) after detection, to cover PSF halos.
+- `chroma_denoise.large_scale_bias.enabled`: removes large-scale chroma bias (sky color gradients wider than the coarsest wavelet level) before the wavelet/bilateral stages.
+- `chroma_denoise.large_scale_bias.block_size`: block size in pixels for the block-median bias-surface estimate (>= 4).
+- `chroma_denoise.large_scale_bias.blur_sigma`: smoothing sigma in pixels that interpolates the block grid into a continuous surface (>= 0).
+- `chroma_denoise.large_scale_bias.strength`: fraction of the estimated deviation subtracted ([0,1]; the global background median is preserved, only spatial variation is flattened). The estimate uses unprotected pixels only, and the correction is faded out inside the protection mask -- there the surface is only interpolated and may be contaminated by unprotected faint halo. Large extended sources therefore require a sufficiently dilated `extended_source_protection` mask.
 
-### A.5 Global/local metrics / Tile / Synthetic / Reconstruction
+### A.4b Luma denoise
 
-- `global_metrics.weights.background`, `noise`, `gradient`: weighted terms composing per-frame global quality score.
+Standalone luminance denoise stage between post-stack and multiband
+(default: disabled). Addresses noise already present in the reconstructed
+luminance signal before it reaches multiband fusion -- unlike
+`chroma_denoise`, which only smooths the color components.
+
+- `luma_denoise.enabled`: enables the luma wavelet denoise stage. Default: `false` (opt-in).
+- `luma_denoise.luma_guard_strength`: strength of the luma guard against detail loss ([0,1]).
+- `luma_denoise.blend_amount`: blend fraction between original and denoised luma ([0,1]).
+- `luma_denoise.star_protection.enabled`: star-mask protection so star cores/halos stay sharp.
+- `luma_denoise.star_protection.threshold_sigma`: detection threshold for star mask creation.
+- `luma_denoise.star_protection.dilate_px`: star mask growth radius.
+- `luma_denoise.structure_protection.enabled`: edge/structure-aware protection of fine detail (e.g. faint nebula structure).
+- `luma_denoise.structure_protection.gradient_percentile`: gradient cutoff for the structure mask.
+- `luma_denoise.wavelet.enabled`: wavelet soft-threshold denoise.
+- `luma_denoise.wavelet.levels`: number of wavelet decomposition levels.
+- `luma_denoise.wavelet.threshold_scale`: wavelet threshold multiplier.
+- `luma_denoise.wavelet.soft_k`: softness of wavelet shrinkage.
+- `luma_denoise.extended_source_protection.enabled`: protects diffuse nebulae/large galaxies from luma denoising, mirroring `chroma_denoise.extended_source_protection`. Default: `false`. Needed because neither `star_protection` (point sources only) nor `structure_protection` (steep local gradients only) covers broad, low-contrast but real nebulosity.
+- `luma_denoise.extended_source_protection.luma_sigma`: detection threshold above sky background, in sigma. Recommended: 2.5.
+- `luma_denoise.extended_source_protection.dilate_px`: dilation radius after detection. Recommended: 30.
+- `luma_denoise.bilateral.enabled`: bilateral filter applied after the wavelet stage, mirroring `chroma_denoise.chroma_bilateral`. Default: `false`. The wavelet reconstruction always adds its coarsest approximation level back unmodified -- that residual carries real background noise no wavelet strength removes; bilateral targets it directly.
+- `luma_denoise.bilateral.sigma_spatial`: spatial sigma. Recommended: 1.5; for background noise closer to a DWARF-onboard-style live-stack, 6-10.
+- `luma_denoise.bilateral.sigma_range`: multiplier of the measured background luma sigma. Recommended: 2.0.
+
+Reconstruction is additive (`R_new = R + (Y_denoised - Y)` etc.), not
+ratio-based -- a ratio reconstruction amplifies noise in faint/partially
+protected regions and produces dark pixels/chroma fringing at star edges.
+
+### A.5 Global metrics / Reconstruction
+
+- `global_metrics.weights.background`, `noise`, `gradient`, `fwhm`, `roundness`, `star_count`: weighted terms composing the per-frame global quality score.
 - `global_metrics.clamp`: hard bounds before exponential weight mapping.
 - `global_metrics.adaptive_weights`: auto-adapt metric weights from observed dispersion.
 - `global_metrics.weight_exponent_scale`: controls separation strength in `exp(k*Q)` mapping.
-- `tile.size_factor`: base tile size scaling from measured seeing/FWHM.
-- `tile.min_size`: lower bound preventing too-small unstable tiles.
-- `tile.max_divisor`: upper bound via image dimension divisor.
-- `tile.overlap_fraction`: overlap ratio for overlap-add blending smoothness.
-- `tile.star_min_count`: threshold for STAR vs STRUCTURE tile class.
-- `local_metrics.clamp`: local quality clamp before weight conversion.
-- `local_metrics.neighborhood_normalization.enabled`, `radius`, `blend`: stabilize local metric normalization by blending tile-local and neighborhood-pooled robust z-scores.
-- `local_metrics.spatial_regularization.enabled`, `lambda`, `passes`: regularize local tile scores across neighboring tiles before exponential local weighting.
-- `local_metrics.star_mode.weights.fwhm`, `roundness`, `contrast`: STAR tile quality composition.
-- `local_metrics.structure_mode.metric_weight`, `background_weight`: STRUCTURE tile quality composition.
-- `synthetic.weighting`: synthetic frame generation method (`global` vs `tile_weighted`).
-- `synthetic.frames_min`: minimum cluster size to emit synthetic frame.
-- `synthetic.frames_max`: maximum number of synthetic outputs.
-- `synthetic.clustering.mode`: clustering backend for state grouping.
-- `synthetic.clustering.cluster_count_range`: allowed K-search window.
-- Reconstruction/OLA is currently internal runner behavior without a standalone `reconstruction:` config block.
+- `reconstruction.common_overlap_required_fraction`: coverage threshold for `COMMON_OVERLAP`.
+- `reconstruction.delete_source_cache_after_run`, `keep_profile_cache_after_run`: cache lifecycle after the run.
+- `reconstruction.diagnostics.level`: diagnostics verbosity (`summary`/`full`).
+- `reconstruction.diagnostics.preview_forward_drizzle_uniform`, `persist_forward_drizzle_uniform_store`: uniform-control diagnostics/persistence.
+- `reconstruction.drizzle.internal_scale`, `output_scale`: internal vs. output drizzle raster.
+- `reconstruction.drizzle.kernel`, `pixfrac`: kernel and drop-shrink of forward-drizzle contributions.
+- `reconstruction.drizzle.robust_passes`: robust reprojection passes.
+- `reconstruction.drizzle.min_clip_contributors`: minimum contributors for sample clipping.
+- `reconstruction.drizzle.full_frame_estimator`: all frames instead of only the reservoir determine the value (pilot clip bounds frozen, default off).
+- `reconstruction.drizzle.chunk_rows`, `chunk_halo_rows`, `memory_budget_mb`: streaming/memory profile of the reprojector.
+- `reconstruction.clipping.clip_sigma_low`, `clip_sigma_high`: MAD rejection thresholds.
+- `reconstruction.clipping.min_fraction`, `min_n_eff`: coverage gates per pixel.
+- `reconstruction.clipping.guard_fallback`: fallback instead of strict veto on clip failure.
+- `reconstruction.clipping.shared_frame_rejection`, `shared_frame_rejection_consensus`: cross-channel consensus against anti-correlated CFA chroma noise (CPU and CUDA); see the §14 table above.
+- `reconstruction.clipping.bimodal_veto`, `bimodal_veto_gap_sigma`: rejects a coherent minority population (e.g. a registration-drift-affected subset of frames) the ordinary wide clip bound alone admits; see the §14 table above.
+- `reconstruction.coverage_gate.*`: fail-closed coverage/quality gates before FORWARD_DRIZZLE.
+- `reconstruction.multiband.*`: band-fusion control (levels, alpha cap, quality/N_eff thresholds).
+- `reconstruction.quality.pyramid.*`: local quality maps (see §14).
 
-### A.6 Debayer / Astrometry / PCC / HMS / Stacking / Validation / Runtime
+### A.6 Debayer / Astrometry / PCC / HMS / Stacking / Runtime
 
-- Debayer is an automatic OSC pipeline phase and no longer a standalone config key.
+- Debayer is controlled via `registration.debayer_first`/`pre_debayer_method` (see §15); there is no standalone `debayer` block.
 - `astrometry.enabled`: enables plate-solving stage.
 - `astrometry.astap_bin`: ASTAP executable path.
 - `astrometry.astap_data_dir`: ASTAP star catalog/data path.
@@ -3276,27 +2251,47 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `hypermetric_stretch.log_d_mode`, `fixed_log_d`: automatic or fixed stretch strength.
 - `hypermetric_stretch.color_strategy`, `fixed_color_strategy`, `color_grip`, `shadow_convergence`: color strategy and hybrid grip controls.
 - `hypermetric_stretch.linear_expansion`: scientific-mode-only linear expansion.
+- `hypermetric_stretch.highlight_ceiling_percentile`: percentile ceiling (instead of the true max pixel) for ready_to_use's highlight-protection scale; lower than 100 trades bounded clipping for more contrast, without moving the target_bg-pinned background.
 - `hypermetric_stretch.write_channels`, `output_rgb`: HMS output controls.
-- `stacking.method`: final combine mode (`rej` sigma-clip vs `average`).
-- `stacking.common_overlap_required_fraction`: required pixel coverage across usable frames for `COMMON_OVERLAP`.
-- `stacking.tile_common_valid_min_fraction`: minimum `COMMON_OVERLAP` coverage over the full tile area.
-- `stacking.sigma_clip.sigma_low`, `sigma_high`: lower/upper rejection thresholds.
-- `stacking.sigma_clip.max_iters`: clipping iteration cap.
-- `stacking.sigma_clip.min_fraction`: minimum retained sample ratio fallback guard.
-- `stacking.cluster_quality_weighting.enabled`: enables synthetic-cluster quality weighting.
-- `stacking.cluster_quality_weighting.kappa_cluster`: weighting exponent.
-- `stacking.cluster_quality_weighting.cap_enabled`: explicit dominance cap toggle.
-- `stacking.cluster_quality_weighting.cap_ratio`: dominance cap level when enabled.
-- **Runtime safeguard:** for synthetic stacking, a default dominance cap is applied even when `cap_enabled=false` to avoid diffuse-signal collapse from a few dominant clusters.
-- `stacking.output_stretch`: optional linear post-scale of the output data to the full 16-bit range.
-- `stacking.cosmetic_correction`: optional hot-pixel style correction after stacking.
-- `stacking.cosmetic_correction_sigma`: detection threshold for cosmetic correction.
-- `validation.min_fwhm_improvement_percent`: required sharpness improvement check.
-- `validation.max_background_rms_increase_percent`: background degradation guard.
-- `validation.min_tile_weight_variance`: sanity check against degenerate local weighting.
-- `validation.require_no_tile_pattern`: checker/grid artifact detector gate.
 - `runtime_limits.parallel_workers`: upper bound for worker threads.
 - `runtime_limits.memory_budget`: memory budget that can cap effective parallelism.
-- `runtime_limits.tile_analysis_max_factor_vs_stack`: performance anomaly warning threshold.
 - `runtime_limits.hard_abort_hours`: absolute runtime safety stop.
-- `runtime_limits.allow_emergency_mode`: permits processing below normal assumptions.
+
+## Forward Drizzle v2: streaming and memory budget
+
+FORWARD_DRIZZLE exclusively uses the transactional v2 band path; there is no
+method or environment-variable switch to the old producer. Source, quality and
+launched-sample regions are band-bounded, one CPU/CUDA workspace is reused across
+all bands, and MULTIBAND requires the published v2 store fail-closed. CUDA device
+failures restart the entire unpublished phase on `cpu_v2`. The separate CPU
+coverage/Uniform preview remains a diagnostic disabled by default.
+
+| Parameter | Units, range and default | Behavior |
+|---|---|---|
+| `reconstruction.drizzle.memory_budget_mb` | MiB, integer >=0, default 0 | 0 inherits `runtime_limits.memory_budget`; direct library calls use 512 MiB. Accounts for retained output/masks, one source plus transient load copy, stripe scratch and reserve. Available host/cgroup headroom can further reduce the budget. When undersized it autogrows in 1 GiB steps (logged as warnings) up to the headroom cap; see `runtime_limits.memory_budget`. |
+| `reconstruction.drizzle.chunk_rows` | internal target rows, integer >=0, default 0 | Auto selects at most 256 rows within budget. Oversized explicit values fail; if one row cannot fit, allocation is rejected before large buffers are created. |
+| `reconstruction.drizzle.chunk_halo_rows` | rows, integer >=-1, default -1 | Compatibility field. Exact source-footprint enumeration includes droplets crossing stripe boundaries; CPU Uniform/coverage does not need duplicate output halo rows. |
+| `reconstruction.common_overlap_required_fraction` | fraction, (0,1], default 1 | Fraction of accepted dense frame footprints defining an independent analysis region, not intersection of sparse R/G/B droplets. |
+| `reconstruction.diagnostics.preview_forward_drizzle_uniform` | boolean, default false | Streaming summary diagnostic, not a finished stack or resume commit. |
+
+Coverage and Uniform share the polygon kernel. `n_eff=(sum B)^2/sum(B^2)` uses
+geometric frame weights; missing support counts as zero within the analysis region.
+An empty analysis region fails its gate. Production coverage retains only two full
+byte masks; frame buffers are striped. Exact percentiles use temporary float spools
+and a bounded read buffer, at most approximately `4 * active_channels * internal_pixels`
+bytes on disk, with an additional 64 MiB free-space requirement. Hole detection
+uses two scanlines; FITS mask export uses one float row instead of a float image.
+
+The CPU reference uses one worker and fixed frame order. Sources may be reloaded
+per stripe; affine source rows are geometrically bounded, local warps conservatively
+revisited. Extra I/O trades for bounded RAM. Diagnostics report `estimated_peak_bytes`,
+`resolved_chunk_rows` and `workers_used`. This is an allocation estimate, not measured
+whole-process RSS; existing registration data and concurrent processes require
+separate accounting. There is no automatic method or scale fallback. See
+`tile_compile_cpp/examples/forward_drizzle_streaming.example.yaml`.
+
+The shared M3 Uniform/Raw library path additionally budgets one clipping candidate per frame, pixel and channel in the worst case, plus two output stripes. Its materializing wrapper also charges both complete outputs. A check after building candidate lists cannot replace this preflight. The current diagnostic profile store still materializes Uniform, but exports its planes without extra full-image copies.
+
+`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (boolean, default `false`) is independent of preview. When enabled, it streams unclipped Uniform planes into `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` publishes the complete verified generation atomically. The existing drizzle budget includes an additional 8 MiB FITS/metadata reserve and one float row. Insufficient memory fails before source loading; insufficient free disk fails before plane writing. A failed diagnostic does not fail the production run. Old generations are retained and consume disk; there is no automatic cleanup. This is a diagnostic store, not a resumable pipeline phase. Read `current.json` and validate it against the expected source, sampling and algorithm identity; old flat stores are not implicitly accepted or rewritten. The shared clipped Uniform/Raw library store is now a dev/regression oracle only and is not wired into production.
+
+The checked source-quality library path has an explicit MiB budget and preflights a conservative 128 bytes per source pixel plus source/load buffers, metadata and metric scratch. Large native images may fail early. The shared drizzle budget also includes the supplied dense per-source quality weight vector. Store commit schema 2 additionally binds normalized-cache and quality-plan hashes; older diagnostic stores are not accepted implicitly as checked predecessors. These library APIs do not enable pipeline resume.

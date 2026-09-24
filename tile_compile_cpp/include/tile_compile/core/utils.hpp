@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <thread>
 #include <vector>
@@ -24,6 +25,7 @@ std::string get_run_id();
 std::vector<fs::path> discover_frames(const fs::path& input_dir, const std::string& pattern = "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz");
 std::vector<uint8_t> read_bytes(const fs::path& path);
 std::string read_text(const fs::path& path);
+void write_text_atomic(const fs::path& path, const std::string& text);
 void write_text(const fs::path& path, const std::string& text);
 void safe_hardlink_or_copy(const fs::path& src, const fs::path& dst);
 fs::path pick_output_file(const fs::path& dir, const std::string& prefix, const std::string& ext);
@@ -40,17 +42,40 @@ fs::path resolve_project_root(const fs::path& config_path);
 // Empty-input convention: functions in this group return 0.0f on empty input.
 // This is intentional — 0.0f is a neutral element for addition and does not
 // propagate through arithmetic. Callers that need "no data" signalling should
-// check emptiness before calling, or use the metrics::aqmh_* variants which
+// check emptiness before calling, or use the *_or_nan variants below which
 // return NaN on empty/degenerate input.
 constexpr float kMadToSigma = 1.4826f;
 float median_of(std::vector<float> v);              // returns 0.0f if empty
 float mad_of(std::vector<float> v, float median);   // returns 0.0f if empty
 float stddev_of(const std::vector<float>& v);       // returns 0.0f if < 2 elements
+
+// IEEE-754 quiet NaN for float. Shared canonical helper — replaces the
+// previously duplicated anonymous-namespace copies in source_quality_maps.cpp,
+// source_quality_proxy.cpp, and source_quality_map_cache.cpp.
+inline constexpr float nan_value() {
+    return std::numeric_limits<float>::quiet_NaN();
+}
+
+// NaN-on-empty variants for callers that treat "no data" as NaN rather than 0.
+// These replace the previously duplicated anonymous-namespace copies in
+// source_quality_maps.cpp, multiband_validation.cpp, and
+// background_extraction.cpp.
+float median_of_or_nan(std::vector<float> v);       // returns NaN if empty
+float mad_of_or_nan(std::vector<float> v, float median); // returns NaN if empty
+
+// In-place variants: mutate the input vector (nth_element reordering) to avoid
+// copying large vectors. Use when the caller does not need the original order.
+float median_of_or_nan_inplace(std::vector<float>& v);  // returns NaN if empty
 float robust_sigma_mad(std::vector<float>& pixels); // returns 0.0f if empty
 float percentile_from_sorted(const std::vector<float>& sorted, float pct); // returns 0.0f if empty
 float percentile_of(std::vector<float>& values, float pct);               // returns 0.0f if empty
 float estimate_background_sigma_clip(std::vector<float> pixels);          // returns 0.0f if empty
 std::vector<size_t> sample_indices(size_t count, int max_samples);
+
+// 2x2 box downsample (mean of each 2x2 block). Odd trailing rows/cols are
+// dropped. Returns 1x1 for degenerate input. Shared by registration pyramid
+// building and CFA green-proxy downsampling.
+Matrix2Df downsample2x2_mean(const Matrix2Df& in);
 
 // Robust z-score normalization: (x - median) / (1.4826 * MAD)
 void robust_zscore(const std::vector<float>& v, std::vector<float>& out);

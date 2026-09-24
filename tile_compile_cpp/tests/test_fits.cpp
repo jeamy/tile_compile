@@ -2,10 +2,12 @@
  #include "tile_compile/metrics/metrics.hpp"
  #include "tile_compile/core/types.hpp"
  #include "tile_compile/io/fits_io.hpp"
+#include "tile_compile/core/atomic_output.hpp"
 
  #include <algorithm>
  #include <cmath>
  #include <filesystem>
+ #include <fstream>
  #include <vector>
 
  #include <catch2/catch_approx.hpp>
@@ -202,6 +204,91 @@ TEST_CASE("adaptive global weights respond to asymmetric predictive utility") {
     }
     REQUIRE(max_abs_delta > 1.0e-4f);
 }
+TEST_CASE("FITS audit: streamed byte mask preserves rows and atomic output", "[drizzle-audit]") {
+    using namespace tile_compile;
+    core::AtomicOutput fixture(std::filesystem::temp_directory_path()/"drizzle-mask-test");
+    const std::vector<uint8_t> mask={0,1,0,1,1,1,0,0,1,0,1,0};
+    io::FitsHeader header;
+    io::write_fits_mask_rows(fixture.path(),mask,3,4,header);
+    auto [pixels,stored_header]=io::read_fits_float(fixture.path());
+    REQUIRE(pixels.rows()==3);REQUIRE(pixels.cols()==4);
+    for(int y=0;y<3;++y) for(int x=0;x<4;++x)
+        REQUIRE(pixels(y,x)==static_cast<float>(mask[y*4+x]));
+    REQUIRE(stored_header.get_string("ROWORDER").value_or("")=="TOP-DOWN");
+    REQUIRE_THROWS(io::write_fits_mask_rows(fixture.path(),mask,4,4,header));
+    auto unchanged=io::read_fits_pixels_float(fixture.path());
+    REQUIRE(unchanged==pixels);
+}
+
+TEST_CASE("FITS audit: write_fits_float is atomic (M2 forward-drizzle store, "
+          "audit 2026-09-05 A6)", "[drizzle-audit]") {
+    using namespace tile_compile;
+    const auto target =
+        std::filesystem::temp_directory_path() / "drizzle-float-atomic-test";
+    std::filesystem::remove(target);
+
+    Matrix2Df first(2, 3);
+    first << 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f;
+    io::FitsHeader header;
+    io::write_fits_float(target, first, header);
+    auto [pixels, stored_header] = io::read_fits_float(target);
+    REQUIRE(pixels.rows() == 2);
+    REQUIRE(pixels.cols() == 3);
+    for (int y = 0; y < 2; ++y)
+      for (int x = 0; x < 3; ++x)
+        REQUIRE(pixels(y, x) == first(y, x));
+
+    // Simulate a crash mid-write: stage a competing, incomplete file under
+    // the same target and never commit it (mirrors the generic AtomicOutput
+    // "abandoned staging" test above, but for the float-plane writer this
+    // M2 store actually depends on).
+    {
+      core::AtomicOutput interrupted(target);
+      std::ofstream partial(interrupted.path());
+      partial << "not a valid FITS file";
+    }
+    auto [unchanged, unchanged_header] = io::read_fits_float(target);
+    REQUIRE(unchanged.rows() == 2);
+    REQUIRE(unchanged.cols() == 3);
+    for (int y = 0; y < 2; ++y)
+      for (int x = 0; x < 3; ++x)
+        REQUIRE(unchanged(y, x) == first(y, x));
+    // No abandoned staging directory left behind next to the target.
+    bool found_stage = false;
+    for (const auto &entry :
+        std::filesystem::directory_iterator(target.parent_path()))
+      if (entry.path().filename().string().rfind(
+              target.filename().string() + ".stage-", 0) == 0)
+        found_stage = true;
+    REQUIRE_FALSE(found_stage);
+
+    // A valid second write replaces the first commit atomically.
+    Matrix2Df second(1, 1);
+    second << 42.0f;
+    io::write_fits_float(target, second, header);
+    auto [replaced, replaced_header] = io::read_fits_float(target);
+    REQUIRE(replaced.rows() == 1);
+    REQUIRE(replaced.cols() == 1);
+    REQUIRE(replaced(0, 0) == 42.0f);
+
+    std::filesystem::remove(target);
+}
+
+TEST_CASE("FITS audit: float row export preserves values and failed rewrites", "[drizzle-audit]") {
+    using namespace tile_compile;
+    core::AtomicOutput fixture(std::filesystem::temp_directory_path()/"drizzle-float-row-test");
+    const std::vector<float> values = {-7.0f, 0.125f, 9.5f, 100.0f, -0.5f, 2.0f};
+    io::FitsHeader header;
+    io::write_fits_float_rows(fixture.path(), values, 2, 3, header);
+    auto [pixels, stored] = io::read_fits_float(fixture.path());
+    REQUIRE(stored.get_string("ROWORDER").value_or("") == "TOP-DOWN");
+    for (int y = 0; y < 2; ++y) for (int x = 0; x < 3; ++x)
+        REQUIRE(pixels(y, x) == values[y * 3 + x]);
+    REQUIRE_THROWS(io::write_fits_float_rows(fixture.path(), values, 3, 3, header));
+    REQUIRE(io::read_fits_pixels_float(fixture.path()) == pixels);
+}
+
  #else
  int tile_compile_tests_metrics_stub() { return 0; }
- #endif
+
+#endif

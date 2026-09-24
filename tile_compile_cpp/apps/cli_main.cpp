@@ -1,6 +1,9 @@
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/config/legacy_config_migration.hpp"
 #include "tile_compile/core/build_info.hpp"
+#include "tile_compile/core/errors.hpp"
+#include "tile_compile/core/utils.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
 #include "tile_compile/metrics/metrics.hpp"
@@ -65,23 +68,29 @@ static void print_json(const json& j) {
 /// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+/// @details Duplicated core::read_text except for error handling: that one
+/// throws when the file can't be opened, while every caller here wants a
+/// silent "" for a state/config file that may not exist yet. Delegate and
+/// preserve that contract.
 static std::string read_file_text(const fs::path& p) {
-    std::ifstream ifs(p);
-    if (!ifs) return "";
-    std::ostringstream ss;
-    ss << ifs.rdbuf();
-    return ss.str();
+    try {
+        return tile_compile::core::read_text(p);
+    } catch (const std::exception&) {
+        return "";
+    }
 }
 
-/// @brief Writes file text.
-/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
+/// @details Duplicated core::write_text except for error handling: that one
+/// throws, while every caller here checks a bool. Delegate and preserve the
+/// bool contract (and the non-atomic write --- core::write_text_atomic is a
+/// different, stricter contract this helper never had).
 static bool write_file_text(const fs::path& p, const std::string& content) {
-    std::ofstream ofs(p);
-    if (!ofs) return false;
-    ofs << content;
-    return true;
+    try {
+        tile_compile::core::write_text(p, content);
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
 }
 
 /// @brief Reads stdin.
@@ -196,41 +205,17 @@ static void round_yaml_numeric_scalars_inplace(YAML::Node node) {
 }
 
 /// @brief Computes sha256 file.
-/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
+/// @details Duplicated core::sha256_file (src/core/utils.cpp) except for
+/// error handling: core::sha256_file throws on any I/O/OpenSSL failure,
+/// while this call site (FITS directory scan) wants a best-effort "" for one
+/// unreadable frame rather than aborting the whole scan. Delegate to the
+/// canonical implementation and preserve that "" -on-failure contract here.
 static std::string compute_sha256_file(const fs::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return "";
-
-    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    if (!ctx) return "";
-    if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1) {
-        EVP_MD_CTX_free(ctx);
+    try {
+        return tile_compile::core::sha256_file(path);
+    } catch (const std::exception&) {
         return "";
     }
-
-    char buffer[8192];
-    while (file.read(buffer, sizeof(buffer)) || file.gcount() > 0) {
-        if (EVP_DigestUpdate(ctx, buffer, static_cast<size_t>(file.gcount())) != 1) {
-            EVP_MD_CTX_free(ctx);
-            return "";
-        }
-    }
-
-    unsigned char hash[EVP_MAX_MD_SIZE];
-    unsigned int hash_len = 0;
-    if (EVP_DigestFinal_ex(ctx, hash, &hash_len) != 1) {
-        EVP_MD_CTX_free(ctx);
-        return "";
-    }
-    EVP_MD_CTX_free(ctx);
-
-    std::ostringstream oss;
-    for (unsigned int i = 0; i < hash_len; ++i) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
-    }
-    return oss.str();
 }
 
 struct FitsHeaderInfo {
@@ -750,6 +735,53 @@ int cmd_save_config(const std::string& path, const std::string& yaml_text, bool 
 }
 
 // ============================================================================
+// migrate-config <in> <out>
+// ============================================================================
+/// @brief Applies the single-method legacy config migration (plan section 6.5)
+/// to an input YAML and writes the cleaned result. Rejects `method` / engine
+/// keys fail-closed; strips removed structural blocks with a report.
+int cmd_migrate_config(const std::string& in_path, const std::string& out_path) {
+    fs::path in(in_path);
+    if (!fs::exists(in)) {
+        json r; r["ok"] = false; r["error"] = "File not found: " + in_path;
+        print_json(r);
+        return 1;
+    }
+    YAML::Node node;
+    try {
+        node = YAML::Load(read_file_text(in));
+    } catch (const std::exception& e) {
+        json r; r["ok"] = false;
+        r["error"] = std::string("YAML parse error: ") + e.what();
+        print_json(r);
+        return 1;
+    }
+    tile_compile::config::ConfigMigrationReport report;
+    try {
+        tile_compile::config::migrate_legacy_config_node(node, report);
+    } catch (const tile_compile::ConfigError& e) {
+        json r; r["ok"] = false; r["error"] = e.what();
+        print_json(r);
+        return 1;
+    }
+    YAML::Emitter emitter;
+    emitter << node;
+    if (!write_file_text(out_path, std::string(emitter.c_str()) + "\n")) {
+        json r; r["ok"] = false;
+        r["error"] = "failed to write file: " + out_path;
+        print_json(r);
+        return 1;
+    }
+    json r;
+    r["ok"] = true;
+    r["input"] = in_path;
+    r["output"] = out_path;
+    r["migration"] = json::parse(report.to_json_string());
+    print_json(r);
+    return 0;
+}
+
+// ============================================================================
 // validate-config --path <path> | --yaml <yaml> | --stdin
 // ============================================================================
 /// @brief Handles CLI command validate config.
@@ -772,12 +804,24 @@ int cmd_validate_config(const std::string& path, const std::string& yaml_arg, bo
     result["warnings"] = json::array();
     if (!path.empty()) result["path"] = path;
     
+    // Use the migrated parser so validation reports exactly what the runner
+    // enforces: `method:`/engine keys fail closed here instead of passing
+    // validation and then killing the run at startup.
+    tile_compile::config::ConfigMigrationReport migration_report;
     try {
-        tile_compile::config::Config cfg = tile_compile::config::Config::from_yaml_text(yaml_text);
+        tile_compile::config::Config cfg =
+            tile_compile::config::Config::from_yaml_text_migrated(yaml_text, migration_report);
         cfg.validate();
         result["valid"] = true;
     } catch (const std::exception& e) {
         result["errors"].push_back(e.what());
+    }
+    for (const auto& key : migration_report.stripped_keys) {
+        result["warnings"].push_back("legacy config key removed by migration: " + key);
+    }
+    for (const auto& renamed : migration_report.renamed_keys) {
+        result["warnings"].push_back("legacy config key renamed: " + renamed.first +
+                                     " -> " + renamed.second);
     }
     
     print_json(result);
@@ -1752,6 +1796,7 @@ void print_usage() {
               << "  load-config <path>              Load config YAML file\n"
               << "  save-config <path> [--stdin | YAML]  Save config YAML file\n"
               << "  validate-config (--path P | --yaml Y | --stdin)  Validate config\n"
+              << "  migrate-config <in> <out>       Apply the single-method legacy config migration\n"
               << "  scan <input_path> [--frames-min N]  Scan input directory for frames\n"
               << "  list-runs <runs_dir>            List pipeline runs\n"
               << "  get-run-status <run_dir>        Get status of a run\n"
@@ -1866,7 +1911,17 @@ int main(int argc, char* argv[]) {
         }
         return cmd_validate_config(path, yaml, use_stdin, strict);
     }
-    
+
+    if (command == "migrate-config") {
+        std::string in_path = get_positional(0);
+        std::string out_path = get_positional(1);
+        if (in_path.empty() || out_path.empty()) {
+            std::cerr << "migrate-config requires <in> and <out> path arguments\n";
+            return 1;
+        }
+        return cmd_migrate_config(in_path, out_path);
+    }
+
     if (command == "scan") {
         std::string input_path = get_positional(0);
         if (input_path.empty()) {

@@ -1,66 +1,98 @@
 # Resume-Abhängigkeiten
 
-Dieses Dokument beschreibt den tatsächlich implementierten Resume-Vertrag des
-aktuellen Runners. Alte Run-Layouts und alte Cache-Pfade sind nicht Bestandteil
-des Vertrags.
+Dieses Dokument beschreibt den implementierten Resume-Vertrag des aktuellen
+Single-Method-Runners (`tile_compile_runner resume-reconstruction`).
+Legacy-Run-Layouts und Legacy-Cache-Pfade liegen außerhalb dieses
+Vertrags.
 
 ## Grundregel
 
-Ein Resume ist nur sicher, wenn alle Eingaben der Zielphase als gültige
-Artefakte oder Caches vorhanden sind. `config.yaml` im Run-Verzeichnis ist
-immer erforderlich.
+Ein Resume ist nur sicher, wenn jeder Input der Zielphase als valides
+Artefakt oder Cache vorliegt. `config.yaml` im Run-Verzeichnis ist immer
+erforderlich, und `artifacts/run_provenance.json` muss zum Run passen.
 
-Die CLI akzeptiert mehrere Phasen, aber sie haben nicht alle dieselbe
-Semantik:
+Der Runner validiert **fail-closed**: fehlende Artefakte,
+Hash-Mismatches oder nicht unterstützte Phasen brechen mit einem Fehler
+ab — es gibt keinen stillen Teil-Fallback.
 
-- **In-Place-Vollständigkeitslauf:** Die frühen Phasen werden nicht ab der
-  ausgewählten Phase fortgesetzt. Der Runner liest `input_dir` aus dem letzten
-  `run_start`-Event und startet den vollständigen Pipeline-Lauf erneut im selben
-  Run-Verzeichnis.
-- **Direktes Resume:** Die Phase lädt persistierte Artefakte und startet nur
-  den passenden Downstream-Pfad.
+## Unterstützte Einstiegspunkte
 
-## Unterstützte Einstiege
+`resume-reconstruction --from-phase` akzeptiert zwei Gruppen von Phasen
+(Groß-/Kleinschreibung egal; `HMS` ist ein Alias für
+`HYPERMETRIC_STRETCH`):
 
-| Angeforderte Phase | Mechanismus | Tatsächlicher Einstieg | Mindestabhängigkeiten | Ergebnis |
-|---|---|---|---|---|
-| `SCAN_INPUT`, `CHANNEL_SPLIT`, `NORMALIZATION`, `GLOBAL_METRICS`, `TILE_GRID`, `REGISTRATION`, `PREWARP`, `COMMON_OVERLAP`, `LOCAL_METRICS`, `TILE_RECONSTRUCTION`, `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`, `DEBAYER` | In-Place-Vollständigkeitslauf | neuer vollständiger `run` | `config.yaml`, gültiges letztes `run_start`-Event mit `input_dir`, lesbare Eingabeframes | alle Phasen werden neu erzeugt; vorhandene Artefakte werden nicht als Resume-Eingabe garantiert |
-| `AQMH_MAPS`, `AQMH_GLOBAL_QUALITY`, `AQMH_RECONSTRUCTION`, `AQMH_DIAGNOSTICS` | Direktes AQMH-Resume | `AQMH_RECONSTRUCTION` | `artifacts/aqmh_metrics.json`, `cache/aqmh/aqmh_cache.json`, gültige `cache/prewarped_frames`, `outputs/canvas_mask.fits`; bei abweichender Maskengröße zusätzlich rekonstruierbare `cache/aqmh_masks` | neue AQMH-Rekonstruktion, Diagnostik und anschließend `STACKING`/`DEBAYER` |
-| `STACKING` bei AQMH | Direktes Resume oder AQMH-Rekonstruktion | `STACKING` bei vorhandenem Raw-Artefakt, sonst `AQMH_RECONSTRUCTION` | bevorzugt `outputs/aqmh_reconstructed_raw.fit`; falls es fehlt zusätzlich alle AQMH-Abhängigkeiten der vorherigen Zeile | Stack, Debayer und weitere Folgephasen |
-| `STACKING` bei Classic | Direktes Resume | `STACKING` | mindestens ein gültiges `outputs/synthetic_*.fit`; optional `artifacts/synthetic_frames.json`, `artifacts/global_registration.json`, Masken | Stack, Debayer und weitere Folgephasen |
-| `ASTROMETRY` | Direktes Post-Processing-Resume | `ASTROMETRY` | `outputs/stacked_rgb_solve.fits` oder `outputs/stacked_rgb.fits`; optional vorhandenes `artifacts/stacked_rgb.wcs` als Fallback | Astrometrie, danach BGE und PCC |
-| `BGE` | Direktes Post-Processing-Resume | `BGE` | RGB-Output wie bei `ASTROMETRY`, `outputs/canvas_mask.fits`; für Classic zusätzlich passende `artifacts/local_metrics.json` und `artifacts/tile_grid.json`, für AQMH kann BGE Tile-Daten aus dem RGB-Output ableiten | BGE, danach PCC |
-| `PCC` | Direktes Post-Processing-Resume | `PCC` | RGB-Output; optional `outputs/stacked_rgb_bge_linear.fits`; für aktiviertes PCC ein gültiger WCS oder ein vorhandenes WCS-Artefakt | PCC |
-| `HYPERMETRIC_STRETCH`/`HMS` | Direktes Post-Processing-Resume | `HYPERMETRIC_STRETCH` | bevorzugt `outputs/pcc_R.fit`, `pcc_G.fit`, `pcc_B.fit` oder `outputs/stacked_rgb_pcc.fits`; bei `require_successful_pcc: false` alternativ BGE-/Solve-RGB | HMS-Ausgabe |
+### Rekonstruktions-Resume
+
+| Angeforderte Phase | Mechanismus | Mindest-Abhängigkeiten | Was läuft |
+|---|---|---|---|
+| `GLOBAL_QUALITY` | Direktes Resume | `config.yaml` byte-identisch zur Run-Start-Config (sha256 in `run_provenance.json`), `registration_sampling.json`, `sampling_geometry.json`, `forward_common_overlap.json`, Geometrie-Dateien + `forward_drizzle_geometry/`-Cache (bei lokalen Warps), `cache/source_quality_maps/`, `source_quality_plan.json`, `cache/normalized_frames/` | GLOBAL_QUALITY, FORWARD_DRIZZLE, MULTIBAND, STACKING-Marker, alle aktivierten Downstream-Phasen |
+| `FORWARD_DRIZZLE` | Direktes Resume | alles obige plus `forward_drizzle_checkpoint.json` (Geometrie-Hash + protokollierte Artefaktgrößen müssen stimmen) und konsistenter `forward_drizzle_v2/`-Store | FORWARD_DRIZZLE (ab Checkpoint), MULTIBAND, alle aktivierten Downstream-Phasen |
+
+### Downstream-Resume
+
+Diese Einstiegspunkte nutzen ausschließlich die persistierten
+Rekonstruktions-Outputs und lassen die M1–M3-Vorläufer (Sampling-Geometrie,
+Forward Drizzle) unangetastet:
+
+| Angeforderte Phase | Mindest-Abhängigkeiten | Änderbare Config-Sektionen | Was läuft |
+|---|---|---|---|
+| `ASTROMETRY` | `outputs/stacked_rgb.fits` oder `stacked_rgb_solve.fits` | `astrometry`, `bge`, `pcc`, `chroma_denoise`, `hypermetric_stretch`, `runtime_limits` | ASTROMETRY, BGE, PCC, HYPERMETRIC_STRETCH (soweit aktiviert) |
+| `BGE` | wie oben | `bge`, `pcc`, `chroma_denoise`, `hypermetric_stretch`, `runtime_limits` | BGE, PCC, HYPERMETRIC_STRETCH |
+| `PCC` | wie oben; bei `bge.method != "none"` zusätzlich konsistentes `stacked_rgb_bge_linear.fits` | `pcc`, `chroma_denoise`, `hypermetric_stretch`, `runtime_limits` | PCC, HYPERMETRIC_STRETCH |
+| `HYPERMETRIC_STRETCH` | wie oben plus `outputs/stacked_rgb_pcc.fits` (lineares HMS-Input) | `hypermetric_stretch`, `runtime_limits` | HYPERMETRIC_STRETCH |
+
+Für Downstream-Resume wird die Config **abschnittsweise** gegen die
+Run-Start-Config verglichen (die Revision aus
+`artifacts/config_revisions/`, sonst `config.yaml` bei passendem sha256):
+nur die in der Tabelle erlaubten Sektionen dürfen abweichen. Jede andere
+Änderung wird mit `FORWARD_STAGE_CONFIG_SCOPE_MISMATCH` abgelehnt — so
+kann z.B. der HMS-Editor `hypermetric_stretch.*` ändern, ohne die
+persistierten PCC-/Rekonstruktions-Artefakte zu invalidieren.
+
+`MULTIBAND` ist kein Resume-Einstiegspunkt; es läuft immer zusammen mit
+FORWARD_DRIZZLE erneut. Jeder andere Phasenname wird mit
+`FORWARD_STAGE_UNSUPPORTED_RESUME_PHASE` abgelehnt.
 
 ## Cache-Abhängigkeiten
 
-Alle aktuellen Caches liegen unter `cache/`:
-
-| Cache | Erzeugt durch | Wird direkt benötigt von |
+| Cache | Erzeugt von | Benötigt für Resume |
 |---|---|---|
-| `cache/normalized_frames` | Normalisierung | aktuelle Vollständigkeitsläufe und nachfolgende Pipeline-Phasen desselben Laufs |
-| `cache/prewarped_frames` | Registration/Prewarp | `AQMH_RECONSTRUCTION` und alle AQMH-Resume-Einstiege, die dorthin abgebildet werden |
-| `cache/aqmh` | AQMH-Quality-Maps | AQMH-Rekonstruktion und AQMH-Diagnostik |
-| `cache/aqmh_masks` | AQMH-/Maskenphasen | AQMH-Resume, wenn `outputs/canvas_mask.fits` nicht in voller Canvas-Größe vorliegt |
-| `cache/phase9_osc_rgb` | RGB-/Phase-9-Verarbeitung | nur wenn der jeweilige Downstream-Code es für den konkreten Lauf verwendet |
+| `cache/normalized_frames` | NORMALIZATION (+ NORMALIZED_CACHE-Seal) | Rekonstruktions-Einstiegspunkte (Quell-LRU speist den Gather) |
+| `cache/source_quality_maps` | SOURCE_QUALITY_MAPS | Rekonstruktions-Einstiegspunkte (Sample-Gewichte) |
+| `artifacts/forward_drizzle_geometry` | SAMPLING_GEOMETRY | Rekonstruktions-Einstiegspunkte, wenn lokale Warp-Modelle existieren; bei rein-affinen Läufen komplett übersprungen |
 
-`aqmh.reconstruction.delete_prewarped_cache_after_run: true` löscht den
-Prewarp-Cache nach dem Lauf. Dann ist ein direktes AQMH-Resume ab
-`AQMH_RECONSTRUCTION` nicht möglich; ein In-Place-Vollständigkeitslauf bleibt
-mit gültigem Input-Log möglich.
+`reconstruction.delete_source_cache_after_run: true` löscht
+`cache/source_quality_maps` und `cache/normalized_frames` am Run-Ende —
+ein **Rekonstruktions-Resume** ist dann unmöglich; Downstream-Resume aus
+den persistierten Outputs funktioniert weiterhin.
+`reconstruction.keep_profile_cache_after_run` steuert die Vorhaltung der
+Profil-Caches unabhängig davon.
 
-## Nicht sichere Annahmen
+## Beim Resume beachtete Environment-Overrides
 
-- Eine angeforderte frühe Phase bedeutet **nicht**, dass nur diese Phase läuft.
-- Ein vorhandenes Phase-Event ersetzt kein benötigtes Artefakt.
-- Caches außerhalb von `cache/prewarped_frames`, `cache/normalized_frames`,
-  `cache/aqmh` und `cache/aqmh_masks` werden nicht gelesen.
-- `STACKING` ist bei AQMH ohne `aqmh_reconstructed_raw.fit` kein reines
-  Stack-Resume, sondern benötigt zuerst eine gültige AQMH-Rekonstruktion.
+- `TC_FORWARD_DRIZZLE_MEMORY_BUDGET_MB` — überschreibt
+  `reconstruction.drizzle.memory_budget_mb`, ohne den Checkpoint zu
+  invalidieren (der committed Store ist budget-invariant und auf dem
+  CPU-Pfad bit-exakt).
+
+## Unsichere Annahmen
+
+- Eine nicht unterstützte Phase anzufordern degradiert **nicht** zu einem
+  Vollrerun; sie schlägt fehl.
+- Ein Phase-Event ersetzt kein benötigtes Artefakt — der Checkpoint
+  verifiziert Artefakt-Bytegrößen und den Coverage-Geometrie-Hash.
+- `STACKING` und `MULTIBAND` sind keine Resume-Einstiegspunkte.
+  `ASTROMETRY`, `BGE`, `PCC`, `HYPERMETRIC_STRETCH` sind Downstream-
+  Einstiegspunkte: sie benötigen die persistierten Rekonstruktions-Outputs
+  und erlauben nur Änderungen in den Downstream-Config-Sektionen.
+- Eine `config.yaml`, die außerhalb des erlaubten Scopes von der
+  Run-Start-Config abweicht (bzw. deren sha256 bei Rekonstruktions-Resume
+  nicht mehr zu `run_provenance.json` passt), bricht das Resume ab.
 
 ## Quellen
 
-- `tile_compile_cpp/apps/runner_resume.cpp`
+- `tile_compile_cpp/apps/runner_forward_drizzle.cpp`
+  (`run_forward_drizzle_stages`, Resume-Validierung)
 - `tile_compile_cpp/apps/runner_pipeline.cpp`
 - `web_backend_cpp/include/services/run_inspector.hpp`
+  (`RESUME_FROM_PHASES`)

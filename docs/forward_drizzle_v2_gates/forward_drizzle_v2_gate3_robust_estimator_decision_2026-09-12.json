@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "gate": 3,
+  "status": "passed",
+  "decision": "reservoir_sigma_clip",
+  "spec": {
+    "file": "docs/forward_drizzle_v2_gate3_robust_estimator_spec_2026-09-12.json",
+    "sha256": "b7d7e1311695fa10aec4dae43e48995a1b9699672a8eb95a9925215b01241c53",
+    "schema_version": 3
+  },
+  "results": {
+    "file": "docs/forward_drizzle_v2_gate3_robust_estimator_results_2026-09-12.jsonl",
+    "sha256": "334074f19f1133f1c0b12868fb069a8b8404526f0dc89e1f758f0d4097c20104",
+    "rows": 221
+  },
+  "selected_estimator": {
+    "id": "reservoir_sigma_clip",
+    "parameters": {
+      "reservoir_size": 64,
+      "reservoir_seed": "0x9e3779b97f4a7c15",
+      "keep_predicate": "splitmix64(frame_order ^ seed) < floor(2^64 * R / N), N = sampling-plan stream length",
+      "oracle_clip": {
+        "min_clip_contributors": 5,
+        "robust_passes": 3,
+        "sigma_low": 3.0,
+        "sigma_high": 3.0
+      }
+    },
+    "passes_over_stream": 1,
+    "persistent_state_bytes_per_pixel_channel": "min(N, R) * sizeof(ForwardDrizzleV2RobustCandidate) <= 64 * 24 = 1536 plus uniform totals",
+    "memory_independent_of_frame_count": true,
+    "requires_candidate_records_host_side": false,
+    "requires_replay": false
+  },
+  "measured_worst_case": {
+    "vs_oracle_abs": 0.035556022959312372,
+    "vs_oracle_threshold": 2.0,
+    "vs_truth_abs": 2.0,
+    "vs_truth_note": "worst truth deviation is the bimodal case where the selected estimator reproduces the production oracle exactly (mode collapse to 98.0); the estimator itself never deviates from the oracle by more than 0.036"
+  },
+  "measured_per_candidate_worst_vs_oracle": {
+    "reservoir_sigma_clip/R64": 0.035556022959312372,
+    "mom_weighted_median/K41": 2.320066155074457,
+    "mom_weighted_median/K17": 2.7467822883219384,
+    "mom_winsorized_groups/K41": 2.4173033715585888,
+    "mom_winsorized_groups/K17": 2.4173033715585888,
+    "mom_trimmed_groups/K41": 2.4173033715585888,
+    "mom_trimmed_groups/K17": 2.4173033715585888,
+    "two_pass_winsorized_frames/K17_reference": 2.2549363044148549,
+    "uniform_reference": 40.952456467991453
+  },
+  "key_evidence": {
+    "n_le_reservoir_bit_identical_to_oracle": "all 17 N<=64 cases show dev_oracle = 0.0",
+    "grouped_contamination_30pct_N600": {
+      "oracle": 99.98515640533661,
+      "reservoir_sigma_clip": 100.02071242829592,
+      "dev": 0.035556022959312372,
+      "note": "every median-of-means variant fails this production-N case (dev 2.32-2.75) because periodic contamination spreads over all K groups; the per-frame reservoir clip resolves it"
+    },
+    "clean_gauss_N600": {
+      "oracle": 100.00389951098478,
+      "reservoir_sigma_clip": 99.942078115312157,
+      "dev": 0.06182139567262368,
+      "note": "reported not gated: quantifies the subsample statistical cost at production N (~64 of 600 frames decide the value)"
+    },
+    "mad_zero_one_outlier": "value = 100.0 exactly",
+    "sparse_and_empty_fallbacks": "too_few_candidates_fallback and no_source_support verified; no case loses support"
+  },
+  "replay_conflict_resolution": "the dense scatter emits each frame-local plane once; the selected estimator is a true single-pass stream: per frame it (a) accumulates the uniform A/B/B2 totals, (b) applies the O(1) hash keep predicate and pushes kept (x,b,frame_order) into the bounded reservoir. No candidate replay, no host contribution records, no second enumeration. The final clip runs once per pixel/channel at fold time on <= R records.",
+  "estimator_b_mapping": {
+    "contract": "estimator_b = source_b for every frame; the reservoir decides the value only, never the weight",
+    "rationale": "B/B2 accumulate the full candidate stream, so Gate-2 estimator support equals source support and n_eff = B^2/B2 counts every contributing frame; clipping affects the value, not the weight sum"
+  },
+  "fallback_state_machine": {
+    "no_source_support": "no candidate with finite x and b>0; all outputs zero; support not fabricated",
+    "too_few_candidates_fallback": "valid stream candidates < min_candidates OR kept reservoir < min_clip_contributors; value = weighted Uniform over the full stream, B/B2 full stream",
+    "primary_reservoir_sigma_clip": "reservoir clip ran; degenerate MAD inside the clip collapses the bounds to the median instead of erroring (mirrors production robust_clip_core: no epsilon padding)",
+    "degenerate_scale_too_few_groups": "reachable only via the non-selected MoM candidates; documented for completeness, unused by the selected estimator",
+    "invariant": "every path preserves b > 0 and finite value whenever at least one valid candidate exists"
+  },
+  "rejected_candidates": {
+    "mom_weighted_median": "fails the frozen 2.0 bound on grouped_contamination_30pct (N=40 and N=600); best MoM variant otherwise",
+    "mom_winsorized_groups": "same grouped-contamination failure; inflated MAD admits contaminated group means",
+    "mom_trimmed_groups": "same failure plus it drops weights (estimator_b mapping would need per-group admission bits)",
+    "two_pass_winsorized_frames": "fails the bound AND violates the single-pass dense-scatter constraint; retained as robust_reduce_v2 quality reference only",
+    "uniform": "reference fallback, not a robust estimator"
+  },
+  "known_limitations": [
+    "for N > R the value is decided by a deterministic ~64-frame subsample; statistical cost on clean data measured at 0.06 absolute (clean_gauss_N600, sigma=1 inputs)",
+    "a hash-aligned adversarial contamination pattern could bias the subsample; splitmix64(frame_order ^ fixed_seed) makes this non-accidental but not impossible; documented residual risk",
+    "reservoir storage of up to 64 records per pixel/channel is a Gate-5 memory input; K-group state is NOT additionally required because no MoM candidate was selected",
+    "the oracle's asymmetric sigma_low/sigma_high and min_clip_contributors/passes are carried over from production defaults; per-run configurability is a Gate-7 decision, not a new user-facing parameter here",
+    "GPU implementation of the reservoir + clip is deferred to Gate 6; the estimator contract is device-agnostic"
+  ],
+  "verification": {
+    "gate3_matrix_test": "1847 assertions, all passed",
+    "v2_suite": "13 cases, 7445 assertions, all passed",
+    "determinism": "every case x estimator run twice, bit-identical value/b/b2/n_eff/state required and verified",
+    "nonfinite_handling": "NaN x, inf x, b=0, b=-1 candidates ignored; outputs finite; support preserved",
+    "build": {
+      "git_sha": "33cc92c2cf35226400f1a8c64e4c1b27b0a3703a",
+      "git_dirty": true,
+      "dirty_tree_digest": "507e4cc6b653ee5758cdc9af446d95aacb108bfac46e73450c9484f02d456e3e",
+      "build_id_tests": "fa1a099421cf95e2dd6a03ff04d18055214708833afc66f92d2c792f1c74e943",
+      "compiler": "GNU 16.1.1",
+      "cuda": "13.0.88",
+      "note": "dirty tree is the Gate-3 implementation itself; the decision commit will bind the clean SHA"
+    }
+  },
+  "deferred_to_later_gates": [
+    "Gate 5: memory budget for the reservoir planes (<= 64 * 24 B per pixel/channel on device)",
+    "Gate 6: device-side reservoir accumulation and per-pixel clip kernel integrated with dense scatter",
+    "Gate 7: user-facing parameters if any (none added by this gate)"
+  ]
+}

@@ -221,12 +221,22 @@ prep::Config parse_preprocessing_config(const json& j) {
     if (b.contains("enabled")) {
       throw tile_compile::ValidationError(
           "bge.enabled is no longer supported; use bge.method: "
-          "none|classic|autobge instead (method is the sole on/off "
+          "none|classic|autobge|auto instead (method is the sole on/off "
           "switch -- \"none\" disables BGE).");
     }
     if (b.contains("method") && b["method"].is_string()) {
       cfg.bge.method = b["method"].get<std::string>();
     }
+    const json auto_detect = json_object(b, "auto_detect");
+    cfg.bge.auto_detect.gradient_threshold =
+        json_float(auto_detect, "gradient_threshold",
+                   cfg.bge.auto_detect.gradient_threshold);
+    cfg.bge.auto_detect.extended_source_sigma =
+        json_float(auto_detect, "extended_source_sigma",
+                   cfg.bge.auto_detect.extended_source_sigma);
+    cfg.bge.auto_detect.extended_source_dilate_px =
+        json_int(auto_detect, "extended_source_dilate_px",
+                 cfg.bge.auto_detect.extended_source_dilate_px);
     const json autobge = json_object(b, "autobge");
     cfg.bge.autobge.num_sample_points =
         json_int(autobge, "num_sample_points", cfg.bge.autobge.num_sample_points);
@@ -325,8 +335,6 @@ prep::Config parse_preprocessing_config(const json& j) {
     cfg.tile.min_size = json_int(t, "min_size", cfg.tile.min_size);
     cfg.tile.max_divisor = json_int(t, "max_divisor", cfg.tile.max_divisor);
     cfg.tile.overlap_fraction = json_float(t, "overlap_fraction", cfg.tile.overlap_fraction);
-    cfg.tile.star_min_count = json_int(t, "star_min_count", cfg.tile.star_min_count);
-    cfg.tile.star_soft_count = json_int(t, "star_soft_count", cfg.tile.star_soft_count);
   }
   if (j.contains("pcc") && j["pcc"].is_object()) {
     const auto& p = j["pcc"];
@@ -390,6 +398,9 @@ prep::Config parse_preprocessing_config(const json& j) {
         json_float(h, "shadow_convergence", cfg.hypermetric_stretch.shadow_convergence);
     cfg.hypermetric_stretch.linear_expansion =
         json_float(h, "linear_expansion", cfg.hypermetric_stretch.linear_expansion);
+    cfg.hypermetric_stretch.highlight_ceiling_percentile =
+        json_float(h, "highlight_ceiling_percentile",
+                   cfg.hypermetric_stretch.highlight_ceiling_percentile);
     cfg.hypermetric_stretch.write_channels =
         json_bool(h, "write_channels", cfg.hypermetric_stretch.write_channels);
     cfg.hypermetric_stretch.output_rgb =
@@ -487,8 +498,6 @@ json config_to_json(const prep::Config& cfg) {
           {"min_size", cfg.tile.min_size},
           {"max_divisor", cfg.tile.max_divisor},
           {"overlap_fraction", cfg.tile.overlap_fraction},
-          {"star_min_count", cfg.tile.star_min_count},
-          {"star_soft_count", cfg.tile.star_soft_count},
       }},
       {"hypermetric_stretch", {
           {"require_successful_pcc", cfg.hypermetric_stretch.require_successful_pcc},
@@ -506,6 +515,8 @@ json config_to_json(const prep::Config& cfg) {
           {"color_grip", cfg.hypermetric_stretch.color_grip},
           {"shadow_convergence", cfg.hypermetric_stretch.shadow_convergence},
           {"linear_expansion", cfg.hypermetric_stretch.linear_expansion},
+          {"highlight_ceiling_percentile",
+           cfg.hypermetric_stretch.highlight_ceiling_percentile},
           {"write_channels", cfg.hypermetric_stretch.write_channels},
           {"output_rgb", cfg.hypermetric_stretch.output_rgb},
       }},
@@ -1137,18 +1148,6 @@ PreprocessStackResult run_preprocess_stacking(
   return result;
 }
 
-std::string shell_quote(const std::string& s) {
-  std::string out;
-  out.reserve(s.size() + 2);
-  out.push_back(static_cast<char>(39));
-  for (char c : s) {
-    if (c == static_cast<char>(39)) out += "'\\''";
-    else out.push_back(c);
-  }
-  out.push_back(static_cast<char>(39));
-  return out;
-}
-
 void add_phase_result(json& phases,
                       const std::string& phase,
                       const std::string& status,
@@ -1675,6 +1674,8 @@ PreprocessPostprocessResult run_preprocess_postprocess(
         hms_cfg.color_grip = cfg.hypermetric_stretch.color_grip;
         hms_cfg.shadow_convergence = cfg.hypermetric_stretch.shadow_convergence;
         hms_cfg.linear_expansion = cfg.hypermetric_stretch.linear_expansion;
+        hms_cfg.highlight_ceiling_percentile =
+            cfg.hypermetric_stretch.highlight_ceiling_percentile;
         hms_cfg.write_channels = cfg.hypermetric_stretch.write_channels;
         hms_cfg.output_rgb = cfg.hypermetric_stretch.output_rgb;
         const auto hms_diag = image::run_hypermetric_stretch_rgb(rgb.R, rgb.G, rgb.B, hms_cfg);

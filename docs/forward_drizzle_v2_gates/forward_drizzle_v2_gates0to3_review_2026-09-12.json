@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "kind": "implementation_review",
+  "scope": "forward drizzle v2 gates 0-3, contract-vs-code audit after gate 3 selection",
+  "date": "2026-09-12",
+  "reviewed_at_commit": "fa93f4f0 plus the two review fixes in the follow-up commit",
+  "verdicts": {
+    "gate0_affine_reference": {
+      "verdict": "verified correct",
+      "evidence": "artifact docs/forward_drizzle_v2_gate0_affine_reference_2026-09-12.json binds run /media/tc_500/m42-gate0-ref60 to clean commit 5c1d977c, git_dirty=false, guard_fallback=true, 2276618 fallbacks, 0 rejected/nonfinite/holes; run directory and artifacts present",
+      "limits": "affine reference class only; local warp reference intentionally deferred to gate 8/10"
+    },
+    "gate1_dense_scatter": {
+      "verdict": "correct within measured scope",
+      "checks": [
+        "workspace path uses one non-blocking stream, cudaMemcpyAsync, no cudaDeviceSynchronize, no hot-path buffer allocation (stats_.allocations increments only in reserve)",
+        "three stream synchronizations per call as documented in the decision artifact",
+        "scatter kernel clamps droplet bbox to the tile, atomically accumulates area*value/area per channel plane; 21-case matrix reported 0 overlap/support mismatches and 0 absolute error vs the gather oracle",
+        "record-free: no host contribution records on the selected path"
+      ],
+      "limits": [
+        "atomicAdd(double) ordering is not architecturally guaranteed to be bit-reproducible on every future GPU; repeatability is demonstrated on the test GPU only",
+        "steady-state covers upload+kernel; full A/B downloads are correctness diagnostics only"
+      ],
+      "defect_found_and_fixed": "run_dense_scatter and the record/bench entry points did not reject non-finite affine6/half; floor(NaN)->int is UB on device. Finiteness guards added to all three entry points plus a regression test."
+    },
+    "gate2_support_fold": {
+      "verdict": "verified correct",
+      "checks": [
+        "support implications profile=>estimator=>source=>geometry enforced as errors, no silent promotion",
+        "B2 accumulates frame-folded bf*bf preserving same-frame cross terms; no area^2 reconstruction",
+        "four independent area fractions; value = A/B over positive denominator; no 2x2-AND",
+        "CUDA single-thread parity oracle mirrors evaluation order and error codes 1-6; byte-size overflow guards verified",
+        "CUDA-free stub returns false and leaves out untouched (user change preserved)"
+      ],
+      "defect_found_and_fixed": "CPU fold shape check multiplied frame_count*area.size() without an overflow pre-check; guarded now (matches the CUDA wrapper's existing guard)."
+    },
+    "gate3_robust_estimator": {
+      "verdict": "verified correct",
+      "checks": [
+        "robust_frame_oracle_v2 audited line-by-line against production robust_clip_core: identical (value,frame) deterministic order, weighted median, weighted MAD, asymmetric sigma bounds, no epsilon padding, early stop on unchanged mask, min_clip_contributors bypass",
+        "scope difference documented: production additionally applies the min_fraction/min_n_eff guard and throws on invalid candidates; the gate-3 oracle models the clip value and filters invalid candidates",
+        "reservoir keep predicate uses the known stream length, not a post-pass count: true single-pass",
+        "for N<=R reservoir equals oracle bit-exactly (dev_oracle=0 on all 17 small-N cases); worst dev 0.036 at N=600",
+        "fallback states reachable and tested: no_source_support, too_few_candidates_fallback, primary_reservoir_sigma_clip",
+        "estimator_b = source_b documented; B/B2 cover full stream"
+      ]
+    },
+    "deferred_items": {
+      "local_warp": "gate 8, documented",
+      "gate5_memory_planner": "still marked not passed; buffer roles now include the reservoir planes (<=64*24 B/pixel/channel)",
+      "gate6_workspace": "spike only; batch fold, Q/coverage/stream pipeline open",
+      "estimator_b_delegation": "resolved by gate 3 decision"
+    }
+  },
+  "fixes_committed_in_review": [
+    "CPU fold frame_count*area.size() overflow guard",
+    "non-finite affine6/half rejection in all three device scatter entry points",
+    "regression test for both",
+    "cosmetic: keep_all is bool"
+  ],
+  "residual_risks": [
+    "reservoir subsample statistical cost at N>R quantified (0.06 abs on sigma=1 data) and bounded by contract",
+    "hash-aligned adversarial contamination is non-accidental but possible; documented in the decision artifact",
+    "MoM candidates retained in code as non-selected references"
+  ]
+}

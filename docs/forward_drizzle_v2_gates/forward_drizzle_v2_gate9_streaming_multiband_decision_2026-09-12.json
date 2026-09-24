@@ -1,0 +1,113 @@
+{
+  "gate": 9,
+  "spec_sha256": "920206712ffef61310de397bf855b34b998100fb6c18c74e1b58fe2306ad2bdc",
+  "decision": "streaming_multiband_cpu_fusion_on_committed_band_outputs",
+  "decided_at": "2026-09-12",
+  "profile_production": {
+    "shared_clip_mask": "one Gate-3 reservoir sigma-clip decision per (native pixel, channel) feeds all four profiles; quality values never enter clipping",
+    "weights": {
+      "uniform": "b",
+      "raw": "b * g_eff * q_c",
+      "fine": "b * g_eff * q0^4",
+      "medium": "b * g_eff * q1^2"
+    },
+    "quality_fold": "per-candidate means over the frame's droplets: sum(area_j * clamp(q_j,0,inf)) / b_src over the same finite-source population; missing streams fold to 1.0; nonpositive/NaN quality contributes 0 (veto); artifact applicability tracked by finite-sample area (qaf plane)",
+    "outputs": "value = sum(w*x)/sum(w), weight_sum, n_eff = sum(w)^2/sum(w^2), support iff weight_sum > 0; fallback paths emit the uniform stream value and zero alpha factors"
+  },
+  "device_layout": {
+    "quality_uploads_per_frame": "four f32 source planes qc/q0/q1/qa (absent = null)",
+    "quality_frame_planes": "five f64 accumulators Qc/Q0/Q1/Qa/Qaf at internal resolution",
+    "reservoir_side_array": "float4 {qc,q0,q1,qa} per kept slot, qa<0 sentinel = no artifact data; moved together with records during the clip-path insertion sort",
+    "frame_meta": "V2FrameMetaDev 16 B per frame slot {g_eff, residual_factor, is_direct, pad}, uploaded per accumulate_frame call, bounds-checked by meta_capacity at finalize",
+    "profile_emission": "k_finalize_v2 reduces all four profiles plus a_separation/a_artifact/a_registration into an 80 B ForwardDrizzleV2ProfileResult per (pixel, channel)"
+  },
+  "alpha_and_confidence": {
+    "a_separation": "clamp01(Gate-4 per-pixel confidence); a fully degraded sigma population (all accepted candidates with invalid sigma2) is diagnosed as no separation evidence and collapses a_separation to 0",
+    "a_artifact": "weighted p10 of qa over clip-accepted contributions through the plan-14.4 smoothstep; qa absent -> artifact alpha 0, not applicable",
+    "a_registration": "is_direct/residual_factor contributions over the accepted set",
+    "channel_min": "forward_drizzle_v2_profile_alpha_plane aggregates OSC channel alphas by per-pixel minimum",
+    "diagnostic": "ForwardDrizzleV2AlphaDiagnostic flags globally near-zero alpha explicitly; never a silent success"
+  },
+  "ring_contract": {
+    "class": "ForwardDrizzleV2MultibandRing",
+    "semantics": "in-order band finalization, duplicate/out-of-range finalize rejected, immutable fused core reported once every band inside the vertical halo is committed",
+    "resident_bound": "floor(2*halo/band_rows)+2 finalized bands worst case, enforced and asserted",
+    "counters": "source_reused_bytes/quality_reused_bytes count overlap rows served from the retained predecessor tail"
+  },
+  "reuse_aware_read_amplification": {
+    "model": "application reads each needed source row once plus one halo pad per image edge; toy geometries are behavioral tests, the RA <= 1.1 gate applies to the selected production tile plan",
+    "production_check": "7868x4540 canvas at the gate-5 band plan meets RA <= 1.1 with halo 64"
+  },
+  "fusion": {
+    "chosen": "cpu_fusion_on_committed_band_outputs",
+    "parity": "fuse_multiband_streamed on v2 profile planes is bit-identical to fuse_multiband on supported pixels (NaN-aware comparison); the documented B3 flood-fill stripe-boundary pinch remains the only caveat",
+    "support": "fused support is a subset of uniform/raw support; multiband never widens support",
+    "grid": "v2 native output grid; at internal_scale=2 the same level count covers half the physical frequency reach of the legacy internal-res fusion, arbitrated by matched-star validation"
+  },
+  "matched_star_fallback": {
+    "module": "multiband_validation::select_reconstruction_candidate unchanged",
+    "verified": [
+      "zero effective multiband stars block multiband promotion",
+      "multiband == raw fails the strict improvement gate and selects raw",
+      "raw safety regression (background RMS) falls back to uniform",
+      "uniform and raw remain immutable controls at matched star positions"
+    ]
+  },
+  "memory_amendment": {
+    "added_roles": {
+      "reservoir_quality_bytes_per_slot": 16,
+      "quality_frame_plane_doubles": 5,
+      "frame_meta_bytes_per_slot": 16,
+      "profile_result_bytes": 80
+    },
+    "non_profiled_mode": "unchanged",
+    "measured": {
+      "device_bytes_per_native_pixel": 19954,
+      "amended_plan_bound": 20074,
+      "spec_estimate": 14600,
+      "note": "the 14600 estimate undercounted the per-slot side array (16 B x 128 slots = 2048 B/channel, not 1024 B/px); the amended plan bound is the binding figure and the kernel fits it"
+    }
+  },
+  "implementation_findings": {
+    "reservoir_sort_side_array": "records are insertion-sorted by (x, frame_order) at finalize; the first revision read resq by the sorted index while it stayed in slot order, misassigning quality means (fine weight 0.0148 vs 0.1806). Fixed by moving a local float4 copy alongside the records.",
+    "fixed_slot_accounting": "device_bytes_per_native_pixel initially counted the four quality upload planes and the meta table as per-pixel state; they are fixed pipeline slots like src/sigma2 and are now excluded. Scalar side-array accounting aligned to the allocated 3 u64.",
+    "finite_population": "device quality accumulation masks by source finiteness, exactly matching the b_src contributor population; the CPU oracle replicates this.",
+    "nan_aware_parity": "streamed-vs-whole-frame parity compares values with exact-or-both-NaN semantics."
+  },
+  "results": "docs/forward_drizzle_v2_gate9_streaming_multiband_results_2026-09-12.jsonl",
+  "production_geometry": {
+    "source": "3840x2160",
+    "canvas_native": "3934x2270 band of 7868x4540 output",
+    "band_rows": 33,
+    "frames": 60,
+    "max_frame_seconds": 0.043,
+    "frame_time_bound_s": 0.75,
+    "allocations": 1,
+    "global_synchronizations": 0,
+    "stream_synchronizations": 1,
+    "device_bytes_per_native_pixel": 19954,
+    "plan_bound": 20074,
+    "primary_pixels": 81889,
+    "artifact_applicable_pixels": 18908
+  },
+  "test_matrix": {
+    "gate9_tag": "12 test cases, 31984 assertions, all passing",
+    "coverage": [
+      "device profile parity vs CPU oracle: scale 1/2, MONO/OSC, identity-Q, NaN/nonpositive veto, missing streams, g_eff!=1, shared clip mask, overflow fallback",
+      "degraded sigma2 device case: a_separation collapses to 0 on all supported pixels",
+      "ring: immutability point, resident bound, first/last edges, duplicate/out-of-range rejection",
+      "reuse RA: halo 0/14/62 counters and toy behavior, production-scale RA <= 1.1",
+      "fusion: streamed vs whole-frame parity, support subset, levels 1..4, v2 adapter into ForwardDrizzleUniformResult",
+      "confidence calibration clean/degraded, channel-min alpha, near-zero diagnostic",
+      "matched-star validation: zero-star block, equality gate, raw safety fallback",
+      "memory amendment: profiled plan roles, bounded footprint on production geometry"
+    ]
+  },
+  "scope": {
+    "production_runner_wiring": false,
+    "legacy_path": "untouched",
+    "deferred": [
+      "Gate 10: runner wiring, device-fusion re-decision if measured fusion time violates budget, band-store integration of the ring with the gate-7 checkpoint"
+    ]
+  }
+}

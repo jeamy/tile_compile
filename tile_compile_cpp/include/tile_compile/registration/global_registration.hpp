@@ -131,7 +131,7 @@ SingleFrameRegResult register_single_frame(
     const std::vector<StarPoint>* ref_stars = nullptr);
 
 // Sub-functions (canonical implementations — do NOT duplicate in runner)
-Matrix2Df downsample2x2_mean(const Matrix2Df& in);
+// downsample2x2_mean moved to core::downsample2x2_mean (core/utils.hpp)
 WarpMatrix scale_translation_warp(const WarpMatrix& w, float scale);
 std::vector<StarPoint> detect_stars_simple(
     const Matrix2Df& img, int topk,
@@ -153,6 +153,14 @@ void render_smooth_local_displacement(
     const SmoothLocalWarpModel& model, int output_rows, int output_cols,
     float model_coordinate_scale, float model_offset_x, float model_offset_y,
     cv::Mat& displacement_x, cv::Mat& displacement_y);
+
+// Evaluates the smooth local displacement d(x, y) at a single point, where
+// (x, y) are in *model* coordinates (0..image_cols-1, 0..image_rows-1). Returns
+// {0, 0} for an invalid model or a point outside the model image / inside the
+// boundary taper. Used by the forward-drizzle source->canvas inversion
+// (registration_sampling_plan.cpp, plan section 7.3).
+cv::Point2f evaluate_smooth_local_displacement(
+    const SmoothLocalWarpModel& model, float x, float y);
 
 bool prepare_smooth_local_remap(
     int source_rows, int source_cols, const WarpMatrix& global_inverse_warp,

@@ -1,0 +1,757 @@
+// M1 tests for geometric coverage without image PREWARP
+// (docs/AQMH/aqmh_cfa_forward_drizzle_multiband_implementierungsplan_de.md
+//  sections 9.2, 9.3, 9.5, 26).
+
+#include "tile_compile/registration/sampling_geometry.hpp"
+
+#include <catch2/catch_approx.hpp>
+#include <catch2/catch_test_macros.hpp>
+
+#include "tile_compile/reconstruction/forward_drizzle.hpp"
+#include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <vector>
+
+using namespace tile_compile;
+using namespace tile_compile::registration;
+using Catch::Approx;
+
+namespace {
+
+WarpMatrix make_affine(float a, float b, float tx, float c, float d, float ty) {
+  WarpMatrix m;
+  m(0, 0) = a;
+  m(0, 1) = b;
+  m(0, 2) = tx;
+  m(1, 0) = c;
+  m(1, 1) = d;
+  m(1, 2) = ty;
+  return m;
+}
+
+FrameSamplingTransform make_frame(const std::string &id, size_t idx,
+                                  const WarpMatrix &canvas_to_source) {
+  FrameSamplingTransform f;
+  f.frame_id = id;
+  f.source_index = idx;
+  f.valid = true;
+  f.canvas_to_source = canvas_to_source;
+  REQUIRE(invert_affine_2x3(canvas_to_source, 0.5f, 2.0f, f.source_to_canvas));
+  f.source_to_canvas_affine_valid = true;
+  return f;
+}
+
+config::ReconstructionCoverageGateConfig lenient_gate(int min_frames = 1) {
+  config::ReconstructionCoverageGateConfig g;
+  g.min_frames = min_frames;
+  g.min_supported_fraction = 0.5f;
+  g.min_channel_n_eff_floor = 1.0f;
+  g.min_channel_n_eff_fraction = 0.0f;
+  g.min_analysis_pixels = 1;
+  g.max_internal_hole_area_px = 1000000;
+  return g;
+}
+
+} // namespace
+
+TEST_CASE("MONO identity warp, single frame: full coverage (plan 9.2)") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 20;
+  plan.source_height = 20;
+  plan.canvas_width_native = 20;
+  plan.canvas_height_native = 20;
+  plan.color_mode = ColorMode::MONO;
+  plan.bayer_pattern = BayerPattern::UNKNOWN;
+  plan.frames.push_back(
+      make_frame("f0", 0, make_affine(1, 0, 0, 0, 1, 0))); // identity
+
+  auto cov =
+      compute_geometric_coverage(plan, /*internal_scale=*/1,
+                                 /*pixfrac=*/1.0f, lenient_gate(1), 1.0f);
+  REQUIRE(cov.internal_width == 20);
+  REQUIRE(cov.internal_height == 20);
+  REQUIRE(cov.support_count_l.size() == 400);
+  // every pixel should be touched exactly once
+  for (uint16_t v : cov.support_count_l)
+    REQUIRE(v == 1);
+  for (uint8_t v : cov.reconstruction_support_mask)
+    REQUIRE(v == 1);
+  for (uint8_t v : cov.analysis_common_mask)
+    REQUIRE(v == 1);
+  REQUIRE(cov.gate.passed);
+  REQUIRE(cov.gate.valid_frame_count == 1);
+  REQUIRE(cov.gate.analysis_pixels == 400);
+}
+
+TEST_CASE("MONO two frames with partial overlap: masks distinguish common vs "
+          "any-frame support (plan 9.3)") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 20;
+  plan.source_height = 20;
+  plan.canvas_width_native = 30; // wider than a single frame's footprint
+  plan.canvas_height_native = 20;
+  plan.color_mode = ColorMode::MONO;
+  plan.bayer_pattern = BayerPattern::UNKNOWN;
+  // frame 0 sits at canvas x in [0,20); frame 1 shifted +10 -> canvas x in
+  // [10,30) canvas_to_source: s = q - shift  =>  for frame1, s = q - (10,0)
+  plan.frames.push_back(make_frame("f0", 0, make_affine(1, 0, 0, 0, 1, 0)));
+  plan.frames.push_back(make_frame("f1", 1, make_affine(1, 0, -10, 0, 1, 0)));
+
+  auto cov = compute_geometric_coverage(plan, 1, 1.0f, lenient_gate(2), 1.0f);
+  REQUIRE(cov.internal_width == 30);
+
+  auto at = [&](int x, int y) { return cov.support_count_l[y * 30 + x]; };
+  // x in [0,10): only frame 0
+  REQUIRE(at(2, 5) == 1);
+  // x in [10,20): both frames overlap
+  REQUIRE(at(15, 5) == 2);
+  // x in [20,30): only frame 1
+  REQUIRE(at(25, 5) == 1);
+
+  auto mask_at = [&](const std::vector<uint8_t> &m, int x, int y) {
+    return m[y * 30 + x];
+  };
+  // analysis_common_mask (fraction=1.0 -> needs both frames) only in overlap
+  REQUIRE(mask_at(cov.analysis_common_mask, 2, 5) == 0);
+  REQUIRE(mask_at(cov.analysis_common_mask, 15, 5) == 1);
+  REQUIRE(mask_at(cov.analysis_common_mask, 25, 5) == 0);
+  // reconstruction_support_mask (>=1 frame) everywhere touched
+  REQUIRE(mask_at(cov.reconstruction_support_mask, 2, 5) == 1);
+  REQUIRE(mask_at(cov.reconstruction_support_mask, 25, 5) == 1);
+}
+
+TEST_CASE(
+    "OSC RGGB single frame identity: R/B are sparser than G (plan 11.4/9.2)") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 16;
+  plan.source_height = 16;
+  plan.canvas_width_native = 16;
+  plan.canvas_height_native = 16;
+  plan.color_mode = ColorMode::OSC;
+  plan.bayer_pattern = BayerPattern::RGGB;
+  plan.frames.push_back(make_frame("f0", 0, make_affine(1, 0, 0, 0, 1, 0)));
+
+  auto cov = compute_geometric_coverage(plan, 1, 1.0f, lenient_gate(1), 1.0f);
+  const int touched_r =
+      std::count_if(cov.support_count_r.begin(), cov.support_count_r.end(),
+                    [](uint16_t v) { return v > 0; });
+  const int touched_g =
+      std::count_if(cov.support_count_g.begin(), cov.support_count_g.end(),
+                    [](uint16_t v) { return v > 0; });
+  const int touched_b =
+      std::count_if(cov.support_count_b.begin(), cov.support_count_b.end(),
+                    [](uint16_t v) { return v > 0; });
+  // RGGB on a 16x16 grid: 64 R sites, 128 G sites, 64 B sites; with pixfrac=1
+  // and identity warp each site's droplet stays within its own pixel cell, so
+  // touched counts should equal site counts exactly.
+  REQUIRE(touched_r == 64);
+  REQUIRE(touched_g == 128);
+  REQUIRE(touched_b == 64);
+  // R and B never touch the same pixel as each other in this configuration.
+  for (int i = 0; i < 256; ++i) {
+    REQUIRE_FALSE((cov.support_count_r[i] > 0 && cov.support_count_b[i] > 0));
+  }
+}
+
+TEST_CASE("coverage_gate fails fail-closed on too few frames (plan 26)") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 20;
+  plan.source_height = 20;
+  plan.canvas_width_native = 20;
+  plan.canvas_height_native = 20;
+  plan.color_mode = ColorMode::MONO;
+  plan.frames.push_back(make_frame("f0", 0, make_affine(1, 0, 0, 0, 1, 0)));
+
+  config::ReconstructionCoverageGateConfig g = lenient_gate(1);
+  g.min_frames = 5; // require more frames than are present
+  auto cov = compute_geometric_coverage(plan, 1, 1.0f, g, 1.0f);
+  REQUIRE_FALSE(cov.gate.passed);
+  REQUIRE_FALSE(cov.gate.violations.empty());
+  bool found = false;
+  for (const auto &v : cov.gate.violations)
+    if (v.find("min_frames") != std::string::npos)
+      found = true;
+  REQUIRE(found);
+}
+
+TEST_CASE("coverage_gate reports the hole check as implemented and finds no "
+          "hole on a fully-covered mask (plan 26)") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 10;
+  plan.source_height = 10;
+  plan.canvas_width_native = 10;
+  plan.canvas_height_native = 10;
+  plan.color_mode = ColorMode::MONO;
+  plan.frames.push_back(make_frame("f0", 0, make_affine(1, 0, 0, 0, 1, 0)));
+  auto cov = compute_geometric_coverage(plan, 1, 1.0f, lenient_gate(1), 1.0f);
+  REQUIRE(cov.gate.hole_check_implemented);
+  REQUIRE(cov.gate.largest_internal_hole_area_px == 0);
+}
+
+TEST_CASE("largest_interior_hole_area finds a true interior hole but ignores "
+          "a border-touching unsupported region (plan 9.5/26)") {
+  // 10x10 all-supported mask except:
+  //   - a 2x2 hole fully inside (rows/cols 4..5)      -> interior hole, area 4
+  //   - a 1x3 unsupported strip touching the top edge  -> NOT a hole (exterior)
+  const int W = 10, H = 10;
+  std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1);
+  auto clear = [&](int x, int y) { mask[static_cast<size_t>(y * W + x)] = 0; };
+  clear(4, 4);
+  clear(5, 4);
+  clear(4, 5);
+  clear(5, 5); // interior 2x2 hole
+  clear(1, 0);
+  clear(2, 0);
+  clear(3, 0); // touches border (y=0)
+
+  REQUIRE(largest_interior_hole_area(mask, W, H) == 4);
+}
+
+TEST_CASE("largest_interior_hole_area returns 0 for a fully supported or "
+          "fully unsupported mask (plan 9.5/26)") {
+  std::vector<uint8_t> full(100, 1);
+  REQUIRE(largest_interior_hole_area(full, 10, 10) == 0);
+  // fully unsupported: every 0-pixel is reachable from the border -> no
+  // interior hole by definition (the "hole" IS the exterior).
+  std::vector<uint8_t> empty(100, 0);
+  REQUIRE(largest_interior_hole_area(empty, 10, 10) == 0);
+}
+
+TEST_CASE("largest_interior_hole_area picks the largest of several interior "
+          "holes (plan 9.5/26)") {
+  const int W = 20, H = 10;
+  std::vector<uint8_t> mask(static_cast<size_t>(W * H), 1);
+  auto clear = [&](int x, int y) { mask[static_cast<size_t>(y * W + x)] = 0; };
+  // small hole: 1 pixel
+  clear(2, 5);
+  // bigger hole: 3x3 = 9 pixels
+  for (int y = 4; y <= 6; ++y)
+    for (int x = 10; x <= 12; ++x)
+      clear(x, y);
+  REQUIRE(largest_interior_hole_area(mask, W, H) == 9);
+}
+
+TEST_CASE("coverage_gate fails when the interior hole exceeds "
+          "max_internal_hole_area_px (plan 26)") {
+  // Two frames whose footprints together leave an interior gap: frame 0
+  // covers the full 20x20 canvas, frame 1 is irrelevant to this test other
+  // than being a second valid frame; instead we drive the hole via a plan
+  // whose single frame simply doesn't cover a sub-rectangle at all, by
+  // shrinking its source so a band of the canvas is never sampled while
+  // canvas pixels on both sides of that band ARE sampled by a second,
+  // wider frame that surrounds it.
+  RegistrationSamplingPlan plan;
+  plan.source_width = 20;
+  plan.source_height = 20;
+  plan.canvas_width_native = 20;
+  plan.canvas_height_native = 20;
+  plan.color_mode = ColorMode::MONO;
+  plan.frames.push_back(make_frame("f0", 0, make_affine(1, 0, 0, 0, 1, 0)));
+
+  config::ReconstructionCoverageGateConfig g = lenient_gate(1);
+  g.max_internal_hole_area_px = -1; // any hole at all fails; canvas has none
+  auto cov = compute_geometric_coverage(plan, 1, 1.0f, g, 1.0f);
+  // Full identity coverage has no interior hole, so this specific config only
+  // documents that the check participates in gate.passed when triggered;
+  // the actual triggering behaviour is exercised via largest_interior_hole_area
+  // directly above (unit-level) since constructing a coverage-shaped hole
+  // through the public forward-mapping API requires multi-frame geometry that
+  // is easier to state precisely on the mask directly.
+  REQUIRE(cov.gate.largest_internal_hole_area_px == 0);
+  REQUIRE_FALSE(cov.gate.passed); // 0 > -1 triggers the gate
+  bool found = false;
+  for (const auto &v : cov.gate.violations)
+    if (v.find("max_internal_hole_area_px") != std::string::npos)
+      found = true;
+  REQUIRE(found);
+}
+
+TEST_CASE("compute_geometric_coverage is bit-exact independent of worker "
+          "count (plan 9.2 parallelization determinism)") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 40;
+  plan.source_height = 40;
+  plan.canvas_width_native = 50;
+  plan.canvas_height_native = 50;
+  plan.color_mode = ColorMode::OSC;
+  plan.bayer_pattern = BayerPattern::RGGB;
+  // several overlapping frames with different affine warps (translation +
+  // small rotation) so coverage counts vary spatially
+  plan.frames.push_back(make_frame("f0", 0, make_affine(1, 0, 2, 0, 1, 3)));
+  plan.frames.push_back(make_frame("f1", 1, make_affine(1, 0, 5, 0, 1, 1)));
+  const float c = std::cos(0.05f), s = std::sin(0.05f);
+  plan.frames.push_back(make_frame("f2", 2, make_affine(c, -s, 4, s, c, 2)));
+  plan.frames.push_back(make_frame("f3", 3, make_affine(1, 0, -1, 0, 1, 4)));
+  plan.frames.push_back(make_frame("f4", 4, make_affine(1, 0, 3, 0, 1, -2)));
+
+  auto g = lenient_gate(1);
+  const auto cov1 = compute_geometric_coverage(plan, 2, 0.8f, g, 1.0f, 1);
+  const auto cov4 = compute_geometric_coverage(plan, 2, 0.8f, g, 1.0f, 4);
+  const auto cov7 = compute_geometric_coverage(plan, 2, 0.8f, g, 1.0f, 7);
+
+  REQUIRE(cov1.support_count_r == cov4.support_count_r);
+  REQUIRE(cov1.support_count_g == cov4.support_count_g);
+  REQUIRE(cov1.support_count_b == cov4.support_count_b);
+  REQUIRE(cov1.support_count_r == cov7.support_count_r);
+  REQUIRE(cov1.support_count_g == cov7.support_count_g);
+  REQUIRE(cov1.support_count_b == cov7.support_count_b);
+  REQUIRE(cov1.analysis_common_mask == cov4.analysis_common_mask);
+  REQUIRE(cov1.reconstruction_support_mask == cov4.reconstruction_support_mask);
+  REQUIRE(cov1.gate.analysis_pixels == cov4.gate.analysis_pixels);
+  REQUIRE(cov1.gate.min_supported_fraction ==
+          Approx(cov4.gate.min_supported_fraction));
+  REQUIRE(cov1.gate.largest_internal_hole_area_px ==
+          cov4.gate.largest_internal_hole_area_px);
+}
+
+TEST_CASE("2x internal_scale doubles the coverage canvas (plan 12.1)") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 10;
+  plan.source_height = 10;
+  plan.canvas_width_native = 10;
+  plan.canvas_height_native = 10;
+  plan.color_mode = ColorMode::MONO;
+  plan.frames.push_back(make_frame("f0", 0, make_affine(1, 0, 0, 0, 1, 0)));
+  auto cov = compute_geometric_coverage(plan, 2, 0.8f, lenient_gate(1), 1.0f);
+  REQUIRE(cov.internal_width == 20);
+  REQUIRE(cov.internal_height == 20);
+}
+
+TEST_CASE("serialize_sampling_geometry_json produces the documented fields "
+          "(plan 9.4)") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 10;
+  plan.source_height = 10;
+  plan.canvas_width_native = 10;
+  plan.canvas_height_native = 10;
+  plan.color_mode = ColorMode::MONO;
+  plan.frames.push_back(make_frame("f0", 0, make_affine(1, 0, 0, 0, 1, 0)));
+  plan.plan_hash = compute_plan_hash(plan);
+  auto cov = compute_geometric_coverage(plan, 1, 0.8f, lenient_gate(1), 1.0f);
+  const std::string js =
+      serialize_sampling_geometry_json(plan, "abc123", "square", 0.8f, 1, cov);
+  REQUIRE(js.find("\"coverage_source\": \"forward_drizzle_geometry\"") !=
+          std::string::npos);
+  REQUIRE(js.find("\"sampling_plan_hash\"") != std::string::npos);
+  REQUIRE(js.find("\"coverage_geometry_hash\": \"abc123\"") !=
+          std::string::npos);
+  REQUIRE(js.find("\"passed\": true") != std::string::npos);
+  REQUIRE(js.find("\"dither_spread_circular_px_diagnostic\"") !=
+          std::string::npos);
+  REQUIRE(js.find("\"x_p10\"") != std::string::npos);
+  REQUIRE(js.find("\"y_p10\"") != std::string::npos);
+}
+
+TEST_CASE("dither spread circular diagnostic: identical frames (zero dither) "
+          "give near-zero sigma (plan 9.3/8.x)") {
+  RegistrationSamplingPlan plan;
+  plan.canvas_width_native = 100;
+  plan.canvas_height_native = 100;
+  // 5 frames, all with the *same* integer-pixel-aligned identity warp: every
+  // frame lands on exactly the same phase mod 2 at every site, so the
+  // circular resultant length R == 1 and sigma_circ_px == 0 exactly.
+  for (int i = 0; i < 5; ++i) {
+    plan.frames.push_back(
+        make_frame("f" + std::to_string(i), i, make_affine(1, 0, 0, 0, 1, 0)));
+  }
+  auto diag = compute_dither_spread_circular_diagnostic(plan);
+  // Exactly 0 mathematically (R == 1); the clamp to 1 - 1e-12 that guards
+  // ln() against a literal R == 1 leaves a ~1e-6 floor, not true zero.
+  REQUIRE(diag.x_p10 == Approx(0.0).margin(1e-5));
+  REQUIRE(diag.y_p10 == Approx(0.0).margin(1e-5));
+}
+
+TEST_CASE("dither spread circular diagnostic: 4-way quadrature phase spread "
+          "gives the maximal Rayleigh sigma (plan 9.3/8.x)") {
+  RegistrationSamplingPlan plan;
+  plan.canvas_width_native = 100;
+  plan.canvas_height_native = 100;
+  // 4 frames offset by 0, 0.5, 1.0, 1.5 px in x (and y): theta = pi * offset
+  // lands exactly at 0, pi/2, pi, 3pi/2 --- perfectly uniform on the circle,
+  // so the mean resultant vector is exactly (0,0), R == 0, sigma is the
+  // (clamp-bounded) maximum the estimator can report.
+  const float offsets[4] = {0.0f, 0.5f, 1.0f, 1.5f};
+  for (int i = 0; i < 4; ++i) {
+    plan.frames.push_back(
+        make_frame("f" + std::to_string(i), i,
+                   make_affine(1, 0, offsets[i], 0, 1, offsets[i])));
+  }
+  auto diag = compute_dither_spread_circular_diagnostic(plan);
+  // sqrt(-2*ln(1e-12)) / pi, the clamp ceiling used to keep ln() finite.
+  const double kMaxSigma = std::sqrt(-2.0 * std::log(1e-12)) / M_PI;
+  REQUIRE(diag.x_p10 == Approx(kMaxSigma).epsilon(1e-6));
+  REQUIRE(diag.y_p10 == Approx(kMaxSigma).epsilon(1e-6));
+}
+
+TEST_CASE("dither spread circular diagnostic: no valid frames returns zero, "
+          "not NaN (plan 9.3/8.x)") {
+  RegistrationSamplingPlan plan;
+  plan.canvas_width_native = 100;
+  plan.canvas_height_native = 100;
+  auto diag = compute_dither_spread_circular_diagnostic(plan);
+  REQUIRE(diag.x_p10 == 0.0);
+  REQUIRE(diag.y_p10 == 0.0);
+}
+
+TEST_CASE("coverage audit: footprint mask is independent of sparse CFA support",
+          "[drizzle-audit]") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 16;
+  plan.source_height = 16;
+  plan.canvas_width_native = 16;
+  plan.canvas_height_native = 16;
+  plan.color_mode = ColorMode::OSC;
+  plan.bayer_pattern = BayerPattern::RGGB;
+  for (size_t i = 0; i < 3; ++i)
+    plan.frames.push_back(
+        make_frame("f" + std::to_string(i), i, make_affine(1, 0, 0, 0, 1, 0)));
+  auto cov = compute_geometric_coverage(plan, 2, 0.8f, lenient_gate(), 1.0f);
+  REQUIRE(cov.gate.analysis_pixels == 1024);
+  REQUIRE(std::count(cov.analysis_common_mask.begin(),
+                     cov.analysis_common_mask.end(), 1) == 1024);
+  REQUIRE(cov.gate.min_supported_fraction == Approx(0.25));
+  REQUIRE_FALSE(cov.gate.passed);
+}
+
+TEST_CASE(
+    "coverage audit: unequal areas do not masquerade as three effective frames",
+    "[drizzle-audit]") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 1;
+  plan.source_height = 1;
+  plan.canvas_width_native = 1;
+  plan.canvas_height_native = 1;
+  plan.color_mode = ColorMode::MONO;
+  plan.frames.push_back(make_frame("f0", 0, make_affine(1, 0, 0, 0, 1, 0)));
+  plan.frames.push_back(
+      make_frame("f1", 1, make_affine(1, 0, -0.99f, 0, 1, 0)));
+  plan.frames.push_back(
+      make_frame("f2", 2, make_affine(1, 0, -0.99f, 0, 1, 0)));
+  auto gate = lenient_gate();
+  gate.min_channel_n_eff_floor = 3;
+  auto cov = compute_geometric_coverage(plan, 1, 1, gate, 1);
+  REQUIRE(cov.support_count_l[0] == 3);
+  REQUIRE(cov.gate.min_channel_n_eff_p10 ==
+          Approx(1.02 * 1.02 / 1.0002).epsilon(1e-5));
+  REQUIRE_FALSE(cov.gate.passed);
+}
+
+TEST_CASE(
+    "coverage audit: stripes preserve exact geometry and weighted percentile",
+    "[drizzle-audit]") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 16;
+  plan.source_height = 12;
+  plan.canvas_width_native = 30;
+  plan.canvas_height_native = 28;
+  plan.color_mode = ColorMode::MONO;
+  plan.frames.push_back(make_frame("f0", 0, make_affine(1, 0, -3, 0, 1, -2)));
+  plan.frames.push_back(
+      make_frame("f1", 1, make_affine(0.8f, -0.3f, 2, 0.3f, 0.8f, -4)));
+  config::ReconstructionDrizzleConfig cfg;
+  cfg.internal_scale = 2;
+  cfg.chunk_rows = 1;
+  auto a =
+      compute_geometric_coverage(plan, 2, 0.8f, lenient_gate(), 0.5f, 128, cfg);
+  cfg.chunk_rows = 56;
+  auto b =
+      compute_geometric_coverage(plan, 2, 0.8f, lenient_gate(), 0.5f, 1, cfg);
+  REQUIRE(a.support_count_l == b.support_count_l);
+  REQUIRE(a.analysis_common_mask == b.analysis_common_mask);
+  REQUIRE(a.reconstruction_support_mask == b.reconstruction_support_mask);
+  REQUIRE(a.gate.min_channel_n_eff_p10 == b.gate.min_channel_n_eff_p10);
+  REQUIRE(a.gate.largest_internal_hole_area_px ==
+          b.gate.largest_internal_hole_area_px);
+  // Plan §30.72 O1: `a` requested 128 workers and the internal height admits
+  // many single-row stripes, so it genuinely ran stripe-parallel; `b`
+  // requested 1 and stayed on the exact serial path. Every field above is
+  // bit-identical between the two.
+  REQUIRE(a.gate.workers_used > 1);
+  REQUIRE(b.gate.workers_used == 1);
+  cfg.memory_budget_mb = 1;
+  // An undersized budget no longer aborts: the planner logs a warning and
+  // grows the effective budget in +1 GiB steps until the working set fits.
+  auto c =
+      compute_geometric_coverage(plan, 2, 0.8f, lenient_gate(), 0.5f, 128, cfg);
+  REQUIRE(c.support_count_l == a.support_count_l);
+}
+
+TEST_CASE("coverage audit: semantic hashes invalidate geometry without rounded "
+          "float collisions",
+          "[drizzle-audit]") {
+  RegistrationSamplingPlan plan;
+  config::ReconstructionDrizzleConfig cfg;
+  auto initial = compute_coverage_geometry_hash(plan, cfg, 1);
+  REQUIRE(initial != compute_coverage_geometry_hash(plan, cfg, 0.5));
+  cfg.pixfrac = std::nextafter(cfg.pixfrac, 1.0f);
+  REQUIRE(initial != compute_coverage_geometry_hash(plan, cfg, 1));
+  cfg.pixfrac = 0.8f;
+  cfg.chunk_rows = 1;
+  cfg.memory_budget_mb = 16;
+  REQUIRE(initial == compute_coverage_geometry_hash(plan, cfg, 1));
+}
+
+TEST_CASE("coverage audit: exact support and neff match uniform under rotation "
+          "and shear",
+          "[drizzle-audit]") {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 12;
+  plan.source_height = 10;
+  plan.canvas_width_native = 24;
+  plan.canvas_height_native = 24;
+  plan.color_mode = ColorMode::OSC;
+  plan.bayer_pattern = BayerPattern::RGGB;
+  for (size_t i = 0; i < 3; ++i)
+    plan.frames.push_back(make_frame(
+        "f" + std::to_string(i), i,
+        make_affine(0.9f, -0.25f, -1 - i * 0.2f, 0.3f, 1.1f, -4 + i * 0.17f)));
+  config::ReconstructionDrizzleConfig cfg;
+  cfg.internal_scale = 2;
+  cfg.chunk_rows = 3;
+  auto cov =
+      compute_geometric_coverage(plan, 2, 0.8f, lenient_gate(), 0.5f, 1, cfg);
+  Matrix2Df source = Matrix2Df::Ones(10, 12);
+  auto uniform = reconstruction::compute_forward_drizzle_uniform(
+      plan, [&](size_t) -> const Matrix2Df & { return source; }, cfg);
+  std::array<const reconstruction::ProfilePlane *, 3> planes = {
+      &uniform.R, &uniform.G, &uniform.B};
+  std::array<const std::vector<uint32_t> *, 3> counts = {
+      &cov.support_count_r, &cov.support_count_g, &cov.support_count_b};
+  double expected = 100;
+  for (int c = 0; c < 3; ++c) {
+    std::vector<float> neff;
+    for (size_t i = 0; i < cov.analysis_common_mask.size(); ++i) {
+      REQUIRE(planes[c]->support[i] == ((*counts[c])[i] > 0));
+      if (cov.analysis_common_mask[i])
+        neff.push_back(planes[c]->n_eff[i]);
+    }
+    REQUIRE_FALSE(neff.empty());
+    std::sort(neff.begin(), neff.end());
+    const double rank = (neff.size() - 1) * 0.1;
+    const size_t lo = std::floor(rank), hi = std::ceil(rank);
+    expected =
+        std::min(expected, neff[lo] + (neff[hi] - neff[lo]) * (rank - lo));
+  }
+  REQUIRE(cov.gate.min_channel_n_eff_p10 == Approx(expected).margin(1e-7));
+}
+
+// --- §30.75: dense-footprint fast path parity ------------------------------
+//
+// compute_geometric_coverage now classifies internal cells against the frame's
+// mapped source rectangle (dense_footprint_touched_stripe) instead of
+// rasterizing every source pixel for the footprint pass. This must be
+// byte-identical to the old per-pixel footprint rasterize, which the env
+// override TC_COVERAGE_FOOTPRINT_EXACT still selects. The gate below runs both
+// paths across a scene matrix (translation, rotation, shear, mirror, sub-pixel
+// and integer offsets, a frame smaller than the canvas, frames overhanging
+// each canvas edge) at internal_scale 1 and 2 and several chunk heights, and
+// requires every mask and every gate field to match exactly.
+namespace {
+
+// Build a frame from an explicit source->canvas affine (bypasses make_frame's
+// tight invert bounds so mirror / strong shear cases are expressible).
+FrameSamplingTransform make_frame_s2c(const std::string &id, size_t idx,
+                                      const WarpMatrix &source_to_canvas) {
+  FrameSamplingTransform f;
+  f.frame_id = id;
+  f.source_index = idx;
+  f.valid = true;
+  f.source_to_canvas = source_to_canvas;
+  f.source_to_canvas_affine_valid = true;
+  REQUIRE(invert_affine_2x3(source_to_canvas, 1e-9f, 1e9f, f.canvas_to_source));
+  return f;
+}
+
+GeometricCoverageResult coverage_once(const RegistrationSamplingPlan &plan,
+                                      int scale, float pixfrac, float fraction,
+                                      int chunk_rows, bool exact) {
+  if (exact)
+    setenv("TC_COVERAGE_FOOTPRINT_EXACT", "1", 1);
+  else
+    unsetenv("TC_COVERAGE_FOOTPRINT_EXACT");
+  config::ReconstructionDrizzleConfig cfg;
+  cfg.internal_scale = scale;
+  cfg.chunk_rows = chunk_rows;
+  auto cov = compute_geometric_coverage(plan, scale, pixfrac, lenient_gate(),
+                                        fraction, 1, cfg);
+  unsetenv("TC_COVERAGE_FOOTPRINT_EXACT");
+  return cov;
+}
+
+void require_coverage_identical(const GeometricCoverageResult &a,
+                                const GeometricCoverageResult &b) {
+  REQUIRE(a.internal_width == b.internal_width);
+  REQUIRE(a.internal_height == b.internal_height);
+  REQUIRE(a.analysis_common_mask == b.analysis_common_mask);
+  REQUIRE(a.reconstruction_support_mask == b.reconstruction_support_mask);
+  REQUIRE(a.support_count_l == b.support_count_l);
+  REQUIRE(a.support_count_r == b.support_count_r);
+  REQUIRE(a.support_count_g == b.support_count_g);
+  REQUIRE(a.support_count_b == b.support_count_b);
+  REQUIRE(a.gate.valid_frame_count == b.gate.valid_frame_count);
+  REQUIRE(a.gate.analysis_pixels == b.gate.analysis_pixels);
+  REQUIRE(a.gate.largest_internal_hole_area_px ==
+          b.gate.largest_internal_hole_area_px);
+  REQUIRE(a.gate.passed == b.gate.passed);
+  REQUIRE(a.gate.min_supported_fraction == b.gate.min_supported_fraction);
+  REQUIRE(a.gate.min_channel_n_eff_p10 == b.gate.min_channel_n_eff_p10);
+  for (int c = 0; c < 3; ++c) {
+    REQUIRE(a.gate.supported_fraction[c] == b.gate.supported_fraction[c]);
+    REQUIRE(a.gate.channel_neff_p10[c] == b.gate.channel_neff_p10[c]);
+  }
+}
+
+RegistrationSamplingPlan matrix_plan(ColorMode mode) {
+  RegistrationSamplingPlan plan;
+  plan.source_width = 60;
+  plan.source_height = 44;
+  plan.canvas_width_native = 72;
+  plan.canvas_height_native = 56;
+  plan.color_mode = mode;
+  plan.bayer_pattern =
+      mode == ColorMode::OSC ? BayerPattern::RGGB : BayerPattern::UNKNOWN;
+  const float cx = plan.source_width * 0.5f, cy = plan.source_height * 0.5f;
+  auto rot = [&](float deg, float tx, float ty) {
+    const float r = deg * 3.14159265358979f / 180.0f;
+    const float c = std::cos(r), s = std::sin(r);
+    // rotate about the source centre, then translate
+    return make_affine(c, -s, tx + cx - c * cx + s * cy, s, c,
+                       ty + cy - s * cx - c * cy);
+  };
+  std::vector<WarpMatrix> xf = {
+      make_affine(1, 0, 6, 0, 1, 5),            // integer translation
+      make_affine(1, 0, 6.37f, 0, 1, 4.82f),    // sub-pixel translation
+      rot(7.5f, 3.0f, -2.0f),                   // rotation
+      rot(-12.0f, -4.0f, 3.0f),                 // rotation, other sign
+      make_affine(1.0f, 0.18f, 2.0f, 0.05f, 1.0f, 1.0f),   // shear
+      make_affine(1.0f, -0.22f, 5.0f, -0.09f, 1.0f, 2.0f), // shear, other sign
+      make_affine(1.0f, 0.70f, 1.0f, 0.0f, 1.0f, 1.0f),    // strong shear, det=1
+      make_affine(1.0f, 0.0f, 3.0f, 0.75f, 1.0f, -2.0f),   // strong shear y, det=1
+      make_affine(0.82f, 0.0f, 10.0f, 0.0f, 0.82f, 9.0f),  // frame smaller than canvas
+      make_affine(1.28f, 0.0f, -6.0f, 0.0f, 1.28f, -4.0f), // frame larger than canvas
+      // NOTE: reflections (det < 0) are rejected upstream by invert_affine_2x3
+      // (orientation-preserving warps only), so compute_geometric_coverage
+      // never rasterizes a mirrored footprint --- nothing to compare there.
+      make_affine(1, 0, -14.0f, 0, 1, -11.0f),  // overhang top-left
+      make_affine(1, 0, 26.0f, 0, 1, 20.0f),    // overhang bottom-right
+  };
+  for (size_t i = 0; i < xf.size(); ++i)
+    plan.frames.push_back(make_frame_s2c("f" + std::to_string(i), i, xf[i]));
+  return plan;
+}
+
+}  // namespace
+
+TEST_CASE("coverage: CUDA gather path is byte-identical to the CPU rasterize",
+          "[drizzle-audit][coverage-cuda-gather]") {
+  if (!reconstruction::forward_drizzle_cuda_runtime_available())
+    return;  // no device: the CUDA path is never taken, nothing to compare
+  for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+    const RegistrationSamplingPlan plan = matrix_plan(mode);
+    for (int scale : {1, 2})
+      for (int chunk : {3, 16, 0}) {
+        CAPTURE(mode == ColorMode::OSC, scale, chunk);
+        setenv("TC_COVERAGE_DISABLE_CUDA", "1", 1);
+        const auto cpu = coverage_once(plan, scale, 0.8f, 1.0f, chunk, false);
+        unsetenv("TC_COVERAGE_DISABLE_CUDA");
+        const auto gpu = coverage_once(plan, scale, 0.8f, 1.0f, chunk, false);
+        require_coverage_identical(cpu, gpu);
+      }
+  }
+}
+
+TEST_CASE("coverage: dense-footprint fast path is byte-identical to the exact "
+          "per-pixel footprint rasterize",
+          "[drizzle-audit][footprint-fastpath]") {
+  for (ColorMode mode : {ColorMode::MONO, ColorMode::OSC}) {
+    const RegistrationSamplingPlan plan = matrix_plan(mode);
+    for (int scale : {1, 2})
+      for (float fraction : {0.5f, 1.0f})
+        for (int chunk : {3, 16, 0}) {
+          CAPTURE(mode == ColorMode::OSC, scale, fraction, chunk);
+          const auto fast =
+              coverage_once(plan, scale, 0.8f, fraction, chunk, false);
+          const auto exact =
+              coverage_once(plan, scale, 0.8f, fraction, chunk, true);
+          require_coverage_identical(fast, exact);
+        }
+  }
+}
+
+// Regression: the coverage scatter is legal only as 4 serialized parity-class
+// launches --- the G channel is a checkerboard whose same-channel droplet
+// neighbours sit diagonally (gap sqrt(2)*(1-2*half) source px), far below the
+// cell diagonal, so a single-launch scatter races there. This upscale frame
+// (sigma_min*scale*(2-2*half) = 1.536 >= sqrt(2)) exercises the scatter path;
+// the plane must equal the reference gather bit-for-bit.
+TEST_CASE("coverage scatter: parity passes are bit-identical to the gather",
+          "[drizzle-audit][coverage-scatter-parity]") {
+  if (!reconstruction::forward_drizzle_cuda_runtime_available())
+    return;
+  const double a[6] = {1.28, 0, -6, 0, 1.28, -4};
+  const double inv[6] = {1.0 / 1.28, 0, 6.0 / 1.28, 0, 1.0 / 1.28, 4.0 / 1.28};
+  const int W = 72, rows = 3;
+  std::vector<double> bg(static_cast<size_t>(3) * W * rows),
+      bs(static_cast<size_t>(3) * W * rows);
+  for (int ty = 0; ty < 50; ty += rows) {
+    setenv("TC_COVERAGE_FORCE_GATHER", "1", 1);
+    REQUIRE(reconstruction::forward_drizzle_cuda_affine_coverage_gather(
+        a, inv, 1, 0.4, 0, ty, W, rows, 60, 44,
+        static_cast<int>(BayerPattern::RGGB), 0, 0, false, bg.data()));
+    unsetenv("TC_COVERAGE_FORCE_GATHER");
+    REQUIRE(reconstruction::forward_drizzle_cuda_affine_coverage_gather(
+        a, inv, 1, 0.4, 0, ty, W, rows, 60, 44,
+        static_cast<int>(BayerPattern::RGGB), 0, 0, false, bs.data()));
+    CAPTURE(ty);
+    REQUIRE(bs == bg);
+  }
+}
+
+// Temporary benchmark: M31-like plan (real source/canvas size, fewer frames).
+// Run once with and once without CUDA_VISIBLE_DEVICES to compare the CUDA
+// records path against the CPU scatter fallback.
+TEST_CASE("bench: coverage m31-like", "[.bench_cov]") {
+  const char *nf = std::getenv("TC_BENCH_FRAMES");
+  const char *nw = std::getenv("TC_BENCH_WORKERS");
+  const int n_frames = nf ? std::atoi(nf) : 48;
+  const int workers = nw ? std::atoi(nw) : 8;
+
+  RegistrationSamplingPlan plan;
+  plan.source_width = 3840;
+  plan.source_height = 2160;
+  plan.canvas_width_native = 3924;
+  plan.canvas_height_native = 2310;
+  plan.color_mode = ColorMode::OSC;
+  plan.bayer_pattern = BayerPattern::GBRG;
+  plan.cfa_origin_x = 0;
+  plan.cfa_origin_y = 0;
+  for (int i = 0; i < n_frames; ++i) {
+    // ~identity + small dither translation (frame covers ~96% of canvas)
+    const float dx = 40.0f + static_cast<float>((i * 37) % 60) - 30.0f;
+    const float dy = 60.0f + static_cast<float>((i * 53) % 60) - 30.0f;
+    plan.frames.push_back(make_frame_s2c(
+        "f" + std::to_string(i), static_cast<size_t>(i),
+        make_affine(1, 0, dx, 0, 1, dy)));
+  }
+
+  config::ReconstructionDrizzleConfig cfg;
+  cfg.internal_scale = 2;
+  cfg.chunk_rows = 0;
+  cfg.memory_budget_mb = 8192;
+  const auto t0 = std::chrono::steady_clock::now();
+  auto cov = compute_geometric_coverage(plan, 2, 0.8f, lenient_gate(), 1.0f,
+                                        workers, cfg, false, nullptr);
+  const auto t1 = std::chrono::steady_clock::now();
+  std::fprintf(stderr,
+               "[bench_cov] frames=%d workers=%d elapsed=%.2fs "
+               "workers_used=%d chunk_rows=%d\n",
+               n_frames, workers,
+               std::chrono::duration<double>(t1 - t0).count(),
+               cov.gate.workers_used, cov.gate.resolved_chunk_rows);
+}

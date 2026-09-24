@@ -1,0 +1,60 @@
+// Example Pi model registry for running the tile_compile Scan-AI sidecar
+// against a LOCAL Ollama server (no cloud API key required).
+//
+// The pi-coding-agent SDK reads this from  ~/.pi/agent/models.json
+// (override the directory with the PI_AGENT_DIR env var). The sidecar calls
+// ModelRuntime.create() with no custom provider wiring, so a local model only
+// becomes selectable once it is declared here. Comments are allowed — pi strips
+// them before parsing — but the live file must still be named "models.json".
+//
+// Install:
+//   mkdir -p ~/.pi/agent
+//   cp agent_service/pi-models.example.jsonc ~/.pi/agent/models.json
+//   # edit the "id" values to match `ollama list`
+//
+// Then in .env:
+//   AI_SCAN_ENABLED=true
+//   AI_SCAN_MODEL=ollama/llama3.2:3b      # provider/model, must match an id below
+//
+// The file is re-read on each ModelRuntime load, so no sidecar restart is needed
+// after editing it.
+{
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://localhost:11434/v1",
+      "api": "openai-completions",
+      // Placeholder: Ollama ignores the value, but pi requires auth to be
+      // configured before a model shows up as available.
+      "apiKey": "ollama",
+      // Ollama's OpenAI-compatible endpoint does not understand the `developer`
+      // role or `reasoning_effort`; applies to every model below.
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        {
+          // Text-only. Fits fully in ~2 GB VRAM (Q4) — good for a 6 GB GPU.
+          "id": "llama3.2:3b",
+          "name": "Llama 3.2 3B (local, text)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 16000,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          // Vision model — REQUIRED if the scan request sends frame images.
+          // ~4.7 GB (Q4): partially offloaded on a 6 GB GPU, still usable.
+          "id": "llava:7b",
+          "name": "LLaVA 7B (local, vision)",
+          "reasoning": false,
+          "input": ["text", "image"],
+          "contextWindow": 32768,
+          "maxTokens": 8000,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

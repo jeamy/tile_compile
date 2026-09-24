@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "gate": 6,
+  "status": "frozen_decided",
+  "scope": "minimal affine, unpublished prototype kernel: persistent device workspace, record-free pipeline, integrated coverage, full telemetry, real canvas size. NOT published into the production runner.",
+  "pipeline": {
+    "per_frame": [
+      "H2D upload of the normalized source frame (fp32) and optional per-source-pixel sigma2 plane into reserved device slots",
+      "dense scatter kernel into frame-local internal-resolution planes A, B_src (source-valid weight), B_geo (geometric weight incl. nonfinite values), and optional S2 (area-weighted sigma2)",
+      "fused fold+accumulate kernel per native pixel per channel: b_f = sum_j area_j*B_src_fj, a_f = sum_j area_j*A_fj over the internal subpixels; accumulate full-stream B += b_f, B2 += b_f^2, contributors; reservoir keep predicate splitmix64(frame_order^seed) < floor(2^64*R/N) appends {x=a_f/b_f, b_f, frame_order, sigma2_f}; support bitmasks per layer; footprint count when b_f > 0"
+    ],
+    "at_band_end": [
+      "finalize kernel per native pixel per channel: deterministic (x, frame_order) insertion sort of the reservoir, weighted median / weighted MAD iterative clip identical to the CPU oracle (robust_frame_oracle_v2), uniform combine over accepted, confidence finalize over accepted sigma2",
+      "D2H download of result planes only: value, B, n_eff, confidence, conf_state, support fractions; coverage scalars",
+      "no host contribution records anywhere; no device download of frame planes or reservoirs in the production path (tests may download them for oracle comparison)"
+    ]
+  },
+  "gate5_amendment": {
+    "reason": "the clip-accepted confidence contract requires sigma2 per kept candidate; it cannot be recomputed at fold time",
+    "reservoir_record": "32 B = x(8) + b(8) + frame_order(8) + sigma2(8); was 24 B in the gate-5 role table",
+    "reservoir_slots": "2*R device slots (128 for R=64): the hash-keep set is Binomial(N, R/N) and can exceed R; slots beyond R absorb the tail, and a pixel exceeding the slot cap degrades deterministically to reservoir_overflow_uniform (uniform A/B value, support kept). Hash predicate and kept set are unchanged - bit-parity with the CPU oracle holds for every non-overflow pixel",
+    "reservoir_kept_count": "4 B per native pixel per channel",
+    "frame_planes": "3 (+1 optional sigma2) doubles per internal pixel per channel: A, B_src, B_geo replace 'frame A/B' role",
+    "coverage": "per native pixel per channel: contributors u32 + covB/covB2 (2 doubles) + support mask u16; per pixel: footprint u32",
+    "spec_delta": "role-table revision recorded in the gate-5 decision artifact; planner re-run with amended roles"
+  },
+  "oracle_parity_contract": {
+    "fold": "per-frame subpixel fold identical to fold_native_pixel_v2 algebra (area-weighted sums, frame before square)",
+    "clip": "reservoir clip must be BIT-IDENTICAL to robust_frame_oracle_v2 on the same candidate set: (x,frame_order) order, weighted median at cumulative weight >= total/2, weighted MAD with (|x-median|, frame_order) order, asymmetric bounds, early stop on unchanged mask, MAD=0 collapses bounds to the median, below min_clip_contributors accepts all",
+    "reservoir": "kept set must equal the CPU predicate exactly for the same (frame_order sequence, N, R, seed)",
+    "confidence": "conf stats over clip-accepted members; fallback_n_eff when no sigma2; support untouched",
+    "tolerance": "0 ULP target for value/B/n_eff/confidence; documented 1e-12 fallback for atomics-order drift in B accumulation"
+  },
+  "coverage_contract": {
+    "cfa_geometry": "per channel: sum_f B_geo_f, contributors, support fraction - accumulated during the same pass, never a second sweep",
+    "dense_footprint": "per native pixel: frame footprint count (b_f_out > 0 in any channel); dense_common_overlap = footprint == frame_count, computed at finalize",
+    "geometry_vs_source": "B_geo counts overlaps of nonfinite source samples too; B_src does not - the two layers stay separated per gate 2"
+  },
+  "telemetry_contract": {
+    "required_counters": [
+      "allocations (must be 0 during the frame loop; reserve() counts once)",
+      "device_global_synchronizations == 0",
+      "stream_synchronizations only at band finalize",
+      "source_bytes_uploaded, result_bytes_downloaded",
+      "positive_overlaps, candidates_streamed, reservoir_kept_total",
+      "upload/kernel/download seconds per band",
+      "frames_processed, bands_completed"
+    ],
+    "slot_states": "source slot state transitions FREE->HOST_FILLING->UPLOADING->COMPUTING->FREE counted per transition"
+  },
+  "gates": {
+    "oracle": "device finalize vs CPU oracle: value/B/n_eff/confidence within 1e-12, states and support identical, on small canvases covering all bayer patterns, mono, partial support, nonfinite sources, N<=R and N>R",
+    "support": "four-layer fractions and footprint equal the CPU reference exactly",
+    "flux": "sum of device B_src equals sum of CPU gather B per band within 1e-12 relative",
+    "memory": "reserved_device_bytes <= gate-5 plan device_peak for the same band; no cudaMalloc/cudaFree between reserve() and finalize()",
+    "time": "steady-state upload+scatter+accumulate <= 0.75 s per frame on production geometry (7868x4540 internal, 3840x2160 source, pixfrac 0.8) - same bound as the gate-1 enumeration gate, now covering the longer pipeline",
+    "determinism": "accept masks, support masks, kept sets and states are bit-identical across runs; value planes may drift <= 1e-12 relative because atomicAdd ordering is not a guaranteed contract"
+  },
+  "test_matrix": {
+    "standard": "small-canvas parity (64x48 native, scales 1/2, mono/osc, 4 bayer patterns, N=3/40), nonfinite source, empty band, single frame, N>R reservoir sampling equality, determinism",
+    "hidden": "production canvas 7868x4540 internal / 3934x2270 native, N=60 real-derived affine transforms, pixfrac 0.8, telemetry and time gates, memory-vs-plan check"
+  },
+  "deferred": [
+    "publication into the production runner: gate 10",
+    "resume/checkpoint of band state: gate 7",
+    "local warp grids: gate 8",
+    "multiband halo/ring buffers and fusion: gate 9",
+    "quality-stream (Q) slots: provider exists, kernel weighting wired when gate 9 calibrates confidence"
+  ]
+}

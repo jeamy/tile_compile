@@ -3,7 +3,10 @@
 #include <sstream>
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
+#include <ctime>
 #include <deque>
 #include <functional>
 #include <iomanip>
@@ -55,24 +58,18 @@ std::string phase_name_from_id(int phase_id) {
         case 2: return "PREWARP";
         case 3: return "CHANNEL_SPLIT";
         case 4: return "NORMALIZATION";
-        case 5: return "GLOBAL_METRICS";
-        case 6: return "TILE_GRID";
         case 7: return "COMMON_OVERLAP";
-        case 8: return "LOCAL_METRICS";
-        case 9: return "TILE_RECONSTRUCTION";
-        case 10: return "STATE_CLUSTERING";
-        case 11: return "SYNTHETIC_FRAMES";
         case 12: return "STACKING";
-        case 13: return "DEBAYER";
         case 14: return "ASTROMETRY";
         case 15: return "BGE";
         case 16: return "PCC";
         case 17: return "HYPERMETRIC_STRETCH";
-        case 18: return "DONE";
-        case 19: return "AQMH_MAPS";
-        case 20: return "AQMH_GLOBAL_QUALITY";
-        case 21: return "AQMH_RECONSTRUCTION";
-        case 22: return "AQMH_DIAGNOSTICS";
+        case 24: return "NORMALIZED_CACHE";
+        case 25: return "SAMPLING_GEOMETRY";
+        case 26: return "GLOBAL_QUALITY";
+        case 27: return "FORWARD_DRIZZLE";
+        case 28: return "SOURCE_QUALITY_MAPS";
+        case 29: return "MULTIBAND";
         default: return "";
     }
 }
@@ -97,117 +94,15 @@ std::string phase_name_from_event(const nlohmann::json& ev) {
 
 // Public functions declared in run_inspector.hpp
 
-std::string normalizePhaseEvent(const std::string& event, const std::string& method) {
-    if (method == "aqmh") {
-        if (event == "AQMH_QUALITY_MAPS" || event == "LOCAL_METRICS") return "AQMH_MAPS";
-        if (event == "STATE_CLUSTERING" || event == "SYNTHETIC_FRAMES") {
-            return ""; // Ausblenden
-        }
-        if (event == "TILE_RECONSTRUCTION") return "AQMH_RECONSTRUCTION";
-    }
-    return event; // Unverändert
-}
-
-std::vector<std::string> getPhaseOrderForMethod(const std::string& method) {
-    if (method == "aqmh") {
-        return {
-            "SCAN_INPUT",
-            "CHANNEL_SPLIT",
-            "NORMALIZATION",
-            "REGISTRATION",
-            "PREWARP",
-            "COMMON_OVERLAP",
-            "AQMH_MAPS",
-            "AQMH_GLOBAL_QUALITY",
-            "AQMH_RECONSTRUCTION",
-            "AQMH_DIAGNOSTICS",
-            "STACKING",
-            "DEBAYER",
-            "ASTROMETRY",
-            "BGE",
-            "PCC",
-            "HYPERMETRIC_STRETCH"
-        };
-    }
-    // Classic or unknown method: use original phase order
-    return PHASE_ORDER;
-}
-
 namespace {
 
 /// @brief Implements phase order index.
 /// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
-int phase_order_index(const std::string& phase_name) {
-    auto it = std::find(PHASE_ORDER.begin(), PHASE_ORDER.end(), phase_name);
-    if (it == PHASE_ORDER.end()) return -1;
-    return static_cast<int>(std::distance(PHASE_ORDER.begin(), it));
-}
-
-int phase_order_index_for_method(const std::string& phase_name, const std::vector<std::string>& phase_order) {
+int phase_order_index(const std::string& phase_name, const std::vector<std::string>& phase_order) {
     auto it = std::find(phase_order.begin(), phase_order.end(), phase_name);
     if (it == phase_order.end()) return -1;
     return static_cast<int>(std::distance(phase_order.begin(), it));
-}
-
-bool is_aqmh_classic_only_phase(const std::string& phase_name) {
-    return phase_name == "STATE_CLUSTERING" || phase_name == "SYNTHETIC_FRAMES";
-}
-
-std::vector<std::string> effective_phase_order(const std::optional<bool>& aqmh_enabled) {
-    if (!aqmh_enabled.value_or(false)) return PHASE_ORDER;
-    return getPhaseOrderForMethod("aqmh");
-}
-
-/// @brief Clamps progress.
-/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-double clamp_progress(const nlohmann::json& value) {
-    double v = 0.0;
-    try { v = value.get<double>(); } catch (...) { return -1.0; }
-    if (v < 0.0) return 0.0;
-    if (v > 1.0) return 1.0;
-    return v;
-}
-
-bool json_bool_value(const nlohmann::json& object, const std::string& key, bool fallback) {
-    if (!object.contains(key)) return fallback;
-    const auto& value = object.at(key);
-    if (value.is_boolean()) return value.get<bool>();
-    if (value.is_number_integer()) return value.get<int>() != 0;
-    if (value.is_number_unsigned()) return value.get<unsigned int>() != 0;
-    return fallback;
-}
-
-std::optional<bool> json_optional_bool_value(const nlohmann::json& object, const std::string& key) {
-    if (!object.contains(key)) return std::nullopt;
-    const auto& value = object.at(key);
-    if (value.is_boolean() || value.is_number_integer() || value.is_number_unsigned()) {
-        return json_bool_value(object, key, false);
-    }
-    return std::nullopt;
-}
-
-std::optional<bool> read_run_aqmh_enabled_from_events(const fs::path& event_file) {
-    std::optional<bool> detected;
-    visit_jsonl(event_file, [&](const nlohmann::json& ev) {
-        if (auto value = json_optional_bool_value(ev, "aqmh_enabled")) {
-            detected = value;
-            return false;
-        }
-        if (ev.contains("payload") && ev["payload"].is_object()) {
-            if (auto value = json_optional_bool_value(ev["payload"], "aqmh_enabled")) {
-                detected = value;
-                return false;
-            }
-        }
-        if (raw_phase_name_from_event(ev) == "AQMH_QUALITY_MAPS") {
-            detected = true;
-            return false;
-        }
-        return true;
-    });
-    return detected;
 }
 
 /// @brief Implements overall progress.
@@ -253,6 +148,40 @@ double overall_progress(const nlohmann::json& phases,
     return progress;
 }
 
+/// @brief Parses an ISO-8601 UTC event timestamp (with optional fraction) to epoch seconds.
+std::optional<double> event_ts_seconds(const nlohmann::json& ev) {
+    if (!ev.contains("ts") || !ev["ts"].is_string()) return std::nullopt;
+    const std::string raw = ev["ts"].get<std::string>();
+    int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+    if (raw.size() < 19 ||
+        std::sscanf(raw.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d", &year, &month, &day, &hour, &minute, &second) != 6) {
+        return std::nullopt;
+    }
+    double fractional = 0.0;
+    const auto dot = raw.find('.');
+    if (dot != std::string::npos) {
+        const auto end = raw.find_first_of("Z+-", dot);
+        const std::string frac = raw.substr(dot + 1, end == std::string::npos ? std::string::npos : end - dot - 1);
+        if (!frac.empty() && std::all_of(frac.begin(), frac.end(), [](unsigned char c) { return std::isdigit(c); })) {
+            fractional = std::stod("0." + frac);
+        }
+    }
+    std::tm tm{};
+    tm.tm_year = year - 1900;
+    tm.tm_mon = month - 1;
+    tm.tm_mday = day;
+    tm.tm_hour = hour;
+    tm.tm_min = minute;
+    tm.tm_sec = second;
+#ifdef _WIN32
+    const auto epoch = _mkgmtime(&tm);
+#else
+    const auto epoch = timegm(&tm);
+#endif
+    if (epoch < 0) return std::nullopt;
+    return static_cast<double>(epoch) + fractional;
+}
+
 void normalize_phase_list_for_status(nlohmann::json& phase_list) {
     if (!phase_list.is_array()) return;
     for (auto& item : phase_list) {
@@ -276,23 +205,25 @@ void normalize_phase_list_for_status(nlohmann::json& phase_list) {
     }
 }
 
-bool phase_list_contains(const nlohmann::json& phase_list, const std::string& phase_name) {
-    if (!phase_list.is_array() || phase_name.empty()) return false;
-    for (const auto& item : phase_list) {
-        if (!item.is_object()) continue;
-        if (item.value("phase", std::string()) == phase_name) return true;
-    }
-    return false;
+std::string normalize_current_phase_for_status(const std::string& raw_phase) {
+    return normalize_phase_name(raw_phase);
 }
 
-std::string normalize_current_phase_for_status(const std::string& raw_phase,
-                                               const std::string& method,
-                                               const nlohmann::json& phase_list) {
-    std::string phase = normalizePhaseEvent(normalize_phase_name(raw_phase), method);
-    if (phase.empty() || phase_list_contains(phase_list, phase)) return phase;
-    const std::string aqmh_phase = normalizePhaseEvent(phase, "aqmh");
-    if (!aqmh_phase.empty() && phase_list_contains(phase_list, aqmh_phase)) return aqmh_phase;
-    return phase;
+double clamp_progress(const nlohmann::json& value) {
+    double v = 0.0;
+    try { v = value.get<double>(); } catch (...) { return -1.0; }
+    if (v < 0.0) return 0.0;
+    if (v > 1.0) return 1.0;
+    return v;
+}
+
+bool json_bool_value(const nlohmann::json& object, const std::string& key, bool fallback) {
+    if (!object.contains(key)) return fallback;
+    const auto& value = object.at(key);
+    if (value.is_boolean()) return value.get<bool>();
+    if (value.is_number_integer()) return value.get<int>() != 0;
+    if (value.is_number_unsigned()) return value.get<unsigned int>() != 0;
+    return fallback;
 }
 
 /// @brief Reads run color mode.
@@ -336,52 +267,6 @@ std::string read_run_color_mode(const fs::path& run_dir) {
         return true;
     });
     return detected;
-}
-
-/// @brief Reads aqmh enabled flag from run config.yaml.
-/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::optional<std::string> read_run_method(const fs::path& run_dir) {
-    fs::path config_path = run_dir / "config.yaml";
-    std::ifstream f(config_path);
-    if (f) {
-        try {
-            YAML::Node root = YAML::Load(f);
-            if (root["method"] && root["method"].IsScalar()) {
-                return root["method"].as<std::string>();
-            }
-        } catch (...) {}
-    }
-    return std::nullopt;
-}
-
-std::optional<std::string> read_method_from_yaml_text(const std::string& yaml_text) {
-    if (yaml_text.empty()) return std::nullopt;
-    try {
-        YAML::Node root = YAML::Load(yaml_text);
-        if (root["method"] && root["method"].IsScalar()) {
-            return root["method"].as<std::string>();
-        }
-    } catch (...) {}
-    return std::nullopt;
-}
-
-std::optional<bool> read_run_aqmh_enabled(const fs::path& run_dir) {
-    fs::path config_path = run_dir / "config.yaml";
-    std::ifstream f(config_path);
-    if (f) {
-        try {
-            YAML::Node root = YAML::Load(f);
-            if (root["aqmh"] && root["aqmh"].IsMap() && root["aqmh"]["enabled"]) {
-                return root["aqmh"]["enabled"].as<bool>();
-            }
-            if (root["data"] && root["data"].IsMap() && root["data"]["aqmh"] &&
-                root["data"]["aqmh"].IsMap() && root["data"]["aqmh"]["enabled"]) {
-                return root["data"]["aqmh"]["enabled"].as<bool>();
-            }
-        } catch (...) {}
-    }
-    return std::nullopt;
 }
 
 /// @brief Extracts run id from events.
@@ -451,11 +336,7 @@ bool run_id_matches_queue_item(const std::string& run_id, const std::string& ite
 void ensure_phase_array(nlohmann::json& status) {
     if (status.contains("phases") && status["phases"].is_array()) return;
     status["phases"] = nlohmann::json::array();
-    std::optional<bool> aqmh_enabled;
-    if (status.contains("aqmh_enabled")) {
-        aqmh_enabled = json_bool_value(status, "aqmh_enabled", false);
-    }
-    for (const auto& phase : effective_phase_order(aqmh_enabled)) {
+    for (const auto& phase : FORWARD_DRIZZLE_PHASE_ORDER) {
         status["phases"].push_back(nlohmann::json{{"phase", phase}, {"status", "pending"}, {"pct", 0.0}});
     }
 }
@@ -468,24 +349,16 @@ void apply_resume_job_overlay(nlohmann::json& status, const Job& job) {
 
     std::string resume_phase = normalize_phase_name(job.data.value("from_phase", std::string()));
     if (resume_phase.empty()) return;
-    std::string method = status.value("method", std::string("classic_tile_compile"));
-    if (method != "aqmh") {
-        if (auto job_method = read_method_from_yaml_text(job.data.value("config_yaml", std::string()))) {
-            method = *job_method;
-        }
-    }
-    resume_phase = normalizePhaseEvent(resume_phase, method);
-    if (resume_phase.empty()) return;
-    const auto phase_order = getPhaseOrderForMethod(method);
+    const auto& phase_order = FORWARD_DRIZZLE_PHASE_ORDER;
 
     ensure_phase_array(status);
     status["current_phase"] = resume_phase;
 
-    const int resume_idx = phase_order_index_for_method(resume_phase, phase_order);
+    const int resume_idx = phase_order_index(resume_phase, phase_order);
     for (auto& phase_state : status["phases"]) {
         if (!phase_state.is_object()) continue;
         const std::string phase_name = normalize_phase_name(phase_state.value("phase", std::string()));
-        const int phase_idx = phase_order_index_for_method(phase_name, phase_order);
+        const int phase_idx = phase_order_index(phase_name, phase_order);
         if (phase_idx < 0 || resume_idx < 0) continue;
 
         if (phase_idx < resume_idx) {
@@ -625,6 +498,36 @@ void apply_job_state_to_run_status(nlohmann::json& status, const std::optional<J
     if (!job.has_value()) return;
 
     const std::string state = job_state_str(job->state);
+
+    // A `resume` job is a SECONDARY action taken against an already-existing
+    // run, potentially long after that run itself finished. If the run's own
+    // event log (read_run_status, already applied to `status` before this
+    // call) already shows a terminal outcome, a later resume attempt's own
+    // result must not silently overwrite it -- most importantly, a resume
+    // that fails before writing a single event to the run's log (e.g. a
+    // config/scope mismatch caught at startup) would otherwise permanently
+    // relabel an already-completed run as "failed". Surface the resume
+    // attempt's own outcome in a separate field instead and leave the
+    // primary status alone. A still-pending/running resume is unaffected
+    // (handled below) since that IS the run's current live activity.
+    static const std::unordered_set<std::string> kTerminalRunStates = {
+        "completed", "failed", "cancelled"};
+    const std::string pre_job_status = status.value("status", std::string());
+    if (job->type == "resume" && state != "pending" && state != "running" &&
+        kTerminalRunStates.count(pre_job_status) > 0) {
+        nlohmann::json resume_attempt = {
+            {"state", state},
+            {"started_at", job->started_at},
+            {"ended_at", job->ended_at},
+        };
+        if (!job->error_message.empty()) resume_attempt["error"] = job->error_message;
+        if (job->data.is_object() && job->data.contains("exit_code")) {
+            resume_attempt["exit_code"] = job->data["exit_code"];
+        }
+        status["resume_attempt"] = std::move(resume_attempt);
+        return;
+    }
+
     if (state == "pending" || state == "running") {
         status["status"] = state;
         if (!status.contains("progress") || !status["progress"].is_number()) {
@@ -641,9 +544,7 @@ void apply_job_state_to_run_status(nlohmann::json& status, const std::optional<J
         if (status.contains("current_phase") && status["current_phase"].is_string() &&
             status.contains("phases") && status["phases"].is_array()) {
             const std::string normalized_current_phase = normalize_current_phase_for_status(
-                status["current_phase"].get<std::string>(),
-                status.value("method", std::string("classic_tile_compile")),
-                status["phases"]);
+                status["current_phase"].get<std::string>());
             status["current_phase"] = normalized_current_phase.empty()
                 ? nlohmann::json(nullptr)
                 : nlohmann::json(normalized_current_phase);
@@ -660,6 +561,18 @@ void apply_job_state_to_run_status(nlohmann::json& status, const std::optional<J
     if (state == "error") {
         status["status"] = "failed";
         status["current_phase"] = nullptr;
+        // Surface the child runner's stderr/exit code when it died before
+        // writing any run artifacts (e.g. config rejected fail-closed at
+        // startup), so the UI does not show an unexplained "failed".
+        const bool has_artifact_error = status.contains("error") &&
+            status["error"].is_string() && !status["error"].get<std::string>().empty();
+        if (!has_artifact_error && !job->error_message.empty()) {
+            status["error"] = job->error_message;
+        }
+        if (job->data.is_object() && job->data.contains("exit_code") &&
+            !status.contains("exit_code")) {
+            status["exit_code"] = job->data["exit_code"];
+        }
         return;
     }
 
@@ -751,22 +664,12 @@ void apply_runtime_liveness_to_run_status(nlohmann::json& status,
 /// access, process handling, and error reporting localized to this backend component.
 nlohmann::json read_run_status(const fs::path& run_dir) {
     auto event_file = find_event_file(run_dir);
-    auto method_opt = read_run_method(run_dir);
-    auto aqmh_enabled_opt = read_run_aqmh_enabled(run_dir);
-    if (!aqmh_enabled_opt && event_file) {
-        aqmh_enabled_opt = read_run_aqmh_enabled_from_events(*event_file);
-    }
-    
-    // Determine effective method: prefer explicit method from config, default to aqmh
-    std::string effective_method = method_opt.value_or("aqmh");
-    
-    const auto phase_order = getPhaseOrderForMethod(effective_method);
+    const auto& phase_order = FORWARD_DRIZZLE_PHASE_ORDER;
     nlohmann::json result = {
         {"run_dir", run_dir.string()},
         {"exists", fs::exists(run_dir)},
         {"status", "unknown"},
-        {"method", effective_method},
-        {"aqmh_enabled", effective_method == "aqmh"},
+        {"method", "cfa_forward_drizzle_multiband"},
         {"color_mode", read_run_color_mode(run_dir)},
         {"current_phase", nullptr},
         {"progress", 0.0},
@@ -784,6 +687,10 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
     nlohmann::json extra_phases = nlohmann::json::object();
     nlohmann::json progress_map = nlohmann::json::object();
     std::deque<nlohmann::json> events_tail;
+    // Phase durations are derived from the whole event file: the 200-event tail
+    // drops early phases (SCAN_INPUT, NORMALIZATION) once later phases emit many
+    // progress events.
+    std::map<std::string, double> phase_start_secs;
     std::string run_status = "unknown";
     std::string current_phase;
     std::string resume_from_phase;
@@ -796,6 +703,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         }
         extra_phases = nlohmann::json::object();
         progress_map = nlohmann::json::object();
+        phase_start_secs.clear();
         run_status = "unknown";
         current_phase.clear();
         resume_from_phase.clear();
@@ -806,8 +714,8 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         if (!resume_active || resume_from_phase.empty() || phase_name.empty() || phase_name == resume_from_phase) {
             return false;
         }
-        const int phase_idx = phase_order_index_for_method(phase_name, phase_order);
-        const int resume_idx = phase_order_index_for_method(resume_from_phase, phase_order);
+        const int phase_idx = phase_order_index(phase_name, phase_order);
+        const int resume_idx = phase_order_index(resume_from_phase, phase_order);
         return phase_idx >= 0 && resume_idx >= 0 && phase_idx < resume_idx;
     };
 
@@ -826,13 +734,6 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         }
 
         if (!phase_name.empty()) {
-            const std::string normalized_phase = normalizePhaseEvent(phase_name, effective_method);
-            if (normalized_phase.empty()) {
-                return true; // Skip/hide this phase for the current method
-            }
-            if (normalized_phase != phase_name) {
-                phase_name = normalized_phase;
-            }
 
             nlohmann::json* phase_state = nullptr;
             if (phases.contains(phase_name)) phase_state = &phases[phase_name];
@@ -842,6 +743,9 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
             }
 
             if (event_type == "phase_start") {
+                phase_state->erase("duration_s");
+                if (const auto secs = event_ts_seconds(ev)) phase_start_secs[phase_name] = *secs;
+                else phase_start_secs.erase(phase_name);
                 if ((*phase_state).value("status", std::string()) != "running" ||
                     (*phase_state).value("pct", 0.0) >= 1.0) {
                     (*phase_state)["pct"] = 0.0;
@@ -874,6 +778,12 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                     raw = "ok";
                 }
                 (*phase_state)["status"] = raw;
+                if (const auto start_it = phase_start_secs.find(phase_name); start_it != phase_start_secs.end()) {
+                    if (const auto end_secs = event_ts_seconds(ev)) {
+                        (*phase_state)["duration_s"] = std::round(std::max(0.0, *end_secs - start_it->second) * 1000.0) / 1000.0;
+                    }
+                    phase_start_secs.erase(start_it);
+                }
                 if (raw == "ok" || raw == "skipped") (*phase_state)["pct"] = 1.0;
                 if (!is_resume_prereq_phase(phase_name) &&
                     current_phase == phase_name &&
@@ -896,7 +806,6 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                 resume_from_phase = ev["payload"]["from_phase"].get<std::string>();
             }
             std::transform(resume_from_phase.begin(), resume_from_phase.end(), resume_from_phase.begin(), ::toupper);
-            resume_from_phase = normalizePhaseEvent(resume_from_phase, effective_method);
             if (!resume_from_phase.empty()) {
                 resume_active = true;
                 current_phase = resume_from_phase;
@@ -913,6 +822,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                         if (phases.contains(*pit)) {
                             phases[*pit]["status"] = (*pit == resume_from_phase) ? "running" : "pending";
                             phases[*pit]["pct"] = 0.0;
+                            phases[*pit].erase("duration_s");
                         }
                     }
                 }
@@ -979,7 +889,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
 
     result["status"] = run_status;
     const std::string normalized_current_phase =
-        normalize_current_phase_for_status(current_phase, effective_method, phase_list);
+        normalize_current_phase_for_status(current_phase);
     result["current_phase"] = normalized_current_phase.empty() ? nlohmann::json(nullptr) : nlohmann::json(normalized_current_phase);
     result["progress"] = std::round(progress * 10000.0) / 10000.0;
     result["phases"] = phase_list;
@@ -1021,7 +931,7 @@ std::vector<nlohmann::json> discover_runs(const fs::path& runs_dir, int limit) {
             {"run_id", run_id},
             {"modified", iso_utc_from_file_time(modified_time)},
             {"status", status.value("status", "unknown")},
-            {"method", status.value("method", "aqmh")},
+            {"method", "cfa_forward_drizzle_multiband"},
         });
     }
     // Sort once after collecting all entries (newest first).
@@ -1078,7 +988,6 @@ nlohmann::json list_run_artifacts(const fs::path& run_dir) {
                     for (auto& e : ARTIFACT_EXTS) {
                         if (ext == e) {
                             int64_t size_bytes = static_cast<int64_t>(fs::file_size(entry.path()));
-                            const bool is_aqmh_cache = rel.rfind("cache/aqmh/", 0) == 0;
                             items.push_back({
                                 {"path",          rel},
                                 {"relative_path", rel},
@@ -1086,8 +995,8 @@ nlohmann::json list_run_artifacts(const fs::path& run_dir) {
                                 {"filename",      name},
                                 {"size",          size_bytes},
                                 {"size_bytes",    size_bytes},
-                                {"group",         is_aqmh_cache ? "aqmh_cache" : "artifacts"},
-                                {"group_label",   is_aqmh_cache ? "AQMH Quality Map Cache" : "Artifacts"},
+                                {"group",         "artifacts"},
+                                {"group_label",   "Artifacts"},
                             });
                             break;
                         }

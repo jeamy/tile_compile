@@ -7,8 +7,7 @@ PROJECT_ROOT="${SCRIPT_DIR}"
 BUILD_DIR_DEFAULT="${PROJECT_ROOT}/web_backend_cpp/build"
 BUILD_DIR="${BUILD_DIR:-${BUILD_DIR_DEFAULT}}"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
-BACKEND_BIN_DEFAULT="${BUILD_DIR}/tile_compile_web_backend"
-BACKEND_BIN="${BACKEND_BIN:-${BACKEND_BIN_DEFAULT}}"
+BACKEND_BIN="${BACKEND_BIN:-}"
 CPP_BUILD_DIR_DEFAULT="${PROJECT_ROOT}/tile_compile_cpp/build"
 CPP_BUILD_DIR="${CPP_BUILD_DIR:-${CPP_BUILD_DIR_DEFAULT}}"
 DEFAULT_OPENCV_CUDA_DIR="${HOME}/.local/opencv-cuda-4.11/lib64/cmake/opencv4"
@@ -26,10 +25,8 @@ TILE_COMPILE_CUDA_NVCC_EXECUTABLE="${TILE_COMPILE_CUDA_NVCC_EXECUTABLE:-${CUDA_N
 if [[ -z "${TILE_COMPILE_CUDA_NVCC_EXECUTABLE}" && -x "${DEFAULT_CUDA_NVCC}" ]]; then
   TILE_COMPILE_CUDA_NVCC_EXECUTABLE="${DEFAULT_CUDA_NVCC}"
 fi
-CLI_BIN_DEFAULT="${CPP_BUILD_DIR}/tile_compile_cli"
-CLI_BIN="${TILE_COMPILE_CLI:-${CLI_BIN_DEFAULT}}"
-RUNNER_BIN_DEFAULT="${CPP_BUILD_DIR}/tile_compile_runner"
-RUNNER_BIN="${TILE_COMPILE_RUNNER:-${RUNNER_BIN_DEFAULT}}"
+CLI_BIN="${TILE_COMPILE_CLI:-}"
+RUNNER_BIN="${TILE_COMPILE_RUNNER:-}"
 CONFIG_PATH_DEFAULT="${PROJECT_ROOT}/tile_compile_cpp/tile_compile.yaml"
 CONFIG_PATH="${TILE_COMPILE_CONFIG:-${CONFIG_PATH_DEFAULT}}"
 SCHEMA_PATH_DEFAULT="${PROJECT_ROOT}/tile_compile_cpp/tile_compile.schema.yaml"
@@ -60,7 +57,7 @@ Options:
   --port <port>         Backend port (default: ${PORT})
   --build-dir <path>    CMake build directory (default: ${BUILD_DIR_DEFAULT})
   --cpp-build-dir <p>   C++ core build directory (default: ${CPP_BUILD_DIR_DEFAULT})
-  --backend-bin <path>  Backend binary path (default: ${BACKEND_BIN_DEFAULT})
+  --backend-bin <path>  Backend binary path (default: <build-dir>/tile_compile_web_backend)
   --build-type <type>   CMake build type (default: ${BUILD_TYPE})
   --runs-dir <path>     Runs directory (default: ${RUNS_DIR_DEFAULT})
   --no-build            Skip cmake configure/build step
@@ -175,6 +172,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Resolve binary paths after argument parsing so --build-dir/--cpp-build-dir
+# overrides are reflected (avoids silently starting a stale default-dir binary).
+if [[ -z "${BACKEND_BIN}" ]]; then
+  BACKEND_BIN="${BUILD_DIR}/tile_compile_web_backend"
+fi
+if [[ -z "${CLI_BIN}" ]]; then
+  CLI_BIN="${CPP_BUILD_DIR}/tile_compile_cli"
+fi
+if [[ -z "${RUNNER_BIN}" ]]; then
+  RUNNER_BIN="${CPP_BUILD_DIR}/tile_compile_runner"
+fi
+
 if [[ -L "${RUNS_DIR}" && ! -e "${RUNS_DIR}" ]]; then
   echo "[backend] Runs directory path is a broken symlink: ${RUNS_DIR}" >&2
   echo "[backend] Fix the symlink target or start with --runs-dir <directory>." >&2
@@ -224,6 +233,14 @@ fi
 
 if [[ ! -x "${BACKEND_BIN}" ]]; then
   echo "[backend] Binary not found or not executable: ${BACKEND_BIN}" >&2
+  exit 1
+fi
+if [[ ! -x "${RUNNER_BIN}" ]]; then
+  echo "[backend] Runner binary not found or not executable: ${RUNNER_BIN}" >&2
+  exit 1
+fi
+if [[ ! -x "${CLI_BIN}" ]]; then
+  echo "[backend] CLI binary not found or not executable: ${CLI_BIN}" >&2
   exit 1
 fi
 

@@ -1,3 +1,4 @@
+#include "tile_compile/registration/registration_sampling_plan.hpp"
 #pragma once
 
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
@@ -6,6 +7,7 @@
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/image/background_extraction.hpp"
+#include "tile_compile/image/hypermetric_stretch.hpp"
 
 #include <cstdint>
 #include <cmath>
@@ -54,10 +56,6 @@ LocalGaiaPlateSolveResult solve_with_local_gaia_catalog(
 /// file to copy into the run artifacts.
 bool write_wcs_sidecar(const astrometry::WCS &wcs,
                        const std::filesystem::path &path);
-
-/// Aggregate local tile metrics across multiple frames into a single median-based profile.
-std::vector<tile_compile::TileMetrics> aggregate_tile_metrics_across_frames(
-    const std::vector<std::vector<tile_compile::TileMetrics>> &local_metrics);
 
 /// Format a byte count for human-readable logs and diagnostics.
 std::string format_bytes(uint64_t bytes);
@@ -114,23 +112,6 @@ private:
   bool changed_ = false;
 };
 
-/// Memory-aware worker plan for full-resolution AQMH quality-map generation.
-/// AQMH_MAPS allocates several full-canvas intermediate matrices per worker;
-/// its ordinary CPU worker heuristic must therefore be capped separately.
-struct AqmhMapWorkerPlan {
-  int requested_workers = 1;
-  int effective_workers = 1;
-  uint64_t memory_budget_bytes = 0;
-  uint64_t available_memory_bytes = 0;
-  uint64_t estimated_bytes_per_worker = 0;
-  bool memory_capped = false;
-};
-
-AqmhMapWorkerPlan compute_aqmh_map_worker_plan(
-    const config::Config &cfg, size_t task_count,
-    const std::vector<std::filesystem::path> &frames, int width, int height,
-    uint64_t available_memory_bytes = 0);
-
 struct OverlapMasks {
   std::vector<uint8_t> analysis_common;
   std::vector<uint8_t> reconstruction_support;
@@ -145,6 +126,12 @@ int default_parallel_workers(size_t items, int requested_workers = 0);
 
 /// Platform-aware shell quoting for external commands.
 std::string shell_quote(const std::string &s);
+
+/// Convert config::HyperMetricStretchConfig to image::HyperMetricStretchConfig
+/// (field-for-field, no logic). Was duplicated identically in
+/// runner_pipeline.cpp, runner_downstream.cpp, and runner_resume.cpp.
+image::HyperMetricStretchConfig to_image_hms_config(
+    const config::HyperMetricStretchConfig &src);
 
 /// Wrap a command for execution via std::system (cmd /c "..." on Windows).
 std::string system_cmd(const std::string &cmd);
@@ -268,55 +255,6 @@ inline float common_overlap_invalid_value() {
   return std::numeric_limits<float>::quiet_NaN();
 }
 
-/// Apply the COMMON_OVERLAP mask to one tile in-place.
-///
-/// Pixels outside the global common-overlap mask are written as NaN so later
-/// metrics/reconstruction paths can ignore them without maintaining a separate
-/// mask per tile. The helper is deliberately inline because it is used in hot
-/// loops across local metrics, reconstruction, and diagnostics.
-inline void apply_common_overlap_to_tile_inplace(
-    Matrix2Df &tile, const Tile &t, const std::vector<uint8_t> &common_valid_mask,
-    int common_mask_width, int common_mask_height) {
-  if (tile.rows() != t.height || tile.cols() != t.width)
-    return;
-  if (common_mask_width <= 0 || common_mask_height <= 0 ||
-      common_valid_mask.empty()) {
-    return;
-  }
-
-  const int tile_cols = static_cast<int>(tile.cols());
-  const size_t mask_size = common_valid_mask.size();
-  float *tile_data = tile.data();
-  const float invalid = common_overlap_invalid_value();
-
-  for (int yy = 0; yy < t.height; ++yy) {
-    const int gy = t.y + yy;
-    const size_t tile_row_off =
-        static_cast<size_t>(yy) * static_cast<size_t>(tile_cols);
-    if (gy < 0 || gy >= common_mask_height) {
-      for (int xx = 0; xx < t.width; ++xx) {
-        tile_data[tile_row_off + static_cast<size_t>(xx)] = invalid;
-      }
-      continue;
-    }
-
-    const size_t row_off =
-        static_cast<size_t>(gy) * static_cast<size_t>(common_mask_width);
-
-    for (int xx = 0; xx < t.width; ++xx) {
-      const int gx = t.x + xx;
-      if (gx < 0 || gx >= common_mask_width) {
-        tile_data[tile_row_off + static_cast<size_t>(xx)] = invalid;
-        continue;
-      }
-      const size_t mask_idx = row_off + static_cast<size_t>(gx);
-      if (mask_idx >= mask_size || common_valid_mask[mask_idx] == 0) {
-        tile_data[tile_row_off + static_cast<size_t>(xx)] = invalid;
-      }
-    }
-  }
-}
-
 /// Apply a common-overlap mask to a tile and report whether finite data remains.
 inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
     Matrix2Df &tile, const Tile &t, const std::vector<uint8_t> &common_valid_mask,
@@ -362,39 +300,6 @@ inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
         continue;
       }
       if (std::isfinite(v)) {
-        any_valid = true;
-      }
-    }
-  }
-  return any_valid;
-}
-
-/// Apply the common-overlap mask to a full mono/luma frame in-place.
-inline bool apply_common_overlap_to_frame_inplace_and_check_nonzero(
-    Matrix2Df &frame, const std::vector<uint8_t> &common_valid_mask,
-    int common_mask_width, int common_mask_height) {
-  if (frame.rows() != common_mask_height || frame.cols() != common_mask_width) {
-    return false;
-  }
-  if (common_mask_width <= 0 || common_mask_height <= 0 ||
-      common_valid_mask.empty()) {
-    return false;
-  }
-
-  const size_t mask_size = common_valid_mask.size();
-  float *frame_data = frame.data();
-  bool any_valid = false;
-  const float invalid = common_overlap_invalid_value();
-  for (int y = 0; y < common_mask_height; ++y) {
-    const size_t row_off =
-        static_cast<size_t>(y) * static_cast<size_t>(common_mask_width);
-    for (int x = 0; x < common_mask_width; ++x) {
-      const size_t idx = row_off + static_cast<size_t>(x);
-      if (idx >= mask_size || common_valid_mask[idx] == 0) {
-        frame_data[idx] = invalid;
-        continue;
-      }
-      if (std::isfinite(frame_data[idx])) {
         any_valid = true;
       }
     }
@@ -558,33 +463,6 @@ bool invert_affine_warp(const WarpMatrix &w, WarpMatrix &inv);
 WarpBounds compute_warps_bounds(int width, int height,
                                 const std::vector<WarpMatrix> &warps);
 
-/// Axis-aligned crop rectangle in image coordinates.
-struct CropBox {
-  int x{0};
-  int y{0};
-  int width{0};
-  int height{0};
-
-  [[nodiscard]] bool valid() const { return width > 0 && height > 0; }
-};
-
-/// Find the bounding box of finite/nonzero reconstructed data.
-CropBox compute_nonzero_data_bbox(const Matrix2Df &luma,
-                                  const Matrix2Df *r = nullptr,
-                                  const Matrix2Df *g = nullptr,
-                                  const Matrix2Df *b = nullptr);
-
-/// Find the axis-aligned bounding box of reconstructed support pixels.
-CropBox compute_support_mask_bbox(const std::vector<uint8_t> &support_mask,
-                                  int mask_rows, int mask_cols);
-
-/// Find the largest crop box supported by the common-valid mask and data planes.
-CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
-                                       const std::vector<uint8_t> &common_valid_mask,
-                                       int mask_rows, int mask_cols,
-                                       const Matrix2Df *r = nullptr,
-                                       const Matrix2Df *g = nullptr,
-                                       const Matrix2Df *b = nullptr);
 
 /// Convert runner configuration into the image-module BGE runtime config.
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src);
@@ -727,6 +605,10 @@ public:
   /// Load a cached registration proxy if present.
   bool try_load_registration_proxy(size_t fi, Matrix2Df &out) const;
 
+  /// Seal a complete normalized cache and retain it beyond this object lifetime.
+  void seal_normalized_cache(const registration::RegistrationSamplingPlan &plan);
+  void release_registration_proxies();
+
   /// Number of frame slots in the cache.
   size_t size() const;
   /// Normalized frame row count.
@@ -737,6 +619,8 @@ public:
   void cleanup();
 
 private:
+  std::filesystem::path normalized_cache_dir_;
+  bool normalized_cache_sealed_ = false;
   DiskCacheFrameStore normalized_frames_;
   mutable std::mutex proxy_mutex_;
   std::vector<uint8_t> has_registration_proxy_;

@@ -3,53 +3,49 @@
 import { el, clear } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
 
-// Phase order must match the runner's event order, not the numeric Phase enum ids.
-const CLASSIC_PHASES = [
+// Single-method CFA forward-drizzle + multiband pipeline (`runner reconstruct`,
+// the only pipeline). Exact event order emitted by runner_pipeline.cpp:
+// SCAN_INPUT + channel-split/normalization + registration (registration runs
+// registration_only=true, so PREWARP is not emitted), then
+// run_forward_drizzle_stages (NORMALIZED_CACHE .. MULTIBAND). Verified against
+// the event logs of two real runs (M31/M42).
+// Not listed:
+//  - GLOBAL_METRICS: computed internally, not emitted as a stage.
+//  - ASTROMETRY / BGE / PCC / HYPERMETRIC_STRETCH follow MULTIBAND as the
+//    downstream phases.
+const RECONSTRUCT_PHASES = [
   "SCAN_INPUT",
   "CHANNEL_SPLIT",
   "NORMALIZATION",
-  "GLOBAL_METRICS",
-  "TILE_GRID",
   "REGISTRATION",
-  "PREWARP",
+  "NORMALIZED_CACHE",
+  "SAMPLING_GEOMETRY",
   "COMMON_OVERLAP",
-  "LOCAL_METRICS",
-  "TILE_RECONSTRUCTION",
-  "STATE_CLUSTERING",
-  "SYNTHETIC_FRAMES",
-  "STACKING",
-  "DEBAYER",
+  "SOURCE_QUALITY_MAPS",
+  "GLOBAL_QUALITY",
+  "FORWARD_DRIZZLE",
+  "MULTIBAND",
   "ASTROMETRY",
   "BGE",
   "PCC",
   "HYPERMETRIC_STRETCH",
 ];
 
-// AQMH main path: GLOBAL_METRICS/TILE_GRID/LOCAL_METRICS/TILE_RECONSTRUCTION/
-// STATE_CLUSTERING/SYNTHETIC_FRAMES are Classic-only and omitted.
-// STACKING is still executed for AQMH (output scaling/writing).
-const AQMH_PHASES = [
-  "SCAN_INPUT",
-  "CHANNEL_SPLIT",
-  "NORMALIZATION",
-  "REGISTRATION",
-  "PREWARP",
-  "COMMON_OVERLAP",
-  "AQMH_MAPS",
-  "AQMH_GLOBAL_QUALITY",
-  "AQMH_RECONSTRUCTION",
-  "AQMH_DIAGNOSTICS",
-  "STACKING",
-  "DEBAYER",
+const DEFAULT_PHASES = RECONSTRUCT_PHASES;
+
+// resume-reconstruction entry points: the reconstruction resume phases
+// (GLOBAL_QUALITY, FORWARD_DRIZZLE) plus the downstream-only resume phases
+// which reuse the persisted reconstruction outputs and re-run only the
+// downstream chain (ASTROMETRY -> BGE -> PCC -> HYPERMETRIC_STRETCH).
+// MULTIBAND is not a resume entry; it always re-runs with FORWARD_DRIZZLE.
+const CLICKABLE_PHASES = new Set([
+  "GLOBAL_QUALITY",
+  "FORWARD_DRIZZLE",
   "ASTROMETRY",
   "BGE",
   "PCC",
   "HYPERMETRIC_STRETCH",
-];
-
-const DEFAULT_PHASES = AQMH_PHASES;
-
-const CLICKABLE_PHASES = new Set([...CLASSIC_PHASES, ...AQMH_PHASES]);
+]);
 
 let selectedPhase = null;
 let phaseClickHandler = null;
@@ -58,22 +54,10 @@ export function setPhaseClickHandler(handler) {
   phaseClickHandler = handler;
 }
 
-export function getBgeLabel(configDraft) {
-  const bgeMethod = configDraft?.bge?.method || "none";
-  if (bgeMethod === "none") return "BGE (Skipped)";
-  if (bgeMethod === "classic") return "BGE (Classic)";
-  if (bgeMethod === "autobge") return "BGE (AutoBGE)";
-  return "BGE";
-}
-
 export function getPhasesForConfig(configDraft) {
-  if (!configDraft || typeof configDraft !== "object") return DEFAULT_PHASES.map(p => ({ phase: p, label: p }));
-  const method = configDraft.method;
-  const aqmhEnabled = configDraft.aqmh && configDraft.aqmh.enabled;
-  const basePhases = (method === "classic_tile_compile" || aqmhEnabled === false) ? CLASSIC_PHASES : AQMH_PHASES;
-  return basePhases.map(p => p === "BGE"
-    ? { phase: "BGE", label: getBgeLabel(configDraft), bgeMethod: configDraft?.bge?.method || "none" }
-    : { phase: p, label: p });
+  // Single-method pipeline (plan M8): no method selector, so the phase list is
+  // no longer config-dependent - it is always the `runner reconstruct` order.
+  return RECONSTRUCT_PHASES.map(p => ({ phase: p, label: p }));
 }
 
 export function getSelectedPhase() {

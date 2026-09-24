@@ -26,12 +26,13 @@ class RunnerFrameCache;
 /// the validity masks here instead of re-reading or re-warping the original
 /// FITS files.
 struct PhaseRegistrationContext {
+  registration::RegistrationSamplingPlan sampling_plan;
   /// Disk-backed prewarped frames on the common canvas.
   DiskCacheFrameStore prewarped_frames;
-  /// True when OSC input was demosaiced before prewarp/AQMH. In that mode
+  /// True when OSC input was demosaiced before the prewarp. In that mode
   /// prewarped_frames contains luma and the RGB stores contain color planes.
   bool debayer_first_rgb = false;
-  /// Optional disk-backed RGB prewarped planes for AQMH debayer-first OSC.
+  /// Optional disk-backed RGB prewarped planes for debayer-first OSC.
   DiskCacheFrameStore prewarped_frames_r;
   DiskCacheFrameStore prewarped_frames_g;
   DiskCacheFrameStore prewarped_frames_b;
@@ -90,6 +91,6 @@ bool run_phase_registration_prewarp(
     const VectorXf &global_weights, const io::FitsHeader &first_hdr,
     core::AccelerationContext &acceleration, core::EventEmitter &emitter,
     std::ostream &log_file,
-    PhaseRegistrationContext &out);
+    PhaseRegistrationContext &out, bool registration_only = false);
 
 } // namespace tile_compile::runner

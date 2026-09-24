@@ -4,6 +4,12 @@
 
 namespace tile_compile::astrometry::detail {
 
+double measure_aperture_flux(
+    const Matrix2Df &image, double cx, double cy,
+    double aperture_radius, double annulus_inner_radius,
+    double annulus_outer_radius, const std::string &background_model,
+    const std::vector<uint8_t> *support_mask = nullptr);
+
 // Applies a fitted diagonal PCC matrix around each channel background, then
 // handles background neutralization independently according to the PCC mode.
 void apply_diagonal_color_correction(

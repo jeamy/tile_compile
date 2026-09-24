@@ -1,3 +1,4 @@
+#include "tile_compile/reconstruction/normalized_source_cache.hpp"
 #include "runner_shared.hpp"
 
 #include "tile_compile/core/utils.hpp"
@@ -928,68 +929,6 @@ uint64_t query_available_memory_bytes() {
 #endif
 }
 
-AqmhMapWorkerPlan compute_aqmh_map_worker_plan(
-    const config::Config &cfg, size_t task_count,
-    const std::vector<std::filesystem::path> &frames, int width, int height,
-    uint64_t available_memory_bytes) {
-  constexpr uint64_t MiB = 1024ull * 1024ull;
-  constexpr uint64_t safety_overhead_bytes = 256ull * MiB;
-  // One worker holds the source/mask, Q-map and several per-scale float
-  // intermediates plus a full-canvas double accumulator. The estimate is
-  // deliberately conservative because OpenCV allocations and temporary
-  // matrices overlap only partially during map construction.
-  constexpr uint64_t float_intermediate_count = 16;
-
-  AqmhMapWorkerPlan plan;
-  plan.requested_workers = compute_adaptive_worker_count(
-      cfg, task_count, frames, WorkerParallelProfile::CpuBound);
-  plan.effective_workers = std::max(1, plan.requested_workers);
-
-  const uint64_t pixels =
-      (width > 0 && height > 0)
-          ? static_cast<uint64_t>(width) * static_cast<uint64_t>(height)
-          : 0ull;
-  const size_t configured_budget_mb =
-      cfg.aqmh.reconstruction.memory_budget_mb != 0
-          ? cfg.aqmh.reconstruction.memory_budget_mb
-          : static_cast<size_t>(std::max(1, cfg.runtime_limits.memory_budget));
-  plan.memory_budget_bytes =
-      static_cast<uint64_t>(configured_budget_mb) * MiB;
-  plan.available_memory_bytes = available_memory_bytes != 0
-                                    ? available_memory_bytes
-                                    : query_available_memory_bytes();
-  if (pixels == 0 || plan.available_memory_bytes == 0) {
-    return plan;
-  }
-
-  plan.estimated_bytes_per_worker =
-      pixels * (sizeof(double) + float_intermediate_count * sizeof(float) +
-                sizeof(uint8_t)) +
-      safety_overhead_bytes;
-  // Do not treat the configured budget as a hard worker limit. It is only a
-  // planning value; reduce concurrency when the live system memory cannot
-  // accommodate the requested workers with a 30% headroom.
-  if (plan.available_memory_bytes > 0) {
-    const uint64_t usable_memory =
-        (plan.available_memory_bytes * 70ull) / 100ull;
-    const uint64_t required_memory =
-        plan.estimated_bytes_per_worker *
-        static_cast<uint64_t>(plan.requested_workers);
-    if (required_memory > usable_memory) {
-      const uint64_t memory_workers =
-          usable_memory /
-          std::max<uint64_t>(1, plan.estimated_bytes_per_worker);
-      plan.effective_workers = std::max(
-          1, std::min(plan.requested_workers,
-                      static_cast<int>(std::min<uint64_t>(
-                          memory_workers,
-                          static_cast<uint64_t>(std::numeric_limits<int>::max())))));
-      plan.memory_capped = plan.effective_workers < plan.requested_workers;
-    }
-  }
-  return plan;
-}
-
 OverlapMasks compute_overlap_masks(const std::vector<uint16_t> &coverage,
                                    int required_common_frames) {
   OverlapMasks masks;
@@ -1125,162 +1064,38 @@ bool load_canvas_mask_for_rgb(const fs::path &mask_path, const Matrix2Df &R,
                                error_out);
 }
 
-/// @brief Computes nonzero data bbox.
-/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-CropBox compute_nonzero_data_bbox(const Matrix2Df &luma, const Matrix2Df *r,
-                                  const Matrix2Df *g, const Matrix2Df *b) {
-  constexpr float kCropNonZeroEps = 1.0e-12f;
-  if (luma.rows() <= 0 || luma.cols() <= 0) {
-    return {};
-  }
-
-  const int rows = static_cast<int>(luma.rows());
-  const int cols = static_cast<int>(luma.cols());
-  const bool have_rgb =
-      (r != nullptr && g != nullptr && b != nullptr &&
-       r->rows() == luma.rows() && r->cols() == luma.cols() &&
-       g->rows() == luma.rows() && g->cols() == luma.cols() &&
-       b->rows() == luma.rows() && b->cols() == luma.cols());
-  auto is_valid_value = [](float v) {
-    return std::isfinite(v) && std::fabs(v) > kCropNonZeroEps;
-  };
-
-  int min_x = cols;
-  int min_y = rows;
-  int max_x = -1;
-  int max_y = -1;
-  for (int y = 0; y < rows; ++y) {
-    for (int x = 0; x < cols; ++x) {
-      bool has_data = is_valid_value(luma(y, x));
-      if (!has_data && have_rgb) {
-        has_data = is_valid_value((*r)(y, x)) || is_valid_value((*g)(y, x)) ||
-                   is_valid_value((*b)(y, x));
-      }
-      if (!has_data) {
-        continue;
-      }
-      min_x = std::min(min_x, x);
-      min_y = std::min(min_y, y);
-      max_x = std::max(max_x, x);
-      max_y = std::max(max_y, y);
-    }
-  }
-
-  if (max_x < min_x || max_y < min_y) {
-    return {};
-  }
-  return CropBox{min_x, min_y, max_x - min_x + 1, max_y - min_y + 1};
-}
-
-CropBox compute_support_mask_bbox(const std::vector<uint8_t> &support_mask,
-                                  int mask_rows, int mask_cols) {
-  if (mask_rows <= 0 || mask_cols <= 0 ||
-      support_mask.size() != static_cast<size_t>(mask_rows) *
-                                  static_cast<size_t>(mask_cols)) {
-    return {};
-  }
-
-  int min_x = mask_cols;
-  int min_y = mask_rows;
-  int max_x = -1;
-  int max_y = -1;
-  for (int y = 0; y < mask_rows; ++y) {
-    const size_t row = static_cast<size_t>(y) * static_cast<size_t>(mask_cols);
-    for (int x = 0; x < mask_cols; ++x) {
-      if (support_mask[row + static_cast<size_t>(x)] == 0u) continue;
-      min_x = std::min(min_x, x);
-      min_y = std::min(min_y, y);
-      max_x = std::max(max_x, x);
-      max_y = std::max(max_y, y);
-    }
-  }
-  if (max_x < min_x || max_y < min_y) return {};
-  return CropBox{min_x, min_y, max_x - min_x + 1, max_y - min_y + 1};
-}
-
-/// @brief Computes largest valid crop box.
-/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
-                                       const std::vector<uint8_t> &common_valid_mask,
-                                       int mask_rows, int mask_cols,
-                                       const Matrix2Df *r,
-                                       const Matrix2Df *g,
-                                       const Matrix2Df *b) {
-  const CropBox data_box = compute_nonzero_data_bbox(luma, r, g, b);
-  if (!data_box.valid()) {
-    return {};
-  }
-
-  const size_t expected_mask_size =
-      static_cast<size_t>(std::max(0, mask_rows)) *
-      static_cast<size_t>(std::max(0, mask_cols));
-  if (mask_rows <= 0 || mask_cols <= 0 ||
-      common_valid_mask.size() != expected_mask_size) {
-    return data_box;
-  }
-
-  const int x0 = std::clamp(data_box.x, 0, mask_cols - 1);
-  const int y0 = std::clamp(data_box.y, 0, mask_rows - 1);
-  const int x1 =
-      std::clamp(data_box.x + data_box.width - 1, x0, mask_cols - 1);
-  const int y1 =
-      std::clamp(data_box.y + data_box.height - 1, y0, mask_rows - 1);
-  const int search_width = x1 - x0 + 1;
-  const int search_height = y1 - y0 + 1;
-  if (search_width <= 0 || search_height <= 0) {
-    return data_box;
-  }
-
-  std::vector<int> heights(static_cast<size_t>(search_width), 0);
-  CropBox best_box = data_box;
-  int best_area = 0;
-
-  for (int y = y0; y <= y1; ++y) {
-    const size_t row_off = static_cast<size_t>(y) * static_cast<size_t>(mask_cols);
-    for (int local_x = 0; local_x < search_width; ++local_x) {
-      const int gx = x0 + local_x;
-      const size_t idx = row_off + static_cast<size_t>(gx);
-      if (idx < common_valid_mask.size() && common_valid_mask[idx] != 0) {
-        heights[static_cast<size_t>(local_x)] += 1;
-      } else {
-        heights[static_cast<size_t>(local_x)] = 0;
-      }
-    }
-
-    std::vector<std::pair<int, int>> stack;
-    stack.reserve(static_cast<size_t>(search_width + 1));
-    for (int i = 0; i <= search_width; ++i) {
-      const int current_height =
-          (i < search_width) ? heights[static_cast<size_t>(i)] : 0;
-      int start = i;
-      while (!stack.empty() && stack.back().second > current_height) {
-        const auto [left, height] = stack.back();
-        stack.pop_back();
-        const int width = i - left;
-        const int area = height * width;
-        if (area > best_area && height > 0 && width > 0) {
-          best_area = area;
-          best_box = CropBox{ x0 + left, y - height + 1, width, height };
-        }
-        start = left;
-      }
-      if (stack.empty() || stack.back().second < current_height) {
-        stack.emplace_back(start, current_height);
-      }
-    }
-  }
-
-  return (best_area > 0) ? best_box : data_box;
-}
-
 /// @brief Converts image bge config.
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+image::HyperMetricStretchConfig to_image_hms_config(
+    const config::HyperMetricStretchConfig &src) {
+  image::HyperMetricStretchConfig dst;
+  dst.enabled = src.enabled;
+  dst.require_successful_pcc = src.require_successful_pcc;
+  dst.mode = src.mode;
+  dst.sensor_profile = src.sensor_profile;
+  dst.fallback_profile = src.fallback_profile;
+  dst.adaptive_anchor = src.adaptive_anchor;
+  dst.target_bg = src.target_bg;
+  dst.protect_b = src.protect_b;
+  dst.convergence_power = src.convergence_power;
+  dst.log_d_mode = src.log_d_mode;
+  dst.fixed_log_d = src.fixed_log_d;
+  dst.color_strategy = src.color_strategy;
+  dst.fixed_color_strategy = src.fixed_color_strategy;
+  dst.color_grip = src.color_grip;
+  dst.shadow_convergence = src.shadow_convergence;
+  dst.linear_expansion = src.linear_expansion;
+  dst.highlight_ceiling_percentile = src.highlight_ceiling_percentile;
+  dst.local_contrast.enabled = src.local_contrast.enabled;
+  dst.local_contrast.radius_px = src.local_contrast.radius_px;
+  dst.local_contrast.strength = src.local_contrast.strength;
+  dst.write_channels = src.write_channels;
+  dst.output_rgb = src.output_rgb;
+  return dst;
+}
+
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   image::BGEConfig dst;
   // config::BGEConfig has no `enabled` field of its own (method == "none"
@@ -1289,6 +1104,9 @@ image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   // (background_extraction.cpp), so derive it here.
   dst.enabled = (src.method != "none");
   dst.method = src.method;
+  dst.auto_detect.gradient_threshold      = src.auto_detect.gradient_threshold;
+  dst.auto_detect.extended_source_sigma   = src.auto_detect.extended_source_sigma;
+  dst.auto_detect.extended_source_dilate_px = src.auto_detect.extended_source_dilate_px;
   dst.autobge.num_sample_points = src.autobge.num_sample_points;
   dst.autobge.poly_degree = src.autobge.poly_degree;
   dst.autobge.rbf_smooth = src.autobge.rbf_smooth;
@@ -1374,95 +1192,6 @@ void apply_autobge_exclusion_polygons(
   }
 }
 
-/// @brief Aggregate tile metrics across frames.
-std::vector<TileMetrics> aggregate_tile_metrics_across_frames(
-    const std::vector<std::vector<TileMetrics>> &local_metrics) {
-  if (local_metrics.empty()) {
-    return {};
-  }
-  
-  size_t n_tiles = 0;
-  if (!local_metrics.front().empty()) {
-    n_tiles = local_metrics.front().size();
-  }
-  if (n_tiles == 0) {
-    return {};
-  }
-
-  const bool consistent = std::all_of(
-      local_metrics.begin(), local_metrics.end(),
-      [n_tiles](const auto &fm) { return fm.size() == n_tiles; });
-
-  if (!consistent) {
-    return local_metrics.front();
-  }
-
-  auto median_or_zero = [](std::vector<float> vals) -> float {
-    if (vals.empty()) return 0.0f;
-    return core::median_of(vals);
-  };
-
-  std::vector<TileMetrics> out;
-  out.assign(n_tiles, TileMetrics{});
-  for (size_t ti = 0; ti < n_tiles; ++ti) {
-    std::vector<float> fwhm_vals;
-    std::vector<float> round_vals;
-    std::vector<float> contrast_vals;
-    std::vector<float> sharp_vals;
-    std::vector<float> bg_vals;
-    std::vector<float> noise_vals;
-    std::vector<float> grad_vals;
-    std::vector<float> q_vals;
-    std::vector<float> star_count_vals;
-    int star_votes = 0;
-    int structure_votes = 0;
-
-    fwhm_vals.reserve(local_metrics.size());
-    round_vals.reserve(local_metrics.size());
-    contrast_vals.reserve(local_metrics.size());
-    sharp_vals.reserve(local_metrics.size());
-    bg_vals.reserve(local_metrics.size());
-    noise_vals.reserve(local_metrics.size());
-    grad_vals.reserve(local_metrics.size());
-    q_vals.reserve(local_metrics.size());
-    star_count_vals.reserve(local_metrics.size());
-
-    for (const auto &fm : local_metrics) {
-      const auto &tm = fm[ti];
-      if (std::isfinite(tm.fwhm)) fwhm_vals.push_back(tm.fwhm);
-      if (std::isfinite(tm.roundness)) round_vals.push_back(tm.roundness);
-      if (std::isfinite(tm.contrast)) contrast_vals.push_back(tm.contrast);
-      if (std::isfinite(tm.sharpness)) sharp_vals.push_back(tm.sharpness);
-      if (std::isfinite(tm.background)) bg_vals.push_back(tm.background);
-      if (std::isfinite(tm.noise)) noise_vals.push_back(tm.noise);
-      if (std::isfinite(tm.gradient_energy)) grad_vals.push_back(tm.gradient_energy);
-      if (std::isfinite(tm.quality_score)) q_vals.push_back(tm.quality_score);
-      star_count_vals.push_back(static_cast<float>(tm.star_count));
-      if (tm.type == TileType::STAR) {
-        ++star_votes;
-      } else {
-        ++structure_votes;
-      }
-    }
-
-    TileMetrics agg{};
-    agg.fwhm = median_or_zero(std::move(fwhm_vals));
-    agg.roundness = median_or_zero(std::move(round_vals));
-    agg.contrast = median_or_zero(std::move(contrast_vals));
-    agg.sharpness = median_or_zero(std::move(sharp_vals));
-    agg.background = median_or_zero(std::move(bg_vals));
-    agg.noise = median_or_zero(std::move(noise_vals));
-    agg.gradient_energy = median_or_zero(std::move(grad_vals));
-    agg.quality_score = median_or_zero(std::move(q_vals));
-    agg.star_count = static_cast<int>(
-        std::lround(median_or_zero(std::move(star_count_vals))));
-    agg.type = (star_votes >= structure_votes) ? TileType::STAR
-                                               : TileType::STRUCTURE;
-    out[ti] = agg;
-  }
-  return out;
-}
-
 /// @brief Converts astrometry pcc config.
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -1502,7 +1231,7 @@ Matrix2Df build_registration_proxy(const Matrix2Df &img, ColorMode detected_mode
   }
   return (detected_mode == ColorMode::OSC)
              ? image::cfa_green_proxy_downsample2x2(img, detected_bayer_str)
-             : registration::downsample2x2_mean(img);
+             : core::downsample2x2_mean(img);
 }
 
 /// @brief Implements bge diag to json.
@@ -1542,12 +1271,23 @@ core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
   out["attempted"] = diag.attempted;
   out["success"] = diag.success;
   out["failure_reason"] = diag.failure_reason;
+  out["guard_override"] = diag.guard_override;
   out["have_tile_data"] = have_tile_data;
   out["metrics_tiles_match"] = metrics_tiles_match;
   out["image_width"] = diag.image_width;
   out["image_height"] = diag.image_height;
   out["grid_spacing"] = diag.grid_spacing;
   out["bge_method"] = diag.bge_method;
+  out["auto_detect"] = {
+      {"gradient_strength", diag.auto_gradient_strength},
+      {"gradient_threshold", diag.auto_gradient_threshold},
+      {"sky_median", diag.auto_sky_median},
+      {"sky_sigma", diag.auto_sky_sigma},
+      {"extended_source_threshold", diag.auto_extended_source_threshold},
+      {"extended_source_blocks", diag.auto_extended_source_blocks},
+      {"extended_source_excluded_fraction",
+       diag.auto_extended_source_excluded_fraction},
+  };
   out["method"] = diag.method;
   out["robust_loss"] = diag.robust_loss;
   out["insufficient_cell_strategy"] = diag.insufficient_cell_strategy;
@@ -2161,7 +1901,7 @@ RunnerFrameCache::RunnerFrameCache() = default;
 /// artifact, and error-handling semantics expected by callers.
 RunnerFrameCache::RunnerFrameCache(const fs::path &cache_dir, size_t n_frames,
                                    int rows, int cols)
-    : normalized_frames_(cache_dir, n_frames, rows, cols),
+    : normalized_cache_dir_(cache_dir), normalized_frames_(cache_dir, n_frames, rows, cols),
       has_registration_proxy_(n_frames, static_cast<uint8_t>(0)),
       registration_proxies_(n_frames) {}
 
@@ -2169,7 +1909,27 @@ RunnerFrameCache::RunnerFrameCache(const fs::path &cache_dir, size_t n_frames,
 /// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+void RunnerFrameCache::release_registration_proxies() {
+  std::lock_guard<std::mutex> lock(proxy_mutex_);
+  std::vector<Matrix2Df>().swap(registration_proxies_);
+  std::vector<uint8_t>().swap(has_registration_proxy_);
+}
+
+void RunnerFrameCache::seal_normalized_cache(const registration::RegistrationSamplingPlan &plan) {
+  if (plan.source_width != cols() || plan.source_height != rows() || plan.frames.size() != size())
+    throw std::runtime_error("NORMALIZED_CACHE_PLAN_MISMATCH");
+  for (const auto &f : plan.frames)
+    if (f.source_index >= size() || !has_normalized(f.source_index))
+      throw std::runtime_error("NORMALIZED_CACHE_INCOMPLETE");
+  normalized_frames_.clear_mappings();
+  reconstruction::publish_normalized_source_manifest(normalized_cache_dir_, plan);
+  normalized_frames_.set_preserve_files(true);
+  normalized_cache_sealed_ = true;
+  release_registration_proxies();
+}
+
 void RunnerFrameCache::store_normalized(size_t fi, const Matrix2Df &frame) {
+  if (normalized_cache_sealed_) throw std::runtime_error("NORMALIZED_CACHE_IS_SEALED");
   normalized_frames_.store(fi, frame);
 }
 

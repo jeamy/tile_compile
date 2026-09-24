@@ -429,6 +429,247 @@ TEST_CASE("autobge_finalize_reports_no_channel_applied_when_one_channel_guard_re
     REQUIRE_FALSE(ch.applied);
   }
 }
+
+// Level-equalization override: on an already flat field the fitted models can
+// add a micro-tilt that trips slope_worsened while still removing real
+// per-channel floor offsets. The guard must accept that trade (all channels
+// re-anchor at the shared pedestal) instead of discarding the run's only
+// pedestal equalization step.
+TEST_CASE("autobge_finalize_overrides_slope_guard_when_levels_equalize") {
+  // coarse_background_plane_slope needs >=8 128px blocks: 400x400 gives 16.
+  constexpr int W = 400, H = 400;
+  auto cfg = make_autobge_config(W, H);
+  // Flatness and slope both respond ~linearly to added tilt, so the strict
+  // window (slope >1.08 but flat <1.15) is too thin to hit deterministically.
+  // Relaxed thresholds (slope >1.15, flat <1.35) leave room for a 1.25x tilt
+  // amplification that trips slope but not flatness.
+  cfg.internal_relaxed_channel_guards = true;
+
+  // Same tilt everywhere, but G sits 5 DN above R/B: a channel level offset
+  // with an already flat slope profile.
+  auto R = make_gradient_image(W, H, 100.0f, 0.5f, 0.0f);
+  auto G = make_gradient_image(W, H, 105.0f, 0.5f, 0.0f);
+  auto B = make_gradient_image(W, H, 100.0f, 0.5f, 0.0f);
+
+  std::array<ti::BackgroundModel, 3> models;
+  // Each model is the channel level minus a counter-tilt: corrected keeps
+  // ~1.25x of the input slope -> slope_worsened fires, but the shared
+  // pedestal re-anchors all channels at the darkest model level.
+  for (int ch = 0; ch < 3; ++ch) {
+    const float lvl = (ch == 1) ? 105.0f : 100.0f;
+    models[ch].model = make_gradient_image(W, H, lvl, -0.125f, 0.0f);
+    models[ch].success = true;
+  }
+
+  ti::BGEDiagnostics diag;
+  bool ok = ti::finalize_bge_from_channel_models(R, G, B, models, {}, cfg, &diag);
+  REQUIRE(ok);
+  REQUIRE(diag.guard_override == "level_equalization");
+  REQUIRE(diag.channels.size() == 3);
+  bool saw_override_reason = false;
+  for (const auto& ch : diag.channels) {
+    REQUIRE(ch.applied);
+    if (ch.guard_reason == "slope_worsened_but_level_equalized")
+      saw_override_reason = true;
+  }
+  REQUIRE(saw_override_reason);
+  // Floors are equalized: the corrected channel medians collapse onto the
+  // shared pedestal instead of keeping the 5 DN G offset.
+  const float r_med = R(static_cast<int>(H / 2), static_cast<int>(W / 2));
+  const float g_med = G(static_cast<int>(H / 2), static_cast<int>(W / 2));
+  const float b_med = B(static_cast<int>(H / 2), static_cast<int>(W / 2));
+  REQUIRE(g_med == Catch::Approx(r_med).margin(0.01f));
+  REQUIRE(b_med == Catch::Approx(r_med).margin(0.01f));
+}
+
+// Production regression (m31_forward1_20260916_090149): the G input sat 9 DN
+// above R/B but its model did NOT absorb the offset (model medians ~equal).
+// The shared-pedestal apply kept --- even grew --- the channel spread, so the
+// level-equalization override never fired and the residual pedestal blew up
+// into a magenta cast under HMS. The rescue must re-anchor each channel at
+// the darkest residual level, making the corrected medians equal.
+TEST_CASE("autobge_finalize_anchors_channels_when_model_misses_pedestal") {
+  constexpr int W = 400, H = 400;
+  auto cfg = make_autobge_config(W, H);
+  cfg.internal_relaxed_channel_guards = true;
+
+  auto R = make_gradient_image(W, H, 100.0f, 0.5f, 0.0f);
+  auto G = make_gradient_image(W, H, 109.0f, 0.5f, 0.0f);
+  auto B = make_gradient_image(W, H, 100.0f, 0.5f, 0.0f);
+
+  std::array<ti::BackgroundModel, 3> models;
+  // All three models sit at the same level: G's +9 DN pedestal is missed by
+  // its model. The counter-tilt still trips slope_worsened (1.25x input).
+  for (int ch = 0; ch < 3; ++ch) {
+    models[ch].model = make_gradient_image(W, H, 100.0f, -0.125f, 0.0f);
+    models[ch].success = true;
+  }
+
+  ti::BGEDiagnostics diag;
+  bool ok = ti::finalize_bge_from_channel_models(R, G, B, models, {}, cfg, &diag);
+  REQUIRE(ok);
+  REQUIRE(diag.guard_override == "level_equalization");
+  const float r_med = R(static_cast<int>(H / 2), static_cast<int>(W / 2));
+  const float g_med = G(static_cast<int>(H / 2), static_cast<int>(W / 2));
+  const float b_med = B(static_cast<int>(H / 2), static_cast<int>(W / 2));
+  REQUIRE(g_med == Catch::Approx(r_med).margin(0.01f));
+  REQUIRE(b_med == Catch::Approx(r_med).margin(0.01f));
+}
+
+// Production regression (m31_forward1-dark_20260916_144333): dark-calibrated
+// input carried a large additive green pedestal (airglow + GBRG coverage).
+// Removing it raises the per-pixel log-chroma std because the pedestal had
+// damped the ratio noise -- the raw pre/post std comparison therefore
+// rejected a correct level equalization with "background_chroma_worsened".
+// The guard must instead compare against a level-equalized input, where
+// pure pedestal removal no longer inflates the metric.
+TEST_CASE("autobge_finalize_chroma_guard_allows_pedestal_equalization") {
+  constexpr int W = 400, H = 400;
+  auto cfg = make_autobge_config(W, H);
+
+  // Noisy channels with different pedestals and a shared tilt, like the
+  // dark-calibrated production stack.
+  std::mt19937 rng(7);
+  std::normal_distribution<float> noise(0.0f, 3.0f);
+  auto make_channel = [&](float pedestal) {
+    tile_compile::Matrix2Df img(H, W);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x)
+        img(y, x) = pedestal + 0.02f * static_cast<float>(x) + noise(rng);
+    return img;
+  };
+  auto R = make_channel(10.0f);
+  auto G = make_channel(18.0f);
+  auto B = make_channel(9.0f);
+
+  std::array<ti::BackgroundModel, 3> models;
+  // Models capture each channel's true smooth background (pedestal + tilt),
+  // so the corrected planes all land on the shared pedestal plus noise.
+  const float levels[3] = {10.0f, 18.0f, 9.0f};
+  for (int ch = 0; ch < 3; ++ch) {
+    models[ch].model = make_gradient_image(W, H, levels[ch], 0.02f, 0.0f);
+    models[ch].success = true;
+  }
+
+  ti::BGEDiagnostics diag;
+  bool ok = ti::finalize_bge_from_channel_models(R, G, B, models, {}, cfg, &diag);
+  REQUIRE(ok);
+  REQUIRE(diag.success);
+  // Corrected channel levels are equalized onto the shared pedestal.
+  const auto block_median = [](const tile_compile::Matrix2Df &img) {
+    std::vector<float> vals;
+    for (int y = H / 2 - 40; y < H / 2 + 40; ++y)
+      for (int x = W / 2 - 40; x < W / 2 + 40; ++x)
+        vals.push_back(img(y, x));
+    std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
+    return vals[vals.size() / 2];
+  };
+  const float r_med = block_median(R);
+  const float g_med = block_median(G);
+  const float b_med = block_median(B);
+  REQUIRE(g_med == Catch::Approx(r_med).margin(0.5f));
+  REQUIRE(b_med == Catch::Approx(r_med).margin(0.5f));
+}
+
+// ---- method: auto tests ------------------------------------------------
+
+// Flat field: gradient < threshold → BGE must be skipped.
+TEST_CASE("bge_auto_flat_field_skips_bge") {
+  constexpr int W = 512, H = 512;
+  ti::BGEConfig cfg{};
+  cfg.enabled = true;
+  cfg.method = "auto";
+  cfg.auto_detect.gradient_threshold      = 0.05f;
+  cfg.auto_detect.extended_source_sigma   = 3.0f;
+  cfg.auto_detect.extended_source_dilate_px = 4;
+  cfg.common_valid_mask.assign(static_cast<size_t>(W * H), 1u);
+  cfg.common_mask_rows = H; cfg.common_mask_cols = W;
+
+  // Flat background ≈ 10 + tiny noise — no real gradient.
+  std::mt19937 rng(99);
+  std::normal_distribution<float> noise(0.0f, 0.1f);
+  auto flat = [&]() {
+    tile_compile::Matrix2Df m(H, W);
+    for (int r = 0; r < H; ++r)
+      for (int c = 0; c < W; ++c)
+        m(r, c) = 10.0f + noise(rng);
+    return m;
+  };
+  auto R = flat(), G = flat(), B = flat();
+
+  ti::BGEDiagnostics diag;
+  bool applied = ti::apply_background_extraction(R, G, B, {}, {}, cfg, &diag);
+  REQUIRE_FALSE(applied);
+  REQUIRE(diag.failure_reason == "auto_detect_no_gradient");
+  REQUIRE(diag.auto_gradient_threshold == Catch::Approx(0.05f));
+  REQUIRE(diag.auto_gradient_strength < diag.auto_gradient_threshold);
+}
+
+// Strong gradient field: gradient ≥ threshold → BGE must be attempted.
+TEST_CASE("bge_auto_gradient_field_triggers_bge") {
+  constexpr int W = 512, H = 512;
+  ti::BGEConfig cfg{};
+  cfg.enabled = true;
+  cfg.method = "auto";
+  cfg.auto_detect.gradient_threshold      = 0.05f;
+  cfg.auto_detect.extended_source_sigma   = 3.0f;
+  cfg.auto_detect.extended_source_dilate_px = 4;
+  cfg.autobge.num_sample_points = 0;
+  cfg.autobge.poly_degree = 2;
+  cfg.autobge.rbf_smooth  = 0.5f;
+  cfg.autobge.downsample_scale = 2;
+  cfg.autobge.patch_size   = 5;
+  cfg.autobge.patch_estimator = "median";
+  cfg.autobge.stretch_mode = "none";
+  cfg.autobge.border_margin = 2;
+  cfg.autobge.bright_exclusion_fraction = 0.2f;
+  cfg.autobge.gradient_descent_max_iters = 5;
+  cfg.autobge.mono_mode = "rgb_duplicate";
+  cfg.common_valid_mask.assign(static_cast<size_t>(W * H), 1u);
+  cfg.common_mask_rows = H; cfg.common_mask_cols = W;
+
+  // Sky median ≈ 10, gradient +3 across the image → ~30% relative gradient.
+  auto R = make_gradient_image(W, H, 10.0f, 3.0f / W, 0.0f);
+  auto G = make_gradient_image(W, H, 10.0f, 3.0f / W, 0.0f);
+  auto B = make_gradient_image(W, H, 10.0f, 3.0f / W, 0.0f);
+
+  ti::BGEDiagnostics diag;
+  // We only check that auto-detect didn't skip — the actual autobge result
+  // may succeed or fail depending on data quality, but must not be "no_gradient".
+  ti::apply_background_extraction(R, G, B, {}, {}, cfg, &diag);
+  REQUIRE(diag.failure_reason != "auto_detect_no_gradient");
+  REQUIRE(diag.auto_gradient_strength >= diag.auto_gradient_threshold);
+  REQUIRE(diag.auto_sky_median > 0.0f);
+}
+
+// ---- chroma_denoise extended_source_protection tests -------------------
+
+// Without a channel-level improvement the slope veto still wins.
+TEST_CASE("autobge_finalize_slope_guard_still_rejects_without_level_gain") {
+  constexpr int W = 400, H = 400;
+  auto cfg = make_autobge_config(W, H);
+  cfg.internal_relaxed_channel_guards = true;
+
+  auto R = make_gradient_image(W, H, 100.0f, 0.5f, 0.0f);
+  auto G = R;
+  auto B = R;
+  auto R0 = R;
+
+  std::array<ti::BackgroundModel, 3> models;
+  for (int ch = 0; ch < 3; ++ch) {
+    models[ch].model = make_gradient_image(W, H, 100.0f, -0.125f, 0.0f);
+    models[ch].success = true;
+  }
+
+  ti::BGEDiagnostics diag;
+  bool ok = ti::finalize_bge_from_channel_models(R, G, B, models, {}, cfg, &diag);
+  REQUIRE_FALSE(ok);
+  REQUIRE(diag.failure_reason == "slope_worsened");
+  REQUIRE(diag.guard_override.empty());
+  REQUIRE(R.isApprox(R0));
+  for (const auto& ch : diag.channels)
+    REQUIRE_FALSE(ch.applied);
+}
 #else
 int tile_compile_tests_autobge_stub() { return 0; }
 #endif

@@ -280,13 +280,17 @@ std::string extract_between(const std::string& text, const std::string& begin, c
     return text.substr(content_pos, end_pos - content_pos);
 }
 
-std::string build_language_switch_script(const std::string& locale) {
+std::string build_language_switch_script(const std::string& locale, const json& templates) {
     std::ostringstream js;
     js << "<script>(function(){";
+    js << "const templates=" << escape_script_json(templates.dump()) << ";";
     js << "let current='" << html_escape(locale) << "';";
     js << "function setActive(){document.querySelectorAll('[data-report-lang]').forEach(function(btn){btn.classList.toggle('active',btn.getAttribute('data-report-lang')===current);});}";
-    js << "document.querySelectorAll('[data-report-lang]').forEach(function(btn){btn.disabled=btn.getAttribute('data-report-lang')!==current;});";
-    js << "setActive();";
+    js << "function bind(){document.querySelectorAll('[data-report-lang]').forEach(function(btn){btn.onclick=function(){setLanguage(btn.getAttribute('data-report-lang'));};});setActive();}";
+    js << "function setLanguage(lang){const tpl=templates[lang];if(!tpl)return;if(tpl.header!=null){const h=document.getElementById('report-header-content');if(h)h.innerHTML=tpl.header;}if(tpl.content!=null){const c=document.getElementById('report-content');if(c)c.innerHTML=tpl.content;}current=lang;try{localStorage.setItem('tile_compile_report_lang',lang);}catch(e){}bind();}";
+    js << "window.tileCompileReportSetLanguage=setLanguage;";
+    js << "bind();";
+    js << "try{const saved=localStorage.getItem('tile_compile_report_lang');if(saved&&saved!==current&&templates[saved])setLanguage(saved);}catch(e){}";
     js << "})();</script>";
     return js.str();
 }
@@ -488,20 +492,6 @@ double percentile_sorted(const std::vector<double>& vals, double q) {
     return vals[lo] * (1.0 - t) + vals[hi] * t;
 }
 
-/// @brief Sorts values and returns the requested percentile.
-/// @details Convenience wrapper for callers that do not already hold a sorted vector.
-/// Internally forwards to percentile_sorted after sorting.
-double percentile_of(std::vector<double> values, double q) {
-    std::sort(values.begin(), values.end());
-    return percentile_sorted(values, q);
-}
-
-/// @brief Sorts values and returns the median.
-/// @details Convenience wrapper equivalent to percentile_of(values, 0.5).
-double median_of(std::vector<double> values) {
-    return percentile_of(std::move(values), 0.5);
-}
-
 /// @brief Implements basic stats.
 /// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -616,9 +606,8 @@ std::string phase_name_from_event(const json& ev) {
 }
 
 /// @brief Returns a stable match key for phase start/end pairing.
-/// @details Uses the integer phase number when available so that display-name
-/// mismatches (e.g. AQMH_QUALITY_MAPS vs LOCAL_METRICS for Phase 8) do not
-/// prevent correct duration computation. Falls back to phase_name string.
+/// @details Uses the integer phase number when available; falls back to
+/// phase_name string.
 std::string phase_match_key(const json& ev) {
     if (ev.contains("phase") && ev["phase"].is_number_integer()) {
         return "#" + std::to_string(ev["phase"].get<int>());
@@ -1282,234 +1271,6 @@ std::string svg_pie(const std::vector<std::string>& labels,
 /// @brief Implements svg tile overlay.
 /// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
-std::string svg_tile_overlay(const json& tiles, int img_w, int img_h, const std::string& title, int width = 760, int height = 520) {
-    if (!tiles.is_array() || tiles.empty() || img_w <= 0 || img_h <= 0) return svg_message(title, "No tile geometry", width, height);
-    const double scale = std::min(620.0 / static_cast<double>(img_w), 400.0 / static_cast<double>(img_h));
-    const double panel_w = img_w * scale;
-    const double panel_h = img_h * scale;
-    const double x0 = 48.0;
-    const double y0 = 56.0;
-
-    std::ostringstream out;
-    out << svg_begin(width, height, title);
-    out << "<text x=\"24\" y=\"28\" class=\"svg-title\">" << html_escape(title) << "</text>";
-    out << "<rect x=\"" << x0 << "\" y=\"" << y0 << "\" width=\"" << panel_w << "\" height=\"" << panel_h
-        << "\" fill=\"#0f172a\" stroke=\"#475569\"/>";
-    for (const auto& tile : tiles) {
-        const double x = x0 + json_number_or(tile, "x", 0.0) * scale;
-        const double y = y0 + json_number_or(tile, "y", 0.0) * scale;
-        const double w = json_number_or(tile, "width", 0.0) * scale;
-        const double h = json_number_or(tile, "height", 0.0) * scale;
-        out << "<rect x=\"" << x << "\" y=\"" << y << "\" width=\"" << w << "\" height=\"" << h
-            << "\" fill=\"none\" stroke=\"#7aa2f7\" stroke-width=\"0.8\" opacity=\"0.75\"/>";
-    }
-    out << "<text x=\"" << x0 << "\" y=\"" << (height - 14)
-        << "\" class=\"svg-tick\">" << img_w << " x " << img_h << " px</text>";
-    out << "</svg>";
-    return out.str();
-}
-
-std::string svg_spatial_tile_heatmap(const json& tiles,
-                                     const std::vector<double>& values,
-                                     int img_w,
-                                     int img_h,
-                                     const std::string& title,
-                                     const std::string& label,
-                                     const std::string& cmap = "viridis",
-                                     bool force_unit_interval = false,
-                                     bool show_grid = true,
-                                     int width = 760,
-                                     int height = 520) {
-    if (!tiles.is_array() || tiles.empty() || values.empty() || img_w <= 0 || img_h <= 0) {
-        return svg_message(title, "No spatial tile data", width, height);
-    }
-    const size_t n = std::min(tiles.size(), values.size());
-    std::vector<double> used_values;
-    used_values.reserve(n);
-    for (size_t i = 0; i < n; ++i) if (std::isfinite(values[i])) used_values.push_back(values[i]);
-    if (used_values.empty()) return svg_message(title, "No finite tile values", width, height);
-
-    auto s = basic_stats(used_values);
-    double lo = s.min;
-    double hi = s.max;
-    const bool flat_map = !(s.max > s.min);
-    if (flat_map) {
-        lo = s.min;
-        hi = s.max;
-    } else if (force_unit_interval) {
-        lo = 0.0;
-        hi = 1.0;
-    } else if (s.n >= 20 && s.p99 > s.p01) {
-        lo = s.p01;
-        hi = s.p99;
-    }
-
-    const double scale = std::min(620.0 / static_cast<double>(img_w), 400.0 / static_cast<double>(img_h));
-    const double panel_w = img_w * scale;
-    const double panel_h = img_h * scale;
-    const double x0 = 44.0;
-    const double y0 = 56.0;
-    const double cbx = x0 + panel_w + 26.0;
-    const double cbw = 16.0;
-
-    std::ostringstream out;
-    out << svg_begin(width, height, title);
-    out << "<text x=\"24\" y=\"28\" class=\"svg-title\">" << html_escape(title) << "</text>";
-    out << "<rect x=\"" << x0 << "\" y=\"" << y0 << "\" width=\"" << panel_w << "\" height=\"" << panel_h
-        << "\" fill=\"#0f172a\" stroke=\"#475569\"/>";
-    for (size_t i = 0; i < n; ++i) {
-        if (!std::isfinite(values[i])) continue;
-        const auto& tile = tiles.at(i);
-        const double x = x0 + json_number_or(tile, "x", 0.0) * scale;
-        const double y = y0 + json_number_or(tile, "y", 0.0) * scale;
-        const double w = json_number_or(tile, "width", 0.0) * scale;
-        const double h = json_number_or(tile, "height", 0.0) * scale;
-        const double t = hi > lo ? (values[i] - lo) / (hi - lo) : 0.5;
-        out << "<rect x=\"" << x << "\" y=\"" << y << "\" width=\"" << w << "\" height=\"" << h
-            << "\" fill=\"" << colormap_hex(cmap, t) << "\"";
-        if (show_grid) out << " stroke=\"#0f172a\" stroke-width=\"0.4\"";
-        out << "/>";
-    }
-    if (flat_map) {
-        out << "<rect x=\"" << cbx << "\" y=\"" << y0 << "\" width=\"" << cbw << "\" height=\"" << panel_h
-            << "\" fill=\"" << colormap_hex(cmap, 0.5) << "\"/>";
-    } else {
-        for (int i = 0; i < 64; ++i) {
-            const double t = static_cast<double>(i) / 63.0;
-            const double y = y0 + panel_h - t * panel_h;
-            out << "<rect x=\"" << cbx << "\" y=\"" << y << "\" width=\"" << cbw << "\" height=\"" << (panel_h / 63.0 + 1.0)
-                << "\" fill=\"" << colormap_hex(cmap, t) << "\"/>";
-        }
-    }
-    out << "<rect x=\"" << cbx << "\" y=\"" << y0 << "\" width=\"" << cbw << "\" height=\"" << panel_h
-        << "\" fill=\"none\" class=\"svg-axis\"/>";
-    out << "<text x=\"" << cbx << "\" y=\"" << (height - 16)
-        << "\" class=\"svg-label\">" << html_escape(label) << "</text>";
-    if (flat_map) {
-        out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + panel_h * 0.5)
-            << "\" class=\"svg-tick\">" << html_escape(format_number(s.min, 2)) << "</text>";
-        out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + panel_h * 0.5 + 16)
-            << "\" class=\"svg-tick\">konstant</text>";
-    } else {
-        out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + 4)
-            << "\" class=\"svg-tick\">" << html_escape(format_number(hi, 2)) << "</text>";
-        out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + panel_h)
-            << "\" class=\"svg-tick\">" << html_escape(format_number(lo, 2)) << "</text>";
-    }
-    out << "</svg>";
-    return out.str();
-}
-
-
-std::string svg_matrix_heatmap(const std::vector<double>& values,
-                               int cols,
-                               int rows,
-                               const std::string& title,
-                               const std::string& label,
-                               const std::string& cmap = "viridis",
-                               double lo = 0.0,
-                               double hi = 1.0,
-                               int width = 760,
-                               int height = 520) {
-    if (cols <= 0 || rows <= 0 || values.size() < static_cast<size_t>(cols * rows)) {
-        return svg_message(title, "No matrix data", width, height);
-    }
-    constexpr int max_svg_heatmap_cols = 80;
-    constexpr int max_svg_heatmap_rows = 48;
-    std::vector<double> downsampled_values;
-    int render_cols = cols;
-    int render_rows = rows;
-    int sample_step_x = 1;
-    int sample_step_y = 1;
-    if (cols > max_svg_heatmap_cols || rows > max_svg_heatmap_rows) {
-        sample_step_x = std::max(1, static_cast<int>(std::ceil(static_cast<double>(cols) / max_svg_heatmap_cols)));
-        sample_step_y = std::max(1, static_cast<int>(std::ceil(static_cast<double>(rows) / max_svg_heatmap_rows)));
-        render_cols = (cols + sample_step_x - 1) / sample_step_x;
-        render_rows = (rows + sample_step_y - 1) / sample_step_y;
-        downsampled_values.assign(static_cast<size_t>(render_cols * render_rows),
-                                  std::numeric_limits<double>::quiet_NaN());
-        for (int by = 0; by < render_rows; ++by) {
-            for (int bx = 0; bx < render_cols; ++bx) {
-                double sum = 0.0;
-                int count = 0;
-                const int y_end = std::min(rows, (by + 1) * sample_step_y);
-                const int x_end = std::min(cols, (bx + 1) * sample_step_x);
-                for (int y = by * sample_step_y; y < y_end; ++y) {
-                    for (int x = bx * sample_step_x; x < x_end; ++x) {
-                        const double v = values[static_cast<size_t>(y * cols + x)];
-                        if (!std::isfinite(v)) continue;
-                        sum += v;
-                        ++count;
-                    }
-                }
-                if (count > 0) downsampled_values[static_cast<size_t>(by * render_cols + bx)] = sum / count;
-            }
-        }
-    }
-    const std::vector<double>& render_values = downsampled_values.empty() ? values : downsampled_values;
-    const double x0 = 44.0;
-    const double y0 = 56.0;
-    const double max_panel_w = 620.0;
-    const double max_panel_h = 400.0;
-    const double cell = std::max(1.0, std::min(max_panel_w / render_cols, max_panel_h / render_rows));
-    const double panel_w = render_cols * cell;
-    const double panel_h = render_rows * cell;
-    const double cbx = x0 + panel_w + 26.0;
-    const double cbw = 16.0;
-    if (!(hi > lo)) {
-        std::vector<double> finite;
-        finite.reserve(render_values.size());
-        for (double v : render_values) if (std::isfinite(v)) finite.push_back(v);
-        if (!finite.empty()) {
-            const auto stats = basic_stats(finite);
-            lo = stats.min;
-            hi = stats.max;
-        }
-    }
-    const bool flat_map = !(hi > lo);
-    std::ostringstream out;
-    out << svg_begin(width, height, title);
-    out << "<text x=\"24\" y=\"28\" class=\"svg-title\">" << html_escape(title) << "</text>";
-    out << "<rect x=\"" << x0 << "\" y=\"" << y0 << "\" width=\"" << panel_w << "\" height=\"" << panel_h
-        << "\" fill=\"#0f172a\" stroke=\"#475569\"/>";
-    for (int y = 0; y < render_rows; ++y) {
-        for (int x = 0; x < render_cols; ++x) {
-            const double v = render_values[static_cast<size_t>(y * render_cols + x)];
-            if (!std::isfinite(v)) continue;
-            const double t = flat_map ? 0.5 : std::clamp((v - lo) / (hi - lo), 0.0, 1.0);
-            out << "<rect x=\"" << (x0 + x * cell) << "\" y=\"" << (y0 + y * cell)
-                << "\" width=\"" << std::ceil(cell) << "\" height=\"" << std::ceil(cell)
-                << "\" fill=\"" << colormap_hex(cmap, t) << "\"/>";
-        }
-    }
-    if (flat_map) {
-        out << "<rect x=\"" << cbx << "\" y=\"" << y0 << "\" width=\"" << cbw << "\" height=\"" << panel_h
-            << "\" fill=\"" << colormap_hex(cmap, 0.5) << "\"/>";
-    } else {
-        for (int i = 0; i < 64; ++i) {
-            const double t = static_cast<double>(i) / 63.0;
-            const double y = y0 + panel_h - t * panel_h;
-            out << "<rect x=\"" << cbx << "\" y=\"" << y << "\" width=\"" << cbw << "\" height=\"" << (panel_h / 63.0 + 1.0)
-                << "\" fill=\"" << colormap_hex(cmap, t) << "\"/>";
-        }
-    }
-    out << "<rect x=\"" << cbx << "\" y=\"" << y0 << "\" width=\"" << cbw << "\" height=\"" << panel_h
-        << "\" fill=\"none\" class=\"svg-axis\"/>";
-    out << "<text x=\"" << cbx << "\" y=\"" << (height - 16)
-        << "\" class=\"svg-label\">" << html_escape(label) << "</text>";
-    if (sample_step_x > 1 || sample_step_y > 1) {
-        out << "<text x=\"24\" y=\"" << (height - 16)
-            << "\" class=\"svg-note\">downsampled " << cols << "x" << rows
-            << " to " << render_cols << "x" << render_rows << "</text>";
-    }
-    out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + 4)
-        << "\" class=\"svg-tick\">" << html_escape(format_number(flat_map ? lo : hi, 2)) << "</text>";
-    out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + panel_h)
-        << "\" class=\"svg-tick\">" << html_escape(format_number(lo, 2)) << "</text>";
-    out << "</svg>";
-    return out.str();
-}
-
 std::optional<double> finite_json_number(const json& j, const std::string& key) {
     if (!j.contains(key) || !j[key].is_number()) return std::nullopt;
     const double value = j[key].get<double>();
@@ -1527,31 +1288,6 @@ std::vector<double> json_diag_values(const json& diagnostics, const std::string&
     return values;
 }
 
-fs::path aqmh_cache_dir(const fs::path& run_dir, const json& metrics) {
-    const std::string raw = json_string_or(metrics, "cache_dir", "");
-    if (!raw.empty()) {
-        fs::path path(raw);
-        if (path.is_absolute()) return path;
-        return run_dir / path;
-    }
-    return run_dir / "cache" / "aqmh";
-}
-
-std::vector<fs::path> aqmh_cache_files(const fs::path& cache_dir, const std::string& stream_id) {
-    std::vector<fs::path> files;
-    std::error_code ec;
-    if (!fs::is_directory(cache_dir, ec) || ec) return files;
-    const std::string prefix = "aqmh_" + (stream_id.empty() ? std::string() : stream_id + "_");
-    for (const auto& entry : fs::directory_iterator(cache_dir, ec)) {
-        if (ec) break;
-        if (!entry.is_regular_file()) continue;
-        const std::string name = entry.path().filename().string();
-        if (name.rfind(prefix, 0) == 0 && entry.path().extension() == ".bin") files.push_back(entry.path());
-    }
-    std::sort(files.begin(), files.end());
-    return files;
-}
-
 std::vector<fs::path> sample_evenly(const std::vector<fs::path>& files, size_t max_count) {
     if (max_count == 0 || files.size() <= max_count) return files;
     std::vector<fs::path> sampled;
@@ -1563,196 +1299,6 @@ std::vector<fs::path> sample_evenly(const std::vector<fs::path>& files, size_t m
         if (sampled.empty() || sampled.back() != files[idx]) sampled.push_back(files[idx]);
     }
     return sampled;
-}
-
-std::optional<std::vector<double>> read_aqmh_cache_map(const fs::path& path, int width, int height, const std::string& dtype) {
-    if (width <= 0 || height <= 0) return std::nullopt;
-    std::ifstream in(path, std::ios::binary);
-    if (!in) return std::nullopt;
-    std::vector<double> out;
-    out.reserve(static_cast<size_t>(width * height));
-    for (int i = 0; i < width * height; ++i) {
-        if (dtype == "float32") {
-            float v = 0.0f;
-            in.read(reinterpret_cast<char*>(&v), sizeof(float));
-            if (!in) return std::nullopt;
-            out.push_back(std::clamp(static_cast<double>(v), 0.0, 1.0));
-        } else if (dtype == "uint16") {
-            uint16_t v = 0;
-            in.read(reinterpret_cast<char*>(&v), sizeof(uint16_t));
-            if (!in) return std::nullopt;
-            out.push_back(static_cast<double>(v) / 65535.0);
-        } else if (dtype == "uint8") {
-            uint8_t v = 0;
-            in.read(reinterpret_cast<char*>(&v), sizeof(uint8_t));
-            if (!in) return std::nullopt;
-            out.push_back(static_cast<double>(v) / 255.0);
-        } else {
-            return std::nullopt;
-        }
-    }
-    return out;
-}
-
-struct AqmhMapAggregate {
-    int count = 0;
-    std::vector<double> mean;
-    std::vector<double> stddev;
-    std::vector<double> artifact_frequency;
-    std::vector<double> min_map;
-    std::vector<std::pair<std::string, std::vector<double>>> examples;
-};
-
-AqmhMapAggregate aggregate_aqmh_maps(const std::vector<fs::path>& files,
-                                     int width,
-                                     int height,
-                                     const std::string& dtype,
-                                     double artifact_threshold) {
-    AqmhMapAggregate agg;
-    const size_t n = static_cast<size_t>(width * height);
-    if (n == 0) return agg;
-    std::vector<double> sum(n, 0.0), sumsq(n, 0.0), artifacts(n, 0.0), min_map(n, 1.0);
-    std::vector<std::tuple<double, std::string, std::vector<double>>> examples;
-    for (const auto& path : files) {
-        auto maybe_map = read_aqmh_cache_map(path, width, height, dtype);
-        if (!maybe_map) continue;
-        const auto& values = *maybe_map;
-        double mean = 0.0;
-        for (size_t i = 0; i < n; ++i) {
-            const double v = values[i];
-            mean += v;
-            sum[i] += v;
-            sumsq[i] += v * v;
-            if (v < artifact_threshold) artifacts[i] += 1.0;
-            min_map[i] = std::min(min_map[i], v);
-        }
-        mean /= static_cast<double>(n);
-        examples.emplace_back(mean, path.stem().string(), values);
-        ++agg.count;
-    }
-    if (agg.count == 0) return agg;
-    agg.mean.resize(n);
-    agg.stddev.resize(n);
-    agg.artifact_frequency.resize(n);
-    agg.min_map = std::move(min_map);
-    for (size_t i = 0; i < n; ++i) {
-        agg.mean[i] = sum[i] / agg.count;
-        const double variance = std::max(0.0, (sumsq[i] / agg.count) - agg.mean[i] * agg.mean[i]);
-        agg.stddev[i] = std::sqrt(variance);
-        agg.artifact_frequency[i] = artifacts[i] / agg.count;
-    }
-    std::sort(examples.begin(), examples.end(), [](const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });
-    const std::array<size_t, 3> example_indices = {size_t{0}, examples.size() / 2, examples.size() - 1};
-    for (size_t idx : example_indices) {
-        if (idx < examples.size()) agg.examples.push_back({std::get<1>(examples[idx]), std::get<2>(examples[idx])});
-    }
-    return agg;
-}
-
-struct AqmhReportMapAggregate {
-    int count = 0;
-    int cols = 0;
-    int rows = 0;
-    std::vector<double> mean;
-    std::vector<double> artifact_frequency;
-    std::pair<std::string, std::vector<double>> example;
-};
-
-bool read_aqmh_value(std::ifstream& in, const std::string& dtype, double& out) {
-    if (dtype == "float32") {
-        float v = 0.0f;
-        in.read(reinterpret_cast<char*>(&v), sizeof(float));
-        if (!in) return false;
-        out = std::clamp(static_cast<double>(v), 0.0, 1.0);
-        return true;
-    }
-    if (dtype == "uint16") {
-        uint16_t v = 0;
-        in.read(reinterpret_cast<char*>(&v), sizeof(uint16_t));
-        if (!in) return false;
-        out = static_cast<double>(v) / 65535.0;
-        return true;
-    }
-    if (dtype == "uint8") {
-        uint8_t v = 0;
-        in.read(reinterpret_cast<char*>(&v), sizeof(uint8_t));
-        if (!in) return false;
-        out = static_cast<double>(v) / 255.0;
-        return true;
-    }
-    return false;
-}
-
-AqmhReportMapAggregate aggregate_aqmh_maps_streamed(const std::vector<fs::path>& files,
-                                                    int width,
-                                                    int height,
-                                                    const std::string& dtype,
-                                                    double artifact_threshold,
-                                                    int out_cols,
-                                                    int out_rows) {
-    AqmhReportMapAggregate agg;
-    if (width <= 0 || height <= 0 || out_cols <= 0 || out_rows <= 0) return agg;
-    agg.cols = out_cols;
-    agg.rows = out_rows;
-    const size_t out_n = static_cast<size_t>(out_cols * out_rows);
-    std::vector<double> sum(out_n, 0.0), artifact_sum(out_n, 0.0);
-    std::vector<uint64_t> samples(out_n, 0);
-    const size_t example_idx = files.empty() ? 0 : files.size() / 2;
-
-    for (size_t file_idx = 0; file_idx < files.size(); ++file_idx) {
-        std::ifstream in(files[file_idx], std::ios::binary);
-        if (!in) continue;
-        std::vector<double> example_sum;
-        std::vector<uint64_t> example_samples;
-        const bool capture_example = file_idx == example_idx;
-        if (capture_example) {
-            example_sum.assign(out_n, 0.0);
-            example_samples.assign(out_n, 0);
-        }
-
-        bool ok = true;
-        for (int y = 0; ok && y < height; ++y) {
-            const int by = std::min(out_rows - 1, static_cast<int>((static_cast<int64_t>(y) * out_rows) / height));
-            for (int x = 0; x < width; ++x) {
-                double v = 0.0;
-                if (!read_aqmh_value(in, dtype, v)) {
-                    ok = false;
-                    break;
-                }
-                const int bx = std::min(out_cols - 1, static_cast<int>((static_cast<int64_t>(x) * out_cols) / width));
-                const size_t bi = static_cast<size_t>(by * out_cols + bx);
-                sum[bi] += v;
-                artifact_sum[bi] += v < artifact_threshold ? 1.0 : 0.0;
-                samples[bi] += 1;
-                if (capture_example) {
-                    example_sum[bi] += v;
-                    example_samples[bi] += 1;
-                }
-            }
-        }
-        if (!ok) continue;
-        ++agg.count;
-        if (capture_example) {
-            agg.example.first = files[file_idx].stem().string();
-            agg.example.second.assign(out_n, std::numeric_limits<double>::quiet_NaN());
-            for (size_t i = 0; i < out_n; ++i) {
-                if (example_samples[i] > 0) {
-                    agg.example.second[i] = example_sum[i] / static_cast<double>(example_samples[i]);
-                }
-            }
-        }
-    }
-
-    if (agg.count == 0) return agg;
-    agg.mean.assign(out_n, std::numeric_limits<double>::quiet_NaN());
-    agg.artifact_frequency.assign(out_n, std::numeric_limits<double>::quiet_NaN());
-    for (size_t i = 0; i < out_n; ++i) {
-        if (samples[i] == 0) continue;
-        const double denom = static_cast<double>(samples[i]);
-        agg.mean[i] = sum[i] / denom;
-        agg.artifact_frequency[i] = artifact_sum[i] / denom;
-    }
-    return agg;
 }
 
 /// @brief Renders kv table.
@@ -1929,12 +1475,6 @@ std::string human_phase_reason(const std::string& phase,
     if (phase == "ASTROMETRY" && reason == "existing_wcs") {
         return "Astrometrie wurde übersprungen, weil bereits eine WCS-Lösung vorhanden war.";
     }
-    if (phase == "SYNTHETIC_FRAMES" && reason == "disabled") {
-        return "Synthetische Frames waren in der Konfiguration deaktiviert.";
-    }
-    if (phase == "STATE_CLUSTERING" && reason == "reduced_mode_skip_clustering") {
-        return "State-Clustering wurde im Reduced-Mode bewusst übersprungen.";
-    }
     if (!reason.empty()) {
         return "Die Phase meldete als Grund: " + reason + ".";
     }
@@ -1950,8 +1490,8 @@ std::string human_phase_reason(const std::string& phase,
 std::vector<std::pair<std::string, std::string>> scalar_event_details(const json& ev) {
     static const std::vector<std::string> preferred = {
         "reason", "error", "message", "artifact", "requested", "attempted", "success",
-        "have_tile_data", "have_local_metrics", "metrics_tiles_match",
-        "frames_usable", "reg_rejected_frames", "num_synthetic", "source",
+        "have_tile_data",
+        "frames_usable", "reg_rejected_frames", "source",
         "stars_used", "stars_matched", "residual_rms"
     };
     std::vector<std::pair<std::string, std::string>> rows;
@@ -1974,17 +1514,10 @@ std::string render_bge_phase_details(const json& bge) {
     const double min_fraction = json_number_or(cfg, "min_valid_sample_fraction_for_apply", 0.0);
     const int min_samples = static_cast<int>(json_number_or(cfg, "min_valid_samples_for_apply", 0.0));
     
-    // Show tile metrics source (AQMH-first: aqmh_output vs classic_local_metrics)
-    std::string tile_metrics_source = json_string_or(bge, "tile_metrics_source", "");
-    if (!tile_metrics_source.empty()) {
-        std::string source_label;
-        if (tile_metrics_source == "aqmh_output") {
-            source_label = "AQMH output";
-        } else if (tile_metrics_source == "classic_local_metrics") {
-            source_label = "Classic Local Metrics";
-        } else {
-            source_label = tile_metrics_source;
-        }
+    const std::string tile_metrics_source = json_string_or(bge, "tile_metrics_source", "");
+    if (!tile_metrics_source.empty() && tile_metrics_source != "none") {
+        const std::string source_label = tile_metrics_source == "reconstruction_output"
+            ? "reconstruction output" : tile_metrics_source;
         html << "<p class=\"muted\">BGE input source: <strong>" << html_escape(source_label) << "</strong>.</p>";
     }
 
@@ -2219,18 +1752,16 @@ std::optional<ReportSection> gen_timeline(const std::vector<json>& events) {
 /// @brief Generates frame usage.
 /// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
-std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events, const json& synthetic) {
+std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events) {
     json run_start = json::object();
     json scan_end = json::object();
     json reg_end = json::object();
-    json synth_end = json::object();
     for (const auto& ev : events) {
         const auto type = json_string_or(ev, "type", "");
         const auto phase = phase_name_from_event(ev);
         if (type == "run_start") run_start = ev;
         if (type == "phase_end" && phase == "SCAN_INPUT") scan_end = ev;
         if (type == "phase_end" && phase == "REGISTRATION") reg_end = ev;
-        if (type == "phase_end" && phase == "SYNTHETIC_FRAMES") synth_end = ev;
     }
 
     const int frames_discovered = static_cast<int>(json_number_or(run_start, "frames_discovered", 0.0));
@@ -2250,9 +1781,6 @@ std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events, co
     }
     const int frames_excluded_negative = static_cast<int>(json_number_or(reg_end, "frames_excluded_negative", frames_cc_negative));
     const int frames_excluded_identity = std::max(0, reg_rejected - frames_excluded_negative);
-    const int num_synthetic = static_cast<int>(json_number_or(synth_end, "num_synthetic", 0.0));
-    const int synth_frames_max = static_cast<int>(json_number_or(synthetic, "frames_max", 0.0));
-    const std::string synth_status = json_string_or(synth_end, "status", "");
 
     struct Stage {
         std::string label;
@@ -2291,14 +1819,6 @@ std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events, co
         const double retention = stage.count / max_count;
         colors.push_back(retention > 0.8 ? "#4ade80" : retention > 0.5 ? "#fbbf24" : "#f87171");
         evals.push_back(stage.label + ": " + format_number(stage.count, 0) + " (" + stage.reason + ")");
-    }
-    if (num_synthetic > 0) {
-        std::ostringstream line;
-        line << "synthetic frames: " << num_synthetic << " from " << format_number(stages.back().count, 0) << " source frames";
-        if (synth_frames_max > 0) line << " (frames_max=" << synth_frames_max << ")";
-        evals.push_back(line.str());
-    } else if (synth_status == "skipped") {
-        evals.push_back("synthetic frames: skipped");
     }
 
     std::vector<std::string> loss_labels;
@@ -2585,39 +2105,6 @@ std::optional<ReportSection> gen_global_metrics(const json& gm) {
     return ReportSection{"Pipeline-wide Frame Metrics", make_card_html("Shared input-frame quality (all reconstruction methods)", charts, evals, infer_status(evals))};
 }
 
-/// @brief Generates tile grid.
-/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::optional<ReportSection> gen_tile_grid(const json& tg) {
-    if (!tg.is_object() || !tg.contains("tiles") || !tg["tiles"].is_array() || tg["tiles"].empty()) return std::nullopt;
-    const int img_w = static_cast<int>(json_number_or(tg, "image_width", 0.0));
-    const int img_h = static_cast<int>(json_number_or(tg, "image_height", 0.0));
-    std::vector<std::string> evals = {
-        "image: " + std::to_string(img_w) + "x" + std::to_string(img_h),
-        "num_tiles: " + json_string_or(tg, "num_tiles", "?"),
-        "tile_size: " + json_string_or(tg, "uniform_tile_size", json_string_or(tg, "seeing_tile_size", "?")),
-        "seeing_fwhm_median: " + json_string_or(tg, "seeing_fwhm_median", "?"),
-        "overlap_fraction: " + json_string_or(tg, "overlap_fraction", "?"),
-        "stride_px: " + json_string_or(tg, "stride_px", "?"),
-    };
-    std::vector<ChartBlock> charts = {{
-        svg_tile_overlay(tg["tiles"], img_w, img_h, "Tile grid overlay"),
-        explain_panel(
-            "Tile-Raster",
-            {
-                "Die Grafik zeigt die reale Zerlegung des Bildes in überlappende Tiles.",
-                "Dieses Raster ist die Grundlage für lokale Metriken, tile-spezifische Gewichte und die spätere Rekonstruktion."
-            },
-            {
-                "Mehr Tiles bedeuten feinere lokale Steuerung, aber auch mehr Rechen- und Verwaltungsaufwand.",
-                "Die Überlappung ist notwendig, damit beim Zusammenbau keine harten Kachelgrenzen sichtbar bleiben.",
-                "Ein plausibles Raster deckt das gesamte Bild homogen ab und zeigt keine offensichtlichen Lücken."
-            }
-        )
-    }};
-    return ReportSection{"Pipeline-wide Tile Grid", make_card_html("Shared geometry (not Classic reconstruction statistics)", charts, evals, "ok")};
-}
-
 /// @brief Generates registration.
 /// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -2719,332 +2206,453 @@ std::optional<ReportSection> gen_registration(const json& reg) {
     return ReportSection{"Global Registration", make_card_html("Frame alignment", charts, evals, infer_status(evals))};
 }
 
-/// @brief Generates local metrics.
-/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::optional<ReportSection> gen_local_metrics(const json& lm, const json& tg) {
-    if (!lm.is_object() || !lm.contains("tile_metrics") || !lm["tile_metrics"].is_array() || lm["tile_metrics"].empty()) return std::nullopt;
-    const int n_frames = static_cast<int>(json_number_or(lm, "num_frames", 0.0));
-    const int n_tiles = static_cast<int>(json_number_or(lm, "num_tiles", 0.0));
-    if (n_tiles <= 0) return std::nullopt;
+/// @brief Generates the single-method CFA-forward-drizzle / multiband section.
+/// @details Plan M8 (§23.1): surface the reconstruction contract from
+/// `forward_drizzle.json` (+ the coverage gate from `sampling_geometry.json`) so
+/// the displayed numbers can be checked against the actual run artifacts ---
+/// coverage & geometry, candidate selection & gates, flux space & pixel scale,
+/// noise diagnostics, resources & throughput, per-band alpha confidence.
+std::optional<ReportSection> gen_forward_drizzle(const json& fd, const json& sg) {
+    if (!fd.is_object() || !fd.contains("geometry")) return std::nullopt;
 
-    std::vector<std::vector<double>> all_fwhm(static_cast<size_t>(n_tiles));
-    std::vector<std::vector<double>> all_quality(static_cast<size_t>(n_tiles));
-    std::vector<std::vector<double>> all_weight(static_cast<size_t>(n_tiles));
-    std::vector<std::vector<double>> all_stars(static_cast<size_t>(n_tiles));
-    std::vector<double> per_frame_quality;
-    std::vector<double> per_frame_weight;
-    std::vector<double> tile_type_map(static_cast<size_t>(n_tiles), 0.0);
-    bool have_tile_types = false;
-
-    size_t frame_index = 0;
-    for (const auto& frame_tiles : lm["tile_metrics"]) {
-        if (!frame_tiles.is_array()) continue;
-        std::vector<double> frame_q;
-        std::vector<double> frame_w;
-        size_t ti = 0;
-        for (const auto& tm : frame_tiles) {
-            if (ti >= static_cast<size_t>(n_tiles) || !tm.is_object()) break;
-            const double fwhm = json_number_or(tm, "fwhm", NAN);
-            const double quality = json_number_or(tm, "quality_score", NAN);
-            const double weight = json_number_or(tm, "local_weight", NAN);
-            const double stars = json_number_or(tm, "star_count", NAN);
-            if (std::isfinite(fwhm)) all_fwhm[ti].push_back(fwhm);
-            if (std::isfinite(quality)) {
-                all_quality[ti].push_back(quality);
-                frame_q.push_back(quality);
+    auto row = [](const std::string& k, const std::string& v) {
+        return std::make_pair(k, v);
+    };
+    auto num = [](const json& o, const char* k, int prec = 3) -> std::string {
+        if (!o.is_object() || !o.contains(k) || !o[k].is_number()) return "n/a";
+        return format_number(o[k].get<double>(), prec);
+    };
+    auto b2s = [](bool v) { return std::string(v ? "yes" : "no"); };
+    // A validation metric serialises {value:null|number, applicable, sample_count,
+    // reason_if_not_applicable?}. Render the number, or "n/a" plus the reason.
+    auto metric_cell = [&](const json& m) -> std::string {
+        if (!m.is_object()) return "&mdash;";
+        if (m.value("applicable", false) && m.contains("value") && m["value"].is_number()) {
+            std::string s = format_number(m["value"].get<double>(), 4);
+            if (m.contains("ci_low") && m.contains("ci_high") && m["ci_low"].is_number()) {
+                s += " [" + format_number(m["ci_low"].get<double>(), 3) + ", " +
+                     format_number(m["ci_high"].get<double>(), 3) + "]";
             }
-            if (std::isfinite(weight)) {
-                all_weight[ti].push_back(weight);
-                frame_w.push_back(weight);
-            }
-            if (std::isfinite(stars)) all_stars[ti].push_back(stars);
-            if (frame_index == 0) {
-                const auto type = json_string_or(tm, "tile_type", "");
-                if (!type.empty()) {
-                    have_tile_types = true;
-                    tile_type_map[ti] = type == "STAR" ? 1.0 : 0.0;
-                }
-            }
-            ++ti;
+            return s;
         }
-        per_frame_quality.push_back(frame_q.empty() ? 0.0 : std::accumulate(frame_q.begin(), frame_q.end(), 0.0) / static_cast<double>(frame_q.size()));
-        per_frame_weight.push_back(frame_w.empty() ? 0.0 : std::accumulate(frame_w.begin(), frame_w.end(), 0.0) / static_cast<double>(frame_w.size()));
-        ++frame_index;
-    }
-
-    auto mean_of = [](const std::vector<std::vector<double>>& values) {
-        std::vector<double> out(values.size(), 0.0);
-        for (size_t i = 0; i < values.size(); ++i) {
-            if (!values[i].empty()) {
-                out[i] = std::accumulate(values[i].begin(), values[i].end(), 0.0) / static_cast<double>(values[i].size());
-            }
-        }
-        return out;
+        std::string r = m.value("reason_if_not_applicable", std::string());
+        return r.empty() ? std::string("n/a") : ("n/a (" + r + ")");
     };
 
-    const auto mean_fwhm = mean_of(all_fwhm);
-    const auto mean_quality = mean_of(all_quality);
-    const auto mean_weight = mean_of(all_weight);
-    const auto mean_stars = mean_of(all_stars);
+    const json& geom = fd["geometry"];
+    const json cg = (sg.is_object() && sg.contains("coverage_gate")) ? sg["coverage_gate"]
+                                                                     : json::object();
+    std::ostringstream cards;
 
-    const int img_w = static_cast<int>(json_number_or(tg, "image_width", 0.0));
-    const int img_h = static_cast<int>(json_number_or(tg, "image_height", 0.0));
-    const json tiles = tg.contains("tiles") ? tg["tiles"] : json::array();
-
-    std::vector<ChartBlock> charts;
-    if (tiles.is_array() && !tiles.empty() && img_w > 0 && img_h > 0) {
-        charts.push_back({svg_spatial_tile_heatmap(tiles, mean_fwhm, img_w, img_h, "Mean FWHM per tile", "FWHM (px)", "inferno"),
-                          explain_panel("Mittlere FWHM pro Tile",
-                                        {"Diese Heatmap zeigt, in welchen Bildregionen die Sterne im Mittel schärfer oder unschärfer sind.",
-                                         "Sie macht räumlich sichtbar, ob das Bildfeld homogen fokussiert ist oder ob Rand-/Eckenprobleme vorliegen."},
-                                        {"<span class=\"good\">Gut:</span> Homogene Verteilung ohne starke Hotspots.",
-                                         "<span class=\"bad\">Auffällig:</span> Lokale Inseln mit hoher FWHM deuten auf Feldkrümmung, Tilt oder ortsabhängige Bildqualitätsprobleme hin."})});
-        charts.push_back({svg_spatial_tile_heatmap(tiles, mean_quality, img_w, img_h, "Mean quality score per tile", "quality", "viridis"),
-                          explain_panel("Mittlerer Qualitätsscore pro Tile",
-                                        {"Der Score aggregiert lokale Bildqualität über alle Frames für jede Bildregion.",
-                                         "Die Karte zeigt damit, wo die Pipeline im Feld konsistent gutes oder schwaches Material gesehen hat."},
-                                        {"<span class=\"good\">Gut:</span> Hohe und relativ gleichmäßige Qualität über das Feld.",
-                                         "<span class=\"bad\">Auffällig:</span> Deutliche Flecken oder Gradienten zeigen räumlich ungleichmäßige Datengüte."})});
-        charts.push_back({svg_spatial_tile_heatmap(tiles, mean_weight, img_w, img_h, "Mean local weight per tile", "weight", "plasma"),
-                          explain_panel("Mittleres lokales Gewicht",
-                                        {"Diese Heatmap zeigt, welche Tiles im Mittel stark bzw. schwach in die lokale Rekonstruktion eingehen.",
-                                         "Sie ist besonders wichtig, um zu sehen, ob einzelne Bildregionen systematisch untergewichtet werden."},
-                                        {"<span class=\"good\">Gut:</span> Plausible Unterschiede ohne extreme Null-/Hotspot-Zonen.",
-                                         "<span class=\"bad\">Auffällig:</span> Sehr schwache Regionen markieren Feldbereiche mit dauerhaft schlechter lokaler Nutzbarkeit."})});
-        charts.push_back({svg_spatial_tile_heatmap(tiles, mean_stars, img_w, img_h, "Mean stars per tile", "stars", "YlGnBu"),
-                          explain_panel("Mittlere Sternanzahl pro Tile",
-                                        {"Hier wird sichtbar, welche Tiles im Mittel viele bzw. wenige detektierbare Sterne enthalten.",
-                                         "Das ist sowohl feldabhängig als auch qualitätsabhängig und erklärt Unterschiede in lokaler Stabilität."},
-                                        {"<span class=\"good\">Gut:</span> Sternreiche Regionen liefern robuste lokale Metriken.",
-                                         "<span class=\"neutral\">Neutral:</span> Sternarme Hintergrund- oder Nebelbereiche sind nicht automatisch schlecht, aber statistisch schwächer abgestützt."})});
-        if (have_tile_types) {
-            charts.push_back({svg_spatial_tile_heatmap(tiles, tile_type_map, img_w, img_h, "Tile type map", "STAR=1", "viridis", true),
-                              explain_panel("Tile-Typ-Karte",
-                                            {"Die Karte visualisiert die Tile-Klassifikation der lokalen Metrikstufe, z. B. sterngetrieben versus struktur-/hintergrunddominiert.",
-                                             "Sie hilft zu verstehen, warum verschiedene Regionen spaeter unterschiedlich gewichtet oder verarbeitet werden."},
-                                            {"Helle Tiles markieren typischerweise Stern-/Strukturmodus.",
-                                             "Ein plausibles Muster folgt grob dem Bildinhalt; chaotische Klassifikation kann auf instabile lokale Metriken hindeuten."})});
+    // ---- Card 1: Coverage & geometry -------------------------------------------
+    {
+        std::vector<std::pair<std::string, std::string>> kv = {
+            row("Pipeline method", json_string_or(fd, "pipeline_method", "?")),
+            row("Contract version", std::to_string(static_cast<long long>(
+                    json_number_or(fd, "pipeline_contract_version", 0.0)))),
+            row("Source (px)", num(geom, "source_width", 0) + " x " + num(geom, "source_height", 0)),
+            row("Reconstruction (px)", num(geom, "reconstruction_width", 0) + " x " +
+                    num(geom, "reconstruction_height", 0)),
+            row("Internal scale", num(geom, "internal_scale", 0)),
+            row("Output scale", num(geom, "output_scale", 0) + " (applied: " +
+                    b2s(json_bool_or(geom, "output_scale_applied", false)) + ")"),
+            row("Kernel", json_string_or(geom, "kernel", "?")),
+            row("pixfrac", num(geom, "pixfrac", 3)),
+            row("Pixels supported", std::to_string(static_cast<long long>(
+                    json_number_or(fd, "pixels_supported", 0.0)))),
+            row("Luma definition", json_string_or(fd, "luma_definition", "?")),
+            row("Coverage geometry hash", json_string_or(fd, "coverage_geometry_hash", "?").substr(0, 16)),
+        };
+        std::vector<std::string> evals;
+        std::string status = "ok";
+        if (cg.is_object() && !cg.empty()) {
+            const bool passed = json_bool_or(cg, "passed", false);
+            evals.push_back(std::string("coverage gate: ") + (passed ? "PASS" : "FAIL"));
+            if (!passed) status = "bad";
+            evals.push_back("min supported fraction: " + num(cg, "min_supported_fraction", 4));
+            evals.push_back("min channel n_eff p10: " + num(cg, "min_channel_n_eff_p10", 3));
+            evals.push_back("largest internal hole (px): " + num(cg, "largest_internal_hole_area_px", 0));
+            evals.push_back("analysis pixels: " + num(cg, "analysis_pixels", 0));
+            evals.push_back("valid frames: " + num(cg, "valid_frames", 0));
+            if (cg.contains("supported_fraction") && cg["supported_fraction"].is_object()) {
+                for (auto it = cg["supported_fraction"].begin(); it != cg["supported_fraction"].end(); ++it)
+                    kv.push_back(row("Supported fraction " + it.key(),
+                                     it.value().is_number() ? format_number(it.value().get<double>(), 5) : "?"));
+            }
+            if (cg.contains("geometric_uniform_neff_p10") && cg["geometric_uniform_neff_p10"].is_object()) {
+                for (auto it = cg["geometric_uniform_neff_p10"].begin();
+                     it != cg["geometric_uniform_neff_p10"].end(); ++it)
+                    kv.push_back(row("n_eff p10 " + it.key(),
+                                     it.value().is_number() ? format_number(it.value().get<double>(), 3) : "?"));
+            }
+            if (cg.contains("violations") && cg["violations"].is_array() && !cg["violations"].empty()) {
+                for (const auto& v : cg["violations"])
+                    if (v.is_string()) evals.push_back("VIOLATION: " + v.get<std::string>());
+            }
+        } else {
+            evals.push_back("coverage gate: not available (sampling_geometry.json missing)");
+            status = "warn";
         }
-    }
-    charts.push_back({
-        svg_multi_timeseries({{"mean quality", per_frame_quality}, {"mean weight", per_frame_weight}},
-                             "Per-frame tile quality and weight", "value"),
-        explain_panel("Frame-Mittel über alle Tiles",
-                      {"Die beiden Kurven mitteln lokale Qualität und lokales Gewicht pro Frame über das gesamte Feld.",
-                       "Damit wird sichtbar, wie sich die lokale Feldqualität zeitlich entwickelt, ohne einzelne Tiles isoliert betrachten zu müssen."},
-                      {"<span class=\"good\">Gut:</span> Beide Kurven bleiben relativ stabil und folgen plausibel dem Sessionverlauf.",
-                       "<span class=\"bad\">Auffällig:</span> Starke Einbrüche markieren Frames, in denen die lokale Bildqualität breitflächig kollabiert ist."})
-    });
-
-    std::vector<std::string> evals = {
-        "frames: " + std::to_string(n_frames) + ", tiles: " + std::to_string(n_tiles)
-    };
-    const auto s_f = basic_stats(mean_fwhm);
-    if (s_f.n > 0) evals.push_back("mean FWHM: median=" + format_number(s_f.median, 3));
-    const auto s_w = basic_stats(mean_weight);
-    if (s_w.n > 0) evals.push_back("mean weight: median=" + format_number(s_w.median, 3));
-    const auto s_s = basic_stats(mean_stars);
-    if (s_s.n > 0) evals.push_back("mean star count: median=" + format_number(s_s.median, 1));
-    if (have_tile_types) {
-        int star_tiles = 0;
-        for (double v : tile_type_map) if (v > 0.5) ++star_tiles;
-        evals.push_back("STAR tiles: " + std::to_string(star_tiles) + ", STRUCTURE tiles: " +
-                        std::to_string(std::max(0, n_tiles - star_tiles)));
+        cards << make_plain_card_html("Coverage and geometry",
+                                      render_kv_table(kv) +
+                                          "<div class=\"metric-box\"><ul>" + [&] {
+                                              std::string li;
+                                              for (const auto& e : evals) li += "<li>" + html_escape(e) + "</li>";
+                                              return li;
+                                          }() + "</ul></div>",
+                                      status);
     }
 
-    return ReportSection{"Local Metrics", make_card_html("Per-tile quality", charts, evals, infer_status(evals))};
+    // ---- Card 2: Candidate selection & gates ---------------------------------
+    {
+        const std::string sel = json_string_or(fd, "selected_candidate", "?");
+        const std::string status = (sel == "drizzle_multiband") ? "ok" : "warn";
+        std::ostringstream body;
+        body << "<table class=\"kv\"><tbody>"
+             << "<tr><th>Selected candidate</th><td>" << html_escape(sel) << "</td></tr>"
+             << "<tr><th>Selection reason</th><td>" << html_escape(json_string_or(fd, "selection_reason", "?")) << "</td></tr>";
+        if (fd.contains("fallback_reason") && fd["fallback_reason"].is_string())
+            body << "<tr><th>Fallback reason</th><td>" << html_escape(fd["fallback_reason"].get<std::string>()) << "</td></tr>";
+        body << "</tbody></table>";
+
+        const json v = fd.value("validation", json::object());
+        const std::array<std::pair<const char*, const char*>, 3> cols = {{
+            {"drizzle_uniform", "Uniform"}, {"drizzle_raw", "Raw"}, {"drizzle_multiband", "Multiband"}}};
+        const std::array<const char*, 6> metrics = {
+            "median_fwhm", "p90_fwhm", "tail", "elongation", "background_rms", "seam_score"};
+        body << "<table class=\"kv\"><thead><tr><th>Metric</th>";
+        for (const auto& c : cols) body << "<th>" << c.second << "</th>";
+        body << "</tr></thead><tbody>";
+        for (const char* mk : metrics) {
+            body << "<tr><th>" << mk << "</th>";
+            for (const auto& c : cols) {
+                const json cand = v.value(c.first, json::object());
+                body << "<td>" << metric_cell(cand.value(mk, json())) << "</td>";
+            }
+            body << "</tr>";
+        }
+        body << "<tr><th>support_ok / numerics_ok</th>";
+        for (const auto& c : cols) {
+            const json cand = v.value(c.first, json::object());
+            body << "<td>" << b2s(json_bool_or(cand, "support_ok", false)) << " / "
+                 << b2s(json_bool_or(cand, "numerics_ok", false)) << "</td>";
+        }
+        body << "</tr></tbody></table>";
+        body << "<div class=\"metric-box\"><ul><li>"
+             << html_escape("stars total: " + std::to_string(static_cast<long long>(json_number_or(v, "stars_total", 0.0))) +
+                            ", multiband-effective: " + std::to_string(static_cast<long long>(json_number_or(v, "stars_multiband_effective", 0.0))))
+             << "</li></ul></div>";
+        cards << make_plain_card_html("Candidate selection and gates", body.str(), status);
+    }
+
+    // ---- Card 3: Flux space & pixel scale ----------------------------------
+    {
+        const json fx = fd.value("flux_space", json::object());
+        const double sx = json_number_or(geom, "source_width", 0.0);
+        const double rx = json_number_or(geom, "reconstruction_width", 0.0);
+        std::vector<std::pair<std::string, std::string>> kv = {
+            row("Flux space", json_string_or(fx, "space", "n/a")),
+            row("Luma definition", json_string_or(fx, "luma_definition", json_string_or(fd, "luma_definition", "?"))),
+            row("Same space as", json_string_or(fx, "same_space_as", "n/a")),
+            row("STACKING normalisation undo applied",
+                b2s(json_bool_or(fx, "stacking_normalisation_undo_applied", false))),
+            row("Note", json_string_or(fx, "note", "")),
+            row("Pixel scale (recon / source)", (sx > 0.0) ? format_number(rx / sx, 4) + " x" : "n/a"),
+            row("Internal x output", num(geom, "internal_scale", 0) + " x " + num(geom, "output_scale", 0)),
+            row("Sky pixel scale (WCS)", "deferred to M10 (canonical WCS/photometry)"),
+        };
+        cards << make_plain_card_html("Flux space and pixel scale", render_kv_table(kv), "ok");
+    }
+
+    // ---- Card 4: Noise diagnostics ---------------------------------------
+    {
+        const json v = fd.value("validation", json::object());
+        std::ostringstream body;
+        body << "<table class=\"kv\"><thead><tr><th>Candidate</th><th>background_rms</th><th>seam_score</th></tr></thead><tbody>";
+        for (const char* ck : {"drizzle_uniform", "drizzle_raw", "drizzle_multiband"}) {
+            const json cand = v.value(ck, json::object());
+            body << "<tr><th>" << ck << "</th><td>" << metric_cell(cand.value("background_rms", json()))
+                 << "</td><td>" << metric_cell(cand.value("seam_score", json())) << "</td></tr>";
+        }
+        body << "</tbody></table>";
+        body << "<div class=\"metric-box\"><ul><li>"
+             << html_escape("Lower background_rms and seam_score near 1.0 indicate a flat background and no visible band seams. "
+                            "background_rms is in the normalised linear working space, not ADU.")
+             << "</li></ul></div>";
+        cards << make_plain_card_html("Noise diagnostics", body.str(), "ok");
+    }
+
+    // ---- Card 5: Resources & throughput --------------------------------
+    {
+        const json tp = fd.value("throughput", json::object());
+        const json re = fd.value("runtime_environment", json::object());
+        const json res = fd.value("resources", json::object());
+        const json acc = fd.value("acceleration", json::object());
+        const json hw = re.value("hardware", json::object());
+        const json th = re.value("threads", json::object());
+        const json bld = re.value("build", json::object());
+        std::vector<std::pair<std::string, std::string>> kv = {
+            row("Backend", json_string_or(acc, "forward_drizzle_backend", "?")),
+            row("Processed source samples", std::to_string(static_cast<long long>(
+                    json_number_or(tp, "processed_source_samples", 0.0)))),
+            row("FORWARD_DRIZZLE wall (s)", num(tp, "forward_drizzle_wall_seconds", 2)),
+            row("Source samples / s", num(tp, "source_samples_per_second", 0)),
+            row("Frames used", num(tp, "frames_used", 0)),
+            row("CPU model", json_string_or(hw, "cpu_model", "?")),
+            row("Logical cores", num(hw, "logical_cores", 0)),
+            row("GPU", hw.contains("gpu") && hw["gpu"].is_string() ? hw["gpu"].get<std::string>() : std::string("-")),
+            row("Workers used", num(th, "workers_used", 0)),
+            row("Build",
+                json_string_or(bld.value("toolchain", json::object()), "build_type", "?") + " / " +
+                    json_string_or(bld.value("source", json::object()), "git_describe", "?") +
+                    (json_bool_or(bld.value("source", json::object()), "git_dirty", false) ? " (dirty)" : "")),
+            row("Peak RSS (KiB)", num(res, "rss_process_peak_kib", 0)),
+        };
+        std::vector<std::string> evals;
+        std::string status = "ok";
+        const bool env_ok = json_bool_or(res, "multiband_phase_rss_within_envelope", false);
+        const bool temp_ok = json_bool_or(res, "multiband_temp_space_ok", false);
+        const bool ws_ok = json_bool_or(res, "multiband_working_set_fits_budget", false);
+        evals.push_back(std::string("phase RSS within envelope: ") + (env_ok ? "yes" : "NO"));
+        evals.push_back(std::string("temp space ok: ") + (temp_ok ? "yes" : "NO"));
+        evals.push_back(std::string("working set fits budget: ") + (ws_ok ? "yes" : "NO"));
+        if (!(env_ok && temp_ok && ws_ok)) status = "bad";
+        if (acc.contains("cuda_stripe_path") && acc["cuda_stripe_path"].is_object()) {
+            const json& csp = acc["cuda_stripe_path"];
+            evals.push_back("cuda bands: " + num(csp, "bands", 0) +
+                            ", resolved chunk rows: " + num(csp, "resolved_chunk_rows", 0));
+            if (json_number_or(csp, "hybrid_local_frames", 0.0) > 0.0) {
+                evals.push_back("hybrid local frames: " + num(csp, "hybrid_local_frames", 0) +
+                                " (cpu " + num(csp, "hybrid_cpu_seconds", 1) + " s vs gpu-raster " +
+                                num(csp, "hybrid_gpu_raster_seconds", 2) + " s)");
+            }
+        }
+        cards << make_plain_card_html("Resources and throughput",
+                                      render_kv_table(kv) + "<div class=\"metric-box\"><ul>" + [&] {
+                                          std::string li;
+                                          for (const auto& e : evals) {
+                                              const bool w = e.find("NO") != std::string::npos;
+                                              li += std::string("<li") + (w ? " class=\"warn\"" : "") + ">" +
+                                                    html_escape(e) + "</li>";
+                                          }
+                                          return li;
+                                      }() + "</ul></div>",
+                                      status);
+    }
+
+    // ---- Card 6: Alpha confidence ------------------------------------
+    if (fd.contains("alpha_confidence_summary") && fd["alpha_confidence_summary"].is_array() &&
+        !fd["alpha_confidence_summary"].empty()) {
+        std::ostringstream body;
+        body << "<table class=\"kv\"><thead><tr><th>Band</th><th>Support px</th>"
+             << "<th>alpha &lt; 1 fraction</th><th>mean alpha</th><th>min alpha</th></tr></thead><tbody>";
+        for (const auto& band : fd["alpha_confidence_summary"]) {
+            body << "<tr><th>" << num(band, "band", 0) << "</th><td>"
+                 << std::to_string(static_cast<long long>(json_number_or(band, "support_px", 0.0)))
+                 << "</td><td>" << num(band, "alpha_below_one_fraction", 4)
+                 << "</td><td>" << num(band, "mean_alpha_on_support", 4)
+                 << "</td><td>" << num(band, "min_alpha_on_support", 4) << "</td></tr>";
+        }
+        body << "</tbody></table>";
+        body << "<div class=\"metric-box\"><ul><li>"
+             << html_escape("alpha < 1 marks pixels where the multiband detail was pulled back toward the raw/uniform "
+                            "estimate because per-band confidence was low. A high fraction in a fine band is expected "
+                            "on sparse CFA coverage; a high fraction in the coarsest band is a coverage warning.")
+             << "</li></ul></div>";
+        cards << make_plain_card_html("Alpha confidence", body.str(), "ok");
+    }
+
+    return ReportSection{"CFA Forward Drizzle / Multiband", cards.str()};
 }
 
-/// @brief Generates reconstruction.
-/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::optional<ReportSection> gen_reconstruction(const json& recon, const json& tg) {
-    if (!recon.is_object()) return std::nullopt;
-    const auto valid_counts = json_double_array(recon.value("tile_valid_counts", json::array()));
-    const auto mean_cc = json_double_array(recon.value("tile_mean_correlations", json::array()));
-    const auto post_bg = json_double_array(recon.value("tile_post_background", json::array()));
-    const auto post_contrast = json_double_array(recon.value("tile_post_contrast", json::array()));
-    const auto post_snr = json_double_array(recon.value("tile_post_snr_proxy", json::array()));
-    if (valid_counts.empty() && mean_cc.empty() && post_snr.empty()) return std::nullopt;
+/// @brief Generates the sampling-geometry / common-overlap section.
+/// @details Surfaces `registration_sampling.json` (frozen canvas plan, CFA
+/// origin, warp provenance) and `forward_common_overlap.json` (analysis mask
+/// extent) produced by SAMPLING_GEOMETRY/COMMON_OVERLAP.
+std::optional<ReportSection> gen_sampling_geometry(const json& rs, const json& co) {
+    const bool have_rs = rs.is_object() && !rs.empty();
+    const bool have_co = co.is_object() && !co.empty();
+    if (!have_rs && !have_co) return std::nullopt;
 
-    const int img_w = static_cast<int>(json_number_or(tg, "image_width", 0.0));
-    const int img_h = static_cast<int>(json_number_or(tg, "image_height", 0.0));
-    const json tiles = tg.contains("tiles") ? tg["tiles"] : json::array();
-
-    std::vector<ChartBlock> charts;
-    if (tiles.is_array() && !tiles.empty() && img_w > 0 && img_h > 0) {
-        if (!valid_counts.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, valid_counts, img_w, img_h, "Valid frames per tile", "frames", "YlGn"),
-                                                     explain_panel("Gueltige Frames pro Tile",
-                                                                   {"Diese Karte zeigt, wie viele Einzelbilder je Tile nach allen relevanten Filtern effektiv in die Rekonstruktion eingegangen sind.",
-                                                                    "Sie macht sichtbar, wo die Pipeline lokal statistisch stark oder dünn abgestützt arbeitet.",
-                                                                    "Wenn die Karte nahezu einfarbig ist, bedeutet das hier meist tatsächlich eine gleichmäßige Abdeckung und nicht automatisch ein Problem im Rendering."},
-                                                                   {"<span class=\"good\">Gut:</span> Möglichst homogene und ausreichend hohe Counts.",
-                                                                    "<span class=\"bad\">Auffällig:</span> Tiles mit sehr niedrigen Counts sind lokal fragiler und können Bias oder Artefaktrisiko tragen."})});
-        if (!mean_cc.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, mean_cc, img_w, img_h, "Mean correlation per tile", "CC", "viridis"),
-                                                explain_panel("Mittlere Korrelation pro Tile",
-                                                              {"Zeigt die mittlere Ähnlichkeit der in ein Tile eingehenden Framebeiträge.",
-                                                               "Hohe Werte bedeuten lokal konsistente Geometrie und Signalstruktur.",
-                                                               "Wenn die Karte überall fast identisch aussieht oder numerisch bei 1.0 sättigt, ist die Metrik in diesem Run kaum noch diskriminierend und trennt die Tiles nicht mehr sichtbar."},
-                                                              {"<span class=\"good\">Gut:</span> Hohe, gleichmäßige CC-Werte.",
-                                                               "<span class=\"bad\">Auffällig:</span> Lokale CC-Einbrüche deuten auf problematische Ausrichtung oder wechselhafte lokale Datenqualität hin."})});
-        if (!post_snr.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, post_snr, img_w, img_h, "Post-reconstruction SNR", "SNR", "plasma"),
-                                                 explain_panel("Post-Rekonstruktions-SNR",
-                                                               {"Diese Heatmap zeigt einen tileweisen SNR-Proxy nach der lokalen Rekonstruktion.",
-                                                                "Sie beantwortet, in welchen Bildbereichen die Rekonstruktion statistisch stark oder schwach ausfaellt."},
-                                                               {"<span class=\"good\">Gut:</span> Hohe Werte in signalreichen Regionen ohne unplausible Flecken.",
-                                                                "<span class=\"bad\">Auffällig:</span> Sehr niedrige oder stark inhomogene SNR-Muster können auf instabile Tile-Beiträge hinweisen."})});
-        if (!post_contrast.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, post_contrast, img_w, img_h, "Post contrast per tile", "contrast", "cividis"),
-                                                      explain_panel("Post-Kontrast pro Tile",
-                                                                    {"Der Plot zeigt, wie stark der lokale Kontrast nach der Rekonstruktion ausfällt.",
-                                                                     "Er hilft dabei, flache Regionen von detailreichen und eventuell überbetonten Regionen zu unterscheiden.",
-                                                                     "Anders als Counts oder CC ist diese Karte typischerweise nicht homogen: das Motiv selbst erzeugt echte räumliche Kontrastunterschiede über das Feld."},
-                                                                    {"<span class=\"good\">Gut:</span> Kontrast folgt dem Motiv und wirkt plausibel räumlich verteilt.",
-                                                                     "<span class=\"bad\">Auffällig:</span> Isolierte Kontrastinseln oder harte Unterschiede zwischen Nachbartiles können auf Rekonstruktionsartefakte hinweisen."})});
-        if (!post_bg.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, post_bg, img_w, img_h, "Post background per tile", "background", "gray"),
-                                                explain_panel("Post-Hintergrund pro Tile",
-                                                              {"Diese Karte zeigt den lokalen Hintergrund nach der Rekonstruktion.",
-                                                               "Sie ist wichtig, um Restgradienten oder tileweise Offset-Unterschiede sichtbar zu machen."},
-                                                              {"<span class=\"good\">Gut:</span> Ruhiger, homogen wirkender Hintergrund.",
-                                                               "<span class=\"bad\">Auffällig:</span> Räumliche Hintergrundsprünge können später sichtbare Tile- oder Gradientenartefakte erzeugen."})});
-    }
-    if (!valid_counts.empty()) charts.push_back({svg_histogram(valid_counts, "Valid frame count distribution", "valid frames", "#4ade80"),
-                                                 explain_panel("Verteilung gültiger Frame-Anzahlen",
-                                                               {"Histogramm der effektiven Beitragshäufigkeit pro Tile.",
-                                                                "Es zeigt, ob wenige Tiles statistisch aus dem Rahmen fallen oder ob die Rekonstruktion breit abgestützt ist."},
-                                                               {"<span class=\"good\">Gut:</span> Konzentration in einem plausiblen, nicht zu niedrigen Bereich.",
-                                                                "<span class=\"bad\">Auffällig:</span> Eine starke linke Flanke zeigt viele dünn abgestützte Tiles."})});
-    if (!mean_cc.empty()) charts.push_back({svg_histogram(mean_cc, "Mean correlation distribution", "CC", "#60a5fa"),
-                                            explain_panel("Verteilung tileweiser Korrelation",
-                                                          {"Zeigt, wie sich die mittlere Tile-Korrelation über das gesamte Feld verteilt.",
-                                                           "Damit lässt sich erkennen, ob lokale Ausrichtung/Konsistenz großflächig gut oder nur partiell robust ist."},
-                                                          {"<span class=\"good\">Gut:</span> Schwerpunkt bei hohen Werten.",
-                                                           "<span class=\"bad\">Auffällig:</span> Breite Verteilung oder viele kleine Werte deuten auf schwache tileweise Konsistenz hin."})});
-    if (!post_snr.empty()) charts.push_back({svg_histogram(post_snr, "Post-reconstruction SNR distribution", "SNR", "#fbbf24"),
-                                             explain_panel("Verteilung des Post-SNR",
-                                                           {"Dieses Histogramm verdichtet den tileweisen SNR-Proxy zu einer globalen Übersicht.",
-                                                            "Es hilft zu sehen, ob die Rekonstruktion überwiegend robust oder nur in Teilflächen stark ist."},
-                                                           {"<span class=\"good\">Gut:</span> Solider Schwerpunkt ohne langen Niedrig-SNR-Auslauf.",
-                                                            "<span class=\"bad\">Auffällig:</span> Viele Tiles mit schwachem SNR reduzieren die Stabilität des Endergebnisses."})});
-
-    std::vector<std::string> evals = {
-        "frames: " + json_string_or(recon, "num_frames", "?") + ", tiles: " + json_string_or(recon, "num_tiles", "?")
+    auto num = [](const json& o, const char* k, int prec = 3) -> std::string {
+        if (!o.is_object() || !o.contains(k) || !o[k].is_number()) return "n/a";
+        return format_number(o[k].get<double>(), prec);
     };
-    if (!valid_counts.empty()) {
-        const auto s = basic_stats(valid_counts);
-        evals.push_back("valid counts: median=" + format_number(s.median, 0) +
-                        ", min=" + format_number(s.min, 0) +
-                        ", max=" + format_number(s.max, 0));
-        if (!(s.max > s.min)) evals.push_back("valid counts: tile map is constant");
-        int low = 0;
-        for (double v : valid_counts) if (std::isfinite(v) && v < 3.0) ++low;
-        if (low > 0) evals.push_back("WARNING: " + std::to_string(low) + " tiles with < 3 valid frames");
-    }
-    if (!mean_cc.empty()) {
-        const auto s = basic_stats(mean_cc);
-        evals.push_back("tile CC: median=" + format_number(s.median, 4) +
-                        ", min=" + format_number(s.min, 4));
-        if (!(s.max > s.min)) evals.push_back("tile CC: tile map is constant");
-    }
-    if (!post_snr.empty()) {
-        const auto s = basic_stats(post_snr);
-        evals.push_back("post-SNR: median=" + format_number(s.median, 3) +
-                        ", min=" + format_number(s.min, 3));
+    auto row = [](const std::string& k, const std::string& v) {
+        return std::make_pair(k, v);
+    };
+
+    std::ostringstream cards;
+
+    if (have_rs) {
+        const json frames = rs.value("frames", json::array());
+        std::map<std::string, int> provenance;
+        int local_models = 0, predicted = 0, valid = 0;
+        for (const auto& f : frames) {
+            if (!f.is_object()) continue;
+            provenance[json_string_or(f, "provenance", "unknown")] += 1;
+            if (json_bool_or(f, "has_smooth_local_model", false)) ++local_models;
+            if (json_bool_or(f, "model_predicted", false)) ++predicted;
+            if (json_bool_or(f, "valid", false)) ++valid;
+        }
+        std::vector<std::pair<std::string, std::string>> kv = {
+            row("Color mode", json_string_or(rs, "color_mode", "?")),
+            row("Bayer pattern", json_string_or(rs, "bayer_pattern", "?")),
+            row("Source (px)", num(rs, "source_width", 0) + " x " + num(rs, "source_height", 0)),
+            row("Canvas native (px)", num(rs, "canvas_width_native", 0) + " x " +
+                    num(rs, "canvas_height_native", 0)),
+            row("Canvas offset (px)", num(rs, "canvas_offset_x_native", 0) + ", " +
+                    num(rs, "canvas_offset_y_native", 0)),
+            row("CFA origin", num(rs, "cfa_origin_x", 0) + ", " + num(rs, "cfa_origin_y", 0)),
+            row("Internal scale", num(rs, "internal_scale", 0)),
+            row("Output scale", num(rs, "output_scale", 0)),
+            row("Warp convention", json_string_or(rs, "warp_convention", "?")),
+            row("Frames in plan", std::to_string(frames.size())),
+            row("Valid frames", std::to_string(valid)),
+            row("Smooth local models", std::to_string(local_models)),
+            row("Model-predicted warps", std::to_string(predicted)),
+            row("Plan hash", json_string_or(rs, "plan_hash", "?").substr(0, 16)),
+        };
+        std::ostringstream prov;
+        bool first = true;
+        for (const auto& [k, v] : provenance) {
+            if (!first) prov << ", ";
+            prov << k << ": " << v;
+            first = false;
+        }
+        if (!provenance.empty()) kv.push_back(row("Warp provenance", prov.str()));
+        cards << make_plain_card_html("Sampling plan", render_kv_table(kv));
     }
 
-    const std::string reconstruction_method = json_string_or(recon, "method", "unknown");
-    std::string method_label = reconstruction_method;
-    std::transform(method_label.begin(), method_label.end(), method_label.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-    return ReportSection{method_label + " Reconstruction",
-                         make_card_html(method_label + "-specific reconstruction statistics",
-                                        charts, evals, infer_status(evals))};
+    if (have_co) {
+        std::vector<std::pair<std::string, std::string>> kv = {
+            row("Analysis pixels", num(co, "analysis_pixels", 0)),
+            row("Extent (px)", num(co, "width", 0) + " x " + num(co, "height", 0)),
+            row("Analysis mask", json_string_or(co, "analysis_mask", "?")),
+            row("Support mask", json_string_or(co, "support_mask", "?")),
+            row("Source", json_string_or(co, "source", "?")),
+            row("Geometry hash", json_string_or(co, "geometry_hash", "?").substr(0, 16)),
+        };
+        cards << make_plain_card_html("Common overlap", render_kv_table(kv));
+    }
+
+    if (cards.str().empty()) return std::nullopt;
+    return ReportSection{"Sampling geometry and common overlap", cards.str()};
 }
 
-/// @brief Generates clustering.
-/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::optional<ReportSection> gen_clustering(const json& cl) {
-    if (!cl.is_object() || !cl.contains("cluster_sizes") || !cl["cluster_sizes"].is_array()) return std::nullopt;
-    const auto sizes = json_double_array(cl.value("cluster_sizes", json::array()));
-    if (sizes.empty()) return std::nullopt;
-    std::vector<std::string> labels;
-    labels.reserve(sizes.size());
-    for (size_t i = 0; i < sizes.size(); ++i) labels.push_back("C" + std::to_string(i));
-    const auto cluster_labels = json_double_array(cl.value("cluster_labels", json::array()));
+/// @brief Generates the source-quality-plan section.
+/// @details Surfaces `source_quality_plan.json` (per-frame `g_quality`/`g_eff`
+/// weights plus registration-residual and model-prediction factors) produced
+/// by SOURCE_QUALITY_MAPS/GLOBAL_QUALITY.
+std::optional<ReportSection> gen_source_quality(const json& sqp) {
+    if (!sqp.is_object() || !sqp.contains("quality_plan")) return std::nullopt;
+    const json qp = sqp["quality_plan"];
+    const json frames = qp.value("frames", json::array());
+    if (frames.empty()) return std::nullopt;
 
-    std::vector<ChartBlock> charts = {
-        {svg_bar(labels, sizes, "Cluster sizes", "frames"), explain_panel(
-            "Clustergrößen",
+    std::vector<double> gq, ge, resid, model;
+    for (const auto& f : frames) {
+        if (!f.is_object()) continue;
+        if (f.contains("g_quality") && f["g_quality"].is_number())
+            gq.push_back(f["g_quality"].get<double>());
+        if (f.contains("g_eff") && f["g_eff"].is_number())
+            ge.push_back(f["g_eff"].get<double>());
+        if (f.contains("registration_residual_factor") &&
+            f["registration_residual_factor"].is_number())
+            resid.push_back(f["registration_residual_factor"].get<double>());
+        if (f.contains("model_prediction_factor") &&
+            f["model_prediction_factor"].is_number())
+            model.push_back(f["model_prediction_factor"].get<double>());
+    }
+    if (gq.empty()) return std::nullopt;
+
+    const auto sq = basic_stats(gq);
+    const auto se = basic_stats(ge);
+    const auto sr = basic_stats(resid);
+    const auto sm = basic_stats(model);
+    const long below_one_r = static_cast<long>(std::count_if(
+        resid.begin(), resid.end(), [](double v) { return v < 0.999; }));
+    const long below_one_m = static_cast<long>(std::count_if(
+        model.begin(), model.end(), [](double v) { return v < 0.999; }));
+
+    std::vector<std::pair<std::string, std::string>> kv = {
+        {"Frames", std::to_string(frames.size())},
+        {"Metrics source", json_string_or(sqp, "metrics_source", "?")},
+        {"g_quality median", format_number(sq.median, 3)},
+        {"g_quality p01 / p99", format_number(sq.p01, 3) + " / " + format_number(sq.p99, 3)},
+        {"g_quality min / max", format_number(sq.min, 3) + " / " + format_number(sq.max, 3)},
+        {"g_eff median", format_number(se.median, 3)},
+        {"g_eff p01 / p99", format_number(se.p01, 3) + " / " + format_number(se.p99, 3)},
+        {"Plan hash", json_string_or(qp, "plan_hash", "?").substr(0, 16)},
+    };
+    if (sr.n > 0) {
+        kv.push_back({"Registration residual median", format_number(sr.median, 3)});
+        kv.push_back({"Frames with residual < 1", std::to_string(below_one_r)});
+    }
+    if (sm.n > 0) {
+        kv.push_back({"Model prediction median", format_number(sm.median, 3)});
+        kv.push_back({"Frames with model factor < 1", std::to_string(below_one_m)});
+    }
+
+    std::vector<ChartBlock> charts = {{
+        svg_histogram(gq, "g_quality distribution", "g_quality", "#4ade80"),
+        explain_panel("Source quality",
             {
-                "Jeder Balken zeigt, wie viele Frames einem Clustering-Zustand bzw. Qualitätscluster zugeordnet wurden.",
-                "Der Plot beantwortet, ob die Session aus wenigen dominanten Zuständen oder vielen kleinen Subgruppen besteht."
-            },
-            {
-                "<span class=\"good\">Gut:</span> Plausible Clusterverteilung ohne unerklärliche Mini-Clusterflut.",
-                "<span class=\"neutral\">Neutral:</span> Ungleiche Cluster sind normal, wenn Wetter- oder Qualitätsphasen unterschiedlich lang waren.",
-                "<span class=\"bad\">Auffällig:</span> Viele sehr kleine Cluster können auf instabile Merkmale oder überempfindliches Clustering hinweisen."
-            }
-        )}
-    };
-    if (!cluster_labels.empty()) {
-        charts.push_back({svg_timeseries(cluster_labels, "Cluster label over time", "cluster", "#60a5fa", false),
-                          explain_panel(
-                              "Clusterlabel über die Zeit",
-                              {
-                                  "Die Zeitreihe zeigt für jeden Frame, welchem Cluster er zugeordnet wurde.",
-                                  "So wird sichtbar, ob Cluster echte Session-Phasen repräsentieren oder nur bunt durchmischt auftreten."
-                              },
-                              {
-                                  "<span class=\"good\">Gut:</span> Längere zusammenhängende Blöcke können reale Zustandsphasen der Session abbilden.",
-                                  "<span class=\"bad\">Auffällig:</span> Starkes Hin-und-Her zwischen Clustern in kurzer Folge spricht eher für verrauschte Merkmale als für stabile Zustände."
-                              }
-                          )});
+                "<span class=\"good\">Good:</span> Tight g_quality distribution with a high median - all frames contribute similarly.",
+                "<span class=\"neutral\">Neutral:</span> Wide spread - weak frames are down-weighted automatically instead of being rejected.",
+                "<span class=\"bad\">Notable:</span> Median near 0 or many frames with g_eff far below g_quality - registration residuals are suppressing effective quality."
+            })
+    }};
+    if (!ge.empty()) {
+        charts.push_back({
+            svg_histogram(ge, "g_eff distribution", "g_eff", "#fbbf24"),
+            explain_panel("Effective weight",
+                {
+                    "<span class=\"good\">Good:</span> g_eff close to g_quality - registration did not downgrade the frames.",
+                    "<span class=\"neutral\">Neutral:</span> g_eff noticeably below g_quality - residuals or model predictions reduce the effective weight."
+                })
+        });
     }
 
-    std::vector<std::string> evals = {
-        "n_clusters: " + json_string_or(cl, "n_clusters", "?") +
-        ", method: " + json_string_or(cl, "method", "?") +
-        ", k_range: [" + json_string_or(cl, "k_min", "?") + ", " + json_string_or(cl, "k_max", "?") + "]"
-    };
-    for (size_t i = 0; i < sizes.size(); ++i) {
-        evals.push_back("cluster " + std::to_string(i) + ": " + format_number(sizes[i], 0) + " frames");
-    }
-
-    return ReportSection{"State Clustering", make_card_html("Cluster analysis", charts, evals, "ok")};
+    std::ostringstream cards;
+    cards << make_plain_card_html("Source quality weights", render_kv_table(kv));
+    cards << make_card_html("Weight distributions", charts, {}, "ok");
+    return ReportSection{"Source quality plan", cards.str()};
 }
 
-/// @brief Generates synthetic.
-/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::optional<ReportSection> gen_synthetic(const json& syn) {
-    if (!syn.is_object() || syn.empty()) return std::nullopt;
-    std::vector<std::string> evals = {
-        "num_synthetic: " + json_string_or(syn, "num_synthetic", "0"),
-        "frames range: [" + json_string_or(syn, "frames_min", "?") + ", " + json_string_or(syn, "frames_max", "?") + "]",
-        "weighting: " + json_string_or(syn, "weighting", "global")
+/// @brief Generates the acceleration section.
+/// @details Surfaces `acceleration_context.json` (requested vs. selected
+/// backend per phase, device, runtime availability).
+std::optional<ReportSection> gen_acceleration(const json& acc) {
+    if (!acc.is_object() || acc.empty()) return std::nullopt;
+
+    auto b2s = [](bool v) { return std::string(v ? "yes" : "no"); };
+    std::vector<std::pair<std::string, std::string>> kv = {
+        {"Requested backend", json_string_or(acc, "requested_backend", "?")},
+        {"Device", json_string_or(acc, "device_name", "?")},
+        {"CUDA runtime", b2s(json_bool_or(acc, "opencv_cuda_runtime", false))},
+        {"OpenCL runtime", b2s(json_bool_or(acc, "opencv_opencl_runtime", false))},
     };
-    std::vector<ChartBlock> charts;
-    const auto quality = json_double_array(syn.value("cluster_quality", json::array()));
-    if (!quality.empty()) {
-        std::vector<std::string> labels;
-        labels.reserve(quality.size());
-        for (size_t i = 0; i < quality.size(); ++i) labels.push_back("S" + std::to_string(i));
-        charts.push_back({svg_bar(labels, quality, "Synthetic cluster quality", "quality", {}, 640, 300),
-                          explain_panel(
-                              "Qualität synthetischer Frames",
-                              {
-                                  "Jeder Balken entspricht einem synthetischen Frame bzw. dem zugrunde liegenden Cluster-Qualitätsscore.",
-                                  "Der Plot zeigt, welche Cluster spaeter besonders stark oder schwach in die finale Aggregation eingehen."
-                              },
-                              {
-                                  "<span class=\"good\">Gut:</span> Mehrere solide Cluster mit plausibler Qualität.",
-                                  "<span class=\"neutral\">Neutral:</span> Einzelne schwache Cluster sind tolerierbar, wenn starke Cluster dominieren.",
-                                  "<span class=\"bad\">Auffällig:</span> Überwiegend schwache oder stark streuende Clusterqualität reduziert den Nutzen der Synthetik."
-                              }
-                          )});
+
+    std::ostringstream body;
+    body << render_kv_table(kv);
+    if (acc.contains("phases") && acc["phases"].is_object()) {
+        body << "<table class=\"kv\"><thead><tr><th>Phase</th><th>Requested</th>"
+                "<th>Selected</th><th>GPU</th><th>Honored</th></tr></thead><tbody>";
+        for (auto it = acc["phases"].begin(); it != acc["phases"].end(); ++it) {
+            const json& p = it.value();
+            body << "<tr><th>" << html_escape(json_string_or(p, "phase", it.key())) << "</th>"
+                 << "<td>" << html_escape(json_string_or(p, "requested_backend", "?")) << "</td>"
+                 << "<td>" << html_escape(json_string_or(p, "selected_backend", "?")) << "</td>"
+                 << "<td>" << html_escape(b2s(json_bool_or(p, "using_gpu", false))) << "</td>"
+                 << "<td>" << html_escape(b2s(json_bool_or(p, "request_honored", false))) << "</td></tr>";
+        }
+        body << "</tbody></table>";
     }
-    return ReportSection{"Synthetic Frames", make_card_html("Synthetic frame summary", charts, evals, "ok")};
+
+    std::ostringstream cards;
+    cards << make_plain_card_html("Backend selection", body.str());
+    return ReportSection{"Acceleration", cards.str()};
 }
 
 /// @brief Generates bge.
@@ -3118,276 +2726,20 @@ std::optional<ReportSection> gen_bge(const json& bge) {
     return ReportSection{"Background Gradient Extraction (BGE)", make_card_html("BGE diagnostics", charts, evals, infer_status(evals))};
 }
 
-std::optional<ReportSection> gen_aqmh_metrics(const fs::path& run_dir, const json& metrics, const json& regions) {
-    if (!metrics.is_object() || metrics.empty()) return std::nullopt;
-    std::vector<ChartBlock> charts;
-    std::vector<std::string> evals;
-    const json diagnostics = metrics.contains("diagnostics") ? metrics["diagnostics"] : json::array();
-    const auto map_means = json_diag_values(diagnostics, "map_mean");
-    const auto map_p10 = json_diag_values(diagnostics, "map_p10");
-    const auto map_p50 = json_diag_values(diagnostics, "map_p50");
-    const auto map_p90 = json_diag_values(diagnostics, "map_p90");
-    const auto artifact_fracs = json_diag_values(diagnostics, "artifact_frac");
-
-    evals.push_back("frames total: " + std::to_string(static_cast<int>(json_number_or(metrics, "frames_total", 0.0))) +
-                    ", written: " + std::to_string(static_cast<int>(json_number_or(metrics, "frames_written", 0.0))));
-    evals.push_back("cache: " + std::to_string(static_cast<int>(json_number_or(metrics, "stored_width", 0.0))) + "x" +
-                    std::to_string(static_cast<int>(json_number_or(metrics, "stored_height", 0.0))) + " " +
-                    json_string_or(metrics, "dtype", "?") + " (full " +
-                    std::to_string(static_cast<int>(json_number_or(metrics, "full_width", 0.0))) + "x" +
-                    std::to_string(static_cast<int>(json_number_or(metrics, "full_height", 0.0))) + ")");
-    if (!map_means.empty()) {
-        const auto stats = basic_stats(map_means);
-        evals.push_back("map_mean: min=" + format_number(stats.min, 4) +
-                        ", median=" + format_number(stats.median, 4) +
-                        ", max=" + format_number(stats.max, 4) +
-                        ", mean=" + format_number(stats.mean, 4));
-    }
-    if (!artifact_fracs.empty()) {
-        const auto stats = basic_stats(artifact_fracs);
-        evals.push_back("artifact_fraction: min=" + format_number(stats.min * 100.0, 1) + "%" +
-                        ", median=" + format_number(stats.median * 100.0, 1) + "%" +
-                        ", max=" + format_number(stats.max * 100.0, 1) + "%" +
-                        ", mean=" + format_number(stats.mean * 100.0, 1) + "%");
-    }
-    if (regions.is_object() && regions.contains("summary")) {
-        const auto& summary = regions["summary"];
-        evals.push_back("regions: total=" + std::to_string(static_cast<int>(json_number_or(summary, "total_regions", 0.0))) +
-                        ", avg_size=" + format_number(json_number_or(summary, "avg_region_size_px", 0.0), 1) + "px");
-    }
-
-    const int stored_w = static_cast<int>(json_number_or(metrics, "stored_width", 0.0));
-    const int stored_h = static_cast<int>(json_number_or(metrics, "stored_height", 0.0));
-    const std::string dtype = json_string_or(metrics, "dtype", "");
-    const std::string stream_id = json_string_or(metrics, "map_stream_id", "luma");
-    const fs::path cache_dir = aqmh_cache_dir(run_dir, metrics);
-    const auto files = aqmh_cache_files(cache_dir, stream_id);
-    constexpr size_t max_aqmh_report_maps = 8;
-    const auto sampled_files = sample_evenly(files, max_aqmh_report_maps);
-    const auto agg = aggregate_aqmh_maps_streamed(sampled_files, stored_w, stored_h, dtype, 0.2, 80, 48);
-    evals.push_back("cache maps streamed: " + std::to_string(agg.count) + "/" + std::to_string(files.size()) +
-                    " sampled from " + cache_dir.string());
-    if (agg.count > 0) {
-        charts.push_back({svg_matrix_heatmap(agg.mean, agg.cols, agg.rows, "AQMH mean quality map", "Q mean", "viridis", 0.0, 1.0),
-                          "<h4>AQMH mean quality map</h4><p>Gestreamte, report-kleine Vorschau der mittleren AQMH-Qualitaet; die Full-Resolution-Cache-Maps werden dabei nicht im Speicher gehalten.</p>"});
-        charts.push_back({svg_matrix_heatmap(agg.artifact_frequency, agg.cols, agg.rows, "AQMH artifact frequency map", "artifact frequency", "inferno", 0.0, 1.0),
-                          "<h4>AQMH artifact frequency map</h4><p>Gestreamte Vorschau des Anteils niedriger AQMH-Qualitaetswerte.</p>"});
-        if (!agg.example.second.empty()) {
-            charts.push_back({svg_matrix_heatmap(agg.example.second, agg.cols, agg.rows, "AQMH quality map example: " + agg.example.first, "Q", "viridis", 0.0, 1.0),
-                              "<h4>AQMH quality map example</h4><p>Gestreamt heruntergerechnete AQMH-Qualitaetskarte: <code>" + html_escape(agg.example.first) + "</code>.</p>"});
-        }
-    }
-
-    std::vector<std::vector<double>> metric_rows;
-    std::vector<std::string> metric_labels;
-    struct MetricSeriesRef {
-        const char* label;
-        const std::vector<double>* values;
-    };
-    const std::array<MetricSeriesRef, 5> metric_series{{
-        {"map_p10", &map_p10},
-        {"map_p50", &map_p50},
-        {"map_p90", &map_p90},
-        {"map_mean", &map_means},
-        {"artifact_frac", &artifact_fracs},
-    }};
-    for (const auto& entry : metric_series) {
-        if (entry.values != nullptr && !entry.values->empty()) {
-            metric_labels.emplace_back(entry.label);
-            metric_rows.push_back(*entry.values);
-        }
-    }
-    if (!metric_rows.empty()) {
-        size_t cols = 0;
-        for (const auto& row : metric_rows) cols = std::max(cols, row.size());
-        std::vector<double> matrix(metric_rows.size() * cols, std::numeric_limits<double>::quiet_NaN());
-        for (size_t y = 0; y < metric_rows.size(); ++y) {
-            for (size_t x = 0; x < metric_rows[y].size(); ++x) matrix[y * cols + x] = metric_rows[y][x];
-        }
-        charts.push_back({svg_matrix_heatmap(matrix, static_cast<int>(cols), static_cast<int>(metric_rows.size()), "AQMH frame metric matrix", "frame metrics", "viridis", 0.0, 1.0, 760, 300),
-                          "<h4>AQMH Frame Metric Matrix</h4><p>Kompakte Heatmap der AQMH-Frame-Diagnostik aus <code>aqmh_metrics.json</code>.</p>"});
-    }
-
-    return ReportSection{"AQMH Metrics", make_card_html("AQMH quality metrics", charts, evals, infer_status(evals))};
-}
-
-
-/// @brief Generates validation.
-/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::optional<ReportSection> gen_validation(const json& val) {
-    if (!val.is_object() || val.empty()) return std::nullopt;
-    const bool is_aqmh = json_string_or(val, "method", "aqmh") == "aqmh";
-    const double improvement = json_number_or(val, "fwhm_improvement_percent", 0.0);
-    const auto fwhm_ok_opt = json_optional_bool(val, "fwhm_improvement_ok");
-
-    std::vector<std::string> labels;
-    std::vector<double> values;
-    std::vector<std::string> colors;
-
-    // FWHM: always shown, but informational (cyan) when not evaluated (AQMH without star detection)
-    labels.push_back("FWHM improvement");
-    values.push_back(improvement);
-    if (!fwhm_ok_opt.has_value()) {
-        colors.push_back("#22d3ee");  // cyan = informational
-    } else {
-        colors.push_back(*fwhm_ok_opt ? "#4ade80" : "#f87171");
-    }
-
-    if (!is_aqmh) {
-        const double tw_var = json_number_or(val, "tile_weight_variance", 0.0);
-        const double pattern_ratio = json_number_or(val, "tile_pattern_ratio", 0.0);
-        const bool tw_ok = json_bool_or(val, "tile_weight_variance_ok", false);
-        const bool pattern_ok = json_bool_or(val, "tile_pattern_ok", false);
-        labels.push_back("Tile weight variance");
-        values.push_back(tw_var * 100.0);
-        colors.push_back(tw_ok ? "#4ade80" : "#f87171");
-        if (val.contains("tile_pattern_ratio")) {
-            labels.push_back("Tile pattern ratio");
-            values.push_back(pattern_ratio);
-            colors.push_back(pattern_ok ? "#4ade80" : "#f87171");
-        }
-    } else {
-        // AQMH-specific quality metrics
-        const double map_var = json_number_or(val, "aqmh_map_mean_variance", -1.0);
-        const double artifact_avg = json_number_or(val, "aqmh_artifact_frac_avg", -1.0);
-        if (map_var >= 0.0) {
-            labels.push_back("AQMH map variance");
-            values.push_back(map_var * 1000.0);
-            colors.push_back(map_var > 1e-5 ? "#4ade80" : "#fb923c");
-        }
-        if (artifact_avg >= 0.0) {
-            labels.push_back("AQMH artifact frac");
-            values.push_back(artifact_avg * 100.0);
-            colors.push_back(artifact_avg < 0.3 ? "#4ade80" : "#f87171");
-        }
-    }
-
-    std::vector<ChartBlock> charts = {{
-        svg_bar(labels, values, "Validation checks", "value", colors),
-        explain_panel(
-            "Validierungschecks",
-            {
-                is_aqmh
-                    ? "AQMH-Modus: FWHM ist informativ (kein Pass/Fail). Stattdessen werden AQMH-spezifische Qualitätsmetriken aus den Qualitätskarten angezeigt."
-                    : "Die Balken zeigen die wichtigsten numerischen Endkontrollen des Ergebnisses, z. B. FWHM-Verbesserung, Tile-Weight-Varianz und optional den Tile-Pattern-Check.",
-                "Die Farbe macht sofort sichtbar, welche Checks bestanden und welche fehlgeschlagen sind."
-            },
-            {
-                "<span class=\"good\">Bestandener Check:</span> Der jeweilige Messwert liegt im akzeptierten Bereich und stützt die technische Plausibilität des Endprodukts.",
-                "<span class=\"bad\">Fehlgeschlagener Check:</span> Der Messwert verletzt die definierte Grenze und markiert ein konkretes Qualitätsrisiko, das im Bild oder in den vorgelagerten Phasen geprüft werden sollte.",
-                "Die absolute Balkenhoehe ist nur im Kontext des jeweiligen Checks interpretierbar; entscheidend ist die Kombination aus Wert und PASS/FAIL."
-            }
-        )
-    }};
-
-    std::vector<std::string> evals;
-    evals.push_back("seeing FWHM: " + json_string_or(val, "seeing_fwhm_median", "?"));
-    evals.push_back("output FWHM: " + json_string_or(val, "output_fwhm_median", "?"));
-    if (!fwhm_ok_opt.has_value()) {
-        evals.push_back("FWHM improvement: " + format_number(improvement, 1) + "% (informational)");
-    } else {
-        evals.push_back("FWHM improvement: " + format_number(improvement, 1) + "% " + (*fwhm_ok_opt ? std::string("OK") : std::string("FAIL")));
-    }
-    if (!is_aqmh) {
-        const double tw_var = json_number_or(val, "tile_weight_variance", 0.0);
-        const double pattern_ratio = json_number_or(val, "tile_pattern_ratio", 0.0);
-        const bool tw_ok = json_bool_or(val, "tile_weight_variance_ok", false);
-        const bool pattern_ok = json_bool_or(val, "tile_pattern_ok", false);
-        evals.push_back("tile weight variance: " + format_number(tw_var, 4) + " " + (tw_ok ? std::string("OK") : std::string("FAIL")));
-        if (val.contains("tile_pattern_ratio")) {
-            evals.push_back("tile pattern ratio: " + format_number(pattern_ratio, 3) + " " + (pattern_ok ? std::string("OK") : std::string("FAIL")));
-        }
-    } else {
-        const double map_avg = json_number_or(val, "aqmh_map_mean_avg", -1.0);
-        const double map_var = json_number_or(val, "aqmh_map_mean_variance", -1.0);
-        const double artifact_avg = json_number_or(val, "aqmh_artifact_frac_avg", -1.0);
-        const int n_eval = static_cast<int>(json_number_or(val, "aqmh_frames_evaluated", 0.0));
-        if (map_avg >= 0.0) evals.push_back("AQMH map mean avg: " + format_number(map_avg, 4));
-        if (map_var >= 0.0) evals.push_back("AQMH map mean variance: " + format_number(map_var, 6));
-        if (artifact_avg >= 0.0) evals.push_back("AQMH artifact frac avg: " + format_number(artifact_avg, 3));
-        if (n_eval > 0) evals.push_back("AQMH frames evaluated: " + std::to_string(n_eval));
-    }
-    return ReportSection{"Validation", make_card_html("Quality validation", charts, evals, infer_status(evals))};
-}
-
-/// @brief Generates common overlap.
-/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::optional<ReportSection> gen_common_overlap(const json& co) {
-    if (!co.is_object() || !co.contains("tiles") || !co["tiles"].is_array() || co["tiles"].empty()) return std::nullopt;
-    std::vector<double> ratios;
-    ratios.reserve(co["tiles"].size());
-    int valid_count = 0;
-    for (const auto& tile : co["tiles"]) {
-        ratios.push_back(json_number_or(tile, "common_ratio", NAN));
-        if (json_bool_or(tile, "common_valid", false)) ++valid_count;
-    }
-    std::vector<ChartBlock> charts = {
-        {svg_histogram(ratios, "Tile common-overlap ratio", "common ratio", "#22d3ee"), explain_panel(
-            "Common-Overlap-Ratio pro Tile",
-            {
-                "Das Histogramm beschreibt, welcher Anteil der Pixel pro Tile in der gemeinsamen, über alle nutzbaren Frames stabil überlappenden Region liegt.",
-                "Es ist damit ein wichtiger Indikator für geometrische Abdeckung und statistische Fairness lokaler Metriken."
-            },
-            {
-                "<span class=\"good\">Unauffälliger Befund:</span> Liegt der Schwerpunkt nahe hoher Ratios, wurden die meisten Tiles über viele Frames hinweg gemeinsam und geometrisch stabil abgedeckt.",
-                "<span class=\"neutral\">Normaler Befund:</span> Ein Abfall an den Bildrändern ist bei Feldrotation, Dithering oder ungleichmäßiger Abdeckung häufig physikalisch plausibel.",
-                "<span class=\"bad\">Prüfbedarf:</span> Viele niedrige Ratios bedeuten, dass große Teile des Felds lokal nur schwach gemeinsam beobachtet wurden; lokale Metriken und Rekonstruktion sind dort statistisch weniger belastbar."
-            }
-        )}
-    };
-    const int img_w = static_cast<int>(json_number_or(co, "canvas_width", 0.0));
-    const int img_h = static_cast<int>(json_number_or(co, "canvas_height", 0.0));
-    if (img_w > 0 && img_h > 0) {
-        charts.push_back({
-            svg_spatial_tile_heatmap(co["tiles"], ratios, img_w, img_h, "Spatial common-overlap ratio", "common ratio", "viridis"),
-            explain_panel(
-                "Räumliche Common-Overlap-Karte",
-                {
-                    "Diese Karte zeigt die gemeinsame Abdeckung nicht als Verteilung, sondern direkt an der realen Bildposition jedes Tiles.",
-                    "Damit erkennt man sofort, welche Feldbereiche geometrisch gut abgestützt sind und wo die Session lokal ausdünnt."
-                },
-                {
-                    "<span class=\"good\">Unauffälliger Befund:</span> Eine homogene, breitflächig hohe Abdeckung bedeutet, dass lokale Messwerte im Großteil des Felds auf vergleichbarer Statistik beruhen.",
-                    "<span class=\"neutral\">Normaler Befund:</span> Ein gleichmäßiger Abfall an den Rändern ist bei realer Feldrotation oder Dithering oft normal, solange keine isolierten Löcher entstehen.",
-                    "<span class=\"bad\">Prüfbedarf:</span> Inselartige Lücken oder starke Inhomogenität können lokale Bias-Effekte, instabile Gewichtung und Rekonstruktionsartefakte begünstigen."
-                }
-            )
-        });
-    }
-    const auto s = basic_stats(ratios);
-    std::vector<std::string> evals = {
-        "canvas: " + json_string_or(co, "canvas_width", "?") + "x" + json_string_or(co, "canvas_height", "?"),
-        "usable/loaded frames: " + json_string_or(co, "usable_frames", "?") + "/" + json_string_or(co, "loaded_frames", "?"),
-        "common pixels: " + json_string_or(co, "common_pixels", "?") + " (" + format_number(percent_value(json_number_or(co, "common_fraction", 0.0)), 1) + "%)",
-        "tiles common-valid: " + std::to_string(valid_count) + "/" + std::to_string(co["tiles"].size())
-    };
-    if (s.n > 0) {
-        evals.push_back("tile common-ratio median=" + format_number(s.median, 3) +
-                        ", min=" + format_number(s.min, 3) +
-                        ", max=" + format_number(s.max, 3));
-    }
-    return ReportSection{"Common Overlap", make_card_html("Post-PREWARP overlap diagnostics", charts, evals, infer_status(evals))};
-}
-
 std::string build_report_html(const fs::path& run_dir,
                               const json& status,
                               const json& artifacts,
                               const std::vector<json>& events,
                               const json& norm,
                               const json& gm,
-                              const json& tg,
                               const json& reg,
-                              const json& lm,
-                              const json& recon,
-                              const json& cl,
-                              const json& syn,
-                              const json& bge,
-                              const json& val,
-                              const json& aqmh_metrics,
-                              const json& aqmh_regions,
+                              const json& fwd_drizzle,
+                              const json& sampling_geometry,
+                              const json& registration_sampling,
                               const json& common_overlap,
+                              const json& source_quality_plan,
+                              const json& acceleration_context,
+                              const json& bge,
                               const std::string& config_yaml,
                               const std::string& locale) {
     std::vector<std::string> meta_lines = {
@@ -3416,19 +2768,15 @@ std::string build_report_html(const fs::path& run_dir,
     };
     add(gen_overview(run_dir, status, artifacts, events));
     add(gen_timeline(events));
-    add(gen_frame_usage(events, syn));
+    add(gen_frame_usage(events));
     add(gen_normalization(norm));
     add(gen_global_metrics(gm));
-    add(gen_tile_grid(tg));
     add(gen_registration(reg));
-    add(gen_local_metrics(lm, tg));
-    add(gen_reconstruction(recon, tg));
-    add(gen_aqmh_metrics(run_dir, aqmh_metrics, aqmh_regions));
-    add(gen_clustering(cl));
-    add(gen_synthetic(syn));
+    add(gen_sampling_geometry(registration_sampling, common_overlap));
+    add(gen_source_quality(source_quality_plan));
+    add(gen_forward_drizzle(fwd_drizzle, sampling_geometry));
+    add(gen_acceleration(acceleration_context));
     add(gen_bge(bge));
-    add(gen_validation(val));
-    add(gen_common_overlap(common_overlap));
     add(gen_phase_issue_summary(events, bge));
 
     std::ostringstream html;
@@ -3475,11 +2823,23 @@ std::string build_report_html(const fs::path& run_dir,
     html << "<div class=\"footer\">Generated by tile_compile_web_backend (C++ inline SVG report)</div>";
     html << "</main>__REPORT_LANGUAGE_SCRIPT__</body></html>";
     const std::string base_html = html.str();
-    std::string localized = apply_report_translations(base_html, locale);
+    // Render both locales so the embedded language switch can swap the
+    // already-rendered header/content without a backend round-trip.
+    json templates = json::object();
+    std::string localized;
+    for (const std::string lang : {"de", "en"}) {
+        const std::string variant = apply_report_translations(base_html, lang);
+        templates[lang] = {
+            {"header", extract_between(variant, "<!--REPORT_HEADER_BEGIN-->", "<!--REPORT_HEADER_END-->")},
+            {"content", extract_between(variant, "<!--REPORT_CONTENT_BEGIN-->", "<!--REPORT_CONTENT_END-->")}
+        };
+        if (lang == locale) localized = variant;
+    }
+    if (localized.empty()) localized = apply_report_translations(base_html, locale);
     const std::string marker = "__REPORT_LANGUAGE_SCRIPT__";
     const auto marker_pos = localized.find(marker);
     if (marker_pos != std::string::npos) {
-        localized.replace(marker_pos, marker.size(), build_language_switch_script(locale));
+        localized.replace(marker_pos, marker.size(), build_language_switch_script(locale, templates));
     }
     return localized;
 }
@@ -3513,24 +2873,22 @@ nlohmann::json generate_run_report(const fs::path& run_dir) {
 
         const json norm = read_json_if_exists(artifacts_dir / "normalization.json");
         const json gm = read_json_if_exists(artifacts_dir / "global_metrics.json");
-        const json tg = read_json_if_exists(artifacts_dir / "tile_grid.json");
         const json reg = read_json_if_exists(artifacts_dir / "global_registration.json");
-        const json lm = read_json_if_exists(artifacts_dir / "local_metrics.json");
-        json recon = read_json_if_exists(artifacts_dir / "aqmh_reconstruction.json");
-        if (recon.empty()) recon = read_json_if_exists(artifacts_dir / "tile_reconstruction.json");
-        const json cl = read_json_if_exists(artifacts_dir / "state_clustering.json");
-        const json syn = read_json_if_exists(artifacts_dir / "synthetic_frames.json");
         const json bge = read_json_if_exists(artifacts_dir / "bge.json");
-        const json val = read_json_if_exists(artifacts_dir / "validation.json");
-        const json aqmh_metrics = read_json_if_exists(artifacts_dir / "aqmh_metrics.json");
-        const json aqmh_regions = read_json_if_exists(artifacts_dir / "aqmh_regions.json");
-        const json common_overlap = read_json_if_exists(artifacts_dir / "common_overlap.json");
+        const json fwd_drizzle = read_json_if_exists(artifacts_dir / "forward_drizzle.json");
+        const json sampling_geometry = read_json_if_exists(artifacts_dir / "sampling_geometry.json");
+        const json registration_sampling = read_json_if_exists(artifacts_dir / "registration_sampling.json");
+        const json common_overlap = read_json_if_exists(artifacts_dir / "forward_common_overlap.json");
+        const json source_quality_plan = read_json_if_exists(artifacts_dir / "source_quality_plan.json");
+        const json acceleration_context = read_json_if_exists(artifacts_dir / "acceleration_context.json");
         const std::string config_yaml = read_text(run_dir / "config.yaml");
 
         const std::string report_html = build_report_html(run_dir, status, artifacts_before, events,
-                                                          norm, gm, tg, reg, lm, recon, cl,
-                                                          syn, bge, val, aqmh_metrics, aqmh_regions,
-                                                          common_overlap, config_yaml, locale);
+                                                          norm, gm, reg,
+                                                          fwd_drizzle, sampling_geometry,
+                                                          registration_sampling, common_overlap,
+                                                          source_quality_plan, acceleration_context,
+                                                          bge, config_yaml, locale);
 
         std::ofstream report_out(report_path, std::ios::binary);
         if (!report_out) {

@@ -40,6 +40,14 @@ RGBImage read_fits_rgb(const fs::path& path);
 
 Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width, int height);
 
+// Float FITS mask export with one row of scratch, atomically published.
+// Atomic row-major plane export with only one conversion row of scratch.
+void write_fits_float_rows(const fs::path& path, const std::vector<float>& values,
+                           int rows, int cols, const FitsHeader& header);
+
+void write_fits_mask_rows(const fs::path& path, const std::vector<uint8_t>& mask,
+                          int rows, int cols, const FitsHeader& header);
+
 void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHeader& header);
 
 void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B, const FitsHeader& header);

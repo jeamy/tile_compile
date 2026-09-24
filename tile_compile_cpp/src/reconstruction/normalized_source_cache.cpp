@@ -1,0 +1,281 @@
+#include "tile_compile/reconstruction/normalized_source_cache.hpp"
+#include "tile_compile/core/utils.hpp"
+#include <nlohmann/json.hpp>
+#include <chrono>
+#include <algorithm>
+#include <cstring>
+#include <bit>
+#include <fstream>
+#include <limits>
+#include <set>
+#include <sstream>
+#include <stdexcept>
+#include <vector>
+
+namespace tile_compile::reconstruction {
+namespace {
+using json = nlohmann::json;
+std::string digest(const json &j) {
+  const auto text = j.dump();
+  return core::sha256_bytes(std::vector<uint8_t>(text.begin(),text.end()));
+}
+json context(const registration::RegistrationSamplingPlan &plan) {
+  static_assert(Matrix2Df::IsRowMajor);
+  if (std::endian::native != std::endian::little || sizeof(float) != 4 ||
+      !std::numeric_limits<float>::is_iec559 || plan.source_width <= 0 ||
+      plan.source_height <= 0 || plan.source_identity_hash.empty() || plan.frames.empty() ||
+      (plan.color_mode != ColorMode::MONO && plan.color_mode != ColorMode::OSC) ||
+      (plan.color_mode == ColorMode::OSC && plan.bayer_pattern == BayerPattern::UNKNOWN))
+    throw std::invalid_argument("NORMALIZED_CACHE_INVALID_CONTEXT");
+  std::map<size_t,std::string> frames;
+  std::set<std::string> ids;
+  for (const auto &f : plan.frames)
+    if (f.frame_id.empty() || !frames.emplace(f.source_index,f.frame_id).second ||
+        !ids.insert(f.frame_id).second)
+      throw std::invalid_argument("NORMALIZED_CACHE_DUPLICATE_FRAME");
+  json entries = json::array();
+  for (const auto &[index,id] : frames)
+    entries.push_back({{"source_index",index},{"frame_id",id}});
+  return {{"source_identity_hash",plan.source_identity_hash},
+      {"width",plan.source_width},{"height",plan.source_height},
+      {"color_mode",static_cast<int>(plan.color_mode)},
+      {"bayer_pattern",static_cast<int>(plan.bayer_pattern)},
+      {"cfa_origin_x",plan.cfa_origin_x},{"cfa_origin_y",plan.cfa_origin_y},
+      {"encoding","ieee754-float32-le-row-major"},{"frames",entries}};
+}
+size_t frame_bytes(int width,int height) {
+  const uint64_t count = static_cast<uint64_t>(width)*height;
+  if (count > std::numeric_limits<size_t>::max()/sizeof(float) ||
+      count > static_cast<uint64_t>(std::numeric_limits<std::streamsize>::max())/sizeof(float))
+    throw std::runtime_error("NORMALIZED_CACHE_SIZE_OVERFLOW");
+  return static_cast<size_t>(count)*sizeof(float);
+}
+void require_file(const fs::path &p,size_t bytes) {
+  if (!fs::is_regular_file(fs::symlink_status(p)) || fs::file_size(p)!=bytes)
+    throw std::runtime_error("NORMALIZED_CACHE_MISSING_OR_INVALID_FILE");
+}
+}
+std::string publish_normalized_source_manifest(
+    const fs::path &root,const registration::RegistrationSamplingPlan &plan) {
+  const auto expected = context(plan);
+  // T1 trusted-run schema v2: no per-file SHA-256. Files are verified by size
+  // only; the manifest_identity is a hash over the JSON metadata.
+  json manifest = {{"schema_version",2},{"integrity_mode","trusted"},
+                   {"context",expected},{"files",json::array()}};
+  const size_t bytes = frame_bytes(plan.source_width,plan.source_height);
+  for (const auto &entry : expected.at("frames")) {
+    const size_t index = entry.at("source_index").get<size_t>();
+    const auto file = root/(std::to_string(index)+".raw");
+    require_file(file,bytes);
+    manifest["files"].push_back({{"source_index",index},{"bytes",bytes}});
+  }
+  const auto hash = digest(manifest);
+  manifest["manifest_identity"] = hash;
+  core::write_text_atomic(root/"normalized_source_manifest.json",manifest.dump(2));
+  return hash;
+}
+VerifiedNormalizedSourceCache::VerifiedNormalizedSourceCache(
+    const fs::path &root,const registration::RegistrationSamplingPlan &expected,
+    size_t memory_budget_mb) : root_(root),width_(expected.source_width),
+    height_(expected.source_height) {
+  const auto ctx = context(expected);
+  const size_t bytes = frame_bytes(width_,height_);
+  if (memory_budget_mb > std::numeric_limits<size_t>::max()/(1024*1024) ||
+      memory_budget_mb < 2 || bytes > memory_budget_mb*1024*1024-1024*1024)
+    throw std::runtime_error("NORMALIZED_CACHE_MEMORY_BUDGET");
+  const auto path = root/"normalized_source_manifest.json";
+  if (!fs::is_regular_file(fs::symlink_status(path)) ||
+      fs::file_size(path)>std::min<size_t>(16*1024*1024,memory_budget_mb*1024*1024/16))
+    throw std::runtime_error("NORMALIZED_CACHE_INVALID_MANIFEST_FILE");
+  std::ifstream file(path);
+  auto manifest = json::parse(file);
+  // T1: accept schema v1 (legacy) and v2 (trusted run). v2 uses
+  // manifest_identity; v1 uses manifest_hash. Both are metadata-only hashes.
+  const int sv = manifest.at("schema_version").get<int>();
+  if (sv != 1 && sv != 2)
+    throw std::runtime_error("NORMALIZED_CACHE_UNSUPPORTED_SCHEMA");
+  const std::string id_field = sv >= 2 ? "manifest_identity" : "manifest_hash";
+  manifest_hash_ = manifest.at(id_field).get<std::string>();
+  manifest.erase(id_field);
+  if (manifest.at("context") != ctx || digest(manifest) != manifest_hash_ ||
+      !manifest.at("files").is_array() ||
+      manifest.at("files").size() != expected.frames.size())
+    throw std::runtime_error("NORMALIZED_CACHE_CONTEXT_OR_HASH_MISMATCH");
+  size_t i=0;
+  for (const auto &entry : manifest.at("files")) {
+    if (!entry.at("source_index").is_number_unsigned() || !entry.at("bytes").is_number_unsigned())
+      throw std::runtime_error("NORMALIZED_CACHE_INVALID_ENTRY_TYPE");
+    const size_t index=entry.at("source_index").get<size_t>();
+    if (index!=ctx.at("frames").at(i++).at("source_index").get<size_t>() ||
+        entry.at("bytes").get<size_t>()!=bytes)
+      throw std::runtime_error("NORMALIZED_CACHE_INVALID_ENTRY");
+    require_file(root/(std::to_string(index)+".raw"),bytes);
+    // v1 entries carry a sha256 field (ignored in trusted run); v2 does not.
+    hashes_.emplace(index, std::string{});
+  }
+  context_hash_=digest(ctx);
+  // LRU capacity (plan §30.72 O2): how many whole frames fit in the budget,
+  // leaving 1 MiB slack. At least one; never more than the manifest holds.
+  const size_t usable = memory_budget_mb*1024*1024 - 1024*1024;
+  capacity_ = std::max<size_t>(1, std::min<size_t>(hashes_.size(),
+                                                   bytes ? usable/bytes : 1));
+}
+
+VerifiedNormalizedSourceCache::VerifiedNormalizedSourceCache(
+    const VerifiedNormalizedSourceCache &proto, size_t memory_budget_mb)
+    : root_(proto.root_), width_(proto.width_), height_(proto.height_),
+      hashes_(proto.hashes_), manifest_hash_(proto.manifest_hash_),
+      context_hash_(proto.context_hash_) {
+  if (memory_budget_mb < 2)
+    throw std::runtime_error("NORMALIZED_CACHE_MEMORY_BUDGET");
+  const size_t bytes = frame_bytes(width_, height_);
+  const size_t usable = memory_budget_mb*1024*1024 - 1024*1024;
+  capacity_ = std::max<size_t>(1, std::min<size_t>(hashes_.size(),
+                                                   bytes ? usable/bytes : 1));
+}
+bool VerifiedNormalizedSourceCache::matches(const registration::RegistrationSamplingPlan &plan) const {
+  return digest(context(plan))==context_hash_;
+}
+const Matrix2Df &VerifiedNormalizedSourceCache::load(size_t source_index) {
+  ++load_calls_;
+  const auto hit=resident_.find(source_index);
+  if (hit!=resident_.end()) {
+    const auto path=root_/(std::to_string(source_index)+".raw");
+    std::error_code ec;
+    const auto sz=fs::file_size(path,ec);
+    const auto mt=fs::last_write_time(path,ec);
+    if (!ec && sz==hit->second->file_size && mt==hit->second->mtime &&
+        mt<hit->second->verified_at) {
+      // Unchanged AND last written strictly before we verified it: promote to
+      // front, no read, no SHA-256. The `mt < verified_at` guard closes the
+      // same-mtime-tick rewrite window that a size+mtime match alone leaves.
+      ++lru_hits_;
+      lru_.splice(lru_.begin(),lru_,hit->second);
+      return hit->second->image;
+    }
+    // Size or mtime moved, a same-tick rewrite is possible, or stat failed:
+    // drop the stale entry and fall through to a full verifying reload.
+    lru_.erase(hit->second);
+    resident_.erase(hit);
+  }
+  return verify_and_insert(source_index);
+}
+
+const Matrix2Df &VerifiedNormalizedSourceCache::verify_and_insert(
+    size_t source_index) {
+  const auto found=hashes_.find(source_index);
+  if (found==hashes_.end()) throw std::invalid_argument("NORMALIZED_CACHE_UNKNOWN_FRAME");
+  const size_t bytes=frame_bytes(width_,height_);
+  const auto path=root_/(std::to_string(source_index)+".raw");
+  require_file(path,bytes);
+  Matrix2Df image;
+  image.resize(height_,width_);
+  std::ifstream file(path,std::ios::binary);
+  file.read(reinterpret_cast<char *>(image.data()),static_cast<std::streamsize>(bytes));
+  if (!file || file.peek()!=std::char_traits<char>::eof())
+    throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+  bytes_read_+=bytes;
+  std::error_code ec;
+  Entry e;
+  e.index=source_index;
+  e.image=std::move(image);
+  e.file_size=fs::file_size(path,ec);
+  e.mtime=fs::last_write_time(path,ec);
+  // Captured AFTER the read: a hit is trusted only if the file's mtime is
+  // strictly older than this instant, so a write concurrent with (or in the
+  // same fs tick as) our read is never mistaken for "unchanged".
+  e.verified_at=fs::file_time_type::clock::now();
+  lru_.push_front(std::move(e));
+  resident_[source_index]=lru_.begin();
+  // Evict least-recently-used; never the entry just inserted (front). A held
+  // reference to some OTHER frame is invalidated here, matching the previous
+  // single-buffer contract where any load() invalidated the prior reference.
+  while (lru_.size()>capacity_ && lru_.size()>1) {
+    resident_.erase(lru_.back().index);
+    lru_.pop_back();
+    ++evictions_;
+  }
+  return lru_.front().image;
+}
+
+void VerifiedNormalizedSourceCache::read_rect_into(
+    size_t source_index,int y0,int y1,int x0,int x1,
+    std::vector<float> &out) {
+  y0=std::clamp(y0,0,height_); y1=std::clamp(y1,0,height_);
+  x0=std::clamp(x0,0,width_);  x1=std::clamp(x1,0,width_);
+  const int rows=y1-y0, cols=x1-x0;
+  if (rows<=0 || cols<=0) { out.clear(); return; }
+  if (hashes_.find(source_index)==hashes_.end())
+    throw std::invalid_argument("NORMALIZED_CACHE_UNKNOWN_FRAME");
+  out.resize(static_cast<size_t>(rows)*static_cast<size_t>(cols));
+  const size_t row_bytes=static_cast<size_t>(width_)*sizeof(float);
+  const size_t x_bytes=static_cast<size_t>(cols)*sizeof(float);
+  const auto path=root_/(std::to_string(source_index)+".raw");
+  std::ifstream file(path,std::ios::binary);
+  // Seek/read only the [x0,x1) span of each requested row directly into the
+  // output span; no covering source row is read.
+  for (int r=0;r<rows;++r) {
+    file.seekg(static_cast<std::streamoff>(
+        static_cast<size_t>(y0+r)*row_bytes+
+        static_cast<size_t>(x0)*sizeof(float)));
+    file.read(reinterpret_cast<char *>(
+                  out.data()+static_cast<size_t>(r)*cols),
+              static_cast<std::streamsize>(x_bytes));
+    if (!file) throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+  }
+  ++rect_read_calls_;
+  bytes_read_+=static_cast<std::uint64_t>(rows)*x_bytes;
+  expanded_floats_+=static_cast<std::uint64_t>(rows)*static_cast<std::uint64_t>(cols);
+}
+
+void VerifiedNormalizedSourceCache::read_row_intervals_into(
+    size_t source_index, const std::vector<DrizzleAffineSourceSpan> &intervals,
+    std::vector<float> &out) {
+  out.clear();
+  if (hashes_.find(source_index)==hashes_.end())
+    throw std::invalid_argument("NORMALIZED_CACHE_UNKNOWN_FRAME");
+  size_t total=0;
+  int prev_row=-1;
+  for (const auto &s : intervals) {
+    if (s.source_y < 0 || s.source_y >= height_ || s.source_y <= prev_row ||
+        s.x_begin < 0 || s.x_end > width_ || s.x_end <= s.x_begin)
+      throw std::invalid_argument("NORMALIZED_CACHE_INVALID_INTERVAL");
+    prev_row=s.source_y;
+    total += static_cast<size_t>(s.x_end - s.x_begin);
+  }
+  out.resize(total);  // resize keeps capacity for the reusable buffer
+  if (intervals.empty()) return;
+  const size_t row_bytes=static_cast<size_t>(width_)*sizeof(float);
+  const auto path=root_/(std::to_string(source_index)+".raw");
+  std::ifstream file(path,std::ios::binary);
+  if (!file) throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+  size_t off=0;
+  for (const auto &s : intervals) {
+    const size_t n=static_cast<size_t>(s.x_end - s.x_begin);
+    file.seekg(static_cast<std::streamoff>(
+        static_cast<size_t>(s.source_y)*row_bytes+
+        static_cast<size_t>(s.x_begin)*sizeof(float)));
+    file.read(reinterpret_cast<char *>(out.data()+off),
+              static_cast<std::streamsize>(n*sizeof(float)));
+    if (!file) throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+    off += n;
+  }
+  ++rect_read_calls_;
+  bytes_read_+=static_cast<std::uint64_t>(total)*sizeof(float);
+  expanded_floats_+=static_cast<std::uint64_t>(total);
+}
+
+Matrix2Df VerifiedNormalizedSourceCache::read_rect(
+    size_t source_index,int y0,int y1,int x0,int x1) {
+  const int cy0=std::clamp(y0,0,height_), cy1=std::clamp(y1,0,height_);
+  const int cx0=std::clamp(x0,0,width_),  cx1=std::clamp(x1,0,width_);
+  const int rows=cy1-cy0, cols=cx1-cx0;
+  if (rows<=0 || cols<=0) return Matrix2Df(0,0);
+  std::vector<float> buf;
+  read_rect_into(source_index,cy0,cy1,cx0,cx1,buf);
+  Matrix2Df out(rows,cols);
+  std::memcpy(out.data(),buf.data(),
+              static_cast<size_t>(rows)*cols*sizeof(float));
+  return out;
+}
+} // namespace tile_compile::reconstruction

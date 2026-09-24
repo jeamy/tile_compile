@@ -25,23 +25,78 @@ export function markDirty() { store.setState({ dirty: true }); }
 
 // `config-state` (including `draft`/`draftYaml`) is persisted to
 // localStorage (see state/store.js PERSIST_LOCAL), so a draft saved to the
-// browser before bge.enabled was removed from the schema can sit there
+// browser before legacy keys were removed from the schema can sit there
 // indefinitely -- and loadConfig() now deliberately skips re-fetching from
 // disk while `dirty` is true (see pages/parameter.js), so a stale draft
-// with bge.enabled never self-heals just by revisiting the Parameter tab.
-// Migrate it defensively wherever the draft is about to leave the browser
-// (validate/save), so a leftover legacy field never round-trips as an
-// unfixable "Validation error: bge.enabled is no longer supported" loop.
-function migrateLegacyBgeEnabled(draft) {
-  if (!draft || typeof draft.bge !== "object" || draft.bge === null || !("enabled" in draft.bge)) {
-    return false;
+// never self-heals just by revisiting the Parameter tab. Migrate it
+// defensively wherever the draft is about to leave the browser
+// (validate/save/start), so leftover legacy fields never round-trip as an
+// unfixable "method is not accepted" run failure. This mirrors the C++
+// single-method migration (legacy_config_migration.cpp): structural legacy
+// blocks are dropped, and the method selector is meaningless in a
+// single-method UI draft -- unlike hand-written config files, which the
+// runner still rejects fail-closed.
+const LEGACY_TOP_LEVEL_KEYS = [
+  "method", "aqmh", "pipeline", "assumptions", "tile", "tile_denoise",
+  "local_metrics", "synthetic", "validation",
+];
+const LEGACY_SUB_KEYS = {
+  stacking: [
+    "method", "sigma_clip", "cluster_quality_weighting", "output_stretch",
+    "tile_common_valid_min_fraction", "cosmetic_correction",
+    "cosmetic_correction_sigma",
+  ],
+  runtime_limits: [
+    "allow_emergency_mode", "tile_analysis_max_factor_vs_stack",
+    "tile_reconstruction_diagnostics",
+  ],
+};
+
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function migrateLegacyDraftKeys(draft) {
+  if (!isPlainObject(draft)) return false;
+  let changed = false;
+
+  // bge.enabled -> bge.method (pre-existing migration).
+  if (isPlainObject(draft.bge) && "enabled" in draft.bge) {
+    const wasEnabled = draft.bge.enabled;
+    draft.bge.method = wasEnabled
+      ? (draft.bge.method && draft.bge.method !== "none" ? draft.bge.method : "classic")
+      : "none";
+    delete draft.bge.enabled;
+    changed = true;
   }
-  const wasEnabled = draft.bge.enabled;
-  draft.bge.method = wasEnabled
-    ? (draft.bge.method && draft.bge.method !== "none" ? draft.bge.method : "classic")
-    : "none";
-  delete draft.bge.enabled;
-  return true;
+
+  for (const key of LEGACY_TOP_LEVEL_KEYS) {
+    if (key in draft) { delete draft[key]; changed = true; }
+  }
+  for (const [block, keys] of Object.entries(LEGACY_SUB_KEYS)) {
+    const node = draft[block];
+    if (!isPlainObject(node)) continue;
+    for (const key of keys) {
+      if (key in node) { delete node[key]; changed = true; }
+    }
+  }
+  if (isPlainObject(draft.reconstruction) && "engine" in draft.reconstruction) {
+    delete draft.reconstruction.engine;
+    changed = true;
+  }
+
+  // stacking.common_overlap_required_fraction was renamed to
+  // reconstruction.common_overlap_required_fraction -- keep the value.
+  if (isPlainObject(draft.stacking) && "common_overlap_required_fraction" in draft.stacking) {
+    const value = draft.stacking.common_overlap_required_fraction;
+    delete draft.stacking.common_overlap_required_fraction;
+    if (!isPlainObject(draft.reconstruction)) draft.reconstruction = {};
+    if (!("common_overlap_required_fraction" in draft.reconstruction)) {
+      draft.reconstruction.common_overlap_required_fraction = value;
+    }
+    changed = true;
+  }
+  return changed;
 }
 
 function flattenSchemaPaths(node, prefix = [], out = new Set()) {
@@ -102,7 +157,7 @@ export async function loadConfig() {
 }
 
 // Returns {draft, yaml} for the current draft, migrating any legacy
-// bge.enabled found in it first and writing the migration back to the
+// keys found in it first and writing the migration back to the
 // store (which also re-persists the sanitized draft to localStorage) so
 // every subsequent reader -- Start, Resume, Save, Save As, PI action-plan
 // preview, etc. -- sees the fixed value instead of re-discovering the same
@@ -110,7 +165,7 @@ export async function loadConfig() {
 // directly) anywhere a draft is about to be sent to the backend.
 export function getOutgoingConfig() {
   let { draft, draftYaml } = store.getState();
-  if (draft && migrateLegacyBgeEnabled(draft)) {
+  if (draft && migrateLegacyDraftKeys(draft)) {
     draftYaml = stringifyYaml(draft);
     store.setState({ draft, draftYaml });
   } else if (draftYaml) {
@@ -120,7 +175,7 @@ export function getOutgoingConfig() {
     // missing or already differs from draftYaml.
     try {
       const parsed = parseYaml(draftYaml);
-      if (migrateLegacyBgeEnabled(parsed)) {
+      if (migrateLegacyDraftKeys(parsed)) {
         draft = parsed;
         draftYaml = stringifyYaml(parsed);
         store.setState({ draft, draftYaml });

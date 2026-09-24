@@ -136,19 +136,12 @@ und der Host eine funktionierende OpenCL ICD/Runtime bereitstellen.
 
 | Phase | CUDA | OpenCL | Beschleunigte Operation |
 |---|---:|---:|---|
-| `PREWARP` | Ja | Ja | Full-Frame/CFA-Affine-Warping |
-| `AQMH_MAPS` | Ja | Ja | Lokale-Varianz- und Pyramiden-Filter |
-| `AQMH_RECONSTRUCTION` | Ja | Nein | Streaming-Welford-Statistiken und Sigma-Clipping |
-| Klassische `TILE_RECONSTRUCTION` | Ja | Ja | Sigma-Clipping und Overlap-Add |
-| `SYNTHETIC_FRAMES` | Ja | Ja | Cluster-Tile-Rekonstruktion |
-| `STACKING` und Resume | Ja | Ja | Gewichtete/Sigma-geclippte Reduktion und paralleles RGB |
+| `SOURCE_QUALITY_MAPS` | Ja | Ja | Lokale-Varianz-/Pyramiden-Filter für die Quality-Maps |
+| `FORWARD_DRIZZLE` | Ja | Nein | Geometrie-Leaf-Corner-/Target-Gather-Batches und Dense-Scatter für den gechunkten Gather |
 
-`REGISTRATION` bleibt CPU-only; GPU-Verarbeitung beginnt bei `PREWARP`.
-
-AQMH Cherry-Pick fällt derzeit auf CPU zurück. CUDA-Rekonstruktion verarbeitet
-ein Frame und eine Quality-Map gleichzeitig, daher skaliert der VRAM-Verbrauch
-nicht mit der Anzahl der Input-Frames. Laufzeit-Logs zeigen `cpu_workers`,
-`gpu` und `backend`.
+`REGISTRATION` bleibt CPU-only; alle anderen Phasen laufen auf CPU. Der
+CPU-Pfad ist die Bit-Exaktheits-Referenz und garantierter Fallback.
+Laufzeit-Logs zeigen `cpu_workers`, `gpu` und `backend`.
 
 ### CUDA 13 mit OpenCV CUDA 13
 

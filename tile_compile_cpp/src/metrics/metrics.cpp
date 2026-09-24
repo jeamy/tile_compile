@@ -30,7 +30,10 @@ cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame, float k_sigma, 
         }
     }
 
-    float mu = core::median_of(vals);
+    // median_of_or_nan_inplace avoids copying the whole frame just to find
+    // mu; it reorders `vals` (nth_element) but robust_sigma_mad below only
+    // needs the same multiset of values, not their order.
+    float mu = core::median_of_or_nan_inplace(vals);
     float sigma = core::robust_sigma_mad(vals);
     if (!(sigma > 0.0f)) {
         return cv::Mat1b(h, w, uint8_t(1));
@@ -294,7 +297,7 @@ VectorXf calculate_global_weights_impl(
     float w_bg, float w_noise, float w_grad, float w_fwhm,
     float w_roundness, float w_star_count, float clamp_lo, float clamp_hi,
     bool adaptive_weights, float weight_exponent_scale) {
-    int n = metrics.size();
+    int n = static_cast<int>(metrics.size());
     VectorXf weights(n);
     
     VectorXf bg(n), noise(n), grad(n);

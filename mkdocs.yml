@@ -83,6 +83,8 @@ nav:
     - GUI3 User Guide (EN): gui3_user_guide_en.md
     - GUI3 Benutzerhandbuch (DE): gui3_user_guide_de.md
   - Workflows & Tools:
+    - Reconstruction Method (EN): guides/cfa_forward_drizzle_pipeline_en.md
+    - Rekonstruktionsmethode (DE): guides/cfa_forward_drizzle_pipeline_de.md
     - Workflow & Pipeline (EN): guides/workflow.md
     - Workflow & Pipeline (DE): guides/workflow_de.md
     - Live Image Editor (EN): guides/live_image_editor_en.md
@@ -103,21 +105,22 @@ nav:
     - PI Scan-AI for Parameter Studio (EN): PI/scan_ai_parameter_studio_en.md
     - PI Recommendations (EN): PI/pi_ai_recommendations_en.md
     - PI Empfehlungen (DE): PI/pi_ki_empfehlungen_de.md
-    - AQMH Overview (EN): guides/aqmh_overview.md
-    - AQMH Übersicht (DE): guides/aqmh_overview_de.md
+    - PI Jev Decisions (DE): PI/pi_jev_decisions_plan_de.md
+    - PI Pre-Rules (DE): PI/pi_scan_pre_rules_de.md
+    - Forward Drizzle Pipeline (EN): guides/cfa_forward_drizzle_pipeline_en.md
+    - Forward-Drizzle-Pipeline (DE): guides/cfa_forward_drizzle_pipeline_de.md
     - Process Flow Overview: process_flow/phase_0_overview.md
     - Data Flow (EN): process_flow/data_flow_user_description_en.md
     - Data Flow (DE): process_flow/data_flow_user_description_de.md
     - Resume Dependencies (EN): process_flow/resume_dependencies_en.md
     - Resume-Abhängigkeiten (DE): process_flow/resume_dependencies_de.md
-    - Phase 1 – Registration: process_flow/phase_1_registration.md
-    - Phase 2 – Normalization & Metrics: process_flow/phase_2_normalization_metrics.md
-    - Phase 3 – Tile Grid: process_flow/phase_3_tile_generation.md
-    - Phase 4 – Local Metrics: process_flow/phase_4_local_metrics.md
-    - Phase 5 – Reconstruction: process_flow/phase_5_tile_reconstruction.md
-    - Phase 6 – Clustering: process_flow/phase_6_clustering.md
-    - Phase 7 – Final Stacking: process_flow/phase_7_final_stacking.md
-    - Phase 8 – AQMH Extensions: process_flow/phase_8_aqmh_extensions.md
+    - Phase 1 – Scan & Normalization: process_flow/phase_1_scan_normalization.md
+    - Phase 2 – Registration & Geometry: process_flow/phase_2_registration_geometry.md
+    - Phase 3 – Quality: process_flow/phase_3_quality.md
+    - Phase 4 – Forward Drizzle: process_flow/phase_4_forward_drizzle.md
+    - Phase 5 – Multiband: process_flow/phase_5_multiband.md
+    - Phase 6 – Post-Processing: process_flow/phase_6_postprocessing.md
+    - Flow Analysis: process_flow/flow_analysis.md
     - AQMH v0.2.1 (EN): AQMH/aqmh_methodik_en_v0.2.1.md
     - AQMH v0.2.1 (DE): AQMH/aqmh_methodik_de_v0.2.1.md
     - AQMH v0.2.0 (EN): AQMH/aqmh_methodik_en_v0.2.0.md

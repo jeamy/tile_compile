@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "gate": 6,
+  "status": "passed",
+  "spec": "forward_drizzle_v2_gate6_prototype_kernel_spec_2026-09-12.json",
+  "spec_sha256": "19e2fb471cd321781e36e963572f8fc6137f49c2202f575f2928bf236c17c749",
+  "results": "forward_drizzle_v2_gate6_prototype_kernel_results_2026-09-12.jsonl",
+  "implementation": {
+    "class": "ForwardDrizzleV2CudaPrototypeKernel (tile_compile_cpp/include/tile_compile/reconstruction/forward_drizzle_cuda.hpp)",
+    "kernels": [
+      "k_scatter_v2: dense scatter into band-local internal planes; B_geo written for every positive overlap BEFORE the value check so a nonfinite source sample keeps geometric support",
+      "k_fold_accumulate_v2: one thread per native pixel folds scale^2 subpixels per channel into per-frame candidates; full-stream A/B/B2, covB/covB2, conf S/C stream stats, support masks (u16: geo bits 0..3, src bits 4..7), footprint, bounded hash reservoir",
+      "k_finalize_v2: bit-exact gate-3 clip port per (pixel, channel): (x,order) insertion sort, cumulative-weight median at >= total/2, (|x-med|,order) MAD order, asymmetric bounds, early stop; gate-4 confidence states; deterministic overflow fallback"
+    ],
+    "reservoir": "record 32 B (x, b, frame_order, sigma2); slots = 2*R = 128 absorb the binomial hash-keep tail; kept > slots degrades the pixel to reservoir_overflow_fallback (uniform value, support kept) - deterministic and observable",
+    "workspace": "one cudaMalloc batch inside reserve(); events per frame (up0/up1/k0/k1) on a dedicated non-blocking stream; accumulate_frame enqueues upload+memset+scatter+fold fully async with zero syncs and zero allocations; finalize runs the finalize kernel, ONE stream sync, and the result+telemetry download",
+    "not_published": "no production-runner call site; API is test-only"
+  },
+  "evidence": {
+    "small_canvas_parity": "scale {1,2} x MONO/OSC x all Bayer patterns x CFA origins, 5-frame stream (N<=R): states/support bit-identical to the CPU gather+fold+reservoir_sigma_clip oracle; value/b/n_eff/confidence within 1e-12 rel; a negative sigma2 source pixel degrades identically on both paths",
+    "reservoir_N80_R64": "80-frame stream, sigma2 off: kept set is a strict subset (reservoir_kept <= candidates_streamed), parity with CPU oracle holds",
+    "degenerate": "empty band -> all no_source_support, dense=0; single frame -> too_few_candidates_fallback, n_eff=1; repeat run: states/masks bit-identical, values <= 1e-12",
+    "production_band": "3934 native cols x 59-row band (gate-5 planner at 80% of free VRAM), 60 M42-derived affines, pixfrac 0.8, OSC GBRG, internal scale 2: max frame 0.0164 s <= 0.75 s bound; mean 0.0121 s; 1 allocation, 0 global syncs, 1 stream sync; 3.05 GiB reserved <= plan peak; dense_overlap = 0 matches the independent CPU gather oracle for the top band (stress-free footprint edges); 0 reservoir overflows",
+    "memory": "device_bytes_per_native_pixel 13090 <= amended gate-5 plan 13210 (planner keeps centre/scale + fold-staging roles the minimal kernel does not allocate)"
+  },
+  "bounded_contract_notes": [
+    "reservoir slot cap 2*R makes worst-case binomial overflow degrade per-pixel to the uniform value instead of growing memory; zero overflows observed in every test including N=80>R=64",
+    "support fractions: estimator/profile layers equal the source layer on this minimal kernel (uniform profile); geometry vs source stay distinct and cover the nonfinite-source case",
+    "internal_scale restricted to <= 2 (u16 support mask: 2 layers x 4 subpixels); reservoir_size <= 64 (local clip arrays)",
+    "finalize downloads kept/contrib counter planes for telemetry only; frame planes and reservoirs never leave the device"
+  ],
+  "deferred": [
+    "gate 7: artefact/resume contract - the workspace is band-scoped and stateless w.r.t. run transactions",
+    "gate 8: local warp enumeration (kernel is affine-only by design)",
+    "gate 9: halo/band orchestration, multiband fusion, reuse-aware RA model",
+    "gate 10: production cutover decision; the record/sort path stays until then"
+  ],
+  "tests": {
+    "v2_suite": "20 cases / 923k+ assertions incl. gate-6 parity matrix",
+    "production_case": "hidden [forward-drizzle-v2-gate6-production] emits the persisted JSONL row"
+  }
+}

@@ -175,7 +175,7 @@ void register_app_state_routes(CrowApp& app,
     ([state](const crow::request&) {
         const fs::path temp_root = detect_temp_root(state);
         return json_resp({
-            {"phases", PHASE_ORDER},
+            {"phases", FORWARD_DRIZZLE_PHASE_ORDER},
             {"resume_from", RESUME_FROM_PHASES},
             {"color_modes", {"OSC", "MONO", "RGB"}},
             {"temp_root", temp_root.string()},

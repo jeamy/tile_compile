@@ -1,5 +1,8 @@
  #if __has_include(<catch2/catch_test_macros.hpp>)
  #include "tile_compile/core/utils.hpp"
+#include "tile_compile/core/atomic_output.hpp"
+#include "tile_compile/core/pipeline_contract.hpp"
+#include <fstream>
  #include "tile_compile/image/processing.hpp"
  #include "tile_compile/core/types.hpp"
 
@@ -300,6 +303,30 @@
      REQUIRE(corrected(4, 3) == Catch::Approx(120.0f).epsilon(1e-5));
      REQUIRE(corrected(3, 4) == Catch::Approx(120.0f).epsilon(1e-5));
  }
+TEST_CASE("artifact audit: abandoned staging preserves published data", "[drizzle-audit]") {
+    using namespace tile_compile::core;
+    AtomicOutput fixture(std::filesystem::temp_directory_path()/"drizzle-atomic-test");
+    const auto target=fixture.path();
+    write_text_atomic(target,"committed");
+    {
+        AtomicOutput interrupted(target);
+        std::ofstream partial(interrupted.path());partial<<"partial";
+    }
+    REQUIRE(read_text(target)=="committed");
+    write_text_atomic(target,"replacement");
+    REQUIRE(read_text(target)=="replacement");
+    REQUIRE(std::distance(std::filesystem::directory_iterator(target.parent_path()),
+                          std::filesystem::directory_iterator{})==1);
+}
+
+TEST_CASE("contract audit: unknown future pipeline is not resumable", "[drizzle-audit]") {
+    using namespace tile_compile::core;
+    REQUIRE(pipeline_contract_is_single_method(1));
+    REQUIRE_FALSE(pipeline_contract_is_single_method(2));
+    REQUIRE_FALSE(pipeline_contract_is_single_method(0));
+}
+
  #else
  int tile_compile_tests_utils_stub() { return 0; }
- #endif
+
+#endif

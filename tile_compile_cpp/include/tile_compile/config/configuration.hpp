@@ -10,10 +10,6 @@ namespace tile_compile::config {
 
 namespace fs = std::filesystem;
 
-struct PipelineConfig {
-  std::string mode = "production";
-};
-
 struct OutputConfig {
   std::string registered_dir = "registered";
   bool write_registered_frames = false;
@@ -54,13 +50,6 @@ struct CalibrationConfig {
   std::string dark_master;
   std::string flat_master;
   std::string pattern = "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz";
-};
-
-struct AssumptionsConfig {
-  int frames_min = 50;
-  int frames_reduced_threshold = 200;
-  bool reduced_mode_skip_clustering = true;
-  std::array<int, 2> reduced_mode_cluster_range{5, 10};
 };
 
 struct NormalizationConfig {
@@ -113,6 +102,15 @@ struct RegistrationConfig {
   // warp. Held-out, coverage, Jacobian, NCC, and overlap gates must all pass;
   // otherwise prewarp uses the unchanged affine/global warp.
   bool smooth_local_refinement_enabled = true;
+  // Prewarp stage: interpolation kernel applied when warping frames onto the
+  // common canvas ("bilinear" | "cubic").
+  std::string prewarp_interpolation = "cubic";
+  // OSC: demosaic before prewarp, then reconstruct the RGB channels directly
+  // (instead of CFA prewarp + post-stack debayer).
+  bool debayer_first = true;
+  // Demosaic method used when debayer_first is active:
+  // "bilinear" | "nearest" | "vng" | "edge_aware".
+  std::string pre_debayer_method = "edge_aware";
 };
 
 // §4.1, §8.B — Berechnung effektiver Chain-Tiefe
@@ -124,28 +122,6 @@ inline int get_effective_chain_depth(int num_frames, const RegistrationConfig& c
   // Auto: N/10, mindestens 12, maximal 50
   return std::clamp(num_frames / 10, 12, 50);
 }
-
-struct WienerDenoiseConfig {
-  bool enabled = true;
-  float snr_threshold = 5.0f;
-  float q_min = -0.5f;
-  float q_max = 1.0f;
-  float q_step = 0.1f;
-  float min_snr = 2.0f;
-  int max_iterations = 10;
-};
-
-struct SoftThresholdConfig {
-  bool enabled = true;
-  int blur_kernel = 31;       // box-blur kernel size for background estimation
-  float alpha = 1.5f;         // threshold multiplier: τ = α · σ_t
-  bool skip_star_tiles = true; // skip denoising for star-dominated tiles
-};
-
-struct TileDenoiseConfig {
-  SoftThresholdConfig soft_threshold;
-  WienerDenoiseConfig wiener;
-};
 
 struct ChromaDenoiseConfig {
   struct StarProtectionConfig {
@@ -159,6 +135,18 @@ struct ChromaDenoiseConfig {
     float gradient_percentile = 85.0f;
   } structure_protection;
 
+  // Protects extended smooth-emission regions (galaxy disks, nebula halos) from
+  // chroma denoising.  The protection mask is derived from a heavily-smoothed
+  // luma image: any pixel whose smoothed luma exceeds
+  //   sky_median + luma_sigma × sky_sigma
+  // is treated as extended-source foreground and is blended back to the
+  // original chroma (same mechanism as star_protection / luma_guard).
+  struct ExtendedSourceProtectionConfig {
+    bool enabled = false;
+    float luma_sigma = 2.5f; // detection threshold above sky background (in σ)
+    int   dilate_px  = 30;   // dilation applied after detection; covers PSF halos
+  } extended_source_protection;
+
   struct ChromaWaveletConfig {
     bool enabled = true;
     int levels = 3;
@@ -169,7 +157,7 @@ struct ChromaDenoiseConfig {
   struct ChromaBilateralConfig {
     bool enabled = true;
     float sigma_spatial = 1.2f;
-    float sigma_range = 0.035f;
+    float sigma_range = 2.0f; // multiplier of measured background chroma sigma
   } chroma_bilateral;
 
   struct BlendConfig {
@@ -177,11 +165,121 @@ struct ChromaDenoiseConfig {
     float amount = 0.85f;
   } blend;
 
+  // Removes smooth, large-scale (block-sized-and-up) chroma bias/variation
+  // from the background -- the wavelet/bilateral stages below only shrink
+  // *detail* relative to a progressively-blurred low-pass version and by
+  // construction never touch that low-pass (DC/large-scale) remainder, so a
+  // background color cast/blotch wider than roughly
+  // 2^(chroma_wavelet.levels-1) * 0.75 px is architecturally invisible to
+  // them. This stage estimates a coarse block-median surface of each chroma
+  // plane using ONLY unprotected (background) pixels -- so real extended-
+  // source/star color never contributes to the estimate -- smooths it into a
+  // continuous field, and subtracts `strength` of its deviation from the
+  // surface's own global background median (so the overall background
+  // chroma level, e.g. real sky-glow color, is preserved; only spatial
+  // *variation* across it is flattened). Default off: opt-in, since it
+  // changes pixel values in the background beyond what the previous
+  // filters did.
+  struct LargeScaleBiasConfig {
+    bool enabled = false;
+    int block_size = 32;     // px, grid cell size for the block-median estimate
+    float blur_sigma = 24.0f; // px, Gaussian smoothing of the block grid -> surface
+    float strength = 1.0f;    // 0..1, fraction of the estimated bias removed
+  } large_scale_bias;
+
   bool enabled = false;
   std::string color_space = "ycbcr_linear";      // ycbcr_linear | opponent_linear
-  std::string apply_stage = "post_stack_linear"; // pre_stack_tiles | post_stack_linear
+  std::string apply_stage = "post_pcc"; // post_stack_linear | post_pcc
   bool protect_luma = true;
   float luma_guard_strength = 0.75f;
+  // Reference chroma-to-luma noise-sigma ratio used to scale the wavelet/
+  // bilateral strength to the dataset's actual noise level (see `adapt` in
+  // chroma_denoise.cpp). Replaces a previous fixed ABSOLUTE reference sigma
+  // (0.02f) that was calibrated for [0,1]-normalized data: on real,
+  // unnormalized (ADU-scale) data the absolute chroma sigma is routinely in
+  // the tens, so chroma_sigma/0.02f saturated the [0.8,1.4] clamp on every
+  // real run, making the adaptation a no-op. Expressing the reference
+  // relative to the image's own measured luma-noise sigma keeps it
+  // scale-invariant across normalized, ADU, and stretched data.
+  float adaptation_reference_ratio = 1.0f;
+};
+
+// Luminance noise reduction on the post-stack linear RGB, applied before
+// BGE/PCC/HMS. The CFA-forward-drizzle pipeline has no luma denoise stage
+// of its own -- the single-method cutover retired the old Classic
+// pipeline's per-tile soft-threshold + Wiener denoise (tile_denoise) and it
+// was never reimplemented for forward-drizzle output; chroma_denoise only
+// ever touches chroma (protect_luma is unconditional there). This closes
+// that gap: a multi-level wavelet soft-threshold denoise on the derived
+// luma, reconstructed by adding the same smooth per-pixel brightness delta
+// to R/G/B (not by rescaling each channel's RATIO to luma -- that divides
+// two independently-noisy, correlated quantities and amplifies noise
+// exactly where it is proportionally largest: faint background and the
+// partially-protected PSF wings around stars). The additive delta leaves
+// every additive channel difference exactly. It does not preserve RGB ratios
+// or perceptual saturation when the brightness correction is large.
+struct LumaDenoiseConfig {
+  struct StarProtectionConfig {
+    bool enabled = true;
+    float threshold_sigma = 6.0f;
+    int dilate_px = 8;
+  } star_protection;
+
+  struct StructureProtectionConfig {
+    bool enabled = true;
+    float gradient_percentile = 90.0f;
+  } structure_protection;
+
+  // Same concept as chroma_denoise's extended_source_protection: star_
+  // protection covers only bright point sources, and structure_protection
+  // only pixels with a locally steep gradient (a real edge) -- neither
+  // protects broad, smoothly-varying but real nebulosity (diffuse gas,
+  // large galaxy discs), whose local point-to-point gradient is often
+  // comparable in scale to background noise itself. Off by default.
+  struct ExtendedSourceProtectionConfig {
+    bool enabled = false;
+    float luma_sigma = 2.5f; // detection threshold above sky background (in σ)
+    int   dilate_px  = 30;   // dilation applied after detection; covers PSF halos
+  } extended_source_protection;
+
+  struct WaveletConfig {
+    bool enabled = true;
+    int levels = 3;
+    float threshold_scale = 1.5f;
+    float soft_k = 1.0f;
+    // Amplifies (rather than only denoises) per-level detail coefficients
+    // that are robustly above the noise floor (> ~2x threshold_scale*sigma
+    // at that level). 0 = pure denoise (previous behaviour). Coefficients
+    // near the noise floor are never boosted -- only clearly-above-noise
+    // ones -- so this is safe at coarser levels where spatial averaging has
+    // already improved real-structure-vs-noise separation, but should stay
+    // low/off at fine levels on data with poor per-pixel SNR (verified:
+    // faint real nebula structure at ~1.5x noise sigma per pixel cannot be
+    // boosted at a fine scale without amplifying noise by the same factor).
+    float boost = 0.0f;
+  } wavelet;
+
+  // Edge-preserving spatial smoothing applied after the wavelet stage, same
+  // pattern as chroma_denoise's chroma_bilateral. The wavelet stage's
+  // soft-thresholded reconstruction always adds back its coarsest
+  // Gaussian-pyramid approximation level unmodified (see
+  // denoise_luma_plane_inplace) -- that band still carries real background
+  // noise the wavelet path structurally cannot remove, no matter how
+  // aggressive levels/threshold_scale get. A bilateral pass targets that
+  // residual directly instead of pushing wavelet levels past where
+  // structure_protection can reliably keep real, low-contrast nebula
+  // texture intact (measured on real M42 data: pushing wavelet levels to
+  // the schema max stops improving background noise but does measurably
+  // reduce nebula-core detail).
+  struct BilateralConfig {
+    bool enabled = false;
+    float sigma_spatial = 1.5f;
+    float sigma_range = 2.0f; // multiplier of measured background luma sigma
+  } bilateral;
+
+  bool enabled = false;
+  float luma_guard_strength = 0.85f;
+  float blend_amount = 0.85f;
 };
 
 struct DitheringConfig {
@@ -208,179 +306,194 @@ struct TileConfig {
   int min_size = 64;
   int max_divisor = 6;
   float overlap_fraction = 0.25f;
-  int star_min_count = 10;
-  int star_soft_count = 10;
 };
 
-struct LocalMetricsConfig {
-  struct NeighborhoodNormalizationConfig {
-    bool enabled = true;
-    int radius = 1;
-    float blend = 0.5f;
-  } neighborhood_normalization;
+// ---------------------------------------------------------------------------
+// Single-method reconstruction contract (CFA forward drizzle + multiband).
+// Plan sections 6.1-6.3 / 11.2. This is the public `reconstruction:` config
+// root; it is the only reconstruction configuration the pipeline consumes.
+// ---------------------------------------------------------------------------
 
-  struct SpatialRegularizationConfig {
-    bool enabled = true;
-    float lambda = 0.35f;
-    int passes = 1;
-    float tau_local = 1.0f;
-  } spatial_regularization;
-
-  struct StarModeConfig {
-    struct Weights {
-      float fwhm = 0.6f;
-      float roundness = 0.2f;
-      float contrast = 0.2f;
-    } weights;
-  } star_mode;
-
-  struct StructureModeConfig {
-    float background_weight = 0.3f;
-    float metric_weight = 0.7f;
-  } structure_mode;
-
-  std::array<float, 2> clamp{-3.0f, 3.0f};
-  float k_local = 1.0f; // §5.5.6: L_{f,t} = exp(k_local * Q^local), symmetric with k_global
+struct ReconstructionDiagnosticsConfig {
+  std::string level = "summary";  // "summary" | "full"
+  // M2 (plan section 11) is not yet a real pipeline phase: no clipping, no
+  // quality weights, no multiband, no transactional store/chunking, no
+  // resume contract. When true, run_phase_registration_prewarp additionally
+  // computes the CFA-forward-drizzle Uniform-Control profile as a
+  // best-effort, non-fatal diagnostic (artifacts/forward_drizzle_uniform_diagnostic.json)
+  // after SAMPLING_GEOMETRY, using the same normalized-cache source the
+  // final M2+ pipeline will use (never prewarped_frames). Off by default:
+  // the single-threaded reference kernel's exact polygon clip is
+  // meaningfully slower than SAMPLING_GEOMETRY's coverage-only touch test,
+  // and this is diagnostic-only work that must never impose that cost on a
+  // normal run.
+  bool preview_forward_drizzle_uniform = false;
+  // Independent opt-in diagnostic. Streams unclipped Uniform planes into
+  // immutable generations under artifacts/forward_drizzle_uniform_store/.
+  // current.json commits the complete, checked generation atomically.
+  // Includes FITS IO reserve in the drizzle budget. No pipeline resume claim.
+  bool persist_forward_drizzle_uniform_store = false;
 };
 
-struct AqmhPyramidConfig {
-  int scales = 4;
-  int base_window_px = 4;
-  float w_sharp = 0.6f;
-  float w_snr = 0.4f;
-  float score_scale = 1.8f;
-  float k_artifact = 3.0f;
-  float frac_artifact_max = 0.25f;
+struct ReconstructionDrizzleConfig {
+  int internal_scale = 2;             // {1, 2}
+  int output_scale = 1;              // {1, 2}, <= internal_scale
+  std::string kernel = "square";     // MVP: only "square"
+  float pixfrac = 0.8f;              // (0, 1]
+  int robust_passes = 2;            // [1, 6]
+  // Pilot + full-frame estimator: the hash-selected reservoir frames only
+  // define the sigma-clip bounds; every frame is then tested against the
+  // frozen bounds and accumulated. CPU and CUDA; default off.
+  bool full_frame_estimator = false;
+  int min_clip_contributors = 5;    // >= 2; below this no sigma/MAD clipping
+  int chunk_rows = 0;               // 0 = budgeted stripes, <=256 rows; >0 budget-checked
+  int chunk_halo_rows = -1;         // compatibility; exact footprint enumeration needs no output halo
+  size_t memory_budget_mb = 0;      // MiB; 0 inherits runtime_limits (library: 512 MiB)
 };
 
-struct AqmhStorageConfig {
-  int resolution_divisor = 2;
-  std::string dtype = "uint16";
-  int max_resident_maps = 2;
+struct ReconstructionClippingConfig {
+  float clip_sigma_low = 3.0f;      // > 0
+  float clip_sigma_high = 3.0f;     // > 0
+  float min_fraction = 0.4f;        // (0, 1]
+  float min_n_eff = 3.0f;           // >= 1
+  // P0.1 (redundant_data_reload_analysis §"schwarze Artefakte"): default
+  // false preserves the exact plan-11.8 8-step procedure (step 8's
+  // min_fraction/min_n_eff veto rejects the pixel/channel outright, no
+  // fallback value). When true, a pixel/channel that fails step 8 is NOT
+  // erased: the sigma-clip-survivor set is used anyway (or, if the clip
+  // rejected every candidate, every original candidate is used unclipped) --
+  // trading the veto's noise guarantee for never leaving a geometrically
+  // covered pixel black. See robust_clip_core in forward_drizzle.cpp.
+  bool guard_fallback = false;
+  // Off by default (opt-in): the CFA forward-drizzle kernel runs the sigma/
+  // MAD clip independently per (output pixel, color channel), because R/G/B
+  // are drizzled straight from the raw, still-mosaiced Bayer samples --
+  // each channel has its own native sub-pixel sampling grid (R and B each
+  // ~1/4 of raw pixels, G ~1/2), by design (see
+  // docs/forward_drizzle_v2_zielarchitektur_2026-09-12_de.md). In faint
+  // regions, where per-channel candidate counts sit near
+  // min_clip_contributors, that independence means the surviving frame set
+  // is effectively an independent coin-flip per channel: verified on a
+  // real M42 run, corr(R,B) detail = -0.41 in faint sky (negative --
+  // anti-correlated -- vs. the positive correlation a real, achromatic
+  // source would show), present already in forward_drizzle_multiband_*.fit
+  // before any downstream chroma/luma denoise runs.
+  //
+  // When enabled, a FRAME is rejected consistently across every channel it
+  // contributes to at a given output pixel, instead of each channel
+  // re-deriving its own independent reject decision: each channel still
+  // runs its own weighted-median/MAD clip pass unchanged (per-channel
+  // VALUES are never compared against each other -- R and B sample
+  // physically different sub-pixel positions, so there is no shared value
+  // to test), but a frame is only actually dropped if
+  // shared_frame_rejection_consensus or more of the channels that had a
+  // candidate from it flagged it as an outlier. This targets exactly the
+  // failure mode above (independent per-channel noise in the survivor
+  // *set*) without touching per-channel weights, footprints, sample
+  // counts, or geometry -- so point-source (star) sharpness is
+  // structurally unaffected, and a consensus (not union) rule means a
+  // frame is kept unless most channels that saw it agree it's bad, so a
+  // real per-channel faint-detail difference (not every source is equally
+  // bright in R/G/B) does not itself get treated as an outlier vote.
+  //
+  // Implemented on both the CPU and CUDA forward-drizzle kernels (the CUDA
+  // path splits finalize() into three kernels -- build the per-channel
+  // clip, vote per pixel across channels, reduce -- since the vote step
+  // needs a pixel's channels visible to the same thread; verified
+  // bit-exact against the original single-kernel CUDA path at
+  // shared_frame_rejection_consensus = 1.0, where the vote is a no-op).
+  bool shared_frame_rejection = false;
+  // Fraction (0,1] of the channels that had a candidate from a given frame
+  // at a given pixel that must flag it as an outlier before it is rejected
+  // for ALL of those channels. 0.5 = majority. Lower values reject more
+  // aggressively (closer to "any channel objects" = union); higher values
+  // reject more conservatively (closer to "every channel must agree").
+  float shared_frame_rejection_consensus = 0.5f;
+  // Off by default. After the asymmetric median/MAD clip pass converges,
+  // check the accepted set for a coherent SECOND population the ordinary
+  // bound alone did not separate from the majority (e.g. a subset of frames
+  // with a small but real registration/tracking offset at this exact pixel --
+  // common with wide clip_sigma_low/clip_sigma_high, since those are
+  // deliberately loosened to preserve genuine signal variance and so also
+  // admit a coherent minority more readily). If the largest gap between
+  // consecutive accepted values exceeds bimodal_veto_gap_sigma times the
+  // pass's own MAD and splits off a minority side of at least 2 candidates
+  // holding less than half the accepted weight, that minority is dropped.
+  // Implemented on both the CPU and CUDA forward-drizzle kernels.
+  bool bimodal_veto = false;
+  // Multiple of the clip pass's MAD the largest accepted-value gap must
+  // exceed before the split counts as a coherent second population rather
+  // than ordinary spread. Lower values fire more readily.
+  float bimodal_veto_gap_sigma = 2.5f;
 };
 
-struct AqmhGlobalQualityConfig {
-  float g_floor = 0.03f;
-  float g_w_sharp = 0.55f;
-  float g_w_snr = 0.3f;
-  float g_w_background_penalty = 0.25f;
-  float g_k_scale = 1.5f;            // sigmoid temperature; output remains in [g_floor, 1]
+struct ReconstructionCoverageGateConfig {
+  int min_frames = 2;                       // >= 2
+  float min_supported_fraction = 0.995f;    // (0, 1]
+  float min_channel_n_eff_floor = 3.0f;     // >= 1
+  float min_channel_n_eff_fraction = 0.15f; // (0, 1]
+  int min_analysis_pixels = 1024;           // >= 1
+  long long max_internal_hole_area_px = 0;  // >= 0
 };
 
-struct AqmhReconstructionConfig {
-  float clip_sigma = 2.0f;
-  float clip_sigma_low = 2.0f;
-  float clip_sigma_high = 2.0f;
-  int clip_iterations = 4;
-  float min_fraction = 0.4f;
-  float min_n_eff = 2.0f;
-  int chunk_rows = 0;                 // 0 = backend-specific auto sizing, >0 = explicit override
-  size_t memory_budget_mb = 0;        // 0 = use global config (passed in from AqmhConfig at callsite)
-  bool delete_prewarped_cache_after_run = true;
-  std::string prewarp_interpolation = "cubic";
-  bool debayer_first = true;          // OSC: demosaic before prewarp/AQMH, then reconstruct RGB channels directly
-  std::string pre_debayer_method = "edge_aware"; // "bilinear" | "nearest" | "vng" | "edge_aware"
-  std::string rgb_q_map_mode = "shared_luma";  // RGB channel reconstruction reuses luma Q-maps
-  std::string rgb_memory_strategy = "sequential"; // reconstruct RGB channels one after another
-  bool registration_weight_guard = true;
-  float registration_weight_floor = 0.30f;
-  float registration_cc_floor = 0.35f;
-  float registration_cc_full = 0.80f;
-  float registration_sequential_factor = 0.92f;
-  float registration_predicted_factor = 0.50f;
-  float registration_chain_depth_penalty = 0.03f;
-  float registration_chain_depth_max_penalty = 0.15f;
-  // Structure-masked detail blending parameters (v0.2.1 post-reconstruction)
-  float structure_mask_low_q = 0.40f;             // gradient quantile mapped to mask=0 (was 0.70)
-  float structure_mask_high_q = 0.90f;            // gradient quantile mapped to mask=1 (was 0.97)
-  float structure_mask_blur_sigma_px = 4.0f;      // soft mask blur sigma (was 2.0)
-  // WP-E (GPU bandwidth reduction): stage Q-Maps as fp16 and frame masks as
-  // bit-packed (1 bit/pixel) for the H2D transfer, dequantized back to
-  // float32/uint8 on-device before the reconstruction kernel runs. Defaults
-  // on; disable per-run if fp16 rounding is suspected of shifting
-  // cherry-pick/sigma-clip decisions.
-  bool gpu_half_qmaps = true;
-  bool gpu_packed_masks = true;
+struct ReconstructionQualityPyramidConfig {
+  int scales = 4;                   // [1, 8]
+  int base_window_px = 4;           // >= 1
+  float sharpness_weight = 0.6f;    // >= 0; sharpness_weight+snr_weight > 0
+  float snr_weight = 0.4f;          // >= 0
+  float score_scale = 1.8f;         // > 0
+  float artifact_sigma = 3.0f;      // > 0
+  float max_artifact_fraction = 0.25f;  // (0, 1]
 };
 
-struct AqmhValidationConfig {
-  float max_seam_score_regression = 0.05f;
-  float max_fwhm_regression = 0.02f;
-  float max_background_rms_regression = 0.05f;
-  float max_tail11_abs_regression = 0.10f;
-  float max_elongation_regression = 0.08f;
+struct ReconstructionQualityConfig {
+  ReconstructionQualityPyramidConfig pyramid;
 };
 
-struct AqmhDiagnosticsConfig {
-  bool enabled = true;                    // master switch
-  std::string level = "full";             // "none" | "summary" | "full"
-  bool per_frame_blocks = true;           // per-frame block-level diagnostics + heatmaps
-  bool heatmaps = true;                   // spatial heatmap arrays
-  bool regions = true;                    // region extraction (aqmh_regions.json)
-  std::string format = "json";            // "json" | "binary"
-  int binary_block_size_px = 64;           // 0 = use r_morph_canvas_px
-  float tau_artifact = 0.20f;
-  float q_region = 0.75f;
-  int r_morph_canvas_px = 6;
+struct ReconstructionMultibandConfig {
+  bool enabled = true;
+  int levels = 3;                         // [1, 4]; >=2 needs pyramid.scales>=2
+  float alpha_cap = 1.0f;                 // [0, 1]
+  float fine_quality_exponent = 4.0f;     // >= 0
+  float medium_quality_exponent = 2.0f;   // >= 0
+  float min_quality_separation = 0.05f;   // 0 <= min < full <= 1
+  float full_quality_separation = 0.20f;
+  float min_effective_samples = 8.0f;     // 1 <= min < full
+  float full_effective_samples = 24.0f;
 };
 
-struct AqmhCherryPickConfig {
-  struct Tier {
-    int min_n_rankable = 0;
-    float k_frac = 0.30f;
-  };
-  bool enabled = false;
-  std::string mode = "auto_reject"; // "auto_reject" | "top_k"
-  float k_frac = 0.30f;
-  int k_min_required = 20;
-  float margin_min = 0.02f;
-  float reject_below_best_fraction = 0.25f;
-  float min_keep_fraction = 0.90f;
-  std::vector<Tier> tiered_k_frac;
+// Candidate-selection gates of plan 15.3.4/15.3.5. Mirrors
+// reconstruction::MultibandValidationConfig; kept in the config layer so the
+// runner can populate the validation struct from the effective YAML.
+struct ReconstructionMultibandValidationConfig {
+  double fwhm_ratio_max = 0.95;               // > 0; multiband median FWHM <= x*raw
+  double p90_fwhm_ratio_max = 1.00;           // > 0; vs raw
+  double tail_ratio_max = 1.10;               // > 0; vs raw
+  double elongation_ratio_max = 1.08;         // > 0; vs raw
+  double background_rms_ratio_max = 1.05;     // > 0; vs UNIFORM (raw veto + promotion)
+  double seam_ratio_max = 1.05;               // > 0; vs UNIFORM at support boundary
+  int min_stars_fwhm = 20;                    // >= 0; stars needed for FWHM metric
+  int min_stars_p90_tail_elongation = 30;     // >= 0; stars for p90/tail/elongation
+  double max_fwhm_ci_relative_width = 0.10;   // > 0; bootstrap 95% CI width veto
 };
 
-struct AqmhConfig {
-  bool enabled = true; // Runtime-Flag, wird aus Config::method abgeleitet via normalizeMethod()
-  AqmhPyramidConfig pyramid;
-  AqmhStorageConfig storage;
-  AqmhGlobalQualityConfig global_quality;
-  AqmhCherryPickConfig cherry_pick;
-  AqmhDiagnosticsConfig diagnostics;
-  AqmhReconstructionConfig reconstruction;
-  AqmhValidationConfig validation;
-};
+struct ReconstructionConfig {
+  bool delete_source_cache_after_run = false;
+  bool keep_profile_cache_after_run = false;
+  float common_overlap_required_fraction = 1.0f;  // (0,1], dense frame footprints
+  ReconstructionDiagnosticsConfig diagnostics;
+  ReconstructionDrizzleConfig drizzle;
+  ReconstructionClippingConfig clipping;
+  ReconstructionCoverageGateConfig coverage_gate;
+  ReconstructionQualityConfig quality;
+  ReconstructionMultibandConfig multiband;
+  ReconstructionMultibandValidationConfig multiband_validation;
 
-struct SyntheticConfig {
-  struct ClusteringConfig {
-    std::string mode = "kmeans";
-    std::array<int, 2> cluster_count_range{5, 30};
-  } clustering;
-  std::string weighting = "global";
-  int frames_min = 5;
-  int frames_max = 30;
+  // Throws tile_compile::ValidationError on a contract violation (plan 6.3).
+  void validate() const;
 };
 
 struct StackingConfig {
-  struct SigmaClipConfig {
-    float sigma_low = 2.0f;
-    float sigma_high = 2.0f;
-    int max_iters = 3;
-    float min_fraction = 0.5f;
-  } sigma_clip;
-
-  struct ClusterQualityWeightingConfig {
-    bool enabled = true;
-    float kappa_cluster = 1.0f;
-    bool cap_enabled = false;
-    float cap_ratio = 20.0f;
-  } cluster_quality_weighting;
-
-  std::string method = "rej";
-  float common_overlap_required_fraction = 1.0f;
-  float tile_common_valid_min_fraction = 1.0f;
-  bool output_stretch = false;
-  bool cosmetic_correction = false;
-  float cosmetic_correction_sigma = 5.0f;
   bool per_frame_cosmetic_correction = false;
   float per_frame_cosmetic_correction_sigma = 5.0f;
 };
@@ -398,7 +511,25 @@ struct BGEConfig {
   // removed because it could disagree with `method` (whichever was set
   // last silently won depending on write order) -- see
   // docs/configuration_reference.md "bge.method" for the migration note.
-  std::string method = "none"; // none | classic | autobge
+  std::string method = "none"; // none | classic | autobge | auto
+
+  // Programmatic BGE selection used when method == "auto".
+  // The runner measures the background gradient strength of the stacked image
+  // before deciding whether AutoBGE is needed.
+  struct AutoDetectConfig {
+    // Minimum gradient amplitude relative to sky median to trigger AutoBGE.
+    // Gradient amplitude = (max − min of linear-plane fit) / median_sky.
+    // Values below this threshold skip BGE entirely.
+    float gradient_threshold = 0.05f;
+    // When an extended source (galaxy, large nebula) is detected in the
+    // background grid it is excluded from the AutoBGE sample points so the
+    // polynomial/RBF fit uses only real sky pixels.
+    // Detection: block-median grid residual > extended_source_sigma × sky_sigma.
+    float extended_source_sigma = 3.0f;
+    // Morphological dilation (px) applied to the detected extended-source mask
+    // before it is used as a sampling exclusion region.
+    int extended_source_dilate_px = 50;
+  } auto_detect;
 
   struct AutoBGEConfig {
     int num_sample_points = 0;
@@ -526,65 +657,81 @@ struct HyperMetricStretchConfig {
   float color_grip = 1.0f;
   float shadow_convergence = 0.0f;
   float linear_expansion = 0.0f;
+  // Percentile used as the "must not clip" highlight reference in
+  // ready_to_use's adaptive output scaling; 100 = true brightest pixel
+  // (never clips, previous behaviour). Lowering it (e.g. 99.9) allows a
+  // small, bounded top fraction of pixels to clip in exchange for more
+  // contrast in stars/highlights; it does not move the mid-tone/background
+  // level, which stays pinned to target_bg regardless.
+  float highlight_ceiling_percentile = 100.0f;
+  // Local contrast ("clarity"): boosts mid/large-scale luma detail the
+  // single global floor/ceiling/MTF curve above compresses away. See
+  // image::HyperMetricStretchConfig::LocalContrastConfig for the mechanism.
+  // Off by default.
+  struct LocalContrastConfig {
+    bool enabled = false;
+    float radius_px = 40.0f;
+    float strength = 0.6f;
+  } local_contrast;
+  // Adaptive average-neutral colour-cast correction applied to the stretched
+  // RGB (see image/color_cast_correction.hpp). Off by default.
+  struct ColorCastCorrectionConfig {
+    bool enabled = false;
+    float max_amount = 1.0f;    // (0, 1]
+    float target_ratio = 1.0f;  // (0.5, 1.5]
+    float min_excess = 1.02f;   // [1, 2]
+    float object_sigma = 3.0f;  // (0, 50]
+    int brightness_bins = 8;    // [1, 32]; 1 = one global amount
+    bool neutralize_sky = false;  // also shift G so the sky is neutral
+  } color_cast_correction;
   bool write_channels = false;
   std::string output_rgb = "stacked_rgb_hms.fits";
 };
 
-struct ValidationConfig {
-  float min_fwhm_improvement_percent = 0.0f;
-  float max_background_rms_increase_percent = 0.0f;
-  float min_tile_weight_variance = 0.1f;
-  bool require_no_tile_pattern = true;
-};
-
 struct RuntimeLimitsConfig {
-  float tile_analysis_max_factor_vs_stack = 3.0f;
   float hard_abort_hours = 6.0f;
-  bool allow_emergency_mode = false;
   int parallel_workers = 4;
   int memory_budget = 512;
   std::string acceleration_backend = "auto";
-  std::string tile_reconstruction_diagnostics = "full";
-  bool tile_boundary_diagnostics_enabled = false; // opt-in, default off
 };
 
 struct Config {
-  std::string method = "aqmh"; // aqmh | classic_tile_compile
-  PipelineConfig pipeline;
   OutputConfig output;
   DataConfig data;
   LinearityConfig linearity;
   CalibrationConfig calibration;
-  AssumptionsConfig assumptions;
   NormalizationConfig normalization;
   RegistrationConfig registration;
   DitheringConfig dithering;
-  TileDenoiseConfig tile_denoise;
   ChromaDenoiseConfig chroma_denoise;
+  LumaDenoiseConfig luma_denoise;
   GlobalMetricsConfig global_metrics;
   TileConfig tile;
-  LocalMetricsConfig local_metrics;
-  AqmhConfig aqmh;
-  SyntheticConfig synthetic;
+  ReconstructionConfig reconstruction;
   AstrometryConfig astrometry;
   BGEConfig bge;
   PCCConfig pcc;
   HyperMetricStretchConfig hypermetric_stretch;
   StackingConfig stacking;
-  ValidationConfig validation;
   RuntimeLimitsConfig runtime_limits;
 
   static Config load(const fs::path &path);
   static Config from_yaml(const YAML::Node &node);
   static Config from_yaml_text(const std::string &yaml_text);
 
+  // Like from_yaml_text but first applies the single-method legacy config
+  // migration (plan section 6.5): rejects `method`/engine keys fail-closed
+  // (throws tile_compile::ConfigError) and strips removed structural blocks,
+  // recording every change in `report` (see legacy_config_migration.hpp). Used
+  // by the production run path.
+  static Config from_yaml_text_migrated(const std::string &yaml_text,
+                                        struct ConfigMigrationReport &report);
+
   void save(const fs::path &path) const;
   YAML::Node to_yaml() const;
 
   void validate() const;
 };
-
-std::string getEffectiveMethod(const Config& config);
 
 std::string get_schema_json();
 

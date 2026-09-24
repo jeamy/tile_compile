@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "gate": 8,
+  "status": "frozen_decided",
+  "scope": "local warp representation, conservative bounds, lifetime/memory and oracle parity for the unpublished forward-drizzle-v2 dense-scatter kernel. Library-level; not wired into the production runner.",
+  "representation_decision": {
+    "chosen": "compact_coefficients_plus_on_device_inversion",
+    "spec_11_2_option": 4,
+    "rejected": [
+      {
+        "option": 1,
+        "reason": "all frame grids persistent: device memory grows with N, violates the frozen bounded-memory contract"
+      },
+      {
+        "option": 2,
+        "reason": "grid rebuilt per band: redundant full-source inversion sweeps per band, multiplies the most expensive local-warp work by band_count"
+      },
+      {
+        "option": 3,
+        "reason": "disk/mmap-backed per-frame grid with bounded GPU residency: bounded but adds I/O amplification, a second persistence format and eviction complexity for no benefit over 140 bytes of coefficients"
+      }
+    ],
+    "model": "the existing SmoothLocalWarpModel (4x4 normalized Gaussian basis, sigma 0.28, 8 percent boundary smoothstep taper, coeff_x/coeff_y 16 floats each, image dims, model_coordinate_scale + offset) IS already the compact representation: ~144 bytes per frame, 600 frames fit in ~86 KiB host side; the device consumes the descriptor through kernel parameters and performs the bounded fixed-point inversion on device. No grid memory is allocated anywhere.",
+    "cpu_oracle_contract": "subdivide_local + invert_local_source_to_canvas + evaluate_smooth_local_displacement + smooth_local_basis in the existing production code are the frozen oracle; the device port must reproduce identical acceptance/discard decisions on the frozen matrix"
+  },
+  "inversion_contract": {
+    "fixed_point": "q_0 = u = affine(s); q_{n+1} = u - d(q_n) in render units; q_model = (q_render - offset) * scale; d_render = d_model / scale",
+    "params": {"max_iter": 6, "tol_px": 0.001, "safety_margin_px": 64.0},
+    "fail_closed": [
+      "non-finite value at any step",
+      "iterate leaves the canvas by more than safety_margin_px",
+      "no convergence within max_iter",
+      "invalid model (valid flag false, non-positive scale, non-finite coefficient)"
+    ],
+    "arithmetic": "inversion internals in fp32 exactly like the CPU oracle (expf basis); geometry, error norms and areas in fp64 like the CPU oracle"
+  },
+  "subdivision_contract": {
+    "grid": "3x3 inversions per node; parent quad = corner points (0,0),(0,2),(2,2),(2,0)",
+    "acceptance": "area > 0 AND bilinear position error <= position_epsilon_internal_px (0.05) AND |child_area - area| / area <= area_relative_epsilon (0.005)",
+    "max_depth": 2,
+    "all_or_nothing": "ANY inversion failure or ANY node rejected at max depth discards the ENTIRE source sample including already accepted leaves - mirrors leaves.resize(before); return false in the CPU oracle",
+    "node_enumeration": "implicit 21-node tree (1 + 4 + 16); accepted-node bitmask u32; leaf corners re-evaluated at emit time, no per-thread leaf buffer"
+  },
+  "conservative_bounds": {
+    "displacement_bound": "|d(q)| <= max_i ||(coeff_x[i], coeff_y[i])|| because the normalized basis weights are non-negative and sum to the taper <= 1; proven in the spec and verified on a dense evaluation grid in tests",
+    "candidate_box": "the per-leaf bbox is EXACT (corner min/max), not a conservative estimate - same contract as the affine scatter",
+    "non_invertible_regions": "fail closed per sample; per-frame discard counts are reported to the host which applies the per_frame_inversion_error_rate_max exclusion policy at driver level",
+    "memory_bound": "zero additional device residency per frame: the warp descriptor travels in kernel launch parameters; per-frame bytes unchanged from the affine path"
+  },
+  "oracle_cases": [
+    {"name": "zero_coefficients_affine_parity", "expect": "bit-level decisions and areas equal the affine scatter"},
+    {"name": "mild_single_bump", "expect": "depth 0-1 acceptance; planes match leaf-replay oracle"},
+    {"name": "strong_curvature_depth2", "expect": "forces depth-2 nodes; planes match oracle; decision parity"},
+    {"name": "boundary_taper", "expect": "displacement vanishes inside the 8 percent taper; planes match oracle"},
+    {"name": "non_invertible_region", "expect": "affected samples discarded all-or-nothing; discarded count reported; no partial contribution"},
+    {"name": "invalid_model", "expect": "every sample discarded; frame contributes nothing"},
+    {"name": "translated_affine_seed", "expect": "real M42 affine seed + mild model; planes match oracle"},
+    {"name": "osc_and_mono", "expect": "CFA channel mapping unchanged by local geometry"},
+    {"name": "multi_frame_stream", "expect": "local frames interleaved with affine frames accumulate into the same band workspace with unchanged fold/finalize semantics"}
+  ],
+  "performance_gate": {
+    "steady_state_bound_s": 0.75,
+    "note": "same per-frame bound as gate 1 applies to the local prototype on the production band geometry; measured separately for a worst-case depth-forcing model and a realistic mild model",
+    "memory_gate": "device_bytes_per_native_pixel unchanged; reserved_device_bytes unchanged except the kernel-parameter descriptor"
+  },
+  "real_data_note": "no production run contains smooth local models (m42: local_model_samples_total=0, p90_below_trigger). The gate-8 matrix therefore pairs REAL M42 affine seeds and canvas geometry with synthetic models of realistic magnitude (displacements of a few px, matching what the >0.55px p90 trigger produces). A fresh real local 600-frame production run remains gate-10 scope and is NOT claimed here.",
+  "out_of_scope": [
+    "production runner wiring",
+    "preflight coverage bounds using the displacement bound (gate 9/10 driver)",
+    "frame exclusion policy enforcement (driver consumes the reported discard count)"
+  ]
+}
