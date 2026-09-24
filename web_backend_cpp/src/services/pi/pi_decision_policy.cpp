@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -85,6 +88,79 @@ EvidenceResult resolve_metric_agreement(const json& state, const DecisionPolicy&
     return r;
 }
 
+// ---- value grids: a numeric parameter is offered as a fixed list of levels, never as a free value ----
+constexpr size_t kMaxGridLevels = 32;
+
+std::string grid_label(double v) {
+    char buf[64];
+    std::snprintf(buf, sizeof buf, "%.9g", v);
+    std::string s = buf;
+    for (char& ch : s) {
+        if (ch == '.') ch = 'p';
+        else if (ch == '-') ch = 'm';
+        else if (ch == '+') ch = 'z';
+    }
+    return s;
+}
+
+// Levels of a grid, ascending, rounded to 9 significant digits so 0.1*3 and 0.3 are the same level.
+std::vector<double> grid_levels(const json& grid, const std::string& id) {
+    auto fail = [&](const std::string& why) { throw std::invalid_argument("candidate catalog: " + id + " value_grid " + why); };
+    if (!grid.is_object() || !grid.contains("path") || !grid["path"].is_string() || grid["path"].get<std::string>().empty()) fail("needs a path");
+    for (const char* k : {"unit", "basis"})
+        if (!grid.contains(k) || !grid[k].is_string() || grid[k].get<std::string>().empty()) fail(std::string("needs a non-empty ") + k + " (where the bounds come from)");
+    const bool integer = grid.value("integer", false);
+    std::vector<double> lv;
+    auto round9 = [](double x) { char b[64]; std::snprintf(b, sizeof b, "%.9g", x); return std::strtod(b, nullptr); };
+    if (grid.contains("levels")) {
+        if (!grid["levels"].is_array() || grid["levels"].empty()) fail("levels must be a non-empty array");
+        for (const auto& l : grid["levels"]) {
+            if (!l.is_number() || !std::isfinite(l.get<double>())) fail("levels must be finite numbers");
+            lv.push_back(round9(l.get<double>()));
+        }
+    } else {
+        for (const char* k : {"min", "max", "step"})
+            if (!grid.contains(k) || !grid[k].is_number() || !std::isfinite(grid[k].get<double>())) fail(std::string("needs finite ") + k);
+        const double mn = grid["min"].get<double>(), mx = grid["max"].get<double>(), st = grid["step"].get<double>();
+        if (st <= 0.0 || mn > mx) fail("needs step > 0 and min <= max");
+        if ((mx - mn) / st > static_cast<double>(kMaxGridLevels)) fail("has too many levels");
+        for (size_t i = 0; mn + static_cast<double>(i) * st <= mx + st * 1e-9; ++i) lv.push_back(round9(mn + static_cast<double>(i) * st));
+    }
+    std::sort(lv.begin(), lv.end());
+    lv.erase(std::unique(lv.begin(), lv.end()), lv.end());
+    if (lv.empty() || lv.size() > kMaxGridLevels) fail("must have 1.." + std::to_string(kMaxGridLevels) + " levels");
+    if (integer)
+        for (double x : lv) if (x != std::floor(x)) fail("declares integer but has a fractional level");
+    return lv;
+}
+
+// One template with a value_grid becomes one ordinary catalog candidate per level ("<id>__<label>"), so the rest
+// of the policy keeps checking exact path/value pairs; the template itself is never selectable.
+std::vector<json> expand_candidate(const json& cand) {
+    if (!cand.contains("value_grid")) return {cand};
+    const std::string id = cand.value("candidate_id", std::string());
+    const json& grid = cand["value_grid"];
+    const std::vector<double> lv = grid_levels(grid, id);
+    const std::string path = grid["path"].get<std::string>();
+    if (cand.contains("updates") && cand["updates"].is_array())
+        for (const auto& u : cand["updates"])
+            if (u.is_object() && u.value("path", std::string()) == path)
+                throw std::invalid_argument("candidate catalog: " + id + " lists its grid path in updates");
+    const bool integer = grid.value("integer", false);
+    std::vector<json> out;
+    for (double x : lv) {
+        json e = cand;
+        e.erase("value_grid");
+        e["candidate_id"] = id + "__" + grid_label(x);
+        e["grid_of"] = id;
+        e["grid_value"] = integer ? json(static_cast<long long>(x)) : json(x);
+        e["grid_unit"] = grid["unit"];
+        e["updates"].push_back({{"path", path}, {"value", e["grid_value"]}});
+        out.push_back(std::move(e));
+    }
+    return out;
+}
+
 bool starts_with(const std::string& s, const char* p) { return s.rfind(p, 0) == 0; }
 
 } // namespace
@@ -158,10 +234,19 @@ DecisionCatalog load_decision_catalog(const json& candidates_v1, const json& pro
     }
     if (c.protected_prefixes.empty()) throw std::invalid_argument("protected paths: empty list (fail closed)");
     std::set<std::string> ids;
-    for (const auto& cand : candidates_v1["candidates"]) {
+    std::vector<json> expanded;
+    for (const auto& template_entry : candidates_v1["candidates"]) {
+        if (!template_entry.is_object() || template_entry.value("candidate_id", std::string()).empty() ||
+            !template_entry.contains("updates") || !template_entry["updates"].is_array())
+            throw std::invalid_argument("candidate catalog: malformed candidate entry");
+        for (auto& e : expand_candidate(template_entry)) expanded.push_back(std::move(e));
+    }
+    for (const auto& cand : expanded) {
         const std::string id = cand.value("candidate_id", std::string());
+        static const std::regex kIdRe("^[a-z0-9_]{1,64}$");  // the sidecar accepts exactly this alphabet
         if (id.empty() || !cand.contains("candidate_version") || !cand.contains("group") || !cand.contains("updates") || !cand["updates"].is_array())
             throw std::invalid_argument("candidate catalog: malformed candidate entry");
+        if (!std::regex_match(id, kIdRe)) throw std::invalid_argument("candidate catalog: id outside [a-z0-9_]{1,64}: " + id);
         if (!ids.insert(id).second) throw std::invalid_argument("candidate catalog: duplicate id " + id);
         for (const auto& u : cand["updates"]) {
             if (!u.is_object() || !u.contains("path") || !u.contains("value") || !u["path"].is_string())
@@ -271,7 +356,11 @@ CandidateValidation validate_decision_candidate(const json& candidate, const jso
         for (const auto& ref : ev.refs) out.evidence_refs.push_back(ref);
         for (auto it = ev.params.begin(); it != ev.params.end(); ++it) out.rationale["params"][it.key()] = it.value();
     }
-    if (has_updates) out.rationale["text_key"] = "pi.jev.rationale." + out.candidate_id + ".v" + std::to_string(entry->value("candidate_version", 0));
+    if (has_updates) out.rationale["text_key"] = "pi.jev.rationale." + entry->value("grid_of", out.candidate_id) + ".v" + std::to_string(entry->value("candidate_version", 0));
+    if (entry->contains("grid_of")) {
+        out.rationale["params"]["grid_value"] = (*entry)["grid_value"];
+        out.rationale["params"]["grid_unit"] = (*entry)["grid_unit"];
+    }
 
     // ---- old_value (only when a stored proposal is being re-validated) + no-op detection ----
     if (candidate.contains("updates") && candidate["updates"].is_array())

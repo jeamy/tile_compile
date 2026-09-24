@@ -60,6 +60,104 @@ int main(int argc, char** argv) {
         }
 
         // ---- path helpers: prefix boundaries ----
+        // ---- value grids: numeric parameters are offered as fixed levels, never as free values ----
+        {
+            const auto dir = repo / "web_backend_cpp/config/pi_decisions";
+            const json base_cands = json::parse(slurp_file(dir / "candidates_v1.json"));
+            const json prot = json::parse(slurp_file(dir / "protected_paths_v1.json"));
+            auto with_grid = [&](const json& grid, const char* id = "set_pixfrac") {
+                json c = base_cands;
+                c["candidates"].push_back({{"candidate_id", id}, {"candidate_version", 1}, {"group", "drizzle_sampling"},
+                                           {"preconditions", json::array()}, {"required_evidence", json::array({"measurement_coverage"})},
+                                           {"updates", json::array()}, {"requires_review", true}, {"applicability", "experimental_only"},
+                                           {"value_grid", grid}});
+                return c;
+            };
+            auto throws = [&](const json& c) {
+                try { load_decision_catalog(c, prot); } catch (const std::invalid_argument&) { return true; }
+                return false;
+            };
+            const json listed = {{"path", "reconstruction.drizzle.pixfrac"}, {"unit", "ratio"}, {"basis", "test grid"},
+                                 {"levels", json::array({0.9, 0.6, 0.7, 0.8})}};
+            const DecisionCatalog gc = load_decision_catalog(with_grid(listed), prot);
+            auto find = [&](const std::string& id) -> const json* {
+                for (const auto& c : gc.candidates) if (c["candidate_id"] == id) return &c;
+                return nullptr;
+            };
+            expect_true(find("set_pixfrac") == nullptr, "the grid template itself is not selectable");
+            expect_true(find("set_pixfrac__0p6") && find("set_pixfrac__0p7") && find("set_pixfrac__0p8") && find("set_pixfrac__0p9"), "one candidate per level");
+            expect_equal(static_cast<long>(gc.candidates.size()), static_cast<long>(catalog.candidates.size() + 4), "only the levels were added");
+            expect_true((*find("set_pixfrac__0p7"))["updates"][0]["value"] == 0.7 && (*find("set_pixfrac__0p7"))["grid_of"] == "set_pixfrac", "level carries the exact path/value");
+
+            json range = listed; range.erase("levels"); range["min"] = 0.5; range["max"] = 0.9; range["step"] = 0.1;
+            const DecisionCatalog rc = load_decision_catalog(with_grid(range), prot);
+            long n = 0; bool exact = false;
+            for (const auto& c : rc.candidates) if (c.value("grid_of", "") == "set_pixfrac") { ++n; exact = exact || c["candidate_id"] == "set_pixfrac__0p7"; }
+            expect_equal(n, 5L, "min/max/step -> 5 levels");
+            expect_true(exact, "0.5+0.1*2 is exactly the level 0.7 (rounded, no float drift)");
+            json drift = range; drift["min"] = 0.1; drift["max"] = 0.5;
+            const DecisionCatalog dc = load_decision_catalog(with_grid(drift), prot);
+            bool clean = false;
+            for (const auto& c : dc.candidates) if (c["candidate_id"] == "set_pixfrac__0p3") clean = c["updates"][0]["value"].get<double>() == 0.3;
+            expect_true(clean, "0.1+3*0.1 is stored as exactly 0.3, not 0.30000000000000004");
+
+            json integer_grid = {{"path", "reconstruction.drizzle.robust_passes"}, {"unit", "count"}, {"basis", "test grid"}, {"integer", true}, {"levels", json::array({2, 4})}};
+            const DecisionCatalog ic = load_decision_catalog(with_grid(integer_grid, "set_passes"), prot);
+            bool int_ok = false;
+            for (const auto& c : ic.candidates) if (c["candidate_id"] == "set_passes__4") int_ok = c["updates"][0]["value"].is_number_integer();
+            expect_true(int_ok, "integer grid yields integer values");
+            json neg = listed; neg["levels"] = json::array({-1.5, 0.000001, 12});
+            const DecisionCatalog nc = load_decision_catalog(with_grid(neg), prot);
+            bool labels = false;
+            for (const auto& c : nc.candidates) labels = labels || c["candidate_id"] == "set_pixfrac__m1p5";
+            expect_true(labels, "negative levels get a sign-free label");
+
+            json prot_grid = listed; prot_grid["path"] = "pcc.k_max";
+            expect_true(throws(with_grid(prot_grid)), "grid on a protected path refused at load");
+            json no_unit = listed; no_unit.erase("unit");
+            expect_true(throws(with_grid(no_unit)), "grid without unit refused");
+            json no_basis = listed; no_basis.erase("basis");
+            expect_true(throws(with_grid(no_basis)), "grid without a stated basis refused (bounds must be justified)");
+            json bad_step = range; bad_step["step"] = 0;
+            expect_true(throws(with_grid(bad_step)), "step 0 refused");
+            json inverted = range; inverted["min"] = 1.0; inverted["max"] = 0.5;
+            expect_true(throws(with_grid(inverted)), "min > max refused");
+            json huge = range; huge["min"] = 0; huge["max"] = 100; huge["step"] = 1;
+            expect_true(throws(with_grid(huge)), "too many levels refused");
+            json frac = integer_grid; frac["levels"] = json::array({2, 2.5});
+            expect_true(throws(with_grid(frac, "set_passes")), "integer grid with a fractional level refused");
+            json nan_level = listed; nan_level["levels"] = json::array({0.5, "x"});
+            expect_true(throws(with_grid(nan_level)), "non-numeric level refused");
+            json empty_levels = listed; empty_levels["levels"] = json::array();
+            expect_true(throws(with_grid(empty_levels)), "empty level list refused");
+            expect_true(throws(with_grid(listed, "Set_Pixfrac")), "id outside [a-z0-9_] refused (sidecar alphabet)");
+            json own_path = with_grid(listed);
+            own_path["candidates"].back()["updates"].push_back({{"path", "reconstruction.drizzle.pixfrac"}, {"value", 0.5}});
+            expect_true(throws(own_path), "grid path also listed as a fixed update refused");
+            expect_true(throws(with_grid(json(nullptr))), "null grid refused");
+
+            // ---- validating levels against a current config ----
+            const json cfg_px = {{"reconstruction", {{"drizzle", {{"pixfrac", 0.8}}}}}};
+            auto level = [&](const char* id, double v) {
+                return json{{"candidate_id", id}, {"candidate_version", 1},
+                            {"updates", json::array({{{"path", "reconstruction.drizzle.pixfrac"}, {"value", v}}})}};
+            };
+            auto ok = validate_decision_candidate(level("set_pixfrac__0p7", 0.7), good, cfg_px, pol, gc, accepting_validator());
+            expect_true(ok.ok && ok.reasons.empty(), "an on-grid level is accepted");
+            expect_true(ok.requires_review && ok.experimental, "grid candidates keep the review flags");
+            expect_equal(ok.rationale["text_key"].get<std::string>(), "pi.jev.rationale.set_pixfrac.v1", "rationale text is keyed by the template, not the level");
+            expect_true(ok.rationale["params"]["grid_value"] == 0.7 && ok.rationale["params"]["grid_unit"] == "ratio", "chosen level and unit reach the rationale");
+            expect_true(config_get(ok.merged_config, "reconstruction.drizzle.pixfrac") == 0.7 && config_get(cfg_px, "reconstruction.drizzle.pixfrac") == 0.8, "merge changes the copy only");
+            auto same = validate_decision_candidate(level("set_pixfrac__0p8", 0.8), good, cfg_px, pol, gc, accepting_validator());
+            expect_true(!same.ok && has(same.reasons, "already_active"), "the level equal to the current value is a no-op, not a proposal");
+            auto off = validate_decision_candidate(level("set_pixfrac__0p7", 0.75), good, cfg_px, pol, gc, accepting_validator());
+            expect_true(!off.ok && has(off.reasons, "value_not_allowlisted") && off.updates.empty(), "an off-grid value under a level id is refused, nothing salvaged");
+            auto other = validate_decision_candidate(level("set_pixfrac__0p75", 0.75), good, cfg_px, pol, gc, accepting_validator());
+            expect_true(!other.ok && has(other.reasons, "unknown_candidate"), "a level that is not in the grid is an unknown candidate");
+            auto strict = validate_decision_candidate(level("set_pixfrac__0p7", 0.7), good, cfg_px, DecisionPolicy{}, gc, accepting_validator());
+            expect_true(!strict.ok && has(strict.reasons, "experimental_not_enabled"), "grid candidates obey the experimental switch");
+        }
+
         expect_true(path_is_protected(catalog, "reconstruction.coverage_gate.min_frames"), "coverage_gate protected");
         expect_true(!path_is_protected(catalog, "reconstruction.drizzle.min_clip_contributors"), "min_clip_contributors released for candidates");
         expect_true(path_is_protected(catalog, "pcc.k_max") && path_is_protected(catalog, "reconstruction.multiband_validation.fwhm_ratio_max"), "acceptance gates stay hard-protected");
