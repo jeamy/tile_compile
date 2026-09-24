@@ -123,11 +123,26 @@ const STATUS_TEXT = {
 export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
   const resultBox = el("div", { class: "tc-mt-4", id: "jev-result" });
   const requestBtn = el("button", { class: "tc-btn tc-btn-primary", id: "jev-request", onclick: () => requestAdvice() }, t("ui.jev.request", "Jev-Empfehlung anfordern"));
+  // The object class is a statement by the user; the scan never infers it. Candidates that need it abstain without it.
+  const objectClassSelect = el("select", { class: "tc-select", id: "jev-object-class", title: t("ui.jev.tooltip.object_class", "Ihre Angabe zum Objekt. Manche Empfehlungen (z. B. Denoise, Hintergrund) hängen davon ab; ohne Angabe enthalten sie sich.") },
+    el("option", { value: "" }, t("ui.jev.object_class.none", "Nicht angegeben")),
+    el("option", { value: "compact" }, t("ui.jev.object_class.compact", "Kompakt (z. B. Galaxie)")),
+    el("option", { value: "diffuse" }, t("ui.jev.object_class.diffuse", "Diffus (z. B. großer Nebel)")),
+    el("option", { value: "star_field" }, t("ui.jev.object_class.star_field", "Sternfeld")),
+  );
+  objectClassSelect.value = getUiState().jevObjectClass || "";
+  objectClassSelect.addEventListener("change", () => setUiState({ jevObjectClass: objectClassSelect.value }));
+  function sessionContext() {
+    const v = objectClassSelect.value;
+    return v ? { object_class: { value: v, source: "user" } } : {};
+  }
   const page = el("div", { class: "tc-flex-col tc-gap-4 tc-jev" },
     el("div", { class: "tc-card tc-jev" },
       el("div", { class: "tc-card-title" }, t("ui.jev.page_title", "Jev-Empfehlungen")),
       el("div", { class: "tc-text-sm tc-text-muted tc-mb-2" }, t("ui.jev.page_intro", "Prüft den aktuellen Config-Entwurf gegen die Scan-Statistiken. Vorschläge sind experimentell: es gibt noch keinen Nachweis, dass sie Ergebnisse verbessern. Übernehmen ändert nur den Entwurf.")),
-      el("div", { class: "tc-flex tc-items-center tc-gap-2" }, requestBtn),
+      el("div", { class: "tc-flex tc-items-center tc-gap-2 tc-flex-wrap" },
+        el("label", { class: "tc-text-sm", for: "jev-object-class" }, t("ui.jev.object_class.label", "Objektklasse")),
+        objectClassSelect, requestBtn),
       resultBox,
     ),
   );
@@ -213,7 +228,7 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
     if (!yaml.trim()) { toastError(t("ui.jev.request_failed", "Anfrage fehlgeschlagen"), t("ui.jev.no_draft", "Kein Config-Entwurf geladen.")); return; }
     requestBtn.disabled = true;
     try {
-      const r = await api.post(API_ENDPOINTS.decisions.advice, { yaml, locked_paths: [] });
+      const r = await api.post(API_ENDPOINTS.decisions.advice, { yaml, locked_paths: [], session_context: sessionContext() });
       setUiState({ jevProposalId: r.proposal_id });
       await poll(r.proposal_id);
     } catch (e) {
@@ -228,7 +243,7 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
 
   async function applyToDraft(id) {
     try {
-      const r = await api.post(API_ENDPOINTS.decisions.apply(id), { yaml: currentDraftYaml(), locked_paths: [] });
+      const r = await api.post(API_ENDPOINTS.decisions.apply(id), { yaml: currentDraftYaml(), locked_paths: [], session_context: sessionContext() });
       const parsed = parseYaml(r.patched_yaml);
       setConfigState({ draft: deepClone(parsed), draftYaml: r.patched_yaml, dirty: true });
       onDraftApplied?.();

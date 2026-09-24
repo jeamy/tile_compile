@@ -158,6 +158,39 @@ int main(int argc, char** argv) {
             expect_true(!strict.ok && has(strict.reasons, "experimental_not_enabled"), "grid candidates obey the experimental switch");
         }
 
+        // ---- object class: a user statement that candidates may require ----
+        {
+            const auto dir = repo / "web_backend_cpp/config/pi_decisions";
+            json c = json::parse(slurp_file(dir / "candidates_v1.json"));
+            c["candidates"].push_back({{"candidate_id", "diffuse_only"}, {"candidate_version", 1}, {"group", "denoise"},
+                                       {"preconditions", json::array()}, {"required_evidence", json::array({"object_class"})},
+                                       {"object_classes", json::array({"diffuse"})},
+                                       {"updates", json::array({{{"path", "luma_denoise.enabled"}, {"value", true}}})},
+                                       {"requires_review", true}, {"applicability", "experimental_only"}});
+            const DecisionCatalog oc = load_decision_catalog(c, json::parse(slurp_file(dir / "protected_paths_v1.json")));
+            const json cfg_dn = {{"luma_denoise", {{"enabled", false}}}};
+            auto state_with = [&](const json& ctx) {
+                auto in = inputs_for(spread_frames(10));
+                in.session_context = ctx;
+                return build_pre_run_decision_state(in);
+            };
+            const json cand = {{"candidate_id", "diffuse_only"}, {"candidate_version", 1},
+                               {"updates", json::array({{{"path", "luma_denoise.enabled"}, {"value", true}}})}};
+            auto run = [&](const json& ctx) { return validate_decision_candidate(cand, state_with(ctx).state, cfg_dn, pol, oc, accepting_validator()); };
+            const auto none = run(json::object());
+            expect_true(!none.ok && has(none.reasons, "evidence_unavailable:object_class") && !none.evidence_ok, "no object class stated -> abstain");
+            const auto wrong = run({{"object_class", {{"value", "compact"}, {"source", "user"}}}});
+            expect_true(!wrong.ok && has(wrong.reasons, "evidence_below_threshold:object_class"), "a class the candidate does not list -> not applicable");
+            const auto right = run({{"object_class", {{"value", "diffuse"}, {"source", "user"}}}});
+            expect_true(right.ok && right.rationale["params"]["object_class"] == "diffuse", "listed class -> applicable, class reported");
+            const auto bad = run({{"object_class", {{"value", "nebula, very big"}, {"source", "user"}}}});
+            expect_true(!bad.ok && has(bad.reasons, "evidence_unavailable:object_class"), "a free-text class is treated as not stated");
+            const auto not_user = run({{"object_class", {{"value", "diffuse"}, {"source", "model"}}}});
+            expect_true(!not_user.ok && has(not_user.reasons, "evidence_unavailable:object_class"), "only source=user counts");
+            expect_true(state_with({{"object_class", {{"value", "diffuse"}, {"source", "user"}}}}).state_hash !=
+                            state_with(json::object()).state_hash, "the class is part of the state hash (proposals go stale when it changes)");
+        }
+
         expect_true(path_is_protected(catalog, "reconstruction.coverage_gate.min_frames"), "coverage_gate protected");
         expect_true(!path_is_protected(catalog, "reconstruction.drizzle.min_clip_contributors"), "min_clip_contributors released for candidates");
         expect_true(path_is_protected(catalog, "pcc.k_max") && path_is_protected(catalog, "reconstruction.multiband_validation.fwhm_ratio_max"), "acceptance gates stay hard-protected");

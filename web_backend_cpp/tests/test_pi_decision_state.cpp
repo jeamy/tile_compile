@@ -172,6 +172,20 @@ int main(int argc, char** argv) {
             expect_equal(agree(rev).state_hash, r.state_hash, "agreement does not depend on frame order");
         }
 
+        // --- object class: closed enum, only from the user ---
+        {
+            auto in = base_inputs(json::array({frame(0, true, "L", 60, 10, 1, 3, 1.0, 100), frame(1, true, "L", 60, 11, 1, 3, 1.0, 100)}));
+            in.session_context = {{"object_class", {{"value", "star_field"}, {"source", "user"}}}};
+            const auto ok = build_pre_run_decision_state(in);
+            expect_true(ok.state["session_facts"]["user_stated"].contains("object_class"), "valid class kept");
+            expect_true(ok.provider_projection["session_facts"]["user_stated"].contains("object_class"), "class reaches the provider projection");
+            in.session_context = {{"object_class", {{"value", "galaxy cluster"}, {"source", "user"}}}};
+            const auto bad = build_pre_run_decision_state(in);
+            expect_true(!bad.state["session_facts"]["user_stated"].contains("object_class") && has_code(bad.findings, "object_class_invalid"), "invalid class dropped with a finding");
+            const std::string err = pi_test::schema_check(schema, ok.state, schema, "state");
+            expect_true(err.empty(), "state with a class satisfies the schema: " + err);
+        }
+
         // --- empty inputs: blocking, no fabricated groups ---
         {
             PreRunDecisionInputs in;

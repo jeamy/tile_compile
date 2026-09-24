@@ -459,6 +459,14 @@ PreRunDecisionResult build_pre_run_decision_state(const PreRunDecisionInputs& in
         for (auto it = in.session_context.begin(); it != in.session_context.end(); ++it) {
             const json& e = it.value();
             if (e.is_object() && e.contains("value") && e.value("source", std::string()) == "user") {
+                // The object class is a closed enum: anything else would give candidates a free-text "fact".
+                if (it.key() == "object_class") {
+                    const bool known = e["value"].is_string() && (e["value"] == "compact" || e["value"] == "diffuse" || e["value"] == "star_field");
+                    if (!known) {
+                        findings.push_back(finding("object_class_invalid", "warning", "object_class must be compact, diffuse or star_field; treated as not stated"));
+                        continue;
+                    }
+                }
                 session_facts["user_stated"][it.key()] = {{"value", e["value"]}, {"kind", "user_stated"}, {"source", "user"}};
             } else {
                 findings.push_back(finding("session_context_ignored", "warning",

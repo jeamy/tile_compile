@@ -2138,5 +2138,11 @@
   "param.reconstruction.multiband.min_effective_samples.explain": "Unterhalb dieser effektiven Beitragszahl bleibt die Multiband-Mischung zurückhaltend, weil die Statistik zu dünn ist (Smoothstep-Unterkante). Minimum: 1; Standard: 8.0.",
   "param.reconstruction.multiband.full_effective_samples.label": "Volle effektive Samples",
   "param.reconstruction.multiband.full_effective_samples.short_help": "Ab dieser effektiven Sample-Zahl wird voll gemischt; Standard: 24.0.",
-  "param.reconstruction.multiband.full_effective_samples.explain": "Oberkante der Smoothstep-Rampe über der effektiven Sample-Zahl: ab diesem Wert erreicht der n_eff-Faktor sein Maximum. Muss größer als min_effective_samples sein. Minimum: 1; Standard: 24.0."
+  "param.reconstruction.multiband.full_effective_samples.explain": "Oberkante der Smoothstep-Rampe über der effektiven Sample-Zahl: ab diesem Wert erreicht der n_eff-Faktor sein Maximum. Muss größer als min_effective_samples sein. Minimum: 1; Standard: 24.0.",
+  "ui.jev.object_class.label": "Objektklasse",
+  "ui.jev.object_class.none": "Nicht angegeben",
+  "ui.jev.object_class.compact": "Kompakt (z. B. Galaxie)",
+  "ui.jev.object_class.diffuse": "Diffus (z. B. großer Nebel)",
+  "ui.jev.object_class.star_field": "Sternfeld",
+  "ui.jev.tooltip.object_class": "Ihre Angabe zum Objekt. Manche Empfehlungen (z. B. Denoise, Hintergrund) hängen davon ab; ohne Angabe enthalten sie sich."
 }

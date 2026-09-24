@@ -161,6 +161,27 @@ std::vector<json> expand_candidate(const json& cand) {
     return out;
 }
 
+// The object class is a user statement (compact / diffuse / star_field), never inferred from the scan.
+// A candidate may list the classes it applies to (`object_classes`); without a statement it abstains.
+EvidenceResult resolve_object_class(const json& state, const json* entry) {
+    EvidenceResult r;
+    r.refs = json::array({"session_facts.user_stated.object_class"});
+    const json fact = state.value("session_facts", json::object()).value("user_stated", json::object()).value("object_class", json::object());
+    if (!fact.is_object() || !fact.contains("value") || !fact["value"].is_string()) {
+        r.reasons.push_back("evidence_unavailable:object_class");
+        return r;
+    }
+    const std::string cls = fact["value"].get<std::string>();
+    r.params["object_class"] = cls;
+    if (entry && entry->contains("object_classes") && (*entry)["object_classes"].is_array()) {
+        bool listed = false;
+        for (const auto& c : (*entry)["object_classes"]) listed = listed || c == cls;
+        if (!listed) { r.reasons.push_back("evidence_below_threshold:object_class"); return r; }
+    }
+    r.ok = true;
+    return r;
+}
+
 bool starts_with(const std::string& s, const char* p) { return s.rfind(p, 0) == 0; }
 
 } // namespace
@@ -351,6 +372,7 @@ CandidateValidation validate_decision_candidate(const json& candidate, const jso
         EvidenceResult ev;
         if (k == "measurement_coverage") ev = resolve_measurement_coverage(state, policy);
         else if (k == "metric_agreement") ev = resolve_metric_agreement(state, policy);
+        else if (k == "object_class") ev = resolve_object_class(state, entry);
         else { ev.reasons.push_back("evidence_unavailable:" + fmt_key(k)); }
         for (const auto& r : ev.reasons) reasons.insert(r);
         for (const auto& ref : ev.refs) out.evidence_refs.push_back(ref);

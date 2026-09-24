@@ -2124,5 +2124,11 @@
   "param.reconstruction.multiband.min_effective_samples.explain": "Below this effective contribution count multiband blending stays restrained because the statistics are too thin (smoothstep lower edge). Minimum: 1; default: 8.0.",
   "param.reconstruction.multiband.full_effective_samples.label": "Full effective samples",
   "param.reconstruction.multiband.full_effective_samples.short_help": "Above this effective sample count blending applies fully; default: 24.0.",
-  "param.reconstruction.multiband.full_effective_samples.explain": "Upper edge of the smoothstep ramp over the effective sample count: above this value the n_eff factor reaches its maximum. Must be greater than min_effective_samples. Minimum: 1; default: 24.0."
+  "param.reconstruction.multiband.full_effective_samples.explain": "Upper edge of the smoothstep ramp over the effective sample count: above this value the n_eff factor reaches its maximum. Must be greater than min_effective_samples. Minimum: 1; default: 24.0.",
+  "ui.jev.object_class.label": "Object class",
+  "ui.jev.object_class.none": "Not stated",
+  "ui.jev.object_class.compact": "Compact (e.g. galaxy)",
+  "ui.jev.object_class.diffuse": "Diffuse (e.g. large nebula)",
+  "ui.jev.object_class.star_field": "Star field",
+  "ui.jev.tooltip.object_class": "Your statement about the target. Some recommendations (e.g. denoise, background) depend on it; without it they abstain."
 }
