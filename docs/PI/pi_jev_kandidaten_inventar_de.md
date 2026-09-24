@@ -125,7 +125,13 @@ Ausgangsconfig, Sternform an gematchten Positionen).
 Nicht als Jev-Kandidaten vorgesehen: Klasse S (Kalibration, Laufzeit, Pfade), Klasse G, `normalization.mode`
 (Objektkontext fehlt), Stretch-Numerik (Nutzerpräferenz), `linearity.*` (geringes Gewicht).
 
-## 6. Entscheidungen, die ich von dir brauche
+## 6. Entscheidungen (getroffen am 2026-09-24)
+
+Die fünf Fragen unten sind beantwortet und in [pi_jev_decisions_plan_de.md](pi_jev_decisions_plan_de.md) Abschnitt 1.1
+festgehalten: (1) Post-Run-Beratung nur auf Wunsch des Nutzers, (2) `shared_frame_rejection`, `bimodal_veto` und `bge.method`
+werden erreichbar, alle übrigen geschützten Pfade bleiben geschützt, (3) Zahlenwerte nur als Stufen eines geprüften
+Gitters, (4) Objektklasse als Nutzerangabe im State, (5) nur Vergleichs- und Referenzdaten aufbewahren.
+Umsetzung: M5.1 im [Umsetzungsplan](pi_jev_implementierungsplan_de.md). Ursprüngliche Fragen zur Nachvollziehbarkeit:
 
 1. **Post-Run einbeziehen?** Gruppe B ist der größte Teil und braucht die Post-Run-Beratung samt "ab welcher Phase
    fortsetzen" (Resume-Vertrag). Ohne sie bleibt Jev auf Gruppe A begrenzt.

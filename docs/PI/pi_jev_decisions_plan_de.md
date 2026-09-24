@@ -26,6 +26,30 @@ Nach dem ersten Run soll Jev beurteilen, ob eine Änderung überhaupt begründet
 
 `live_edit_op_intent`, einzelne Enum-Cold-Start-Calls und eine modellbasierte Frage „Ist der Patch sicher?“ sind nicht Teil des ersten Produkts. Letztere ersetzt keine Validierung und wäre keine unabhängige Sicherheitsinstanz.
 
+## 1.1 Nutzerentscheidungen zum Umfang (2026-09-24)
+
+Grundlage: [Kandidaten-Inventar](pi_jev_kandidaten_inventar_de.md). Das Produktziel ist ausdrücklich **alle sinnvollen
+Config-Werte**, nicht nur ein Kandidat; `enable_adaptive_weights` war nur der erste Eintrag des Katalogs
+(Regelkatalog Abschnitt 5). Entschieden wurde:
+
+1. **Beratung nach dem Run:** wird umgesetzt, aber nur **auf Wunsch des Nutzers** (er löst sie aus), nie automatisch
+   (M6 des Umsetzungsplans).
+2. **Schutzliste:** `reconstruction.clipping.shared_frame_rejection`, `reconstruction.clipping.bimodal_veto` und
+   `bge.method` werden für Kandidaten **erreichbar** (Katalogeinträge mit `requires_review`, eigener Evidenz und
+   Nachweis). Alle anderen geschützten Pfade bleiben geschützt, insbesondere Coverage-Gates,
+   Multiband-Validierungsgrenzen, PCC-Grenzen, Kalibration und Laufzeit. Diese Auslegung von "alles einbeziehen" ist
+   festgehalten; wird sie weiter gefasst, ändert das die Schutzliste erneut.
+3. **Werte:** Jev schlägt auch Zahlenwerte vor, aber **nur innerhalb geprüfter Grenzen**. Umsetzung ohne freie
+   Modellwerte: Jev beantwortet weiter Auswahlfragen (`choice`); der Katalog beschreibt je Zahlenparameter einen
+   geprüften Bereich als Wertegitter (Minimum, Maximum, Schritt oder explizite Stufen). Das Backend erzeugt daraus
+   die konkreten Auswahlkandidaten, Jev wählt eine Stufe oder `keep_current`, und die Policy prüft Pfad **und** Wert
+   gegen das Gitter. Ein Wert außerhalb des Gitters wird wie bisher abgelehnt.
+4. **Objektklasse:** der Nutzer darf sie als geprüfte Nutzerangabe (`user_stated`, Herkunft `user`) im State setzen
+   (kompakt, diffus, Sternfeld). Ohne Angabe bleibt sie unbekannt; Kandidaten, die sie brauchen, enthalten sich.
+5. **Nachweisdaten:** Für Vergleiche und Referenzen werden nur die dafür nötigen Daten aufbewahrt (Ergebnisartefakte,
+   Metriken, Configs, Logs). Zwischendaten (kalibrierte Frames, Caches) werden nach der Auswertung entfernt; ein
+   Resume solcher Läufe ist danach nicht mehr möglich.
+
 ## 2. Verifizierter Ausgangsstand und Korrekturen
 
 Codebasis dieses Reviews: Arbeitsbaum vom 2026-09-20; vorhandene fremde Änderungen sind keine durch diesen Plan abgenommenen Implementierungen.

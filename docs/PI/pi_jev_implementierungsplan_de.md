@@ -276,6 +276,27 @@ Tests: `test_pi_decision_service.cpp` (Modus aus, nur Baselines, Sidecar aus/kei
 
 **Abnahme (funktional):** Eine synthetische geeignete Eingabe führt über Service und Apply bis in den Entwurf (getestet); ein ungeeigneter Fall bleibt unverändert mit Grund (getestet). Das ist keine Qualitätsabnahme: die Auswertung an M31/M42 zeigt, dass die damalige Evidenz (`quality_spread`, ab M5 durch `metric_agreement` ersetzt) den Effekt der adaptiven Gewichtung nicht vorhersagt und Jev in 20 von 20 Aufrufen `keep_current` wählt — Evidenz und Nutzennachweis sind M5.
 
+## 8.1 M5.1 — Katalog v2: Wertegitter, Objektklasse, Schutzliste (Entscheidungen 2026-09-24)
+
+**Status:** offen. **Abhängigkeit:** M4, Nutzerentscheidungen in [pi_jev_decisions_plan_de.md](pi_jev_decisions_plan_de.md) 1.1.
+Ziel: die Infrastruktur, damit weitere Kandidaten einzeln aufgenommen werden können; noch kein neuer Kandidat wird freigegeben.
+
+- [ ] Katalogformat `pi.candidate-catalog.v2`: Kandidaten mit `value_grid` (Minimum, Maximum, Schritt oder Stufenliste, Einheit,
+  Herkunft/Begründung). Der Katalog erzeugt daraus feste Kandidaten-IDs je Stufe (`<id>@<stufe>`); Ablehnung von Werten
+  außerhalb des Gitters (`value_not_on_grid`); Gitter, die einen geschützten Pfad treffen, werden beim Laden abgelehnt.
+- [ ] Mehrere unabhängige Fragen je Anfrage (eine je Kandidatengruppe); jede Antwort wird einzeln aufgelöst, keine
+  automatische Kombination mehrerer Gruppen.
+- [ ] State: geprüfte Nutzerangabe `object_class` (Enum kompakt/diffus/Sternfeld/unbekannt); UI-Feld in der Jev-Ansicht;
+  Kandidaten mit Bedarf enthalten sich ohne Angabe (`evidence_unavailable:object_class`).
+- [ ] Schutzliste: `shared_frame_rejection`, `bimodal_veto`, `bge.method` aus `protected_paths_v1.json` in eine
+  Kategorie "erreichbar nur über Katalogeintrag mit `requires_review`" überführen; alle anderen Präfixe bleiben
+  gesperrt. Tests für beide Richtungen.
+- [ ] Aufbewahrungsregel für Nachweisläufe dokumentieren und im Auswertungswerkzeug festhalten (nur Ergebnisartefakte,
+  Metriken, Configs, Logs; kein Cache, keine kalibrierten Frames).
+
+**Abnahme:** bestehende Tests grün; neue Tests für Gitter (auf/neben/außerhalb, Rundung, Typ), mehrere Fragen je Anfrage,
+Objektklasse (gesetzt/fehlt), Schutzliste (erreichbar mit/ohne Katalogeintrag).
+
 ## 9. M5 — Evaluation und Freigabe pro Kandidat
 
 **Status:** offen. **Abhängigkeit:** M4; Bildqualitätsfreigabe benötigt reale Vergleichsevidenz.
@@ -297,7 +318,7 @@ Ein erster Kandidat kann häufig `keep_current` liefern. Das rechtfertigt keine 
 
 ## 10. M6 — Post-Run-Beratung und PI-Übergabe
 
-**Status:** offen. **Abhängigkeit:** M4, M5-Verfahren für jede neue Empfehlung.
+**Status:** offen. **Auslösung:** nur auf Wunsch des Nutzers (Entscheidung 2026-09-24), keine automatische Beratung. **Abhängigkeit:** M4, M5-Verfahren für jede neue Empfehlung.
 
 Zunächst die tatsächlichen Producer/Consumer von Qualitätsartefakten inventarisieren. Ein Reader für `pi_run_quality.json` beweist weder vollständige Erzeugung noch Verfügbarkeit der benötigten Zwischenstandsmetriken. Vorhandenen Completion-Analyse-Pfad nutzen; keine parallele konkurrierende Ergebniswahrheit.
 

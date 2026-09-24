@@ -130,7 +130,7 @@ Kein pauschales Ranking „poly immer besser als RBF“. Differenzen zwischen YA
 
 ## 5. Konkreter erster Kandidat und Erweiterungsverfahren
 
-Die erste vollständige Integration bleibt absichtlich begrenzt, erzeugt aber echte Config-Vorschläge:
+Die erste vollständige Integration wurde absichtlich mit einem Kandidaten begonnen und erzeugt echte Config-Vorschläge. Das Endziel ist die Abdeckung aller sinnvollen Parametergruppen (siehe [Kandidaten-Inventar](pi_jev_kandidaten_inventar_de.md) und Nutzerentscheidungen in [pi_jev_decisions_plan_de.md](pi_jev_decisions_plan_de.md) Abschnitt 1.1):
 
 | ID | Voraussetzungen | Atomarer Patch | Status |
 |---|---|---|---|
@@ -140,7 +140,7 @@ Die erste vollständige Integration bleibt absichtlich begrenzt, erzeugt aber ec
 
 Der State enthält numerisch berechnete Streuungen, Messabdeckung und Einschränkungen. Ob diese eine Umstellung rechtfertigen, wird im Vergleich gegen die Ausgangsconfig evaluiert. Ohne freigegebene Mindestabdeckung/Policy bleibt der Kandidat für anwendbare Vorschläge deaktiviert. Ist adaptive Gewichtung bereits aktiv, wird kein Scheineffekt als Empfehlung ausgegeben.
 
-Weitere Parametergruppen werden einzeln ergänzt: Quelle/Mechanismus -> Preconditions -> exakter Patch -> Abhängigkeiten -> Negativfixtures -> gepaarte Evaluation -> Freigabe. Ein Schema-Enum allein erzeugt keinen Kandidaten. Die übrigen Bereiche dieses Katalogs bleiben Diagnoseumfang oder ausdrücklich spätere Erweiterungen; keine Vollabdeckung aller Config-Parameter behaupten.
+Weitere Parametergruppen werden einzeln ergänzt: Quelle/Mechanismus -> Preconditions -> exakter Patch -> Abhängigkeiten -> Negativfixtures -> gepaarte Evaluation -> Freigabe. Ein Schema-Enum allein erzeugt keinen Kandidaten. Zahlenparameter erhalten je Kandidat einen **geprüften Wertebereich als Gitter** (Minimum, Maximum, Schritt oder explizite Stufen, Einheit, Begründung, Quelle); Jev wählt eine Stufe oder `keep_current`, nie einen freien Wert. Kandidaten, die eine Objektklasse brauchen, enthalten sich ohne Nutzerangabe. Vollabdeckung wird erst behauptet, wenn jede Parametergruppe des Inventars einen freigegebenen oder ausdrücklich ausgeschlossenen Eintrag hat; bis dahin gilt jeder nicht eingeführte Bereich als Diagnoseumfang.
 
 ## 6. Kandidatenvertrag
 
