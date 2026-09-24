@@ -422,7 +422,7 @@ ForwardDrizzleV2ProductionResult persist_forward_drizzle_v2_from_predecessors(
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::string &config_snapshot_hash,
     const std::string &acceleration_backend,
-    const std::function<void(int, int)> &progress) {
+    const std::function<void(int, int)> &progress, int cpu_workers) {
   // The subdivision contract lives in the committed geometry cache; v2
   // never re-runs it (kept in the signature for caller compatibility).
   (void)subdivision;
@@ -879,6 +879,7 @@ ForwardDrizzleV2ProductionResult persist_forward_drizzle_v2_from_predecessors(
   ForwardDrizzleV2DriverOptions opts;
   opts.prefer_cuda = acceleration_backend == "cuda";
   opts.cached_leaf_capacity = leaf_capacity;
+  opts.cpu_workers = cpu_workers;
   if (progress) opts.progress = progress;
   out.driver = run_forward_drizzle_v2(
       store_root, out.plan, sampling.source_width, sampling.source_height,

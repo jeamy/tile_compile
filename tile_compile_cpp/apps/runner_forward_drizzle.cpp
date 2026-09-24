@@ -634,7 +634,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         artifacts/"global_registration.json",
         geom_reader?&*geom_reader:nullptr,geom_sub,
         provenance.at("config").at("sha256").get<std::string>(),
-        fd_backend,v2_progress);
+        fd_backend,v2_progress,fd_workers);
     fd_backend_used=v2_result.driver.backend_used;
     fd_cuda_fallback_reason=v2_result.driver.cuda_fallback_reason;
     checkpoint["forward_drizzle_v2"]=true;

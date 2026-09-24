@@ -110,6 +110,10 @@ struct ForwardDrizzleV2DriverOptions {
   // copied into every band's kernel config (fixed across begin_band). Not
   // part of the run plan/hash. 0 disables the cached-leaf path.
   std::uint64_t cached_leaf_capacity = 0;
+  // CPU kernel OpenMP worker cap, copied into every band's kernel config.
+  // Not part of the run plan/hash (CPU results are identical for every
+  // worker count). 0 = hardware concurrency. Ignored by CUDA.
+  int cpu_workers = 0;
 };
 
 struct ForwardDrizzleV2DriverResult {

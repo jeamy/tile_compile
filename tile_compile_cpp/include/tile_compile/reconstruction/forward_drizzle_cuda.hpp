@@ -375,6 +375,12 @@ struct ForwardDrizzleV2KernelConfig {
   // CPU and CUDA kernels.
   bool bimodal_veto = false;
   double bimodal_veto_gap_sigma = 2.5;
+  // CPU host kernel only: OpenMP worker cap for the scatter and fold
+  // (runtime_limits.parallel_workers / TC_FORWARD_DRIZZLE_WORKERS, resolved
+  // by the runner). 0 = hardware concurrency. Not a numeric parameter: the
+  // CPU results are bit-identical for every worker count, so it is neither
+  // part of v2_fixed_cfg_equal nor of the run plan hash. Ignored by CUDA.
+  int cpu_workers = 0;
 };
 
 // One uploaded source buffer and its active launch rect. `source` points at

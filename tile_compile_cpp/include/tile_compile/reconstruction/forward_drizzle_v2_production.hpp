@@ -211,6 +211,9 @@ ForwardDrizzleV2ProductionResult persist_forward_drizzle_v2_from_predecessors(
     const ForwardDrizzleSubdivisionParams &subdivision,
     const std::string &config_snapshot_hash,
     const std::string &acceleration_backend,
-    const std::function<void(int, int)> &progress = {});
+    const std::function<void(int, int)> &progress = {},
+    // CPU kernel OpenMP worker cap (runtime_limits.parallel_workers as
+    // resolved by the runner); 0 = hardware concurrency. Ignored by CUDA.
+    int cpu_workers = 0);
 
 }  // namespace tile_compile::reconstruction
