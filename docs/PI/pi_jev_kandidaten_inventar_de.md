@@ -85,7 +85,12 @@ Dither-Abdeckung, kein Stack-Rauschen, keinen PCC-Erfolg.
   das M42-Hintergrundrauschen, schließen die Lücke zum Vergleichsbild aber nicht; `sigma_range` bei Chroma/Luma
   ist relativ, nicht absolut, alte Configs sind veraltet; Dynamic-Boost-Pilot verfehlte das Laufzeitziel.
 
-## 4.1 Konflikte mit der Schutzliste
+## 4.1 Schutzliste nach der Überprüfung (2026-09-24)
+
+Ursprünglich waren 47 Parameter geschützt. Nach Prüfung jedes Pfads gilt (Schema `pi.protected-paths.v2`): 6 Präfixe `hard`
+(Coverage-Gates, Multiband-Validierungsgrenzen, drei PCC-Gates, `method`), 17 Einträge `user_domain` (Überlappungsanteil,
+Zuschnitt, `hard_abort_hours`, 14 Kalibrations-Werte) und 12 Pfade freigegeben mit Bedingung (siehe
+`released_for_candidates`). Die folgende Liste dokumentiert die Konflikte, die diese Prüfung ausgelöst haben:
 
 - `reconstruction.clipping.shared_frame_rejection` und `bimodal_veto` sind geschützt, das Handbuch empfiehlt
   `shared_frame_rejection` aber gegen Chroma-Speckle (also datenabhängig).

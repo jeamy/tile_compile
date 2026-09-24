@@ -26,6 +26,7 @@ struct DecisionCatalog {
     int version = 0;
     nlohmann::json candidates = nlohmann::json::array();          // candidates_v1.json["candidates"]
     std::vector<std::string> protected_prefixes;                  // protected_paths_v1.json
+    nlohmann::json released_paths = nlohmann::json::array();       // {path, condition}: reachable only via a catalog entry meeting the condition
 };
 
 // Parses and structurally validates the two committed catalog files. Throws

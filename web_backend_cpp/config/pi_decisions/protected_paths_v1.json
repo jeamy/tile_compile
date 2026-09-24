@@ -1,8 +1,8 @@
 {
-  "catalog_version": 1,
-  "schema_version": "pi.protected-paths.v1",
-  "generated": "2026-09-22",
-  "purpose": "guard_quality / guard_scope source of truth (pi_scan_pre_rules_de.md section 3): any config path NOT explicitly present in candidate_allowlist_v1.json's updates is rejected fail-closed by pi_decision_policy, regardless of what a Jev response proposes. This file additionally documents WHY the listed prefixes must never be reachable by any future candidate group without a separate, explicitly reviewed change to this file.",
+  "catalog_version": 2,
+  "schema_version": "pi.protected-paths.v2",
+  "generated": "2026-09-24",
+  "purpose": "Denylist source of truth for pi_decision_policy (guard_quality / guard_scope). Two tiers, both never reachable by any candidate: `hard` = acceptance gates and architecture invariants (loosening masks a failure or changes what passes), `user_domain` = values that are the user's or the system's authority, not data-driven. Everything previously listed that is a legitimate tuning knob was released on 2026-09-24 (user decision, pi_jev_decisions_plan_de.md 1.1); see released_for_candidates for the conditions each candidate must meet. Enforcement in pi_decision_policy is still an allowlist (candidates_v1.json updates[].path); this file only refuses catalog entries that touch a protected path.",
   "verified_against": [
     "tile_compile_cpp/include/tile_compile/config/configuration.hpp",
     "tile_compile_cpp/src/io/config.cpp",
@@ -11,64 +11,169 @@
   "protected_path_prefixes": [
     {
       "prefix": "reconstruction.coverage_gate.",
+      "tier": "hard",
       "reason": "Post-registration coverage/QC pass-fail thresholds (min_frames, min_supported_fraction, min_channel_n_eff_floor/fraction, min_analysis_pixels, max_internal_hole_area_px). Loosening any of these to make a marginal dataset pass is exactly the kind of silent quality erosion the guard exists to block."
     },
     {
       "prefix": "reconstruction.multiband_validation.",
+      "tier": "hard",
       "reason": "Candidate-selection gates (fwhm_ratio_max, p90_fwhm_ratio_max, tail_ratio_max, elongation_ratio_max, background_rms_ratio_max, seam_ratio_max, min_stars_fwhm, min_stars_p90_tail_elongation, max_fwhm_ci_relative_width) that decide whether Multiband is promoted over Raw. These are the acceptance contract from AGENTS.md's architecture boundaries, not tuning knobs."
     },
     {
-      "prefix": "reconstruction.drizzle.min_clip_contributors",
-      "reason": "Below this per-pixel candidate count the forward-drizzle v2 kernel takes the unclipped, outlier-unprotected fallback path (ForwardDrizzleV2RobustState::too_few_candidates_fallback). Lowering it trades outlier protection for coverage; verified real-world impact (2026-09-22 IC5070 fix, see docs/PI history) makes this a safety-relevant parameter, not a coverage tuning knob."
-    },
-    {
-      "prefix": "reconstruction.clipping.guard_fallback",
-      "reason": "Controls whether a min_fraction/min_n_eff veto failure leaves a pixel unsupported (fail-closed, current default) or falls back to unclipped survivors. Changes what \"unsupported\" means for every downstream consumer."
-    },
-    {
-      "prefix": "reconstruction.clipping.shared_frame_rejection",
-      "reason": "Cross-channel outlier-rejection consensus mechanism; changes which frames get excluded per pixel across all three color channels simultaneously."
-    },
-    {
-      "prefix": "reconstruction.clipping.bimodal_veto",
-      "reason": "Coherent-second-population outlier veto; empirically proven (M31 case) to have narrow, easy-to-misjudge applicability. Not a general-purpose quality dial."
-    },
-    {
-      "prefix": "reconstruction.common_overlap_required_fraction",
-      "reason": "Drives the COMMON_OVERLAP coverage QC decision independent of the delivered crop."
-    },
-    {
-      "prefix": "output.crop_to_nonzero_bbox",
-      "reason": "Changes the delivered canvas extent (union-of-footprint bbox vs. a narrower crop); directly interacts with the coverage guards above."
-    },
-    {
       "prefix": "pcc.k_max",
+      "tier": "hard",
       "reason": "PCC color-calibration acceptance gate."
     },
     {
       "prefix": "pcc.max_residual_rms",
+      "tier": "hard",
       "reason": "PCC color-calibration acceptance gate."
     },
     {
       "prefix": "pcc.max_condition_number",
+      "tier": "hard",
       "reason": "PCC color-calibration acceptance gate; rejects unstable calibration matrices."
     },
     {
       "prefix": "method",
+      "tier": "hard",
       "reason": "AGENTS.md: the pipeline has exactly one reconstruction method (CFA Forward Drizzle + Multiband); no top-level method selector exists or may be reintroduced by any patch."
     },
     {
-      "prefix": "bge.method",
-      "reason": "pi_jev_decisions_plan_de.md section 6: explicitly excluded from Jev's reach in v1; not the same axis as the removed top-level `method` selector, but still requires its own dedicated, evidence-gated candidate before it can be patchable (pi_scan_pre_rules_de.md section 4.8)."
+      "prefix": "reconstruction.common_overlap_required_fraction",
+      "tier": "user_domain",
+      "reason": "User preference for how much partially covered edge area is admitted; not derivable from the data (practical guide: 1.0 recommended for every setup). Loosening lets edge bias into metrics, BGE and PCC statistics."
     },
     {
-      "prefix": "calibration.",
-      "reason": "Master matching/scaling and use_* toggles remain outside the v1 patch allowlist per pi_scan_pre_rules_de.md section 4.1."
+      "prefix": "output.crop_to_nonzero_bbox",
+      "tier": "user_domain",
+      "reason": "Delivered canvas extent is the user's choice, not a data-driven tuning value."
     },
     {
-      "prefix": "runtime_limits.",
-      "reason": "System/runtime values (CPU/GPU choice, memory/parallelism budgets), not reconstruction-quality tuning; pi_jev_decisions_plan_de.md section 6."
+      "prefix": "runtime_limits.hard_abort_hours",
+      "tier": "user_domain",
+      "reason": "Safety net chosen by the user; not a quality or throughput tuning value."
+    },
+    {
+      "prefix": "calibration.use_bias",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.use_dark",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.use_flat",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.bias_use_master",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.dark_use_master",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.flat_use_master",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.dark_already_bias_corrected",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.bias_dir",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.darks_dir",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.flats_dir",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.bias_master",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.dark_master",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.flat_master",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
+    },
+    {
+      "prefix": "calibration.pattern",
+      "tier": "user_domain",
+      "reason": "System fact / file authority: a wrong master or a switched calibration step silently corrupts every frame, and which masters exist is a property of the machine, not of the data. Resolved deterministically (pi_scan_pre_rules_de.md section 4.1), never by Jev."
     }
   ],
-  "note": "This list is deliberately conservative and additive-only in v1: it documents known-dangerous prefixes, but the actual enforcement in pi_decision_policy is an ALLOWLIST (candidate_allowlist_v1.json's updates[].path), not a denylist walk of this file. A path missing from both files is rejected either way; this file exists so a reviewer changing the allowlist can see, in one place, which prefixes require extra scrutiny before ever being added to it."
+  "note": "Filename kept from v1 for stable references. A path missing from both this file and the candidate allowlist is rejected either way.",
+  "released_for_candidates": [
+    {
+      "path": "reconstruction.drizzle.min_clip_contributors",
+      "condition": "one-sided value grid: only values >= the schema default (5); lowering trades outlier protection for coverage (IC5070 fix 2026-09-22). requires_review."
+    },
+    {
+      "path": "reconstruction.clipping.guard_fallback",
+      "condition": "requires_review; evidence must come from a run (unsupported / black pixel counts), not the scan."
+    },
+    {
+      "path": "reconstruction.clipping.shared_frame_rejection",
+      "condition": "requires_review; evidence from the run (negative R/B cross-correlation in a crop or equivalent measured signal). Atomic group with shared_frame_rejection_consensus."
+    },
+    {
+      "path": "reconstruction.clipping.bimodal_veto",
+      "condition": "requires_review; narrow applicability (M31 case); evidence from the run. Atomic group with bimodal_veto_gap_sigma."
+    },
+    {
+      "path": "bge.method",
+      "condition": "requires_review; needs object_class and a signal-preservation procedure (pi_scan_pre_rules_de.md section 4.8); atomic with dependent bge.* values."
+    },
+    {
+      "path": "calibration.dark_auto_select",
+      "condition": "needs system-fact evidence (available masters with exposure/gain/temperature) in the state; tolerances never widened proportionally to the spread."
+    },
+    {
+      "path": "calibration.dark_match_exposure_tolerance_percent",
+      "condition": "same as calibration.dark_auto_select."
+    },
+    {
+      "path": "calibration.dark_match_use_temp",
+      "condition": "same as calibration.dark_auto_select."
+    },
+    {
+      "path": "calibration.dark_match_temp_tolerance_c",
+      "condition": "same as calibration.dark_auto_select."
+    },
+    {
+      "path": "runtime_limits.parallel_workers",
+      "condition": "needs system facts (cores, RAM, disk free) in the state; a deterministic rule may be preferable to a model choice."
+    },
+    {
+      "path": "runtime_limits.memory_budget",
+      "condition": "same as runtime_limits.parallel_workers; frame count and frame size are in the state."
+    },
+    {
+      "path": "runtime_limits.acceleration_backend",
+      "condition": "needs a capability fact (device present); CPU fallback semantics must stay intact (AGENTS.md)."
+    }
+  ]
 }

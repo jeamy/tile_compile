@@ -48,14 +48,27 @@ int main(int argc, char** argv) {
             expect_true(throws(wrong, prot), "wrong catalog schema_version refused");
             json empty_prot = prot; empty_prot["protected_path_prefixes"] = json::array();
             expect_true(throws(cands, empty_prot), "empty protected list refused (fail closed)");
+            json no_tier = prot; no_tier["protected_path_prefixes"][0].erase("tier");
+            expect_true(throws(cands, no_tier), "protected entry without tier refused");
+            json v1 = prot; v1["schema_version"] = "pi.protected-paths.v1";
+            expect_true(throws(cands, v1), "old protected-paths schema refused");
+            json both = prot; both["released_for_candidates"].push_back({{"path", "pcc.k_max"}, {"condition", "x"}});
+            expect_true(throws(cands, both), "a path can not be released and protected");
+            json badrel = prot; badrel["released_for_candidates"].push_back({{"path", "x.y"}});
+            expect_true(throws(cands, badrel), "malformed released entry refused");
+            expect_true(!catalog.released_paths.empty(), "released paths loaded for reference");
         }
 
         // ---- path helpers: prefix boundaries ----
         expect_true(path_is_protected(catalog, "reconstruction.coverage_gate.min_frames"), "coverage_gate protected");
-        expect_true(path_is_protected(catalog, "reconstruction.drizzle.min_clip_contributors"), "min_clip_contributors protected");
+        expect_true(!path_is_protected(catalog, "reconstruction.drizzle.min_clip_contributors"), "min_clip_contributors released for candidates");
+        expect_true(path_is_protected(catalog, "pcc.k_max") && path_is_protected(catalog, "reconstruction.multiband_validation.fwhm_ratio_max"), "acceptance gates stay hard-protected");
+        expect_true(path_is_protected(catalog, "calibration.dark_master") && path_is_protected(catalog, "output.crop_to_nonzero_bbox") && path_is_protected(catalog, "reconstruction.common_overlap_required_fraction"), "user-domain paths stay protected");
+        expect_true(!path_is_protected(catalog, "reconstruction.clipping.shared_frame_rejection") && !path_is_protected(catalog, "reconstruction.clipping.bimodal_veto") && !path_is_protected(catalog, "calibration.dark_match_temp_tolerance_c") && !path_is_protected(catalog, "runtime_limits.memory_budget"), "released tuning knobs are not protected");
+        expect_true(path_is_protected(catalog, "runtime_limits.hard_abort_hours"), "hard_abort_hours stays a user-domain value");
         expect_true(!path_is_protected(catalog, "reconstruction.drizzle.pixfrac"), "pixfrac not protected");
-        expect_true(path_is_protected(catalog, "bge.method"), "bge.method protected");
-        expect_true(!path_is_protected(catalog, "bge.methodology"), "prefix boundary respected");
+        expect_true(!path_is_protected(catalog, "bge.method"), "bge.method released for candidates");
+        expect_true(!path_is_protected(catalog, "bge.methodology") && !path_is_protected(catalog, "calibration.dark_master_extra"), "prefix boundary respected");
         expect_true(path_is_protected(catalog, "method") && !path_is_protected(catalog, "methodology"), "method selector protected, not its lookalike");
         expect_true(path_is_locked({"global_metrics"}, "global_metrics.adaptive_weights"), "parent lock covers child");
         expect_true(path_is_locked({"global_metrics.adaptive_weights"}, "global_metrics"), "writing a parent would overwrite a locked leaf");

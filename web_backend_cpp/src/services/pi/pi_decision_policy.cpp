@@ -133,7 +133,7 @@ bool path_is_locked(const std::vector<std::string>& locked_paths, const std::str
 DecisionCatalog load_decision_catalog(const json& candidates_v1, const json& protected_paths_v1) {
     if (!candidates_v1.is_object() || candidates_v1.value("schema_version", std::string()) != "pi.candidate-catalog.v1")
         throw std::invalid_argument("candidate catalog: wrong or missing schema_version");
-    if (!protected_paths_v1.is_object() || protected_paths_v1.value("schema_version", std::string()) != "pi.protected-paths.v1")
+    if (!protected_paths_v1.is_object() || protected_paths_v1.value("schema_version", std::string()) != "pi.protected-paths.v2")
         throw std::invalid_argument("protected paths: wrong or missing schema_version");
     DecisionCatalog c;
     c.version = candidates_v1.value("catalog_version", 0);
@@ -142,7 +142,19 @@ DecisionCatalog load_decision_catalog(const json& candidates_v1, const json& pro
     for (const auto& p : protected_paths_v1.value("protected_path_prefixes", json::array())) {
         if (!p.is_object() || !p.contains("prefix") || !p["prefix"].is_string() || p["prefix"].get<std::string>().empty())
             throw std::invalid_argument("protected paths: malformed prefix entry");
+        const std::string tier = p.value("tier", std::string());
+        if (tier != "hard" && tier != "user_domain") throw std::invalid_argument("protected paths: entry without a valid tier");
         c.protected_prefixes.push_back(p["prefix"].get<std::string>());
+    }
+    // Released paths are documentation of what a future candidate may reach and under which condition; they
+    // never widen enforcement, but a path can not be both protected and released.
+    for (const auto& r : protected_paths_v1.value("released_for_candidates", json::array())) {
+        if (!r.is_object() || !r.contains("path") || !r["path"].is_string() || !r.contains("condition") || !r["condition"].is_string())
+            throw std::invalid_argument("protected paths: malformed released entry");
+        const std::string rp = r["path"].get<std::string>();
+        for (const auto& prefix : c.protected_prefixes)
+            if (has_prefix_path(rp, prefix)) throw std::invalid_argument("protected paths: " + rp + " is both released and protected");
+        c.released_paths.push_back(r);
     }
     if (c.protected_prefixes.empty()) throw std::invalid_argument("protected paths: empty list (fail closed)");
     std::set<std::string> ids;

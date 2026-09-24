@@ -288,9 +288,9 @@ Ziel: die Infrastruktur, damit weitere Kandidaten einzeln aufgenommen werden kö
   automatische Kombination mehrerer Gruppen.
 - [ ] State: geprüfte Nutzerangabe `object_class` (Enum kompakt/diffus/Sternfeld/unbekannt); UI-Feld in der Jev-Ansicht;
   Kandidaten mit Bedarf enthalten sich ohne Angabe (`evidence_unavailable:object_class`).
-- [ ] Schutzliste: `shared_frame_rejection`, `bimodal_veto`, `bge.method` aus `protected_paths_v1.json` in eine
-  Kategorie "erreichbar nur über Katalogeintrag mit `requires_review`" überführen; alle anderen Präfixe bleiben
-  gesperrt. Tests für beide Richtungen.
+- [x] Schutzliste überarbeitet (Schema `pi.protected-paths.v2`, Stufen `hard`/`user_domain`, `released_for_candidates` mit
+  Bedingung je Pfad; Lader lehnt fehlende Stufe, altes Schema und einen zugleich geschützten und freigegebenen Pfad ab).
+  Tests für beide Richtungen: `test_pi_decision_policy`.
 - [ ] Aufbewahrungsregel für Nachweisläufe dokumentieren und im Auswertungswerkzeug festhalten (nur Ergebnisartefakte,
   Metriken, Configs, Logs; kein Cache, keine kalibrierten Frames).
 

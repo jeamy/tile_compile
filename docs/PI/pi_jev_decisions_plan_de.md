@@ -34,11 +34,17 @@ Config-Werte**, nicht nur ein Kandidat; `enable_adaptive_weights` war nur der er
 
 1. **Beratung nach dem Run:** wird umgesetzt, aber nur **auf Wunsch des Nutzers** (er löst sie aus), nie automatisch
    (M6 des Umsetzungsplans).
-2. **Schutzliste:** `reconstruction.clipping.shared_frame_rejection`, `reconstruction.clipping.bimodal_veto` und
-   `bge.method` werden für Kandidaten **erreichbar** (Katalogeinträge mit `requires_review`, eigener Evidenz und
-   Nachweis). Alle anderen geschützten Pfade bleiben geschützt, insbesondere Coverage-Gates,
-   Multiband-Validierungsgrenzen, PCC-Grenzen, Kalibration und Laufzeit. Diese Auslegung von "alles einbeziehen" ist
-   festgehalten; wird sie weiter gefasst, ändert das die Schutzliste erneut.
+2. **Schutzliste:** geschützt bleibt nur, was aus Sicherheits- oder Zuständigkeitsgründen geschützt sein muss
+   (`protected_paths_v1.json`, Schema v2, zwei Stufen). **`hard`:** Akzeptanzgrenzen und Architektur-Invarianten
+   (`reconstruction.coverage_gate.*`, `reconstruction.multiband_validation.*`, `pcc.k_max`, `pcc.max_residual_rms`,
+   `pcc.max_condition_number`, `method`). **`user_domain`:** Werte in der Zuständigkeit von Nutzer oder System, nicht
+   datengetrieben (`common_overlap_required_fraction`, `output.crop_to_nonzero_bbox`, `runtime_limits.hard_abort_hours`,
+   Kalibrationspfade, Master, `use_*`). **Freigegeben für Kandidaten** (mit `requires_review`, Bedingungen in
+   `released_for_candidates`): `min_clip_contributors` (nur einseitiges Gitter nach oben), `guard_fallback`,
+   `shared_frame_rejection`, `bimodal_veto`, `bge.method`, die Dark-Matching-Toleranzen und
+   `runtime_limits.parallel_workers/memory_budget/acceleration_backend` (die letzten beiden Gruppen brauchen erst
+   Systemfakten im State). Die Einteilung ist meine Auslegung von "alles was sinnvoll ist"; einzelne Pfade lassen sich
+   zwischen den Stufen verschieben.
 3. **Werte:** Jev schlägt auch Zahlenwerte vor, aber **nur innerhalb geprüfter Grenzen**. Umsetzung ohne freie
    Modellwerte: Jev beantwortet weiter Auswahlfragen (`choice`); der Katalog beschreibt je Zahlenparameter einen
    geprüften Bereich als Wertegitter (Minimum, Maximum, Schritt oder explizite Stufen). Das Backend erzeugt daraus
