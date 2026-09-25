@@ -1,7 +1,7 @@
 # PI Jev — Detaillierter Implementierungsplan
 
 > **Stand:** 2026-09-25.
-> **Status:** M0-M4 und Teile von M5.1 umgesetzt; Routen und UI sind verdrahtet. Revision-/Run-Zuordnung und FITS-Metadatenprüfung ergänzt. M5-M7 bleiben offen.
+> **Status:** M0-M4 und Teile von M5 umgesetzt; Routen und UI sind verdrahtet. Revision-/Run-Zuordnung und FITS-Metadatenprüfung ergänzt. M5-Grenzen für künftige Tests sind fixiert, die wissenschaftliche Freigabe und M6-M7 bleiben offen.
 > **Verbindliche Reihenfolge:** Pre-Run-Beratung zuerst, Post-Run-Beratung danach.
 > **Lieferumfang:** Vorschläge; kein automatischer Run/Resume und kein zweiter Bildeditor.
 
@@ -205,7 +205,7 @@ Entscheidungen der Umsetzung:
 - **Atomar, ohne Kurzschluss:** Alle Probleme werden gesammelt (sortiert, eindeutig), der Kandidat wird als Ganzes verworfen, nichts wird gerettet (`updates` leer, `merged_config` null). Dadurch kann die Regelreihenfolge das Ergebnis nicht ändern (Test mit umgekehrtem Katalog).
 - **Allowlist statt Vertrauen:** Ein Kandidat aus Modell/Client zählt nur mit `candidate_id` + Version; Pfad/Wert müssen dem Katalogeintrag **exakt** entsprechen (`path_not_allowlisted`, `value_not_allowlisted`, `incomplete_group`, `candidate_version_mismatch`). Der Katalog selbst wird beim Laden abgelehnt, wenn ein Kandidat einen geschützten Pfad trifft, wenn `keep_current`/`insufficient_evidence` fehlen oder die Schutzliste leer ist (fail closed).
 - **Geschützte Pfade und Locks mit Präfixgrenzen:** `bge.method` ist geschützt, `bge.methodology` nicht; ein Elternpfad-Lock sperrt Kindpfade, ein Schreibzugriff auf einen Elternpfad, der ein gesperrtes Blatt überschreiben würde, ebenfalls.
-- **Keine erfundenen Schwellen:** `DecisionPolicy.min_measurement_coverage`/`min_metric_agreement` sind `optional`; ohne eingefrorenen Wert ist der Kandidat unanwendbar (`policy_thresholds_not_frozen`). Produktiv ist daher nur `keep_current`/`insufficient_evidence` anwendbar, bis M5 die Werte freigibt. Experimentelle Kandidaten zusätzlich nur mit `allow_experimental`.
+- **Keine erfundenen Vorregel-Schwellen:** `DecisionPolicy.min_measurement_coverage`/`min_metric_agreement` sind `optional`; ohne eingefrorenen Wert ist der Kandidat unanwendbar (`policy_thresholds_not_frozen`). Produktiv ist daher nur `keep_current`/`insufficient_evidence` anwendbar. Die numerischen M5-**Release**-Grenzen sind davon getrennt: die vorhandenen vier Paare zeigen keinen Nutzen selbst bei hoher `metric_agreement`, daher wurde aus ihnen kein prädiktiver Vorregel-Cutoff abgeleitet. Experimentelle Kandidaten zusätzlich nur mit `allow_experimental`.
 - **Evidenz aus demselben State:** `measurement_coverage` = `read_ok/measured`; `metric_agreement` = Median der drei paarweisen Spearman-Rangkorrelationen von `background`, `noise` und `fwhm` (je Gruppe im State unter `metric_agreement`, nur Frames mit allen drei gültigen Werten; ab M5 statt der früheren relativen Streuung `quality_spread`, die den Effekt nicht vorhersagt) **einer einzigen** lesbaren Gruppe (mehrere lesbare Gruppen -> `mixed_groups_no_single_evidence`, nie gepoolt). Sie zeigt, dass die adaptive Gewichtung wirkt, nicht dass die Wirkung gut ist; Kandidat `enable_adaptive_weights` ist deshalb auf Version 2 angehoben. Belegreferenzen (`evidence_refs`) zeigen auf die State-Felder; die Begründung ist ein Textschlüssel plus gemessene Zahlen (`rationale`), kein LLM-Text.
 - **Modell-Wahrscheinlichkeit ist nie ein Gate:** Eine niedrige Wahrscheinlichkeit verhindert einen ansonsten gültigen Kandidaten nicht, eine hohe rettet keinen ungültigen (Test).
 - **Statuswerte des Vorschlags:** `validated`, `no_change`, `abstain`, `unavailable`, `rejected` (+ `presented`, `applied_to_draft`, `stale` für spätere Stufen); `pi.config-proposal.v1` um `validated`/`presented` sowie optionales `applied_at`, `config_hash_before/after` erweitert. Bereits aktive adaptive Gewichtung erzeugt keinen Patch, sondern `already_active`.
@@ -323,18 +323,21 @@ Objektklasse (gesetzt/fehlt), Schutzliste (erreichbar mit/ohne Katalogeintrag).
 
 ## 9. M5 — Evaluation und Freigabe pro Kandidat
 
-**Status:** offen. **Abhängigkeit:** M4; Bildqualitätsfreigabe benötigt reale Vergleichsevidenz.
+**Status:** Replay/Datentrennung implementiert, reguläre Kandidatenfreigabe
+weiter gesperrt. Details und reproduzierbarer Ist-Befund:
+`pi_jev_m5_evaluation_de.md`. **Abhängigkeit:** M4; Bildqualitätsfreigabe
+benötigt unabhängige reale Vergleichsevidenz.
 
 Arbeit:
 
-- [ ] Neues Replay-Werkzeug `web_backend_cpp/scripts/evaluate_pi_decisions.py` und maschinenlesbaren Evaluationsbericht mit State-/Policy-/Modelldigests erstellen; Vorschlagsauswertung ohne Runner-Start ermöglichen. Das Werkzeug liest `pi_decisions/` und (falls vorhanden) den `PiMemoryStore` **nur lesend**; es schreibt in keinen von beiden.
-- [ ] Datensatzregister mit Session-, Geräte-, Filter- und Qualitätsgruppen aufbauen. Kalibrierung und Test auf Sessionebene trennen; gleiche Frames nicht in beide Mengen aufnehmen.
+- [x] Neues Replay-Werkzeug `web_backend_cpp/scripts/evaluate_pi_decisions.py` und maschinenlesbaren Evaluationsbericht mit State-/Policy-/Modelldigests erstellen; Vorschlagsauswertung ohne Runner-Start ermöglichen. Das Werkzeug liest `pi_decisions/` und (falls vorhanden) den `PiMemoryStore` **nur lesend**; es schreibt in keinen von beiden.
+- [x] Retrospektives Datensatzregister mit Session-, Geräte-, Filter- und Qualitätsgruppen aufbauen; unbekannte Strata bleiben `unknown`. Kalibrierung und Test auf Sessionebene trennen; gleiche Frame-Hashes nicht in beide Mengen aufnehmen. Dieser Split ist kein prospektiver Holdout.
 - [ ] Vier Baselines protokollieren: aktuelle Config, Regeln allein, bestehende PI-Beratung, Regeln plus Jev. kNN optional separat ausweisen.
-- [ ] Nutzerzustimmung, angewendete Config und Qualitätslabel in getrennten Feldern speichern. Abgebrochene/fehlgeschlagene Runs nicht als negative Bildqualität ohne Ursache etikettieren.
-- [ ] Für Qualitätsnachweise gepaarte Ergebnisse derselben Inputs und vergleichbarer Ausgabezustände verwenden; zusätzliche Runs ausschließlich nach ausdrücklichem Auftrag.
-- [ ] Messplan vor Evaluation einfrieren: Sternform an gematchten Positionen, Rauschen auf gültigen vergleichbaren Flächen, Signalerhaltung, Abdeckung und bestehende Gate-Entscheidungen.
-- [ ] Numerische Nichtunterlegenheits-/Verbesserungsgrenzen, Stichprobenanforderungen und Auswahl-/Enthaltungsschwellen pro Kandidat in einer versionierten Freigabepolicy festlegen. Diese Werte sind aktuell offen; ohne sie keine reguläre Freigabe.
-- [ ] Rate ungültiger Vorschläge, Enthaltungsrate, Coverage, Kalibrierung, Qualitätsdeltas und Unsicherheitsintervalle getrennt berichten. Agreement ist nur Diagnose.
+- [x] Nutzerannahme, angewendete Config und Qualitätslabel im Replay getrennt ausweisen; fehlende Qualitätslabel bleiben `null`. Abgebrochene/fehlgeschlagene Runs nicht als negative Bildqualität ohne Ursache etikettieren.
+- [ ] Für Qualitätsnachweise gepaarte Ergebnisse derselben Inputs und vergleichbarer Ausgabezustände verwenden; die vorhandenen identischen Input-/Build-Paare sind nur retrospektiv und ohne matched-position-Qualitätslabel. Zusätzliche Runs ausschließlich nach ausdrücklichem Auftrag.
+- [x] Messkanäle vor künftiger Evaluation versioniert festhalten: Sternform an gematchten Positionen, Rauschen auf gültigen vergleichbaren Flächen, Signalerhaltung, Abdeckung und bestehende Gate-Entscheidungen. Numerische Grenzen sind in `release_policy_v1.json` für neue unabhängige Tests fixiert.
+- [x] Numerische Nichtunterlegenheits-/Verbesserungsgrenzen, Stichprobenanforderungen und Auswahl-/Enthaltungsschwellen pro Kandidat in einer versionierten Freigabepolicy für künftige unabhängige Tests festlegen. Retrospektive Runs qualifizieren nicht; die operative Qualitätsprüfung und damit reguläre Freigabe bleiben offen.
+- [x] Rate ungültiger Vorschläge, Enthaltungsrate, Kandidaten-Coverage und Wilson-Intervalle getrennt berichten; Kalibrierung/Qualitätsdeltas explizit `null` mit Grund. Agreement ist nur Diagnose.
 
 **Abnahme:** Null verbotene/ungültige anwendbare Patches in der festgelegten Testsuite; keine Verletzung bestehender Qualitätsgates. Reguläre Freigabe nur bei erfüllter vorab definierter Qualitäts- und Coverage-Policy auf getrennten Testdaten. Fehlender Mehrwert hält Kandidaten im Shadow-/explizit experimentellen Modus.
 
