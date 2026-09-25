@@ -1,32 +1,132 @@
 {
   "comparison": "candidate_applied (adaptive_weights=true) over current_config (adaptive_weights=false), green channel of the selected output (drizzle_raw)",
   "generated": "2026-09-25",
-  "schema_version": "pi.jev-matched-retrospective.v1",
+  "schema_version": "pi.jev-matched-retrospective.v2",
   "sessions": {
+    "ic4605_20260925": {
+      "alignment": {
+        "dx": -4,
+        "dy": -4,
+        "phase_correlation_response": 0.7894266364935617
+      },
+      "coverage_full_raster": {
+        "candidate": 0.8025144930844023,
+        "control": 0.8015763775291754,
+        "loss": -0.0009381155552268261
+      },
+      "detected_isolated_stars": 403,
+      "elongation_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          0.9919465751828165,
+          0.9994384126303502
+        ],
+        "median": 0.9966470241757479
+      },
+      "fwhm_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          1.003397677473044,
+          1.0070435313006616
+        ],
+        "median": 1.0050024066994028
+      },
+      "matched_stars": 350,
+      "noise": {
+        "candidate": 1.57798989370027,
+        "control": 1.5834063855442162,
+        "ratio_candidate_over_control": 0.9965792156117367,
+        "valid_background_pixels": 8403322
+      },
+      "policy_sample_size_flags": {
+        "background_pixels_ok": true,
+        "common_area_ok": true,
+        "matched_stars_ok": true,
+        "signal_apertures_ok": true
+      },
+      "raster": {
+        "candidate": [
+          2850,
+          4612
+        ],
+        "control": [
+          2844,
+          4612
+        ],
+        "identical": false
+      },
+      "run_to_run_geometry": {
+        "fit": {
+          "affine_xy": [
+            [
+              1.0000910204764617,
+              -0.004340072597152612,
+              5.926550846378728
+            ],
+            [
+              0.003965740187365452,
+              1.0004426427518704,
+              -9.968944283128657
+            ]
+          ],
+          "fit_stars": 296,
+          "rotation_deg": 0.23787916813990348,
+          "scale": 1.0002754196311139
+        },
+        "total_displacement_px": {
+          "max": 13.0,
+          "median": 5.656854249492381,
+          "p95": 9.433981132056603
+        }
+      },
+      "signal_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          1.036815445132421,
+          1.0530549236765632
+        ],
+        "median": 1.0441113952630907
+      },
+      "source": {
+        "candidate_run": "jev_m5_ic4605_on_20260925",
+        "channel": "G",
+        "compared_output": "forward_drizzle_raw_G.fit",
+        "control_run": "jev_m5_ic4605_off_20260925",
+        "selected_candidate": "drizzle_raw",
+        "selected_control": "drizzle_raw"
+      },
+      "star_offset_px": {
+        "median": 1.0,
+        "p95": 3.605551275463989,
+        "search_radius": 4
+      },
+      "status": "first_session_enrolled_after_policy_freeze (raster differs between arms; measured after alignment)",
+      "unmatched_stars": 53
+    },
     "ic5070_20260924": {
-      "coverage": {
+      "alignment": {
+        "dx": 0,
+        "dy": 0,
+        "phase_correlation_response": 0.9848254371801162
+      },
+      "coverage_full_raster": {
         "candidate": 0.5340462635277222,
         "control": 0.5338491917888748,
-        "coverage_loss": -0.0001970717388474208,
-        "intersection": 0.5332297671042093,
-        "intersection_over_control": 0.9988397009975984
+        "loss": -0.0001970717388474208
       },
       "detected_isolated_stars": 2352,
       "elongation_ratio_candidate_over_control": {
         "ci95_star_bootstrap": [
-          0.9978316312435329,
-          0.9989982059210506
+          0.9976712479637456,
+          0.9991099707517578
         ],
-        "median": 0.9985032388820094
+        "median": 0.9984475679934517
       },
       "fwhm_ratio_candidate_over_control": {
         "ci95_star_bootstrap": [
-          1.0009068905522258,
-          1.0016053504271207
+          1.001053149568586,
+          1.0017771734039795
         ],
-        "median": 1.0012088019925072
+        "median": 1.0014564890614106
       },
-      "matched_stars": 2237,
+      "matched_stars": 2236,
       "noise": {
         "candidate": 2.7635713887794835,
         "control": 2.7640225586447955,
@@ -39,12 +139,47 @@
         "matched_stars_ok": true,
         "signal_apertures_ok": true
       },
+      "raster": {
+        "candidate": [
+          3484,
+          5820
+        ],
+        "control": [
+          3484,
+          5820
+        ],
+        "identical": true
+      },
+      "run_to_run_geometry": {
+        "fit": {
+          "affine_xy": [
+            [
+              0.9999734024159711,
+              2.5042372952029524e-07,
+              0.07616629064059037
+            ],
+            [
+              4.6268277515703055e-06,
+              0.9999645485879242,
+              0.03683005085563245
+            ]
+          ],
+          "fit_stars": 2219,
+          "rotation_deg": 0.00012537862976262678,
+          "scale": 0.9999689754915693
+        },
+        "total_displacement_px": {
+          "max": 3.1622776601683795,
+          "median": 0.0,
+          "p95": 1.0
+        }
+      },
       "signal_ratio_candidate_over_control": {
         "ci95_star_bootstrap": [
-          1.002336728966915,
-          1.0039743508924808
+          1.0039779929963337,
+          1.0059266491042969
         ],
-        "median": 1.0031390028805063
+        "median": 1.004769312033298
       },
       "source": {
         "candidate_run": "20260924_001226_8c66f570",
@@ -53,32 +188,42 @@
         "control_run": "20260924_004750_bbc7b433",
         "selected_candidate": "drizzle_raw",
         "selected_control": "drizzle_raw"
-      }
+      },
+      "star_offset_px": {
+        "median": 0.0,
+        "p95": 1.0,
+        "search_radius": 4
+      },
+      "status": "retrospective_exploratory",
+      "unmatched_stars": 116
     },
     "m31_20260923": {
-      "coverage": {
+      "alignment": {
+        "dx": 0,
+        "dy": 0,
+        "phase_correlation_response": 0.9850597832870743
+      },
+      "coverage_full_raster": {
         "candidate": 0.9565803876913206,
         "control": 0.956575319888526,
-        "coverage_loss": -5.067802794633813e-06,
-        "intersection": 0.956557252069867,
-        "intersection_over_control": 0.9999811119748927
+        "loss": -5.067802794633813e-06
       },
       "detected_isolated_stars": 2840,
       "elongation_ratio_candidate_over_control": {
         "ci95_star_bootstrap": [
-          1.0001335113138161,
-          1.0006925399246298
+          1.0001676481477881,
+          1.0008107496979046
         ],
-        "median": 1.0003913615721998
+        "median": 1.0004773632595518
       },
       "fwhm_ratio_candidate_over_control": {
         "ci95_star_bootstrap": [
-          1.0017660809397686,
-          1.002448495842425
+          1.0016809406738298,
+          1.0024347801771465
         ],
-        "median": 1.0021188607159275
+        "median": 1.0020753082891256
       },
-      "matched_stars": 2823,
+      "matched_stars": 2824,
       "noise": {
         "candidate": 1.1237855510169257,
         "control": 1.09347002067125,
@@ -91,12 +236,47 @@
         "matched_stars_ok": true,
         "signal_apertures_ok": true
       },
+      "raster": {
+        "candidate": [
+          2312,
+          3926
+        ],
+        "control": [
+          2312,
+          3926
+        ],
+        "identical": true
+      },
+      "run_to_run_geometry": {
+        "fit": {
+          "affine_xy": [
+            [
+              0.9999797364450748,
+              -2.607749891956994e-05,
+              0.10333778947062912
+            ],
+            [
+              5.381446880276678e-06,
+              0.9999871970931943,
+              0.009900800897916381
+            ]
+          ],
+          "fit_stars": 2797,
+          "rotation_deg": 0.0009012473115865497,
+          "scale": 0.9999834668323452
+        },
+        "total_displacement_px": {
+          "max": 4.0,
+          "median": 0.0,
+          "p95": 1.0
+        }
+      },
       "signal_ratio_candidate_over_control": {
         "ci95_star_bootstrap": [
-          0.9981864415934384,
-          0.9987370727794673
+          0.9983414030461464,
+          0.998906446535422
         ],
-        "median": 0.9984356618611404
+        "median": 0.998594840049361
       },
       "source": {
         "candidate_run": "20260923_204346_5a30a6f0",
@@ -105,30 +285,40 @@
         "control_run": "20260923_212703_e8a50695",
         "selected_candidate": "drizzle_raw",
         "selected_control": "drizzle_raw"
-      }
+      },
+      "star_offset_px": {
+        "median": 0.0,
+        "p95": 1.0,
+        "search_radius": 4
+      },
+      "status": "retrospective_exploratory",
+      "unmatched_stars": 16
     },
     "m42_20260923": {
-      "coverage": {
+      "alignment": {
+        "dx": 0,
+        "dy": 0,
+        "phase_correlation_response": 0.9929115657751328
+      },
+      "coverage_full_raster": {
         "candidate": 0.7106813116215649,
         "control": 0.7103726793580869,
-        "coverage_loss": -0.00030863226347799255,
-        "intersection": 0.708710077092511,
-        "intersection_over_control": 0.9976595351793678
+        "loss": -0.00030863226347799255
       },
       "detected_isolated_stars": 1036,
       "elongation_ratio_candidate_over_control": {
         "ci95_star_bootstrap": [
-          0.998793310783302,
-          1.0004588655613356
+          0.9986686201269387,
+          1.0005616443227243
         ],
-        "median": 0.9995521410096638
+        "median": 0.9995158226978379
       },
       "fwhm_ratio_candidate_over_control": {
         "ci95_star_bootstrap": [
-          1.000520721837299,
-          1.002036351104341
+          1.000386128470991,
+          1.002068433433027
         ],
-        "median": 1.0013567792620677
+        "median": 1.0011515486019846
       },
       "matched_stars": 968,
       "noise": {
@@ -143,12 +333,47 @@
         "matched_stars_ok": true,
         "signal_apertures_ok": true
       },
+      "raster": {
+        "candidate": [
+          3360,
+          4540
+        ],
+        "control": [
+          3360,
+          4540
+        ],
+        "identical": true
+      },
+      "run_to_run_geometry": {
+        "fit": {
+          "affine_xy": [
+            [
+              0.9999778019701595,
+              1.0062192991346312e-05,
+              0.03663672745243422
+            ],
+            [
+              9.499083695338303e-06,
+              0.9999678941214948,
+              0.02142967226119731
+            ]
+          ],
+          "fit_stars": 962,
+          "rotation_deg": -1.613233105723409e-05,
+          "scale": 0.999972847985764
+        },
+        "total_displacement_px": {
+          "max": 4.0,
+          "median": 0.0,
+          "p95": 1.0
+        }
+      },
       "signal_ratio_candidate_over_control": {
         "ci95_star_bootstrap": [
-          1.0008351786041,
-          1.0028359943373246
+          1.0012255283975484,
+          1.00372440227908
         ],
-        "median": 1.0019695109547604
+        "median": 1.0023555616660142
       },
       "source": {
         "candidate_run": "20260923_223614_ce66cf2d",
@@ -157,32 +382,42 @@
         "control_run": "20260923_232436_95ed29f7",
         "selected_candidate": "drizzle_raw",
         "selected_control": "drizzle_raw"
-      }
+      },
+      "star_offset_px": {
+        "median": 0.0,
+        "p95": 1.0,
+        "search_radius": 4
+      },
+      "status": "retrospective_exploratory",
+      "unmatched_stars": 68
     },
     "m66_20260924": {
-      "coverage": {
+      "alignment": {
+        "dx": 0,
+        "dy": 0,
+        "phase_correlation_response": 1.014267596057329
+      },
+      "coverage_full_raster": {
         "candidate": 0.7675557701343418,
         "control": 0.7676019021252664,
-        "coverage_loss": 4.613199092451392e-05,
-        "intersection": 0.7668840332635065,
-        "intersection_over_control": 0.9990647901473767
+        "loss": 4.613199092451392e-05
       },
       "detected_isolated_stars": 372,
       "elongation_ratio_candidate_over_control": {
         "ci95_star_bootstrap": [
-          0.9956949129494572,
-          1.000945711631801
+          0.9942727887664555,
+          1.0002540489295693
         ],
-        "median": 0.9976746852668621
+        "median": 0.9970828238687115
       },
       "fwhm_ratio_candidate_over_control": {
         "ci95_star_bootstrap": [
-          0.9995708999376256,
-          1.0030808033720051
+          0.9993455327477998,
+          1.0038862391968086
         ],
-        "median": 1.0013403424706582
+        "median": 1.0018216987643611
       },
-      "matched_stars": 335,
+      "matched_stars": 334,
       "noise": {
         "candidate": 1.667073888585739,
         "control": 1.6376612930997982,
@@ -195,12 +430,47 @@
         "matched_stars_ok": true,
         "signal_apertures_ok": true
       },
+      "raster": {
+        "candidate": [
+          3122,
+          4652
+        ],
+        "control": [
+          3122,
+          4652
+        ],
+        "identical": true
+      },
+      "run_to_run_geometry": {
+        "fit": {
+          "affine_xy": [
+            [
+              0.9999751674792025,
+              3.362845817303077e-05,
+              -0.018142884362498043
+            ],
+            [
+              -1.0172456806310051e-06,
+              1.0000024197313864,
+              -0.018527936211262083
+            ]
+          ],
+          "fit_stars": 349,
+          "rotation_deg": -0.0009925374272043632,
+          "scale": 0.9999887935295622
+        },
+        "total_displacement_px": {
+          "max": 2.23606797749979,
+          "median": 0.0,
+          "p95": 1.0
+        }
+      },
       "signal_ratio_candidate_over_control": {
         "ci95_star_bootstrap": [
-          1.000544445742836,
-          1.004563624956924
+          1.0018304137757188,
+          1.0057777689381615
         ],
-        "median": 1.0029967960486985
+        "median": 1.0030805031857235
       },
       "source": {
         "candidate_run": "20260924_013435_a39a9e30",
@@ -209,9 +479,15 @@
         "control_run": "20260924_040232_e0b8cac7",
         "selected_candidate": "drizzle_raw",
         "selected_control": "drizzle_raw"
-      }
+      },
+      "star_offset_px": {
+        "median": 0.0,
+        "p95": 1.0,
+        "search_radius": 4
+      },
+      "status": "retrospective_exploratory",
+      "unmatched_stars": 38
     }
   },
-  "status": "retrospective_exploratory - not confirmatory; the four sessions were inspected before the release policy was frozen",
-  "tool": "web_backend_cpp/scripts/matched_pair_metrics.py"
+  "tool": "web_backend_cpp/scripts/matched_pair_metrics.py (--align, geometry fit, per-star re-centering)"
 }

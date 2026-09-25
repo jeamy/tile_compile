@@ -87,6 +87,97 @@ class MatchedMetricsTest(unittest.TestCase):
         self.assertFalse(any(y < mp.BORDER for y, x in positions), "border star excluded")
         self.assertGreaterEqual(len(stars), base - 2)
 
+    def _big(self):
+        global H, W
+        h0, w0 = H, W
+        H, W = 620, 640
+        try:
+            img, _ = make_image(1.8, 1.0, seed=3)
+        finally:
+            H, W = h0, w0
+        return img
+
+    def test_shift_estimation_recovers_the_canvas_offset(self):
+        big = self._big()
+        control, candidate = big[0:500, 0:500], big[6:506, 3:503]     # candidate[y, x] = big[y + 6, x + 3]
+        dy, dx, response = mp.estimate_shift(control, candidate)
+        self.assertEqual((dy, dx), (-6, -3))
+        self.assertGreater(response, 0.05)
+        control2, candidate2 = big[10:510, 20:520], big[4:504, 12:512]
+        self.assertEqual(mp.estimate_shift(control2, candidate2)[:2], (6, 8))
+
+    def test_different_canvases_are_compared_after_alignment(self):
+        big = self._big()
+        control, candidate = big[0:500, 0:500], big[6:506, 3:508]      # other size and origin, same sky and noise
+        with self.assertRaises(ValueError):
+            mp.compare_images(control, candidate)                     # without --align a raster mismatch is refused
+        r = mp.compare_images(control, candidate, align=True)
+        self.assertEqual((r["alignment"]["dy"], r["alignment"]["dx"]), (-6, -3))
+        self.assertFalse(r["raster"]["identical"])
+        self.assertGreaterEqual(r["matched_stars"], 8)
+        self.assertAlmostEqual(r["fwhm_ratio_candidate_over_control"]["median"], 1.0, places=6)
+        self.assertAlmostEqual(r["noise"]["ratio_candidate_over_control"], 1.0, places=6)
+
+    def test_alignment_refuses_unrelated_images(self):
+        a, _ = make_image(1.8, 1.0, seed=1)
+        noise = np.random.default_rng(5).normal(100, 1, a.shape)
+        with self.assertRaises(ValueError):
+            mp.compare_images(a, noise, align=True)
+
+    def test_identical_rasters_report_zero_shift(self):
+        a, _ = make_image(1.8, 1.0)
+        r = mp.compare_images(a, a.copy(), align=True)
+        self.assertEqual((r["alignment"]["dy"], r["alignment"]["dx"]), (0, 0))
+        self.assertTrue(r["raster"]["identical"])
+
+    def test_stars_are_rematched_when_the_registration_differs(self):
+        a, _ = make_image(1.8, 1.0)
+        b = np.roll(a, (2, 1), axis=(0, 1))                 # the same sky, 2.2 px off: another registration
+        r = mp.compare_images(a, b)
+        self.assertGreaterEqual(r["matched_stars"], 8)
+        self.assertAlmostEqual(r["fwhm_ratio_candidate_over_control"]["median"], 1.0, delta=0.005)
+        self.assertAlmostEqual(r["signal_ratio_candidate_over_control"]["median"], 1.0, delta=0.005)
+        self.assertAlmostEqual(r["run_to_run_geometry"]["total_displacement_px"]["median"], (2 ** 2 + 1 ** 2) ** 0.5, delta=0.6)
+        self.assertLess(r["star_offset_px"]["median"], 0.6, "a pure translation is absorbed by the fitted geometry")
+        self.assertEqual(r["star_offset_px"]["search_radius"], mp.MATCH_R)
+
+    def test_offsets_beyond_the_search_radius_are_not_mismeasured(self):
+        a, _ = make_image(1.8, 1.0)
+        b = np.roll(a, (12, 0), axis=(0, 1))                # far outside the search radius: stars are lost, not mis-measured
+        r = mp.compare_images(a, b)
+        self.assertGreater(r["unmatched_stars"] + r["matched_stars"], 0)
+        if r["matched_stars"]:
+            self.assertLessEqual(r["star_offset_px"]["p95"], mp.MATCH_R + 1e-9)
+
+    def test_identical_images_have_zero_offset(self):
+        a, _ = make_image(1.8, 1.0)
+        r = mp.compare_images(a, a.copy())
+        self.assertEqual(r["star_offset_px"]["median"], 0.0)
+        self.assertEqual(r["unmatched_stars"], 0)
+
+    def test_a_field_dependent_geometry_difference_is_fitted_and_reported(self):
+        import cv2
+        a, _ = make_image(1.8, 1.0, seed=3)
+        c = (a.shape[1] / 2, a.shape[0] / 2)
+        rot = cv2.getRotationMatrix2D(c, 1.0, 1.0)              # 1 degree: several pixels of displacement at the edges
+        b = cv2.warpAffine(a, rot, (a.shape[1], a.shape[0]), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REFLECT)
+        r = mp.compare_images(a, b)
+        geo = r["run_to_run_geometry"]
+        self.assertIsNotNone(geo["fit"])
+        self.assertAlmostEqual(abs(geo["fit"]["rotation_deg"]), 1.0, delta=0.1)
+        self.assertGreater(geo["total_displacement_px"]["max"], mp.MATCH_R, "the difference is larger than the local search radius")
+        self.assertLess(r["star_offset_px"]["median"], 1.5, "after the fitted geometry the residual offset is small")
+        self.assertGreaterEqual(r["matched_stars"], 8)
+        self.assertAlmostEqual(r["fwhm_ratio_candidate_over_control"]["median"], 1.0, delta=0.04)
+
+    def test_identical_images_report_no_geometry_difference(self):
+        a, _ = make_image(1.8, 1.0)
+        geo = mp.compare_images(a, a.copy())["run_to_run_geometry"]
+        self.assertEqual(geo["total_displacement_px"]["max"], 0.0)
+        if geo["fit"]:
+            self.assertAlmostEqual(geo["fit"]["rotation_deg"], 0.0, places=6)
+            self.assertAlmostEqual(geo["fit"]["scale"], 1.0, places=6)
+
     def test_shape_mismatch_and_empty_overlap_raise(self):
         a, _ = make_image(1.8, 1.0)
         with self.assertRaises(ValueError):
