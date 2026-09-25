@@ -178,6 +178,19 @@ class MatchedMetricsTest(unittest.TestCase):
             self.assertAlmostEqual(geo["fit"]["rotation_deg"], 0.0, places=6)
             self.assertAlmostEqual(geo["fit"]["scale"], 1.0, places=6)
 
+    def test_the_nearest_maximum_wins_over_a_brighter_neighbour(self):
+        import cv2
+        img = np.full((80, 80), 100.0)
+        yy, xx = np.mgrid[0:80, 0:80]
+        img += 200 * np.exp(-((yy - 40) ** 2 + (xx - 40) ** 2) / (2 * 1.8 ** 2))     # the star
+        img += 600 * np.exp(-((yy - 40) ** 2 + (xx - 49) ** 2) / (2 * 1.8 ** 2))     # brighter neighbour 9 px away
+        self.assertEqual(mp.refine_center(img, 40, 40, mp.COARSE_R), (40, 40), "coarse search: the star itself, not the brighter neighbour")
+
+    def test_identical_images_never_move_a_star(self):
+        a, _ = make_image(1.8, 1.0)
+        r = mp.compare_images(a, a.copy())
+        self.assertEqual(r["run_to_run_geometry"]["total_displacement_px"]["max"], 0.0)
+
     def test_shape_mismatch_and_empty_overlap_raise(self):
         a, _ = make_image(1.8, 1.0)
         with self.assertRaises(ValueError):

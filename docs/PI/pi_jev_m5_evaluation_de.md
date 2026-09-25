@@ -153,7 +153,11 @@ qualitätsgewählten Ankerframes wird das Referenzbild über `global_weights` be
 ab. Der Schalter ändert also nicht nur die Gewichtung, sondern kann über das Referenzbild die Geometrie und Abtastung des ganzen Stacks
 verändern (hier 0,24° Rotation, bis 13 px Versatz). Ein An/Aus-Vergleich misst damit beide Effekte gemeinsam; die Policy sollte das
 Referenzbild in beiden Armen festhalten oder die Referenzabweichung als Ausschlusskriterium führen. Ein Wiederholungslauf des
-IC4605-Kontrollarms (`jev_m5_ic4605_off2_20260925`) prüft zusätzlich die Reproduzierbarkeit identisch konfigurierter Läufe.
+IC4605-Kontrollarms (`jev_m5_ic4605_off2_20260925`, identische Config) ist **bit-identisch** zum ersten: 0 von 26702 Registrierungswerten
+weichen ab, gleiches Referenzbild (183), gleiche Gewichte, gleiches Raster, und FWHM-, Elongations-, Signal- und Rauschverhältnis sind exakt
+1,0000. Identisch konfigurierte Läufe sind also reproduzierbar, das Lauf-zu-Lauf-Rauschen ist null, und jede Abweichung zwischen An und Aus
+kommt vom Schalter (Gewichtung und Referenzwahl zusammen). Werkzeug-Einschränkung: Bei identischen Bildern erhalten wenige Prozent der Sterne
+ein Rezentrierungs-Offset von 1 bis 4 px (p95 1,4 px); Mediane und Verhältnisse sind davon unberührt.
 
 ## Für reguläre Freigabe noch erforderlich
 

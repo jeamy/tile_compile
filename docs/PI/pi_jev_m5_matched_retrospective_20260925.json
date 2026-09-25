@@ -1,7 +1,110 @@
 {
   "comparison": "candidate_applied (adaptive_weights=true) over current_config (adaptive_weights=false), green channel of the selected output (drizzle_raw)",
+  "determinism_check": {
+    "alignment": {
+      "dx": 0,
+      "dy": 0,
+      "phase_correlation_response": 1.0
+    },
+    "coverage_full_raster": {
+      "candidate": 0.8015763775291754,
+      "control": 0.8015763775291754,
+      "loss": 0.0
+    },
+    "detected_isolated_stars": 405,
+    "elongation_ratio_candidate_over_control": {
+      "ci95_star_bootstrap": [
+        1.0,
+        1.0
+      ],
+      "median": 1.0
+    },
+    "fwhm_ratio_candidate_over_control": {
+      "ci95_star_bootstrap": [
+        1.0,
+        1.0
+      ],
+      "median": 1.0
+    },
+    "matched_stars": 374,
+    "noise": {
+      "candidate": 1.583683922742893,
+      "control": 1.583683922742893,
+      "ratio_candidate_over_control": 1.0,
+      "valid_background_pixels": 8408113
+    },
+    "policy_sample_size_flags": {
+      "background_pixels_ok": true,
+      "common_area_ok": true,
+      "matched_stars_ok": true,
+      "signal_apertures_ok": true
+    },
+    "raster": {
+      "candidate": [
+        2844,
+        4612
+      ],
+      "control": [
+        2844,
+        4612
+      ],
+      "identical": true
+    },
+    "ref_frame": [
+      183,
+      183
+    ],
+    "registration_leaves_compared": 26702,
+    "registration_leaves_differing": 0,
+    "run_to_run_geometry": {
+      "fit": {
+        "affine_xy": [
+          [
+            1.0000367491737616,
+            1.3471011835343829e-06,
+            -0.13130473588844552
+          ],
+          [
+            1.168546035254907e-05,
+            0.9999235271776673,
+            0.0245080562428537
+          ]
+        ],
+        "fit_stars": 366,
+        "rotation_deg": 0.00029617805637133406,
+        "scale": 0.9999801365654092
+      },
+      "total_displacement_px": {
+        "max": 4.0,
+        "median": 0.0,
+        "p95": 1.4142135623730951
+      }
+    },
+    "signal_ratio_candidate_over_control": {
+      "ci95_star_bootstrap": [
+        1.0,
+        1.0
+      ],
+      "median": 1.0
+    },
+    "source": {
+      "candidate_run": "jev_m5_ic4605_off2_20260925",
+      "channel": "G",
+      "compared_output": "forward_drizzle_raw_G.fit",
+      "control_run": "jev_m5_ic4605_off_20260925",
+      "selected_candidate": "drizzle_raw",
+      "selected_control": "drizzle_raw"
+    },
+    "star_offset_px": {
+      "median": 0.0,
+      "p95": 1.4142135623730951,
+      "search_radius": 4
+    },
+    "status": "determinism_check: identical config run twice",
+    "unmatched_stars": 31
+  },
   "generated": "2026-09-25",
-  "schema_version": "pi.jev-matched-retrospective.v2",
+  "schema_version": "pi.jev-matched-retrospective.v3",
   "sessions": {
     "ic4605_20260925": {
       "alignment": {
@@ -57,19 +160,19 @@
         "fit": {
           "affine_xy": [
             [
-              1.0000910204764617,
-              -0.004340072597152612,
-              5.926550846378728
+              1.000091927763579,
+              -0.004339295704495589,
+              5.9229991342514925
             ],
             [
-              0.003965740187365452,
-              1.0004426427518704,
-              -9.968944283128657
+              0.003963197780812401,
+              1.0004404632443817,
+              -9.958939270412875
             ]
           ],
           "fit_stars": 296,
-          "rotation_deg": 0.23787916813990348,
-          "scale": 1.0002754196311139
+          "rotation_deg": 0.23778425544146284,
+          "scale": 1.000274776741805
         },
         "total_displacement_px": {
           "max": 13.0,
@@ -154,19 +257,19 @@
         "fit": {
           "affine_xy": [
             [
-              0.9999734024159711,
-              2.5042372952029524e-07,
-              0.07616629064059037
+              0.9999733167515675,
+              -2.9542567420212104e-06,
+              0.08044778306619821
             ],
             [
-              4.6268277515703055e-06,
-              0.9999645485879242,
-              0.03683005085563245
+              5.923638862848599e-06,
+              0.9999574170043736,
+              0.046102348186621636
             ]
           ],
-          "fit_stars": 2219,
-          "rotation_deg": 0.00012537862976262678,
-          "scale": 0.9999689754915693
+          "fit_stars": 2285,
+          "rotation_deg": 0.000254341783206736,
+          "scale": 0.9999653668551195
         },
         "total_displacement_px": {
           "max": 3.1622776601683795,
@@ -251,19 +354,19 @@
         "fit": {
           "affine_xy": [
             [
-              1.000184985909132,
-              -0.001145041835931333,
-              1.31611962609486
+              1.0001855261146377,
+              -0.001147949746253167,
+              1.3197448325334873
             ],
             [
-              0.0012365994912976067,
-              1.0000637288395655,
-              -2.5038593750563822
+              0.0012399038702999101,
+              1.0000633032052892,
+              -2.506246030992604
             ]
           ],
-          "fit_stars": 403,
-          "rotation_deg": 0.06822048221928069,
-          "scale": 1.000125063427463
+          "fit_stars": 404,
+          "rotation_deg": 0.0683984248992826,
+          "scale": 1.000125124377774
         },
         "total_displacement_px": {
           "max": 7.0710678118654755,
@@ -348,19 +451,19 @@
         "fit": {
           "affine_xy": [
             [
-              0.9999797364450748,
-              -2.607749891956994e-05,
-              0.10333778947062912
+              0.9999795018400582,
+              -2.647126310887009e-05,
+              0.10406952646481246
             ],
             [
-              5.381446880276678e-06,
-              0.9999871970931943,
-              0.009900800897916381
+              5.653033109720398e-06,
+              0.999988152081074,
+              0.007875856167358048
             ]
           ],
-          "fit_stars": 2797,
-          "rotation_deg": 0.0009012473115865497,
-          "scale": 0.9999834668323452
+          "fit_stars": 2814,
+          "rotation_deg": 0.0009203081806780042,
+          "scale": 0.9999838270260354
         },
         "total_displacement_px": {
           "max": 4.0,
@@ -445,19 +548,19 @@
         "fit": {
           "affine_xy": [
             [
-              0.9999778019701595,
-              1.0062192991346312e-05,
-              0.03663672745243422
+              0.9999810499794012,
+              7.291425162959677e-06,
+              0.03403014752111952
             ],
             [
-              9.499083695338303e-06,
-              0.9999678941214948,
-              0.02142967226119731
+              4.4257626865041595e-06,
+              0.9999707505390304,
+              0.02594975442541435
             ]
           ],
-          "fit_stars": 962,
-          "rotation_deg": -1.613233105723409e-05,
-          "scale": 0.999972847985764
+          "fit_stars": 993,
+          "rotation_deg": -8.209716122520286e-05,
+          "scale": 0.9999759002298202
         },
         "total_displacement_px": {
           "max": 4.0,
@@ -542,19 +645,19 @@
         "fit": {
           "affine_xy": [
             [
-              0.9999751674792025,
-              3.362845817303077e-05,
-              -0.018142884362498043
+              0.9999756891531968,
+              2.403970235696636e-05,
+              -0.0010465484066623752
             ],
             [
-              -1.0172456806310051e-06,
-              1.0000024197313864,
-              -0.018527936211262083
+              -6.429999462619521e-07,
+              1.0000020451353564,
+              -0.018376097305501295
             ]
           ],
-          "fit_stars": 349,
-          "rotation_deg": -0.0009925374272043632,
-          "scale": 0.9999887935295622
+          "fit_stars": 357,
+          "rotation_deg": -0.0007071152066520845,
+          "scale": 0.9999888670651748
         },
         "total_displacement_px": {
           "max": 2.23606797749979,
@@ -586,5 +689,6 @@
       "unmatched_stars": 38
     }
   },
-  "tool": "web_backend_cpp/scripts/matched_pair_metrics.py (--align, geometry fit, per-star re-centering)"
+  "tool": "web_backend_cpp/scripts/matched_pair_metrics.py (--align, geometry fit, per-star re-centering)",
+  "tool_limitation": "With identical inputs a few percent of stars still get a 1-4 px re-centring offset (p95 1.41 px); medians and ratios are unaffected (all ratios exactly 1.0000)."
 }

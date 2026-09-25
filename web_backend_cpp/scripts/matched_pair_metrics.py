@@ -142,8 +142,21 @@ def refine_center(img, y, x, radius=MATCH_R):
     patch = np.asarray(img[y - r: y + r + 1, x - r: x + r + 1], dtype=np.float64)
     sm = cv2.GaussianBlur(patch, (0, 0), 1.0, borderType=cv2.BORDER_REFLECT)
     yy, xx = np.mgrid[-r:r + 1, -r:r + 1]
-    sm[np.hypot(yy, xx) > radius] = -np.inf
-    iy, ix = np.unravel_index(int(np.argmax(sm)), sm.shape)
+    dist = np.hypot(yy, xx)
+    sm[dist > radius] = -np.inf
+    # The star is the NEAREST clear local maximum, not merely the brightest pixel: in a crowded field a brighter
+    # neighbour inside the radius must not win over the star itself. "Clear" = well above the patch background/noise.
+    finite = np.isfinite(sm)
+    bg = float(np.median(sm[finite]))
+    noise = max(1.4826 * float(np.median(np.abs(sm[finite] - bg))), 1e-12)
+    is_max = sm == cv2.dilate(sm, np.ones((3, 3), np.uint8))
+    cand = is_max & finite & (sm - bg > 5.0 * noise)
+    if cand.any():
+        idx = np.argwhere(cand)
+        best = idx[np.argmin(dist[cand])]
+        iy, ix = int(best[0]), int(best[1])
+    else:
+        iy, ix = np.unravel_index(int(np.argmax(sm)), sm.shape)
     return y + int(iy) - r, x + int(ix) - r
 
 
