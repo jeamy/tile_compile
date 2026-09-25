@@ -1,6 +1,6 @@
 # PI Jev — Bestandsaufnahme der Kandidaten-Parameter
 
-> **Stand:** 2026-09-24. **Art:** Bestandsaufnahme und Vorschlag, keine Implementierung, kein Lauf.
+> **Stand:** 2026-09-24. **Art:** Bestandsaufnahme und Vorschlag; A1 und Teile von M5.1 sind implementiert, weitere Gruppen bleiben offen.
 > **Anlass:** Der Katalog `web_backend_cpp/config/pi_decisions/candidates_v1.json` enthält nur einen echten
 > Kandidaten (`enable_adaptive_weights`); Ziel ist, dass Jev alle **sinnvollen** Config-Werte vorschlagen kann
 > ([Zielbild](pi_jev_decisions_plan_de.md), [Regelkatalog](pi_scan_pre_rules_de.md)).

@@ -15,10 +15,29 @@ nlohmann::json load_run_config_yaml(const std::filesystem::path& run_dir);
 // (bool/int/double/null), quoted scalars stay strings. Throws on malformed YAML.
 nlohmann::json yaml_text_to_json(const std::string& yaml_text);
 
-// Links a finished/started run to Jev proposals that were applied to the config draft BEFORE the run
-// started (proposal.status == "applied_to_draft", applied_at <= provenance.started_at), by checking
-// whether the run's own config carries each proposed value -- NOT by config-hash equality (the
-// apply-time and run-start YAML serializers are not guaranteed byte-identical).
+// A Jev draft becomes attributable only when the exact returned config is saved as a revision.
+bool matches_applied_jev_config(const std::filesystem::path& decisions_dir,
+                                const std::string& proposal_id,
+                                const nlohmann::json& saved_config);
+void record_jev_saved_revision(const std::filesystem::path& decisions_dir,
+                               const std::string& proposal_id,
+                               const std::string& revision_id);
+// Checks an explicitly named, saved Jev proposal against the input files and effective run config.
+bool matches_saved_jev_run(const std::filesystem::path& decisions_dir,
+                           const std::string& proposal_id,
+                           const std::filesystem::path& input_dir,
+                           const nlohmann::json& run_config);
+// Queue variant: source_dir must be the scanned directory, and staged_dir must
+// contain the same selected FITS metadata after queue materialization.
+bool matches_saved_jev_run(const std::filesystem::path& decisions_dir,
+                           const std::string& proposal_id,
+                           const std::filesystem::path& source_dir,
+                           const std::filesystem::path& staged_dir,
+                           const nlohmann::json& run_config);
+
+// Records the single proposal explicitly verified at run start and named in run provenance.
+// It must have been saved before the run and its proposed values must occur in the run config.
+// Config-hash equality is not used because the run-start serializer can inject other fields.
 //
 // Contract (docs/PI/pi_jev_m0_field_inventory_de.md section 4):
 //  * Never touches PiMemoryStore or pi_outcome_recorder; state lives only under `decisions_dir`.
@@ -28,8 +47,8 @@ nlohmann::json yaml_text_to_json(const std::string& yaml_text);
 //    run_id. attribution: paths_present | paths_partial (both recorded) | paths_absent (not
 //    recorded). comparison_kind is always "unpaired" and quality_delta always null: the outcome is
 //    descriptive and confounded, never a quality claim.
-//  * Terminal markers: no_provenance, no_applied_proposals, recorded. A read error is written as a
-//    retryable marker so a later call can succeed.
+//  * Terminal markers: no_applied_proposals, recorded. Missing provenance and read errors are
+//    retryable because a run-completion callback can race with provenance writing.
 // Returns the marker written or found.
 nlohmann::json record_jev_outcome_if_needed(const std::filesystem::path& decisions_dir,
                                             const std::string& run_id,

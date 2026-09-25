@@ -83,9 +83,8 @@ parallel) sind gegen den Code geklärt. Vorgabe des Nutzers: Jev ist eine
    Ein Diskriminator wäre nur nötig, wenn beide Quellen denselben Store
    teilten; das ist ausgeschlossen. Stattdessen ein **neues Modul**
    `pi_decision_outcome` mit eigener `record_jev_outcome_if_needed()` und
-   eigenem Marker `runs/<run_id>/artifacts/jev_outcome_recorded.json`,
-   aufgerufen an denselben zwei Stellen wie der bestehende Recorder
-   (Status-Poll, Run-Delete-Route), aber unabhängig davon und mit eigenem
+   eigenem Marker `pi_decisions/_run_markers/<run_id>.json`,
+   aufgerufen bei erfolgreichem Run-Ende und beim Status-Poll, aber unabhängig davon und mit eigenem
    Fehlerpfad (ein Fehler in einem Recorder darf den anderen nie blockieren).
 3. **Dauerhaft parallel (Frage 3).** Jev ist kein Übergangsschritt bis zur
    Scharfschaltung der lokalen Modelle (Lernplan Schritt 7). Wechselwirkung
@@ -98,8 +97,11 @@ parallel) sind gegen den Code geklärt. Vorgabe des Nutzers: Jev ist eine
 Beim Übernehmen speichert der Vorschlag `applied_at`, die `updates[]` (Pfad,
 alter/neuer Wert) und `config_hash_before`/`config_hash_after` des
 Entwurfs. Übernahme verändert nur den Entwurf; eine Revision entsteht erst,
-wenn der Nutzer speichert (Autor dann `jev_proposal`, wenn der Speicherweg
-das tragen kann, sonst `save_config` — dann greift die Werteprüfung unten).
+wenn der Nutzer speichert. Exakt passendes YAML und eine mitgesendete Jev-ID
+erzeugen den Autor `jev_proposal` und einen gespeicherten Revisionslink. Ein
+direkter Run erhält die Jev-ID nur nach erneutem Abgleich von Eingabeordner,
+FITS-Dateimetadaten und Patch-Werten. Der Recorder betrachtet nur diese
+explizit verknüpfte ID; bloß gleiche Werte reichen nicht mehr.
 
 `record_jev_outcome_if_needed()` verknüpft **nicht** über Hash-Gleichheit
 (die YAML-Serializer von Apply-Zeit und Run-Start sind laut bestehendem

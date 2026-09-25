@@ -245,7 +245,8 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
     try {
       const r = await api.post(API_ENDPOINTS.decisions.apply(id), { yaml: currentDraftYaml(), locked_paths: [], session_context: sessionContext() });
       const parsed = parseYaml(r.patched_yaml);
-      setConfigState({ draft: deepClone(parsed), draftYaml: r.patched_yaml, dirty: true });
+      setConfigState({ draft: deepClone(parsed), draftYaml: r.patched_yaml, dirty: true,
+        jevAppliedProposalId: id, jevSavedProposalId: "" });
       onDraftApplied?.();
       toastSuccess(t("ui.jev.applied_toast", "Vorschlag in den Entwurf übernommen (nicht gespeichert)"));
       await poll(id);

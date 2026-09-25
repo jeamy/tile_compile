@@ -221,6 +221,14 @@ int main(int argc, char** argv) {
             const auto again = h.svc->apply(id, [] { auto a = advice(10, true); return a; }());
             expect_true(again.http_status == 200 && again.body["already_applied"] == true, "identical repeat is idempotent");
             expect_true(again.body["proposal"]["applied_at"] == ok.body["proposal"]["applied_at"], "repeat does not rewrite applied_at");
+            auto changed_after_apply = advice(10, true);
+            changed_after_apply.base_config["other"] = 1;
+            expect_true(h.svc->apply(id, changed_after_apply).body["code"] == "DRAFT_CHANGED", "repeat rejects unrelated draft edits");
+            auto changed_scan_after_apply = advice(11, true);
+            expect_true(h.svc->apply(id, changed_scan_after_apply).body["code"] == "PROPOSAL_STALE", "repeat rejects changed scan");
+            auto changed_locks_after_apply = advice(10, true);
+            changed_locks_after_apply.locked_paths = {"global_metrics.adaptive_weights"};
+            expect_true(h.svc->apply(id, changed_locks_after_apply).body["code"] == "PROPOSAL_STALE", "repeat rejects changed locks");
             // draft moved away from the applied values
             expect_equal(static_cast<long>(h.svc->apply(id, advice()).http_status), 409L, "draft reverted -> DRAFT_CHANGED");
 

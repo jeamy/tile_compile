@@ -1,6 +1,8 @@
 #include "services/pi/pi_decision_outcome.hpp"
 
 #include "services/pi/pi_decision_policy.hpp"
+#include "services/pi/pi_decision_state.hpp"
+#include "services/pi/pi_scan_manifest.hpp"
 
 #include <yaml-cpp/yaml.h>
 
@@ -66,8 +68,16 @@ void write_json_atomic(const fs::path& p, const json& j) {
     fs::rename(tmp, p);
 }
 
-bool safe_run_id(const std::string& id) {
+bool safe_proposal_id(const std::string& id) {
     return !id.empty() && id.find('/') == std::string::npos && id.find('\\') == std::string::npos && id.find("..") == std::string::npos;
+}
+
+bool safe_run_id(const std::string& id) {
+    if (id.empty() || id.find('\\') != std::string::npos || id.find('\0') != std::string::npos) return false;
+    const fs::path path(id);
+    if (path.is_absolute() || path.lexically_normal().generic_string() != id) return false;
+    for (const auto& part : path) if (part == "." || part == ".." || part.empty()) return false;
+    return true;
 }
 
 } // namespace
@@ -78,6 +88,60 @@ json load_run_config_yaml(const fs::path& run_dir) {
     const fs::path p = run_dir / "config.yaml";
     if (!fs::is_regular_file(p)) throw std::runtime_error("run config.yaml not found");
     return yaml_to_json(YAML::LoadFile(p.string()));
+}
+
+bool matches_applied_jev_config(const fs::path& decisions_dir, const std::string& proposal_id,
+                                const json& saved_config) {
+    if (!safe_proposal_id(proposal_id) || !saved_config.is_object()) return false;
+    const auto proposal = read_json(decisions_dir / proposal_id / "proposal.json");
+    return proposal && proposal->value("status", std::string()) == "applied_to_draft" &&
+           proposal->value("config_hash_after", std::string()) ==
+               sha256_prefixed(canonical_json_dump(saved_config));
+}
+
+void record_jev_saved_revision(const fs::path& decisions_dir, const std::string& proposal_id,
+                               const std::string& revision_id) {
+    if (!safe_proposal_id(proposal_id) || revision_id.empty()) throw std::invalid_argument("invalid Jev revision link");
+    const fs::path path = decisions_dir / proposal_id / "proposal.json";
+    auto proposal = read_json(path);
+    if (!proposal || proposal->value("status", std::string()) != "applied_to_draft")
+        throw std::runtime_error("Jev proposal is not applied to a draft");
+    json& ids = (*proposal)["saved_revision_ids"];
+    if (!ids.is_array()) ids = json::array();
+    for (const auto& id : ids) if (id == revision_id) return;
+    ids.push_back(revision_id);
+    write_json_atomic(path, *proposal);
+}
+
+bool matches_saved_jev_run(const fs::path& decisions_dir, const std::string& proposal_id,
+                           const fs::path& input_dir, const json& run_config) {
+    return matches_saved_jev_run(decisions_dir, proposal_id, input_dir, input_dir, run_config);
+}
+
+bool matches_saved_jev_run(const fs::path& decisions_dir, const std::string& proposal_id,
+                           const fs::path& source_dir, const fs::path& staged_dir, const json& run_config) {
+    if (!safe_proposal_id(proposal_id) || !run_config.is_object()) return false;
+    const auto proposal = read_json(decisions_dir / proposal_id / "proposal.json");
+    const auto source = read_json(decisions_dir / proposal_id / "source.json");
+    if (!proposal || !source || proposal->value("status", std::string()) != "applied_to_draft" ||
+        !proposal->value("saved_revision_ids", json::array()).is_array() ||
+        proposal->value("saved_revision_ids", json::array()).empty()) return false;
+    const std::string scanned_path = source->value("input_path", std::string());
+    if (scanned_path.empty() || !source->contains("dataset_manifest") || !(*source)["dataset_manifest"].is_array()) return false;
+    try {
+        if (fs::weakly_canonical(source_dir) != fs::weakly_canonical(fs::path(scanned_path))) return false;
+        json frames = json::array();
+        for (const auto& item : (*source)["dataset_manifest"])
+            frames.push_back({{"file_name", item.at("id")}});
+        if (build_scan_dataset_manifest(source_dir, {{"frames", frames}}) != (*source)["dataset_manifest"]) return false;
+        if (staged_dir != source_dir &&
+            build_scan_dataset_manifest(staged_dir, {{"frames", frames}}) != (*source)["dataset_manifest"]) return false;
+        for (const auto& update : proposal->at("updates"))
+            if (!json_values_equal(config_get(run_config, update.at("path").get<std::string>()), update.at("value"))) return false;
+    } catch (const std::exception&) {
+        return false;
+    }
+    return !proposal->at("updates").empty();
 }
 
 json record_jev_outcome_if_needed(const fs::path& decisions_dir, const std::string& run_id, const fs::path& run_dir,
@@ -92,27 +156,24 @@ json record_jev_outcome_if_needed(const fs::path& decisions_dir, const std::stri
     };
 
     const auto provenance = read_json(run_dir / "artifacts" / "pi_run_provenance.json");
-    if (!provenance) return write_marker({{"run_id", run_id}, {"terminal", true}, {"reason", "no_provenance"}});
+    if (!provenance) return write_marker({{"run_id", run_id}, {"terminal", false}, {"reason", "no_provenance"}});
+    const std::string linked_proposal_id = provenance->value("jev_proposal_id", std::string());
+    if (!safe_proposal_id(linked_proposal_id))
+        return {{"run_id", run_id}, {"terminal", true}, {"reason", "no_linked_proposal"}};
     const std::string started_at = provenance->value("started_at", std::string());
-    if (started_at.empty()) return write_marker({{"run_id", run_id}, {"terminal", true}, {"reason", "no_provenance"}});
+    if (started_at.empty()) return write_marker({{"run_id", run_id}, {"terminal", false}, {"reason", "no_provenance"}});
 
-    // Applied proposals that predate the run.
+    // Only the proposal explicitly verified at run start may be attributed.
     std::vector<std::pair<std::string, json>> proposals;
-    std::error_code ec;
-    if (fs::is_directory(decisions_dir, ec)) {
-        std::vector<fs::path> dirs;
-        for (const auto& e : fs::directory_iterator(decisions_dir, ec))
-            if (e.is_directory() && e.path().filename().string().rfind("_", 0) != 0) dirs.push_back(e.path());
-        std::sort(dirs.begin(), dirs.end());
-        for (const auto& d : dirs) {
-            const auto prop = read_json(d / "proposal.json");
-            if (!prop || prop->value("status", std::string()) != "applied_to_draft") continue;
-            if (!prop->contains("updates") || !(*prop)["updates"].is_array() || (*prop)["updates"].empty()) continue;
-            const std::string applied_at = prop->value("applied_at", std::string());
-            // ISO-8601 UTC strings of identical shape compare correctly as text.
-            if (applied_at.empty() || applied_at.size() != started_at.size() || applied_at > started_at) continue;
-            proposals.emplace_back(d.filename().string(), *prop);
-        }
+    const auto prop = read_json(decisions_dir / linked_proposal_id / "proposal.json");
+    if (prop && prop->value("status", std::string()) == "applied_to_draft") {
+        const json saved_ids = prop->value("saved_revision_ids", json::array());
+        const std::string applied_at = prop->value("applied_at", std::string());
+        // ISO-8601 UTC strings of identical shape compare correctly as text.
+        if (saved_ids.is_array() && !saved_ids.empty() && prop->contains("updates") &&
+            (*prop)["updates"].is_array() && !(*prop)["updates"].empty() &&
+            !applied_at.empty() && applied_at.size() == started_at.size() && applied_at <= started_at)
+            proposals.emplace_back(linked_proposal_id, *prop);
     }
     if (proposals.empty()) return write_marker({{"run_id", run_id}, {"terminal", true}, {"reason", "no_applied_proposals"}});
 

@@ -1,5 +1,7 @@
 #include "backend_test_harness.hpp"
 #include "services/pi/pi_decision_outcome.hpp"
+#include "services/pi/pi_decision_state.hpp"
+#include "services/pi/pi_scan_manifest.hpp"
 
 #include <cstdio>
 #include <fstream>
@@ -27,7 +29,8 @@ std::map<std::string, std::string> snapshot(const fs::path& root) {
 }
 
 json proposal(const std::string& status, const std::string& applied_at, json updates) {
-    return {{"proposal_id", "x"}, {"status", status}, {"applied_at", applied_at}, {"updates", updates}};
+    return {{"proposal_id", "x"}, {"status", status}, {"applied_at", applied_at}, {"updates", updates},
+            {"saved_revision_ids", json::array({"cfg_saved"})}};
 }
 } // namespace
 
@@ -40,7 +43,9 @@ int main() {
         const fs::path memory = root / "pi_memory";
         write_text(memory / "memories_v2.jsonl", "{\"sentinel\":true}\n");
         write_text(run / "artifacts" / "pi_run_provenance.json",
-                   json{{"config_revision_id", "cfg_2"}, {"started_at", "2026-09-23T11:00:00Z"}}.dump());
+                   json{{"config_revision_id", "cfg_2"}, {"prior_active_config_revision_id", "cfg_saved"},
+                        {"jev_proposal_id", "p_ok"},
+                        {"started_at", "2026-09-23T11:00:00Z"}}.dump());
         write_text(run / "config.yaml", "global_metrics:\n  adaptive_weights: true\nname: \"1\"\nn: 3\nx: 0.5\n");
         const json upd_true = json::array({{{"path", "global_metrics.adaptive_weights"}, {"value", true}}});
         write_text(dec / "p_ok" / "proposal.json", proposal("applied_to_draft", "2026-09-23T10:00:00Z", upd_true).dump());
@@ -51,6 +56,43 @@ int main() {
         write_text(dec / "p_partial" / "proposal.json",
                    proposal("applied_to_draft", "2026-09-23T10:00:00Z",
                             json::array({{{"path", "global_metrics.adaptive_weights"}, {"value", true}}, {{"path", "n"}, {"value", 99}}})).dump());
+        write_text(dec / "p_unsaved" / "proposal.json",
+                   json{{"status", "applied_to_draft"}, {"applied_at", "2026-09-23T10:00:00Z"},
+                        {"updates", upd_true}}.dump());
+
+        const json applied_config = yaml_text_to_json(slurp_file(run / "config.yaml"));
+        json saved_proposal = proposal("applied_to_draft", "2026-09-23T10:00:00Z", upd_true);
+        saved_proposal["config_hash_after"] = sha256_prefixed(canonical_json_dump(applied_config));
+        write_text(dec / "p_link" / "proposal.json", saved_proposal.dump());
+        expect_true(matches_applied_jev_config(dec, "p_link", applied_config), "exact saved config matches proposal");
+        json altered_config = applied_config;
+        altered_config["n"] = 4;
+        expect_true(!matches_applied_jev_config(dec, "p_link", altered_config), "edited config does not match proposal");
+        expect_true(!matches_applied_jev_config(dec, "../escape", applied_config), "invalid proposal id refused");
+        record_jev_saved_revision(dec, "p_link", "cfg_saved");
+        record_jev_saved_revision(dec, "p_link", "cfg_saved");
+        expect_equal(static_cast<long>(read_json(dec / "p_link" / "proposal.json")["saved_revision_ids"].size()), 1L,
+                     "repeated save link is idempotent");
+        const fs::path input = root / "input";
+        write_text(input / "a.fits", "frame");
+        const json manifest = build_scan_dataset_manifest(input,
+            {{"frames", json::array({{{"file_name", "a.fits"}}})}});
+        write_text(dec / "p_link" / "source.json",
+                   json{{"input_path", input.string()}, {"dataset_manifest", manifest}}.dump());
+        expect_true(matches_saved_jev_run(dec, "p_link", input, applied_config), "saved proposal matches run input and values");
+        const fs::path staged = root / "staged";
+        fs::create_directories(staged);
+        fs::create_symlink(input / "a.fits", staged / "a.fits");
+        expect_true(matches_saved_jev_run(dec, "p_link", input, staged, applied_config),
+                    "queue staging with identical selected FITS metadata matches");
+        write_text(staged / "extra.fits", "extra");
+        expect_true(!matches_saved_jev_run(dec, "p_link", input, staged, applied_config),
+                    "queue staging with an extra FITS file cannot be attributed");
+        json changed_run_config = applied_config;
+        changed_run_config["global_metrics"]["adaptive_weights"] = false;
+        expect_true(!matches_saved_jev_run(dec, "p_link", input, changed_run_config), "changed proposed run value blocks attribution");
+        std::ofstream(input / "a.fits", std::ios::app) << "changed";
+        expect_true(!matches_saved_jev_run(dec, "p_link", input, applied_config), "changed input metadata blocks attribution");
 
         // real yaml loader: bool / quoted string / int / double keep their types
         const json loaded = load_run_config_yaml(run);
@@ -70,11 +112,19 @@ int main() {
         expect_equal(o["runs"][0]["attribution"].get<std::string>(), "paths_present", "attribution present");
         expect_true(o["runs"][0]["comparison_kind"] == "unpaired" && o["runs"][0]["quality_delta"].is_null(), "unpaired, no quality claim");
         expect_equal(o["runs"][0]["config_revision_id"].get<std::string>(), "cfg_2", "provenance revision recorded");
-        expect_equal(read_json(dec / "p_partial" / "outcome.json")["runs"][0]["attribution"].get<std::string>(), "paths_partial", "partial attribution");
+        expect_true(!fs::exists(dec / "p_partial" / "outcome.json"), "unlinked proposal ignored even when values overlap");
         expect_true(!fs::exists(dec / "p_absent" / "outcome.json"), "absent values are not recorded as an outcome");
         expect_true(!fs::exists(dec / "p_late" / "outcome.json"), "proposal applied after run start ignored");
         expect_true(!fs::exists(dec / "p_validated" / "outcome.json"), "non-applied proposal ignored");
-        expect_true(m1["skipped"].size() == 1 && m1["skipped"][0]["proposal_id"] == "p_absent", "skip is reported in the marker");
+        expect_true(!fs::exists(dec / "p_unsaved" / "outcome.json"), "draft-only proposal ignored");
+        const fs::path wrong_revision_run = root / "runs" / "wrong_revision";
+        write_text(wrong_revision_run / "artifacts" / "pi_run_provenance.json",
+                   json{{"prior_active_config_revision_id", "unrelated"},
+                        {"started_at", "2026-09-23T11:00:00Z"}}.dump());
+        write_text(wrong_revision_run / "config.yaml", slurp_file(run / "config.yaml"));
+        expect_true(record_jev_outcome_if_needed(dec, "wrong_revision", wrong_revision_run)["reason"] == "no_linked_proposal",
+                    "matching values without an explicit proposal link do not create an outcome");
+        expect_true(m1["skipped"].empty(), "unlinked proposals are never evaluated");
 
         // ---- isolation: nothing written into the run, memory store untouched ----
         expect_true(snapshot(run) == run_before, "run directory byte-identical (read-only)");
@@ -104,13 +154,27 @@ int main() {
         {
             const fs::path run2 = root / "runs" / "run2";
             fs::create_directories(run2);
-            expect_true(record_jev_outcome_if_needed(dec, "run2", run2)["reason"] == "no_provenance", "no provenance is terminal");
+            const json missing = record_jev_outcome_if_needed(dec, "run2", run2);
+            expect_true(missing["reason"] == "no_provenance" && missing["terminal"] == false,
+                        "missing provenance can be retried after the run-start race");
             write_text(root / "runs" / "run3" / "artifacts" / "pi_run_provenance.json", json{{"started_at", "2026-09-23T09:00:00Z"}}.dump());
-            expect_true(record_jev_outcome_if_needed(dec, "run3", root / "runs" / "run3")["reason"] == "no_applied_proposals", "run older than every proposal");
+            expect_true(record_jev_outcome_if_needed(dec, "run3", root / "runs" / "run3")["reason"] == "no_linked_proposal", "run without a Jev link is not attributed");
             const auto snap = snapshot(dec);
             expect_true(record_jev_outcome_if_needed(dec, "../evil", run)["reason"] == "invalid_run_id", "path-like run id refused");
             expect_true(snapshot(dec) == snap, "refused id writes nothing");
         }
+
+        const fs::path queued_run = root / "runs" / "queue1" / "L";
+        write_text(queued_run / "artifacts" / "pi_run_provenance.json",
+                   json{{"jev_proposal_id", "p_ok"}, {"started_at", "2026-09-23T11:00:00Z"}}.dump());
+        write_text(queued_run / "config.yaml", slurp_file(run / "config.yaml"));
+        const json queued_marker = record_jev_outcome_if_needed(dec, "queue1/L", queued_run);
+        expect_true(queued_marker["reason"] == "recorded" && queued_marker["terminal"] == true,
+                    "safe nested queue run id records its linked outcome");
+        expect_true(fs::exists(dec / "_run_markers" / "queue1" / "L.json"),
+                    "nested queue marker remains under pi_decisions");
+        expect_true(record_jev_outcome_if_needed(dec, "queue1/../evil", queued_run)["reason"] == "invalid_run_id",
+                    "nested traversal is rejected");
 
         fs::remove_all(root);
         std::puts("pi_decision_outcome: all checks passed");

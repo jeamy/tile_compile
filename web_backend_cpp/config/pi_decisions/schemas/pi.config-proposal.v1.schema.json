@@ -189,6 +189,12 @@
     },
     "config_hash_after": {
       "type": "string"
+    },
+    "saved_revision_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Present only after exact Jev draft content was saved; run attribution also requires explicit run-start validation."
     }
   },
   "allOf": [

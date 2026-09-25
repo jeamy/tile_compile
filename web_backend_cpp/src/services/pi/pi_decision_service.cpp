@@ -115,6 +115,8 @@ void DecisionService::run(const std::string& id, const AdviceRequest& request) {
         const PreRunCandidates cands = build_pre_run_candidates(sr.state, request.base_config, policy, catalog_, deps_.validate_config);
         write_json_file_atomic(pdir(id) / "state.json", {{"state", sr.state}, {"state_hash", sr.state_hash}, {"findings", sr.findings},
                                                          {"provider_projection", sr.provider_projection}});
+        write_json_file_atomic(pdir(id) / "source.json", {{"input_path", request.scan.value("input_path", std::string())},
+                                                            {"dataset_manifest", request.dataset_manifest}});
         write_json_file_atomic(pdir(id) / "candidates.json", {{"applicable", cands.applicable}, {"excluded", cands.excluded},
                                                               {"catalog_version", cands.catalog_version}, {"policy", policy_snapshot(policy)}});
 
@@ -241,10 +243,19 @@ ServiceResult DecisionService::apply(const std::string& id, const AdviceRequest&
     const DecisionPolicy policy = policy_from_snapshot(status->value("policy", json::object()));
 
     if (pstatus == "applied_to_draft") {
-        // Idempotent repeat: fine while the draft still carries the applied values.
-        for (const auto& u : proposal["updates"])
-            if (!json_values_equal(config_get(current.base_config, u["path"].get<std::string>()), u["value"]))
-                return fail(409, "DRAFT_CHANGED", {{"path", u["path"]}});
+        // A repeat is idempotent only for the exact patched draft and the same scan/locks/dataset.
+        const auto saved_state = read_json_file_opt(pdir(id) / "state.json");
+        if (!saved_state || !saved_state->contains("state")) return fail(409, "PROPOSAL_STALE");
+        const PreRunDecisionResult now = build_pre_run_decision_state(to_inputs(current));
+        if (now.state["identity"]["config_hash"] != proposal.value("config_hash_after", std::string()))
+            return fail(409, "DRAFT_CHANGED");
+        json original = (*saved_state)["state"];
+        json current_state = now.state;
+        original.erase("base_config");
+        current_state.erase("base_config");
+        original["identity"].erase("config_hash");
+        current_state["identity"].erase("config_hash");
+        if (original != current_state) return fail(409, "PROPOSAL_STALE");
         return {200, {{"proposal", proposal}, {"updates", proposal["updates"]}, {"patched_config", current.base_config}, {"already_applied", true}}};
     }
 

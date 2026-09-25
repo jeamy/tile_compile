@@ -187,6 +187,7 @@ set(BACKEND_SOURCES
     src/services/pi/pi_pre_rules.cpp
     src/services/pi/pi_decision_service.cpp
     src/services/pi/pi_decision_outcome.cpp
+    src/services/pi/pi_scan_manifest.cpp
     src/routes/pi_decision_routes.cpp
     src/services/pi/pi_context_v2.cpp
     src/services/pi/pi_parameter_catalog.cpp
@@ -419,11 +420,15 @@ if(BUILD_TESTS)
     target_link_libraries(web_backend_cpp_pi_decision_service PRIVATE OpenSSL::Crypto)
     add_backend_cpp_test(web_backend_cpp_pi_decision_outcome tests/test_pi_decision_outcome.cpp)
     target_sources(web_backend_cpp_pi_decision_outcome PRIVATE
+        src/services/pi/pi_decision_state.cpp
         src/services/pi/pi_decision_policy.cpp
         src/services/pi/pi_decision_outcome.cpp
+        src/services/pi/pi_scan_manifest.cpp
     )
     target_include_directories(web_backend_cpp_pi_decision_outcome PRIVATE ${YAML_CPP_INCLUDE_DIRS})
-    target_link_libraries(web_backend_cpp_pi_decision_outcome PRIVATE ${YAML_CPP_LIBRARIES})
+    target_link_libraries(web_backend_cpp_pi_decision_outcome PRIVATE ${YAML_CPP_LIBRARIES} OpenSSL::Crypto)
+    add_backend_cpp_test(web_backend_cpp_pi_scan_manifest tests/test_pi_scan_manifest.cpp)
+    target_sources(web_backend_cpp_pi_scan_manifest PRIVATE src/services/pi/pi_scan_manifest.cpp)
     add_backend_cpp_test(web_backend_cpp_pi_routes tests/test_pi_routes.cpp)
     target_sources(web_backend_cpp_pi_routes PRIVATE
         src/services/pi/pi_context_v2.cpp

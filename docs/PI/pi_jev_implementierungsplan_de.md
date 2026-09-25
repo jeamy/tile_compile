@@ -1,7 +1,7 @@
 # PI Jev — Detaillierter Implementierungsplan
 
-> **Stand:** 2026-09-22.
-> **Status:** M0, M1 (State-Builder) und M2 (Pre-Rules, Kandidaten, atomare Validierung, Outcome-Modul) M3 (Sidecar-Adapter) und M4 (Workflow: Service, Routen, Sidecar-Einstellungen, UI; live in isolierter Instanz geprüft) umgesetzt; M5-M7 offen; noch keine Routen-/UI-Verdrahtung.
+> **Stand:** 2026-09-25.
+> **Status:** M0-M4 und Teile von M5.1 umgesetzt; Routen und UI sind verdrahtet. Revision-/Run-Zuordnung und FITS-Metadatenprüfung ergänzt. M5-M7 bleiben offen.
 > **Verbindliche Reihenfolge:** Pre-Run-Beratung zuerst, Post-Run-Beratung danach.
 > **Lieferumfang:** Vorschläge; kein automatischer Run/Resume und kein zweiter Bildeditor.
 
@@ -26,7 +26,7 @@ Keine Veränderung der Rekonstruktionsmethode, keine neue Runner-Netzwerkabhäng
 | `web_backend_cpp/src/services/pi/pi_parameter_catalog.cpp` | Metadaten referenzieren; keine automatische Freigabe aus Description/Enum |
 | `web_backend_cpp/src/services/pi/pi_action_plan.cpp` und `pi_action_validator.cpp` | Jev-Vorschlag ohne Ausführungsaktion darstellen; Kandidaten-/Evidenzbindung prüfen |
 | `web_backend_cpp/src/services/pi/pi_storage_paths.cpp` | Persistenz unter bestehendem Backend-State-Root; keine impliziten Writes in fremde Runs |
-| `web_backend_cpp/src/services/pi/pi_outcome_recorder.cpp` | **Nicht ändern** (Entscheidung 2026-09-23, [Feld-Inventar §4](pi_jev_m0_field_inventory_de.md#4-entschieden-verh%C3%A4ltnis-zum-lokalen-lernsystem-2026-09-23)). Jev-Outcomes laufen über das neue Modul `pi_decision_outcome`; nur die zwei bestehenden Aufrufstellen (Status-Poll, Run-Delete) rufen zusätzlich `record_jev_outcome_if_needed()` auf |
+| `web_backend_cpp/src/services/pi/pi_outcome_recorder.cpp` | **Nicht ändern** (Entscheidung 2026-09-23, [Feld-Inventar §4](pi_jev_m0_field_inventory_de.md#4-entschieden-verh%C3%A4ltnis-zum-lokalen-lernsystem-2026-09-23)). Jev-Outcomes laufen über `pi_decision_outcome`; `runs_routes.cpp` ruft beide Recorder unabhängig bei erfolgreichem Run-Ende und beim Statusabruf auf, nicht beim Run-Delete |
 | `web_backend_cpp/src/services/config_revisions.cpp`, `run_inspector.cpp`, `routes/runs_routes.cpp` | Aktuelle Config und bestehende Resume-Machbarkeit wiederverwenden |
 | `agent_service/src/config.ts`, `types.ts`, `server.ts` | Optionalen Decisions-Adapter konfigurieren und anbieten; nutzt den bereits vorhandenen `.env`-Key `JEV_OPENROUTER_API_KEY`, siehe 2.1 |
 | `agent_service/src/services/frameAnalysisService.ts` | Bestehende PI-Beratung als unabhängige Vergleichs-/Fallback-Option erhalten |
@@ -118,7 +118,7 @@ Normalisierte Antwort enthält Auswahl und getrennte Rohwahrscheinlichkeiten. Ke
 
 ### 3.4 Vorschlag: `pi.config-proposal.v1`
 
-Pflichtfelder: `proposal_id`, `domain`, Identitätsblock, `state_hash`, `candidate_id/version`, `question_set_version`, `policy_version`, `model`, `status`, `updates`, `evidence_refs`, `reason_codes`, `review_required`, `validation`, `created_at`.
+Pflichtfelder: `proposal_id`, `domain`, Identitätsblock, `state_hash`, `candidate_id/version`, `question_set_version`, `policy_version`, `model`, `status`, `updates`, `evidence_refs`, `reason_codes`, `review_required`, `validation`, `created_at`. Nach exaktem Config-Speichern kommt optional `saved_revision_ids` hinzu.
 
 `updates` enthält `path`, `old_value`, `value`, `group_id`. Leere Updates bei `no_change`, `abstain`, `blocked`, `unavailable` oder `stale`. Die Anwendung darf diese Zustände nicht als leere erfolgreiche Mutation verbuchen.
 
@@ -134,7 +134,7 @@ Geplante neue Beratungsschnittstellen:
 
 State wird serverseitig aus den Scanquellen rekonstruiert. Browser liefert keine autoritativen Messwerte. Bei veraltetem Entwurf `409 PROPOSAL_STALE`; bei Policy-/Config-Fehler strukturierte Ablehnung; keine Rückkehr auf eine alte vollständige Config.
 
-Apply führt Compare-and-swap auf der Entwurfsrevision aus und validiert unmittelbar vor der Mutation. Wiederholte gleiche Übernahme liefert dieselbe Revision; ein inzwischen geänderter Entwurf führt zum Konflikt. Kein Job vom Typ Run/Resume wird erzeugt.
+Apply vergleicht den vom Browser erneut gesendeten Entwurf mit den gespeicherten Scan-, Dataset-, Config- und Lock-Hashes und validiert unmittelbar vor der Rückgabe des gepatchten Entwurfs. Der Backend-Service besitzt keine serverseitige Entwurfsrevision; dies ist deshalb kein Compare-and-swap über einen zentral gespeicherten Entwurf. Eine Wiederholung akzeptiert nur denselben gepatchten Entwurf und dieselbe Datengrundlage. Eine Revision entsteht erst beim separaten Config-Speichern. Kein Job vom Typ Run/Resume wird erzeugt.
 
 ### 3.6 Persistenz und Replay
 
@@ -147,9 +147,9 @@ Run-Outcomes referenzieren später `proposal_id` und die tatsächlich gestartete
 **Outcome-Vertrag (Entscheidung 2026-09-23, Begründung und Codebefunde in [Feld-Inventar §4](pi_jev_m0_field_inventory_de.md#4-entschieden-verh%C3%A4ltnis-zum-lokalen-lernsystem-2026-09-23)):**
 
 - Jev schreibt **nie** in den `PiMemoryStore` (weder Kandidat noch Outcome). Vorschläge und Outcomes liegen nur unter `pi_decisions/<proposal_id>/` (`outcome.json`). Dadurch können Auto-Promotion-Zähler und der kNN-Retrain-Export Jev strukturell nicht sehen; `pi_outcome_recorder.cpp`/`PiMemoryStore` bleiben unverändert.
-- `record_jev_outcome_if_needed(state, run_id, run_dir)` (neues Modul `pi_decision_outcome`): liest `pi_run_provenance.json` und die `config.yaml` des Runs **read-only** und prüft, ob jeder `updates[].path` eines übernommenen Vorschlags dort den vorgeschlagenen Wert trägt; Marker `runs/<run_id>/artifacts/jev_outcome_recorded.json`; Fehler dort blockieren den bestehenden Recorder nicht und umgekehrt.
+- `record_jev_outcome_if_needed(decisions_dir, run_id, run_dir)` liest `pi_run_provenance.json` und die `config.yaml` des Runs **read-only**. Nur die beim Run-Start explizit geprüfte `jev_proposal_id` wird zugeordnet; vorgeschlagene Pfadwerte werden nochmals geprüft. Der idempotente Marker liegt unter `pi_decisions/_run_markers/<run_id>.json`, nicht im Run. Beide Recorder werden bei erfolgreichem Run-Ende und beim Statusabruf unabhängig aufgerufen; Run-Delete erfasst kein Outcome nachträglich.
 - Verknüpfung über Werteprüfung, nicht über Config-Hash-Gleichheit (Serializer nicht garantiert byte-gleich). `attribution` ∈ `paths_present | paths_partial | paths_absent` (letzteres erzeugt keinen Eintrag). Outcome trägt kein `quality_delta` und keine Verbesserungsaussage (`comparison_kind: "unpaired"`); auch `paths_present` bleibt konfundiert. Kausale Aussagen erst über den gepaarten Vergleich in M5.
-- Übernahme in den Entwurf speichert `applied_at`, `updates[]`, `config_hash_before/after`; eine dabei entstehende Revision trägt den Autor `jev_proposal`.
+- Übernahme in den Entwurf speichert `applied_at`, `updates[]`, `config_hash_before/after`, erzeugt aber noch keine Revision. `/api/config/current` liefert den SHA-256-Fingerprint des geladenen Datei-Inhalts. `/api/config/save` verlangt bei expliziter `jev_proposal_id` den passenden `expected_source_sha256` und lehnt eine fehlende oder veraltete Basis vor dem Schreiben mit `CONFIG_SOURCE_CHANGED` (409) ab. Check und Save sind gegenüber den Config-Schreibpfaden desselben Backend-Prozesses serialisiert; direkt schreibende externe Prozesse teilen diese Sperre nicht. Erst ein Save mit exakt passender Config erzeugt eine Revision mit Autor `jev_proposal` und persistiert deren ID im Vorschlag. Direkte Runs prüfen Eingabeordner, FITS-Dateimetadaten und effektive Patch-Werte vor dem Start; eine nicht mehr passende explizite ID blockiert mit `JEV_PROPOSAL_STALE` (409). Queue-Runs mit Jev-ID sind nur bei identischer vollständiger Scan-Datenmenge je Item zulässig: Vor dem Queue-Start werden Quellordner, Manifest, Config und Filtermuster geprüft; nach der Materialisierung werden Quell- und Staging-Manifest unmittelbar vor jedem Item erneut geprüft. Ein Muster, das gemessene FITS-Dateien ausschließt, liefert `JEV_PROPOSAL_UNSUPPORTED` (409). Eine Änderung während der Queue stoppt das betroffene Item vor dessen Runner-Start; vorherige Items können bereits abgeschlossen sein. Kopier-Fallbacks mit abweichender mtime werden konservativ abgelehnt. Geänderte Configs werden normal gespeichert, ohne Jev-Zuordnung. Die Prüfung über Name/Größe/mtime ist ausdrücklich kein Inhaltsnachweis.
 - Wechselwirkung mit dem lokalen Lernsystem nur offline (M5-Replay liest beide Speicher read-only); Jev trainiert keine lokalen Modelle und wird von ihnen nicht verändert.
 
 ## 4. M0 — Verträge, Quellen und Testgrundlage einfrieren
@@ -254,7 +254,7 @@ Tests (`npm test`, `node --test` über `tsx`, Fake-Transport): Modus/Key ohne Re
 Umgesetzt:
 
 - `pi_decision_service` (`DecisionService`): State (M1) -> Kandidaten (M2) -> optionaler Sidecar-Aufruf -> `resolve_decision` -> Persistenz unter `pi_decisions/<id>/` (`status`, `state`, `candidates`, `request`, `response`, `proposal`, `events.jsonl`). Kein Provider-Aufruf, wenn nur Baselines anwendbar sind (nichts zu entscheiden; nichts wird dem Modell zugeschrieben); aus, kein Key und nicht erreichbarer Sidecar werden zu ehrlichen `unavailable`-Vorschlägen. Shadow speichert den vollständigen Vorschlag, zeigt aber nie einen anwendbaren Patch und verweigert Apply (403). Schwellen lassen sich nur über eine lokale `policy_override.json` einfrieren (fließt versioniert in `policy_version`).
-- Apply (`DecisionService::apply`): leitet den State aus dem mitgesendeten Entwurf neu ab (CAS über `stale_reasons`: Dataset, Scan, Config, Locks, Policy- und Kandidatenversion), validiert erneut inklusive `old_value`, ist idempotent (auch nach Neustart), schreibt keine Datei und startet keinen Run. Fehlercodes: 404, 409 `NOT_READY`/`NOT_APPLICABLE`/`PROPOSAL_STALE`/`DRAFT_CHANGED`, 403 `SHADOW_MODE`, 422 `VALIDATION_FAILED`.
+- Apply (`DecisionService::apply`): leitet den State aus dem mitgesendeten Entwurf neu ab, prüft ihn gegen den gespeicherten Vorschlag und validiert erneut inklusive `old_value`. Die Wiederholung verlangt den exakten gepatchten Config-Hash sowie unveränderte übrige State-Felder (Scan, Dataset, Locks). Apply schreibt nur Jev-Statusdateien, keine Config-Datei, und startet keinen Run. Fehlercodes: 404, 409 `NOT_READY`/`NOT_APPLICABLE`/`PROPOSAL_STALE`/`DRAFT_CHANGED`, 403 `SHADOW_MODE`, 422 `VALIDATION_FAILED`.
 - Routen (`pi_decision_routes`): `POST /api/scan/decisions` (202, asynchron), `GET /api/scan/decisions/<id>`, `POST /api/scan/decisions/<id>/apply` (liefert den Entwurf als YAML), `GET /api/pi/decisions/status`, `POST /api/pi/decisions/settings`. Scan und Scan-Metriken werden serverseitig rekonstruiert (Browser liefert nur Entwurf und Sperren). Der Produktions-`ConfigValidator` ist die bestehende `validate-config`-CLI. **Abweichung vom ursprünglichen Plan:** Apply ist eine eigene Route statt eines Zweigs in `/api/scan/analysis/apply`; dadurch bleibt der PI-Apply unberührt.
 - Sidecar: `POST /decisions/settings` und `decisionsSettings.ts` (Modus, Experimental-Flag, schreibgeschützter API-Key in `jev_decisions_settings.json`, Modus 0600, getrennt von PIs Provider-Speicher; der Key wird nie zurückgegeben, geloggt oder im Status gezeigt). Ein gespeicherter Key hat Vorrang vor der Umgebung.
 - Frontend: eigene Karte „Jev (Decisions API)“ unter Tools -> AI & API (`jev-empfehlung.js`, getrennt von der PI-Karte), dritter Parameter-Sub-Tab „Jev-Empfehlungen“ (bestehendes `switchView`-Muster), Ergebnisdarstellung mit Vergleich Aktuell/Vorgeschlagen, gemessenen Belegen, Ausschlussgründen, Experimentell-Kennzeichnung und „In Entwurf übernehmen“ (ändert nur den Entwurf); Wiederherstellung über die gemerkte Vorschlags-ID nach Reload; DE/EN-Texte (56 Schlüssel je Sprache) und `API_ENDPOINTS.decisions`.
@@ -262,7 +262,7 @@ Umgesetzt:
 - [x] Asynchrone Beratungsroute und Statusabruf; vorhandene Scan-Ergebnisse werden wiederverwendet.
 - [x] Zustände: anfordern, läuft, Vorschlag, keine Änderung, Enthaltung, nicht verfügbar, verworfen, veraltet, übernommen.
 - [x] Tabelle alt/neu mit Belegen und experimentellem Status; keine Formulierung „verbessert“.
-- [x] Ganze Kandidatengruppe (keine Einzel-Checkboxen); Übernahme nur in den Entwurf; Revision serverseitig geprüft.
+- [x] Ganze Kandidatengruppe (keine Einzel-Checkboxen); Übernahme nur in den Entwurf; tatsächliche Jev-Revision erst beim getrennten Speichern exakt passender YAML erzeugt.
 - [x] Persistierter Status nach Reload/Neustart (Backend), Wiederherstellung im UI über die gemerkte ID.
 - [x] DE/EN-Texte, bestehende Styles wiederverwendet (`tc-frame-table`, `tc-badge-*`, `tc-tab`).
 - [x] Bestehende PI-Beratung bleibt unverändert und getrennt.
@@ -270,6 +270,8 @@ Umgesetzt:
 - Beim Live-Test gefunden und behoben: (1) die Beratungsroute fand zwischengespeicherte Scan-Metriken nicht (nur Job-Store, nicht der Disk-Cache) -> `NO_SCAN_METRICS` trotz vorhandener Metriken; die Cache-Suche liegt jetzt in `services/scan_metrics_cache` und wird von `scan_routes.cpp` und der Jev-Route gemeinsam genutzt; (2) Text in den Jev-Ansichten brach mitten im Wort um (globales `word-break: break-all` der `.tc-card`) und die Key-Zeile war auf Mobil zu schmal -> `.tc-jev`/`.tc-jev-row` in `pages.css`.
 - [ ] Nicht automatisiert: die HTTP-Routen haben weiterhin keinen `BackendHarness`-Test (der Live-Test war manuell), und die UI hat keinen automatisierten Test.
 - [ ] Sperren (`locked_paths`): das UI sendet derzeit eine leere Liste; eine Sperr-Oberfläche existiert noch nicht.
+- [x] FITS-Metadatenmanifest bei Anfrage und Apply aus den gemessenen Dateinamen neu gelesen; bei abweichender Dateimenge `SCAN_INPUT_CHANGED`. Ein Inhaltsdigest wird dabei nicht berechnet.
+- [x] Gespeicherte Jev-Revision mit Run-Provenienz verbunden: direkte Runs und Queue-Items mit vollständiger identischer FITS-Auswahl prüfen eine explizite Vorschlags-ID, Eingabeordner, Manifest und effektive Patch-Werte vor dem Start. Der Outcome-Recorder schreibt nur für diese ID unter `pi_decisions/`; sichere verschachtelte Queue-Run-IDs erhalten eigene Marker, vorhandene Runs werden nicht nachträglich geändert. Der positive Queue-Pfad ist mit einem Fake-Runner-Fixture getestet, nicht mit einem wissenschaftlichen Bildlauf.
 - Hinweis zum Betrieb: Das UI nimmt den Port 8080 an (`api.setBase`, sobald der Port abweicht); ein Backend auf anderem Port ruft das UI nicht an.
 
 Tests: `test_pi_decision_service.cpp` (Modus aus, nur Baselines, Sidecar aus/kein Key/ungültige und eingeschleuste Antworten, Shadow, vollständiger Suggest-Pfad mit Staleness, Apply, Idempotenz, Neustart, Validator-Veto, nur `pi_decisions/` beschrieben, keine Pfade/Geheimnisse in der Provider-Anfrage) und drei neue Sidecar-Tests für die Einstellungen (`npm test`, jetzt 47).

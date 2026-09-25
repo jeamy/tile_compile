@@ -4,6 +4,7 @@
 #include "services/ai_service.hpp"
 #include "services/pi/pi_decision_outcome.hpp"
 #include "services/pi/pi_decision_service.hpp"
+#include "services/pi/pi_scan_manifest.hpp"
 #include "services/pi/pi_json_io.hpp"
 #include "services/pi/pi_storage_paths.hpp"
 #include "services/scan_metrics_cache.hpp"
@@ -117,6 +118,12 @@ std::optional<AdviceRequest> build_request(const std::shared_ptr<AppState>& stat
         return std::nullopt;
     }
     r.metrics = metrics;
+    try {
+        r.dataset_manifest = build_scan_dataset_manifest(input_path, metrics);
+    } catch (const std::exception& e) {
+        error_out = err_resp("SCAN_INPUT_CHANGED", e.what(), 409);
+        return std::nullopt;
+    }
     if (body.contains("locked_paths") && body["locked_paths"].is_array())
         for (const auto& p : body["locked_paths"]) if (p.is_string()) r.locked_paths.push_back(p.get<std::string>());
     if (body.contains("session_context") && body["session_context"].is_object()) r.session_context = body["session_context"];

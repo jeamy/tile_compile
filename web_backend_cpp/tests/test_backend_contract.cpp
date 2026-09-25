@@ -37,6 +37,35 @@ int main(int argc, char** argv) {
         expect_equal(current["_http_status"].get<long>(), 200L, "config current status");
         expect_true(current["config"].get<std::string>().find("data:") != std::string::npos, "config current yaml");
         expect_equal(current["source"].get<std::string>(), harness.config_path().string(), "config current source");
+        const std::string original_yaml = current["config"].get<std::string>();
+        const std::string original_sha = current["source_sha256"].get<std::string>();
+        expect_true(original_sha.rfind("sha256:", 0) == 0, "config current carries source fingerprint");
+        const auto revisions_before_conflicts = harness.get_json("/api/config/revisions")["items"].size();
+        const auto missing_sha = harness.post_json("/api/config/save", {
+            {"yaml", "data:\n  color_mode: MONO\n"}, {"jev_proposal_id", "missing_proposal"}
+        });
+        expect_equal(missing_sha["_http_status"].get<long>(), 409L, "Jev save needs loaded source fingerprint");
+        expect_equal(missing_sha["code"].get<std::string>(), "CONFIG_SOURCE_CHANGED", "missing fingerprint error code");
+        expect_equal(slurp_file(harness.config_path()), original_yaml, "missing fingerprint leaves config unchanged");
+        harness.make_file("config.yaml", "data:\n  color_mode: RGB\n");
+        const auto stale_sha = harness.post_json("/api/config/save", {
+            {"yaml", "data:\n  color_mode: MONO\n"}, {"jev_proposal_id", "missing_proposal"},
+            {"expected_source_sha256", original_sha}
+        });
+        expect_equal(stale_sha["_http_status"].get<long>(), 409L, "concurrent config change blocks Jev save");
+        expect_equal(stale_sha["code"].get<std::string>(), "CONFIG_SOURCE_CHANGED", "stale fingerprint error code");
+        expect_equal(slurp_file(harness.config_path()), "data:\n  color_mode: RGB\n", "conflict leaves changed config intact");
+        expect_equal(static_cast<long>(harness.get_json("/api/config/revisions")["items"].size()),
+                     static_cast<long>(revisions_before_conflicts), "conflicts create no revision");
+        const auto refreshed = harness.get_json("/api/config/current");
+        expect_true(refreshed["source_sha256"] != original_sha, "reload observes changed source fingerprint");
+        const auto matched_sha = harness.post_json("/api/config/save", {
+            {"yaml", original_yaml}, {"jev_proposal_id", "missing_proposal"},
+            {"expected_source_sha256", refreshed["source_sha256"]}
+        });
+        expect_equal(matched_sha["_http_status"].get<long>(), 200L, "matching source fingerprint permits save");
+        expect_true(!matched_sha["jev_revision_linked"].get<bool>(), "missing Jev proposal cannot be linked");
+        expect_equal(slurp_file(harness.config_path()), original_yaml, "matching save restores original config");
 
         const auto validate = harness.post_json("/api/config/validate", {{"yaml", "data:\n  color_mode: MONO\n"}});
         expect_equal(validate["_http_status"].get<long>(), 200L, "config validate status");

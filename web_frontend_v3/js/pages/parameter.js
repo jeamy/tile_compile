@@ -686,10 +686,17 @@ async function doSave() {
   toast(t("ui.toast.saving", "Speichere..."), "", "info");
   const result = await saveConfig();
   if (result) {
-    toastSuccess(t("ui.toast.saved", "Config saved"));
+    if (result.jev_revision_requested && !result.jev_revision_linked) {
+      toastError(t("ui.jev.save_unlinked", "Config gespeichert, Jev-Zuordnung nicht übernommen"));
+    } else {
+      toastSuccess(t("ui.toast.saved", "Config saved"));
+    }
     refreshGuardrails();
   } else {
-    toastError(t("ui.toast.save_failed", "Save failed"));
+    const stale = getConfigState().errorCode === "CONFIG_SOURCE_CHANGED";
+    toastError(t("ui.toast.save_failed", "Save failed"), stale
+      ? t("ui.jev.save_conflict", "Die Config wurde zwischenzeitlich geändert. Neu laden und den Jev-Vorschlag erneut prüfen.")
+      : getConfigState().error || "");
   }
 }
 

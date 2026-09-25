@@ -2200,6 +2200,7 @@ nlohmann::json apply_validated_preview(const nlohmann::json& preview,
                                        const std::shared_ptr<AppState>& state) {
     const std::string patched_yaml = preview.value("patched_yaml", std::string());
     fs::path target = state->runtime.default_config_path;
+    std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
     SubprocessResult save_res = run_subprocess({state->runtime.cli_exe, "save-config", target.string(), "--stdin"},
                                                state->runtime.project_root.string(),
                                                patched_yaml);

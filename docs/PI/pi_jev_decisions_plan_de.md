@@ -1,7 +1,7 @@
 # PI Jev Decisions — Zielbild und verbindliche Entscheidungen
 
-> **Stand:** 2026-09-20, nach Code-Review überarbeitet.
-> **Status:** Planung. Die hier beschriebene Jev-Integration ist nicht implementiert.
+> **Stand:** 2026-09-25, gegen die Pre-Run-Implementierung abgeglichen.
+> **Status:** M0-M4 und Teile von M5.1 implementiert; wissenschaftliche Kandidatenfreigabe (M5), Post-Run (M6) und Auslieferungsabnahme (M7) offen.
 > **Priorität:** zuerst Config-Vorschläge vor dem Run, danach gezielte Empfehlungen nach dem ersten Run.
 
 Verknüpfte Dokumente:
@@ -133,7 +133,7 @@ Weder „mehr Input-Felder“ noch „deterministisch ausgeführt“ begründet 
 
 - Keine Änderungen an Coverage-/Multiband-Akzeptanzgrenzen, PCC-Schutzgrenzen, Masken-/Provenienzpflichten oder Fail-closed-Verhalten.
 - Keine Top-Level-Methodenauswahl; die Rekonstruktion bleibt CFA Forward Drizzle + Multiband. `bge.method` ist ein eigener, davon unabhängiger Parameter.
-- Keine Änderungen an Nutzerpräferenzen, Pfaden, CPU/GPU-Wahl oder Laufzeitlimits durch Jev.
+- Keine Änderungen an Nutzerpräferenzen, Pfaden, CPU/GPU-Wahl oder Laufzeitlimits im aktuellen Kandidatenkatalog. Eine spätere Freigabe einzelner Betriebsparameter erfordert die in Abschnitt 1.1 genannten Systemfakten und eigene Kandidatenprüfung.
 - Vorschläge sind an Dataset, Scan, Config, Locks und Policy gebunden. Veraltete Antworten werden verworfen.
 - Statusfolge: `draft -> validated -> presented -> applied_to_draft | rejected | stale`; Blockierung/Enthaltung liefern keinen Patch.
 - Übernahme erfordert aktuelle Hashes und erneute Gesamtvalidierung; wiederholte Übernahme ist idempotent.
@@ -179,4 +179,4 @@ Der externe State ist eine Allowlist-Projektion: keine Schlüssel, absoluten Pfa
 
 Verbindliche Reihenfolge: M0 Verträge und Evidenz -> M1 State -> M2 Kandidaten/Validierung -> M3 Adapter -> M4 Pre-Run-Oberfläche -> M5 Evaluation -> M6 Post-Run -> M7 Integration und Dokumentation.
 
-Alle Meilensteine sind offen. Konkrete Dateien, Schnittstellen, Testfälle und Freigaben stehen im [Implementierungsplan](pi_jev_implementierungsplan_de.md). Dieser Dokumentationsstand ist keine Code-, Provider- oder Bildqualitätsabnahme.
+M0-M4 sind funktional umgesetzt; M5.1 ist teilweise umgesetzt. Der Backend-Pfad bindet einen Jev-Vorschlag erst beim Config-Speichern an eine Revision. Ein Jev-Save prüft seit 2026-09-25 den SHA-256-Fingerprint der geladenen Config-Datei vor dem Schreiben; Backend-interne Config-Schreibpfade sind dafür serialisiert, externe Dateischreiber nicht. Direkte Runs und Queue-Items tragen die Vorschlags-ID nur, wenn die vollständige FITS-Datenmenge und die vorgeschlagenen Config-Werte beim jeweiligen Start noch passen. Teilmengen-Queue-Items werden nicht Jev zugeordnet. Outcomes werden nur für eine geprüfte, explizite ID geschrieben. Die Dataset-Prüfung ist eine Metadatenprüfung, kein FITS-Inhaltsdigest und kein Qualitätsnachweis. Konkrete Dateien, Schnittstellen, Testfälle und offene Freigaben stehen im [Implementierungsplan](pi_jev_implementierungsplan_de.md).

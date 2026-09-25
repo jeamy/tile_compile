@@ -1965,6 +1965,7 @@ async function startRun() {
       color_mode: sd.color_mode || "",
       queue: queue.length > 0 ? queue : undefined,
       config_yaml: configYaml || undefined,
+      jev_saved_proposal_id: !getConfigState().dirty ? getConfigState().jevSavedProposalId || undefined : undefined,
     };
 
     toast(t("ui.toast.run_starting", "Run wird gestartet..."), "", "info");
@@ -2006,7 +2007,12 @@ async function startRun() {
       refreshRunStatus(runId);
     }
   } catch (e) {
-    toastError(t("ui.toast.run_start_failed", "Start fehlgeschlagen"), e.message);
+    const jevConflict = e.status === 409 &&
+      ["JEV_PROPOSAL_STALE", "JEV_PROPOSAL_UNSUPPORTED"].includes(e.payload?.error?.code);
+    if (jevConflict) setConfigState({ jevSavedProposalId: "" });
+    toastError(t("ui.toast.run_start_failed", "Start fehlgeschlagen"), jevConflict
+      ? t("ui.jev.run_link_conflict", "Jev-Zuordnung passt nicht mehr. Vorschlag und Eingaben prüfen oder ohne Jev-Zuordnung erneut starten.")
+      : e.message);
   }
 }
 
