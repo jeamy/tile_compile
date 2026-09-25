@@ -197,6 +197,103 @@
       "status": "retrospective_exploratory",
       "unmatched_stars": 116
     },
+    "m104_20260925": {
+      "alignment": {
+        "dx": 4,
+        "dy": 1,
+        "phase_correlation_response": 1.0652481068300408
+      },
+      "coverage_full_raster": {
+        "candidate": 0.766613285194084,
+        "control": 0.7672153267422177,
+        "loss": 0.0006020415481337027
+      },
+      "detected_isolated_stars": 487,
+      "elongation_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          1.0035068205674067,
+          1.0101273471990524
+        ],
+        "median": 1.006276659304209
+      },
+      "fwhm_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          0.9979317964495363,
+          1.0007164557071053
+        ],
+        "median": 0.9991804828168012
+      },
+      "matched_stars": 443,
+      "noise": {
+        "candidate": 0.7822459645217931,
+        "control": 0.7653094698733325,
+        "ratio_candidate_over_control": 1.0221302562102932,
+        "valid_background_pixels": 8139713
+      },
+      "policy_sample_size_flags": {
+        "background_pixels_ok": true,
+        "common_area_ok": true,
+        "matched_stars_ok": true,
+        "signal_apertures_ok": true
+      },
+      "raster": {
+        "candidate": [
+          2992,
+          4576
+        ],
+        "control": [
+          2994,
+          4568
+        ],
+        "identical": false
+      },
+      "run_to_run_geometry": {
+        "fit": {
+          "affine_xy": [
+            [
+              1.000184985909132,
+              -0.001145041835931333,
+              1.31611962609486
+            ],
+            [
+              0.0012365994912976067,
+              1.0000637288395655,
+              -2.5038593750563822
+            ]
+          ],
+          "fit_stars": 403,
+          "rotation_deg": 0.06822048221928069,
+          "scale": 1.000125063427463
+        },
+        "total_displacement_px": {
+          "max": 7.0710678118654755,
+          "median": 1.4142135623730951,
+          "p95": 3.561223913934418
+        }
+      },
+      "signal_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          1.0305668597291797,
+          1.0385026164379434
+        ],
+        "median": 1.0336885933240678
+      },
+      "source": {
+        "candidate_run": "jev_m5_m104_on_20260925",
+        "channel": "G",
+        "compared_output": "forward_drizzle_raw_G.fit",
+        "control_run": "jev_m5_m104_off_20260925",
+        "selected_candidate": "drizzle_raw",
+        "selected_control": "drizzle_raw"
+      },
+      "star_offset_px": {
+        "median": 1.0,
+        "p95": 3.0,
+        "search_radius": 4
+      },
+      "status": "second_session_enrolled_after_policy_freeze (raster differs between arms; measured after alignment)",
+      "unmatched_stars": 44
+    },
     "m31_20260923": {
       "alignment": {
         "dx": 0,

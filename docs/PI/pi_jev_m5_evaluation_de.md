@@ -140,13 +140,14 @@ um die vorhergesagte Position (Radius 4 px) und misst dann mit demselben Schätz
 | IC5070 | retrospektiv | 2236 | 1,0015 (1,0011-1,0018) | 0,9984 | 1,005 | 1,000 | 0,0 / 3,2 | 0,000° |
 | M66 | retrospektiv | 334 | 1,0018 (0,9993-1,0039) | 0,9971 | 1,003 | 1,018 | 0,0 / 2,2 | -0,001° |
 | IC4605 | erste Session nach dem Einfrieren; Raster unterschiedlich | 350 | 1,0050 (1,0034-1,0070) | 0,9966 | 1,044 | 0,997 | 5,7 / 13,0 | 0,238° |
+| M104 | zweite Session nach dem Einfrieren; Raster unterschiedlich | 443 | 0,9992 (0,9979-1,0007) | 1,0063 | 1,034 | 1,022 | 1,4 / 7,1 | 0,068° |
 
-Lesart: Die adaptive Gewichtung ist an gematchten Sternen in keiner der fünf Sessions schärfer (Verhältnis 1,001 bis 1,005 statt der
-geforderten höchstens 0,95); bei M31 und M42 liegt das Rauschen über der Grenze von +2 %. Die vier ersten Sessions sind explorativ
-(vor dem Einfrieren der Policy untersucht). IC4605 ist die erste Session nach dem Einfrieren, aber **nicht policy-konform**: die
-Ausgaberaster beider Arme sind verschieden groß (2844 gegen 2850 Zeilen).
+Lesart: Die adaptive Gewichtung ist an gematchten Sternen in keiner der sechs Sessions schärfer (Verhältnis 0,999 bis 1,005 statt der
+geforderten höchstens 0,95); bei M31, M42 und M104 liegt das Rauschen über der Grenze von +2 %. Die vier ersten Sessions sind explorativ
+(vor dem Einfrieren der Policy untersucht). IC4605 und M104 sind die ersten beiden Sessions nach dem Einfrieren, aber **nicht policy-konform**: die
+Ausgaberaster beider Arme sind verschieden groß (IC4605 2844 gegen 2850 Zeilen, M104 2994 gegen 2992).
 
-**Neuer Befund zur Vergleichbarkeit:** Bei IC4605 haben An und Aus verschiedene Referenzbilder für die Registrierung (183 gegen 189);
+**Neuer Befund zur Vergleichbarkeit:** Bei IC4605 (183 gegen 189) und M104 (159 gegen 162) haben An und Aus verschiedene Referenzbilder für die Registrierung;
 bei den vier älteren Paaren war das Referenzbild in beiden Armen dasselbe. Ursache im Code (`runner_phase_registration.cpp`): Unter den
 qualitätsgewählten Ankerframes wird das Referenzbild über `global_weights` bewertet, und `global_weights` hängt von `adaptive_weights`
 ab. Der Schalter ändert also nicht nur die Gewichtung, sondern kann über das Referenzbild die Geometrie und Abtastung des ganzen Stacks
