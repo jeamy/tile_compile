@@ -1,0 +1,217 @@
+{
+  "comparison": "candidate_applied (adaptive_weights=true) over current_config (adaptive_weights=false), green channel of the selected output (drizzle_raw)",
+  "generated": "2026-09-25",
+  "schema_version": "pi.jev-matched-retrospective.v1",
+  "sessions": {
+    "ic5070_20260924": {
+      "coverage": {
+        "candidate": 0.5340462635277222,
+        "control": 0.5338491917888748,
+        "coverage_loss": -0.0001970717388474208,
+        "intersection": 0.5332297671042093,
+        "intersection_over_control": 0.9988397009975984
+      },
+      "detected_isolated_stars": 2352,
+      "elongation_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          0.9978316312435329,
+          0.9989982059210506
+        ],
+        "median": 0.9985032388820094
+      },
+      "fwhm_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          1.0009068905522258,
+          1.0016053504271207
+        ],
+        "median": 1.0012088019925072
+      },
+      "matched_stars": 2237,
+      "noise": {
+        "candidate": 2.7635713887794835,
+        "control": 2.7640225586447955,
+        "ratio_candidate_over_control": 0.9998367705560502,
+        "valid_background_pixels": 7896168
+      },
+      "policy_sample_size_flags": {
+        "background_pixels_ok": true,
+        "common_area_ok": true,
+        "matched_stars_ok": true,
+        "signal_apertures_ok": true
+      },
+      "signal_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          1.002336728966915,
+          1.0039743508924808
+        ],
+        "median": 1.0031390028805063
+      },
+      "source": {
+        "candidate_run": "20260924_001226_8c66f570",
+        "channel": "G",
+        "compared_output": "forward_drizzle_raw_G.fit",
+        "control_run": "20260924_004750_bbc7b433",
+        "selected_candidate": "drizzle_raw",
+        "selected_control": "drizzle_raw"
+      }
+    },
+    "m31_20260923": {
+      "coverage": {
+        "candidate": 0.9565803876913206,
+        "control": 0.956575319888526,
+        "coverage_loss": -5.067802794633813e-06,
+        "intersection": 0.956557252069867,
+        "intersection_over_control": 0.9999811119748927
+      },
+      "detected_isolated_stars": 2840,
+      "elongation_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          1.0001335113138161,
+          1.0006925399246298
+        ],
+        "median": 1.0003913615721998
+      },
+      "fwhm_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          1.0017660809397686,
+          1.002448495842425
+        ],
+        "median": 1.0021188607159275
+      },
+      "matched_stars": 2823,
+      "noise": {
+        "candidate": 1.1237855510169257,
+        "control": 1.09347002067125,
+        "ratio_candidate_over_control": 1.0277241531752885,
+        "valid_background_pixels": 6092862
+      },
+      "policy_sample_size_flags": {
+        "background_pixels_ok": true,
+        "common_area_ok": true,
+        "matched_stars_ok": true,
+        "signal_apertures_ok": true
+      },
+      "signal_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          0.9981864415934384,
+          0.9987370727794673
+        ],
+        "median": 0.9984356618611404
+      },
+      "source": {
+        "candidate_run": "20260923_204346_5a30a6f0",
+        "channel": "G",
+        "compared_output": "forward_drizzle_raw_G.fit",
+        "control_run": "20260923_212703_e8a50695",
+        "selected_candidate": "drizzle_raw",
+        "selected_control": "drizzle_raw"
+      }
+    },
+    "m42_20260923": {
+      "coverage": {
+        "candidate": 0.7106813116215649,
+        "control": 0.7103726793580869,
+        "coverage_loss": -0.00030863226347799255,
+        "intersection": 0.708710077092511,
+        "intersection_over_control": 0.9976595351793678
+      },
+      "detected_isolated_stars": 1036,
+      "elongation_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          0.998793310783302,
+          1.0004588655613356
+        ],
+        "median": 0.9995521410096638
+      },
+      "fwhm_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          1.000520721837299,
+          1.002036351104341
+        ],
+        "median": 1.0013567792620677
+      },
+      "matched_stars": 968,
+      "noise": {
+        "candidate": 2.935724239382404,
+        "control": 2.8701643108823593,
+        "ratio_candidate_over_control": 1.0228418729378912,
+        "valid_background_pixels": 8669749
+      },
+      "policy_sample_size_flags": {
+        "background_pixels_ok": true,
+        "common_area_ok": true,
+        "matched_stars_ok": true,
+        "signal_apertures_ok": true
+      },
+      "signal_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          1.0008351786041,
+          1.0028359943373246
+        ],
+        "median": 1.0019695109547604
+      },
+      "source": {
+        "candidate_run": "20260923_223614_ce66cf2d",
+        "channel": "G",
+        "compared_output": "forward_drizzle_raw_G.fit",
+        "control_run": "20260923_232436_95ed29f7",
+        "selected_candidate": "drizzle_raw",
+        "selected_control": "drizzle_raw"
+      }
+    },
+    "m66_20260924": {
+      "coverage": {
+        "candidate": 0.7675557701343418,
+        "control": 0.7676019021252664,
+        "coverage_loss": 4.613199092451392e-05,
+        "intersection": 0.7668840332635065,
+        "intersection_over_control": 0.9990647901473767
+      },
+      "detected_isolated_stars": 372,
+      "elongation_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          0.9956949129494572,
+          1.000945711631801
+        ],
+        "median": 0.9976746852668621
+      },
+      "fwhm_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          0.9995708999376256,
+          1.0030808033720051
+        ],
+        "median": 1.0013403424706582
+      },
+      "matched_stars": 335,
+      "noise": {
+        "candidate": 1.667073888585739,
+        "control": 1.6376612930997982,
+        "ratio_candidate_over_control": 1.017960121308276,
+        "valid_background_pixels": 8994549
+      },
+      "policy_sample_size_flags": {
+        "background_pixels_ok": true,
+        "common_area_ok": true,
+        "matched_stars_ok": true,
+        "signal_apertures_ok": true
+      },
+      "signal_ratio_candidate_over_control": {
+        "ci95_star_bootstrap": [
+          1.000544445742836,
+          1.004563624956924
+        ],
+        "median": 1.0029967960486985
+      },
+      "source": {
+        "candidate_run": "20260924_013435_a39a9e30",
+        "channel": "G",
+        "compared_output": "forward_drizzle_raw_G.fit",
+        "control_run": "20260924_040232_e0b8cac7",
+        "selected_candidate": "drizzle_raw",
+        "selected_control": "drizzle_raw"
+      }
+    }
+  },
+  "status": "retrospective_exploratory - not confirmatory; the four sessions were inspected before the release policy was frozen",
+  "tool": "web_backend_cpp/scripts/matched_pair_metrics.py"
+}

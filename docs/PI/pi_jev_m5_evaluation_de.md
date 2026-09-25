@@ -119,10 +119,34 @@ eine unmöglich präzise FWHM-Schätzung. Die 10-%-Fehlerreduktion benötigt
 einen **unabhängigen** Kamerareferenzwert; ohne kalibrierte Referenz ist
 dieses Ziel nicht auswertbar und der Kandidat bleibt experimentell.
 
+## Messung an gematchten Sternen (2026-09-25)
+
+`web_backend_cpp/scripts/matched_pair_metrics.py` setzt den Messplan der Policy für ein Paar fertiger Läufe um (nur lesend,
+Ausgabe nie in einem Run-Ordner): Sterne werden **einmal** im Kontrollbild erkannt (isoliert, ungesättigt, mit Randabstand)
+und an denselben Koordinaten in beiden Bildern mit demselben Momentenschätzer gemessen; Rauschen auf denselben gültigen
+Hintergrundpixeln (Sterne maskiert), Signalerhalt in denselben Aperturen, Coverage je Arm und auf dem identischen Raster.
+Das Sternebenen-Bootstrap-KI ist nur beschreibend; die Policy verlangt Session-KIs. Zehn Tests, Mutationsprüfung
+(verschobene Messposition wird erkannt).
+
+Retrospektive Anwendung auf die vier bekannten Paare (adaptive Gewichtung an gegenüber aus, grüner Kanal, gewählter Ausgang
+`drizzle_raw`; Rohdaten in `pi_jev_m5_matched_retrospective_20260925.json`):
+
+| Session | gematchte Sterne | FWHM-Verhältnis (Median, Stern-KI) | Elongation | Signal | Rauschen | Coverage-Verlust |
+|---|---|---|---|---|---|---|
+| M31 | 2823 | 1,0021 (1,0018-1,0024) | 1,0004 | 0,998 | 1,028 | 0,0 % |
+| M42 | 968 | 1,0014 (1,0005-1,0020) | 0,9996 | 1,002 | 1,023 | 0,03 % |
+| IC5070 | 2237 | 1,0012 (1,0009-1,0016) | 0,9985 | 1,003 | 1,000 | 0,02 % |
+| M66 | 335 | 1,0013 (0,9996-1,0031) | 0,9977 | 1,003 | 1,018 | 0,0 % |
+
+Lesart (explorativ, **nicht bestätigend**, da alle vier Sessions vor dem Einfrieren der Policy untersucht wurden): An gematchten
+Sternen ist die adaptive Gewichtung nicht schärfer, sondern um 0,1 bis 0,2 % breiter; das Primärziel der Policy (Verhältnis höchstens
+0,95) ist um Größenordnungen verfehlt. Das Rauschen liegt bei M31 und M42 über der Sicherheitsgrenze von +2 %. Das bestätigt die
+frühere Aussage aus ungematchten Stichproben, jetzt mit gepaarten Sternen. Für eine Freigabe zählen nur neue unabhängige Sessions.
+
 ## Für reguläre Freigabe noch erforderlich
 
-Die Grenzwerte sind nun fixiert. Für eine Freigabe fehlen noch ein
-matched-position-Metrik-Producer, unabhängige Referenz-Luminanzdaten und
+Die Grenzwerte sind nun fixiert, und der matched-position-Metrik-Producer für die adaptive Gewichtung existiert. Für eine Freigabe
+fehlen noch unabhängige Referenz-Luminanzdaten (Sensorprofil), mindestens 12 unabhängige Sessions je Kandidat und
 kontrollierte Vier-Baseline-Daten (aktuelle Config, Regeln, PI-Beratung,
 Regeln+Jev) mit separater Nutzerannahme, tatsächlich angewendeter Config
 und Qualitätslabel. Der aktuelle Replay trennt Annahme und Draft-Hash; ein
