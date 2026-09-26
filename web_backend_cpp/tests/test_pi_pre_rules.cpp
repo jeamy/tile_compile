@@ -54,7 +54,20 @@ int main(int argc, char** argv) {
         {
             const auto c = build_pre_run_candidates(state, cfg, frozen_test_policy(), catalog, ok);
             expect_equal(static_cast<long>(c.applicable.size()), 3L, "three candidates offered (baselines + adaptive weights)");
-            expect_equal(static_cast<long>(c.excluded.size()), 1L, "only the camera-table candidate is excluded (test camera is not a DWARF II)");
+            expect_equal(static_cast<long>(c.excluded.size()), 3L, "the camera-table candidate and the two reconstruction candidates are excluded (this draft has neither their control levels nor a DWARF II camera)");
+            expect_true(has_reason(c.excluded, "set_pixfrac__1", "precondition_failed:config_equals:reconstruction.drizzle.pixfrac=0.8"), "pixfrac is not offered without its control level");
+            expect_true(has_reason(c.excluded, "set_clip_sigmas", "precondition_failed:config_equals:reconstruction.clipping.clip_sigma_low=4.0"), "clipping is not offered without its control level");
+            {
+                const json cfg_ctl = {{"global_metrics", {{"adaptive_weights", false}}},
+                                      {"reconstruction", {{"drizzle", {{"pixfrac", 0.8}}}, {"clipping", {{"clip_sigma_low", 4.0}, {"clip_sigma_high", 4.0}}}}}};
+                const auto r = build_pre_run_candidates(state, cfg_ctl, frozen_test_policy(), catalog, ok);
+                expect_true(is_offered(r, "set_pixfrac__1") && is_offered(r, "set_clip_sigmas"), "both reconstruction candidates are offered from the control levels");
+                const json info = provider_candidate_info(r, catalog);
+                expect_true(info["descriptions"].contains("set_pixfrac__1") && info["descriptions"].contains("set_clip_sigmas"), "and described to the provider");
+                expect_true(!build_pre_run_candidates(state, cfg_ctl, DecisionPolicy{}, catalog, ok).allowed_ids().empty() &&
+                            build_pre_run_candidates(state, cfg_ctl, DecisionPolicy{}, catalog, ok).allowed_ids().size() == 2,
+                            "in production (experimental off) they are not offered");
+            }
             expect_true(has_reason(c.excluded, "set_sensor_profile_dwarf_ii", "evidence_below_threshold:camera_match"), "excluded because the camera does not match the table");
             {
                 json fr = spread_frames(10);
