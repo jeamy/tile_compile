@@ -16,6 +16,7 @@ import { getUiState, setUiState } from "../state/ui-state.js";
 import { parseYaml, stringifyYaml } from "../utils/yaml-parse.js";
 import { pollJob } from "../utils/poll.js";
 import { getScanData } from "./input-scan.js";
+import { autoScanForAnalysis } from "./ai-empfehlung.js";
 
 const POLL_MS = 1500;
 const POLL_TIMEOUT_MS = 90000;
@@ -245,15 +246,23 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
     requestBtn.disabled = true;
     try {
       const send = () => api.post(API_ENDPOINTS.decisions.advice, { yaml, locked_paths: [], session_context: sessionContext() });
+      // Scan and image statistics are prepared on demand, like the AI card does, instead of asking the user to do it first.
       let r;
-      try {
-        r = await send();
-      } catch (e) {
-        // The image statistics are computed on demand, like the AI card does, instead of asking the user to do it first.
-        if (e.payload?.code !== "NO_SCAN_METRICS") throw e;
-        renderMessage(t("ui.jev.computing_metrics", "Bildstatistik wird berechnet..."));
-        await computeScanMetrics();
-        r = await send();
+      for (let attempt = 0; ; ++attempt) {
+        try {
+          r = await send();
+          break;
+        } catch (e) {
+          const code = e.payload?.code;
+          if (attempt >= 2 || (code !== "NO_SCAN" && code !== "NO_SCAN_METRICS")) throw e;
+          if (code === "NO_SCAN") {
+            renderMessage(t("ui.jev.scanning", "Scan wird ausgef\u00fchrt..."));
+            await autoScanForAnalysis();
+          } else {
+            renderMessage(t("ui.jev.computing_metrics", "Bildstatistik wird berechnet..."));
+            await computeScanMetrics();
+          }
+        }
       }
       setUiState({ jevProposalId: r.proposal_id });
       await poll(r.proposal_id);

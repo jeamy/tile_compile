@@ -2186,5 +2186,6 @@
   "ui.post_run.metric.final_stretched_image_quality": "Qualität des gestreckten Endbilds",
   "ui.post_run.metric.star_shape_after_downstream": "Sternform nach den nachgelagerten Stufen",
   "ui.jev.computing_metrics": "Bildstatistik wird berechnet...",
-  "ui.jev.metrics_failed": "Bildstatistik konnte nicht berechnet werden."
+  "ui.jev.metrics_failed": "Bildstatistik konnte nicht berechnet werden.",
+  "ui.jev.scanning": "Scan wird ausgeführt..."
 }

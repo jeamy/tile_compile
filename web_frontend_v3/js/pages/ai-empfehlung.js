@@ -746,7 +746,7 @@ async function saveApiKey() {
   }
 }
 
-async function autoScanForAnalysis() {
+export async function autoScanForAnalysis() {
   const sd = getScanData();
   const inputDir = String(sd.input_dir || "").trim();
   if (!inputDir) {
