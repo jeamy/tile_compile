@@ -2196,5 +2196,17 @@
   "ui.jev.tooltip.refresh_traffic": "Lädt das Jev-Protokoll (Anfragen und Antworten) aus dem Sidecar.",
   "ui.jev.apply_selected": "Ausgewählte anwenden",
   "ui.jev.apply_all": "Alle anwenden",
-  "ui.jev.no_change_group": "keine Änderung"
+  "ui.jev.no_change_group": "keine Änderung",
+  "ui.jev.reason.mode_off": "Jev ist ausgeschaltet. Oben den Betriebsmodus auf „Vorschlagen“ stellen.",
+  "ui.jev.reason.no_api_key": "Es ist kein API-Schlüssel für Jev hinterlegt.",
+  "ui.jev.reason.sidecar_unreachable": "Der PI-Sidecar ist nicht erreichbar.",
+  "ui.jev.reason.provider_unavailable": "Jev wurde nicht befragt.",
+  "ui.jev.reason.validation_not_run": "Es wurde nichts geprüft, weil keine Antwort von Jev vorlag.",
+  "ui.jev.reason.experimental_not_enabled": "Experimenteller Kandidat: oben „Experimentelle Kandidaten anzeigen“ aktivieren.",
+  "ui.jev.reason.already_active": "Ist im Entwurf bereits so eingestellt.",
+  "ui.jev.reason.candidate_rejected": "Verworfen: die bisherigen Tests zeigen keinen Nutzen.",
+  "ui.jev.reason.thresholds_not_frozen": "Für diesen Kandidaten sind noch keine Freigabeschwellen festgelegt.",
+  "ui.jev.reason.path_locked": "Der Parameter ist gesperrt.",
+  "ui.jev.reason.config_equals": "Nur geprüft, wenn {path} = {value} ist; der Entwurf hat einen anderen Wert.",
+  "ui.jev.not_asked": "Jev wurde nicht befragt, es gibt daher keine Empfehlung (Gründe unten)."
 }

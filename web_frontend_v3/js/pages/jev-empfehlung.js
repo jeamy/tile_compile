@@ -113,6 +113,28 @@ export function createJevSettingsCard() {
 // Recommendation page (Parameter tab)
 // ---------------------------------------------------------------------------------------------
 
+// Plain-language text for the machine reason codes of a proposal or an excluded candidate; unknown codes are shown as is.
+const REASON_TEXT = {
+  "provider:mode_off": ["ui.jev.reason.mode_off", "Jev ist ausgeschaltet. Oben den Betriebsmodus auf \u201eVorschlagen\u201c stellen."],
+  "provider:no_api_key": ["ui.jev.reason.no_api_key", "Es ist kein API-Schl\u00fcssel f\u00fcr Jev hinterlegt."],
+  "provider:sidecar_unreachable": ["ui.jev.reason.sidecar_unreachable", "Der PI-Sidecar ist nicht erreichbar."],
+  provider_unavailable: ["ui.jev.reason.provider_unavailable", "Jev wurde nicht befragt."],
+  validation_not_run: ["ui.jev.reason.validation_not_run", "Es wurde nichts gepr\u00fcft, weil keine Antwort von Jev vorlag."],
+  experimental_not_enabled: ["ui.jev.reason.experimental_not_enabled", "Experimenteller Kandidat: oben \u201eExperimentelle Kandidaten anzeigen\u201c aktivieren."],
+  already_active: ["ui.jev.reason.already_active", "Ist im Entwurf bereits so eingestellt."],
+  candidate_rejected: ["ui.jev.reason.candidate_rejected", "Verworfen: die bisherigen Tests zeigen keinen Nutzen."],
+  policy_thresholds_not_frozen: ["ui.jev.reason.thresholds_not_frozen", "F\u00fcr diesen Kandidaten sind noch keine Freigabeschwellen festgelegt."],
+  path_locked: ["ui.jev.reason.path_locked", "Der Parameter ist gesperrt."],
+};
+
+function reasonText(code) {
+  const c = String(code);
+  const m = /^precondition_failed:config_equals:(.+?)=(.+)$/.exec(c);
+  if (m) return t("ui.jev.reason.config_equals", "Nur gepr\u00fcft, wenn {path} = {value} ist; der Entwurf hat einen anderen Wert.", { path: m[1], value: m[2] });
+  const entry = REASON_TEXT[c];
+  return entry ? t(entry[0], entry[1]) : c;
+}
+
 const STATUS_TEXT = {
   no_change: ["ui.jev.result.no_change", "Keine Änderung empfohlen"],
   abstain: ["ui.jev.result.abstain", "Enthaltung: die Belege reichen für keine Empfehlung"],
@@ -192,7 +214,7 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
     if (view.synthetic_baseline && !view.model_called)
       nodes.push(el("div", { class: "tc-text-sm tc-text-muted tc-mt-2" }, t("ui.jev.no_model_call", "Das Modell wurde nicht befragt: es war kein Kandidat mit Änderung anwendbar (siehe Ausschlussgründe).")));
     const reasons = (proposal.reason_codes || []).filter((r) => r !== "validated");
-    if (reasons.length) nodes.push(el("div", { class: "tc-text-sm tc-text-muted tc-mt-2" }, `${t("ui.jev.reasons", "Gründe")}: ${reasons.join(", ")}`));
+    if (reasons.length) nodes.push(el("div", { class: "tc-text-sm tc-text-muted tc-mt-2" }, `${t("ui.jev.reasons", "Gründe")}: ${reasons.map(reasonText).join(" ")}`));
     if (view.comparison?.length) {
       const rows = view.comparison.map((c) => el("tr", {},
         el("td", {}, c.path), el("td", {}, fmt(c.current)), el("td", {}, c.changed ? el("strong", {}, fmt(c.proposed)) : fmt(c.proposed))));
@@ -224,7 +246,9 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
     for (const v of views) v._seen = true;
     const nodes = [];
     const actionable = views.filter((v) => isApplicable(v) || ["applied_to_draft", "stale"].includes(v.proposal?.status));
-    if (!actionable.length) nodes.push(el("div", { class: "tc-text-sm tc-mt-2" }, t("ui.jev.result.no_change", "Keine Änderung empfohlen")));
+    const unavailable = views.some((v) => v.proposal?.status === "unavailable");
+    if (unavailable) nodes.push(el("div", { class: "tc-text-sm tc-mt-2 tc-text-error" }, t("ui.jev.not_asked", "Jev wurde nicht befragt, es gibt daher keine Empfehlung (Gr\u00fcnde unten).")));
+    else if (!actionable.length) nodes.push(el("div", { class: "tc-text-sm tc-mt-2" }, t("ui.jev.result.no_change", "Keine Änderung empfohlen")));
     for (const v of views) nodes.push(renderCard(v));
     if (applicable.length)
       nodes.push(el("div", { class: "tc-mt-2 tc-flex tc-gap-2" }, selectedBtn, allBtn));
@@ -234,7 +258,7 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
     if (excluded.length) {
       nodes.push(el("details", { class: "tc-mt-2" },
         el("summary", { class: "tc-text-sm" }, t("ui.jev.details", "Angebotene und ausgeschlossene Kandidaten")),
-        ...excluded.map((x) => el("div", { class: "tc-text-sm tc-text-muted" }, `${x.candidate_id}: ${(x.reasons || []).join(", ")}`))));
+        ...excluded.map((x) => el("div", { class: "tc-text-sm tc-text-muted" }, `${x.candidate_id}: ${(x.reasons || []).map(reasonText).join(" ")}`))));
     }
     resultBox.replaceChildren(...nodes);
     updateActions();
