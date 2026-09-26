@@ -695,7 +695,7 @@ async function doSave() {
   } else {
     const stale = getConfigState().errorCode === "CONFIG_SOURCE_CHANGED";
     toastError(t("ui.toast.save_failed", "Save failed"), stale
-      ? t("ui.jev.save_conflict", "Die Config wurde zwischenzeitlich geändert. Neu laden und den Jev-Vorschlag erneut prüfen.")
+      ? t("ui.jev.save_conflict", "Die Config-Datei wurde seit dem Laden des Entwurfs auf der Platte ge\u00e4ndert (durch einen anderen Prozess oder Editor). Nichts wurde \u00fcberschrieben. Config neu laden, dann den Jev-Vorschlag erneut anfordern und anwenden.")
       : getConfigState().error || "");
   }
 }
