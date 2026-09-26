@@ -2195,5 +2195,13 @@
   "ui.jev.reason.path_locked": "The parameter is locked.",
   "ui.jev.reason.config_equals": "Only checked when {path} = {value}; the draft has a different value.",
   "ui.jev.not_asked": "Jev was not asked, so there is no recommendation (reasons below).",
-  "ui.jev.open_settings": "Open the Jev settings (Tools → AI & API)"
+  "ui.jev.open_settings": "Open the Jev settings (Tools → AI & API)",
+  "ui.jev.check": "Check status",
+  "ui.jev.tooltip.check": "Checks the sidecar, mode and key and sends one minimal test request without scan or config data to the provider (cost: about one decision).",
+  "ui.jev.check_running": "Checking...",
+  "ui.jev.check_sidecar": "PI sidecar reachable",
+  "ui.jev.check_key_ok": "API key present",
+  "ui.jev.check_key_missing": "API key missing",
+  "ui.jev.check_provider_ok": "Provider answers",
+  "ui.jev.check_provider_failed": "Provider request failed"
 }

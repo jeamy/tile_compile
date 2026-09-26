@@ -458,6 +458,26 @@ export class DecisionsService {
     };
   }
 
+  /**
+   * Connection check for the settings card: one minimal real provider call with a synthetic, data-free state (no scan,
+   * config or path data). Works in every mode, needs only the key. Costs about the price of one decision and is written
+   * to the Jev log like any call.
+   */
+  async probe(callerSignal?: AbortSignal) {
+    const started = this.now();
+    const apiKey = await this.resolveApiKey();
+    if (!apiKey) return { ok: false, status: "unavailable", error_code: "no_api_key", latency_ms: 0, model_requested: this.cfg.model };
+    const req = validateRequest({
+      request_id: `probe-${started}`, state_hash: "probe", question_set_version: "decision-questions.v2",
+      state_projection: { probe: true }, allowed_candidates: [...BASELINE_CANDIDATES],
+    });
+    const result = await this.callWithLimits(req, apiKey, callerSignal);
+    return {
+      ok: result.status === "ok", status: result.status, error_code: result.error_code ?? null, latency_ms: this.now() - started,
+      model_requested: this.cfg.model, model_reported: result.model_reported ?? null, cost: result.usage?.cost ?? null,
+    };
+  }
+
   /** Throws DecisionsRequestError for malformed requests; every provider-side outcome is a response. */
   async decide(rawRequest: unknown, callerSignal?: AbortSignal): Promise<DecisionsResponse> {
     const req = validateRequest(rawRequest);

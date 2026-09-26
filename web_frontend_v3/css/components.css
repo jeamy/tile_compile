@@ -859,6 +859,7 @@
 
 .tc-text-error { color: var(--error); }
 .tc-text-warning { color: var(--warning); }
+.tc-text-success { color: var(--success); }
 
 /* ===== Live Image Viewer ===== */
 

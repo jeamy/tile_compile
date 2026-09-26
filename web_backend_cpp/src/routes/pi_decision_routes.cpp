@@ -149,6 +149,19 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         }
     });
 
+    // Connection check for the Jev settings card: one minimal provider call with a data-free state (see the sidecar).
+    CROW_ROUTE(app, "/api/pi/decisions/test").methods("POST"_method)
+    ([]() {
+        try {
+            ai::AiSidecarClient client(ai::default_ai_config());
+            return json_resp(client.post("/decisions/test", json::object()));
+        } catch (const ai::AiSidecarHttpError& e) {
+            return err_resp("PROBE_REJECTED", e.payload().value("message", std::string("probe rejected")), static_cast<int>(e.status()));
+        } catch (const std::exception&) {
+            return err_resp("SIDECAR_UNREACHABLE", "PI sidecar is not reachable", 502);
+        }
+    });
+
     // Read-only view of the Jev request/response log for the UI (the sidecar redacts entries when it writes them).
     CROW_ROUTE(app, "/api/pi/decisions/log").methods("GET"_method)
     ([](const crow::request& req) {

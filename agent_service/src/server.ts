@@ -150,6 +150,16 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       sendJson(res, 200, await decisionsService.status());
       return;
     }
+    if (url.pathname === "/decisions/test" && req.method === "POST") {
+      if (!decisionsService) {
+        sendJson(res, 503, { error: true, code: "DECISIONS_CONFIG_INVALID", message: decisionsConfigError });
+        return;
+      }
+      const abort = new AbortController();
+      res.on("close", () => { if (!res.writableEnded) abort.abort(); });
+      sendJson(res, 200, await decisionsService.probe(abort.signal));
+      return;
+    }
     if (url.pathname === "/decisions/log" && req.method === "GET") {
       // Read-only view of the Jev request/response log (already redacted when written).
       sendJson(res, 200, { schema_version: "pi.jev-traffic.v1", privacy_class: "redacted", ...readJevLog(Number(url.searchParams.get("limit") || 500)) });

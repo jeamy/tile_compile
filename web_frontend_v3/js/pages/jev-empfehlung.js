@@ -79,6 +79,34 @@ export function createJevSettingsCard() {
     }
   }
 
+  // Status check: sidecar, key and mode from the status route, plus ONE minimal real provider call (data-free) to prove the connection.
+  const checkResult = el("div", { class: "tc-text-sm tc-mt-2", id: "jev-check-result" });
+  const checkBtn = el("button", { class: "tc-btn", id: "jev-check", title: t("ui.jev.tooltip.check", "Pr\u00fcft Sidecar, Modus und Key und sendet eine minimale Testanfrage ohne Scan- oder Config-Daten an den Provider (Kosten: etwa eine Entscheidung)."), onclick: () => checkStatus() }, t("ui.jev.check", "Status pr\u00fcfen"));
+  const line = (ok, text) => el("div", { class: ok ? "tc-text-success" : "tc-text-error" }, `${ok ? "\u2713" : "\u2717"} ${text}`);
+  async function checkStatus() {
+    checkBtn.disabled = true;
+    checkResult.replaceChildren(el("div", { class: "tc-text-muted" }, t("ui.jev.check_running", "Pr\u00fcfung l\u00e4uft...")));
+    const rows = [];
+    try {
+      const s = await api.get(API_ENDPOINTS.decisions.status);
+      if (!s?.available) throw new Error("sidecar");
+      rows.push(line(true, `${t("ui.jev.check_sidecar", "PI-Sidecar erreichbar")} \u00b7 ${t("ui.jev.mode", "Betriebsmodus")}: ${s.mode} \u00b7 ${s.model}`));
+      rows.push(line(Boolean(s.has_api_key), s.has_api_key ? t("ui.jev.check_key_ok", "API-Key vorhanden") : t("ui.jev.check_key_missing", "API-Key fehlt")));
+      if (s.has_api_key) {
+        const r = await api.post(API_ENDPOINTS.decisions.test, {});
+        rows.push(line(Boolean(r.ok), r.ok
+          ? `${t("ui.jev.check_provider_ok", "Provider antwortet")} (${r.latency_ms} ms${r.model_reported ? `, ${r.model_reported}` : ""})`
+          : `${t("ui.jev.check_provider_failed", "Provider-Anfrage fehlgeschlagen")}: ${r.error_code || r.status}`));
+      }
+      await refresh();
+    } catch (e) {
+      rows.push(line(false, t("ui.jev.status_unreachable", "PI-Sidecar nicht erreichbar")));
+    } finally {
+      checkResult.replaceChildren(...rows);
+      checkBtn.disabled = false;
+    }
+  }
+
   const card = el("div", { class: "tc-card tc-jev", id: "jev-settings-card" },
     el("div", { class: "tc-card-title" }, t("ui.jev.title", "Jev (Decisions API)")),
     el("div", { class: "tc-text-sm tc-text-muted tc-mb-2" }, t("ui.jev.intro", "Zweite, unabhängige Empfehlungsquelle. Läuft getrennt von der KI-Karte oben; Umschalten dort ändert Jev nicht.")),
@@ -103,8 +131,10 @@ export function createJevSettingsCard() {
     ),
     el("div", { class: "tc-mt-2 tc-jev-row" },
       el("button", { class: "tc-btn tc-btn-primary", onclick: () => save({ mode: modeSelect.value, allow_experimental_suggestions: experimental.checked }) }, t("ui.jev.save_settings", "Modus speichern")),
+      checkBtn,
       statusLine,
     ),
+    checkResult,
   );
   refresh();
   return card;

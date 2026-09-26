@@ -2209,5 +2209,13 @@
   "ui.jev.reason.path_locked": "Der Parameter ist gesperrt.",
   "ui.jev.reason.config_equals": "Nur geprüft, wenn {path} = {value} ist; der Entwurf hat einen anderen Wert.",
   "ui.jev.not_asked": "Jev wurde nicht befragt, es gibt daher keine Empfehlung (Gründe unten).",
-  "ui.jev.open_settings": "Jev-Einstellungen öffnen (Tools → KI & API)"
+  "ui.jev.open_settings": "Jev-Einstellungen öffnen (Tools → KI & API)",
+  "ui.jev.check": "Status prüfen",
+  "ui.jev.tooltip.check": "Prüft Sidecar, Modus und Key und sendet eine minimale Testanfrage ohne Scan- oder Config-Daten an den Provider (Kosten: etwa eine Entscheidung).",
+  "ui.jev.check_running": "Prüfung läuft...",
+  "ui.jev.check_sidecar": "PI-Sidecar erreichbar",
+  "ui.jev.check_key_ok": "API-Key vorhanden",
+  "ui.jev.check_key_missing": "API-Key fehlt",
+  "ui.jev.check_provider_ok": "Provider antwortet",
+  "ui.jev.check_provider_failed": "Provider-Anfrage fehlgeschlagen"
 }

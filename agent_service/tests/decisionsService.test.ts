@@ -533,3 +533,34 @@ describe("runtime settings (Jev card)", () => {
     fs.rmSync(dir, { recursive: true });
   });
 });
+
+describe("connection probe (settings card)", () => {
+  it("makes one minimal call with a data-free state, in any mode, and reports the outcome", async () => {
+    const good = fixture("response_ok.json") as any;
+    good.answers.candidate_selection.choice = "keep_current";
+    good.answers.candidate_selection.probabilities = { keep_current: 0.9, insufficient_evidence: 0.1 };
+    const { svc, t, traces } = service([ok200(good)], { mode: "off" });
+    const r = await svc.probe();
+    assert.equal(t.calls.length, 1, "exactly one provider call, although the mode is off");
+    assert.equal(r.status, "ok");
+    assert.equal(r.ok, true);
+    assert.equal(r.model_requested, "typesafe/jev-1.13");
+    assert.ok(typeof r.latency_ms === "number");
+    const sent = JSON.parse(t.calls[0].body);
+    assert.deepEqual(sent.state, { probe: true }, "no scan, config or path data leaves with a probe");
+    assert.ok(!JSON.stringify(traces).includes(KEY));
+  });
+  it("without a key nothing is sent", async () => {
+    const { svc, t } = service([ok200(fixture("response_ok.json"))], {}, { key: undefined });
+    const r = await svc.probe();
+    assert.deepEqual([r.ok, r.error_code], [false, "no_api_key"]);
+    assert.equal(t.calls.length, 0);
+  });
+  it("a provider failure is reported with its code, not thrown", async () => {
+    const { svc } = service([status(401)], { maxRetries: 0 });
+    const r = await svc.probe();
+    assert.equal(r.ok, false);
+    assert.equal(r.status, "unavailable");
+    assert.ok(typeof r.error_code === "string" && r.error_code.length > 0);
+  });
+});
