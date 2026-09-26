@@ -2170,5 +2170,7 @@
   "ui.post_run.finding.selected_candidate_numerics_or_support_failed": "Selected candidate failed the numerics or support check",
   "ui.post_run.finding.selected_candidate_reason": "Selection reason",
   "ui.post_run.metric.final_stretched_image_quality": "Quality of the stretched final image",
-  "ui.post_run.metric.star_shape_after_downstream": "Star shape after the downstream stages"
+  "ui.post_run.metric.star_shape_after_downstream": "Star shape after the downstream stages",
+  "ui.jev.computing_metrics": "Computing image statistics...",
+  "ui.jev.metrics_failed": "The image statistics could not be computed."
 }

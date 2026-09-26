@@ -2184,5 +2184,7 @@
   "ui.post_run.finding.selected_candidate_numerics_or_support_failed": "Gewählter Kandidat verfehlt Numerik- oder Support-Prüfung",
   "ui.post_run.finding.selected_candidate_reason": "Auswahlgrund",
   "ui.post_run.metric.final_stretched_image_quality": "Qualität des gestreckten Endbilds",
-  "ui.post_run.metric.star_shape_after_downstream": "Sternform nach den nachgelagerten Stufen"
+  "ui.post_run.metric.star_shape_after_downstream": "Sternform nach den nachgelagerten Stufen",
+  "ui.jev.computing_metrics": "Bildstatistik wird berechnet...",
+  "ui.jev.metrics_failed": "Bildstatistik konnte nicht berechnet werden."
 }

@@ -14,6 +14,8 @@ import { toastError, toastSuccess } from "../components/toast.js";
 import { getConfigState, setConfigState, deepClone } from "../state/config-state.js";
 import { getUiState, setUiState } from "../state/ui-state.js";
 import { parseYaml, stringifyYaml } from "../utils/yaml-parse.js";
+import { pollJob } from "../utils/poll.js";
+import { getScanData } from "./input-scan.js";
 
 const POLL_MS = 1500;
 const POLL_TIMEOUT_MS = 90000;
@@ -223,12 +225,36 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
     }
   }
 
+  async function computeScanMetrics() {
+    const scan = await api.get(API_ENDPOINTS.scan.latest);
+    const objectName = String(getScanData().object_name || scan?.object_name || scan?.target || "").trim();
+    const started = await api.post(API_ENDPOINTS.scan.metrics, {
+      input_path: scan?.input_path || scan?.input_dirs?.[0] || "",
+      object_name: objectName,
+      target: objectName,
+      frame_count: scan?.frames_detected || scan?.frames_total || scan?.frame_count || 0,
+    });
+    if (started?.cached && started?.result) return;
+    if (!started?.job_id) throw new Error(t("ui.jev.metrics_failed", "Bildstatistik konnte nicht berechnet werden."));
+    await pollJob(started.job_id, { endpoint: API_ENDPOINTS.scan.jobStatus, timeoutMs: 600000, onDone: (job) => job?.data?.result || job?.data || null });
+  }
+
   async function requestAdvice() {
     const yaml = currentDraftYaml();
     if (!yaml.trim()) { toastError(t("ui.jev.request_failed", "Anfrage fehlgeschlagen"), t("ui.jev.no_draft", "Kein Config-Entwurf geladen.")); return; }
     requestBtn.disabled = true;
     try {
-      const r = await api.post(API_ENDPOINTS.decisions.advice, { yaml, locked_paths: [], session_context: sessionContext() });
+      const send = () => api.post(API_ENDPOINTS.decisions.advice, { yaml, locked_paths: [], session_context: sessionContext() });
+      let r;
+      try {
+        r = await send();
+      } catch (e) {
+        // The image statistics are computed on demand, like the AI card does, instead of asking the user to do it first.
+        if (e.payload?.code !== "NO_SCAN_METRICS") throw e;
+        renderMessage(t("ui.jev.computing_metrics", "Bildstatistik wird berechnet..."));
+        await computeScanMetrics();
+        r = await send();
+      }
       setUiState({ jevProposalId: r.proposal_id });
       await poll(r.proposal_id);
     } catch (e) {
