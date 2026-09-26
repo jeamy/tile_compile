@@ -9,10 +9,10 @@ data:
   bayer_pattern: auto
 calibration:
   use_bias: false
-  use_dark: true
+  use_dark: false
   use_flat: false
   bias_use_master: false
-  dark_use_master: true
+  dark_use_master: false
   dark_already_bias_corrected: false
   flat_use_master: false
   dark_auto_select: false
@@ -20,7 +20,6 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 5
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
-  dark_master: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/dark_exp_10.000000_gain_60_bin_1_stack_10.fits
 normalization:
   enabled: true
   mode: background
@@ -133,7 +132,7 @@ luma_denoise:
     sigma_range: 2
 astrometry:
   enabled: true
-  astap_data_dir: /media/data/Astro/astap
+  astap_data_dir: /home/lux/.local/share/tile_compile/astap
   search_radius: 183
 stacking:
   per_frame_cosmetic_correction: true
@@ -225,7 +224,7 @@ hypermetric_stretch:
   sensor_profile: Sony IMX415 (DWARF II)
   fallback_profile: Sony IMX415 (DWARF II)
   adaptive_anchor: true
-  target_bg: 0.2
+  target_bg: 0.14
   protect_b: 6
   convergence_power: 4
   log_d_mode: fixed
@@ -277,7 +276,7 @@ reconstruction:
     internal_scale: 2
     output_scale: 1
     kernel: square
-    pixfrac: 0.8
+    pixfrac: 1.0
     robust_passes: 4
     min_clip_contributors: 5
     # All frames (not only the ~64 hash-selected reservoir frames) determine the
