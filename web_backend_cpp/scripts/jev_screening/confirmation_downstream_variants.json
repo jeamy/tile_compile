@@ -1,0 +1,12 @@
+[
+  {
+    "name": "base",
+    "changes": {}
+  },
+  {
+    "name": "anchor_off",
+    "changes": {
+      "hypermetric_stretch.adaptive_anchor": false
+    }
+  }
+]
