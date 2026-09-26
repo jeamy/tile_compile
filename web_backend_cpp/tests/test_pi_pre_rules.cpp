@@ -40,6 +40,16 @@ int main(int argc, char** argv) {
             expect_equal(c.policy_version, std::string(kDecisionPolicyVersion), "policy version reported");
         }
 
+        // ---- the shipped catalog never offers the rejected candidate, whatever the policy says ----
+        {
+            const DecisionCatalog shipped = load_real_catalog(repo, false);
+            const auto c = build_pre_run_candidates(state, cfg, frozen_test_policy(true), shipped, ok);
+            bool offered = false;
+            for (const auto& a : c.applicable) offered = offered || a["candidate_id"] == "enable_adaptive_weights";
+            expect_true(!offered, "enable_adaptive_weights is not offered (experimental on, thresholds frozen)");
+            expect_true(has_reason(c.excluded, "enable_adaptive_weights", "candidate_rejected"), "and the exclusion reason says it is rejected");
+        }
+
         // ---- experimental + frozen test thresholds: offered, flagged ----
         {
             const auto c = build_pre_run_candidates(state, cfg, frozen_test_policy(), catalog, ok);

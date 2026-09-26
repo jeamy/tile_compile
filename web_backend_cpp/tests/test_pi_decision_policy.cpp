@@ -257,6 +257,31 @@ int main(int argc, char** argv) {
             expect_true(throws_c(no_aliases), "empty alias list refused");
         }
 
+        // ---- rejected candidates: the catalog as shipped never offers enable_adaptive_weights ----
+        {
+            const DecisionCatalog shipped = load_real_catalog(repo, false);
+            const json cfg_aw = {{"global_metrics", {{"adaptive_weights", false}}}};
+            const auto v = validate_decision_candidate(enable_candidate(), good, cfg_aw, frozen_test_policy(true), shipped, accepting_validator());
+            expect_true(!v.ok && has(v.reasons, "candidate_rejected") && !v.policy_ok, "a rejected candidate is refused even with experimental on and frozen thresholds");
+            expect_true(v.updates.empty() && v.merged_config.is_null(), "nothing is salvaged from a rejected candidate");
+            json entry;
+            for (const auto& c : shipped.candidates) if (c["candidate_id"] == "enable_adaptive_weights") entry = c;
+            expect_true(entry.value("applicability", "") == "rejected" && entry.value("validation_status", "") == "rejected" &&
+                            !entry.value("rejected_reason", "").empty() && !entry.value("rejected_evidence", "").empty(),
+                        "the shipped entry documents why it is rejected and where the evidence is");
+            const auto dir = repo / "web_backend_cpp/config/pi_decisions";
+            json c = json::parse(slurp_file(dir / "candidates_v1.json"));
+            const json prot_r = json::parse(slurp_file(dir / "protected_paths_v1.json"));
+            auto throws_r = [&](const json& cc) { try { load_decision_catalog(cc, prot_r); } catch (const std::invalid_argument&) { return true; } return false; };
+            auto idx = [&](const json& cc) { for (size_t i = 0; i < cc["candidates"].size(); ++i) if (cc["candidates"][i]["candidate_id"] == "enable_adaptive_weights") return i; return size_t(0); };
+            json no_reason = c; no_reason["candidates"][idx(no_reason)].erase("rejected_reason");
+            expect_true(throws_r(no_reason), "a rejected candidate without a reason is refused at load");
+            json unknown = c; unknown["candidates"][idx(unknown)]["applicability"] = "sometimes";
+            expect_true(throws_r(unknown), "an unknown applicability value is refused at load");
+            expect_true(!has(validate_decision_candidate(enable_candidate(), good, cfg_aw, frozen_test_policy(true), catalog, accepting_validator()).reasons, "candidate_rejected"),
+                        "the test helper reopens it, so the rest of the suite still exercises the candidate logic");
+        }
+
         expect_true(path_is_protected(catalog, "reconstruction.coverage_gate.min_frames"), "coverage_gate protected");
         expect_true(!path_is_protected(catalog, "reconstruction.drizzle.min_clip_contributors"), "min_clip_contributors released for candidates");
         expect_true(path_is_protected(catalog, "pcc.k_max") && path_is_protected(catalog, "reconstruction.multiband_validation.fwhm_ratio_max"), "acceptance gates stay hard-protected");

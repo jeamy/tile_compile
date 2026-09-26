@@ -48,10 +48,12 @@
       "expected_effect_code": "redistribute_frame_weights",
       "risk_code": "quality_gain_unproven",
       "requires_review": true,
-      "validation_status": "unvalidated",
-      "applicability": "experimental_only",
-      "description": "Hypothesis-stage. First applicable ONLY once M5 freezes the minimum measurement-coverage / metric-agreement threshold policy this candidate's preconditions require (pi_scan_pre_rules_de.md section 5, last paragraph). Until then this entry exists for schema/contract testing but pi_decision_policy must resolve it to abstain in every real evaluation.",
-      "provider_description": "Enable adaptive per-frame quality weighting (global_metrics.adaptive_weights = true). Its benefit is unproven; measured evidence is listed in candidate_facts."
+      "validation_status": "rejected",
+      "applicability": "rejected",
+      "description": "Rejected 2026-09-26 (see rejected_reason). Kept in the catalog as a record and so that tests can exercise the candidate logic; never offered to the provider.",
+      "provider_description": "Enable adaptive per-frame quality weighting (global_metrics.adaptive_weights = true). Its benefit is unproven; measured evidence is listed in candidate_facts.",
+      "rejected_reason": "Six paired sessions (M31, M42, IC5070, M66, IC4605, M104) show no sharpness gain on matched stars (FWHM ratio 0.999-1.005 against a required <= 0.95), 2-3 % more noise on half of them, and the flag can change the registration reference frame and with it the stack geometry. Reopen only with evidence from a different setup.",
+      "rejected_evidence": "docs/PI/pi_jev_m5_evaluation_de.md"
     },
     {
       "candidate_id": "set_sensor_profile_dwarf_ii",

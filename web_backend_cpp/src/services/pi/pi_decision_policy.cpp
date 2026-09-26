@@ -318,6 +318,14 @@ DecisionCatalog load_decision_catalog(const json& candidates_v1, const json& pro
             (!cand.contains("provider_description") || !cand["provider_description"].is_string() ||
              !valid_provider_text(cand["provider_description"].get<std::string>())))
             throw std::invalid_argument("candidate catalog: " + id + " needs a provider_description (1..240 printable ASCII characters, no path/URL/key)");
+        {
+            const std::string applicability = cand.value("applicability", std::string("released"));
+            if (applicability != "released" && applicability != "experimental_only" && applicability != "rejected")
+                throw std::invalid_argument("candidate catalog: " + id + " has an unknown applicability '" + applicability + "'");
+            if (applicability == "rejected" && (!cand.contains("rejected_reason") || !cand["rejected_reason"].is_string() ||
+                                                cand["rejected_reason"].get<std::string>().empty()))
+                throw std::invalid_argument("candidate catalog: " + id + " is rejected without a rejected_reason");
+        }
         if (cand.contains("camera_aliases")) {
             if (!cand["camera_aliases"].is_array() || cand["camera_aliases"].empty())
                 throw std::invalid_argument("candidate catalog: " + id + " camera_aliases must be a non-empty array");
@@ -366,7 +374,7 @@ CandidateValidation validate_decision_candidate(const json& candidate, const jso
                    r == "config_path_conflict";
         });
         out.policy_ok = !any([](const std::string& r) {
-            return r == "path_protected" || r == "path_locked" || starts_with(r, "blocked:") || r == "experimental_not_enabled" ||
+            return r == "path_protected" || r == "path_locked" || starts_with(r, "blocked:") || r == "experimental_not_enabled" || r == "candidate_rejected" ||
                    starts_with(r, "precondition_failed:") || starts_with(r, "unknown_precondition:") || r == "already_active" ||
                    r == "old_value_mismatch";
         });
@@ -384,6 +392,7 @@ CandidateValidation validate_decision_candidate(const json& candidate, const jso
         return finish(false);
     }
     out.experimental = entry->value("applicability", std::string("released")) == "experimental_only";
+    if (entry->value("applicability", std::string("released")) == "rejected") reasons.insert("candidate_rejected");
     out.requires_review = entry->value("requires_review", true) || out.experimental;
     if (candidate.value("candidate_version", 0) != entry->value("candidate_version", -1)) reasons.insert("candidate_version_mismatch");
 

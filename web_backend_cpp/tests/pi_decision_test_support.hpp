@@ -12,10 +12,15 @@ namespace pi_test {
 using nlohmann::json;
 using namespace tile_compile::pi;
 
-inline DecisionCatalog load_real_catalog(const std::filesystem::path& repo) {
+// The production catalog marks enable_adaptive_weights as rejected. Most tests use it as their stock change candidate, so by
+// default it is reopened (experimental_only); pass reopen_rejected=false to get the catalog exactly as shipped.
+inline DecisionCatalog load_real_catalog(const std::filesystem::path& repo, bool reopen_rejected = true) {
     const auto dir = repo / "web_backend_cpp/config/pi_decisions";
-    return load_decision_catalog(json::parse(slurp_file(dir / "candidates_v1.json")),
-                                 json::parse(slurp_file(dir / "protected_paths_v1.json")));
+    json cands = json::parse(slurp_file(dir / "candidates_v1.json"));
+    if (reopen_rejected)
+        for (auto& c : cands["candidates"])
+            if (c.value("applicability", "") == "rejected") c["applicability"] = "experimental_only";
+    return load_decision_catalog(cands, json::parse(slurp_file(dir / "protected_paths_v1.json")));
 }
 
 inline json make_frame(int idx, const char* filter, double fwhm, double noise, bool ok = true) {

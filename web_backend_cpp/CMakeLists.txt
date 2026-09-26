@@ -475,7 +475,8 @@ endif()
 if(TRUE)
     add_executable(pi_decisions_eval tools/pi_decisions_eval.cpp
         src/services/pi/pi_decision_state.cpp src/services/pi/pi_decision_policy.cpp
-        src/services/pi/pi_pre_rules.cpp src/services/pi/pi_decision_outcome.cpp)
+        src/services/pi/pi_pre_rules.cpp src/services/pi/pi_decision_outcome.cpp
+        src/services/pi/pi_scan_manifest.cpp)
     target_include_directories(pi_decisions_eval PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${YAML_CPP_INCLUDE_DIRS})
     if(TARGET nlohmann_json::nlohmann_json)
         target_link_libraries(pi_decisions_eval PRIVATE nlohmann_json::nlohmann_json)
