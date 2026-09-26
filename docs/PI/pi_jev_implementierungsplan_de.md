@@ -353,7 +353,7 @@ Ein erster Kandidat kann häufig `keep_current` liefern. Das rechtfertigt keine 
 
 ## 10. M6 — Post-Run-Beratung und PI-Übergabe
 
-**Status:** offen. **Auslösung:** nur auf Wunsch des Nutzers (Entscheidung 2026-09-24), keine automatische Beratung. **Abhängigkeit:** M4, M5-Verfahren für jede neue Empfehlung.
+**Status:** Kern umgesetzt (2026-09-26), siehe 10.1. **Auslösung:** nur auf Wunsch des Nutzers (Entscheidung 2026-09-24), keine automatische Beratung. **Abhängigkeit:** M4, M5-Verfahren für jede neue Empfehlung.
 
 Zunächst die tatsächlichen Producer/Consumer von Qualitätsartefakten inventarisieren. Ein Reader für `pi_run_quality.json` beweist weder vollständige Erzeugung noch Verfügbarkeit der benötigten Zwischenstandsmetriken. Vorhandenen Completion-Analyse-Pfad nutzen; keine parallele konkurrierende Ergebniswahrheit.
 
@@ -370,6 +370,19 @@ Zunächst die tatsächlichen Producer/Consumer von Qualitätsartefakten inventar
 Tests: fehlendes `canvas_mask.fits`, fehlende Vorgängercaches, falsche Provenienz, nur finale gestreckte Metrik, ungültige Sternpopulation, abgelehnter Multiband-Kandidat, unbekannte PCC-Ursache, falsche Resume-Phase, keine Änderung und wiederholter Vorschlag. Bestehende Run-Artefakte bleiben bei Beratung unverändert.
 
 **Abnahme:** Ohne benötigte Evidenz keine scheinpräzise Reparatur. Kein Jev-Score überschreibt Gates. Resume-Machbarkeit ist separat geprüft; kein automatischer Runstart.
+
+### 10.1 M6 Umsetzungsstand (2026-09-26)
+
+Inventar: `pi_run_quality.json` wird vom Runner nur im Legacy-Pfad (`runner_pipeline.cpp`) erwähnt und von `pi_outcome_recorder.cpp` gelesen; der Forward-Drizzle-Lauf erzeugt es nicht. Verlässliche Producer im aktuellen Pfad sind `artifacts/run_provenance.json`, `artifacts/forward_drizzle.json` (gewählter Kandidat, Auswahlgrund, Validierungsmetriken je Raw/Uniform/Multiband, `commit_complete`) und `logs/run_events.jsonl`. Darauf beruht der State; nichts wird neu gemessen.
+
+- [x] `pi.post-run-decision-state.v1` (`pi_post_run.cpp`, `build_post_run_state`): Run-Identität, abgeschlossene Phasen, Terminalereignis, Kandidatenmetriken (nicht anwendbare Metriken ohne Wert, nie 0), Artefakt-/Cache-Präsenz, `missing`, `not_measured`, Hash. Tolerant gegenüber abgeschnittener Logzeile; das letzte `run_end` gilt.
+- [x] `advise_post_run`: deterministisch, ohne Modellaufruf, schreibt nichts. Ergebnisse `no_change`, `diagnose`, `suggest_downstream`, `suggest_reconstruction`. Vorschläge nur aus dem geprüften Katalog (gleicher Validierungspfad wie Pre-Run gegen die effektive Run-Config). Fehlende Evidenz, fehlgeschlagener Lauf oder durchgefallene Numerik des gewählten Kandidaten führen zu `diagnose`, nie zu einer Reparatur. Ein per Gate abgelehnter Multiband-Kandidat ist nur eine Information.
+- [x] `min_resume_phase` serverseitig aus der einen Tabelle `pi_resume_scope.cpp` (die `runs_routes.cpp` jetzt ebenfalls nutzt; keine zweite Kopie im Backend). Bedeutung: späteste legale Resume-Startphase; `reconstruction.*` hat keine, also `resume_mode: full_run`. Sie sagt nichts über Machbarkeit; die bestehende Resume-Dry-Run-Route bleibt die Instanz dafür (`feasibility: not_checked_use_resume_dry_run`).
+- [x] Ablehnungshistorie: `dismissed_candidates` in der Anfrage; ein verworfener Vorschlag wird nicht erneut angeboten und die Ablehnung wird berichtet.
+- [x] Route `POST /api/pi/post-run/advice` (nur auf Anforderung, read-only) und Karte "Jev-Nachbetrachtung" im Run-Monitor (DE/EN). Übernahme in einen Entwurf und Start sind nicht Teil dieser Karte.
+- [ ] Nicht umgesetzt: Jev-Modellaufruf für Post-Run (es gibt noch keinen Post-Run-Fragensatz und keinen nachgelagerten Kandidaten mit bestandener Policy), `suggest_downstream` kann daher heute nicht auftreten; Übergabe der Diagnose an den PI-Kontext; Übernahme als Entwurf; Metrikproducer für das gestreckte Endbild (`not_measured`).
+- Verifikation: `web_backend_cpp_pi_post_run` (Mutation der Ablehnungslogik wird erkannt), Backend-Suite grün (`memory_guards` schlägt nur bei paralleler Last fehl und besteht einzeln). Die Route und die UI-Karte sind gebaut/statisch geprüft, aber nicht gegen einen laufenden neuen Backend-Build und nicht im Browser geprüft (Erweiterung nicht verbunden; laufendes Backend hat den alten Build).
+
 
 ## 11. M7 — Integration, Dokumentation und Regression
 

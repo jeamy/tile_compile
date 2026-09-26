@@ -20,6 +20,7 @@ import { openHmsPreview } from "../components/hms-preview.js";
 import { openBgePreview } from "../components/bge-preview.js";
 import { createYamlDiff } from "../components/yaml-diff.js";
 import { getEffectiveCalValues } from "./input-scan.js";
+import { createPostRunAdvicePanel } from "../components/post-run-advice.js";
 import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
 
 function createCompletionAnalysisPanel() {
@@ -178,6 +179,7 @@ export function createRunMonitorPage() {
 
   const runPreview = createRunImagePreviewPanel("run-monitor-image-preview");
   const completionAnalysis = createCompletionAnalysisPanel();
+  const postRunAdvice = createPostRunAdvicePanel();
   const runChat = createRunChatPanel();
 
   // Log viewer (component-based)
@@ -195,7 +197,7 @@ export function createRunMonitorPage() {
   );
   activeWarningBanner = warningBanner;
 
-  page.append(control, runInfo, phases, warningBanner, stats, completionAnalysis, runPreview, runMonitorTabs);
+  page.append(control, runInfo, phases, warningBanner, stats, completionAnalysis, postRunAdvice, runPreview, runMonitorTabs);
 
   // WebSocket listener
   onWebSocketMessage((event) => {

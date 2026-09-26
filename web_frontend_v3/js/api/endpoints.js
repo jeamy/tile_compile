@@ -49,6 +49,7 @@ export const API_ENDPOINTS = {
     apply: (id) => `/api/scan/decisions/${encodeURIComponent(String(id || ""))}/apply`,
     status: "/api/pi/decisions/status",
     settings: "/api/pi/decisions/settings",
+    postRunAdvice: "/api/pi/post-run/advice",
   },
   pi: {
     tools: "/api/pi/tools",
