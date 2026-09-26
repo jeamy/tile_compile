@@ -343,6 +343,14 @@ Arbeit:
 
 Ein erster Kandidat kann häufig `keep_current` liefern. Das rechtfertigt keine Absenkung der Freigabegrenzen; zusätzliche sinnvolle Kandidaten werden nach dem Erweiterungsverfahren des Regelkatalogs einzeln eingeführt.
 
+### 9.1 M5, Fortsetzung (2026-09-26)
+
+- [x] Messwerkzeug für gematchte Sterne (`matched_pair_metrics.py`) und Screening-Werkzeuge (`web_backend_cpp/scripts/jev_screening/`, mit README und 20 Tests).
+- [x] `enable_adaptive_weights` im Katalog verworfen (`applicability: rejected`); Policy und Lader unterstützen den Status; Begründung in `pi_jev_m5_evaluation_de.md`.
+- [x] `release_policy_v2.json` vorab festgelegt (Paarungsregeln, Futility, Endpunkte für `set_pixfrac` und `set_clip_sigmas`).
+- [ ] Bestätigung von `set_pixfrac` und `set_clip_sigmas` auf M104, M31, M42, IC5070 und M66 (M104 läuft), danach Aufnahme als Katalogkandidaten mit Wertegitter, falls die Endpunkte gelten.
+- [ ] Mehrfachfragen je Anfrage (mit der zweiten Kandidatengruppe).
+
 ## 10. M6 — Post-Run-Beratung und PI-Übergabe
 
 **Status:** offen. **Auslösung:** nur auf Wunsch des Nutzers (Entscheidung 2026-09-24), keine automatische Beratung. **Abhängigkeit:** M4, M5-Verfahren für jede neue Empfehlung.

@@ -178,3 +178,27 @@ ununtersuchte IC4605- und M104-Eingaben als getrennte An/Aus-Paare vorbereitet.
 Ihre Ergebnisse gehören erst nach erfolgreichem Abschluss und einer Prüfung
 der Paaridentität in den Evidenzbericht; ein laufender oder fehlgeschlagener
 Arm gilt nicht als Qualitätsnachweis.
+
+## Entscheidung vom 2026-09-26: `enable_adaptive_weights` verworfen, Policy v2
+
+**`enable_adaptive_weights` ist im Katalog `rejected`** (`candidates_v1.json`: `applicability: rejected`, `rejected_reason`, `rejected_evidence`). Die
+Policy weist den Kandidaten immer mit `candidate_rejected` ab, auch mit `allow_experimental` und eingefrorenen Schwellen. Gründe: sechs gepaarte
+Sessions an gematchten Sternen ohne jeden Schärfegewinn (FWHM-Verhältnis 0,999 bis 1,005 gegen geforderte höchstens 0,95), 2 bis 3 % mehr Rauschen bei der
+Hälfte der Sessions, und der Schalter verändert über `global_weights` das Referenzbild der Registrierung und damit die Geometrie des Stacks. Weitere Sessions
+würden die Aussage nicht ändern (Abstand um eine Größenordnung zum Ziel, Läufe reproduzierbar). Wiedereröffnung nur mit Evidenz aus einem anderen Setup
+(z. B. Alt/Az mit starker Feldrotation oder stark wechselndem Seeing). Die Tests öffnen den Kandidaten über den Test-Helfer `load_real_catalog(repo)`, damit sie
+weiter die Kandidatenlogik prüfen; ein eigener Test sichert, dass der ausgelieferte Katalog ihn nie anbietet.
+
+**`release_policy_v2.json`** (eingefroren 2026-09-26T08:00:09Z, bevor ein M104-Endpunkt angesehen wurde; `release_policy_v1.json` bleibt unverändert gültig
+für die Entscheidungs-Wiederholung) legt das Protokoll für wirkungsbasierte Parameter-Kandidaten fest: Paarungsregeln (gleiche Frames, gleiches Binary,
+**gleiches Referenzbild und gleiches Raster**, sonst wird die Session ausgeschlossen, weder für noch gegen den Kandidaten gezählt), eine Futility-Regel (ab 4
+auswertbaren Sessions gilt ein Kandidat als aussichtslos, wenn das Session-KI des Primärendpunkts vollständig über 1,0 liegt) und die Endpunkte:
+
+| Kandidat | Änderung | Primärendpunkt (Session-KI, oberes Ende) | Sicherheitsgrenzen |
+|---|---|---|---|
+| `set_pixfrac` | 0,8 auf 1,0 | Rauschverhältnis höchstens 0,95 | Sternbreite und Elongation höchstens 1,01, Signal mindestens 0,99, Coverage-Gate bestanden, `n_eff` p10 nicht schlechter, gewählter Ausgang unverändert |
+| `set_clip_sigmas` | 4/4 auf 5/5 | Rauschverhältnis höchstens 0,97 | wie oben, Signal zwischen 0,99 und 1,03 |
+
+Stichprobe: mindestens 5 Sessions in 2 Objektgruppen mit je mindestens 2 Sessions, je Session mindestens 50 gematchte Sterne und 100 000 gültige
+Hintergrundpixel. Bestätigungs-Sessions: M104, M31, M42, IC5070, M66 (Rekonstruktions-Arme vor dem Einfrieren nie gefahren); IC4605 bleibt explorativ. Das
+Sensorprofil bleibt `blocked` (keine unabhängigen Referenzdaten). Prüfer und Verdikt-Funktionen: `web_backend_cpp/scripts/jev_screening/policy_v2.py`.

@@ -117,7 +117,7 @@ Ausgangsconfig, Sternform an gematchten Positionen).
 
 | # | Kandidat | Patch (Beispiel) | Evidenz (Post-Run) | Nachweis / Blocker |
 |---|---|---|---|---|
-| B1 | Adaptive Gewichtung ausschalten | `global_metrics.adaptive_weights: false` | `global_metrics.json`, n_eff/N; Vergleich der Läufe | Grundstreuung per Wiederholungslauf messen; heute nur belegt: kein Nutzen |
+| B1 (**erledigt: `enable_adaptive_weights` verworfen, 2026-09-26**) | Adaptive Gewichtung ausschalten | `global_metrics.adaptive_weights: false` | `global_metrics.json`, n_eff/N; Vergleich der Läufe | Grundstreuung per Wiederholungslauf messen; heute nur belegt: kein Nutzen |
 | B2 | Multiband-Parameter | `reconstruction.multiband.levels`, Exponenten, `alpha_cap` | `forward_drizzle.json` Validierung Multiband gegen Raw | Gates selbst bleiben geschützt; belegt bisher nur "kein Effekt", also unklar, ob Parameter überhaupt helfen |
 | B3 | Drizzle-Sampling | `pixfrac`, `internal_scale`, `output_scale` (abhängige Gruppe) | Lauf-FWHM, Dither-Abdeckung (Registrierung) | eigene Vergleichsläufe; `min_clip_contributors` bleibt geschützt |
 | B4 | Clipping bei Artefakten | `clip_sigma_low/high`, `robust_passes` | Clipping-Zähler, Artefaktanteil je Run | Frame-Anzahl und Artefaktlage nötig; Schutzschalter bleiben |
@@ -158,3 +158,10 @@ Umsetzung: M5.1 im [Umsetzungsplan](pi_jev_implementierungsplan_de.md). Ursprün
 - Risiko: mehr Kandidaten bedeuten mehr Modellentscheidungen ohne Nutzennachweis. Ohne gepaarte Läufe sind sie
   Hypothesen (wie `enable_adaptive_weights`), werden nur als experimentell im Review angeboten und nie automatisch
   übernommen.
+
+## Stand der Wirkungsmessung (2026-09-26)
+
+Die Effektgrößen der nachgelagerten Parameter (`pi_jev_effektgroessen_nachgelagert_20260926.md`) und der Rekonstruktionsparameter
+(`pi_jev_effektgroessen_rekonstruktion_20260926.md`) zeigen: nur wenige Regler sind wirksam und datenabhängig. Erste Kandidaten mit vorab festgelegten
+Endpunkten: `set_pixfrac` (0,8 auf 1,0) und `set_clip_sigmas` (4/4 auf 5/5), Protokoll in `release_policy_v2.json`. Werkzeuge:
+`web_backend_cpp/scripts/jev_screening/`.
