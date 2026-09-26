@@ -2183,16 +2183,17 @@
   "ui.jev.apply_selected": "Apply selected",
   "ui.jev.apply_all": "Apply all",
   "ui.jev.no_change_group": "no change",
-  "ui.jev.reason.mode_off": "Jev is switched off. Set the operating mode above to \"Suggest\".",
-  "ui.jev.reason.no_api_key": "No API key is stored for Jev.",
+  "ui.jev.reason.mode_off": "Jev is switched off. Set the operating mode to \"Suggest\" under Tools → AI & API → Jev.",
+  "ui.jev.reason.no_api_key": "No API key is stored for Jev (Tools → AI & API → Jev).",
   "ui.jev.reason.sidecar_unreachable": "The PI sidecar is not reachable.",
   "ui.jev.reason.provider_unavailable": "Jev was not asked.",
   "ui.jev.reason.validation_not_run": "Nothing was checked because there was no answer from Jev.",
-  "ui.jev.reason.experimental_not_enabled": "Experimental candidate: enable \"Show experimental candidates\" above.",
+  "ui.jev.reason.experimental_not_enabled": "Experimental candidate: enable \"Show experimental candidates\" under Tools → AI & API → Jev.",
   "ui.jev.reason.already_active": "Already set that way in the draft.",
   "ui.jev.reason.candidate_rejected": "Rejected: the tests so far show no benefit.",
   "ui.jev.reason.thresholds_not_frozen": "No release thresholds have been fixed for this candidate yet.",
   "ui.jev.reason.path_locked": "The parameter is locked.",
   "ui.jev.reason.config_equals": "Only checked when {path} = {value}; the draft has a different value.",
-  "ui.jev.not_asked": "Jev was not asked, so there is no recommendation (reasons below)."
+  "ui.jev.not_asked": "Jev was not asked, so there is no recommendation (reasons below).",
+  "ui.jev.open_settings": "Open the Jev settings (Tools → AI & API)"
 }

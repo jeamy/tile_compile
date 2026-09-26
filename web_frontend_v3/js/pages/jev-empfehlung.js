@@ -16,6 +16,7 @@ import { getUiState, setUiState } from "../state/ui-state.js";
 import { parseYaml, stringifyYaml } from "../utils/yaml-parse.js";
 import { pollJob } from "../utils/poll.js";
 import { getScanData } from "./input-scan.js";
+import { goToSubTab } from "../utils/navigation.js";
 import { autoScanForAnalysis } from "./ai-empfehlung.js";
 import { createJevTrafficPanel } from "../components/jev-traffic.js";
 
@@ -115,12 +116,12 @@ export function createJevSettingsCard() {
 
 // Plain-language text for the machine reason codes of a proposal or an excluded candidate; unknown codes are shown as is.
 const REASON_TEXT = {
-  "provider:mode_off": ["ui.jev.reason.mode_off", "Jev ist ausgeschaltet. Oben den Betriebsmodus auf \u201eVorschlagen\u201c stellen."],
-  "provider:no_api_key": ["ui.jev.reason.no_api_key", "Es ist kein API-Schl\u00fcssel f\u00fcr Jev hinterlegt."],
+  "provider:mode_off": ["ui.jev.reason.mode_off", "Jev ist ausgeschaltet. Unter Tools \u2192 KI & API \u2192 Jev den Betriebsmodus auf \u201eVorschlagen\u201c stellen."],
+  "provider:no_api_key": ["ui.jev.reason.no_api_key", "Es ist kein API-Schl\u00fcssel f\u00fcr Jev hinterlegt (Tools \u2192 KI & API \u2192 Jev)."],
   "provider:sidecar_unreachable": ["ui.jev.reason.sidecar_unreachable", "Der PI-Sidecar ist nicht erreichbar."],
   provider_unavailable: ["ui.jev.reason.provider_unavailable", "Jev wurde nicht befragt."],
   validation_not_run: ["ui.jev.reason.validation_not_run", "Es wurde nichts gepr\u00fcft, weil keine Antwort von Jev vorlag."],
-  experimental_not_enabled: ["ui.jev.reason.experimental_not_enabled", "Experimenteller Kandidat: oben \u201eExperimentelle Kandidaten anzeigen\u201c aktivieren."],
+  experimental_not_enabled: ["ui.jev.reason.experimental_not_enabled", "Experimenteller Kandidat: unter Tools \u2192 KI & API \u2192 Jev \u201eExperimentelle Kandidaten anzeigen\u201c aktivieren."],
   already_active: ["ui.jev.reason.already_active", "Ist im Entwurf bereits so eingestellt."],
   candidate_rejected: ["ui.jev.reason.candidate_rejected", "Verworfen: die bisherigen Tests zeigen keinen Nutzen."],
   policy_thresholds_not_frozen: ["ui.jev.reason.thresholds_not_frozen", "F\u00fcr diesen Kandidaten sind noch keine Freigabeschwellen festgelegt."],
@@ -247,7 +248,11 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
     const nodes = [];
     const actionable = views.filter((v) => isApplicable(v) || ["applied_to_draft", "stale"].includes(v.proposal?.status));
     const unavailable = views.some((v) => v.proposal?.status === "unavailable");
-    if (unavailable) nodes.push(el("div", { class: "tc-text-sm tc-mt-2 tc-text-error" }, t("ui.jev.not_asked", "Jev wurde nicht befragt, es gibt daher keine Empfehlung (Gr\u00fcnde unten).")));
+    if (unavailable) {
+      nodes.push(el("div", { class: "tc-text-sm tc-mt-2 tc-text-error" }, t("ui.jev.not_asked", "Jev wurde nicht befragt, es gibt daher keine Empfehlung (Gr\u00fcnde unten).")));
+      nodes.push(el("div", { class: "tc-mt-2" }, el("button", { class: "tc-btn tc-btn-sm", id: "jev-open-settings", onclick: () => goToSubTab("tools", "ai-settings") },
+        t("ui.jev.open_settings", "Jev-Einstellungen \u00f6ffnen (Tools \u2192 KI & API)"))));
+    }
     else if (!actionable.length) nodes.push(el("div", { class: "tc-text-sm tc-mt-2" }, t("ui.jev.result.no_change", "Keine Änderung empfohlen")));
     for (const v of views) nodes.push(renderCard(v));
     if (applicable.length)
