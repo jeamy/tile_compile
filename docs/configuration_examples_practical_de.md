@@ -537,6 +537,36 @@ Wichtig, mit Zahlen aus derselben Simulation belegt:
 
 ---
 
+## Großräumiger Kontrast (`hypermetric_stretch.large_scale_contrast`)
+
+**Wann aktivieren:** Das gestreckte Bild wirkt im Hintergrund eintönig, obwohl die Daten großräumige Struktur enthalten (Staubbänder,
+Reflexionsnebel, Leuchten um helle Sterne). Die globale Stretch-Kurve drückt solche schwache, ausgedehnte Struktur in ein schmales Band; ein
+lokaler Kontrast würde dabei das Rauschen mitverstärken. Diese Stufe hebt nur die großräumige Komponente an: Pixelrauschen, Sternprofile und
+Feindetail bleiben unverändert. Standard: aus.
+
+```yaml
+hypermetric_stretch:
+  large_scale_contrast:
+    enabled: true
+    amount: 2.0          # 1 = doppelte, 2 = dreifache sichtbare Struktur (Zuwachs bei sigma_px 48 etwa 60 % davon)
+    sigma_px: 48.0       # Strukturen kleiner als etwa dieser Wert werden nicht angehoben
+    chroma_amount: 2.0   # großräumige Farbunterschiede R-G / B-G; 0 = Farbe unverändert
+    remove_vignette: true
+```
+
+- **Gemessen** (IC4605, Ausgabe des Stretch-Schritts): Pixelrauschen ×1,000, Sternbreite ×1,000, Sternsignal ×1,000; großräumige Himmelsstruktur ×1,8 / ×2,5 / ×3,3 bei
+  `amount` 1 / 2 / 3. Die Stufe lässt sich ohne neue Rekonstruktion testen: `resume-reconstruction --from-phase HYPERMETRIC_STRETCH`
+  (nur der Abschnitt `hypermetric_stretch` darf sich ändern).
+- **Vignette:** Ohne Flatfield-Kalibrierung ist eine Vignette Teil der großräumigen Struktur. `remove_vignette: true` (Standard) zieht eine radialsymmetrische
+  Komponente vor der Verstärkung ab; bei zentrierten, radialsymmetrischen Objekten (z. B. ein großer, mittiger Nebel) ausschalten.
+- **Gradienten:** Restgradienten von Lichtverschmutzung werden mit angehoben. Dafür bleibt BGE zuständig; `bge.method: classic` entfernt allerdings auch
+  zwei Drittel der großräumigen Nebelstruktur (siehe `pi_jev_effektgroessen_nachgelagert_20260926.md`), die Reihenfolge ist also: BGE nur bei echten
+  Gradienten, danach ggf. großräumiger Kontrast.
+- **Diagnose:** Im Ereignis `phase_end` von `HYPERMETRIC_STRETCH` steht `large_scale_contrast` mit `status`, `span_before`, `span_after` (Spanne p5-p95 der
+  Grobkarte) und `vignette_removed`.
+
+---
+
 ## Gemeinsamer Overlap (`reconstruction.common_overlap_required_fraction`)
 
 **Aktueller sinnvoller Standardwert:**

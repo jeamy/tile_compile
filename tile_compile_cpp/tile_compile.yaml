@@ -247,6 +247,17 @@ hypermetric_stretch:
     object_sigma: 3.0
     brightness_bins: 8
     neutralize_sky: false
+  # Scale-selective contrast (off by default): lifts only the large-scale sky structure
+  # (dust lanes, reflection nebulae) of the stretched image, without amplifying noise, stars or
+  # fine detail: I' = I + amount * (LS(I) - sky). sigma_px is the scale of the "large" component,
+  # remove_vignette keeps a radially symmetric component (vignette, radial glow) out of the boost,
+  # chroma_amount does the same for the colour differences R-G and B-G (0 = colour unchanged).
+  large_scale_contrast:
+    enabled: false
+    amount: 1.0
+    sigma_px: 48.0
+    chroma_amount: 0.0
+    remove_vignette: true
   write_channels: false
   output_rgb: stacked_rgb_hms.fits
 runtime_limits:

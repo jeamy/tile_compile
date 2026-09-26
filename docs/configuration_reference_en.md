@@ -1830,6 +1830,11 @@ VeraLux HyperMetric Stretch (HMS) is an optional final RGB stretch phase after P
 | `hypermetric_stretch.color_cast_correction.brightness_bins` | integer | `8` | Brightness classes of the object pixels, [1, 32]; the strength is chosen per class and interpolated over the pixel brightness (1 = one global strength). |
 | `hypermetric_stretch.color_cast_correction.neutralize_sky` | boolean | `false` | Also shift G so the sky is neutral: `G += (sky R + sky B)/2 - sky G` (skipped above 25 % offset). |
 | `hypermetric_stretch.color_cast_correction.object_sigma` | number | `3.0` | Object pixels: blurred luminance above sky + k sigma, (0, 50]; brightest 1 % excluded. |
+| `hypermetric_stretch.large_scale_contrast.enabled` | boolean | `false` | Lifts only the large-scale sky structure (dust lanes, reflection nebulae) of the stretched image; no extra noise, stars unchanged. Runs after the colour-cast correction. |
+| `hypermetric_stretch.large_scale_contrast.amount` | number | `1.0` | Factor on the large-scale deviation from the sky level, [0, 6]; 1 doubles, 2 triples the visible structure (the gain at sigma_px 48 is about 60 % of that). |
+| `hypermetric_stretch.large_scale_contrast.sigma_px` | number | `48.0` | Gaussian sigma of the "large" component in output pixels, (0, 512]; structure below stays untouched. |
+| `hypermetric_stretch.large_scale_contrast.chroma_amount` | number | `0.0` | Same factor for the large-scale colour differences R-G and B-G, [0, 6]; G unchanged; 0 = colour unchanged. |
+| `hypermetric_stretch.large_scale_contrast.remove_vignette` | boolean | `true` | Keeps a radially symmetric component (vignette, radial sky glow) out of the boost; turn it off for centred, radially symmetric objects. |
 | `hypermetric_stretch.write_channels` | boolean | `false` | |
 | `hypermetric_stretch.output_rgb` | string | `stacked_rgb_hms.fits` | non-empty |
 

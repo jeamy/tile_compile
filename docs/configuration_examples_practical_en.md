@@ -527,6 +527,34 @@ Important, backed by numbers from the same simulation:
 
 ---
 
+## Large-scale contrast (`hypermetric_stretch.large_scale_contrast`)
+
+**When to enable:** The stretched image looks monotone in the background although the data carry large-scale structure (dust lanes, reflection
+nebulae, glow around bright stars). The global stretch curve squeezes such faint, extended structure into a narrow band; a local contrast would amplify
+the noise with it. This stage lifts only the large-scale component: pixel noise, star profiles and fine detail stay unchanged. Default: off.
+
+```yaml
+hypermetric_stretch:
+  large_scale_contrast:
+    enabled: true
+    amount: 2.0          # 1 = double, 2 = triple the visible structure (the gain at sigma_px 48 is about 60 % of that)
+    sigma_px: 48.0       # structure smaller than about this value is not lifted
+    chroma_amount: 2.0   # large-scale colour differences R-G / B-G; 0 = colour unchanged
+    remove_vignette: true
+```
+
+- **Measured** (IC4605, stretch-step output): pixel noise x1.000, star width x1.000, star signal x1.000; large-scale sky structure x1.8 / x2.5 / x3.3 for
+  `amount` 1 / 2 / 3. The stage can be tested without a new reconstruction: `resume-reconstruction --from-phase HYPERMETRIC_STRETCH`
+  (only the `hypermetric_stretch` section may change).
+- **Vignette:** Without flat-field calibration a vignette is part of the large-scale structure. `remove_vignette: true` (default) removes a radially symmetric
+  component before the boost; turn it off for centred, radially symmetric objects (e.g. a large central nebula).
+- **Gradients:** Residual light-pollution gradients are lifted too. BGE remains responsible for them; note that `bge.method: classic` also removes two thirds of the
+  large-scale nebula structure (see `pi_jev_effektgroessen_nachgelagert_20260926.md`), so: BGE only for real gradients, large-scale contrast afterwards if needed.
+- **Diagnostics:** The `phase_end` event of `HYPERMETRIC_STRETCH` carries `large_scale_contrast` with `status`, `span_before`, `span_after` (p5-p95 of the coarse
+  map) and `vignette_removed`.
+
+---
+
 ## Common overlap (`reconstruction.common_overlap_required_fraction`)
 
 **Current sensible default:**

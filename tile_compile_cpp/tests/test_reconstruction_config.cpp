@@ -247,6 +247,34 @@ TEST_CASE("reconstruction: clipping.bimodal_veto defaults off, parses and valida
   REQUIRE_THROWS_AS(bad.reconstruction.validate(), ValidationError);
 }
 
+TEST_CASE("hypermetric_stretch.large_scale_contrast defaults off, parses, validates and round-trips") {
+  Config def = parse("hypermetric_stretch:\n  enabled: true\n");
+  const auto& d = def.hypermetric_stretch.large_scale_contrast;
+  REQUIRE_FALSE(d.enabled);
+  REQUIRE(d.amount == 1.0f);
+  REQUIRE(d.sigma_px == 48.0f);
+  REQUIRE(d.chroma_amount == 0.0f);
+  REQUIRE(d.remove_vignette);
+  REQUIRE_NOTHROW(def.validate());
+  Config on = parse(
+      "hypermetric_stretch:\n  large_scale_contrast:\n    enabled: true\n"
+      "    amount: 2.5\n    sigma_px: 64\n    chroma_amount: 1.5\n    remove_vignette: false\n");
+  const auto& c = on.hypermetric_stretch.large_scale_contrast;
+  REQUIRE(c.enabled);
+  REQUIRE(c.amount == 2.5f);
+  REQUIRE(c.sigma_px == 64.0f);
+  REQUIRE(c.chroma_amount == 1.5f);
+  REQUIRE_FALSE(c.remove_vignette);
+  REQUIRE_NOTHROW(on.validate());
+  Config again = Config::from_yaml(on.to_yaml());
+  const auto& r = again.hypermetric_stretch.large_scale_contrast;
+  REQUIRE((r.enabled && r.amount == 2.5f && r.sigma_px == 64.0f && r.chroma_amount == 1.5f && !r.remove_vignette));
+  for (const char* bad : {"amount: -0.1", "amount: 6.5", "sigma_px: 0", "sigma_px: 600", "chroma_amount: -1", "chroma_amount: 7"}) {
+    Config b = parse(std::string("hypermetric_stretch:\n  large_scale_contrast:\n    ") + bad + "\n");
+    REQUIRE_THROWS_AS(b.validate(), ValidationError);
+  }
+}
+
 TEST_CASE("hypermetric_stretch.color_cast_correction defaults off, parses and validates") {
   Config def = parse("hypermetric_stretch:\n  enabled: true\n");
   REQUIRE_FALSE(def.hypermetric_stretch.color_cast_correction.enabled);

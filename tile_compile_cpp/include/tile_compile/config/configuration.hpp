@@ -684,6 +684,17 @@ struct HyperMetricStretchConfig {
     int brightness_bins = 8;    // [1, 32]; 1 = one global amount
     bool neutralize_sky = false;  // also shift G so the sky is neutral
   } color_cast_correction;
+  // Scale-selective contrast on the stretched RGB (see
+  // image/large_scale_contrast.hpp): lifts only the large-scale sky structure
+  // (dust lanes, reflection nebulae) without amplifying noise, stars or fine
+  // detail. Applied after the colour-cast correction. Off by default.
+  struct LargeScaleContrastConfig {
+    bool enabled = false;
+    float amount = 1.0f;          // [0, 6]
+    float sigma_px = 48.0f;       // (0, 512]
+    float chroma_amount = 0.0f;   // [0, 6]
+    bool remove_vignette = true;  // keep a radially symmetric component out of the boost
+  } large_scale_contrast;
   bool write_channels = false;
   std::string output_rgb = "stacked_rgb_hms.fits";
 };

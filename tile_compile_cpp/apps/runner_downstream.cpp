@@ -13,6 +13,7 @@
 #include "tile_compile/image/background_extraction.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/image/color_cast_correction.hpp"
+#include "tile_compile/image/large_scale_contrast.hpp"
 #include "tile_compile/image/hypermetric_stretch.hpp"
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/image/processing.hpp"
@@ -1086,6 +1087,24 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
                 << cast_res.ratio_after << std::endl;
     }
 
+    // Scale-selective contrast on the stretched RGB (after the colour-cast correction).
+    image::LargeScaleContrastResult lsc_res;
+    if (cfg.hypermetric_stretch.large_scale_contrast.enabled &&
+        rgb.G.rows() > 0 && rgb.B.rows() > 0) {
+      const auto &lc = cfg.hypermetric_stretch.large_scale_contrast;
+      image::LargeScaleContrastConfig ilc;
+      ilc.enabled = lc.enabled;
+      ilc.amount = lc.amount;
+      ilc.sigma_px = lc.sigma_px;
+      ilc.chroma_amount = lc.chroma_amount;
+      ilc.remove_vignette = lc.remove_vignette;
+      lsc_res = image::apply_large_scale_contrast(
+          rgb.R, rgb.G, rgb.B, ilc, &pcc_cfg.output_valid_mask);
+      std::cout << "[HMS] large-scale contrast: " << lsc_res.status
+                << " span " << lsc_res.span_before << " -> "
+                << lsc_res.span_after << std::endl;
+    }
+
     io::FitsHeader hms_hdr = out_hdr;
     hms_hdr.set("HMS", true);
     hms_hdr.set("HMSVER", std::string("1"));
@@ -1137,7 +1156,15 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
            {"object_pixels", cast_res.object_pixels},
            {"amounts", cast_res.amounts},
            {"sky_neutralized", cast_res.sky_neutralized},
-           {"sky_offset_g", cast_res.sky_offset_g}}}},
+           {"sky_offset_g", cast_res.sky_offset_g}}},
+         {"large_scale_contrast",
+          {{"status", lsc_res.status},
+           {"applied", lsc_res.applied},
+           {"sky_reference", lsc_res.sky_reference},
+           {"span_before", lsc_res.span_before},
+           {"span_after", lsc_res.span_after},
+           {"vignette_removed", lsc_res.vignette_removed},
+           {"downsample_factor", lsc_res.downsample_factor}}}},
         log_file);
     if (abort_if_runtime_limit_exceeded("HYPERMETRIC_STRETCH")) {
       return 1;

@@ -1573,6 +1573,43 @@
             "object_sigma": {"type": "number", "exclusiveMinimum": 0, "maximum": 50, "default": 3.0, "description": "Object pixels are those whose blurred luminance is more than this many sky sigmas above the sky; the brightest 1 % (stars) are excluded."}
           }
         },
+        "large_scale_contrast": {
+          "type": "object",
+          "description": "Scale-selective contrast on the stretched RGB after HMS and after the colour-cast correction: lifts only the large-scale sky structure (dust lanes, reflection nebulae, sky glow) without amplifying noise, star profiles or fine detail. The luminance is reduced to a star-free large-scale map (masked area downsampling, 5x5 median, masked Gaussian of sigma_px); its deviation from the sky level (median over the valid area) is added back, scaled by amount: I' = I + amount * (LS(I) - sky), the same delta on R, G and B. remove_vignette first removes a radially symmetric component (robust polynomial in r^2) so an uncorrected vignette or radial sky glow is not amplified with the nebula. chroma_amount does the same for the colour differences R-G and B-G (G unchanged). A flat image is unchanged, pixels outside the valid mask are never touched, values stay within [0, per-channel maximum of the input]. Off by default.",
+          "properties": {
+            "enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable the scale-selective large-scale contrast after HMS."
+          },
+            "amount": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 6,
+            "default": 1.0,
+            "description": "Factor on the large-scale luminance deviation from the sky level (0 = none). 1 doubles, 2 triples the visible large-scale structure; pixel noise and stars are not changed. Range: [0,6]."
+          },
+            "sigma_px": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 512,
+            "default": 48.0,
+            "description": "Gaussian sigma (output pixels) of the 'large' component: structure smaller than this is left alone. About sigma/6 pixels per cell are used internally. Range: (0,512]."
+          },
+            "chroma_amount": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 6,
+            "default": 0.0,
+            "description": "Same factor for the large-scale colour differences R-G and B-G (G unchanged); 0 leaves the colour unchanged. Range: [0,6]."
+          },
+            "remove_vignette": {
+            "type": "boolean",
+            "default": true,
+            "description": "Exclude a radially symmetric component (robust polynomial in r^2 about the valid-area centre) from the boost, so an uncorrected vignette or radial glow is not amplified."
+          }
+          }
+        },
         "write_channels": {
           "type": "boolean",
           "description": "When true, writes individual R, G, B channel files in addition to the RGB output. Default: false.",

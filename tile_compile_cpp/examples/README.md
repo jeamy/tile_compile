@@ -76,6 +76,19 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   disabled in the M42 profiles (measured 0.78, unchanged either way); off in
   `tile_compile.yaml`.
 
+- Large-scale contrast (`hypermetric_stretch.large_scale_contrast`): optional
+  scale-selective contrast on the stretched RGB (after HMS and the colour-cast
+  correction) that lifts only the large-scale sky structure (dust lanes,
+  reflection nebulae) without amplifying noise, star profiles or fine detail:
+  `I' = I + amount * (LS(I) - sky)` with a star-free coarse map `LS` at scale
+  `sigma_px`. `remove_vignette` (default on) keeps a radially symmetric
+  component out of the boost, `chroma_amount` does the same for the colour
+  differences R-G/B-G. Measured on IC4605 (stretch output of the new
+  forward-drizzle pipeline): pixel noise x1.000, star width x1.000, star signal
+  x1.000, large-scale sky structure x1.8/x2.5/x3.3 for `amount` 1/2/3. Off in
+  every profile and in `tile_compile.yaml`; try `amount: 2`,
+  `chroma_amount: 2` on a diffuse target where the plain stretch looks flat.
+
 - `forward_drizzle_streaming.example.yaml`
   Minimal fragment documenting the bounded drizzle streaming/memory options
   (`chunk_rows`, `chunk_halo_rows`, `memory_budget_mb`, diagnostic store).
