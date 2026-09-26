@@ -1,5 +1,6 @@
 #include "backend_test_harness.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -35,6 +36,36 @@ int main(int argc, char** argv) {
         BackendHarness harness(argv[1], argv[2], argv[3], argv[4]);
     try {
         harness.start();
+
+        // Phase durations come from the whole log, not from the capped events tail: many progress events must not hide them.
+        {
+            std::vector<nlohmann::json> events = {
+                {{"ts", "2026-03-10T10:00:00.500Z"}, {"type", "phase_start"}, {"phase_name", "SCAN_INPUT"}},
+                {{"ts", "2026-03-10T10:00:12Z"}, {"type", "phase_end"}, {"phase_name", "SCAN_INPUT"}, {"status", "ok"}},
+                {{"ts", "2026-03-10T10:00:12Z"}, {"type", "phase_start"}, {"phase_name", "NORMALIZATION"}},
+            };
+            for (int i = 0; i < 300; ++i)
+                events.push_back({{"ts", "2026-03-10T10:00:13Z"}, {"type", "phase_progress"}, {"phase_name", "NORMALIZATION"}, {"progress", 0.5}});
+            events.push_back({{"ts", "2026-03-10T10:01:15Z"}, {"type", "phase_end"}, {"phase_name", "NORMALIZATION"}, {"status", "ok"}});
+            harness.create_run("phase_duration_run", events, "OSC");
+            const auto st = harness.get_json("/api/runs/phase_duration_run/status");
+            bool scan_seen = false, norm_seen = false;
+            for (const auto& item : st["phases"]) {
+                if (test_phase_name(item) == "SCAN_INPUT") {
+                    scan_seen = true;
+                    expect_true(item.contains("duration_seconds"), "an early phase keeps its duration although its events left the tail");
+                    if (item.contains("duration_seconds")) expect_equal(item["duration_seconds"].get<double>(), 11.5, "fractional seconds count", 1e-6);
+                }
+                if (test_phase_name(item) == "NORMALIZATION") {
+                    norm_seen = true;
+                    expect_true(item.contains("duration_seconds") && std::abs(item["duration_seconds"].get<double>() - 63.0) < 1e-6, "second phase duration");
+                }
+            }
+            expect_true(scan_seen && norm_seen, "both phases reported");
+            bool tail_has_scan_start = false;
+            for (const auto& ev : st["events"]) tail_has_scan_start = tail_has_scan_start || (ev.value("type", "") == "phase_start" && ev.value("phase_name", "") == "SCAN_INPUT");
+            expect_true(!tail_has_scan_start, "the events tail really no longer contains the early phase (the old client-side derivation would fail)");
+        }
 
         harness.create_run("resume_progress_run", {
             {{"ts", "2026-03-10T10:00:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},

@@ -13,7 +13,31 @@
 #include <yaml-cpp/yaml.h>
 #ifndef _WIN32
 #include <unistd.h>
+#include <ctime>
+#include <cstdio>
+#include <cstdlib>
+#include <cctype>
 #endif
+
+namespace {
+// "2026-09-25T14:35:32.490Z" (fraction optional) -> seconds since the epoch; nullopt when it is not that shape.
+std::optional<double> parse_event_ts_seconds(const nlohmann::json& ev) {
+    if (!ev.contains("ts") || !ev["ts"].is_string()) return std::nullopt;
+    const std::string ts = ev["ts"].get<std::string>();
+    std::tm tm{};
+    int consumed = 0;
+    if (std::sscanf(ts.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d%n", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec, &consumed) != 6) return std::nullopt;
+    tm.tm_year -= 1900;
+    tm.tm_mon -= 1;
+    double frac = 0.0;
+    if (static_cast<size_t>(consumed) < ts.size() && ts[consumed] == '.') {
+        size_t e = consumed + 1;
+        while (e < ts.size() && std::isdigit(static_cast<unsigned char>(ts[e]))) ++e;
+        frac = std::strtod(("0" + ts.substr(consumed, e - consumed)).c_str(), nullptr);
+    }
+    return static_cast<double>(timegm(&tm)) + frac;
+}
+} // namespace
 
 namespace {
 
@@ -650,6 +674,8 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
     nlohmann::json extra_phases = nlohmann::json::object();
     nlohmann::json progress_map = nlohmann::json::object();
     std::deque<nlohmann::json> events_tail;
+    // Phase durations come from the WHOLE log: the events tail is capped and progress events push early phases out of it.
+    std::map<std::string, double> phase_started_at;
     std::string run_status = "unknown";
     std::string current_phase;
     std::string resume_from_phase;
@@ -701,6 +727,8 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
             }
 
             if (event_type == "phase_start") {
+                (*phase_state).erase("duration_seconds");
+                if (const auto at = parse_event_ts_seconds(ev)) phase_started_at[phase_name] = *at;
                 if ((*phase_state).value("status", std::string()) != "running" ||
                     (*phase_state).value("pct", 0.0) >= 1.0) {
                     (*phase_state)["pct"] = 0.0;
@@ -733,6 +761,8 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                     raw = "ok";
                 }
                 (*phase_state)["status"] = raw;
+                if (const auto at = parse_event_ts_seconds(ev); at && phase_started_at.count(phase_name) && *at >= phase_started_at[phase_name])
+                    (*phase_state)["duration_seconds"] = *at - phase_started_at[phase_name];
                 if (raw == "ok" || raw == "skipped") (*phase_state)["pct"] = 1.0;
                 if (!is_resume_prereq_phase(phase_name) &&
                     current_phase == phase_name &&
