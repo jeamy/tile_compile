@@ -9,6 +9,8 @@ A variant file is a JSON list of {"name": "...", "changes": {"dotted.path": valu
 in the base config (a typo is an error, never a silently added key). By default PCC, astrometry, BGE and the stretch are switched
 off in EVERY arm (same for all): reconstruction screenings run on a frame subset, where PCC finds too few stars, and only the
 reconstruction output is measured. The names are written to DIR/names.json in run order (control first).
+The `confirmation` preset also normalises every arm (control included) to the control levels of release_policy_v2.json
+(pixfrac 0.8, clipping 4.0/4.0), whatever the session's own config uses.
 """
 import argparse
 import json
@@ -45,6 +47,12 @@ PRESETS = {
     ],
 }
 
+# Levels every arm of a preset is normalised to BEFORE its own change (the control levels of release_policy_v2.json): a session whose own
+# config happens to use another level (e.g. clipping 2/4) would otherwise not have the pre-registered control.
+PRESET_BASELINES = {
+    "confirmation": {R + "drizzle.pixfrac": 0.8, R + "clipping.clip_sigma_low": 4.0, R + "clipping.clip_sigma_high": 4.0},
+}
+
 DOWNSTREAM_OFF = {"pcc.enabled": False, "astrometry.enabled": False, "hypermetric_stretch.enabled": False,
                   "bge.method": "none", "registration.use_astrometry": False}
 
@@ -61,8 +69,10 @@ def set_path(config, dotted, value):
     node[keys[-1]] = value
 
 
-def build(base, variants, downstream_off=True):
-    """Returns {name: config}; the control (empty changes) must come first and no name may repeat."""
+def build(base, variants, downstream_off=True, baseline=None):
+    """Returns {name: config}; the control (empty changes) must come first and no name may repeat.
+
+    `baseline` (dotted path -> value) is applied to EVERY arm first, so all arms share the same control levels."""
     names = [n for n, _ in variants]
     if len(set(names)) != len(names):
         raise ValueError("duplicate variant names")
@@ -71,6 +81,8 @@ def build(base, variants, downstream_off=True):
     out = {}
     for name, changes in variants:
         config = yaml.safe_load(yaml.safe_dump(base))
+        for path, value in (baseline or {}).items():
+            set_path(config, path, value)
         for path, value in changes.items():
             set_path(config, path, value)
         if downstream_off:
@@ -98,7 +110,7 @@ def main(argv=None):
     else:
         with open(args.variants, encoding="utf-8") as fh:
             variants = [(v["name"], v.get("changes", {})) for v in json.load(fh)]
-    configs = build(base, variants, not args.keep_downstream)
+    configs = build(base, variants, not args.keep_downstream, PRESET_BASELINES.get(args.preset))
     os.makedirs(args.out_dir, exist_ok=True)
     for name, config in configs.items():
         with open(os.path.join(args.out_dir, name + ".yaml"), "w", encoding="utf-8") as fh:

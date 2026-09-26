@@ -44,6 +44,25 @@ class ConfigGeneratorTest(unittest.TestCase):
         kept = msc.build(BASE, [("control", {})], downstream_off=False)
         self.assertTrue(kept["control"]["pcc"]["enabled"])
 
+    def test_the_baseline_normalises_every_arm_including_the_control(self):
+        base = copy.deepcopy(BASE)
+        base["reconstruction"]["clipping"]["clip_sigma_low"] = 2.0          # a session whose own config differs from the policy control level
+        base["reconstruction"]["drizzle"]["pixfrac"] = 0.9
+        norm = {"reconstruction.drizzle.pixfrac": 0.8, "reconstruction.clipping.clip_sigma_low": 4.0}
+        out = msc.build(base, [("control", {}), ("pixfrac_1.0", {"reconstruction.drizzle.pixfrac": 1.0})], baseline=norm)
+        self.assertEqual(out["control"]["reconstruction"]["drizzle"]["pixfrac"], 0.8)
+        self.assertEqual(out["control"]["reconstruction"]["clipping"]["clip_sigma_low"], 4.0)
+        self.assertEqual(out["pixfrac_1.0"]["reconstruction"]["clipping"]["clip_sigma_low"], 4.0, "the tested arm shares the control level of the other parameter")
+        self.assertEqual(out["pixfrac_1.0"]["reconstruction"]["drizzle"]["pixfrac"], 1.0, "and its own change wins over the baseline")
+        self.assertEqual(base["reconstruction"]["drizzle"]["pixfrac"], 0.9, "the base is not modified")
+
+    def test_the_confirmation_preset_uses_the_policy_control_levels(self):
+        policy = json.load(open(POLICY))
+        self.assertEqual(policy["candidates"]["set_pixfrac"]["control_level"], msc.PRESET_BASELINES["confirmation"]["reconstruction.drizzle.pixfrac"])
+        clip = policy["candidates"]["set_clip_sigmas"]["control_level"]
+        self.assertEqual(clip, [msc.PRESET_BASELINES["confirmation"]["reconstruction.clipping.clip_sigma_low"], msc.PRESET_BASELINES["confirmation"]["reconstruction.clipping.clip_sigma_high"]])
+        self.assertEqual(policy["candidates"]["set_pixfrac"]["tested_level"], dict(msc.PRESETS["confirmation"])["pixfrac_1.0"]["reconstruction.drizzle.pixfrac"])
+
     def test_typos_and_bad_orders_are_errors(self):
         with self.assertRaises(KeyError):
             msc.build(BASE, [("control", {}), ("x", {"reconstruction.drizzle.pixfrak": 1.0})])
