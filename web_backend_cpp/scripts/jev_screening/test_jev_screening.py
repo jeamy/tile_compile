@@ -14,6 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
 import compare_background_structure as cbs  # noqa: E402
+import confirm_candidates as cc  # noqa: E402
 import evaluate_reconstruction_screening as ers  # noqa: E402
 import make_screening_configs as msc  # noqa: E402
 import policy_v2  # noqa: E402
@@ -351,6 +352,48 @@ class ShellScriptsTest(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(src, "run_b", "f")), "and its source is kept")
             self.assertIn("../evil is not a plain run id", text)
             self.assertIn("missing missing at source", text)
+
+
+class ConfirmCandidatesTest(unittest.TestCase):
+    @staticmethod
+    def _report(noise, pix_noise=0.9, ref=True):
+        def arm(n):
+            return {"noise_ratio": n, "fwhm_ratio": 1.0, "elongation_ratio": 1.0, "signal_ratio": 1.0, "selected_unchanged": True,
+                    "n_eff_ratio": 1.4, "matched_stars": 300, "valid_background_pixels": 10 ** 6,
+                    "pairing": {"same_reference_frame": ref, "identical_raster": True}}
+        return {"variants": {"pixfrac_1.0": arm(pix_noise), "clip_5_5": arm(noise)}}
+
+    def _run(self, reports):
+        with tempfile.TemporaryDirectory() as d:
+            specs = []
+            for name, (group, rep) in reports.items():
+                path = os.path.join(d, name + ".json")
+                json.dump(rep, open(path, "w"))
+                specs.append("%s=%s:%s" % (name, group, path))
+            out = os.path.join(d, "v.json")
+            cc.main(["--policy", POLICY, "--out", out] + specs)
+            return json.load(open(out))["candidates"]
+
+    def test_verdict_holds_and_reports_intervals(self):
+        reps = {"a": ("g1", self._report(0.9)), "b": ("g1", self._report(0.9)), "c": ("g1", self._report(0.9)),
+                "d": ("g2", self._report(0.9)), "e": ("g2", self._report(0.9))}
+        v = self._run(reps)
+        self.assertTrue(v["set_pixfrac"]["holds"] and v["set_clip_sigmas"]["holds"])
+        self.assertAlmostEqual(v["set_clip_sigmas"]["intervals_95"]["noise_ratio"]["upper"], 0.9, places=6)
+
+    def test_a_weak_effect_or_an_invalid_pair_or_a_failed_gate_does_not_hold(self):
+        base = {"a": ("g1", self._report(0.9)), "b": ("g1", self._report(0.9)), "c": ("g1", self._report(0.9)),
+                "d": ("g2", self._report(0.9)), "e": ("g2", self._report(0.9))}
+        weak = dict(base, e=("g2", self._report(1.02)), d=("g2", self._report(1.02)), c=("g1", self._report(1.02)))
+        self.assertIn("noise_endpoint_not_met", self._run(weak)["set_clip_sigmas"]["reasons"])
+        bad_pair = dict(base, e=("g2", self._report(0.9, ref=False)))
+        v = self._run(bad_pair)["set_pixfrac"]
+        self.assertFalse(v["holds"])
+        self.assertEqual(v["excluded_sessions"], {"e": "pairing_invalid"})
+        failed = dict(base, e=("g2", {"variants": {"clip_5_5": self._report(0.9)["variants"]["clip_5_5"], "pixfrac_1.0": {"error": "gate"}}}))
+        v = self._run(failed)["set_pixfrac"]
+        self.assertFalse(v["holds"])
+        self.assertIn("coverage_gate_failed", v["reasons"])
 
 
 if __name__ == "__main__":

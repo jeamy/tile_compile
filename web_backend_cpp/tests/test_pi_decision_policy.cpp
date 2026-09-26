@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
             const auto dir = repo / "web_backend_cpp/config/pi_decisions";
             const json base_cands = json::parse(slurp_file(dir / "candidates_v1.json"));
             const json prot = json::parse(slurp_file(dir / "protected_paths_v1.json"));
-            auto with_grid = [&](const json& grid, const char* id = "set_pixfrac") {
+            auto with_grid = [&](const json& grid, const char* id = "set_test_pixfrac") {
                 json c = base_cands;
                 c["candidates"].push_back({{"candidate_id", id}, {"candidate_version", 1}, {"group", "drizzle_sampling"},
                                            {"preconditions", json::array()}, {"required_evidence", json::array({"measurement_coverage"})},
@@ -84,21 +84,21 @@ int main(int argc, char** argv) {
                 for (const auto& c : gc.candidates) if (c["candidate_id"] == id) return &c;
                 return nullptr;
             };
-            expect_true(find("set_pixfrac") == nullptr, "the grid template itself is not selectable");
-            expect_true(find("set_pixfrac__0p6") && find("set_pixfrac__0p7") && find("set_pixfrac__0p8") && find("set_pixfrac__0p9"), "one candidate per level");
+            expect_true(find("set_test_pixfrac") == nullptr, "the grid template itself is not selectable");
+            expect_true(find("set_test_pixfrac__0p6") && find("set_test_pixfrac__0p7") && find("set_test_pixfrac__0p8") && find("set_test_pixfrac__0p9"), "one candidate per level");
             expect_equal(static_cast<long>(gc.candidates.size()), static_cast<long>(catalog.candidates.size() + 4), "only the levels were added");
-            expect_true((*find("set_pixfrac__0p7"))["updates"][0]["value"] == 0.7 && (*find("set_pixfrac__0p7"))["grid_of"] == "set_pixfrac", "level carries the exact path/value");
+            expect_true((*find("set_test_pixfrac__0p7"))["updates"][0]["value"] == 0.7 && (*find("set_test_pixfrac__0p7"))["grid_of"] == "set_test_pixfrac", "level carries the exact path/value");
 
             json range = listed; range.erase("levels"); range["min"] = 0.5; range["max"] = 0.9; range["step"] = 0.1;
             const DecisionCatalog rc = load_decision_catalog(with_grid(range), prot);
             long n = 0; bool exact = false;
-            for (const auto& c : rc.candidates) if (c.value("grid_of", "") == "set_pixfrac") { ++n; exact = exact || c["candidate_id"] == "set_pixfrac__0p7"; }
+            for (const auto& c : rc.candidates) if (c.value("grid_of", "") == "set_test_pixfrac") { ++n; exact = exact || c["candidate_id"] == "set_test_pixfrac__0p7"; }
             expect_equal(n, 5L, "min/max/step -> 5 levels");
             expect_true(exact, "0.5+0.1*2 is exactly the level 0.7 (rounded, no float drift)");
             json drift = range; drift["min"] = 0.1; drift["max"] = 0.5;
             const DecisionCatalog dc = load_decision_catalog(with_grid(drift), prot);
             bool clean = false;
-            for (const auto& c : dc.candidates) if (c["candidate_id"] == "set_pixfrac__0p3") clean = c["updates"][0]["value"].get<double>() == 0.3;
+            for (const auto& c : dc.candidates) if (c["candidate_id"] == "set_test_pixfrac__0p3") clean = c["updates"][0]["value"].get<double>() == 0.3;
             expect_true(clean, "0.1+3*0.1 is stored as exactly 0.3, not 0.30000000000000004");
 
             json integer_grid = {{"path", "reconstruction.drizzle.robust_passes"}, {"unit", "count"}, {"basis", "test grid"}, {"integer", true}, {"levels", json::array({2, 4})}};
@@ -109,7 +109,7 @@ int main(int argc, char** argv) {
             json neg = listed; neg["levels"] = json::array({-1.5, 0.000001, 12});
             const DecisionCatalog nc = load_decision_catalog(with_grid(neg), prot);
             bool labels = false;
-            for (const auto& c : nc.candidates) labels = labels || c["candidate_id"] == "set_pixfrac__m1p5";
+            for (const auto& c : nc.candidates) labels = labels || c["candidate_id"] == "set_test_pixfrac__m1p5";
             expect_true(labels, "negative levels get a sign-free label");
 
             json prot_grid = listed; prot_grid["path"] = "pcc.k_max";
@@ -142,20 +142,55 @@ int main(int argc, char** argv) {
                 return json{{"candidate_id", id}, {"candidate_version", 1},
                             {"updates", json::array({{{"path", "reconstruction.drizzle.pixfrac"}, {"value", v}}})}};
             };
-            auto ok = validate_decision_candidate(level("set_pixfrac__0p7", 0.7), good, cfg_px, pol, gc, accepting_validator());
+            auto ok = validate_decision_candidate(level("set_test_pixfrac__0p7", 0.7), good, cfg_px, pol, gc, accepting_validator());
             expect_true(ok.ok && ok.reasons.empty(), "an on-grid level is accepted");
             expect_true(ok.requires_review && ok.experimental, "grid candidates keep the review flags");
-            expect_equal(ok.rationale["text_key"].get<std::string>(), "pi.jev.rationale.set_pixfrac.v1", "rationale text is keyed by the template, not the level");
+            expect_equal(ok.rationale["text_key"].get<std::string>(), "pi.jev.rationale.set_test_pixfrac.v1", "rationale text is keyed by the template, not the level");
             expect_true(ok.rationale["params"]["grid_value"] == 0.7 && ok.rationale["params"]["grid_unit"] == "ratio", "chosen level and unit reach the rationale");
             expect_true(config_get(ok.merged_config, "reconstruction.drizzle.pixfrac") == 0.7 && config_get(cfg_px, "reconstruction.drizzle.pixfrac") == 0.8, "merge changes the copy only");
-            auto same = validate_decision_candidate(level("set_pixfrac__0p8", 0.8), good, cfg_px, pol, gc, accepting_validator());
+            auto same = validate_decision_candidate(level("set_test_pixfrac__0p8", 0.8), good, cfg_px, pol, gc, accepting_validator());
             expect_true(!same.ok && has(same.reasons, "already_active"), "the level equal to the current value is a no-op, not a proposal");
-            auto off = validate_decision_candidate(level("set_pixfrac__0p7", 0.75), good, cfg_px, pol, gc, accepting_validator());
+            auto off = validate_decision_candidate(level("set_test_pixfrac__0p7", 0.75), good, cfg_px, pol, gc, accepting_validator());
             expect_true(!off.ok && has(off.reasons, "value_not_allowlisted") && off.updates.empty(), "an off-grid value under a level id is refused, nothing salvaged");
-            auto other = validate_decision_candidate(level("set_pixfrac__0p75", 0.75), good, cfg_px, pol, gc, accepting_validator());
+            auto other = validate_decision_candidate(level("set_test_pixfrac__0p75", 0.75), good, cfg_px, pol, gc, accepting_validator());
             expect_true(!other.ok && has(other.reasons, "unknown_candidate"), "a level that is not in the grid is an unknown candidate");
-            auto strict = validate_decision_candidate(level("set_pixfrac__0p7", 0.7), good, cfg_px, DecisionPolicy{}, gc, accepting_validator());
+            auto strict = validate_decision_candidate(level("set_test_pixfrac__0p7", 0.7), good, cfg_px, DecisionPolicy{}, gc, accepting_validator());
             expect_true(!strict.ok && has(strict.reasons, "experimental_not_enabled"), "grid candidates obey the experimental switch");
+
+            // ---- the confirmed reconstruction candidates (real catalog): only from the control level the evidence was measured against ----
+            auto rc_cfg = [&](double pix, double lo, double hi) {
+                return json{{"reconstruction", {{"drizzle", {{"pixfrac", pix}}}, {"clipping", {{"clip_sigma_low", lo}, {"clip_sigma_high", hi}}}}}};
+            };
+            auto pix_c = [&](double v) {
+                return json{{"candidate_id", "set_pixfrac__1"}, {"candidate_version", 1},
+                            {"updates", json::array({{{"path", "reconstruction.drizzle.pixfrac"}, {"value", v}}})}};
+            };
+            auto clip_c = [&](double lo, double hi) {
+                return json{{"candidate_id", "set_clip_sigmas"}, {"candidate_version", 1},
+                            {"updates", json::array({{{"path", "reconstruction.clipping.clip_sigma_low"}, {"value", lo}},
+                                                     {{"path", "reconstruction.clipping.clip_sigma_high"}, {"value", hi}}})}};
+            };
+            auto p1 = validate_decision_candidate(pix_c(1.0), good, rc_cfg(0.8, 4.0, 4.0), pol, catalog, accepting_validator());
+            expect_true(p1.ok && p1.requires_review && p1.experimental, "pixfrac 0.8 -> 1.0 is offered from the control level, reviewed and experimental");
+            auto p2 = validate_decision_candidate(pix_c(1.0), good, rc_cfg(0.9, 4.0, 4.0), pol, catalog, accepting_validator());
+            expect_true(!p2.ok && has(p2.reasons, "precondition_failed:config_equals:reconstruction.drizzle.pixfrac=0.8"), "another current pixfrac is not the measured control: not offered");
+            auto p3 = validate_decision_candidate(pix_c(1.0), good, rc_cfg(1.0, 4.0, 4.0), pol, catalog, accepting_validator());
+            expect_true(!p3.ok, "pixfrac already 1.0 is not a proposal");
+            auto p4 = validate_decision_candidate(pix_c(0.6), good, rc_cfg(0.8, 4.0, 4.0), pol, catalog, accepting_validator());
+            expect_true(!p4.ok && has(p4.reasons, "value_not_allowlisted"), "0.6 (coverage-gate failure) is not on the grid");
+            auto c1 = validate_decision_candidate(clip_c(5.0, 5.0), good, rc_cfg(0.8, 4.0, 4.0), pol, catalog, accepting_validator());
+            expect_true(c1.ok && c1.updates.size() == 2, "clipping 4/4 -> 5/5 is one atomic two-path proposal");
+            auto c2 = validate_decision_candidate(clip_c(5.0, 5.0), good, rc_cfg(0.8, 2.0, 4.0), pol, catalog, accepting_validator());
+            expect_true(!c2.ok && has(c2.reasons, "precondition_failed:config_equals:reconstruction.clipping.clip_sigma_low=4.0"),
+                        "a 2/4 config is not offered 5/5: that contrast was not pre-registered");
+            auto c3 = validate_decision_candidate(clip_c(5.0, 4.0), good, rc_cfg(0.8, 4.0, 4.0), pol, catalog, accepting_validator());
+            expect_true(!c3.ok && !c3.updates.size(), "half of the pair is refused as a whole (atomic group)");
+            auto c4 = validate_decision_candidate(clip_c(5.0, 5.0), good, json{{"reconstruction", json::object()}}, pol, catalog, accepting_validator());
+            expect_true(!c4.ok, "a config that lacks the current value is not offered the change");
+            json bad_pre = base_cands; bad_pre["candidates"].back()["preconditions"] = json::array({"config_equals:no_equals_sign"});
+            const DecisionCatalog bp = load_decision_catalog(bad_pre, prot);
+            auto b1 = validate_decision_candidate(clip_c(5.0, 5.0), good, rc_cfg(0.8, 4.0, 4.0), pol, bp, accepting_validator());
+            expect_true(!b1.ok && has(b1.reasons, "unknown_precondition:config_equals:no_equals_sign"), "a malformed config_equals precondition fails closed");
         }
 
         // ---- object class: a user statement that candidates may require ----

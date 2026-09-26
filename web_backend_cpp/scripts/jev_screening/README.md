@@ -39,3 +39,9 @@ außer wo unten steht, dass sie Läufe starten oder verschieben; neue Läufe sta
 
 `python3 -m unittest discover -s web_backend_cpp/scripts/jev_screening -p 'test_*.py'` (20 Tests; die Shell-Skripte laufen gegen einen
 Attrappen-Runner, `archive_verified.sh` benötigt `rsync`).
+
+## Verdict on a confirmation screening
+
+`confirm_candidates.py --policy .../release_policy_v2.json --out verdict.json NAME=GROUP:REPORT.json ...` applies `policy_v2.candidate_verdict`
+to the reports of `evaluate_reconstruction_screening.py` (arms `pixfrac_1.0`, `clip_5_5`) and writes the 95 % bootstrap intervals with it.
+A missing arm counts as a failed coverage gate; a session whose pair changed the reference frame or the raster is excluded and reported.

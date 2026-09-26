@@ -438,6 +438,13 @@ CandidateValidation validate_decision_candidate(const json& candidate, const jso
             if (config_get(current_config, "global_metrics.adaptive_weights") == json(true)) reasons.insert("already_active");
         } else if (starts_with(pre, "path_unlocked:")) {
             if (path_is_locked(locks, pre.substr(std::string("path_unlocked:").size()))) reasons.insert("path_locked");
+        } else if (starts_with(pre, "config_equals:")) {
+            // "config_equals:<path>=<json>": the draft must currently hold exactly the control level the evidence was measured against.
+            const std::string spec = pre.substr(std::string("config_equals:").size());
+            const size_t eq = spec.find('=');
+            json want = json::parse(eq == std::string::npos ? std::string() : spec.substr(eq + 1), nullptr, false);
+            if (eq == std::string::npos || eq == 0 || want.is_discarded()) reasons.insert("unknown_precondition:" + pre);
+            else if (!json_values_equal(config_get(current_config, spec.substr(0, eq)), want)) reasons.insert("precondition_failed:" + pre);
         } else {
             reasons.insert("unknown_precondition:" + pre);
         }

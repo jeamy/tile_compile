@@ -1,7 +1,7 @@
 {
   "catalog_version": 1,
   "schema_version": "pi.candidate-catalog.v1",
-  "generated": "2026-09-22",
+  "generated": "2026-09-26",
   "domain": "pre_run",
   "source": "docs/PI/pi_scan_pre_rules_de.md section 5, docs/PI/pi_jev_decisions_plan_de.md section 5",
   "candidates": [
@@ -87,6 +87,63 @@
       "applicability": "experimental_only",
       "description": "Table-driven: the header camera string, after normalisation (upper case, letters and digits only), must be one of camera_aliases. Both spellings were observed in real DWARF II data ('DWARFII' in M31, 'DWARF II' in M42/IC5070/M66). The pipeline's sensor profile enum names this profile explicitly; every DWARF II example and production config already sets it, so on those configs the candidate is a no-op (already_active). Whether it improves the stretch is unproven; the value only changes when the draft still carries another profile. The provider never sees the camera name; applicability is decided by the backend.",
       "provider_description": "Set the stretch sensor profile to the DWARF II profile. Offered only when the backend matched the frame-header camera to a DWARF II; candidate_facts.camera_match confirms it."
+    },
+    {
+      "candidate_id": "set_pixfrac",
+      "candidate_version": 1,
+      "group": "reconstruction_pixfrac",
+      "preconditions": [
+        "base_config_valid",
+        "path_unlocked:reconstruction.drizzle.pixfrac",
+        "config_equals:reconstruction.drizzle.pixfrac=0.8"
+      ],
+      "updates": [],
+      "value_grid": {
+        "path": "reconstruction.drizzle.pixfrac",
+        "unit": "ratio",
+        "basis": "only the level confirmed by release_policy_v2 (set_pixfrac, 0.8 -> 1.0); 0.6 fails the coverage gate and is not offered",
+        "levels": [
+          1.0
+        ]
+      },
+      "expected_effect_code": "lower_background_noise",
+      "risk_code": "confirmed_on_120_frame_subsets",
+      "requires_review": true,
+      "validation_status": "policy_v2_endpoint_held",
+      "applicability": "experimental_only",
+      "description": "Pixel fraction 0.8 -> 1.0. Confirmed on five sessions (M31, M104, M66, M42, IC5070; 120-frame subsets): matched background noise x0.91, n_eff +46 %, star FWHM/elongation unchanged. Offered only from the control level 0.8, the only level the evidence was measured against. Not a release: see docs/PI/pi_jev_bestaetigung_pixfrac_clip_20260926_de.md.",
+      "provider_description": "Raise the drizzle pixel fraction from 0.8 to 1.0. Measured on five sessions at equal star sharpness: about 9 % less background noise and more effective coverage. Offered only when the draft currently uses 0.8.",
+      "evidence_doc": "docs/PI/pi_jev_bestaetigung_pixfrac_clip_20260926_de.md"
+    },
+    {
+      "candidate_id": "set_clip_sigmas",
+      "candidate_version": 1,
+      "group": "reconstruction_clipping",
+      "preconditions": [
+        "base_config_valid",
+        "path_unlocked:reconstruction.clipping.clip_sigma_low",
+        "path_unlocked:reconstruction.clipping.clip_sigma_high",
+        "config_equals:reconstruction.clipping.clip_sigma_low=4.0",
+        "config_equals:reconstruction.clipping.clip_sigma_high=4.0"
+      ],
+      "updates": [
+        {
+          "path": "reconstruction.clipping.clip_sigma_low",
+          "value": 5.0
+        },
+        {
+          "path": "reconstruction.clipping.clip_sigma_high",
+          "value": 5.0
+        }
+      ],
+      "expected_effect_code": "lower_background_noise",
+      "risk_code": "confirmed_on_120_frame_subsets",
+      "requires_review": true,
+      "validation_status": "policy_v2_endpoint_held",
+      "applicability": "experimental_only",
+      "description": "Clipping sigma 4/4 -> 5/5 (atomic pair). Confirmed on five sessions: matched background noise x0.94-0.97, star sharpness unchanged. Offered only from 4/4, the control level of the evidence; configs at 2/4 (M42, IC5070, M66 production profile) are not offered it because that contrast was not pre-registered. Not a release: see docs/PI/pi_jev_bestaetigung_pixfrac_clip_20260926_de.md.",
+      "provider_description": "Widen both clipping thresholds from 4 to 5 sigma. Measured on five sessions at equal star sharpness: about 3-6 % less background noise. Offered only when the draft currently uses 4/4.",
+      "evidence_doc": "docs/PI/pi_jev_bestaetigung_pixfrac_clip_20260926_de.md"
     }
   ]
 }

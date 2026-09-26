@@ -120,7 +120,10 @@ def candidate_verdict(policy, candidate_id, sessions):
             return float("-inf")
         meds = np.median(v[rng.integers(0, v.size, (policy["bootstrap_resamples"], v.size))], axis=1)
         return float(np.percentile(meds, 2.5))
+    intervals = {}
     if sessions:
+        for key in ("noise_ratio", "fwhm_ratio", "elongation_ratio", "signal_ratio"):
+            intervals[key] = {"lower": lower(key), "upper": upper(key)}
         if upper("noise_ratio") > c["noise_ratio_ci_upper_max"]:
             reasons.append("noise_endpoint_not_met")
         safety = c["safety"]
@@ -134,7 +137,7 @@ def candidate_verdict(policy, candidate_id, sessions):
             reasons.append("signal_excess")
         if "n_eff_p10_ratio_min" in safety and any(x["n_eff_ratio"] < safety["n_eff_p10_ratio_min"] for x in sessions):
             reasons.append("coverage_worse")
-    return {"holds": not reasons, "reasons": reasons}
+    return {"holds": not reasons, "reasons": reasons, "intervals_95": intervals, "sessions": len(sessions)}
 
 
 def futility(policy, sessions):

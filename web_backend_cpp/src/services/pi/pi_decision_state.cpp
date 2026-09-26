@@ -23,7 +23,8 @@ constexpr const char* kMetricNames[] = {"background", "noise", "gradient_energy"
 
 // Config paths whose CURRENT value (and lock state) the external provider may see. M2 replaces
 // this constant with the candidate catalog's paths; M1 only needs the first candidate's.
-constexpr const char* kProjectedConfigPaths[] = {"global_metrics.adaptive_weights"};
+constexpr const char* kProjectedConfigPaths[] = {"global_metrics.adaptive_weights", "reconstruction.drizzle.pixfrac",
+                                                 "reconstruction.clipping.clip_sigma_low", "reconstruction.clipping.clip_sigma_high"};
 
 const char* unit_for(const std::string& metric) {
     if (metric == "background" || metric == "noise") return "adu";
