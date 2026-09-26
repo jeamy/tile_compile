@@ -136,6 +136,25 @@ int main(int argc, char** argv) {
             expect_true(throws(own_path), "grid path also listed as a fixed update refused");
             expect_true(throws(with_grid(json(nullptr))), "null grid refused");
 
+            // ---- provider_facts in the catalog: only plain, bounded scalars ----
+            {
+                auto with_facts = [&](const json& facts) {
+                    json c = with_grid(listed);
+                    c["candidates"].back()["provider_facts"] = facts;
+                    return c;
+                };
+                expect_true(!throws(with_facts({{"confirmed_sessions", 5}, {"evidence", "matched star pairs"}})), "plain scalar facts load");
+                expect_true(throws(with_facts(json::object())), "empty facts refused");
+                expect_true(throws(with_facts({{"a", "/home/user/x"}})), "a path-shaped string is refused");
+                expect_true(throws(with_facts({{"Bad Key", 1}})), "a key outside [a-z0-9_] is refused");
+                expect_true(throws(with_facts({{"a", json::array({1})}})), "a non-scalar is refused");
+                expect_true(throws(with_facts({{"a", std::string(40, 'x')}})), "a long string is refused");
+                json many = json::object();
+                for (int i = 0; i < 9; ++i) many["k" + std::to_string(i)] = i;
+                expect_true(throws(with_facts(many)), "more than 8 facts refused");
+                expect_true(throws(with_facts(json{{"a", 1.0 / 0.0}})), "a non-finite number is refused");
+            }
+
             // ---- validating levels against a current config ----
             const json cfg_px = {{"reconstruction", {{"drizzle", {{"pixfrac", 0.8}}}}}};
             auto level = [&](const char* id, double v) {

@@ -318,6 +318,21 @@ DecisionCatalog load_decision_catalog(const json& candidates_v1, const json& pro
             (!cand.contains("provider_description") || !cand["provider_description"].is_string() ||
              !valid_provider_text(cand["provider_description"].get<std::string>())))
             throw std::invalid_argument("candidate catalog: " + id + " needs a provider_description (1..240 printable ASCII characters, no path/URL/key)");
+        if (cand.contains("provider_facts")) {
+            // Measured, checked evidence the provider may see for this candidate: at most 8 plain scalars, no free text.
+            const json& pf = cand["provider_facts"];
+            if (!pf.is_object() || pf.empty() || pf.size() > 8) throw std::invalid_argument("candidate catalog: " + id + " provider_facts must be an object of 1..8 entries");
+            for (auto it = pf.begin(); it != pf.end(); ++it) {
+                const json& v = it.value();
+                const std::string k = it.key();
+                const bool key_ok = !k.empty() && k.size() <= 48 && std::all_of(k.begin(), k.end(), [](unsigned char ch) { return std::islower(ch) || std::isdigit(ch) || ch == '_'; });
+                const std::string sv = v.is_string() ? v.get<std::string>() : std::string();  // one string: begin()/end() must belong to the same object
+                const bool val_ok = v.is_boolean() || (v.is_number() && std::isfinite(v.get<double>())) ||
+                                    (v.is_string() && sv.size() <= 32 &&
+                                     std::all_of(sv.begin(), sv.end(), [](unsigned char ch) { return std::isalnum(ch) || ch == '_' || ch == ' ' || ch == '-'; }));
+                if (!key_ok || !val_ok) throw std::invalid_argument("candidate catalog: " + id + " has an invalid provider_facts entry '" + k + "'");
+            }
+        }
         {
             const std::string applicability = cand.value("applicability", std::string("released"));
             if (applicability != "released" && applicability != "experimental_only" && applicability != "rejected")

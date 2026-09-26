@@ -64,6 +64,9 @@ int main(int argc, char** argv) {
                 expect_true(is_offered(r, "set_pixfrac__1") && is_offered(r, "set_clip_sigmas"), "both reconstruction candidates are offered from the control levels");
                 const json info = provider_candidate_info(r, catalog);
                 expect_true(info["descriptions"].contains("set_pixfrac__1") && info["descriptions"].contains("set_clip_sigmas"), "and described to the provider");
+                expect_true(info["facts"]["set_pixfrac__1"]["confirmed_sessions"] == 5 && info["facts"]["set_pixfrac__1"]["background_noise_ratio"] == 0.91 &&
+                            info["facts"]["set_clip_sigmas"]["confirmed_sessions"] == 5, "the confirmed evidence reaches the provider as plain facts");
+                for (auto& [id, f] : info["facts"].items()) expect_true(f.size() <= 8, "at most 8 facts per candidate (sidecar limit) for " + id);
                 expect_true(!build_pre_run_candidates(state, cfg_ctl, DecisionPolicy{}, catalog, ok).allowed_ids().empty() &&
                             build_pre_run_candidates(state, cfg_ctl, DecisionPolicy{}, catalog, ok).allowed_ids().size() == 2,
                             "in production (experimental off) they are not offered");

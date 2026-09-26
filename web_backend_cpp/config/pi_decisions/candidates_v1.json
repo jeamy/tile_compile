@@ -112,8 +112,16 @@
       "validation_status": "policy_v2_endpoint_held",
       "applicability": "experimental_only",
       "description": "Pixel fraction 0.8 -> 1.0. Confirmed on five sessions (M31, M104, M66, M42, IC5070; 120-frame subsets): matched background noise x0.91, n_eff +46 %, star FWHM/elongation unchanged. Offered only from the control level 0.8, the only level the evidence was measured against. Not a release: see docs/PI/pi_jev_bestaetigung_pixfrac_clip_20260926_de.md.",
-      "provider_description": "Raise the drizzle pixel fraction from 0.8 to 1.0. Measured on five sessions at equal star sharpness: about 9 % less background noise and more effective coverage. Offered only when the draft currently uses 0.8.",
-      "evidence_doc": "docs/PI/pi_jev_bestaetigung_pixfrac_clip_20260926_de.md"
+      "provider_description": "Raise the drizzle pixel fraction from 0.8 to 1.0. Confirmed on several sessions at equal star sharpness: less background noise and more effective coverage (see candidate_facts). Offered only when the draft uses 0.8.",
+      "evidence_doc": "docs/PI/pi_jev_bestaetigung_pixfrac_clip_20260926_de.md",
+      "provider_facts": {
+        "confirmed_sessions": 5,
+        "background_noise_ratio": 0.91,
+        "effective_coverage_ratio": 1.46,
+        "star_fwhm_ratio": 1.0,
+        "star_elongation_ratio": 1.0,
+        "evidence": "matched star pairs"
+      }
     },
     {
       "candidate_id": "set_clip_sigmas",
@@ -142,8 +150,15 @@
       "validation_status": "policy_v2_endpoint_held",
       "applicability": "experimental_only",
       "description": "Clipping sigma 4/4 -> 5/5 (atomic pair). Confirmed on five sessions: matched background noise x0.94-0.97, star sharpness unchanged. Offered only from 4/4, the control level of the evidence; configs at 2/4 (M42, IC5070, M66 production profile) are not offered it because that contrast was not pre-registered. Not a release: see docs/PI/pi_jev_bestaetigung_pixfrac_clip_20260926_de.md.",
-      "provider_description": "Widen both clipping thresholds from 4 to 5 sigma. Measured on five sessions at equal star sharpness: about 3-6 % less background noise. Offered only when the draft currently uses 4/4.",
-      "evidence_doc": "docs/PI/pi_jev_bestaetigung_pixfrac_clip_20260926_de.md"
+      "provider_description": "Widen both clipping thresholds from 4 to 5 sigma. Confirmed on several sessions at equal star sharpness: slightly less background noise (see candidate_facts). Offered only when the draft uses 4 and 4.",
+      "evidence_doc": "docs/PI/pi_jev_bestaetigung_pixfrac_clip_20260926_de.md",
+      "provider_facts": {
+        "confirmed_sessions": 5,
+        "background_noise_ratio": 0.97,
+        "star_fwhm_ratio": 1.0,
+        "star_elongation_ratio": 1.0,
+        "evidence": "matched star pairs"
+      }
     }
   ]
 }

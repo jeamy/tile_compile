@@ -65,11 +65,16 @@ json provider_candidate_info(const PreRunCandidates& candidates, const DecisionC
             descriptions[id] = text;
         }
         json f = json::object();
+        // Static, catalog-held measured evidence (already validated as plain scalars at load time).
+        for (const auto& entry : catalog.candidates)
+            if (entry.value("candidate_id", std::string()) == id && entry.contains("provider_facts") && entry["provider_facts"].is_object())
+                for (auto it = entry["provider_facts"].begin(); it != entry["provider_facts"].end(); ++it) f[it.key()] = it.value();
         const json params = a.value("rationale", json::object()).value("params", json::object());
         for (auto it = params.begin(); it != params.end(); ++it) {
             const json& v = it.value();
+            const std::string sv = v.is_string() ? v.get<std::string>() : std::string();
             const bool plain = v.is_boolean() || (v.is_number() && std::isfinite(v.get<double>())) ||
-                               (v.is_string() && v.get<std::string>().size() <= 32 && std::all_of(v.get<std::string>().begin(), v.get<std::string>().end(), [](unsigned char ch) { return std::isalnum(ch) || ch == '_' || ch == ' ' || ch == '-'; }));
+                               (v.is_string() && sv.size() <= 32 && std::all_of(sv.begin(), sv.end(), [](unsigned char ch) { return std::isalnum(ch) || ch == '_' || ch == ' ' || ch == '-'; }));
             if (plain) f[it.key()] = v;
         }
         if (!f.empty()) facts[id] = f;
