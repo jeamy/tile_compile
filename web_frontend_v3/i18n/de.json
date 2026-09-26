@@ -2193,5 +2193,8 @@
   "ui.jev.rescan_done": "Scan und Bildstatistik sind aktuell. Empfehlung neu anfordern.",
   "ui.jev.rescan_failed": "Scan fehlgeschlagen",
   "ui.jev.traffic_title": "Jev-Datenverkehr",
-  "ui.jev.tooltip.refresh_traffic": "Lädt das Jev-Protokoll (Anfragen und Antworten) aus dem Sidecar."
+  "ui.jev.tooltip.refresh_traffic": "Lädt das Jev-Protokoll (Anfragen und Antworten) aus dem Sidecar.",
+  "ui.jev.apply_selected": "Ausgewählte anwenden",
+  "ui.jev.apply_all": "Alle anwenden",
+  "ui.jev.no_change_group": "keine Änderung"
 }

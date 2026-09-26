@@ -163,13 +163,27 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
 
   function badge(text, kind) { return el("span", { class: `tc-badge tc-badge-${kind}`, style: { marginRight: "6px" } }, text); }
 
-  function render(view) {
+  // One recommendation (one candidate group) as a card. Only a validated proposal with a change can be selected.
+  const selected = new Set();
+  let currentViews = [];
+
+  function isApplicable(view) {
+    const status = view?.proposal?.status;
+    return (status === "validated" || status === "presented") && (view.comparison || []).some((c) => c.changed);
+  }
+
+  function renderCard(view) {
     const nodes = [];
     const proposal = view.proposal || {};
     const status = proposal.status || "unavailable";
     const [key, fallback] = STATUS_TEXT[status] || STATUS_TEXT.unavailable;
+    const applicable = isApplicable(view);
+    const title = proposal.candidate_id && proposal.candidate_id !== "keep_current" ? proposal.candidate_id : (view.group || t("ui.jev.no_change_group", "keine Änderung"));
     const head = el("div", { class: "tc-flex tc-items-center tc-gap-2 tc-flex-wrap" },
-      el("strong", {}, t(key, fallback)),
+      applicable ? el("input", { type: "checkbox", checked: selected.has(view.proposal_id), "aria-label": title,
+        onchange: (e) => { if (e.target.checked) selected.add(view.proposal_id); else selected.delete(view.proposal_id); updateActions(); } }) : null,
+      el("strong", {}, title),
+      el("span", { class: "tc-text-sm tc-text-muted" }, t(key, fallback)),
       view.mode ? badge(`${t("ui.jev.mode", "Betriebsmodus")}: ${view.mode}`, "info") : null,
       view.evidence?.experimental ? badge(t("ui.jev.experimental", "experimentell"), "warning") : null,
     );
@@ -179,7 +193,6 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
       nodes.push(el("div", { class: "tc-text-sm tc-text-muted tc-mt-2" }, t("ui.jev.no_model_call", "Das Modell wurde nicht befragt: es war kein Kandidat mit Änderung anwendbar (siehe Ausschlussgründe).")));
     const reasons = (proposal.reason_codes || []).filter((r) => r !== "validated");
     if (reasons.length) nodes.push(el("div", { class: "tc-text-sm tc-text-muted tc-mt-2" }, `${t("ui.jev.reasons", "Gründe")}: ${reasons.join(", ")}`));
-
     if (view.comparison?.length) {
       const rows = view.comparison.map((c) => el("tr", {},
         el("td", {}, c.path), el("td", {}, fmt(c.current)), el("td", {}, c.changed ? el("strong", {}, fmt(c.proposed)) : fmt(c.proposed))));
@@ -193,41 +206,63 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
         Object.entries(params).map(([k, v]) => `${k} = ${typeof v === "number" ? v.toFixed(4) : v}`).join(", ")));
       nodes.push(el("div", { class: "tc-text-sm tc-text-muted" }, t("ui.jev.evidence_caveat", "Die Belege beschreiben die Scan-Statistik, nicht den Nutzen für das Ergebnis.")));
     }
-    if (view.excluded?.length || view.offered?.length) {
-      nodes.push(el("details", { class: "tc-mt-2" },
-        el("summary", { class: "tc-text-sm" }, t("ui.jev.details", "Angebotene und ausgeschlossene Kandidaten")),
-        el("div", { class: "tc-text-sm" }, `${t("ui.jev.offered", "Angeboten")}: ${(view.offered || []).map((o) => o.candidate_id).join(", ") || "—"}`),
-        ...(view.excluded || []).map((x) => el("div", { class: "tc-text-sm tc-text-muted" }, `${x.candidate_id}: ${(x.reasons || []).join(", ")}`)),
-      ));
-    }
-    if (status === "validated" || status === "presented") {
-      nodes.push(el("div", { class: "tc-mt-2 tc-flex tc-gap-2" },
-        el("button", { class: "tc-btn tc-btn-primary", onclick: () => applyToDraft(view.proposal_id) }, t("ui.jev.apply", "In Entwurf übernehmen"))));
-    }
-    resultBox.replaceChildren(...nodes.filter(Boolean));
+    return el("div", { class: "tc-card tc-mt-2" }, ...nodes.filter(Boolean));
   }
 
-  async function poll(id) {
+  const selectedBtn = el("button", { class: "tc-btn tc-btn-primary", id: "jev-apply-selected", onclick: () => applySelected(false) }, t("ui.jev.apply_selected", "Ausgewählte anwenden"));
+  const allBtn = el("button", { class: "tc-btn", id: "jev-apply-all", onclick: () => applySelected(true) }, t("ui.jev.apply_all", "Alle anwenden"));
+  function updateActions() {
+    const applicable = currentViews.filter(isApplicable).map((v) => v.proposal_id);
+    selectedBtn.disabled = ![...selected].some((id) => applicable.includes(id));
+    allBtn.disabled = applicable.length === 0;
+  }
+
+  function renderAll(views) {
+    currentViews = views;
+    const applicable = views.filter(isApplicable);
+    for (const v of applicable) if (!selected.has(v.proposal_id) && !v._seen) selected.add(v.proposal_id);
+    for (const v of views) v._seen = true;
+    const nodes = [];
+    const actionable = views.filter((v) => isApplicable(v) || ["applied_to_draft", "stale"].includes(v.proposal?.status));
+    if (!actionable.length) nodes.push(el("div", { class: "tc-text-sm tc-mt-2" }, t("ui.jev.result.no_change", "Keine Änderung empfohlen")));
+    for (const v of views) nodes.push(renderCard(v));
+    if (applicable.length)
+      nodes.push(el("div", { class: "tc-mt-2 tc-flex tc-gap-2" }, selectedBtn, allBtn));
+    const seenEx = new Set();
+    const excluded = [];
+    for (const v of views) for (const x of v.excluded || []) if (!seenEx.has(x.candidate_id)) { seenEx.add(x.candidate_id); excluded.push(x); }
+    if (excluded.length) {
+      nodes.push(el("details", { class: "tc-mt-2" },
+        el("summary", { class: "tc-text-sm" }, t("ui.jev.details", "Angebotene und ausgeschlossene Kandidaten")),
+        ...excluded.map((x) => el("div", { class: "tc-text-sm tc-text-muted" }, `${x.candidate_id}: ${(x.reasons || []).join(", ")}`))));
+    }
+    resultBox.replaceChildren(...nodes);
+    updateActions();
+  }
+
+  // Waits for every proposal of a request; a failed or vanished one is shown as a placeholder view, the others still render.
+  async function pollAll(ids) {
     const token = ++pollToken;
     const started = Date.now();
+    const views = new Array(ids.length).fill(null);
     while (token === pollToken) {
-      let view;
-      try {
-        view = await api.get(API_ENDPOINTS.decisions.byId(id));
-      } catch (e) {
-        if (e.status === 404) { setUiState({ jevProposalId: "" }); renderMessage(t("ui.jev.gone", "Der Vorschlag existiert nicht mehr.")); return; }
-        renderMessage(`${t("ui.jev.error", "Fehler")}: ${e.message}`, "tc-text-error");
-        return;
-      }
-      if (view.state === "running") {
-        renderMessage(t("ui.jev.running", "Jev wird befragt..."));
-        if (Date.now() - started > POLL_TIMEOUT_MS) { renderMessage(t("ui.jev.timeout", "Zeitüberschreitung beim Warten auf die Beratung.")); return; }
-        await new Promise((r) => setTimeout(r, POLL_MS));
-        continue;
-      }
-      if (view.state === "failed") { renderMessage(`${t("ui.jev.error", "Fehler")}: ${view.error || "?"}`, "tc-text-error"); return; }
-      render(view);
-      return;
+      let running = false;
+      await Promise.all(ids.map(async (id, k) => {
+        if (views[k] && views[k].state !== "running") return;
+        try {
+          views[k] = await api.get(API_ENDPOINTS.decisions.byId(id));
+        } catch (e) {
+          views[k] = e.status === 404 ? { state: "done", proposal_id: id, proposal: { status: "unavailable", reason_codes: ["proposal_gone"] } }
+            : { state: "done", proposal_id: id, proposal: { status: "unavailable", reason_codes: [e.message] } };
+        }
+        if (views[k].state === "failed") views[k] = { state: "done", proposal_id: id, proposal: { status: "unavailable", reason_codes: [views[k].error || "failed"] } };
+        if (views[k].state === "running") running = true;
+      }));
+      if (token !== pollToken) return;
+      if (!running) { renderAll(views); return; }
+      renderMessage(t("ui.jev.running", "Jev wird befragt..."));
+      if (Date.now() - started > POLL_TIMEOUT_MS) { renderMessage(t("ui.jev.timeout", "Zeitüberschreitung beim Warten auf die Beratung.")); return; }
+      await new Promise((r) => setTimeout(r, POLL_MS));
     }
   }
 
@@ -289,8 +324,10 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
           }
         }
       }
-      setUiState({ jevProposalId: r.proposal_id });
-      await poll(r.proposal_id);
+      const ids = Array.isArray(r.proposal_ids) && r.proposal_ids.length ? r.proposal_ids : [r.proposal_id];
+      selected.clear();
+      setUiState({ jevProposalIds: ids });
+      await pollAll(ids);
     } catch (e) {
       const code = e.payload?.code;
       const hint = code === "NO_SCAN" ? t("ui.jev.need_scan", "Zuerst einen Scan ausführen.")
@@ -302,15 +339,18 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
     }
   }
 
-  async function applyToDraft(id) {
+  async function applySelected(all) {
+    const ids = currentViews.filter(isApplicable).map((v) => v.proposal_id).filter((id) => all || selected.has(id));
+    if (!ids.length) return;
     try {
-      const r = await api.post(API_ENDPOINTS.decisions.apply(id), { yaml: currentDraftYaml(), locked_paths: [], session_context: sessionContext() });
+      const r = await api.post(API_ENDPOINTS.decisions.applyBatch, { proposal_ids: ids, yaml: currentDraftYaml(), locked_paths: [], session_context: sessionContext() });
       const parsed = parseYaml(r.patched_yaml);
+      // The save links ONE proposal to the config revision; the others of the batch are listed on it (batch_proposal_ids).
       setConfigState({ draft: deepClone(parsed), draftYaml: r.patched_yaml, dirty: true,
-        jevAppliedProposalId: id, jevSavedProposalId: "" });
+        jevAppliedProposalId: ids[0], jevSavedProposalId: "" });
       onDraftApplied?.();
       toastSuccess(t("ui.jev.applied_toast", "Vorschlag in den Entwurf übernommen (nicht gespeichert)"));
-      await poll(id);
+      await pollAll(getUiState().jevProposalIds || ids);
     } catch (e) {
       const code = e.payload?.code;
       if (code === "PROPOSAL_STALE" || code === "DRAFT_CHANGED") {
@@ -322,7 +362,7 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
   }
 
   // Restore after reload/navigation: the proposal state lives on the backend, only its id is remembered here.
-  const remembered = getUiState().jevProposalId;
-  if (remembered) poll(remembered);
+  const remembered = getUiState().jevProposalIds;
+  if (Array.isArray(remembered) && remembered.length) pollAll(remembered);
   return page;
 }

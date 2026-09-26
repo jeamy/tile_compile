@@ -4,6 +4,7 @@
 #include "services/pi/pi_pre_rules.hpp"
 
 #include <algorithm>
+#include <set>
 #include <stdexcept>
 
 namespace tile_compile::pi {
@@ -95,7 +96,7 @@ std::string DecisionService::create() {
     return id;
 }
 
-void DecisionService::run(const std::string& id, const AdviceRequest& request) {
+void DecisionService::run(const std::string& id, const AdviceRequest& request, const std::string& group) {
     json status = read_json_file_opt(pdir(id) / "status.json").value_or(json{{"proposal_id", id}, {"created_at", deps_.now_iso()}});
     try {
         json sidecar_status;
@@ -112,7 +113,14 @@ void DecisionService::run(const std::string& id, const AdviceRequest& request) {
         const DecisionPolicy policy = policy_for_mode(mode, flag);
 
         const PreRunDecisionResult sr = build_pre_run_decision_state(to_inputs(request));
-        const PreRunCandidates cands = build_pre_run_candidates(sr.state, request.base_config, policy, catalog_, deps_.validate_config);
+        PreRunCandidates cands = build_pre_run_candidates(sr.state, request.base_config, policy, catalog_, deps_.validate_config);
+        if (!group.empty()) {
+            json only = json::array();
+            for (const auto& a : cands.applicable)
+                if (a["updates"].empty() || a.value("group", std::string()) == group) only.push_back(a);
+            cands.applicable = only;
+            status["group"] = group;
+        }
         write_json_file_atomic(pdir(id) / "state.json", {{"state", sr.state}, {"state_hash", sr.state_hash}, {"findings", sr.findings},
                                                          {"provider_projection", sr.provider_projection}});
         write_json_file_atomic(pdir(id) / "source.json", {{"input_path", request.scan.value("input_path", std::string())},
@@ -182,6 +190,21 @@ void DecisionService::run(const std::string& id, const AdviceRequest& request) {
     }
 }
 
+std::vector<std::string> DecisionService::groups_for(const AdviceRequest& request) const {
+    json sidecar_status;
+    try { sidecar_status = deps_.sidecar("GET", "/decisions/status", json()); } catch (const std::exception&) { sidecar_status = json::object(); }
+    const DecisionPolicy policy = policy_for_mode(sidecar_status.value("mode", std::string("off")), sidecar_status.value("allow_experimental_suggestions", false));
+    const PreRunDecisionResult sr = build_pre_run_decision_state(to_inputs(request));
+    const PreRunCandidates cands = build_pre_run_candidates(sr.state, request.base_config, policy, catalog_, deps_.validate_config);
+    std::vector<std::string> groups;
+    for (const auto& a : cands.applicable)
+        if (!a["updates"].empty()) groups.push_back(a.value("group", std::string()));
+    std::sort(groups.begin(), groups.end());
+    groups.erase(std::unique(groups.begin(), groups.end()), groups.end());
+    groups.erase(std::remove(groups.begin(), groups.end(), std::string()), groups.end());
+    return groups;
+}
+
 std::optional<json> DecisionService::view(const std::string& id) const {
     if (id.empty() || id.find('/') != std::string::npos || id.find("..") != std::string::npos) return std::nullopt;
     const auto status = read_json_file_opt(pdir(id) / "status.json");
@@ -195,6 +218,7 @@ std::optional<json> DecisionService::view(const std::string& id) const {
     const json cands = read_json_file_opt(pdir(id) / "candidates.json").value_or(json::object());
     const json st = read_json_file_opt(pdir(id) / "state.json").value_or(json::object());
     out["mode"] = status->value("mode", std::string());
+    if (status->contains("group")) out["group"] = (*status)["group"];
     out["shadow"] = shadow;
     out["model_called"] = status->value("model_called", false);
     out["synthetic_baseline"] = status->value("synthetic_baseline", false);
@@ -279,6 +303,68 @@ ServiceResult DecisionService::apply(const std::string& id, const AdviceRequest&
     write_json_file_atomic(pdir(id) / "proposal.json", proposal);
     event(id, "applied_to_draft", {{"config_hash_after", proposal["config_hash_after"]}});
     return {200, {{"proposal", proposal}, {"updates", v.updates}, {"patched_config", v.merged_config}, {"already_applied", false}}};
+}
+
+ServiceResult DecisionService::apply_many(const std::vector<std::string>& ids, const AdviceRequest& current) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto fail = [](int code, const std::string& err, json extra = json::object()) {
+        json b = {{"error", true}, {"code", err}};
+        for (auto it = extra.begin(); it != extra.end(); ++it) b[it.key()] = it.value();
+        return ServiceResult{code, b};
+    };
+    if (ids.empty()) return fail(400, "NOTHING_SELECTED");
+    if (!current.base_config.is_object()) return fail(400, "DRAFT_MISSING");
+    std::vector<std::string> unique = ids;
+    std::sort(unique.begin(), unique.end());
+    if (std::adjacent_find(unique.begin(), unique.end()) != unique.end()) return fail(400, "DUPLICATE_PROPOSAL");
+    const PreRunDecisionResult sr = build_pre_run_decision_state(to_inputs(current));
+
+    struct Item { std::string id; json proposal; DecisionPolicy policy; };
+    std::vector<Item> items;
+    for (const auto& id : ids) {
+        if (id.empty() || id.find('/') != std::string::npos || id.find("..") != std::string::npos) return fail(404, "NOT_FOUND", {{"proposal_id", id}});
+        const auto status = read_json_file_opt(pdir(id) / "status.json");
+        const auto proposal = read_json_file_opt(pdir(id) / "proposal.json");
+        if (!status || !proposal) return fail(404, "NOT_FOUND", {{"proposal_id", id}});
+        if (status->value("state", std::string()) != "done") return fail(409, "NOT_READY", {{"proposal_id", id}});
+        if (status->value("mode", std::string()) == "shadow") return fail(403, "SHADOW_MODE", {{"proposal_id", id}});
+        const std::string ps = proposal->value("status", std::string());
+        if (ps != "validated" && ps != "presented") return fail(409, "NOT_APPLICABLE", {{"proposal_id", id}, {"status", ps}});
+        Item it{id, *proposal, policy_from_snapshot(status->value("policy", json::object()))};
+        const auto stale = stale_reasons(it.proposal, sr.state, sr.state_hash, it.policy, catalog_);
+        if (!stale.empty()) return fail(409, "PROPOSAL_STALE", {{"proposal_id", id}, {"reasons", stale}});
+        items.push_back(std::move(it));
+    }
+    std::set<std::string> touched;
+    json merged = current.base_config;
+    json all_updates = json::array();
+    for (auto& it : items) {
+        for (const auto& u : it.proposal.value("updates", json::array())) {
+            if (!touched.insert(u.value("path", std::string())).second) return fail(409, "SELECTION_CONFLICT", {{"path", u["path"]}});
+        }
+        const json candidate = {{"candidate_id", it.proposal["candidate_id"]}, {"candidate_version", it.proposal["candidate_version"]},
+                                {"updates", it.proposal["updates"]}};
+        const CandidateValidation v = validate_decision_candidate(candidate, sr.state, merged, it.policy, catalog_, deps_.validate_config);
+        if (!v.ok) {
+            event(it.id, "apply_rejected", {{"reasons", v.reasons}});
+            return fail(422, "VALIDATION_FAILED", {{"proposal_id", it.id}, {"reasons", v.reasons}});
+        }
+        merged = v.merged_config;
+        for (const auto& u : v.updates) all_updates.push_back(u);
+    }
+    const std::string after = sha256_prefixed(canonical_json_dump(merged));
+    json applied = json::array();
+    for (auto& it : items) {
+        it.proposal["status"] = "applied_to_draft";
+        it.proposal["applied_at"] = deps_.now_iso();
+        it.proposal["config_hash_before"] = sr.state["identity"]["config_hash"];
+        it.proposal["config_hash_after"] = after;
+        it.proposal["batch_proposal_ids"] = ids;
+        write_json_file_atomic(pdir(it.id) / "proposal.json", it.proposal);
+        event(it.id, "applied_to_draft", {{"config_hash_after", after}, {"batch", ids}});
+        applied.push_back(it.proposal);
+    }
+    return {200, {{"proposals", applied}, {"updates", all_updates}, {"patched_config", merged}, {"applied", ids}}};
 }
 
 } // namespace tile_compile::pi

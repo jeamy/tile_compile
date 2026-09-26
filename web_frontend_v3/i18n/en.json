@@ -2179,5 +2179,8 @@
   "ui.jev.rescan_done": "Scan and image statistics are up to date. Request the recommendation again.",
   "ui.jev.rescan_failed": "Scan failed",
   "ui.jev.traffic_title": "Jev traffic",
-  "ui.jev.tooltip.refresh_traffic": "Loads the Jev log (requests and responses) from the sidecar."
+  "ui.jev.tooltip.refresh_traffic": "Loads the Jev log (requests and responses) from the sidecar.",
+  "ui.jev.apply_selected": "Apply selected",
+  "ui.jev.apply_all": "Apply all",
+  "ui.jev.no_change_group": "no change"
 }

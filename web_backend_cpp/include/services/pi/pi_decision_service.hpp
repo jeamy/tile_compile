@@ -62,12 +62,19 @@ public:
     // Registers a proposal as running (status.json) and returns its id.
     std::string create();
     // Runs the advice synchronously; never throws (failures are recorded as status "failed").
-    void run(const std::string& proposal_id, const AdviceRequest& request);
+    // `group` (a catalog group id) restricts the offered change candidates to that group, so one request asks the
+    // provider one question per group; empty = every group in one question (previous behaviour).
+    void run(const std::string& proposal_id, const AdviceRequest& request, const std::string& group = "");
+    // Groups that have at least one applicable change candidate for this request (sorted, unique); empty if none.
+    std::vector<std::string> groups_for(const AdviceRequest& request) const;
     // API view of a proposal, or nullopt if unknown.
     std::optional<nlohmann::json> view(const std::string& proposal_id) const;
     // Applies a validated proposal to the caller's config DRAFT (never to a file/run). CAS on the
     // draft via re-derived hashes; idempotent for an identical repeat.
     ServiceResult apply(const std::string& proposal_id, const AdviceRequest& current);
+    // Applies several validated proposals of the SAME scan/draft together, all or nothing: every proposal must be fresh
+    // against the draft, no two may touch the same path, and each is re-validated against the running merge.
+    ServiceResult apply_many(const std::vector<std::string>& proposal_ids, const AdviceRequest& current);
 
     // Optional local policy override (`policy_override.json` in decisions_dir): freezes thresholds for
     // evaluation. Without it no threshold is frozen and only baselines are ever offered.

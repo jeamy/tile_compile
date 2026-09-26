@@ -198,45 +198,19 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         crow::response failure;
         auto advice = build_request(state, *body, failure);
         if (!advice) return failure;
-        std::string id;
-        try { id = svc->create(); } catch (const std::exception& e) { return err_resp("STORE_FAILED", e.what(), 500); }
+        // One question per candidate group: every group with an applicable change gets its own proposal, so the user
+        // can select which recommendations to apply. No group (nothing but baselines) is one proposal, as before.
         AdviceRequest copy = *advice;
-        std::thread([svc, id, copy]() { svc->run(id, copy); }).detach();
-        return json_resp({{"proposal_id", id}, {"state", "running"}}, 202);
-    });
-
-    // Post-run advice, only when the user asks for it. Read-only: the run directory is not touched, no model is called and
-    // no run is started. A suggestion still needs the resume dry run (feasibility) and a separate start by the user.
-    CROW_ROUTE(app, "/api/pi/post-run/advice").methods("POST"_method)
-    ([state, holder](const crow::request& req) {
-        auto body = parse_body(req);
-        if (!body || !body->is_object()) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
-        const std::string run_id = body->value("run_id", std::string());
-        if (run_id.empty() || run_id.find('/') != std::string::npos || run_id.find("..") != std::string::npos)
-            return err_resp("BAD_REQUEST", "run_id (a run directory name) is required", 400);
-        fs::path run_dir;
-        try { run_dir = state->runtime.resolve_run_dir(run_id); } catch (const std::exception&) { return err_resp("NOT_FOUND", "run not found", 404); }
-        std::error_code ec;
-        if (!fs::is_directory(run_dir, ec)) return err_resp("NOT_FOUND", "run not found", 404);
-        json run_config = nullptr;
-        try { run_config = yaml_text_to_json(read_file_str(run_dir / "config.yaml")); } catch (const std::exception&) { run_config = nullptr; }
-        std::string error;
-        auto svc = get_service(state, *holder, error);
-        if (!svc) return err_resp("DECISIONS_UNAVAILABLE", error, 503);
-        std::vector<std::string> dismissed;
-        if (body->contains("dismissed_candidates") && (*body)["dismissed_candidates"].is_array())
-            for (const auto& d : (*body)["dismissed_candidates"]) if (d.is_string()) dismissed.push_back(d.get<std::string>());
-        DecisionPolicy policy;
-        policy.allow_experimental = body->value("allow_experimental", false);
-        const std::shared_ptr<AppState> st = state;
-        ConfigValidator validator = [st](const json& merged) -> ConfigCheck {
-            const SubprocessResult res = run_subprocess({st->runtime.cli_exe, "validate-config", "--stdin"}, st->runtime.project_root.string(), yaml_dump(merged));
-            const json parsed = json::parse(res.stdout_str, nullptr, false);
-            const bool valid = res.exit_code == 0 && parsed.is_object() && parsed.value("valid", false);
-            return {valid, valid ? std::string() : std::string("validate-config failed")};
-        };
-        const json ps = build_post_run_state(run_dir, run_config);
-        return json_resp({{"state", ps}, {"advice", advise_post_run(ps, run_config, policy, svc->catalog(), validator, dismissed)}});
+        std::vector<std::string> groups;
+        try { groups = svc->groups_for(copy); } catch (const std::exception& e) { return err_resp("STORE_FAILED", e.what(), 500); }
+        if (groups.empty()) groups.push_back("");
+        std::vector<std::string> ids;
+        try { for (size_t i = 0; i < groups.size(); ++i) ids.push_back(svc->create()); }
+        catch (const std::exception& e) { return err_resp("STORE_FAILED", e.what(), 500); }
+        std::thread([svc, ids, groups, copy]() {
+            for (size_t i = 0; i < ids.size(); ++i) svc->run(ids[i], copy, groups[i]);
+        }).detach();
+        return json_resp({{"proposal_id", ids.front()}, {"proposal_ids", ids}, {"groups", groups}, {"state", "running"}}, 202);
     });
 
     CROW_ROUTE(app, "/api/scan/decisions/<string>").methods("GET"_method)
@@ -247,6 +221,28 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         auto v = svc->view(id);
         if (!v) return err_resp("NOT_FOUND", "proposal not found", 404);
         return json_resp(*v);
+    });
+
+    // Applies the selected proposals of one request together (all or nothing) to the caller's draft.
+    CROW_ROUTE(app, "/api/scan/decisions/apply-batch").methods("POST"_method)
+    ([state, holder](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object()) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        std::vector<std::string> ids;
+        if (body->contains("proposal_ids") && (*body)["proposal_ids"].is_array())
+            for (const auto& i : (*body)["proposal_ids"]) if (i.is_string()) ids.push_back(i.get<std::string>());
+        std::string error;
+        auto svc = get_service(state, *holder, error);
+        if (!svc) return err_resp("DECISIONS_UNAVAILABLE", error, 503);
+        crow::response failure;
+        auto advice = build_request(state, *body, failure);
+        if (!advice) return failure;
+        ServiceResult r = svc->apply_many(ids, *advice);
+        if (r.http_status == 200 && r.body.contains("patched_config")) {
+            r.body["patched_yaml"] = yaml_dump(r.body["patched_config"]);
+            r.body.erase("patched_config");
+        }
+        return json_resp(r.body, r.http_status);
     });
 
     CROW_ROUTE(app, "/api/scan/decisions/<string>/apply").methods("POST"_method)

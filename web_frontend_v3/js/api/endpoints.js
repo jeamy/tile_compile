@@ -46,6 +46,7 @@ export const API_ENDPOINTS = {
   decisions: {
     advice: "/api/scan/decisions",
     byId: (id) => `/api/scan/decisions/${encodeURIComponent(String(id || ""))}`,
+    applyBatch: "/api/scan/decisions/apply-batch",
     apply: (id) => `/api/scan/decisions/${encodeURIComponent(String(id || ""))}/apply`,
     status: "/api/pi/decisions/status",
     settings: "/api/pi/decisions/settings",

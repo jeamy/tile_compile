@@ -261,6 +261,67 @@ int main(int argc, char** argv) {
             expect_true(v["synthetic_baseline"] == true && v["excluded"].dump().find("config_invalid") != std::string::npos, "vetoed candidate is excluded, nothing asked");
         }
 
+        // ---- one question per group; several recommendations are applied together, all or nothing ----
+        {
+            Harness h(repo, "groups");
+            h.freeze_thresholds();
+            AdviceRequest req = advice();
+            req.base_config["reconstruction"] = {{"drizzle", {{"pixfrac", 0.8}}}, {"clipping", {{"clip_sigma_low", 4.0}, {"clip_sigma_high", 4.0}}}};
+            const auto groups = h.svc->groups_for(req);
+            expect_true(std::find(groups.begin(), groups.end(), "reconstruction_pixfrac") != groups.end() &&
+                        std::find(groups.begin(), groups.end(), "reconstruction_clipping") != groups.end(), "each group with a change candidate is listed");
+            std::vector<std::vector<std::string>> asked;
+            h.on_decide = [&](const json& r) {
+                std::vector<std::string> allowed = r["allowed_candidates"].get<std::vector<std::string>>();
+                asked.push_back(allowed);
+                std::string pick = "keep_current";
+                for (const auto& a : allowed) if (a != "keep_current" && a != "insufficient_evidence") pick = a;
+                return ok_answer(r, pick);
+            };
+            std::vector<std::string> ids;
+            for (const auto& g : groups) { ids.push_back(h.svc->create()); h.svc->run(ids.back(), req, g); }
+            expect_equal(static_cast<long>(h.posts()), static_cast<long>(groups.size()), "one provider question per group");
+            for (const auto& a : asked) {
+                int changes = 0;
+                for (const auto& c : a) if (c != "keep_current" && c != "insufficient_evidence") ++changes;
+                expect_true(changes >= 1, "a group question offers that group's candidates");
+            }
+            expect_true(asked[0] != asked[1], "the groups are asked separately, not mixed");
+            std::vector<std::string> good;
+            for (const auto& id : ids) {
+                const auto v = *h.svc->view(id);
+                expect_true(v.contains("group"), "the proposal records its group");
+                if (v["proposal"]["status"] == "validated") good.push_back(id);
+            }
+            expect_true(good.size() >= 2, "both reconstruction groups produced a validated proposal");
+            const auto before = tree(h.dir);
+            const auto both = h.svc->apply_many(good, req);
+            expect_equal(static_cast<long>(both.http_status), 200L, "apply together");
+            const json merged = both.body["patched_config"];
+            expect_true(merged["reconstruction"]["drizzle"]["pixfrac"] == 1.0 && merged["reconstruction"]["clipping"]["clip_sigma_low"] == 5.0, "both changes are in the draft");
+            expect_true(req.base_config["reconstruction"]["drizzle"]["pixfrac"] == 0.8, "the caller's draft object is not modified");
+            for (const auto& id : good) expect_true((*h.svc->view(id))["proposal"]["status"] == "applied_to_draft", "each proposal is marked applied");
+            expect_true(before != tree(h.dir), "state changed only after a successful apply");
+
+            // fresh set: subset, conflict, stale, empty, duplicate
+            Harness h2(repo, "groups2");
+            h2.freeze_thresholds();
+            h2.on_decide = h.on_decide;
+            std::vector<std::string> ids2;
+            for (const auto& g : groups) { ids2.push_back(h2.svc->create()); h2.svc->run(ids2.back(), req, g); }
+            const auto one = h2.svc->apply_many({ids2[0]}, req);
+            expect_equal(static_cast<long>(one.http_status), 200L, "a subset can be applied");
+            expect_equal(static_cast<long>(h2.svc->apply_many({}, req).http_status), 400L, "nothing selected is refused");
+            expect_equal(static_cast<long>(h2.svc->apply_many({ids2[1], ids2[1]}, req).http_status), 400L, "the same proposal twice is refused");
+            AdviceRequest other = req;
+            other.base_config["reconstruction"]["drizzle"]["pixfrac"] = 0.7;
+            const auto stale = h2.svc->apply_many({ids2[1]}, other);
+            expect_true(stale.http_status == 409 && stale.body["code"] == "PROPOSAL_STALE", "a draft that changed since the request is stale");
+            expect_equal(static_cast<long>(h2.svc->apply_many({"nope"}, req).http_status), 404L, "unknown proposal");
+            const auto reapplied = h2.svc->apply_many({ids2[0]}, req);
+            expect_equal(static_cast<long>(reapplied.http_status), 409L, "an already applied proposal is not applied again in a batch");
+        }
+
         std::puts("pi_decision_service: all checks passed");
     } catch (const std::exception& e) {
         std::fprintf(stderr, "%s\n", e.what());
