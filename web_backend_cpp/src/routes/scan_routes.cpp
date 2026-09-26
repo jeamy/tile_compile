@@ -347,7 +347,9 @@ void register_scan_routes(CrowApp& app,
         std::string input_path;
         std::string object_name;
         int frame_count = 0;
+        bool force = false;  // recompute even when a cached result exists (used after a deliberate rescan)
         if (auto body = parse_body(req)) {
+            force = body->is_object() && body->value("force", false);
             if (body->contains("input_path") && (*body)["input_path"].is_string())
                 input_path = (*body)["input_path"].get<std::string>();
             if (body->contains("object_name") && (*body)["object_name"].is_string())
@@ -371,10 +373,10 @@ void register_scan_routes(CrowApp& app,
             if (object_name.empty()) object_name = summary.value("object_name", summary.value("target", std::string()));
         }
         const std::string cache_key = scan_metrics_cache_key(input_path, object_name, frame_count);
-        if (auto cached = find_cached_scan_metrics(state, input_path, object_name, frame_count); !cached.empty()) {
+        if (auto cached = find_cached_scan_metrics(state, input_path, object_name, frame_count); !force && !cached.empty()) {
             return json_resp({{"cached", true}, {"state", "ok"}, {"result", cached}});
         }
-        if (auto cached = find_disk_cached_scan_metrics(state, cache_key); !cached.empty()) {
+        if (auto cached = find_disk_cached_scan_metrics(state, cache_key); !force && !cached.empty()) {
             return json_resp({{"cached", true}, {"state", "ok"}, {"result", cached}});
         }
         std::vector<std::string> args = {state->runtime.cli_exe, "scan-metrics", input_path};

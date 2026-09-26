@@ -2187,5 +2187,9 @@
   "ui.post_run.metric.star_shape_after_downstream": "Sternform nach den nachgelagerten Stufen",
   "ui.jev.computing_metrics": "Bildstatistik wird berechnet...",
   "ui.jev.metrics_failed": "Bildstatistik konnte nicht berechnet werden.",
-  "ui.jev.scanning": "Scan wird ausgeführt..."
+  "ui.jev.scanning": "Scan wird ausgeführt...",
+  "ui.jev.rescan": "Scan neu starten",
+  "ui.jev.tooltip.rescan": "Führt den Scan mit den aktuellen Einstellungen unter Input & Scan erneut aus und berechnet die Bildstatistik neu.",
+  "ui.jev.rescan_done": "Scan und Bildstatistik sind aktuell. Empfehlung neu anfordern.",
+  "ui.jev.rescan_failed": "Scan fehlgeschlagen"
 }

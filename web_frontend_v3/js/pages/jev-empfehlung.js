@@ -126,6 +126,7 @@ const STATUS_TEXT = {
 export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
   const resultBox = el("div", { class: "tc-mt-4", id: "jev-result" });
   const requestBtn = el("button", { class: "tc-btn tc-btn-primary", id: "jev-request", onclick: () => requestAdvice() }, t("ui.jev.request", "Jev-Empfehlung anfordern"));
+  const rescanBtn = el("button", { class: "tc-btn", id: "jev-rescan", title: t("ui.jev.tooltip.rescan", "F\u00fchrt den Scan mit den aktuellen Einstellungen unter Input & Scan erneut aus und berechnet die Bildstatistik neu."), onclick: () => rescan() }, t("ui.jev.rescan", "Scan neu starten"));
   // The object class is a statement by the user; the scan never infers it. Candidates that need it abstain without it.
   const objectClassSelect = el("select", { class: "tc-select", id: "jev-object-class", title: t("ui.jev.tooltip.object_class", "Ihre Angabe zum Objekt. Manche Empfehlungen (z. B. Denoise, Hintergrund) hängen davon ab; ohne Angabe enthalten sie sich.") },
     el("option", { value: "" }, t("ui.jev.object_class.none", "Nicht angegeben")),
@@ -145,7 +146,7 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
       el("div", { class: "tc-text-sm tc-text-muted tc-mb-2" }, t("ui.jev.page_intro", "Prüft den aktuellen Config-Entwurf gegen die Scan-Statistiken. Vorschläge sind experimentell: es gibt noch keinen Nachweis, dass sie Ergebnisse verbessern. Übernehmen ändert nur den Entwurf.")),
       el("div", { class: "tc-flex tc-items-center tc-gap-2 tc-flex-wrap" },
         el("label", { class: "tc-text-sm", for: "jev-object-class" }, t("ui.jev.object_class.label", "Objektklasse")),
-        objectClassSelect, requestBtn),
+        objectClassSelect, rescanBtn, requestBtn),
       resultBox,
     ),
   );
@@ -226,7 +227,7 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
     }
   }
 
-  async function computeScanMetrics() {
+  async function computeScanMetrics(force = false) {
     const scan = await api.get(API_ENDPOINTS.scan.latest);
     const objectName = String(getScanData().object_name || scan?.object_name || scan?.target || "").trim();
     const started = await api.post(API_ENDPOINTS.scan.metrics, {
@@ -234,10 +235,30 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
       object_name: objectName,
       target: objectName,
       frame_count: scan?.frames_detected || scan?.frames_total || scan?.frame_count || 0,
+      force,
     });
     if (started?.cached && started?.result) return;
     if (!started?.job_id) throw new Error(t("ui.jev.metrics_failed", "Bildstatistik konnte nicht berechnet werden."));
     await pollJob(started.job_id, { endpoint: API_ENDPOINTS.scan.jobStatus, timeoutMs: 600000, onDone: (job) => job?.data?.result || job?.data || null });
+  }
+
+  // A new scan also makes the stored proposal stale (the backend compares scan identity on apply), so the result box is cleared.
+  async function rescan() {
+    rescanBtn.disabled = true;
+    requestBtn.disabled = true;
+    try {
+      renderMessage(t("ui.jev.scanning", "Scan wird ausgef\u00fchrt..."));
+      await autoScanForAnalysis();
+      renderMessage(t("ui.jev.computing_metrics", "Bildstatistik wird berechnet..."));
+      await computeScanMetrics(true);
+      renderMessage(t("ui.jev.rescan_done", "Scan und Bildstatistik sind aktuell. Empfehlung neu anfordern."));
+    } catch (e) {
+      toastError(t("ui.jev.rescan_failed", "Scan fehlgeschlagen"), e.message);
+      renderMessage(`${t("ui.jev.error", "Fehler")}: ${e.message}`, "tc-text-error");
+    } finally {
+      rescanBtn.disabled = false;
+      requestBtn.disabled = false;
+    }
   }
 
   async function requestAdvice() {
