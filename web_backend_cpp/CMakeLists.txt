@@ -185,6 +185,8 @@ set(BACKEND_SOURCES
     src/services/pi/pi_decision_state.cpp
     src/services/pi/pi_decision_policy.cpp
     src/services/pi/pi_pre_rules.cpp
+    src/services/pi/pi_resume_scope.cpp
+    src/services/pi/pi_post_run.cpp
     src/services/pi/pi_decision_service.cpp
     src/services/pi/pi_decision_outcome.cpp
     src/services/pi/pi_scan_manifest.cpp
@@ -410,6 +412,15 @@ if(BUILD_TESTS)
         src/services/pi/pi_pre_rules.cpp
     )
     target_link_libraries(web_backend_cpp_pi_pre_rules PRIVATE OpenSSL::Crypto)
+    add_backend_cpp_test(web_backend_cpp_pi_post_run tests/test_pi_post_run.cpp)
+    target_sources(web_backend_cpp_pi_post_run PRIVATE
+        src/services/pi/pi_decision_state.cpp
+        src/services/pi/pi_decision_policy.cpp
+        src/services/pi/pi_pre_rules.cpp
+        src/services/pi/pi_resume_scope.cpp
+        src/services/pi/pi_post_run.cpp
+    )
+    target_link_libraries(web_backend_cpp_pi_post_run PRIVATE OpenSSL::Crypto)
     add_backend_cpp_test(web_backend_cpp_pi_decision_service tests/test_pi_decision_service.cpp)
     target_sources(web_backend_cpp_pi_decision_service PRIVATE
         src/services/pi/pi_decision_state.cpp

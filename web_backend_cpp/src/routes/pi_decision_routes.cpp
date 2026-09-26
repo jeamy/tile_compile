@@ -4,6 +4,7 @@
 #include "services/ai_service.hpp"
 #include "services/pi/pi_decision_outcome.hpp"
 #include "services/pi/pi_decision_service.hpp"
+#include "services/pi/pi_post_run.hpp"
 #include "services/pi/pi_scan_manifest.hpp"
 #include "services/pi/pi_json_io.hpp"
 #include "services/pi/pi_storage_paths.hpp"
@@ -184,6 +185,40 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         AdviceRequest copy = *advice;
         std::thread([svc, id, copy]() { svc->run(id, copy); }).detach();
         return json_resp({{"proposal_id", id}, {"state", "running"}}, 202);
+    });
+
+    // Post-run advice, only when the user asks for it. Read-only: the run directory is not touched, no model is called and
+    // no run is started. A suggestion still needs the resume dry run (feasibility) and a separate start by the user.
+    CROW_ROUTE(app, "/api/pi/post-run/advice").methods("POST"_method)
+    ([state, holder](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object()) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        const std::string run_id = body->value("run_id", std::string());
+        if (run_id.empty() || run_id.find('/') != std::string::npos || run_id.find("..") != std::string::npos)
+            return err_resp("BAD_REQUEST", "run_id (a run directory name) is required", 400);
+        fs::path run_dir;
+        try { run_dir = state->runtime.resolve_run_dir(run_id); } catch (const std::exception&) { return err_resp("NOT_FOUND", "run not found", 404); }
+        std::error_code ec;
+        if (!fs::is_directory(run_dir, ec)) return err_resp("NOT_FOUND", "run not found", 404);
+        json run_config = nullptr;
+        try { run_config = yaml_text_to_json(read_file_str(run_dir / "config.yaml")); } catch (const std::exception&) { run_config = nullptr; }
+        std::string error;
+        auto svc = get_service(state, *holder, error);
+        if (!svc) return err_resp("DECISIONS_UNAVAILABLE", error, 503);
+        std::vector<std::string> dismissed;
+        if (body->contains("dismissed_candidates") && (*body)["dismissed_candidates"].is_array())
+            for (const auto& d : (*body)["dismissed_candidates"]) if (d.is_string()) dismissed.push_back(d.get<std::string>());
+        DecisionPolicy policy;
+        policy.allow_experimental = body->value("allow_experimental", false);
+        const std::shared_ptr<AppState> st = state;
+        ConfigValidator validator = [st](const json& merged) -> ConfigCheck {
+            const SubprocessResult res = run_subprocess({st->runtime.cli_exe, "validate-config", "--stdin"}, st->runtime.project_root.string(), yaml_dump(merged));
+            const json parsed = json::parse(res.stdout_str, nullptr, false);
+            const bool valid = res.exit_code == 0 && parsed.is_object() && parsed.value("valid", false);
+            return {valid, valid ? std::string() : std::string("validate-config failed")};
+        };
+        const json ps = build_post_run_state(run_dir, run_config);
+        return json_resp({{"state", ps}, {"advice", advise_post_run(ps, run_config, policy, svc->catalog(), validator, dismissed)}});
     });
 
     CROW_ROUTE(app, "/api/scan/decisions/<string>").methods("GET"_method)

@@ -8,6 +8,7 @@
 #include "services/hme_preview_service.hpp"
 #include "services/bge_preview_service.hpp"
 #include "services/pi/pi_outcome_recorder.hpp"
+#include "services/pi/pi_resume_scope.hpp"
 #include "services/pi/pi_decision_outcome.hpp"
 #include "services/pi/pi_json_io.hpp"
 #include "services/pi/pi_storage_paths.hpp"
@@ -113,30 +114,10 @@ std::optional<std::string> downstream_resume_scope_violation(
     // is (re)built, which this path skips and reuses unvalidated, so an
     // edit there would otherwise be silently ignored instead of failing
     // loud or applying.
-    static const std::set<std::string> kReconstructionResumeBase = {
-        "output", "data", "linearity", "calibration", "normalization",
-        "registration", "dithering", "chroma_denoise", "luma_denoise",
-        "astrometry", "pcc", "hypermetric_stretch", "bge", "stacking",
-        "runtime_limits"};
-    static const std::unordered_map<std::string, std::set<std::string>> kAllowed = {
-        {"HYPERMETRIC_STRETCH", {"hypermetric_stretch", "runtime_limits"}},
-        {"PCC", {"pcc", "chroma_denoise", "hypermetric_stretch", "runtime_limits"}},
-        {"BGE", {"bge", "pcc", "chroma_denoise", "luma_denoise",
-                 "hypermetric_stretch", "runtime_limits"}},
-        {"ASTROMETRY", {"astrometry", "bge", "pcc", "chroma_denoise",
-                        "luma_denoise", "hypermetric_stretch", "runtime_limits"}},
-        // GLOBAL_QUALITY additionally allows global_metrics -- it is the
-        // section GLOBAL_QUALITY re-reads and exists to let you retune;
-        // FORWARD_DRIZZLE-only resume does NOT recompute GLOBAL_QUALITY, so
-        // a global_metrics edit there would be silently ignored instead.
-        {"GLOBAL_QUALITY", [] {
-            auto s = kReconstructionResumeBase; s.insert("global_metrics"); return s;
-        }()},
-        {"FORWARD_DRIZZLE", kReconstructionResumeBase},
-    };
-    const auto allowed_it = kAllowed.find(phase_upper);
-    if (allowed_it == kAllowed.end()) return std::nullopt;
-    const auto& allowed = allowed_it->second;
+    // One copy of the phase -> allowed-section table (services/pi/pi_resume_scope.cpp), shared with the PI post-run advisor.
+    const std::set<std::string>* allowed_ptr = tile_compile::pi::resume_allowed_sections(phase_upper);
+    if (allowed_ptr == nullptr) return std::nullopt;
+    const auto& allowed = *allowed_ptr;
 
     std::string orig_yaml;
     for (const auto& rev : list_run_config_revisions(run_dir)) {

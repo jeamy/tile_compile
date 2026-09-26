@@ -57,6 +57,8 @@ public:
     DecisionService(std::filesystem::path decisions_dir, DecisionCatalog catalog, DecisionServiceDeps deps,
                     std::string question_set_version = "decision-questions.v2");
 
+    const DecisionCatalog& catalog() const { return catalog_; }
+
     // Registers a proposal as running (status.json) and returns its id.
     std::string create();
     // Runs the advice synchronously; never throws (failures are recorded as status "failed").
