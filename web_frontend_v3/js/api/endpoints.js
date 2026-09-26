@@ -50,6 +50,7 @@ export const API_ENDPOINTS = {
     status: "/api/pi/decisions/status",
     settings: "/api/pi/decisions/settings",
     postRunAdvice: "/api/pi/post-run/advice",
+    log: (limit = 500) => `/api/pi/decisions/log?limit=${encodeURIComponent(String(limit || 500))}`,
   },
   pi: {
     tools: "/api/pi/tools",

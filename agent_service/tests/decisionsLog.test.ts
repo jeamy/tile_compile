@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { createJevLogger, jevLogPath } from "../src/services/decisionsLog.js";
+import { createJevLogger, jevLogPath, readJevLog } from "../src/services/decisionsLog.js";
 
 function tmp() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jevlog-"));
@@ -52,5 +52,41 @@ describe("Jev log file", () => {
     fs.writeFileSync(blocker, "not a directory");
     assert.doesNotThrow(() => createJevLogger("eval", { JEV_DECISIONS_LOG_PATH: path.join(blocker, "x.log") } as NodeJS.ProcessEnv)({ kind: "x" }));
     fs.rmSync(blocker);
+  });
+});
+
+describe("Jev log reader", () => {
+  it("returns the newest lines last, honours the limit and reports the total", () => {
+    const { env } = tmp();
+    const log = createJevLogger("sidecar", env);
+    for (let i = 0; i < 30; i++) log({ kind: "result", n: i });
+    const r = readJevLog(5, env);
+    assert.equal(r.items.length, 5);
+    assert.equal(r.count, 30);
+    assert.equal(JSON.parse(r.items[4]).n, 29);
+    assert.equal(JSON.parse(r.items[0]).n, 25);
+    assert.equal(r.enabled, true);
+  });
+  it("a missing file is an empty result, JEV_LOG=off is reported, a huge limit is capped", () => {
+    const { env } = tmp();
+    assert.deepEqual(readJevLog(10, env).items, []);
+    assert.equal(readJevLog(10, { ...env, JEV_LOG: "off" }).enabled, false);
+    const log = createJevLogger("sidecar", env);
+    log({ kind: "result" });
+    assert.equal(readJevLog(1e9, env).items.length, 1);
+    assert.equal(readJevLog(Number.NaN, env).items.length, 1);
+  });
+  it("reads only the tail of a large file and drops the cut first line", () => {
+    const { file, env } = tmp();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const filler = JSON.stringify({ kind: "x", pad: "y".repeat(1000) });
+    const n = 6000;  // ~6 MB > 4 MiB
+    fs.writeFileSync(file, Array.from({ length: n }, (_, i) => JSON.stringify({ i, pad: "y".repeat(1000) })).join("\n") + "\n");
+    void filler;
+    const r = readJevLog(3, env);
+    assert.equal(r.items.length, 3);
+    assert.equal(JSON.parse(r.items[2]).i, n - 1);
+    assert.ok(r.count < n && r.count > 3000);
+    for (const line of r.items) JSON.parse(line);
   });
 });

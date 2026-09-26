@@ -2191,5 +2191,7 @@
   "ui.jev.rescan": "Scan neu starten",
   "ui.jev.tooltip.rescan": "Führt den Scan mit den aktuellen Einstellungen unter Input & Scan erneut aus und berechnet die Bildstatistik neu.",
   "ui.jev.rescan_done": "Scan und Bildstatistik sind aktuell. Empfehlung neu anfordern.",
-  "ui.jev.rescan_failed": "Scan fehlgeschlagen"
+  "ui.jev.rescan_failed": "Scan fehlgeschlagen",
+  "ui.jev.traffic_title": "Jev-Datenverkehr",
+  "ui.jev.tooltip.refresh_traffic": "Lädt das Jev-Protokoll (Anfragen und Antworten) aus dem Sidecar."
 }

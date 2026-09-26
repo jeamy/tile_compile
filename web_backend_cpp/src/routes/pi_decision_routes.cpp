@@ -149,6 +149,24 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         }
     });
 
+    // Read-only view of the Jev request/response log for the UI (the sidecar redacts entries when it writes them).
+    CROW_ROUTE(app, "/api/pi/decisions/log").methods("GET"_method)
+    ([](const crow::request& req) {
+        try {
+            std::string path = "/decisions/log";
+            if (const char* limit = req.url_params.get("limit")) {
+                const std::string l = limit;
+                if (l.empty() || l.size() > 5 || l.find_first_not_of("0123456789") != std::string::npos)
+                    return err_resp("BAD_REQUEST", "limit must be a number", 400);
+                path += "?limit=" + l;
+            }
+            ai::AiSidecarClient client(ai::default_ai_config());
+            return json_resp(client.get(path));
+        } catch (const std::exception&) {
+            return err_resp("SIDECAR_UNREACHABLE", "PI sidecar is not reachable", 502);
+        }
+    });
+
     // Jev card settings (mode / experimental flag / write-only API key) are stored by the sidecar in its own
     // file, independent of PI's provider settings. The body is forwarded untouched and never logged here.
     CROW_ROUTE(app, "/api/pi/decisions/settings").methods("POST"_method)

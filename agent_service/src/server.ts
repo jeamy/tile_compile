@@ -6,7 +6,7 @@ import { ModelService } from "./services/modelService.js";
 import { LiveImageChatService } from "./services/liveImageChatService.js";
 import { RunChatService } from "./services/runChatService.js";
 import { appendTrafficLog, readTrafficLog } from "./services/trafficLog.js";
-import { createJevLogger } from "./services/decisionsLog.js";
+import { createJevLogger, readJevLog } from "./services/decisionsLog.js";
 import { DecisionsRequestError, DecisionsService, decisionsConfigFromEnv } from "./services/decisionsService.js";
 import { decisionsSettingsPath, loadDecisionsSettings, saveDecisionsSettings } from "./services/decisionsSettings.js";
 import type { AnalysisProgressEvent } from "./types.js";
@@ -148,6 +148,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
         return;
       }
       sendJson(res, 200, await decisionsService.status());
+      return;
+    }
+    if (url.pathname === "/decisions/log" && req.method === "GET") {
+      // Read-only view of the Jev request/response log (already redacted when written).
+      sendJson(res, 200, { schema_version: "pi.jev-traffic.v1", privacy_class: "redacted", ...readJevLog(Number(url.searchParams.get("limit") || 500)) });
       return;
     }
     if (url.pathname === "/decisions/settings" && req.method === "POST") {

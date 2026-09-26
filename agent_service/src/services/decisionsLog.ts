@@ -35,3 +35,30 @@ export function createJevLogger(source: string, env: NodeJS.ProcessEnv = process
     }
   };
 }
+
+/** Last `limit` lines of the Jev log (newest last) for the UI. Reads at most the final 4 MiB, so a large log stays cheap. */
+export function readJevLog(limit = 500, env: NodeJS.ProcessEnv = process.env): { path: string; items: string[]; count: number; enabled: boolean } {
+  const file = jevLogPath(env);
+  const enabled = !["0", "false", "no", "off"].includes((env.JEV_LOG || "").toLowerCase());
+  const safeLimit = Math.max(1, Math.min(5000, Math.floor(Number(limit) || 500)));
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    return { path: file, items: [], count: 0, enabled };
+  }
+  const maxBytes = 4 * 1024 * 1024;
+  const start = Math.max(0, stat.size - maxBytes);
+  const fd = fs.openSync(file, "r");
+  let text = "";
+  try {
+    const buf = Buffer.alloc(stat.size - start);
+    fs.readSync(fd, buf, 0, buf.length, start);
+    text = buf.toString("utf8");
+  } finally {
+    fs.closeSync(fd);
+  }
+  let lines = text.split(/\r?\n/).filter(Boolean);
+  if (start > 0) lines = lines.slice(1);  // the first line of a partial read is cut off
+  return { path: file, items: lines.slice(-safeLimit), count: lines.length, enabled };
+}

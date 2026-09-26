@@ -17,6 +17,7 @@ import { parseYaml, stringifyYaml } from "../utils/yaml-parse.js";
 import { pollJob } from "../utils/poll.js";
 import { getScanData } from "./input-scan.js";
 import { autoScanForAnalysis } from "./ai-empfehlung.js";
+import { createJevTrafficPanel } from "../components/jev-traffic.js";
 
 const POLL_MS = 1500;
 const POLL_TIMEOUT_MS = 90000;
@@ -125,6 +126,8 @@ const STATUS_TEXT = {
 
 export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
   const resultBox = el("div", { class: "tc-mt-4", id: "jev-result" });
+  const traffic = createJevTrafficPanel();
+  traffic.refresh();
   const requestBtn = el("button", { class: "tc-btn tc-btn-primary", id: "jev-request", onclick: () => requestAdvice() }, t("ui.jev.request", "Jev-Empfehlung anfordern"));
   const rescanBtn = el("button", { class: "tc-btn", id: "jev-rescan", title: t("ui.jev.tooltip.rescan", "F\u00fchrt den Scan mit den aktuellen Einstellungen unter Input & Scan erneut aus und berechnet die Bildstatistik neu."), onclick: () => rescan() }, t("ui.jev.rescan", "Scan neu starten"));
   // The object class is a statement by the user; the scan never infers it. Candidates that need it abstain without it.
@@ -148,6 +151,7 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
         el("label", { class: "tc-text-sm", for: "jev-object-class" }, t("ui.jev.object_class.label", "Objektklasse")),
         objectClassSelect, rescanBtn, requestBtn),
       resultBox,
+      el("div", { class: "tc-mt-4" }, traffic.element),
     ),
   );
 
@@ -294,6 +298,7 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
       toastError(t("ui.jev.request_failed", "Anfrage fehlgeschlagen"), hint);
     } finally {
       requestBtn.disabled = false;
+      traffic.refresh();
     }
   }
 
