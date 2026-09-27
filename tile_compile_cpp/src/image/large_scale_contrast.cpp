@@ -86,6 +86,50 @@ CoarseMap build_map(const cv::Mat &plane, const cv::Mat &valid, int factor, floa
   return out;
 }
 
+// Bright-source (star) mask on the FULL-resolution luminance: POINT-LIKE bright pixels are excluded
+// from the coarse-map construction below (never from the final boost itself -- a star still receives
+// whatever value its surrounding sky gets). A bright, extended star's wings can span several coarse
+// cells at typical sigma_px (e.g. a factor-8 grid), so they survive the coarse 5x5 median unless
+// removed earlier; without this, the star's own bump is smoothed by the Gaussian and added back as a
+// soft halo -- exactly the "large-scale structure" this stage boosts, applied to a star instead of a
+// nebula. Deliberately a LOCAL-contrast test (residual against a small-sigma blur), not a plain
+// "brighter than the image's global sky level" one: a real nebula core can be brighter than the sky by
+// far more than any fixed multiple of the noise, but it varies smoothly across many multiples of the
+// local blur scale, so it leaves almost no residual here, while a star -- much sharper than the local
+// blur -- does. All constants (local sigma, threshold multiple, sigma floor, dilation) are fixed: they
+// exist to make the exclusion this header already promises ("hot pixels/stars ... removed") actually
+// hold for real stars, not to be a user-tunable star-detector.
+cv::Mat bright_source_mask(const cv::Mat &lum, const cv::Mat &valid) {
+  const int rows = lum.rows, cols = lum.cols;
+  cv::Mat smooth;
+  cv::GaussianBlur(lum, smooth, cv::Size(0, 0), 4.0, 4.0, cv::BORDER_REPLICATE);
+  cv::Mat residual = lum - smooth;
+  const std::size_t total = static_cast<std::size_t>(rows) * cols;
+  const std::size_t stride = std::max<std::size_t>(1, total / 500000u);
+  std::vector<float> sample;
+  sample.reserve(std::min<std::size_t>(total, 500000u));
+  std::size_t linear = 0;
+  for (int y = 0; y < rows; ++y)
+    for (int x = 0; x < cols; ++x, ++linear)
+      if (linear % stride == 0 && valid.at<std::uint8_t>(y, x)) sample.push_back(residual.at<float>(y, x));
+  cv::Mat mask(rows, cols, CV_8U, cv::Scalar(0));
+  if (sample.empty()) return mask;
+  const double med = median_of(sample);
+  std::vector<float> dev;
+  dev.reserve(sample.size());
+  for (float v : sample) dev.push_back(std::fabs(v - static_cast<float>(med)));
+  // A floor well below any real per-pixel noise, so a noise-free (or near flat) region does not make
+  // the threshold pathologically sensitive to numerical-precision-level residual.
+  const double sigma = std::max(1.4826 * median_of(dev), 1e-4);
+  const double threshold = med + 8.0 * sigma;
+  for (int y = 0; y < rows; ++y)
+    for (int x = 0; x < cols; ++x)
+      if (valid.at<std::uint8_t>(y, x) && residual.at<float>(y, x) > threshold) mask.at<std::uint8_t>(y, x) = 255;
+  cv::Mat dilated;
+  cv::dilate(mask, dilated, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(15, 15)));
+  return dilated;
+}
+
 // Robust radial fit in r^2 (degree 3) over the usable cells; returns the fitted
 // value at every cell. IRLS with a 2-sigma soft clip keeps a bright nebula
 // from driving the vignette estimate.
@@ -280,10 +324,15 @@ LargeScaleContrastResult apply_large_scale_contrast(
         max_b = std::max(max_b, B(y, x));
       }
 
+  // Excluded only from the coarse-map construction (deviation_map calls below); the boost is still
+  // applied to every valid pixel, stars included, via `valid` in the final loop further down.
+  cv::Mat clean_valid = valid.clone();
+  clean_valid.setTo(0, bright_source_mask(wrap_const(lum), valid));
+
   cv::Mat delta_l, delta_rg, delta_bg;
   CoarseMap lum_map;
   double ref = 0.0;
-  cv::Mat dev_l = deviation_map(wrap_const(lum), valid, factor, cfg.sigma_px, cfg.remove_vignette, &lum_map, &ref);
+  cv::Mat dev_l = deviation_map(wrap_const(lum), clean_valid, factor, cfg.sigma_px, cfg.remove_vignette, &lum_map, &ref);
   res.sky_reference = ref;
   res.vignette_removed = cfg.remove_vignette;
   res.span_before = span_p5_p95(dev_l, lum_map.ok);
@@ -301,8 +350,8 @@ LargeScaleContrastResult apply_large_scale_contrast(
         rg(y, x) = valid.at<std::uint8_t>(y, x) ? R(y, x) - G(y, x) : 0.0f;
         bg(y, x) = valid.at<std::uint8_t>(y, x) ? B(y, x) - G(y, x) : 0.0f;
       }
-    cv::Mat d_rg = deviation_map(wrap_const(rg), valid, factor, cfg.sigma_px, cfg.remove_vignette, nullptr, nullptr) * cfg.chroma_amount;
-    cv::Mat d_bg = deviation_map(wrap_const(bg), valid, factor, cfg.sigma_px, cfg.remove_vignette, nullptr, nullptr) * cfg.chroma_amount;
+    cv::Mat d_rg = deviation_map(wrap_const(rg), clean_valid, factor, cfg.sigma_px, cfg.remove_vignette, nullptr, nullptr) * cfg.chroma_amount;
+    cv::Mat d_bg = deviation_map(wrap_const(bg), clean_valid, factor, cfg.sigma_px, cfg.remove_vignette, nullptr, nullptr) * cfg.chroma_amount;
     cv::resize(d_rg, delta_rg, cv::Size(cols, rows), 0, 0, cv::INTER_LINEAR);
     cv::resize(d_bg, delta_bg, cv::Size(cols, rows), 0, 0, cv::INTER_LINEAR);
   }

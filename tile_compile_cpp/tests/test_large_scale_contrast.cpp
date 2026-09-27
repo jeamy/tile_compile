@@ -207,6 +207,38 @@ TEST_CASE("large-scale contrast is deterministic and reports the grid it used", 
   }
 }
 
+TEST_CASE("large-scale contrast does not put a soft halo around a bright, extended star", "[large-scale-contrast]") {
+  // A star wide enough (sigma 6 px) that its footprint spans several coarse cells at sigma_px 48
+  // (downsample factor 8) -- exactly the case the coarse 5x5 median alone does not reliably remove
+  // (docs/... 2026-09-28 real-data finding: Alnitak grew a visible soft glow at amount 2/chroma 1).
+  // No nebula in this image; only sky + the bright star, far from the border.
+  Img im;
+  im.R = Matrix2Df::Constant(kN, kN, 0.12f);
+  im.G = im.R;
+  im.B = im.R;
+  for (int y = 0; y < kN; ++y)
+    for (int x = 0; x < kN; ++x) {
+      const double s = 0.6 * std::exp(-((y - 200.0) * (y - 200.0) + (x - 200.0) * (x - 200.0)) / (2.0 * 6.0 * 6.0));
+      im.R(y, x) += static_cast<float>(s);
+      im.G(y, x) += static_cast<float>(s);
+      im.B(y, x) += static_cast<float>(s);
+    }
+  const double ring_before = region_mean(im.G, 240, 260, 240, 260);   // ~57-71 px from the star centre
+  const double far_sky_before = region_mean(im.G, 20, 60, 20, 60);
+  REQUIRE(std::fabs(ring_before - far_sky_before) < 1e-4);  // the star's own tail has not reached the ring
+  const auto r = apply_large_scale_contrast(im.R, im.G, im.B, on(2.0f), nullptr);
+  REQUIRE(r.applied);
+  const double ring_after = region_mean(im.G, 240, 260, 240, 260);
+  const double far_sky_after = region_mean(im.G, 20, 60, 20, 60);
+  // Without the star exclusion this ring picked up a visible halo from the star's smoothed bump; with
+  // it, the ring stays at the plain sky level, like a patch with no star nearby at all.
+  REQUIRE(std::fabs(ring_after - far_sky_after) < 0.001);
+  // The star's own core is still boosted like any other bright, isolated pixel would be (untouched
+  // relative to input, since it sits far above every neighbouring cell that feeds the coarse map and
+  // is excluded from it, so the interpolated large-scale value there is just the surrounding sky).
+  REQUIRE(im.G(200, 200) == Catch::Approx(0.12 + 0.6).margin(0.01));
+}
+
 TEST_CASE("large-scale contrast refuses unusable input", "[large-scale-contrast]") {
   Img im = make_image(0.03, 0.004);
   Matrix2Df small = Matrix2Df::Constant(16, 16, 0.1f);
