@@ -48,8 +48,9 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   `full_frame_estimator: false`: M42 sky sigma 1.47 to 0.57, faint-nebula
   contrast in the HMS product 5.9/6.4 to 12.6/14.0; M31 sky sigma 2.26 to
   0.95, faint outer-arm contrast 4.2/4.0 to 8.4/8.0. The mode costs about
-  +65 to +70 % FORWARD_DRIZZLE time (Q maps for all frames) and is off by
-  default. Adapt the placeholder paths (`/path/to/...` for the dark
+  +65 to +70 % FORWARD_DRIZZLE time (Q maps for all frames); it is off in
+  the code/schema defaults but enabled (with clip 4/4) in the shipped
+  `tile_compile.yaml`. Adapt the placeholder paths (`/path/to/...` for the dark
   master and the astap/siril data) before running. Background and
   measurements: `docs/dynamic_boost_implementierungsplan_2026-09-19_de.md`.
 
