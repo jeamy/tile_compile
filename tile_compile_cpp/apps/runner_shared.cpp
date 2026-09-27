@@ -1077,6 +1077,7 @@ image::HyperMetricStretchConfig to_image_hms_config(
   dst.sensor_profile = src.sensor_profile;
   dst.fallback_profile = src.fallback_profile;
   dst.adaptive_anchor = src.adaptive_anchor;
+  dst.anchor_from_reference = src.anchor_from_reference;
   dst.target_bg = src.target_bg;
   dst.protect_b = src.protect_b;
   dst.convergence_power = src.convergence_power;

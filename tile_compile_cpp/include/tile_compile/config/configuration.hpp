@@ -647,6 +647,12 @@ struct HyperMetricStretchConfig {
   std::string sensor_profile = "rec709";   // rec709 | profile name | auto
   std::string fallback_profile = "rec709";
   bool adaptive_anchor = true;
+  // See image::HyperMetricStretchConfig::anchor_from_reference: uses the pre-post_pcc-denoise RGB
+  // (before chroma_denoise's post_pcc pass) for the anchor estimate instead of the possibly-denoised
+  // image being stretched, so a denoiser narrowing the sky distribution does not shift the black
+  // point. Off by default; needs the runner to have that reference available (it is, when
+  // chroma_denoise.apply_stage is post_pcc; silently unused otherwise).
+  bool anchor_from_reference = false;
   float target_bg = 0.15f;
   float protect_b = 6.0f;
   float convergence_power = 3.5f;

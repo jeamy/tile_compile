@@ -1031,6 +1031,9 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (yaml_has_value(h["adaptive_anchor"]))
       cfg.hypermetric_stretch.adaptive_anchor =
           h["adaptive_anchor"].as<bool>();
+    if (yaml_has_value(h["anchor_from_reference"]))
+      cfg.hypermetric_stretch.anchor_from_reference =
+          h["anchor_from_reference"].as<bool>();
     if (yaml_has_value(h["target_bg"]))
       cfg.hypermetric_stretch.target_bg = h["target_bg"].as<float>();
     if (yaml_has_value(h["protect_b"]))
@@ -1443,6 +1446,8 @@ YAML::Node Config::to_yaml() const {
       hypermetric_stretch.fallback_profile;
   node["hypermetric_stretch"]["adaptive_anchor"] =
       hypermetric_stretch.adaptive_anchor;
+  node["hypermetric_stretch"]["anchor_from_reference"] =
+      hypermetric_stretch.anchor_from_reference;
   node["hypermetric_stretch"]["target_bg"] = hypermetric_stretch.target_bg;
   node["hypermetric_stretch"]["protect_b"] = hypermetric_stretch.protect_b;
   node["hypermetric_stretch"]["convergence_power"] =
@@ -2485,6 +2490,7 @@ std::string get_schema_json() {
                       "sensor_profile":{"type":"string"},
                       "fallback_profile":{"type":"string"},
                       "adaptive_anchor":{"type":"boolean"},
+                      "anchor_from_reference":{"type":"boolean"},
                       "target_bg":{"type":"number","minimum":0.05,"maximum":0.50},
                       "protect_b":{"type":"number","minimum":0.1},
                       "convergence_power":{"type":"number","minimum":1.0,"maximum":10.0},

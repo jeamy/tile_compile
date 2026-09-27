@@ -1481,6 +1481,11 @@
           "description": "When true, the anchor point for the stretch is determined adaptively from the image histogram. When false, a fixed anchor is used. Default: true.",
           "default": true
         },
+        "anchor_from_reference": {
+          "type": "boolean",
+          "description": "When true, the black-point anchor is estimated from the RGB state before chroma_denoise's post_pcc pass instead of the (possibly denoised) image being stretched, so a denoiser that narrows the sky brightness distribution does not shift the black point. Has no effect unless the runner has that reference available (chroma_denoise.apply_stage: post_pcc). Default: false.",
+          "default": false
+        },
         "target_bg": {
           "type": "number",
           "minimum": 0.05,

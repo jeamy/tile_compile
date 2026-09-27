@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <random>
 #include <vector>
 
 namespace {
@@ -478,5 +479,98 @@ TEST_CASE("hypermetric_uses_common_overlap_statistics_without_cropping_output") 
   REQUIRE(R(8, 8) == Catch::Approx(R_common_only(8, 8)).margin(1e-6f));
   REQUIRE(G(8, 8) == Catch::Approx(G_common_only(8, 8)).margin(1e-6f));
   REQUIRE(B(8, 8) == Catch::Approx(B_common_only(8, 8)).margin(1e-6f));
+}
+
+namespace {
+
+// A flat sky with per-pixel Gaussian noise of the given sigma, plus a fixed faint "nebula" patch in
+// one corner (well above sky+noise, so its presence does not itself determine the anchor). Same seed
+// and same sky/nebula levels for every sigma, so two calls differ only in noise width -- exactly what
+// a denoiser that narrows (but does not shift) the sky distribution would produce.
+tile_compile::Matrix2Df make_sky_channel(int n, float sky, float sigma, float nebula, std::mt19937 &rng) {
+  tile_compile::Matrix2Df m(n, n);
+  std::normal_distribution<float> noise(0.0f, sigma);
+  for (int y = 0; y < n; ++y) {
+    for (int x = 0; x < n; ++x) {
+      const float add = (x > n / 2 && y > n / 2) ? nebula : 0.0f;
+      m(y, x) = sky + noise(rng) + add;
+    }
+  }
+  return m;
+}
+
+} // namespace
+
+TEST_CASE("hypermetric_anchor_from_reference_recovers_the_pre_denoise_anchor") {
+  const int n = 96;
+  const float sky = 0.15f;
+  const float nebula = 0.03f;
+  std::mt19937 rng_wide(7), rng_narrow(7);  // same seed: only sigma differs below
+  tile_compile::Matrix2Df wide_R = make_sky_channel(n, sky, 0.01f, nebula, rng_wide);
+  tile_compile::Matrix2Df wide_G = wide_R, wide_B = wide_R;
+  tile_compile::Matrix2Df narrow_R = make_sky_channel(n, sky, 0.001f, nebula, rng_narrow);
+  tile_compile::Matrix2Df narrow_G = narrow_R, narrow_B = narrow_R;
+
+  tile_compile::image::HyperMetricStretchConfig cfg;
+  cfg.enabled = true;
+  cfg.adaptive_anchor = true;
+
+  float reference_anchor = 0.0f;
+  {
+    auto R = wide_R, G = wide_G, B = wide_B;
+    const auto diag = tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);
+    REQUIRE(diag.success);
+    reference_anchor = diag.anchor;
+  }
+
+  float anchor_without_reference = 0.0f;
+  {
+    auto R = narrow_R, G = narrow_G, B = narrow_B;
+    const auto diag = tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);
+    REQUIRE(diag.success);
+    anchor_without_reference = diag.anchor;
+  }
+
+  // The narrowed (post-denoise) distribution alone gives a measurably different anchor than the
+  // pre-denoise reference -- this is the shift this feature exists to avoid.
+  REQUIRE(std::abs(anchor_without_reference - reference_anchor) > 0.002f);
+
+  cfg.anchor_from_reference = true;
+  float anchor_with_reference = 0.0f;
+  {
+    auto R = narrow_R, G = narrow_G, B = narrow_B;
+    const auto diag = tile_compile::image::run_hypermetric_stretch_rgb(
+        R, G, B, cfg, nullptr, 0, 0, nullptr, &wide_R, &wide_G, &wide_B);
+    REQUIRE(diag.success);
+    anchor_with_reference = diag.anchor;
+  }
+  // Passing the pre-denoise reference recovers (closely) the pre-denoise anchor, although the
+  // WORKING image (the one actually stretched) is still the narrow/denoised one.
+  REQUIRE(anchor_with_reference == Catch::Approx(reference_anchor).margin(0.0005f));
+
+  // Fallback contract: without a reference, or with a dimension mismatch, or with the flag off, this
+  // is a no-op -- identical to the plain (unpatched) behaviour, never an error.
+  {
+    auto R = narrow_R, G = narrow_G, B = narrow_B;
+    const auto diag = tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);  // flag on, no reference passed
+    REQUIRE(diag.success);
+    REQUIRE(diag.anchor == Catch::Approx(anchor_without_reference).margin(1e-9f));
+  }
+  {
+    tile_compile::Matrix2Df wrong_size(n - 1, n - 1);
+    auto R = narrow_R, G = narrow_G, B = narrow_B;
+    const auto diag = tile_compile::image::run_hypermetric_stretch_rgb(
+        R, G, B, cfg, nullptr, 0, 0, nullptr, &wrong_size, &wrong_size, &wrong_size);
+    REQUIRE(diag.success);
+    REQUIRE(diag.anchor == Catch::Approx(anchor_without_reference).margin(1e-9f));
+  }
+  {
+    cfg.anchor_from_reference = false;
+    auto R = narrow_R, G = narrow_G, B = narrow_B;
+    const auto diag = tile_compile::image::run_hypermetric_stretch_rgb(
+        R, G, B, cfg, nullptr, 0, 0, nullptr, &wide_R, &wide_G, &wide_B);
+    REQUIRE(diag.success);
+    REQUIRE(diag.anchor == Catch::Approx(anchor_without_reference).margin(1e-9f));
+  }
 }
 #endif

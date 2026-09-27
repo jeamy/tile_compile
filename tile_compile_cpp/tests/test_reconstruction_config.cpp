@@ -275,6 +275,16 @@ TEST_CASE("hypermetric_stretch.large_scale_contrast defaults off, parses, valida
   }
 }
 
+TEST_CASE("hypermetric_stretch.anchor_from_reference defaults off, parses and round-trips") {
+  Config def = parse("hypermetric_stretch:\n  enabled: true\n");
+  REQUIRE_FALSE(def.hypermetric_stretch.anchor_from_reference);
+  Config on = parse("hypermetric_stretch:\n  anchor_from_reference: true\n");
+  REQUIRE(on.hypermetric_stretch.anchor_from_reference);
+  REQUIRE_NOTHROW(on.validate());
+  Config again = Config::from_yaml(on.to_yaml());
+  REQUIRE(again.hypermetric_stretch.anchor_from_reference);
+}
+
 TEST_CASE("hypermetric_stretch.color_cast_correction defaults off, parses and validates") {
   Config def = parse("hypermetric_stretch:\n  enabled: true\n");
   REQUIRE_FALSE(def.hypermetric_stretch.color_cast_correction.enabled);
