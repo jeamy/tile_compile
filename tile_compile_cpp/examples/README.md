@@ -50,9 +50,15 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   0.95, faint outer-arm contrast 4.2/4.0 to 8.4/8.0. The mode costs about
   +65 to +70 % FORWARD_DRIZZLE time (Q maps for all frames); it is off in
   the code/schema defaults but enabled (with clip 4/4) in the shipped
-  `tile_compile.yaml`. Adapt the placeholder paths (`/path/to/...` for the dark
-  master and the astap/siril data) before running. Background and
-  measurements: `docs/dynamic_boost_implementierungsplan_2026-09-19_de.md`.
+  `tile_compile.yaml`. The M42 file also has
+  `hypermetric_stretch.large_scale_contrast` on (`amount: 2.0`,
+  `chroma_amount: 1.0`, added 2026-09-27): sky-structure span x1.63 with star
+  FWHM/signal/elongation ratio exactly 1.000 and no extra noise or black
+  clipping on this one dataset (`docs/m42_large_scale_contrast_20260927_de.md`);
+  not yet confirmed for M31 or other object types. Adapt the placeholder
+  paths (`/path/to/...` for the dark master and the astap/siril data) before
+  running. Background and measurements:
+  `docs/dynamic_boost_implementierungsplan_2026-09-19_de.md`.
 
 - `m42_dwarf2_full_frame.demo.yaml`, `m31_dwarf2_full_frame.demo.yaml`
   Ready-to-run copies of the two profiles above with the dark master and

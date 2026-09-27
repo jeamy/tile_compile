@@ -246,16 +246,21 @@ hypermetric_stretch:
     object_sigma: 3.0
     brightness_bins: 8
     neutralize_sky: false
-  # Scale-selective contrast (off by default): lifts only the large-scale sky structure
-  # (dust lanes, reflection nebulae) of the stretched image, without amplifying noise, stars or
-  # fine detail: I' = I + amount * (LS(I) - sky). sigma_px is the scale of the "large" component,
+  # Scale-selective contrast: lifts only the large-scale sky structure (dust lanes, reflection
+  # nebulae) of the stretched image, without amplifying noise, stars or fine detail:
+  # I' = I + amount * (LS(I) - sky). sigma_px is the scale of the "large" component,
   # remove_vignette keeps a radially symmetric component (vignette, radial glow) out of the boost,
   # chroma_amount does the same for the colour differences R-G and B-G (0 = colour unchanged).
+  # Code/schema default stays off; shipped here as ON with amount 2.0/chroma_amount 1.0 (2026-09-27
+  # user decision, evidence: docs/m42_large_scale_contrast_20260927_de.md, one M42 session: sky
+  # structure x1.63, star FWHM/signal/elongation ratio exactly 1.000, noise x0.99, no extra black
+  # clipping). Not confirmed on other object types (compact objects, star fields, galaxies); a
+  # centred, radially symmetric object may need remove_vignette off instead.
   large_scale_contrast:
-    enabled: false
-    amount: 1.0
+    enabled: true
+    amount: 2.0
     sigma_px: 48.0
-    chroma_amount: 0.0
+    chroma_amount: 1.0
     remove_vignette: true
   write_channels: false
   output_rgb: stacked_rgb_hms.fits

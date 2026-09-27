@@ -542,7 +542,8 @@ Wichtig, mit Zahlen aus derselben Simulation belegt:
 **Wann aktivieren:** Das gestreckte Bild wirkt im Hintergrund eintönig, obwohl die Daten großräumige Struktur enthalten (Staubbänder,
 Reflexionsnebel, Leuchten um helle Sterne). Die globale Stretch-Kurve drückt solche schwache, ausgedehnte Struktur in ein schmales Band; ein
 lokaler Kontrast würde dabei das Rauschen mitverstärken. Diese Stufe hebt nur die großräumige Komponente an: Pixelrauschen, Sternprofile und
-Feindetail bleiben unverändert. Standard: aus.
+Feindetail bleiben unverändert. Schema-Standard: aus; mitgelieferte `tile_compile.yaml`: an (`amount: 2.0`, `chroma_amount: 1.0`,
+Entscheidung 2026-09-27).
 
 ```yaml
 hypermetric_stretch:
@@ -557,6 +558,10 @@ hypermetric_stretch:
 - **Gemessen** (IC4605, Ausgabe des Stretch-Schritts): Pixelrauschen ×1,000, Sternbreite ×1,000, Sternsignal ×1,000; großräumige Himmelsstruktur ×1,8 / ×2,5 / ×3,3 bei
   `amount` 1 / 2 / 3. Die Stufe lässt sich ohne neue Rekonstruktion testen: `resume-reconstruction --from-phase HYPERMETRIC_STRETCH`
   (nur der Abschnitt `hypermetric_stretch` darf sich ändern).
+- **Erneut gemessen** (M42, 610 Frames, `amount: 2.0`/`chroma_amount: 1.0`, Resume ab `PCC`, 2026-09-27): Himmelsstruktur ×1,63, Sternbreite/-signal/
+  Elongation exakt ×1,000 (1458 gematchte Sterne), Pixelrauschen ×0,99, kein zusätzliches Schwarzclipping — eine zweite, unabhängige Bestätigung von
+  „Struktur hoch, Sterne/Rauschen unverändert" an einem anderen Objekt. Für kompakte Objekte, Sternfelder oder Galaxien noch nicht bestätigt.
+  Details: `docs/m42_large_scale_contrast_20260927_de.md`.
 - **Vignette:** Ohne Flatfield-Kalibrierung ist eine Vignette Teil der großräumigen Struktur. `remove_vignette: true` (Standard) zieht eine radialsymmetrische
   Komponente vor der Verstärkung ab; bei zentrierten, radialsymmetrischen Objekten (z. B. ein großer, mittiger Nebel) ausschalten.
 - **Gradienten:** Restgradienten von Lichtverschmutzung werden mit angehoben. Dafür bleibt BGE zuständig; `bge.method: classic` entfernt allerdings auch

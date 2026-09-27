@@ -4,7 +4,8 @@
 # paths of the development box filled in (dark master, astap and siril data).
 # It is the exact config of the NVIDIA/CUDA validation run 20260927_161504_810fb3ed
 # (2026-09-27, backend cuda_v2): pilot + full-frame estimator, clip bounds
-# 4/4, shared frame rejection, chroma_denoise and luma_denoise OFF.
+# 4/4, shared frame rejection, chroma_denoise and luma_denoise OFF; hypermetric_stretch.
+# large_scale_contrast ON (added 2026-09-27, docs/m42_large_scale_contrast_20260927_de.md).
 #
 # Run (reconstruct):
 #   tile_compile_runner reconstruct --config examples/m42_dwarf2_full_frame.demo.yaml \
@@ -269,6 +270,19 @@ hypermetric_stretch:
     object_sigma: 3.0    # object = blurred luminance > sky + 3 sigma
     brightness_bins: 8   # strength chosen per brightness class (1 = one global strength)
     neutralize_sky: false   # also shift G so the SKY is neutral: G += (skyR+skyB)/2 - skyG
+  # Scale-selective ("large-scale") contrast: lifts only the large-scale sky/nebula structure
+  # (Gaussian sigma_px) that the single stretch curve otherwise compresses into a narrow band;
+  # star profiles and pixel-scale noise are untouched. Verified 2026-09-27 on this exact config
+  # (resume from PCC, matched to the unboosted control): sky-structure span x1.63, star
+  # FWHM/signal/elongation ratio exactly 1.000 (1458 matched stars), noise x0.99, no change in
+  # black-point clipping. amount/chroma_amount were tested together, not swept separately.
+  # docs/m42_large_scale_contrast_20260927_de.md.
+  large_scale_contrast:
+    enabled: true
+    amount: 2.0           # [0, 6] factor on the large-scale luminance deviation
+    sigma_px: 48.0         # (0, 512] Gaussian sigma of the "large" component, output pixels
+    chroma_amount: 1.0     # [0, 6] same factor for R-G/B-G; 0 = colour unchanged
+    remove_vignette: true  # exclude the radially symmetric component from the boost
   write_channels: false
   output_rgb: stacked_rgb_hms.fits
 runtime_limits:

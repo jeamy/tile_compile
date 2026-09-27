@@ -531,7 +531,8 @@ Important, backed by numbers from the same simulation:
 
 **When to enable:** The stretched image looks monotone in the background although the data carry large-scale structure (dust lanes, reflection
 nebulae, glow around bright stars). The global stretch curve squeezes such faint, extended structure into a narrow band; a local contrast would amplify
-the noise with it. This stage lifts only the large-scale component: pixel noise, star profiles and fine detail stay unchanged. Default: off.
+the noise with it. This stage lifts only the large-scale component: pixel noise, star profiles and fine detail stay unchanged. Schema default: off;
+shipped `tile_compile.yaml`: on (`amount: 2.0`, `chroma_amount: 1.0`, 2026-09-27 decision).
 
 ```yaml
 hypermetric_stretch:
@@ -546,6 +547,10 @@ hypermetric_stretch:
 - **Measured** (IC4605, stretch-step output): pixel noise x1.000, star width x1.000, star signal x1.000; large-scale sky structure x1.8 / x2.5 / x3.3 for
   `amount` 1 / 2 / 3. The stage can be tested without a new reconstruction: `resume-reconstruction --from-phase HYPERMETRIC_STRETCH`
   (only the `hypermetric_stretch` section may change).
+- **Measured again** (M42, 610 frames, `amount: 2.0`/`chroma_amount: 1.0`, resume from `PCC`, 2026-09-27): sky-structure span x1.63, star
+  FWHM/signal/elongation ratio exactly 1.000 (1458 matched stars), pixel noise x0.99, no change in black-point clipping — a second, independent
+  confirmation of "structure up, stars/noise unchanged" on a different object. Not yet confirmed for compact objects, star fields or galaxies.
+  Details: `docs/m42_large_scale_contrast_20260927_de.md`.
 - **Vignette:** Without flat-field calibration a vignette is part of the large-scale structure. `remove_vignette: true` (default) removes a radially symmetric
   component before the boost; turn it off for centred, radially symmetric objects (e.g. a large central nebula).
 - **Gradients:** Residual light-pollution gradients are lifted too. BGE remains responsible for them; note that `bge.method: classic` also removes two thirds of the
