@@ -53,6 +53,13 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   master and the astap/siril data) before running. Background and
   measurements: `docs/dynamic_boost_implementierungsplan_2026-09-19_de.md`.
 
+- `m42_dwarf2_full_frame.demo.yaml`, `m31_dwarf2_full_frame.demo.yaml`
+  Ready-to-run copies of the two profiles above with the dark master and
+  astap/siril paths of the development machine filled in; otherwise
+  identical. They are the exact configs of the 2026-09-27 CUDA validation
+  runs (backend `cuda_v2`, chroma and luma denoise off). The paths exist only
+  on that machine; elsewhere start from the `.example.yaml` files.
+
 - `m42_dwarf2_full_frame_luma.example.yaml`, `m31_dwarf2_full_frame_luma.example.yaml`
   The two profiles above with the recommended `luma_denoise` stage enabled:
   wavelet + `extended_source_protection`, bilateral off. Each `luma_denoise`
