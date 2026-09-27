@@ -181,7 +181,7 @@ export function createRunMonitorPage() {
   const { aiEnabled, jevEnabled } = getFeatureFlags();
   const runPreview = createRunImagePreviewPanel("run-monitor-image-preview");
   const completionAnalysis = aiEnabled ? createCompletionAnalysisPanel() : null;
-  const postRunAdvice = jevEnabled ? createPostRunAdvicePanel() : null;
+  const postRunAdvice = jevEnabled ? createPostRunAdvicePanel("post-run-advice", { onApply: applyPostRunAdvice }) : null;
   const runChat = aiEnabled ? createRunChatPanel() : null;
 
   // Log viewer (component-based)
@@ -603,6 +603,36 @@ async function prepareCompletionResume(startImmediately) {
   if (!feasible || !startImmediately) return feasible;
   const confirmed = window.confirm(t("ui.confirm.apply_and_resume", "Validierte Parameter übernehmen und den Run ab {phase} fortsetzen?", { phase }));
   return confirmed ? resumeRun() : false;
+}
+
+// Wired into the post-run-advice card (Jev-Nachbetrachtung): "resumeMode"/"minResumePhase" were already combined there
+// from the selected suggestions against `advice.resume_phase_order`. Mirrors prepareCompletionResume/
+// applyCompletionConfigToNewRun above -- same two actions the KI-Ergebnisanalyse card already offers, just fed from Jev's
+// suggestions instead. Never starts anything itself: a full-run patch only fills the config draft (Start stays a separate
+// click in Run Control); a resume patch only fills and dry-run-checks the Resume tab (Resume stays a separate click there).
+async function applyPostRunAdvice({ patchedYaml, resumeMode, minResumePhase }) {
+  if (resumeMode === "full_run") {
+    setConfigState({ draft: parseYaml(patchedYaml), draftYaml: patchedYaml, dirty: true });
+    const validation = await validateConfig();
+    if (validation?.valid === false || validation?.errors?.length) {
+      toastError(t("ui.toast.config_invalid", "Config ungültig"), t("ui.post_run.revalidation_failed", "Die übernommene Config konnte nicht erneut validiert werden."));
+      return;
+    }
+    toastSuccess(t("ui.toast.parameters_applied_for_new_run", "Parameter für neuen Run übernommen"));
+    return;
+  }
+  if (!minResumePhase) return;
+  await applyResumeRecommendation(minResumePhase);
+  const editor = document.getElementById("resume-config-yaml");
+  if (editor) {
+    editor.value = patchedYaml;
+    updateResumeConfigSectionHighlights(editor.value);
+  }
+  const feasible = await checkResumeFeasibility(minResumePhase);
+  if (feasible) {
+    toastSuccess(t("ui.post_run.resume_prepared", "Resume ab {phase} vorbereitet.", { phase: minResumePhase }));
+    activateRunMonitorTab("resume");
+  }
 }
 
 function resumeErrorPayload(error) {

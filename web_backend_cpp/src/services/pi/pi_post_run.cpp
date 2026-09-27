@@ -183,10 +183,14 @@ json advise_post_run(const json& state, const json& run_config, const DecisionPo
     if (!suggestions.empty()) outcome = any_full ? "suggest_reconstruction" : "suggest_downstream";
     else if (std::any_of(findings.begin(), findings.end(), [](const json& f) { return f["severity"] == "warning"; })) outcome = "diagnose";
 
+    // The one order the UI needs to combine several selected suggestions into a single resume phase (the phase whose
+    // section set covers all of them is the one that appears LATEST in this list, since it is listed narrowest-first).
+    // Exposed here so the client never re-derives or hardcodes the pipeline's own resume-scope order.
     return {{"schema_version", kAdviceSchema}, {"run_id", run.value("run_id", std::string())}, {"outcome", outcome},
             {"findings", findings}, {"suggestions", suggestions}, {"excluded", excluded},
             {"dismissed", json(dismissed)}, {"state_hash", state.value("state_hash", std::string())},
             {"not_measured", state.value("not_measured", json::array())},
+            {"resume_phase_order", json(resume_phases_latest_first())},
             {"basis", "run_artifacts_only"}, {"model_called", false}};
 }
 

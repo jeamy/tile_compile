@@ -2208,5 +2208,10 @@
   "ui.feature_switch.ai_tooltip": "Switches all AI functions (model analysis, recommendations, Run-Chat) on or off throughout the GUI.",
   "ui.feature_switch.ai_disabled_note": "AI functions are disabled: every AI card, tab and request is hidden. Turn the switch above back on to use them.",
   "ui.feature_switch.jev_tooltip": "Switches Jev (the second, independent recommendation source) on or off throughout the GUI.",
-  "ui.feature_switch.jev_disabled_note": "Jev is disabled: the Jev card, the Jev tab and the Jev post-run review are hidden. Turn the switch above back on to use them."
+  "ui.feature_switch.jev_disabled_note": "Jev is disabled: the Jev card, the Jev tab and the Jev post-run review are hidden. Turn the switch above back on to use them.",
+  "ui.post_run.apply_selected": "Apply selected",
+  "ui.post_run.apply_all": "Apply all",
+  "ui.post_run.apply_failed": "Apply failed",
+  "ui.post_run.revalidation_failed": "The applied config could not be re-validated.",
+  "ui.post_run.resume_prepared": "Resume from {phase} prepared."
 }

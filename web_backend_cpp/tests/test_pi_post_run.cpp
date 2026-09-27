@@ -119,6 +119,7 @@ int main(int argc, char** argv) {
             expect_true(s["requires_review"] == true && s["experimental"] == true && s["feasibility"] == "not_checked_use_resume_dry_run", "review flags; feasibility not claimed");
         }
         expect_true(a["model_called"] == false && a["basis"] == "run_artifacts_only", "no model, artifacts only");
+        expect_true(a["resume_phase_order"] == tile_compile::pi::resume_phases_latest_first(), "the phase order the UI needs to combine several selections is exposed, not re-derived client-side");
         expect_true(snapshot(run) == before, "advice does not touch the run directory");
         expect_true(a == tile_compile::pi::advise_post_run(st, cfg, frozen_test_policy(), catalog, ok, {}), "advice is deterministic");
 
