@@ -22,6 +22,7 @@ import { createYamlDiff } from "../components/yaml-diff.js";
 import { getEffectiveCalValues } from "./input-scan.js";
 import { createPostRunAdvicePanel } from "../components/post-run-advice.js";
 import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
+import { getFeatureFlags } from "../state/feature-flags.js";
 
 function createCompletionAnalysisPanel() {
   const trafficId = "completion-analysis-traffic";
@@ -177,10 +178,11 @@ export function createRunMonitorPage() {
     ),
   );
 
+  const { aiEnabled, jevEnabled } = getFeatureFlags();
   const runPreview = createRunImagePreviewPanel("run-monitor-image-preview");
-  const completionAnalysis = createCompletionAnalysisPanel();
-  const postRunAdvice = createPostRunAdvicePanel();
-  const runChat = createRunChatPanel();
+  const completionAnalysis = aiEnabled ? createCompletionAnalysisPanel() : null;
+  const postRunAdvice = jevEnabled ? createPostRunAdvicePanel() : null;
+  const runChat = aiEnabled ? createRunChatPanel() : null;
 
   // Log viewer (component-based)
   const logViewer = createLogViewer();
@@ -197,7 +199,7 @@ export function createRunMonitorPage() {
   );
   activeWarningBanner = warningBanner;
 
-  page.append(control, runInfo, phases, warningBanner, stats, completionAnalysis, postRunAdvice, runPreview, runMonitorTabs);
+  page.append(...[control, runInfo, phases, warningBanner, stats, completionAnalysis, postRunAdvice, runPreview, runMonitorTabs].filter(Boolean));
 
   // WebSocket listener
   onWebSocketMessage((event) => {
@@ -546,6 +548,7 @@ async function requestCompletionAnalysis() {
 }
 
 async function maybeLoadCompletionAnalysis(status) {
+  if (!getFeatureFlags().aiEnabled) return;  // the panel does not exist; do not request AI data for it either
   const { currentRunId, currentRunDir } = getRunState();
   const panel = document.getElementById("run-completion-analysis");
   if (status !== "completed" || !currentRunId) {
@@ -668,7 +671,8 @@ function activateRunMonitorTab(tabId) {
 function createRunMonitorTabs(resumePanel, runChatPanel, logPanel) {
   const tabs = [
     { id: "resume", label: t("ui.title.resume", "Resume"), node: resumePanel },
-    { id: "chat", label: t("ui.title.run_chat", "Run-Chat"), node: runChatPanel },
+    // Run-Chat asks the AI model, so its tab does not exist at all while AI is disabled (no empty tab).
+    ...(runChatPanel ? [{ id: "chat", label: t("ui.title.run_chat", "Run-Chat"), node: runChatPanel }] : []),
     { id: "log", label: t("ui.title.live_log", "Live Log"), node: logPanel },
   ];
   const tabButtons = tabs.map((tab, index) => el("button", {

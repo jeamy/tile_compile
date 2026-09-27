@@ -19,6 +19,8 @@ import { getScanData } from "./input-scan.js";
 import { goToSubTab } from "../utils/navigation.js";
 import { autoScanForAnalysis } from "./ai-empfehlung.js";
 import { createJevTrafficPanel } from "../components/jev-traffic.js";
+import { getFeatureFlags, setFeatureFlags } from "../state/feature-flags.js";
+import { createFeatureSwitch } from "../components/feature-switch.js";
 
 const POLL_MS = 1500;
 const POLL_TIMEOUT_MS = 90000;
@@ -107,8 +109,7 @@ export function createJevSettingsCard() {
     }
   }
 
-  const card = el("div", { class: "tc-card tc-jev", id: "jev-settings-card" },
-    el("div", { class: "tc-card-title" }, t("ui.jev.title", "Jev (Decisions API)")),
+  const fields = el("div", { class: "tc-flex-col tc-gap-2" },
     el("div", { class: "tc-text-sm tc-text-muted tc-mb-2" }, t("ui.jev.intro", "Zweite, unabhängige Empfehlungsquelle. Läuft getrennt von der KI-Karte oben; Umschalten dort ändert Jev nicht.")),
     el("div", { class: "tc-grid-2" },
       el("div", {},
@@ -136,7 +137,33 @@ export function createJevSettingsCard() {
     ),
     checkResult,
   );
-  refresh();
+  const note = el("div", { class: "tc-text-sm tc-text-muted", id: "jev-disabled-note" },
+    t("ui.feature_switch.jev_disabled_note", "Jev ist deaktiviert: die Jev-Karte, der Jev-Tab und die Jev-Nachbetrachtung sind ausgeblendet. Mit dem Schalter oben wieder aktivieren."));
+
+  function applyEnabled(enabled) {
+    fields.classList.toggle("tc-hidden", !enabled);
+    note.classList.toggle("tc-hidden", enabled);
+    if (enabled && !fields.dataset.loaded) {
+      fields.dataset.loaded = "1";
+      refresh();
+    }
+  }
+  const enabled = getFeatureFlags().jevEnabled;
+  const toggle = createFeatureSwitch({
+    id: "jev-enabled-switch",
+    checked: enabled,
+    title: t("ui.feature_switch.jev_tooltip", "Schaltet Jev (zweite, unabhängige Empfehlungsquelle) im gesamten GUI ein oder aus."),
+    onChange: (checked) => {
+      setFeatureFlags({ jevEnabled: checked });
+      applyEnabled(checked);
+    },
+  });
+  const card = el("div", { class: "tc-card tc-jev", id: "jev-settings-card" },
+    el("div", { class: "tc-card-title tc-flex tc-items-center tc-justify-between tc-gap-2" },
+      el("span", {}, t("ui.jev.title", "Jev (Decisions API)")), toggle),
+    fields, note,
+  );
+  applyEnabled(enabled);
   return card;
 }
 

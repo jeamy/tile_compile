@@ -2217,5 +2217,10 @@
   "ui.jev.check_key_ok": "API-Key vorhanden",
   "ui.jev.check_key_missing": "API-Key fehlt",
   "ui.jev.check_provider_ok": "Provider antwortet",
-  "ui.jev.check_provider_failed": "Provider-Anfrage fehlgeschlagen"
+  "ui.jev.check_provider_failed": "Provider-Anfrage fehlgeschlagen",
+  "ui.feature_switch.active": "Aktiv",
+  "ui.feature_switch.ai_tooltip": "Schaltet alle KI-Funktionen (Modell-Analyse, Empfehlungen, Run-Chat) im gesamten GUI ein oder aus.",
+  "ui.feature_switch.ai_disabled_note": "KI-Funktionen sind deaktiviert: alle KI-Karten, -Tabs und -Anfragen sind ausgeblendet. Mit dem Schalter oben wieder aktivieren.",
+  "ui.feature_switch.jev_tooltip": "Schaltet Jev (zweite, unabhängige Empfehlungsquelle) im gesamten GUI ein oder aus.",
+  "ui.feature_switch.jev_disabled_note": "Jev ist deaktiviert: die Jev-Karte, der Jev-Tab und die Jev-Nachbetrachtung sind ausgeblendet. Mit dem Schalter oben wieder aktivieren."
 }

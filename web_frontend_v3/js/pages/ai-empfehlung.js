@@ -14,18 +14,18 @@ import { parseYaml, stringifyYaml } from "../utils/yaml-parse.js";
 import { renderEditorForCategory, updateDiff, setConfigValue } from "./parameter.js";
 import { getUiState } from "../state/ui-state.js";
 import { createJevSettingsCard } from "./jev-empfehlung.js";
+import { getFeatureFlags, setFeatureFlags } from "../state/feature-flags.js";
+import { createFeatureSwitch } from "../components/feature-switch.js";
 
 export function createAiModelSettingsPage() {
   // The Jev card is its own card with its own endpoint/state: it does not share the provider slot above.
-  const page = el("div", { class: "tc-flex-col tc-gap-4" }, createAiModelSettingsCard(), createJevSettingsCard());
-  loadAiConfig().finally(() => loadModels());
-  return page;
+  // Each card loads its own data only while its switch is on (createAiModelSettingsCard/createJevSettingsCard).
+  return el("div", { class: "tc-flex-col tc-gap-4" }, createAiModelSettingsCard(), createJevSettingsCard());
 }
 
 function createAiModelSettingsCard() {
   const fd = getAiFormData();
-  return el("div", { class: "tc-card" },
-    el("div", { class: "tc-card-title" }, t("ui.title.model_api", "Modell & API-Key")),
+  const fields = el("div", { class: "tc-flex-col tc-gap-2" },
     el("div", { class: "tc-grid-2" },
       el("div", {},
         el("label", { class: "tc-label" }, t("ui.field.provider", "Provider")),
@@ -62,6 +62,33 @@ function createAiModelSettingsCard() {
       el("div", { class: "tc-text-sm tc-text-muted", id: "ai-account-status", style: { flex: "1 1 auto", minWidth: "0" } }, t("ui.state.account_loading", "Kontostatus wird geladen...")),
       el("button", { class: "tc-btn", style: { flexShrink: "0" }, title: t("ui.tooltip.ai.refresh_account_status", "Prueft Provider-Key und ausgewaehltes Modell ueber den PI Sidecar."), onclick: () => refreshAiProviderStatus() }, t("ui.button.refresh_account_status", "Status abrufen")),
     ),
+  );
+  const note = el("div", { class: "tc-text-sm tc-text-muted", id: "ai-disabled-note" },
+    t("ui.feature_switch.ai_disabled_note", "KI-Funktionen sind deaktiviert: alle KI-Karten, -Tabs und -Anfragen sind ausgeblendet. Mit dem Schalter oben wieder aktivieren."));
+
+  function applyEnabled(enabled) {
+    fields.classList.toggle("tc-hidden", !enabled);
+    note.classList.toggle("tc-hidden", enabled);
+    if (enabled && !fields.dataset.loaded) {
+      fields.dataset.loaded = "1";
+      loadAiConfig().finally(() => loadModels());
+    }
+  }
+  const enabled = getFeatureFlags().aiEnabled;
+  const toggle = createFeatureSwitch({
+    id: "ai-enabled-switch",
+    checked: enabled,
+    title: t("ui.feature_switch.ai_tooltip", "Schaltet alle KI-Funktionen (Modell-Analyse, Empfehlungen, Run-Chat) im gesamten GUI ein oder aus."),
+    onChange: (checked) => {
+      setFeatureFlags({ aiEnabled: checked });
+      applyEnabled(checked);
+    },
+  });
+  applyEnabled(enabled);
+  return el("div", { class: "tc-card" },
+    el("div", { class: "tc-card-title tc-flex tc-items-center tc-justify-between tc-gap-2" },
+      el("span", {}, t("ui.title.model_api", "Modell & API-Key")), toggle),
+    fields, note,
   );
 }
 

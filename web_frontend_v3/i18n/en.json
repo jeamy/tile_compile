@@ -2203,5 +2203,10 @@
   "ui.jev.check_key_ok": "API key present",
   "ui.jev.check_key_missing": "API key missing",
   "ui.jev.check_provider_ok": "Provider answers",
-  "ui.jev.check_provider_failed": "Provider request failed"
+  "ui.jev.check_provider_failed": "Provider request failed",
+  "ui.feature_switch.active": "Active",
+  "ui.feature_switch.ai_tooltip": "Switches all AI functions (model analysis, recommendations, Run-Chat) on or off throughout the GUI.",
+  "ui.feature_switch.ai_disabled_note": "AI functions are disabled: every AI card, tab and request is hidden. Turn the switch above back on to use them.",
+  "ui.feature_switch.jev_tooltip": "Switches Jev (the second, independent recommendation source) on or off throughout the GUI.",
+  "ui.feature_switch.jev_disabled_note": "Jev is disabled: the Jev card, the Jev tab and the Jev post-run review are hidden. Turn the switch above back on to use them."
 }

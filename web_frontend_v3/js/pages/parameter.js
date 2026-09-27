@@ -17,10 +17,18 @@ import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { refreshGuardrails } from "../services/guardrail-service.js";
 import { getStore } from "../state/store.js";
+import { getFeatureFlags } from "../state/feature-flags.js";
 
 export function createParameterPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
-  const paramView = getUiState().paramView || "parameter";
+  const { aiEnabled, jevEnabled } = getFeatureFlags();
+  let paramView = getUiState().paramView || "parameter";
+  // A view whose feature switch (Tools -> AI & API) was turned off in the meantime falls back to Parameter;
+  // its tab button does not exist below, so it can never be reached by a click either.
+  if ((paramView === "ai" && !aiEnabled) || (paramView === "jev" && !jevEnabled)) {
+    paramView = "parameter";
+    setUiState({ paramView });
+  }
 
   const paramTab = el("button", {
     class: `tc-tab${paramView === "parameter" ? " active" : ""}`,
@@ -28,21 +36,21 @@ export function createParameterPage() {
     role: "tab",
     "aria-selected": paramView === "parameter" ? "true" : "false",
   }, t("ui.tab.parameter", "Parameter"));
-  const aiTab = el("button", {
+  const aiTab = aiEnabled ? el("button", {
     class: `tc-tab${paramView === "ai" ? " active" : ""}`,
     id: "tab-ai",
     role: "tab",
     "aria-selected": paramView === "ai" ? "true" : "false",
-  }, t("ui.tab.ai", "AI Empfehlung"));
-  const jevTab = el("button", {
+  }, t("ui.tab.ai", "AI Empfehlung")) : null;
+  const jevTab = jevEnabled ? el("button", {
     class: `tc-tab${paramView === "jev" ? " active" : ""}`,
     id: "tab-jev",
     role: "tab",
     "aria-selected": paramView === "jev" ? "true" : "false",
-  }, t("ui.tab.jev", "Jev-Empfehlungen"));
+  }, t("ui.tab.jev", "Jev-Empfehlungen")) : null;
   paramTab.onclick = () => switchView("parameter", page, paramTab, aiTab);
-  aiTab.onclick = () => switchView("ai", page, paramTab, aiTab);
-  jevTab.onclick = () => switchView("jev", page, paramTab, aiTab);
+  if (aiTab) aiTab.onclick = () => switchView("ai", page, paramTab, aiTab);
+  if (jevTab) jevTab.onclick = () => switchView("jev", page, paramTab, aiTab);
 
   const topBar = el("div", { class: "tc-card", id: "param-switchbar" },
     el("div", { class: "tc-card-title" }, t("ui.title.view", "Ansicht")),
@@ -136,13 +144,18 @@ export function createParameterPage() {
 }
 
 function switchView(view, page, paramTab, aiTab) {
+  const { aiEnabled, jevEnabled } = getFeatureFlags();
+  // Defensive: a click can only reach here through a tab button, and a disabled view's button does not
+  // exist, but a stale closure (e.g. a switch flipped off between render and click) must not open it anyway.
+  if (view === "ai" && !aiEnabled) view = "parameter";
+  if (view === "jev" && !jevEnabled) view = "parameter";
   setUiState({ paramView: view });
   const jevTab = document.getElementById("tab-jev");
   paramTab.classList.toggle("active", view === "parameter");
-  aiTab.classList.toggle("active", view === "ai");
+  aiTab?.classList.toggle("active", view === "ai");
   jevTab?.classList.toggle("active", view === "jev");
   paramTab.setAttribute("aria-selected", view === "parameter" ? "true" : "false");
-  aiTab.setAttribute("aria-selected", view === "ai" ? "true" : "false");
+  aiTab?.setAttribute("aria-selected", view === "ai" ? "true" : "false");
   jevTab?.setAttribute("aria-selected", view === "jev" ? "true" : "false");
 
   const grid = document.getElementById("param-grid");
@@ -197,8 +210,8 @@ async function initParameterData(restoreView = null, page = null, paramTab = nul
   const savedCat = getUiState().selectedCategory || "all";
   renderEditorForCategory(savedCat);
   loadPresets();
-  if ((restoreView === "ai" || restoreView === "jev") && page && paramTab && aiTab) {
-    switchView("ai", page, paramTab, aiTab);
+  if ((restoreView === "ai" || restoreView === "jev") && page && paramTab) {
+    switchView(restoreView, page, paramTab, aiTab);
   }
 }
 
