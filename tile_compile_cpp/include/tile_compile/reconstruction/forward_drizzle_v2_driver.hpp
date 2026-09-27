@@ -110,6 +110,11 @@ struct ForwardDrizzleV2DriverOptions {
   // copied into every band's kernel config (fixed across begin_band). Not
   // part of the run plan/hash. 0 disables the cached-leaf path.
   std::uint64_t cached_leaf_capacity = 0;
+  // Copied into ForwardDrizzleV2KernelConfig::float_plane_inputs. A provider
+  // that never sets ForwardDrizzleV2FrameInput::sigma2 or float quality
+  // planes (the production provider) sets false to skip the device float
+  // input planes. Not part of the run plan/hash.
+  bool device_float_plane_inputs = true;
 };
 
 struct ForwardDrizzleV2DriverResult {
@@ -154,8 +159,7 @@ ForwardDrizzleV2DriverResult run_forward_drizzle_v2(
     const ForwardDrizzleV2FrameProvider &provider,
     const ForwardDrizzleV2DriverOptions &options = {});
 
-// Test-only fault injection, mirroring
-// set_forward_drizzle_cuda_fault_after_chunks: n >= 0 makes the CUDA attempt
+// Test-only fault injection: n >= 0 makes the CUDA attempt
 // report a device failure before committing band n (0 = immediate). -1
 // (default) disables. Process-global; the environment variable
 // TILE_COMPILE_FD_V2_CUDA_FAULT_AFTER_BANDS arms it at first read.

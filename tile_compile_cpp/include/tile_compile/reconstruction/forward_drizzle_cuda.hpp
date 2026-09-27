@@ -1,25 +1,16 @@
 #pragma once
 
-// CFA-forward-drizzle CUDA path --- milestone M7 (plan section 19).
+// CFA forward drizzle v2 --- CUDA device path.
 //
-// M7 splits into slices. THIS slice ships only the transactional restart
-// contract of plan 19.4:
-//
-//   * chunks write exclusively to a phase-local, uncommitted profile-store
-//     generation (StoreWriter already discards an unpublished generation in
-//     its destructor);
-//   * if the CUDA path fails in ANY chunk after its allowed retries, the
-//     whole FORWARD_DRIZZLE phase restarts on the CPU reference path and only
-//     a fully computed, validated, hashed CPU result is committed --- never a
-//     mixed CPU/CUDA image or a half-accumulated pixel.
-//
-// The droplet / clipping / profile-accumulation kernels (plan 19.2 stages
-// 3--7) and their parity matrix (plan 19.5) are a LATER slice. Until then
-// `forward_drizzle_cuda_runtime_available()` is false and every "attempt CUDA"
-// resolves to an immediate ForwardDrizzleCudaError, which the caller turns
-// into a clean CPU run.
+// Production (FORWARD_DRIZZLE backend "cuda_v2") drives
+// ForwardDrizzleV2CudaPrototypeKernel through ForwardDrizzleV2CudaKernel
+// (forward_drizzle_v2_cpu.hpp). SAMPLING_GEOMETRY uses the geometry-only
+// coverage gather. The remaining free functions are device parity harnesses
+// for code the production kernels share (polygon clip, local-warp scatter).
+// Every entry point returns false (or throws ForwardDrizzleCudaError) on a
+// CUDA-free build, no usable device, or a CUDA error; the caller restarts on
+// the CPU reference path.
 
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -38,45 +29,26 @@ struct ForwardDrizzleCudaError : std::runtime_error {
   using std::runtime_error::runtime_error;
 };
 
-// True iff this binary has a usable custom forward-drizzle CUDA path. Slice 1
-// has no kernels, so this is always false; slice 2 makes it probe
-// TILE_COMPILE_WITH_CUDA && a present device.
+// True iff this binary was built with CUDA and a usable device is present.
 bool forward_drizzle_cuda_runtime_available();
 
-// Test-only fault injection for the plan-19.4 restart contract. When set to
-// n >= 0, an attempted CUDA persist throws ForwardDrizzleCudaError after n
-// committed stripes (n == 0 => before the first stripe, i.e. an immediate
-// failure). -1 (the default) disables injection. Process-global; a test that
-// sets it must reset it. Also honoured from the environment variable
-// TILE_COMPILE_FORWARD_DRIZZLE_CUDA_FAULT_AFTER_CHUNKS at first read.
-void set_forward_drizzle_cuda_fault_after_chunks(int n);
-int forward_drizzle_cuda_fault_after_chunks();
-
-// Options threaded into persist_forward_drizzle_multiband to request the CUDA
-// path. `attempt == false` is the plain CPU reference path (default).
-struct ForwardDrizzleCudaOptions {
-  bool attempt = false;
-};
-
-// --- Plan 19.4: device memory + auto-chunking ------------------------------
+// --- Device probe ----------------------------------------------------------
 
 // Free / total bytes of the active CUDA device. {0, 0} when no usable device
-// (or the binary was built without CUDA). Slice-2 device probe.
+// (or the binary was built without CUDA).
 struct CudaDeviceMemory {
   std::size_t free_bytes = 0;
   std::size_t total_bytes = 0;
 };
 CudaDeviceMemory forward_drizzle_cuda_device_memory();
 
-
 // --- Plan 19.2 stage 3/5 kernel building block ----------------------------
 
 // The exact square-droplet vs. output-cell overlap area (Sutherland-Hodgman
 // convex clip + shoelace), evaluated ON THE DEVICE for a batch of
 // (convex quad, axis-aligned rectangle) pairs. Ported 1:1 from the CPU
-// polygon_rectangle_intersection_area() so the parity matrix (plan 19.5) can
-// pin CPU == CUDA on the numerically hardest piece before the full rasterizer
-// is wired into persist_forward_drizzle_multiband.
+// polygon_rectangle_intersection_area(); parity harness for the clip every
+// production scatter kernel shares.
 //   quad_xy  : n*8 doubles  --- x0,y0, x1,y1, x2,y2, x3,y3  per quad
 //   rect     : n*4 doubles  --- rx0,ry0, rx1,ry1            per cell
 //   out_area : n doubles    --- caller-allocated
@@ -86,116 +58,19 @@ bool forward_drizzle_cuda_polygon_rect_area_batch(const double *quad_xy,
                                                   const double *rect, int n,
                                                   double *out_area);
 
-// The exact affine square-droplet corner map, on the device, for a batch of
-// native-source samples under ONE 2x3 affine (source->canvas, row-major
-// a00,a01,a02, a10,a11,a12). Per sample: the square
-// [sx-half, sx+half] x [sy-half, sy+half] is mapped through the affine and then
-// scaled by `internal_scale` (native-canvas -> internal-canvas), giving the 4
-// leaf corners in CCW order matching build_affine_leaf() + to_internal().
-//   sample_xy    : n*2 doubles (sx, sy)
-//   out_corners  : n*8 doubles (x0,y0, x1,y1, x2,y2, x3,y3), caller-allocated
-// Returns false (out untouched) on a CUDA-free build, no device, or CUDA error.
-bool forward_drizzle_cuda_affine_leaf_corners_batch(const double affine6[6],
-                                                    int internal_scale,
-                                                    double half,
-                                                    const double *sample_xy,
-                                                    int n, double *out_corners);
+// --- SAMPLING_GEOMETRY coverage ---------------------------------------------
 
-// --- Plan 19.2/19.6 stage 3: the affine droplet rasterizer on the device ---
-
-// One positive-area forward contribution for a single stripe, as produced by
-// the device rasterizer. `target_y` is stripe-local. Mirrors the CPU
-// DrizzleContrib key (minus `frame_order`, which the caller supplies per batch,
-// and `leaf_order`, which is always 0 on the affine path).
-struct CudaDrizzleContribRecord {
-  std::uint32_t channel = 0;
-  std::uint32_t target_y = 0;
-  std::uint32_t target_x = 0;
-  std::uint32_t source_y = 0;
-  std::uint32_t source_x = 0;
-  double area = 0.0;   // exact polygon/rectangle overlap, > 0
-  double value = 0.0;  // source(source_y, source_x)
-};
-
-// Rasterize ONE affine frame's stripe-band contributions on the device. The
-// square [x-half, x+half]^2 (x = sx+0.5) is mapped through `affine6`
-// (source->canvas, row-major), scaled by `internal_scale`, and overlapped with
-// each internal-canvas cell in the stripe --- a 1:1 device port of
-// build_affine_leaf + the rasterize_drizzle_stripe bbox/area loop, compiled
-// --fmad=false so every area is bit-identical to the CPU reference.
-//
-//   half            : pixfrac / 2
-//   y_begin, rows   : the internal-canvas stripe [y_begin, y_begin+rows)
-//   canvas_w_internal : W = canvas_width_native * internal_scale
-//   band_sy0/1      : the source-row range to scan (caller derives it from the
-//                     inverse affine exactly like the CPU path; [0, source_h]
-//                     is always safe, just slower). Clamped to [0, source_h].
-//   band_sx0/1      : T5 X+Y windowing — the source-column range to scan,
-//                     derived from the tile window's inverse affine. Clamped
-//                     to [0, source_w]. [0, source_w] is always safe (full
-//                     width), just slower.
-//   source_values   : host pointer to the BAND-LOCAL source buffer ---
-//                     (band_sy1 - band_sy0) * (band_sx1 - band_sx0) row-major
-//                     floats, row 0 == source row band_sy0, col 0 == source
-//                     col band_sx0. The whole image is never copied.
-//   mono            : true => channel is always 0; false => CFA classification
-//   max_cells_per_pixel : per-source-pixel record capacity (a leaf spanning
-//                     more cells than this makes the call fail -> CPU fallback)
-//
-// `records_out` must hold band_rows * band_cols * max_cells_per_pixel entries
-// (band_cols = band_sx1 - band_sx0).
-// Unused slots are left with area == 0. `*out_written` gets the compacted count
-// after the call packs the positive-area records to the front, preserving the
-// (source_y, source_x, emit) order. Returns false (and the caller falls back to
-// the CPU path for this frame) on: a CUDA-free build, no device, any CUDA
-// error, or a leaf exceeding `max_cells_per_pixel`.
-bool forward_drizzle_cuda_affine_frame_contributions(
-    const double affine6[6], int internal_scale, double half, int y_begin,
-    int rows, int canvas_w_internal, int band_sy0, int band_sy1,
-    int band_sx0, int band_sx1, int source_w,
-    int source_h, const float *source_values, int bayer_pattern,
-    int cfa_origin_x, int cfa_origin_y, bool mono, int max_cells_per_pixel,
-    CudaDrizzleContribRecord *records_out, long long records_capacity,
-    long long *out_written);
-
-// Geometry-only variant of the target gather for the SAMPLING_GEOMETRY
-// coverage CFA pass: no source upload, no A plane. `out_b` receives the
-// channel-major B plane (sum of droplet overlap areas per target cell), the
-// same values the record path's host accumulation produces --- per-cell the
-// scan order is canonical (sy, sx), so the sums are bit-identical.
+// Geometry-only coverage for the SAMPLING_GEOMETRY CFA pass: no source upload,
+// no A plane. `out_b` receives the channel-major B plane (sum of droplet
+// overlap areas per target cell), bit-identical to the CPU rasterize: the
+// gather scans each cell's source neighbourhood in canonical (sy, sx) order,
+// and the parity-class scatter (used when race-free) adds at most two
+// addends per cell.
 bool forward_drizzle_cuda_affine_coverage_gather(
     const double affine6[6], const double inverse6[6], int internal_scale,
     double half, int target_x_begin, int target_y_begin, int target_cols,
     int target_rows, int source_w, int source_h, int bayer_pattern,
     int cfa_origin_x, int cfa_origin_y, bool mono, double *out_b);
-
-// Forward-Drizzle-v2 Gate-1 prototype G: record-free affine target gather for
-// one frame and one target rectangle.  One CUDA thread owns one target cell,
-// scans its conservative inverse-affine source neighbourhood in canonical
-// (source_y, source_x) order and writes dense frame-local A/B planes.  Output
-// layout is channel-major [channel][row][column], with 1 channel for MONO and
-// 3 for OSC.  This prototype intentionally owns its temporary allocations;
-// Gate 6 replaces them with a persistent workspace after Gate 1 chooses the
-// enumeration.
-bool forward_drizzle_cuda_affine_target_gather(
-    const double affine6[6], const double inverse6[6], int internal_scale,
-    double half, int target_x_begin, int target_y_begin, int target_cols,
-    int target_rows, int source_w, int source_h, const float *source_values,
-    int bayer_pattern, int cfa_origin_x, int cfa_origin_y, bool mono,
-    double *out_a, double *out_b, unsigned long long *out_source_candidates,
-    unsigned long long *out_positive_overlaps);
-
-// Gate-1 prototype S: one thread per source sample scatters directly into
-// dense frame-local A/B target planes with device atomics.  It creates no
-// records and uses memory independent of frame_count.  Repeatability and
-// numerical drift are measured against target gather before either prototype
-// can be selected for Gate 6.
-bool forward_drizzle_cuda_affine_dense_scatter(
-    const double affine6[6], int internal_scale, double half,
-    int target_x_begin, int target_y_begin, int target_cols, int target_rows,
-    int source_w, int source_h, const float *source_values, int bayer_pattern,
-    int cfa_origin_x, int cfa_origin_y, bool mono, double *out_a,
-    double *out_b, unsigned long long *out_positive_overlaps);
 
 // --- Forward-Drizzle-v2 Gate-8: local warp descriptor ---------------------
 //
@@ -225,8 +100,8 @@ struct ForwardDrizzleV2LocalWarp {
 };
 
 // Gate-8 debug/parity scatter: one local-warp frame scattered into dense
-// frame-local internal planes (channel-major [c][row][col]), mirroring
-// forward_drizzle_cuda_affine_dense_scatter but running the on-device
+// frame-local internal planes (channel-major [c][row][col]) by the production
+// k_scatter_v2_local kernel, running the on-device
 // fixed-point inversion + adaptive subdivision per source sample. Returns
 // A (area-weighted value), B_src (finite-value geometry) and B_geo (all
 // geometry) planes plus positive overlap and discarded-sample counts.
@@ -242,57 +117,6 @@ bool forward_drizzle_cuda_local_dense_scatter(
     unsigned long long *out_positive_overlaps,
     unsigned long long *out_discarded);
 
-struct ForwardDrizzleV2CudaWorkspaceStats {
-  std::uint64_t allocations = 0;
-  std::uint64_t calls = 0;
-  std::uint64_t source_bytes_uploaded = 0;
-  std::uint64_t result_bytes_downloaded = 0;
-  std::uint64_t positive_overlaps = 0;
-  std::uint64_t device_global_synchronizations = 0;
-  std::uint64_t stream_synchronizations = 0;
-  std::size_t reserved_device_bytes = 0;
-  double upload_seconds = 0.0;
-  double kernel_seconds = 0.0;
-  double download_seconds = 0.0;
-};
-
-// Gate-1 selected dense-scatter persistent-buffer spike. It proves allocation
-// reuse and the selected affine enumeration only; it does not satisfy Gate 6
-// (no overlapped slot pipeline, Q data, robust reduction, coverage, fold or
-// transaction yet).
-// reserve() is called before entering the frame loop; run_dense_scatter()
-// performs no cudaMalloc/cudaFree and exposes the transfer/kernel split
-// unconditionally through stats().
-class ForwardDrizzleV2CudaWorkspace {
- public:
-  ForwardDrizzleV2CudaWorkspace();
-  ~ForwardDrizzleV2CudaWorkspace();
-  ForwardDrizzleV2CudaWorkspace(const ForwardDrizzleV2CudaWorkspace &) = delete;
-  ForwardDrizzleV2CudaWorkspace &operator=(
-      const ForwardDrizzleV2CudaWorkspace &) = delete;
-
-  bool reserve(std::size_t source_elements, std::size_t target_plane_elements,
-               int channels);
-  bool run_dense_scatter(
-      const double affine6[6], int internal_scale, double half,
-      int target_x_begin, int target_y_begin, int target_cols, int target_rows,
-      int source_w, int source_h, const float *source_values,
-      int bayer_pattern, int cfa_origin_x, int cfa_origin_y, bool mono,
-      double *out_a, double *out_b);
-  const ForwardDrizzleV2CudaWorkspaceStats &stats() const { return stats_; }
-
- private:
-  void *device_source_ = nullptr;
-  void *device_a_ = nullptr;
-  void *device_b_ = nullptr;
-  void *device_overlaps_ = nullptr;
-  void *stream_ = nullptr;
-  std::size_t source_capacity_ = 0;
-  std::size_t plane_capacity_ = 0;
-  int channel_capacity_ = 0;
-  ForwardDrizzleV2CudaWorkspaceStats stats_;
-};
-
 // --- Forward-Drizzle-v2 Gate-6: minimal affine prototype kernel ------------
 //
 // Persistent device workspace implementing the frozen gates 1-5 pipeline per
@@ -303,7 +127,7 @@ class ForwardDrizzleV2CudaWorkspace {
 // running the bit-exact CPU-oracle clip on each pixel's reservoir.
 // No host contribution records, no cudaMalloc/cudaFree after reserve(), no
 // cudaDeviceSynchronize; the only stream sync is the band finalize.
-// Unpublished: nothing in the production runner calls this.
+// Production backend "cuda_v2" (via ForwardDrizzleV2CudaKernel).
 
 struct ForwardDrizzleV2KernelConfig {
   int internal_scale = 2;  // internal subpixels per native axis
@@ -375,6 +199,14 @@ struct ForwardDrizzleV2KernelConfig {
   // CPU and CUDA kernels.
   bool bimodal_veto = false;
   double bimodal_veto_gap_sigma = 2.5;
+  // CUDA only. When true, reserve() allocates the full-source float input
+  // planes for explicit per-frame sigma2 (`sigma2_or_null`) and float quality
+  // streams (ForwardDrizzleV2FrameQuality::q_*), used by the compatibility /
+  // test entry points. The production driver feeds sigma2 inline (samples or
+  // the halo model) and quality as packed windows, so it sets false and saves
+  // 5 x source_w x source_h x 4 bytes of device memory; a call that passes a
+  // float plane then fails. Ignored by the CPU kernel.
+  bool float_plane_inputs = true;
 };
 
 // One uploaded source buffer and its active launch rect. `source` points at
@@ -762,29 +594,5 @@ class ForwardDrizzleV2CudaPrototypeKernel {
   unsigned int open_qmask_ = 0;  // stream presence fixed on piece 1
   bool open_qframe_ = false;
 };
-
-// §30.81 step-5 baseline instrumentation. Coarse wall-clock accumulators for
-// the affine CUDA pair path, split so the per-tile repetition factor is
-// attributable (producer / device phases vs the host sort + reduce). Enabled
-// only when the env var TC_FD_CUDA_PROFILE is set; every write is guarded by
-// forward_drizzle_cuda_profile_enabled(), so a normal run pays nothing and the
-// numbers never touch compute. NOT thread-safe against concurrent
-// accumulate_pair_impl calls --- the CUDA store path drives it serially.
-struct ForwardDrizzleCudaProfile {
-  std::atomic<double> dev_malloc_s{0.0};   // cudaMalloc/Memset in the .cu wrapper
-  std::atomic<double> dev_upload_s{0.0};   // H2D source copy
-  std::atomic<double> dev_kernel_s{0.0};   // kernel launch + cudaDeviceSynchronize
-  std::atomic<double> dev_download_s{0.0}; // D2H records + count
-  void reset() {
-    dev_malloc_s = dev_upload_s = dev_kernel_s = dev_download_s = 0.0;
-  }
-};
-ForwardDrizzleCudaProfile &forward_drizzle_cuda_profile();
-bool forward_drizzle_cuda_profile_enabled();
-// Add `dt` seconds to `slot` (std::atomic<double>, C++20 fetch_add).
-inline void forward_drizzle_cuda_profile_add(std::atomic<double> &slot,
-                                             double dt) {
-  slot.fetch_add(dt, std::memory_order_relaxed);
-}
 
 }  // namespace tile_compile::reconstruction

@@ -206,12 +206,9 @@ public:
 // `rasterize_drizzle_stripe`. out_b[static_cast<size_t>(c) * n + i] holds the
 // same value the CPU path accumulates into B[c][i] --- the kernel scans each
 // cell's source neighbourhood in canonical (sy, sx) order, so the per-cell
-// sums are bit-identical.
-//
-// The old records pipeline moved band_h*sw*32 CudaDrizzleContribRecord (~330MB
-// at 4K inputs) per (band, frame) call through a serialized device section;
-// the gather moves only the B plane (~canvas_w*rows*channels*8B) and uploads
-// nothing (coverage is geometry-only).
+// sums are bit-identical. It moves only the B plane
+// (~canvas_w*rows*channels*8B) and uploads nothing (coverage is
+// geometry-only).
 //
 // Thread safety: a static mutex serializes the device call across OpenMP
 // workers; the caller's fold over out_b runs outside the lock (per-band

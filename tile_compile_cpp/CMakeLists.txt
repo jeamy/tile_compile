@@ -95,7 +95,15 @@ if(TILE_COMPILE_ENABLE_CUDA)
     # Enable CUDA language and check for nvcc
     find_package(CUDAToolkit REQUIRED)
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        # Turing, Ampere; Ada (sm_89, CUDA >= 11.8) and consumer Blackwell
+        # (sm_120, CUDA >= 12.8) get native SASS instead of a first-run PTX JIT.
         set(CMAKE_CUDA_ARCHITECTURES 75 80 86)
+        if(CUDAToolkit_VERSION VERSION_GREATER_EQUAL 11.8)
+            list(APPEND CMAKE_CUDA_ARCHITECTURES 89)
+        endif()
+        if(CUDAToolkit_VERSION VERSION_GREATER_EQUAL 12.8)
+            list(APPEND CMAKE_CUDA_ARCHITECTURES 120)
+        endif()
     endif()
     # CUDA 13.x supports GCC up to 15. If the default host compiler is newer,
     # prefer an available g++-15 so the CUDA frontend can parse system headers.
@@ -110,7 +118,6 @@ if(TILE_COMPILE_ENABLE_CUDA)
     # from __host__ __device__ code. Allow this explicitly to avoid warning #20015-D.
     set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
     enable_language(CUDA)
-    set(CUDA_SEPARABLE_COMPILATION ON)
 
     if(TILE_COMPILE_NVCC_EXECUTABLE)
         set(TILE_COMPILE_WITH_CUDA ON)
