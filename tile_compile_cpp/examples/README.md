@@ -67,6 +67,23 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   runs (backend `cuda_v2`, chroma and luma denoise off). The paths exist only
   on that machine; elsewhere start from the `.example.yaml` files.
 
+- `ic434_dwarf2_full_frame.example.yaml`, `ic434_dwarf2_full_frame.demo.yaml`
+  Third reference dataset (IC 434 / Horsehead-Flame region, Alnitak; 359 x 15 s,
+  gain 80): the plain shipped `tile_compile.yaml` default plus only the
+  calibration this dataset needs (dark master). Unlike the M42/M31 profiles
+  above, nothing else is overridden -- this is what "just use the shipped
+  defaults" produces on a third object. First real run (2026-09-27) showed a
+  soft halo around the bright star Alnitak from `large_scale_contrast` at
+  amount 2.0/chroma_amount 1.0: the coarse large-scale map did not reliably
+  exclude a bright, EXTENDED star (only a plain 5x5 median on the downsampled
+  grid, which a wide star's wings can survive). Fixed 2026-09-28 in
+  `src/image/large_scale_contrast.cpp` (`bright_source_mask`, a local-contrast
+  star test rather than a global brightness threshold, so a genuinely bright
+  but smooth nebula core is not also excluded); re-verified on this dataset
+  after the fix, with a markedly tighter halo. The `.demo.yaml` is the exact
+  config of that verification run; elsewhere start from the `.example.yaml`
+  and adapt its placeholder paths.
+
 - `m42_dwarf2_full_frame_luma.example.yaml`, `m31_dwarf2_full_frame_luma.example.yaml`
   The two profiles above with the recommended `luma_denoise` stage enabled:
   wavelet + `extended_source_protection`, bilateral off. Each `luma_denoise`
