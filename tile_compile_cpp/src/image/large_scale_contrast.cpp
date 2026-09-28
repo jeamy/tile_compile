@@ -48,7 +48,16 @@ CoarseMap build_map(const cv::Mat &plane, const cv::Mat &valid, int factor, floa
   cv::Mat num_s, den_s;
   cv::resize(num, num_s, cv::Size(cols, rows), 0, 0, cv::INTER_AREA);
   cv::resize(valid_f, den_s, cv::Size(cols, rows), 0, 0, cv::INTER_AREA);
-  cv::Mat cell_ok = den_s > 0.9f;  // cell mostly inside the valid area
+  // A LOW bar on purpose: a cell only needs a little real coverage to compute its own local average
+  // from it. Originally 0.9 ("mostly inside the valid area"), which was fine when the only excluded
+  // region was one contiguous border strip -- every cell was either fully in or fully out. With
+  // bright_source_mask's small, scattered per-star exclusions, most affected coarse cells keep the
+  // bulk of their area from ordinary sky; forcing them to the >90 % bar instead marked them "not ok"
+  // and pulled them onto the GLOBAL median fill below, which then leaked into the 5x5 median filter's
+  // neighbourhood at nearby REAL cells and showed up as small dark boxes around faint stars near a
+  // brighter area (2026-09-28, real IC434 data). A cell is only truly unusable when it has next to no
+  // real coverage left, which for a small dilated star exclusion is rare.
+  cv::Mat cell_ok = den_s > 0.15f;
   cv::Mat small(rows, cols, CV_32F, cv::Scalar(0));
   for (int y = 0; y < rows; ++y)
     for (int x = 0; x < cols; ++x)
