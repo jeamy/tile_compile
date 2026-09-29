@@ -47,7 +47,19 @@ double percentile_of(std::vector<float> v, double p) {
 // disc right where the star was (2026-09-28/29, real IC434 data). A handful of iterations is enough to
 // reach across any real star's margin; a cell still unreached after that (e.g. deep inside a much
 // larger masked-out region such as the frame border) keeps the global median as a last resort.
-void fill_from_neighbours(cv::Mat &small, const cv::Mat &cell_ok, float global_fill) {
+// `grounded` (if given) marks every cell this diffusion actually reached with real signal --
+// the original cell_ok cells plus every cell the 8 rounds below pulled a value into -- as opposed
+// to a cell that only got the last-resort `global_fill` because nothing real was reachable at all
+// (e.g. deep inside the image border). Callers that need to know which cells now carry a
+// trustworthy value, not just a filled-in placeholder, should use `grounded`, not `cell_ok`: a
+// dense cluster of overlapping star-exclusion margins (e.g. a bright star with several fainter
+// companions nearby) can leave a combined excluded area wider than the fixed-scale second-stage
+// blur below can reach on its own, even though THIS diffusion -- which iterates outward rather
+// than using one single fixed-radius blur -- already reached across it (2026-09-29, real IC434
+// data: Alnitak plus nearby companions left a dark, wrong-shaped hole in the boost right where the
+// combined margin was too wide for the old single-pass reach test, even after the per-star margin
+// and the cell_ok-drop fixes).
+void fill_from_neighbours(cv::Mat &small, const cv::Mat &cell_ok, float global_fill, cv::Mat *grounded = nullptr) {
   cv::Mat weight;
   cell_ok.convertTo(weight, CV_32F, 1.0 / 255.0);
   cv::Mat value = small.mul(weight);
@@ -65,12 +77,48 @@ void fill_from_neighbours(cv::Mat &small, const cv::Mat &cell_ok, float global_f
         }
       }
   }
+  if (grounded) *grounded = cv::Mat(small.rows, small.cols, CV_8U, cv::Scalar(0));
   for (int y = 0; y < small.rows; ++y)
     for (int x = 0; x < small.cols; ++x)
       if (!cell_ok.at<std::uint8_t>(y, x)) {
         const float w = weight.at<float>(y, x);
-        small.at<float>(y, x) = w > 1e-3f ? value.at<float>(y, x) / w : global_fill;
+        const bool reached = w > 1e-3f;
+        small.at<float>(y, x) = reached ? value.at<float>(y, x) / w : global_fill;
+        if (grounded) grounded->at<std::uint8_t>(y, x) = reached ? 255 : 0;
+      } else if (grounded) {
+        grounded->at<std::uint8_t>(y, x) = 255;
       }
+}
+
+// True for every cell whose not-cell_ok connected component (4-connectivity) never touches the
+// grid's outer border. A bright-star exclusion (including several overlapping ones merged into one
+// blob) is always an ISLAND fully surrounded by real coverage; a genuinely invalid area -- the
+// image's own edge, or an external mask cutting into the frame -- always touches the grid border
+// (it has no "far side" to be surrounded by). This tells the diffusion fallback below which excluded
+// cells it may fill in (islands) and which it must leave alone (border-touching), so a real border
+// still gets a hard, unextrapolated edge instead of a spurious boost bleeding in from extrapolated
+// values (caught by a unit test, 2026-09-29).
+cv::Mat interior_islands(const cv::Mat &cell_ok) {
+  cv::Mat not_ok = cell_ok == 0;
+  cv::Mat labels;
+  const int n = cv::connectedComponents(not_ok, labels, 4, CV_32S);
+  std::vector<std::uint8_t> touches_border(static_cast<std::size_t>(n), 0);
+  const int rows = labels.rows, cols = labels.cols;
+  for (int x = 0; x < cols; ++x) {
+    touches_border[static_cast<std::size_t>(labels.at<std::int32_t>(0, x))] = 1;
+    touches_border[static_cast<std::size_t>(labels.at<std::int32_t>(rows - 1, x))] = 1;
+  }
+  for (int y = 0; y < rows; ++y) {
+    touches_border[static_cast<std::size_t>(labels.at<std::int32_t>(y, 0))] = 1;
+    touches_border[static_cast<std::size_t>(labels.at<std::int32_t>(y, cols - 1))] = 1;
+  }
+  cv::Mat island(rows, cols, CV_8U, cv::Scalar(0));
+  for (int y = 0; y < rows; ++y)
+    for (int x = 0; x < cols; ++x) {
+      const std::int32_t lbl = labels.at<std::int32_t>(y, x);
+      if (lbl != 0 && !touches_border[static_cast<std::size_t>(lbl)]) island.at<std::uint8_t>(y, x) = 1;
+    }
+  return island;
 }
 
 CoarseMap build_map(const cv::Mat &plane, const cv::Mat &valid, int factor, float sigma_px) {
@@ -103,11 +151,23 @@ CoarseMap build_map(const cv::Mat &plane, const cv::Mat &valid, int factor, floa
     for (int x = 0; x < cols; ++x)
       if (cell_ok.at<std::uint8_t>(y, x)) usable.push_back(small.at<float>(y, x));
   const float global_fill = static_cast<float>(median_of(usable));
-  fill_from_neighbours(small, cell_ok, global_fill);
+  cv::Mat grounded;
+  fill_from_neighbours(small, cell_ok, global_fill, &grounded);
+  // Fallback eligibility (see interior_islands): only an interior excluded island may use the
+  // diffusion fallback below; a border-touching excluded area keeps the strict cell_ok-weighted
+  // Gaussian result even where that leaves it unmarked.
+  cv::Mat fallback_ok;
+  cv::bitwise_and(grounded, interior_islands(cell_ok), fallback_ok);
   cv::Mat med;
   if (rows >= 5 && cols >= 5) cv::medianBlur(small, med, 5);  // float median: ksize <= 5
   else med = small;
-  // Masked (normalised) Gaussian: border cells are averaged only over usable neighbours.
+  // Masked (normalised) Gaussian: border cells are averaged only over usable neighbours. The weight
+  // here is `cell_ok` (real, directly-measured coverage only), deliberately NOT `grounded`: a
+  // diffusion-filled cell (e.g. deep inside a genuinely invalid image border) carries an
+  // extrapolated, not measured, value, and letting the smoothing Gaussian pull that value back
+  // into a real, fully-covered cell nearby is a small but measurable leak into otherwise flat sky
+  // right next to the border (caught by a unit test, 2026-09-29). `grounded` is used below only as
+  // a fallback for cells this Gaussian itself cannot reach.
   const double sigma = std::max(0.5, static_cast<double>(sigma_px) / factor);
   cv::Mat ok_f, med_ok, blur_num, blur_den;
   cell_ok.convertTo(ok_f, CV_32F, 1.0 / 255.0);
@@ -116,21 +176,30 @@ CoarseMap build_map(const cv::Mat &plane, const cv::Mat &valid, int factor, floa
   cv::GaussianBlur(ok_f, blur_den, cv::Size(0, 0), sigma, sigma, cv::BORDER_CONSTANT);
   out.map = cv::Mat(rows, cols, CV_32F, cv::Scalar(0));
   out.ok = cv::Mat(rows, cols, CV_8U, cv::Scalar(0));
-  // Deliberately NOT also requiring cell_ok here (only enough real neighbours within the Gaussian's
-  // reach, via blur_den): a coarse cell excluded by bright_source_mask has no real coverage of its own,
-  // but sits INSIDE the image surrounded by ordinary sky on every side, so once enough of that
-  // surrounding sky is within reach it should get their smoothly interpolated value marked ok -- not a
-  // hard zero. Requiring cell_ok too turned every excluded cell into a dead zone with NO boost at all
-  // (out.map/out.ok stayed at their initial zero), producing a sharp, correctly-shaped but visibly dark
-  // disc exactly the size of the exclusion margin around every star (2026-09-29, real IC434 data) --
-  // the opposite failure from a global-median leak: not a wrong value, but no value at all. A genuine
-  // border cell (no real data within reach on any side, e.g. the image edge) is still excluded exactly
-  // as before, because blur_den itself then stays low.
+  // Primary source: the cell_ok-weighted Gaussian above, wherever it has enough real coverage in
+  // reach (blur_den > 0.5) -- this is the properly smoothed estimate and is preferred whenever it's
+  // available. Fallback: `fallback_ok` (grounded AND an interior island, see interior_islands and
+  // fill_from_neighbours) for a cell this Gaussian's fixed reach cannot cover on its own -- typically
+  // a coarse cell deep inside a WIDE excluded area made of several overlapping bright_source_mask
+  // margins (e.g. a bright star with nearby fainter companions), which can be wider than this
+  // Gaussian's sigma even though the diffusion in fill_from_neighbours, which iterates outward rather
+  // than using one fixed-radius blur, already reached across it and left a real value in `med`.
+  // Without this fallback, such a cell got no value at all (out.map/out.ok stayed at their initial
+  // zero), producing a sharp, correctly-shaped but visibly dark hole exactly the size of the combined
+  // exclusion area (2026-09-29, real IC434 data, Alnitak plus nearby companions) -- the opposite
+  // failure from a global-median leak: not a wrong value, but no value at all. The `interior_islands`
+  // restriction keeps this from also applying to a genuinely invalid, border-touching area (e.g. the
+  // image edge): the diffusion in fill_from_neighbours has no "far side" to be surrounded by there and
+  // still marks it `grounded` after enough iterations, which would otherwise leak an extrapolated
+  // value into real sky right next to the border (caught by a unit test, 2026-09-29).
   for (int y = 0; y < rows; ++y)
     for (int x = 0; x < cols; ++x) {
       const float d = blur_den.at<float>(y, x);
       if (d > 0.5f) {
         out.map.at<float>(y, x) = blur_num.at<float>(y, x) / d;
+        out.ok.at<std::uint8_t>(y, x) = 1;
+      } else if (fallback_ok.at<std::uint8_t>(y, x)) {
+        out.map.at<float>(y, x) = med.at<float>(y, x);
         out.ok.at<std::uint8_t>(y, x) = 1;
       }
     }
