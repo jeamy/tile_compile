@@ -514,7 +514,7 @@ In `ready_to_use` mode, `adaptive_output_scaling` computes the final contrast sc
 hypermetric_stretch:
   enabled: true
   mode: ready_to_use
-  target_bg: 0.20                    # lifts sky/faint nebulosity uniformly
+  target_bg: 0.140                    # lifts sky/faint nebulosity uniformly
   highlight_ceiling_percentile: 99.9  # 100 = never clip (default); lower = deliberate, bounded clipping of the brightest pixels for more contrast
 ```
 

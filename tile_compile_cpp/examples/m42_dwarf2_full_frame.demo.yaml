@@ -238,7 +238,7 @@ hypermetric_stretch:
   sensor_profile: Sony IMX415 (DWARF II)
   fallback_profile: Sony IMX415 (DWARF II)
   adaptive_anchor: true
-  target_bg: 0.2
+  target_bg: 0.14
   protect_b: 6
   convergence_power: 4
   log_d_mode: fixed

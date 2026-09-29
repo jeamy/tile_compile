@@ -524,7 +524,7 @@ Im `ready_to_use`-Modus berechnet `adaptive_output_scaling` den finalen Kontrast
 hypermetric_stretch:
   enabled: true
   mode: ready_to_use
-  target_bg: 0.20                    # hebt Himmel/schwachen Nebel gleichmäßig an
+  target_bg: 0.140                    # hebt Himmel/schwachen Nebel gleichmäßig an
   highlight_ceiling_percentile: 99.9  # 100 = nie clippen (Default); niedriger = bewusstes, begrenztes Clipping der hellsten Pixel für mehr Kontrast
 ```
 
