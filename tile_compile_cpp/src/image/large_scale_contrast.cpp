@@ -37,6 +37,42 @@ double percentile_of(std::vector<float> v, double p) {
   return v[k];
 }
 
+// Fills the cells NOT marked ok in-place, from nearby ok cells only (a few rounds of a small masked
+// blur, i.e. a short diffusion/push-outward from the known values), so the median filter right after
+// this never sees a value pulled from the WHOLE image. A single global constant is wrong here: for a
+// large excluded zone (e.g. a bright star's full sigma_px-scaled margin, which can span several whole
+// coarse cells with no real coverage left at all) it pulls those cells toward the whole image's median
+// regardless of the true local brightness nearby -- genuinely brighter nebula, or the excluded star's
+// own immediate surroundings -- and that then leaks into the 5x5 median filter and shows up as a dark
+// disc right where the star was (2026-09-28/29, real IC434 data). A handful of iterations is enough to
+// reach across any real star's margin; a cell still unreached after that (e.g. deep inside a much
+// larger masked-out region such as the frame border) keeps the global median as a last resort.
+void fill_from_neighbours(cv::Mat &small, const cv::Mat &cell_ok, float global_fill) {
+  cv::Mat weight;
+  cell_ok.convertTo(weight, CV_32F, 1.0 / 255.0);
+  cv::Mat value = small.mul(weight);
+  for (int iter = 0; iter < 8; ++iter) {
+    cv::Mat value_blur, weight_blur;
+    cv::GaussianBlur(value, value_blur, cv::Size(0, 0), 2.0, 2.0, cv::BORDER_REPLICATE);
+    cv::GaussianBlur(weight, weight_blur, cv::Size(0, 0), 2.0, 2.0, cv::BORDER_REPLICATE);
+    for (int y = 0; y < small.rows; ++y)
+      for (int x = 0; x < small.cols; ++x) {
+        if (weight.at<float>(y, x) >= 0.999f) continue;  // already fully known, do not dilute it
+        const float w = weight_blur.at<float>(y, x);
+        if (w > 1e-6f) {
+          value.at<float>(y, x) = value_blur.at<float>(y, x);
+          weight.at<float>(y, x) = std::min(1.0f, w);
+        }
+      }
+  }
+  for (int y = 0; y < small.rows; ++y)
+    for (int x = 0; x < small.cols; ++x)
+      if (!cell_ok.at<std::uint8_t>(y, x)) {
+        const float w = weight.at<float>(y, x);
+        small.at<float>(y, x) = w > 1e-3f ? value.at<float>(y, x) / w : global_fill;
+      }
+}
+
 CoarseMap build_map(const cv::Mat &plane, const cv::Mat &valid, int factor, float sigma_px) {
   CoarseMap out;
   const int rows = std::max(1, plane.rows / factor), cols = std::max(1, plane.cols / factor);
@@ -62,16 +98,12 @@ CoarseMap build_map(const cv::Mat &plane, const cv::Mat &valid, int factor, floa
   for (int y = 0; y < rows; ++y)
     for (int x = 0; x < cols; ++x)
       if (cell_ok.at<std::uint8_t>(y, x)) small.at<float>(y, x) = num_s.at<float>(y, x) / den_s.at<float>(y, x);
-  // Fill unusable cells with the median of the usable ones so that the median
-  // filter below does not see zeros at the border.
   std::vector<float> usable;
   for (int y = 0; y < rows; ++y)
     for (int x = 0; x < cols; ++x)
       if (cell_ok.at<std::uint8_t>(y, x)) usable.push_back(small.at<float>(y, x));
-  const float fill = static_cast<float>(median_of(usable));
-  for (int y = 0; y < rows; ++y)
-    for (int x = 0; x < cols; ++x)
-      if (!cell_ok.at<std::uint8_t>(y, x)) small.at<float>(y, x) = fill;
+  const float global_fill = static_cast<float>(median_of(usable));
+  fill_from_neighbours(small, cell_ok, global_fill);
   cv::Mat med;
   if (rows >= 5 && cols >= 5) cv::medianBlur(small, med, 5);  // float median: ksize <= 5
   else med = small;
@@ -84,10 +116,20 @@ CoarseMap build_map(const cv::Mat &plane, const cv::Mat &valid, int factor, floa
   cv::GaussianBlur(ok_f, blur_den, cv::Size(0, 0), sigma, sigma, cv::BORDER_CONSTANT);
   out.map = cv::Mat(rows, cols, CV_32F, cv::Scalar(0));
   out.ok = cv::Mat(rows, cols, CV_8U, cv::Scalar(0));
+  // Deliberately NOT also requiring cell_ok here (only enough real neighbours within the Gaussian's
+  // reach, via blur_den): a coarse cell excluded by bright_source_mask has no real coverage of its own,
+  // but sits INSIDE the image surrounded by ordinary sky on every side, so once enough of that
+  // surrounding sky is within reach it should get their smoothly interpolated value marked ok -- not a
+  // hard zero. Requiring cell_ok too turned every excluded cell into a dead zone with NO boost at all
+  // (out.map/out.ok stayed at their initial zero), producing a sharp, correctly-shaped but visibly dark
+  // disc exactly the size of the exclusion margin around every star (2026-09-29, real IC434 data) --
+  // the opposite failure from a global-median leak: not a wrong value, but no value at all. A genuine
+  // border cell (no real data within reach on any side, e.g. the image edge) is still excluded exactly
+  // as before, because blur_den itself then stays low.
   for (int y = 0; y < rows; ++y)
     for (int x = 0; x < cols; ++x) {
       const float d = blur_den.at<float>(y, x);
-      if (cell_ok.at<std::uint8_t>(y, x) && d > 0.5f) {
+      if (d > 0.5f) {
         out.map.at<float>(y, x) = blur_num.at<float>(y, x) / d;
         out.ok.at<std::uint8_t>(y, x) = 1;
       }
@@ -95,20 +137,27 @@ CoarseMap build_map(const cv::Mat &plane, const cv::Mat &valid, int factor, floa
   return out;
 }
 
-// Bright-source (star) mask on the FULL-resolution luminance: POINT-LIKE bright pixels are excluded
-// from the coarse-map construction below (never from the final boost itself -- a star still receives
-// whatever value its surrounding sky gets). A bright, extended star's wings can span several coarse
-// cells at typical sigma_px (e.g. a factor-8 grid), so they survive the coarse 5x5 median unless
-// removed earlier; without this, the star's own bump is smoothed by the Gaussian and added back as a
-// soft halo -- exactly the "large-scale structure" this stage boosts, applied to a star instead of a
-// nebula. Deliberately a LOCAL-contrast test (residual against a small-sigma blur), not a plain
-// "brighter than the image's global sky level" one: a real nebula core can be brighter than the sky by
-// far more than any fixed multiple of the noise, but it varies smoothly across many multiples of the
-// local blur scale, so it leaves almost no residual here, while a star -- much sharper than the local
-// blur -- does. All constants (local sigma, threshold multiple, sigma floor, dilation) are fixed: they
-// exist to make the exclusion this header already promises ("hot pixels/stars ... removed") actually
-// hold for real stars, not to be a user-tunable star-detector.
-cv::Mat bright_source_mask(const cv::Mat &lum, const cv::Mat &valid) {
+// Bright-source (star) mask on the FULL-resolution luminance: POINT-LIKE bright pixels, and a margin
+// around them, are excluded from the coarse-map construction below (never from the final boost itself
+// -- a star still receives whatever value its surrounding sky gets). A bright, extended star's wings
+// can span several coarse cells at typical sigma_px (e.g. a factor-8 grid), so they survive the coarse
+// 5x5 median unless removed earlier; without this, the star's own bump is smoothed by the Gaussian and
+// added back as a soft halo -- exactly the "large-scale structure" this stage boosts, applied to a star
+// instead of a nebula. Detection is deliberately a LOCAL-contrast test (residual against a small-sigma
+// blur), not a plain "brighter than the image's global sky level" one: a real nebula core can be
+// brighter than the sky by far more than any fixed multiple of the noise, but it varies smoothly across
+// many multiples of the local blur scale, so it leaves almost no residual here, while a star -- much
+// sharper than the local blur -- does. The margin AROUND a detected core, though, must scale with
+// sigma_px: real-data measurement on a very bright star (Alnitak, IC434, 2026-09-28) found its
+// above-sky excess still present at 1 % of sky at r=40 px (sigma_px 48 there) and gone by r=60-80,
+// i.e. comparable to sigma_px itself, not a small fixed handful of pixels -- a star's smooth WING is
+// exactly the kind of gently-varying brightness this stage's own detector is designed to leave alone
+// (that is the point, for nebula), so the wing is not caught by the point-source test and needs this
+// separate, sigma_px-scaled margin instead. The local sigma, threshold multiple and sigma floor stay
+// fixed constants; only the margin depends on sigma_px, and even that is not user-facing -- both exist
+// to make the exclusion this header already promises ("hot pixels/stars ... removed") actually hold for
+// real stars, not to be a user-tunable star-detector.
+cv::Mat bright_source_mask(const cv::Mat &lum, const cv::Mat &valid, float sigma_px) {
   const int rows = lum.rows, cols = lum.cols;
   cv::Mat smooth;
   cv::GaussianBlur(lum, smooth, cv::Size(0, 0), 4.0, 4.0, cv::BORDER_REPLICATE);
@@ -135,7 +184,9 @@ cv::Mat bright_source_mask(const cv::Mat &lum, const cv::Mat &valid) {
     for (int x = 0; x < cols; ++x)
       if (valid.at<std::uint8_t>(y, x) && residual.at<float>(y, x) > threshold) mask.at<std::uint8_t>(y, x) = 255;
   cv::Mat dilated;
-  cv::dilate(mask, dilated, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(15, 15)));
+  const int margin_radius = std::clamp(static_cast<int>(std::lround(sigma_px * 0.75)), 5, 200);
+  const int kernel = 2 * margin_radius + 1;
+  cv::dilate(mask, dilated, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(kernel, kernel)));
   return dilated;
 }
 
@@ -336,7 +387,7 @@ LargeScaleContrastResult apply_large_scale_contrast(
   // Excluded only from the coarse-map construction (deviation_map calls below); the boost is still
   // applied to every valid pixel, stars included, via `valid` in the final loop further down.
   cv::Mat clean_valid = valid.clone();
-  clean_valid.setTo(0, bright_source_mask(wrap_const(lum), valid));
+  clean_valid.setTo(0, bright_source_mask(wrap_const(lum), valid, cfg.sigma_px));
 
   cv::Mat delta_l, delta_rg, delta_bg;
   CoarseMap lum_map;
