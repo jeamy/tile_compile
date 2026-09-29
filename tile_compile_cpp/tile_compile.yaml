@@ -251,13 +251,17 @@ hypermetric_stretch:
   # I' = I + amount * (LS(I) - sky). sigma_px is the scale of the "large" component,
   # remove_vignette keeps a radially symmetric component (vignette, radial glow) out of the boost,
   # chroma_amount does the same for the colour differences R-G and B-G (0 = colour unchanged).
-  # Code/schema default stays off; shipped here as ON with amount 2.0/chroma_amount 1.0 (2026-09-27
-  # user decision, evidence: docs/m42_large_scale_contrast_20260927_de.md, one M42 session: sky
-  # structure x1.63, star FWHM/signal/elongation ratio exactly 1.000, noise x0.99, no extra black
-  # clipping). Not confirmed on other object types (compact objects, star fields, galaxies); a
-  # centred, radially symmetric object may need remove_vignette off instead.
+  # Code/schema default is off; this was shipped here as ON with amount 2.0/chroma_amount 1.0
+  # (2026-09-27 decision, evidence: docs/m42_large_scale_contrast_20260927_de.md, one M42 session).
+  # Reverted back to off (2026-09-29): real IC434 data (Alnitak plus the Horsehead, run
+  # ic434_default_20260928) showed a persistent soft/blotchy look across the whole frame, on top of
+  # the star-exclusion-boundary bugs fixed the same day in large_scale_contrast.cpp -- comparison
+  # against an earlier run of the same target with this OFF (ic434_20260926_214932, judged "nearly
+  # perfect" by the user) confirmed enabling it was the only functional config difference between
+  # the two. The bug fixes stay in the code; the feature itself needs more evidence before shipping
+  # on by default again.
   large_scale_contrast:
-    enabled: true
+    enabled: false
     amount: 2.0
     sigma_px: 48.0
     chroma_amount: 1.0

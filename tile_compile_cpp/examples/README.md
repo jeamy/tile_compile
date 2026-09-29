@@ -72,17 +72,23 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   gain 80): the plain shipped `tile_compile.yaml` default plus only the
   calibration this dataset needs (dark master). Unlike the M42/M31 profiles
   above, nothing else is overridden -- this is what "just use the shipped
-  defaults" produces on a third object. First real run (2026-09-27) showed a
-  soft halo around the bright star Alnitak from `large_scale_contrast` at
-  amount 2.0/chroma_amount 1.0: the coarse large-scale map did not reliably
-  exclude a bright, EXTENDED star (only a plain 5x5 median on the downsampled
-  grid, which a wide star's wings can survive). Fixed 2026-09-28 in
-  `src/image/large_scale_contrast.cpp` (`bright_source_mask`, a local-contrast
-  star test rather than a global brightness threshold, so a genuinely bright
-  but smooth nebula core is not also excluded); re-verified on this dataset
-  after the fix, with a markedly tighter halo. The `.demo.yaml` is the exact
-  config of that verification run; elsewhere start from the `.example.yaml`
-  and adapt its placeholder paths.
+  defaults" produces on a third object. `large_scale_contrast` was tried
+  enabled on this dataset (2026-09-27/29, amount 2.0/chroma_amount 1.0): it
+  caused a soft halo around the bright star Alnitak, from a bright extended
+  star surviving the coarse large-scale map's 5x5 median. Three rounds of
+  fixes in `src/image/large_scale_contrast.cpp` (a local-contrast
+  `bright_source_mask` instead of a global brightness threshold; a
+  sigma_px-scaled exclusion margin; letting diffusion-filled interior "islands"
+  count as ok so a cluster of nearby stars' merged exclusion zones no longer
+  produced a dead, unboosted hole) closed the halo and the hole, but a direct
+  comparison against an earlier run of the same target with the option off
+  (judged "nearly perfect" by the user) still showed a soft/blotchy look with
+  it on -- enabling it was the only functional config difference between the
+  two runs. This profile therefore ships with `large_scale_contrast` off,
+  matching the current `tile_compile.yaml` default; the bug fixes stay in the
+  code for if the feature is revisited. The `.demo.yaml` has the
+  machine-specific paths of the development box filled in; elsewhere start
+  from the `.example.yaml` and adapt its placeholder paths.
 
 - `m42_dwarf2_full_frame_luma.example.yaml`, `m31_dwarf2_full_frame_luma.example.yaml`
   The two profiles above with the recommended `luma_denoise` stage enabled:

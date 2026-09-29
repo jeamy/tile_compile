@@ -1,29 +1,28 @@
 # IC 434 (Horsehead Nebula / Flame Nebula region, Alnitak), DWARF II, OSC -- 359 x 15 s lights, gain 80.
 #
 # DEMO config: ready-to-run copy of ic434_dwarf2_full_frame.example.yaml with
-# the machine-specific paths of the development box filled in. It is the exact
-# config of the 2026-09-28 real-data verification run ic434_default_20260928
-# (input /media/tc_ssd/IC434_ligths_all). On another machine start from
-# ic434_dwarf2_full_frame.example.yaml instead.
+# the machine-specific paths of the development box filled in. On another
+# machine start from ic434_dwarf2_full_frame.example.yaml instead.
 #
-# This is the shipped tile_compile.yaml default (full-frame estimator + clip 4/4,
-# large_scale_contrast on) plus the calibration this dataset needs; everything
-# else is the plain default. Real dark master used on this dataset: 15 s / gain
-# 80. Adapt the placeholder paths below (dark master, astap/siril data) and the
-# host-specific paths in tile_compile.yaml's astap_data_dir/siril_catalog_dir
-# before running elsewhere.
+# This is the shipped tile_compile.yaml default (full-frame estimator + clip 4/4)
+# plus the calibration this dataset needs; everything else is the plain default.
+# Real dark master used on this dataset: 15 s / gain 80. Adapt the placeholder
+# paths below (dark master, astap/siril data) and the host-specific paths in
+# tile_compile.yaml's astap_data_dir/siril_catalog_dir before running elsewhere.
 #
-# large_scale_contrast note (2026-09-27/28): the first real run on this dataset
-# showed a soft halo around the bright star Alnitak at amount 2.0/chroma_amount
-# 1.0. Root cause and fix: the coarse large-scale map did not reliably exclude a
-# bright, EXTENDED star (only a plain 5x5 median on the downsampled grid, which
-# a wide star's wings can survive) -- fixed in
-# src/image/large_scale_contrast.cpp (bright_source_mask, a local-contrast star
-# test, not a global brightness threshold, so a genuinely bright but smooth
-# nebula core is not also excluded). Re-verified on this dataset after the fix:
-# the halo is markedly tighter, close to the large_scale_contrast-off
-# appearance. See docs/m42_large_scale_contrast_20260927_de.md and the
-# 2026-09-28 large_scale_contrast commits for the full write-up.
+# large_scale_contrast note (2026-09-27/29): tried enabled on this dataset
+# (amount 2.0/chroma_amount 1.0). It caused a soft halo around the bright star
+# Alnitak; three rounds of fixes in src/image/large_scale_contrast.cpp closed a
+# star-wing-survives-the-coarse-median bug, a dead-zone-with-no-value bug at the
+# exclusion boundary, and a too-narrow-for-a-merged-star-cluster reach bug. Even
+# after all three, a direct comparison against an earlier run of this same
+# target with the option off (ic434_20260926_214932, judged "nearly perfect" by
+# the user) showed enabling it was the only functional config difference and
+# the on-run still looked soft/blotchy overall -- so this profile ships with it
+# OFF, matching the current tile_compile.yaml default. The bug fixes stay in
+# the code for whenever the feature is revisited. See
+# docs/m42_large_scale_contrast_20260927_de.md and the 2026-09-28/29
+# large_scale_contrast commits for the full write-up.
 #
 output:
   registered_dir: registered
@@ -279,13 +278,9 @@ hypermetric_stretch:
   # I' = I + amount * (LS(I) - sky). sigma_px is the scale of the "large" component,
   # remove_vignette keeps a radially symmetric component (vignette, radial glow) out of the boost,
   # chroma_amount does the same for the colour differences R-G and B-G (0 = colour unchanged).
-  # Code/schema default stays off; shipped here as ON with amount 2.0/chroma_amount 1.0 (2026-09-27
-  # user decision, evidence: docs/m42_large_scale_contrast_20260927_de.md, one M42 session: sky
-  # structure x1.63, star FWHM/signal/elongation ratio exactly 1.000, noise x0.99, no extra black
-  # clipping). Not confirmed on other object types (compact objects, star fields, galaxies); a
-  # centred, radially symmetric object may need remove_vignette off instead.
+  # Off (matches tile_compile.yaml's current default); see the file header for why.
   large_scale_contrast:
-    enabled: true
+    enabled: false
     amount: 2.0
     sigma_px: 48.0
     chroma_amount: 1.0
