@@ -174,68 +174,6 @@ ForwardDrizzleV2UniformResult gather_affine_uniform_v2(
   return result;
 }
 
-bool gather_affine_uniform_v2_cuda(
-    const registration::RegistrationSamplingPlan &plan,
-    const SourceImageProvider &source_of,
-    const config::ReconstructionDrizzleConfig &cfg, int y_begin, int rows,
-    ForwardDrizzleV2UniformResult &out,
-    const ForwardDrizzleSubdivisionParams &subdivision) {
-  if (!forward_drizzle_cuda_runtime_available()) return false;
-  if (cfg.internal_scale <= 0 || rows <= 0 || y_begin < 0)
-    throw std::invalid_argument("FORWARD_DRIZZLE_V2_INVALID_STRIPE");
-  if (plan.color_mode != ColorMode::MONO && plan.color_mode != ColorMode::OSC)
-    throw std::invalid_argument("FORWARD_DRIZZLE_V2_UNSUPPORTED_COLOR_MODE");
-  const int scale = cfg.internal_scale;
-  const int width = plan.canvas_width_native * scale;
-  const int height = plan.canvas_height_native * scale;
-  if (width <= 0 || height <= 0 || y_begin + rows > height)
-    throw std::invalid_argument("FORWARD_DRIZZLE_V2_INVALID_STRIPE");
-  const int channels = plan.color_mode == ColorMode::MONO ? 1 : 3;
-  out = {};
-  out.accum = make_accum(width, rows, channels);
-  out.stats.target_cells = static_cast<std::uint64_t>(width) * rows;
-  out.stats.workspace_bytes =
-      static_cast<std::size_t>(channels) * width * rows * 5 * sizeof(double);
-  const std::size_t n = static_cast<std::size_t>(width) * rows;
-  std::vector<double> frame_a(static_cast<std::size_t>(channels) * n);
-  std::vector<double> frame_b(static_cast<std::size_t>(channels) * n);
-  const auto prepared = prepare_drizzle_frames(plan, cfg, subdivision);
-  for (const auto *frame : prepared.frames) {
-    if (frame->has_smooth_local_model)
-      throw std::invalid_argument("FORWARD_DRIZZLE_V2_LOCAL_WARP_NOT_READY");
-    const AffineInverse inv = invert_source_to_canvas(*frame);
-    const auto &m = frame->source_to_canvas;
-    const double affine6[6] = {m(0, 0), m(0, 1), m(0, 2),
-                               m(1, 0), m(1, 1), m(1, 2)};
-    const double inverse6[6] = {inv.a, inv.b, inv.c, inv.d, inv.e, inv.f};
-    const Matrix2Df &src = source_of(frame->source_index);
-    if (src.rows() != plan.source_height || src.cols() != plan.source_width)
-      throw std::invalid_argument("FORWARD_DRIZZLE_V2_SOURCE_SHAPE");
-    unsigned long long candidates = 0, overlaps = 0;
-    if (!forward_drizzle_cuda_affine_target_gather(
-            affine6, inverse6, scale, 0.5 * static_cast<double>(cfg.pixfrac),
-            0, y_begin, width, rows, plan.source_width, plan.source_height,
-            src.data(), static_cast<int>(plan.bayer_pattern), plan.cfa_origin_x,
-            plan.cfa_origin_y, channels == 1, frame_a.data(), frame_b.data(),
-            &candidates, &overlaps))
-      return false;
-    out.stats.source_candidates += candidates;
-    out.stats.positive_overlaps += overlaps;
-    out.stats.leaves_tested += candidates;
-    for (int c = 0; c < channels; ++c) {
-      const std::size_t base = static_cast<std::size_t>(c) * n;
-      for (std::size_t i = 0; i < n; ++i) {
-        const double b = frame_b[base + i];
-        if (!(b > 0.0)) continue;
-        out.accum.wx[c][i] += frame_a[base + i];
-        out.accum.w[c][i] += b;
-        out.accum.w2[c][i] += b * b;
-      }
-    }
-  }
-  return true;
-}
-
 ForwardDrizzleV2FoldResult fold_native_pixel_v2(
     std::span<const ForwardDrizzleV2FrameSubpixel> entries,
     std::size_t frame_count, std::span<const double> area) {
@@ -312,17 +250,6 @@ ForwardDrizzleV2FoldResult fold_native_pixel_v2(
   }
   return out;
 }
-
-#if !TILE_COMPILE_WITH_CUDA
-// CUDA-free build: the device oracle is defined in
-// forward_drizzle_cuda_device.cu when CUDA is compiled in. Here it always
-// reports unavailable and never touches `out`.
-bool fold_native_pixel_v2_cuda(
-    std::span<const ForwardDrizzleV2FrameSubpixel>, std::size_t,
-    std::span<const double>, ForwardDrizzleV2FoldResult &) {
-  return false;
-}
-#endif
 
 namespace {
 

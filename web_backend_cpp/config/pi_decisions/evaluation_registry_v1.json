@@ -1,0 +1,11 @@
+{
+  "schema_version": "pi.jev-evaluation-registry.v1",
+  "study_kind": "retrospective_exploratory",
+  "notes": "All four sessions were inspected before release thresholds were frozen. The test split checks data separation only and is not a prospective blinded release test. These arms compare adaptive weighting, not actual Jev recommendations.",
+  "sessions": [
+    {"session_id":"m31_20260923","object_class":"galaxy","device":"DWARF II","filter":"unknown","quality_group":"unknown","split":"calibration","candidate_id":"enable_adaptive_weights","arms":{"current_config":"20260923_212703_e8a50695","candidate_applied":"20260923_204346_5a30a6f0"},"arm_assertions":{"current_config":{"global_metrics.adaptive_weights":false},"candidate_applied":{"global_metrics.adaptive_weights":true}}},
+    {"session_id":"m42_20260923","object_class":"nebula","device":"DWARF II","filter":"unknown","quality_group":"unknown","split":"calibration","candidate_id":"enable_adaptive_weights","arms":{"current_config":"20260923_232436_95ed29f7","candidate_applied":"20260923_223614_ce66cf2d"},"arm_assertions":{"current_config":{"global_metrics.adaptive_weights":false},"candidate_applied":{"global_metrics.adaptive_weights":true}}},
+    {"session_id":"ic5070_20260924","object_class":"nebula","device":"DWARF II","filter":"unknown","quality_group":"unknown","split":"test","candidate_id":"enable_adaptive_weights","arms":{"current_config":"20260924_004750_bbc7b433","candidate_applied":"20260924_001226_8c66f570"},"arm_assertions":{"current_config":{"global_metrics.adaptive_weights":false},"candidate_applied":{"global_metrics.adaptive_weights":true}}},
+    {"session_id":"m66_20260924","object_class":"galaxy","device":"DWARF II","filter":"unknown","quality_group":"unknown","split":"test","candidate_id":"enable_adaptive_weights","arms":{"current_config":"20260924_040232_e0b8cac7","candidate_applied":"20260924_013435_a39a9e30"},"arm_assertions":{"current_config":{"global_metrics.adaptive_weights":false},"candidate_applied":{"global_metrics.adaptive_weights":true}}}
+  ]
+}

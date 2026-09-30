@@ -114,6 +114,11 @@ struct ForwardDrizzleV2DriverOptions {
   // Not part of the run plan/hash (CPU results are identical for every
   // worker count). 0 = hardware concurrency. Ignored by CUDA.
   int cpu_workers = 0;
+  // Copied into ForwardDrizzleV2KernelConfig::float_plane_inputs. A provider
+  // that never sets ForwardDrizzleV2FrameInput::sigma2 or float quality
+  // planes (the production provider) sets false to skip the device float
+  // input planes. Not part of the run plan/hash.
+  bool device_float_plane_inputs = true;
 };
 
 struct ForwardDrizzleV2DriverResult {
@@ -158,8 +163,7 @@ ForwardDrizzleV2DriverResult run_forward_drizzle_v2(
     const ForwardDrizzleV2FrameProvider &provider,
     const ForwardDrizzleV2DriverOptions &options = {});
 
-// Test-only fault injection, mirroring
-// set_forward_drizzle_cuda_fault_after_chunks: n >= 0 makes the CUDA attempt
+// Test-only fault injection: n >= 0 makes the CUDA attempt
 // report a device failure before committing band n (0 = immediate). -1
 // (default) disables. Process-global; the environment variable
 // TILE_COMPILE_FD_V2_CUDA_FAULT_AFTER_BANDS arms it at first read.

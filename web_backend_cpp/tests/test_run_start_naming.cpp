@@ -17,6 +17,73 @@ int main(int argc, char** argv) {
 
         const std::string input_dir = (harness.fixture_root() / "inputs" / "session_1").string();
 
+        const auto stale_jev = harness.post_json("/api/runs/start", {
+            {"input_dir", input_dir}, {"run_id", "rejected_jev"},
+            {"color_mode", "OSC"}, {"config_yaml", "data:\n  color_mode: OSC\n"},
+            {"jev_saved_proposal_id", "missing_proposal"}
+        });
+        expect_equal(stale_jev["_http_status"].get<long>(), 409L, "stale Jev link blocks direct run");
+        expect_equal(stale_jev["error"]["code"].get<std::string>(), "JEV_PROPOSAL_STALE", "stale Jev error code");
+        expect_true(!std::filesystem::exists(harness.fixture_root() / "runs" / "rejected_jev"),
+                    "stale Jev link creates no run directory");
+
+        const auto queued_jev = harness.post_json("/api/runs/start", {
+            {"runs_dir", (harness.fixture_root() / "runs").string()},
+            {"run_id", "rejected_jev_queue"}, {"color_mode", "OSC"},
+            {"config_yaml", "data:\n  color_mode: OSC\n"},
+            {"jev_saved_proposal_id", "missing_proposal"},
+            {"queue", nlohmann::json::array({{{"input_dir", input_dir}, {"filter", "L"}}})}
+        });
+        expect_equal(queued_jev["_http_status"].get<long>(), 409L, "Jev link blocks unsupported queue run");
+        expect_equal(queued_jev["error"]["code"].get<std::string>(), "JEV_PROPOSAL_STALE", "missing queue Jev proposal error code");
+        expect_true(!std::filesystem::exists(harness.fixture_root() / "runs" / "rejected_jev_queue"),
+                    "unsupported Jev queue creates no run directory");
+
+        const std::filesystem::path input_file = std::filesystem::path(input_dir) / "frame_0001.fit";
+        const std::filesystem::path decisions_dir = harness.fixture_root() / "runs" / ".pi_memory" / "pi_decisions";
+        nlohmann::json manifest = nlohmann::json::array({{
+            {"id", "frame_0001.fit"},
+            {"size", std::filesystem::file_size(input_file)},
+            {"mtime", std::filesystem::last_write_time(input_file).time_since_epoch().count()}
+        }});
+        std::filesystem::create_directories(decisions_dir / "p_queue");
+        std::ofstream(decisions_dir / "p_queue" / "source.json") << nlohmann::json{
+            {"input_path", input_dir}, {"dataset_manifest", manifest}
+        }.dump();
+        std::ofstream(decisions_dir / "p_queue" / "proposal.json") << nlohmann::json{
+            {"status", "applied_to_draft"}, {"applied_at", "2020-01-01T00:00:00Z"},
+            {"saved_revision_ids", nlohmann::json::array({"saved_cfg"})},
+            {"updates", nlohmann::json::array({{{"path", "data.color_mode"}, {"value", "OSC"}}})}
+        }.dump();
+        const auto partial_queue = harness.post_json("/api/runs/start", {
+            {"runs_dir", (harness.fixture_root() / "runs").string()},
+            {"run_id", "partial_jev_queue"}, {"color_mode", "OSC"},
+            {"config_yaml", "data:\n  color_mode: OSC\n"},
+            {"jev_saved_proposal_id", "p_queue"},
+            {"queue", nlohmann::json::array({{{"input_dir", input_dir}, {"filter", "L"}, {"pattern", "other*"}}})}
+        });
+        expect_equal(partial_queue["_http_status"].get<long>(), 409L, "queue excluding scanned FITS is rejected");
+        expect_equal(partial_queue["error"]["code"].get<std::string>(), "JEV_PROPOSAL_UNSUPPORTED", "partial queue Jev error code");
+        expect_true(!std::filesystem::exists(harness.fixture_root() / "runs" / "partial_jev_queue"),
+                    "partial Jev queue creates no run directory");
+
+        const auto linked_queue = harness.post_json("/api/runs/start", {
+            {"runs_dir", (harness.fixture_root() / "runs").string()},
+            {"run_id", "linked_jev_queue"}, {"color_mode", "OSC"},
+            {"config_yaml", "data:\n  color_mode: OSC\n"},
+            {"jev_saved_proposal_id", "p_queue"},
+            {"queue", nlohmann::json::array({{{"input_dir", input_dir}, {"filter", "L"}, {"pattern", "*.fit"}}})}
+        });
+        expect_equal(linked_queue["_http_status"].get<long>(), 202L, "queue with exact scanned FITS starts");
+        const auto linked_queue_job = harness.wait_for_job(linked_queue["job_id"].get<std::string>());
+        expect_equal(linked_queue_job["state"].get<std::string>(), "ok", "linked Jev queue completes");
+        const std::filesystem::path linked_run = harness.fixture_root() / "runs" / "linked_jev_queue" / "L";
+        const auto linked_provenance = nlohmann::json::parse(slurp_file(linked_run / "artifacts" / "pi_run_provenance.json"));
+        expect_equal(linked_provenance["jev_proposal_id"].get<std::string>(), "p_queue", "queue run carries checked Jev id");
+        const auto linked_outcome = nlohmann::json::parse(slurp_file(decisions_dir / "p_queue" / "outcome.json"));
+        expect_equal(linked_outcome["runs"][0]["run_id"].get<std::string>(), "linked_jev_queue/L",
+                     "queue outcome records nested run id");
+
         const auto started = harness.post_json("/api/runs/start", {
             {"input_dir", input_dir},
             {"run_name", "M42 Test"},

@@ -15,6 +15,17 @@ struct HyperMetricStretchConfig {
   std::string sensor_profile = "rec709";
   std::string fallback_profile = "rec709";
   bool adaptive_anchor = true;
+  // When true AND the caller passes a reference image (run_hypermetric_stretch_rgb's
+  // anchor_reference_R/G/B), the black-point anchor (adaptive_anchor's histogram-shoulder search,
+  // or the plain percentile floor) is estimated from that reference instead of the image being
+  // stretched. Use this when a denoising stage between the reconstruction and HMS (chroma_denoise's
+  // post_pcc stage) narrows the sky-brightness distribution: the histogram search then crosses its
+  // fixed density threshold at a different point, measurably shifting the black point -- and with it
+  // noise/structure/black-clip -- even though the true sky level did not change. Falls back to the
+  // image being stretched when no reference is passed, so this is a no-op unless the caller supplies
+  // one. Off by default; not yet confirmed as a general improvement (see
+  // docs/hms_anchor_reference_20260927_de.md once filed).
+  bool anchor_from_reference = false;
   float target_bg = 0.15f;
   float protect_b = 6.0f;
   float convergence_power = 3.5f;
@@ -87,11 +98,18 @@ float hypermetric_hyperbolic_stretch_value(float value, float D, float b,
 float hypermetric_solve_log_d(std::vector<float> luma_sample,
                               float target_median, float b);
 
+// anchor_reference_{R,G,B}: optional pre-denoise snapshot of the same image, same dimensions, same
+// physical units, only used (and only read, never mutated) when cfg.anchor_from_reference is true.
+// Pass all three or none; a partial set or a dimension mismatch is treated as "none" (falls back to
+// R/G/B), never an error.
 HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
     Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     const HyperMetricStretchConfig &cfg,
     const std::vector<uint8_t> *statistics_mask = nullptr, int mask_rows = 0,
     int mask_cols = 0,
-    const std::vector<uint8_t> *output_mask = nullptr);
+    const std::vector<uint8_t> *output_mask = nullptr,
+    const Matrix2Df *anchor_reference_R = nullptr,
+    const Matrix2Df *anchor_reference_G = nullptr,
+    const Matrix2Df *anchor_reference_B = nullptr);
 
 } // namespace tile_compile::image

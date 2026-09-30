@@ -48,16 +48,6 @@ ForwardDrizzleV2UniformResult gather_affine_uniform_v2(
     const config::ReconstructionDrizzleConfig &cfg, int y_begin, int rows,
     const ForwardDrizzleSubdivisionParams &subdivision = {});
 
-// Gate-1 CUDA prototype with the same result contract. Returns false when no
-// usable CUDA device exists or a device operation fails; it never substitutes
-// the CPU result silently.
-bool gather_affine_uniform_v2_cuda(
-    const registration::RegistrationSamplingPlan &plan,
-    const SourceImageProvider &source_of,
-    const config::ReconstructionDrizzleConfig &cfg, int y_begin, int rows,
-    ForwardDrizzleV2UniformResult &out,
-    const ForwardDrizzleSubdivisionParams &subdivision = {});
-
 // One frame's already reduced contribution to one internal cell/channel.
 // Keeping B frame-local until after the native-pixel fold preserves the cross
 // terms required by B2_out = sum_f(sum_j area_j*B_f,j)^2.
@@ -99,14 +89,6 @@ struct ForwardDrizzleV2FoldResult {
 ForwardDrizzleV2FoldResult fold_native_pixel_v2(
     std::span<const ForwardDrizzleV2FrameSubpixel> subpixels_by_frame,
     std::size_t frame_count, std::span<const double> area);
-
-// Gate-2 CUDA arithmetic oracle for the same scalar fold contract. This is not
-// the production batch kernel selected later by Gate 6; it proves that the
-// frame-before-square and four-support-layer algebra ports to the device.
-bool fold_native_pixel_v2_cuda(
-    std::span<const ForwardDrizzleV2FrameSubpixel> subpixels_by_frame,
-    std::size_t frame_count, std::span<const double> area,
-    ForwardDrizzleV2FoldResult &out);
 
 // Exact deterministic reservoir keep set for a stream of `stream_length`
 // frames under the shared splitmix64 predicate: with

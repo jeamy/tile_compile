@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "openrouter.decisions.error.v1",
+  "description": "Verified error body shape from POST https://openrouter.ai/api/alpha/decisions on non-200 status, per docs/PI/pi_jev_m0_provider_protocol_de.md section 1. Empirically observed for empty-body validation failure and invalid-model-id cases (both plain-string error.message, one happening to contain JSON-formatted validation detail as text). 401/429/5xx bodies for this specific endpoint were NOT empirically captured (no invalid key / rate-limit trigger used) -- assumed to follow the same {error:{message,code}} envelope pending real verification (section 6).",
+  "type": "object",
+  "required": ["error"],
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "type": "object",
+      "required": ["message", "code"],
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "Always a string. May itself be JSON-formatted text (e.g. a stringified Zod validation-error array) -- a second JSON.parse is optional for structured field references, never required for basic error handling."
+        },
+        "code": {"type": "integer"}
+      }
+    },
+    "user_id": {"type": "string", "description": "OpenRouter account id echoed back; present on observed error responses, not part of the documented contract -- do not rely on it."}
+  }
+}

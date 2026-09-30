@@ -1,0 +1,11 @@
+{
+  "_fixture_note": "Empirically captured (2026-09-22) by POSTing model=\"typesafe/jev-1.13\" to /api/v1/chat/completions instead of /api/alpha/decisions -- documents the endpoint-mismatch error text verbatim.",
+  "http_status": 400,
+  "body": {
+    "error": {
+      "message": "typesafe/jev-1.13 is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.",
+      "code": 400
+    },
+    "user_id": "user_SyntheticFixtureUser0000000"
+  }
+}

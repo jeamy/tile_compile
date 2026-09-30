@@ -278,6 +278,11 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
       if (event["type"]=="phase_end" && event["phase_name"]=="FORWARD_DRIZZLE") fd_end=event;
     const std::string be=fd_end.at("acceleration_backend").get<std::string>();
     REQUIRE((be=="cpu_v2" || be=="cuda_v2"));
+    // A usable device must actually run the device path: a silent CPU
+    // restart (e.g. the lean device workspace rejecting a production frame)
+    // would otherwise pass unnoticed since both backends produce the image.
+    if (reconstruction::forward_drizzle_cuda_runtime_available())
+      REQUIRE(be=="cuda_v2");
     // The phase_end event carries cuda_fallback_reason only when a CUDA attempt
     // fell back; a committed CUDA build omits it.
     if (be=="cuda_v2") REQUIRE_FALSE(fd_end.contains("cuda_fallback_reason"));

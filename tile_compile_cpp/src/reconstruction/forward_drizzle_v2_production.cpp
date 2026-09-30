@@ -508,8 +508,10 @@ ForwardDrizzleV2ProductionResult persist_forward_drizzle_v2_from_predecessors(
   // 2 GiB for the per-pixel band state, NOT measured free VRAM --- the band
   // geometry is bound into plan_hash and must be identical across a resume
   // (no transient cudaMemGetInfo). CUDA reserve() additionally allocates
-  // fixed full-source compatibility/sample/compact-Q buffers (~431 MiB at
-  // 3840x2160) and optional cached-leaf storage on top of this dynamic cap.
+  // fixed full-source source/sample/compact-Q buffers (32 B per source pixel,
+  // ~265 MB at 3840x2160; the float sigma2/quality compatibility planes are
+  // skipped via device_float_plane_inputs = false) and optional cached-leaf
+  // storage on top of this dynamic cap.
   // The 2 GiB dynamic cap is proven by bench_m42_v2_spans, which reserved a
   // total of 2,432,577,804 bytes on the GTX 1660 Ti --- deterministic
   // headroom under the observed 3,658 MiB free while remaining
@@ -880,6 +882,9 @@ ForwardDrizzleV2ProductionResult persist_forward_drizzle_v2_from_predecessors(
   opts.prefer_cuda = acceleration_backend == "cuda";
   opts.cached_leaf_capacity = leaf_capacity;
   opts.cpu_workers = cpu_workers;
+  // The provider below feeds sigma2 inline (affine samples / halo model) and
+  // quality as packed windows only: no device float input planes needed.
+  opts.device_float_plane_inputs = false;
   if (progress) opts.progress = progress;
   out.driver = run_forward_drizzle_v2(
       store_root, out.plan, sampling.source_width, sampling.source_height,

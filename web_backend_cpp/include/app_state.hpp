@@ -20,6 +20,7 @@ struct AppState {
     ConfigRevisionStore revision_store;
 
     mutable std::mutex state_mutex;
+    mutable std::mutex config_write_mutex;
     std::string current_run_id;
     std::string current_run_dir;  // absolute path, if known (e.g. network drive / non-default runs_dir)
     std::string active_config_revision_id;

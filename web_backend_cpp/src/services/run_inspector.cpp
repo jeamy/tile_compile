@@ -16,6 +16,10 @@
 #include <yaml-cpp/yaml.h>
 #ifndef _WIN32
 #include <unistd.h>
+#include <ctime>
+#include <cstdio>
+#include <cstdlib>
+#include <cctype>
 #endif
 
 namespace {

@@ -1,5 +1,6 @@
 #include "backend_test_harness.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>

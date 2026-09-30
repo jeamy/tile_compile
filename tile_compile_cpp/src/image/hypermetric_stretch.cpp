@@ -104,7 +104,32 @@ float soft_floor(float v, float anchor, float eps = 0.00025f) {
   return 0.5f * (d + std::sqrt(d * d + eps * eps));
 }
 
-void normalize_rgb_input_inplace(
+// Applies a known scale (see below) and the output mask to one RGB triple; shared by the working
+// image and, when present, the anchor reference (which must end up in the exact same normalized
+// units for its statistics to mean anything against the working image's soft_floor anchor).
+void apply_scale_and_mask_inplace(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B, float scale,
+                                  const std::vector<uint8_t> *output_mask, int mask_rows,
+                                  int mask_cols) {
+  const int rows = static_cast<int>(R.rows());
+  const int cols = static_cast<int>(R.cols());
+  for (int y = 0; y < rows; ++y) {
+    for (int x = 0; x < cols; ++x) {
+      if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
+        R(y, x) = G(y, x) = B(y, x) = 0.0f;
+        continue;
+      }
+      R(y, x) = sanitize01(R(y, x) / scale);
+      G(y, x) = sanitize01(G(y, x) / scale);
+      B(y, x) = sanitize01(B(y, x) / scale);
+    }
+  }
+}
+
+// Returns the detected scale (1, 65535 or 2^32-1, legacy integer-range detection) so a reference
+// image can be normalized with the SAME factor instead of re-detecting its own (denoising can shift
+// the max pixel value enough to flip the heuristic, which would put the reference in different units
+// than the working image).
+float normalize_rgb_input_inplace(
     Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     const std::vector<uint8_t> *statistics_mask,
     const std::vector<uint8_t> *output_mask, int mask_rows, int mask_cols) {
@@ -132,17 +157,8 @@ void normalize_rgb_input_inplace(
     scale = 4294967295.0f;
   }
 
-  for (int y = 0; y < rows; ++y) {
-    for (int x = 0; x < cols; ++x) {
-      if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
-        R(y, x) = G(y, x) = B(y, x) = 0.0f;
-        continue;
-      }
-      R(y, x) = sanitize01(R(y, x) / scale);
-      G(y, x) = sanitize01(G(y, x) / scale);
-      B(y, x) = sanitize01(B(y, x) / scale);
-    }
-  }
+  apply_scale_and_mask_inplace(R, G, B, scale, output_mask, mask_rows, mask_cols);
+  return scale;
 }
 
 float percentile(std::vector<float> values, float pct) {
@@ -960,7 +976,9 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
     Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     const HyperMetricStretchConfig &cfg,
     const std::vector<uint8_t> *statistics_mask, int mask_rows, int mask_cols,
-    const std::vector<uint8_t> *output_mask) {
+    const std::vector<uint8_t> *output_mask,
+    const Matrix2Df *anchor_reference_R, const Matrix2Df *anchor_reference_G,
+    const Matrix2Df *anchor_reference_B) {
   HyperMetricStretchDiagnostics diag;
   diag.target_bg = cfg.target_bg;
   diag.protect_b = cfg.protect_b;
@@ -994,8 +1012,30 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
     output_mask = statistics_mask;
   }
 
-  normalize_rgb_input_inplace(R, G, B, statistics_mask, output_mask,
-                              mask_rows, mask_cols);
+  const float input_scale = normalize_rgb_input_inplace(
+      R, G, B, statistics_mask, output_mask, mask_rows, mask_cols);
+
+  // anchor_from_reference: normalize a COPY of the caller's reference with the exact scale/mask just
+  // applied to R/G/B (never the reference's own auto-detected scale -- denoising can shift its max
+  // pixel value enough to flip the legacy-range heuristic, which would put it in different units than
+  // the working image). A dimension mismatch or a partial R/G/B set is "no reference", not an error.
+  bool have_anchor_reference = false;
+  Matrix2Df ref_r, ref_g, ref_b;
+  if (cfg.anchor_from_reference && anchor_reference_R != nullptr &&
+      anchor_reference_G != nullptr && anchor_reference_B != nullptr &&
+      anchor_reference_R->rows() == R.rows() && anchor_reference_R->cols() == R.cols() &&
+      anchor_reference_G->rows() == R.rows() && anchor_reference_G->cols() == R.cols() &&
+      anchor_reference_B->rows() == R.rows() && anchor_reference_B->cols() == R.cols()) {
+    ref_r = *anchor_reference_R;
+    ref_g = *anchor_reference_G;
+    ref_b = *anchor_reference_B;
+    apply_scale_and_mask_inplace(ref_r, ref_g, ref_b, input_scale, output_mask, mask_rows,
+                                 mask_cols);
+    have_anchor_reference = true;
+  }
+  const Matrix2Df &anchor_r = have_anchor_reference ? ref_r : R;
+  const Matrix2Df &anchor_g = have_anchor_reference ? ref_g : G;
+  const Matrix2Df &anchor_b = have_anchor_reference ? ref_b : B;
 
   std::string resolved_profile;
   std::string profile_source;
@@ -1009,10 +1049,10 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
 
   diag.anchor =
       cfg.adaptive_anchor
-          ? calculate_anchor_adaptive(R, G, B, w, statistics_mask, mask_rows,
-                                      mask_cols)
-          : calculate_anchor_statistical(R, G, B, statistics_mask, mask_rows,
-                                         mask_cols);
+          ? calculate_anchor_adaptive(anchor_r, anchor_g, anchor_b, w, statistics_mask,
+                                      mask_rows, mask_cols)
+          : calculate_anchor_statistical(anchor_r, anchor_g, anchor_b, statistics_mask,
+                                         mask_rows, mask_cols);
 
   const int rows = static_cast<int>(R.rows());
   const int cols = static_cast<int>(R.cols());

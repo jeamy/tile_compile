@@ -806,57 +806,6 @@ TEST_CASE("plan-19.5 parity: CUDA polygon_rect_area == CPU reference",
   REQUIRE(bit_exact == n);
 }
 
-// Plan-19.5 parity entry 2: the affine droplet corner map (build_affine_leaf +
-// to_internal). Pure per-sample arithmetic -> expected bit-exact CPU<->CUDA.
-TEST_CASE("plan-19.5 parity: CUDA affine leaf corners == CPU reference",
-          "[forward-drizzle][cuda-parity]") {
-  if (reconstruction::forward_drizzle_cuda_device_memory().free_bytes == 0) {
-    SUCCEED("no CUDA device -- parity check skipped");
-    return;
-  }
-  // A non-trivial affine: rotation + anisotropic scale + shear + translation.
-  const double aff[6] = {1.017, -0.033, 12.5, 0.041, 0.994, -7.25};
-  const int scale = 2;
-  const double half = 0.4;  // pixfrac/2
-
-  std::vector<double> samples;
-  uint64_t s = 0x9E3779B97F4A7C15ull;
-  auto nextf = [&]() {
-    s ^= s << 13; s ^= s >> 7; s ^= s << 17;
-    return static_cast<double>(s >> 11) / static_cast<double>(1ull << 53);
-  };
-  for (int i = 0; i < 5000; ++i) {
-    samples.push_back(nextf() * 4000.0);   // sx over a realistic sensor extent
-    samples.push_back(nextf() * 3000.0);   // sy
-  }
-  const int n = static_cast<int>(samples.size() / 2);
-  std::vector<double> gpu(n * 8, 0.0);
-  REQUIRE(reconstruction::forward_drizzle_cuda_affine_leaf_corners_batch(
-      aff, scale, half, samples.data(), n, gpu.data()));
-
-  int bit_exact = 0;
-  for (int i = 0; i < n; ++i) {
-    const double sx = samples[2 * i], sy = samples[2 * i + 1];
-    const double csx[4] = {sx - half, sx + half, sx + half, sx - half};
-    const double csy[4] = {sy - half, sy - half, sy + half, sy + half};
-    for (int k = 0; k < 4; ++k) {
-      const double qx = aff[0] * csx[k] + aff[1] * csy[k] + aff[2];
-      const double qy = aff[3] * csx[k] + aff[4] * csy[k] + aff[5];
-      const double ex = qx * scale, ey = qy * scale;
-      const double gx = gpu[i * 8 + 2 * k], gy = gpu[i * 8 + 2 * k + 1];
-      if (ex == gx && ey == gy) ++bit_exact;
-      INFO("i=" << i << " k=" << k << " cpu=(" << ex << "," << ey
-                << ") gpu=(" << gx << "," << gy << ")");
-      // Plan 19.6: -ffp-contract=off + --fmad=false -> the affine dot product
-      // is not fused on either side -> bit-identical.
-      REQUIRE(ex == gx);
-      REQUIRE(ey == gy);
-    }
-  }
-  INFO("bit-exact " << bit_exact << " / " << (n * 4));
-  REQUIRE(bit_exact == n * 4);
-}
-
 namespace {
 
 // Brute-force oracle for drizzle_affine_source_spans: source pixel (sx,sy)

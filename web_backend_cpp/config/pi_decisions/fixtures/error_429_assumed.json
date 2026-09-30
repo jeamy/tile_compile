@@ -1,0 +1,6 @@
+{
+  "_fixture_note": "NOT empirically verified against /api/alpha/decisions (rate limit was not triggered). Assumed shape. Verify before relying on this in production (docs/PI/pi_jev_m0_provider_protocol_de.md section 6).",
+  "http_status": 429,
+  "headers": {"Retry-After": "2"},
+  "body": {"error": {"message": "Rate limit exceeded", "code": 429}}
+}

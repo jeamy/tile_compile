@@ -647,6 +647,12 @@ struct HyperMetricStretchConfig {
   std::string sensor_profile = "rec709";   // rec709 | profile name | auto
   std::string fallback_profile = "rec709";
   bool adaptive_anchor = true;
+  // See image::HyperMetricStretchConfig::anchor_from_reference: uses the pre-post_pcc-denoise RGB
+  // (before chroma_denoise's post_pcc pass) for the anchor estimate instead of the possibly-denoised
+  // image being stretched, so a denoiser narrowing the sky distribution does not shift the black
+  // point. Off by default; needs the runner to have that reference available (it is, when
+  // chroma_denoise.apply_stage is post_pcc; silently unused otherwise).
+  bool anchor_from_reference = false;
   float target_bg = 0.15f;
   float protect_b = 6.0f;
   float convergence_power = 3.5f;
@@ -684,6 +690,17 @@ struct HyperMetricStretchConfig {
     int brightness_bins = 8;    // [1, 32]; 1 = one global amount
     bool neutralize_sky = false;  // also shift G so the sky is neutral
   } color_cast_correction;
+  // Scale-selective contrast on the stretched RGB (see
+  // image/large_scale_contrast.hpp): lifts only the large-scale sky structure
+  // (dust lanes, reflection nebulae) without amplifying noise, stars or fine
+  // detail. Applied after the colour-cast correction. Off by default.
+  struct LargeScaleContrastConfig {
+    bool enabled = false;
+    float amount = 1.0f;          // [0, 6]
+    float sigma_px = 48.0f;       // (0, 512]
+    float chroma_amount = 0.0f;   // [0, 6]
+    bool remove_vignette = true;  // keep a radially symmetric component out of the boost
+  } large_scale_contrast;
   bool write_channels = false;
   std::string output_rgb = "stacked_rgb_hms.fits";
 };

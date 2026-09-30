@@ -1,16 +1,12 @@
-// CFA-forward-drizzle CUDA device probe --- milestone M7 slice 2, plan 19.4.
+// CFA forward drizzle v2 --- CUDA device implementation.
 //
-// This translation unit is compiled ONLY when the build has a CUDA toolchain
-// (TILE_COMPILE_WITH_CUDA). It owns the functions that must talk to the CUDA
-// runtime: the device-memory query that feeds plan_cuda_chunking(), and the
-// (still conservative) runtime-availability flag.
-//
-// `forward_drizzle_cuda_runtime_available()` stays FALSE until the slice-2
-// droplet / clipping / profile kernels and their parity matrix (plan 19.2/19.5)
-// are in place: returning true here would make persist_forward_drizzle_multiband
-// attempt the CUDA path, hit the "not implemented" ForwardDrizzleCudaError, and
-// pay a full CPU restart on every run. The device-memory probe is safe to make
-// real now (it only queries) and is what the auto-chunk planner will consume.
+// Compiled only with a CUDA toolchain (TILE_COMPILE_WITH_CUDA) and with
+// --fmad=false so every fp64 expression rounds like the -ffp-contract=off CPU
+// reference. Contents: the device probe, the SAMPLING_GEOMETRY coverage
+// gather/scatter, the production v2 kernel workspace
+// (ForwardDrizzleV2CudaPrototypeKernel: scatter, fold, finalize, shared frame
+// rejection, pilot/full-frame estimator) and the parity harnesses for the
+// polygon clip and the local-warp scatter.
 
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2.hpp"
@@ -19,7 +15,6 @@
 
 #include <cuda_runtime.h>
 
-#include <chrono>
 #include <cfloat>
 #include <cmath>
 #include <cstdlib>
@@ -109,27 +104,6 @@ __global__ void k_polygon_rect_area_batch(const double *quad_xy,
   out[i] = d_polygon_rect_area(qx, qy, r[0], r[1], r[2], r[3]);
 }
 
-// 1:1 with build_affine_leaf() + to_internal(): corner order
-// (-h,-h) (+h,-h) (+h,+h) (-h,+h), affine then *internal_scale.
-__global__ void k_affine_leaf_corners_batch(double a00, double a01, double a02,
-                                            double a10, double a11, double a12,
-                                            double sc, double half,
-                                            const double *sample_xy, int n,
-                                            double *out) {
-  const int i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i >= n) return;
-  const double sx = sample_xy[2 * i], sy = sample_xy[2 * i + 1];
-  const double csx[4] = {sx - half, sx + half, sx + half, sx - half};
-  const double csy[4] = {sy - half, sy - half, sy + half, sy + half};
-  double *o = out + static_cast<long long>(i) * 8;
-  for (int k = 0; k < 4; ++k) {
-    const double qx = a00 * csx[k] + a01 * csy[k] + a02;
-    const double qy = a10 * csx[k] + a11 * csy[k] + a12;
-    o[2 * k] = qx * sc;
-    o[2 * k + 1] = qy * sc;
-  }
-}
-
 struct CudaScopedError {
   ~CudaScopedError() { cudaGetLastError(); }
 };
@@ -152,90 +126,11 @@ __device__ int d_cfa_channel(int sx, int sy, int bayer, int ox, int oy) {
   return 1;                            // G
 }
 
-__device__ double d_clampd(double v, double lo, double hi) {
-  return fmin(fmax(v, lo), hi);
-}
-
-__global__ void k_affine_target_gather(
-    double a00, double a01, double a02, double a10, double a11, double a12,
-    double i00, double i01, double i02, double i10, double i11, double i12,
-    int internal_scale, double half, int tx0, int ty0, int cols, int rows,
-    int source_w, int source_h, const float *source, int bayer, int ox, int oy,
-    bool mono, double *out_a, double *out_b,
-    unsigned long long *source_candidates,
-    unsigned long long *positive_overlaps) {
-  const int local = blockIdx.x * blockDim.x + threadIdx.x;
-  const int n = cols * rows;
-  if (local >= n) return;
-  const int lx = local % cols;
-  const int ly = local / cols;
-  const int tx = tx0 + lx;
-  const int ty = ty0 + ly;
-  const double sc = static_cast<double>(internal_scale);
-
-  double minx = DBL_MAX, maxx = -DBL_MAX;
-  double miny = DBL_MAX, maxy = -DBL_MAX;
-  for (int cy = 0; cy < 2; ++cy) {
-    for (int cx = 0; cx < 2; ++cx) {
-      const double x = static_cast<double>(tx + cx) / sc;
-      const double y = static_cast<double>(ty + cy) / sc;
-      const double sx = i00 * x + i01 * y + i02;
-      const double sy = i10 * x + i11 * y + i12;
-      minx = fmin(minx, sx); maxx = fmax(maxx, sx);
-      miny = fmin(miny, sy); maxy = fmax(maxy, sy);
-    }
-  }
-  const int sx0 = max(0, static_cast<int>(floor(minx - half - 0.5)) - 1);
-  const int sx1 = min(source_w,
-                      static_cast<int>(ceil(maxx + half - 0.5)) + 2);
-  const int sy0 = max(0, static_cast<int>(floor(miny - half - 0.5)) - 1);
-  const int sy1 = min(source_h,
-                      static_cast<int>(ceil(maxy + half - 0.5)) + 2);
-
-  double A[3] = {0.0, 0.0, 0.0};
-  double B[3] = {0.0, 0.0, 0.0};
-  unsigned long long candidates = 0, overlaps = 0;
-  for (int sy = sy0; sy < sy1; ++sy) {
-    for (int sx = sx0; sx < sx1; ++sx) {
-      ++candidates;
-      const double value = static_cast<double>(source[sy * source_w + sx]);
-      if (!isfinite(value)) continue;
-      const double centre_x = static_cast<double>(sx) + 0.5;
-      const double centre_y = static_cast<double>(sy) + 0.5;
-      const double px[4] = {centre_x - half, centre_x + half,
-                            centre_x + half, centre_x - half};
-      const double py[4] = {centre_y - half, centre_y - half,
-                            centre_y + half, centre_y + half};
-      double qx[4], qy[4];
-      for (int k = 0; k < 4; ++k) {
-        qx[k] = (a00 * px[k] + a01 * py[k] + a02) * sc;
-        qy[k] = (a10 * px[k] + a11 * py[k] + a12) * sc;
-      }
-      const double area = d_polygon_rect_area(qx, qy, tx, ty, tx + 1.0,
-                                               ty + 1.0);
-      if (!(area > 0.0)) continue;
-      ++overlaps;
-      const int c = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
-      A[c] += area * value;
-      B[c] += area;
-    }
-  }
-  const int channels = mono ? 1 : 3;
-  for (int c = 0; c < channels; ++c) {
-    out_a[static_cast<long long>(c) * n + local] = A[c];
-    out_b[static_cast<long long>(c) * n + local] = B[c];
-  }
-  if (candidates) atomicAdd(source_candidates, candidates);
-  if (overlaps) atomicAdd(positive_overlaps, overlaps);
-}
-
-// Coverage variant of k_affine_target_gather: geometry only --- no source
-// values, no A plane. One thread per target cell accumulates B[c] = sum of
+// SAMPLING_GEOMETRY coverage gather: geometry only --- no source values, no
+// A plane. One thread per target cell accumulates B[c] = sum of
 // droplet overlap areas, scanning the conservative inverse-affine source
-// neighbourhood in canonical (sy, sx) order. That is the same accumulation
-// order the record path's host loop uses per cell, so the resulting B plane
-// is bit-identical. Replaces the records pipeline in SAMPLING_GEOMETRY,
-// which otherwise moves ~8M records per (band, frame) call.
+// neighbourhood in canonical (sy, sx) order --- the CPU rasterize's
+// per-cell accumulation order, so the resulting B plane is bit-identical.
 __global__ void k_affine_coverage_gather(
     double a00, double a01, double a02, double a10, double a11, double a12,
     double i00, double i01, double i02, double i10, double i11, double i12,
@@ -354,130 +249,6 @@ __global__ void k_affine_coverage_scatter(
     }
 }
 
-// 1:1 with build_affine_leaf + the rasterize_drizzle_stripe bbox/area loop.
-// One thread per source pixel of the band. Contributions are appended at a
-// dense atomic offset --- the ORDER is arbitrary, which is fine: the host sorts
-// by the (unique) canonical key afterwards, so the reduction is deterministic
-// regardless of append order (plan 19.6). Areas are bit-identical to the CPU
-// because this TU is compiled --fmad=false and the CPU path -ffp-contract=off.
-__global__ void k_affine_frame_contribs(
-    double a0, double a1, double a2, double a3, double a4, double a5, double sc,
-    double half, int y_begin, int rows, int W, int band_sy0, int band_sy1,
-    int band_sx0, int band_sx1, int source_w, const float *src_band,
-    int bayer, int ox, int oy, int mono,
-    int max_cells, CudaDrizzleContribRecord *recs, long long cap,
-    unsigned long long *count, int *overflow) {
-  const long long tid =
-      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
-  const long long band_rows = band_sy1 - band_sy0;
-  const long long band_cols = band_sx1 - band_sx0;
-  const long long total = band_rows * band_cols;
-  if (tid >= total) return;
-  const long long row_in_band = tid / band_cols;
-  const int sy = band_sy0 + static_cast<int>(row_in_band);
-  const int sx = band_sx0 + static_cast<int>(tid % band_cols);
-  // `src_band` is the band-local buffer: row 0 == source row band_sy0,
-  // column 0 == source col band_sx0 (T5 X+Y windowing).
-  const double v = static_cast<double>(src_band[row_in_band * band_cols +
-                                                (sx - band_sx0)]);
-  if (!isfinite(v)) return;
-  const int ch = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
-
-  const double x = sx + 0.5, y = sy + 0.5;
-  const double csx[4] = {x - half, x + half, x + half, x - half};
-  const double csy[4] = {y - half, y - half, y + half, y + half};
-  double lx[4], ly[4];
-  double xmin = 1e300, xmax = -1e300, ymin = 1e300, ymax = -1e300;
-  for (int i = 0; i < 4; ++i) {
-    const double qx = a0 * csx[i] + a1 * csy[i] + a2;
-    const double qy = a3 * csx[i] + a4 * csy[i] + a5;
-    lx[i] = qx * sc;
-    ly[i] = qy * sc;
-    xmin = fmin(xmin, lx[i]); xmax = fmax(xmax, lx[i]);
-    ymin = fmin(ymin, ly[i]); ymax = fmax(ymax, ly[i]);
-  }
-  const int x0 = static_cast<int>(d_clampd(floor(xmin), 0.0, (double)W));
-  const int x1 = static_cast<int>(d_clampd(ceil(xmax), 0.0, (double)W));
-  const int y0 = static_cast<int>(
-      d_clampd(floor(ymin), (double)y_begin, (double)(y_begin + rows)));
-  const int y1 = static_cast<int>(
-      d_clampd(ceil(ymax), (double)y_begin, (double)(y_begin + rows)));
-
-  int emitted = 0;
-  for (int yy = y0; yy < y1; ++yy)
-    for (int xx = x0; xx < x1; ++xx) {
-      const double k =
-          d_polygon_rect_area(lx, ly, (double)xx, (double)yy, xx + 1.0, yy + 1.0);
-      if (k > 0.0) {
-        if (emitted >= max_cells) { atomicExch(overflow, 1); return; }
-        const unsigned long long idx = atomicAdd(count, 1ULL);
-        if (idx >= static_cast<unsigned long long>(cap)) {
-          atomicExch(overflow, 1);
-          return;
-        }
-        CudaDrizzleContribRecord r;
-        r.channel = static_cast<unsigned>(ch);
-        r.target_y = static_cast<unsigned>(yy - y_begin);
-        r.target_x = static_cast<unsigned>(xx);
-        r.source_y = static_cast<unsigned>(sy);
-        r.source_x = static_cast<unsigned>(sx);
-        r.area = k;
-        r.value = v;
-        recs[idx] = r;
-        ++emitted;
-      }
-    }
-}
-
-__global__ void k_affine_dense_scatter(
-    double a0, double a1, double a2, double a3, double a4, double a5,
-    double sc, double half, int tx_begin, int ty_begin, int cols, int rows,
-    int source_w, int source_h, const float *source, int bayer, int ox, int oy,
-    int mono, double *out_a, double *out_b,
-    unsigned long long *positive_overlaps) {
-  const long long tid =
-      static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
-  const long long source_n = static_cast<long long>(source_w) * source_h;
-  if (tid >= source_n) return;
-  const int sy = static_cast<int>(tid / source_w);
-  const int sx = static_cast<int>(tid % source_w);
-  const double value = static_cast<double>(source[tid]);
-  if (!isfinite(value)) return;
-  const int channel = mono ? 0 : d_cfa_channel(sx, sy, bayer, ox, oy);
-  const double x = sx + 0.5, y = sy + 0.5;
-  const double px[4] = {x - half, x + half, x + half, x - half};
-  const double py[4] = {y - half, y - half, y + half, y + half};
-  double qx[4], qy[4];
-  double minx = DBL_MAX, maxx = -DBL_MAX;
-  double miny = DBL_MAX, maxy = -DBL_MAX;
-  for (int k = 0; k < 4; ++k) {
-    qx[k] = (a0 * px[k] + a1 * py[k] + a2) * sc;
-    qy[k] = (a3 * px[k] + a4 * py[k] + a5) * sc;
-    minx = fmin(minx, qx[k]); maxx = fmax(maxx, qx[k]);
-    miny = fmin(miny, qy[k]); maxy = fmax(maxy, qy[k]);
-  }
-  const int x0 = max(tx_begin, static_cast<int>(floor(minx)));
-  const int x1 = min(tx_begin + cols, static_cast<int>(ceil(maxx)));
-  const int y0 = max(ty_begin, static_cast<int>(floor(miny)));
-  const int y1 = min(ty_begin + rows, static_cast<int>(ceil(maxy)));
-  unsigned long long overlaps = 0;
-  const long long plane_n = static_cast<long long>(cols) * rows;
-  for (int ty = y0; ty < y1; ++ty) {
-    for (int tx = x0; tx < x1; ++tx) {
-      const double area =
-          d_polygon_rect_area(qx, qy, tx, ty, tx + 1.0, ty + 1.0);
-      if (!(area > 0.0)) continue;
-      const long long out = static_cast<long long>(channel) * plane_n +
-                            static_cast<long long>(ty - ty_begin) * cols +
-                            (tx - tx_begin);
-      atomicAdd(out_a + out, area * value);
-      atomicAdd(out_b + out, area);
-      ++overlaps;
-    }
-  }
-  if (overlaps) atomicAdd(positive_overlaps, overlaps);
-}
-
 // --- Gate-6 prototype kernels ---------------------------------------------
 
 // Bounded per-(pixel, channel) reservoir record. sigma2 must persist to fold
@@ -491,6 +262,9 @@ struct V2ReservoirRecord {
 
 // Hard device bound: slots = 2 * reservoir_size with reservoir_size <= 64.
 constexpr int kV2MaxResSlots = 128;
+
+// Entries of the per-band device scalar block (see Impl::scalars).
+constexpr std::size_t kV2ScalarCount = 5;
 
 // Compact quality stream on device: raw uint16 cells + veto bytes over a
 // storage-grid window (absolute storage coords). A stream supplies a float
@@ -1037,9 +811,19 @@ __device__ bool d_invert_local(const ForwardDrizzleV2LocalWarp &w,
   return true;
 }
 
+// Grid coordinate i/2 of the interval [a0, a1], i in {0, 1, 2}. Exactly the
+// CPU oracle's expression (subdivide_local: `x0 + (x1 - x0) * i / 2`); the
+// node evaluator, the child split and the leaf-corner re-inversion must all
+// use it so the scatter inverts bit-identical coordinates to the ones the
+// evaluator accepted. Note a0 + (a1 - a0) * 2 / 2 need not equal a1.
+__device__ __forceinline__ double d_node_grid(double a0, double a1, int i) {
+  return a0 + (a1 - a0) * i / 2;
+}
+
 // Node bounds of the implicit subdivision tree. `id` enumerates 1+4+16
 // nodes: 0 = root droplet box, 1..4 = depth-1 children (c = j*2+i of the
-// parent's 2x2 split), 5..20 = depth-2 grandchildren.
+// parent's 2x2 split), 5..20 = depth-2 grandchildren. Child (i, j) spans
+// [grid(i), grid(i + 1)] of its parent, as in subdivide_local.
 __device__ void d_local_node_bounds(int id, double x0, double y0, double x1,
                                     double y1, double &nx0, double &ny0,
                                     double &nx1, double &ny1) {
@@ -1047,22 +831,23 @@ __device__ void d_local_node_bounds(int id, double x0, double y0, double x1,
   ny0 = y0;
   nx1 = x1;
   ny1 = y1;
+  auto split = [](double &a0, double &a1, int i) {
+    const double lo = d_node_grid(a0, a1, i);
+    const double hi = d_node_grid(a0, a1, i + 1);
+    a0 = lo;
+    a1 = hi;
+  };
   if (id >= 5) {
     const int p = (id - 5) / 4;  // depth-1 parent index
-    const double mx = x0 + (x1 - x0) * 0.5, my = y0 + (y1 - y0) * 0.5;
-    if (p & 1) nx0 = mx; else nx1 = mx;
-    if (p & 2) ny0 = my; else ny1 = my;
+    split(nx0, nx1, p & 1);
+    split(ny0, ny1, (p >> 1) & 1);
     const int c = (id - 5) % 4;
-    const double qx0 = nx0, qy0 = ny0, qx1 = nx1, qy1 = ny1;
-    const double hx = qx0 + (qx1 - qx0) * 0.5;
-    const double hy = qy0 + (qy1 - qy0) * 0.5;
-    if (c & 1) nx0 = hx; else nx1 = hx;
-    if (c & 2) ny0 = hy; else ny1 = hy;
+    split(nx0, nx1, c & 1);
+    split(ny0, ny1, (c >> 1) & 1);
   } else if (id >= 1) {
     const int c = id - 1;
-    const double mx = x0 + (x1 - x0) * 0.5, my = y0 + (y1 - y0) * 0.5;
-    if (c & 1) nx0 = mx; else nx1 = mx;
-    if (c & 2) ny0 = my; else ny1 = my;
+    split(nx0, nx1, c & 1);
+    split(ny0, ny1, (c >> 1) & 1);
   }
 }
 
@@ -1078,9 +863,8 @@ __device__ int d_eval_local_node(const ForwardDrizzleV2LocalWarp &w,
   for (int j = 0; j < 3; ++j)
     for (int i = 0; i < 3; ++i) {
       float qx = 0.0f, qy = 0.0f;
-      if (!d_invert_local(w, a,
-                          static_cast<float>(x0 + (x1 - x0) * i / 2),
-                          static_cast<float>(y0 + (y1 - y0) * j / 2),
+      if (!d_invert_local(w, a, static_cast<float>(d_node_grid(x0, x1, i)),
+                          static_cast<float>(d_node_grid(y0, y1, j)),
                           canvas_w_native, canvas_h_native, qx, qy))
         return 2;
       gx[j][i] = static_cast<double>(qx) * sc;
@@ -1195,10 +979,15 @@ __global__ void k_scatter_v2_local(
     if (!((accepted >> id) & 1u)) continue;
     double nx0, ny0, nx1, ny1;
     d_local_node_bounds(id, bx0, by0, bx1, by1, nx0, ny0, nx1, ny1);
-    // Re-evaluate only the four corner inversions of the accepted node;
-    // deterministic, so the corners equal the ones the evaluator saw.
-    const double csx[4] = {nx0, nx1, nx1, nx0};
-    const double csy[4] = {ny0, ny0, ny1, ny1};
+    // Re-evaluate only the four corner inversions of the accepted node.
+    // The corners are the evaluator's grid points (0,0) (2,0) (2,2) (0,2)
+    // computed by the same d_node_grid expression, so every inversion below
+    // repeats one the evaluator already accepted: the failure branch cannot
+    // fire after earlier leaves were scattered.
+    const double gx0 = d_node_grid(nx0, nx1, 0), gx2 = d_node_grid(nx0, nx1, 2);
+    const double gy0 = d_node_grid(ny0, ny1, 0), gy2 = d_node_grid(ny0, ny1, 2);
+    const double csx[4] = {gx0, gx2, gx2, gx0};
+    const double csy[4] = {gy0, gy0, gy2, gy2};
     double qx[4], qy[4];
     double minx = DBL_MAX, maxx = -DBL_MAX;
     double miny = DBL_MAX, maxy = -DBL_MAX;
@@ -1277,6 +1066,29 @@ __global__ void k_clear_planes_x(
   if (fq1 != nullptr) fq1[idx] = 0.0;
   if (fqa != nullptr) fqa[idx] = 0.0;
   if (fqaf != nullptr) fqaf[idx] = 0.0;
+}
+
+// Band-end telemetry: sums of kept[] and contrib[] over all (pixel, channel)
+// entries into out[0] / out[1]. Integer sums are exact and order-independent,
+// so this replaces downloading both arrays for a host-side sum.
+__global__ void k_sum_kept_contrib(const unsigned int *kept,
+                                   const unsigned int *contrib, long long n,
+                                   unsigned long long *out) {
+  unsigned long long k = 0, c = 0;
+  for (long long i = static_cast<long long>(blockIdx.x) * blockDim.x +
+                     threadIdx.x;
+       i < n; i += static_cast<long long>(gridDim.x) * blockDim.x) {
+    k += kept[i];
+    c += contrib[i];
+  }
+  for (int off = 16; off > 0; off >>= 1) {
+    k += __shfl_down_sync(0xffffffffu, k, off);
+    c += __shfl_down_sync(0xffffffffu, c, off);
+  }
+  if ((threadIdx.x & 31) == 0) {
+    if (k) atomicAdd(out, k);
+    if (c) atomicAdd(out + 1, c);
+  }
 }
 
 // One thread per NATIVE pixel of the band: folds the scale^2 frame-plane
@@ -1615,6 +1427,115 @@ __device__ void d_recompute_bounds(const V2ReservoirRecord *recs,
   out_mad = mad;
 }
 
+// Gate-9 profile reduction over the accepted subset of the x-sorted
+// reservoir (bit `i` of acc_lo/acc_hi = sorted slot i): the four profiles
+// (uniform b; raw b*g_eff*q; fine b*g_eff*q0^fe; medium b*g_eff*q1^me) and
+// the v2 alpha factors. Shared by k_finalize_v2 and k_finalize_v2_sfr_reduce.
+// The artifact and residual percentiles are computed one after the other in
+// ONE (value, weight) scratch pair --- both are filled in ascending slot order
+// exactly as before, so the results are unchanged while the per-thread local
+// footprint of the finalize kernels drops by 2 KiB.
+__device__ void d_reduce_profiles(
+    const V2ReservoirRecord *recs, const float4 *qvs, unsigned int n_kept,
+    unsigned long long acc_lo, unsigned long long acc_hi,
+    const V2FrameMetaDev *meta, unsigned long long meta_capacity,
+    double fine_exp, double medium_exp, const AlphaConfidenceParams &alpha,
+    double confidence, std::uint32_t contributors, std::uint64_t degraded,
+    ForwardDrizzleV2ProfileResult &pr) {
+  auto on = [&](unsigned int i) {
+    return i < 64 ? ((acc_lo >> i) & 1ULL) != 0
+                  : ((acc_hi >> (i - 64)) & 1ULL) != 0;
+  };
+  auto meta_at = [&](unsigned long long order) {
+    V2FrameMetaDev m{};
+    if (meta != nullptr && order < meta_capacity) m = meta[order];
+    return m;
+  };
+  double uwx = 0.0, uw = 0.0, uw2 = 0.0;
+  double rwx = 0.0, rw = 0.0, rw2 = 0.0;
+  double fwx = 0.0, fw = 0.0, fw2 = 0.0;
+  double mwx = 0.0, mw = 0.0, mw2 = 0.0;
+  double b_total = 0.0, b_direct = 0.0;
+  double pv[kV2MaxResSlots], pw[kV2MaxResSlots];
+  int n_art = 0;
+  for (unsigned int i = 0; i < n_kept; ++i) {
+    if (!on(i)) continue;
+    const float4 qv = qvs[i];
+    const V2FrameMetaDev m = meta_at(recs[i].order);
+    double g = static_cast<double>(m.g_eff);
+    if (!(g >= 0.0)) g = 0.0;  // malformed meta: zero weight
+    const double b = recs[i].b;
+    const double x = recs[i].x;
+    const double wu = b;
+    const double wr = b * g * static_cast<double>(qv.x);
+    const double wf = b * g * pow(static_cast<double>(qv.y), fine_exp);
+    const double wm = b * g * pow(static_cast<double>(qv.z), medium_exp);
+    uwx += wu * x; uw += wu; uw2 += wu * wu;
+    rwx += wr * x; rw += wr; rw2 += wr * wr;
+    fwx += wf * x; fw += wf; fw2 += wf * wf;
+    mwx += wm * x; mw += wm; mw2 += wm * wm;
+    b_total += b;
+    if (m.is_direct != 0u) b_direct += b;
+    if (qv.w >= 0.0f) {
+      double av = static_cast<double>(qv.w);
+      if (av < 0.0) av = 0.0;
+      if (av > 1.0) av = 1.0;
+      pv[n_art] = av;
+      pw[n_art] = b;
+      ++n_art;
+    }
+  }
+  auto write = [](ForwardDrizzleV2ProfileOutput &o, double wx, double w,
+                  double w2) {
+    if (!(w > 0.0)) return;
+    o.value = static_cast<float>(wx / w);
+    o.weight_sum = static_cast<float>(w);
+    o.n_eff = static_cast<float>(w2 > 0.0 ? (w * w) / w2 : 0.0);
+    o.support = 1;
+  };
+  write(pr.uniform, uwx, uw, uw2);
+  write(pr.raw, rwx, rw, rw2);
+  write(pr.fine, fwx, fw, fw2);
+  write(pr.medium, mwx, mw, mw2);
+  // v2 contract: a_separation is the gate-4 confidence, not the
+  // quality-percentile separation. When EVERY contributor carried an
+  // invalid sigma2 there is no noise model underwriting separation:
+  // collapse to 0 (the degraded calibration boundary).
+  double sep = confidence;
+  if (contributors > 0 && degraded == contributors) sep = 0.0;
+  if (sep < 0.0) sep = 0.0;
+  if (sep > 1.0) sep = 1.0;
+  pr.a_separation = static_cast<float>(sep);
+  if (n_art >= alpha.min_artifact_contributors) {
+    const double a_p10 = d_hazen_percentile(pv, pw, n_art, 0.10);
+    pr.a_artifact = static_cast<float>(
+        d_smoothstep(alpha.artifact_lo, alpha.artifact_hi, a_p10));
+    pr.artifact_applicable = true;
+  }
+  // Residual factors of the same accepted set, same slot order.
+  int n_res = 0;
+  for (unsigned int i = 0; i < n_kept; ++i) {
+    if (!on(i)) continue;
+    pv[n_res] = static_cast<double>(meta_at(recs[i].order).residual_factor);
+    pw[n_res] = recs[i].b;
+    ++n_res;
+  }
+  // Empty accepted set (e.g. shared_frame_rejection voted every candidate of
+  // this channel out): compute_alpha_confidence_channel returns all-zero
+  // factors on the CPU. The previous device code ran the percentile on zero
+  // entries and read an uninitialized slot; keep the zero default instead.
+  if (n_res == 0) return;
+  const double direct_fraction = b_total > 0.0 ? b_direct / b_total : 0.0;
+  const double residual_p20 = d_hazen_percentile(pv, pw, n_res, 0.20);
+  const double reg_dir = d_smoothstep(alpha.direct_fraction_lo,
+                                      alpha.direct_fraction_hi,
+                                      direct_fraction);
+  const double reg_res = d_smoothstep(alpha.residual_p20_lo,
+                                      alpha.residual_p20_hi, residual_p20);
+  // std::min NaN semantics: (b < a) ? b : a.
+  pr.a_registration = static_cast<float>(reg_res < reg_dir ? reg_res : reg_dir);
+}
+
 // Band-end finalize: per (pixel, channel) runs the bit-exact gate-3 clip on
 // the reservoir (identical evaluation order to robust_frame_oracle_v2:
 // (x, order) sort, cumulative-weight median at >= total/2, (|x-med|, order)
@@ -1867,90 +1788,9 @@ __global__ void k_finalize_v2(
 
   if (pout != nullptr) {
     ForwardDrizzleV2ProfileResult pr;
-    double uwx = 0.0, uw = 0.0, uw2 = 0.0;
-    double rwx = 0.0, rw = 0.0, rw2 = 0.0;
-    double fwx = 0.0, fw = 0.0, fw2 = 0.0;
-    double mwx = 0.0, mw = 0.0, mw2 = 0.0;
-    double b_total = 0.0, b_direct = 0.0;
-    double art_v[kV2MaxResSlots], art_w[kV2MaxResSlots];
-    double res_v[kV2MaxResSlots], res_w[kV2MaxResSlots];
-    int n_art = 0, n_res = 0;
-    for (unsigned int i = 0; i < n_kept; ++i) {
-      const bool on =
-          i < 64 ? (acc_lo >> i) & 1ULL : (acc_hi >> (i - 64)) & 1ULL;
-      if (!on) continue;
-      const float4 qv = qvs[i];
-      V2FrameMetaDev m{};
-      if (meta != nullptr && recs[i].order < meta_capacity)
-        m = meta[recs[i].order];
-      double g = static_cast<double>(m.g_eff);
-      if (!(g >= 0.0)) g = 0.0;  // malformed meta: zero weight
-      const double b = recs[i].b;
-      const double x = recs[i].x;
-      const double wu = b;
-      const double wr = b * g * static_cast<double>(qv.x);
-      const double wf =
-          b * g * pow(static_cast<double>(qv.y), fine_exp);
-      const double wm =
-          b * g * pow(static_cast<double>(qv.z), medium_exp);
-      uwx += wu * x; uw += wu; uw2 += wu * wu;
-      rwx += wr * x; rw += wr; rw2 += wr * wr;
-      fwx += wf * x; fw += wf; fw2 += wf * wf;
-      mwx += wm * x; mw += wm; mw2 += wm * wm;
-      b_total += b;
-      if (m.is_direct != 0u) b_direct += b;
-      if (qv.w >= 0.0f) {
-        double av = static_cast<double>(qv.w);
-        if (av < 0.0) av = 0.0;
-        if (av > 1.0) av = 1.0;
-        art_v[n_art] = av;
-        art_w[n_art] = b;
-        ++n_art;
-      }
-      res_v[n_res] = static_cast<double>(m.residual_factor);
-      res_w[n_res] = b;
-      ++n_res;
-    }
-    auto write = [](ForwardDrizzleV2ProfileOutput &o, double wx, double w,
-                    double w2) {
-      if (!(w > 0.0)) return;
-      o.value = static_cast<float>(wx / w);
-      o.weight_sum = static_cast<float>(w);
-      o.n_eff = static_cast<float>(w2 > 0.0 ? (w * w) / w2 : 0.0);
-      o.support = 1;
-    };
-    write(pr.uniform, uwx, uw, uw2);
-    write(pr.raw, rwx, rw, rw2);
-    write(pr.fine, fwx, fw, fw2);
-    write(pr.medium, mwx, mw, mw2);
-    // v2 contract: a_separation is the gate-4 confidence, not the
-    // quality-percentile separation. When EVERY contributor carried an
-    // invalid sigma2 there is no noise model underwriting separation:
-    // collapse to 0 (the degraded calibration boundary).
-    double sep = r.confidence;
-    if (r.contributors > 0 && degraded[pc] == r.contributors) sep = 0.0;
-    if (sep < 0.0) sep = 0.0;
-    if (sep > 1.0) sep = 1.0;
-    pr.a_separation = static_cast<float>(sep);
-    if (n_art >= alpha.min_artifact_contributors) {
-      const double a_p10 = d_hazen_percentile(art_v, art_w, n_art, 0.10);
-      pr.a_artifact = static_cast<float>(
-          d_smoothstep(alpha.artifact_lo, alpha.artifact_hi, a_p10));
-      pr.artifact_applicable = true;
-    }
-    const double direct_fraction =
-        b_total > 0.0 ? b_direct / b_total : 0.0;
-    const double residual_p20 =
-        d_hazen_percentile(res_v, res_w, n_res, 0.20);
-    const double reg_dir =
-        d_smoothstep(alpha.direct_fraction_lo, alpha.direct_fraction_hi,
-                     direct_fraction);
-    const double reg_res =
-        d_smoothstep(alpha.residual_p20_lo, alpha.residual_p20_hi,
-                     residual_p20);
-    // std::min NaN semantics: (b < a) ? b : a.
-    pr.a_registration =
-        static_cast<float>(reg_res < reg_dir ? reg_res : reg_dir);
+    d_reduce_profiles(recs, qvs, n_kept, acc_lo, acc_hi, meta, meta_capacity,
+                      fine_exp, medium_exp, alpha, r.confidence,
+                      r.contributors, degraded[pc], pr);
     pout[pc] = pr;
   }
   out[pc] = r;
@@ -2391,78 +2231,9 @@ __global__ void k_finalize_v2_sfr_reduce(
 
   if (pout != nullptr) {
     ForwardDrizzleV2ProfileResult pr;
-    double uwx = 0.0, uw = 0.0, uw2 = 0.0;
-    double rwx = 0.0, rw = 0.0, rw2 = 0.0;
-    double fwx = 0.0, fw = 0.0, fw2 = 0.0;
-    double mwx = 0.0, mw = 0.0, mw2 = 0.0;
-    double b_total = 0.0, b_direct = 0.0;
-    double art_v[kV2MaxResSlots], art_w[kV2MaxResSlots];
-    double res_v[kV2MaxResSlots], res_w[kV2MaxResSlots];
-    int n_art = 0, n_res = 0;
-    for (unsigned int i = 0; i < n_kept; ++i) {
-      if (!bit(i)) continue;
-      const float4 qv = qvs[i];
-      V2FrameMetaDev m{};
-      if (meta != nullptr && recs[i].order < meta_capacity)
-        m = meta[recs[i].order];
-      double g = static_cast<double>(m.g_eff);
-      if (!(g >= 0.0)) g = 0.0;
-      const double b = recs[i].b;
-      const double x = recs[i].x;
-      const double wu = b;
-      const double wr = b * g * static_cast<double>(qv.x);
-      const double wf = b * g * pow(static_cast<double>(qv.y), fine_exp);
-      const double wm = b * g * pow(static_cast<double>(qv.z), medium_exp);
-      uwx += wu * x; uw += wu; uw2 += wu * wu;
-      rwx += wr * x; rw += wr; rw2 += wr * wr;
-      fwx += wf * x; fw += wf; fw2 += wf * wf;
-      mwx += wm * x; mw += wm; mw2 += wm * wm;
-      b_total += b;
-      if (m.is_direct != 0u) b_direct += b;
-      if (qv.w >= 0.0f) {
-        double av = static_cast<double>(qv.w);
-        if (av < 0.0) av = 0.0;
-        if (av > 1.0) av = 1.0;
-        art_v[n_art] = av;
-        art_w[n_art] = b;
-        ++n_art;
-      }
-      res_v[n_res] = static_cast<double>(m.residual_factor);
-      res_w[n_res] = b;
-      ++n_res;
-    }
-    auto write = [](ForwardDrizzleV2ProfileOutput &o, double wx, double w,
-                    double w2) {
-      if (!(w > 0.0)) return;
-      o.value = static_cast<float>(wx / w);
-      o.weight_sum = static_cast<float>(w);
-      o.n_eff = static_cast<float>(w2 > 0.0 ? (w * w) / w2 : 0.0);
-      o.support = 1;
-    };
-    write(pr.uniform, uwx, uw, uw2);
-    write(pr.raw, rwx, rw, rw2);
-    write(pr.fine, fwx, fw, fw2);
-    write(pr.medium, mwx, mw, mw2);
-    double sep = r.confidence;
-    if (r.contributors > 0 && r.conf_degraded == r.contributors) sep = 0.0;
-    if (sep < 0.0) sep = 0.0;
-    if (sep > 1.0) sep = 1.0;
-    pr.a_separation = static_cast<float>(sep);
-    if (n_art >= alpha.min_artifact_contributors) {
-      const double a_p10 = d_hazen_percentile(art_v, art_w, n_art, 0.10);
-      pr.a_artifact = static_cast<float>(
-          d_smoothstep(alpha.artifact_lo, alpha.artifact_hi, a_p10));
-      pr.artifact_applicable = true;
-    }
-    const double direct_fraction = b_total > 0.0 ? b_direct / b_total : 0.0;
-    const double residual_p20 = d_hazen_percentile(res_v, res_w, n_res, 0.20);
-    const double reg_dir = d_smoothstep(alpha.direct_fraction_lo,
-                                        alpha.direct_fraction_hi,
-                                        direct_fraction);
-    const double reg_res = d_smoothstep(alpha.residual_p20_lo,
-                                        alpha.residual_p20_hi, residual_p20);
-    pr.a_registration =
-        static_cast<float>(reg_res < reg_dir ? reg_res : reg_dir);
+    d_reduce_profiles(recs, qvs, n_kept, acc_lo, acc_hi, meta, meta_capacity,
+                      fine_exp, medium_exp, alpha, r.confidence,
+                      r.contributors, r.conf_degraded, pr);
     pout[pc] = pr;
   }
   out[pc] = r;
@@ -2652,229 +2423,6 @@ bool forward_drizzle_cuda_polygon_rect_area_batch(const double *quad_xy,
   return ok;
 }
 
-bool forward_drizzle_cuda_affine_leaf_corners_batch(const double affine6[6],
-                                                    int internal_scale,
-                                                    double half,
-                                                    const double *sample_xy,
-                                                    int n, double *out_corners) {
-  if (n <= 0 || affine6 == nullptr || sample_xy == nullptr ||
-      out_corners == nullptr || internal_scale <= 0)
-    return false;
-  int dev = 0;
-  if (cudaGetDeviceCount(&dev) != cudaSuccess || dev <= 0) {
-    cudaGetLastError();
-    return false;
-  }
-  CudaScopedError clear_on_exit;
-
-  double *d_in = nullptr, *d_out = nullptr;
-  const size_t nb_i = static_cast<size_t>(n) * 2 * sizeof(double);
-  const size_t nb_o = static_cast<size_t>(n) * 8 * sizeof(double);
-  bool ok = cudaMalloc(&d_in, nb_i) == cudaSuccess &&
-            cudaMalloc(&d_out, nb_o) == cudaSuccess;
-  if (ok)
-    ok = cudaMemcpy(d_in, sample_xy, nb_i, cudaMemcpyHostToDevice) ==
-         cudaSuccess;
-  if (ok) {
-    const int block = 128;
-    const int grid = (n + block - 1) / block;
-    k_affine_leaf_corners_batch<<<grid, block>>>(
-        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
-        static_cast<double>(internal_scale), half, d_in, n, d_out);
-    ok = cudaGetLastError() == cudaSuccess &&
-         cudaDeviceSynchronize() == cudaSuccess;
-  }
-  if (ok)
-    ok = cudaMemcpy(out_corners, d_out, nb_o, cudaMemcpyDeviceToHost) ==
-         cudaSuccess;
-  cudaFree(d_in);
-  cudaFree(d_out);
-  return ok;
-}
-
-bool forward_drizzle_cuda_affine_frame_contributions(
-    const double affine6[6], int internal_scale, double half, int y_begin,
-    int rows, int canvas_w_internal, int band_sy0, int band_sy1,
-    int band_sx0, int band_sx1, int source_w,
-    int source_h, const float *source_values, int bayer_pattern,
-    int cfa_origin_x, int cfa_origin_y, bool mono, int max_cells_per_pixel,
-    CudaDrizzleContribRecord *records_out, long long records_capacity,
-    long long *out_written) {
-  if (!affine6 || !source_values || !records_out || !out_written ||
-      internal_scale <= 0 || source_w <= 0 || source_h <= 0 ||
-      max_cells_per_pixel <= 0 || records_capacity <= 0)
-    return false;
-  for (int i = 0; i < 6; ++i)
-    if (!std::isfinite(affine6[i])) return false;
-  if (!std::isfinite(half) || !(half > 0.0)) return false;
-  band_sy0 = band_sy0 < 0 ? 0 : band_sy0;
-  band_sy1 = band_sy1 > source_h ? source_h : band_sy1;
-  band_sx0 = band_sx0 < 0 ? 0 : band_sx0;
-  band_sx1 = band_sx1 > source_w ? source_w : band_sx1;
-  *out_written = 0;
-  if (band_sy1 <= band_sy0 || band_sx1 <= band_sx0 || rows <= 0)
-    return true;  // empty band, no records
-
-  int dev = 0;
-  if (cudaGetDeviceCount(&dev) != cudaSuccess || dev <= 0) {
-    cudaGetLastError();
-    return false;
-  }
-  CudaScopedError clear_on_exit;
-
-  const long long band_rows = band_sy1 - band_sy0;
-  const long long band_cols = band_sx1 - band_sx0;
-  const long long total_threads = band_rows * band_cols;
-  const long long grid_ll = (total_threads + 127) / 128;
-  if (grid_ll > 2000000000LL) return false;  // absurd band; caller uses CPU
-
-  float *d_src = nullptr;
-  CudaDrizzleContribRecord *d_recs = nullptr;
-  unsigned long long *d_count = nullptr;
-  int *d_overflow = nullptr;
-  // `source_values` is the band-local buffer (row 0 == source row band_sy0,
-  // column 0 == source col band_sx0), sized band_rows * band_cols (T5 X+Y
-  // windowing). The caller never copies the whole image.
-  const size_t src_bytes =
-      static_cast<size_t>(band_rows) * static_cast<size_t>(band_cols) *
-      sizeof(float);
-  const size_t rec_bytes =
-      static_cast<size_t>(records_capacity) * sizeof(CudaDrizzleContribRecord);
-  // §30.81 step-5 baseline: coarse device-phase timers, gated by
-  // TC_FD_CUDA_PROFILE. cudaDeviceSynchronize() below makes the kernel window a
-  // real wall measurement; malloc/upload/download are around blocking calls.
-  const bool cprof = forward_drizzle_cuda_profile_enabled();
-  using cclock = std::chrono::steady_clock;
-  auto cnow = [] { return cclock::now(); };
-  auto cadd = [&](std::atomic<double> &slot, cclock::time_point t0) {
-    if (cprof)
-      forward_drizzle_cuda_profile_add(
-          slot, std::chrono::duration<double>(cnow() - t0).count());
-  };
-  auto t_phase = cnow();
-  bool ok = cudaMalloc(&d_src, src_bytes) == cudaSuccess &&
-            cudaMalloc(&d_recs, rec_bytes) == cudaSuccess &&
-            cudaMalloc(&d_count, sizeof(unsigned long long)) == cudaSuccess &&
-            cudaMalloc(&d_overflow, sizeof(int)) == cudaSuccess;
-  cadd(forward_drizzle_cuda_profile().dev_malloc_s, t_phase);
-  if (ok) {
-    t_phase = cnow();
-    ok = cudaMemcpy(d_src, source_values, src_bytes, cudaMemcpyHostToDevice) ==
-             cudaSuccess &&
-         cudaMemset(d_count, 0, sizeof(unsigned long long)) == cudaSuccess &&
-         cudaMemset(d_overflow, 0, sizeof(int)) == cudaSuccess;
-    cadd(forward_drizzle_cuda_profile().dev_upload_s, t_phase);
-  }
-  if (ok) {
-    t_phase = cnow();
-    k_affine_frame_contribs<<<static_cast<unsigned>(grid_ll), 128>>>(
-        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
-        static_cast<double>(internal_scale), half, y_begin, rows,
-        canvas_w_internal, band_sy0, band_sy1, band_sx0, band_sx1, source_w,
-        d_src, bayer_pattern, cfa_origin_x, cfa_origin_y, mono ? 1 : 0,
-        max_cells_per_pixel, d_recs, records_capacity, d_count, d_overflow);
-    ok = cudaGetLastError() == cudaSuccess &&
-         cudaDeviceSynchronize() == cudaSuccess;
-    cadd(forward_drizzle_cuda_profile().dev_kernel_s, t_phase);
-  }
-  int overflow = 0;
-  unsigned long long count = 0;
-  t_phase = cnow();
-  if (ok)
-    ok = cudaMemcpy(&overflow, d_overflow, sizeof(int), cudaMemcpyDeviceToHost) ==
-             cudaSuccess &&
-         cudaMemcpy(&count, d_count, sizeof(unsigned long long),
-                    cudaMemcpyDeviceToHost) == cudaSuccess;
-  if (ok && overflow == 0 &&
-      count <= static_cast<unsigned long long>(records_capacity)) {
-    ok = cudaMemcpy(records_out, d_recs,
-                    static_cast<size_t>(count) * sizeof(CudaDrizzleContribRecord),
-                    cudaMemcpyDeviceToHost) == cudaSuccess;
-    if (ok) *out_written = static_cast<long long>(count);
-  } else {
-    ok = false;  // overflow or capacity exceeded -> caller falls back to CPU
-  }
-  cadd(forward_drizzle_cuda_profile().dev_download_s, t_phase);
-  cudaFree(d_src);
-  cudaFree(d_recs);
-  cudaFree(d_count);
-  cudaFree(d_overflow);
-  return ok;
-}
-
-bool forward_drizzle_cuda_affine_target_gather(
-    const double affine6[6], const double inverse6[6], int internal_scale,
-    double half, int target_x_begin, int target_y_begin, int target_cols,
-    int target_rows, int source_w, int source_h, const float *source_values,
-    int bayer_pattern, int cfa_origin_x, int cfa_origin_y, bool mono,
-    double *out_a, double *out_b, unsigned long long *out_source_candidates,
-    unsigned long long *out_positive_overlaps) {
-  if (!affine6 || !inverse6 || !source_values || !out_a || !out_b ||
-      internal_scale <= 0 || target_cols <= 0 || target_rows <= 0 ||
-      source_w <= 0 || source_h <= 0)
-    return false;
-  int devices = 0;
-  if (cudaGetDeviceCount(&devices) != cudaSuccess || devices <= 0) {
-    cudaGetLastError();
-    return false;
-  }
-  CudaScopedError clear_on_exit;
-  const int channels = mono ? 1 : 3;
-  const long long cells = static_cast<long long>(target_cols) * target_rows;
-  if (cells <= 0 || cells > 2000000000LL) return false;
-  const std::size_t src_bytes = static_cast<std::size_t>(source_w) * source_h *
-                                sizeof(float);
-  const std::size_t plane_bytes = static_cast<std::size_t>(channels) * cells *
-                                  sizeof(double);
-  float *d_source = nullptr;
-  double *d_a = nullptr, *d_b = nullptr;
-  unsigned long long *d_candidates = nullptr, *d_overlaps = nullptr;
-  bool ok = cudaMalloc(&d_source, src_bytes) == cudaSuccess &&
-            cudaMalloc(&d_a, plane_bytes) == cudaSuccess &&
-            cudaMalloc(&d_b, plane_bytes) == cudaSuccess &&
-            cudaMalloc(&d_candidates, sizeof(unsigned long long)) ==
-                cudaSuccess &&
-            cudaMalloc(&d_overlaps, sizeof(unsigned long long)) == cudaSuccess;
-  if (ok)
-    ok = cudaMemcpy(d_source, source_values, src_bytes,
-                    cudaMemcpyHostToDevice) == cudaSuccess &&
-         cudaMemset(d_candidates, 0, sizeof(unsigned long long)) ==
-             cudaSuccess &&
-         cudaMemset(d_overlaps, 0, sizeof(unsigned long long)) == cudaSuccess;
-  if (ok) {
-    const int block = 128;
-    const int grid = (static_cast<int>(cells) + block - 1) / block;
-    k_affine_target_gather<<<grid, block>>>(
-        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
-        inverse6[0], inverse6[1], inverse6[2], inverse6[3], inverse6[4],
-        inverse6[5], internal_scale, half, target_x_begin, target_y_begin,
-        target_cols, target_rows, source_w, source_h, d_source, bayer_pattern,
-        cfa_origin_x, cfa_origin_y, mono, d_a, d_b, d_candidates, d_overlaps);
-    ok = cudaGetLastError() == cudaSuccess &&
-         cudaDeviceSynchronize() == cudaSuccess;
-  }
-  unsigned long long candidates = 0, overlaps = 0;
-  if (ok)
-    ok = cudaMemcpy(out_a, d_a, plane_bytes, cudaMemcpyDeviceToHost) ==
-             cudaSuccess &&
-         cudaMemcpy(out_b, d_b, plane_bytes, cudaMemcpyDeviceToHost) ==
-             cudaSuccess &&
-         cudaMemcpy(&candidates, d_candidates, sizeof(candidates),
-                    cudaMemcpyDeviceToHost) == cudaSuccess &&
-         cudaMemcpy(&overlaps, d_overlaps, sizeof(overlaps),
-                    cudaMemcpyDeviceToHost) == cudaSuccess;
-  cudaFree(d_source);
-  cudaFree(d_a);
-  cudaFree(d_b);
-  cudaFree(d_candidates);
-  cudaFree(d_overlaps);
-  if (ok) {
-    if (out_source_candidates) *out_source_candidates = candidates;
-    if (out_positive_overlaps) *out_positive_overlaps = overlaps;
-  }
-  return ok;
-}
-
 bool forward_drizzle_cuda_affine_coverage_gather(
     const double affine6[6], const double inverse6[6], int internal_scale,
     double half, int target_x_begin, int target_y_begin, int target_cols,
@@ -2898,17 +2446,19 @@ bool forward_drizzle_cuda_affine_coverage_gather(
   // Grow-only static output plane: the SAMPLING_GEOMETRY caller serializes
   // every call through its own mutex, and per-call cudaMalloc/cudaFree of a
   // ~30MB buffer dominated the old records pipeline's call overhead.
+  // Capacity is tracked in BYTES: a MONO call (1 channel) followed by a CFA
+  // call (3 channels) over the same cell count needs three times the plane.
   static double *d_b = nullptr;
-  static std::size_t d_b_capacity = 0;  // cells
-  if (static_cast<std::size_t>(cells) > d_b_capacity) {
+  static std::size_t d_b_capacity_bytes = 0;
+  if (plane_bytes > d_b_capacity_bytes) {
     cudaFree(d_b);
     d_b = nullptr;
-    d_b_capacity = 0;
+    d_b_capacity_bytes = 0;
     if (cudaMalloc(&d_b, plane_bytes) != cudaSuccess) {
       cudaGetLastError();
       return false;
     }
-    d_b_capacity = static_cast<std::size_t>(cells);
+    d_b_capacity_bytes = plane_bytes;
   }
   bool ok = true;
   const bool force_gather =
@@ -2963,9 +2513,12 @@ bool forward_drizzle_cuda_affine_coverage_gather(
       return true;
     }
     // Four sequential parity-class launches (same stream -> serialized). The
-    // plane was memset once; each launch accumulates its sublattice.
+    // plane was memset once; each launch accumulates its sublattice. One
+    // parity class holds at most ceil(rows/2) * ceil(cols/2) samples, so the
+    // grid covers that instead of the whole band (the kernel bounds-checks).
     const long long total =
-        static_cast<long long>(band_sy1 - band_sy0) * (band_sx1 - band_sx0);
+        static_cast<long long>((band_sy1 - band_sy0 + 1) / 2) *
+        ((band_sx1 - band_sx0 + 1) / 2);
     const int block = 128;
     const int grid = static_cast<int>((total + block - 1) / block);
     for (int py = 0; py < 2 && ok; ++py)
@@ -2994,76 +2547,6 @@ bool forward_drizzle_cuda_affine_coverage_gather(
   if (ok)
     ok = cudaMemcpy(out_b, d_b, plane_bytes, cudaMemcpyDeviceToHost) ==
          cudaSuccess;
-  return ok;
-}
-
-bool forward_drizzle_cuda_affine_dense_scatter(
-    const double affine6[6], int internal_scale, double half,
-    int target_x_begin, int target_y_begin, int target_cols, int target_rows,
-    int source_w, int source_h, const float *source_values, int bayer_pattern,
-    int cfa_origin_x, int cfa_origin_y, bool mono, double *out_a,
-    double *out_b, unsigned long long *out_positive_overlaps) {
-  if (!affine6 || !source_values || !out_a || !out_b || internal_scale <= 0 ||
-      target_cols <= 0 || target_rows <= 0 || source_w <= 0 || source_h <= 0)
-    return false;
-  // Reject non-finite transform/pixfrac parameters before the kernel:
-  // floor(NaN) cast to int is undefined behaviour on device.
-  for (int i = 0; i < 6; ++i)
-    if (!std::isfinite(affine6[i])) return false;
-  if (!std::isfinite(half) || !(half > 0.0)) return false;
-  int devices = 0;
-  if (cudaGetDeviceCount(&devices) != cudaSuccess || devices <= 0) {
-    cudaGetLastError();
-    return false;
-  }
-  CudaScopedError clear_on_exit;
-  const int channels = mono ? 1 : 3;
-  const long long source_n = static_cast<long long>(source_w) * source_h;
-  const long long target_n = static_cast<long long>(target_cols) * target_rows;
-  if (source_n <= 0 || target_n <= 0 || source_n > 2000000000LL ||
-      target_n > 2000000000LL)
-    return false;
-  const std::size_t src_bytes = static_cast<std::size_t>(source_n) * sizeof(float);
-  const std::size_t plane_bytes =
-      static_cast<std::size_t>(channels) * target_n * sizeof(double);
-  float *d_source = nullptr;
-  double *d_a = nullptr, *d_b = nullptr;
-  unsigned long long *d_overlaps = nullptr;
-  bool ok = cudaMalloc(&d_source, src_bytes) == cudaSuccess &&
-            cudaMalloc(&d_a, plane_bytes) == cudaSuccess &&
-            cudaMalloc(&d_b, plane_bytes) == cudaSuccess &&
-            cudaMalloc(&d_overlaps, sizeof(unsigned long long)) == cudaSuccess;
-  if (ok)
-    ok = cudaMemcpy(d_source, source_values, src_bytes,
-                    cudaMemcpyHostToDevice) == cudaSuccess &&
-         cudaMemset(d_a, 0, plane_bytes) == cudaSuccess &&
-         cudaMemset(d_b, 0, plane_bytes) == cudaSuccess &&
-         cudaMemset(d_overlaps, 0, sizeof(unsigned long long)) == cudaSuccess;
-  if (ok) {
-    const int block = 128;
-    const int grid = (static_cast<int>(source_n) + block - 1) / block;
-    k_affine_dense_scatter<<<grid, block>>>(
-        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
-        static_cast<double>(internal_scale), half, target_x_begin,
-        target_y_begin, target_cols, target_rows, source_w, source_h, d_source,
-        bayer_pattern, cfa_origin_x, cfa_origin_y, mono ? 1 : 0, d_a, d_b,
-        d_overlaps);
-    ok = cudaGetLastError() == cudaSuccess &&
-         cudaDeviceSynchronize() == cudaSuccess;
-  }
-  unsigned long long overlaps = 0;
-  if (ok)
-    ok = cudaMemcpy(out_a, d_a, plane_bytes, cudaMemcpyDeviceToHost) ==
-             cudaSuccess &&
-         cudaMemcpy(out_b, d_b, plane_bytes, cudaMemcpyDeviceToHost) ==
-             cudaSuccess &&
-         cudaMemcpy(&overlaps, d_overlaps, sizeof(overlaps),
-                    cudaMemcpyDeviceToHost) == cudaSuccess;
-  cudaFree(d_source);
-  cudaFree(d_a);
-  cudaFree(d_b);
-  cudaFree(d_overlaps);
-  if (ok && out_positive_overlaps) *out_positive_overlaps = overlaps;
   return ok;
 }
 
@@ -3158,323 +2641,6 @@ bool forward_drizzle_cuda_local_dense_scatter(
   return ok;
 }
 
-ForwardDrizzleV2CudaWorkspace::ForwardDrizzleV2CudaWorkspace() = default;
-
-ForwardDrizzleV2CudaWorkspace::~ForwardDrizzleV2CudaWorkspace() {
-  // No device-wide sync here: the stream only carries this workspace's own
-  // operations, and destroying it implicitly waits for its queued work.
-  cudaFree(device_source_);
-  cudaFree(device_a_);
-  cudaFree(device_b_);
-  cudaFree(device_overlaps_);
-  if (stream_ != nullptr)
-    cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
-}
-
-bool ForwardDrizzleV2CudaWorkspace::reserve(std::size_t source_elements,
-                                            std::size_t target_plane_elements,
-                                            int channels) {
-  if (source_elements == 0 || target_plane_elements == 0 ||
-      (channels != 1 && channels != 3))
-    return false;
-  if (stream_ == nullptr) {
-    // One non-blocking stream per workspace, created once before first use.
-    // It is queue plumbing, not a hotpath buffer, so it is not counted in
-    // stats_.allocations.
-    cudaStream_t stream = nullptr;
-    if (cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) !=
-        cudaSuccess) {
-      cudaGetLastError();
-      return false;
-    }
-    stream_ = stream;
-  }
-
-  if (source_elements <= source_capacity_ &&
-      target_plane_elements <= plane_capacity_ &&
-      channels <= channel_capacity_)
-    return true;
-
-  // Fail closed on any std::size_t overflow before a single byte is
-  // allocated: an undersized buffer would silently corrupt the kernel's
-  // dense-plane writes.
-  constexpr std::size_t kMax = std::numeric_limits<std::size_t>::max();
-  if (source_elements > kMax / sizeof(float) ||
-      target_plane_elements >
-          kMax / static_cast<std::size_t>(channels))
-    return false;
-  const std::size_t source_bytes = source_elements * sizeof(float);
-  const std::size_t plane_values = target_plane_elements *
-                                   static_cast<std::size_t>(channels);
-  if (plane_values > kMax / sizeof(double)) return false;
-  const std::size_t plane_bytes = plane_values * sizeof(double);
-  if (plane_bytes > (kMax - sizeof(unsigned long long)) / 2 ||
-      source_bytes > kMax - 2 * plane_bytes - sizeof(unsigned long long))
-    return false;
-  const std::size_t reserved_bytes = source_bytes + 2 * plane_bytes +
-                                     sizeof(unsigned long long);
-
-  void *new_source = nullptr, *new_a = nullptr, *new_b = nullptr,
-       *new_overlaps = nullptr;
-  bool ok = cudaMalloc(&new_source, source_bytes) == cudaSuccess &&
-            cudaMalloc(&new_a, plane_bytes) == cudaSuccess &&
-            cudaMalloc(&new_b, plane_bytes) == cudaSuccess &&
-            cudaMalloc(&new_overlaps, sizeof(unsigned long long)) == cudaSuccess;
-  if (!ok) {
-    cudaFree(new_source);
-    cudaFree(new_a);
-    cudaFree(new_b);
-    cudaFree(new_overlaps);
-    cudaGetLastError();
-    return false;
-  }
-  cudaFree(device_source_);
-  cudaFree(device_a_);
-  cudaFree(device_b_);
-  cudaFree(device_overlaps_);
-  device_source_ = new_source;
-  device_a_ = new_a;
-  device_b_ = new_b;
-  device_overlaps_ = new_overlaps;
-  source_capacity_ = source_elements;
-  plane_capacity_ = target_plane_elements;
-  channel_capacity_ = channels;
-  ++stats_.allocations;
-  stats_.reserved_device_bytes = reserved_bytes;
-  return true;
-}
-
-bool ForwardDrizzleV2CudaWorkspace::run_dense_scatter(
-    const double affine6[6], int internal_scale, double half,
-    int target_x_begin, int target_y_begin, int target_cols, int target_rows,
-    int source_w, int source_h, const float *source_values, int bayer_pattern,
-    int cfa_origin_x, int cfa_origin_y, bool mono, double *out_a,
-    double *out_b) {
-  if (!affine6 || !source_values || !out_a || !out_b || internal_scale <= 0 ||
-      target_cols <= 0 || target_rows <= 0 || source_w <= 0 || source_h <= 0)
-    return false;
-  // Reject non-finite transform/pixfrac parameters before the kernel:
-  // floor(NaN) cast to int is undefined behaviour on device.
-  for (int i = 0; i < 6; ++i)
-    if (!std::isfinite(affine6[i])) return false;
-  if (!std::isfinite(half) || !(half > 0.0)) return false;
-  const int channels = mono ? 1 : 3;
-  const std::size_t source_n = static_cast<std::size_t>(source_w) * source_h;
-  const std::size_t target_n =
-      static_cast<std::size_t>(target_cols) * target_rows;
-  if (source_n > source_capacity_ || target_n > plane_capacity_ ||
-      channels > channel_capacity_ || source_n > 2000000000ULL)
-    return false;
-  const std::size_t src_bytes = source_n * sizeof(float);
-  const std::size_t plane_bytes =
-      static_cast<std::size_t>(channels) * target_n * sizeof(double);
-  cudaStream_t stream = static_cast<cudaStream_t>(stream_);
-  using clock = std::chrono::steady_clock;
-  auto t0 = clock::now();
-  bool ok = cudaMemcpyAsync(device_source_, source_values, src_bytes,
-                            cudaMemcpyHostToDevice, stream) == cudaSuccess &&
-            cudaMemsetAsync(device_a_, 0, plane_bytes, stream) ==
-                cudaSuccess &&
-            cudaMemsetAsync(device_b_, 0, plane_bytes, stream) ==
-                cudaSuccess &&
-            cudaMemsetAsync(device_overlaps_, 0, sizeof(unsigned long long),
-                            stream) == cudaSuccess;
-  ++stats_.stream_synchronizations;
-  ok = cudaStreamSynchronize(stream) == cudaSuccess && ok;
-  auto t1 = clock::now();
-  if (ok) {
-    const int block = 128;
-    const int grid = (static_cast<int>(source_n) + block - 1) / block;
-    k_affine_dense_scatter<<<grid, block, 0, stream>>>(
-        affine6[0], affine6[1], affine6[2], affine6[3], affine6[4], affine6[5],
-        static_cast<double>(internal_scale), half, target_x_begin,
-        target_y_begin, target_cols, target_rows, source_w, source_h,
-        static_cast<const float *>(device_source_), bayer_pattern, cfa_origin_x,
-        cfa_origin_y, mono ? 1 : 0, static_cast<double *>(device_a_),
-        static_cast<double *>(device_b_),
-        static_cast<unsigned long long *>(device_overlaps_));
-    ok = cudaGetLastError() == cudaSuccess;
-    ++stats_.stream_synchronizations;
-    ok = cudaStreamSynchronize(stream) == cudaSuccess && ok;
-  }
-  auto t2 = clock::now();
-  unsigned long long overlaps = 0;
-  if (ok) {
-    ok = cudaMemcpyAsync(out_a, device_a_, plane_bytes,
-                         cudaMemcpyDeviceToHost, stream) == cudaSuccess &&
-         cudaMemcpyAsync(out_b, device_b_, plane_bytes,
-                         cudaMemcpyDeviceToHost, stream) == cudaSuccess &&
-         cudaMemcpyAsync(&overlaps, device_overlaps_, sizeof(overlaps),
-                         cudaMemcpyDeviceToHost, stream) == cudaSuccess;
-    ++stats_.stream_synchronizations;
-    ok = cudaStreamSynchronize(stream) == cudaSuccess && ok;
-  }
-  auto t3 = clock::now();
-  if (!ok) return false;
-  ++stats_.calls;
-  stats_.source_bytes_uploaded += src_bytes;
-  stats_.result_bytes_downloaded += 2 * plane_bytes;
-  stats_.positive_overlaps += overlaps;
-  stats_.upload_seconds += std::chrono::duration<double>(t1 - t0).count();
-  stats_.kernel_seconds += std::chrono::duration<double>(t2 - t1).count();
-  stats_.download_seconds += std::chrono::duration<double>(t3 - t2).count();
-  return true;
-}
-
-// Gate-2 test oracle: single-thread device port of the CPU
-// fold_native_pixel_v2 algebra (src/reconstruction/forward_drizzle_v2.cpp).
-// One thread owns the whole scalar fold so the per-frame and per-subpixel
-// evaluation order is identical to the CPU reference. It proves the
-// frame-before-square and four-support-layer arithmetic on the device; it is
-// NOT the production batch kernel that Gate 6 selects later.
-// Error codes mirror the CPU invalid_argument cases:
-//   1 shape, 2 area, 3 frame order, 4 weight, 5 support order,
-//   6 nonfinite numerator with positive denominator.
-__global__ void k_fold_native_pixel_v2(
-    const ForwardDrizzleV2FrameSubpixel *entries, unsigned long long frame_count,
-    const double *area, unsigned long long subpixels,
-    ForwardDrizzleV2FoldResult *out, int *error) {
-  if (frame_count == 0 || subpixels == 0) { *error = 1; return; }
-  double total_area = 0.0;
-  for (unsigned long long j = 0; j < subpixels; ++j) {
-    const double a = area[j];
-    if (!isfinite(a) || a < 0.0) { *error = 2; return; }
-    total_area += a;
-  }
-  if (!(total_area > 0.0)) { *error = 2; return; }
-
-  ForwardDrizzleV2FoldResult r;
-  for (unsigned long long f = 0; f < frame_count; ++f) {
-    double af = 0.0;
-    double bf = 0.0;
-    for (unsigned long long j = 0; j < subpixels; ++j) {
-      const ForwardDrizzleV2FrameSubpixel &v =
-          entries[f * subpixels + j];
-      if (v.frame_order != f) { *error = 3; return; }
-      const bool bad_weight =
-          !isfinite(v.geometry_b) || v.geometry_b < 0.0 ||
-          !isfinite(v.source_b) || v.source_b < 0.0 ||
-          !isfinite(v.estimator_b) || v.estimator_b < 0.0 ||
-          !isfinite(v.b) || v.b < 0.0;
-      if (bad_weight) { *error = 4; return; }
-      if ((v.source_b > 0.0 && !(v.geometry_b > 0.0)) ||
-          (v.estimator_b > 0.0 && !(v.source_b > 0.0)) ||
-          (v.b > 0.0 && !(v.estimator_b > 0.0))) {
-        *error = 5;
-        return;
-      }
-      if (v.b > 0.0 && !isfinite(v.a)) { *error = 6; return; }
-      if (!(v.b > 0.0)) continue;
-      af += area[j] * v.a;
-      bf += area[j] * v.b;
-    }
-    if (bf > 0.0) {
-      r.a += af;
-      r.b += bf;
-      r.b2 += bf * bf;
-    }
-  }
-
-  // Per-internal-subpixel support: count area[j] when at least one frame
-  // carries the respective positive denominator there.
-  double geometry_area = 0.0, source_area = 0.0, estimator_area = 0.0,
-         profile_area = 0.0;
-  for (unsigned long long j = 0; j < subpixels; ++j) {
-    bool geo = false, src = false, est = false, prof = false;
-    for (unsigned long long f = 0; f < frame_count; ++f) {
-      const ForwardDrizzleV2FrameSubpixel &v =
-          entries[f * subpixels + j];
-      geo |= v.geometry_b > 0.0;
-      src |= v.source_b > 0.0;
-      est |= v.estimator_b > 0.0;
-      prof |= v.b > 0.0;
-    }
-    if (geo) geometry_area += area[j];
-    if (src) source_area += area[j];
-    if (est) estimator_area += area[j];
-    if (prof) profile_area += area[j];
-  }
-  r.geometry_area_fraction = fmin(fmax(geometry_area / total_area, 0.0), 1.0);
-  r.source_area_fraction = fmin(fmax(source_area / total_area, 0.0), 1.0);
-  r.estimator_area_fraction =
-      fmin(fmax(estimator_area / total_area, 0.0), 1.0);
-  r.profile_area_fraction = fmin(fmax(profile_area / total_area, 0.0), 1.0);
-  r.geometry_support = r.geometry_area_fraction > 0.0;
-  r.source_support = r.source_area_fraction > 0.0;
-  r.estimator_support = r.estimator_area_fraction > 0.0;
-  r.profile_support = r.b > 0.0 && isfinite(r.a) && isfinite(r.b) &&
-                      isfinite(r.b2);
-  if (r.profile_support) {
-    r.value = r.a / r.b;
-    r.n_eff = r.b2 > 0.0 ? r.b * r.b / r.b2 : 0.0;
-  }
-  *out = r;
-}
-
-bool fold_native_pixel_v2_cuda(
-    std::span<const ForwardDrizzleV2FrameSubpixel> entries,
-    std::size_t frame_count, std::span<const double> area,
-    ForwardDrizzleV2FoldResult &out) {
-  // Host-side shape guard: same shape contract as the CPU reference; any
-  // violation (or overflow while sizing) leaves `out` untouched.
-  constexpr std::size_t kMax = std::numeric_limits<std::size_t>::max();
-  if (frame_count == 0 || area.empty() ||
-      frame_count > kMax / area.size() ||
-      entries.size() != frame_count * area.size() ||
-      entries.size() > kMax / sizeof(ForwardDrizzleV2FrameSubpixel) ||
-      area.size() > kMax / sizeof(double))
-    return false;
-  int devices = 0;
-  if (cudaGetDeviceCount(&devices) != cudaSuccess || devices <= 0) {
-    cudaGetLastError();
-    return false;
-  }
-  CudaScopedError clear_on_exit;
-
-  const std::size_t entries_bytes =
-      entries.size() * sizeof(ForwardDrizzleV2FrameSubpixel);
-  const std::size_t area_bytes = area.size() * sizeof(double);
-  ForwardDrizzleV2FrameSubpixel *d_entries = nullptr;
-  double *d_area = nullptr;
-  ForwardDrizzleV2FoldResult *d_out = nullptr;
-  int *d_error = nullptr;
-  bool ok =
-      cudaMalloc(&d_entries, entries_bytes) == cudaSuccess &&
-      cudaMalloc(&d_area, area_bytes) == cudaSuccess &&
-      cudaMalloc(&d_out, sizeof(ForwardDrizzleV2FoldResult)) == cudaSuccess &&
-      cudaMalloc(&d_error, sizeof(int)) == cudaSuccess;
-  if (ok)
-    ok = cudaMemcpy(d_entries, entries.data(), entries_bytes,
-                    cudaMemcpyHostToDevice) == cudaSuccess &&
-         cudaMemcpy(d_area, area.data(), area_bytes,
-                    cudaMemcpyHostToDevice) == cudaSuccess &&
-         cudaMemset(d_error, 0, sizeof(int)) == cudaSuccess;
-  if (ok) {
-    k_fold_native_pixel_v2<<<1, 1>>>(
-        d_entries, static_cast<unsigned long long>(frame_count), d_area,
-        static_cast<unsigned long long>(area.size()), d_out, d_error);
-    ok = cudaGetLastError() == cudaSuccess &&
-         cudaDeviceSynchronize() == cudaSuccess;
-  }
-  int error = 1;
-  ForwardDrizzleV2FoldResult result;
-  if (ok)
-    ok = cudaMemcpy(&error, d_error, sizeof(int), cudaMemcpyDeviceToHost) ==
-         cudaSuccess;
-  if (ok && error == 0)
-    ok = cudaMemcpy(&result, d_out, sizeof(result),
-                    cudaMemcpyDeviceToHost) == cudaSuccess;
-  cudaFree(d_entries);
-  cudaFree(d_area);
-  cudaFree(d_out);
-  cudaFree(d_error);
-  if (ok && error == 0) {
-    out = result;
-    return true;
-  }
-  return false;
-}
-
 CudaDeviceMemory forward_drizzle_cuda_device_memory() {
   CudaDeviceMemory m;
   int n = 0;
@@ -3546,8 +2712,9 @@ struct ForwardDrizzleV2CudaPrototypeKernel::Impl {
   unsigned int *footprint = nullptr;
   unsigned short *supp = nullptr;
   unsigned long long *degraded = nullptr;
-  unsigned long long *scalars =
-      nullptr;  // [0] overlaps, [1] dense overlap, [2] local discards
+  // [0] overlaps, [1] dense overlap, [2] local discards, [3] sum of kept,
+  // [4] sum of contrib (kV2ScalarCount entries).
+  unsigned long long *scalars = nullptr;
   V2ReservoirRecord *res = nullptr;
   float4 *resq = nullptr;
   V2FrameMetaDev *meta = nullptr;
@@ -3695,7 +2862,9 @@ bool v2_fixed_cfg_equal(const ForwardDrizzleV2KernelConfig &a,
          a.bimodal_veto == b.bimodal_veto &&
          a.bimodal_veto_gap_sigma == b.bimodal_veto_gap_sigma &&
          a.shared_frame_rejection == b.shared_frame_rejection &&
-         a.shared_frame_rejection_consensus == b.shared_frame_rejection_consensus;
+         a.shared_frame_rejection_consensus ==
+             b.shared_frame_rejection_consensus &&
+         a.float_plane_inputs == b.float_plane_inputs;
 }
 
 }  // namespace
@@ -3794,6 +2963,9 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
   };
   const std::size_t frame_plane_count =
       (cfg.sigma2_plane ? 4 : 3) + (cfg.emit_profiles ? 5 : 0);
+  // Float compatibility input planes (see float_plane_inputs).
+  const bool float_s2 = cfg.sigma2_plane && cfg.float_plane_inputs;
+  const bool float_q = cfg.emit_profiles && cfg.float_plane_inputs;
   std::size_t leaf_bytes = 0;
   if (!mul(static_cast<std::size_t>(cfg.cached_leaf_capacity),
            sizeof(ForwardDrizzleV2CachedLeaf), leaf_bytes))
@@ -3802,12 +2974,13 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
       // Tranche-8 canonical ragged affine sample list (full-source cap).
       !mul(source_elems, sizeof(ForwardDrizzleV2SourceSample), tmp) ||
       !add_bytes(tmp) ||
-      (cfg.sigma2_plane &&
+      (float_s2 &&
        (!mul(source_elems, sizeof(float), tmp) || !add_bytes(tmp))) ||
+      (float_q &&
+       (!mul(source_elems, sizeof(float) * 4, tmp) || !add_bytes(tmp))) ||
       (cfg.emit_profiles &&
-       (!mul(source_elems, sizeof(float) * 4, tmp) || !add_bytes(tmp) ||
-        // Compact Q windows: uint16 cells + veto bytes per stream.
-        !mul(source_elems, 12u, tmp) || !add_bytes(tmp))) ||
+       // Compact Q windows: uint16 cells + veto bytes per stream.
+       (!mul(source_elems, 12u, tmp) || !add_bytes(tmp))) ||
       !mul(frame_plane_elems, sizeof(double) * frame_plane_count, tmp) ||
       !add_bytes(tmp) ||
       (cfg.emit_profiles &&
@@ -3841,7 +3014,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
        (!mul(pc_elems, sizeof(V2FullAcc) + 3 * sizeof(double), tmp) ||
         !add_bytes(tmp) || !add_bytes(5 * sizeof(unsigned long long)))) ||
       !add_bytes(leaf_bytes) ||
-      !add_bytes(3 * sizeof(unsigned long long)) ||
+      !add_bytes(kV2ScalarCount * sizeof(unsigned long long)) ||
       !add_bytes(2 * sizeof(unsigned long long)))
     return false;
 
@@ -3879,14 +3052,15 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
       ok = ok && cudaEventCreateWithFlags(&e, cudaEventDefault) == cudaSuccess;
   ok = ok &&
        cudaMalloc(&im->src, source_elems * sizeof(float)) == cudaSuccess &&
-       (!cfg.sigma2_plane ||
+       (!float_s2 ||
         cudaMalloc(&im->s2, source_elems * sizeof(float)) == cudaSuccess) &&
-       (!cfg.emit_profiles ||
+       (!float_q ||
         (cudaMalloc(&im->qc, source_elems * sizeof(float)) == cudaSuccess &&
          cudaMalloc(&im->q0, source_elems * sizeof(float)) == cudaSuccess &&
          cudaMalloc(&im->q1, source_elems * sizeof(float)) == cudaSuccess &&
-         cudaMalloc(&im->qa, source_elems * sizeof(float)) == cudaSuccess &&
-         cudaMalloc(&im->pqc, source_elems * sizeof(unsigned short)) ==
+         cudaMalloc(&im->qa, source_elems * sizeof(float)) == cudaSuccess)) &&
+       (!cfg.emit_profiles ||
+        (cudaMalloc(&im->pqc, source_elems * sizeof(unsigned short)) ==
              cudaSuccess &&
          cudaMalloc(&im->pq0, source_elems * sizeof(unsigned short)) ==
              cudaSuccess &&
@@ -3939,7 +3113,7 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
            cudaSuccess &&
        cudaMalloc(&im->degraded, pc_elems * sizeof(unsigned long long)) ==
            cudaSuccess &&
-       cudaMalloc(&im->scalars, 3 * sizeof(unsigned long long)) ==
+       cudaMalloc(&im->scalars, kV2ScalarCount * sizeof(unsigned long long)) ==
            cudaSuccess &&
        cudaMalloc(&im->bimodal_counters, 2 * sizeof(unsigned long long)) ==
            cudaSuccess &&
@@ -4037,7 +3211,8 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
                        im->stream) == cudaSuccess &&
        cudaMemsetAsync(im->degraded, 0, pc_elems * sizeof(unsigned long long),
                        im->stream) == cudaSuccess &&
-       cudaMemsetAsync(im->scalars, 0, 3 * sizeof(unsigned long long),
+       cudaMemsetAsync(im->scalars, 0,
+                       kV2ScalarCount * sizeof(unsigned long long),
                        im->stream) == cudaSuccess &&
        cudaMemsetAsync(im->bimodal_counters, 0,
                        2 * sizeof(unsigned long long),
@@ -4065,15 +3240,16 @@ bool ForwardDrizzleV2CudaPrototypeKernel::reserve(
   // except the fixed pipeline slots (source + sigma2 + gate-9 quality
   // planes), the frame-meta table and scalars, divided by native pixels.
   std::size_t fixed_slot_bytes =
-      source_elems * sizeof(float) * (cfg.sigma2_plane ? 2 : 1);
+      source_elems * sizeof(float) * (float_s2 ? 2 : 1);
+  if (float_q) fixed_slot_bytes += source_elems * sizeof(float) * 4;
   if (cfg.emit_profiles) {
-    fixed_slot_bytes += source_elems * sizeof(float) * 4 +
-                        source_elems * 12u +
+    fixed_slot_bytes += source_elems * 12u +
                         static_cast<std::size_t>(cfg.stream_length) *
                             sizeof(V2FrameMetaDev);
   }
   bytes_per_native_pixel_ =
-      (total_bytes - fixed_slot_bytes - 3 * sizeof(unsigned long long)) /
+      (total_bytes - fixed_slot_bytes -
+       kV2ScalarCount * sizeof(unsigned long long)) /
       nplane;
   return true;
 }
@@ -4129,7 +3305,8 @@ bool ForwardDrizzleV2CudaPrototypeKernel::begin_band(
                       im.stream) == cudaSuccess &&
       cudaMemsetAsync(im.degraded, 0, pc_elems * sizeof(unsigned long long),
                       im.stream) == cudaSuccess &&
-      cudaMemsetAsync(im.scalars, 0, 3 * sizeof(unsigned long long),
+      cudaMemsetAsync(im.scalars, 0,
+                      kV2ScalarCount * sizeof(unsigned long long),
                       im.stream) == cudaSuccess &&
       cudaMemsetAsync(im.bimodal_counters, 0, 2 * sizeof(unsigned long long),
                       im.stream) == cudaSuccess &&
@@ -4236,6 +3413,15 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
     s2m.half = sigma2_model_or_null->droplet_half;
   }
   if (sigma2_or_null != nullptr && s2m.enabled) return false;
+  // Without float_plane_inputs no float sigma2/quality input planes exist.
+  if (!im.cfg.float_plane_inputs &&
+      (sigma2_or_null != nullptr ||
+       (quality_or_null != nullptr &&
+        (quality_or_null->q_composite != nullptr ||
+         quality_or_null->q_scale0 != nullptr ||
+         quality_or_null->q_scale1 != nullptr ||
+         quality_or_null->q_artifact != nullptr))))
+    return false;
   const std::size_t src_bytes =
       static_cast<std::size_t>(w.buf_w) * w.buf_h * sizeof(float);
   const std::size_t act_bytes =
@@ -4334,8 +3520,6 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
             (!im.s2 || !sigma2_or_null ||
              cudaMemcpyAsync(im.s2, sigma2_or_null, act_bytes,
                              cudaMemcpyHostToDevice, st) == cudaSuccess) &&
-            (!im.s2 || sigma2_or_null || s2m.enabled ||
-             cudaMemsetAsync(im.s2, 0, act_bytes, st) == cudaSuccess) &&
             upload(im.qc, h_qc) && upload(im.q0, h_q0) &&
             upload(im.q1, h_q1) && upload(im.qa, h_qa) &&
             upload_packed(im.pqc, im.pvc, h_q.qc_packed) &&
@@ -4404,7 +3588,8 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_frame_impl(
     const unsigned int grid =
         static_cast<unsigned int>((source_n + block - 1) / block);
     const float *d_s2 =
-        (im.fs2 && !s2m.enabled) ? im.s2 : nullptr;
+        (im.fs2 && !s2m.enabled && sigma2_or_null != nullptr) ? im.s2
+                                                               : nullptr;
     if (leaves != nullptr) {
       const unsigned int lgrid = static_cast<unsigned int>(
           (static_cast<long long>(leaf_count) + block - 1) / block);
@@ -4924,6 +4109,15 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_affine_piece(
     s2m.half = sigma2_model_or_null->droplet_half;
   }
   if (sigma2_or_null != nullptr && s2m.enabled) return false;
+  // Without float_plane_inputs no float sigma2/quality input planes exist.
+  if (!im.cfg.float_plane_inputs &&
+      (sigma2_or_null != nullptr ||
+       (quality_or_null != nullptr &&
+        (quality_or_null->q_composite != nullptr ||
+         quality_or_null->q_scale0 != nullptr ||
+         quality_or_null->q_scale1 != nullptr ||
+         quality_or_null->q_artifact != nullptr))))
+    return false;
   const std::size_t src_bytes =
       static_cast<std::size_t>(w.buf_w) * w.buf_h * sizeof(float);
   const std::size_t act_bytes =
@@ -4990,8 +4184,6 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_affine_piece(
       (!im.s2 || !sigma2_or_null ||
        cudaMemcpyAsync(im.s2, sigma2_or_null, act_bytes,
                        cudaMemcpyHostToDevice, st) == cudaSuccess) &&
-      (!im.s2 || sigma2_or_null || s2m.enabled ||
-       cudaMemsetAsync(im.s2, 0, act_bytes, st) == cudaSuccess) &&
       upload(im.qc, h_q.q_composite) && upload(im.q0, h_q.q_scale0) &&
       upload(im.q1, h_q.q_scale1) && upload(im.qa, h_q.q_artifact) &&
       upload_packed(im.pqc, im.pvc, h_q.qc_packed) &&
@@ -5058,7 +4250,8 @@ bool ForwardDrizzleV2CudaPrototypeKernel::accumulate_affine_piece(
       qio.fqaf = im.fqaf;
     }
     const float *d_s2 =
-        (im.fs2 && !s2m.enabled) ? im.s2 : nullptr;
+        (im.fs2 && !s2m.enabled && sigma2_or_null != nullptr) ? im.s2
+                                                               : nullptr;
     k_scatter_v2<<<grid, block, 0, st>>>(
         affine6[0], affine6[1], affine6[2], affine6[3], affine6[4],
         affine6[5], static_cast<double>(scale), im.cfg.half, im.icols,
@@ -5324,14 +4517,24 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
       }
     }
   }
-  unsigned long long h_scalars[3] = {0, 0, 0};
+  {
+    // Block size must stay a multiple of 32 (full-warp shuffles).
+    const unsigned int sum_grid = static_cast<unsigned int>(std::min<long long>(
+        (total + block - 1) / block, 1024));
+    k_sum_kept_contrib<<<sum_grid, block, 0, st>>>(im.kept, im.contrib, total,
+                                                  im.scalars + 3);
+    if (const cudaError_t e = cudaGetLastError(); e != cudaSuccess) {
+      last_device_error_ = std::string("k_sum_kept_contrib launch: ") +
+                           cudaGetErrorString(e);
+      return false;
+    }
+  }
+  unsigned long long h_scalars[kV2ScalarCount] = {};
   unsigned long long h_fcounters[5] = {0, 0, 0, 0, 0};
   unsigned long long h_bimodal[2] = {0, 0};
-  std::vector<unsigned int> h_kept(n_pc), h_contrib(n_pc);
   const std::size_t out_bytes = n_pc * sizeof(ForwardDrizzleV2PixelResult);
   const std::size_t prof_bytes =
       im.cfg.emit_profiles ? n_pc * sizeof(ForwardDrizzleV2ProfileResult) : 0;
-  const std::size_t cnt_bytes = n_pc * sizeof(unsigned int);
   cudaError_t first_err = cudaSuccess;
   auto step = [&](const char *api, cudaError_t e) {
     if (e != cudaSuccess && first_err == cudaSuccess) {
@@ -5358,12 +4561,6 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
                             cudaMemcpyDeviceToHost, st))) &&
       step("cudaMemcpyAsync(bimodal counters)",
            cudaMemcpyAsync(h_bimodal, im.bimodal_counters, sizeof(h_bimodal),
-                           cudaMemcpyDeviceToHost, st)) &&
-      step("cudaMemcpyAsync(kept)",
-           cudaMemcpyAsync(h_kept.data(), im.kept, cnt_bytes,
-                           cudaMemcpyDeviceToHost, st)) &&
-      step("cudaMemcpyAsync(contrib)",
-           cudaMemcpyAsync(h_contrib.data(), im.contrib, cnt_bytes,
                            cudaMemcpyDeviceToHost, st));
   ++stats_.stream_synchronizations;
   ok = step("cudaStreamSynchronize", cudaStreamSynchronize(st)) && ok;
@@ -5410,15 +4607,9 @@ bool ForwardDrizzleV2CudaPrototypeKernel::finalize(
   stats_.positive_overlaps = h_scalars[0];
   if (dense_overlap_count) *dense_overlap_count = h_scalars[1];
   stats_.local_samples_discarded = h_scalars[2];
-  std::uint64_t kept_sum = 0, cand_sum = 0;
-  for (std::size_t i = 0; i < n_pc; ++i) {
-    kept_sum += h_kept[i];
-    cand_sum += h_contrib[i];
-  }
-  stats_.reservoir_kept_total = kept_sum;
-  stats_.candidates_streamed = cand_sum;
-  stats_.result_bytes_downloaded += out_bytes + prof_bytes +
-                                    sizeof(h_scalars) + 2 * cnt_bytes;
+  stats_.reservoir_kept_total = h_scalars[3];
+  stats_.candidates_streamed = h_scalars[4];
+  stats_.result_bytes_downloaded += out_bytes + prof_bytes + sizeof(h_scalars);
   return true;
 }
 

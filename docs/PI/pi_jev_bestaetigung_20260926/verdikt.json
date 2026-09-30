@@ -1,0 +1,60 @@
+{
+ "candidates": {
+  "set_clip_sigmas": {
+   "excluded_sessions": {},
+   "holds": true,
+   "intervals_95": {
+    "elongation_ratio": {
+     "lower": 0.9987507204530132,
+     "upper": 1.0003853880253584
+    },
+    "fwhm_ratio": {
+     "lower": 0.9983154401877703,
+     "upper": 1.000609514273975
+    },
+    "noise_ratio": {
+     "lower": 0.9432376103981392,
+     "upper": 0.9696925874033034
+    },
+    "signal_ratio": {
+     "lower": 1.006686902297138,
+     "upper": 1.0155828869023238
+    }
+   },
+   "reasons": [],
+   "sessions": 5
+  },
+  "set_pixfrac": {
+   "excluded_sessions": {},
+   "holds": true,
+   "intervals_95": {
+    "elongation_ratio": {
+     "lower": 0.9993296525889679,
+     "upper": 1.0008746845134127
+    },
+    "fwhm_ratio": {
+     "lower": 0.9957305394804795,
+     "upper": 1.001009516747449
+    },
+    "noise_ratio": {
+     "lower": 0.9064075773299669,
+     "upper": 0.9125703028202446
+    },
+    "signal_ratio": {
+     "lower": 0.9995627567752124,
+     "upper": 1.0023856680541756
+    }
+   },
+   "reasons": [],
+   "sessions": 5
+  }
+ },
+ "policy": "release_policy_v2.json",
+ "sessions": [
+  "ic5070",
+  "m104",
+  "m31",
+  "m42",
+  "m66"
+ ]
+}

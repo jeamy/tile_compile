@@ -1,5 +1,8 @@
 #include "routes/config_routes.hpp"
 #include "routes/route_utils.hpp"
+#include "services/pi/pi_decision_outcome.hpp"
+#include "services/pi/pi_decision_state.hpp"
+#include "services/pi/pi_storage_paths.hpp"
 #include "subprocess_manager.hpp"
 #include <algorithm>
 #include <cerrno>
@@ -9,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <sstream>
 #include <yaml-cpp/yaml.h>
 
@@ -72,6 +76,14 @@ nlohmann::json parse_scalar_value(const nlohmann::json& raw_value, bool parse_va
     return raw_value;
 }
 
+std::optional<std::string> config_file_sha256(const fs::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return std::nullopt;
+    const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (in.bad()) return std::nullopt;
+    return tile_compile::pi::sha256_prefixed(bytes);
+}
+
 } // namespace
 
 /// @brief Registers configuration endpoints for YAML loading, validation, saving, and revision history.
@@ -100,17 +112,21 @@ void register_config_routes(CrowApp& app,
     ([state](const crow::request& req) {
         fs::path config_path = req.url_params.get("path") ? fs::path(req.url_params.get("path")) : state->runtime.default_config_path;
         if (auto err = validate_path(state, config_path, "config_path", true)) return std::move(*err);
+        std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
 
         SubprocessResult res = run_subprocess({state->runtime.cli_exe, "load-config", config_path.string()}, state->runtime.project_root.string());
         auto parsed = parse_json_string(res.stdout_str);
         if (res.exit_code == 0 && parsed && parsed->is_object()) {
-            return json_resp({{"config", parsed->value("yaml", std::string())}, {"source", config_path.string()}});
+            const std::string yaml_text = parsed->value("yaml", std::string());
+            return json_resp({{"config", yaml_text}, {"source", config_path.string()},
+                              {"source_sha256", tile_compile::pi::sha256_prefixed(yaml_text)}});
         }
 
         std::ifstream in(config_path);
         if (!in) return backend_command_failed("failed to load config", res);
         std::string yaml_text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        return json_resp({{"config", yaml_text}, {"source", config_path.string()}, {"fallback", "file_read"}});
+        return json_resp({{"config", yaml_text}, {"source", config_path.string()},
+                          {"source_sha256", tile_compile::pi::sha256_prefixed(yaml_text)}, {"fallback", "file_read"}});
     });
 
     CROW_ROUTE(app, "/api/config/validate").methods("POST"_method)
@@ -174,6 +190,28 @@ void register_config_routes(CrowApp& app,
             return err_resp("BAD_REQUEST", "provide yaml or config object", 400);
         }
 
+        const fs::path decisions_dir = tile_compile::pi::pi_storage_dir(state) / "pi_decisions";
+        const std::string jev_proposal_id = body.contains("jev_proposal_id") && body["jev_proposal_id"].is_string()
+            ? body["jev_proposal_id"].get<std::string>() : std::string();
+        bool jev_match = false;
+        if (!jev_proposal_id.empty()) {
+            try {
+                jev_match = tile_compile::pi::matches_applied_jev_config(
+                    decisions_dir, jev_proposal_id, tile_compile::pi::yaml_text_to_json(yaml_text));
+            } catch (const std::exception&) {
+                jev_match = false;
+            }
+        }
+
+        std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
+        if (!jev_proposal_id.empty()) {
+            const std::string expected = body.contains("expected_source_sha256") && body["expected_source_sha256"].is_string()
+                ? body["expected_source_sha256"].get<std::string>() : std::string();
+            const auto actual = config_file_sha256(target);
+            if (expected.empty() || !actual || expected != *actual)
+                return err_resp("CONFIG_SOURCE_CHANGED", "config changed since the Jev draft was loaded", 409);
+        }
+
         SubprocessResult res = run_subprocess({state->runtime.cli_exe, "save-config", target.string(), "--stdin"},
                                               state->runtime.project_root.string(),
                                               yaml_text);
@@ -183,13 +221,24 @@ void register_config_routes(CrowApp& app,
         fs::path saved_path = parsed->contains("path") && (*parsed)["path"].is_string()
             ? fs::path((*parsed)["path"].get<std::string>())
             : target;
-        std::string rev_id = state->revision_store.add(saved_path, yaml_text, "save_config");
+        std::string rev_id = state->revision_store.add(saved_path, yaml_text, jev_match ? "jev_proposal" : "save_config");
+        bool jev_linked = false;
+        if (jev_match) {
+            try {
+                tile_compile::pi::record_jev_saved_revision(decisions_dir, jev_proposal_id, rev_id);
+                jev_linked = true;
+            } catch (const std::exception&) {
+                // The config was saved; report the missing attribution without claiming the save failed.
+            }
+        }
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->active_config_revision_id = rev_id;
         }
         state->ui_event_store.push("config.save", "config.save", {{"path", saved_path.string()}, {"saved", parsed->value("saved", false)}, {"revision_id", rev_id}});
-        return json_resp({{"path", saved_path.string()}, {"saved", parsed->value("saved", false)}, {"revision_id", rev_id}});
+        return json_resp({{"path", saved_path.string()}, {"saved", parsed->value("saved", false)}, {"revision_id", rev_id},
+                          {"source_sha256", tile_compile::pi::sha256_prefixed(yaml_text)},
+                          {"jev_revision_requested", !jev_proposal_id.empty()}, {"jev_revision_linked", jev_linked}});
     });
 
     CROW_ROUTE(app, "/api/config/presets").methods("GET"_method)
@@ -260,6 +309,7 @@ void register_config_routes(CrowApp& app,
 
         fs::path target = rev->path.empty() ? state->runtime.default_config_path : fs::path(rev->path);
         if (auto err = validate_path(state, target, "revision_path")) return std::move(*err);
+        std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
 
         if (!target.parent_path().empty()) fs::create_directories(target.parent_path());
         if (!rev->yaml_text.empty()) {
@@ -333,6 +383,7 @@ void register_config_routes(CrowApp& app,
         };
 
         if (persist) {
+            std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
             SubprocessResult res = run_subprocess({state->runtime.cli_exe, "save-config", target.string(), "--stdin"},
                                                   state->runtime.project_root.string(),
                                                   merged_yaml);

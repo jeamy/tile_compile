@@ -20,7 +20,9 @@ import { openHmsPreview } from "../components/hms-preview.js";
 import { openBgePreview } from "../components/bge-preview.js";
 import { createYamlDiff } from "../components/yaml-diff.js";
 import { getEffectiveCalValues } from "./input-scan.js";
+import { createPostRunAdvicePanel } from "../components/post-run-advice.js";
 import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
+import { getFeatureFlags } from "../state/feature-flags.js";
 
 function createCompletionAnalysisPanel() {
   const trafficId = "completion-analysis-traffic";
@@ -176,9 +178,11 @@ export function createRunMonitorPage() {
     ),
   );
 
+  const { aiEnabled, jevEnabled } = getFeatureFlags();
   const runPreview = createRunImagePreviewPanel("run-monitor-image-preview");
-  const completionAnalysis = createCompletionAnalysisPanel();
-  const runChat = createRunChatPanel();
+  const completionAnalysis = aiEnabled ? createCompletionAnalysisPanel() : null;
+  const postRunAdvice = jevEnabled ? createPostRunAdvicePanel("post-run-advice", { onApply: applyPostRunAdvice }) : null;
+  const runChat = aiEnabled ? createRunChatPanel() : null;
 
   // Log viewer (component-based)
   const logViewer = createLogViewer();
@@ -195,7 +199,7 @@ export function createRunMonitorPage() {
   );
   activeWarningBanner = warningBanner;
 
-  page.append(control, runInfo, phases, warningBanner, stats, completionAnalysis, runPreview, runMonitorTabs);
+  page.append(...[control, runInfo, phases, warningBanner, stats, completionAnalysis, postRunAdvice, runPreview, runMonitorTabs].filter(Boolean));
 
   // WebSocket listener
   onWebSocketMessage((event) => {
@@ -544,6 +548,7 @@ async function requestCompletionAnalysis() {
 }
 
 async function maybeLoadCompletionAnalysis(status) {
+  if (!getFeatureFlags().aiEnabled) return;  // the panel does not exist; do not request AI data for it either
   const { currentRunId, currentRunDir } = getRunState();
   const panel = document.getElementById("run-completion-analysis");
   if (status !== "completed" || !currentRunId) {
@@ -598,6 +603,36 @@ async function prepareCompletionResume(startImmediately) {
   if (!feasible || !startImmediately) return feasible;
   const confirmed = window.confirm(t("ui.confirm.apply_and_resume", "Validierte Parameter übernehmen und den Run ab {phase} fortsetzen?", { phase }));
   return confirmed ? resumeRun() : false;
+}
+
+// Wired into the post-run-advice card (Jev-Nachbetrachtung): "resumeMode"/"minResumePhase" were already combined there
+// from the selected suggestions against `advice.resume_phase_order`. Mirrors prepareCompletionResume/
+// applyCompletionConfigToNewRun above -- same two actions the KI-Ergebnisanalyse card already offers, just fed from Jev's
+// suggestions instead. Never starts anything itself: a full-run patch only fills the config draft (Start stays a separate
+// click in Run Control); a resume patch only fills and dry-run-checks the Resume tab (Resume stays a separate click there).
+async function applyPostRunAdvice({ patchedYaml, resumeMode, minResumePhase }) {
+  if (resumeMode === "full_run") {
+    setConfigState({ draft: parseYaml(patchedYaml), draftYaml: patchedYaml, dirty: true });
+    const validation = await validateConfig();
+    if (validation?.valid === false || validation?.errors?.length) {
+      toastError(t("ui.toast.config_invalid", "Config ungültig"), t("ui.post_run.revalidation_failed", "Die übernommene Config konnte nicht erneut validiert werden."));
+      return;
+    }
+    toastSuccess(t("ui.toast.parameters_applied_for_new_run", "Parameter für neuen Run übernommen"));
+    return;
+  }
+  if (!minResumePhase) return;
+  await applyResumeRecommendation(minResumePhase);
+  const editor = document.getElementById("resume-config-yaml");
+  if (editor) {
+    editor.value = patchedYaml;
+    updateResumeConfigSectionHighlights(editor.value);
+  }
+  const feasible = await checkResumeFeasibility(minResumePhase);
+  if (feasible) {
+    toastSuccess(t("ui.post_run.resume_prepared", "Resume ab {phase} vorbereitet.", { phase: minResumePhase }));
+    activateRunMonitorTab("resume");
+  }
 }
 
 function resumeErrorPayload(error) {
@@ -666,7 +701,8 @@ function activateRunMonitorTab(tabId) {
 function createRunMonitorTabs(resumePanel, runChatPanel, logPanel) {
   const tabs = [
     { id: "resume", label: t("ui.title.resume", "Resume"), node: resumePanel },
-    { id: "chat", label: t("ui.title.run_chat", "Run-Chat"), node: runChatPanel },
+    // Run-Chat asks the AI model, so its tab does not exist at all while AI is disabled (no empty tab).
+    ...(runChatPanel ? [{ id: "chat", label: t("ui.title.run_chat", "Run-Chat"), node: runChatPanel }] : []),
     { id: "log", label: t("ui.title.live_log", "Live Log"), node: logPanel },
   ];
   const tabButtons = tabs.map((tab, index) => el("button", {
@@ -1965,6 +2001,7 @@ async function startRun() {
       color_mode: sd.color_mode || "",
       queue: queue.length > 0 ? queue : undefined,
       config_yaml: configYaml || undefined,
+      jev_saved_proposal_id: !getConfigState().dirty ? getConfigState().jevSavedProposalId || undefined : undefined,
     };
 
     toast(t("ui.toast.run_starting", "Run wird gestartet..."), "", "info");
@@ -2006,7 +2043,12 @@ async function startRun() {
       refreshRunStatus(runId);
     }
   } catch (e) {
-    toastError(t("ui.toast.run_start_failed", "Start fehlgeschlagen"), e.message);
+    const jevConflict = e.status === 409 &&
+      ["JEV_PROPOSAL_STALE", "JEV_PROPOSAL_UNSUPPORTED"].includes(e.payload?.error?.code);
+    if (jevConflict) setConfigState({ jevSavedProposalId: "" });
+    toastError(t("ui.toast.run_start_failed", "Start fehlgeschlagen"), jevConflict
+      ? t("ui.jev.run_link_conflict", "Jev-Zuordnung passt nicht mehr. Vorschlag und Eingaben prüfen oder ohne Jev-Zuordnung erneut starten.")
+      : e.message);
   }
 }
 

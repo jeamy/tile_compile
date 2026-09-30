@@ -6,11 +6,36 @@ import { ModelService } from "./services/modelService.js";
 import { LiveImageChatService } from "./services/liveImageChatService.js";
 import { RunChatService } from "./services/runChatService.js";
 import { appendTrafficLog, readTrafficLog } from "./services/trafficLog.js";
+import { createJevLogger, readJevLog } from "./services/decisionsLog.js";
+import { DecisionsRequestError, DecisionsService, decisionsConfigFromEnv } from "./services/decisionsService.js";
+import { decisionsSettingsPath, loadDecisionsSettings, saveDecisionsSettings } from "./services/decisionsSettings.js";
 import type { AnalysisProgressEvent } from "./types.js";
 
 const config = runtimeConfig();
 const modelService = new ModelService(config.projectRoot);
 const authService = new AuthService(modelService);
+
+// Jev decisions adapter (independent of PI's provider slot). An invalid PI_DECISIONS_* setting must not
+// take the whole sidecar down: the route answers 503 with the reason instead.
+let decisionsService: DecisionsService | null = null;
+let decisionsConfigError = "";
+try {
+  decisionsService = new DecisionsService(decisionsConfigFromEnv(), {
+    log: (line) => appendTrafficLog(line),
+    // Every wire request, raw response and normalized result go to their own file (jevLogPath()).
+    trace: createJevLogger("sidecar"),
+  });
+  // Settings saved through the Jev card override the environment defaults.
+  const stored = loadDecisionsSettings(decisionsSettingsPath());
+  decisionsService.applySettings({
+    mode: stored.mode,
+    allowExperimentalSuggestions: stored.allow_experimental_suggestions,
+    apiKey: stored.api_key,
+  });
+} catch (error) {
+  decisionsConfigError = error instanceof Error ? error.message : String(error);
+  appendTrafficLog(`decisions config invalid: ${decisionsConfigError}`);
+}
 
 function sendJson(res: http.ServerResponse, status: number, payload: unknown) {
   const body = JSON.stringify(payload);
@@ -19,6 +44,24 @@ function sendJson(res: http.ServerResponse, status: number, payload: unknown) {
     "Content-Length": Buffer.byteLength(body),
   });
   res.end(body);
+}
+
+async function readJsonLimited(req: http.IncomingMessage, maxBytes: number): Promise<any> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of req) {
+    const buf = Buffer.from(chunk);
+    total += buf.length;
+    if (total > maxBytes) throw new DecisionsRequestError("body_too_large");
+    chunks.push(buf);
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
+  if (!raw.trim()) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new DecisionsRequestError("body_not_json");
+  }
 }
 
 async function readJson(req: http.IncomingMessage): Promise<any> {
@@ -97,6 +140,83 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       const result = await service.analyze(body);
       appendTrafficLog(`POST /analyze response ${JSON.stringify(result).substring(0, 10000)}`);
       sendJson(res, 200, result);
+      return;
+    }
+    if (url.pathname === "/decisions/status" && req.method === "GET") {
+      if (!decisionsService) {
+        sendJson(res, 503, { error: true, code: "DECISIONS_CONFIG_INVALID", message: decisionsConfigError });
+        return;
+      }
+      sendJson(res, 200, await decisionsService.status());
+      return;
+    }
+    if (url.pathname === "/decisions/test" && req.method === "POST") {
+      if (!decisionsService) {
+        sendJson(res, 503, { error: true, code: "DECISIONS_CONFIG_INVALID", message: decisionsConfigError });
+        return;
+      }
+      const abort = new AbortController();
+      res.on("close", () => { if (!res.writableEnded) abort.abort(); });
+      sendJson(res, 200, await decisionsService.probe(abort.signal));
+      return;
+    }
+    if (url.pathname === "/decisions/log" && req.method === "GET") {
+      // Read-only view of the Jev request/response log (already redacted when written).
+      sendJson(res, 200, { schema_version: "pi.jev-traffic.v1", privacy_class: "redacted", ...readJevLog(Number(url.searchParams.get("limit") || 500)) });
+      return;
+    }
+    if (url.pathname === "/decisions/settings" && req.method === "POST") {
+      if (!decisionsService) {
+        sendJson(res, 503, { error: true, code: "DECISIONS_CONFIG_INVALID", message: decisionsConfigError });
+        return;
+      }
+      // Never logged: the body may contain the API key.
+      try {
+        const body = await readJsonLimited(req, 16 * 1024);
+        const file = decisionsSettingsPath();
+        const current = loadDecisionsSettings(file);
+        const next = { ...current };
+        if (body.mode !== undefined) next.mode = body.mode;
+        if (body.allow_experimental_suggestions !== undefined) next.allow_experimental_suggestions = Boolean(body.allow_experimental_suggestions);
+        if (body.api_key !== undefined) {
+          if (body.api_key === "" || body.api_key === null) delete next.api_key;
+          else next.api_key = String(body.api_key);
+        }
+        decisionsService.applySettings({
+          mode: next.mode,
+          allowExperimentalSuggestions: next.allow_experimental_suggestions,
+          apiKey: next.api_key ?? null,
+        });
+        saveDecisionsSettings(file, next);
+        sendJson(res, 200, await decisionsService.status());
+      } catch (error) {
+        if (error instanceof DecisionsRequestError) {
+          sendJson(res, 400, { error: true, code: "INVALID_REQUEST", message: error.reason });
+          return;
+        }
+        sendJson(res, 400, { error: true, code: "INVALID_SETTINGS", message: error instanceof Error ? error.message : "invalid settings" });
+      }
+      return;
+    }
+    if (url.pathname === "/decisions" && req.method === "POST") {
+      if (!decisionsService) {
+        sendJson(res, 503, { error: true, code: "DECISIONS_CONFIG_INVALID", message: decisionsConfigError });
+        return;
+      }
+      // The body carries the provider state projection: it is never written to the traffic log
+      // (DecisionsService logs a one-line summary itself).
+      try {
+        const abort = new AbortController();
+        res.on("close", () => { if (!res.writableEnded) abort.abort(); });
+        const result = await decisionsService.decide(await readJsonLimited(req, 256 * 1024), abort.signal);
+        sendJson(res, 200, result);
+      } catch (error) {
+        if (error instanceof DecisionsRequestError) {
+          sendJson(res, 400, { error: true, code: "INVALID_REQUEST", message: error.reason });
+          return;
+        }
+        throw error;
+      }
       return;
     }
     if (req.method === "POST" && url.pathname === "/analyze/stream") {

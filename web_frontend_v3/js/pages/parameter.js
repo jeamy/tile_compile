@@ -7,6 +7,7 @@ import { getConfigState, loadSchema, loadConfig, validateConfig, saveConfig, get
 import { t } from "../i18n/i18n.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { createAiEmpfehlungPage } from "./ai-empfehlung.js";
+import { createJevEmpfehlungPage } from "./jev-empfehlung.js";
 import { createExplainPanel, updateExplainPanel } from "../components/explain-panel.js";
 import { createSituationAssistant, getScenarioDeltas } from "../components/situation-assistant.js";
 import { createYamlDiff } from "../components/yaml-diff.js";
@@ -16,10 +17,18 @@ import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
 import { refreshGuardrails } from "../services/guardrail-service.js";
 import { getStore } from "../state/store.js";
+import { getFeatureFlags } from "../state/feature-flags.js";
 
 export function createParameterPage() {
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
-  const paramView = getUiState().paramView || "parameter";
+  const { aiEnabled, jevEnabled } = getFeatureFlags();
+  let paramView = getUiState().paramView || "parameter";
+  // A view whose feature switch (Tools -> AI & API) was turned off in the meantime falls back to Parameter;
+  // its tab button does not exist below, so it can never be reached by a click either.
+  if ((paramView === "ai" && !aiEnabled) || (paramView === "jev" && !jevEnabled)) {
+    paramView = "parameter";
+    setUiState({ paramView });
+  }
 
   const paramTab = el("button", {
     class: `tc-tab${paramView === "parameter" ? " active" : ""}`,
@@ -27,18 +36,25 @@ export function createParameterPage() {
     role: "tab",
     "aria-selected": paramView === "parameter" ? "true" : "false",
   }, t("ui.tab.parameter", "Parameter"));
-  const aiTab = el("button", {
+  const aiTab = aiEnabled ? el("button", {
     class: `tc-tab${paramView === "ai" ? " active" : ""}`,
     id: "tab-ai",
     role: "tab",
     "aria-selected": paramView === "ai" ? "true" : "false",
-  }, t("ui.tab.ai", "AI Empfehlung"));
+  }, t("ui.tab.ai", "AI Empfehlung")) : null;
+  const jevTab = jevEnabled ? el("button", {
+    class: `tc-tab${paramView === "jev" ? " active" : ""}`,
+    id: "tab-jev",
+    role: "tab",
+    "aria-selected": paramView === "jev" ? "true" : "false",
+  }, t("ui.tab.jev", "Jev-Empfehlungen")) : null;
   paramTab.onclick = () => switchView("parameter", page, paramTab, aiTab);
-  aiTab.onclick = () => switchView("ai", page, paramTab, aiTab);
+  if (aiTab) aiTab.onclick = () => switchView("ai", page, paramTab, aiTab);
+  if (jevTab) jevTab.onclick = () => switchView("jev", page, paramTab, aiTab);
 
   const topBar = el("div", { class: "tc-card", id: "param-switchbar" },
     el("div", { class: "tc-card-title" }, t("ui.title.view", "Ansicht")),
-    el("div", { class: "tc-tabs", role: "tablist" }, paramTab, aiTab),
+    el("div", { class: "tc-tabs", role: "tablist" }, paramTab, aiTab, jevTab),
   );
 
   // 3-column grid
@@ -122,39 +138,55 @@ export function createParameterPage() {
   page.append(topBar, grid, situationPanel, nextBar);
 
   // Load schema + config from API, then render categories
-  initParameterData(paramView === "ai" ? "ai" : null, page, paramTab, aiTab);
+  initParameterData(paramView === "ai" || paramView === "jev" ? paramView : null, page, paramTab, aiTab);
 
   return page;
 }
 
 function switchView(view, page, paramTab, aiTab) {
+  const { aiEnabled, jevEnabled } = getFeatureFlags();
+  // Defensive: a click can only reach here through a tab button, and a disabled view's button does not
+  // exist, but a stale closure (e.g. a switch flipped off between render and click) must not open it anyway.
+  if (view === "ai" && !aiEnabled) view = "parameter";
+  if (view === "jev" && !jevEnabled) view = "parameter";
   setUiState({ paramView: view });
+  const jevTab = document.getElementById("tab-jev");
   paramTab.classList.toggle("active", view === "parameter");
-  aiTab.classList.toggle("active", view === "ai");
+  aiTab?.classList.toggle("active", view === "ai");
+  jevTab?.classList.toggle("active", view === "jev");
   paramTab.setAttribute("aria-selected", view === "parameter" ? "true" : "false");
-  aiTab.setAttribute("aria-selected", view === "ai" ? "true" : "false");
+  aiTab?.setAttribute("aria-selected", view === "ai" ? "true" : "false");
+  jevTab?.setAttribute("aria-selected", view === "jev" ? "true" : "false");
 
   const grid = document.getElementById("param-grid");
   const nextBar = document.getElementById("param-nextbar");
   const sitPanel = document.getElementById("param-situation-panel");
   const aiPage = document.getElementById("param-ai-page");
+  const jevPage = document.getElementById("param-jev-page");
 
-  if (view === "parameter") {
-    if (grid) grid.style.display = "";
-    if (nextBar) nextBar.style.display = "";
-    if (sitPanel) sitPanel.style.display = "";
-    if (aiPage) aiPage.style.display = "none";
-  } else {
-    if (grid) grid.style.display = "none";
-    if (nextBar) nextBar.style.display = "none";
-    if (sitPanel) sitPanel.style.display = "none";
-    if (!aiPage) {
-      const ai = createAiEmpfehlungPage();
-      ai.id = "param-ai-page";
-      page.appendChild(ai);
-    } else {
-      aiPage.style.display = "";
-    }
+  const showParam = view === "parameter";
+  if (grid) grid.style.display = showParam ? "" : "none";
+  if (nextBar) nextBar.style.display = showParam ? "" : "none";
+  if (sitPanel) sitPanel.style.display = showParam ? "" : "none";
+
+  if (aiPage) aiPage.style.display = view === "ai" ? "" : "none";
+  if (view === "ai" && !aiPage) {
+    const ai = createAiEmpfehlungPage();
+    ai.id = "param-ai-page";
+    page.appendChild(ai);
+  }
+
+  if (jevPage) jevPage.style.display = view === "jev" ? "" : "none";
+  if (view === "jev" && !jevPage) {
+    // After applying a proposal the editor and YAML diff are refreshed so the draft change is visible.
+    const jev = createJevEmpfehlungPage({
+      onDraftApplied: () => {
+        renderEditorForCategory(getUiState()?.selectedCategory || "all");
+        updateDiff();
+      },
+    });
+    jev.id = "param-jev-page";
+    page.appendChild(jev);
   }
 }
 
@@ -178,8 +210,8 @@ async function initParameterData(restoreView = null, page = null, paramTab = nul
   const savedCat = getUiState().selectedCategory || "all";
   renderEditorForCategory(savedCat);
   loadPresets();
-  if (restoreView === "ai" && page && paramTab && aiTab) {
-    switchView("ai", page, paramTab, aiTab);
+  if ((restoreView === "ai" || restoreView === "jev") && page && paramTab) {
+    switchView(restoreView, page, paramTab, aiTab);
   }
 }
 
@@ -667,10 +699,17 @@ async function doSave() {
   toast(t("ui.toast.saving", "Speichere..."), "", "info");
   const result = await saveConfig();
   if (result) {
-    toastSuccess(t("ui.toast.saved", "Config saved"));
+    if (result.jev_revision_requested && !result.jev_revision_linked) {
+      toastError(t("ui.jev.save_unlinked", "Config gespeichert, Jev-Zuordnung nicht übernommen"));
+    } else {
+      toastSuccess(t("ui.toast.saved", "Config saved"));
+    }
     refreshGuardrails();
   } else {
-    toastError(t("ui.toast.save_failed", "Save failed"));
+    const stale = getConfigState().errorCode === "CONFIG_SOURCE_CHANGED";
+    toastError(t("ui.toast.save_failed", "Save failed"), stale
+      ? t("ui.jev.save_conflict", "Die Config-Datei wurde seit dem Laden des Entwurfs auf der Platte ge\u00e4ndert (durch einen anderen Prozess oder Editor). Nichts wurde \u00fcberschrieben. Config neu laden, dann den Jev-Vorschlag erneut anfordern und anwenden.")
+      : getConfigState().error || "");
   }
 }
 

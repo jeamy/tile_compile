@@ -1,0 +1,8 @@
+{
+  "_fixture_note": "Empirically captured (2026-09-22) by POSTing model=\"typesafe/jev-1.13.0\" (a plausible-looking but wrong id -- the TypeSafe-direct pinned-version format, not valid on this OpenRouter endpoint).",
+  "http_status": 400,
+  "body": {
+    "error": {"message": "typesafe/jev-1.13.0 is not a valid model ID", "code": 400},
+    "user_id": "user_SyntheticFixtureUser0000000"
+  }
+}

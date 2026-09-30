@@ -15,6 +15,9 @@ const store = getStore("config-state", {
   categories: null,
   validation: null,
   dirty: false,
+  jevAppliedProposalId: "",
+  jevSavedProposalId: "",
+  loadedConfigSha256: "",
   loading: false,
   error: null,
 });
@@ -148,6 +151,9 @@ export async function loadConfig() {
       draftYaml: yamlText,
       loading: false,
       dirty: false,
+      jevAppliedProposalId: "",
+      jevSavedProposalId: "",
+      loadedConfigSha256: resp?.source_sha256 || "",
     });
     return parsed;
   } catch (e) {
@@ -205,11 +211,20 @@ export async function saveConfig() {
   const { draft, yaml: yamlText } = getOutgoingConfig();
   if (!draft && !yamlText) return null;
   try {
-    const result = await api.post(API_ENDPOINTS.config.save, { yaml: yamlText });
-    store.setState({ config: deepClone(draft), configYaml: yamlText, dirty: false });
+    const jevProposalId = store.getState().jevAppliedProposalId;
+    const result = await api.post(API_ENDPOINTS.config.save, {
+      yaml: yamlText,
+      ...(jevProposalId ? {
+        jev_proposal_id: jevProposalId,
+        expected_source_sha256: store.getState().loadedConfigSha256 || "",
+      } : {}),
+    });
+    store.setState({ config: deepClone(draft), configYaml: yamlText, dirty: false,
+      jevAppliedProposalId: "", jevSavedProposalId: result?.jev_revision_linked ? jevProposalId : "",
+      loadedConfigSha256: result?.source_sha256 || "", error: null, errorCode: null });
     return result;
   } catch (e) {
-    store.setState({ error: e.message });
+    store.setState({ error: e.message, errorCode: e.payload?.code || null });
     return null;
   }
 }

@@ -8,6 +8,10 @@
 #include "services/hme_preview_service.hpp"
 #include "services/bge_preview_service.hpp"
 #include "services/pi/pi_outcome_recorder.hpp"
+#include "services/pi/pi_resume_scope.hpp"
+#include "services/pi/pi_decision_outcome.hpp"
+#include "services/pi/pi_json_io.hpp"
+#include "services/pi/pi_storage_paths.hpp"
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
 #include <fitsio.h>
@@ -36,6 +40,16 @@
 #endif
 
 namespace fs = std::filesystem;
+
+static void record_completed_pi_outcomes(const std::shared_ptr<AppState>& state,
+                                         const std::string& run_id, const fs::path& run_dir) {
+    try { tile_compile::pi::record_run_outcome_if_needed(state, run_id, run_dir); }
+    catch (const std::exception&) {}
+    try {
+        tile_compile::pi::record_jev_outcome_if_needed(
+            tile_compile::pi::pi_storage_dir(state) / "pi_decisions", run_id, run_dir);
+    } catch (const std::exception&) {}
+}
 
 static crow::response json_resp(const nlohmann::json& j, int status = 200) {
     crow::response res(status, j.dump());
@@ -100,30 +114,10 @@ std::optional<std::string> downstream_resume_scope_violation(
     // is (re)built, which this path skips and reuses unvalidated, so an
     // edit there would otherwise be silently ignored instead of failing
     // loud or applying.
-    static const std::set<std::string> kReconstructionResumeBase = {
-        "output", "data", "linearity", "calibration", "normalization",
-        "registration", "dithering", "chroma_denoise", "luma_denoise",
-        "astrometry", "pcc", "hypermetric_stretch", "bge", "stacking",
-        "runtime_limits"};
-    static const std::unordered_map<std::string, std::set<std::string>> kAllowed = {
-        {"HYPERMETRIC_STRETCH", {"hypermetric_stretch", "runtime_limits"}},
-        {"PCC", {"pcc", "chroma_denoise", "hypermetric_stretch", "runtime_limits"}},
-        {"BGE", {"bge", "pcc", "chroma_denoise", "luma_denoise",
-                 "hypermetric_stretch", "runtime_limits"}},
-        {"ASTROMETRY", {"astrometry", "bge", "pcc", "chroma_denoise",
-                        "luma_denoise", "hypermetric_stretch", "runtime_limits"}},
-        // GLOBAL_QUALITY additionally allows global_metrics -- it is the
-        // section GLOBAL_QUALITY re-reads and exists to let you retune;
-        // FORWARD_DRIZZLE-only resume does NOT recompute GLOBAL_QUALITY, so
-        // a global_metrics edit there would be silently ignored instead.
-        {"GLOBAL_QUALITY", [] {
-            auto s = kReconstructionResumeBase; s.insert("global_metrics"); return s;
-        }()},
-        {"FORWARD_DRIZZLE", kReconstructionResumeBase},
-    };
-    const auto allowed_it = kAllowed.find(phase_upper);
-    if (allowed_it == kAllowed.end()) return std::nullopt;
-    const auto& allowed = allowed_it->second;
+    // One copy of the phase -> allowed-section table (services/pi/pi_resume_scope.cpp), shared with the PI post-run advisor.
+    const std::set<std::string>* allowed_ptr = tile_compile::pi::resume_allowed_sections(phase_upper);
+    if (allowed_ptr == nullptr) return std::nullopt;
+    const auto& allowed = *allowed_ptr;
 
     std::string orig_yaml;
     for (const auto& rev : list_run_config_revisions(run_dir)) {
@@ -504,10 +498,11 @@ static void write_run_start_provenance(const fs::path& run_dir,
                                        const std::string& run_id,
                                        const std::string& config_revision_id,
                                        const std::string& config_yaml,
-                                       const std::string& prior_active_config_revision_id) {
+                                       const std::string& prior_active_config_revision_id,
+                                       const std::string& jev_proposal_id = "") {
     std::error_code ec;
     fs::create_directories(run_dir / "artifacts", ec);
-    const nlohmann::json provenance = {
+    nlohmann::json provenance = {
         {"schema_version", "pi.run-provenance.v1"},
         {"run_id", run_id},
         {"config_revision_id", config_revision_id},
@@ -521,6 +516,7 @@ static void write_run_start_provenance(const fs::path& run_dir,
         {"config_sha256", pi_provenance_sha256_hex(config_yaml)},
         {"started_at", pi_provenance_now_iso()}
     };
+    if (!jev_proposal_id.empty()) provenance["jev_proposal_id"] = jev_proposal_id;
     std::ofstream out(run_dir / "artifacts" / "pi_run_provenance.json", std::ios::out | std::ios::trunc);
     if (out) out << provenance.dump(2);
 }
@@ -1365,6 +1361,47 @@ void register_runs_routes(CrowApp& app,
             prior_active_config_revision_id = state->active_config_revision_id;
         }
 
+        std::string jev_run_proposal_id;
+        const std::string requested_jev_id = body.contains("jev_saved_proposal_id") && body["jev_saved_proposal_id"].is_string()
+            ? body["jev_saved_proposal_id"].get<std::string>() : std::string();
+        if (!requested_jev_id.empty()) {
+            try {
+                const auto run_config = tile_compile::pi::yaml_text_to_json(prepared_config_yaml);
+                const auto decisions_dir = tile_compile::pi::pi_storage_dir(state) / "pi_decisions";
+                if (!queue_items.empty()) {
+                    for (const auto& item : queue_items) {
+                        if (!tile_compile::pi::matches_saved_jev_run(decisions_dir, requested_jev_id,
+                                                                      item.at("input_dir").get<std::string>(), run_config))
+                            return err_resp("JEV_PROPOSAL_STALE", "saved Jev proposal no longer matches queue input or config", 409,
+                                            nlohmann::json::object());
+                    }
+                    const auto source = tile_compile::pi::read_json_file_opt(decisions_dir / requested_jev_id / "source.json");
+                    if (!source || !source->contains("dataset_manifest") || !(*source)["dataset_manifest"].is_array())
+                        return err_resp("JEV_PROPOSAL_STALE", "saved Jev dataset manifest is unavailable", 409,
+                                        nlohmann::json::object());
+                    for (const auto& item : queue_items) {
+                        const std::string pattern = item.value("pattern", std::string());
+                        for (const auto& frame : (*source)["dataset_manifest"])
+                            if (!wildcard_match(pattern, frame.at("id").get<std::string>()))
+                                return err_resp("JEV_PROPOSAL_UNSUPPORTED", "queue pattern excludes a scanned FITS frame", 409,
+                                                nlohmann::json::object());
+                    }
+                } else {
+                    if (input_dirs.size() != 1)
+                        return err_resp("JEV_PROPOSAL_UNSUPPORTED", "Jev attribution requires one input directory", 409,
+                                        nlohmann::json::object());
+                    if (!tile_compile::pi::matches_saved_jev_run(decisions_dir, requested_jev_id,
+                                                                  input_dirs.front(), run_config))
+                        return err_resp("JEV_PROPOSAL_STALE", "saved Jev proposal no longer matches run input or config", 409,
+                                        nlohmann::json::object());
+                }
+                jev_run_proposal_id = requested_jev_id;
+            } catch (const std::exception&) {
+                return err_resp("JEV_PROPOSAL_STALE", "saved Jev proposal could not be verified", 409,
+                                nlohmann::json::object());
+            }
+        }
+
         const fs::path revision_path =
             fs::path(runs_dir) / base_run_id / "config.yaml";
         std::string revision_id = state->revision_store.add(
@@ -1375,7 +1412,7 @@ void register_runs_routes(CrowApp& app,
             auto queue_payload = queue_job_payload(queue_items, 0, effective_run_id, runs_dir);
             queue_payload["config_revision_id"] = revision_id;
             std::string job_id = tile_compile::routes::spawn_job_thread(state, "run_queue", effective_run_id, queue_payload,
-                [queue_items, runs_dir, prepared_config_yaml, revision_id, prior_active_config_revision_id](std::shared_ptr<AppState> state, const std::string& job_id) mutable {
+                [queue_items, runs_dir, prepared_config_yaml, revision_id, prior_active_config_revision_id, jev_run_proposal_id](std::shared_ptr<AppState> state, const std::string& job_id) mutable {
                 fs::path staging_root = fs::path(runs_dir) / ".queue_staging" / job_id;
                 std::error_code ec;
                 fs::create_directories(staging_root, ec);
@@ -1421,6 +1458,25 @@ void register_runs_routes(CrowApp& app,
                         return;
                     }
 
+                    if (!jev_run_proposal_id.empty()) {
+                        bool verified = false;
+                        try {
+                            const auto decisions_dir = tile_compile::pi::pi_storage_dir(state) / "pi_decisions";
+                            const auto run_config = tile_compile::pi::yaml_text_to_json(prepared_config_yaml);
+                            verified = tile_compile::pi::matches_saved_jev_run(
+                                decisions_dir, jev_run_proposal_id, input_dir, effective_input_dir, run_config);
+                        } catch (const std::exception&) {}
+                        if (!verified) {
+                            const std::string error = "JEV_PROPOSAL_STALE: queue input changed before run start";
+                            queue[i]["state"] = "error";
+                            queue[i]["error"] = error;
+                            state->job_store.update_state(job_id, JobState::error,
+                                queue_job_payload(queue, static_cast<int>(i), current_run_id, runs_dir), error);
+                            fs::remove_all(staging_root, ec);
+                            return;
+                        }
+                    }
+
                     fs::path config_snapshot_path;
                     try {
                         config_snapshot_path = claim_run_start_config_snapshot(
@@ -1442,7 +1498,7 @@ void register_runs_routes(CrowApp& app,
 
                     write_run_start_provenance(fs::path(runs_dir) / current_run_id, current_run_id,
                                                revision_id, prepared_config_yaml,
-                                               prior_active_config_revision_id);
+                                               prior_active_config_revision_id, jev_run_proposal_id);
                     state->job_store.update_state(job_id, JobState::running,
                         queue_job_payload(queue, static_cast<int>(i), current_run_id, runs_dir));
                     state->job_store.update_progress(job_id, queue.empty() ? 100.0 : (100.0 * i / queue.size()));
@@ -1461,7 +1517,7 @@ void register_runs_routes(CrowApp& app,
                             current_run_id, nlohmann::json::object(), "",
                             [state, current_run_id, child_run_dir](const std::string&, JobState final_state) {
                                 if (final_state != JobState::ok) return;
-                                tile_compile::pi::record_run_outcome_if_needed(state, current_run_id, child_run_dir);
+                                record_completed_pi_outcomes(state, current_run_id, child_run_dir);
                             });
                     } catch (const std::exception& e) {
                         release_run_start_config_claim(
@@ -1561,7 +1617,7 @@ void register_runs_routes(CrowApp& app,
                 effective_run_id, nlohmann::json::object(), "",
                 [state, effective_run_id, run_dir_for_completion](const std::string&, JobState final_state) {
                     if (final_state != JobState::ok) return;
-                    tile_compile::pi::record_run_outcome_if_needed(state, effective_run_id, run_dir_for_completion);
+                    record_completed_pi_outcomes(state, effective_run_id, run_dir_for_completion);
                 });
         } catch (const std::exception& e) {
             release_run_start_config_claim(fs::path(runs_dir) / effective_run_id);
@@ -1574,7 +1630,7 @@ void register_runs_routes(CrowApp& app,
         }
         write_run_start_provenance(fs::path(runs_dir) / effective_run_id, effective_run_id,
                                    revision_id, prepared_config_yaml,
-                                   prior_active_config_revision_id);
+                                   prior_active_config_revision_id, jev_run_proposal_id);
         state->job_store.update_state(job_id, JobState::running, {
             {"input_dir", input_dirs.front()},
             {"runs_dir", runs_dir},
@@ -1612,7 +1668,7 @@ void register_runs_routes(CrowApp& app,
             if (status.value("status", std::string()) == "completed") {
                 // Schritt 1c (docs/PI/pi_local_learning_plan_de.md): cheap no-op after the first
                 // successful/resolved call, see pi_outcome_recorder's own marker-file fast path.
-                tile_compile::pi::record_run_outcome_if_needed(state, run_id, run_dir);
+                record_completed_pi_outcomes(state, run_id, run_dir);
             }
             return json_resp({
                 {"run_id", run_id},

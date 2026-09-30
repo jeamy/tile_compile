@@ -1,6 +1,31 @@
 # Dynamic-Boost: Analyse und Implementierungsplan
 
-Stand: 2026-09-19. Ausgangsstand: `CFA-aware-Forward-Drizzle` / `1cdc1333`.
+Stand: Plan 2026-09-19, Umsetzungs- und Messnachträge bis 2026-09-27.
+Ausgangsstand: `CFA-aware-Forward-Drizzle` / `1cdc1333`.
+
+**Umsetzungsstand (2026-09-27).** §0 bis §1 enthalten Befund und
+Messprotokoll in zeitlicher Reihenfolge; §2 bis §5 sind der ursprüngliche
+Plan. Was davon im Code steht:
+
+| Plan-Punkt | Stand |
+| --- | --- |
+| P1 Pilot + Voll-Frame-Schätzer (`reconstruction.drizzle.full_frame_estimator`, Estimator `reservoir_pilot_full_frame`, Pilotbarriere `end_pilot()`, Q-Karten für alle Frames) | umgesetzt auf CPU und CUDA |
+| P1: Zähler je Band (`pilot_count`, `full_accepted_count`, ...) | nur laufweit im `phase_end`-Event (`v2_full_frame_*`), nicht je Band |
+| P1: alten Reservoir-Raw-Wert im Diagnostikpfad mit ausgeben | nicht umgesetzt |
+| P1/P2: zwei Framegruppen-Summen | nicht umgesetzt |
+| P2 Gruppen-Evidenz und Schrumpfungsmodul (§4) | nicht umgesetzt; als Rauschstufe wurde stattdessen das vorhandene `luma_denoise` bewertet (§1, „Rauschreduktion statt P2“) |
+| P3 eigenes Dynamic-Boost-Anzeigeprodukt (§4) | nicht umgesetzt |
+| `reconstruction.clipping.bimodal_veto` (Doppelsterne, §1) | umgesetzt auf CPU und CUDA |
+| `hypermetric_stretch.color_cast_correction` inkl. `brightness_bins`, `neutralize_sky` | umgesetzt |
+| Reservoir-Seed konfigurierbar | nicht umgesetzt |
+
+**Defaults.** Code- und Schema-Defaults bleiben aus (`full_frame_estimator`,
+`shared_frame_rejection`, `bimodal_veto` jeweils `false`, Clip 3/3). Die
+ausgelieferte `tile_compile.yaml` schaltet dagegen seit Commit `f482a562`
+(2026-09-20, Entscheidung des Nutzers) den Voll-Frame-Schätzer mit Clip `4/4`
+ein, dazu `shared_frame_rejection` und `bimodal_veto`. Das ist eine bewusste
+Abweichung von der Regel in §4/P3 („Default aus, solange die Abnahme nicht
+bestanden ist“): Das Laufzeit-Gate aus §5 ist nicht erfüllt (siehe dort).
 Die vorhandene DWARF-FITS ist ein **positives Machbarkeitsbeispiel für diese
 M42-Aufnahme**: schwache Nebelbereiche lassen sich im Endprodukt deutlich
 vom unruhigen Hintergrund abheben. Ziel ist, diesen praktischen Nutzen auch
@@ -26,6 +51,9 @@ ruhigeren Hintergrund. Damit ist die zu prüfende Frage konkret: Warum
 bleiben die vorhandenen Nebelkonturen im `tile_compile`-Endprodukt schlechter
 vom Hintergrund getrennt? Die Antwort lässt sich nicht aus dem sichtbaren
 Vergleich allein einer einzelnen Pipeline-Stufe zuordnen.
+
+Hinweis (2026-09-27): Der Lauf `runs/m42-c1` existiert nicht mehr; die hier
+und in §1 genannten `m42-c1`-Zahlen sind nicht mehr nachmessbar.
 
 Eine erste Zahlenprobe verwendet *nur* diese beiden M42-Produkte und den
 610-Frame-Run: auf 1200 Pixel Breite verkleinert, DWARF per Stern-Affine
@@ -70,7 +98,8 @@ Zeitpunkt, Eingangsdatei und Output-Hash jeder Fortsetzung zusammenzuführen.
 
 ## 1. Was die M42-Analyse belegt und was nicht
 
-Die [M42-Analyse](m42_dynamik_kontrast_analyse_2026-09-19_de.md) misst im
+Die M42-Analyse (früher `m42_dynamik_kontrast_analyse_2026-09-19_de.md`,
+am 2026-09-27 entfernt; die benötigten Zahlen stehen hier) misst im
 linearen `stacked_rgb.fits` 26,81 ADU Himmel, 29,21 ADU schwachen Nebel,
 32,93 ADU helleren Nebel und 1,64 ADU robuste Streuung im Himmel. Die
 Differenzen 2,40/1,64 = 1,46 und 6,12/1,64 = 3,73 beschreiben den Kontrast
@@ -219,7 +248,8 @@ für den Restfaktor relevant.
   FORWARD_DRIZZLE werden Q-Daten für 3143 von 33526 (Frame, Band)-Paaren
   verarbeitet (9,4 %): 5,81 GB hochgeladen, `provider_quality_seconds` 19-21 s.
   Für alle Paare ist das etwa Faktor 10,7: rund 62 GB Upload und etwa
-  +190-210 s Provider-Q-Zeit, bei linearer Skalierung. Die Q-Karten selbst
+  205-225 s Provider-Q-Zeit insgesamt, also rund +185-205 s zusätzlich, bei
+  linearer Skalierung. (Korrigiert 2026-09-27; vorher „+190-210 s“.) Die Q-Karten selbst
   entstehen bereits für alle 610 Frames in SOURCE_QUALITY_MAPS (491 s);
   neu wäre nur Lesen und Hochladen. Kernelzeit dominiert FORWARD_DRIZZLE
   (325 s von 383 s) und ist davon nicht betroffen. Erwartete Zusatzkosten
@@ -324,7 +354,8 @@ Quellen an: Reservoir `3/3` liegt bei 0,936, ungeclippt bei 0,884, der neue
 Modus bei 0,922 des `2/4`-Flusses; gegen Reservoir `3/3` beträgt der Unterschied
 nur -1,6 %. Der Stern-Fluss-Test muss deshalb gegen eine unverzerrte
 Referenz (symmetrischer Clip) formuliert werden. Ungeklärt: Der neue Modus
-liegt +3,7 % über dem ungeclippten Mittelwert (verschiedene Gewichtung,
+liegt +4,3 % über dem ungeclippten Mittelwert (0,922/0,884; korrigiert
+2026-09-27, vorher „+3,7 %“) (verschiedene Gewichtung,
 q-gewichtetes Raw-Profil gegen unpondertes Mittel); das ist nicht nachgemessen.
 
 ### CUDA-Portierung und Kontrolllauf, 2026-09-20
@@ -365,6 +396,10 @@ unauffällig. Ursache nicht isoliert; plausibel ist, dass die frozen 4/4-Grenzen
 bei schiefen (Poisson-)Verteilungen an den hellen Pixeln einen etwas anderen
 Schnittanteil haben als die Reservoir-Grenzen; ein Gewichtungsunterschied
 scheidet aus, beide Läufe nutzen dasselbe q-gewichtete Raw-Profil.
+*(Überholt: Die spätere Analyse weiter unten, „Sternfluss-Abweichung M42“,
+findet einen über Kanäle und Helligkeit konstanten Faktor und führt ihn auf
+die Zusammensetzung der gewichteten 58-Frame-Stichprobe zurück, nicht auf die
+Clip-Grenzen. Gleiches Gewichtungs*schema*, aber andere Frames.)*
 
 Laufzeit (dieselbe Hardware, Kontrolle und neuer Modus nacheinander, ohne
 weitere Last): FORWARD_DRIZZLE 475 s gegen 853 s (+378 s), MULTIBAND 225 s
@@ -417,7 +452,8 @@ lineares `stacked_rgb.fits` mehr), Regionen: drei Himmelsboxen und die
 | Pilot + Voll-Frame `4/4` | 0,949 | 8,35 / 7,96 |
 
 Die Frame-Zahl allein senkt das Sigma um 2,38 und verdoppelt den Kontrast
-(gegen `2/4`: 2,97 bzw. 2,9-fach). Sternfluss (248 Sterne) gegen die
+(gegen `2/4`: Sigma 2,97-fach, Kontrast NE 2,9-fach, SW 2,0-fach; korrigiert
+2026-09-27, vorher „2,9-fach“ für beide Arme). Sternfluss (248 Sterne) gegen die
 Kontrolle: Median 0,996 (p16 0,977, p84 1,014), Halbflussradius 0,987; der
 Reservoir-Lauf `2/4` liegt bei 1,053 (Clip-Bias). Damit ist die Schwelle
 +-1 % hier erfüllt, bei M42 (-1,9 %) knapp verfehlt. Nullhimmel (sechs Boxen
@@ -428,7 +464,15 @@ Stacks. Kosten: FORWARD_DRIZZLE 291 s auf 488 s (+68 %), Phasensumme 1800 s
 auf 2113 s; dem Modus zuzurechnen sind FORWARD_DRIZZLE +197 s (+10,9 %) und
 MULTIBAND +29 s, zusammen +12,6 %. Das 10 %-Gate bleibt knapp verfehlt.
 
-### P2-Bewertung: `luma_denoise` auf dem neuen M42-Stack, 2026-09-20
+### Rauschreduktion statt P2: `luma_denoise` auf dem neuen M42-Stack, 2026-09-20
+
+Abgrenzung: Das ist **nicht** das in §4 geplante P2 (Framegruppen-Evidenz und
+eigenes Schrumpfungsmodul), sondern die Bewertung der vorhandenen Stufe
+`luma_denoise` als Ersatz dafür. Das geplante P2 ist nicht umgesetzt. Weil
+Variante A unten den DWARF-Kontrast im Vorschau-Maßstab übertrifft, ist es
+derzeit nicht erforderlich; die in §4 genannten Grenzen einer rein räumlichen
+Rauschreduktion (keine zeitliche Evidenz, Glättung korrelierten Rauschens
+erhöht den 4x4-Kontrast) bleiben bestehen.
 
 Test auf einer schlanken Kopie des CUDA-Laufs (`p2_m42_base`, Resume ab
 ASTROMETRY, nur `luma_denoise` geändert; die Basisvariante ohne Denoise
@@ -474,7 +518,7 @@ luma_denoise:
   bilateral: {enabled: false}
 ```
 
-M31-Bestätigung P2 (Kopie `p2_m31_base` des Voll-Frame-Laufs, Resume ab
+M31-Bestätigung der Rauschreduktion (Kopie `p2_m31_base` des Voll-Frame-Laufs, Resume ab
 ASTROMETRY, Variante A mit dem Block aus `m31_dwarf2_full_frame_luma.example.yaml`;
 Basis ohne Denoise reproduziert `stacked_rgb_hms.fits` bitidentisch): Himmel-Sigma
 PCC 0,949 auf 0,422 (x0,44); Nebel/Himmel der Außenarme NE/SW (4x4) PCC
@@ -632,8 +676,39 @@ die Einheitstests belegen das Mechanismus-Verhalten mit `clip_sigma=8` (dem
 Bereich, in dem eine gemischte Stichprobe die Kontamination zulässt, die
 gereinigte Mehrheit sie mit derselben Schranke aber wieder ausschließt), nicht
 mit dem Produktions-`4/4`. Ob `bimodal_veto` die konkreten M31-Geister im
-Realdatensatz tatsächlich entfernt, ist eine empirische Frage; siehe „Neuer
-Lauf" unten für das Ergebnis auf dem echten M31-Datensatz.
+Realdatensatz tatsächlich entfernt, ist eine empirische Frage; siehe
+„Bimodal-Veto auf Realdaten" unten.
+
+**Bimodal-Veto auf Realdaten (Nachtrag 2026-09-27).** Der ursprünglich hier
+angekündigte Abschnitt „Neuer Lauf" fehlte. Vorhanden sind die Zähler zweier
+CUDA-Vollruns mit den Profilen `m31/m42_dwarf2_full_frame.example.yaml`
+(Voll-Frame, Clip `4/4`, `shared_frame_rejection`, `bimodal_veto` an):
+
+| Lauf | Pixelkanäle mit Veto | verworfene Kandidaten | `degenerate_pilot` |
+| --- | ---: | ---: | ---: |
+| M31 `20260927_171335_41a5eabd` (645 Frames) | 27 930 | 63 612 | 99 125 |
+| M42 `20260927_161504_810fb3ed` (610 Frames) | 185 172 | 424 198 | 855 914 |
+
+Gegen den M31-Lauf `M31-20260921_053613_a1f5c7de` mit identischer
+Rekonstruktions-Config ohne Veto sind Reservoir-Kandidaten (1 189 061 155),
+verarbeitete Samples und `no_bounds` (492 959) gleich; die Voll-Frame-Zähler
+verschieben sich um 0,003 % (akzeptiert 12 106 193 785 auf 12 105 843 369),
+`degenerate_pilot` steigt von 94 200 auf 99 125 (kleinere Pilotmengen nach
+dem Veto). **Ob die Doppelstern-Geister dadurch verschwinden, ist nicht
+gemessen**; die Zähler belegen nur, dass und wie oft das Veto greift.
+
+Simulation zur Wirksamkeit (Gauss-Mehrheit, Pilot 58, Clip `4/4` mit roher
+MAD, Lücke `2,5` MAD): Bei 24 % Minderheit mit 3 sigma Abstand greift das
+Veto in 0 % der Fälle, und der Standard-Clip entfernt nur 4-10 % der
+Minderheit. Es greift nennenswert erst bei großen, eng gestreuten
+Minderheiten (etwa 40 % Anteil, 6-8 sigma Abstand: 15-35 %); bei kleinen
+Minderheiten mit großem Abstand entfernt schon der Standard-Clip fast alles.
+Wo das Veto greift, lassen die aufgefrischten Pilot-Grenzen 0 % der
+Nicht-Pilot-Frames der verworfenen Population durch; die Auffrischung
+erfüllt ihren Zweck. Die in diesem Abschnitt beschriebene Grenze ist damit
+bestätigt: Ein Geister-Anteil von etwa 24 % mit mäßigem Versatz wird weder
+vom Clip noch vom Veto zuverlässig entfernt; die Ursache (Registrierung)
+bleibt offen.
 
 Offen: Kanalweise Sternfluss gegen einen unverzerrten Bezug, Nullhimmel an
 weiteren Objekten (M31), Runner-/GUI-Sichtbarkeit der Zähler.
@@ -672,6 +747,10 @@ dokumentierte lineare HMS-Resume-Eingang. Seine Semantik darf nicht still
 geändert werden.
 
 ## 4. Verbindliche Implementierungsfolge
+
+*Stand 2026-09-27: Dieser Abschnitt ist der ursprüngliche Plan (Zukunftsform
+beibehalten). P1 ist umgesetzt, mit den Abweichungen aus der Statustabelle am
+Anfang; P2 und P3 sind nicht umgesetzt. Die Messungen zu P1 stehen in §1.*
 
 Die Ausgangsentscheidung ist getroffen: Die 610-Frame-M42-Serie und die
 DWARF-FITS zeigen die sichtbare Lücke; fünf lokale Gain-Varianten sind
@@ -913,6 +992,27 @@ Der Absatz zur Produktionskosten-Abnahme weiter oben ist in diesem Sinn zu
 lesen. Bei den Sternschwellen gelten zusätzlich die vorhandenen
 Validierungsgates unverändert.
 
+**Stand der Abnahme (2026-09-27).** Ergebnisse aus §1 gegen die Schwellen
+dieser Tabelle; bei drei Kriterien wurde die Bewertung nach der Messung
+angepasst, das ist hier ausdrücklich vermerkt:
+
+| Schwelle | Ergebnis | Bewertung |
+| --- | --- | --- |
+| Himmel-Sigma-Verhältnis >= 2,5 | M42 3,26 gegen `2/4`, 2,60 gegen Kontrolle `4/4`; M31 2,97 / 2,38 | erfüllt (gegen die Kontrolle knapp) |
+| Nebel/Himmel 4x4 >= 9,0 | M42 12,3 / 13,6 (HMS 12,6 / 14,0) | erfüllt |
+| Nebelhelligkeit +-15 % | -10,7 % / -5,2 % | erfüllt |
+| Stern-FWHM +2 % | 0,9997 bzw. 0,996 | erfüllt |
+| Stern-Fluss +-1 % gegen Reservoir | -7,8 % gegen `2/4`; -1,9 % (M42) und -0,4 % (M31) gegen Kontrolle `4/4` | **nicht erfüllt**; die Referenz Reservoir wurde nachträglich als verzerrt bzw. stichprobenabhängig eingestuft, ein neues Kriterium gegen einen unverzerrten Bezug ist nicht festgelegt |
+| Kern-Clipping nicht höher als Reservoir | 1,7e-5 gegen 1,3e-6 | **formal nicht erfüllt** (13-fach), nachträglich als vernachlässigbar bewertet |
+| Nullhimmel: keine kohärente Struktur über 6 sigma | gemessen bei 5 sigma: 74 Flecken (M42), 29 (M31) | **Kriterium geändert**: bewertet als erfüllt, weil dieselben Flecken auch in Reservoir- und ungeclipptem Stack liegen; eine Messung bei 6 sigma fehlt |
+| Gate-3-Kontaminationsfall | Kerneltests grün | erfüllt |
+| Laufzeit: Zusatz <= 10 % | M42 +13 % (mit Pinned Staging), M31 +12,6 % | **nicht erfüllt** |
+
+Trotz des verfehlten Laufzeit-Gates ist der Modus in der ausgelieferten
+`tile_compile.yaml` eingeschaltet (Nutzerentscheidung, Commit `f482a562`;
+Code- und Schema-Default aus). Die Kachel-Nebenablage als Alternative (§4)
+wurde nicht geprüft.
+
 Ein eindrucksvoller M42-Crop allein reicht für die Aktivierung des Defaults
 nicht. Wenn P1 die Lücke bereits schließt, bleibt P2 optionales
 Anzeigeprodukt; wenn P1 nicht reicht, ist P2 der nächste festgelegte
@@ -921,7 +1021,9 @@ alten Ausgaben implementierbar.
 
 ## Quellen für die methodische Einordnung
 
-- M42-Messungen und dokumentierte Fehlversuche: [lokale M42-Analyse](m42_dynamik_kontrast_analyse_2026-09-19_de.md).
+- M42-Messungen und dokumentierte Fehlversuche: lokale M42-Analyse
+  `m42_dynamik_kontrast_analyse_2026-09-19_de.md` (am 2026-09-27 entfernt,
+  im Git-Verlauf bis Commit `889c79d9` erhalten).
 - Der heutige Drizzle-Ansatz und sein Gewichtungsprinzip: [Fruchter und Hook,
   2002](https://arxiv.org/abs/astro-ph/9808087).
 - Grenzen der Behauptung, Rohframes enthielten stets zusätzliche nutzbare
