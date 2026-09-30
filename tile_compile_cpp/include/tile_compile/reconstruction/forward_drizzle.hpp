@@ -362,6 +362,18 @@ double polygon_rectangle_intersection_area(const double poly_x[4],
                                            const double poly_y[4], double rx0,
                                            double ry0, double rx1, double ry1);
 
+// The same clip split at the column/row boundary, for callers that rasterize
+// one quad over a block of cells: polygon_clip_columns() runs the x >= rx0 and
+// x <= rx1 planes once per column and returns the clipped vertex count
+// (<= 8, 0 = no overlap); polygon_clipped_rows_area() then finishes one cell
+// with the y planes. Composition is bit-identical to
+// polygon_rectangle_intersection_area().
+int polygon_clip_columns(const double poly_x[4], const double poly_y[4],
+                         double rx0, double rx1, double out_x[8],
+                         double out_y[8]);
+double polygon_clipped_rows_area(const double *x, const double *y, int n,
+                                 double ry0, double ry1);
+
 double shoelace_area(const double *x, const double *y, int n);
 
 } // namespace tile_compile::reconstruction

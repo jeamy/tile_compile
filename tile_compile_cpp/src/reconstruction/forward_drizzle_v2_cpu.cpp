@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -166,10 +167,18 @@ std::uint64_t cpu_scatter_leaf_y_tiled(
       std::min(tile_y1, std::min(rows, static_cast<int>(std::ceil(maxy))));
   std::uint64_t overlaps = 0;
   const std::size_t base = static_cast<std::size_t>(channel) * iplane;
-  for (int ty = y0; ty < y1; ++ty) {
-    for (int tx = x0; tx < x1; ++tx) {
-      const double area = polygon_rectangle_intersection_area(
-          qx, qy, tx, ty, tx + 1.0, ty + 1.0);
+  // Column-outer: the two x planes of the clip do not depend on the row, so
+  // each column clips the quad once and every cell of the column only runs the
+  // y planes (bit-identical to the per-cell full clip). Each cell still gets
+  // at most one add per droplet, so the per-cell accumulation order across
+  // droplets is unchanged.
+  for (int tx = x0; tx < x1; ++tx) {
+    double colx[8], coly[8];
+    const int coln = polygon_clip_columns(qx, qy, tx, tx + 1.0, colx, coly);
+    if (coln == 0) continue;
+    for (int ty = y0; ty < y1; ++ty) {
+      const double area =
+          polygon_clipped_rows_area(colx, coly, coln, ty, ty + 1.0);
       if (!(area > 0.0)) continue;
       const std::size_t out =
           base + static_cast<std::size_t>(ty) * cols + tx;
@@ -1583,6 +1592,7 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_affine_samples(
   stats_.max_scatter_threads_used = std::max(
       stats_.max_scatter_threads_used,
       static_cast<std::uint64_t>(omp_threads));
+  const auto scatter_t0 = std::chrono::steady_clock::now();
 #pragma omp parallel num_threads(omp_threads) reduction(+ : positive)
   {
 #if defined(_OPENMP)
@@ -1674,8 +1684,13 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_affine_samples(
     }
   }
   stats_.positive_overlaps += positive;
+  const auto fold_t0 = std::chrono::steady_clock::now();
+  stats_.cpu_scatter_seconds +=
+      std::chrono::duration<double>(fold_t0 - scatter_t0).count();
   fold_native_range(0, im.ncols, q_frame, qmask, frame_order, keep_all,
                     threshold);
+  stats_.cpu_fold_seconds += std::chrono::duration<double>(
+      std::chrono::steady_clock::now() - fold_t0).count();
   ++im.frames;
   ++stats_.frames_processed;
   ++stats_.slot_transitions;

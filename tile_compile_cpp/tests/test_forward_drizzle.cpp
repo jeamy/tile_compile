@@ -12,9 +12,12 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <map>
+#include <random>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -371,6 +374,231 @@ TEST_CASE("polygon_rectangle_intersection_area: no overlap returns exactly 0") {
   const double py[4] = {10.0, 10.0, 11.0, 11.0};
   REQUIRE(polygon_rectangle_intersection_area(px, py, 0.0, 0.0, 1.0, 1.0) ==
           0.0);
+}
+
+namespace {
+
+// Verbatim copy of the pre-optimisation polygon_rectangle_intersection_area
+// (one-shot four-plane Sutherland-Hodgman clip with `%` vertex wrap and
+// buffer copies). The production function now has exact shortcuts and a
+// column/row split; this reference proves they stay bit-identical.
+double ref_shoelace(const double *x, const double *y, int n) {
+  if (n < 3)
+    return 0.0;
+  double s = 0.0;
+  for (int i = 0; i < n; ++i) {
+    const int j = (i + 1) % n;
+    s += x[i] * y[j] - x[j] * y[i];
+  }
+  return std::abs(s) * 0.5;
+}
+
+template <typename InsideFn, typename IntersectFn>
+int ref_clip_one_plane(const double *in_x, const double *in_y, int in_n,
+                       InsideFn inside, IntersectFn intersect, double *out_x,
+                       double *out_y) {
+  if (in_n == 0)
+    return 0;
+  int out_n = 0;
+  for (int i = 0; i < in_n; ++i) {
+    const int j = (i + 1) % in_n;
+    const bool in_i = inside(in_x[i], in_y[i]);
+    const bool in_j = inside(in_x[j], in_y[j]);
+    if (in_i) {
+      out_x[out_n] = in_x[i];
+      out_y[out_n] = in_y[i];
+      ++out_n;
+    }
+    if (in_i != in_j) {
+      double ix = 0.0, iy = 0.0;
+      intersect(in_x[i], in_y[i], in_x[j], in_y[j], ix, iy);
+      out_x[out_n] = ix;
+      out_y[out_n] = iy;
+      ++out_n;
+    }
+  }
+  return out_n;
+}
+
+double ref_polygon_rectangle_intersection_area(const double poly_x[4],
+                                               const double poly_y[4],
+                                               double rx0, double ry0,
+                                               double rx1, double ry1) {
+  double bx[8], by[8];
+  double cx[8], cy[8];
+  int n = 4;
+  for (int i = 0; i < 4; ++i) {
+    bx[i] = poly_x[i];
+    by[i] = poly_y[i];
+  }
+  n = ref_clip_one_plane(
+      bx, by, n, [&](double x, double) { return x >= rx0; },
+      [&](double x0, double y0, double x1, double y1, double &ix, double &iy) {
+        const double t = (rx0 - x0) / (x1 - x0);
+        ix = rx0;
+        iy = y0 + t * (y1 - y0);
+      },
+      cx, cy);
+  std::copy(cx, cx + n, bx);
+  std::copy(cy, cy + n, by);
+  n = ref_clip_one_plane(
+      bx, by, n, [&](double x, double) { return x <= rx1; },
+      [&](double x0, double y0, double x1, double y1, double &ix, double &iy) {
+        const double t = (rx1 - x0) / (x1 - x0);
+        ix = rx1;
+        iy = y0 + t * (y1 - y0);
+      },
+      cx, cy);
+  std::copy(cx, cx + n, bx);
+  std::copy(cy, cy + n, by);
+  n = ref_clip_one_plane(
+      bx, by, n, [&](double, double y) { return y >= ry0; },
+      [&](double x0, double y0, double x1, double y1, double &ix, double &iy) {
+        const double t = (ry0 - y0) / (y1 - y0);
+        ix = x0 + t * (x1 - x0);
+        iy = ry0;
+      },
+      cx, cy);
+  std::copy(cx, cx + n, bx);
+  std::copy(cy, cy + n, by);
+  n = ref_clip_one_plane(
+      bx, by, n, [&](double, double y) { return y <= ry1; },
+      [&](double x0, double y0, double x1, double y1, double &ix, double &iy) {
+        const double t = (ry1 - y0) / (y1 - y0);
+        ix = x0 + t * (x1 - x0);
+        iy = ry1;
+      },
+      cx, cy);
+  return ref_shoelace(cx, cy, n);
+}
+
+bool same_bits_or_both_nan(double a, double b) {
+  if (std::isnan(a) || std::isnan(b))
+    return std::isnan(a) && std::isnan(b);
+  return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b);
+}
+
+// Checks the production one-shot function AND the column/row composition
+// against the reference for every unit cell in the polygon's bounding box
+// plus a one-cell margin. Returns the number of cells with area > 0.
+int check_quad_matches_reference(const double px[4], const double py[4]) {
+  double minx = px[0], maxx = px[0], miny = py[0], maxy = py[0];
+  for (int i = 1; i < 4; ++i) {
+    minx = std::fmin(minx, px[i]);
+    maxx = std::fmax(maxx, px[i]);
+    miny = std::fmin(miny, py[i]);
+    maxy = std::fmax(maxy, py[i]);
+  }
+  if (!std::isfinite(minx) || !std::isfinite(maxx) || !std::isfinite(miny) ||
+      !std::isfinite(maxy)) {
+    minx = miny = 0.0;
+    maxx = maxy = 4.0;
+  }
+  const int x0 = static_cast<int>(std::floor(minx)) - 1;
+  const int x1 = static_cast<int>(std::ceil(maxx)) + 1;
+  const int y0 = static_cast<int>(std::floor(miny)) - 1;
+  const int y1 = static_cast<int>(std::ceil(maxy)) + 1;
+  int positive = 0;
+  for (int tx = x0; tx < x1; ++tx) {
+    double colx[8], coly[8];
+    const int coln = polygon_clip_columns(px, py, tx, tx + 1.0, colx, coly);
+    for (int ty = y0; ty < y1; ++ty) {
+      const double ref = ref_polygon_rectangle_intersection_area(
+          px, py, tx, ty, tx + 1.0, ty + 1.0);
+      const double one_shot =
+          polygon_rectangle_intersection_area(px, py, tx, ty, tx + 1.0,
+                                              ty + 1.0);
+      const double composed =
+          polygon_clipped_rows_area(colx, coly, coln, ty, ty + 1.0);
+      INFO("cell " << tx << "," << ty << " ref " << ref << " one_shot "
+                   << one_shot << " composed " << composed);
+      REQUIRE(same_bits_or_both_nan(ref, one_shot));
+      REQUIRE(same_bits_or_both_nan(ref, composed));
+      if (ref > 0.0)
+        ++positive;
+    }
+  }
+  return positive;
+}
+
+} // namespace
+
+TEST_CASE("polygon_rectangle_intersection_area: fast paths and the "
+          "column/row split are bit-identical to the one-shot reference",
+          "[drizzle-audit]") {
+  std::mt19937_64 rng(0x5eedf00dULL);
+  std::uniform_real_distribution<double> unit(0.0, 1.0);
+  int positive_cells = 0;
+
+  // Droplet-like parallelograms: a source pixel of half-size h (pixfrac/2 *
+  // internal scale) under a random rotation/anisotropic scale at realistic
+  // internal-canvas magnitudes.
+  for (int it = 0; it < 4000; ++it) {
+    const double ang = (unit(rng) - 0.5) * 3.14159265358979;
+    const double sxy = 0.8 + 0.5 * unit(rng);
+    const double syy = 0.8 + 0.5 * unit(rng);
+    const double shear = (unit(rng) - 0.5) * 0.3;
+    const double h = 0.3 + 1.4 * unit(rng);
+    const double cx0 = unit(rng) * 7800.0;
+    const double cy0 = unit(rng) * 4600.0;
+    const double ca = std::cos(ang), sa = std::sin(ang);
+    const double m00 = sxy * ca, m01 = -syy * sa + shear;
+    const double m10 = sxy * sa, m11 = syy * ca;
+    const double ux[4] = {-h, h, h, -h};
+    const double uy[4] = {-h, -h, h, h};
+    double px[4], py[4];
+    for (int k = 0; k < 4; ++k) {
+      px[k] = cx0 + m00 * ux[k] + m01 * uy[k];
+      py[k] = cy0 + m10 * ux[k] + m11 * uy[k];
+    }
+    positive_cells += check_quad_matches_reference(px, py);
+  }
+  REQUIRE(positive_cells > 0);
+
+  // Boundary-aligned and degenerate quads: integer vertices, vertices exactly
+  // on cell edges, zero-area / collinear / repeated-vertex polygons, both
+  // windings, and a NaN vertex.
+  const double sq_x[4] = {2.0, 3.0, 3.0, 2.0};
+  const double sq_y[4] = {5.0, 5.0, 6.0, 6.0};
+  check_quad_matches_reference(sq_x, sq_y);
+  const double rev_x[4] = {2.0, 2.0, 3.0, 3.0};
+  const double rev_y[4] = {5.0, 6.0, 6.0, 5.0};
+  check_quad_matches_reference(rev_x, rev_y);
+  const double big_x[4] = {1.0, 4.0, 4.0, 1.0};
+  const double big_y[4] = {1.0, 1.0, 4.0, 4.0};
+  check_quad_matches_reference(big_x, big_y);
+  const double diamond_x[4] = {3.0, 4.0, 3.0, 2.0};
+  const double diamond_y[4] = {2.0, 3.0, 4.0, 3.0};
+  check_quad_matches_reference(diamond_x, diamond_y);
+  const double line_x[4] = {1.0, 2.0, 3.0, 4.0};
+  const double line_y[4] = {1.0, 2.0, 3.0, 4.0};
+  check_quad_matches_reference(line_x, line_y);
+  const double point_x[4] = {2.5, 2.5, 2.5, 2.5};
+  const double point_y[4] = {2.5, 2.5, 2.5, 2.5};
+  check_quad_matches_reference(point_x, point_y);
+  const double dup_x[4] = {1.0, 1.0, 3.0, 3.0};
+  const double dup_y[4] = {1.0, 1.0, 2.0, 3.0};
+  check_quad_matches_reference(dup_x, dup_y);
+  const double edge_x[4] = {2.0, 3.0, 3.0, 2.0};
+  const double edge_y[4] = {3.0, 3.0, 3.0, 3.0};
+  check_quad_matches_reference(edge_x, edge_y);
+  const double nan_x[4] = {1.0, std::numeric_limits<double>::quiet_NaN(), 3.0,
+                           1.0};
+  const double nan_y[4] = {1.0, 1.5, 3.0, 3.0};
+  check_quad_matches_reference(nan_x, nan_y);
+
+  // Integer-lattice quads (every vertex on a cell corner) at both ends of the
+  // canvas range.
+  for (int it = 0; it < 500; ++it) {
+    const int ox = static_cast<int>(unit(rng) * 7000.0);
+    const int oy = static_cast<int>(unit(rng) * 4000.0);
+    double px[4], py[4];
+    for (int k = 0; k < 4; ++k) {
+      px[k] = ox + static_cast<int>(unit(rng) * 4.0);
+      py[k] = oy + static_cast<int>(unit(rng) * 4.0);
+    }
+    check_quad_matches_reference(px, py);
+  }
 }
 
 TEST_CASE(

@@ -718,6 +718,10 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
             v2_result.driver.totals.quality_expanded_floats;
         extra["v2_phase_wall_seconds"]=v2_result.driver.phase_wall_seconds;
         extra["v2_commit_seconds"]=v2_result.driver.commit_seconds;
+        extra["v2_finalize_seconds"]=v2_result.driver.finalize_seconds;
+        extra["v2_cpu_scatter_seconds"]=
+            v2_result.driver.totals.cpu_scatter_seconds;
+        extra["v2_cpu_fold_seconds"]=v2_result.driver.totals.cpu_fold_seconds;
         extra["v2_provider_source_seconds"]=
             v2_result.provider_source_seconds;
         extra["v2_provider_quality_seconds"]=

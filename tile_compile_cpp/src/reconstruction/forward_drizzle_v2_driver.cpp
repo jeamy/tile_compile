@@ -116,6 +116,8 @@ void add_stats(ForwardDrizzleV2PrototypeStats &t,
   t.max_frame_seconds = std::max(t.max_frame_seconds, s.max_frame_seconds);
   t.max_scatter_threads_used =
       std::max(t.max_scatter_threads_used, s.max_scatter_threads_used);
+  t.cpu_scatter_seconds += s.cpu_scatter_seconds;
+  t.cpu_fold_seconds += s.cpu_fold_seconds;
 }
 
 // One backend attempt over the committed-prefix tail of the store.
@@ -421,9 +423,13 @@ bool attempt_backend(const fs::path &store_root,
     if (plan.emit_profiles)
       profiles.assign(nrec, ForwardDrizzleV2ProfileResult{});
     std::uint64_t dense = 0;
-    if (!kernel->finalize(records.data(),
-                          plan.emit_profiles ? profiles.data() : nullptr,
-                          &dense)) {
+    const auto finalize_t0 = std::chrono::steady_clock::now();
+    const bool finalize_ok = kernel->finalize(
+        records.data(), plan.emit_profiles ? profiles.data() : nullptr,
+        &dense);
+    result.finalize_seconds += std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - finalize_t0).count();
+    if (!finalize_ok) {
       if (!cuda) throw std::runtime_error("FDV2_DRIVER_FINALIZE_FAILED");
       fail_device("finalize()");
       return false;
@@ -547,6 +553,7 @@ ForwardDrizzleV2DriverResult run_forward_drizzle_v2(
     result.max_frame_seconds = 0.0;
     result.max_provider_enqueue_seconds = 0.0;
     result.commit_seconds = 0.0;
+    result.finalize_seconds = 0.0;
     result.driver_hotpath_allocations = 0;
   }
 

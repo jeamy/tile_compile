@@ -145,6 +145,8 @@ struct ForwardDrizzleV2DriverResult {
   // Wall seconds inside commit_band plus finish (the store-side commit
   // operations only, summed over the computed bands).
   double commit_seconds = 0.0;
+  // Wall seconds inside kernel->finalize, summed over the computed bands.
+  double finalize_seconds = 0.0;
   // Reusable per-band record buffers are pre-reserved outside the band
   // loop; any capacity growth inside a band lands here (must stay 0).
   std::uint64_t driver_hotpath_allocations = 0;

@@ -68,7 +68,7 @@ int clip_one_plane(const double *in_x, const double *in_y, int in_n,
     return 0;
   int out_n = 0;
   for (int i = 0; i < in_n; ++i) {
-    const int j = (i + 1) % in_n;
+    const int j = i + 1 == in_n ? 0 : i + 1;
     const bool in_i = inside(in_x[i], in_y[i]);
     const bool in_j = inside(in_x[j], in_y[j]);
     if (in_i) {
@@ -89,63 +89,113 @@ int clip_one_plane(const double *in_x, const double *in_y, int in_n,
 
 } // namespace
 
-double polygon_rectangle_intersection_area(const double poly_x[4],
-                                           const double poly_y[4], double rx0,
-                                           double ry0, double rx1, double ry1) {
-  // A convex quad clipped against 4 half-planes can gain at most 4 vertices
-  // (one intersection point per edge crossing per plane); 4 + 4 = 8 is a
-  // safe static bound used throughout.
-  double bx[8], by[8];
-  double cx[8], cy[8];
-  int n = 4;
+// The rectangle clip is split into its column half (x >= rx0, x <= rx1) and
+// its row half (y >= ry0, y <= ry1) so a caller that scatters one polygon over
+// a block of cells clips each column once. The two halves run the four
+// Sutherland-Hodgman planes in the historical order with the historical
+// arithmetic, so composing them is bit-identical to the one-shot clip. The
+// shortcuts below are exact by construction (each replaces a plane pass whose
+// result is known without evaluating it):
+//  - every vertex passes a plane: the plane returns its input unchanged, in
+//    order;
+//  - every vertex fails a plane's test (and the plane is the first one able to
+//    reject, or the failing vertices all exceed the far bound so that earlier
+//    planes pass them untouched): no output vertices, area exactly 0.0.
+// The rejects use the strict "beyond the far bound" form for the second plane
+// of each pair and require lo <= hi, so an edge crossing the first plane can
+// never produce a vertex that survives the second.
+int polygon_clip_columns(const double poly_x[4], const double poly_y[4],
+                         double rx0, double rx1, double out_x[8],
+                         double out_y[8]) {
+  bool all_in = true;
+  bool all_below = true; // every vertex fails x >= rx0
+  bool all_above = rx0 <= rx1; // every vertex has x > rx1
   for (int i = 0; i < 4; ++i) {
-    bx[i] = poly_x[i];
-    by[i] = poly_y[i];
+    const double x = poly_x[i];
+    const bool ge = x >= rx0;
+    const bool le = x <= rx1;
+    all_in = all_in && ge && le;
+    all_below = all_below && !ge;
+    all_above = all_above && x > rx1;
+  }
+  if (all_below || all_above)
+    return 0;
+  if (all_in) {
+    for (int i = 0; i < 4; ++i) {
+      out_x[i] = poly_x[i];
+      out_y[i] = poly_y[i];
+    }
+    return 4;
   }
 
-  n = clip_one_plane(
-      bx, by, n, [&](double x, double /*y*/) { return x >= rx0; },
+  double bx[8], by[8];
+  int n = clip_one_plane(
+      poly_x, poly_y, 4, [&](double x, double /*y*/) { return x >= rx0; },
       [&](double x0, double y0, double x1, double y1, double &ix, double &iy) {
         const double t = (rx0 - x0) / (x1 - x0);
         ix = rx0;
         iy = y0 + t * (y1 - y0);
       },
-      cx, cy);
-  std::copy(cx, cx + n, bx);
-  std::copy(cy, cy + n, by);
-
-  n = clip_one_plane(
+      bx, by);
+  return clip_one_plane(
       bx, by, n, [&](double x, double /*y*/) { return x <= rx1; },
       [&](double x0, double y0, double x1, double y1, double &ix, double &iy) {
         const double t = (rx1 - x0) / (x1 - x0);
         ix = rx1;
         iy = y0 + t * (y1 - y0);
       },
-      cx, cy);
-  std::copy(cx, cx + n, bx);
-  std::copy(cy, cy + n, by);
+      out_x, out_y);
+}
 
-  n = clip_one_plane(
-      bx, by, n, [&](double /*x*/, double y) { return y >= ry0; },
+double polygon_clipped_rows_area(const double *x, const double *y, int n,
+                                 double ry0, double ry1) {
+  if (n == 0)
+    return 0.0;
+  bool all_in = true;
+  bool all_below = true; // every vertex fails y >= ry0
+  bool all_above = ry0 <= ry1; // every vertex has y > ry1
+  for (int i = 0; i < n; ++i) {
+    const bool ge = y[i] >= ry0;
+    const bool le = y[i] <= ry1;
+    all_in = all_in && ge && le;
+    all_below = all_below && !ge;
+    all_above = all_above && y[i] > ry1;
+  }
+  if (all_below || all_above)
+    return 0.0;
+  if (all_in)
+    return shoelace_area(x, y, n);
+
+  double bx[8], by[8];
+  double cx[8], cy[8];
+  int m = clip_one_plane(
+      x, y, n, [&](double /*x*/, double yy) { return yy >= ry0; },
       [&](double x0, double y0, double x1, double y1, double &ix, double &iy) {
         const double t = (ry0 - y0) / (y1 - y0);
         ix = x0 + t * (x1 - x0);
         iy = ry0;
       },
-      cx, cy);
-  std::copy(cx, cx + n, bx);
-  std::copy(cy, cy + n, by);
-
-  n = clip_one_plane(
-      bx, by, n, [&](double /*x*/, double y) { return y <= ry1; },
+      bx, by);
+  m = clip_one_plane(
+      bx, by, m, [&](double /*x*/, double yy) { return yy <= ry1; },
       [&](double x0, double y0, double x1, double y1, double &ix, double &iy) {
         const double t = (ry1 - y0) / (y1 - y0);
         ix = x0 + t * (x1 - x0);
         iy = ry1;
       },
       cx, cy);
+  return shoelace_area(cx, cy, m);
+}
 
-  return shoelace_area(cx, cy, n);
+double polygon_rectangle_intersection_area(const double poly_x[4],
+                                           const double poly_y[4], double rx0,
+                                           double ry0, double rx1, double ry1) {
+  // A convex quad clipped against 4 half-planes can gain at most 4 vertices
+  // (one intersection point per edge crossing per plane); 4 + 4 = 8 is a
+  // safe static bound used throughout.
+  double cx[8], cy[8];
+  const int n = polygon_clip_columns(poly_x, poly_y, rx0, rx1, cx, cy);
+  return polygon_clipped_rows_area(cx, cy, n, ry0, ry1);
 }
 
 // `Leaf` is declared in the header (the plan-11.14 geometry cache needs it).

@@ -411,6 +411,12 @@ struct ForwardDrizzleV2PrototypeStats {
   // only when the CPU kernel never scattered a frame, and always 0 on the
   // CUDA kernel.
   std::uint64_t max_scatter_threads_used = 0;
+  // CPU host kernel only (canonical affine-samples path): main-thread wall
+  // seconds around the fused parallel clear+scatter region and around the
+  // parallel fold, summed over frames. Diagnostic only; not part of any
+  // hash or contract. Both stay 0 on the CUDA kernel.
+  double cpu_scatter_seconds = 0.0;
+  double cpu_fold_seconds = 0.0;
 };
 
 class ForwardDrizzleV2CudaPrototypeKernel {
