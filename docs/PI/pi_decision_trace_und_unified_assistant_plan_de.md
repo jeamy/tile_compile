@@ -309,7 +309,7 @@ Typdefinitionen des npm-Tarballs gegen die installierte 0.87.1):
 
 Dock, Threads und `GET /api/pi/assistant/thread` brauchen eine eindeutige Kontext-ID. Definition:
 
-- **`context_id`** wird vom Backend vergeben und ist Teil von `context_ref` jedes Records. Es gibt drei Ebenen mit
+- **`context_id`** wird vom Backend vergeben (für Runs aus der stabilen `run_uid`, §3.5) und ist Teil von `context_ref` jedes Records. Es gibt drei Ebenen mit
   fester Verschachtelung:
   1. **Analyse-Kontext** (`analysis_id`): Scan-Analyse, Revisionen (`revision_id`), Parameteroptimierung, Pre-Run-Jev.
   2. **Run-Kontext** (`run_id`): entsteht aus genau einer Analyse-Revision (`config_sha256` verknüpft sie); Run-Chat,
@@ -320,7 +320,7 @@ Dock, Threads und `GET /api/pi/assistant/thread` brauchen eine eindeutige Kontex
 - Die Auswahl des aktiven Kontexts leitet `context-provider.js` aus dem UI-Zustand ab (laufender Run, geöffnetes Bild,
   geladene Analyse) und lässt sie im Kontextband umschalten. Ohne Auswahl gilt der zuletzt aktive Kontext.
 - Die bestehenden Historien (`run-chat/history`, `live-image-chat/history`, Scan-Analyse-History) werden über ihre
-  jeweilige ID (`run_id`, Live-Session→`image_id`, `analysis_id`) auf `context_id` abgebildet; `assistant/thread`
+  jeweilige ID (`run_uid`, Live-Session→`image_id`, `analysis_id`) auf `context_id` abgebildet; `assistant/thread`
   mergt sie über diese Zuordnung. Wo kein Run oder keine Analyse existiert, gibt es keinen Kontext.
 
 ### 3.1 Zielbild
@@ -420,6 +420,60 @@ Neu: `web_frontend_v3/js/assistant/`
 - Spätere Option: ein gemeinsamer Intent-Router (`/api/pi/assistant/turn`), der deterministisch anhand von Kontext und
   Kartentyp an LLM, Jev oder Bildoperation dispatcht. Erst nach Stabilisierung der Adapter; kein erster Schritt.
 
+### 3.5 Run-Lebenszyklus: Aktivieren, Fortsetzen, Löschen, Verschieben
+
+**Ist-Zustand (aus dem Code):**
+
+- Ein "Archiv" als eigenes Konzept gibt es nicht. Ein früherer Run wird über *Run History* → "Als aktuell setzen"
+  aktiviert (`run-history.js: setRunCurrent`): `POST /api/runs/<id>/set-current` setzt im Backend nur
+  `current_run_id`/`current_run_dir` (im Speicher), das Frontend setzt `run-state` und wechselt zum Run Monitor.
+  Eine AI-Session wird dabei nicht geladen, und der Run-Chat-Verlauf wird erst bei Bedarf gelesen.
+- Der Run-Chat-Verlauf liegt **zentral** unter `pi_storage_dir/run_chat/<run_id>_<hash>.json` (Legacy:
+  `<run_dir>/artifacts/pi_run_chat_history.json`). Der Schlüssel ist ein Hash des `run_id`-**Strings**.
+- Runs können in einem benutzerdefinierten `runs_dir` oder auf Netzlaufwerken liegen; `run_id` kann ein absoluter Pfad sein
+  (`resolve_run_dir`). Dasselbe Run kann so unter zwei Strings angesprochen werden (Name und Pfad) und bekäme zwei
+  verschiedene Verlaufsdateien. `resolve_run_dir` löst außerdem per Präfix auf (`name.find(run_id) == 0`), was bei
+  Namensüberschneidung mehrdeutig sein kann.
+
+**Entscheidungen:**
+
+1. **Stabile `run_uid`.** Jeder Run bekommt eine unveränderliche ID, die nicht vom Anzeigenamen oder Pfad abhängt.
+   - Neue Runs: `run_uid` wird in das bereits bei Run-Start geschriebene `pi_run_provenance.json` aufgenommen.
+   - Bestehende Runs: **nichts in das Run-Verzeichnis schreiben** (AGENTS.md). Die Zuordnung `run_uid ↔ run_id ↔
+     run_dir-Hinweis ↔ config_sha256 ↔ Startzeit` liegt zentral in `run_index_v1.jsonl` (append-only, Overlay).
+   - `context_id` (§3.0) des Run-Kontexts wird aus der `run_uid` gebildet. Alle Schlüssel (Records, Verlauf, Session)
+     laufen über `run_uid`, nie über den rohen `run_id`-String. Vorhandene `run_chat/*.json` werden über den Index auf
+     die `run_uid` abgebildet (lesend; Migration ohne Löschen der Altdatei).
+   - Die Auflösung `run_id`/Pfad → `run_uid` ist **exakt**, nicht per Präfix.
+2. **Aktivieren eines Runs** (`set-current`) löst im Dock einen Kontextwechsel auf den Run-Kontext aus:
+   - Records, Karten und Chat-Verlauf werden sofort geladen (lesend, §3.3).
+   - Die **Session wird nicht beim Aktivieren geöffnet**, sondern lazy mit der ersten Nutzernachricht (`open` per
+     `session_id`, §2.5). Aktivieren bleibt dadurch billig und nebenläufigkeitsfrei.
+   - Fehlende Teile degradieren sichtbar statt zu scheitern:
+
+     | Zustand | Verhalten |
+     |---|---|
+     | Records und Session vorhanden | Thread vollständig, Chat setzt fort |
+     | Records vorhanden, Session fehlt | Thread lesbar, neue Session beim ersten Senden, Hinweis im Thread |
+     | Nur Altverlauf (`run_chat`, ohne Records) | Verlauf lesbar, Warum-Bereich "Keine Aufzeichnung (vor Einführung)" |
+     | Run-Verzeichnis nicht erreichbar (Netzlaufwerk offline) | Thread lesbar aus zentralem Speicher; Aktionen, die Artefakte brauchen, deaktiviert |
+     | Nichts vorhanden | Leerer Thread, Session entsteht erst mit der ersten Nachricht |
+
+   - *Run History* zeigt je Run ein Kennzeichen "AI-Verlauf vorhanden" (Anzahl Entscheidungen) — ohne Session zu öffnen.
+3. **Resume eines Runs** (`/api/runs/<id>/resume`) setzt denselben Run-Kontext fort; es entsteht kein neuer Kontext.
+   Das bestehende Resume-Feedback (`/api/pi/memories/resume-feedback`) wird als Record verknüpft (`parent_decision_id`).
+4. **Löschen eines Runs** (`/api/runs/<id>/delete`):
+   - Decision Records bleiben (Lerndaten, Memory-Verweise) und werden über das Overlay als `run_deleted` markiert; der
+     Warum-Bereich zeigt "Run gelöscht".
+   - Session und Chat-Verlauf (Nutzertext) folgen dem Löschkonzept (§2.8): Standard ist Mitlöschen oder Anonymisieren; der
+     Bestätigungsdialog nennt es ausdrücklich.
+   - Memories mit `provenance` auf den Run bleiben bestehen.
+5. **Verschieben, Kopieren, Umbenennen:** Weil nichts am Run-Verzeichnis hängt, überleben Records und Verlauf ein
+   Verschieben auf demselben System, solange `run_dir` auflösbar bleibt oder über `config_sha256`/Startzeit
+   wiedergefunden wird. Wandert ein Run auf eine andere Maschine, ist **optional** ein Export "Run mit Trace" vorgesehen:
+   metadata-only Records plus `run_uid`, Session nur auf ausdrückliche Wahl (enthält Nutzertext), Import mit
+   Kollisionsprüfung über `run_uid` (Standard: vorhandene Records nicht überschreiben).
+
 ---
 
 ## 4. Reihenfolge (Abhängigkeiten, keine Zeitangaben)
@@ -428,12 +482,12 @@ Neu: `web_frontend_v3/js/assistant/`
    keine Breaking Changes für die genutzten Flächen); Inventar aller Stellen, an denen Entscheidungen
    entstehen (Tabelle 2.4) gegen den Code verifizieren; Reason-Code-Katalog (`pi.user-reason-codes.v1`)
    entwerfen.
-2. **P1 — Decision-Record-Backend** (Gate vor Aktivierung: Aufbewahrung/Rotation und Löschkonzept für Records und Sessions entschieden, §2.8): Schema, Store (`decisions_v1.jsonl` + Overlay `decision_links_v1.jsonl`),
+2. **P1 — Decision-Record-Backend** (inkl. `run_uid` in `pi_run_provenance.json` neuer Runs und zentralem `run_index_v1.jsonl`, §3.5) (Gate vor Aktivierung: Aufbewahrung/Rotation und Löschkonzept für Records und Sessions entschieden, §2.8): Schema, Store (`decisions_v1.jsonl` + Overlay `decision_links_v1.jsonl`),
    Idempotenz und `actor`×`basis`-Validierung, Schreibpunkte in Apply, Review, Live-Edit-Recorder,
    Jev-Adapter. Noch keine UI-Änderung. Voraussetzung für alles Weitere.
 3. **P2 — Reason-Erfassung in bestehender UI:** Reason-Picker in `ai-empfehlung.js`, `jev-empfehlung.js`,
    `live-image-viewer.js`, Memory-Review. Liefert sofort Daten, unabhängig vom Dock.
-4. **P3 — Dock-Hülle:** Layout, Kontext-Modell (§3.0) inkl. Backend-Vergabe von `context_id`, Kontext-Provider, Thread-Store, leere Kartenregistry, Feature-Flag. Gate: Session-Fortsetzung und Nebenläufigkeit (§2.5) entschieden.
+4. **P3 — Dock-Hülle:** Layout, Kontext-Modell (§3.0) inkl. Backend-Vergabe von `context_id`, Kontext-Provider, Thread-Store, leere Kartenregistry, Feature-Flag. Gate: Session-Fortsetzung und Nebenläufigkeit (§2.5) sowie Run-Lebenszyklus (§3.5) entschieden.
 5. **P4 — Migration in Reihenfolge des geringsten Risikos:** Run-Beratung → Scan-AI-Karten → Jev-Karten →
    Bildoperationen (größtes Stück, `live-image-viewer.js`). Die Jev-Karte "Beratung nach Run" setzt Jev-M6
    aus dem Jev-Implementierungsplan voraus; ohne M6 bleibt nur die Pre-Run-Auslösung sichtbar.
@@ -455,6 +509,7 @@ Neu: `web_frontend_v3/js/assistant/`
   längenbegrenzt und pfadbereinigt, `catalog_version` gespeichert.
 - **Namensräume:** keine Kollision mit `/api/pi/decisions/*` (Jev-API) und keine Vermischung mit den
   `reason_codes` aus `pi.config-proposal.v1`.
+- **Run-Lebenszyklus:** Aktivieren öffnet keine Session; alle fünf Zustände der Tabelle (§3.5) degradieren ohne Fehler; Zugriff über Name und Pfad liefert denselben Kontext; `run_uid`-Auflösung exakt (kein Präfix); Löschen eines Runs markiert Records und folgt dem Löschkonzept; nichts wird in bestehende Run-Verzeichnisse geschrieben.
 - **Datenschutz:** Exports enthalten keine Session-Texte; Records enthalten keine Rohdaten/Pfade.
 - **UI:** Dock auf allen Tabs, Zustand überlebt Reload, Kontextwechsel aktualisiert den Thread, Warum-Bereich lädt erst beim Ausklappen nach, schmale Fenster, DE/EN,
   Tastatur-Bedienbarkeit, bestehende Shortcuts (`1/2/3`, Pfeiltasten) kollidieren nicht mit Eingabefeldern im Dock.
@@ -476,6 +531,7 @@ Neu: `web_frontend_v3/js/assistant/`
   Outcomes und Run-Qualitätsmessung.
 - **Größe von `run-monitor.js` / `live-image-viewer.js`:** Migration nur schrittweise und mit Parität; Dock-Karten
   dürfen die alten Komponenten zunächst einbetten (Wrapper), statt sofort neu geschrieben zu werden.
+- **Run-Identität:** Der Verlauf hängt heute am `run_id`-String. Ohne die stabile `run_uid` (§3.5) entstehen bei Name/Pfad-Doppelzugriff getrennte Verläufe, und Präfix-Auflösung kann den falschen Run treffen. Die Zuordnung muss exakt und zentral geführt werden.
 - **Zwei Wahrheiten:** Wenn Sidecar-Sessions und Backend-Records auseinanderlaufen, gewinnt das Backend; Sessions sind
   nur Anhänge.
 - **Offen:** Aufbewahrung/Löschung von Sessions **und** Decision Records (§2.8); separater Decision-Export
