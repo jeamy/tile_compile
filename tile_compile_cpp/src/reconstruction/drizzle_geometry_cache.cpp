@@ -34,7 +34,11 @@
 #include <nlohmann/json.hpp>
 
 #include <fcntl.h>
+#if defined(_WIN32)
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -43,6 +47,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -83,11 +88,30 @@ static_assert(sizeof(RowEntry) == 32, "RowEntry layout");
 static_assert(sizeof(LeafRecord) == 72, "LeafRecord layout");
 
 // ---- POSIX durable IO ---------------------------------------------------
+// Portable write/close shims (see open_trunc_for_write below).
+std::ptrdiff_t write_fd(int fd, const void *data, std::size_t n) {
+#if defined(_WIN32)
+  // _write takes an unsigned int count; cap at INT_MAX per call.
+  const unsigned int chunk =
+      static_cast<unsigned int>(std::min<std::size_t>(
+          n, static_cast<std::size_t>(std::numeric_limits<int>::max())));
+  return static_cast<std::ptrdiff_t>(::_write(fd, data, chunk));
+#else
+  return static_cast<std::ptrdiff_t>(::write(fd, data, n));
+#endif
+}
+void close_fd(int fd) {
+#if defined(_WIN32)
+  ::_close(fd);
+#else
+  ::close(fd);
+#endif
+}
 // Append-writes a byte span to an open fd, retrying short writes.
 void write_all(int fd, const void *data, std::size_t n) {
   const auto *p = static_cast<const char *>(data);
   while (n) {
-    const ssize_t w = ::write(fd, p, n);
+    const std::ptrdiff_t w = write_fd(fd, p, n);
     if (w < 0) {
       if (errno == EINTR) continue;
       throw std::runtime_error(std::string("DRIZZLE_GEOMETRY_CACHE_WRITE: ") +
@@ -97,15 +121,38 @@ void write_all(int fd, const void *data, std::size_t n) {
     n -= static_cast<std::size_t>(w);
   }
 }
+// Portable open/fsync shims: POSIX on Unix, _wopen/_commit on Windows
+// (path::value_type is wchar_t there, and O_DIRECTORY/fsync do not exist;
+// directory fsync is a no-op on Windows anyway).
+int open_trunc_for_write(const fs::path &p) {
+#if defined(_WIN32)
+  return ::_wopen(p.c_str(), _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY,
+                  0644);
+#else
+  return ::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+#endif
+}
+int fsync_fd(int fd) {
+#if defined(_WIN32)
+  return ::_commit(fd);
+#else
+  return ::fsync(fd);
+#endif
+}
 void fsync_path(const fs::path &p, bool dir) {
+#if defined(_WIN32)
+  if (dir) return;  // no directory fsync on Windows
+  const int fd = ::_wopen(p.c_str(), _O_RDONLY | _O_BINARY);
+#else
   const int flags = dir ? (O_RDONLY | O_DIRECTORY) : O_RDONLY;
   const int fd = ::open(p.c_str(), flags);
+#endif
   if (fd < 0) {
     if (dir) return;  // some filesystems reject O_DIRECTORY fsync; best effort
     throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_FSYNC_OPEN: " + p.string());
   }
-  const int r = ::fsync(fd);
-  ::close(fd);
+  const int r = fsync_fd(fd);
+  close_fd(fd);
   if (r != 0 && !dir)
     throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_FSYNC: " + p.string());
 }
@@ -162,7 +209,7 @@ FrameBuildOut build_one_frame(
 
   const fs::path rp = staging / rows_name(vi, f.source_index);
   const fs::path lp = staging / leaves_name(vi, f.source_index);
-  const int lfd = ::open(lp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  const int lfd = open_trunc_for_write(lp);
   if (lfd < 0)
     throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_OPEN: " + lp.string());
   // T1: no SHA-256 streaming in the hot path (trusted run).
@@ -220,22 +267,22 @@ FrameBuildOut build_one_frame(
   }
 
   const auto tail_w0 = bclk::now();
-  if (::fsync(lfd) != 0) {
-    ::close(lfd);
+  if (fsync_fd(lfd) != 0) {
+    close_fd(lfd);
     throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_FSYNC: " + lp.string());
   }
-  ::close(lfd);
+  close_fd(lfd);
   // T1: no SHA-256 in the hot path.
   {
-    const int rfd = ::open(rp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    const int rfd = open_trunc_for_write(rp);
     if (rfd < 0)
       throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_OPEN: " + rp.string());
     write_all(rfd, rows.data(), rows.size() * sizeof(RowEntry));
-    if (::fsync(rfd) != 0) {
-      ::close(rfd);
+    if (fsync_fd(rfd) != 0) {
+      close_fd(rfd);
       throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_FSYNC: " + rp.string());
     }
-    ::close(rfd);
+    close_fd(rfd);
   }
   out.t_write += std::chrono::duration<double>(bclk::now() - tail_w0).count();
 
@@ -507,15 +554,15 @@ GeometryCacheBuildResult build_drizzle_geometry_cache(
   const std::string mtext = manifest.dump(2);
   {
     const fs::path mp = staging / "manifest.json";
-    const int mfd = ::open(mp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    const int mfd = open_trunc_for_write(mp);
     if (mfd < 0)
       throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_OPEN: " + mp.string());
     write_all(mfd, mtext.data(), mtext.size());
-    if (::fsync(mfd) != 0) {
-      ::close(mfd);
+    if (fsync_fd(mfd) != 0) {
+      close_fd(mfd);
       throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_FSYNC: manifest");
     }
-    ::close(mfd);
+    close_fd(mfd);
   }
   fsync_path(staging, /*dir=*/true);
 
@@ -536,15 +583,15 @@ GeometryCacheBuildResult build_drizzle_geometry_cache(
   const fs::path cur = root / "current.json";
   const fs::path cur_tmp = root / (".current-" + uid + ".json");
   {
-    const int cfd = ::open(cur_tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    const int cfd = open_trunc_for_write(cur_tmp);
     if (cfd < 0)
       throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_OPEN: current tmp");
     write_all(cfd, ctext.data(), ctext.size());
-    if (::fsync(cfd) != 0) {
-      ::close(cfd);
+    if (fsync_fd(cfd) != 0) {
+      close_fd(cfd);
       throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_FSYNC: current tmp");
     }
-    ::close(cfd);
+    close_fd(cfd);
   }
   fs::rename(cur_tmp, cur, ec);
   if (ec) throw std::runtime_error("DRIZZLE_GEOMETRY_CACHE_COMMIT: current");
