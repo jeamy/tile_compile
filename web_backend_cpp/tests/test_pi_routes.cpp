@@ -1,4 +1,5 @@
 #include "backend_test_harness.hpp"
+#include "fake_sidecar.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -6,6 +7,8 @@
 #include <filesystem>
 #include <fstream>
 #include <fitsio.h>
+
+using backend_test::FakeSidecar;
 
 static void create_minimal_fits(const std::filesystem::path& path, int width = 64, int height = 64) {
     fitsfile* fptr = nullptr;
@@ -815,6 +818,41 @@ int main(int argc, char** argv) {
                      "live-image-chat adjust status");
         expect_true(adjust_resp.contains("image_base64"), "live-image-chat adjust has image_base64");
         expect_true(adjust_resp.contains("adjust_count"), "live-image-chat adjust has adjust_count");
+
+        // The model selected through the backend AI configuration must be
+        // forwarded explicitly; the sidecar process may have no model in its
+        // startup environment.
+        FakeSidecar live_chat_sidecar({
+            {"schema_version", "pi.live-image-chat.v1"},
+            {"summary", "Configured model received."},
+            {"operations", nlohmann::json::array()},
+            {"adjustable", false},
+            {"repeatable", false},
+            {"warnings", nlohmann::json::array()}
+        });
+        live_chat_sidecar.start();
+        const auto live_chat_ai_config = harness.patch_json("/api/ai/config", {
+            {"model", "fixture/model"},
+            {"sidecar_url", live_chat_sidecar.url()}
+        });
+        expect_equal(live_chat_ai_config["_http_status"].get<long>(), 200L,
+                     "live-image-chat AI config status");
+        const auto sidecar_chat_resp = harness.post_json("/api/pi/live-image-chat", {
+            {"session_id", session_id},
+            {"message", "use the configured model"}
+        });
+        expect_equal(sidecar_chat_resp["_http_status"].get<long>(), 200L,
+                     "live-image-chat sidecar status");
+        expect_equal(sidecar_chat_resp["mode"].get<std::string>(), "sidecar",
+                     "live-image-chat uses sidecar response");
+        const auto live_chat_request = live_chat_sidecar.request_json();
+        expect_equal(live_chat_request["model"].get<std::string>(), "fixture/model",
+                     "live-image-chat forwards configured model to sidecar");
+        const auto reset_live_chat_ai_config = harness.patch_json("/api/ai/config", {
+            {"model", ""}
+        });
+        expect_equal(reset_live_chat_ai_config["_http_status"].get<long>(), 200L,
+                     "live-image-chat AI config reset status");
 
         // 3b. Repeat a non-adjustable operation with the exact same parameters
         const auto sharpen_resp = harness.post_json("/api/pi/live-image-chat", {

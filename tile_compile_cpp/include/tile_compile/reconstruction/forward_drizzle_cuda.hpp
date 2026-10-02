@@ -199,6 +199,12 @@ struct ForwardDrizzleV2KernelConfig {
   // CPU and CUDA kernels.
   bool bimodal_veto = false;
   double bimodal_veto_gap_sigma = 2.5;
+  // CPU host kernel only: OpenMP worker cap for the scatter and fold
+  // (runtime_limits.parallel_workers / TC_FORWARD_DRIZZLE_WORKERS, resolved
+  // by the runner). 0 = hardware concurrency. Not a numeric parameter: the
+  // CPU results are bit-identical for every worker count, so it is neither
+  // part of v2_fixed_cfg_equal nor of the run plan hash. Ignored by CUDA.
+  int cpu_workers = 0;
   // CUDA only. When true, reserve() allocates the full-source float input
   // planes for explicit per-frame sigma2 (`sigma2_or_null`) and float quality
   // streams (ForwardDrizzleV2FrameQuality::q_*), used by the compatibility /
@@ -398,6 +404,13 @@ struct ForwardDrizzleV2PrototypeStats {
   // Worst per-frame upload+kernel time (event deltas); the gate-1 bound is
   // checked against this, not the mean.
   double max_frame_seconds = 0.0;
+  // CPU host kernel only: the largest scatter thread count any single
+  // accumulate_* call actually used. accumulate_affine_piece() reports its
+  // real OpenMP row-parallel count (core::omp_effective_threads' result);
+  // the still-serial local-warp/cached-leaf/sample paths report 1. Stays 0
+  // only when the CPU kernel never scattered a frame, and always 0 on the
+  // CUDA kernel.
+  std::uint64_t max_scatter_threads_used = 0;
 };
 
 class ForwardDrizzleV2CudaPrototypeKernel {

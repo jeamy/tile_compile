@@ -36,7 +36,8 @@ void read_fault_env_once() {
 
 ForwardDrizzleV2KernelConfig kernel_config_for_band(
     const ForwardDrizzleV2RunPlan &plan, int y_begin, int rows,
-    std::uint64_t cached_leaf_capacity, bool float_plane_inputs) {
+    std::uint64_t cached_leaf_capacity, int cpu_workers,
+    bool float_plane_inputs) {
   (void)rows;
   ForwardDrizzleV2KernelConfig k;
   k.internal_scale = plan.internal_scale;
@@ -65,6 +66,7 @@ ForwardDrizzleV2KernelConfig kernel_config_for_band(
   k.fine_quality_exponent = plan.fine_quality_exponent;
   k.medium_quality_exponent = plan.medium_quality_exponent;
   k.cached_leaf_capacity = cached_leaf_capacity;
+  k.cpu_workers = cpu_workers;
   k.full_frame_estimator = plan.estimator == kFdV2EstimatorPilotFullFrame;
   k.float_plane_inputs = float_plane_inputs;
   return k;
@@ -112,6 +114,8 @@ void add_stats(ForwardDrizzleV2PrototypeStats &t,
   t.kernel_seconds += s.kernel_seconds;
   t.download_seconds += s.download_seconds;
   t.max_frame_seconds = std::max(t.max_frame_seconds, s.max_frame_seconds);
+  t.max_scatter_threads_used =
+      std::max(t.max_scatter_threads_used, s.max_scatter_threads_used);
 }
 
 // One backend attempt over the committed-prefix tail of the store.
@@ -169,6 +173,7 @@ bool attempt_backend(const fs::path &store_root,
           cols, plan.band_rows, source_w, source_h,
           kernel_config_for_band(plan, 0, plan.band_rows,
                                  options.cached_leaf_capacity,
+                                 options.cpu_workers,
                                  options.device_float_plane_inputs))) {
     if (!cuda) throw std::runtime_error("FDV2_DRIVER_RESERVE_FAILED");
     fail_device("reserve()");
@@ -225,6 +230,7 @@ bool attempt_backend(const fs::path &store_root,
     if (!kernel->begin_band(
             rows, kernel_config_for_band(plan, y_begin, rows,
                                          options.cached_leaf_capacity,
+                                         options.cpu_workers,
                                          options.device_float_plane_inputs))) {
       if (!cuda)
         throw std::runtime_error("FDV2_DRIVER_BEGIN_BAND_FAILED");

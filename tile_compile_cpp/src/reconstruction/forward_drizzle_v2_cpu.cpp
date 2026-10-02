@@ -30,6 +30,15 @@ namespace {
 
 constexpr int kV2MaxResSlots = 128;
 
+// Upper bound handed to core::omp_effective_threads: the runner-resolved
+// cpu_workers (runtime_limits.parallel_workers) or, when unset, the
+// hardware concurrency.
+int cpu_worker_cap(const ForwardDrizzleV2KernelConfig &cfg) {
+  return cfg.cpu_workers > 0
+             ? cfg.cpu_workers
+             : static_cast<int>(std::thread::hardware_concurrency());
+}
+
 struct CpuReservoirRecord {
   double x = 0.0;
   double b = 0.0;
@@ -122,20 +131,21 @@ void cpu_scatter_quality(const float qv[4], unsigned int qmask,
 // Rasterize one accepted leaf quad (internal coordinates) into the frame
 // planes, clipped to the internal x column range [tile_x0, tile_x1)
 // (tile_x1 <= cols). Returns the number of positive-overlap cells.
-std::uint64_t cpu_scatter_leaf(const double *qx, const double *qy, int cols,
-                               int rows, int channel, double value,
-                               bool finite_value, double s2,
-                               const float *qv, unsigned int qmask,
-                               int iplane, int tile_x0, int tile_x1,
-                               std::vector<double> &fa,
-                               std::vector<double> &fbs,
-                               std::vector<double> &fbg,
-                               std::vector<double> &fs2,
-                               std::vector<double> &fqc,
-                               std::vector<double> &fq0,
-                               std::vector<double> &fq1,
-                               std::vector<double> &fqa,
-                               std::vector<double> &fqaf) {
+// tile_y0/tile_y1 clamps the write range the same way tile_x0/tile_x1
+// already does for columns. Disjoint tile_y ranges across threads make
+// concurrent calls race-free without atomics: each output cell is still
+// touched by exactly one call, in the same order the untiled call would
+// have produced, so the result is bit-identical to the single-threaded
+// reference for whatever tile_y range is passed.
+std::uint64_t cpu_scatter_leaf_y_tiled(
+    const double *qx, const double *qy, int cols, int rows, int tile_x0,
+    int tile_x1, int tile_y0, int tile_y1, int channel, double value,
+    bool finite_value, double s2, const float *qv, unsigned int qmask,
+    int iplane, std::vector<double> &fa, std::vector<double> &fbs,
+    std::vector<double> &fbg, std::vector<double> &fs2,
+    std::vector<double> &fqc, std::vector<double> &fq0,
+    std::vector<double> &fq1, std::vector<double> &fqa,
+    std::vector<double> &fqaf) {
   double minx = std::numeric_limits<double>::max();
   double maxx = -std::numeric_limits<double>::max();
   double miny = std::numeric_limits<double>::max();
@@ -150,8 +160,10 @@ std::uint64_t cpu_scatter_leaf(const double *qx, const double *qy, int cols,
       std::max(tile_x0, std::max(0, static_cast<int>(std::floor(minx))));
   const int x1 =
       std::min(tile_x1, std::min(cols, static_cast<int>(std::ceil(maxx))));
-  const int y0 = std::max(0, static_cast<int>(std::floor(miny)));
-  const int y1 = std::min(rows, static_cast<int>(std::ceil(maxy)));
+  const int y0 =
+      std::max(tile_y0, std::max(0, static_cast<int>(std::floor(miny))));
+  const int y1 =
+      std::min(tile_y1, std::min(rows, static_cast<int>(std::ceil(maxy))));
   std::uint64_t overlaps = 0;
   const std::size_t base = static_cast<std::size_t>(channel) * iplane;
   for (int ty = y0; ty < y1; ++ty) {
@@ -173,6 +185,111 @@ std::uint64_t cpu_scatter_leaf(const double *qx, const double *qy, int cols,
     }
   }
   return overlaps;
+}
+
+std::uint64_t cpu_scatter_leaf(const double *qx, const double *qy, int cols,
+                               int rows, int channel, double value,
+                               bool finite_value, double s2,
+                               const float *qv, unsigned int qmask,
+                               int iplane, int tile_x0, int tile_x1,
+                               std::vector<double> &fa,
+                               std::vector<double> &fbs,
+                               std::vector<double> &fbg,
+                               std::vector<double> &fs2,
+                               std::vector<double> &fqc,
+                               std::vector<double> &fq0,
+                               std::vector<double> &fq1,
+                               std::vector<double> &fqa,
+                               std::vector<double> &fqaf) {
+  return cpu_scatter_leaf_y_tiled(qx, qy, cols, rows, tile_x0, tile_x1, 0,
+                                  rows, channel, value, finite_value, s2, qv,
+                                  qmask, iplane, fa, fbs, fbg, fs2, fqc, fq0,
+                                  fq1, fqa, fqaf);
+}
+
+// Closed-form bound (exact for the affine + independent-corner-offset model
+// used throughout this file: qy = scale*(a10*px + a11*py + ty - band_oy)
+// with px = sx+0.5+-half, py = sy+0.5+-half varying independently over the
+// 4 corners): for a target INTERNAL row range [ty0, ty1) and an active
+// source rect [abs_x0, abs_x0+act_w) x [abs_y0, abs_y0+act_h), returns the
+// local source-row range [ly_lo, ly_hi] (inclusive, 0-based within the
+// active rect) that can possibly produce a droplet corner landing in
+// [ty0, ty1). A small integer pad absorbs floating-point rounding at the
+// boundary; the bound itself is exact, not a heuristic.
+//
+// Returns false --- caller must fall back to the full [0, act_h-1] range,
+// never narrow it --- when:
+//   - a11 is too close to zero for the y-target to actually constrain sy
+//     (the mapping is then singular in this row-only bound, independent of
+//     the full 2x2 determinant), or
+//   - any intermediate value is non-finite, or
+//   - the computed range is inverted/empty, which is a sign the bound
+//     derivation doesn't apply rather than "no rows needed".
+// Only valid where the source-to-canvas mapping is this single affine
+// transform: the dense piece path (accumulate_affine_piece) and the
+// canonical affine-samples path (accumulate_frame_affine_samples). Never for
+// the local-warp or cached-leaf paths.
+bool cpu_affine_source_row_bound(const double affine6[6], double half,
+                                 double scale, double band_oy, int abs_x0,
+                                 int act_w, int abs_y0, int act_h, int ty0,
+                                 int ty1, int &ly_lo, int &ly_hi) {
+  const double A = affine6[3], B = affine6[4], C = affine6[5];
+  // 1e-6, not 1e-9: sy_lo_real/sy_hi_real below divide by scale*B, and a
+  // near-but-not-quite-singular B still blows the quotient up to a
+  // magnitude that overflows int (UB) once cast, well before it gets
+  // anywhere near a real determinant-singularity threshold. 1e-6 keeps that
+  // quotient bounded for any realistic image/canvas size.
+  constexpr double kEps = 1e-6;
+  if (!std::isfinite(A) || !std::isfinite(B) || !std::isfinite(C) ||
+      std::abs(B) < kEps)
+    return false;
+  const int sx_lo = abs_x0, sx_hi = abs_x0 + act_w - 1;
+  const double a_lo_arg = static_cast<double>(sx_lo) - half + 0.5;
+  const double a_hi_arg = static_cast<double>(sx_hi) + half + 0.5;
+  const double term_a_min =
+      A >= 0.0 ? scale * A * a_lo_arg : scale * A * a_hi_arg;
+  const double term_a_max =
+      A >= 0.0 ? scale * A * a_hi_arg : scale * A * a_lo_arg;
+  const double term_b_db_min =
+      B >= 0.0 ? scale * B * (0.5 - half) : scale * B * (0.5 + half);
+  const double term_b_db_max =
+      B >= 0.0 ? scale * B * (0.5 + half) : scale * B * (0.5 - half);
+  const double k_min = term_a_min + term_b_db_min + scale * C - scale * band_oy;
+  const double k_max = term_a_max + term_b_db_max + scale * C - scale * band_oy;
+  const double sB = scale * B;
+  double sy_lo_real, sy_hi_real;
+  if (B > 0.0) {
+    sy_lo_real = (static_cast<double>(ty0) - k_max) / sB;
+    sy_hi_real = (static_cast<double>(ty1) - k_min) / sB;
+  } else {
+    sy_lo_real = (static_cast<double>(ty1) - k_min) / sB;
+    sy_hi_real = (static_cast<double>(ty0) - k_max) / sB;
+  }
+  // Guard the double-to-long-long conversions below: a quotient this large
+  // is already many orders of magnitude past any real image extent, so
+  // there is nothing left to narrow correctly --- fall back instead of
+  // risking a conversion that overflows long long (UB).
+  constexpr double kMaxAbsSy = 1e12;
+  if (!std::isfinite(sy_lo_real) || !std::isfinite(sy_hi_real) ||
+      std::abs(sy_lo_real) > kMaxAbsSy || std::abs(sy_hi_real) > kMaxAbsSy)
+    return false;
+  constexpr int kPad = 2;  // native source rows; absorbs FP boundary rounding
+  const long long ly_lo_ll =
+      static_cast<long long>(std::floor(sy_lo_real - abs_y0)) - kPad;
+  const long long ly_hi_ll =
+      static_cast<long long>(std::ceil(sy_hi_real - abs_y0)) + kPad;
+  // Clamp BOTH bounds against BOTH limits before narrowing to int: clamping
+  // ly_lo only against 0 (or ly_hi only against act_h-1) still lets an
+  // out-of-range long long reach the int cast on the other side, which is
+  // undefined behaviour, not a large-but-harmless value.
+  const auto clamp_to_range = [act_h](long long v) -> int {
+    v = std::max<long long>(0, std::min<long long>(act_h - 1, v));
+    return static_cast<int>(v);
+  };
+  ly_lo = clamp_to_range(ly_lo_ll);
+  ly_hi = clamp_to_range(ly_hi_ll);
+  if (ly_lo > ly_hi) return false;
+  return true;
 }
 
 // subdivide_local port: evaluates a node via a 3x3 inversion grid, accepts
@@ -978,6 +1095,12 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
           im.fqaf);
     }
     stats_.cached_leaf_records_launched += leaf_count;
+    // Parity with the CUDA kernel (forward_drizzle_cuda_device.cu): the
+    // committed leaf array is this frame's upload payload for the cached
+    // path, same as source_bytes_uploaded is for the dense path.
+    stats_.cached_leaf_bytes_uploaded +=
+        static_cast<std::uint64_t>(leaf_count) *
+        sizeof(ForwardDrizzleV2CachedLeaf);
   } else
   for (std::size_t tid = 0; tid < source_n; ++tid) {
     const int lx = static_cast<int>(tid % static_cast<std::size_t>(act_w));
@@ -1060,6 +1183,12 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_impl(
   }
   stats_.positive_overlaps += positive;
   stats_.local_samples_discarded += discarded;
+  // Local-warp/cached-leaf/sample scatter above is still serial (unlike
+  // accumulate_affine_piece's row-parallel scatter); record 1 worker so
+  // max_scatter_threads_used stays a truthful "at least this many" signal
+  // for every CPU-backend path, not just the parallel one.
+  stats_.max_scatter_threads_used =
+      std::max(stats_.max_scatter_threads_used, std::uint64_t{1});
 
   // --- fold: k-fold the frame planes into accumulators + reservoir --------
   fold_native_range(0, im.ncols, q_frame, qmask, frame_order, keep_all,
@@ -1127,7 +1256,7 @@ void ForwardDrizzleV2CpuKernel::fold_native_range(
   std::uint64_t full_frame_rejected_local = 0;
   std::uint64_t full_frame_accepted_local = 0;
   const int omp_threads = core::omp_effective_threads(
-      static_cast<int>(std::thread::hardware_concurrency()), nrows);
+      cpu_worker_cap(im.cfg), nrows);
 #pragma omp parallel for schedule(static) num_threads(omp_threads) \
     reduction(+ : candidates_streamed_local, reservoir_kept_local, \
               full_frame_rejected_local, full_frame_accepted_local)
@@ -1437,52 +1566,112 @@ bool ForwardDrizzleV2CpuKernel::accumulate_frame_affine_samples(
   const std::size_t plane_n = im.iplane;
   // One-shot full-target frame: clear all frame planes, then droplet-
   // rasterize every canonical sample over the whole band.
-  std::fill(im.fa.begin(), im.fa.end(), 0.0);
-  std::fill(im.fbs.begin(), im.fbs.end(), 0.0);
-  std::fill(im.fbg.begin(), im.fbg.end(), 0.0);
-  if (!im.fs2.empty()) std::fill(im.fs2.begin(), im.fs2.end(), 0.0);
-  if (q_frame) {
-    std::fill(im.fqc.begin(), im.fqc.end(), 0.0);
-    std::fill(im.fq0.begin(), im.fq0.end(), 0.0);
-    std::fill(im.fq1.begin(), im.fq1.end(), 0.0);
-    std::fill(im.fqa.begin(), im.fqa.end(), 0.0);
-    std::fill(im.fqaf.begin(), im.fqaf.end(), 0.0);
-  }
+  //
+  // Parallel over disjoint internal-row bands [ty0, ty1). Each thread clears
+  // and then scatters into its own rows only (cpu_scatter_leaf_y_tiled), so
+  // every cell is cleared and written by exactly one thread, in the same
+  // sample order as the serial loop: bit-identical, no atomics, and no
+  // barrier between clear and scatter. The samples are in canonical (y, x)
+  // order, so each thread binary-searches the sample sub-range whose source
+  // rows can reach its band (cpu_affine_source_row_bound); if that bound is
+  // not trustworthy it walks every sample, still writing only its own rows.
+  const bool clear_fs2 = !im.fs2.empty();
+  const int channels = im.channels;
   std::uint64_t positive = 0;
-  for (std::size_t i = 0; i < sample_count; ++i) {
-    const ForwardDrizzleV2SourceSample &s = samples[i];
-    const int sx = static_cast<int>(s.source_x);
-    const int sy = static_cast<int>(s.source_y);
-    const double value = static_cast<double>(s.value);
-    const bool finite_value = std::isfinite(value);
-    const double s2 = sigma2_present ? static_cast<double>(s.sigma2) : 0.0;
-    float qv[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    for (int k = 0; k < 4; ++k) {
-      if ((qmask & (1u << k)) == 0) continue;
-      qv[k] = ((aqv[k] != nullptr && aqv[k][i] != 0) || aqc[k][i] == 0)
-                  ? std::numeric_limits<float>::quiet_NaN()
-                  : static_cast<float>(aqc[k][i]) / 65535.0f;
+  const int omp_threads = core::omp_effective_threads(
+      cpu_worker_cap(im.cfg), rows);
+  stats_.max_scatter_threads_used = std::max(
+      stats_.max_scatter_threads_used,
+      static_cast<std::uint64_t>(omp_threads));
+#pragma omp parallel num_threads(omp_threads) reduction(+ : positive)
+  {
+#if defined(_OPENMP)
+    const int nt = omp_get_num_threads();
+    const int tnum = omp_get_thread_num();
+#else
+    const int nt = 1;
+    const int tnum = 0;
+#endif
+    const int ty0 = static_cast<int>(static_cast<long long>(rows) * tnum / nt);
+    const int ty1 =
+        static_cast<int>(static_cast<long long>(rows) * (tnum + 1) / nt);
+    if (ty1 > ty0) {
+      const std::size_t row_off = static_cast<std::size_t>(ty0) * cols;
+      const std::size_t row_len = static_cast<std::size_t>(ty1 - ty0) * cols;
+      for (int c = 0; c < channels; ++c) {
+        const std::size_t o = static_cast<std::size_t>(c) * plane_n + row_off;
+        std::fill_n(im.fa.data() + o, row_len, 0.0);
+        std::fill_n(im.fbs.data() + o, row_len, 0.0);
+        std::fill_n(im.fbg.data() + o, row_len, 0.0);
+        if (clear_fs2) std::fill_n(im.fs2.data() + o, row_len, 0.0);
+        if (q_frame) {
+          std::fill_n(im.fqc.data() + o, row_len, 0.0);
+          std::fill_n(im.fq0.data() + o, row_len, 0.0);
+          std::fill_n(im.fq1.data() + o, row_len, 0.0);
+          std::fill_n(im.fqa.data() + o, row_len, 0.0);
+          std::fill_n(im.fqaf.data() + o, row_len, 0.0);
+        }
+      }
+      std::size_t i_begin = 0, i_end = sample_count;
+      int sy_lo = 0, sy_hi = sh - 1;
+      if (cpu_affine_source_row_bound(affine6, half, sc, band_oy, 0, sw, 0,
+                                      sh, ty0, ty1, sy_lo, sy_hi)) {
+        const ForwardDrizzleV2SourceSample *const first = samples;
+        const ForwardDrizzleV2SourceSample *const last = samples + sample_count;
+        const std::uint32_t ylo = static_cast<std::uint32_t>(sy_lo);
+        const std::uint32_t yhi = static_cast<std::uint32_t>(sy_hi);
+        i_begin = static_cast<std::size_t>(
+            std::partition_point(first, last,
+                                 [ylo](const ForwardDrizzleV2SourceSample &s) {
+                                   return s.source_y < ylo;
+                                 }) -
+            first);
+        i_end = static_cast<std::size_t>(
+            std::partition_point(first, last,
+                                 [yhi](const ForwardDrizzleV2SourceSample &s) {
+                                   return s.source_y <= yhi;
+                                 }) -
+            first);
+      }
+      for (std::size_t i = i_begin; i < i_end; ++i) {
+        const ForwardDrizzleV2SourceSample &s = samples[i];
+        const int sx = static_cast<int>(s.source_x);
+        const int sy = static_cast<int>(s.source_y);
+        const double value = static_cast<double>(s.value);
+        const bool finite_value = std::isfinite(value);
+        const double s2 =
+            sigma2_present ? static_cast<double>(s.sigma2) : 0.0;
+        float qv[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        for (int k = 0; k < 4; ++k) {
+          if ((qmask & (1u << k)) == 0) continue;
+          qv[k] = ((aqv[k] != nullptr && aqv[k][i] != 0) || aqc[k][i] == 0)
+                      ? std::numeric_limits<float>::quiet_NaN()
+                      : static_cast<float>(aqc[k][i]) / 65535.0f;
+        }
+        const int channel =
+            mono ? 0
+                 : static_cast<int>(cfa_channel_for_source_pixel(
+                       sx, sy, bayer, im.cfg.cfa_origin_x,
+                       im.cfg.cfa_origin_y));
+        const double x = sx + 0.5, y = sy + 0.5;
+        double qx[4], qy[4];
+        const double px[4] = {x - half, x + half, x + half, x - half};
+        const double py[4] = {y - half, y - half, y + half, y + half};
+        for (int k = 0; k < 4; ++k) {
+          qx[k] = (affine6[0] * px[k] + affine6[1] * py[k] + affine6[2] -
+                   band_ox) *
+                  sc;
+          qy[k] = (affine6[3] * px[k] + affine6[4] * py[k] + affine6[5] -
+                   band_oy) *
+                  sc;
+        }
+        positive += cpu_scatter_leaf_y_tiled(
+            qx, qy, cols, rows, 0, cols, ty0, ty1, channel, value,
+            finite_value, s2, qv, qmask, static_cast<int>(plane_n), im.fa,
+            im.fbs, im.fbg, im.fs2, im.fqc, im.fq0, im.fq1, im.fqa,
+            im.fqaf);
+      }
     }
-    const int channel =
-        mono ? 0
-             : static_cast<int>(cfa_channel_for_source_pixel(
-                   sx, sy, bayer, im.cfg.cfa_origin_x, im.cfg.cfa_origin_y));
-    const double x = sx + 0.5, y = sy + 0.5;
-    double qx[4], qy[4];
-    const double px[4] = {x - half, x + half, x + half, x - half};
-    const double py[4] = {y - half, y - half, y + half, y + half};
-    for (int k = 0; k < 4; ++k) {
-      qx[k] = (affine6[0] * px[k] + affine6[1] * py[k] + affine6[2] -
-               band_ox) *
-              sc;
-      qy[k] = (affine6[3] * px[k] + affine6[4] * py[k] + affine6[5] -
-               band_oy) *
-              sc;
-    }
-    positive += cpu_scatter_leaf(
-        qx, qy, cols, rows, channel, value, finite_value, s2, qv, qmask,
-        static_cast<int>(plane_n), 0, cols, im.fa, im.fbs, im.fbg, im.fs2,
-        im.fqc, im.fq0, im.fq1, im.fqa, im.fqaf);
   }
   stats_.positive_overlaps += positive;
   fold_native_range(0, im.ncols, q_frame, qmask, frame_order, keep_all,
@@ -1703,55 +1892,90 @@ bool ForwardDrizzleV2CpuKernel::accumulate_affine_piece(
                                         s2m->droplet_half)));
   };
 
-  // Scatter this piece's active source rect, clipped to the tile's
-  // internal x columns.
+  // Scatter this piece's active source rect, clipped to the tile's internal
+  // x columns. Parallel over disjoint internal-row bands: each thread only
+  // writes cells inside its own [ty0, ty1) via cpu_scatter_leaf_y_tiled, so
+  // every output cell is still touched by exactly one call --- the result
+  // is bit-identical to the serial reference, no atomics involved. Each
+  // thread additionally narrows which source rows it bothers scanning via
+  // cpu_affine_source_row_bound (an exact closed-form bound for this plain
+  // affine mapping); when that bound isn't trustworthy it falls back to the
+  // full [0, act_h-1] range, which is always correct, just not narrowed.
   std::uint64_t positive = 0;
-  for (std::size_t tid = 0; tid < source_n; ++tid) {
-    const int lx = static_cast<int>(tid % static_cast<std::size_t>(act_w));
-    const int ly = static_cast<int>(tid / static_cast<std::size_t>(act_w));
-    const int sy = abs_y0 + ly;
-    const int sx = abs_x0 + lx;
-    const std::size_t bidx =
-        static_cast<std::size_t>(act_y + ly) *
-            static_cast<std::size_t>(window.width) +
-        static_cast<std::size_t>(act_x + lx);
-    const double value = static_cast<double>(source[bidx]);
-    const bool finite_value = std::isfinite(value);
-    const double s2 =
-        im.fs2.empty()
-            ? 0.0
-            : (sigma2_or_null != nullptr
-                   ? static_cast<double>(sigma2_or_null[tid])
-                   : (s2m != nullptr ? sigma2_at(sx, sy) : 0.0));
-    float qv[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    if (qmask != 0u) {
-      qv[0] = cpu_quality_sample(q_in.q_composite, q_in.qc_packed, tid, sx,
-                                 sy);
-      qv[1] = cpu_quality_sample(q_in.q_scale0, q_in.q0_packed, tid, sx, sy);
-      qv[2] = cpu_quality_sample(q_in.q_scale1, q_in.q1_packed, tid, sx, sy);
-      qv[3] = cpu_quality_sample(q_in.q_artifact, q_in.qa_packed, tid, sx,
-                                 sy);
+  const int omp_threads =
+      core::omp_effective_threads(
+          cpu_worker_cap(im.cfg), act_h);
+  stats_.max_scatter_threads_used = std::max(
+      stats_.max_scatter_threads_used,
+      static_cast<std::uint64_t>(omp_threads));
+#pragma omp parallel num_threads(omp_threads) reduction(+ : positive)
+  {
+#if defined(_OPENMP)
+    const int nt = omp_get_num_threads();
+    const int tnum = omp_get_thread_num();
+#else
+    const int nt = 1;
+    const int tnum = 0;
+#endif
+    const int ty0 = static_cast<int>(static_cast<long long>(rows) * tnum / nt);
+    const int ty1 =
+        static_cast<int>(static_cast<long long>(rows) * (tnum + 1) / nt);
+    int ly_lo = 0, ly_hi = act_h - 1;
+    cpu_affine_source_row_bound(affine6, half, sc, band_oy, abs_x0, act_w,
+                                abs_y0, act_h, ty0, ty1, ly_lo, ly_hi);
+    for (int ly = ly_lo; ly <= ly_hi; ++ly) {
+      for (int lx = 0; lx < act_w; ++lx) {
+        const std::size_t tid =
+            static_cast<std::size_t>(ly) * act_w + lx;
+        const int sy = abs_y0 + ly;
+        const int sx = abs_x0 + lx;
+        const std::size_t bidx =
+            static_cast<std::size_t>(act_y + ly) *
+                static_cast<std::size_t>(window.width) +
+            static_cast<std::size_t>(act_x + lx);
+        const double value = static_cast<double>(source[bidx]);
+        const bool finite_value = std::isfinite(value);
+        const double s2 =
+            im.fs2.empty()
+                ? 0.0
+                : (sigma2_or_null != nullptr
+                       ? static_cast<double>(sigma2_or_null[tid])
+                       : (s2m != nullptr ? sigma2_at(sx, sy) : 0.0));
+        float qv[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        if (qmask != 0u) {
+          qv[0] = cpu_quality_sample(q_in.q_composite, q_in.qc_packed, tid,
+                                     sx, sy);
+          qv[1] = cpu_quality_sample(q_in.q_scale0, q_in.q0_packed, tid, sx,
+                                     sy);
+          qv[2] = cpu_quality_sample(q_in.q_scale1, q_in.q1_packed, tid, sx,
+                                     sy);
+          qv[3] = cpu_quality_sample(q_in.q_artifact, q_in.qa_packed, tid,
+                                     sx, sy);
+        }
+        const int channel =
+            mono ? 0
+                 : static_cast<int>(cfa_channel_for_source_pixel(
+                       sx, sy, bayer, im.cfg.cfa_origin_x,
+                       im.cfg.cfa_origin_y));
+        const double x = sx + 0.5, y = sy + 0.5;
+        double qx[4], qy[4];
+        const double px[4] = {x - half, x + half, x + half, x - half};
+        const double py[4] = {y - half, y - half, y + half, y + half};
+        for (int k = 0; k < 4; ++k) {
+          qx[k] = (affine6[0] * px[k] + affine6[1] * py[k] + affine6[2] -
+                   band_ox) *
+                  sc;
+          qy[k] = (affine6[3] * px[k] + affine6[4] * py[k] + affine6[5] -
+                   band_oy) *
+                  sc;
+        }
+        positive += cpu_scatter_leaf_y_tiled(
+            qx, qy, cols, rows, ix0, ix1, ty0, ty1, channel, value,
+            finite_value, s2, qv, qmask, static_cast<int>(plane_n), im.fa,
+            im.fbs, im.fbg, im.fs2, im.fqc, im.fq0, im.fq1, im.fqa,
+            im.fqaf);
+      }
     }
-    const int channel =
-        mono ? 0
-             : static_cast<int>(cfa_channel_for_source_pixel(
-                   sx, sy, bayer, im.cfg.cfa_origin_x, im.cfg.cfa_origin_y));
-    const double x = sx + 0.5, y = sy + 0.5;
-    double qx[4], qy[4];
-    const double px[4] = {x - half, x + half, x + half, x - half};
-    const double py[4] = {y - half, y - half, y + half, y + half};
-    for (int k = 0; k < 4; ++k) {
-      qx[k] = (affine6[0] * px[k] + affine6[1] * py[k] + affine6[2] -
-               band_ox) *
-              sc;
-      qy[k] = (affine6[3] * px[k] + affine6[4] * py[k] + affine6[5] -
-               band_oy) *
-              sc;
-    }
-    positive += cpu_scatter_leaf(
-        qx, qy, cols, rows, channel, value, finite_value, s2, qv, qmask,
-        static_cast<int>(plane_n), ix0, ix1, im.fa, im.fbs, im.fbg, im.fs2,
-        im.fqc, im.fq0, im.fq1, im.fqa, im.fqaf);
   }
   stats_.positive_overlaps += positive;
 
