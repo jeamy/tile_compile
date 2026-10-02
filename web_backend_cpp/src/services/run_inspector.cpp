@@ -16,7 +16,31 @@
 #include <yaml-cpp/yaml.h>
 #ifndef _WIN32
 #include <unistd.h>
+#include <ctime>
+#include <cstdio>
+#include <cstdlib>
+#include <cctype>
 #endif
+
+namespace {
+// "2026-09-25T14:35:32.490Z" (fraction optional) -> seconds since the epoch; nullopt when it is not that shape.
+std::optional<double> parse_event_ts_seconds(const nlohmann::json& ev) {
+    if (!ev.contains("ts") || !ev["ts"].is_string()) return std::nullopt;
+    const std::string ts = ev["ts"].get<std::string>();
+    std::tm tm{};
+    int consumed = 0;
+    if (std::sscanf(ts.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d%n", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec, &consumed) != 6) return std::nullopt;
+    tm.tm_year -= 1900;
+    tm.tm_mon -= 1;
+    double frac = 0.0;
+    if (static_cast<size_t>(consumed) < ts.size() && ts[consumed] == '.') {
+        size_t e = consumed + 1;
+        while (e < ts.size() && std::isdigit(static_cast<unsigned char>(ts[e]))) ++e;
+        frac = std::strtod(("0" + ts.substr(consumed, e - consumed)).c_str(), nullptr);
+    }
+    return static_cast<double>(timegm(&tm)) + frac;
+}
+} // namespace
 
 namespace {
 

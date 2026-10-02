@@ -1031,6 +1031,9 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (yaml_has_value(h["adaptive_anchor"]))
       cfg.hypermetric_stretch.adaptive_anchor =
           h["adaptive_anchor"].as<bool>();
+    if (yaml_has_value(h["anchor_from_reference"]))
+      cfg.hypermetric_stretch.anchor_from_reference =
+          h["anchor_from_reference"].as<bool>();
     if (yaml_has_value(h["target_bg"]))
       cfg.hypermetric_stretch.target_bg = h["target_bg"].as<float>();
     if (yaml_has_value(h["protect_b"]))
@@ -1080,6 +1083,15 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (yaml_has_value(cc["object_sigma"])) c.object_sigma = cc["object_sigma"].as<float>();
       if (yaml_has_value(cc["brightness_bins"])) c.brightness_bins = cc["brightness_bins"].as<int>();
       if (yaml_has_value(cc["neutralize_sky"])) c.neutralize_sky = cc["neutralize_sky"].as<bool>();
+    }
+    if (yaml_has_value(h["large_scale_contrast"])) {
+      auto ls = h["large_scale_contrast"];
+      auto &c = cfg.hypermetric_stretch.large_scale_contrast;
+      if (yaml_has_value(ls["enabled"])) c.enabled = ls["enabled"].as<bool>();
+      if (yaml_has_value(ls["amount"])) c.amount = ls["amount"].as<float>();
+      if (yaml_has_value(ls["sigma_px"])) c.sigma_px = ls["sigma_px"].as<float>();
+      if (yaml_has_value(ls["chroma_amount"])) c.chroma_amount = ls["chroma_amount"].as<float>();
+      if (yaml_has_value(ls["remove_vignette"])) c.remove_vignette = ls["remove_vignette"].as<bool>();
     }
     if (yaml_has_value(h["write_channels"]))
       cfg.hypermetric_stretch.write_channels = h["write_channels"].as<bool>();
@@ -1434,6 +1446,8 @@ YAML::Node Config::to_yaml() const {
       hypermetric_stretch.fallback_profile;
   node["hypermetric_stretch"]["adaptive_anchor"] =
       hypermetric_stretch.adaptive_anchor;
+  node["hypermetric_stretch"]["anchor_from_reference"] =
+      hypermetric_stretch.anchor_from_reference;
   node["hypermetric_stretch"]["target_bg"] = hypermetric_stretch.target_bg;
   node["hypermetric_stretch"]["protect_b"] = hypermetric_stretch.protect_b;
   node["hypermetric_stretch"]["convergence_power"] =
@@ -1467,6 +1481,15 @@ YAML::Node Config::to_yaml() const {
     n["object_sigma"] = c.object_sigma;
     n["brightness_bins"] = c.brightness_bins;
     n["neutralize_sky"] = c.neutralize_sky;
+  }
+  {
+    const auto &c = hypermetric_stretch.large_scale_contrast;
+    auto n = node["hypermetric_stretch"]["large_scale_contrast"];
+    n["enabled"] = c.enabled;
+    n["amount"] = c.amount;
+    n["sigma_px"] = c.sigma_px;
+    n["chroma_amount"] = c.chroma_amount;
+    n["remove_vignette"] = c.remove_vignette;
   }
   node["hypermetric_stretch"]["write_channels"] =
       hypermetric_stretch.write_channels;
@@ -2266,6 +2289,15 @@ void Config::validate() const {
       throw ValidationError(
           "hypermetric_stretch.color_cast_correction.object_sigma must be in (0,50]");
   }
+  {
+    const auto &c = hypermetric_stretch.large_scale_contrast;
+    if (!(c.amount >= 0.0f && c.amount <= 6.0f))
+      throw ValidationError("hypermetric_stretch.large_scale_contrast.amount must be in [0,6]");
+    if (!(c.sigma_px > 0.0f && c.sigma_px <= 512.0f))
+      throw ValidationError("hypermetric_stretch.large_scale_contrast.sigma_px must be in (0,512]");
+    if (!(c.chroma_amount >= 0.0f && c.chroma_amount <= 6.0f))
+      throw ValidationError("hypermetric_stretch.large_scale_contrast.chroma_amount must be in [0,6]");
+  }
   if (hypermetric_stretch.output_rgb.empty()) {
     throw ValidationError("hypermetric_stretch.output_rgb must not be empty");
   }
@@ -2458,6 +2490,7 @@ std::string get_schema_json() {
                       "sensor_profile":{"type":"string"},
                       "fallback_profile":{"type":"string"},
                       "adaptive_anchor":{"type":"boolean"},
+                      "anchor_from_reference":{"type":"boolean"},
                       "target_bg":{"type":"number","minimum":0.05,"maximum":0.50},
                       "protect_b":{"type":"number","minimum":0.1},
                       "convergence_power":{"type":"number","minimum":1.0,"maximum":10.0},
@@ -2481,6 +2514,12 @@ std::string get_schema_json() {
                         "object_sigma":{"type":"number","exclusiveMinimum":0,"maximum":50},
                         "brightness_bins":{"type":"integer","minimum":1,"maximum":32},
                         "neutralize_sky":{"type":"boolean","default":false}}},
+                      "large_scale_contrast":{"type":"object","properties":{
+                        "enabled":{"type":"boolean","default":false},
+                        "amount":{"type":"number","minimum":0,"maximum":6},
+                        "sigma_px":{"type":"number","exclusiveMinimum":0,"maximum":512},
+                        "chroma_amount":{"type":"number","minimum":0,"maximum":6},
+                        "remove_vignette":{"type":"boolean","default":true}}},
                       "write_channels":{"type":"boolean"},
                       "output_rgb":{"type":"string"} } },
     "stacking": { "type":"object",

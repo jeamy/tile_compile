@@ -48,10 +48,47 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   `full_frame_estimator: false`: M42 sky sigma 1.47 to 0.57, faint-nebula
   contrast in the HMS product 5.9/6.4 to 12.6/14.0; M31 sky sigma 2.26 to
   0.95, faint outer-arm contrast 4.2/4.0 to 8.4/8.0. The mode costs about
-  +65 to +70 % FORWARD_DRIZZLE time (Q maps for all frames) and is off by
-  default. Adapt the placeholder paths (`/path/to/...` for the dark
-  master and the astap/siril data) before running. Background and
-  measurements: `docs/dynamic_boost_implementierungsplan_2026-09-19_de.md`.
+  +65 to +70 % FORWARD_DRIZZLE time (Q maps for all frames); it is off in
+  the code/schema defaults but enabled (with clip 4/4) in the shipped
+  `tile_compile.yaml`. The M42 file also has
+  `hypermetric_stretch.large_scale_contrast` on (`amount: 2.0`,
+  `chroma_amount: 1.0`, added 2026-09-27): sky-structure span x1.63 with star
+  FWHM/signal/elongation ratio exactly 1.000 and no extra noise or black
+  clipping on this one dataset (`docs/m42_large_scale_contrast_20260927_de.md`);
+  not yet confirmed for M31 or other object types. Adapt the placeholder
+  paths (`/path/to/...` for the dark master and the astap/siril data) before
+  running. Background and measurements:
+  `docs/dynamic_boost_implementierungsplan_2026-09-19_de.md`.
+
+- `m42_dwarf2_full_frame.demo.yaml`, `m31_dwarf2_full_frame.demo.yaml`
+  Ready-to-run copies of the two profiles above with the dark master and
+  astap/siril paths of the development machine filled in; otherwise
+  identical. They are the exact configs of the 2026-09-27 CUDA validation
+  runs (backend `cuda_v2`, chroma and luma denoise off). The paths exist only
+  on that machine; elsewhere start from the `.example.yaml` files.
+
+- `ic434_dwarf2_full_frame.example.yaml`, `ic434_dwarf2_full_frame.demo.yaml`
+  Third reference dataset (IC 434 / Horsehead-Flame region, Alnitak; 359 x 15 s,
+  gain 80): the plain shipped `tile_compile.yaml` default plus only the
+  calibration this dataset needs (dark master). Unlike the M42/M31 profiles
+  above, nothing else is overridden -- this is what "just use the shipped
+  defaults" produces on a third object. `large_scale_contrast` was tried
+  enabled on this dataset (2026-09-27/29, amount 2.0/chroma_amount 1.0): it
+  caused a soft halo around the bright star Alnitak, from a bright extended
+  star surviving the coarse large-scale map's 5x5 median. Three rounds of
+  fixes in `src/image/large_scale_contrast.cpp` (a local-contrast
+  `bright_source_mask` instead of a global brightness threshold; a
+  sigma_px-scaled exclusion margin; letting diffusion-filled interior "islands"
+  count as ok so a cluster of nearby stars' merged exclusion zones no longer
+  produced a dead, unboosted hole) closed the halo and the hole, but a direct
+  comparison against an earlier run of the same target with the option off
+  (judged "nearly perfect" by the user) still showed a soft/blotchy look with
+  it on -- enabling it was the only functional config difference between the
+  two runs. This profile therefore ships with `large_scale_contrast` off,
+  matching the current `tile_compile.yaml` default; the bug fixes stay in the
+  code for if the feature is revisited. The `.demo.yaml` has the
+  machine-specific paths of the development box filled in; elsewhere start
+  from the `.example.yaml` and adapt its placeholder paths.
 
 - `m42_dwarf2_full_frame_luma.example.yaml`, `m31_dwarf2_full_frame_luma.example.yaml`
   The two profiles above with the recommended `luma_denoise` stage enabled:
@@ -75,6 +112,19 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   profiles (green excess above the sky: arms 1.73 -> 1.19, core 1.30 -> 1.02),
   disabled in the M42 profiles (measured 0.78, unchanged either way); off in
   `tile_compile.yaml`.
+
+- Large-scale contrast (`hypermetric_stretch.large_scale_contrast`): optional
+  scale-selective contrast on the stretched RGB (after HMS and the colour-cast
+  correction) that lifts only the large-scale sky structure (dust lanes,
+  reflection nebulae) without amplifying noise, star profiles or fine detail:
+  `I' = I + amount * (LS(I) - sky)` with a star-free coarse map `LS` at scale
+  `sigma_px`. `remove_vignette` (default on) keeps a radially symmetric
+  component out of the boost, `chroma_amount` does the same for the colour
+  differences R-G/B-G. Measured on IC4605 (stretch output of the new
+  forward-drizzle pipeline): pixel noise x1.000, star width x1.000, star signal
+  x1.000, large-scale sky structure x1.8/x2.5/x3.3 for `amount` 1/2/3. Off in
+  every profile and in `tile_compile.yaml`; try `amount: 2`,
+  `chroma_amount: 2` on a diffuse target where the plain stretch looks flat.
 
 - `forward_drizzle_streaming.example.yaml`
   Minimal fragment documenting the bounded drizzle streaming/memory options

@@ -1,20 +1,630 @@
-# Development configuration fragment, not a production cutover switch.
-# Merge into a config. Does not authorize a processing run.
-# 0 memory budget inherits runtime_limits.memory_budget in MiB.
-# Uniform preview emits statistics only; it remains off here.
+config:
+  astrometry:
+    enabled: false
+    search_radius: 180
+  bge:
+    auto_detect:
+      extended_source_dilate_px: 50
+      extended_source_sigma: 3
+      gradient_threshold: 0.05
+    autobge:
+      apply_guards: true
+      border_margin: 10
+      bright_exclusion_fraction: 0.2
+      downsample_scale: 4
+      exclusion_polygons: []
+      gradient_descent_max_iters: 100
+      mono_mode: rgb_duplicate
+      normalize_between_stages: true
+      num_sample_points: 0
+      patch_estimator: sigma_clipped_median
+      patch_size: 35
+      poly_degree: 2
+      random_seed: 42
+      rbf_smooth: 2
+      stretch_mode: linear
+      stretch_target_median: 0.25
+      user_sample_points: []
+    autotune:
+      alpha_flatness: 0.25
+      beta_roughness: 0.1
+      enabled: false
+      holdout_fraction: 0.25
+      max_evals: 24
+      strategy: conservative
+    fit:
+      huber_delta: 1.5
+      irls_max_iterations: 10
+      irls_tolerance: 0.0001
+      method: rbf
+      polynomial_order: 2
+      rbf_epsilon: 1e-10
+      rbf_lambda: 0.000001
+      rbf_mu_factor: 1
+      rbf_phi: multiquadric
+      robust_loss: huber
+    grid:
+      G_max_fraction: 0.25
+      G_min_px: 64
+      N_g: 32
+      insufficient_cell_strategy: discard
+    mask:
+      sat_dilate_px: 4
+      star_dilate_px: 4
+    method: none
+    min_sample_bg_value: 1
+    min_tiles_per_cell: 3
+    min_valid_sample_fraction_for_apply: 0.3
+    min_valid_samples_for_apply: 96
+    sample_estimator: quantile
+    sample_quantile: 0.2
+    structure_thresh_percentile: 0.65
+    tile_weight_lambda_structure: 1
+  calibration:
+    bias_use_master: false
+    dark_already_bias_corrected: false
+    dark_auto_select: true
+    dark_match_exposure_tolerance_percent: 5
+    dark_match_temp_tolerance_c: 2
+    dark_match_use_temp: false
+    dark_use_master: false
+    flat_use_master: false
+    pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
+    use_bias: false
+    use_dark: false
+    use_flat: false
+  chroma_denoise:
+    adaptation_reference_ratio: 1
+    apply_stage: post_pcc
+    blend:
+      amount: 0.85
+      mode: chroma_only
+    chroma_bilateral:
+      enabled: true
+      sigma_range: 2
+      sigma_spatial: 1.2
+    chroma_wavelet:
+      enabled: true
+      levels: 3
+      soft_k: 1
+      threshold_scale: 1.25
+    color_space: ycbcr_linear
+    enabled: false
+    extended_source_protection:
+      dilate_px: 30
+      enabled: false
+      luma_sigma: 2.5
+    large_scale_bias:
+      block_size: 32
+      blur_sigma: 24
+      enabled: false
+      strength: 1
+    luma_guard_strength: 0.75
+    protect_luma: true
+    star_protection:
+      dilate_px: 2
+      enabled: true
+      threshold_sigma: 2.2
+    structure_protection:
+      enabled: true
+      gradient_percentile: 85
+  data:
+    bayer_pattern: auto
+    color_mode: OSC
+    image_height: 0
+    image_width: 0
+    linear_required: true
+  dithering:
+    enabled: false
+    min_shift_px: 0.5
+  global_metrics:
+    adaptive_weights: false
+    clamp: [-3, 3]
+    weight_exponent_scale: 1
+    weights:
+      background: 0.4
+      fwhm: 0
+      gradient: 0.3
+      noise: 0.3
+      roundness: 0
+      star_count: 0
+  hypermetric_stretch:
+    adaptive_anchor: true
+    color_cast_correction:
+      brightness_bins: 8
+      enabled: false
+      max_amount: 1
+      min_excess: 1.02
+      neutralize_sky: false
+      object_sigma: 3
+      target_ratio: 1
+    color_grip: 1
+    color_strategy: fixed
+    convergence_power: 3.5
+    enabled: true
+    fallback_profile: rec709
+    fixed_color_strategy: 0
+    fixed_log_d: 2
+    highlight_ceiling_percentile: 100
+    large_scale_contrast:
+      amount: 1
+      chroma_amount: 0
+      enabled: false
+      remove_vignette: true
+      sigma_px: 48
+    linear_expansion: 0
+    local_contrast:
+      enabled: false
+      radius_px: 40
+      strength: 0.6
+    log_d_mode: auto
+    mode: ready_to_use
+    output_rgb: stacked_rgb_hms.fits
+    protect_b: 6
+    require_successful_pcc: true
+    sensor_profile: rec709
+    shadow_convergence: 0
+    target_bg: 0.15
+    write_channels: false
+  linearity:
+    enabled: true
+    max_frames: 8
+    min_overall_linearity: 0.9
+    strictness: strict
+  luma_denoise:
+    bilateral:
+      enabled: false
+      sigma_range: 2
+      sigma_spatial: 1.5
+    blend_amount: 0.85
+    enabled: false
+    extended_source_protection:
+      dilate_px: 30
+      enabled: false
+      luma_sigma: 2.5
+    luma_guard_strength: 0.85
+    star_protection:
+      dilate_px: 8
+      enabled: true
+      threshold_sigma: 6
+    structure_protection:
+      enabled: true
+      gradient_percentile: 90
+    wavelet:
+      enabled: true
+      levels: 3
+      soft_k: 1
+      threshold_scale: 1.5
+  normalization:
+    enabled: true
+    mode: background
+    per_channel: true
+  output:
+    crop_to_nonzero_bbox: true
+    registered_dir: registered
+    write_registered_frames: false
+  pcc:
+    annulus_inner_fwhm_mult: 3
+    annulus_inner_px: 12
+    annulus_outer_fwhm_mult: 5
+    annulus_outer_px: 18
+    aperture_fwhm_mult: 1.8
+    aperture_radius_px: 8
+    apply_attenuation: false
+    background_model: plane
+    background_neutralization_mode: auto
+    chroma_strength: 1
+    enabled: false
+    k_max: 3.2
+    mag_bright_limit: 6
+    mag_limit: 14
+    max_condition_number: 3
+    max_residual_rms: 0.35
+    min_aperture_px: 4
+    min_stars: 10
+    radii_mode: auto_fwhm
+    sigma_clip: 2.5
+    source: auto
+  reconstruction:
+    clipping:
+      bimodal_veto: false
+      bimodal_veto_gap_sigma: 2.5
+      clip_sigma_high: 3
+      clip_sigma_low: 3
+      guard_fallback: false
+      min_fraction: 0.4
+      min_n_eff: 3
+      shared_frame_rejection: false
+      shared_frame_rejection_consensus: 0.5
+    common_overlap_required_fraction: 1
+    coverage_gate:
+      max_internal_hole_area_px: 0
+      min_analysis_pixels: 1024
+      min_channel_n_eff_floor: 3
+      min_channel_n_eff_fraction: 0.15
+      min_frames: 2
+      min_supported_fraction: 1
+    delete_source_cache_after_run: false
+    diagnostics:
+      level: summary
+      persist_forward_drizzle_uniform_store: false
+      preview_forward_drizzle_uniform: false
+    drizzle:
+      chunk_halo_rows: -1
+      chunk_rows: 0
+      full_frame_estimator: false
+      internal_scale: 2
+      kernel: square
+      memory_budget_mb: 0
+      min_clip_contributors: 5
+      output_scale: 1
+      pixfrac: 0.8
+      robust_passes: 2
+    keep_profile_cache_after_run: false
+    multiband:
+      alpha_cap: 1
+      enabled: true
+      fine_quality_exponent: 4
+      full_effective_samples: 24
+      full_quality_separation: 0.2
+      levels: 3
+      medium_quality_exponent: 2
+      min_effective_samples: 8
+      min_quality_separation: 0.05
+    multiband_validation:
+      background_rms_ratio_max: 1.05
+      elongation_ratio_max: 1.08
+      fwhm_ratio_max: 0.95
+      max_fwhm_ci_relative_width: 0.1
+      min_stars_fwhm: 20
+      min_stars_p90_tail_elongation: 30
+      p90_fwhm_ratio_max: 1
+      seam_ratio_max: 1.05
+      tail_ratio_max: 1.1
+    quality:
+      pyramid:
+        artifact_sigma: 3
+        base_window_px: 4
+        max_artifact_fraction: 0.25
+        scales: 4
+        score_scale: 1.8
+        sharpness_weight: 0.6
+        snr_weight: 0.4
+  registration:
+    affine_refinement_enabled: true
+    allow_rotation: true
+    auto_engine: true
+    auto_engine_rotation_threshold_deg: 0.05
+    blind_chain_drift_threshold_px: 2
+    blind_chain_strong_anchor_cc: 0.08
+    debayer_first: true
+    enable_local_background_subtraction: false
+    enable_star_pair_fallback: true
+    engine: triangle_star_matching
+    max_blind_chain_depth: 0
+    pre_debayer_method: edge_aware
+    prewarp_interpolation: cubic
+    reject_cc_min_abs: 0.25
+    reject_outliers: true
+    reject_scale_max: 1.08
+    reject_scale_min: 0.92
+    reject_shift_median_multiplier: 5
+    reject_shift_px_min: 100
+    smooth_local_refinement_enabled: true
+    star_dist_bin_px: 5
+    star_inlier_tol_px: 4
+    star_min_inliers: 4
+    star_shift_radius_px: 200
+    star_topk: 150
+    transform_model: similarity
+    use_astrometry: true
+  runtime_limits:
+    acceleration_backend: auto
+    hard_abort_hours: 6
+    memory_budget: 512
+    parallel_workers: 4
+  stacking:
+    per_frame_cosmetic_correction: false
+    per_frame_cosmetic_correction_sigma: 5
+ok: true
+yaml: "\\"output:"
+registered_dir: registered
+write_registered_frames: false
+crop_to_nonzero_bbox: true
+data:
+  image_width: 0
+  image_height: 0
+  color_mode: OSC
+  bayer_pattern: auto
+  linear_required: true
+linearity:
+  enabled: true
+  max_frames: 8
+  min_overall_linearity: 0.9
+  strictness: strict
+calibration:
+  use_bias: false
+  use_dark: false
+  use_flat: false
+  bias_use_master: false
+  dark_use_master: false
+  dark_already_bias_corrected: false
+  flat_use_master: false
+  dark_auto_select: true
+  dark_match_exposure_tolerance_percent: 5
+  dark_match_use_temp: false
+  dark_match_temp_tolerance_c: 2
+  bias_dir: \"\"
+  darks_dir: \"\"
+  flats_dir: \"\"
+  bias_master: \"\"
+  dark_master: \"\"
+  flat_master: \"\"
+  pattern: \"*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz\"
+normalization:
+  enabled: true
+  mode: background
+  per_channel: true
+registration:
+  engine: triangle_star_matching
+  transform_model: similarity
+  enable_star_pair_fallback: true
+  allow_rotation: true
+  star_topk: 150
+  star_min_inliers: 4
+  star_inlier_tol_px: 4
+  star_dist_bin_px: 5
+  reject_outliers: true
+  reject_cc_min_abs: 0.25
+  reject_shift_px_min: 100
+  reject_shift_median_multiplier: 5
+  reject_scale_min: 0.92
+  reject_scale_max: 1.08
+  auto_engine: true
+  auto_engine_rotation_threshold_deg: 0.05
+  max_blind_chain_depth: 0
+  blind_chain_strong_anchor_cc: 0.08
+  blind_chain_drift_threshold_px: 2
+  use_astrometry: true
+  enable_local_background_subtraction: false
+  star_shift_radius_px: 200
+  affine_refinement_enabled: true
+  smooth_local_refinement_enabled: true
+  prewarp_interpolation: cubic
+  debayer_first: true
+  pre_debayer_method: edge_aware
+dithering:
+  enabled: false
+  min_shift_px: 0.5
+chroma_denoise:
+  enabled: true
+luma_denoise:
+  enabled: false
+  luma_guard_strength: 0.85
+  blend_amount: 0.85
+  star_protection:
+    enabled: true
+    threshold_sigma: 6
+    dilate_px: 8
+  structure_protection:
+    enabled: true
+    gradient_percentile: 90
+  extended_source_protection:
+    enabled: false
+    luma_sigma: 2.5
+    dilate_px: 30
+  wavelet:
+    enabled: true
+    levels: 3
+    threshold_scale: 1.5
+    soft_k: 1
+  bilateral:
+    enabled: false
+    sigma_spatial: 1.5
+    sigma_range: 2
+global_metrics:
+  adaptive_weights: false
+  weight_exponent_scale: 1
+  weights:
+    background: 0.4
+    noise: 0.3
+    gradient: 0.3
+    fwhm: 0
+    roundness: 0
+    star_count: 0
+  clamp: [-3, 3]
+astrometry:
+  enabled: false
+  astap_bin: \"\"
+  astap_data_dir: \"\"
+  search_radius: 180
+bge:
+  method: none
+  auto_detect:
+    gradient_threshold: 0.05
+    extended_source_sigma: 3
+    extended_source_dilate_px: 50
+  autobge:
+    num_sample_points: 0
+    poly_degree: 2
+    rbf_smooth: 2
+    downsample_scale: 4
+    patch_size: 35
+    patch_estimator: sigma_clipped_median
+    stretch_mode: linear
+    stretch_target_median: 0.25
+    border_margin: 10
+    bright_exclusion_fraction: 0.2
+    gradient_descent_max_iters: 100
+    random_seed: 42
+    normalize_between_stages: true
+    apply_guards: true
+    mono_mode: rgb_duplicate
+  sample_quantile: 0.2
+  sample_estimator: quantile
+  min_sample_bg_value: 1
+  structure_thresh_percentile: 0.65
+  min_tiles_per_cell: 3
+  min_valid_sample_fraction_for_apply: 0.3
+  min_valid_samples_for_apply: 96
+  mask:
+    star_dilate_px: 4
+    sat_dilate_px: 4
+  grid:
+    N_g: 32
+    G_min_px: 64
+    G_max_fraction: 0.25
+    insufficient_cell_strategy: discard
+  fit:
+    method: rbf
+    robust_loss: huber
+    huber_delta: 1.5
+    irls_max_iterations: 10
+    irls_tolerance: 0.0001
+    polynomial_order: 2
+    rbf_phi: multiquadric
+    rbf_mu_factor: 1
+    rbf_lambda: 0.000001
+    rbf_epsilon: 1e-10
+  autotune:
+    enabled: false
+    max_evals: 24
+    holdout_fraction: 0.25
+    alpha_flatness: 0.25
+    beta_roughness: 0.1
+    strategy: conservative
+  tile_weight_lambda_structure: 1
+pcc:
+  enabled: false
+  source: auto
+  mag_limit: 14
+  mag_bright_limit: 6
+  aperture_radius_px: 8
+  annulus_inner_px: 12
+  annulus_outer_px: 18
+  min_stars: 10
+  sigma_clip: 2.5
+  background_model: plane
+  max_condition_number: 3
+  max_residual_rms: 0.35
+  radii_mode: auto_fwhm
+  aperture_fwhm_mult: 1.8
+  annulus_inner_fwhm_mult: 3
+  annulus_outer_fwhm_mult: 5
+  min_aperture_px: 4
+  siril_catalog_dir: \"\"
+  apply_attenuation: false
+  chroma_strength: 1
+  k_max: 3.2
+  background_neutralization_mode: auto
+hypermetric_stretch:
+  enabled: true
+  require_successful_pcc: true
+  mode: ready_to_use
+  sensor_profile: rec709
+  fallback_profile: rec709
+  adaptive_anchor: true
+  target_bg: 0.15
+  protect_b: 6
+  convergence_power: 3.5
+  log_d_mode: auto
+  fixed_log_d: 2
+  color_strategy: fixed
+  fixed_color_strategy: 0
+  color_grip: 1
+  shadow_convergence: 0
+  linear_expansion: 0
+  highlight_ceiling_percentile: 100
+  local_contrast:
+    enabled: false
+    radius_px: 40
+    strength: 0.6
+  color_cast_correction:
+    enabled: false
+    max_amount: 1
+    target_ratio: 1
+    min_excess: 1.02
+    object_sigma: 3
+    brightness_bins: 8
+    neutralize_sky: false
+  large_scale_contrast:
+    enabled: false
+    amount: 1
+    sigma_px: 48
+    chroma_amount: 0
+    remove_vignette: true
+  write_channels: false
+  output_rgb: stacked_rgb_hms.fits
 reconstruction:
-  common_overlap_required_fraction: 1.0
+  delete_source_cache_after_run: false
+  keep_profile_cache_after_run: false
+  common_overlap_required_fraction: 1
   diagnostics:
+    level: summary
     preview_forward_drizzle_uniform: false
+    persist_forward_drizzle_uniform_store: false
   drizzle:
     internal_scale: 2
     output_scale: 1
-    pixfrac: 0.6
+    kernel: square
+    pixfrac: 0.8
+    robust_passes: 2
+    min_clip_contributors: 5
+    full_frame_estimator: false
     chunk_rows: 0
     chunk_halo_rows: -1
     memory_budget_mb: 0
-
-# Optional diagnostic store: independent of preview, default false.
-# Enable reconstruction.diagnostics.persist_forward_drizzle_uniform_store
-# in the complete configuration to stream immutable FITS generations.
-# The existing drizzle budget includes 8 MiB IO reserve plus one float row.
+  clipping:
+    clip_sigma_low: 3
+    clip_sigma_high: 3
+    min_fraction: 0.4
+    min_n_eff: 3
+    guard_fallback: false
+    shared_frame_rejection: false
+    shared_frame_rejection_consensus: 0.5
+    bimodal_veto: false
+    bimodal_veto_gap_sigma: 2.5
+  coverage_gate:
+    min_frames: 2
+    min_supported_fraction: 1
+    min_channel_n_eff_floor: 3
+    min_channel_n_eff_fraction: 0.15
+    min_analysis_pixels: 1024
+    max_internal_hole_area_px: 0
+  quality:
+    pyramid:
+      scales: 4
+      base_window_px: 4
+      sharpness_weight: 0.6
+      snr_weight: 0.4
+      score_scale: 1.8
+      artifact_sigma: 3
+      max_artifact_fraction: 0.25
+  multiband:
+    enabled: true
+    levels: 3
+    alpha_cap: 1
+    fine_quality_exponent: 4
+    medium_quality_exponent: 2
+    min_quality_separation: 0.05
+    full_quality_separation: 0.2
+    min_effective_samples: 8
+    full_effective_samples: 24
+  multiband_validation:
+    fwhm_ratio_max: 0.95
+    p90_fwhm_ratio_max: 1
+    tail_ratio_max: 1.1
+    elongation_ratio_max: 1.08
+    background_rms_ratio_max: 1.05
+    seam_ratio_max: 1.05
+    min_stars_fwhm: 20
+    min_stars_p90_tail_elongation: 30
+    max_fwhm_ci_relative_width: 0.1
+stacking:
+  per_frame_cosmetic_correction: false
+  per_frame_cosmetic_correction_sigma: 5
+runtime_limits:
+  hard_abort_hours: 6
+  parallel_workers: 12
+  memory_budget: 16384
+  acceleration_backend: auto"

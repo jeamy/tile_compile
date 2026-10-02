@@ -1,0 +1,96 @@
+{
+  "schema_version": "pi.jev-release-policy.v3-draft",
+  "status": "draft_not_frozen",
+  "frozen_before_test": false,
+  "note": "PROPOSAL for the downstream candidates. Not loaded by any code. Becomes a policy only when the safety bounds are endorsed by the user and the file is frozen (frozen_at_utc) before any confirmation run. Bounds encode a value judgement about what a downstream change may cost.",
+  "generated": "2026-09-26",
+  "basis": "docs/PI/pi_jev_effektgroessen_nachgelagert_20260926.md (single session IC4605, ratios of 'off' variants inverted for enable-candidates)",
+  "primary_endpoint": "matched_background_noise_ratio_candidate_over_control",
+  "noise_ratio_ci_upper_max": 0.9,
+  "safety_bounds": {
+    "sky_span_ratio_ci_within": [
+      0.75,
+      1.33
+    ],
+    "star_fwhm_ratio_ci_upper_max": 1.05,
+    "star_signal_ratio_ci_lower_min": 0.9,
+    "elongation_ratio_ci_upper_max": 1.05
+  },
+  "sample": {
+    "minimum_test_sessions": 5,
+    "minimum_object_groups": 2,
+    "minimum_sessions_per_object_group": 2
+  },
+  "resume": {
+    "from_phase": "HMS",
+    "tool": "web_backend_cpp/scripts/jev_screening/screen_downstream.py",
+    "variants": "web_backend_cpp/scripts/jev_screening/confirmation_downstream_variants.json"
+  },
+  "candidates": {
+    "enable_adaptive_anchor": {
+      "status": "proposed",
+      "parameter": "hypermetric_stretch.adaptive_anchor",
+      "control_level": false,
+      "tested_level": true,
+      "single_session_ratios": {
+        "noise": 0.724,
+        "sky_span": 0.775,
+        "fwhm": 0.978,
+        "signal": 1.181,
+        "elong": 1.002
+      }
+    },
+    "enable_luma_denoise": {
+      "status": "rejected_by_futility",
+      "reason": "star_signal_loss",
+      "parameter": "luma_denoise.enabled",
+      "single_session_ratios": {
+        "noise": 0.277,
+        "sky_span": 0.805,
+        "fwhm": 0.957,
+        "signal": 0.709,
+        "elong": 1.004
+      },
+      "note": "Removes star wings: star signal x0.71. A value-judgement call: with a lower signal bound below 0.70 it would pass on noise (x0.28)."
+    },
+    "enable_chroma_denoise": {
+      "status": "blocked",
+      "reason": "sky_structure_changed",
+      "parameter": "chroma_denoise.enabled",
+      "single_session_ratios": {
+        "noise": 0.296,
+        "sky_span": 1.925,
+        "fwhm": 1.036,
+        "signal": 1.162,
+        "elong": 0.996
+      },
+      "note": "A chroma stage that changes the luminance sky span by x1.93 must be understood first."
+    },
+    "set_bge_classic": {
+      "status": "rejected_by_futility",
+      "reason": "sky_structure_changed",
+      "parameter": "bge.method",
+      "single_session_ratios": {
+        "noise": 0.858,
+        "sky_span": 0.325,
+        "fwhm": 1.025,
+        "signal": 1.051,
+        "elong": 0.999
+      },
+      "note": "Removes two thirds of the large-scale sky structure."
+    },
+    "enable_color_cast_correction": {
+      "status": "not_a_noise_candidate",
+      "reason": "noise_not_lower",
+      "parameter": "hypermetric_stretch.color_cast_correction.enabled",
+      "single_session_ratios": {
+        "noise": 1.339,
+        "sky_span": 0.815,
+        "fwhm": 0.96,
+        "signal": 0.885,
+        "elong": 1.005
+      },
+      "note": "Its purpose is colour neutrality (colour span x0.5-0.6), a different endpoint that needs its own definition."
+    }
+  }
+}

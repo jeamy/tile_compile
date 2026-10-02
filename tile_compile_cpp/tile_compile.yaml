@@ -9,10 +9,10 @@ data:
   bayer_pattern: auto
 calibration:
   use_bias: false
-  use_dark: true
+  use_dark: false
   use_flat: false
   bias_use_master: false
-  dark_use_master: true
+  dark_use_master: false
   dark_already_bias_corrected: false
   flat_use_master: false
   dark_auto_select: false
@@ -20,7 +20,6 @@ calibration:
   dark_match_use_temp: false
   dark_match_temp_tolerance_c: 5
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
-  dark_master: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/dark_exp_10.000000_gain_60_bin_1_stack_10.fits
 normalization:
   enabled: true
   mode: background
@@ -133,7 +132,7 @@ luma_denoise:
     sigma_range: 2
 astrometry:
   enabled: true
-  astap_data_dir: /media/data/Astro/astap
+  astap_data_dir: /home/lux/.local/share/tile_compile/astap
   search_radius: 183
 stacking:
   per_frame_cosmetic_correction: true
@@ -225,7 +224,7 @@ hypermetric_stretch:
   sensor_profile: Sony IMX415 (DWARF II)
   fallback_profile: Sony IMX415 (DWARF II)
   adaptive_anchor: true
-  target_bg: 0.2
+  target_bg: 0.14
   protect_b: 6
   convergence_power: 4
   log_d_mode: fixed
@@ -247,6 +246,26 @@ hypermetric_stretch:
     object_sigma: 3.0
     brightness_bins: 8
     neutralize_sky: false
+  # Scale-selective contrast: lifts only the large-scale sky structure (dust lanes, reflection
+  # nebulae) of the stretched image, without amplifying noise, stars or fine detail:
+  # I' = I + amount * (LS(I) - sky). sigma_px is the scale of the "large" component,
+  # remove_vignette keeps a radially symmetric component (vignette, radial glow) out of the boost,
+  # chroma_amount does the same for the colour differences R-G and B-G (0 = colour unchanged).
+  # Code/schema default is off; this was shipped here as ON with amount 2.0/chroma_amount 1.0
+  # (2026-09-27 decision, evidence: docs/m42_large_scale_contrast_20260927_de.md, one M42 session).
+  # Reverted back to off (2026-09-29): real IC434 data (Alnitak plus the Horsehead, run
+  # ic434_default_20260928) showed a persistent soft/blotchy look across the whole frame, on top of
+  # the star-exclusion-boundary bugs fixed the same day in large_scale_contrast.cpp -- comparison
+  # against an earlier run of the same target with this OFF (ic434_20260926_214932, judged "nearly
+  # perfect" by the user) confirmed enabling it was the only functional config difference between
+  # the two. The bug fixes stay in the code; the feature itself needs more evidence before shipping
+  # on by default again.
+  large_scale_contrast:
+    enabled: false
+    amount: 2.0
+    sigma_px: 48.0
+    chroma_amount: 1.0
+    remove_vignette: true
   write_channels: false
   output_rgb: stacked_rgb_hms.fits
 runtime_limits:
@@ -266,7 +285,7 @@ reconstruction:
     internal_scale: 2
     output_scale: 1
     kernel: square
-    pixfrac: 0.8
+    pixfrac: 1.0
     robust_passes: 4
     min_clip_contributors: 5
     # All frames (not only the ~64 hash-selected reservoir frames) determine the

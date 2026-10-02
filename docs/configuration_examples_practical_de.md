@@ -524,7 +524,7 @@ Im `ready_to_use`-Modus berechnet `adaptive_output_scaling` den finalen Kontrast
 hypermetric_stretch:
   enabled: true
   mode: ready_to_use
-  target_bg: 0.20                    # hebt Himmel/schwachen Nebel gleichmäßig an
+  target_bg: 0.140                    # hebt Himmel/schwachen Nebel gleichmäßig an
   highlight_ceiling_percentile: 99.9  # 100 = nie clippen (Default); niedriger = bewusstes, begrenztes Clipping der hellsten Pixel für mehr Kontrast
 ```
 
@@ -534,6 +534,41 @@ Wichtig, mit Zahlen aus derselben Simulation belegt:
 - Beide Hebel sind unabhängig und **additiv**, keine Alternativen.
 - Verbleibender Rest-Unterschied zu einem stark sättigenden Consumer-Look (z. B. DWARF II): reine **Farbsättigung** — dafür gibt es aktuell keinen HMS-Parameter; `color_grip`/`chroma_strength` steuern nur, wie stark Farbe beim Stretch mitgezogen wird, nicht die globale Sättigung danach.
 - `highlight_ceiling_percentile` ist auf `[90, 100]` begrenzt (Validierung); Werte darunter würden einen zu großen Anteil des Bildes clippen.
+
+---
+
+## Großräumiger Kontrast (`hypermetric_stretch.large_scale_contrast`)
+
+**Wann aktivieren:** Das gestreckte Bild wirkt im Hintergrund eintönig, obwohl die Daten großräumige Struktur enthalten (Staubbänder,
+Reflexionsnebel, Leuchten um helle Sterne). Die globale Stretch-Kurve drückt solche schwache, ausgedehnte Struktur in ein schmales Band; ein
+lokaler Kontrast würde dabei das Rauschen mitverstärken. Diese Stufe hebt nur die großräumige Komponente an: Pixelrauschen, Sternprofile und
+Feindetail bleiben unverändert. Schema-Standard: aus; mitgelieferte `tile_compile.yaml`: an (`amount: 2.0`, `chroma_amount: 1.0`,
+Entscheidung 2026-09-27).
+
+```yaml
+hypermetric_stretch:
+  large_scale_contrast:
+    enabled: true
+    amount: 2.0          # 1 = doppelte, 2 = dreifache sichtbare Struktur (Zuwachs bei sigma_px 48 etwa 60 % davon)
+    sigma_px: 48.0       # Strukturen kleiner als etwa dieser Wert werden nicht angehoben
+    chroma_amount: 2.0   # großräumige Farbunterschiede R-G / B-G; 0 = Farbe unverändert
+    remove_vignette: true
+```
+
+- **Gemessen** (IC4605, Ausgabe des Stretch-Schritts): Pixelrauschen ×1,000, Sternbreite ×1,000, Sternsignal ×1,000; großräumige Himmelsstruktur ×1,8 / ×2,5 / ×3,3 bei
+  `amount` 1 / 2 / 3. Die Stufe lässt sich ohne neue Rekonstruktion testen: `resume-reconstruction --from-phase HYPERMETRIC_STRETCH`
+  (nur der Abschnitt `hypermetric_stretch` darf sich ändern).
+- **Erneut gemessen** (M42, 610 Frames, `amount: 2.0`/`chroma_amount: 1.0`, Resume ab `PCC`, 2026-09-27): Himmelsstruktur ×1,63, Sternbreite/-signal/
+  Elongation exakt ×1,000 (1458 gematchte Sterne), Pixelrauschen ×0,99, kein zusätzliches Schwarzclipping — eine zweite, unabhängige Bestätigung von
+  „Struktur hoch, Sterne/Rauschen unverändert" an einem anderen Objekt. Für kompakte Objekte, Sternfelder oder Galaxien noch nicht bestätigt.
+  Details: `docs/m42_large_scale_contrast_20260927_de.md`.
+- **Vignette:** Ohne Flatfield-Kalibrierung ist eine Vignette Teil der großräumigen Struktur. `remove_vignette: true` (Standard) zieht eine radialsymmetrische
+  Komponente vor der Verstärkung ab; bei zentrierten, radialsymmetrischen Objekten (z. B. ein großer, mittiger Nebel) ausschalten.
+- **Gradienten:** Restgradienten von Lichtverschmutzung werden mit angehoben. Dafür bleibt BGE zuständig; `bge.method: classic` entfernt allerdings auch
+  zwei Drittel der großräumigen Nebelstruktur (siehe `pi_jev_effektgroessen_nachgelagert_20260926.md`), die Reihenfolge ist also: BGE nur bei echten
+  Gradienten, danach ggf. großräumiger Kontrast.
+- **Diagnose:** Im Ereignis `phase_end` von `HYPERMETRIC_STRETCH` steht `large_scale_contrast` mit `status`, `span_before`, `span_after` (Spanne p5-p95 der
+  Grobkarte) und `vignette_removed`.
 
 ---
 

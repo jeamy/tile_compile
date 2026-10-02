@@ -13,6 +13,7 @@
 #include "tile_compile/image/background_extraction.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/image/color_cast_correction.hpp"
+#include "tile_compile/image/large_scale_contrast.hpp"
 #include "tile_compile/image/hypermetric_stretch.hpp"
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/image/processing.hpp"
@@ -967,6 +968,15 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
   astro::PCCConfig pcc_cfg{};
   io::FitsHeader out_hdr;
 
+  // Pre-post_pcc-denoise snapshot of the linear RGB (see
+  // hypermetric_stretch.anchor_from_reference / include/tile_compile/image/hypermetric_stretch.hpp):
+  // populated either in-process right after PCC succeeds (same run), or reloaded from
+  // outputs/pcc_predenoise_{R,G,B}.fit on a HYPERMETRIC_STRETCH-only resume. Only ever populated when
+  // it will actually be used (chroma_denoise's post_pcc pass ran and the config asks for the
+  // reference); staying empty is always a safe fallback (run_hms_phase treats it as "no reference").
+  bool have_pcc_predenoise = false;
+  Matrix2Df pcc_predenoise_R, pcc_predenoise_G, pcc_predenoise_B;
+
   // Loads the output canvas mask and the COMMON_OVERLAP analysis mask into
   // pcc_cfg for the current `rgb` image. On failure emits a `err_phase`
   // error event + downstream_end and returns false.
@@ -1051,7 +1061,10 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     auto hms_diag = image::run_hypermetric_stretch_rgb(
         rgb.R, rgb.G, rgb.B, hms_cfg, &pcc_cfg.common_valid_mask,
         pcc_cfg.common_mask_rows, pcc_cfg.common_mask_cols,
-        &pcc_cfg.output_valid_mask);
+        &pcc_cfg.output_valid_mask,
+        have_pcc_predenoise ? &pcc_predenoise_R : nullptr,
+        have_pcc_predenoise ? &pcc_predenoise_G : nullptr,
+        have_pcc_predenoise ? &pcc_predenoise_B : nullptr);
     if (!hms_diag.success) {
       hms_emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
                             {{"reason", "stretch_failed"},
@@ -1084,6 +1097,24 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
                 << " amount=" << cast_res.amount
                 << " ratio " << cast_res.ratio_before << " -> "
                 << cast_res.ratio_after << std::endl;
+    }
+
+    // Scale-selective contrast on the stretched RGB (after the colour-cast correction).
+    image::LargeScaleContrastResult lsc_res;
+    if (cfg.hypermetric_stretch.large_scale_contrast.enabled &&
+        rgb.G.rows() > 0 && rgb.B.rows() > 0) {
+      const auto &lc = cfg.hypermetric_stretch.large_scale_contrast;
+      image::LargeScaleContrastConfig ilc;
+      ilc.enabled = lc.enabled;
+      ilc.amount = lc.amount;
+      ilc.sigma_px = lc.sigma_px;
+      ilc.chroma_amount = lc.chroma_amount;
+      ilc.remove_vignette = lc.remove_vignette;
+      lsc_res = image::apply_large_scale_contrast(
+          rgb.R, rgb.G, rgb.B, ilc, &pcc_cfg.output_valid_mask);
+      std::cout << "[HMS] large-scale contrast: " << lsc_res.status
+                << " span " << lsc_res.span_before << " -> "
+                << lsc_res.span_after << std::endl;
     }
 
     io::FitsHeader hms_hdr = out_hdr;
@@ -1137,7 +1168,15 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
            {"object_pixels", cast_res.object_pixels},
            {"amounts", cast_res.amounts},
            {"sky_neutralized", cast_res.sky_neutralized},
-           {"sky_offset_g", cast_res.sky_offset_g}}}},
+           {"sky_offset_g", cast_res.sky_offset_g}}},
+         {"large_scale_contrast",
+          {{"status", lsc_res.status},
+           {"applied", lsc_res.applied},
+           {"sky_reference", lsc_res.sky_reference},
+           {"span_before", lsc_res.span_before},
+           {"span_after", lsc_res.span_after},
+           {"vignette_removed", lsc_res.vignette_removed},
+           {"downsample_factor", lsc_res.downsample_factor}}}},
         log_file);
     if (abort_if_runtime_limit_exceeded("HYPERMETRIC_STRETCH")) {
       return 1;
@@ -1286,6 +1325,26 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     pcc_cfg = tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
     if (!load_pcc_masks_for_rgb(Phase::HYPERMETRIC_STRETCH)) {
       return 1;
+    }
+    // Best-effort reload of the anchor_from_reference snapshot (see run_pcc's success block above):
+    // absent for a run/config that never wrote it, and that is a normal fallback, not an error.
+    if (cfg.hypermetric_stretch.anchor_from_reference) {
+      const fs::path predenoise_r_path = run_dir / "outputs" / "pcc_predenoise_R.fit";
+      const fs::path predenoise_g_path = run_dir / "outputs" / "pcc_predenoise_G.fit";
+      const fs::path predenoise_b_path = run_dir / "outputs" / "pcc_predenoise_B.fit";
+      std::error_code ec_exists;
+      if (fs::is_regular_file(predenoise_r_path, ec_exists) &&
+          fs::is_regular_file(predenoise_g_path, ec_exists) &&
+          fs::is_regular_file(predenoise_b_path, ec_exists)) {
+        try {
+          pcc_predenoise_R = io::read_fits_float(predenoise_r_path).first;
+          pcc_predenoise_G = io::read_fits_float(predenoise_g_path).first;
+          pcc_predenoise_B = io::read_fits_float(predenoise_b_path).first;
+          have_pcc_predenoise = true;
+        } catch (const std::exception &) {
+          have_pcc_predenoise = false;
+        }
+      }
     }
     if (run_hms_phase() != 0) {
       return 1;
@@ -1475,6 +1534,18 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       return 1;
     }
 
+    // Snapshot the linear RGB right after PCC's own colour correction, before the speckle
+    // suppressor and the post_pcc chroma_denoise pass mutate it -- this is the
+    // hypermetric_stretch.anchor_from_reference reference (see that field's comment). Only taken
+    // (and only persisted below) when it will actually be used, to avoid the copy/IO cost otherwise.
+    if (cfg.hypermetric_stretch.anchor_from_reference &&
+        cfg.chroma_denoise.enabled && cfg.chroma_denoise.apply_stage == "post_pcc") {
+      pcc_predenoise_R = rgb.R;
+      pcc_predenoise_G = rgb.G;
+      pcc_predenoise_B = rgb.B;
+      have_pcc_predenoise = true;
+    }
+
     const auto chroma_speckle_stats =
         image::suppress_isolated_chroma_speckles_rgb_inplace(
             rgb.R, rgb.G, rgb.B, &pcc_cfg.common_valid_mask,
@@ -1522,6 +1593,23 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     // stacked_rgb_pcc.fits must remain LINEAR float32 — it is the HMS input.
     // Never apply output_stretch here; HMS needs the original linear data.
     write_atomic_rgb(pcc_rgb_path, rgb.R, rgb.G, rgb.B, out_hdr);
+
+    // Persist the pre-denoise anchor reference (see the snapshot above) so a HYPERMETRIC_STRETCH-only
+    // resume can still use it without redoing PCC/chroma_denoise. Absent for any run/config that
+    // does not need it -- a resume with no such file simply falls back (never fail-closed here: the
+    // reference is an accuracy improvement, not a correctness contract).
+    if (have_pcc_predenoise) {
+      const fs::path predenoise_r_path = run_dir / "outputs" / "pcc_predenoise_R.fit";
+      const fs::path predenoise_g_path = run_dir / "outputs" / "pcc_predenoise_G.fit";
+      const fs::path predenoise_b_path = run_dir / "outputs" / "pcc_predenoise_B.fit";
+      std::error_code ec_pr, ec_pg, ec_pb;
+      fs::remove(predenoise_r_path, ec_pr);
+      fs::remove(predenoise_g_path, ec_pg);
+      fs::remove(predenoise_b_path, ec_pb);
+      io::write_fits_float(predenoise_r_path, pcc_predenoise_R, out_hdr);
+      io::write_fits_float(predenoise_g_path, pcc_predenoise_G, out_hdr);
+      io::write_fits_float(predenoise_b_path, pcc_predenoise_B, out_hdr);
+    }
 
     core::json matrix_json = core::json::array();
     for (int r = 0; r < 3; ++r) {

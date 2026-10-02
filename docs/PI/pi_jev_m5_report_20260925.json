@@ -1,0 +1,670 @@
+{
+  "baselines": {
+    "current_config": "paired run artifacts where registered; not a Jev trial",
+    "existing_pi_advice": "not observed",
+    "knn_optional": "not observed",
+    "rules_only": "not observed",
+    "rules_plus_jev": "decision records only; no linked controlled quality trial"
+  },
+  "candidate_release": {
+    "enable_adaptive_weights": {
+      "blocking_reasons": [
+        "quality_policy_not_computed",
+        "no_prospective_blinded_test",
+        "test_session_not_enrolled_after_policy_freeze",
+        "matched_quality_missing"
+      ],
+      "release_eligible": false
+    },
+    "set_sensor_profile_dwarf_ii": {
+      "blocking_reasons": [
+        "quality_policy_not_computed",
+        "no_prospective_blinded_test",
+        "no_test_sessions"
+      ],
+      "release_eligible": false
+    }
+  },
+  "decision_metrics": {
+    "abstention_count": 0,
+    "abstention_rate": 0.0,
+    "abstention_rate_ci95": [
+      0,
+      0.6576197724933469
+    ],
+    "calibration": null,
+    "calibration_reason": "no ground-truth outcome labels for proposal probabilities",
+    "candidate_coverage": {
+      "set_sensor_profile_dwarf_ii": 2
+    },
+    "count": 2,
+    "invalid_applicable_patch_count": 0,
+    "invalid_applicable_patch_rate": 0.0,
+    "invalid_applicable_patch_rate_ci95": [
+      0,
+      0.6576197724933469
+    ],
+    "quality_delta": null,
+    "quality_delta_reason": "matched-position and comparable-area measurements unavailable"
+  },
+  "decision_replay": [
+    {
+      "abstained": false,
+      "applicable": true,
+      "candidate_id": "set_sensor_profile_dwarf_ii",
+      "catalog_version": 1,
+      "decision_policy_digest": "sha256:98bce98199f173182038e6967bdfdcf0689d8b061702434dc74a3fcca42b24fe",
+      "decision_status": "done",
+      "draft_config_hash_after_apply": "sha256:2fca4da08a783749ff8039f82c762dbba4d59531883b1b3005560d30d88a4af1",
+      "hash_consistent": true,
+      "invalid_applicable_patch": false,
+      "model_reported": "typesafe/jev-1.13-20260917",
+      "model_requested": "typesafe/jev-1.13",
+      "model_response_digest": "sha256:16bb17b221ad6d46f9bf658ae9f4c451f42fa2eb900362c997120cc4352975d4",
+      "policy_version": "pi.decision-policy.v1",
+      "proposal_id": "dec_20260924T200525Z_504385f1",
+      "proposal_status": "applied_to_draft",
+      "quality_label": null,
+      "run_config_hash": null,
+      "selected_consistent": true,
+      "selection_probability": 0.96,
+      "source_digests": {
+        "candidates": "sha256:98bce98199f173182038e6967bdfdcf0689d8b061702434dc74a3fcca42b24fe",
+        "proposal": "sha256:d7a84353d7cb7bfc571a641f96751bdd87798f78c47cdf7a05ae3c4e7f453563",
+        "request": "sha256:18c94a8bae9178117574d37c52a4e0a5e58002ce469f82e03c7c6b208ae594f3",
+        "response": "sha256:16bb17b221ad6d46f9bf658ae9f4c451f42fa2eb900362c997120cc4352975d4",
+        "state": "sha256:a29b62e2877fff2e324e31d17454e28e6d38715621aa68f3cc9d57005bd031d0",
+        "status": "sha256:edf9effce6767d0e52d1d23003c4abcfdf01c064cd8a728455c2934fb2ed88bc"
+      },
+      "state_hash": "sha256:1689a42f69fdc5367c36a86e396f21b561c0ac98f73aefc04aaa82b4b4d24e70",
+      "updates_match": true,
+      "user_acceptance": "accepted",
+      "validation_ok": true
+    },
+    {
+      "abstained": false,
+      "applicable": true,
+      "candidate_id": "set_sensor_profile_dwarf_ii",
+      "catalog_version": 1,
+      "decision_policy_digest": "sha256:98bce98199f173182038e6967bdfdcf0689d8b061702434dc74a3fcca42b24fe",
+      "decision_status": "done",
+      "draft_config_hash_after_apply": "sha256:2fca4da08a783749ff8039f82c762dbba4d59531883b1b3005560d30d88a4af1",
+      "hash_consistent": true,
+      "invalid_applicable_patch": false,
+      "model_reported": "typesafe/jev-1.13-20260917",
+      "model_requested": "typesafe/jev-1.13",
+      "model_response_digest": "sha256:d8d1cc80f730786bbe53cfec7013637e95a0f885b97830555bf0119cb67ac8d5",
+      "policy_version": "pi.decision-policy.v1",
+      "proposal_id": "dec_20260924T200605Z_59bac04b",
+      "proposal_status": "applied_to_draft",
+      "quality_label": null,
+      "run_config_hash": null,
+      "selected_consistent": true,
+      "selection_probability": 0.95,
+      "source_digests": {
+        "candidates": "sha256:98bce98199f173182038e6967bdfdcf0689d8b061702434dc74a3fcca42b24fe",
+        "proposal": "sha256:215eb1cb84a87e3b9c0cef9501b8117de140a174af25b36bef7058b810472334",
+        "request": "sha256:4c87d187f0a3cd9309101873b70417be4960d12fa51f2b1383b8c733f3002e24",
+        "response": "sha256:d8d1cc80f730786bbe53cfec7013637e95a0f885b97830555bf0119cb67ac8d5",
+        "state": "sha256:a29b62e2877fff2e324e31d17454e28e6d38715621aa68f3cc9d57005bd031d0",
+        "status": "sha256:f08856bbc2f11c617ec0dcd2293ba4d6947d16ffaa7fcd75de4d590ebf33c371"
+      },
+      "state_hash": "sha256:1689a42f69fdc5367c36a86e396f21b561c0ac98f73aefc04aaa82b4b4d24e70",
+      "updates_match": true,
+      "user_acceptance": "accepted",
+      "validation_ok": true
+    }
+  ],
+  "pi_memory_inventory": {
+    "note": "inventory only; no unverified memory outcome is used as a quality label",
+    "record_count": 6,
+    "status_counts": {
+      "candidate": 6
+    }
+  },
+  "registry_study_kind": "retrospective_exploratory",
+  "schema_version": "pi.jev-evaluation-report.v1",
+  "sessions": [
+    {
+      "arm_assertions": {
+        "candidate_applied": {
+          "global_metrics.adaptive_weights": true
+        },
+        "current_config": {
+          "global_metrics.adaptive_weights": false
+        }
+      },
+      "arms": {
+        "candidate_applied": {
+          "build_id": "d46aec669dd05a5edc78c862e4fd1c7e4874c3750840663f5648288e3271b71a",
+          "candidate_gates": {
+            "drizzle_multiband": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_raw": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_uniform": {
+              "numerics_ok": true,
+              "support_ok": true
+            }
+          },
+          "config_digest": "sha256:6106d1ef7a8dfa534c034ddf9d0360e2b0572179dad4684749060d4820dace9a",
+          "descriptive_unmatched_metrics": {
+            "background_rms": {
+              "applicable": true,
+              "sample_count": 247,
+              "value": 0.7342062592506409
+            },
+            "elongation": {
+              "applicable": true,
+              "sample_count": 247,
+              "value": 1.1222457885742188
+            },
+            "median_fwhm": {
+              "applicable": true,
+              "ci_high": 3.7824981212615967,
+              "ci_low": 3.7263705730438232,
+              "sample_count": 249,
+              "value": 3.756542205810547
+            },
+            "tail": {
+              "applicable": true,
+              "sample_count": 247,
+              "value": 0.4796891510486603
+            }
+          },
+          "execution_scope": "forward_drizzle_m1_m3",
+          "input_count": 645,
+          "input_sha256": "328b0bb0b2c28009ade9e783847f14de500dbf3ec40b671b1c7909a34d4a2089",
+          "pixels_supported": 25987220,
+          "provenance_digest": "sha256:3219ed479955f15a3dfb6953acd34dcd670ab52c925db955de51ea89228b0e9b",
+          "quality_digest": "sha256:ea4b47d15a643ae0a8af74b34fa59841b0b8df62a26f752b633cc1140a3a2810",
+          "run_id": "20260923_204346_5a30a6f0",
+          "selected_candidate": "drizzle_raw",
+          "selected_gates": {
+            "numerics_ok": true,
+            "support_ok": true
+          },
+          "selection_reason": "multiband not promoted -> raw: median FWHM improvement below 0.95x raw"
+        },
+        "current_config": {
+          "build_id": "d46aec669dd05a5edc78c862e4fd1c7e4874c3750840663f5648288e3271b71a",
+          "candidate_gates": {
+            "drizzle_multiband": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_raw": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_uniform": {
+              "numerics_ok": true,
+              "support_ok": true
+            }
+          },
+          "config_digest": "sha256:51fb6d8a350bd250c9e92d52301acbb211e3fb2ca2ee43e76958785da6922250",
+          "descriptive_unmatched_metrics": {
+            "background_rms": {
+              "applicable": true,
+              "sample_count": 248,
+              "value": 0.7183315753936768
+            },
+            "elongation": {
+              "applicable": true,
+              "sample_count": 248,
+              "value": 1.120425820350647
+            },
+            "median_fwhm": {
+              "applicable": true,
+              "ci_high": 3.7816245555877686,
+              "ci_low": 3.727663993835449,
+              "sample_count": 250,
+              "value": 3.7500128746032715
+            },
+            "tail": {
+              "applicable": true,
+              "sample_count": 248,
+              "value": 0.4807743728160858
+            }
+          },
+          "execution_scope": "forward_drizzle_m1_m3",
+          "input_count": 645,
+          "input_sha256": "328b0bb0b2c28009ade9e783847f14de500dbf3ec40b671b1c7909a34d4a2089",
+          "pixels_supported": 25984801,
+          "provenance_digest": "sha256:37154fead40acd0cc2b8a164c9a29d26c10eb07de0eec495507b2198c2f79fd7",
+          "quality_digest": "sha256:8366702e4c4ce65733088efcf72558cbf2efeb2f49d362b0e936fcfef4eb74f1",
+          "run_id": "20260923_212703_e8a50695",
+          "selected_candidate": "drizzle_raw",
+          "selected_gates": {
+            "numerics_ok": true,
+            "support_ok": true
+          },
+          "selection_reason": "multiband not promoted -> raw: median FWHM improvement below 0.95x raw"
+        }
+      },
+      "candidate_id": "enable_adaptive_weights",
+      "device": "DWARF II",
+      "filter": "unknown",
+      "input_and_build_paired": true,
+      "matched_star_quality_available": false,
+      "object_class": "galaxy",
+      "quality_group": "unknown",
+      "quality_label": null,
+      "quality_label_reason": "matched-position/area measurements unavailable",
+      "selected_gates_pass": true,
+      "session_id": "m31_20260923",
+      "split": "calibration"
+    },
+    {
+      "arm_assertions": {
+        "candidate_applied": {
+          "global_metrics.adaptive_weights": true
+        },
+        "current_config": {
+          "global_metrics.adaptive_weights": false
+        }
+      },
+      "arms": {
+        "candidate_applied": {
+          "build_id": "d46aec669dd05a5edc78c862e4fd1c7e4874c3750840663f5648288e3271b71a",
+          "candidate_gates": {
+            "drizzle_multiband": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_raw": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_uniform": {
+              "numerics_ok": true,
+              "support_ok": true
+            }
+          },
+          "config_digest": "sha256:8d5a027d08c3fdae799e38704a9c978a1f3f2e849ccce8613171aeee1e61ab73",
+          "descriptive_unmatched_metrics": {
+            "background_rms": {
+              "applicable": true,
+              "sample_count": 132,
+              "value": 1.9883376359939575
+            },
+            "elongation": {
+              "applicable": true,
+              "sample_count": 132,
+              "value": 1.0364974737167358
+            },
+            "median_fwhm": {
+              "applicable": true,
+              "ci_high": 3.990114450454712,
+              "ci_low": 3.957829475402832,
+              "sample_count": 125,
+              "value": 3.9690158367156982
+            },
+            "tail": {
+              "applicable": true,
+              "sample_count": 132,
+              "value": 0.24677611887454987
+            }
+          },
+          "execution_scope": "forward_drizzle_m1_m3",
+          "input_count": 610,
+          "input_sha256": "8de7084e4e6e99aff229581f4b09edab37e76307266ff9abacaa89974d46283a",
+          "pixels_supported": 32278950,
+          "provenance_digest": "sha256:351bfef720f57083a050014b502c612d90367d46568444a9f2c54d3c67ebb318",
+          "quality_digest": "sha256:830178d3cb9e3f89029b7bcf58f14de735e4627cd2cee7f81751f8f57e045fc9",
+          "run_id": "20260923_223614_ce66cf2d",
+          "selected_candidate": "drizzle_raw",
+          "selected_gates": {
+            "numerics_ok": true,
+            "support_ok": true
+          },
+          "selection_reason": "multiband not promoted -> raw: median FWHM improvement below 0.95x raw"
+        },
+        "current_config": {
+          "build_id": "d46aec669dd05a5edc78c862e4fd1c7e4874c3750840663f5648288e3271b71a",
+          "candidate_gates": {
+            "drizzle_multiband": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_raw": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_uniform": {
+              "numerics_ok": true,
+              "support_ok": true
+            }
+          },
+          "config_digest": "sha256:1759e44e0e51c15a0234d3c614ce203602ef0701411c9298c86d3a0dcd999fe9",
+          "descriptive_unmatched_metrics": {
+            "background_rms": {
+              "applicable": true,
+              "sample_count": 132,
+              "value": 1.9488511085510254
+            },
+            "elongation": {
+              "applicable": true,
+              "sample_count": 132,
+              "value": 1.0341836214065552
+            },
+            "median_fwhm": {
+              "applicable": true,
+              "ci_high": 3.9870662689208984,
+              "ci_low": 3.9424784183502197,
+              "sample_count": 129,
+              "value": 3.956498861312866
+            },
+            "tail": {
+              "applicable": true,
+              "sample_count": 132,
+              "value": 0.2580210268497467
+            }
+          },
+          "execution_scope": "forward_drizzle_m1_m3",
+          "input_count": 610,
+          "input_sha256": "8de7084e4e6e99aff229581f4b09edab37e76307266ff9abacaa89974d46283a",
+          "pixels_supported": 32267715,
+          "provenance_digest": "sha256:b05e3cdcdef24ec5dd3e9858438690ffbae9e669d46adc2616e663fcb235f51c",
+          "quality_digest": "sha256:844bbc52b780ff5ead23aad731f91487dc978ca7c8a46669bcb84667304ec7ea",
+          "run_id": "20260923_232436_95ed29f7",
+          "selected_candidate": "drizzle_raw",
+          "selected_gates": {
+            "numerics_ok": true,
+            "support_ok": true
+          },
+          "selection_reason": "multiband not promoted -> raw: median FWHM improvement below 0.95x raw"
+        }
+      },
+      "candidate_id": "enable_adaptive_weights",
+      "device": "DWARF II",
+      "filter": "unknown",
+      "input_and_build_paired": true,
+      "matched_star_quality_available": false,
+      "object_class": "nebula",
+      "quality_group": "unknown",
+      "quality_label": null,
+      "quality_label_reason": "matched-position/area measurements unavailable",
+      "selected_gates_pass": true,
+      "session_id": "m42_20260923",
+      "split": "calibration"
+    },
+    {
+      "arm_assertions": {
+        "candidate_applied": {
+          "global_metrics.adaptive_weights": true
+        },
+        "current_config": {
+          "global_metrics.adaptive_weights": false
+        }
+      },
+      "arms": {
+        "candidate_applied": {
+          "build_id": "d46aec669dd05a5edc78c862e4fd1c7e4874c3750840663f5648288e3271b71a",
+          "candidate_gates": {
+            "drizzle_multiband": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_raw": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_uniform": {
+              "numerics_ok": true,
+              "support_ok": true
+            }
+          },
+          "config_digest": "sha256:14e55db90e1846c2e86093b6efeb9871bb95097c437d9a43c815336922ead377",
+          "descriptive_unmatched_metrics": {
+            "background_rms": {
+              "applicable": true,
+              "sample_count": 216,
+              "value": 1.8480160236358643
+            },
+            "elongation": {
+              "applicable": true,
+              "sample_count": 216,
+              "value": 1.1238138675689697
+            },
+            "median_fwhm": {
+              "applicable": true,
+              "ci_high": 4.435705900192261,
+              "ci_low": 4.39179801940918,
+              "sample_count": 214,
+              "value": 4.412358522415161
+            },
+            "tail": {
+              "applicable": true,
+              "sample_count": 216,
+              "value": 0.23807592689990997
+            }
+          },
+          "execution_scope": "forward_drizzle_m1_m3",
+          "input_count": 466,
+          "input_sha256": "77ef56b3d32b03ff82797b9144569100ffe6620d3e1f6b638687ac455cabb9ef",
+          "pixels_supported": 31779550,
+          "provenance_digest": "sha256:7226597fdd4d4b22f0b14212a62acf33e87d42e3b25f64b93ef6464e25541f7b",
+          "quality_digest": "sha256:7652d5d59f57fda0f6e48e5141dc217ea5d3d2b97970cef340b65b29135f3e2e",
+          "run_id": "20260924_001226_8c66f570",
+          "selected_candidate": "drizzle_raw",
+          "selected_gates": {
+            "numerics_ok": true,
+            "support_ok": true
+          },
+          "selection_reason": "multiband not promoted -> raw: median FWHM improvement below 0.95x raw"
+        },
+        "current_config": {
+          "build_id": "d46aec669dd05a5edc78c862e4fd1c7e4874c3750840663f5648288e3271b71a",
+          "candidate_gates": {
+            "drizzle_multiband": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_raw": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_uniform": {
+              "numerics_ok": true,
+              "support_ok": true
+            }
+          },
+          "config_digest": "sha256:dfe05f98aba9c4fc831452134cd1d4c8ee515752b908d03906d02ed98cfc6c47",
+          "descriptive_unmatched_metrics": {
+            "background_rms": {
+              "applicable": true,
+              "sample_count": 220,
+              "value": 1.8478244543075562
+            },
+            "elongation": {
+              "applicable": true,
+              "sample_count": 220,
+              "value": 1.1245707273483276
+            },
+            "median_fwhm": {
+              "applicable": true,
+              "ci_high": 4.431554794311523,
+              "ci_low": 4.386436939239502,
+              "sample_count": 216,
+              "value": 4.402652263641357
+            },
+            "tail": {
+              "applicable": true,
+              "sample_count": 220,
+              "value": 0.24012038111686707
+            }
+          },
+          "execution_scope": "forward_drizzle_m1_m3",
+          "input_count": 466,
+          "input_sha256": "77ef56b3d32b03ff82797b9144569100ffe6620d3e1f6b638687ac455cabb9ef",
+          "pixels_supported": 31768288,
+          "provenance_digest": "sha256:9f1e913fe5342601d867325f36f50c32819d3795c911a46ccf56b2e56bbc89f2",
+          "quality_digest": "sha256:20a1810dd5ee88e9313328d05e3eae33af5acd9409570d0c8d57930f9841edda",
+          "run_id": "20260924_004750_bbc7b433",
+          "selected_candidate": "drizzle_raw",
+          "selected_gates": {
+            "numerics_ok": true,
+            "support_ok": true
+          },
+          "selection_reason": "multiband not promoted -> raw: median FWHM improvement below 0.95x raw"
+        }
+      },
+      "candidate_id": "enable_adaptive_weights",
+      "device": "DWARF II",
+      "filter": "unknown",
+      "input_and_build_paired": true,
+      "matched_star_quality_available": false,
+      "object_class": "nebula",
+      "quality_group": "unknown",
+      "quality_label": null,
+      "quality_label_reason": "matched-position/area measurements unavailable",
+      "selected_gates_pass": true,
+      "session_id": "ic5070_20260924",
+      "split": "test"
+    },
+    {
+      "arm_assertions": {
+        "candidate_applied": {
+          "global_metrics.adaptive_weights": true
+        },
+        "current_config": {
+          "global_metrics.adaptive_weights": false
+        }
+      },
+      "arms": {
+        "candidate_applied": {
+          "build_id": "d46aec669dd05a5edc78c862e4fd1c7e4874c3750840663f5648288e3271b71a",
+          "candidate_gates": {
+            "drizzle_multiband": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_raw": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_uniform": {
+              "numerics_ok": true,
+              "support_ok": true
+            }
+          },
+          "config_digest": "sha256:f5aea1486120ccfe11231016215a73e76226d5ffbf121f76d2f4d521a344449f",
+          "descriptive_unmatched_metrics": {
+            "background_rms": {
+              "applicable": true,
+              "sample_count": 128,
+              "value": 1.1187145709991455
+            },
+            "elongation": {
+              "applicable": true,
+              "sample_count": 128,
+              "value": 1.0925177335739136
+            },
+            "median_fwhm": {
+              "applicable": true,
+              "ci_high": 6.052235126495361,
+              "ci_low": 5.537489891052246,
+              "sample_count": 117,
+              "value": 5.819840908050537
+            },
+            "tail": {
+              "applicable": true,
+              "sample_count": 128,
+              "value": 0.2671152651309967
+            }
+          },
+          "execution_scope": "forward_drizzle_m1_m3",
+          "input_count": 975,
+          "input_sha256": "628813a78b9c64c9289605cc590957bbfead93d9d072e1914c474aaaf7ed5234",
+          "pixels_supported": 33190922,
+          "provenance_digest": "sha256:2c1da5c51125c693bf87a43d6ebc0e42dc912cb1a7a4db413cee45ffe37a85a9",
+          "quality_digest": "sha256:16833e020653dc025754c2837366a0b020f3b89e27607eef88533b6a29297a95",
+          "run_id": "20260924_013435_a39a9e30",
+          "selected_candidate": "drizzle_raw",
+          "selected_gates": {
+            "numerics_ok": true,
+            "support_ok": true
+          },
+          "selection_reason": "multiband not promoted -> raw: median FWHM improvement below 0.95x raw"
+        },
+        "current_config": {
+          "build_id": "d46aec669dd05a5edc78c862e4fd1c7e4874c3750840663f5648288e3271b71a",
+          "candidate_gates": {
+            "drizzle_multiband": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_raw": {
+              "numerics_ok": true,
+              "support_ok": true
+            },
+            "drizzle_uniform": {
+              "numerics_ok": true,
+              "support_ok": true
+            }
+          },
+          "config_digest": "sha256:1058f08cf8e17b5e4f059522015b0c4fc17d75be8143a5ade8f337b885cef59d",
+          "descriptive_unmatched_metrics": {
+            "background_rms": {
+              "applicable": true,
+              "sample_count": 128,
+              "value": 1.1031396389007568
+            },
+            "elongation": {
+              "applicable": true,
+              "sample_count": 128,
+              "value": 1.088093638420105
+            },
+            "median_fwhm": {
+              "applicable": true,
+              "ci_high": 6.155179977416992,
+              "ci_low": 5.61586332321167,
+              "sample_count": 121,
+              "value": 5.778868675231934
+            },
+            "tail": {
+              "applicable": true,
+              "sample_count": 128,
+              "value": 0.23014700412750244
+            }
+          },
+          "execution_scope": "forward_drizzle_m1_m3",
+          "input_count": 975,
+          "input_sha256": "628813a78b9c64c9289605cc590957bbfead93d9d072e1914c474aaaf7ed5234",
+          "pixels_supported": 33190228,
+          "provenance_digest": "sha256:b63026e43c0e34c4b5a21aac40f60ef8cf0eabc55371f2f62f6f4e88e95df255",
+          "quality_digest": "sha256:c3453dca64e328c643d835be6d19b79b7018605f1f6c9c8ae71f3ba9978a5277",
+          "run_id": "20260924_040232_e0b8cac7",
+          "selected_candidate": "drizzle_raw",
+          "selected_gates": {
+            "numerics_ok": true,
+            "support_ok": true
+          },
+          "selection_reason": "multiband not promoted -> raw: median FWHM improvement below 0.95x raw"
+        }
+      },
+      "candidate_id": "enable_adaptive_weights",
+      "device": "DWARF II",
+      "filter": "unknown",
+      "input_and_build_paired": true,
+      "matched_star_quality_available": false,
+      "object_class": "galaxy",
+      "quality_group": "unknown",
+      "quality_label": null,
+      "quality_label_reason": "matched-position/area measurements unavailable",
+      "selected_gates_pass": true,
+      "session_id": "m66_20260924",
+      "split": "test"
+    }
+  ],
+  "source_digests": {
+    "pi_memory_store": "sha256:cf1d4102b03718c04acd8b70932861f4be9996607dfca99f27bbee9088148b1d",
+    "registry": "sha256:b41db7f6a8672483099e23e3b46dba2dcc76e5f5a2e450fdb088c3387f7cb42c",
+    "release_policy": "sha256:ca2882919e73efa5ddb1a8fc18f91d9e45e20ea9f3b43dd59e1d02f2e40a5afb"
+  }
+}

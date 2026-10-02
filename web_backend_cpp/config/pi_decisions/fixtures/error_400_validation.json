@@ -1,0 +1,11 @@
+{
+  "_fixture_note": "Empirically captured (2026-09-22) by POSTing an empty body to https://openrouter.ai/api/alpha/decisions -- real shape, not assumed. error.message is a plain JSON string whose CONTENT happens to be JSON-formatted validation detail as text (a Zod error array), not a nested JSON array field.",
+  "http_status": 400,
+  "body": {
+    "error": {
+      "message": "[\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"model\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [[{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected string, received undefined\"}],[{\"expected\":\"record\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected record, received undefined\"}],[{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected array, received undefined\"}]],\n    \"path\": [\n      \"state\"\n    ],\n    \"message\": \"Invalid input\"\n  },\n  {\n    \"expected\": \"record\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"questions\"\n    ],\n    \"message\": \"Invalid input: expected record, received undefined\"\n  }\n]",
+      "code": 400
+    },
+    "user_id": "user_SyntheticFixtureUser0000000"
+  }
+}

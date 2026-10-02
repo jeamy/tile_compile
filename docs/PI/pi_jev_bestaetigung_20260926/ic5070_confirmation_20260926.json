@@ -1,0 +1,43 @@
+{
+  "control": {
+    "n_eff_p10": 26.31543731689453,
+    "ref_frame": 56,
+    "selected": "drizzle_raw"
+  },
+  "variants": {
+    "clip_5_5": {
+      "elongation_ratio": 1.0001717797964575,
+      "fwhm_ratio": 0.9987367105164825,
+      "matched_stars": 2331,
+      "n_eff_p10": 26.31543731689453,
+      "n_eff_ratio": 1.0,
+      "noise_ratio": 0.966724366561585,
+      "pairing": {
+        "identical_raster": true,
+        "same_reference_frame": true
+      },
+      "ref_frame": 56,
+      "selected": "drizzle_raw",
+      "selected_unchanged": true,
+      "signal_ratio": 1.0096915317820265,
+      "valid_background_pixels": 6592253
+    },
+    "pixfrac_1.0": {
+      "elongation_ratio": 0.9996123531422992,
+      "fwhm_ratio": 1.0002054424371745,
+      "matched_stars": 2331,
+      "n_eff_p10": 38.32062759399414,
+      "n_eff_ratio": 1.4562033354236628,
+      "noise_ratio": 0.9098973799940794,
+      "pairing": {
+        "identical_raster": true,
+        "same_reference_frame": true
+      },
+      "ref_frame": 56,
+      "selected": "drizzle_raw",
+      "selected_unchanged": true,
+      "signal_ratio": 1.000952900405557,
+      "valid_background_pixels": 6592000
+    }
+  }
+}

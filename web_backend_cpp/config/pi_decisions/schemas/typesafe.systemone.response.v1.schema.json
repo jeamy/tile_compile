@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "typesafe.systemone.response.v1",
+  "description": "NOT the integration path used by this project -- see openrouter.decisions.response.v1.schema.json for that. Documents TypeSafe's own direct API response shape, kept for background (docs/PI/pi_jev_m0_provider_protocol_de.md section 4): notably it lacks OpenRouter's id/provider/usage.cost fields and reports the model version without OpenRouter's date-stamp suffix.",
+  "type": "object",
+  "required": ["model", "answers", "usage"],
+  "additionalProperties": false,
+  "properties": {
+    "model": {
+      "type": "string",
+      "description": "The actually-processing pinned version (never the requested alias) -- maps to pi.decisions.response.v1.model_reported."
+    },
+    "answers": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/definitions/answer"}
+    },
+    "usage": {
+      "type": "object",
+      "required": ["input_tokens", "output_tokens"],
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0}
+      }
+    }
+  },
+  "definitions": {
+    "answer": {
+      "oneOf": [
+        {"$ref": "#/definitions/choiceAnswer"},
+        {"$ref": "#/definitions/noulAnswer"},
+        {"$ref": "#/definitions/scoreAnswer"}
+      ]
+    },
+    "choiceAnswer": {
+      "type": "object",
+      "required": ["type", "choice", "probabilities", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "choice"},
+        "choice": {"type": "string", "minLength": 1},
+        "probabilities": {
+          "type": "object",
+          "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1},
+          "description": "Every value MUST be finite and in [0,1]; a NaN/Infinity anywhere rejects the whole response (pi_jev_m0_provider_protocol_de.md section 4)."
+        },
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "noulAnswer": {
+      "type": "object",
+      "required": ["type", "noul", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "noul"},
+        "noul": {"type": "number", "minimum": 0, "maximum": 1},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "scoreAnswer": {
+      "type": "object",
+      "required": ["type", "score", "legend", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "score"},
+        "score": {"type": "number"},
+        "legend": {"type": "object", "additionalProperties": {"type": "string"}},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "description": "Not used by this project; documented for wire-format completeness (see request schema)."
+    }
+  }
+}

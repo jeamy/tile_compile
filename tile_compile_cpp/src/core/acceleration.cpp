@@ -315,6 +315,23 @@ bool build_warped_support_mask(const cv::Mat &warp_matrix, int src_rows,
 }
 
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_WARPING
+/// Per-thread device buffers for the prewarp wrappers. A function-local
+/// GpuMat costs a cudaMalloc/cudaFree pair per plane and frame, and cudaFree
+/// synchronizes the whole device, serializing the per-worker streams.
+/// GpuMat::create()/upload() reuse the allocation while size and type match.
+/// Every wrapper ends with waitForCompletion(), so a buffer is idle again
+/// when its thread's next call starts. warpAffine writes every destination
+/// pixel (BORDER_CONSTANT), so reused contents never leak into results.
+struct CudaWarpBuffers {
+  std::array<cv::cuda::GpuMat, 4> src;
+  std::array<cv::cuda::GpuMat, 4> dst;
+};
+
+CudaWarpBuffers &cuda_warp_buffers() {
+  thread_local CudaWarpBuffers buffers;
+  return buffers;
+}
+
 /// @brief Implements cuda warp affine impl.
 /// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -323,8 +340,9 @@ bool cuda_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
                            cv::Size output_size, cv::Mat &dst,
                            int interpolation_flag, cv::cuda::Stream *stream) {
   try {
-    cv::cuda::GpuMat d_src;
-    cv::cuda::GpuMat d_dst;
+    auto &buffers = cuda_warp_buffers();
+    cv::cuda::GpuMat &d_src = buffers.src[0];
+    cv::cuda::GpuMat &d_dst = buffers.dst[0];
     cv::cuda::Stream &cuda_stream =
         stream ? *stream : cv::cuda::Stream::Null();
     d_src.upload(src, cuda_stream);
@@ -346,8 +364,11 @@ bool cuda_warp_affine_rgb_impl(
     cv::Mat &dst_r, cv::Mat &dst_g, cv::Mat &dst_b,
     int interpolation_flag, cv::cuda::Stream *stream) {
   try {
-    cv::cuda::GpuMat d_src_r, d_src_g, d_src_b;
-    cv::cuda::GpuMat d_dst_r, d_dst_g, d_dst_b;
+    auto &buffers = cuda_warp_buffers();
+    cv::cuda::GpuMat &d_src_r = buffers.src[0], &d_src_g = buffers.src[1],
+                     &d_src_b = buffers.src[2];
+    cv::cuda::GpuMat &d_dst_r = buffers.dst[0], &d_dst_g = buffers.dst[1],
+                     &d_dst_b = buffers.dst[2];
     cv::cuda::Stream &cuda_stream =
         stream ? *stream : cv::cuda::Stream::Null();
     d_src_r.upload(src_r, cuda_stream);
@@ -395,8 +416,9 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
     // Keep all four CFA planes in one stream and synchronize once. Calling the
     // single-plane wrapper here would force four upload/warp/download barriers.
     try {
-      std::array<cv::cuda::GpuMat, 4> d_src;
-      std::array<cv::cuda::GpuMat, 4> d_dst;
+      auto &buffers = cuda_warp_buffers();
+      std::array<cv::cuda::GpuMat, 4> &d_src = buffers.src;
+      std::array<cv::cuda::GpuMat, 4> &d_dst = buffers.dst;
       const std::array<cv::Mat, 4> src = {a_cv, b_cv, c_cv, d_cv};
       std::array<cv::Mat *, 4> dst = {&a_w, &b_w, &c_w, &d_w};
       const std::array<cv::Mat, 4> warp_arr = {warps.a, warps.b, warps.c, warps.d};

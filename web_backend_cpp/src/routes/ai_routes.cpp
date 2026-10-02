@@ -2281,6 +2281,7 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
         // to a run via the config_sha256 written into runs/<run_id>/artifacts/pi_run_provenance.json.
         std::string rev_id;
         if (body->value("persist", false)) {
+            std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
             SubprocessResult save_res = run_subprocess({state->runtime.cli_exe, "save-config", target_config_path.string(), "--stdin"},
                                                        state->runtime.project_root.string(),
                                                        yaml_text);

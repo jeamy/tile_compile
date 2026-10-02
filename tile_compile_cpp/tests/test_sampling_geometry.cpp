@@ -713,6 +713,42 @@ TEST_CASE("coverage scatter: parity passes are bit-identical to the gather",
   }
 }
 
+// Regression: the static device plane behind the coverage gather used to
+// track its capacity in CELLS while allocating channels x cells doubles. A
+// MONO call (1 channel) followed by a CFA call (3 channels) over the same cell
+// count then reused a plane a third of the required size: the scatter path's
+// cudaMemset failed and the call silently fell back to the CPU (the gather
+// path would have written out of bounds). The cell count here exceeds every
+// other coverage fixture so the MONO call really sizes the plane.
+TEST_CASE("coverage CUDA plane: MONO then CFA over the same cell count",
+          "[drizzle-audit][coverage-cuda-buffer]") {
+  if (!reconstruction::forward_drizzle_cuda_runtime_available())
+    return;
+  const double a[6] = {1.28, 0, -6, 0, 1.28, -4};
+  const double inv[6] = {1.0 / 1.28, 0, 6.0 / 1.28, 0, 1.0 / 1.28, 4.0 / 1.28};
+  const int W = 2048, rows = 256;
+  const std::size_t cells = static_cast<std::size_t>(W) * rows;
+  std::vector<double> mono(cells), scatter(3 * cells), gather(3 * cells);
+  REQUIRE(reconstruction::forward_drizzle_cuda_affine_coverage_gather(
+      a, inv, 1, 0.4, 0, 0, W, rows, 60, 44,
+      static_cast<int>(BayerPattern::UNKNOWN), 0, 0, true, mono.data()));
+  // CFA scatter (gap condition holds for this upscale) over the same cells.
+  REQUIRE(reconstruction::forward_drizzle_cuda_affine_coverage_gather(
+      a, inv, 1, 0.4, 0, 0, W, rows, 60, 44,
+      static_cast<int>(BayerPattern::RGGB), 0, 0, false, scatter.data()));
+  setenv("TC_COVERAGE_FORCE_GATHER", "1", 1);
+  const bool gather_ok =
+      reconstruction::forward_drizzle_cuda_affine_coverage_gather(
+          a, inv, 1, 0.4, 0, 0, W, rows, 60, 44,
+          static_cast<int>(BayerPattern::RGGB), 0, 0, false, gather.data());
+  unsetenv("TC_COVERAGE_FORCE_GATHER");
+  REQUIRE(gather_ok);
+  REQUIRE(scatter == gather);
+  // Both calls really rasterized the (non-empty) source footprint.
+  REQUIRE(*std::max_element(mono.begin(), mono.end()) > 0.0);
+  REQUIRE(*std::max_element(gather.begin(), gather.end()) > 0.0);
+}
+
 // Temporary benchmark: M31-like plan (real source/canvas size, fewer frames).
 // Run once with and once without CUDA_VISIBLE_DEVICES to compare the CUDA
 // records path against the CPU scatter fallback.

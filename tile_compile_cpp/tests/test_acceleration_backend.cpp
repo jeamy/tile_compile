@@ -7,6 +7,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <thread>
 
 TEST_CASE("runtime_limits_acceleration_backend_parses_and_validates") {
@@ -354,6 +356,48 @@ TEST_CASE("common_overlap_tile_gate_marks_canvas_invalid_pixels_nonfinite") {
   REQUIRE(std::isfinite(tile(1, 0)));
   REQUIRE_FALSE(std::isfinite(tile(1, 1)));
 }
+
+// The OpenCV-CUDA prewarp wrappers reuse per-thread device buffers. Reuse
+// must never leak state between calls: warping frame A, then a frame of a
+// different size, then A again must reproduce A's result bit for bit, for
+// the MONO wrapper and the 4-plane CFA wrapper, with and without a stream.
+TEST_CASE("opencv_cuda prewarp buffer reuse is stateless across calls") {
+  tile_compile::core::AccelerationContext context("opencv_cuda");
+  const auto selection =
+      context.selection_for(tile_compile::core::AccelerationPhase::prewarp);
+  if (selection.selected != tile_compile::core::AccelerationBackend::opencv_cuda)
+    return;  // no OpenCV-CUDA device: nothing to exercise
+  tile_compile::core::AccelerationOps ops(selection);
+  auto make = [](int rows, int cols, float phase) {
+    tile_compile::Matrix2Df m(rows, cols);
+    for (int y = 0; y < rows; ++y)
+      for (int x = 0; x < cols; ++x)
+        m(y, x) = std::sin(0.37f * x + phase) * std::cos(0.23f * y) + 0.01f * x;
+    return m;
+  };
+  tile_compile::WarpMatrix warp;
+  warp << 0.998f, -0.052f, 1.3f, 0.052f, 0.998f, -0.7f;
+  tile_compile::core::WorkerCudaStreams streams(true, 1);
+  for (auto mode : {tile_compile::ColorMode::MONO, tile_compile::ColorMode::OSC})
+    for (cv::cuda::Stream *stream : {static_cast<cv::cuda::Stream *>(nullptr),
+                                     streams.get(0)}) {
+      CAPTURE(mode == tile_compile::ColorMode::OSC, stream != nullptr);
+      const auto a = make(40, 48, 0.0f);
+      const auto b = make(64, 72, 1.0f);
+      tile_compile::Matrix2Df r1, rb, r2;
+      REQUIRE(ops.warp_affine_frame(a, warp, mode, 40, 48, 0, 0, r1, nullptr,
+                                    nullptr, stream));
+      REQUIRE(ops.warp_affine_frame(b, warp, mode, 64, 72, 0, 0, rb, nullptr,
+                                    nullptr, stream));
+      REQUIRE(ops.warp_affine_frame(a, warp, mode, 40, 48, 0, 0, r2, nullptr,
+                                    nullptr, stream));
+      REQUIRE(r1.rows() == r2.rows());
+      REQUIRE(r1.cols() == r2.cols());
+      REQUIRE(std::memcmp(r1.data(), r2.data(),
+                          static_cast<size_t>(r1.size()) * sizeof(float)) == 0);
+    }
+}
 #else
 int tile_compile_tests_acceleration_backend_stub() { return 0; }
+
 #endif
