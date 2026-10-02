@@ -50,7 +50,7 @@ Current practical minimums for the packaged GUI3 release bundles are:
 
 Notes:
 
-- macOS release bundles are now built with an explicit deployment target and are intended to run from macOS 13 upward, not only on the exact build host version.
+- macOS release bundles are now built with an explicit deployment target and are intended to run from macOS 15 upward, not only on the exact build host version.
 - Linux compatibility below the CI build baseline is not guaranteed for the current ZIP bundles because `glibc` is not bundled.
 - Windows packaging is built and smoke-tested on `windows-2022`; Windows 10/11 x64 is the intended baseline.
 
@@ -59,7 +59,7 @@ Notes:
 The current native C++ build requirements for the GUI3 release are:
 
 - Linux: `libcurl4-openssl-dev`
-- macOS: `curl`
+- macOS: `libcurl` (provided by the macOS SDK, no Homebrew package needed)
 - Windows MSYS2: `mingw-w64-x86_64-curl`
 
 Other core dependencies still include Eigen, OpenCV, cfitsio, yaml-cpp, nlohmann-json and OpenSSL.

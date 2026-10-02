@@ -48,7 +48,7 @@ Aktuelle praktische Mindestvoraussetzungen für die gepackten GUI3-Release-Bundl
 
 Hinweise:
 
-- macOS-Release-Bundles werden mit explizitem Deployment-Target gebaut und sind ab macOS 13 lauffähig, nicht nur auf der exakten Build-Host-Version.
+- macOS-Release-Bundles werden mit explizitem Deployment-Target gebaut und sind ab macOS 15 lauffähig, nicht nur auf der exakten Build-Host-Version.
 - Linux-Kompatibilität unterhalb der CI-Build-Basis ist für die aktuellen ZIP-Bundles nicht garantiert, da `glibc` nicht gebündelt wird.
 - Windows-Paketierung wird auf `windows-2022` gebaut und per Smoke-Test geprüft; Windows 10/11 x64 ist die vorgesehene Basis.
 
@@ -57,7 +57,7 @@ Hinweise:
 Die aktuellen nativen C++-Build-Voraussetzungen für das GUI3-Release sind:
 
 - Linux: `libcurl4-openssl-dev`
-- macOS: `curl`
+- macOS: `libcurl` (im macOS SDK enthalten, kein Homebrew-Paket nötig)
 - Windows MSYS2: `mingw-w64-x86_64-curl`
 
 Weitere Kern-Abhängigkeiten umfassen Eigen, OpenCV, cfitsio, yaml-cpp, nlohmann-json und OpenSSL.

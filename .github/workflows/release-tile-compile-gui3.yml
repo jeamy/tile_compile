@@ -343,14 +343,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             variant_name: Apple Silicon
             artifact_suffix: macos-apple
-            deployment_target: '14.0'
+            deployment_target: '15.0'
           - runner: macos-15-intel
             variant_name: Intel
             artifact_suffix: macos-intel
-            deployment_target: '13.0'
+            deployment_target: '15.0'
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -366,7 +366,7 @@ jobs:
         run: |
           set -euo pipefail
           brew update
-          brew install cmake ninja pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl curl zip gcc
+          brew install cmake ninja pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl
 
       - name: Build, bundle and smoke test GUI3
         shell: bash
