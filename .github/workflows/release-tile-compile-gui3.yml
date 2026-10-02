@@ -366,7 +366,11 @@ jobs:
         run: |
           set -euo pipefail
           brew update
-          brew install cmake ninja pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl
+          brew install cmake ninja pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl@3
+          # openssl@4 headers in /opt/homebrew/include are picked up via other
+          # formulae's -I paths and break the bundled asio (OpenSSL 4 removed
+          # OPENSSL_VERSION_NUMBER, so asio takes the pre-1.1 code path).
+          brew unlink openssl@4 || true
 
       - name: Build, bundle and smoke test GUI3
         shell: bash

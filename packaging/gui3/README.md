@@ -68,6 +68,7 @@ macOS notes:
 
 - `packaging/gui3/build_local_macos.sh` requires `xcode-select --install`, `cmake`, `ninja`, `pkg-config`, and `python3`.
 - On macOS 12, Homebrew's default `opencv` formula is not supported. The Homebrew-based packaging path therefore effectively requires macOS 15 unless OpenCV is provided from another working installation.
+- The bundled asio version is not compatible with OpenSSL 4. Install `openssl@3` and keep OpenSSL 4 headers out of `/opt/homebrew/include` (`brew unlink openssl@4`). The script sets `OPENSSL_ROOT_DIR` automatically when `openssl@3` is present.
 
 ## CI Workflow
 
