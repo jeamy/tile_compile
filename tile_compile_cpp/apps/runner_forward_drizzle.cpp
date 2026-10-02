@@ -26,7 +26,12 @@
 #include <set>
 #include <thread>
 
+#if defined(_WIN32)
+#include <windows.h>
+#include <psapi.h>
+#else
 #include <sys/resource.h>
+#endif
 
 namespace tile_compile::runner {
 namespace {
@@ -37,9 +42,15 @@ constexpr const char *scope = "forward_drizzle_m1_m3";
 // LIFETIME maximum -- the difference of two such readings is NOT phase-local
 // growth (plan 11.13(4)); it is reported only as `rss_process_peak_kib`.
 long long read_maxrss_kb() {
+#if defined(_WIN32)
+  PROCESS_MEMORY_COUNTERS pmc{};
+  if (!GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) return 0;
+  return static_cast<long long>(pmc.PeakWorkingSetSize / 1024);
+#else
   struct rusage ru {};
   if (getrusage(RUSAGE_SELF, &ru) != 0) return 0;
   return static_cast<long long>(ru.ru_maxrss);
+#endif
 }
 // Current / peak resident set size from /proc/self/status, in KiB. `VmRSS` is
 // the live figure used for phase-scoped growth (sampled at phase begin/end);
@@ -61,8 +72,22 @@ long long read_proc_status_kb(const char *key) {
   }
   return 0;
 }
-long long read_vmrss_kb() { return read_proc_status_kb("VmRSS"); }
-long long read_vmhwm_kb() { return read_proc_status_kb("VmHWM"); }
+long long read_vmrss_kb() {
+#if defined(_WIN32)
+  PROCESS_MEMORY_COUNTERS pmc{};
+  if (!GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) return 0;
+  return static_cast<long long>(pmc.WorkingSetSize / 1024);
+#else
+  return read_proc_status_kb("VmRSS");
+#endif
+}
+long long read_vmhwm_kb() {
+#if defined(_WIN32)
+  return read_maxrss_kb();
+#else
+  return read_proc_status_kb("VmHWM");
+#endif
+}
 // Plan 11.11 / 11.11.1: the throughput baseline is only comparable on a named
 // reference machine, so `forward_drizzle.json` records the CPU model string.
 // Linux `/proc/cpuinfo`; empty when unreadable (never fatal).

@@ -605,6 +605,10 @@ set(_tile_compile_runner_sources
 
 add_executable(tile_compile_runner ${_tile_compile_runner_sources})
 target_link_libraries(tile_compile_runner PRIVATE tile_compile_lib)
+if(WIN32)
+    # GetProcessMemoryInfo (peak/current RSS reporting in runner_forward_drizzle)
+    target_link_libraries(tile_compile_runner PRIVATE psapi)
+endif()
 
 if(CLI11_FOUND)
     target_link_libraries(tile_compile_runner PRIVATE CLI11::CLI11)
@@ -746,6 +750,9 @@ if(BUILD_TESTS)
             FEATURE_FLAGS "${_tile_compile_feature_flags}"
             BUILD_INFO_SOURCE "${_tile_compile_build_info_source}")
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
+        if(WIN32)
+            target_link_libraries(tests PRIVATE psapi)
+        endif()
         include(CTest)
         include(Catch)
         catch_discover_tests(tests)
