@@ -14,12 +14,12 @@
 #include <optional>
 #include <unordered_set>
 #include <yaml-cpp/yaml.h>
-#ifndef _WIN32
-#include <unistd.h>
 #include <ctime>
 #include <cstdio>
 #include <cstdlib>
 #include <cctype>
+#ifndef _WIN32
+#include <unistd.h>
 #endif
 
 namespace {
@@ -38,7 +38,12 @@ std::optional<double> parse_event_ts_seconds(const nlohmann::json& ev) {
         while (e < ts.size() && std::isdigit(static_cast<unsigned char>(ts[e]))) ++e;
         frac = std::strtod(("0" + ts.substr(consumed, e - consumed)).c_str(), nullptr);
     }
-    return static_cast<double>(timegm(&tm)) + frac;
+#if defined(_WIN32)
+    const std::time_t t = _mkgmtime(&tm);
+#else
+    const std::time_t t = timegm(&tm);
+#endif
+    return static_cast<double>(t) + frac;
 }
 } // namespace
 
