@@ -5,7 +5,8 @@
 // Schluesselspalten), `decision_reasons` (Filter/Aggregation) und `decision_links` (append-only
 // Ereignisse: memory, outcome, supersedes, run_deleted, redact). Leser mergen den Link-Stand ueber
 // `decision_id`. Einzige erlaubte Aenderung an einem Record ist die Redaktion von
-// `rationale.user.text` (physisch, in derselben Transaktion wie der `redact`-Link).
+// `rationale.user.text` (im gespeicherten JSON, in derselben Transaktion wie der redact-Link).
+// Keine Garantie fuer physische Loeschung aus WAL, freien Seiten oder Backups.
 //
 // Hinweis zum Namensraum: `pi_decision_*` (service/policy/state/outcome) gehoert zur Jev-Decision-API.
 // Dieser Store ist davon unabhaengig und heisst bewusst "decision record".
@@ -55,7 +56,7 @@ public:
                             const std::string& type,
                             const nlohmann::json& data = nlohmann::json::object()) const;
 
-    // Redaktion: schreibt den `redact`-Link und entfernt rationale.user.text physisch (setzt
+    // Redaktion: schreibt den redact-Link und entfernt rationale.user.text aus dem JSON (setzt
     // text_redacted und privacy_class=metadata_only) in einer Transaktion.
     nlohmann::json redact(const std::string& decision_id, const std::string& reason) const;
 

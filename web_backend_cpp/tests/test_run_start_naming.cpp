@@ -1,4 +1,5 @@
 #include "backend_test_harness.hpp"
+#include "services/pi/pi_jev_store.hpp"
 
 #include <yaml-cpp/yaml.h>
 
@@ -46,15 +47,15 @@ int main(int argc, char** argv) {
             {"size", std::filesystem::file_size(input_file)},
             {"mtime", std::filesystem::last_write_time(input_file).time_since_epoch().count()}
         }});
-        std::filesystem::create_directories(decisions_dir / "p_queue");
-        std::ofstream(decisions_dir / "p_queue" / "source.json") << nlohmann::json{
+        tile_compile::pi::PiJevStore jev_store(decisions_dir);
+        jev_store.put("p_queue", "source", {
             {"input_path", input_dir}, {"dataset_manifest", manifest}
-        }.dump();
-        std::ofstream(decisions_dir / "p_queue" / "proposal.json") << nlohmann::json{
+        });
+        jev_store.put("p_queue", "proposal", {
             {"status", "applied_to_draft"}, {"applied_at", "2020-01-01T00:00:00Z"},
             {"saved_revision_ids", nlohmann::json::array({"saved_cfg"})},
             {"updates", nlohmann::json::array({{{"path", "data.color_mode"}, {"value", "OSC"}}})}
-        }.dump();
+        });
         const auto partial_queue = harness.post_json("/api/runs/start", {
             {"runs_dir", (harness.fixture_root() / "runs").string()},
             {"run_id", "partial_jev_queue"}, {"color_mode", "OSC"},
@@ -80,7 +81,9 @@ int main(int argc, char** argv) {
         const std::filesystem::path linked_run = harness.fixture_root() / "runs" / "linked_jev_queue" / "L";
         const auto linked_provenance = nlohmann::json::parse(slurp_file(linked_run / "artifacts" / "pi_run_provenance.json"));
         expect_equal(linked_provenance["jev_proposal_id"].get<std::string>(), "p_queue", "queue run carries checked Jev id");
-        const auto linked_outcome = nlohmann::json::parse(slurp_file(decisions_dir / "p_queue" / "outcome.json"));
+        expect_true(std::regex_match(linked_provenance["run_uid"].get<std::string>(), std::regex("run_[0-9a-f]{32}")),
+                    "new queue run has stable UID");
+        const auto linked_outcome = *jev_store.get("p_queue", "outcome");
         expect_equal(linked_outcome["runs"][0]["run_id"].get<std::string>(), "linked_jev_queue/L",
                      "queue outcome records nested run id");
 
@@ -113,6 +116,19 @@ int main(int argc, char** argv) {
 
         const auto job = harness.wait_for_job(started["job_id"].get<std::string>());
         expect_equal(job["run_id"].get<std::string>(), generated_run_id, "job run id matches generated run id");
+        const auto generated_run_dir = harness.fixture_root() / "runs" / generated_run_id;
+        const auto provenance_text = slurp_file(generated_run_dir / "artifacts" / "pi_run_provenance.json");
+        const auto provenance_uid = nlohmann::json::parse(provenance_text)["run_uid"].get<std::string>();
+        const auto activated = harness.post_json("/api/runs/" + generated_run_id + "/set-current", {});
+        expect_equal(activated["run_uid"].get<std::string>(), provenance_uid, "activation uses provenance UID");
+        const auto aliased = harness.post_json("/api/runs/path_alias/set-current", {{"run_dir", generated_run_dir.string()}});
+        expect_equal(aliased["run_uid"].get<std::string>(), provenance_uid, "path hint shares exact run identity");
+        const auto active_context = harness.get_json("/api/pi/active-context");
+        expect_equal(active_context["context"]["run_uid"].get<std::string>(), provenance_uid, "active context endpoint");
+        const auto ui_state = nlohmann::json::parse(slurp_file(harness.fixture_root() / "runtime" / "ui_state.json"));
+        expect_equal(ui_state["pi_active_context"]["run_uid"].get<std::string>(), provenance_uid, "active context persisted");
+        expect_equal(slurp_file(generated_run_dir / "artifacts" / "pi_run_provenance.json"), provenance_text,
+                     "activation does not rewrite run provenance");
         expect_true(job["data"]["command"].is_array(), "job command is array");
         expect_equal(job["data"]["command"][1].get<std::string>(), "reconstruct",
                      "job command uses reconstruct");

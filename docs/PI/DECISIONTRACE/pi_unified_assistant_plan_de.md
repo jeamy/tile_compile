@@ -182,6 +182,10 @@ Neu: `web_frontend_v3/js/assistant/`
   verschiedene Verlaufsdateien. `resolve_run_dir` löst außerdem per Präfix auf (`name.find(run_id) == 0`), was bei
   Namensüberschneidung mehrdeutig sein kann.
 
+**Implementierungsstand:** Zentraler Run-Index, neue Provenance-UIDs, Kontext in `set-current` und Persistenz von
+`pi_active_context` sind implementiert. `GET /api/pi/active-context` stellt die Auswahl bereit.
+Dock-Kontextwechsel, Verlauf-/Session-Bezuege und Loesch-Lifecycle sind noch offen.
+
 **Entscheidungen:**
 
 1. **Stabile `run_uid`.** Jeder Run bekommt eine unveränderliche ID, die nicht vom Anzeigenamen oder Pfad abhängt.
@@ -215,9 +219,10 @@ Neu: `web_frontend_v3/js/assistant/`
      | Nichts vorhanden | Leerer Thread, Session entsteht erst mit der ersten Nachricht |
 
    - *Run History* zeigt je Run ein Kennzeichen "AI-Verlauf vorhanden" (Anzahl Entscheidungen) — ohne Session zu öffnen.
-   - Die zuletzt aktive Kontext-Auswahl wird persistiert: `set-current` schreibt heute nur In-Memory-State
-     (`runs_routes.cpp`), ein Backend-Restart verliert sie. Verbindlich im bestehenden
-     UI-State (`runtime_dir/ui_state.json`, `app_state_routes.cpp`), Feld `pi_active_context`. Die Tabelle `run_index` bleibt
+   - Die zuletzt aktive Kontext-Auswahl wird bereits im bestehenden UI-State (`runtime_dir/ui_state.json`),
+     Feld `pi_active_context`, persistiert. `set-current` liefert `pi_context`/`run_uid` additiv; ein nicht
+     erreichbarer Run oder eine fehlgeschlagene Index-Aufloesung liefert eine Warnung, ohne Aktivierung zu blockieren.
+     Die Tabelle `run_index` bleibt
      unveränderliche Zuordnung und enthält keine flüchtige Auswahl — damit "Zustand überlebt Reload/Restart" gilt.
 3. **Resume eines Runs** (`/api/runs/<id>/resume`) setzt denselben Run-Kontext fort; es entsteht kein neuer Kontext.
    Das bestehende Resume-Feedback (`/api/pi/memories/resume-feedback`) wird als Record verknüpft (`parent_decision_id`).

@@ -20,7 +20,7 @@ struct sqlite3;
 namespace tile_compile::pi {
 
 inline constexpr const char* kPiDatabaseFileName = "pi_store_v2.sqlite";
-inline constexpr int kPiDatabaseSchemaVersion = 2;
+inline constexpr int kPiDatabaseSchemaVersion = 4;
 
 // SQL-Parameter/-Spalte: NULL, Ganzzahl oder Text.
 using PiSqlValue = std::variant<std::nullptr_t, std::int64_t, std::string>;

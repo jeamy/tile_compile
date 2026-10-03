@@ -2,6 +2,7 @@
 #include "services/pi/pi_decision_outcome.hpp"
 #include "services/pi/pi_decision_state.hpp"
 #include "services/pi/pi_scan_manifest.hpp"
+#include "services/pi/pi_jev_store.hpp"
 
 #include <cstdio>
 #include <fstream>
@@ -14,10 +15,22 @@ namespace fs = std::filesystem;
 
 namespace {
 void write_text(const fs::path& p, const std::string& s) {
+    if (p.parent_path().parent_path().filename() == "pi_decisions") {
+        PiJevStore(p.parent_path().parent_path()).put(p.parent_path().filename().string(), p.stem().string(), json::parse(s));
+        return;
+    }
     fs::create_directories(p.parent_path());
     std::ofstream(p) << s;
 }
-json read_json(const fs::path& p) { return json::parse(slurp_file(p)); }
+json read_json(const fs::path& p) {
+    return PiJevStore(p.parent_path().parent_path()).get(p.parent_path().filename().string(), p.stem().string()).value();
+}
+bool stored(const fs::path& p) {
+    return PiJevStore(p.parent_path().parent_path()).get(p.parent_path().filename().string(), p.stem().string()).has_value();
+}
+void erase(const fs::path& dec, const std::string& id, const std::string& part) {
+    PiJevStore(dec).database()->execute("DELETE FROM jev_documents WHERE proposal_id = ? AND part = ?", {id, part});
+}
 
 // path -> bytes for every regular file below root (to prove nothing was written/changed).
 std::map<std::string, std::string> snapshot(const fs::path& root) {
@@ -107,16 +120,16 @@ int main() {
         // ---- attribution + recording ----
         const json m1 = record_jev_outcome_if_needed(dec, "run1", run);
         expect_true(m1["terminal"] == true && m1["reason"] == "recorded", "first call records and is terminal");
-        expect_true(fs::exists(dec / "p_ok" / "outcome.json"), "outcome written for paths_present");
+        expect_true(stored(dec / "p_ok" / "outcome.json"), "outcome written for paths_present");
         const json o = read_json(dec / "p_ok" / "outcome.json");
         expect_equal(o["runs"][0]["attribution"].get<std::string>(), "paths_present", "attribution present");
         expect_true(o["runs"][0]["comparison_kind"] == "unpaired" && o["runs"][0]["quality_delta"].is_null(), "unpaired, no quality claim");
         expect_equal(o["runs"][0]["config_revision_id"].get<std::string>(), "cfg_2", "provenance revision recorded");
-        expect_true(!fs::exists(dec / "p_partial" / "outcome.json"), "unlinked proposal ignored even when values overlap");
-        expect_true(!fs::exists(dec / "p_absent" / "outcome.json"), "absent values are not recorded as an outcome");
-        expect_true(!fs::exists(dec / "p_late" / "outcome.json"), "proposal applied after run start ignored");
-        expect_true(!fs::exists(dec / "p_validated" / "outcome.json"), "non-applied proposal ignored");
-        expect_true(!fs::exists(dec / "p_unsaved" / "outcome.json"), "draft-only proposal ignored");
+        expect_true(!stored(dec / "p_partial" / "outcome.json"), "unlinked proposal ignored even when values overlap");
+        expect_true(!stored(dec / "p_absent" / "outcome.json"), "absent values are not recorded as an outcome");
+        expect_true(!stored(dec / "p_late" / "outcome.json"), "proposal applied after run start ignored");
+        expect_true(!stored(dec / "p_validated" / "outcome.json"), "non-applied proposal ignored");
+        expect_true(!stored(dec / "p_unsaved" / "outcome.json"), "draft-only proposal ignored");
         const fs::path wrong_revision_run = root / "runs" / "wrong_revision";
         write_text(wrong_revision_run / "artifacts" / "pi_run_provenance.json",
                    json{{"prior_active_config_revision_id", "unrelated"},
@@ -129,25 +142,25 @@ int main() {
         // ---- isolation: nothing written into the run, memory store untouched ----
         expect_true(snapshot(run) == run_before, "run directory byte-identical (read-only)");
         expect_true(snapshot(memory) == memory_before, "PiMemoryStore files untouched");
-        expect_true(fs::exists(dec / "_run_markers" / "run1.json"), "marker lives under pi_decisions");
+        expect_true(PiJevStore(dec).get("run1", "run_marker").has_value(), "marker lives in SQLite");
 
         // ---- idempotence ----
         const auto before_second = snapshot(dec);
         const json m2 = record_jev_outcome_if_needed(dec, "run1", run, [](const fs::path&) -> json { throw std::runtime_error("must not load again"); });
         expect_true(m2 == m1, "terminal marker short-circuits without reading the run config");
         expect_true(snapshot(dec) == before_second, "second call changes nothing");
-        fs::remove(dec / "_run_markers" / "run1.json");
+        erase(dec, "run1", "run_marker");
         record_jev_outcome_if_needed(dec, "run1", run);
         expect_equal(static_cast<long>(read_json(dec / "p_ok" / "outcome.json")["runs"].size()), 1L, "one entry per run even when the marker is lost");
 
         // ---- retryable read error ----
         {
-            fs::remove(dec / "_run_markers" / "run1.json");
-            fs::remove(dec / "p_ok" / "outcome.json");
+            erase(dec, "run1", "run_marker");
+            erase(dec, "p_ok", "outcome");
             const json bad = record_jev_outcome_if_needed(dec, "run1", run, [](const fs::path&) -> json { throw std::runtime_error("disk hiccup"); });
             expect_true(bad["terminal"] == false && bad["reason"] == "config_unreadable", "read error is retryable, not terminal");
             const json good = record_jev_outcome_if_needed(dec, "run1", run);
-            expect_true(good["terminal"] == true && fs::exists(dec / "p_ok" / "outcome.json"), "later call succeeds");
+            expect_true(good["terminal"] == true && stored(dec / "p_ok" / "outcome.json"), "later call succeeds");
         }
 
         // ---- terminal edge cases ----
@@ -171,7 +184,7 @@ int main() {
         const json queued_marker = record_jev_outcome_if_needed(dec, "queue1/L", queued_run);
         expect_true(queued_marker["reason"] == "recorded" && queued_marker["terminal"] == true,
                     "safe nested queue run id records its linked outcome");
-        expect_true(fs::exists(dec / "_run_markers" / "queue1" / "L.json"),
+        expect_true(PiJevStore(dec).get("queue1/L", "run_marker").has_value(),
                     "nested queue marker remains under pi_decisions");
         expect_true(record_jev_outcome_if_needed(dec, "queue1/../evil", queued_run)["reason"] == "invalid_run_id",
                     "nested traversal is rejected");

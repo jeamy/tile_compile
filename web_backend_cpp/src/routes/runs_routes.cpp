@@ -11,6 +11,8 @@
 #include "services/pi/pi_resume_scope.hpp"
 #include "services/pi/pi_decision_outcome.hpp"
 #include "services/pi/pi_json_io.hpp"
+#include "services/pi/pi_jev_store.hpp"
+#include "services/pi/pi_run_index.hpp"
 #include "services/pi/pi_storage_paths.hpp"
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
@@ -494,7 +496,8 @@ static std::string pi_provenance_now_iso() {
     return out.str();
 }
 
-static void write_run_start_provenance(const fs::path& run_dir,
+static void write_run_start_provenance(const std::shared_ptr<AppState>& state,
+                                       const fs::path& run_dir,
                                        const std::string& run_id,
                                        const std::string& config_revision_id,
                                        const std::string& config_yaml,
@@ -516,6 +519,14 @@ static void write_run_start_provenance(const fs::path& run_dir,
         {"config_sha256", pi_provenance_sha256_hex(config_yaml)},
         {"started_at", pi_provenance_now_iso()}
     };
+    provenance["run_uid"] = tile_compile::pi::PiRunIndex::generate_uid();
+    try {
+        tile_compile::pi::PiRunIndex index(tile_compile::pi::pi_storage_dir(state));
+        index.resolve(run_dir, provenance["run_uid"], provenance["config_sha256"], provenance["started_at"]);
+    } catch (const std::exception&) {
+        // Optional AI metadata must not prevent an otherwise valid processing run.
+        provenance["pi_context_warning"] = "index_registration_unavailable";
+    }
     if (!jev_proposal_id.empty()) provenance["jev_proposal_id"] = jev_proposal_id;
     std::ofstream out(run_dir / "artifacts" / "pi_run_provenance.json", std::ios::out | std::ios::trunc);
     if (out) out << provenance.dump(2);
@@ -1375,7 +1386,7 @@ void register_runs_routes(CrowApp& app,
                             return err_resp("JEV_PROPOSAL_STALE", "saved Jev proposal no longer matches queue input or config", 409,
                                             nlohmann::json::object());
                     }
-                    const auto source = tile_compile::pi::read_json_file_opt(decisions_dir / requested_jev_id / "source.json");
+                    const auto source = tile_compile::pi::PiJevStore(decisions_dir).get(requested_jev_id, "source");
                     if (!source || !source->contains("dataset_manifest") || !(*source)["dataset_manifest"].is_array())
                         return err_resp("JEV_PROPOSAL_STALE", "saved Jev dataset manifest is unavailable", 409,
                                         nlohmann::json::object());
@@ -1496,7 +1507,7 @@ void register_runs_routes(CrowApp& app,
                         return;
                     }
 
-                    write_run_start_provenance(fs::path(runs_dir) / current_run_id, current_run_id,
+                    write_run_start_provenance(state, fs::path(runs_dir) / current_run_id, current_run_id,
                                                revision_id, prepared_config_yaml,
                                                prior_active_config_revision_id, jev_run_proposal_id);
                     state->job_store.update_state(job_id, JobState::running,
@@ -1628,7 +1639,7 @@ void register_runs_routes(CrowApp& app,
             return err_resp("RUN_LAUNCH_FAILED", "unknown subprocess launch error", 500,
                             {{"run_id", effective_run_id}, {"runs_dir", runs_dir}});
         }
-        write_run_start_provenance(fs::path(runs_dir) / effective_run_id, effective_run_id,
+        write_run_start_provenance(state, fs::path(runs_dir) / effective_run_id, effective_run_id,
                                    revision_id, prepared_config_yaml,
                                    prior_active_config_revision_id, jev_run_proposal_id);
         state->job_store.update_state(job_id, JobState::running, {
@@ -2225,8 +2236,28 @@ void register_runs_routes(CrowApp& app,
             state->current_run_id  = run_id;
             state->current_run_dir = run_dir_hint;
         }
+        nlohmann::json result = {{"ok", true}, {"run_id", run_id}};
+        try {
+            fs::path run_dir;
+            if (auto error = resolve_request_run_dir(state, run_id, run_dir_hint, run_dir)) {
+                result["pi_context_warning"] = "run_directory_unavailable";
+            } else {
+                const auto provenance = tile_compile::pi::read_json_file_opt(run_dir / "artifacts" / "pi_run_provenance.json")
+                    .value_or(nlohmann::json::object());
+                tile_compile::pi::PiRunIndex index(tile_compile::pi::pi_storage_dir(state));
+                const auto identity = index.resolve(run_dir, provenance.value("run_uid", std::string()),
+                    provenance.value("config_sha256", std::string()), provenance.value("started_at", std::string()));
+                result["run_uid"] = identity["run_uid"];
+                result["pi_context"] = {{"context_id", "run:" + identity["run_uid"].get<std::string>()},
+                    {"run_uid", identity["run_uid"]}, {"run_key", identity["run_key"]}, {"kind", "run"}};
+                if (!tile_compile::pi::set_pi_active_context(state, result["pi_context"]))
+                    result["pi_context_warning"] = "context_persistence_failed";
+            }
+        } catch (const std::exception&) {
+            result["pi_context_warning"] = "run_identity_unavailable";
+        }
         state->ui_event_store.push("run.set_current", "runs.run_set_current", {{"run_id", run_id}}, run_id);
-        return json_resp({{"ok", true}, {"run_id", run_id}});
+        return json_resp(result);
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/stats").methods("POST"_method)

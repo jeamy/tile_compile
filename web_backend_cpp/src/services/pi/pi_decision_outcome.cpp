@@ -3,6 +3,7 @@
 #include "services/pi/pi_decision_policy.hpp"
 #include "services/pi/pi_decision_state.hpp"
 #include "services/pi/pi_scan_manifest.hpp"
+#include "services/pi/pi_jev_store.hpp"
 
 #include <yaml-cpp/yaml.h>
 
@@ -56,18 +57,6 @@ std::optional<json> read_json(const fs::path& p) {
     return j;
 }
 
-void write_json_atomic(const fs::path& p, const json& j) {
-    std::error_code ec;
-    fs::create_directories(p.parent_path(), ec);
-    const fs::path tmp = p.string() + ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::out | std::ios::trunc);
-        if (!out) throw std::runtime_error("cannot write " + tmp.string());
-        out << j.dump(2);
-    }
-    fs::rename(tmp, p);
-}
-
 bool safe_proposal_id(const std::string& id) {
     return !id.empty() && id.find('/') == std::string::npos && id.find('\\') == std::string::npos && id.find("..") == std::string::npos;
 }
@@ -93,7 +82,7 @@ json load_run_config_yaml(const fs::path& run_dir) {
 bool matches_applied_jev_config(const fs::path& decisions_dir, const std::string& proposal_id,
                                 const json& saved_config) {
     if (!safe_proposal_id(proposal_id) || !saved_config.is_object()) return false;
-    const auto proposal = read_json(decisions_dir / proposal_id / "proposal.json");
+    const auto proposal = PiJevStore(decisions_dir).get(proposal_id, "proposal");
     return proposal && proposal->value("status", std::string()) == "applied_to_draft" &&
            proposal->value("config_hash_after", std::string()) ==
                sha256_prefixed(canonical_json_dump(saved_config));
@@ -102,15 +91,17 @@ bool matches_applied_jev_config(const fs::path& decisions_dir, const std::string
 void record_jev_saved_revision(const fs::path& decisions_dir, const std::string& proposal_id,
                                const std::string& revision_id) {
     if (!safe_proposal_id(proposal_id) || revision_id.empty()) throw std::invalid_argument("invalid Jev revision link");
-    const fs::path path = decisions_dir / proposal_id / "proposal.json";
-    auto proposal = read_json(path);
+    PiJevStore store(decisions_dir);
+    PiDatabase::Tx tx(*store.database());
+    auto proposal = store.get(proposal_id, "proposal");
     if (!proposal || proposal->value("status", std::string()) != "applied_to_draft")
         throw std::runtime_error("Jev proposal is not applied to a draft");
     json& ids = (*proposal)["saved_revision_ids"];
     if (!ids.is_array()) ids = json::array();
     for (const auto& id : ids) if (id == revision_id) return;
     ids.push_back(revision_id);
-    write_json_atomic(path, *proposal);
+    store.put(proposal_id, "proposal", *proposal);
+    tx.commit();
 }
 
 bool matches_saved_jev_run(const fs::path& decisions_dir, const std::string& proposal_id,
@@ -121,8 +112,9 @@ bool matches_saved_jev_run(const fs::path& decisions_dir, const std::string& pro
 bool matches_saved_jev_run(const fs::path& decisions_dir, const std::string& proposal_id,
                            const fs::path& source_dir, const fs::path& staged_dir, const json& run_config) {
     if (!safe_proposal_id(proposal_id) || !run_config.is_object()) return false;
-    const auto proposal = read_json(decisions_dir / proposal_id / "proposal.json");
-    const auto source = read_json(decisions_dir / proposal_id / "source.json");
+    PiJevStore store(decisions_dir);
+    const auto proposal = store.get(proposal_id, "proposal");
+    const auto source = store.get(proposal_id, "source");
     if (!proposal || !source || proposal->value("status", std::string()) != "applied_to_draft" ||
         !proposal->value("saved_revision_ids", json::array()).is_array() ||
         proposal->value("saved_revision_ids", json::array()).empty()) return false;
@@ -147,11 +139,13 @@ bool matches_saved_jev_run(const fs::path& decisions_dir, const std::string& pro
 json record_jev_outcome_if_needed(const fs::path& decisions_dir, const std::string& run_id, const fs::path& run_dir,
                                   const RunConfigLoader& loader) {
     if (!safe_run_id(run_id)) return {{"terminal", true}, {"reason", "invalid_run_id"}};
-    const fs::path marker_path = decisions_dir / "_run_markers" / (run_id + ".json");
-    if (const auto existing = read_json(marker_path); existing && existing->value("terminal", false)) return *existing;
+    PiJevStore store(decisions_dir);
+    PiDatabase::Tx tx(*store.database());
+    if (const auto existing = store.get(run_id, "run_marker"); existing && existing->value("terminal", false)) return *existing;
 
     auto write_marker = [&](const json& m) {
-        try { write_json_atomic(marker_path, m); } catch (const std::exception&) {}
+        store.put(run_id, "run_marker", m);
+        tx.commit();
         return m;
     };
 
@@ -165,7 +159,7 @@ json record_jev_outcome_if_needed(const fs::path& decisions_dir, const std::stri
 
     // Only the proposal explicitly verified at run start may be attributed.
     std::vector<std::pair<std::string, json>> proposals;
-    const auto prop = read_json(decisions_dir / linked_proposal_id / "proposal.json");
+    const auto prop = store.get(linked_proposal_id, "proposal");
     if (prop && prop->value("status", std::string()) == "applied_to_draft") {
         const json saved_ids = prop->value("saved_revision_ids", json::array());
         const std::string applied_at = prop->value("applied_at", std::string());
@@ -202,8 +196,7 @@ json record_jev_outcome_if_needed(const fs::path& decisions_dir, const std::stri
                 skipped.push_back({{"proposal_id", dir_name}, {"attribution", attribution}});
                 continue;
             }
-            const fs::path outcome_path = decisions_dir / dir_name / "outcome.json";
-            json outcome = read_json(outcome_path).value_or(json{{"schema_version", "pi.decision-outcome.v1"},
+            json outcome = store.get(dir_name, "outcome").value_or(json{{"schema_version", "pi.decision-outcome.v1"},
                                                                   {"proposal_id", dir_name}, {"runs", json::array()}});
             bool have = false;
             for (const auto& r : outcome["runs"]) have = have || r.value("run_id", std::string()) == run_id;
@@ -214,7 +207,7 @@ json record_jev_outcome_if_needed(const fs::path& decisions_dir, const std::stri
                                            {"path_checks", checks},
                                            {"comparison_kind", "unpaired"},
                                            {"quality_delta", nullptr}});
-                write_json_atomic(outcome_path, outcome);
+                store.put(dir_name, "outcome", outcome);
             }
             recorded.push_back({{"proposal_id", dir_name}, {"attribution", attribution}});
         }

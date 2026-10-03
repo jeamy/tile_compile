@@ -59,7 +59,9 @@
   Schema über `PRAGMA user_version`). Nutzerentscheidung: keine Uebernahme von Altbestaenden. Alte JSONL-Dateien
   und `pi_store_v1.sqlite` werden weder geoeffnet noch importiert; die neue Datei startet leer.
   Bestehende Dateien werden nicht waehrend eines moeglicherweise laufenden Backend-Zugriffs geloescht.
-  Kein v1-nach-v2-Migrationspfad; abweichende Schema-Versionen in der neuen Datei werden abgewiesen.
+  Kein Import der Altdatei und kein Alt-Schema-v1-Migrationspfad. Die neue Datenbank wird intern weiterentwickelt:
+  Schema v4 umfasst Memories, Records, Previews, Jev und Run-Index; additive Upgrades innerhalb der neuen
+  Datei (v2/v3 nach v4) behalten neue Daten. Unbekannte Schema-Versionen werden abgewiesen.
 - **Append-only mit Overlay.** `decision_records` wird nie gelöscht oder in seinen Schlüsselspalten geändert
   (Trigger). Nachträgliche Verknüpfungen (`memory_id`, `outcome_refs`, `supersedes`, `run_deleted`, `redact`)
   stehen als Ereignisse in `decision_links` (ebenfalls append-only); Leser mergen den Stand über `decision_id`.
@@ -306,6 +308,9 @@ Typdefinitionen des npm-Tarballs gegen die zuvor installierte 0.87.1; das Upgrad
 
 ### 2.8 Aufbewahrung, Export und Größe
 
+Konkrete, noch nicht freigegebene Entscheidungsvorlage:
+[Aufbewahrungs- und Loeschpolitik](pi_retention_policy_draft_de.md).
+
 - `decision_records`/`decision_links` wachsen append-only. Die Aufbewahrungsfrist wird **vor Aktivierung** der
   Schreibpunkte festgelegt — gemeinsam mit dem Session-Löschkonzept (§2.5). Rotation entfällt (eine Datenbank,
   Indizes statt Dateiscans). Konsistente Sicherungen bei laufendem Backend erfolgen mit der SQLite-Backup-API
@@ -324,8 +329,8 @@ Typdefinitionen des npm-Tarballs gegen die zuvor installierte 0.87.1; das Upgrad
 
 ### 2.9 Plan- und Preview-Objekte (neu in P1)
 
-Preview und Apply sind heute zustandslos. Damit Kette, Idempotenz und Dismiss belegbar werden, bekommen sie ein
-persistiertes Gegenstück:
+Preview und Apply haben jetzt ein persistiertes Gegenstueck. Permanente Decision-Schreibpunkte sind weiterhin
+nicht aktiviert; die folgenden Record-Bezuege sind der geplante Anschluss:
 
 - `POST /api/pi/action-plans/preview` legt ein **Preview-Objekt** an (`preview_id`, `action_plan_id`, Hash des Plans,
   Basis-`config_sha256`, `created_at`, `expires_at`) und liefert die IDs mit der bestehenden Antwort zurück (additiv,
@@ -334,14 +339,24 @@ persistiertes Gegenstück:
   Backend eine `action_plan_id` und markiert den Record `origin="live"` ohne Preview-Bezug. Ein Apply gegen ein
   abgelaufenes Preview wird nicht blockiert, sondern wie bisher gegen die **aktuelle** Config revalidiert
   (`validate-config`); die Sicherheitslogik ändert sich nicht.
-- **TTL:** Die TTL wird vom Backend vorgegeben. Der Standalone-Store nimmt explizit `now` und `ttl_seconds`
-  entgegen; Zeitstempel werden als `created_at_epoch`/`expires_at_epoch` (Unix-Sekunden) gespeichert.
-  Ablauf wird beim Lesen berechnet und erzeugt keinen Record (§2.2). Ein Standardwert und die Route-Anbindung
-  sind noch offen. Terminale Zustaende `applied`/`dismissed` bleiben nach Ablauf erhalten.
-- **Implementierungsstand:** `PiPreviewStore` und frisches Schema v2 ohne Altbestandsmigration sind implementiert und separat
-  getestet; HTTP-Routen verwenden den Store noch nicht. Gleicher kanonischer Planinhalt hat dieselbe
-  SHA256-basierte `action_plan_id`; jeder Preview-Aufruf erhaelt eine eigene zufaellige `preview_id`.
-- `idempotency_key` = `action_plan_id` + Ereignisart.
+- **TTL:** Implementiert: Default 1800 Sekunden, `TILE_COMPILE_PI_PREVIEW_TTL_SECONDS` (1 bis 86400 Sekunden;
+  ungueltige Werte verwenden den Default). Der Store nimmt explizit `now`/`ttl_seconds` entgegen;
+  `created_at_epoch`/`expires_at_epoch` sind Unix-Sekunden. Ablauf ist ein Lesezustand, kein Record.
+  Terminale Zustaende `applied`/`dismissed` bleiben nach Ablauf erhalten.
+- **Implementierungsstand:** Preview-/Apply-Routen verwenden `PiPreviewStore`. Plan-ID: SHA256 des kanonischen
+  Planinhalts, ohne Legacy-Transportfelder; jeder Preview-Aufruf hat eine eigene zufaellige ID.
+  `GET /api/pi/action-plans/previews/<id>` liest den Zustand;
+  `POST /api/pi/action-plans/previews/<id>/dismiss` verwirft explizit, ohne bereits einen Decision Record zu schreiben.
+  Apply prueft die Plan-Zuordnung, unbekannte/verworfenene Previews werden abgewiesen. Bei Preview-Bezug wird die
+  aktuelle gespeicherte Config verwendet, nicht eine eventuell alte mitgesendete Basis.
+  Ein erfolgreicher Wiederholungsaufruf liefert dieselbe Revision, solange die aktuelle Config unveraendert ist.
+  Config-Lock umfasst Revalidierung und Speicherung. **Grenze:** Config-Datei und Datenbank sind nicht gemeinsam
+  crash-atomar; Apply-Intent/Recovery sind noch offen (siehe Aufbewahrungsvorlage).
+- Geplanter Record-`idempotency_key`: `context_id` + Aktionsereignis-ID + Ereignisart. Bei Apply mit Preview-Bezug
+  ist die Aktionsereignis-ID die `preview_id`; ein neuer Preview desselben Plans ist ein neues Ereignis.
+  Nur `action_plan_id` + Ereignisart waere falsch (derselbe Plan kann in mehreren Kontexten/zu spaeteren Zeiten
+  angewendet werden). Legacy-Apply ohne Preview bleibt kompatibel, hat ohne zusaetzliche Request-ID aber keine
+  Doppelklick-Idempotenz. Die Record-Schreibpunkte sind noch nicht aktiviert.
 
 ---
 

@@ -88,6 +88,19 @@ nlohmann::json pi_storage_status(const std::shared_ptr<AppState>& state) {
     };
 }
 
+nlohmann::json pi_active_context(const std::shared_ptr<AppState>& state) {
+    std::lock_guard<std::mutex> lock(state->state_mutex);
+    load_ui_state_unlocked(state);
+    return state->ui_state.value("pi_active_context", nlohmann::json(nullptr));
+}
+
+bool set_pi_active_context(const std::shared_ptr<AppState>& state, const nlohmann::json& context) {
+    std::lock_guard<std::mutex> lock(state->state_mutex);
+    load_ui_state_unlocked(state);
+    state->ui_state["pi_active_context"] = context;
+    return save_ui_state_unlocked(state);
+}
+
 bool set_pi_storage_dir(const std::shared_ptr<AppState>& state,
                         const fs::path& requested,
                         fs::path& resolved,

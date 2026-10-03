@@ -31,7 +31,11 @@ PiPreviewStore::PiPreviewStore(const std::filesystem::path& dir) : _db(PiDatabas
 
 std::string PiPreviewStore::action_plan_id(const nlohmann::json& plan) {
     if (!plan.is_object()) throw std::invalid_argument("Plan must be an object");
-    return "plan_" + digest(plan);
+    auto semantic = plan;
+    // Legacy callers send plan and transport fields in the same object.
+    for (const char* key : {"confirmed", "reviewed", "preview_id", "expected_patched_yaml", "base_config", "config", "yaml"})
+        semantic.erase(key);
+    return "plan_" + digest(semantic);
 }
 
 nlohmann::json PiPreviewStore::create(const nlohmann::json& plan, const nlohmann::json& base_config,
@@ -45,7 +49,7 @@ nlohmann::json PiPreviewStore::create(const nlohmann::json& plan, const nlohmann
     const auto id = "preview_" + hex(random, sizeof(random));
     nlohmann::json object = {
         {"schema_version", "pi.action-preview.v1"}, {"preview_id", id},
-        {"action_plan_id", plan_id}, {"plan_sha256", "sha256:" + digest(plan)},
+        {"action_plan_id", plan_id}, {"plan_sha256", "sha256:" + plan_id.substr(5)},
         {"config_sha256", "sha256:" + digest(base_config)},
         {"created_at_epoch", now}, {"expires_at_epoch", now + ttl_seconds},
         {"state", "pending"}, {"plan", plan}
@@ -72,6 +76,16 @@ bool PiPreviewStore::transition(const std::string& preview_id, const std::string
     const auto previous = pi_sql_text(rows[0][0]);
     if (previous != "pending" && previous != state) return false;
     _db->execute("UPDATE action_previews SET state = ? WHERE preview_id = ?", {state, preview_id});
+    tx.commit();
+    return true;
+}
+bool PiPreviewStore::complete(const std::string& preview_id, const nlohmann::json& result) {
+    PiDatabase::Tx tx(*_db);
+    const auto rows = _db->query("SELECT json, state FROM action_previews WHERE preview_id = ?", {preview_id});
+    if (rows.empty() || pi_sql_text(rows[0][1]) != "pending") return false;
+    auto object = pi_sql_json(rows[0][0]);
+    object["apply_result"] = result;
+    _db->execute("UPDATE action_previews SET state = 'applied', json = ? WHERE preview_id = ?", {object.dump(), preview_id});
     tx.commit();
     return true;
 }

@@ -12,6 +12,8 @@
 #include "services/pi/pi_param_model.hpp"
 #include "services/pi/pi_storage_paths.hpp"
 #include "services/pi/pi_user_reason_catalog.hpp"
+#include "services/pi/pi_preview_store.hpp"
+#include "services/pi/pi_decision_record_store.hpp"
 #include "services/pi/pi_tool_registry.hpp"
 #include "services/pi/pi_image_ops.hpp"
 #include "services/pi/pi_live_edit_recorder.hpp"
@@ -25,6 +27,8 @@
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cstdlib>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -41,6 +45,23 @@ using namespace tile_compile::routes;
 namespace fs = std::filesystem;
 
 namespace {
+
+std::int64_t preview_now() {
+    return std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+std::int64_t preview_ttl() {
+    if (const char* raw = std::getenv("TILE_COMPILE_PI_PREVIEW_TTL_SECONDS")) {
+        try {
+            std::size_t consumed = 0;
+            const std::string text(raw);
+            const auto value = std::stoll(text, &consumed);
+            if (consumed == text.size() && value >= 1 && value <= 86400) return value;
+        } catch (const std::exception&) {}
+    }
+    return 1800;
+}
 
 std::optional<nlohmann::json> parse_body(const crow::request& req) {
     if (req.body.empty()) return nlohmann::json::object();
@@ -2201,7 +2222,7 @@ nlohmann::json apply_validated_preview(const nlohmann::json& preview,
                                        const std::shared_ptr<AppState>& state) {
     const std::string patched_yaml = preview.value("patched_yaml", std::string());
     fs::path target = state->runtime.default_config_path;
-    std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
+    // Caller holds config_write_mutex across revalidation and save.
     SubprocessResult save_res = run_subprocess({state->runtime.cli_exe, "save-config", target.string(), "--stdin"},
                                                state->runtime.project_root.string(),
                                                patched_yaml);
@@ -3012,6 +3033,30 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         return json_resp(pi_audit_log(state, limit));
     });
 
+    CROW_ROUTE(app, "/api/pi/active-context").methods("GET"_method)
+    ([state]() {
+        return json_resp({{"schema_version", "pi.active-context.v1"},
+                          {"context", tile_compile::pi::pi_active_context(state)}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/decision-records").methods("GET"_method)
+    ([state](const crow::request& req) {
+        nlohmann::json filter = nlohmann::json::object();
+        for (const char* key : {"kind", "actor", "reason_code", "context_id", "run_uid", "parent_decision_id", "since"})
+            if (const char* value = req.url_params.get(key)) filter[key] = value;
+        tile_compile::pi::PiDecisionRecordStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto items = store.list(filter, std::clamp(int_query_param(req, "limit", 200), 1, 1000));
+        return json_resp({{"schema_version", "pi.decision-records-list.v1"}, {"items", items}, {"count", items.size()}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/decision-records/<string>").methods("GET"_method)
+    ([state](const std::string& id) {
+        tile_compile::pi::PiDecisionRecordStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto record = store.get(id);
+        if (record.is_null()) return err_resp("NOT_FOUND", "Decision record not found", 404);
+        return json_resp(record);
+    });
+
     CROW_ROUTE(app, "/api/pi/reason-codes").methods("GET"_method)
     ([state]() {
         try {
@@ -3046,11 +3091,33 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 {"validation", validation}
             }, 400);
         }
+        auto preview = build_validated_preview(plan, *body, state);
+        tile_compile::pi::PiPreviewStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto object = store.create(plan, preview["base_config"], preview_now(), preview_ttl());
+        for (const char* key : {"preview_id", "action_plan_id", "plan_sha256", "config_sha256", "created_at_epoch", "expires_at_epoch"})
+            preview[key] = object[key];
         return json_resp({
             {"ok", true},
             {"validation", validation},
-            {"preview", build_validated_preview(plan, *body, state)}
+            {"preview", preview}
         });
+    });
+
+    CROW_ROUTE(app, "/api/pi/action-plans/previews/<string>").methods("GET"_method)
+    ([state](const std::string& id) {
+        tile_compile::pi::PiPreviewStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto object = store.get(id, preview_now());
+        if (!object) return err_resp("NOT_FOUND", "Preview not found", 404);
+        return json_resp(*object);
+    });
+
+    CROW_ROUTE(app, "/api/pi/action-plans/previews/<string>/dismiss").methods("POST"_method)
+    ([state](const std::string& id) {
+        std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
+        tile_compile::pi::PiPreviewStore store(tile_compile::pi::pi_storage_dir(state));
+        if (!store.get(id, preview_now())) return err_resp("NOT_FOUND", "Preview not found", 404);
+        if (!store.transition(id, "dismissed")) return err_resp("PREVIEW_APPLIED", "Applied preview cannot be dismissed", 409);
+        return json_resp({{"ok", true}, {"preview_id", id}, {"state", "dismissed"}});
     });
 
     CROW_ROUTE(app, "/api/pi/action-plans/apply").methods("POST"_method)
@@ -3071,7 +3138,39 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 {"validation", validation}
             }, 400);
         }
-        const auto preview = build_validated_preview(plan, *body, state);
+        if (body->contains("preview_id") && (!(*body)["preview_id"].is_string() || (*body)["preview_id"].get<std::string>().empty()))
+            return err_resp("BAD_REQUEST", "preview_id must be a nonempty string", 400);
+        const std::string preview_id = body->value("preview_id", std::string());
+        const auto action_plan_id = tile_compile::pi::PiPreviewStore::action_plan_id(plan);
+        std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
+        tile_compile::pi::PiPreviewStore store(tile_compile::pi::pi_storage_dir(state));
+        std::optional<nlohmann::json> object;
+        if (!preview_id.empty()) {
+            object = store.get(preview_id, preview_now());
+            if (!object) return err_resp("NOT_FOUND", "Preview not found", 404);
+            if (object->at("action_plan_id").get<std::string>() != action_plan_id)
+                return err_resp("PREVIEW_PLAN_MISMATCH", "Preview belongs to a different plan", 409);
+            if (object->value("state", "") == "dismissed")
+                return err_resp("PREVIEW_DISMISSED", "Preview was dismissed", 409);
+            if (object->value("state", "") == "applied") {
+                if (!object->contains("apply_result")) return err_resp("PREVIEW_APPLIED", "Preview already applied", 409);
+                const auto& result = (*object)["apply_result"];
+                if (load_preview_base_config(nlohmann::json::object(), state) != result["preview"]["patched_config"])
+                    return err_resp("CONFIG_CHANGED", "Config changed after preview apply", 409);
+                auto repeated = result;
+                repeated["already_applied"] = true;
+                return json_resp(repeated);
+            }
+        }
+        auto apply_body = *body;
+        if (!preview_id.empty()) {
+            apply_body.erase("base_config");
+            apply_body.erase("config");
+            apply_body.erase("yaml");
+        }
+        auto preview = build_validated_preview(plan, apply_body, state);
+        preview["action_plan_id"] = action_plan_id;
+        if (!preview_id.empty()) preview["preview_id"] = preview_id;
         if (!preview.value("config_valid", false)) {
             return json_resp({
                 {"ok", false},
@@ -3093,14 +3192,17 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (!applied.value("ok", false)) {
             return json_resp(applied, 502);
         }
-        return json_resp({
-            {"ok", true},
-            {"validation", validation},
-            {"preview", preview},
-            {"revision_id", applied["revision_id"]},
-            {"path", applied["path"]},
-            {"saved", applied["saved"]}
-        });
+        nlohmann::json result = {
+            {"ok", true}, {"validation", validation}, {"preview", preview},
+            {"action_plan_id", action_plan_id}, {"already_applied", false},
+            {"revision_id", applied["revision_id"]}, {"path", applied["path"]}, {"saved", applied["saved"]}
+        };
+        if (!preview_id.empty()) {
+            result["preview_id"] = preview_id;
+            if (!store.complete(preview_id, result))
+                return err_resp("PREVIEW_STATE_CHANGED", "Config saved but preview completion failed; inspect config before retry", 409);
+        }
+        return json_resp(result);
     });
 
     // ===== Live Image Chat Routes =====

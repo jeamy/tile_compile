@@ -288,7 +288,7 @@ int PiDatabase::schema_version() {
 void PiDatabase::init_schema() {
     Tx tx(*this);
     const int version = schema_version();
-    if (version != 0 && version != kPiDatabaseSchemaVersion) {
+    if (version != 0 && version != 2 && version != 3 && version != kPiDatabaseSchemaVersion) {
         throw std::runtime_error("Unsupported PI database schema: " + std::to_string(version));
     }
     if (version == 0) {
@@ -299,7 +299,19 @@ void PiDatabase::init_schema() {
                 "json TEXT NOT NULL)");
         execute("CREATE INDEX action_previews_plan ON action_previews(action_plan_id)");
         execute("CREATE INDEX action_previews_expiry ON action_previews(expires_at)");
-        execute("PRAGMA user_version = 2");
+    }
+    if (version < 3) {
+        execute("CREATE TABLE jev_documents (proposal_id TEXT NOT NULL, part TEXT NOT NULL, json TEXT NOT NULL, "
+                "PRIMARY KEY(proposal_id, part))");
+        execute("CREATE TABLE jev_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, proposal_id TEXT NOT NULL, json TEXT NOT NULL)");
+        execute("CREATE INDEX jev_events_proposal ON jev_events(proposal_id)");
+    }
+    if (version < 4) {
+        execute("CREATE TABLE run_index (run_uid TEXT PRIMARY KEY, config_sha256 TEXT NOT NULL, started_at TEXT NOT NULL, json TEXT NOT NULL)");
+        execute("CREATE INDEX run_index_fingerprint ON run_index(config_sha256, started_at)");
+        execute("CREATE TABLE run_aliases (run_key TEXT PRIMARY KEY, run_uid TEXT NOT NULL REFERENCES run_index(run_uid))");
+        execute("CREATE INDEX run_aliases_uid ON run_aliases(run_uid)");
+        execute("PRAGMA user_version = 4");
     }
     tx.commit();
 }

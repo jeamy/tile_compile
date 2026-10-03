@@ -15,6 +15,7 @@ public:
     std::optional<nlohmann::json> get(const std::string& preview_id, std::int64_t now);
     // Returns false for unknown IDs or incompatible terminal states; retries are idempotent.
     bool transition(const std::string& preview_id, const std::string& state);
+    bool complete(const std::string& preview_id, const nlohmann::json& result);
 private:
     std::shared_ptr<PiDatabase> _db;
 };

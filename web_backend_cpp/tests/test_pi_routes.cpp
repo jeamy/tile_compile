@@ -47,6 +47,11 @@ int main(int argc, char** argv) {
     try {
         harness.start();
 
+        const auto empty_records = harness.get_json("/api/pi/decision-records?limit=20");
+        expect_equal(empty_records["_http_status"].get<long>(), 200L, "decision records read endpoint");
+        expect_true(empty_records["items"].empty(), "no synthetic decision records");
+        expect_equal(harness.get_json("/api/pi/decision-records/unknown")["_http_status"].get<long>(), 404L,
+                     "unknown decision record");
         const auto reason_catalog = harness.get_json("/api/pi/reason-codes");
         expect_equal(reason_catalog["_http_status"].get<long>(), 200L, "user reason catalog status");
         expect_equal(reason_catalog["schema_version"].get<std::string>(), "pi.user-reason-codes.v1", "user reason schema");
@@ -487,19 +492,59 @@ int main(int argc, char** argv) {
         expect_true(preview["preview"]["yaml_changed"].get<bool>(), "pi action preview yaml changed");
         expect_true(preview["preview"]["config_valid"].get<bool>(), "pi action preview config valid");
 
+        const auto preview_id = preview["preview"]["preview_id"].get<std::string>();
+        const auto stored_preview = harness.get_json("/api/pi/action-plans/previews/" + preview_id);
+        expect_equal(stored_preview["_http_status"].get<long>(), 200L, "persistent preview lookup");
+        expect_equal(stored_preview["state"].get<std::string>(), "pending", "preview pending");
+        expect_true(stored_preview["expires_at_epoch"].get<long>() > stored_preview["created_at_epoch"].get<long>(), "preview TTL");
+        auto mismatched_plan = plan;
+        mismatched_plan["goal"] = "different plan";
+        const auto mismatched_apply = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", mismatched_plan}, {"confirmed", true}, {"preview_id", preview_id}
+        });
+        expect_equal(mismatched_apply["_http_status"].get<long>(), 409L, "wrong preview plan rejected");
+        const auto missing_preview_apply = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", "unknown"}
+        });
+        expect_equal(missing_preview_apply["_http_status"].get<long>(), 404L, "unknown preview rejected");
+
+        tile_compile::pi::PiDatabase::open(memory_dir)->execute(
+            "UPDATE action_previews SET expires_at = 0 WHERE preview_id = ?", {preview_id});
+        expect_equal(harness.get_json("/api/pi/action-plans/previews/" + preview_id)["state"].get<std::string>(),
+                     "expired", "expired preview state computed on read");
         const auto unconfirmed_apply = harness.post_json("/api/pi/action-plans/apply", {{"plan", plan}});
         expect_equal(unconfirmed_apply["_http_status"].get<long>(), 409L, "pi action apply requires review");
 
         const auto apply = harness.post_json("/api/pi/action-plans/apply", {
             {"plan", plan},
             {"confirmed", true},
-            {"expected_patched_yaml", preview["preview"]["patched_yaml"]}
+            {"expected_patched_yaml", preview["preview"]["patched_yaml"]},
+            {"preview_id", preview_id}
         });
         expect_equal(apply["_http_status"].get<long>(), 200L, "pi action apply status");
         expect_true(apply["ok"].get<bool>(), "pi action apply ok");
         expect_true(apply.contains("revision_id"), "pi action apply revision id");
         expect_true(slurp_file(harness.config_path()).find("MONO") != std::string::npos,
                     "pi action apply wrote config");
+
+        const auto repeat_apply = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", preview_id}
+        });
+        expect_equal(repeat_apply["_http_status"].get<long>(), 200L, "preview repeat apply status");
+        expect_true(repeat_apply["already_applied"].get<bool>(), "repeat apply idempotent");
+        expect_equal(repeat_apply["revision_id"].get<std::string>(), apply["revision_id"].get<std::string>(), "no extra revision for repeat");
+        const auto dismiss_applied = harness.post_json("/api/pi/action-plans/previews/" + preview_id + "/dismiss", {});
+        expect_equal(dismiss_applied["_http_status"].get<long>(), 409L, "applied preview cannot be dismissed");
+        const auto dismiss_preview = harness.post_json("/api/pi/action-plans/preview", {{"plan", plan}});
+        const auto dismiss_id = dismiss_preview["preview"]["preview_id"].get<std::string>();
+        const auto dismissed = harness.post_json("/api/pi/action-plans/previews/" + dismiss_id + "/dismiss", {});
+        expect_equal(dismissed["_http_status"].get<long>(), 200L, "explicit preview dismissal");
+        const auto dismissed_apply = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", dismiss_id}
+        });
+        expect_equal(dismissed_apply["_http_status"].get<long>(), 409L, "dismissed preview not applied");
+        const auto legacy_apply = harness.post_json("/api/pi/action-plans/apply", {{"plan", plan}, {"confirmed", true}});
+        expect_equal(legacy_apply["_http_status"].get<long>(), 200L, "legacy apply without preview ID");
 
         const auto audit = harness.get_json("/api/pi/audit?limit=200");
         expect_equal(audit["_http_status"].get<long>(), 200L, "pi audit status");
@@ -522,7 +567,7 @@ int main(int argc, char** argv) {
         const auto revisions = harness.get_json("/api/config/revisions");
         expect_equal(revisions["_http_status"].get<long>(), 200L, "pi action revisions status");
         expect_true(!revisions["items"].empty(), "pi action revision listed");
-        expect_equal(revisions["active_revision_id"].get<std::string>(), apply["revision_id"].get<std::string>(),
+        expect_equal(revisions["active_revision_id"].get<std::string>(), legacy_apply["revision_id"].get<std::string>(),
                      "pi action active revision id");
 
         auto invalid_plan = plan;

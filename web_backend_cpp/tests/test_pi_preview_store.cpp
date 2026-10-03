@@ -37,7 +37,7 @@ int main() {
         {
             PiPreviewStore store(dir);
             auto db = PiDatabase::open(dir);
-            check(db->schema_version() == 2, "fresh schema v2");
+            check(db->schema_version() == kPiDatabaseSchemaVersion, "fresh current schema");
             check(db->meta_get("test_marker").empty(), "no legacy metadata");
             const auto first = store.create(plan, {{"value", 1}}, 100, 60);
             const auto second = store.create(plan, {{"value", 2}}, 100, 60);
