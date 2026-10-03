@@ -1,7 +1,11 @@
 #pragma once
 
+#include "services/pi/pi_database.hpp"
+
 #include <filesystem>
+#include <memory>
 #include <nlohmann/json.hpp>
+#include <string>
 
 namespace tile_compile::pi {
 
@@ -19,10 +23,11 @@ public:
     explicit PiMemoryStore(std::filesystem::path memory_dir);
 
     const std::filesystem::path& memory_dir() const { return _memory_dir; }
-    std::filesystem::path memories_path() const;
-    std::filesystem::path reviews_path() const;
-    std::filesystem::path outcomes_path() const;
-    std::filesystem::path indices_path() const;
+    // Speicherort: SQLite-Datenbank `pi_store_v1.sqlite` im Memory-Verzeichnis (geteilt mit den
+    // Decision Records). Die frueheren JSONL-Dateien (memories_v2.jsonl usw.) werden beim ersten
+    // Oeffnen einmalig importiert und danach nicht mehr beschrieben.
+    std::filesystem::path database_path() const;
+    // Legacy-v1-Dateien: werden weiterhin ignoriert (nur fuer die Statusanzeige).
     std::filesystem::path legacy_memories_path() const;
     std::filesystem::path legacy_reviews_path() const;
 
@@ -39,8 +44,8 @@ public:
     // the outcome recorder (docs/PI/pi_local_learning_plan_de.md, Schritt 1c) so a run's measured
     // quality can be recorded automatically; the memory's current status is preserved.
     //
-    // Writes to two places: reviews_path() (so list()'s existing "latest outcome wins" merge into
-    // item["outcome"] keeps working for retrieval scoring, unchanged) AND outcomes_path(), an
+    // Writes to two places: memory_reviews (so list()'s existing "latest outcome wins" merge into
+    // item["outcome"] keeps working for retrieval scoring, unchanged) AND memory_outcomes, an
     // accumulating append-only log that list() merges into item["outcomes"] (full history, never
     // overwritten) — Schritt 2's auto-promotion rule ("N >= 3 unabhängige Outcomes") needs to count
     // independent outcomes per memory_id, which a single latest-wins field cannot represent: a
@@ -64,7 +69,6 @@ public:
     // been spot-checked).
     nlohmann::json log_auto_promotion_shadow_decision(const nlohmann::json& decision) const;
     nlohmann::json auto_promotion_shadow_log(int limit = 100) const;
-    std::filesystem::path auto_promotion_shadow_path() const;
 
     nlohmann::json retrieve(const nlohmann::json& query, int limit = 10) const;
     nlohmann::json retrieve_negative(const nlohmann::json& query, int limit = 10) const;
@@ -77,7 +81,13 @@ public:
     nlohmann::json dedupe(bool dry_run = false) const;
 
 private:
+    std::shared_ptr<PiDatabase> db() const;
+    nlohmann::json read_table(const char* table) const;
+    bool memory_exists(const std::string& memory_id) const;
+    std::string current_status(const std::string& memory_id) const;
+
     std::filesystem::path _memory_dir;
+    mutable std::shared_ptr<PiDatabase> _db;
 };
 
 } // namespace tile_compile::pi

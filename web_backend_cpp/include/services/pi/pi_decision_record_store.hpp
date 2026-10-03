@@ -1,14 +1,19 @@
 #pragma once
 // Decision-Trace-Store (docs/PI/DECISIONTRACE/pi_decision_trace_plan_de.md, §2.1/2.2/2.8).
 //
-// Append-only Records (`decisions_v1.jsonl`) plus ein Overlay (`decision_links_v1.jsonl`) fuer
-// nachtraegliche Verknuepfungen und Redaktionen. Records werden nie mutiert; Leser mergen den
-// Overlay-Stand ueber `decision_id`. Der einzige erlaubte Rewrite ist compact().
+// SQLite-Tabellen `decision_records` (append-only; Trigger verbieten DELETE und das Aendern der
+// Schluesselspalten), `decision_reasons` (Filter/Aggregation) und `decision_links` (append-only
+// Ereignisse: memory, outcome, supersedes, run_deleted, redact). Leser mergen den Link-Stand ueber
+// `decision_id`. Einzige erlaubte Aenderung an einem Record ist die Redaktion von
+// `rationale.user.text` (physisch, in derselben Transaktion wie der `redact`-Link).
 //
 // Hinweis zum Namensraum: `pi_decision_*` (service/policy/state/outcome) gehoert zur Jev-Decision-API.
 // Dieser Store ist davon unabhaengig und heisst bewusst "decision record".
 
+#include "services/pi/pi_database.hpp"
+
 #include <filesystem>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
 
@@ -31,8 +36,7 @@ public:
     explicit PiDecisionRecordStore(std::filesystem::path dir);
 
     const std::filesystem::path& dir() const { return _dir; }
-    std::filesystem::path records_path() const;
-    std::filesystem::path links_path() const;
+    std::filesystem::path database_path() const;
 
     // Normalisiert (Defaults, Text-Scrubbing, privacy_class), validiert und haengt an. Ist
     // `idempotency_key` gesetzt und bereits vorhanden, wird der bestehende Record mit
@@ -51,19 +55,19 @@ public:
                             const std::string& type,
                             const nlohmann::json& data = nlohmann::json::object()) const;
 
-    // Unterdrueckt rationale.user.text beim Lesen (Link-Typ `redact`).
+    // Redaktion: schreibt den `redact`-Link und entfernt rationale.user.text physisch (setzt
+    // text_redacted und privacy_class=metadata_only) in einer Transaktion.
     nlohmann::json redact(const std::string& decision_id, const std::string& reason) const;
 
-    // Markiert alle Records eines Run-Kontexts als geloescht und redigiert deren Freitext (Plan §3.5).
-    // Gibt die Anzahl betroffener Records zurueck.
+    // Markiert alle Records eines Run-Kontexts (run_uid bzw. image_id `<run_uid>:...`) als geloescht
+    // und redigiert deren Freitext (Plan §3.5). Gibt die Anzahl betroffener Records zurueck.
     int mark_run_deleted(const std::string& run_uid) const;
 
-    // Einziger erlaubter Rewrite: schreibt decisions_v1.jsonl atomar neu und entfernt redigierte
-    // Freitexte physisch. Liefert {rewritten, redacted_texts_removed}.
-    nlohmann::json compact() const;
-
 private:
+    std::shared_ptr<PiDatabase> db() const;
+
     std::filesystem::path _dir;
+    mutable std::shared_ptr<PiDatabase> _db;
 };
 
 } // namespace tile_compile::pi

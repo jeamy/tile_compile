@@ -52,8 +52,8 @@
    keine Breaking Changes für die genutzten Flächen); Inventar aller Stellen, an denen Entscheidungen
    entstehen (Tabelle 2.4) gegen den Code verifizieren; Reason-Code-Katalog (`pi.user-reason-codes.v1`)
    entwerfen.
-2. **P1 — Decision-Record-Backend** (inkl. `run_uid` in `pi_run_provenance.json` neuer Runs und zentralem `run_index_v1.jsonl`, §3.5) (Gate vor Aktivierung: Aufbewahrung/Rotation und Löschkonzept für Records und Sessions entschieden, §2.8): Schema, Store (`decisions_v1.jsonl` + Overlay `decision_links_v1.jsonl`),
-   Plan-/Preview-Objekte mit IDs und TTL (§2.9), Idempotenz und `actor`×`basis`-Validierung, Redaktions-Link und Kompaktierung (§2.8), Schreibpunkte in Apply, Review, Live-Edit-Recorder,
+2. **P1 — Decision-Record-Backend** (inkl. `run_uid` in `pi_run_provenance.json` neuer Runs und zentralem `run_index_v1.jsonl`, §3.5) (Gate vor Aktivierung: Aufbewahrung/Rotation und Löschkonzept für Records und Sessions entschieden, §2.8): Schema, SQLite-Speicher `pi_store_v1.sqlite` (Memories **und** Decision Records, einmaliger JSONL-Import) mit `decision_records` + `decision_links`,
+   Plan-/Preview-Objekte mit IDs und TTL (§2.9), Idempotenz und `actor`×`basis`-Validierung, Redaktion (§2.8), Schreibpunkte in Apply, Review, Live-Edit-Recorder,
    Jev-Adapter. Noch keine UI-Änderung. Voraussetzung für alles Weitere.
 3. **P2 — Reason-Erfassung in bestehender UI:** Reason-Picker in `ai-empfehlung.js`, `jev-empfehlung.js`,
    `live-image-viewer.js`, Memory-Review. Liefert sofort Daten, unabhängig vom Dock.
@@ -88,7 +88,7 @@ Detail-Risiken: [Trace](pi_decision_trace_plan_de.md#6-risiken-und-offene-fragen
 | Phase | Stand |
 |---|---|
 | P0 Upgrade Pi 1.0 | `package.json` auf `^1.0.0` (Commit `94f9223b`); `npm test`/Build des Sidecars noch zu verifizieren |
-| P1 Decision-Record-Backend | **Baustein 1 erledigt:** `PiDecisionRecordStore` (`web_backend_cpp/src/services/pi/pi_decision_record_store.*`) mit Schema-Validierung (kind/actor, `rationale.user`/`basis`, `no_reason_given` XOR, relatives `metrics_ref`, Text-Scrubbing), Idempotenz, Overlay-Links (`memory`, `outcome`, `supersedes`, `run_deleted`, `redact`), Redaktion, `compact()`, `mark_run_deleted()`; Test `web_backend_cpp_pi_decision_record_store`. **Offen:** Plan-/Preview-Objekte (§2.9), `run_uid`/`run_index_v1.jsonl`, Schreibpunkte (Apply, Review, Live-Edit, Jev-Adapter), Routen, Reason-Code-Katalog |
+| P1 Decision-Record-Backend | **Baustein 1 erledigt:** `PiDatabase` (SQLite, WAL, einmaliger JSONL-Import, Schema v1), `PiMemoryStore` auf SQLite umgestellt (gleiche API; `database_path()` statt Dateipfade), `PiDecisionRecordStore` (`pi_decision_record_store.*`) mit Schema-Validierung (kind/actor, `rationale.user`/`basis`, `no_reason_given` XOR, relatives `metrics_ref`, Text-Scrubbing), Idempotenz per UNIQUE-Index, Links (`memory`, `outcome`, `supersedes`, `run_deleted`, `redact`), Redaktion, `mark_run_deleted()`, Append-only-Trigger. SQLite aus dem System, sonst per FetchContent (Amalgamation 3.46.1, SHA256 gepinnt). Tests: `web_backend_cpp_pi_decision_record_store`, `web_backend_cpp_pi_memory_store` (inkl. JSONL-Import). **Offen:** Plan-/Preview-Objekte (§2.9), `run_uid`/`run_index`, Schreibpunkte (Apply, Review, Live-Edit, Jev-Adapter), Routen, Reason-Code-Katalog |
 | P2–P7 | offen |
 
-Gates: Aufbewahrung/Löschkonzept (§2.8) ist vor *Aktivierung* der Schreibpunkte zu entscheiden; der Store ist bis dahin nicht an Routen angeschlossen.
+Gates: Aufbewahrung/Löschkonzept (§2.8) ist vor *Aktivierung* der Schreibpunkte zu entscheiden; der Decision-Record-Store ist bis dahin nicht an Routen angeschlossen.

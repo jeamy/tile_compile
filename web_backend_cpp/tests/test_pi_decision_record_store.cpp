@@ -1,15 +1,24 @@
+#include "services/pi/pi_database.hpp"
 #include "services/pi/pi_decision_record_store.hpp"
 
 #include "backend_test_harness.hpp"
 
 #include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <unistd.h>
 
 using nlohmann::json;
 
 namespace {
+
+template <typename Fn>
+bool throws_runtime(Fn&& fn) {
+    try {
+        fn();
+    } catch (const std::runtime_error&) {
+        return true;
+    }
+    return false;
+}
 
 template <typename Fn>
 bool throws_invalid(Fn&& fn) {
@@ -30,13 +39,6 @@ json base_record(const std::string& kind, const std::string& actor) {
     };
 }
 
-std::string slurp(const std::filesystem::path& p) {
-    std::ifstream in(p);
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
-}
-
 } // namespace
 
 int main() {
@@ -55,7 +57,7 @@ int main() {
         expect_true(first["rationale"]["user"]["no_reason_given"].get<bool>(), "missing reason is explicit");
         expect_true(first["decision_id"].get<std::string>().rfind("dec_", 0) == 0, "decision id generated");
         expect_true(!first["duplicate"].get<bool>(), "first append is not a duplicate");
-        expect_true(std::filesystem::is_regular_file(store.records_path()), "records file exists");
+        expect_true(std::filesystem::is_regular_file(store.database_path()), "sqlite database exists");
 
         // Freitext: Pfade werden entfernt, privacy_class folgt.
         auto with_text = base_record("config_reject", "user");
@@ -142,14 +144,20 @@ int main() {
                      "child is the apply record");
 
         // Overlay: memory/outcome Links, ohne das Record zu mutieren.
-        const std::string before = slurp(store.records_path());
+        auto raw_db = tile_compile::pi::PiDatabase::open(dir);
+        const auto before = raw_db->query("SELECT json FROM decision_records ORDER BY seq");
         store.add_link(apply_rec["decision_id"], "memory", {{"memory_id", "mem_1"}});
         store.add_link(apply_rec["decision_id"], "outcome", {{"ref", "run_1:quality"}});
         store.add_link(apply_rec["decision_id"], "outcome", {{"ref", "run_1:quality"}});
         const auto merged = store.get(apply_rec["decision_id"]);
         expect_equal(merged["memory_id"].get<std::string>(), "mem_1", "memory link merged");
         expect_equal(static_cast<long>(merged["outcome_refs"].size()), 1L, "outcome refs deduplicated");
-        expect_equal(slurp(store.records_path()), before, "links do not mutate records");
+        const auto after = raw_db->query("SELECT json FROM decision_records ORDER BY seq");
+        bool unchanged = before.size() == after.size();
+        for (std::size_t i = 0; unchanged && i < before.size(); ++i) {
+            unchanged = tile_compile::pi::pi_sql_text(before[i][0]) == tile_compile::pi::pi_sql_text(after[i][0]);
+        }
+        expect_true(unchanged, "links do not mutate records");
         expect_true(throws_invalid([&] { store.add_link("dec_unknown", "memory", {}); }), "unknown decision rejected");
         expect_true(throws_invalid([&] { store.add_link(apply_rec["decision_id"], "bogus", {}); }), "unknown link type");
         expect_true(store.get("dec_missing").is_null(), "unknown get is null");
@@ -158,21 +166,32 @@ int main() {
         const auto by_code = store.list({{"reason_code", "artifacts"}}, 10);
         expect_equal(static_cast<long>(by_code.size()), 1L, "reason_code filter");
 
-        // Redaktion: Leser unterdrueckt, compact entfernt physisch.
+        // Redaktion: Text verschwindet sofort physisch (kein compact noetig), Link bleibt als Audit.
         const std::string reject_id = txt["decision_id"].get<std::string>();
-        expect_true(slurp(store.records_path()).find("zu hart") != std::string::npos, "text on disk before redact");
+        auto all_json = [&]() {
+            std::string joined;
+            for (const auto& row : raw_db->query("SELECT json FROM decision_records")) {
+                joined += tile_compile::pi::pi_sql_text(row[0]);
+            }
+            return joined;
+        };
+        expect_true(all_json().find("zu hart") != std::string::npos, "text stored before redact");
         store.redact(reject_id, "user_request");
         const auto redacted = store.get(reject_id);
         expect_equal(redacted["rationale"]["user"]["text"].get<std::string>(), "", "redacted text suppressed");
         expect_true(redacted["rationale"]["user"]["text_redacted"].get<bool>(), "text_redacted flag");
-        expect_true(slurp(store.records_path()).find("zu hart") != std::string::npos, "redact alone keeps bytes");
-        const auto stats = store.compact();
-        expect_equal(static_cast<long>(stats["redacted_texts_removed"].get<int>()), 1L, "compaction removed text");
-        expect_true(slurp(store.records_path()).find("zu hart") == std::string::npos, "text physically gone");
-        expect_equal(store.get(reject_id)["privacy_class"].get<std::string>(), "metadata_only",
-                     "privacy class downgraded after compaction");
-        expect_equal(static_cast<long>(store.list({}, 1000).size()), static_cast<long>(stats["rewritten"].get<int>()),
-                     "compaction keeps all records");
+        expect_equal(redacted["privacy_class"].get<std::string>(), "metadata_only", "privacy class downgraded");
+        expect_true(all_json().find("zu hart") == std::string::npos, "text physically gone after redact");
+        expect_equal(static_cast<long>(raw_db->query("SELECT 1 FROM decision_links WHERE type = 'redact'").size()), 1L,
+                     "redact link kept as audit");
+
+        // Append-only per Trigger: kein DELETE, Schluesselspalten unveraenderlich.
+        expect_true(throws_runtime([&] { raw_db->execute("DELETE FROM decision_records"); }), "delete forbidden");
+        expect_true(throws_runtime([&] { raw_db->execute("UPDATE decision_records SET kind = 'no_change'"); }),
+                    "key column update forbidden");
+        expect_true(throws_runtime([&] { raw_db->execute("DELETE FROM decision_links"); }), "link delete forbidden");
+        expect_true(throws_runtime([&] { raw_db->execute("UPDATE decision_links SET type = 'memory'"); }),
+                    "link update forbidden");
 
         // Run-Loeschung kaskadiert auf Bild-Kontext.
         auto img = base_record("live_edit_op", "user");

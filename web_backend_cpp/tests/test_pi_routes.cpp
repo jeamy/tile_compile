@@ -1,4 +1,5 @@
 #include "backend_test_harness.hpp"
+#include "pi_store_test_support.hpp"
 #include "fake_sidecar.hpp"
 
 #include <cstdio>
@@ -327,7 +328,7 @@ int main(int argc, char** argv) {
                 {"status", "candidate"},
                 {"type", "optimization"}
             }.dump() << "\n";
-            std::ofstream out(memory_dir / "memories_v2.jsonl");
+            PiStoreSeed out(memory_dir, "memories");
             out << nlohmann::json{
                 {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_route_fixture"},
@@ -538,7 +539,7 @@ int main(int argc, char** argv) {
         // und user_rating verarbeiten und das Verdict korrekt ableiten.
         {
             // Memory fuer Outcome-Delta-Tests anlegen
-            std::ofstream delta_out(memory_dir / "memories_v2.jsonl", std::ios::app);
+            PiStoreSeed delta_out(memory_dir, "memories");
             const nlohmann::json delta_ctx = {
                 {"schema_version", "pi.context_signature.v1"},
                 {"target", {{"object_name", "M31"}, {"object_type", "galaxy"}}},
@@ -653,7 +654,7 @@ int main(int argc, char** argv) {
 
         // Memory mit run_id-Provenance anlegen
         {
-            std::ofstream run_out(memory_dir / "memories_v2.jsonl", std::ios::app);
+            PiStoreSeed run_out(memory_dir, "memories");
             run_out << nlohmann::json{
                 {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_postrun_fixture"},

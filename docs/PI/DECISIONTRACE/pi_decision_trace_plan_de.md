@@ -54,10 +54,16 @@
   Ausnahme mit Schutzregel: `rationale.user.text` ist Nutzer-Freitext und setzt `privacy_class` auf
   `metadata_plus_user_text`. Er wird längenbegrenzt, das Backend
   entfernt absolute Pfade, und er ist nicht Teil des Standard-Exports (`privacy_class` am Record, s. u.).
-- **Append-only mit Overlay.** `decisions_v1.jsonl` wird nie mutiert. Nachträgliche Verknüpfungen
-  (`memory_id`, `outcome_refs`, `supersedes`) gehen in eine zweite Datei `decision_links_v1.jsonl` —
-  dasselbe Muster wie `reviews_path()`/`outcomes_path()` im Memory-Store; Leser mergen den letzten Stand
-  über `decision_id`.
+- **Speicher: SQLite.** Memories und Decision Records liegen gemeinsam in einer SQLite-Datenbank
+  `pi_store_v1.sqlite` im PI-Storage-Verzeichnis (`PiDatabase`: WAL, eine Verbindung je Datei und Prozess,
+  Schema über `PRAGMA user_version`). Die früheren JSONL-Dateien (`memories_v2.jsonl`,
+  `memory_reviews_v2.jsonl`, `memory_outcomes_v2.jsonl`, `memory_auto_promotion_shadow_v1.jsonl`) werden beim
+  ersten Öffnen einmalig importiert (Marker `meta.jsonl_import_v1`), danach nicht mehr beschrieben und nie
+  gelöscht.
+- **Append-only mit Overlay.** `decision_records` wird nie gelöscht oder in seinen Schlüsselspalten geändert
+  (Trigger). Nachträgliche Verknüpfungen (`memory_id`, `outcome_refs`, `supersedes`, `run_deleted`, `redact`)
+  stehen als Ereignisse in `decision_links` (ebenfalls append-only); Leser mergen den Stand über `decision_id`.
+  Einzige zulässige Änderung an einem Record ist die Redaktion von `rationale.user.text` (§2.8).
 - **Schreibautorität beim Backend.** Records entstehen an den realen Ereignispunkten (Apply-Route,
   Jev-Adapter, Live-Edit-Recorder, Review-Route). Der Client-Endpunkt (§3.4) nimmt nur eingeschränkte
   Nutzer-Payloads entgegen — `kind`, Bezug über `action_plan_id`/`preview_id`, `rationale.user`.
@@ -161,7 +167,7 @@ Hinweise:
   `pi_routes.cpp` noch in `services/pi/*`; Preview und Apply sind zustandslos). Sie werden in P1 eingeführt (§2.9).
 - `llm` trägt Modell und Usage des zugehörigen PI-Calls (analog `jev.cost_usd`), damit Kosten- und
   Qualitätsauswertung über beide Provider symmetrisch ausfallen.
-- `memory_id` und `outcome_refs` werden typischerweise später befüllt — über `decision_links_v1.jsonl`,
+- `memory_id` und `outcome_refs` werden typischerweise später befüllt — über die Tabelle `decision_links`,
   nicht durch Umschreiben des Records (§2.1).
 - `parent_decision_id` bildet Ketten ab: Empfehlung → Preview → Apply → Undo → neuer Vorschlag.
 - `state_sha256` macht Jev-Calls reproduzierbar auswertbar, ohne den Zustand doppelt zu speichern.
@@ -193,7 +199,7 @@ Katalogversion; alte Records bleiben lesbar.
 | Jev überstimmt | Jev-Karte | Nutzerwahl ≠ Jev, Reason-Chips |
 | Live-Edit-Op, Undo, Close | `pi_live_edit_recorder.cpp` | Op, Retained-Status, Reason bei Undo |
 | Memory-Review | `/api/pi/memories/<id>/review` | `note` → `rationale`, Reason-Chips |
-| Run-Outcome | `pi_outcome_recorder` | `outcome_refs` über `decision_links_v1.jsonl` (§2.1) |
+| Run-Outcome | `pi_outcome_recorder` | `outcome_refs` über `decision_links` (§2.1) |
 | Config-Undo | Rücknahme eines Apply (neuer Pfad, optional) | `config_undo`, verweist via `parent_decision_id` |
 | Preview geschlossen | Action-Plan-Dialog (expliziter Dismiss) | `preview_dismissed` (`actor=user`, nur bei realem Dismiss, nicht durch Reload oder Ablauf), kein Reason-Zwang, kein Negativsignal |
 | Live-Session verfällt | `evict_expired` (Alter/Kapazität) | `live_edit_expired` (`actor=rule`) |
@@ -297,13 +303,15 @@ Typdefinitionen des npm-Tarballs gegen die zuvor installierte 0.87.1; das Upgrad
 
 ### 2.8 Aufbewahrung, Export und Größe
 
-- `decisions_v1.jsonl` und `decision_links_v1.jsonl` wachsen append-only. Rotation/Kompaktierung und die
-  Aufbewahrungsfrist werden **vor Aktivierung** festgelegt — gemeinsam mit dem Session-Löschkonzept (§2.5).
-- **Redaktion statt Mutation.** `decision_links_v1.jsonl` kennt einen Link-Typ `redact` (Ziel: `decision_id`,
-  Feld `rationale.user.text`). Leser unterdrücken den Text, sobald ein `redact`-Link existiert. Physisch entfernt wird er
-  nur bei **Kompaktierung**: das Backend schreibt `decisions_v1.jsonl` unter Lock in eine Temp-Datei neu und ersetzt sie
-  atomar. Das ist der einzige erlaubte Rewrite. Grund-Codes (Chips) enthalten keine personenbezogenen Daten und
-  bleiben erhalten.
+- `decision_records`/`decision_links` wachsen append-only. Die Aufbewahrungsfrist wird **vor Aktivierung** der
+  Schreibpunkte festgelegt — gemeinsam mit dem Session-Löschkonzept (§2.5). Rotation entfällt (eine Datenbank,
+  Indizes statt Dateiscans); Sicherung = Kopie der `.sqlite`-Datei (bei laufendem Backend inkl. `-wal`) bzw.
+  `VACUUM INTO`.
+- **Redaktion statt Mutation.** `redact` schreibt einen Link (Audit) und entfernt `rationale.user.text` **sofort
+  physisch** in derselben Transaktion (`text_redacted=true`, `privacy_class=metadata_only`). Ein Kompaktierungs-
+  Rewrite ist nicht nötig. Grund-Codes (Chips) enthalten keine personenbezogenen Daten und bleiben erhalten.
+  Freigegebene Datenbankseiten werden von SQLite wiederverwendet; wer Textreste auf Dateiebene ausschließen
+  muss, nutzt `VACUUM` (optional, ausdrücklich ausgelöst).
 - Redaktion wird ausgelöst durch: Löschen eines Runs/Bild-Kontexts (§3.5), den Nutzer (Einzelrecord) und Ablauf der
   Aufbewahrungsfrist.
 - `pi.memories-export` bleibt unverändert metadata-only und enthält keine Decision Records. Ob es einen
@@ -317,7 +325,7 @@ persistiertes Gegenstück:
 
 - `POST /api/pi/action-plans/preview` legt ein **Preview-Objekt** an (`preview_id`, `action_plan_id`, Hash des Plans,
   Basis-`config_sha256`, `created_at`, `expires_at`) und liefert die IDs mit der bestehenden Antwort zurück (additiv,
-  kein Bruch für Altclients). Speicherort zentral, getrennt von den Records.
+  kein Bruch für Altclients). Speicherort: dieselbe SQLite-Datenbank, eigene Tabelle (getrennt von den Records).
 - `POST /api/pi/action-plans/apply` nimmt optional `preview_id`. Fehlt er (Altcaller, Scan-AI-Apply-Route), erzeugt das
   Backend eine `action_plan_id` und markiert den Record `origin="live"` ohne Preview-Bezug. Ein Apply gegen ein
   abgelaufenes Preview wird nicht blockiert, sondern wie bisher gegen die **aktuelle** Config revalidiert
@@ -334,7 +342,7 @@ persistiertes Gegenstück:
 - **Invarianten:** Ein Record verändert nie einen validierten Patch; Apply läuft nur über Action-Plan/Preview/`validate-config`;
   `llm_hypothesis` fließt nicht in Promotion oder Retrieval-Evidenz; Jev-Kandidaten außerhalb des Gitters bleiben abgelehnt.
 - **Jev:** Records enthalten Wahrscheinlichkeiten, Konfidenz, Build-ID, Kosten, Policy-Urteil auch für `keep_current`.
-- **Records:** Overlay statt Mutation (`decision_links_v1.jsonl`), Idempotenz bei Apply-Retry/Doppelklick,
+- **Records:** Overlay statt Mutation (`decision_links`), Idempotenz bei Apply-Retry/Doppelklick,
   `actor`×`basis`-Regeln serverseitig validiert, `no_reason_given` XOR `reason_codes`/`text`, Jev-Annahmekette über `parent_decision_id`, `rationale.user.text`
   längenbegrenzt und pfadbereinigt, `catalog_version` gespeichert; `llm_proposal` verankert die LLM-Kette
   symmetrisch zu `jev_choice`; `origin` unterscheidet Backfill-Records; `evidence.metrics_ref` bleibt
@@ -345,8 +353,8 @@ persistiertes Gegenstück:
   unverändert; abgelaufenes Preview erzeugt keinen Record und blockiert kein Apply; Doppelklick auf Apply erzeugt
   genau einen Record.
 - **Live-Edit:** Eviction schreibt `live_edit_expired` und kein `live_edit_keep`; Memory-Verhalten unverändert.
-- **Redaktion:** `redact`-Link unterdrückt `rationale.user.text` beim Lesen; Kompaktierung entfernt ihn physisch
-  (atomarer Rewrite unter Lock); Exports enthalten ihn nie.
+- **Redaktion:** `redact` entfernt `rationale.user.text` sofort physisch und lässt den Link als Audit stehen;
+  Trigger verbieten DELETE und Änderungen der Schlüsselspalten; Exports enthalten den Text nie.
 - **Datenschutz:** Exports enthalten keine Session-Texte; Records enthalten keine Rohdaten/Pfade.
 
 ---

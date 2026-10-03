@@ -4,7 +4,6 @@
 #include <atomic>
 #include <chrono>
 #include <ctime>
-#include <fstream>
 #include <iomanip>
 #include <map>
 #include <mutex>
@@ -19,11 +18,6 @@ namespace tile_compile::pi {
 namespace {
 
 using nlohmann::json;
-
-std::mutex& store_mutex() {
-    static std::mutex m;
-    return m;
-}
 
 std::tm gmtime_safe(const std::time_t& t) {
     std::tm tm{};
@@ -101,30 +95,6 @@ bool has_parent_segment(const std::string& s) {
     return s.find("../") != std::string::npos || s.find("..\\") != std::string::npos || s == "..";
 }
 
-std::vector<json> read_jsonl(const std::filesystem::path& p) {
-    std::vector<json> out;
-    std::ifstream in(p);
-    if (!in) return out;
-    std::string line;
-    while (std::getline(in, line)) {
-        if (line.empty()) continue;
-        json j = json::parse(line, nullptr, false);
-        if (j.is_object()) out.push_back(std::move(j));
-    }
-    return out;
-}
-
-void append_jsonl_line(const std::filesystem::path& p, const json& j) {
-    std::error_code ec;
-    std::filesystem::create_directories(p.parent_path(), ec);
-    if (ec) throw std::runtime_error("failed to create decision record directory: " + ec.message());
-    std::ofstream out(p, std::ios::app);
-    if (!out) throw std::runtime_error("failed to open " + p.string());
-    out << j.dump() << '\n';
-    out.flush();
-    if (!out) throw std::runtime_error("failed to write " + p.string());
-}
-
 json default_user_rationale() {
     return {{"reason_codes", json::array()}, {"catalog_version", ""}, {"text", ""}, {"no_reason_given", false}};
 }
@@ -159,53 +129,6 @@ void apply_links(json& record, const std::vector<json>& links) {
         record["rationale"]["user"]["text"] = "";
         record["rationale"]["user"]["text_redacted"] = true;
     }
-}
-
-std::map<std::string, std::vector<json>> group_links(const std::vector<json>& links) {
-    std::map<std::string, std::vector<json>> by_id;
-    for (const auto& l : links) {
-        const std::string id = str_field(l, "decision_id");
-        if (!id.empty()) by_id[id].push_back(l);
-    }
-    return by_id;
-}
-
-bool record_in_run(const json& record, const std::string& run_uid) {
-    if (run_uid.empty() || !record.contains("context_ref") || !record["context_ref"].is_object()) return false;
-    const auto& c = record["context_ref"];
-    if (str_field(c, "run_uid") == run_uid) return true;
-    const std::string image_id = str_field(c, "image_id");
-    return image_id.rfind(run_uid + ":", 0) == 0;
-}
-
-bool matches_filter(const json& record, const json& filter) {
-    if (!filter.is_object()) return true;
-    auto eq = [&](const char* key, const std::string& actual) {
-        const std::string want = str_field(filter, key);
-        return want.empty() || want == actual;
-    };
-    if (!eq("kind", str_field(record, "kind"))) return false;
-    if (!eq("actor", str_field(record, "actor"))) return false;
-    if (!eq("parent_decision_id", str_field(record, "parent_decision_id"))) return false;
-    const json ctx = record.contains("context_ref") && record["context_ref"].is_object()
-        ? record["context_ref"] : json::object();
-    if (!eq("context_id", str_field(ctx, "context_id"))) return false;
-    if (!eq("run_uid", str_field(ctx, "run_uid"))) return false;
-    const std::string since = str_field(filter, "since");
-    if (!since.empty() && str_field(record, "created_at") < since) return false;
-    const std::string code = str_field(filter, "reason_code");
-    if (!code.empty()) {
-        bool found = false;
-        if (record.contains("rationale") && record["rationale"].is_object() &&
-            record["rationale"].contains("user") && record["rationale"]["user"].is_object()) {
-            const auto& codes = record["rationale"]["user"].value("reason_codes", json::array());
-            for (const auto& c : codes) {
-                if (c.is_string() && c.get<std::string>() == code) found = true;
-            }
-        }
-        if (!found) return false;
-    }
-    return true;
 }
 
 } // namespace
@@ -315,8 +238,40 @@ void validate_decision_record(const json& r) {
 
 PiDecisionRecordStore::PiDecisionRecordStore(std::filesystem::path dir) : _dir(std::move(dir)) {}
 
-std::filesystem::path PiDecisionRecordStore::records_path() const { return _dir / "decisions_v1.jsonl"; }
-std::filesystem::path PiDecisionRecordStore::links_path() const { return _dir / "decision_links_v1.jsonl"; }
+std::shared_ptr<PiDatabase> PiDecisionRecordStore::db() const {
+    if (!_db) _db = PiDatabase::open(_dir);
+    return _db;
+}
+
+std::filesystem::path PiDecisionRecordStore::database_path() const { return _dir / kPiDatabaseFileName; }
+
+namespace {
+
+std::vector<json> links_for(PiDatabase& db, const std::string& decision_id) {
+    std::vector<json> out;
+    for (const auto& row : db.query(
+             "SELECT type, data FROM decision_links WHERE decision_id = ? ORDER BY seq", {decision_id})) {
+        out.push_back({{"type", pi_sql_text(row[0])}, {"data", pi_sql_json(row[1])}});
+    }
+    return out;
+}
+
+json merged_record(PiDatabase& db, const PiSqlValue& json_col) {
+    json record = pi_sql_json(json_col);
+    apply_links(record, links_for(db, str_field(record, "decision_id")));
+    return record;
+}
+
+std::string sql_escape_like(const std::string& s) {
+    std::string out;
+    for (char c : s) {
+        if (c == '\\' || c == '%' || c == '_') out.push_back('\\');
+        out.push_back(c);
+    }
+    return out;
+}
+
+} // namespace
 
 json PiDecisionRecordStore::append(json record) const {
     if (!record.is_object()) throw std::invalid_argument("decision record must be a JSON object");
@@ -346,52 +301,81 @@ json PiDecisionRecordStore::append(json record) const {
         user["no_reason_given"] = true;
     }
     record["privacy_class"] = str_field(user, "text").empty() ? "metadata_only" : "metadata_plus_user_text";
-    for (const char* key : {"outcome_refs"}) {
-        if (!record.contains(key)) record[key] = json::array();
-    }
+    if (!record.contains("outcome_refs")) record["outcome_refs"] = json::array();
     if (!record.contains("memory_id")) record["memory_id"] = nullptr;
 
     validate_decision_record(record);
 
-    std::lock_guard<std::mutex> lock(store_mutex());
+    auto database = db();
+    PiDatabase::Tx tx(*database);
     const std::string key = str_field(record, "idempotency_key");
     if (!key.empty()) {
-        for (auto& existing : read_jsonl(records_path())) {
-            if (str_field(existing, "idempotency_key") == key) {
-                existing["duplicate"] = true;
-                return existing;
-            }
+        auto rows = database->query("SELECT json FROM decision_records WHERE idempotency_key = ?", {key});
+        if (!rows.empty()) {
+            json existing = merged_record(*database, rows[0][0]);
+            existing["duplicate"] = true;
+            return existing;
         }
     }
-    append_jsonl_line(records_path(), record);
+    const json ctx = record["context_ref"];
+    auto opt = [](const std::string& s) -> PiSqlValue {
+        return s.empty() ? PiSqlValue(nullptr) : PiSqlValue(s);
+    };
+    database->execute(
+        "INSERT INTO decision_records(decision_id, idempotency_key, kind, actor, parent_decision_id, "
+        "context_id, run_uid, image_id, created_at, json) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        {str_field(record, "decision_id"), opt(key), str_field(record, "kind"), str_field(record, "actor"),
+         opt(str_field(record, "parent_decision_id")), opt(str_field(ctx, "context_id")),
+         opt(str_field(ctx, "run_uid")), opt(str_field(ctx, "image_id")), str_field(record, "created_at"),
+         record.dump()});
+    for (const auto& code : user["reason_codes"]) {
+        database->execute("INSERT INTO decision_reasons(decision_id, code) VALUES(?, ?)",
+                          {str_field(record, "decision_id"), code.get<std::string>()});
+    }
+    tx.commit();
     record["duplicate"] = false;
     return record;
 }
 
 json PiDecisionRecordStore::get(const std::string& decision_id) const {
-    std::lock_guard<std::mutex> lock(store_mutex());
-    auto links = group_links(read_jsonl(links_path()));
-    for (auto record : read_jsonl(records_path())) {
-        if (str_field(record, "decision_id") != decision_id) continue;
-        apply_links(record, links[decision_id]);
-        return record;
-    }
-    return nullptr;
+    auto database = db();
+    auto rows = database->query("SELECT json FROM decision_records WHERE decision_id = ?", {decision_id});
+    if (rows.empty()) return nullptr;
+    return merged_record(*database, rows[0][0]);
 }
 
 json PiDecisionRecordStore::list(const json& filter, int limit) const {
-    std::lock_guard<std::mutex> lock(store_mutex());
-    auto links = group_links(read_jsonl(links_path()));
+    auto database = db();
+    std::string where = " WHERE 1=1";
+    std::vector<PiSqlValue> params;
+    auto add_eq = [&](const char* key, const char* column) {
+        const std::string want = str_field(filter, key);
+        if (want.empty()) return;
+        where += std::string(" AND r.") + column + " = ?";
+        params.emplace_back(want);
+    };
+    if (filter.is_object()) {
+        add_eq("kind", "kind");
+        add_eq("actor", "actor");
+        add_eq("parent_decision_id", "parent_decision_id");
+        add_eq("context_id", "context_id");
+        add_eq("run_uid", "run_uid");
+        const std::string since = str_field(filter, "since");
+        if (!since.empty()) {
+            where += " AND r.created_at >= ?";
+            params.emplace_back(since);
+        }
+        const std::string code = str_field(filter, "reason_code");
+        if (!code.empty()) {
+            where += " AND EXISTS (SELECT 1 FROM decision_reasons d WHERE d.decision_id = r.decision_id AND d.code = ?)";
+            params.emplace_back(code);
+        }
+    }
+    std::string sql = "SELECT r.json FROM decision_records r" + where + " ORDER BY r.seq DESC";
+    if (limit > 0) sql += " LIMIT " + std::to_string(limit);
     json out = json::array();
-    for (auto record : read_jsonl(records_path())) {
-        apply_links(record, links[str_field(record, "decision_id")]);
-        if (matches_filter(record, filter)) out.push_back(std::move(record));
-    }
-    if (limit > 0 && static_cast<int>(out.size()) > limit) {
-        json trimmed = json::array();
-        for (std::size_t i = out.size() - static_cast<std::size_t>(limit); i < out.size(); ++i) trimmed.push_back(out[i]);
-        return trimmed;
-    }
+    for (const auto& row : database->query(sql, params)) out.push_back(merged_record(*database, row[0]));
+    std::reverse(out.begin(), out.end());
     return out;
 }
 
@@ -407,13 +391,25 @@ json PiDecisionRecordStore::add_link(const std::string& decision_id, const std::
         {"data", data.is_object() ? data : json::object()},
         {"created_at", utc_iso_now()},
     };
-    std::lock_guard<std::mutex> lock(store_mutex());
-    bool known = false;
-    for (const auto& r : read_jsonl(records_path())) {
-        if (str_field(r, "decision_id") == decision_id) { known = true; break; }
+    auto database = db();
+    PiDatabase::Tx tx(*database);
+    if (database->query("SELECT 1 FROM decision_records WHERE decision_id = ?", {decision_id}).empty()) {
+        throw std::invalid_argument("unknown decision_id: " + decision_id);
     }
-    if (!known) throw std::invalid_argument("unknown decision_id: " + decision_id);
-    append_jsonl_line(links_path(), link);
+    database->execute("INSERT INTO decision_links(link_id, decision_id, type, data, created_at) VALUES(?, ?, ?, ?, ?)",
+                      {str_field(link, "link_id"), decision_id, type, link["data"].dump(), str_field(link, "created_at")});
+    if (type == "redact") {
+        auto rows = database->query("SELECT json FROM decision_records WHERE decision_id = ?", {decision_id});
+        json record = pi_sql_json(rows[0][0]);
+        if (record.contains("rationale") && record["rationale"].is_object() &&
+            record["rationale"].contains("user") && record["rationale"]["user"].is_object()) {
+            record["rationale"]["user"]["text"] = "";
+            record["rationale"]["user"]["text_redacted"] = true;
+            record["privacy_class"] = "metadata_only";
+            database->execute("UPDATE decision_records SET json = ? WHERE decision_id = ?", {record.dump(), decision_id});
+        }
+    }
+    tx.commit();
     return link;
 }
 
@@ -423,58 +419,26 @@ json PiDecisionRecordStore::redact(const std::string& decision_id, const std::st
 
 int PiDecisionRecordStore::mark_run_deleted(const std::string& run_uid) const {
     if (run_uid.empty()) throw std::invalid_argument("run_uid is required");
-    std::vector<std::string> ids;
-    {
-        std::lock_guard<std::mutex> lock(store_mutex());
-        auto links = group_links(read_jsonl(links_path()));
-        for (auto record : read_jsonl(records_path())) {
-            if (!record_in_run(record, run_uid)) continue;
-            const std::string id = str_field(record, "decision_id");
-            apply_links(record, links[id]);
-            if (!record.value("run_deleted", false) || !record.value("redacted", false)) ids.push_back(id);
+    auto database = db();
+    PiDatabase::Tx tx(*database);
+    // Noch nicht vollstaendig markierte Records dieses Runs und seiner Bild-Kontexte.
+    const auto rows = database->query(
+        "SELECT r.decision_id FROM decision_records r WHERE (r.run_uid = ? OR r.image_id LIKE ? ESCAPE '\\') "
+        "AND (NOT EXISTS (SELECT 1 FROM decision_links l WHERE l.decision_id = r.decision_id AND l.type = 'run_deleted') "
+        "OR NOT EXISTS (SELECT 1 FROM decision_links l WHERE l.decision_id = r.decision_id AND l.type = 'redact')) "
+        "ORDER BY r.seq",
+        {run_uid, sql_escape_like(run_uid) + ":%"});
+    for (const auto& row : rows) {
+        const std::string id = pi_sql_text(row[0]);
+        if (database->query("SELECT 1 FROM decision_links WHERE decision_id = ? AND type = 'run_deleted'", {id}).empty()) {
+            add_link(id, "run_deleted", {{"run_uid", run_uid}});
+        }
+        if (database->query("SELECT 1 FROM decision_links WHERE decision_id = ? AND type = 'redact'", {id}).empty()) {
+            add_link(id, "redact", {{"reason", "run_deleted"}, {"field", "rationale.user.text"}});
         }
     }
-    for (const auto& id : ids) {
-        add_link(id, "run_deleted", {{"run_uid", run_uid}});
-        add_link(id, "redact", {{"reason", "run_deleted"}, {"field", "rationale.user.text"}});
-    }
-    return static_cast<int>(ids.size());
-}
-
-json PiDecisionRecordStore::compact() const {
-    std::lock_guard<std::mutex> lock(store_mutex());
-    auto links = group_links(read_jsonl(links_path()));
-    std::set<std::string> redacted;
-    for (const auto& [id, ls] : links) {
-        for (const auto& l : ls) {
-            if (str_field(l, "type") == "redact") { redacted.insert(id); break; }
-        }
-    }
-    auto records = read_jsonl(records_path());
-    int removed = 0;
-    for (auto& r : records) {
-        if (!redacted.count(str_field(r, "decision_id"))) continue;
-        if (r.contains("rationale") && r["rationale"].is_object() && r["rationale"].contains("user") &&
-            r["rationale"]["user"].is_object()) {
-            auto& u = r["rationale"]["user"];
-            if (!str_field(u, "text").empty()) ++removed;
-            u["text"] = "";
-            u["text_redacted"] = true;
-            r["privacy_class"] = "metadata_only";
-        }
-    }
-    const std::filesystem::path tmp = records_path().string() + ".tmp";
-    {
-        std::error_code ec;
-        std::filesystem::create_directories(_dir, ec);
-        std::ofstream out(tmp, std::ios::out | std::ios::trunc);
-        if (!out) throw std::runtime_error("cannot write " + tmp.string());
-        for (const auto& r : records) out << r.dump() << '\n';
-        out.flush();
-        if (!out) throw std::runtime_error("write failed " + tmp.string());
-    }
-    std::filesystem::rename(tmp, records_path());
-    return {{"rewritten", static_cast<int>(records.size())}, {"redacted_texts_removed", removed}};
+    tx.commit();
+    return static_cast<int>(rows.size());
 }
 
 } // namespace tile_compile::pi

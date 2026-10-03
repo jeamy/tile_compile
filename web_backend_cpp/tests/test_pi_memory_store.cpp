@@ -3,6 +3,8 @@
 #include "backend_test_harness.hpp"
 
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <unistd.h>
 
 int main() {
@@ -41,7 +43,8 @@ int main() {
         expect_equal(first["privacy_class"].get<std::string>(), "metadata_only", "memory default privacy");
         expect_true(!first["memory_id"].get<std::string>().empty(), "memory id generated");
         expect_equal(first["id"].get<std::string>(), first["memory_id"].get<std::string>(), "memory id alias generated");
-        expect_true(std::filesystem::is_regular_file(store.memories_path()), "memory jsonl exists");
+        expect_true(std::filesystem::is_regular_file(store.database_path()), "memory sqlite database exists");
+        expect_true(!std::filesystem::exists(dir / "memories_v2.jsonl"), "memory store no longer writes jsonl");
         expect_true(!std::filesystem::exists(store.legacy_memories_path()), "legacy memory jsonl ignored");
 
         store.append_candidate({
@@ -78,16 +81,14 @@ int main() {
         const auto review = store.review(first["memory_id"].get<std::string>(), "accepted", "fixture", "works");
         store.review("mem_fixture_lower_score", "accepted", "fixture", "less useful");
         expect_equal(review["status"].get<std::string>(), "accepted", "memory review status");
-        expect_true(std::filesystem::is_regular_file(store.reviews_path()), "memory review jsonl exists");
-
+        
         const auto reviewed = store.list();
         expect_equal(reviewed[0]["status"].get<std::string>(), "accepted", "memory list overlays review status");
         expect_true(reviewed[0].contains("review"), "memory list includes latest review");
         const auto indices = store.indices();
         expect_equal(indices["schema_version"].get<std::string>(), "pi.memory-indices.v2",
                      "memory index schema");
-        expect_true(std::filesystem::is_regular_file(store.indices_path()), "memory index file exists");
-        expect_true(indices["by_type"]["optimization"].is_array(), "memory index by type");
+                expect_true(indices["by_type"]["optimization"].is_array(), "memory index by type");
         expect_true(indices["by_status"]["accepted"].is_array(), "memory index by status");
         expect_true(indices["by_path"]["bge.model"].is_array(), "memory index by path");
         expect_true(indices["by_target"]["m42"].is_array(), "memory index by target name");
@@ -382,6 +383,64 @@ int main() {
                     !negative_signal[0]["match_explanation"].empty(),
                     "rejected-signal: match_explanation is non-empty — model can explain the warning");
 
+
+        // --- Einmaliger Import der alten JSONL-Dateien beim ersten Oeffnen ---
+        {
+            const auto legacy_dir = std::filesystem::temp_directory_path() /
+                ("tile_compile_pi_memory_import_" + std::to_string(getpid()));
+            std::filesystem::remove_all(legacy_dir);
+            std::filesystem::create_directories(legacy_dir);
+            const nlohmann::json mem = {
+                {"schema_version", "pi.memory.v2"}, {"memory_id", "mem_legacy_1"}, {"id", "mem_legacy_1"},
+                {"status", "candidate"}, {"type", "optimization"}, {"privacy_class", "metadata_only"},
+                {"context_signature", ctx}, {"scope", scope}, {"evidence", {{"validation", "legacy"}}},
+                {"outcome", {{"validation_valid", true}}}
+            };
+            {
+                std::ofstream out(legacy_dir / "memories_v2.jsonl");
+                out << mem.dump() << "\n" << "this is not json\n";
+            }
+            {
+                std::ofstream out(legacy_dir / "memory_reviews_v2.jsonl");
+                out << nlohmann::json{{"memory_id", "mem_legacy_1"}, {"status", "accepted"}, {"reviewer", "user"}}.dump() << "\n";
+            }
+            {
+                std::ofstream out(legacy_dir / "memory_outcomes_v2.jsonl");
+                out << nlohmann::json{{"memory_id", "mem_legacy_1"}, {"outcome", {{"quality_delta", 0.1}}}}.dump() << "\n";
+            }
+            {
+                std::ofstream out(legacy_dir / "memory_auto_promotion_shadow_v1.jsonl");
+                out << nlohmann::json{{"memory_id", "mem_legacy_1"}, {"decision", "insufficient_data"}}.dump() << "\n";
+            }
+            auto read_all = [](const std::filesystem::path& p) {
+                std::ifstream in(p);
+                return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            };
+            const std::string jsonl_before = read_all(legacy_dir / "memories_v2.jsonl");
+
+            tile_compile::pi::PiMemoryStore legacy_store(legacy_dir);
+            const auto imported = legacy_store.list();
+            expect_equal(static_cast<long>(imported.size()), 1L, "legacy import keeps valid memory, skips bad line");
+            expect_equal(imported[0]["status"].get<std::string>(), "accepted", "legacy review overlay imported");
+            expect_equal(static_cast<long>(imported[0]["outcomes"].size()), 1L, "legacy outcome history imported");
+            expect_equal(static_cast<long>(legacy_store.auto_promotion_shadow_log(10).size()), 1L, "legacy shadow log imported");
+            expect_equal(read_all(legacy_dir / "memories_v2.jsonl"), jsonl_before, "legacy jsonl left untouched");
+
+            // Neue Eintraege landen nur noch in SQLite; ein zweiter Store importiert nicht erneut.
+            legacy_store.append_candidate({
+                {"type", "optimization"}, {"context_signature", ctx}, {"scope", scope},
+                {"recommendation", {{"patch", nlohmann::json::array({{{"path", "x.y"}, {"value", 1}}})}}},
+                {"evidence", {{"validation", "new"}}}, {"outcome", {{"validation_valid", true}}}
+            });
+            tile_compile::pi::PiMemoryStore second(legacy_dir);
+            expect_equal(static_cast<long>(second.list().size()), 2L, "second store sees import plus new memory once");
+            expect_equal(read_all(legacy_dir / "memories_v2.jsonl"), jsonl_before, "jsonl still untouched after append");
+
+            // Dedupe sichert entfernte Eintraege in der Datenbank.
+            const auto dd = second.dedupe(true);
+            expect_equal(dd["removed_count"].get<long>(), 0L, "no duplicates after import");
+            std::filesystem::remove_all(legacy_dir);
+        }
         std::filesystem::remove_all(dir);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "%s\n", e.what());

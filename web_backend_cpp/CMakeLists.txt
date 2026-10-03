@@ -58,6 +58,31 @@ endif()
 find_package(CURL REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
+
+# SQLite: PI memory and decision-record storage. Prefer the system library; fall back to the
+# official amalgamation (fetched at configure time, like Asio/Crow) when it is not installed.
+find_package(SQLite3 QUIET)
+# CMake >= 4.2 exports SQLite3::SQLite3 (SQLite::SQLite3 is the deprecated legacy name).
+if(TARGET SQLite3::SQLite3)
+    set(PI_SQLITE_TARGET SQLite3::SQLite3)
+elseif(TARGET SQLite::SQLite3)
+    set(PI_SQLITE_TARGET SQLite::SQLite3)
+else()
+    include(FetchContent)
+    FetchContent_Declare(
+        sqlite_amalgamation
+        URL https://www.sqlite.org/2024/sqlite-amalgamation-3460100.zip
+        URL_HASH SHA256=77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(sqlite_amalgamation)
+    add_library(pi_sqlite3 STATIC ${sqlite_amalgamation_SOURCE_DIR}/sqlite3.c)
+    target_include_directories(pi_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
+    target_compile_definitions(pi_sqlite3 PRIVATE SQLITE_THREADSAFE=1 SQLITE_OMIT_LOAD_EXTENSION=1)
+    set_target_properties(pi_sqlite3 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_link_libraries(pi_sqlite3 PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+    set(PI_SQLITE_TARGET pi_sqlite3)
+endif()
 find_package(Eigen3 REQUIRED)
 find_package(PkgConfig REQUIRED)
 
@@ -177,6 +202,7 @@ set(BACKEND_SOURCES
     src/services/pi/pi_action_validator.cpp
     src/services/pi/pi_ai_request_builder.cpp
     src/services/pi/pi_feature_vector.cpp
+    src/services/pi/pi_database.cpp
     src/services/pi/pi_decision_record_store.cpp
     src/services/pi/pi_memory_store.cpp
     src/services/pi/pi_outcome_recorder.cpp
@@ -230,6 +256,7 @@ endif()
 
 target_link_libraries(tile_compile_web_backend PRIVATE
     asio_header
+    ${PI_SQLITE_TARGET}
     ${YAML_CPP_LIBRARIES}
     CURL::libcurl
     OpenSSL::SSL
@@ -375,7 +402,8 @@ if(BUILD_TESTS)
         src/services/pi/pi_recommendation_validator.cpp
         src/services/pi/pi_schema_utils.cpp
     )
-    target_link_libraries(web_backend_cpp_ai_routes PRIVATE CURL::libcurl)
+    target_sources(web_backend_cpp_ai_routes PRIVATE src/services/pi/pi_database.cpp)
+    target_link_libraries(web_backend_cpp_ai_routes PRIVATE CURL::libcurl ${PI_SQLITE_TARGET})
     add_backend_cpp_test(web_backend_cpp_pi_action_plan tests/test_pi_action_plan.cpp)
     target_sources(web_backend_cpp_pi_action_plan PRIVATE
         src/services/pi/pi_action_plan.cpp
@@ -384,12 +412,16 @@ if(BUILD_TESTS)
     )
     add_backend_cpp_test(web_backend_cpp_pi_memory_store tests/test_pi_memory_store.cpp)
     target_sources(web_backend_cpp_pi_memory_store PRIVATE
+        src/services/pi/pi_database.cpp
         src/services/pi/pi_memory_store.cpp
     )
+    target_link_libraries(web_backend_cpp_pi_memory_store PRIVATE ${PI_SQLITE_TARGET})
     add_backend_cpp_test(web_backend_cpp_pi_decision_record_store tests/test_pi_decision_record_store.cpp)
     target_sources(web_backend_cpp_pi_decision_record_store PRIVATE
+        src/services/pi/pi_database.cpp
         src/services/pi/pi_decision_record_store.cpp
     )
+    target_link_libraries(web_backend_cpp_pi_decision_record_store PRIVATE ${PI_SQLITE_TARGET})
     add_backend_cpp_test(web_backend_cpp_pi_param_model tests/test_pi_param_model.cpp)
     target_sources(web_backend_cpp_pi_param_model PRIVATE
         src/backend_runtime.cpp
@@ -451,7 +483,8 @@ if(BUILD_TESTS)
         src/services/pi/pi_parameter_catalog.cpp
     )
     target_include_directories(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_INCLUDE_DIRS})
-    target_link_libraries(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_LINK_LIBRARIES})
+    target_sources(web_backend_cpp_pi_routes PRIVATE src/services/pi/pi_database.cpp)
+    target_link_libraries(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_LINK_LIBRARIES} ${PI_SQLITE_TARGET})
     add_backend_cpp_test(web_backend_cpp_runs_queue tests/test_runs_queue.cpp)
     add_backend_cpp_test(web_backend_cpp_run_queue_status_alias tests/test_run_queue_status_alias.cpp)
     add_backend_cpp_test(web_backend_cpp_run_status_resume_progress tests/test_run_status_resume_progress.cpp)
@@ -481,9 +514,11 @@ if(BUILD_TESTS)
         src/job_store.cpp
         src/subprocess_manager.cpp
         src/services/pi/pi_live_edit_recorder.cpp
+        src/services/pi/pi_database.cpp
         src/services/pi/pi_memory_store.cpp
         src/services/pi/pi_storage_paths.cpp
     )
+    target_link_libraries(web_backend_cpp_pi_live_edit_recorder PRIVATE ${PI_SQLITE_TARGET})
     target_include_directories(web_backend_cpp_pi_live_edit_recorder PRIVATE ${OPENCV4_INCLUDE_DIRS})
     target_link_libraries(web_backend_cpp_pi_live_edit_recorder PRIVATE ${OPENCV4_LINK_LIBRARIES})
 endif()

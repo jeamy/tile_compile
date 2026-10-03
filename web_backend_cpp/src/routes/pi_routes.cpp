@@ -2525,12 +2525,13 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             items = std::move(filtered_items);
             trim_json_array_to_latest(items, limit);
         }
-        const fs::path memory_file = store.memories_path();
+        const fs::path memory_file = store.database_path();
         const fs::path legacy_memory_file = store.legacy_memories_path();
         const long legacy_count = count_jsonl_records(legacy_memory_file);
         return json_resp({
             {"schema_version", "pi.memories-list.v1"},
             {"memory_dir", store.memory_dir().string()},
+            {"storage", "sqlite"},
             {"memory_file", memory_file.string()},
             {"memory_file_exists", fs::exists(memory_file)},
             {"legacy_memory_file", legacy_memory_file.string()},

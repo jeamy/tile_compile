@@ -1,4 +1,5 @@
 #include "backend_test_harness.hpp"
+#include "pi_store_test_support.hpp"
 #include "fake_sidecar.hpp"
 #include "services/ai_service.hpp"
 
@@ -185,7 +186,7 @@ int main(int argc, char** argv) {
                 {"does_not_apply_when", nlohmann::json::array({"different color mode problem"})},
                 {"confidence", 0.5}
             };
-            std::ofstream out(memory_dir / "memories_v2.jsonl");
+            PiStoreSeed out(memory_dir, "memories");
             out << nlohmann::json{
                 {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_scan_context_accepted"},
@@ -245,7 +246,7 @@ int main(int argc, char** argv) {
             }.dump() << "\n";
         }
         {
-            std::ofstream out(memory_dir / "memory_reviews_v2.jsonl");
+            PiStoreSeed out(memory_dir, "memory_reviews");
             out << nlohmann::json{
                 {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_scan_context_accepted"},
