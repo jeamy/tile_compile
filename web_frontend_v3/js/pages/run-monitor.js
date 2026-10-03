@@ -182,7 +182,7 @@ export function createRunMonitorPage() {
   const runPreview = createRunImagePreviewPanel("run-monitor-image-preview");
   const completionAnalysis = aiEnabled ? createCompletionAnalysisPanel() : null;
   const postRunAdvice = jevEnabled ? createPostRunAdvicePanel("post-run-advice", { onApply: applyPostRunAdvice }) : null;
-  const runChat = aiEnabled ? createRunChatPanel() : null;
+  const runChat = aiEnabled && !document.getElementById("assistant-dock") ? createRunChatPanel() : null;
 
   // Log viewer (component-based)
   const logViewer = createLogViewer();
@@ -1362,6 +1362,7 @@ function restoreMonitorRunChat(outputId = "run-monitor-chat-output") {
 }
 
 async function restoreMonitorRunChatFromServer(outputId = "run-monitor-chat-output") {
+  if (!document.getElementById(outputId)) return;
   const runKey = getRunChatKey();
   const runId = getRunApiKey();
   if (!runKey || !runId) return;

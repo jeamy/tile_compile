@@ -252,6 +252,14 @@ Dock-Kontextwechsel, Verlauf-/Session-Bezuege und die gesonderte Vergessen-Aktio
 
 ---
 
+### Aktueller Dock-Baustein
+
+Der [erste Run-Adapter](pi_assistant_dock_implementation_de.md) ist implementiert: globaler rechter Host,
+Run-Chat zentral nach UID, Backend-Kontextauswahl ohne Session-Start, lazy Warum und deaktivierte Beratung
+bei fehlenden Artefakten. Move/Relink und Dateiloeschung behalten neue UID-Historien. Jev-Post-Run-Karten sind
+vorerst fluechtig; Analyse-/Bild-Adapter, dauerhaftes Thread-Merging und gemeinsame Apply-Karten folgen.
+Der Plan fuer das gesamte Unified Assistant ist damit noch nicht vollstaendig umgesetzt.
+
 ## 5. Prüfpunkte (Assistant)
 
 - **Run-Lebenszyklus:** Aktivieren öffnet keine Session; alle fünf Zustände der Tabelle (§3.5) degradieren ohne Fehler; Zugriff über Name und Pfad liefert denselben Kontext; `run_uid`-Auflösung exakt (kein Präfix) inkl. Pfad-Normalisierung; Run-Dateiloeschung erhaelt Config/Herkunft/Statistik und ist kein Lern-Ausschluss; explizites Vergessen bleibt getrennt; die aktive Kontext-Auswahl überlebt einen Backend-Restart; nichts wird in bestehende Run-Verzeichnisse geschrieben.

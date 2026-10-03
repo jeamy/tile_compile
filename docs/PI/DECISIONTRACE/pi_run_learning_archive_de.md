@@ -142,8 +142,10 @@ Verspaetete Antworten eines anderen Archivkontexts werden verworfen. Nach erfolg
 alte Dateiaction-Buttons entfernt und die erhaltenen Lerndaten angeboten. Buttons/Details sind auf schmalen
 Ansichten responsiv; alle neuen Labels sind in DE und EN vorhanden.
 
-**Noch offen:** Verbindung zum Unified Assistant Dock, Session-/Thread-UID-Anbindung und eine gesonderte,
-freigegebene Vergessen-Aktion mit Behandlung abhaengiger Links und Datenschutz-Wartung.
+**Dock-Anbindung:** Die Archivkarte bietet jetzt **Im Assistenten oeffnen**, ohne einen Processing-Run zu
+starten oder als aktuellen Run zu setzen. Der [erste Run-Dock-Adapter](pi_assistant_dock_implementation_de.md)
+liest zentrale UID-Historien auch ohne Run-Dateien. Analyse-/Bild-Facets, dauerhaftes Jev-/Decision-Merging
+und eine gesonderte freigegebene Vergessen-Aktion bleiben offen.
 
 ## Grenzen und Tests
 

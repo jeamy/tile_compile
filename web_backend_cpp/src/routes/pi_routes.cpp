@@ -15,6 +15,7 @@
 #include "services/pi/pi_preview_store.hpp"
 #include "services/pi/pi_decision_record_store.hpp"
 #include "services/pi/pi_run_index.hpp"
+#include "services/pi/pi_decision_state.hpp"
 #include "services/pi/pi_run_learning_store.hpp"
 #include "services/pi/pi_json_io.hpp"
 #include "services/pi/pi_tool_registry.hpp"
@@ -42,6 +43,9 @@
 #include <limits>
 #include <set>
 #include <sstream>
+#include <mutex>
+#include <memory>
+#include <map>
 #include <yaml-cpp/yaml.h>
 
 using namespace tile_compile::routes;
@@ -829,7 +833,7 @@ tile_compile::ai::AiConfig current_pi_ai_config(const std::shared_ptr<AppState>&
         tile_compile::ai::merge_ai_config_json(merged, memory_config));
 }
 
-std::filesystem::path pi_run_chat_history_path(const std::shared_ptr<AppState>& state,
+std::filesystem::path legacy_central_run_chat_path(const std::shared_ptr<AppState>& state,
                                                const std::string& run_id) {
     std::string safe;
     safe.reserve(run_id.size());
@@ -849,17 +853,66 @@ std::filesystem::path legacy_pi_run_chat_history_path(const std::shared_ptr<AppS
     return run_dir / "artifacts" / "pi_run_chat_history.json";
 }
 
+nlohmann::json run_chat_identity(const std::shared_ptr<AppState>& state, const std::string& run_id,
+                                 const std::string& expected_uid = "") {
+    tile_compile::pi::PiRunIndex index(tile_compile::pi::pi_storage_dir(state));
+    if (run_id.empty()) {
+        const auto known = index.get(expected_uid);
+        if (!known) throw std::runtime_error("Unknown run UID");
+        return *known;
+    }
+    const auto dir = state->runtime.resolve_run_dir(run_id);
+    const auto provenance = tile_compile::pi::read_json_file_opt(dir / "artifacts/pi_run_provenance.json").value_or(nlohmann::json::object());
+    const auto identity = index.resolve(dir, provenance.value("run_uid", std::string()));
+    if (!expected_uid.empty() && identity["run_uid"] != expected_uid)
+        throw tile_compile::pi::PiRunIdentityConflict("Run path does not match requested context UID");
+    return identity;
+}
+
+std::shared_ptr<std::recursive_mutex> run_chat_mutex(const std::shared_ptr<AppState>& state, const std::string& uid) {
+    static std::mutex registry_mutex;
+    static std::map<std::string, std::weak_ptr<std::recursive_mutex>> registry;
+    std::lock_guard<std::mutex> lock(registry_mutex);
+    for (auto it = registry.begin(); it != registry.end();) {
+        if (it->second.expired()) it = registry.erase(it); else ++it;
+    }
+    const auto key = tile_compile::pi::pi_storage_dir(state).string() + ":" + uid;
+    auto mutex = registry[key].lock();
+    if (!mutex) { mutex = std::make_shared<std::recursive_mutex>(); registry[key] = mutex; }
+    return mutex;
+}
+
+std::filesystem::path pi_run_chat_uid_path(const std::shared_ptr<AppState>& state, const std::string& uid) {
+    return tile_compile::pi::pi_storage_dir(state) / "context_chat" / (tile_compile::pi::sha256_prefixed("run:" + uid).substr(7) + ".json");
+}
+
 nlohmann::json read_pi_run_chat_history(const std::shared_ptr<AppState>& state,
-                                        const std::string& run_id) {
-    auto path = pi_run_chat_history_path(state, run_id);
-    if (!std::filesystem::exists(path)) {
-        const auto legacy = legacy_pi_run_chat_history_path(state, run_id);
-        if (std::filesystem::exists(legacy)) path = legacy;
+                                        const std::string& run_id, const std::string& expected_uid = "") {
+    const auto identity = run_chat_identity(state, run_id, expected_uid);
+    const std::string uid = identity["run_uid"];
+    auto mutex = run_chat_mutex(state, uid);
+    std::lock_guard<std::recursive_mutex> lock(*mutex);
+    auto path = pi_run_chat_uid_path(state, uid);
+    if (!std::filesystem::exists(path) && run_id.empty()) {
+        for (const auto& alias : identity["run_keys"]) {
+            const auto central = legacy_central_run_chat_path(state, alias.get<std::string>());
+            const auto artifact = fs::path(alias.get<std::string>()) / "artifacts/pi_run_chat_history.json";
+            if (fs::exists(central)) { path = central; break; }
+            if (fs::exists(artifact)) { path = artifact; break; }
+        }
+    }
+    if (!std::filesystem::exists(path) && !run_id.empty()) {
+        const auto central = legacy_central_run_chat_path(state, run_id);
+        if (std::filesystem::exists(central)) path = central;
+        else {
+            const auto legacy = legacy_pi_run_chat_history_path(state, run_id);
+            if (std::filesystem::exists(legacy)) path = legacy;
+        }
     }
     if (!std::filesystem::exists(path)) {
         return {
             {"schema_version", "pi.run-chat-history.v1"},
-            {"run_id", run_id},
+            {"run_id", run_id}, {"run_uid", uid}, {"context_id", "run:" + uid},
             {"messages", nlohmann::json::array()},
             {"turns", nlohmann::json::array()}
         };
@@ -870,7 +923,8 @@ nlohmann::json read_pi_run_chat_history(const std::shared_ptr<AppState>& state,
         throw std::runtime_error("invalid run chat history");
     }
     parsed["schema_version"] = "pi.run-chat-history.v1";
-    parsed["run_id"] = run_id;
+    if (!run_id.empty()) parsed["run_id"] = run_id;
+    parsed["run_uid"] = uid; parsed["context_id"] = "run:" + uid;
     if (!parsed.contains("messages") || !parsed["messages"].is_array()) parsed["messages"] = nlohmann::json::array();
     if (!parsed.contains("turns") || !parsed["turns"].is_array()) parsed["turns"] = nlohmann::json::array();
     return parsed;
@@ -878,18 +932,20 @@ nlohmann::json read_pi_run_chat_history(const std::shared_ptr<AppState>& state,
 
 void write_pi_run_chat_history(const std::shared_ptr<AppState>& state,
                                const std::string& run_id,
-                               nlohmann::json history) {
-    auto path = pi_run_chat_history_path(state, run_id);
+                               nlohmann::json history, const std::string& expected_uid = "") {
+    const std::string uid = run_chat_identity(state, run_id, expected_uid)["run_uid"];
+    auto mutex = run_chat_mutex(state, uid);
+    std::lock_guard<std::recursive_mutex> lock(*mutex);
+    auto path = pi_run_chat_uid_path(state, uid);
     std::filesystem::create_directories(path.parent_path());
     history["schema_version"] = "pi.run-chat-history.v1";
-    history["run_id"] = run_id;
+    if (!run_id.empty()) history["run_id"] = run_id;
+    history["run_uid"] = uid; history["context_id"] = "run:" + uid;
     if (!history.contains("messages") || !history["messages"].is_array()) history["messages"] = nlohmann::json::array();
     if (!history.contains("turns") || !history["turns"].is_array()) history["turns"] = nlohmann::json::array();
     trim_json_array_to_latest(history["messages"], 24);
     trim_json_array_to_latest(history["turns"], 24);
-    std::ofstream out(path, std::ios::out | std::ios::trunc);
-    if (!out) throw std::runtime_error("failed to open run chat history for writing");
-    out << history.dump(2);
+    tile_compile::pi::write_json_file_atomic(path, history);
 }
 
 std::filesystem::path pi_live_image_chat_history_path(const std::shared_ptr<AppState>& state,
@@ -2360,6 +2416,44 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         return json_resp(tile_compile::pi::pi_storage_status(state));
     });
 
+    CROW_ROUTE(app, "/api/pi/assistant/capabilities").methods("GET"_method)
+    ([]() { return json_resp({{"schema_version", "pi.assistant-capabilities.v1"}, {"run_uid_threads", true},
+                             {"analysis_chat", false}, {"image_chat", false}, {"decision_writes", false}}); });
+
+    CROW_ROUTE(app, "/api/pi/assistant/run-context").methods("GET"_method)
+    ([state](const crow::request& req) {
+        const std::string ref = req.url_params.get("run_id") ? req.url_params.get("run_id") : "";
+        if (ref.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        try {
+            auto identity = run_chat_identity(state, ref);
+            identity["kind"] = "run"; identity["run_id"] = ref;
+            identity["context_id"] = "run:" + identity["run_uid"].get<std::string>();
+            return json_resp(identity);
+        } catch (const std::exception& e) { return err_resp("RUN_CONTEXT_UNAVAILABLE", e.what(), 400); }
+    });
+
+    CROW_ROUTE(app, "/api/pi/assistant/select-context").methods("POST"_method)
+    ([state](const crow::request& req) {
+        const auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->contains("run_uid") || !(*body)["run_uid"].is_string())
+            return err_resp("BAD_REQUEST", "run_uid is required", 400);
+        tile_compile::pi::PiRunIndex index(tile_compile::pi::pi_storage_dir(state));
+        const auto identity = index.get((*body)["run_uid"]);
+        if (!identity) return err_resp("NOT_FOUND", "Unknown run UID", 404);
+        const std::string uid = (*identity)["run_uid"];
+        std::string key;
+        bool reachable = false;
+        for (const auto& alias : (*identity)["run_keys"]) {
+            if (key.empty()) key = alias.get<std::string>();
+            std::error_code error;
+            if (fs::is_directory(fs::path(alias.get<std::string>()), error)) { key = alias.get<std::string>(); reachable = true; break; }
+        }
+        nlohmann::json context = {{"context_id", "run:" + uid}, {"run_uid", uid}, {"run_key", key}, {"kind", "run"}, {"artifacts_reachable", reachable}};
+        if (!tile_compile::pi::set_pi_active_context(state, context))
+            return err_resp("CONTEXT_SAVE_FAILED", "Active context could not be persisted", 503);
+        return json_resp(context);
+    });
+
     CROW_ROUTE(app, "/api/pi/run-chat").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = parse_body(req);
@@ -2370,10 +2464,14 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
         if (message.empty()) return err_resp("BAD_REQUEST", "message is required", 400);
         try {
+            const auto identity = run_chat_identity(state, run_id, body->value("run_uid", std::string()));
+            const std::string uid = identity["run_uid"];
+            auto mutex = run_chat_mutex(state, uid);
+            std::lock_guard<std::recursive_mutex> chat_lock(*mutex);
             nlohmann::json target_context = {
                 {"object_name", object_name.empty() ? nlohmann::json(nullptr) : nlohmann::json(object_name)}
             };
-            nlohmann::json history = read_pi_run_chat_history(state, run_id);
+            nlohmann::json history = read_pi_run_chat_history(state, run_id, uid);
             history["target"] = target_context;
             nlohmann::json messages = compact_run_chat_history_messages(history, *body, message);
             const nlohmann::json previous_turns = run_chat_previous_turns_context(history);
@@ -2462,7 +2560,8 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                     {"prompt", prompt},
                     {"ai_request", ai_request},
                     {"pi_context", pi_context},
-                    {"run_id", run_id},
+                    {"run_id", uid},
+                    {"context_id", "run:" + uid},
                     {"object_name", object_name},
                     {"image_available", image.value("available", false)},
                     {"image_path", image.value("path", std::string())}
@@ -2498,9 +2597,13 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 {"target", target_context},
                 {"created_at", utc_now_iso()}
             });
-            write_pi_run_chat_history(state, run_id, history);
+            answer["run_uid"] = uid; answer["context_id"] = "run:" + uid;
+            history["turns"].back()["result"] = answer;
+            write_pi_run_chat_history(state, run_id, history, uid);
 
             return json_resp(answer);
+        } catch (const tile_compile::pi::PiRunIdentityConflict& e) {
+            return err_resp("RUN_IDENTITY_CONFLICT", e.what(), 409);
         } catch (const std::exception& e) {
             return err_resp("RUN_CONTEXT_UNAVAILABLE", e.what(), 400);
         }
@@ -2509,9 +2612,10 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
     CROW_ROUTE(app, "/api/pi/run-chat/history").methods("GET"_method)
     ([state](const crow::request& req) {
         const std::string run_id = req.url_params.get("run_id") ? std::string(req.url_params.get("run_id")) : "";
-        if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        const std::string uid = req.url_params.get("run_uid") ? std::string(req.url_params.get("run_uid")) : "";
+        if (run_id.empty() && uid.empty()) return err_resp("BAD_REQUEST", "run_id or run_uid is required", 400);
         try {
-            return json_resp(read_pi_run_chat_history(state, run_id));
+            return json_resp(read_pi_run_chat_history(state, run_id, uid));
         } catch (const std::exception& e) {
             return err_resp("RUN_CHAT_HISTORY_UNAVAILABLE", e.what(), 400);
         }
@@ -2522,14 +2626,18 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         auto body = parse_body(req);
         if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
         const std::string run_id = body->value("run_id", std::string());
-        if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        const std::string uid = body->value("run_uid", std::string());
+        if (run_id.empty() && uid.empty()) return err_resp("BAD_REQUEST", "run_id or run_uid is required", 400);
         try {
+            const std::string resolved_uid = run_chat_identity(state, run_id, uid)["run_uid"];
+            auto mutex = run_chat_mutex(state, resolved_uid);
+            std::lock_guard<std::recursive_mutex> chat_lock(*mutex);
             nlohmann::json incoming = body->contains("history") && (*body)["history"].is_object()
                 ? (*body)["history"]
                 : nlohmann::json::object();
-            nlohmann::json history = merge_run_chat_history(read_pi_run_chat_history(state, run_id), incoming);
-            write_pi_run_chat_history(state, run_id, history);
-            return json_resp(read_pi_run_chat_history(state, run_id));
+            nlohmann::json history = merge_run_chat_history(read_pi_run_chat_history(state, run_id, resolved_uid), incoming);
+            write_pi_run_chat_history(state, run_id, history, resolved_uid);
+            return json_resp(read_pi_run_chat_history(state, run_id, resolved_uid));
         } catch (const std::exception& e) {
             return err_resp("RUN_CHAT_HISTORY_SAVE_FAILED", e.what(), 400);
         }

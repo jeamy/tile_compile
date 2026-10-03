@@ -120,7 +120,9 @@ export function createRunLearningArchive({ selectedUid = null, onSelect = () => 
         } catch (error) { toastError(text("update_failed"), error.message); toggle.disabled = false; }
       } }, text(current.excluded_from_learning ? "include" : "exclude"));
       if (!current.excluded_from_learning) controls.append(reason);
-      controls.append(toggle); body.append(controls);
+      controls.append(toggle);
+      controls.append(el("button", { class: "tc-btn tc-btn-sm", onclick: () => window.dispatchEvent(new CustomEvent("tc-assistant-context", { detail: { run_uid: current.run_uid } })) }, t("ui.dock.open_thread")));
+      body.append(controls);
 
       const targetUid = current.run_uid;
       const path = el("input", { class: "tc-input tc-archive-path-input", type: "text", placeholder: text("new_path"), "aria-label": text("new_path") });

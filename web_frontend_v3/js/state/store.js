@@ -1,6 +1,6 @@
 // js/state/store.js – Minimaler Pub/Sub State-Manager
 
-const PERSIST_LOCAL = new Set(["ui-state", "input-scan", "ai-config", "ai-state", "scan-state", "run-state", "config-state", "raw-stack", "astrometry", "pcc", "run-history", "run-chat", "feature-flags"]);
+const PERSIST_LOCAL = new Set(["ui-state", "input-scan", "ai-config", "ai-state", "scan-state", "run-state", "config-state", "raw-stack", "astrometry", "pcc", "run-history", "run-chat", "feature-flags", "assistant-dock"]);
 
 const stores = new Map();
 

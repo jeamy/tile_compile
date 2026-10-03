@@ -1068,6 +1068,35 @@ int main(int argc, char** argv) {
         expect_equal(static_cast<long>(reset_resp["can_redo"].get<bool>()), 0L,
                      "live-image-chat reset can_redo is false");
 
+        // Run threads have a stable central UID, independent of artifact moves/deletion.
+        harness.create_run("uid_thread_fixture", {}, "OSC");
+        const auto context = harness.get_json("/api/pi/assistant/run-context?run_id=uid_thread_fixture");
+        expect_equal(context["_http_status"].get<long>(), 200L, "resolve assistant run context");
+        const std::string thread_uid = context["run_uid"];
+        const auto saved_thread = harness.post_json("/api/pi/run-chat/history", {
+            {"run_id", "uid_thread_fixture"}, {"run_uid", thread_uid},
+            {"history", {{"turns", nlohmann::json::array({{{"message", "stable thread"}, {"result", {{"summary", "retained"}}}}})}}}
+        });
+        expect_equal(saved_thread["_http_status"].get<long>(), 200L, "UID history save");
+        expect_equal(saved_thread["context_id"].get<std::string>(), "run:" + thread_uid, "thread context identity");
+        const auto mismatch = harness.post_json("/api/pi/run-chat", {
+            {"run_id", "pi_fixture_run"}, {"run_uid", thread_uid}, {"message", "do not mix contexts"}
+        });
+        expect_equal(mismatch["_http_status"].get<long>(), 409L, "chat rejects path/UID mismatch before provider call");
+        const auto old_dir = harness.fixture_root() / "runs" / "uid_thread_fixture";
+        const auto new_dir = harness.fixture_root() / "runs" / "uid_thread_moved";
+        std::filesystem::rename(old_dir, new_dir);
+        const auto thread_relinked = harness.post_json("/api/pi/run-contexts/" + thread_uid + "/relink", {{"confirmed", true}, {"run_dir", new_dir.string()}});
+        expect_equal(thread_relinked["_http_status"].get<long>(), 200L, "thread relink");
+        const auto moved_history = harness.get_json("/api/pi/run-chat/history?run_id=uid_thread_moved");
+        expect_equal(moved_history["turns"][0]["message"].get<std::string>(), "stable thread", "history follows moved run");
+        std::filesystem::remove_all(new_dir);
+        const auto deleted_history = harness.get_json("/api/pi/run-chat/history?run_uid=" + thread_uid);
+        expect_equal(deleted_history["_http_status"].get<long>(), 200L, "UID history works without run files");
+        expect_equal(deleted_history["turns"][0]["message"].get<std::string>(), "stable thread", "history retained after artifact deletion");
+        const auto selected = harness.post_json("/api/pi/assistant/select-context", {{"run_uid", thread_uid}});
+        expect_true(!selected["artifacts_reachable"].get<bool>(), "missing context read-only capability");
+        expect_true(harness.get_json("/api/pi/assistant/capabilities")["run_uid_threads"].get<bool>(), "UID thread capability");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());
