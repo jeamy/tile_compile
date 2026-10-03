@@ -269,6 +269,20 @@ const RESUME_CONFIG_SECTIONS = [
 // Returns the most specific run key for API calls: full path if known, else run_id.
 // This allows the backend to locate runs on network drives or non-default runs_dir.
 function getRunApiKey() { const { currentRunDir, currentRunId } = getRunState(); return currentRunDir || currentRunId || ""; }
+
+// Dock handoff only changes the visible draft. Saving and Resume remain separate user actions.
+window.addEventListener("tc-assistant-resume-draft", event => {
+  const detail = event.detail;
+  const editor = document.getElementById("resume-config-yaml");
+  if (!detail || editor !== detail.editor || getRunApiKey() !== detail.ref || editor?.value !== detail.baseline || typeof detail.yaml !== "string") return;
+  editor.value = detail.yaml;
+  updateResumeConfigSectionHighlights(detail.yaml);
+  const panel = document.getElementById("resume-panel");
+  if (panel) panel.style.display = "";
+  const hint = document.getElementById("resume-hint");
+  if (hint) hint.textContent = t("ui.message.resume_ready", "Bereit zum Resume");
+  detail.accepted = true;
+});
 function getResumePending() { return getRunState().resumePending || false; }
 function setResumePending(v) { setRunState({ resumePending: v }); }
 function getResumeActive() { return getRunState().resumeActive || false; }

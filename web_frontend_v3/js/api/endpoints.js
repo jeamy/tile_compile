@@ -81,6 +81,7 @@ export const API_ENDPOINTS = {
     runChatHistory: (runId = "") => `/api/pi/run-chat/history?run_id=${encodeURIComponent(String(runId || ""))}`,
     actionPlanValidate: "/api/pi/action-plans/validate",
     actionPlanPreview: "/api/pi/action-plans/preview",
+    actionPlanPreviewById: (id) => `/api/pi/action-plans/previews/${encodeURIComponent(id)}`,
     actionPlanApply: "/api/pi/action-plans/apply",
     storage: "/api/pi/storage",
     memories: "/api/pi/memories",

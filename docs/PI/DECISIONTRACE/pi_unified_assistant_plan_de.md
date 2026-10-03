@@ -258,7 +258,9 @@ Der [erste Run-Adapter](pi_assistant_dock_implementation_de.md) ist implementier
 Run-Chat zentral nach UID, Backend-Kontextauswahl ohne Session-Start, lazy Warum und deaktivierte Beratung
 bei fehlenden Artefakten. Move/Relink und Dateiloeschung behalten neue UID-Historien. Jev-Post-Run-Karten werden
 jetzt dauerhaft nach UID geladen und als regelbasierte Beratung gekennzeichnet. PI und neue Post-Run-Jev-Karten
-teilen einen Backend-Thread-Endpunkt; Analyse-/Bild-Adapter, Scan-Jev-/Decision-Merging und gemeinsame Apply-Karten folgen.
+teilen einen Backend-Thread-Endpunkt. Gemeinsame Run-Parameterkarten bieten jetzt explizite Auswahl, gepruefte
+YAML-Preview und Uebernahme nur in den passenden sichtbaren Resume-Entwurf; kein Save/Start.
+Analyse-/Bild-Adapter, Scan-Jev-/Decision-Merging und gespeicherter Apply-/Reason-Fluss folgen.
 Der Plan fuer das gesamte Unified Assistant ist damit noch nicht vollstaendig umgesetzt.
 
 ## 5. Prüfpunkte (Assistant)

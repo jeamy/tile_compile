@@ -5,6 +5,7 @@ import { getStore } from "../state/store.js";
 import { getRunState } from "../state/run-state.js";
 import { getFeatureFlags, onFeatureFlagsChange } from "../state/feature-flags.js";
 import { t } from "../i18n/i18n.js";
+import { assistantActionPlans, createAssistantActionCard } from "./action-card.js";
 
 const label = key => t(`ui.dock.${key}`);
 const preferences = getStore("assistant-dock", { open: true, width: 384, pinnedUid: null });
@@ -128,7 +129,9 @@ export function createAssistantDock() {
       method === "backend_rules" ? el("p", { class: "tc-text-muted tc-text-sm" }, label("backend_rules")) : null,
       message ? el("p", { class: "tc-text-sm" }, message) : null,
       el("p", { class: "tc-text-sm" }, result?.summary || result?.message || label("structured")),
-      why, el("p", { class: "tc-text-muted tc-text-sm" }, label("read_only_actions")));
+      why, ...assistantActionPlans(result).map(plan => createAssistantActionCard(plan, scope,
+        () => context?.context_id === scope.context_id && !context.readOnly)),
+      el("p", { class: "tc-text-muted tc-text-sm" }, label("read_only_actions")));
   }
   async function history(version = generation) {
     if (!context) return;

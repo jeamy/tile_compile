@@ -15,7 +15,8 @@
   jeweiligen Migration bestehen; kein vorzeitiges Entfernen noch nicht uebernommener Funktionen.
 - Ein Run-Thread mit PI-Antwortkarten und explizit ausgeloester Jev-Post-Run-Beratung. Neue Jev-Karten werden
   zentral in SQLite wiederhergestellt und als regelbasierte Backend-Beratung ohne Modellaufruf gekennzeichnet.
-  AI-/Jev-Schalter werden respektiert. Vorschlaege im neuen Dock sind vorerst **nur lesbar**, ohne zweiten Apply-Sonderweg.
+  AI-/Jev-Schalter werden respektiert. Gemeinsame Parameterkarten bieten Preview und bestaetigte
+  Uebernahme nur in den sichtbaren Resume-Entwurf, ohne zweiten Config-Save-Weg.
 - Ein ausklappbares **Warum** zeigt die strukturierte Provider-Antwort und laedt vorhandene Kontext-Records
   erst beim Oeffnen. Kontext-Records werden nicht als Beweis fuer eine konkrete Antwort ausgegeben, solange
   die Ereignis-/Proposal-Zuordnung fehlt. LLM-Erklaerungen sind keine gemessene Ursache oder Promotion-Evidenz.
@@ -98,9 +99,34 @@ Dies ist der **erste Adapter**, nicht der abgeschlossene Gesamtumbau:
 - Dauerhaftes Mergen der Jev-/PI-/Decision-Ereignisse in `assistant/thread` inklusive Vorfahren.
   Neue Post-Run-Jev-Karten sind bereits dauerhaft und UID-gebunden; Scan-Jev-Proposals und Decision-Links
   sind noch nicht in diesen Thread integriert. Vorher nur im Browser gehaltene Jev-Karten sind nicht rekonstruierbar.
-- Gemeinsame Preview-/Apply-/Reason-Picker-Karten und Entfernen der alten Parameter-AI-/Jev-Huellen erst danach.
+- Run-PI/Jev-Parameterkarten bieten Preview und Resume-Entwurfsuebernahme bereits an. Gespeicherter
+  Apply-/Reason-Picker-Fluss, Analyse-/Bild-Karten und Entfernen der alten Parameter-AI-/Jev-Huellen sind offen.
 - Aktivierung permanenter Decision-Schreibpunkte und Vergessen bleiben hinter dem Retention-/Loeschpolitik-Gate.
 - Crash-sicheres Apply-Intent/Recovery bleibt ein eigener Backend-Schritt.
+
+## Gemeinsame Parameterkarten: Preview und Resume-Entwurf
+
+`web_frontend_v3/js/assistant/action-card.js` verwendet fuer strukturierte `config.set`/`config.patch`-
+Aktionen und Jev-Post-Run-Suggestions denselben Weg. Keine Werte aus Prosa, keine Tool-/Start-Aktionen.
+Checkboxen beginnen unselektiert; Jev-Kandidaten werden nicht still zu einem Gesamtplan kombiniert.
+
+Preview nutzt den vorhandenen CLI-validierten `POST /api/pi/action-plans/preview` und YAML-Diff mit
+expliziter YAML: sichtbarer Entwurf nur bei gleicher serverseitig bestaetigter UID, sonst die Config des
+konkreten Runs. Keine implizite globale Default-Config. Auswahl-/Kontextwechsel invalidiert spaete Antworten.
+
+**In Resume-Entwurf uebernehmen** ist kein gespeicherter Apply und kein positiver Lernentscheid. Vor der
+Bestaetigung werden UID, Preview-ID/Plan-ID/Config-Hash, Zustand `pending`, Run-Config-Text, Ziel-Editor und
+unveraenderter Entwurf geprueft. Der echte Run-Monitor-Listener akzeptiert die Uebergabe nur fuer den
+weiterhin ausgewaehlten Run-Key und exakt denselben Editor/Baseline-Text. Nur der Editor wird aktualisiert.
+Speichern, Resume-Dry-Run und Start bleiben separate Benutzeraktionen. Full-Run-Empfehlungen erhalten
+eine Warnung; Config-Validitaet bestaetigt keine Resume-/Cache-Eignung. Fehlende Artefakte blockieren Preview;
+ein fehlender/passend anderer Monitor blockiert die Entwurfsuebernahme.
+
+Das Dock ruft keine globalen Apply-/Save-/Start-/Decision-Write-Endpunkte auf und setzt keinen `applied`-
+Status fuer eine lokale Entwurfsuebernahme. Permanent gespeicherter Apply mit Reason und Crash-Recovery
+bleibt offen. Die statischen Action-Card-Fixtures verwenden den echten Monitor-Listener und pruefen
+Auswahl, Run-YAML, Entwurf, geaenderten Editor/Run-Config, Ablauf, Config-Fehler, UID-Konflikt, spaete Preview,
+PI-/Jev-Karten, Full-Run-Warnung sowie Desktop-/Mobilansichten ohne gespeicherte Mutationen.
 
 ## Verifikation
 
