@@ -55,6 +55,17 @@ export const API_ENDPOINTS = {
     log: (limit = 500) => `/api/pi/decisions/log?limit=${encodeURIComponent(String(limit || 500))}`,
   },
   pi: {
+    runLearning: {
+      capabilities: "/api/pi/run-learning/capabilities",
+      list: (limit = 100) => `/api/pi/run-learning?limit=${encodeURIComponent(limit)}`,
+      byUid: (uid) => `/api/pi/run-learning/${encodeURIComponent(uid)}`,
+      history: (uid, limit = 50) => `/api/pi/run-learning/${encodeURIComponent(uid)}/history?summary=true&limit=${encodeURIComponent(limit)}`,
+      snapshot: (uid, id) => `/api/pi/run-learning/${encodeURIComponent(uid)}/snapshots/${encodeURIComponent(id)}`,
+      preview: (uid) => `/api/pi/run-learning/${encodeURIComponent(uid)}/preview`,
+      exclusion: (uid) => `/api/pi/run-learning/${encodeURIComponent(uid)}/exclusion`,
+    },
+    runIdentity: (uid) => `/api/pi/run-contexts/${encodeURIComponent(uid)}`,
+    runRelink: (uid) => `/api/pi/run-contexts/${encodeURIComponent(uid)}/relink`,
     tools: "/api/pi/tools",
     toolsCall: "/api/pi/tools/call",
     context: "/api/pi/context",

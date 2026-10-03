@@ -3036,6 +3036,12 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         return json_resp(pi_audit_log(state, limit));
     });
 
+    CROW_ROUTE(app, "/api/pi/run-learning/capabilities").methods("GET"_method)
+    ([]() {
+        return json_resp({{"schema_version", "pi.run-learning-capabilities.v1"},
+                          {"history_summaries", true}, {"snapshot_lookup", true}, {"delete_preserves_learning", true}});
+    });
+
     CROW_ROUTE(app, "/api/pi/run-learning").methods("GET"_method)
     ([state](const crow::request& req) {
         tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
@@ -3054,7 +3060,17 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
     CROW_ROUTE(app, "/api/pi/run-learning/<string>/history").methods("GET"_method)
     ([state](const crow::request& req, const std::string& uid) {
         tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
-        return json_resp({{"items", store.history(uid, int_query_param(req, "limit", 50))}});
+        const bool summaries = req.url_params.get("summary") && std::string(req.url_params.get("summary")) == "true";
+        return json_resp({{"items", summaries ? store.history_summaries(uid, int_query_param(req, "limit", 50))
+                                              : store.history(uid, int_query_param(req, "limit", 50))}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-learning/<string>/snapshots/<string>").methods("GET"_method)
+    ([state](const std::string& uid, const std::string& id) {
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto snapshot = store.snapshot(uid, id);
+        if (!snapshot) return err_resp("NOT_FOUND", "Run learning snapshot not found", 404);
+        return json_resp(*snapshot);
     });
 
     CROW_ROUTE(app, "/api/pi/run-learning/<string>/preview").methods("GET"_method)

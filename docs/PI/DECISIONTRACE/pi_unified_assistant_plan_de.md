@@ -189,7 +189,9 @@ Explizites Neuverknuepfen ist per `POST /api/pi/run-contexts/<run_uid>/relink` i
 Run-Verzeichnis mit `config.yaml` sein. Alte Pfad-Aliase bleiben erhalten; Provenance oder Alias einer anderen UID
 fuehren zu HTTP 409, es wird niemals still zusammengefuehrt. Historische Artefakte bleiben unveraendert.
 Ein aktiver Kontext wird auf den neuen Pfad aktualisiert. `GET /api/pi/run-contexts/<run_uid>` liefert die Aliase.
-Eine UI zur Auswahl/Neuverknuepfung sowie Dock-Kontextwechsel, Verlauf-/Session-Bezuege und Loesch-Lifecycle sind noch offen.
+Die Run-History-Archivkarte bietet nun Auswahl erhaltener Lerndaten und explizite Neuverknuepfung einer bekannten UID,
+inklusive aktueller Alias-Liste. Datei-Lifecycle, Lern-Ausschluss und Dateiloeschdialoge sind dort implementiert.
+Dock-Kontextwechsel, Verlauf-/Session-Bezuege und die gesonderte Vergessen-Aktion sind noch offen.
 
 **Entscheidungen:**
 
@@ -236,8 +238,10 @@ Eine UI zur Auswahl/Neuverknuepfung sowie Dock-Kontextwechsel, Verlauf-/Session-
      werden zentral gesichert; erst danach werden Run-Dateien entfernt. SQLite-Fehler blockieren die Loeschung.
    - Datei-Lifecycle `deletion_pending`/`deleted` ist getrennt vom expliziten Lern-Ausschluss. Loeschen ist keine
      Ablehnung und kein negatives Outcome. Originale Lights/Darks werden nicht archiviert oder geloescht.
-   - [Run-Lernarchiv](pi_run_learning_archive_de.md) und Exclusion-Endpunkt sind implementiert; der UI-Dialog
-     mit getrennten Aktionen ist noch offen. Archive bleiben unter derselben UID lesbar.
+   - [Run-Lernarchiv](pi_run_learning_archive_de.md), Exclusion-Endpunkt und Run-History-Oberflaeche sind implementiert.
+     Getrennte, bestaetigte Aktionen fuer Dateiloeschung und Lern-Ausschluss; Erfassungsluecken brauchen eine zweite
+     Bestaetigung. Alte Backends ohne Faehigkeitsnachweis werden vor dem Delete blockiert.
+     Archive bleiben unter derselben UID lesbar; Vergessen bleibt eine gesonderte offene Aktion.
    - Memories, Records und zentrale Konversationen bleiben bei reiner Dateiloeschung bestehen. Textredaktion und
      Vergessen gehoeren zu einer separaten bestaetigten Aktion bzw. der noch festzulegenden Aufbewahrungspolitik.
 5. **Verschieben, Kopieren, Umbenennen:** Weil nichts am Run-Verzeichnis hängt, überleben Records und Verlauf ein

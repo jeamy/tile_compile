@@ -251,6 +251,19 @@ int main(int argc, char** argv) {
         expect_equal(archived["source"]["original_input_dir"].get<std::string>(), input_dir, "raw input origin retained");
         const auto history = harness.get_json("/api/pi/run-learning/" + provenance_uid + "/history");
         expect_true(history["items"].size() >= 2, "start and later snapshots retained");
+        const auto capabilities = harness.get_json("/api/pi/run-learning/capabilities");
+        expect_equal(capabilities["_http_status"].get<long>(), 200L, "archive capabilities route beats UID lookup");
+        expect_true(capabilities["delete_preserves_learning"].get<bool>() && capabilities["history_summaries"].get<bool>(),
+                    "archive capabilities confirmed by backend");
+        const auto summaries = harness.get_json("/api/pi/run-learning/" + provenance_uid + "/history?summary=true&limit=1");
+        expect_equal(static_cast<long>(summaries["items"].size()), 1L, "bounded summary endpoint");
+        expect_true(!summaries["items"][0].contains("artifacts"), "summary response does not load documents");
+        const std::string older_id = history["items"].back()["snapshot_id"];
+        const auto older = harness.get_json("/api/pi/run-learning/" + provenance_uid + "/snapshots/" + older_id);
+        expect_equal(older["_http_status"].get<long>(), 200L, "historical snapshot read endpoint");
+        expect_equal(older["snapshot_id"].get<std::string>(), older_id, "historical version exact ID");
+        expect_equal(harness.get_json("/api/pi/run-learning/unknown_uid/snapshots/" + older_id)["_http_status"].get<long>(),
+                     404L, "snapshot UID isolation");
         expect_equal(harness.get_json("/api/pi/run-learning/" + provenance_uid + "/preview")["_http_status"].get<long>(), 404L,
                      "optional preview absent without rendering enabled");
         const auto excluded = harness.post_json("/api/pi/run-learning/" + provenance_uid + "/exclusion", {

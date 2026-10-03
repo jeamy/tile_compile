@@ -101,20 +101,54 @@ Es wird nur das zuletzt gespeicherte Preview je UID gehalten, nicht eine vollsta
 
 ## HTTP-Endpunkte
 
+- `GET /api/pi/run-learning/capabilities`: kleiner Versions-/Faehigkeitsnachweis ohne grosse Datensaetze.
 - `GET /api/pi/run-learning?limit=100`: kompakte Archive-Liste, auch geloeschte Runs.
 - `GET /api/pi/run-learning/<run_uid>`: letzter Snapshot und Lifecycle.
-- `GET /api/pi/run-learning/<run_uid>/history?limit=50`: Snapshot-Versionen.
+- `GET /api/pi/run-learning/<run_uid>/history?limit=50`: bisheriger Abruf vollstaendiger Snapshot-Versionen.
+  Mit `summary=true` nur kleine Zusammenfassungen, ohne Config-/Statistik-Dokumente.
+- `GET /api/pi/run-learning/<run_uid>/snapshots/<snapshot_id>`: genau eine Version dieser UID; fremde UID ergibt 404.
 - `GET /api/pi/run-learning/<run_uid>/preview`: PNG oder 404.
 - `POST /api/pi/run-learning/<run_uid>/exclusion`:
   `{"confirmed":true,"excluded":true,"reason_code":"test_run"}`.
   Wieder zulassen: `{"confirmed":true,"excluded":false}`; das ist keine wissenschaftliche Validierung.
 
-Die visuelle Archiv-/Loeschoptionen-Oberflaeche im Run History/Dock ist noch offen.
+## Implementierte Run-History-Oberflaeche
+
+`web_frontend_v3/js/components/run-learning-archive.js` zeigt eine eigene Archivkarte innerhalb der bestehenden
+Run History, ohne neue Assistant-/Jev-Tabs:
+
+- Archive auch nach Dateiloeschung lesen; Auswahl der UID ueber Reload behalten.
+- Gespeicherten Datei-Lifecycle von beobachteter Pfad-Erreichbarkeit unterscheiden.
+- Letzte Erfassung und bis zu 50 historische Versionen auswaehlen. Nur Zusammenfassungen vorladen;
+  vollstaendige Dokumente erst bei Auswahl einer Version abrufen.
+- Config, Herkunft, Statistik, Phasen und Erfassungsluecken in lazy Details ansehen. Ansichten sind bewusst
+  gekuerzt; ein expliziter lokaler JSON-Download sichert die vollstaendigen Metadaten der ausgewaehlten Version.
+  Er verwendet die ungeparste Serverantwort, damit 64-Bit-Dateizeiten verlustfrei bleiben. Er enthaelt lokale
+  Pfade, ist kein metadata-only Memory-Export und enthaelt das PNG nicht als BLOB.
+- PNG nur bei passender Snapshot-Referenz anzeigen, mit Quell-Artefakt und Hinweis: Darstellung, keine Messgrundlage.
+- Archivdatensatz mit bestaetigtem Code ausschliessen oder Ausschluss aufheben, ohne Messwerte/Dateien zu entfernen.
+  Bereits trainierte Modelle und akzeptierte allgemeine Memories werden dadurch nicht rueckwirkend entfernt.
+- Bekannte UID mit bestaetigtem neuen Run-Pfad verknuepfen; bestehende Backend-Konflikt-/Pfad-Pruefungen bleiben
+  verbindlich. Aktuelle Alias-Liste ist getrennt vom historischen Snapshot-Pfad sichtbar.
+
+Die Dateiloeschung heisst ausdruecklich **Run-Dateien loeschen — Lerndaten behalten**. Der Dialog nennt Ziel und
+Pfad. Erfassungsluecken brauchen eine zweite Bestaetigung; Raw-Source-, SQLite- und Active-Run-Fehler werden
+nicht automatisch umgangen. Vor jedem Delete prueft die UI den Faehigkeitsnachweis des Backends: Ein alter
+oder nicht erreichbarer Backend-Prozess darf keine ungeschuetzte Dateiloeschung ausfuehren. Archiv-Ansichten
+verlangen ebenfalls die neuen Summary-/Einzelversions-Endpunkte, damit alte Backends nicht versehentlich
+Dutzende grosse Snapshot-Dokumente auf einmal liefern.
+
+Verspaetete Antworten eines anderen Archivkontexts werden verworfen. Nach erfolgreicher Dateiloeschung werden
+alte Dateiaction-Buttons entfernt und die erhaltenen Lerndaten angeboten. Buttons/Details sind auf schmalen
+Ansichten responsiv; alle neuen Labels sind in DE und EN vorhanden.
+
+**Noch offen:** Verbindung zum Unified Assistant Dock, Session-/Thread-UID-Anbindung und eine gesonderte,
+freigegebene Vergessen-Aktion mit Behandlung abhaengiger Links und Datenschutz-Wartung.
 
 ## Grenzen und Tests
 
 Erfassung: 2 MiB Config, 16 MiB je Dokument/Events-Datei, 64 MiB eingelesener Text insgesamt und 10000
- ausgewaehlte Phasenereignisse. Auch der serialisierte Snapshot ist auf 64 MiB begrenzt.
+ausgewaehlte Phasenereignisse. Auch der serialisierte Snapshot ist auf 64 MiB begrenzt.
 Dokument-Limits werden als Erfassungsprobleme diagnostiziert; ein zu grosser Gesamtsnapshot bricht die
 Archivierung ab (Loeschroute: 503). Keine automatische Loeschung von Run-Dateien bei solchen Problemen.
 
@@ -123,3 +157,16 @@ immutable/idempotente Snapshots, expliziten Ausschluss, SQLite-Upgrade, externe 
 PNG-Grenzen und Wiedereroeffnen ab. Run-Start-Fixtures pruefen Archivierung, Loeschung mit Erhalt der Rohquellen,
 Speicherfehler vor Loeschung, bestaetigte unvollstaendige Archive und Schutz von Rohquellen innerhalb des
 Run-Verzeichnisses (einschliesslich anschliessendem Verschieben vor Dateiloeschung).
+
+Der Browser-Fixture-Test `web_frontend_v3/tests/run-learning-archive.browser.mjs` interceptiert alle HTTP-Anfragen
+und verwendet ausschliesslich statische Quelldateien und synthetische Antworten. Keine Dienste oder produktiven
+Runs werden gestartet. Pruefungen: DE/EN, Versionswahl, Ausschluss/Entfernen, Relink, XSS-sicherer Text, Reload,
+verspaetete Antworten, Fehler/Retry, Legacy-Backend-Schutz und Desktop/Mobil (1440/390/320 Pixel).
+
+Aufruf mit separat installiertem Playwright und Chromium:
+
+```bash
+PLAYWRIGHT_MODULE_PATH=/pfad/zu/playwright/index.mjs node web_frontend_v3/tests/run-learning-archive.browser.mjs > /tmp/out_archive_browser_test.txt 2>&1
+```
+
+Screenshots werden nur unter `/tmp/out_archive_ui_*.png` geschrieben.

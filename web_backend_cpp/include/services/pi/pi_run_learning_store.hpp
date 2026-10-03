@@ -12,6 +12,8 @@ public:
                           const std::string& stage, const std::string& status);
     std::optional<nlohmann::json> get(const std::string& run_uid);
     nlohmann::json history(const std::string& run_uid, int limit = 50);
+    nlohmann::json history_summaries(const std::string& run_uid, int limit = 50);
+    std::optional<nlohmann::json> snapshot(const std::string& run_uid, const std::string& snapshot_id);
     nlohmann::json list(int limit = 100);
     bool mark_artifacts_state(const std::string& run_uid, const std::string& state);
     bool mark_artifacts_deleted(const std::string& run_uid);

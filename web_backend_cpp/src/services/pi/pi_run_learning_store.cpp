@@ -221,6 +221,19 @@ json PiRunLearningStore::history(const std::string& uid, int limit) {
     }
     return result;
 }
+json PiRunLearningStore::history_summaries(const std::string& uid, int limit) {
+    json result = json::array();
+    for (const auto& row : _db->query("SELECT summary_json, created_at FROM run_learning_snapshots WHERE run_uid = ? ORDER BY rowid DESC LIMIT ?",
+                                      {uid, std::int64_t(std::clamp(limit, 1, 1000))})) {
+        auto value = pi_sql_json(row[0]); value["captured_at_epoch"] = pi_sql_int(row[1]); result.push_back(value);
+    }
+    return result;
+}
+std::optional<json> PiRunLearningStore::snapshot(const std::string& uid, const std::string& id) {
+    const auto rows = _db->query("SELECT json, created_at FROM run_learning_snapshots WHERE run_uid = ? AND snapshot_id = ?", {uid, id});
+    if (rows.empty()) return std::nullopt;
+    auto value = pi_sql_json(rows[0][0]); value["captured_at_epoch"] = pi_sql_int(rows[0][1]); return value;
+}
 json PiRunLearningStore::list(int limit) {
     json result = json::array();
     for (const auto& row : _db->query("SELECT s.summary_json, s.created_at, st.artifacts_state, st.excluded, st.exclusion_code "

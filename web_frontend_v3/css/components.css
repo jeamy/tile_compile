@@ -720,6 +720,25 @@
   background: var(--surface-2);
 }
 
+/* Durable run archive: same cards/actions as Run History, without extra tabs. */
+.tc-run-archive { min-width: 0; word-break: normal; overflow-wrap: anywhere; }
+.tc-archive-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.tc-archive-toolbar > span:first-child { flex: 1; }
+.tc-archive-toolbar > .tc-select { width: auto; max-width: 100%; min-width: 0; }
+.tc-run-file-actions .tc-btn { max-width: 100%; white-space: normal; }
+.tc-archive-row { width: 100%; flex-wrap: wrap; background: transparent; color: inherit; font: inherit; text-align: left; }
+.tc-archive-row:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.tc-archive-section { padding-block: var(--space-2); border-top: 1px solid var(--border); }
+.tc-archive-section > summary { cursor: pointer; font-weight: 600; }
+.tc-archive-json { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: var(--space-2); background: var(--surface-2); border-radius: var(--radius-sm); }
+.tc-run-archive .tc-mono, .tc-archive-path { overflow-wrap: anywhere; min-width: 0; }
+.tc-archive-path-input { flex: 1; min-width: 0; }
+.tc-archive-preview { display: block; max-width: 100%; width: 512px; height: auto; border-radius: var(--radius-sm); }
+.tc-run-archive .tc-btn { align-self: flex-start; }
+@media (max-width: 600px) {
+  .tc-archive-toolbar > .tc-select, .tc-archive-path-input { width: 100%; flex-basis: 100%; }
+}
+
 /* ── Modal ─────────────────────────────────────── */
 .tc-modal-overlay {
   position: fixed;

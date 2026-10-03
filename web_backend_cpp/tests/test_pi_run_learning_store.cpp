@@ -80,6 +80,12 @@ int main() {
             write(run / "artifacts" / "stats.json", "{\"status\":\"ok\",\"summary\":{\"frames\":2}}");
             const auto updated = store.capture(run, "original", "stats_refresh", "completed");
             check(store.history(uid).size() == 2, "changed metrics create immutable revision");
+            const auto summaries = store.history_summaries(uid, 1);
+            check(summaries.size() == 1 && summaries[0]["snapshot_id"] == updated["snapshot_id"], "bounded newest history summary");
+            check(!summaries[0].contains("artifacts") && !summaries[0].contains("config"), "history summaries omit large documents");
+            check(store.snapshot(uid, first["snapshot_id"])->at("artifacts")["artifacts/stats.json"]["data"]["summary"]["frames"] == 1,
+                  "individual historical snapshot keeps original values");
+            check(!store.snapshot("foreign_uid", first["snapshot_id"]).has_value(), "snapshot cannot cross run UID");
             check(updated["excluded_from_learning"] == true, "recapture cannot erase user exclusion");
             const std::string base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ioAAAAASUVORK5CYII=";
             std::vector<unsigned char> png(base64.size());
