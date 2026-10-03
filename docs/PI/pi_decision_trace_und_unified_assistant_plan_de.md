@@ -3,7 +3,9 @@
 > **Status:** Plan, nichts davon ist implementiert.
 > **Datum:** 2026-09-27, überarbeitet 2026-10-02 (Code-Review: Faktenkorrekturen, Schema- und
 > Endpunkt-Klarstellungen, ergänzte Risiken und Prüfpunkte), Analyse-Nachtrag 2026-10-02 (Arbeitskontext-Modell,
-> Rationale-Struktur, Jev-Annahmekette, Audit-Beziehung, Backfill, Session-Fortsetzung, P1-Gates).
+> Rationale-Struktur, Jev-Annahmekette, Audit-Beziehung, Backfill, Session-Fortsetzung, P1-Gates), 2. Review
+> 2026-10-02 (LLM-Anker-Record `llm_proposal`, `image_id`-Definition, Chat-Lücke Analyse-Kontext,
+> `run_uid`-Normalisierung, Löschkaskade, Session-Lock, `origin`-Feld).
 > **Betrifft:** `agent_service/src/services/*`, `web_backend_cpp/src/services/pi/*`,
 > `web_backend_cpp/src/routes/pi_routes.cpp`, `web_frontend_v3/js/{main.js,pages,components,state}`
 > **Verwandt:** [`pi_local_learning_plan_de.md`](pi_local_learning_plan_de.md),
@@ -19,7 +21,7 @@
 
 **Lernen / Nachvollziehbarkeit**
 
-- `agent_service` nutzt `@earendil-works/pi-coding-agent` ^0.87.1; vier Services (`runChatService.ts`,
+- `agent_service` nutzt `@earendil-works/pi-coding-agent` ^1.0.0; vier Services (`runChatService.ts`,
   `liveImageChatService.ts`, `frameAnalysisService.ts`, `modelService.ts`) erzeugen Sessions mit
   `SessionManager.inMemory()`. Das Gespräch, aus dem eine Entscheidung entstand, geht beim Sidecar-Ende
   verloren.
@@ -103,14 +105,15 @@
   "decision_id": "dec_...",
   "parent_decision_id": null,
   "created_at": "...",
-  "kind": "config_apply | config_reject | config_undo | preview_dismissed | config_manual_edit | jev_choice | jev_override | live_edit_op | live_edit_undo | live_edit_keep | memory_review | no_change",
+  "kind": "config_apply | config_reject | config_undo | preview_dismissed | config_manual_edit | llm_proposal | jev_choice | jev_override | live_edit_op | live_edit_undo | live_edit_keep | memory_review | no_change",
   "actor": "user | llm | jev | rule",
   "idempotency_key": "",
   "action_plan_id": null,
+  "origin": "live | legacy_migration",
   "privacy_class": "metadata_only | metadata_plus_user_text",
   "context_ref": {
     "context_id": "", "analysis_id": "", "revision_id": "", "config_sha256": "",
-    "run_id": "", "image_id": "", "context_signature": {}
+    "run_uid": "", "image_id": "", "context_signature": {}
   },
   "subject": { "paths": [{"path": "", "from": null, "to": null}], "op": null },
   "evidence": { "fact_ids": [], "metrics_ref": "", "state_sha256": "" },
@@ -151,7 +154,8 @@ Hinweise:
   vorbehalten.
 - `config_reject` ist nur das **explizite** Verwerfen eines Vorschlags (Button, optional mit Grund). Ein
   geschlossener oder abgelaufener Preview-Dialog ist `preview_dismissed` und gilt nicht als Negativsignal —
-  "nicht angewendet" ist keine Ablehnung.
+  "nicht angewendet" ist keine Ablehnung. Bei `preview_dismissed` ist `actor=user` für einen bewussten
+  Dismiss und `actor=rule` für Timeout/Ablauf.
 - **Rationale ist zweigeteilt.** `rationale.user` enthält, was der Nutzer ausdrücklich angab (Chips, Text oder
   `no_reason_given`). `rationale.basis[]` enthält die Systembasis der Entscheidung, jeweils mit eigener Herkunft
   (`measured_fact`, `model_probability`, `rule`, `llm_hypothesis`) und Referenz. Übernimmt ein Nutzer einen LLM-Vorschlag
@@ -168,6 +172,15 @@ Hinweise:
   Jev, ist das `jev_override` (`actor=user`, Parent = `jev_choice`) und danach ggf. `config_apply` mit Parent
   `jev_override`. `config_reject` bleibt dem Verwerfen eines **PI/LLM-Vorschlags** vorbehalten; das Verwerfen einer
   Jev-Auswahl ist `jev_override` mit der Alternative `keep_current` oder einer Nutzerwahl.
+- **LLM-Anker-Record.** Die PI/LLM-Empfehlung selbst wird als `llm_proposal` (`actor=llm`,
+  `rationale.basis=[llm_hypothesis]`, `rationale.user` leer) aufgezeichnet — sie ist das Pendant zu
+  `jev_choice` und der `parent_decision_id`-Anker von `config_apply`/`config_reject` im LLM-Pfad.
+  `recommendation_id` in `rationale.basis[].ref` verweist auf diesen Record (bei Altbestand auf
+  `analysis_id` + Vorschlagsindex). Ohne ihn wäre `actor=llm` unerreichbar und die Kette
+  Empfehlung → Apply nur bei Jev rekonstruierbar.
+- `evidence.metrics_ref` ist eine artefakt-relative Referenz (relativer Pfad oder Artefakt-Schlüssel, nie
+  ein absoluter Pfad — sonst verletzt er metadata-only). `fact_ids` verweisen auf die stabilen `fact_id`s
+  aus `pi_context_protocol_compression_plan_de.md`.
 - `idempotency_key` (z. B. `action_plan_id` + Ereignis) verhindert Doppel-Records bei Retries und
   Doppelklicks; das Backend dedupliziert darüber.
 - `action_plan_id` verknüpft den Record mit dem validierten Patch — ohne ihn ist die Kette Empfehlung →
@@ -228,7 +241,8 @@ Quellen werden nicht doppelt gepflegt, sondern der Audit-Endpunkt liest ab P5 au
 auf seine bisherigen Quellen zurück.
 
 **Backfill:** Bestehende Memories und Audit-Einträge werden **nicht** zu Records umgedeutet. Optional erzeugt ein
-einmaliger, explizit ausgelöster Migrationslauf `legacy`-Records (`rationale.user.no_reason_given=true`,
+einmaliger, explizit ausgelöster Migrationslauf `legacy`-Records (`origin="legacy_migration"`,
+`rationale.user.no_reason_given=true`,
 `basis=[]`, `kind` aus dem Altereignis) nur dort, wo `analysis_id`/`revision_id` eindeutig belegt sind. Ohne
 Backfill zeigt der Warum-Bereich bei Altfällen "Keine Aufzeichnung (vor Einführung)".
 
@@ -258,7 +272,9 @@ Typdefinitionen des npm-Tarballs gegen die installierte 0.87.1):
 - **Fortsetzung und Nebenläufigkeit (zu klären vor P3):** Der Sidecar legt heute pro Request eine Session an. Mit
   Persistenz gilt: Die `session_id` wird pro Arbeitskontext (§3.0) im Backend gehalten und bei Folge-Requests
   mitgegeben; der Sidecar öffnet sie mit `SessionManager.open(path)` bzw. `findById()` statt `inMemory()`. Pro Kontext
-  läuft höchstens ein aktiver Request; ein zweiter wird abgewiesen oder gequeued (Dock zeigt "beschäftigt"). Eine
+  läuft höchstens ein aktiver Request; ein zweiter wird abgewiesen oder gequeued (Dock zeigt "beschäftigt").
+  Durchgesetzt wird das über ein **per-Session-Lock im Sidecar** — die Session-Datei ist append-only JSONL;
+  zwei parallele `AgentSession`s auf derselben Datei wären korruptionsgefährdet. Eine
   nicht auffindbare Session (gelöscht, Dateiverlust) startet eine neue und schreibt einen Hinweis in den Thread; sie
   bricht nie das Apply. Frame-Analyse (`frameAnalysisService`) bleibt ein abgeschlossener Einzellauf je Analyse mit
   eigener Session, kein fortgesetzter Chat.
@@ -312,9 +328,15 @@ Dock, Threads und `GET /api/pi/assistant/thread` brauchen eine eindeutige Kontex
 - **`context_id`** wird vom Backend vergeben (für Runs aus der stabilen `run_uid`, §3.5) und ist Teil von `context_ref` jedes Records. Es gibt drei Ebenen mit
   fester Verschachtelung:
   1. **Analyse-Kontext** (`analysis_id`): Scan-Analyse, Revisionen (`revision_id`), Parameteroptimierung, Pre-Run-Jev.
-  2. **Run-Kontext** (`run_id`): entsteht aus genau einer Analyse-Revision (`config_sha256` verknüpft sie); Run-Chat,
-     Post-Run-Beratung, Jev nach dem Run.
+  2. **Run-Kontext** (`run_uid`): entsteht aus genau einer Analyse-Revision (`config_sha256` verknüpft sie),
+     **sofern eine existiert** — Direkt-Starts und Queue-Runs ohne AI-Analyse beginnen die Kette am Run.
+     Run-Chat, Post-Run-Beratung, Jev nach dem Run.
   3. **Bild-Kontext** (`image_id`): Live-Image-Session auf einem Ergebnisbild; gehört zu genau einem Run.
+- **`image_id` ist neu zu definieren.** Es gibt heute kein Bild-ID-Konzept: `live-image-chat/create` nimmt nur
+  `run_id` entgegen und arbeitet auf genau einem Ergebnisbild (`find_output_fits` → `outputs/live_edit.fits`);
+  die Historie liegt unter `live_image_chat/<hash(run_id)>.json`. Der Bild-Kontext ist daher faktisch ein Facet
+  des Run-Kontexts mit genau einem Slot: `image_id = "<run_uid>:live_edit"`. Bekommt ein Run künftig mehrere
+  bearbeitbare Ergebnisbilder, wächst `image_id` um den Output-Slot; die Kontextstruktur bleibt gleich.
 - Ein Kontext zeigt im Thread seine **Vorfahren schreibgeschützt mit** (Bild → Run → Analyse), damit die Kette
   Analyse → Run → Bildoperation sichtbar bleibt. Schreiben (Chat, Apply) geschieht nur im aktiven Kontext.
 - Die Auswahl des aktiven Kontexts leitet `context-provider.js` aus dem UI-Zustand ab (laufender Run, geöffnetes Bild,
@@ -365,7 +387,7 @@ kommt als Jev-Karte in den Thread.
 
 Jev ist ein Empfehlungs-Provider neben dem LLM-Pfad, kein eigener Tab:
 
-- Gemeinsame Provider-Schnittstelle im Frontend: `{ id, kind: "llm_scan" | "jev_pre" | "jev_post" | "live_edit",
+- Gemeinsame Provider-Schnittstelle im Frontend: `{ id, kind: "llm_scan" | "jev_pre" | "jev_post" | "run_chat" | "live_edit",
   run(context) → Karte[] }`.
 - Jev-Karten nutzen dieselben Bausteine wie LLM-Karten: Diff (`yaml-diff.js`), Guardrail-Badges, Preview/Apply,
   `reason-picker.js`, Warum-Bereich, Decision Record, Action-Plan-Pipeline. Es gibt keine Sonderwege für Jev.
@@ -417,6 +439,12 @@ Neu: `web_frontend_v3/js/assistant/`
   der die vorhandenen Historien (`run-chat/history`, `live-image-chat/history`, Scan-Analyse-History)
   zeitlich mergt und dedupliziert. Der Namensraum `/api/pi/decisions/*` ist bereits durch die Jev-Decision-API
   belegt (`status`/`test`/`log`/`settings` in `pi_decision_routes.cpp`) und bleibt unangetastet.
+- **Der Analyse-Kontext braucht einen echten Chat-Pfad.** `/api/pi/assistant/ask` ist ein lokaler
+  Keyword-Antwortgeber (`pi_assistant.cpp`, `mode: "local_read_only"`) ohne LLM, Session oder Historie — er
+  kann der Freitext-Thread im Analyse-Kontext nicht sein. Entscheidung: `run-chat` wird zu einem
+  kontext-parametrierten `context-chat` verallgemeinert (ein Adapter, eine Session-Verwaltung, `context_id`
+  statt `run_id`), statt einen dritten Chat-Dienst einzuführen. `assistant/ask` bleibt als lokaler
+  Fallback bei Sidecar-Ausfall bestehen.
 - Spätere Option: ein gemeinsamer Intent-Router (`/api/pi/assistant/turn`), der deterministisch anhand von Kontext und
   Kartentyp an LLM, Jev oder Bildoperation dispatcht. Erst nach Stabilisierung der Adapter; kein erster Schritt.
 
@@ -444,7 +472,9 @@ Neu: `web_frontend_v3/js/assistant/`
    - `context_id` (§3.0) des Run-Kontexts wird aus der `run_uid` gebildet. Alle Schlüssel (Records, Verlauf, Session)
      laufen über `run_uid`, nie über den rohen `run_id`-String. Vorhandene `run_chat/*.json` werden über den Index auf
      die `run_uid` abgebildet (lesend; Migration ohne Löschen der Altdatei).
-   - Die Auflösung `run_id`/Pfad → `run_uid` ist **exakt**, nicht per Präfix.
+   - Die Auflösung `run_id`/Pfad → `run_uid` ist **exakt**, nicht per Präfix. Da `run_id` auch ein absoluter
+     Pfad sein kann, wird vor dem Vergleich normalisiert (kanonischer Pfad, Symlinks, Trailing-Separator,
+     Case-Regeln des Dateisystems).
 2. **Aktivieren eines Runs** (`set-current`) löst im Dock einen Kontextwechsel auf den Run-Kontext aus:
    - Records, Karten und Chat-Verlauf werden sofort geladen (lesend, §3.3).
    - Die **Session wird nicht beim Aktivieren geöffnet**, sondern lazy mit der ersten Nutzernachricht (`open` per
@@ -460,13 +490,17 @@ Neu: `web_frontend_v3/js/assistant/`
      | Nichts vorhanden | Leerer Thread, Session entsteht erst mit der ersten Nachricht |
 
    - *Run History* zeigt je Run ein Kennzeichen "AI-Verlauf vorhanden" (Anzahl Entscheidungen) — ohne Session zu öffnen.
+   - Die zuletzt aktive Kontext-Auswahl wird persistiert: `set-current` schreibt heute nur In-Memory-State
+     (`runs_routes.cpp`), ein Backend-Restart verliert sie. Ergänzung im zentralen Store — eigener Eintrag in
+     `run_index_v1.jsonl` oder der UI-State-Datei — damit "Zustand überlebt Reload/Restart" gilt.
 3. **Resume eines Runs** (`/api/runs/<id>/resume`) setzt denselben Run-Kontext fort; es entsteht kein neuer Kontext.
    Das bestehende Resume-Feedback (`/api/pi/memories/resume-feedback`) wird als Record verknüpft (`parent_decision_id`).
 4. **Löschen eines Runs** (`/api/runs/<id>/delete`):
    - Decision Records bleiben (Lerndaten, Memory-Verweise) und werden über das Overlay als `run_deleted` markiert; der
      Warum-Bereich zeigt "Run gelöscht".
    - Session und Chat-Verlauf (Nutzertext) folgen dem Löschkonzept (§2.8): Standard ist Mitlöschen oder Anonymisieren; der
-     Bestätigungsdialog nennt es ausdrücklich.
+     Bestätigungsdialog nennt es ausdrücklich. Die Kaskade gilt für Run- **und** Bild-Kontext (`image_id`
+     hängt am `run_uid`); der Analyse-Kontext bleibt unberührt.
    - Memories mit `provenance` auf den Run bleiben bestehen.
 5. **Verschieben, Kopieren, Umbenennen:** Weil nichts am Run-Verzeichnis hängt, überleben Records und Verlauf ein
    Verschieben auf demselben System, solange `run_dir` auflösbar bleibt oder über `config_sha256`/Startzeit
@@ -506,10 +540,15 @@ Neu: `web_frontend_v3/js/assistant/`
 - **Jev:** Records enthalten Wahrscheinlichkeiten, Konfidenz, Build-ID, Kosten, Policy-Urteil auch für `keep_current`.
 - **Records:** Overlay statt Mutation (`decision_links_v1.jsonl`), Idempotenz bei Apply-Retry/Doppelklick,
   `actor`×`basis`-Regeln serverseitig validiert, `no_reason_given` XOR `reason_codes`/`text`, Jev-Annahmekette über `parent_decision_id`, `rationale.user.text`
-  längenbegrenzt und pfadbereinigt, `catalog_version` gespeichert.
+  längenbegrenzt und pfadbereinigt, `catalog_version` gespeichert; `llm_proposal` verankert die LLM-Kette
+  symmetrisch zu `jev_choice`; `origin` unterscheidet Backfill-Records; `evidence.metrics_ref` bleibt
+  artefakt-relativ (keine absoluten Pfade).
 - **Namensräume:** keine Kollision mit `/api/pi/decisions/*` (Jev-API) und keine Vermischung mit den
   `reason_codes` aus `pi.config-proposal.v1`.
-- **Run-Lebenszyklus:** Aktivieren öffnet keine Session; alle fünf Zustände der Tabelle (§3.5) degradieren ohne Fehler; Zugriff über Name und Pfad liefert denselben Kontext; `run_uid`-Auflösung exakt (kein Präfix); Löschen eines Runs markiert Records und folgt dem Löschkonzept; nichts wird in bestehende Run-Verzeichnisse geschrieben.
+- **Run-Lebenszyklus:** Aktivieren öffnet keine Session; alle fünf Zustände der Tabelle (§3.5) degradieren ohne Fehler; Zugriff über Name und Pfad liefert denselben Kontext; `run_uid`-Auflösung exakt (kein Präfix) inkl. Pfad-Normalisierung; Löschen eines Runs markiert Records, kaskadiert auf den Bild-Kontext und folgt dem Löschkonzept; die aktive Kontext-Auswahl überlebt einen Backend-Restart; nichts wird in bestehende Run-Verzeichnisse geschrieben.
+- **Kontextmodell:** `image_id` ist heute genau `<run_uid>:live_edit`; der Analyse-Kontext nutzt denselben
+  verallgemeinerten Chat-Pfad wie der Run (kein dritter Chat-Dienst); der Sidecar hält ein per-Session-Lock
+  (max. ein aktiver Request je Kontext).
 - **Datenschutz:** Exports enthalten keine Session-Texte; Records enthalten keine Rohdaten/Pfade.
 - **UI:** Dock auf allen Tabs, Zustand überlebt Reload, Kontextwechsel aktualisiert den Thread, Warum-Bereich lädt erst beim Ausklappen nach, schmale Fenster, DE/EN,
   Tastatur-Bedienbarkeit, bestehende Shortcuts (`1/2/3`, Pfeiltasten) kollidieren nicht mit Eingabefeldern im Dock.
