@@ -4,6 +4,7 @@
 #include "routes/route_utils.hpp"
 #include "services/ai_service.hpp"
 #include "services/pi/pi_assistant.hpp"
+#include "services/pi/pi_assistant_event_store.hpp"
 #include "services/pi/pi_ai_request_builder.hpp"
 #include "services/pi/pi_context_builder.hpp"
 #include "services/pi/pi_context_v2.hpp"
@@ -2418,7 +2419,46 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
 
     CROW_ROUTE(app, "/api/pi/assistant/capabilities").methods("GET"_method)
     ([]() { return json_resp({{"schema_version", "pi.assistant-capabilities.v1"}, {"run_uid_threads", true},
-                             {"analysis_chat", false}, {"image_chat", false}, {"decision_writes", false}}); });
+                             {"analysis_chat", false}, {"image_chat", false}, {"decision_writes", false},
+                             {"thread_history", true}, {"durable_jev_post_run", true}}); });
+
+    CROW_ROUTE(app, "/api/pi/assistant/thread").methods("GET"_method)
+    ([state](const crow::request& req) {
+        const std::string uid = req.url_params.get("run_uid") ? req.url_params.get("run_uid") : "";
+        if (uid.empty()) return err_resp("BAD_REQUEST", "run_uid is required", 400);
+        const bool include_pi = !req.url_params.get("include_pi") || std::string(req.url_params.get("include_pi")) != "0";
+        const bool include_jev = !req.url_params.get("include_jev") || std::string(req.url_params.get("include_jev")) != "0";
+        try {
+            if (!tile_compile::pi::PiRunIndex(tile_compile::pi::pi_storage_dir(state)).get(uid))
+                return err_resp("NOT_FOUND", "Unknown run UID", 404);
+            nlohmann::json items = nlohmann::json::array();
+            if (include_pi) {
+                const auto history = read_pi_run_chat_history(state, "", uid);
+                const auto turns = history.value("turns", nlohmann::json::array());
+                const size_t begin = turns.size() > 24 ? turns.size() - 24 : 0;
+                for (size_t i = begin; i < turns.size(); ++i) {
+                    const auto& turn = turns[i];
+                    items.push_back({{"event_id", turn.value("event_id", "pi_" + tile_compile::pi::sha256_prefixed(uid + ":" + std::to_string(i) + ":" + turn.dump()).substr(7))},
+                        {"run_uid", uid}, {"context_id", "run:" + uid}, {"provider", "pi"}, {"kind", "pi_turn"},
+                        {"created_at", turn.value("created_at", std::string())},
+                        {"created_at_epoch_ms", turn.value("created_at_epoch_ms", std::int64_t(0))},
+                        {"message", turn.value("message", std::string())},
+                        {"result", turn.value("result", nlohmann::json{{"summary", turn.value("error", std::string())}})}});
+                }
+            }
+            if (include_jev) for (const auto& event : tile_compile::pi::PiAssistantEventStore(tile_compile::pi::pi_storage_dir(state)).list(uid))
+                items.push_back(event);
+            std::stable_sort(items.begin(), items.end(), [](const auto& a, const auto& b) {
+                if (a["created_at"] != b["created_at"]) return a["created_at"] < b["created_at"];
+                return a["created_at_epoch_ms"] < b["created_at_epoch_ms"];
+            });
+            const nlohmann::json response = {{"schema_version", "pi.assistant-thread.v1"}, {"run_uid", uid},
+                {"context_id", "run:" + uid}, {"items", items}, {"window", {{"pi_turn_limit", 24}, {"jev_event_limit", 100}, {"jev_byte_limit", 8388608}}}};
+            if (response.dump().size() > 16 * 1024 * 1024)
+                return err_resp("THREAD_TOO_LARGE", "Thread exceeds bounded response size", 413);
+            return json_resp(response);
+        } catch (const std::exception& e) { return err_resp("ASSISTANT_THREAD_UNAVAILABLE", e.what(), 503); }
+    });
 
     CROW_ROUTE(app, "/api/pi/assistant/run-context").methods("GET"_method)
     ([state](const crow::request& req) {
@@ -2592,6 +2632,8 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             history["messages"] = messages;
             if (!history.contains("turns") || !history["turns"].is_array()) history["turns"] = nlohmann::json::array();
             history["turns"].push_back({
+                {"event_id", "pi_" + tile_compile::pi::PiRunIndex::generate_uid()},
+                {"created_at_epoch_ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()},
                 {"message", message},
                 {"result", answer},
                 {"target", target_context},

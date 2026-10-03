@@ -1084,6 +1084,25 @@ int main(int argc, char** argv) {
         });
         expect_equal(mismatch["_http_status"].get<long>(), 409L, "chat rejects path/UID mismatch before provider call");
         const auto old_dir = harness.fixture_root() / "runs" / "uid_thread_fixture";
+        const auto advice_mismatch = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", "pi_fixture_run"}, {"run_uid", thread_uid}
+        });
+        expect_equal(advice_mismatch["_http_status"].get<long>(), 409L, "Jev path/UID mismatch rejected");
+        const auto durable_advice = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", old_dir.string()}, {"run_uid", thread_uid}, {"request_id", "dock_click_1"}
+        });
+        expect_equal(durable_advice["_http_status"].get<long>(), 200L, "absolute-path Jev advice stored");
+        expect_equal(durable_advice["evaluation_method"].get<std::string>(), "backend_rules", "Jev method honest");
+        const auto retried_advice = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", old_dir.string()}, {"run_uid", thread_uid}, {"request_id", "dock_click_1"}
+        });
+        expect_equal(retried_advice["event_id"].get<std::string>(), durable_advice["event_id"].get<std::string>(), "same request yields one card");
+        const std::string thread_url = "/api/pi/assistant/thread?run_uid=" + thread_uid;
+        const auto durable_thread = harness.get_json(thread_url);
+        expect_equal(static_cast<long>(durable_thread["items"].size()), 2L, "PI and Jev in one thread");
+        expect_equal(static_cast<long>(harness.get_json(thread_url + "&include_pi=0")["items"].size()), 1L, "PI visibility filter");
+        expect_equal(static_cast<long>(harness.get_json(thread_url + "&include_jev=0")["items"].size()), 1L, "Jev visibility filter");
+        expect_equal(harness.get_json("/api/pi/assistant/thread?run_uid=unknown")["_http_status"].get<long>(), 404L, "unknown thread cannot be fabricated");
         const auto new_dir = harness.fixture_root() / "runs" / "uid_thread_moved";
         std::filesystem::rename(old_dir, new_dir);
         const auto thread_relinked = harness.post_json("/api/pi/run-contexts/" + thread_uid + "/relink", {{"confirmed", true}, {"run_dir", new_dir.string()}});
@@ -1094,6 +1113,9 @@ int main(int argc, char** argv) {
         const auto deleted_history = harness.get_json("/api/pi/run-chat/history?run_uid=" + thread_uid);
         expect_equal(deleted_history["_http_status"].get<long>(), 200L, "UID history works without run files");
         expect_equal(deleted_history["turns"][0]["message"].get<std::string>(), "stable thread", "history retained after artifact deletion");
+        const auto deleted_thread = harness.get_json(thread_url);
+        expect_equal(static_cast<long>(deleted_thread["items"].size()), 2L, "Jev retained after move and deletion");
+        expect_true(harness.get_json("/api/pi/decision-records")["items"].empty(), "thread cards do not create Decision Records");
         const auto selected = harness.post_json("/api/pi/assistant/select-context", {{"run_uid", thread_uid}});
         expect_true(!selected["artifacts_reachable"].get<bool>(), "missing context read-only capability");
         expect_true(harness.get_json("/api/pi/assistant/capabilities")["run_uid_threads"].get<bool>(), "UID thread capability");

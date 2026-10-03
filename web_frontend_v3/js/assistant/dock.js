@@ -13,11 +13,13 @@ const jsonView = value => el("pre", { class: "tc-archive-json" }, JSON.stringify
 export function createAssistantDock() {
   let context = null;
   let generation = 0;
+  let historyGeneration = 0;
   let capable = false;
+  let threadCapable = false;
+  let durableJev = false;
   let lastRun = "";
   let selectionTail = Promise.resolve();
   const busy = new Set();
-  const jevCards = new Map();
   const drafts = new Map(); // Draft text stays in memory, never in localStorage.
   const title = el("div", { class: "tc-mono tc-dock-context" });
   const status = el("p", { class: "tc-text-muted tc-text-sm", "aria-live": "polite" });
@@ -61,7 +63,8 @@ export function createAssistantDock() {
     send.classList.toggle("tc-hidden", !flags.aiEnabled);
     jev.classList.toggle("tc-hidden", !flags.jevEnabled);
     const blocked = !capable || !context?.run_key || context.readOnly || busy.has(context?.context_id);
-    send.disabled = blocked; jev.disabled = blocked; input.disabled = blocked;
+    send.disabled = blocked; jev.disabled = blocked || !durableJev; input.disabled = blocked;
+    jev.title = durableJev ? label("jev") : label("jev_backend_required");
   }
   async function select(uid, pin = false) {
     const version = ++generation;
@@ -107,7 +110,7 @@ export function createAssistantDock() {
       await select(resolved.run_uid);
     } catch (error) { if (version === generation) { status.textContent = `${label("unavailable")} ${error.message}`; buttons(); } }
   }
-  function card(result, provider, scope, message = "") {
+  function card(result, provider, scope, message = "", method = "") {
     const why = el("details", { class: "tc-archive-section" }, el("summary", {}, label("why")));
     let loaded = false;
     why.addEventListener("toggle", async () => {
@@ -122,33 +125,41 @@ export function createAssistantDock() {
     });
     return el("article", { class: "tc-card tc-dock-card" },
       el("div", { class: "tc-card-title" }, provider === "jev" ? "Jev" : "PI"),
+      method === "backend_rules" ? el("p", { class: "tc-text-muted tc-text-sm" }, label("backend_rules")) : null,
       message ? el("p", { class: "tc-text-sm" }, message) : null,
       el("p", { class: "tc-text-sm" }, result?.summary || result?.message || label("structured")),
       why, el("p", { class: "tc-text-muted tc-text-sm" }, label("read_only_actions")));
   }
   async function history(version = generation) {
     if (!context) return;
+    const request = ++historyGeneration;
     const scope = { ...context };
     try {
-      const result = getFeatureFlags().aiEnabled ? await api.get(API_ENDPOINTS.pi.runChatHistoryUid(scope.run_uid)) : { turns: [] };
-      if (version !== generation) return;
+      const flags = getFeatureFlags();
+      const result = threadCapable
+        ? await api.get(API_ENDPOINTS.pi.assistantThread(scope.run_uid, flags.aiEnabled, flags.jevEnabled))
+        : flags.aiEnabled ? await api.get(API_ENDPOINTS.pi.runChatHistoryUid(scope.run_uid)) : { turns: [] };
+      if (version !== generation || request !== historyGeneration) return;
       clear(thread);
-      for (const turn of result.turns || []) thread.append(card(turn.result || { summary: turn.error || "" }, "pi", scope, turn.message));
-      if (getFeatureFlags().jevEnabled) for (const result of jevCards.get(scope.context_id) || []) thread.append(card(result, "jev", scope));
+      if (threadCapable) {
+        if (result.context_id !== scope.context_id) throw new Error(label("context_mismatch"));
+        for (const item of result.items || []) thread.append(card(item.result || {}, item.provider, scope, item.message, item.evaluation_method));
+        if (thread.childNodes.length) thread.append(el("p", { class: "tc-text-muted tc-text-sm" }, label("history_window")));
+      } else for (const turn of result.turns || []) thread.append(card(turn.result || { summary: turn.error || "" }, "pi", scope, turn.message));
       if (!thread.childNodes.length) thread.append(el("p", { class: "tc-text-muted tc-text-sm" }, label("empty")));
-    } catch (error) { if (version === generation) status.textContent = `${label("unavailable")} ${error.message}`; }
+    } catch (error) { if (version === generation && request === historyGeneration) status.textContent = `${label("unavailable")} ${error.message}`; }
   }
   async function submit(provider) {
-    if (!context || context.readOnly || busy.has(context.context_id) || !capable) return;
+    if (!context || context.readOnly || busy.has(context.context_id) || !capable || (provider === "jev" && !durableJev)) return;
     const scope = { ...context };
     const message = input.value.trim();
     if (provider === "pi" && !message) return;
     busy.add(scope.context_id); buttons(); status.textContent = label("working");
     try {
       const result = provider === "pi" ? await api.post(API_ENDPOINTS.pi.runChat, { run_id: scope.run_key, run_uid: scope.run_uid, message })
-        : await api.post(API_ENDPOINTS.decisions.postRunAdvice, { run_id: scope.run_key, allow_experimental: false });
-      if (provider === "jev") jevCards.set(scope.context_id, [...(jevCards.get(scope.context_id) || []), result].slice(-24));
-      else drafts.delete(scope.context_id);
+        : await api.post(API_ENDPOINTS.decisions.postRunAdvice, { run_id: scope.run_key, run_uid: scope.run_uid,
+          request_id: Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, "0")).join(""), allow_experimental: false });
+      if (provider === "pi") drafts.delete(scope.context_id);
       if (context?.context_id === scope.context_id) {
         if (provider === "pi") input.value = "";
         status.textContent = label("ready"); await history();
@@ -160,7 +171,9 @@ export function createAssistantDock() {
     try {
       const capabilities = await api.get(API_ENDPOINTS.pi.assistantCapabilities);
       capable = capabilities.schema_version === "pi.assistant-capabilities.v1" && capabilities.run_uid_threads === true;
-    } catch { capable = false; }
+      threadCapable = capable && capabilities.thread_history === true;
+      durableJev = threadCapable && capabilities.durable_jev_post_run === true;
+    } catch { capable = false; threadCapable = false; durableJev = false; }
     if (!capable) { status.textContent = label("backend_required"); buttons(); return; }
     if (preferences.getState().pinnedUid) await select(preferences.getState().pinnedUid);
     else await followRun(true);

@@ -5,6 +5,8 @@
 #include "services/pi/pi_decision_outcome.hpp"
 #include "services/pi/pi_decision_service.hpp"
 #include "services/pi/pi_post_run.hpp"
+#include "services/pi/pi_assistant_event_store.hpp"
+#include "services/pi/pi_run_index.hpp"
 #include "services/pi/pi_scan_manifest.hpp"
 #include "services/pi/pi_json_io.hpp"
 #include "services/pi/pi_storage_paths.hpp"
@@ -226,21 +228,35 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         return json_resp({{"proposal_id", ids.front()}, {"proposal_ids", ids}, {"groups", groups}, {"state", "running"}}, 202);
     });
 
-    // Post-run advice, only when the user asks for it. Read-only: the run directory is not touched, no model is called and
-    // no run is started. A suggestion still needs the resume dry run (feasibility) and a separate start by the user.
-    // NOTE: this route was accidentally deleted by an earlier edit to the /api/scan/decisions POST route above (the
-    // matching commit replaced everything between two anchor lines and swallowed this block with it); restored 2026-09-27.
+    // Explicit rule-based advice: run artifacts are read-only; the resulting card is stored centrally.
+    // No model call, config apply, or run start. Resume still requires dry-run feasibility and explicit start.
     CROW_ROUTE(app, "/api/pi/post-run/advice").methods("POST"_method)
     ([state, holder](const crow::request& req) {
         auto body = parse_body(req);
         if (!body || !body->is_object()) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        for (const auto* key : {"run_id", "run_uid", "request_id"})
+            if (body->contains(key) && !(*body)[key].is_string())
+                return err_resp("BAD_REQUEST", std::string(key) + " must be a string", 400);
         const std::string run_id = body->value("run_id", std::string());
-        if (run_id.empty() || run_id.find('/') != std::string::npos || run_id.find("..") != std::string::npos)
-            return err_resp("BAD_REQUEST", "run_id (a run directory name) is required", 400);
+        const std::string expected_uid = body->value("run_uid", std::string());
+        const std::string request_id = body->value("request_id", std::string());
+        if (run_id.empty() || request_id.size() > 128 ||
+            request_id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != std::string::npos)
+            return err_resp("BAD_REQUEST", "run_id is required; request_id must be at most 128 identifier characters", 400);
         fs::path run_dir;
         try { run_dir = state->runtime.resolve_run_dir(run_id); } catch (const std::exception&) { return err_resp("NOT_FOUND", "run not found", 404); }
         std::error_code ec;
         if (!fs::is_directory(run_dir, ec)) return err_resp("NOT_FOUND", "run not found", 404);
+        if (auto denied = validate_path(state, run_dir, true)) return std::move(*denied);
+        std::string uid;
+        try {
+            const auto provenance = read_json_file_opt(run_dir / "artifacts/pi_run_provenance.json").value_or(json::object());
+            const auto identity = PiRunIndex(pi_storage_dir(state)).resolve(run_dir, provenance.value("run_uid", std::string()));
+            uid = identity["run_uid"];
+            if (!expected_uid.empty() && uid != expected_uid)
+                return err_resp("RUN_IDENTITY_CONFLICT", "Run path does not match requested context UID", 409);
+        } catch (const PiRunIdentityConflict& e) { return err_resp("RUN_IDENTITY_CONFLICT", e.what(), 409); }
+          catch (const std::exception& e) { return err_resp("RUN_CONTEXT_UNAVAILABLE", e.what(), 503); }
         json run_config = nullptr;
         try { run_config = yaml_text_to_json(read_file_str(run_dir / "config.yaml")); } catch (const std::exception&) { run_config = nullptr; }
         std::string error;
@@ -259,7 +275,16 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
             return {valid, valid ? std::string() : std::string("validate-config failed")};
         };
         const json ps = build_post_run_state(run_dir, run_config);
-        return json_resp({{"state", ps}, {"advice", advise_post_run(ps, run_config, policy, svc->catalog(), validator, dismissed)}});
+        const json result = {{"state", ps}, {"advice", advise_post_run(ps, run_config, policy, svc->catalog(), validator, dismissed)}};
+        try {
+            const std::string id = request_id.empty() ? "jev_" + PiRunIndex::generate_uid()
+                : "jev_" + sha256_prefixed("run:" + uid + ":jev_post_run:" + request_id).substr(7);
+            const auto event = PiAssistantEventStore(pi_storage_dir(state)).append(id, uid, result);
+            json response = result;
+            for (const auto* key : {"event_id", "run_uid", "context_id", "evaluation_method"}) response[key] = event[key];
+            return json_resp(response);
+        } catch (const std::invalid_argument& e) { return err_resp("ASSISTANT_EVENT_CONFLICT", e.what(), 409); }
+          catch (const std::exception& e) { return err_resp("ASSISTANT_STORE_FAILED", e.what(), 503); }
     });
 
     CROW_ROUTE(app, "/api/scan/decisions/<string>").methods("GET"_method)

@@ -288,7 +288,7 @@ int PiDatabase::schema_version() {
 void PiDatabase::init_schema() {
     Tx tx(*this);
     const int version = schema_version();
-    if (version != 0 && version != 2 && version != 3 && version != 4 && version != 5 && version != kPiDatabaseSchemaVersion) {
+    if (version != 0 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 && version != kPiDatabaseSchemaVersion) {
         throw std::runtime_error("Unsupported PI database schema: " + std::to_string(version));
     }
     if (version == 0) {
@@ -333,6 +333,14 @@ void PiDatabase::init_schema() {
             if (!has_source) execute("ALTER TABLE run_learning_previews ADD COLUMN source_artifact TEXT NOT NULL DEFAULT ''");
         }
         execute("PRAGMA user_version = 6");
+    }
+    if (version < 7) {
+        execute("CREATE TABLE assistant_thread_events (event_id TEXT PRIMARY KEY, "
+                "run_uid TEXT NOT NULL REFERENCES run_index(run_uid), created_at INTEGER NOT NULL, json TEXT NOT NULL)");
+        execute("CREATE INDEX assistant_thread_events_context ON assistant_thread_events(run_uid, created_at)");
+        execute("CREATE TRIGGER assistant_thread_events_no_update BEFORE UPDATE ON assistant_thread_events "
+                "BEGIN SELECT RAISE(ABORT, 'assistant events are immutable'); END");
+        execute("PRAGMA user_version = 7");
     }
     tx.commit();
 }
