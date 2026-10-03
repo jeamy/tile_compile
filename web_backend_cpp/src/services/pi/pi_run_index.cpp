@@ -46,7 +46,7 @@ nlohmann::json PiRunIndex::resolve(const std::filesystem::path& run_dir, const s
     const auto aliases = _db->query("SELECT run_uid FROM run_aliases WHERE run_key = ?", {key});
     if (!aliases.empty()) {
         const auto uid = pi_sql_text(aliases[0][0]);
-        if (!provenance_uid.empty() && provenance_uid != uid) throw std::runtime_error("Run identity conflict");
+        if (!provenance_uid.empty() && provenance_uid != uid) throw PiRunIdentityConflict("Run identity conflict");
         auto result = get(uid).value();
         result["run_key"] = key;
         tx.commit();
@@ -63,6 +63,18 @@ nlohmann::json PiRunIndex::resolve(const std::filesystem::path& run_dir, const s
     _db->execute("INSERT INTO run_aliases(run_key, run_uid) VALUES(?, ?)", {key, uid});
     auto result = get(uid).value();
     result["run_key"] = key;
+    tx.commit();
+    return result;
+}
+nlohmann::json PiRunIndex::relink(const std::string& uid, const std::filesystem::path& target,
+                                 const std::string& target_provenance_uid) {
+    if (!valid_uid(uid)) throw std::invalid_argument("Invalid run UID");
+    if (!std::filesystem::is_directory(target)) throw std::invalid_argument("Target run directory not found");
+    PiDatabase::Tx tx(*_db);
+    if (!get(uid)) throw std::out_of_range("Run UID not found");
+    if (!target_provenance_uid.empty() && target_provenance_uid != uid)
+        throw PiRunIdentityConflict("Target provenance belongs to a different run UID");
+    auto result = resolve(target, uid);
     tx.commit();
     return result;
 }

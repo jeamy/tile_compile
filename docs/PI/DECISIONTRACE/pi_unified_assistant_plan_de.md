@@ -184,7 +184,12 @@ Neu: `web_frontend_v3/js/assistant/`
 
 **Implementierungsstand:** Zentraler Run-Index, neue Provenance-UIDs, Kontext in `set-current` und Persistenz von
 `pi_active_context` sind implementiert. `GET /api/pi/active-context` stellt die Auswahl bereit.
-Dock-Kontextwechsel, Verlauf-/Session-Bezuege und Loesch-Lifecycle sind noch offen.
+Explizites Neuverknuepfen ist per `POST /api/pi/run-contexts/<run_uid>/relink` implementiert:
+`{"run_dir":"/neuer/pfad","confirmed":true}`. Die UID muss bereits bekannt sein, das Ziel muss ein erlaubtes
+Run-Verzeichnis mit `config.yaml` sein. Alte Pfad-Aliase bleiben erhalten; Provenance oder Alias einer anderen UID
+fuehren zu HTTP 409, es wird niemals still zusammengefuehrt. Historische Artefakte bleiben unveraendert.
+Ein aktiver Kontext wird auf den neuen Pfad aktualisiert. `GET /api/pi/run-contexts/<run_uid>` liefert die Aliase.
+Eine UI zur Auswahl/Neuverknuepfung sowie Dock-Kontextwechsel, Verlauf-/Session-Bezuege und Loesch-Lifecycle sind noch offen.
 
 **Entscheidungen:**
 

@@ -586,6 +586,39 @@ int main(int argc, char** argv) {
         expect_equal(invalid_config_preview["_http_status"].get<long>(), 200L, "pi invalid config preview status");
         expect_true(!invalid_config_preview["preview"]["config_valid"].get<bool>(), "pi invalid config preview validation");
 
+        // Explicit relink of a moved historical run, without editing its artifacts.
+        harness.make_file("runs/historical_move/config.yaml", "data:\n  color_mode: OSC\n");
+        harness.make_file("runs/historical_move/artifacts/pi_run_provenance.json", "{\"schema_version\":\"pi.run-provenance.v1\"}");
+        const auto old_run_dir = harness.fixture_root() / "runs" / "historical_move";
+        const auto old_provenance = slurp_file(old_run_dir / "artifacts" / "pi_run_provenance.json");
+        const auto selected_history = harness.post_json("/api/runs/historical_move/set-current", {{"run_dir", old_run_dir.string()}});
+        const auto historical_uid = selected_history["run_uid"].get<std::string>();
+        const auto new_run_dir = harness.fixture_root() / "moved_history";
+        std::filesystem::rename(old_run_dir, new_run_dir);
+        const auto relink_url = "/api/pi/run-contexts/" + historical_uid + "/relink";
+        expect_equal(harness.post_json(relink_url, {{"run_dir", new_run_dir.string()}})["_http_status"].get<long>(),
+                     409L, "relink requires explicit confirmation");
+        harness.make_file("not_a_run/sentinel", "fixture");
+        expect_equal(harness.post_json(relink_url, {{"run_dir", (harness.fixture_root() / "not_a_run").string()}, {"confirmed", true}})["_http_status"].get<long>(),
+                     400L, "arbitrary non-run directory rejected");
+        const auto relinked = harness.post_json(relink_url, {{"run_dir", new_run_dir.string()}, {"confirmed", true}});
+        expect_equal(relinked["_http_status"].get<long>(), 200L, "historical run relinked");
+        expect_equal(relinked["identity"]["run_uid"].get<std::string>(), historical_uid, "relink keeps UID");
+        expect_equal(static_cast<long>(relinked["identity"]["run_keys"].size()), 2L, "old alias kept");
+        expect_equal(slurp_file(new_run_dir / "artifacts" / "pi_run_provenance.json"), old_provenance,
+                     "relink leaves historical provenance untouched");
+        expect_equal(harness.get_json("/api/pi/active-context")["context"]["run_key"].get<std::string>(),
+                     new_run_dir.string(), "active context follows relink");
+        const auto indexed_history = harness.get_json("/api/pi/run-contexts/" + historical_uid);
+        expect_equal(indexed_history["_http_status"].get<long>(), 200L, "run identity lookup");
+        const auto reactivated = harness.post_json("/api/runs/moved_history/set-current", {{"run_dir", new_run_dir.string()}});
+        expect_equal(reactivated["run_uid"].get<std::string>(), historical_uid, "activation after move keeps history UID");
+        const auto foreign_dir = harness.fixture_root() / "foreign_run";
+        harness.make_file("foreign_run/config.yaml", "data:\n  color_mode: OSC\n");
+        harness.post_json("/api/runs/foreign_run/set-current", {{"run_dir", foreign_dir.string()}});
+        expect_equal(harness.post_json(relink_url, {{"run_dir", foreign_dir.string()}, {"confirmed", true}})["_http_status"].get<long>(),
+                     409L, "relink cannot merge two existing run UIDs");
+
         // --- Outcome-Delta-Test ---
         // evaluate_memory_outcome_payload muss FWHM-Delta, Report-Warnings-Delta
         // und user_rating verarbeiten und das Verdict korrekt ableiten.

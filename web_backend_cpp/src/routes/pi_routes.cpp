@@ -14,6 +14,8 @@
 #include "services/pi/pi_user_reason_catalog.hpp"
 #include "services/pi/pi_preview_store.hpp"
 #include "services/pi/pi_decision_record_store.hpp"
+#include "services/pi/pi_run_index.hpp"
+#include "services/pi/pi_json_io.hpp"
 #include "services/pi/pi_tool_registry.hpp"
 #include "services/pi/pi_image_ops.hpp"
 #include "services/pi/pi_live_edit_recorder.hpp"
@@ -3031,6 +3033,72 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
     ([state](const crow::request& req) {
         const int limit = std::max(1, std::min(1000, int_query_param(req, "limit", 200)));
         return json_resp(pi_audit_log(state, limit));
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-contexts/<string>").methods("GET"_method)
+    ([state](const std::string& uid) {
+        tile_compile::pi::PiRunIndex index(tile_compile::pi::pi_storage_dir(state));
+        const auto identity = index.get(uid);
+        if (!identity) return err_resp("NOT_FOUND", "Run identity not found", 404);
+        return json_resp(*identity);
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-contexts/<string>/relink").methods("POST"_method)
+    ([state](const crow::request& req, const std::string& uid) {
+        const auto body = parse_body(req);
+        if (!body || !body->contains("confirmed") || (*body)["confirmed"] != true)
+            return err_resp("CONFIRMATION_REQUIRED", "confirmed=true is required for run relinking", 409);
+        if (!body->contains("run_dir") || !(*body)["run_dir"].is_string() || (*body)["run_dir"].get<std::string>().empty())
+            return err_resp("BAD_REQUEST", "run_dir must be a nonempty string", 400);
+        const auto target = state->runtime.resolve_input_path((*body)["run_dir"].get<std::string>(), true);
+        if (target.status == PathStatus::not_allowed)
+            return err_resp("PATH_NOT_ALLOWED", "Run directory is outside allowed roots", 403);
+        if (target.status == PathStatus::not_found || !fs::is_directory(target.path))
+            return err_resp("NOT_FOUND", "Run directory not found", 404);
+        const auto config_path = target.path / "config.yaml";
+        if (!state->runtime.is_path_allowed(config_path))
+            return err_resp("PATH_NOT_ALLOWED", "Run config is outside allowed roots", 403);
+        if (!fs::is_regular_file(config_path))
+            return err_resp("RUN_DIRECTORY_INVALID", "Target is not a run directory with config.yaml", 400);
+        const auto provenance_path = target.path / "artifacts" / "pi_run_provenance.json";
+        nlohmann::json provenance = nlohmann::json::object();
+        if (fs::exists(provenance_path)) {
+            if (!state->runtime.is_path_allowed(provenance_path))
+                return err_resp("PATH_NOT_ALLOWED", "Provenance is outside allowed roots", 403);
+            const auto loaded = tile_compile::pi::read_json_file_opt(provenance_path);
+            if (!loaded || !loaded->is_object() || (loaded->contains("run_uid") && !(*loaded)["run_uid"].is_string()))
+                return err_resp("PROVENANCE_INVALID", "Run provenance is invalid", 409);
+            provenance = *loaded;
+        }
+        try {
+            tile_compile::pi::PiRunIndex index(tile_compile::pi::pi_storage_dir(state));
+            const auto identity = index.relink(uid, target.path, provenance.value("run_uid", std::string()));
+            nlohmann::json result = {{"ok", true}, {"identity", identity}};
+            auto context = tile_compile::pi::pi_active_context(state);
+            if (context.is_object() && context.value("run_uid", std::string()) == uid) {
+                const auto previous_key = context.value("run_key", std::string());
+                context["run_key"] = identity["run_key"];
+                if (!tile_compile::pi::set_pi_active_context(state, context))
+                    result["warning"] = "context_persistence_failed";
+                std::lock_guard<std::mutex> lock(state->state_mutex);
+                try {
+                    const auto current = state->current_run_dir.empty()
+                        ? state->runtime.resolve_run_dir(state->current_run_id)
+                        : fs::path(state->current_run_dir);
+                    if (tile_compile::pi::PiRunIndex::run_key(current) == previous_key)
+                        state->current_run_dir = target.path.string();
+                } catch (const std::exception&) {
+                    result["warning"] = "current_run_path_not_updated";
+                }
+            }
+            return json_resp(result);
+        } catch (const tile_compile::pi::PiRunIdentityConflict&) {
+            return err_resp("RUN_IDENTITY_CONFLICT", "Target path or provenance belongs to another run identity", 409);
+        } catch (const std::out_of_range&) {
+            return err_resp("NOT_FOUND", "Run identity not found", 404);
+        } catch (const std::invalid_argument&) {
+            return err_resp("BAD_REQUEST", "Invalid run identity or target", 400);
+        }
     });
 
     CROW_ROUTE(app, "/api/pi/active-context").methods("GET"_method)
