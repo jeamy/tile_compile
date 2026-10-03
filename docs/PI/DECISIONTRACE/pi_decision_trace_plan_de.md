@@ -8,10 +8,10 @@
 > `run_uid`-Normalisierung, Löschkaskade, Session-Lock, `origin`-Feld), 3. Review 2026-10-02 (Preview-/Plan-IDs,
 > Preview-TTL, Live-Session-Eviction, Redaktion im Overlay, `run_key`, Kontextdrift, Granularität `llm_proposal`).
 > **Betrifft:** `agent_service/src/services/*`, `web_backend_cpp/src/services/pi/*`, `web_backend_cpp/src/routes/pi_routes.cpp`
-> **Verwandt:** [`pi_local_learning_plan_de.md`](pi_local_learning_plan_de.md),
-> [`pi_memory_ablauf_de.md`](pi_memory_ablauf_de.md), [`pi_jev_decisions_plan_de.md`](pi_jev_decisions_plan_de.md),
-> [`pi_jev_m0_provider_protocol_de.md`](pi_jev_m0_provider_protocol_de.md),
-> [`pi_live_image_chat_plan.md`](pi_live_image_chat_plan.md)
+> **Verwandt:** [`pi_local_learning_plan_de.md`](../pi_local_learning_plan_de.md),
+> [`pi_memory_ablauf_de.md`](../pi_memory_ablauf_de.md), [`pi_jev_decisions_plan_de.md`](../pi_jev_decisions_plan_de.md),
+> [`pi_jev_m0_provider_protocol_de.md`](../pi_jev_m0_provider_protocol_de.md),
+> [`pi_live_image_chat_plan.md`](../pi_live_image_chat_plan.md)
 >
 > Paragraphen-Nummern sind über beide Teilpläne eindeutig: `§2.x` steht im [Trace-Plan](pi_decision_trace_plan_de.md), `§3.x` im
 > [Assistant-Plan](pi_unified_assistant_plan_de.md); Verweise ohne Zusatz sind dokumentübergreifend gemeint.

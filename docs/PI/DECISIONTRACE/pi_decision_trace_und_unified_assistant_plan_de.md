@@ -1,6 +1,6 @@
 # PI Decision Trace und Unified Assistant — Gesamtplan
 
-> **Status:** Plan, nichts davon ist implementiert. Dieses Dokument ist die Übersicht; Details stehen in zwei Teilplänen.
+> **Status:** Plan. Umsetzung läuft auf Branch `feature/pi-decision-trace-assistant` (siehe „Umsetzungsstand“ unten). Dieses Dokument ist die Übersicht; Details stehen in zwei Teilplänen.
 > **Datum:** 2026-09-27, überarbeitet 2026-10-02 (Code-Review: Faktenkorrekturen, Schema- und
 > Endpunkt-Klarstellungen, ergänzte Risiken und Prüfpunkte), Analyse-Nachtrag 2026-10-02 (Arbeitskontext-Modell,
 > Rationale-Struktur, Jev-Annahmekette, Audit-Beziehung, Backfill, Session-Fortsetzung, P1-Gates), 2. Review
@@ -12,10 +12,10 @@
 >   Aufbewahrung/Redaktion (§0, §2.x, Prüfpunkte, Risiken).
 > - [pi_unified_assistant_plan_de.md](pi_unified_assistant_plan_de.md) — Teil B: Dock, Karten, Arbeitskontext, Jev als Karte, Frontend-Architektur, Backend-Seite,
 >   Run-Lebenszyklus (§0, §3.x, Prüfpunkte, Risiken).
-> **Verwandt:** [`pi_local_learning_plan_de.md`](pi_local_learning_plan_de.md),
-> [`pi_memory_ablauf_de.md`](pi_memory_ablauf_de.md), [`pi_jev_decisions_plan_de.md`](pi_jev_decisions_plan_de.md),
-> [`pi_jev_m0_provider_protocol_de.md`](pi_jev_m0_provider_protocol_de.md),
-> [`pi_live_image_chat_plan.md`](pi_live_image_chat_plan.md)
+> **Verwandt:** [`pi_local_learning_plan_de.md`](../pi_local_learning_plan_de.md),
+> [`pi_memory_ablauf_de.md`](../pi_memory_ablauf_de.md), [`pi_jev_decisions_plan_de.md`](../pi_jev_decisions_plan_de.md),
+> [`pi_jev_m0_provider_protocol_de.md`](../pi_jev_m0_provider_protocol_de.md),
+> [`pi_live_image_chat_plan.md`](../pi_live_image_chat_plan.md)
 >
 > Paragraphen-Nummern sind über beide Teilpläne eindeutig: `§2.x` steht im [Trace-Plan](pi_decision_trace_plan_de.md), `§3.x` im
 > [Assistant-Plan](pi_unified_assistant_plan_de.md); Verweise ohne Zusatz sind dokumentübergreifend gemeint.
@@ -80,3 +80,15 @@ Detail-Prüfpunkte: [Trace](pi_decision_trace_plan_de.md#5-prüfpunkte-trace), [
 - **Pi Durable:** Nach heutigem Stand nicht nötig für Trace oder Dock. Nur P7 als Experiment.
 
 Detail-Risiken: [Trace](pi_decision_trace_plan_de.md#6-risiken-und-offene-fragen-trace), [Assistant](pi_unified_assistant_plan_de.md#6-risiken-und-offene-fragen-assistant).
+
+---
+
+## 7. Umsetzungsstand
+
+| Phase | Stand |
+|---|---|
+| P0 Upgrade Pi 1.0 | `package.json` auf `^1.0.0` (Commit `94f9223b`); `npm test`/Build des Sidecars noch zu verifizieren |
+| P1 Decision-Record-Backend | **Baustein 1 erledigt:** `PiDecisionRecordStore` (`web_backend_cpp/src/services/pi/pi_decision_record_store.*`) mit Schema-Validierung (kind/actor, `rationale.user`/`basis`, `no_reason_given` XOR, relatives `metrics_ref`, Text-Scrubbing), Idempotenz, Overlay-Links (`memory`, `outcome`, `supersedes`, `run_deleted`, `redact`), Redaktion, `compact()`, `mark_run_deleted()`; Test `web_backend_cpp_pi_decision_record_store`. **Offen:** Plan-/Preview-Objekte (§2.9), `run_uid`/`run_index_v1.jsonl`, Schreibpunkte (Apply, Review, Live-Edit, Jev-Adapter), Routen, Reason-Code-Katalog |
+| P2–P7 | offen |
+
+Gates: Aufbewahrung/Löschkonzept (§2.8) ist vor *Aktivierung* der Schreibpunkte zu entscheiden; der Store ist bis dahin nicht an Routen angeschlossen.

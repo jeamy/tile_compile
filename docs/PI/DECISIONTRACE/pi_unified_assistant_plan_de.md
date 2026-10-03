@@ -8,10 +8,10 @@
 > `run_uid`-Normalisierung, Löschkaskade, Session-Lock, `origin`-Feld), 3. Review 2026-10-02 (Preview-/Plan-IDs,
 > Preview-TTL, Live-Session-Eviction, Redaktion im Overlay, `run_key`, Kontextdrift, Granularität `llm_proposal`).
 > **Betrifft:** `web_frontend_v3/js/{main.js,pages,components,state}`, `web_backend_cpp/src/routes/{pi_routes,runs_routes,app_state_routes}.cpp`, `agent_service/src/services/*`
-> **Verwandt:** [`pi_local_learning_plan_de.md`](pi_local_learning_plan_de.md),
-> [`pi_memory_ablauf_de.md`](pi_memory_ablauf_de.md), [`pi_jev_decisions_plan_de.md`](pi_jev_decisions_plan_de.md),
-> [`pi_jev_m0_provider_protocol_de.md`](pi_jev_m0_provider_protocol_de.md),
-> [`pi_live_image_chat_plan.md`](pi_live_image_chat_plan.md)
+> **Verwandt:** [`pi_local_learning_plan_de.md`](../pi_local_learning_plan_de.md),
+> [`pi_memory_ablauf_de.md`](../pi_memory_ablauf_de.md), [`pi_jev_decisions_plan_de.md`](../pi_jev_decisions_plan_de.md),
+> [`pi_jev_m0_provider_protocol_de.md`](../pi_jev_m0_provider_protocol_de.md),
+> [`pi_live_image_chat_plan.md`](../pi_live_image_chat_plan.md)
 >
 > Paragraphen-Nummern sind über beide Teilpläne eindeutig: `§2.x` steht im [Trace-Plan](pi_decision_trace_plan_de.md), `§3.x` im
 > [Assistant-Plan](pi_unified_assistant_plan_de.md); Verweise ohne Zusatz sind dokumentübergreifend gemeint.
@@ -105,7 +105,7 @@ kommt als Jev-Karte in den Thread.
 
 Jev ist ein Empfehlungs-Provider neben dem LLM-Pfad, kein eigener Tab:
 
-- Gemeinsame Provider-Schnittstelle im Frontend: `{ id, kind: "llm_scan" | "jev_pre" | "jev_post" | "run_chat" | "live_edit",
+- Gemeinsame Provider-Schnittstelle im Frontend: `{ id, kind: "llm_scan" | "jev_pre" | "jev_post" | "context_chat" | "live_edit",
   run(context) → Karte[] }`.
 - Jev-Karten nutzen dieselben Bausteine wie LLM-Karten: Diff (`yaml-diff.js`), Guardrail-Badges, Preview/Apply,
   `reason-picker.js`, Warum-Bereich, Decision Record, Action-Plan-Pipeline. Es gibt keine Sonderwege für Jev.
@@ -132,7 +132,8 @@ Neu: `web_frontend_v3/js/assistant/`
   geschrieben; ein `preview_dismissed` entsteht nur bei einem tatsächlichen Dismiss-Ereignis im Dialog, nie
   rückwirkend durch einen Reload und nie durch Ablauf (§2.9).
 - `cards/` — Kartenregistry: `recommendation.js` (PI), `jev-decision.js` (Jev), `run-advice.js`, `image-op.js`, `learning.js`, `why-section.js` (ausklappbarer Warum-Bereich, von allen Entscheidungskarten genutzt).
-- `providers/` — Adapter auf bestehende Endpunkte (`llm_scan`, `jev_*`, `run_chat`, `live_edit`).
+- `providers/` — Adapter auf bestehende Endpunkte (`llm_scan`, `jev_*`, `context_chat`, `live_edit`; `context_chat`
+  baut auf dem verallgemeinerten `context-chat`-Pfad aus §3.4 auf).
 - `reason-picker.js` — wiederverwendbare Chips + Freitext, Katalog aus Backend (`/api/pi/reason-codes`).
 
 Änderungen an Bestehendem:

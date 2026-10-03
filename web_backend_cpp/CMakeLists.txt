@@ -177,6 +177,7 @@ set(BACKEND_SOURCES
     src/services/pi/pi_action_validator.cpp
     src/services/pi/pi_ai_request_builder.cpp
     src/services/pi/pi_feature_vector.cpp
+    src/services/pi/pi_decision_record_store.cpp
     src/services/pi/pi_memory_store.cpp
     src/services/pi/pi_outcome_recorder.cpp
     src/services/pi/pi_param_model.cpp
@@ -384,6 +385,10 @@ if(BUILD_TESTS)
     add_backend_cpp_test(web_backend_cpp_pi_memory_store tests/test_pi_memory_store.cpp)
     target_sources(web_backend_cpp_pi_memory_store PRIVATE
         src/services/pi/pi_memory_store.cpp
+    )
+    add_backend_cpp_test(web_backend_cpp_pi_decision_record_store tests/test_pi_decision_record_store.cpp)
+    target_sources(web_backend_cpp_pi_decision_record_store PRIVATE
+        src/services/pi/pi_decision_record_store.cpp
     )
     add_backend_cpp_test(web_backend_cpp_pi_param_model tests/test_pi_param_model.cpp)
     target_sources(web_backend_cpp_pi_param_model PRIVATE
