@@ -339,6 +339,8 @@ jobs:
     needs: meta
     env:
       MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
+      GUI3_OPENCV_VERSION: '4.12.0'
+      GUI3_OPENCV_PREFIX: ${{ github.workspace }}/opencv-minimal/install
     strategy:
       fail-fast: false
       matrix:
@@ -366,17 +368,56 @@ jobs:
         run: |
           set -euo pipefail
           brew update
-          brew install cmake ninja pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl@3
-          # openssl@4 headers in /opt/homebrew/include are picked up via other
+          # No brew opencv: the formula drags in a huge dependency tree
+          # (ffmpeg/qt/vtk/numpy/gcc) and its dep builds keep breaking on the
+          # runner images. A minimal static OpenCV is built in a later step.
+          brew install cmake ninja pkg-config eigen cfitsio yaml-cpp nlohmann-json openssl@3
+          # openssl@4 headers in the prefix include dir are picked up via other
           # formulae's -I paths and break the bundled asio (OpenSSL 4 removed
           # OPENSSL_VERSION_NUMBER, so asio takes the pre-1.1 code path).
-          brew unlink openssl@4 || true
+          if brew list --versions openssl@4 >/dev/null 2>&1; then
+            brew unlink openssl@4 || true
+          fi
+
+      - name: Cache minimal OpenCV
+        id: opencv-cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.GUI3_OPENCV_PREFIX }}
+          key: gui3-opencv-${{ env.GUI3_OPENCV_VERSION }}-${{ matrix.runner }}
+
+      - name: Build minimal OpenCV
+        if: steps.opencv-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          OPENCV_SRC="${RUNNER_TEMP}/opencv-src"
+          git clone --depth 1 --branch "${GUI3_OPENCV_VERSION}" \
+            https://github.com/opencv/opencv.git "${OPENCV_SRC}"
+          cmake -S "${OPENCV_SRC}" -B "${RUNNER_TEMP}/opencv-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${GUI3_OPENCV_PREFIX}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_LIST=core,imgproc,imgcodecs,calib3d,features2d,flann,photo \
+            -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF \
+            -DBUILD_opencv_apps=OFF -DBUILD_DOCS=OFF \
+            -DBUILD_opencv_python3=OFF -DBUILD_JAVA=OFF \
+            -DWITH_CUDA=OFF -DWITH_OPENCL=OFF \
+            -DWITH_OPENCLAMDFFT=OFF -DWITH_OPENCLAMDBLAS=OFF \
+            -DWITH_FFMPEG=OFF -DWITH_VTK=OFF -DWITH_QT=OFF -DWITH_GTK=OFF \
+            -DWITH_PROTOBUF=OFF -DBUILD_PROTOBUF=OFF \
+            -DWITH_OBSENSOR=OFF -DWITH_IPP=OFF \
+            -DWITH_IMGCODEC_HDR=ON -DWITH_IMGCODEC_PFM=ON -DWITH_IMGCODEC_PXM=ON
+          cmake --build "${RUNNER_TEMP}/opencv-build" -j"$(sysctl -n hw.ncpu)"
+          cmake --install "${RUNNER_TEMP}/opencv-build"
 
       - name: Build, bundle and smoke test GUI3
         shell: bash
         run: |
           set -euo pipefail
           TAG="${{ needs.meta.outputs.tag }}"
+          export OpenCV_DIR="${GUI3_OPENCV_PREFIX}/lib/cmake/opencv4"
           bash packaging/gui3/build_local_macos.sh \
             --tag "${TAG}" \
             --artifact-prefix "tile_compile_gui3-${{ matrix.artifact_suffix }}" \
