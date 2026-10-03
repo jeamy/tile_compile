@@ -60,8 +60,8 @@
   und `pi_store_v1.sqlite` werden weder geoeffnet noch importiert; die neue Datei startet leer.
   Bestehende Dateien werden nicht waehrend eines moeglicherweise laufenden Backend-Zugriffs geloescht.
   Kein Import der Altdatei und kein Alt-Schema-v1-Migrationspfad. Die neue Datenbank wird intern weiterentwickelt:
-  Schema v4 umfasst Memories, Records, Previews, Jev und Run-Index; additive Upgrades innerhalb der neuen
-  Datei (v2/v3 nach v4) behalten neue Daten. Unbekannte Schema-Versionen werden abgewiesen.
+  Schema v6 umfasst Memories, Records, Previews, Jev, Run-Index und dauerhafte Run-Lern-Snapshots;
+  additive Upgrades innerhalb der neuen Datei (v2 bis v5 nach v6) behalten neue Daten. Unbekannte Schema-Versionen werden abgewiesen.
 - **Append-only mit Overlay.** `decision_records` wird nie gelöscht oder in seinen Schlüsselspalten geändert
   (Trigger). Nachträgliche Verknüpfungen (`memory_id`, `outcome_refs`, `supersedes`, `run_deleted`, `redact`)
   stehen als Ereignisse in `decision_links` (ebenfalls append-only); Leser mergen den Stand über `decision_id`.
@@ -321,8 +321,9 @@ Konkrete, noch nicht freigegebene Entscheidungsvorlage:
   Ein Dateirewrite durch den Store entfaellt. Sichere Bereinigung (Checkpoint, Seitenbereinigung/VACUUM und
   Backup-Aufbewahrung) muss vor Aktivierung als eigene Wartungs- und Datenschutzpolitik festgelegt werden.
   Grund-Codes bleiben erhalten; Codes sollen keine personenbezogenen Daten enthalten.
-- Redaktion wird ausgelöst durch: Löschen eines Runs/Bild-Kontexts (§3.5), den Nutzer (Einzelrecord) und Ablauf der
-  Aufbewahrungsfrist.
+- Redaktion wird ausgeloest durch explizites Vergessen eines Run-/Bild-Kontexts (§3.5), den Nutzer (Einzelrecord)
+  oder die noch festzulegende Aufbewahrungsfrist. Reine Run-Dateiloeschung erhaelt Lerndaten und redigiert nicht
+  automatisch Gruende/Verlauf. Siehe [Run-Lernarchiv](pi_run_learning_archive_de.md).
 - `pi.memories-export` bleibt unverändert metadata-only und enthält keine Decision Records. Ob es einen
   separaten, ebenfalls metadata-only Decision-Export gibt (forensisch, als Eingabe der Regelkalibrierung in
   §2.7), ist eine offene Entscheidung; `rationale.user.text` gehört in keinen Fall hinein.

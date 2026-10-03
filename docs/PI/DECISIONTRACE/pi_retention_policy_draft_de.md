@@ -5,6 +5,11 @@ Der Altbestand wurde auf Nutzerwunsch verworfen. Diese Vorlage betrifft nur neue
 Decision-Schreibpunkte und automatische Bereinigungen bleiben bis zur Freigabe deaktiviert.
 Memory- und Jev-Persistenz sowie Preview-Objekte existieren bereits; deren Bereinigung ist noch nicht implementiert.
 
+**Zusaetzlich beschlossen und implementiert:** reine Run-Dateiloeschung behaelt zentrale Lerndaten.
+Config, Herkunft, Statistik und optionales PNG liegen im [Run-Lernarchiv](pi_run_learning_archive_de.md).
+FITS werden nicht in die DB kopiert; Originale bleiben auf der Platte. Diese Nutzerentscheidung ist
+unabhaengig von den noch offenen Freitext-/Session-Fristen.
+
 ## Vorgeschlagene Regeln
 
 | Daten | Vorschlag | Verhalten |
@@ -20,8 +25,11 @@ Memory- und Jev-Persistenz sowie Preview-Objekte existieren bereits; deren Berei
 
 ## Explizite Loeschaktionen
 
-- Run-/Bild-Loeschung: zentrale Records als geloescht markieren und Nutzertext redigieren; zugehoerige
-  Session-Texte und Chat-Kopien entfernen. Kein stilles Entfernen akzeptierter allgemeiner Memories.
+- Run-Dateiloeschung: Snapshot sichern, Datei-Lifecycle markieren, zentrale Lerndaten/Memories/Verlauf behalten.
+  Kein impliziter Lern-Ausschluss und keine Freitext-Redaktion. Implementiert.
+- Vom Lernen ausschliessen: expliziter Code, Daten behalten. Implementierter Exclusion-Endpunkt.
+- Run/Bild einschliesslich Lerndaten vergessen: separate bestaetigte Aktion, gezielte Session-/Text-/Archiv-
+  Bereinigung; noch zu implementieren. Kein stilles Entfernen akzeptierter allgemeiner Memories.
 - Einzelrecord-Redaktion: Nutzertext entfernen, Grund-Codes und Audit behalten.
 - PI-Speicher-Reset: nach bestaetigter Auswahl Memories, Jev, Records, Preview-Objekte und Kontext-/Session-Verweise
   entfernen. Konversationen muessen als eigene Auswahl sichtbar sein. Modelle und Regelkataloge sind keine Memories.

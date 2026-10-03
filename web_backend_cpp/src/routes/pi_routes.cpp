@@ -15,6 +15,7 @@
 #include "services/pi/pi_preview_store.hpp"
 #include "services/pi/pi_decision_record_store.hpp"
 #include "services/pi/pi_run_index.hpp"
+#include "services/pi/pi_run_learning_store.hpp"
 #include "services/pi/pi_json_io.hpp"
 #include "services/pi/pi_tool_registry.hpp"
 #include "services/pi/pi_image_ops.hpp"
@@ -3033,6 +3034,57 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
     ([state](const crow::request& req) {
         const int limit = std::max(1, std::min(1000, int_query_param(req, "limit", 200)));
         return json_resp(pi_audit_log(state, limit));
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-learning").methods("GET"_method)
+    ([state](const crow::request& req) {
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        return json_resp({{"schema_version", "pi.run-learning-list.v1"},
+                          {"items", store.list(int_query_param(req, "limit", 100))}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-learning/<string>").methods("GET"_method)
+    ([state](const std::string& uid) {
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto snapshot = store.get(uid);
+        if (!snapshot) return err_resp("NOT_FOUND", "Run learning snapshot not found", 404);
+        return json_resp(*snapshot);
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-learning/<string>/history").methods("GET"_method)
+    ([state](const crow::request& req, const std::string& uid) {
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        return json_resp({{"items", store.history(uid, int_query_param(req, "limit", 50))}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-learning/<string>/preview").methods("GET"_method)
+    ([state](const std::string& uid) {
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto png = store.preview(uid);
+        if (!png) return err_resp("NOT_FOUND", "No archived PNG preview", 404);
+        crow::response response(200);
+        response.set_header("Content-Type", "image/png");
+        response.set_header("X-Content-Type-Options", "nosniff");
+        response.body.assign(reinterpret_cast<const char*>(png->data()), png->size());
+        return response;
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-learning/<string>/exclusion").methods("POST"_method)
+    ([state](const crow::request& req, const std::string& uid) {
+        const auto body = parse_body(req);
+        if (!body || !body->contains("confirmed") || (*body)["confirmed"] != true)
+            return err_resp("CONFIRMATION_REQUIRED", "confirmed=true is required", 409);
+        if (!body->contains("excluded") || !(*body)["excluded"].is_boolean() ||
+            (body->contains("reason_code") && !(*body)["reason_code"].is_string()))
+            return err_resp("BAD_REQUEST", "excluded must be a boolean and reason_code a string", 400);
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        try {
+            if (!store.set_excluded(uid, (*body)["excluded"].get<bool>(), body->value("reason_code", std::string())))
+                return err_resp("NOT_FOUND", "Run learning snapshot not found", 404);
+        } catch (const std::invalid_argument&) {
+            return err_resp("BAD_REQUEST", "Unknown learning exclusion code", 400);
+        }
+        return json_resp({{"ok", true}, {"run_uid", uid}, {"excluded", (*body)["excluded"]}});
     });
 
     CROW_ROUTE(app, "/api/pi/run-contexts/<string>").methods("GET"_method)

@@ -231,14 +231,15 @@ Eine UI zur Auswahl/Neuverknuepfung sowie Dock-Kontextwechsel, Verlauf-/Session-
      unveränderliche Zuordnung und enthält keine flüchtige Auswahl — damit "Zustand überlebt Reload/Restart" gilt.
 3. **Resume eines Runs** (`/api/runs/<id>/resume`) setzt denselben Run-Kontext fort; es entsteht kein neuer Kontext.
    Das bestehende Resume-Feedback (`/api/pi/memories/resume-feedback`) wird als Record verknüpft (`parent_decision_id`).
-4. **Löschen eines Runs** (`/api/runs/<id>/delete`):
-   - Decision Records bleiben (Lerndaten, Memory-Verweise) und werden über das Overlay als `run_deleted` markiert; der
-     Warum-Bereich zeigt "Run gelöscht".
-   - Session und Chat-Verlauf (Nutzertext) folgen dem Löschkonzept (§2.8): Standard ist Mitlöschen oder Anonymisieren; der
-     Bestätigungsdialog nennt es ausdrücklich. `rationale.user.text` der Records dieser Kontexte wird über `redact`-Links
-     unterdrückt (§2.8); die Grund-Codes bleiben. Die Kaskade gilt für Run- **und** Bild-Kontext (`image_id`
-     hängt am `run_uid`); der Analyse-Kontext bleibt unberührt.
-   - Memories mit `provenance` auf den Run bleiben bestehen.
+4. **Run-Dateien loeschen** (`/api/runs/<id>/delete`):
+   - Nutzerentscheidung: valide Lerndaten behalten. Config, Herkunft, Manifeste, Statistik und optionale PNG-Vorschau
+     werden zentral gesichert; erst danach werden Run-Dateien entfernt. SQLite-Fehler blockieren die Loeschung.
+   - Datei-Lifecycle `deletion_pending`/`deleted` ist getrennt vom expliziten Lern-Ausschluss. Loeschen ist keine
+     Ablehnung und kein negatives Outcome. Originale Lights/Darks werden nicht archiviert oder geloescht.
+   - [Run-Lernarchiv](pi_run_learning_archive_de.md) und Exclusion-Endpunkt sind implementiert; der UI-Dialog
+     mit getrennten Aktionen ist noch offen. Archive bleiben unter derselben UID lesbar.
+   - Memories, Records und zentrale Konversationen bleiben bei reiner Dateiloeschung bestehen. Textredaktion und
+     Vergessen gehoeren zu einer separaten bestaetigten Aktion bzw. der noch festzulegenden Aufbewahrungspolitik.
 5. **Verschieben, Kopieren, Umbenennen:** Weil nichts am Run-Verzeichnis hängt, überleben Records und Verlauf ein
    Verschieben auf demselben System, solange `run_dir` auflösbar bleibt oder über `config_sha256`/Startzeit
    wiedergefunden wird. Wandert ein Run auf eine andere Maschine, ist **optional** ein Export "Run mit Trace" vorgesehen:
@@ -249,7 +250,7 @@ Eine UI zur Auswahl/Neuverknuepfung sowie Dock-Kontextwechsel, Verlauf-/Session-
 
 ## 5. Prüfpunkte (Assistant)
 
-- **Run-Lebenszyklus:** Aktivieren öffnet keine Session; alle fünf Zustände der Tabelle (§3.5) degradieren ohne Fehler; Zugriff über Name und Pfad liefert denselben Kontext; `run_uid`-Auflösung exakt (kein Präfix) inkl. Pfad-Normalisierung; Löschen eines Runs markiert Records, kaskadiert auf den Bild-Kontext und folgt dem Löschkonzept; die aktive Kontext-Auswahl überlebt einen Backend-Restart; nichts wird in bestehende Run-Verzeichnisse geschrieben.
+- **Run-Lebenszyklus:** Aktivieren öffnet keine Session; alle fünf Zustände der Tabelle (§3.5) degradieren ohne Fehler; Zugriff über Name und Pfad liefert denselben Kontext; `run_uid`-Auflösung exakt (kein Präfix) inkl. Pfad-Normalisierung; Run-Dateiloeschung erhaelt Config/Herkunft/Statistik und ist kein Lern-Ausschluss; explizites Vergessen bleibt getrennt; die aktive Kontext-Auswahl überlebt einen Backend-Restart; nichts wird in bestehende Run-Verzeichnisse geschrieben.
 - **Kontextmodell:** `image_id` ist heute genau `<run_uid>:live_edit`; der Analyse-Kontext nutzt denselben
   verallgemeinerten Chat-Pfad wie der Run (kein dritter Chat-Dienst); der Sidecar hält ein per-Session-Lock
   (max. ein aktiver Request je Kontext).

@@ -13,6 +13,7 @@
 #include "services/pi/pi_json_io.hpp"
 #include "services/pi/pi_jev_store.hpp"
 #include "services/pi/pi_run_index.hpp"
+#include "services/pi/pi_run_learning_store.hpp"
 #include "services/pi/pi_storage_paths.hpp"
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
@@ -21,6 +22,7 @@
 #include <opencv2/imgproc.hpp>
 #include <fstream>
 #include <iomanip>
+#include <iostream>
 #include <mutex>
 #include <sstream>
 #include <filesystem>
@@ -43,8 +45,70 @@
 
 namespace fs = std::filesystem;
 
+static std::vector<unsigned char> render_fits_preview_png(const fs::path& path, int max_edge);
+
+static void capture_pi_learning(const std::shared_ptr<AppState>& state, const std::string& run_id,
+                                const fs::path& run_dir, const std::string& stage, const std::string& status) {
+    tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+    const auto snapshot = store.capture(run_dir, run_id, stage, status);
+    const char* keep_preview = std::getenv("TILE_COMPILE_PI_KEEP_RESULT_PREVIEW");
+    if (status != "completed" || !keep_preview || std::string(keep_preview) != "1") return;
+    for (const char* relative : {"outputs/stacked_rgb_hms.fits", "outputs/stacked_rgb_pcc.fits", "outputs/stacked_rgb_bge.fits",
+                                  "outputs/stacked_rgb.fits", "outputs/stacked.fits", "outputs/stacked_luminance.fits"}) {
+        const auto path = run_dir / relative;
+        if (!fs::is_regular_file(path) || !state->runtime.is_path_allowed(path)) continue;
+        try {
+            store.save_preview(snapshot["run_uid"], snapshot["snapshot_id"], render_fits_preview_png(path, 512), relative);
+        } catch (const std::exception&) {} // Optional visual aid cannot invalidate the metadata archive.
+        break;
+    }
+}
+
+static bool raw_sources_inside_run(const nlohmann::json& snapshot, const fs::path& run_dir) {
+    std::vector<std::string> paths;
+    const auto& source = snapshot["source"];
+    if (source["original_input_dir"].is_string()) paths.push_back(source["original_input_dir"].get<std::string>());
+    auto entries = [&](const nlohmann::json& manifest) {
+        if (!manifest.is_object() || !manifest.contains("entries") || !manifest["entries"].is_array()) return;
+        for (const auto& entry : manifest["entries"])
+            if (entry.is_object() && entry.contains("path") && entry["path"].is_string())
+                paths.push_back(entry["path"].get<std::string>());
+    };
+    entries(source["light_manifest"]);
+    if (source["calibration"].is_object() && source["calibration"].contains("steps") && source["calibration"]["steps"].is_object()) {
+        for (const auto& step : source["calibration"]["steps"].items()) {
+            if (step.value().is_object() && step.value().contains("input_manifest")) entries(step.value()["input_manifest"]);
+            if (step.value().is_object() && step.value().contains("path") && step.value()["path"].is_string())
+                paths.push_back(step.value()["path"].get<std::string>());
+        }
+    }
+    const auto base = fs::weakly_canonical(run_dir);
+    for (const auto& text : paths) {
+        if (text.empty() || !fs::path(text).is_absolute()) continue;
+        const auto path = fs::weakly_canonical(fs::path(text));
+        if (!fs::exists(path) || (fs::is_directory(path) && fs::is_empty(path))) continue;
+        auto a = base.begin(), b = path.begin();
+        for (; a != base.end() && b != path.end() && *a == *b; ++a, ++b) {}
+        if (a == base.end()) return true;
+    }
+    return false;
+}
+
 static void record_completed_pi_outcomes(const std::shared_ptr<AppState>& state,
-                                         const std::string& run_id, const fs::path& run_dir) {
+                                         const std::string& run_id, const fs::path& run_dir,
+                                         const std::string& terminal_status = "completed") {
+    try {
+        const auto provenance = tile_compile::pi::read_json_file_opt(run_dir / "artifacts" / "pi_run_provenance.json").value_or(nlohmann::json::object());
+        tile_compile::pi::PiRunIndex index(tile_compile::pi::pi_storage_dir(state));
+        const auto identity = index.resolve(run_dir, provenance.value("run_uid", std::string()));
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto previous = store.get(identity["run_uid"]);
+        if (!previous || previous->value("status", std::string()) != terminal_status)
+            capture_pi_learning(state, run_id, run_dir, "completion", terminal_status);
+    } catch (const std::exception& e) {
+        std::cerr << "PI run learning snapshot failed: " << e.what() << '\n';
+    }
+    if (terminal_status != "completed") return;
     try { tile_compile::pi::record_run_outcome_if_needed(state, run_id, run_dir); }
     catch (const std::exception&) {}
     try {
@@ -502,7 +566,9 @@ static void write_run_start_provenance(const std::shared_ptr<AppState>& state,
                                        const std::string& config_revision_id,
                                        const std::string& config_yaml,
                                        const std::string& prior_active_config_revision_id,
-                                       const std::string& jev_proposal_id = "") {
+                                       const std::string& jev_proposal_id = "",
+                                       const std::string& effective_input_dir = "",
+                                       const std::string& original_input_dir = "") {
     std::error_code ec;
     fs::create_directories(run_dir / "artifacts", ec);
     nlohmann::json provenance = {
@@ -517,7 +583,9 @@ static void write_run_start_provenance(const std::shared_ptr<AppState>& state,
         // effective_config_yaml() injects color_mode/astap paths), so it cannot be the primary key.
         {"prior_active_config_revision_id", prior_active_config_revision_id},
         {"config_sha256", pi_provenance_sha256_hex(config_yaml)},
-        {"started_at", pi_provenance_now_iso()}
+        {"started_at", pi_provenance_now_iso()},
+        {"effective_input_dir", effective_input_dir},
+        {"original_input_dir", original_input_dir}
     };
     provenance["run_uid"] = tile_compile::pi::PiRunIndex::generate_uid();
     try {
@@ -529,7 +597,9 @@ static void write_run_start_provenance(const std::shared_ptr<AppState>& state,
     }
     if (!jev_proposal_id.empty()) provenance["jev_proposal_id"] = jev_proposal_id;
     std::ofstream out(run_dir / "artifacts" / "pi_run_provenance.json", std::ios::out | std::ios::trunc);
-    if (out) out << provenance.dump(2);
+    if (out) { out << provenance.dump(2); out.close(); }
+    try { capture_pi_learning(state, run_id, run_dir, "start", "running"); }
+    catch (const std::exception& e) { std::cerr << "PI start snapshot failed: " << e.what() << '\n'; }
 }
 
 static fs::path claim_run_start_config_snapshot(
@@ -1509,7 +1579,8 @@ void register_runs_routes(CrowApp& app,
 
                     write_run_start_provenance(state, fs::path(runs_dir) / current_run_id, current_run_id,
                                                revision_id, prepared_config_yaml,
-                                               prior_active_config_revision_id, jev_run_proposal_id);
+                                               prior_active_config_revision_id, jev_run_proposal_id,
+                                               effective_input_dir.string(), input_dir);
                     state->job_store.update_state(job_id, JobState::running,
                         queue_job_payload(queue, static_cast<int>(i), current_run_id, runs_dir));
                     state->job_store.update_progress(job_id, queue.empty() ? 100.0 : (100.0 * i / queue.size()));
@@ -1527,8 +1598,8 @@ void register_runs_routes(CrowApp& app,
                             "run", args, state->runtime.project_root.string(),
                             current_run_id, nlohmann::json::object(), "",
                             [state, current_run_id, child_run_dir](const std::string&, JobState final_state) {
-                                if (final_state != JobState::ok) return;
-                                record_completed_pi_outcomes(state, current_run_id, child_run_dir);
+                                record_completed_pi_outcomes(state, current_run_id, child_run_dir,
+                                    final_state == JobState::ok ? "completed" : final_state == JobState::cancelled ? "cancelled" : "failed");
                             });
                     } catch (const std::exception& e) {
                         release_run_start_config_claim(
@@ -1617,6 +1688,10 @@ void register_runs_routes(CrowApp& app,
                             {{"run_id", effective_run_id},
                              {"runs_dir", runs_dir}});
         }
+        write_run_start_provenance(state, fs::path(runs_dir) / effective_run_id, effective_run_id,
+                                   revision_id, prepared_config_yaml,
+                                   prior_active_config_revision_id, jev_run_proposal_id,
+                                   input_dirs.front(), input_dirs.front());
         auto args = runner_run_args(state, config_snapshot_path.string(), input_dirs.front(), runs_dir, effective_run_id);
         std::string job_id;
         try {
@@ -1627,8 +1702,8 @@ void register_runs_routes(CrowApp& app,
                 "run", args, state->runtime.project_root.string(),
                 effective_run_id, nlohmann::json::object(), "",
                 [state, effective_run_id, run_dir_for_completion](const std::string&, JobState final_state) {
-                    if (final_state != JobState::ok) return;
-                    record_completed_pi_outcomes(state, effective_run_id, run_dir_for_completion);
+                    record_completed_pi_outcomes(state, effective_run_id, run_dir_for_completion,
+                        final_state == JobState::ok ? "completed" : final_state == JobState::cancelled ? "cancelled" : "failed");
                 });
         } catch (const std::exception& e) {
             release_run_start_config_claim(fs::path(runs_dir) / effective_run_id);
@@ -1639,9 +1714,6 @@ void register_runs_routes(CrowApp& app,
             return err_resp("RUN_LAUNCH_FAILED", "unknown subprocess launch error", 500,
                             {{"run_id", effective_run_id}, {"runs_dir", runs_dir}});
         }
-        write_run_start_provenance(state, fs::path(runs_dir) / effective_run_id, effective_run_id,
-                                   revision_id, prepared_config_yaml,
-                                   prior_active_config_revision_id, jev_run_proposal_id);
         state->job_store.update_state(job_id, JobState::running, {
             {"input_dir", input_dirs.front()},
             {"runs_dir", runs_dir},
@@ -2043,10 +2115,15 @@ void register_runs_routes(CrowApp& app,
             {"filter_context", filter_ctx.empty() ? nlohmann::json(nullptr) : nlohmann::json(filter_ctx)},
             {"command", args}
         };
+        try { capture_pi_learning(state, run_id, run_dir, "resume_start", "running"); }
+        catch (const std::exception& e) { std::cerr << "PI resume snapshot failed: " << e.what() << '\n'; }
         std::string job_id = state->subprocess_manager.launch("resume", args,
                                                                state->runtime.project_root.string(),
-                                                               run_id,
-                                                               resume_job_data);
+                                                               run_id, resume_job_data, "",
+                                                               [state, run_id, run_dir](const std::string&, JobState final_state) {
+            record_completed_pi_outcomes(state, run_id, run_dir,
+                final_state == JobState::ok ? "completed" : final_state == JobState::cancelled ? "cancelled" : "failed");
+        });
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->current_run_id = run_id;
@@ -2187,34 +2264,72 @@ void register_runs_routes(CrowApp& app,
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/delete").methods("POST"_method)
-    ([state](const crow::request&, std::string run_id) {
+    ([state](const crow::request& req, std::string run_id) {
         run_id = decode_run_id_param(run_id);
+        const auto body = tile_compile::routes::parse_body(req);
+        if (!body) return err_resp("Invalid JSON", 400);
+        if (body->contains("allow_incomplete_snapshot") && !(*body)["allow_incomplete_snapshot"].is_boolean())
+            return err_resp("allow_incomplete_snapshot must be boolean", 400);
         try {
-            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            fs::path run_dir;
+            if (auto error = resolve_request_run_dir(state, run_id, body->value("run_dir", std::string()), run_dir))
+                return std::move(*error);
             auto jobs = state->job_store.list(500);
             for (const auto& job : jobs) {
                 if (job.state != JobState::running) continue;
-                std::string job_run_id = job.data.is_object() ? job.data.value("run_id", std::string()) : std::string();
+                std::string job_run_id = job.data.is_object() ? job.data.value("run_id", job.run_id) : job.run_id;
                 std::string job_run_dir = job.data.is_object() ? job.data.value("run_dir", std::string()) : std::string();
-                if (job_run_id == run_id || job_run_dir == run_dir.string()) {
+                bool same_path = false;
+                try {
+                    const auto active_dir = !job_run_dir.empty() ? fs::path(job_run_dir)
+                        : state->runtime.resolve_run_dir(job_run_id, job.data.is_object() ? job.data.value("runs_dir", std::string()) : std::string());
+                    same_path = tile_compile::pi::PiRunIndex::run_key(active_dir) == tile_compile::pi::PiRunIndex::run_key(run_dir);
+                } catch (const std::exception&) {}
+                if (job_run_id == run_id || same_path) {
                     return err_resp("RUN_ACTIVE", "cannot delete active run", 409, nlohmann::json::object());
                 }
             }
-            // Deliberately NOT forcing record_run_outcome_if_needed() here (docs/PI/pi_local_learning_plan_de.md,
-            // Schritt 1c): deleting a run is a legitimate way for the user to say "I don't want this
-            // one" — e.g. a bad or test run — and silently harvesting its outcome first would
-            // override that intent. The outcome is instead recorded as soon as the run itself
-            // finishes (subprocess completion callback below/in the run-start routes), which covers
-            // the overwhelming majority of cases without needing a delete-time side effect; a run
-            // deleted directly on the filesystem, outside this route, bypasses recording entirely
-            // either way and no in-app hook can change that.
-            fs::remove_all(run_dir);
+            // File deletion is not a learning rejection. Persist metadata first; never remove
+            // the run if central storage failed. This does not promote a memory or infer quality.
+            tile_compile::pi::PiRunLearningStore learning(tile_compile::pi::pi_storage_dir(state));
+            nlohmann::json snapshot;
+            try {
+                snapshot = learning.capture(run_dir, run_id, "before_delete", read_run_status(run_dir).value("status", std::string("unknown")));
+            } catch (const tile_compile::pi::PiRunIdentityConflict&) {
+                return err_resp("RUN_IDENTITY_CONFLICT", "Run must be relinked before deletion", 409, nlohmann::json::object());
+            } catch (const std::exception& e) {
+                return err_resp("LEARNING_SNAPSHOT_FAILED", "Run files were not deleted: " + std::string(e.what()), 503, nlohmann::json::object());
+            }
+            if (raw_sources_inside_run(snapshot, run_dir))
+                return err_resp("RAW_SOURCE_INSIDE_RUN", "Original lights or calibration sources are inside the run directory; move them before deleting run files", 409, nlohmann::json::object());
+            if (!snapshot["capture_issues"].empty() && !body->value("allow_incomplete_snapshot", false))
+                return err_resp("LEARNING_SNAPSHOT_INCOMPLETE", "Run files were not deleted: confirm incomplete archive explicitly", 409,
+                                {{"capture_issues", snapshot["capture_issues"]}, {"run_uid", snapshot["run_uid"]}});
+            const std::string run_uid = snapshot["run_uid"];
+            learning.mark_artifacts_state(run_uid, "deletion_pending");
+            try { fs::remove_all(run_dir); }
+            catch (const std::exception&) { learning.mark_artifacts_state(run_uid, "delete_failed"); throw; }
+            learning.mark_artifacts_deleted(run_uid);
+            auto context = tile_compile::pi::pi_active_context(state);
+            const std::string deleted_key = snapshot["run_key"];
+            const std::string context_key = context.is_object() ? context.value("run_key", std::string()) : std::string();
             {
                 std::lock_guard<std::mutex> lk(state->state_mutex);
-                if (state->current_run_id == run_id) state->current_run_id = "";
+                const bool matches = !state->current_run_dir.empty()
+                    ? tile_compile::pi::PiRunIndex::run_key(state->current_run_dir) == deleted_key
+                    : state->current_run_id == run_id && (context_key.empty() || context_key == deleted_key);
+                if (matches) {
+                    state->current_run_id = "";
+                    state->current_run_dir = "";
+                }
             }
-            state->ui_event_store.push("run.delete", "runs.run_delete", {{"run_dir", run_dir.string()}}, run_id);
-            return json_resp({{"ok", true}, {"run_id", run_id}});
+            if (context.is_object() && context.value("run_uid", std::string()) == run_uid && context_key == deleted_key) {
+                context["artifacts_state"] = "deleted";
+                tile_compile::pi::set_pi_active_context(state, context);
+            }
+            state->ui_event_store.push("run.delete", "runs.run_delete", {{"run_dir", run_dir.string()}, {"run_uid", run_uid}, {"learning_retained", true}}, run_id);
+            return json_resp({{"ok", true}, {"run_id", run_id}, {"run_uid", run_uid}, {"learning_retained", true},
+                              {"snapshot_id", snapshot["snapshot_id"]}, {"capture_issues", snapshot["capture_issues"]}});
         } catch (const std::exception& e) {
             return err_resp(e.what(), 404);
         }
@@ -2271,8 +2386,10 @@ void register_runs_routes(CrowApp& app,
 
         std::string job_id = tile_compile::routes::spawn_job(state, "stats", run_id,
             nlohmann::json({{"run_id", run_id}, {"run_dir", run_dir.string()}}),
-            [run_id, run_dir]() {
+            [state, run_id, run_dir]() {
                 nlohmann::json result = generate_run_report(run_dir);
+                try { capture_pi_learning(state, run_id, run_dir, "stats_refresh", read_run_status(run_dir).value("status", std::string("unknown"))); }
+                catch (const std::exception& e) { result["learning_snapshot_warning"] = e.what(); }
                 result["run_id"] = run_id;
                 result["run_dir"] = run_dir.string();
                 return result;

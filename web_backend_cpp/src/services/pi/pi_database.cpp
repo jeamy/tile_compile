@@ -288,7 +288,7 @@ int PiDatabase::schema_version() {
 void PiDatabase::init_schema() {
     Tx tx(*this);
     const int version = schema_version();
-    if (version != 0 && version != 2 && version != 3 && version != kPiDatabaseSchemaVersion) {
+    if (version != 0 && version != 2 && version != 3 && version != 4 && version != 5 && version != kPiDatabaseSchemaVersion) {
         throw std::runtime_error("Unsupported PI database schema: " + std::to_string(version));
     }
     if (version == 0) {
@@ -311,7 +311,28 @@ void PiDatabase::init_schema() {
         execute("CREATE INDEX run_index_fingerprint ON run_index(config_sha256, started_at)");
         execute("CREATE TABLE run_aliases (run_key TEXT PRIMARY KEY, run_uid TEXT NOT NULL REFERENCES run_index(run_uid))");
         execute("CREATE INDEX run_aliases_uid ON run_aliases(run_uid)");
-        execute("PRAGMA user_version = 4");
+    }
+    if (version < 5) {
+        execute("CREATE TABLE run_learning_snapshots (snapshot_id TEXT PRIMARY KEY, run_uid TEXT NOT NULL REFERENCES run_index(run_uid), "
+                "content_sha256 TEXT NOT NULL, created_at INTEGER NOT NULL, json TEXT NOT NULL, summary_json TEXT NOT NULL, "
+                "UNIQUE(run_uid, content_sha256))");
+        execute("CREATE INDEX run_learning_snapshots_uid ON run_learning_snapshots(run_uid)");
+        execute("CREATE TABLE run_learning_state (run_uid TEXT PRIMARY KEY REFERENCES run_index(run_uid), "
+                "artifacts_state TEXT NOT NULL, excluded INTEGER NOT NULL DEFAULT 0, exclusion_code TEXT NOT NULL DEFAULT '', "
+                "latest_snapshot_id TEXT NOT NULL REFERENCES run_learning_snapshots(snapshot_id))");
+        execute("CREATE TABLE run_learning_previews (run_uid TEXT PRIMARY KEY REFERENCES run_index(run_uid), "
+                "snapshot_id TEXT NOT NULL REFERENCES run_learning_snapshots(snapshot_id), png_base64 TEXT NOT NULL, source_artifact TEXT NOT NULL DEFAULT '')");
+        execute("CREATE TRIGGER run_learning_snapshots_no_update BEFORE UPDATE ON run_learning_snapshots "
+                "BEGIN SELECT RAISE(ABORT, 'run learning snapshots are immutable'); END");
+    }
+    if (version < 6) {
+        if (version == 5) {
+            bool has_source = false;
+            for (const auto& column : query("PRAGMA table_info(run_learning_previews)"))
+                if (pi_sql_text(column[1]) == "source_artifact") has_source = true;
+            if (!has_source) execute("ALTER TABLE run_learning_previews ADD COLUMN source_artifact TEXT NOT NULL DEFAULT ''");
+        }
+        execute("PRAGMA user_version = 6");
     }
     tx.commit();
 }

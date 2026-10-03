@@ -227,6 +227,62 @@ int main(int argc, char** argv) {
         expect_true(
             std::regex_match(queued_named_job["data"]["queue"][1]["run_id"].get<std::string>(), std::regex(R"(^M66_Batch_[0-9]{8}_[0-9]{6}/OIII$)")),
             "named queue should keep run_name_timestamp root for all filters");
+        // Preserve learning data before deleting run outputs; raw lights remain external.
+        harness.make_file("runs/" + generated_run_id + "/artifacts/stats.json", "{\"frames\":1,\"noise\":0.12}");
+        const auto memory_root = harness.fixture_root() / "runs" / ".pi_memory";
+        auto db = tile_compile::pi::PiDatabase::open(memory_root);
+        db->execute("CREATE TRIGGER fail_learning_capture BEFORE INSERT ON run_learning_snapshots BEGIN SELECT RAISE(ABORT, 'fixture storage failure'); END");
+        const auto blocked_delete = harness.post_json("/api/runs/" + generated_run_id + "/delete", {});
+        expect_equal(blocked_delete["_http_status"].get<long>(), 503L, "failed archive blocks file deletion");
+        expect_true(std::filesystem::exists(generated_run_dir / "config.yaml"), "run files kept after failed snapshot");
+        db->execute("DROP TRIGGER fail_learning_capture");
+        const auto deleted = harness.post_json("/api/runs/" + generated_run_id + "/delete", {});
+        expect_equal(deleted["_http_status"].get<long>(), 200L, "delete run with learning retained");
+        expect_true(deleted["learning_retained"].get<bool>(), "delete confirms learning retained");
+        expect_equal(deleted["run_uid"].get<std::string>(), provenance_uid, "delete keeps stable UID");
+        expect_true(!std::filesystem::exists(generated_run_dir), "run outputs removed");
+        expect_true(std::filesystem::exists(input_file), "raw light remains on disk");
+        const auto archived = harness.get_json("/api/pi/run-learning/" + provenance_uid);
+        expect_equal(archived["_http_status"].get<long>(), 200L, "deleted run archive readable");
+        expect_equal(archived["artifacts_state"].get<std::string>(), "deleted", "deleted artifacts marker");
+        expect_true(!archived["excluded_from_learning"].get<bool>(), "file deletion is not learning rejection");
+        expect_equal(archived["artifacts"]["artifacts/stats.json"]["data"]["frames"].get<long>(), 1L, "statistics retained");
+        expect_true(archived["config"]["yaml"].is_string(), "effective config retained");
+        expect_equal(archived["source"]["original_input_dir"].get<std::string>(), input_dir, "raw input origin retained");
+        const auto history = harness.get_json("/api/pi/run-learning/" + provenance_uid + "/history");
+        expect_true(history["items"].size() >= 2, "start and later snapshots retained");
+        expect_equal(harness.get_json("/api/pi/run-learning/" + provenance_uid + "/preview")["_http_status"].get<long>(), 404L,
+                     "optional preview absent without rendering enabled");
+        const auto excluded = harness.post_json("/api/pi/run-learning/" + provenance_uid + "/exclusion", {
+            {"confirmed", true}, {"excluded", true}, {"reason_code", "test_run"}
+        });
+        expect_equal(excluded["_http_status"].get<long>(), 200L, "learning exclusion is separate explicit action");
+        expect_true(harness.get_json("/api/pi/run-learning/" + provenance_uid)["excluded_from_learning"].get<bool>(),
+                    "archive exclusion persisted without erasing measurements");
+
+        harness.make_file("runs/raw_inside/config.yaml", "data:\n  color_mode: OSC\n");
+        const auto inner_run = harness.fixture_root() / "runs" / "raw_inside";
+        harness.make_file("runs/raw_inside/lights/raw.fit", "RAW");
+        harness.make_file("runs/raw_inside/artifacts/pi_run_provenance.json", nlohmann::json{
+            {"original_input_dir", (inner_run / "lights").string()}
+        }.dump());
+        const auto refused_raw_delete = harness.post_json("/api/runs/raw_inside/delete", {});
+        expect_equal(refused_raw_delete["_http_status"].get<long>(), 409L, "raw files inside run block output deletion");
+        expect_true(std::filesystem::exists(inner_run / "lights" / "raw.fit"), "inner raw light protected");
+        const auto safe_raw_path = harness.fixture_root() / "raw_moved.fit";
+        std::filesystem::rename(inner_run / "lights" / "raw.fit", safe_raw_path);
+        const auto after_raw_move = harness.post_json("/api/runs/raw_inside/delete", {});
+        expect_equal(after_raw_move["_http_status"].get<long>(), 200L, "deletion allowed after raw source moved out");
+        expect_true(std::filesystem::exists(safe_raw_path), "moved raw source retained on disk");
+        harness.make_file("runs/incomplete_archive/config.yaml", "data:\n  color_mode: OSC\n");
+        harness.make_file("runs/incomplete_archive/artifacts/stats.json", "{broken");
+        const auto incomplete_delete = harness.post_json("/api/runs/incomplete_archive/delete", {});
+        expect_equal(incomplete_delete["_http_status"].get<long>(), 409L, "invalid statistics block unconfirmed incomplete archive");
+        expect_true(std::filesystem::exists(harness.fixture_root() / "runs" / "incomplete_archive" / "config.yaml"),
+                    "run kept for incomplete archive decision");
+        const auto acknowledged = harness.post_json("/api/runs/incomplete_archive/delete", {{"allow_incomplete_snapshot", true}});
+        expect_equal(acknowledged["_http_status"].get<long>(), 200L, "explicit incomplete archive acknowledgement");
+        expect_true(!acknowledged["capture_issues"].empty(), "capture gaps remain visible after acknowledged deletion");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());
