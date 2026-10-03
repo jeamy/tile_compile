@@ -23,9 +23,8 @@ public:
     explicit PiMemoryStore(std::filesystem::path memory_dir);
 
     const std::filesystem::path& memory_dir() const { return _memory_dir; }
-    // Speicherort: SQLite-Datenbank `pi_store_v1.sqlite` im Memory-Verzeichnis (geteilt mit den
-    // Decision Records). Die frueheren JSONL-Dateien (memories_v2.jsonl usw.) werden beim ersten
-    // Oeffnen einmalig importiert und danach nicht mehr beschrieben.
+    // Speicherort: SQLite-Datenbank pi_store_v2.sqlite (geteilt mit Decision Records).
+    // Keine Uebernahme alter JSONL-Dateien oder der alten SQLite-Datenbank.
     std::filesystem::path database_path() const;
     // Legacy-v1-Dateien: werden weiterhin ignoriert (nur fuer die Statusanzeige).
     std::filesystem::path legacy_memories_path() const;

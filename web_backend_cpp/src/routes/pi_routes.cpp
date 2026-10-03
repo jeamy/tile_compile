@@ -11,6 +11,7 @@
 #include "services/pi/pi_memory_store.hpp"
 #include "services/pi/pi_param_model.hpp"
 #include "services/pi/pi_storage_paths.hpp"
+#include "services/pi/pi_user_reason_catalog.hpp"
 #include "services/pi/pi_tool_registry.hpp"
 #include "services/pi/pi_image_ops.hpp"
 #include "services/pi/pi_live_edit_recorder.hpp"
@@ -3009,6 +3010,16 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
     ([state](const crow::request& req) {
         const int limit = std::max(1, std::min(1000, int_query_param(req, "limit", 200)));
         return json_resp(pi_audit_log(state, limit));
+    });
+
+    CROW_ROUTE(app, "/api/pi/reason-codes").methods("GET"_method)
+    ([state]() {
+        try {
+            return json_resp(tile_compile::pi::load_user_reason_catalog(
+                state->runtime.project_root / "web_backend_cpp" / "config" / "pi_user_reason_codes_v1.json"));
+        } catch (const std::exception&) {
+            return err_resp("CATALOG_UNAVAILABLE", "User reason catalog unavailable", 503);
+        }
     });
 
     CROW_ROUTE(app, "/api/pi/action-plans/validate").methods("POST"_method)

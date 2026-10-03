@@ -47,6 +47,13 @@ int main(int argc, char** argv) {
     try {
         harness.start();
 
+        const auto reason_catalog = harness.get_json("/api/pi/reason-codes");
+        expect_equal(reason_catalog["_http_status"].get<long>(), 200L, "user reason catalog status");
+        expect_equal(reason_catalog["schema_version"].get<std::string>(), "pi.user-reason-codes.v1", "user reason schema");
+        expect_equal(reason_catalog["catalog_version"].get<std::string>(), "1", "user reason catalog version");
+        expect_equal(static_cast<long>(reason_catalog["domains"]["config"].size()), 10L, "config reason count");
+        expect_equal(static_cast<long>(reason_catalog["domains"]["image"].size()), 8L, "image reason count");
+
         const auto initial = harness.get_json("/api/pi/context");
         expect_equal(initial["_http_status"].get<long>(), 200L, "pi context status");
         expect_equal(initial["schema_version"].get<std::string>(), "pi.context-overview.v1", "pi context schema");

@@ -204,6 +204,7 @@ set(BACKEND_SOURCES
     src/services/pi/pi_feature_vector.cpp
     src/services/pi/pi_database.cpp
     src/services/pi/pi_decision_record_store.cpp
+    src/services/pi/pi_preview_store.cpp
     src/services/pi/pi_memory_store.cpp
     src/services/pi/pi_outcome_recorder.cpp
     src/services/pi/pi_param_model.cpp
@@ -422,6 +423,12 @@ if(BUILD_TESTS)
         src/services/pi/pi_decision_record_store.cpp
     )
     target_link_libraries(web_backend_cpp_pi_decision_record_store PRIVATE ${PI_SQLITE_TARGET})
+    add_backend_cpp_test(web_backend_cpp_pi_preview_store tests/test_pi_preview_store.cpp)
+    target_sources(web_backend_cpp_pi_preview_store PRIVATE
+        src/services/pi/pi_database.cpp
+        src/services/pi/pi_preview_store.cpp
+    )
+    target_link_libraries(web_backend_cpp_pi_preview_store PRIVATE ${PI_SQLITE_TARGET} OpenSSL::Crypto)
     add_backend_cpp_test(web_backend_cpp_pi_param_model tests/test_pi_param_model.cpp)
     target_sources(web_backend_cpp_pi_param_model PRIVATE
         src/backend_runtime.cpp

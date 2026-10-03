@@ -55,11 +55,11 @@
   `metadata_plus_user_text`. Er wird längenbegrenzt, das Backend
   entfernt absolute Pfade, und er ist nicht Teil des Standard-Exports (`privacy_class` am Record, s. u.).
 - **Speicher: SQLite.** Memories und Decision Records liegen gemeinsam in einer SQLite-Datenbank
-  `pi_store_v1.sqlite` im PI-Storage-Verzeichnis (`PiDatabase`: WAL, eine Verbindung je Datei und Prozess,
-  Schema über `PRAGMA user_version`). Die früheren JSONL-Dateien (`memories_v2.jsonl`,
-  `memory_reviews_v2.jsonl`, `memory_outcomes_v2.jsonl`, `memory_auto_promotion_shadow_v1.jsonl`) werden beim
-  ersten Öffnen einmalig importiert (Marker `meta.jsonl_import_v1`), danach nicht mehr beschrieben und nie
-  gelöscht.
+  `pi_store_v2.sqlite` im PI-Storage-Verzeichnis (`PiDatabase`: WAL, eine Verbindung je Datei und Prozess,
+  Schema über `PRAGMA user_version`). Nutzerentscheidung: keine Uebernahme von Altbestaenden. Alte JSONL-Dateien
+  und `pi_store_v1.sqlite` werden weder geoeffnet noch importiert; die neue Datei startet leer.
+  Bestehende Dateien werden nicht waehrend eines moeglicherweise laufenden Backend-Zugriffs geloescht.
+  Kein v1-nach-v2-Migrationspfad; abweichende Schema-Versionen in der neuen Datei werden abgewiesen.
 - **Append-only mit Overlay.** `decision_records` wird nie gelöscht oder in seinen Schlüsselspalten geändert
   (Trigger). Nachträgliche Verknüpfungen (`memory_id`, `outcome_refs`, `supersedes`, `run_deleted`, `redact`)
   stehen als Ereignisse in `decision_links` (ebenfalls append-only); Leser mergen den Stand über `decision_id`.
@@ -174,6 +174,9 @@ Hinweise:
 
 ### 2.3 Reason-Code-Katalog
 
+Implementiert: `web_backend_cpp/config/pi_user_reason_codes_v1.json`, Katalogversion `1`,
+`GET /api/pi/reason-codes` und Validator fuer Version, Bereich, Codes und Duplikate.
+Die Anbindung an Decision-Schreibpunkte und Chips im Dock ist noch offen.
 Versionierte Datei (analog `protected_paths_v1.json`), Schema `pi.user-reason-codes.v1`, getrennt nach
 Bereich. **Namensraum beachten:** `pi.config-proposal.v1` kennt bereits `reason_codes` für Policy-Urteile
 (`no_applicable_candidates`, `validated` in `pi_decision_service.cpp`/`pi_decision_policy.cpp`). Der
@@ -305,13 +308,14 @@ Typdefinitionen des npm-Tarballs gegen die zuvor installierte 0.87.1; das Upgrad
 
 - `decision_records`/`decision_links` wachsen append-only. Die Aufbewahrungsfrist wird **vor Aktivierung** der
   Schreibpunkte festgelegt — gemeinsam mit dem Session-Löschkonzept (§2.5). Rotation entfällt (eine Datenbank,
-  Indizes statt Dateiscans); Sicherung = Kopie der `.sqlite`-Datei (bei laufendem Backend inkl. `-wal`) bzw.
-  `VACUUM INTO`.
-- **Redaktion statt Mutation.** `redact` schreibt einen Link (Audit) und entfernt `rationale.user.text` **sofort
-  physisch** in derselben Transaktion (`text_redacted=true`, `privacy_class=metadata_only`). Ein Kompaktierungs-
-  Rewrite ist nicht nötig. Grund-Codes (Chips) enthalten keine personenbezogenen Daten und bleiben erhalten.
-  Freigegebene Datenbankseiten werden von SQLite wiederverwendet; wer Textreste auf Dateiebene ausschließen
-  muss, nutzt `VACUUM` (optional, ausdrücklich ausgelöst).
+  Indizes statt Dateiscans). Konsistente Sicherungen bei laufendem Backend erfolgen mit der SQLite-Backup-API
+  oder `VACUUM INTO`; getrennte Dateikopien von Datenbank und WAL sind keine sichere Backup-Methode.
+- **Redaktion.** `redact` schreibt einen Link (Audit) und entfernt `rationale.user.text` sofort aus dem gespeicherten
+  JSON in derselben Transaktion (`text_redacted=true`, `privacy_class=metadata_only`). Das ist eine logische
+  Redaktion, keine garantierte physische Loeschung: alte Inhalte koennen in freien Seiten, WAL und Backups bleiben.
+  Ein Dateirewrite durch den Store entfaellt. Sichere Bereinigung (Checkpoint, Seitenbereinigung/VACUUM und
+  Backup-Aufbewahrung) muss vor Aktivierung als eigene Wartungs- und Datenschutzpolitik festgelegt werden.
+  Grund-Codes bleiben erhalten; Codes sollen keine personenbezogenen Daten enthalten.
 - Redaktion wird ausgelöst durch: Löschen eines Runs/Bild-Kontexts (§3.5), den Nutzer (Einzelrecord) und Ablauf der
   Aufbewahrungsfrist.
 - `pi.memories-export` bleibt unverändert metadata-only und enthält keine Decision Records. Ob es einen
@@ -330,7 +334,13 @@ persistiertes Gegenstück:
   Backend eine `action_plan_id` und markiert den Record `origin="live"` ohne Preview-Bezug. Ein Apply gegen ein
   abgelaufenes Preview wird nicht blockiert, sondern wie bisher gegen die **aktuelle** Config revalidiert
   (`validate-config`); die Sicherheitslogik ändert sich nicht.
-- **TTL:** `expires_at` ist eine Konfiguration des Backends. Ablauf erzeugt keinen Record (§2.2).
+- **TTL:** Die TTL wird vom Backend vorgegeben. Der Standalone-Store nimmt explizit `now` und `ttl_seconds`
+  entgegen; Zeitstempel werden als `created_at_epoch`/`expires_at_epoch` (Unix-Sekunden) gespeichert.
+  Ablauf wird beim Lesen berechnet und erzeugt keinen Record (§2.2). Ein Standardwert und die Route-Anbindung
+  sind noch offen. Terminale Zustaende `applied`/`dismissed` bleiben nach Ablauf erhalten.
+- **Implementierungsstand:** `PiPreviewStore` und frisches Schema v2 ohne Altbestandsmigration sind implementiert und separat
+  getestet; HTTP-Routen verwenden den Store noch nicht. Gleicher kanonischer Planinhalt hat dieselbe
+  SHA256-basierte `action_plan_id`; jeder Preview-Aufruf erhaelt eine eigene zufaellige `preview_id`.
 - `idempotency_key` = `action_plan_id` + Ereignisart.
 
 ---
@@ -353,7 +363,7 @@ persistiertes Gegenstück:
   unverändert; abgelaufenes Preview erzeugt keinen Record und blockiert kein Apply; Doppelklick auf Apply erzeugt
   genau einen Record.
 - **Live-Edit:** Eviction schreibt `live_edit_expired` und kein `live_edit_keep`; Memory-Verhalten unverändert.
-- **Redaktion:** `redact` entfernt `rationale.user.text` sofort physisch und lässt den Link als Audit stehen;
+- **Redaktion:** `redact` entfernt `rationale.user.text` sofort aus dem JSON und lässt den Link als Audit stehen;
   Trigger verbieten DELETE und Änderungen der Schlüsselspalten; Exports enthalten den Text nie.
 - **Datenschutz:** Exports enthalten keine Session-Texte; Records enthalten keine Rohdaten/Pfade.
 

@@ -15,12 +15,13 @@
 > **Verwandte Docs:** [`pi_local_learning_plan_de.md`](pi_local_learning_plan_de.md) (Design/Implementierungsplan, dieses Dokument beschreibt den *aktuellen Laufzustand* daraus), [`scan_ai_parameterstudio.md`](scan_ai_parameterstudio.md), [`prime_agent_bewertung_de.md`](prime_agent_bewertung_de.md)
 
 
-> **Speicher-Nachtrag (2026-10-03):** Der Memory-Speicher läuft inzwischen auf SQLite (`pi_store_v1.sqlite` im
+> **Speicher-Nachtrag (2026-10-03):** Der Memory-Speicher läuft inzwischen auf SQLite (`pi_store_v2.sqlite` im
 > PI-Storage-Verzeichnis, geteilt mit den Decision Records). Die in diesem Dokument genannten Dateien
 > `memories_v2.jsonl`, `memory_reviews_v2.jsonl`, `memory_outcomes_v2.jsonl` und
 > `memory_auto_promotion_shadow_v1.jsonl` entsprechen den Tabellen `memories`, `memory_reviews`,
 > `memory_outcomes` und `memory_shadow` (gleiche Append-only-Semantik, gleiche Merge-Logik im Store); vorhandene
-> JSONL-Dateien werden beim ersten Öffnen einmalig importiert und bleiben unverändert liegen. Siehe
+> JSONL-Dateien und die alte SQLite-Datei werden nicht uebernommen (Nutzerentscheidung: keine sinnvollen
+> Altbestaende). Der neue Speicher startet leer; keine automatische Altbestandsmigration. Siehe
 > [`DECISIONTRACE/pi_decision_trace_plan_de.md`](DECISIONTRACE/pi_decision_trace_plan_de.md) §2.1.
 
 ---

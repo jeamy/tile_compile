@@ -2,12 +2,7 @@
 
 #include <sqlite3.h>
 
-#include <chrono>
-#include <ctime>
-#include <fstream>
-#include <iomanip>
 #include <map>
-#include <sstream>
 #include <stdexcept>
 #include <system_error>
 
@@ -22,19 +17,6 @@ std::mutex& registry_mutex() {
 std::map<std::string, std::weak_ptr<PiDatabase>>& registry() {
     static std::map<std::string, std::weak_ptr<PiDatabase>> r;
     return r;
-}
-
-std::string utc_iso_now() {
-    const std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    std::tm tm{};
-#ifdef _WIN32
-    gmtime_s(&tm, &t);
-#else
-    gmtime_r(&t, &tm);
-#endif
-    std::ostringstream out;
-    out << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
-    return out.str();
 }
 
 [[noreturn]] void throw_sqlite(sqlite3* db, const std::string& what) {
@@ -79,7 +61,7 @@ PiSqlValue column_value(sqlite3_stmt* st, int i) {
     }
 }
 
-const char* kSchemaV1 = R"SQL(
+const char* kSchema = R"SQL(
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -227,7 +209,6 @@ std::shared_ptr<PiDatabase> PiDatabase::open(const std::filesystem::path& dir) {
     db->execute("PRAGMA synchronous=NORMAL");
     db->execute("PRAGMA foreign_keys=ON");
     db->init_schema();
-    db->import_legacy_jsonl();
     registry()[key] = db;
     return db;
 }
@@ -307,51 +288,19 @@ int PiDatabase::schema_version() {
 void PiDatabase::init_schema() {
     Tx tx(*this);
     const int version = schema_version();
-    if (version > kPiDatabaseSchemaVersion) {
-        throw std::runtime_error("PI database schema version " + std::to_string(version) +
-                                 " is newer than supported " + std::to_string(kPiDatabaseSchemaVersion));
+    if (version != 0 && version != kPiDatabaseSchemaVersion) {
+        throw std::runtime_error("Unsupported PI database schema: " + std::to_string(version));
     }
-    if (version < 1) {
-        execute(kSchemaV1);
-        execute("PRAGMA user_version = 1");
-    }
-    tx.commit();
-}
+    if (version == 0) {
+        execute(kSchema);
 
-void PiDatabase::import_legacy_jsonl() {
-    if (!meta_get("jsonl_import_v1").empty()) return;
-    struct Source { const char* file; const char* table; bool has_memory_id; };
-    static const Source sources[] = {
-        {"memories_v2.jsonl", "memories", true},
-        {"memory_reviews_v2.jsonl", "memory_reviews", true},
-        {"memory_outcomes_v2.jsonl", "memory_outcomes", true},
-        {"memory_auto_promotion_shadow_v1.jsonl", "memory_shadow", false},
-    };
-    nlohmann::json counts = nlohmann::json::object();
-    Tx tx(*this);
-    for (const auto& src : sources) {
-        long imported = 0;
-        std::ifstream in(_dir / src.file);
-        if (in) {
-            std::string line;
-            while (std::getline(in, line)) {
-                if (line.empty()) continue;
-                auto parsed = nlohmann::json::parse(line, nullptr, false);
-                if (parsed.is_discarded() || !parsed.is_object()) continue;
-                if (src.has_memory_id) {
-                    const std::string id = parsed.contains("memory_id") && parsed["memory_id"].is_string()
-                        ? parsed["memory_id"].get<std::string>() : std::string();
-                    execute(std::string("INSERT INTO ") + src.table + "(memory_id, json) VALUES(?, ?)",
-                            {id, parsed.dump()});
-                } else {
-                    execute(std::string("INSERT INTO ") + src.table + "(json) VALUES(?)", {parsed.dump()});
-                }
-                ++imported;
-            }
-        }
-        counts[src.table] = imported;
+        execute("CREATE TABLE action_previews (preview_id TEXT PRIMARY KEY, action_plan_id TEXT NOT NULL, "
+                "expires_at INTEGER NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','applied','dismissed')), "
+                "json TEXT NOT NULL)");
+        execute("CREATE INDEX action_previews_plan ON action_previews(action_plan_id)");
+        execute("CREATE INDEX action_previews_expiry ON action_previews(expires_at)");
+        execute("PRAGMA user_version = 2");
     }
-    meta_set("jsonl_import_v1", nlohmann::json({{"at", utc_iso_now()}, {"counts", counts}}).dump());
     tx.commit();
 }
 

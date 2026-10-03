@@ -187,7 +187,7 @@ Neu: `web_frontend_v3/js/assistant/`
 1. **Stabile `run_uid`.** Jeder Run bekommt eine unveränderliche ID, die nicht vom Anzeigenamen oder Pfad abhängt.
    - Neue Runs: `run_uid` wird in das bereits bei Run-Start geschriebene `pi_run_provenance.json` aufgenommen.
    - Bestehende Runs: **nichts in das Run-Verzeichnis schreiben** (AGENTS.md). Die Zuordnung `run_uid ↔ run_key ↔
-     run_id-Aliase ↔ config_sha256 ↔ Startzeit` liegt zentral in `run_index_v1.jsonl` (append-only, Overlay).
+     run_id-Aliase ↔ config_sha256 ↔ Startzeit` liegt zentral in der Tabelle `run_index` der SQLite-Datenbank `pi_store_v2.sqlite` (append-only).
    - **Kanonischer Schlüssel ist `run_key`: der aufgelöste, normalisierte Run-Verzeichnispfad.** Ein Name ist nur
      relativ zu einem `runs_dir` eindeutig (Custom-Verzeichnis, Netzlaufwerk); gleiche Namen in verschiedenen
      Roots sind verschiedene Runs. Namen und absolute Pfade sind Aliase auf denselben `run_key`.
@@ -217,7 +217,7 @@ Neu: `web_frontend_v3/js/assistant/`
    - *Run History* zeigt je Run ein Kennzeichen "AI-Verlauf vorhanden" (Anzahl Entscheidungen) — ohne Session zu öffnen.
    - Die zuletzt aktive Kontext-Auswahl wird persistiert: `set-current` schreibt heute nur In-Memory-State
      (`runs_routes.cpp`), ein Backend-Restart verliert sie. Verbindlich im bestehenden
-     UI-State (`runtime_dir/ui_state.json`, `app_state_routes.cpp`), Feld `pi_active_context`. `run_index_v1.jsonl` bleibt
+     UI-State (`runtime_dir/ui_state.json`, `app_state_routes.cpp`), Feld `pi_active_context`. Die Tabelle `run_index` bleibt
      unveränderliche Zuordnung und enthält keine flüchtige Auswahl — damit "Zustand überlebt Reload/Restart" gilt.
 3. **Resume eines Runs** (`/api/runs/<id>/resume`) setzt denselben Run-Kontext fort; es entsteht kein neuer Kontext.
    Das bestehende Resume-Feedback (`/api/pi/memories/resume-feedback`) wird als Record verknüpft (`parent_decision_id`).

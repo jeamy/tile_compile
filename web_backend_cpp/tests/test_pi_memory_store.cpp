@@ -384,7 +384,7 @@ int main() {
                     "rejected-signal: match_explanation is non-empty — model can explain the warning");
 
 
-        // --- Einmaliger Import der alten JSONL-Dateien beim ersten Oeffnen ---
+        // --- Altbestaende werden nicht uebernommen ---
         {
             const auto legacy_dir = std::filesystem::temp_directory_path() /
                 ("tile_compile_pi_memory_import_" + std::to_string(getpid()));
@@ -420,10 +420,8 @@ int main() {
 
             tile_compile::pi::PiMemoryStore legacy_store(legacy_dir);
             const auto imported = legacy_store.list();
-            expect_equal(static_cast<long>(imported.size()), 1L, "legacy import keeps valid memory, skips bad line");
-            expect_equal(imported[0]["status"].get<std::string>(), "accepted", "legacy review overlay imported");
-            expect_equal(static_cast<long>(imported[0]["outcomes"].size()), 1L, "legacy outcome history imported");
-            expect_equal(static_cast<long>(legacy_store.auto_promotion_shadow_log(10).size()), 1L, "legacy shadow log imported");
+            expect_equal(static_cast<long>(imported.size()), 0L, "legacy memories discarded");
+            expect_equal(static_cast<long>(legacy_store.auto_promotion_shadow_log(10).size()), 0L, "legacy shadow discarded");
             expect_equal(read_all(legacy_dir / "memories_v2.jsonl"), jsonl_before, "legacy jsonl left untouched");
 
             // Neue Eintraege landen nur noch in SQLite; ein zweiter Store importiert nicht erneut.
@@ -433,7 +431,7 @@ int main() {
                 {"evidence", {{"validation", "new"}}}, {"outcome", {{"validation_valid", true}}}
             });
             tile_compile::pi::PiMemoryStore second(legacy_dir);
-            expect_equal(static_cast<long>(second.list().size()), 2L, "second store sees import plus new memory once");
+            expect_equal(static_cast<long>(second.list().size()), 1L, "second store sees only new memory");
             expect_equal(read_all(legacy_dir / "memories_v2.jsonl"), jsonl_before, "jsonl still untouched after append");
 
             // Dedupe sichert entfernte Eintraege in der Datenbank.

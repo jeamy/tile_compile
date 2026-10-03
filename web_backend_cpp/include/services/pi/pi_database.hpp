@@ -1,11 +1,10 @@
 #pragma once
 // Gemeinsame SQLite-Datenbank fuer den PI-Speicher (Memories und Decision Records).
 //
-// Eine Datei `pi_store_v1.sqlite` im PI-Storage-Verzeichnis. Eine Verbindung je Datenbankdatei und
+// Eine Datei `pi_store_v2.sqlite` im PI-Storage-Verzeichnis. Eine Verbindung je Datenbankdatei und
 // Prozess (Registry, geteilt ueber shared_ptr), WAL-Modus, serialisiert ueber einen rekursiven Mutex,
-// damit Transaktionen mehrerer Threads nicht ineinandergreifen. Beim ersten Oeffnen werden
-// vorhandene JSONL-Dateien der alten Speicherform einmalig importiert (Marker in `meta`); die
-// Originaldateien bleiben unveraendert liegen.
+// damit Transaktionen mehrerer Threads nicht ineinandergreifen. Keine Altbestandsmigration:
+// alte JSONL-Dateien und pi_store_v1.sqlite werden nicht eingelesen.
 
 #include <cstdint>
 #include <filesystem>
@@ -20,8 +19,8 @@ struct sqlite3;
 
 namespace tile_compile::pi {
 
-inline constexpr const char* kPiDatabaseFileName = "pi_store_v1.sqlite";
-inline constexpr int kPiDatabaseSchemaVersion = 1;
+inline constexpr const char* kPiDatabaseFileName = "pi_store_v2.sqlite";
+inline constexpr int kPiDatabaseSchemaVersion = 2;
 
 // SQL-Parameter/-Spalte: NULL, Ganzzahl oder Text.
 using PiSqlValue = std::variant<std::nullptr_t, std::int64_t, std::string>;
@@ -30,7 +29,7 @@ using PiSqlRow = std::vector<PiSqlValue>;
 class PiDatabase : public std::enable_shared_from_this<PiDatabase> {
 public:
     // Oeffnet (oder liefert die gecachte) Datenbank im Verzeichnis `dir`. Legt Verzeichnis,
-    // Schema und - einmalig - den JSONL-Import an. Wirft std::runtime_error bei Fehlern.
+    // das aktuelle Schema frisch an. Wirft std::runtime_error bei Fehlern.
     static std::shared_ptr<PiDatabase> open(const std::filesystem::path& dir);
 
     ~PiDatabase();
@@ -70,7 +69,6 @@ public:
 private:
     PiDatabase(std::filesystem::path dir, std::filesystem::path path);
     void init_schema();
-    void import_legacy_jsonl();
 
     std::filesystem::path _dir;
     std::filesystem::path _path;
