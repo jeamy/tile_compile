@@ -384,7 +384,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.GUI3_OPENCV_PREFIX }}
-          key: gui3-opencv-v2-${{ env.GUI3_OPENCV_VERSION }}-${{ matrix.runner }}
+          key: gui3-opencv-v3-${{ env.GUI3_OPENCV_VERSION }}-${{ matrix.runner }}
 
       - name: Build minimal OpenCV
         if: steps.opencv-cache.outputs.cache-hit != 'true'
@@ -407,7 +407,7 @@ jobs:
             -DWITH_OPENCLAMDFFT=OFF -DWITH_OPENCLAMDBLAS=OFF \
             -DWITH_FFMPEG=OFF -DWITH_VTK=OFF -DWITH_QT=OFF -DWITH_GTK=OFF \
             -DWITH_PROTOBUF=OFF -DBUILD_PROTOBUF=OFF \
-            -DWITH_OBSENSOR=OFF -DWITH_IPP=OFF \
+            -DWITH_OBSENSOR=OFF -DWITH_IPP=OFF -DWITH_EIGEN=OFF \
             -DWITH_IMGCODEC_HDR=ON -DWITH_IMGCODEC_PFM=ON -DWITH_IMGCODEC_PXM=ON
           cmake --build "${RUNNER_TEMP}/opencv-build" -j"$(sysctl -n hw.ncpu)"
           cmake --install "${RUNNER_TEMP}/opencv-build"
