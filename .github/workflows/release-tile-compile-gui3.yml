@@ -384,7 +384,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.GUI3_OPENCV_PREFIX }}
-          key: gui3-opencv-${{ env.GUI3_OPENCV_VERSION }}-${{ matrix.runner }}
+          key: gui3-opencv-v2-${{ env.GUI3_OPENCV_VERSION }}-${{ matrix.runner }}
 
       - name: Build minimal OpenCV
         if: steps.opencv-cache.outputs.cache-hit != 'true'
@@ -399,7 +399,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="${GUI3_OPENCV_PREFIX}" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET}" \
             -DBUILD_SHARED_LIBS=OFF \
-            -DBUILD_LIST=core,imgproc,imgcodecs,calib3d,features2d,flann,photo \
+            -DBUILD_LIST=core,imgproc,imgcodecs,calib3d,features2d,flann,photo,gapi \
             -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF \
             -DBUILD_opencv_apps=OFF -DBUILD_DOCS=OFF \
             -DBUILD_opencv_python3=OFF -DBUILD_JAVA=OFF \
@@ -411,6 +411,23 @@ jobs:
             -DWITH_IMGCODEC_HDR=ON -DWITH_IMGCODEC_PFM=ON -DWITH_IMGCODEC_PXM=ON
           cmake --build "${RUNNER_TEMP}/opencv-build" -j"$(sysctl -n hw.ncpu)"
           cmake --install "${RUNNER_TEMP}/opencv-build"
+          # Verify the installed package end-to-end: a truncated BUILD_LIST can
+          # leave dangling imported targets (e.g. 3rdparty 'ade') in
+          # OpenCVModules.cmake. Catch that here instead of in the app build.
+          CHECK_DIR="${RUNNER_TEMP}/opencv-check"
+          mkdir -p "${CHECK_DIR}"
+          cat > "${CHECK_DIR}/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.20)
+          project(opencv_check CXX)
+          find_package(OpenCV REQUIRED)
+          file(WRITE ${CMAKE_BINARY_DIR}/check.cpp
+            "#include <opencv2/opencv.hpp>\n#include <opencv2/calib3d.hpp>\n#include <opencv2/features2d.hpp>\n#include <opencv2/photo.hpp>\nint main(){cv::Mat m;cv::BFMatcher b;return (int)m.rows;}\n")
+          add_executable(opencv_check ${CMAKE_BINARY_DIR}/check.cpp)
+          target_link_libraries(opencv_check ${OpenCV_LIBS})
+          EOF
+          cmake -S "${CHECK_DIR}" -B "${CHECK_DIR}/build" -G Ninja \
+            -DOpenCV_DIR="${GUI3_OPENCV_PREFIX}/lib/cmake/opencv4"
+          cmake --build "${CHECK_DIR}/build"
 
       - name: Build, bundle and smoke test GUI3
         shell: bash
