@@ -1,5 +1,34 @@
 ## Changelog
 
+### (2026-10-03)
+
+**v0.5.0 — CFA Forward Drizzle v2 production cutover and the Jev decision layer:**
+
+**Reconstruction (CFA-aware-Forward-Drizzle):**
+
+- The CFA Forward Drizzle + Multiband reconstruction was rebuilt as the gate-verified v2 line and cut over to production: frozen affine gate-0 reference, isolated oracle prototypes, dense scatter for affine warps, a bounded-reservoir sigma-clip estimator, the gate-6 prototype kernel, gate-8 local warps, and gate-9 streaming multiband fusion. It is now the pipeline's single reconstruction method.
+- Band-fold input amplification was eliminated, band boundaries resume with an atomic commit, and fixed CUDA buffers now leave explicit device headroom.
+- A pilot and a full-frame estimator were added for the CPU and CUDA forward-drizzle paths.
+- Forward-drizzle performance and I/O: parallel GLOBAL_QUALITY/SQM build, source-X bounding plus an O3 race fix, a dense-footprint coverage path, target-column windows in the stripe enumerator and accumulate path, a column-tiled CUDA store path, Q rectangle views with seek-read of the compact quality-map binary, a per-band record memo, and the run-internal source block-check index. The STACKING phase now passes downstream data through instead of re-encoding it.
+- Registration gained a plausibility gate that rejects implausible model-predicted warps.
+- Colour pipeline: opt-in adaptive average-neutral colour-cast correction with brightness-dependent strength, optional sky neutralization (`neutralize_sky`), and scale-selective large-scale contrast in the HyperMetric Stretch (`large_scale_contrast`), tuned via star exclusion and sigma-scaled margins and enabled by default for the M42-class example profiles.
+- New full-frame DWARF II example profiles for M42, M31, and IC434 plus luma_denoise variants; the shipped M42 `target_bg` was aligned with the config default.
+
+**Jev decision layer (jev-ki):**
+
+- Verified Jev provider protocol end-to-end (OpenRouter via `/api/alpha/decisions`) with contract schemas, a field inventory (281 leaves, 47 protected), and the protected-paths candidate catalog.
+- Added the pre-run `pi_decision_state` builder, deterministic pre-rules, candidate validation, `resolve_decision`, and a separate Jev outcome store/recorder.
+- `agent_service` gained a Jev decisions adapter (independent HTTP client, strict validation); the backend exposes the `pi_decision_service` routes and an eval harness.
+- Frontend Jev page: Jev settings card, a dedicated Jev traffic panel, on-demand scan metrics with restart/force, plain-language reasons and a clear "Jev was not asked" state, one question per candidate group with selectable recommendations and apply-batch, `candidate_facts` passed to the provider, a Check-status button, and a global AI/Jev on-off switch. Jev save conflicts now state that the on-disk config changed instead of overwriting.
+- Evaluation framework: frozen release policy v2 with a retrospective registry and replay tooling, matched-star pair metrics (nearest-maximum matching with alignment and geometry fit), a determinism check, effect-size screening docs, table-driven candidates (sensor profile, `set_pixfrac`, `set_clip_sigmas`), and a recorded rejection of `enable_adaptive_weights`.
+- Scope v2 decisions: protected paths reduced to hard gates and user-domain values, value grids in the candidate catalog, object class as a user statement, and a retention rule for evaluation runs.
+- Post-run advisor: deterministic read-only advice with a shared resume-scope table, the `/api/pi/post-run/advice` route, a run-monitor card, and apply that prepares a new run or a resume.
+
+**Platform and packaging:**
+
+- Windows portability: `_mkgmtime` for event timestamp parsing, `GetProcessMemoryInfo` for RSS metrics, open/fsync durability shims in the geometry cache, and `std::clock` for MinGW geometry stats.
+- macOS release packaging now targets macOS 15 on the `macos-15` runners, pins `openssl@3`, and builds a minimal static OpenCV instead of the Homebrew formula.
+
 ### (2026-08-24)
 
 **v0.4.A — Native local Gaia DR3 astrometry fallback and BGE draft compatibility:**
