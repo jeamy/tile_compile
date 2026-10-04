@@ -1119,6 +1119,22 @@ int main(int argc, char** argv) {
         const auto selected = harness.post_json("/api/pi/assistant/select-context", {{"run_uid", thread_uid}});
         expect_true(!selected["artifacts_reachable"].get<bool>(), "missing context read-only capability");
         expect_true(harness.get_json("/api/pi/assistant/capabilities")["run_uid_threads"].get<bool>(), "UID thread capability");
+        // Owned central fixture: proposal display must retain DecisionService's shadow safeguards.
+        const auto analysis_db = tile_compile::pi::PiDatabase::open(memory_dir);
+        const nlohmann::json analysis_context = {{"kind", "analysis"}, {"analysis_uid", "analysis_fixture"}, {"context_id", "analysis:analysis_fixture"}, {"scan_id", "scan_fixture"}};
+        analysis_db->execute("INSERT INTO analysis_contexts(analysis_uid, scan_signature, json) VALUES(?, ?, ?)", {"analysis_fixture", "fixture_signature", analysis_context.dump()});
+        analysis_db->execute("INSERT INTO analysis_revisions(revision_id, analysis_uid, json) VALUES(?, ?, ?)", {"revision_fixture", "analysis_fixture", "{}"});
+        analysis_db->execute("INSERT INTO jev_documents(proposal_id, part, json) VALUES(?, ?, ?)", {"analysis_proposal", "status", "{\"state\":\"done\",\"mode\":\"shadow\",\"model_called\":true}"});
+        analysis_db->execute("INSERT INTO jev_documents(proposal_id, part, json) VALUES(?, ?, ?)", {"analysis_proposal", "proposal", "{\"candidate_id\":\"fixture\",\"updates\":[{\"path\":\"bge.enabled\",\"value\":true}]}"});
+        analysis_db->execute("INSERT INTO analysis_proposals(proposal_id, analysis_uid, revision_id) VALUES(?, ?, ?)", {"analysis_proposal", "analysis_fixture", "revision_fixture"});
+        const auto analysis_thread = harness.get_json("/api/pi/assistant/analysis-thread/analysis_fixture");
+        expect_equal(analysis_thread["_http_status"].get<long>(), 200L, "analysis thread read status");
+        expect_true(analysis_thread["items"][0]["result"]["shadow"].get<bool>(), "shadow proposal remains shadow");
+        expect_true(analysis_thread["items"][0]["result"]["proposal"]["updates"].empty(), "shadow updates not offered in Dock");
+        expect_equal(harness.get_json("/api/pi/assistant/analysis-contexts/analysis_fixture")["context_id"].get<std::string>(), "analysis:analysis_fixture", "analysis metadata UID");
+        expect_equal(harness.post_json("/api/pi/assistant/select-analysis", {{"analysis_uid", "analysis_fixture"}})["_http_status"].get<long>(), 200L, "select historical analysis without scan or provider");
+        expect_equal(harness.get_json("/api/pi/assistant/analysis-thread/unknown")["_http_status"].get<long>(), 404L, "unknown analysis cannot be manufactured");
+        expect_equal(harness.post_json("/api/pi/assistant/analysis-context", nlohmann::json::object())["_http_status"].get<long>(), 400L, "analysis requires explicit draft and successful scan");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());

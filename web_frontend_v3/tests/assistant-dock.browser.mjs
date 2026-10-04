@@ -21,6 +21,7 @@ try {
     const json = body => route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
     if (req.method() === "POST") {
       const body = req.postDataJSON(); posts.push({ p, body });
+      if (p.endsWith('select-analysis')) return json({ kind: 'analysis', analysis_uid: body.analysis_uid, context_id: `analysis:${body.analysis_uid}`, input_path: '/fixture/lights' });
       if (p.endsWith("select-context")) return json({ kind: "run", run_uid: body.run_uid, context_id: `run:${body.run_uid}`, run_key: `/fixture/${body.run_uid}`, artifacts_reachable: !(missing && body.run_uid === "a") });
       if (p === "/api/pi/run-chat") {
         if (delayChat) await new Promise(resolve => setTimeout(resolve, 200));
@@ -35,6 +36,7 @@ try {
       throw new Error(`Unexpected mutation ${p}`);
     }
     if (p === "/api/pi/assistant/capabilities") return json({ schema_version: "pi.assistant-capabilities.v1", run_uid_threads: true, thread_history: durable, durable_jev_post_run: durable });
+    if (p.startsWith('/api/pi/assistant/analysis-thread/')) return json({ context_id: 'analysis:analysis1', items: [{ event_id: 'scan_jev_1', revision_id: 'arev_1', provider: 'jev', result: { state: 'done', mode: 'shadow', shadow: true, proposal: { candidate_id: 'candidate1', status: 'presented', updates: [] } } }] });
     if (p === "/api/pi/active-context") return json({ context: null });
     if (p === "/api/pi/assistant/run-context") return json({ run_uid: url.searchParams.get('run_id').endsWith('b') ? 'b' : 'a' });
     if (p.startsWith("/api/pi/run-contexts/")) return json({ run_keys: ["/fixture/a"] });
@@ -92,6 +94,14 @@ try {
   await page.reload(); await page.getByText('a reply', { exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Jev: post-run advice' }).isDisabled(), true, 'older UID backend cannot create transient Jev cards');
   assert.equal(await page.getByRole('button', { name: 'Ask PI', exact: true }).isDisabled(), false, 'older UID backend retains PI chat');
+  durable = true;
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('tc-assistant-context', { detail: { analysis_uid: 'analysis1' } })));
+  await page.getByText(/scan_jev_1/).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Ask PI', exact: true }).isDisabled(), true, 'analysis chat remains explicitly unsupported');
+  await page.reload(); await page.getByText(/scan_jev_1/).waitFor();
+  await page.getByText(/candidate1/).waitFor();
+  await choose('b'); await page.getByText('run:b', { exact: false }).waitFor();
+  assert.equal(await page.getByText(/scan_jev_1/).count(), 0, 'analysis and run threads stay separate');
   assert.deepEqual(errors, []);
-  console.log('Dock fixtures passed: single host, UID threads, lazy Why, stale send isolation, durable UID-scoped Jev cards and honest rule label, collapse/reload, missing artifacts, desktop/mobile.');
+  console.log('Dock fixtures passed: single host, UID threads, lazy Why, stale send isolation, durable UID-scoped Jev cards and honest rule label, collapse/reload, missing artifacts, analysis reload and run isolation, desktop/mobile.');
 } finally { await browser.close(); }

@@ -94,7 +94,8 @@ Refresh oder Schalterwechsel.
 
 Dies ist der **erste Adapter**, nicht der abgeschlossene Gesamtumbau:
 
-- Analyse-Kontext samt Revisionen und echter Kontext-Chat-Verallgemeinerung.
+- [Analyse-Kontext samt Scan-Jev-Revisionen](pi_analysis_context_implementation_de.md) ist als lesender
+  Grundbaustein implementiert. Freie PI-Analyse-Unterhaltung und echte Kontext-Chat-Verallgemeinerung sind offen.
 - Bild-Facet `<run_uid>:live_edit`, Session-Eviction und gemeinsame Bildoperation-/Preview-Karten.
 - Dauerhaftes Mergen der Jev-/PI-/Decision-Ereignisse in `assistant/thread` inklusive Vorfahren.
   Neue Post-Run-Jev-Karten sind bereits dauerhaft und UID-gebunden; Scan-Jev-Proposals und Decision-Links
