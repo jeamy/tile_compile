@@ -1,8 +1,9 @@
 #pragma once
 // Decision-Trace-Store (docs/PI/DECISIONTRACE/pi_decision_trace_plan_de.md, §2.1/2.2/2.8).
 //
-// SQLite-Tabellen `decision_records` (append-only; Trigger verbieten DELETE und das Aendern der
-// Schluesselspalten), `decision_reasons` (Filter/Aggregation) und `decision_links` (append-only
+// SQLite-Tabellen `decision_records` (im Normalbetrieb append-only; Trigger verbieten DELETE ausserhalb
+// expliziter Retention-Erasure und verbieten Aendern der Schluesselspalten), `decision_reasons` (Filter/Aggregation)
+// und `decision_links` (append-only
 // Ereignisse: memory, outcome, supersedes, run_deleted, redact). Leser mergen den Link-Stand ueber
 // `decision_id`. Einzige erlaubte Aenderung an einem Record ist die Redaktion von
 // `rationale.user.text` (im gespeicherten JSON, in derselben Transaktion wie der redact-Link).

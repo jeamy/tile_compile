@@ -53,12 +53,12 @@ int main(int argc, char** argv) {
             for (const auto& item : st["phases"]) {
                 if (test_phase_name(item) == "SCAN_INPUT") {
                     scan_seen = true;
-                    expect_true(item.contains("duration_seconds"), "an early phase keeps its duration although its events left the tail");
-                    if (item.contains("duration_seconds")) expect_equal(item["duration_seconds"].get<double>(), 11.5, "fractional seconds count", 1e-6);
+                    expect_true(item.contains("duration_s"), "an early phase keeps its duration although its events left the tail");
+                    expect_equal(item["duration_s"].get<double>(), 11.5, "fractional seconds count", 1e-6);
                 }
                 if (test_phase_name(item) == "NORMALIZATION") {
                     norm_seen = true;
-                    expect_true(item.contains("duration_seconds") && std::abs(item["duration_seconds"].get<double>() - 63.0) < 1e-6, "second phase duration");
+                    expect_true(item.contains("duration_s") && std::abs(item["duration_s"].get<double>() - 63.0) < 1e-6, "second phase duration");
                 }
             }
             expect_true(scan_seen && norm_seen, "both phases reported");

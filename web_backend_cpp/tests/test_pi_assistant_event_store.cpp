@@ -17,12 +17,13 @@ int main() {
                 "INSERT INTO run_index(run_uid, config_sha256, started_at, json) VALUES(?, '', '', '{}')", {uid});
             // Simulate an existing v6 database; only this owned fixture is modified.
             db->execute("DROP TABLE assistant_thread_events");
+            db->execute("DROP TABLE retention_deletion_journal");
             db->execute("PRAGMA user_version = 6");
         }
         {
             PiAssistantEventStore store(dir);
             auto db = PiDatabase::open(dir);
-            require(db->schema_version() == 7, "v6 upgrade");
+            require(db->schema_version() == 8, "v6 to v8 upgrade");
             require(db->query("SELECT run_uid FROM run_index").size() == 2, "upgrade preserves identities");
             const json result = {{"state", {{"phase", "complete"}}}, {"advice", json::array()}};
             const auto event = store.append("event_a", "uid_a", result);

@@ -1,6 +1,7 @@
 #include "backend_test_harness.hpp"
 #include "pi_store_test_support.hpp"
 #include "fake_sidecar.hpp"
+#include "services/pi/pi_decision_record_store.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -56,6 +57,20 @@ int main(int argc, char** argv) {
         expect_equal(reason_catalog["_http_status"].get<long>(), 200L, "user reason catalog status");
         expect_equal(reason_catalog["schema_version"].get<std::string>(), "pi.user-reason-codes.v1", "user reason schema");
         expect_equal(reason_catalog["catalog_version"].get<std::string>(), "1", "user reason catalog version");
+        const auto retention = harness.get_json("/api/pi/retention");
+        expect_equal(retention["_http_status"].get<long>(), 200L, "retention policy status");
+        expect_equal(retention["schema_version"].get<std::string>(), "pi.retention-policy.v1", "retention policy schema");
+        expect_equal(harness.post_json("/api/pi/retention/maintenance", nlohmann::json::object())["_http_status"].get<long>(),
+                     400L, "maintenance requires confirmation");
+        expect_equal(harness.post_json("/api/pi/retention/backup", nlohmann::json::object())["_http_status"].get<long>(),
+                     400L, "manual backup requires confirmation");
+        const auto manual_backup = harness.post_json("/api/pi/retention/backup", {{"confirmed", true}});
+        expect_equal(manual_backup["_http_status"].get<long>(), 200L, "confirmed manual backup succeeds");
+        expect_true(manual_backup["backup_id"].is_string(), "manual backup returns managed backup id");
+        expect_equal(harness.post_json("/api/pi/retention/restore", nlohmann::json::object())["_http_status"].get<long>(),
+                     400L, "restore requires confirmation and explicit backup id");
+        expect_equal(harness.post_json("/api/pi/retention/reset", {{"confirmed", true}, {"categories", nlohmann::json::array()}})["_http_status"].get<long>(),
+                     400L, "reset requires explicit nonempty categories");
         expect_equal(static_cast<long>(reason_catalog["domains"]["config"].size()), 10L, "config reason count");
         expect_equal(static_cast<long>(reason_catalog["domains"]["image"].size()), 8L, "image reason count");
 
@@ -75,7 +90,7 @@ int main(int argc, char** argv) {
         expect_equal(scan["_http_status"].get<long>(), 200L, "scan launch status");
         const std::string job_id = scan["job_id"].get<std::string>();
         const auto final_job = harness.wait_for_job(job_id);
-        expect_equal(final_job["state"].get<std::string>(), "ok", "scan job ok");
+        expect_equal(final_job["state"].get<std::string>(), "ok", "scan job ok: " + final_job.dump());
 
         const auto with_scan = harness.get_json("/api/pi/context");
         expect_equal(with_scan["_http_status"].get<long>(), 200L, "pi context with scan status");
@@ -404,6 +419,30 @@ int main(int argc, char** argv) {
         expect_true(memory_index["by_camera"]["asi2600mc"].is_array(), "pi memory index by camera");
         expect_true(memory_index["by_filter"]["haoiii"].is_array(), "pi memory index by filter");
         expect_true(memory_index["by_problem"]["faint_nebula"].is_array(), "pi memory index by problem");
+
+        tile_compile::pi::PiDecisionRecordStore decision_store(harness.fixture_root() / "runs" / ".pi_memory");
+        nlohmann::json export_record = nlohmann::json::object();
+        export_record["schema_version"] = tile_compile::pi::kDecisionRecordSchemaVersion;
+        export_record["kind"] = "config_reject";
+        export_record["actor"] = "user";
+        export_record["origin"] = "live";
+        export_record["privacy_class"] = "metadata_plus_user_text";
+        export_record["decision_id"] = "export_privacy_fixture";
+        export_record["context_ref"] = {{"context_id", "ctx_export"}, {"run_uid", "run_export"}};
+        export_record["subject"] = {{"paths", nlohmann::json::array({{{"path", "/private/user/run/config.yaml"}}})}};
+        export_record["rationale"] = {
+            {"user", {{"reason_codes", nlohmann::json::array({"other"})}, {"catalog_version", "v1"},
+                       {"text", "private export sentinel"}, {"no_reason_given", false}}},
+            {"basis", nlohmann::json::array()}
+        };
+        decision_store.append(export_record);
+        const auto record_export = harness.get_json("/api/pi/decision-records/export");
+        expect_equal(record_export["_http_status"].get<long>(), 200L, "decision record privacy export status");
+        expect_equal(record_export["schema_version"].get<std::string>(), "pi.decision-records-export.v1", "decision record export schema");
+        expect_true(record_export.dump().find("private export sentinel") == std::string::npos, "decision record export omits user free text");
+        expect_true(record_export.dump().find("/private/user/run") == std::string::npos, "decision record export omits path metadata");
+        expect_true(decision_store.get("export_privacy_fixture")["rationale"]["user"]["text"].get<std::string>() == "private export sentinel",
+                    "export omission does not mutate source record");
 
         const auto exported_memories = harness.get_json("/api/pi/memories/export?privacy=metadata_only");
         expect_equal(exported_memories["_http_status"].get<long>(), 200L, "pi memories export status");

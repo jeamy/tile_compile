@@ -20,7 +20,7 @@ struct sqlite3;
 namespace tile_compile::pi {
 
 inline constexpr const char* kPiDatabaseFileName = "pi_store_v2.sqlite";
-inline constexpr int kPiDatabaseSchemaVersion = 7;
+inline constexpr int kPiDatabaseSchemaVersion = 8;
 
 // SQL-Parameter/-Spalte: NULL, Ganzzahl oder Text.
 using PiSqlValue = std::variant<std::nullptr_t, std::int64_t, std::string>;
@@ -66,13 +66,21 @@ public:
 
     int schema_version();
 
+    // Consistent SQLite Backup API snapshot; never copies a live DB/WAL file directly.
+    void backup_to(const std::filesystem::path& destination);
+
 private:
+    friend class PiRetentionStore;
+    // Restore is private so callers cannot bypass deletion-journal reconciliation.
+    void restore_from(const std::filesystem::path& source);
+    void set_restore_blocked(bool blocked);
     PiDatabase(std::filesystem::path dir, std::filesystem::path path);
     void init_schema();
 
     std::filesystem::path _dir;
     std::filesystem::path _path;
     sqlite3* _db{nullptr};
+    bool _restore_blocked{false};
     std::recursive_mutex _mutex;
 };
 

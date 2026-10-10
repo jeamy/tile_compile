@@ -18,6 +18,7 @@
 #include "services/pi/pi_run_index.hpp"
 #include "services/pi/pi_decision_state.hpp"
 #include "services/pi/pi_run_learning_store.hpp"
+#include "services/pi/pi_retention_store.hpp"
 #include "services/pi/pi_json_io.hpp"
 #include "services/pi/pi_tool_registry.hpp"
 #include "services/pi/pi_image_ops.hpp"
@@ -47,6 +48,7 @@
 #include <mutex>
 #include <memory>
 #include <map>
+#include <vector>
 #include <yaml-cpp/yaml.h>
 
 using namespace tile_compile::routes;
@@ -2395,6 +2397,114 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         return json_resp(assistant.answer(question));
     });
 
+    CROW_ROUTE(app, "/api/pi/retention").methods("GET"_method)
+    ([state](const crow::request&) {
+        try {
+            tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+            return json_resp(store.status());
+        } catch (const std::exception& e) {
+            return err_resp("RETENTION_STATUS_FAILED", e.what(), 503);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/retention/maintenance").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->value("confirmed", false))
+            return err_resp("CONFIRMATION_REQUIRED", "confirmed=true is required", 400);
+        try {
+            const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+            return json_resp(store.maintain(now));
+        } catch (const std::exception& e) {
+            return err_resp("RETENTION_MAINTENANCE_FAILED", e.what(), 503);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/retention/backup").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->value("confirmed", false))
+            return err_resp("CONFIRMATION_REQUIRED", "confirmed=true is required", 400);
+        try {
+            const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+            return json_resp(store.create_backup(now));
+        } catch (const std::exception& e) {
+            return err_resp("PI_BACKUP_FAILED", e.what(), 503);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/retention/restore").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->value("confirmed", false) ||
+            !body->contains("backup_id") || !(*body)["backup_id"].is_string())
+            return err_resp("RESTORE_SELECTION_REQUIRED", "confirmed=true and backup_id are required", 400);
+        try {
+            const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+            const auto result = store.restore_backup((*body)["backup_id"].get<std::string>(), true, now);
+            tile_compile::pi::set_pi_active_context(state, nullptr);
+            return json_resp(result);
+        } catch (const std::invalid_argument& e) {
+            return err_resp("RESTORE_SELECTION_INVALID", e.what(), 400);
+        } catch (const std::exception& e) {
+            return err_resp("PI_RESTORE_FAILED", e.what(), 503);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/retention/reset").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->value("confirmed", false) ||
+            !body->contains("categories") || !(*body)["categories"].is_array())
+            return err_resp("RESET_SELECTION_REQUIRED", "confirmed=true and an explicit categories array are required", 400);
+        std::vector<std::string> categories;
+        for (const auto& item : (*body)["categories"]) {
+            if (!item.is_string()) return err_resp("RESET_SELECTION_INVALID", "categories must contain strings", 400);
+            categories.push_back(item.get<std::string>());
+        }
+        try {
+            const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+            const auto result = store.reset(categories, true, now);
+            if (std::find(categories.begin(), categories.end(), "run_learning") != categories.end() ||
+                std::find(categories.begin(), categories.end(), "conversations") != categories.end())
+                tile_compile::pi::set_pi_active_context(state, nullptr);
+            return json_resp(result);
+        } catch (const std::invalid_argument& e) {
+            return err_resp("RESET_SELECTION_INVALID", e.what(), 400);
+        } catch (const std::exception& e) {
+            return err_resp("PI_RESET_FAILED", e.what(), 503);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/retention/run/<string>/forget").methods("POST"_method)
+    ([state](const crow::request& req, const std::string& run_uid) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->value("confirmed", false))
+            return err_resp("CONFIRMATION_REQUIRED", "confirmed=true is required", 400);
+        try {
+            const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+            const auto result = store.forget_run(run_uid, true, now);
+            const auto active = tile_compile::pi::pi_active_context(state);
+            if (active.is_object() && active.value("run_uid", std::string()) == run_uid)
+                tile_compile::pi::set_pi_active_context(state, nullptr);
+            return json_resp(result);
+        } catch (const std::invalid_argument& e) {
+            return err_resp("RUN_CONTEXT_NOT_FOUND", e.what(), 404);
+        } catch (const std::exception& e) {
+            return err_resp("RUN_CONTEXT_FORGET_FAILED", e.what(), 503);
+        }
+    });
+
     CROW_ROUTE(app, "/api/pi/storage").methods("GET"_method)
     ([state](const crow::request&) {
         return json_resp(tile_compile::pi::pi_storage_status(state));
@@ -3333,6 +3443,41 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         tile_compile::pi::PiDecisionRecordStore store(tile_compile::pi::pi_storage_dir(state));
         const auto items = store.list(filter, std::clamp(int_query_param(req, "limit", 200), 1, 1000));
         return json_resp({{"schema_version", "pi.decision-records-list.v1"}, {"items", items}, {"count", items.size()}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/decision-records/export").methods("GET"_method)
+    ([state](const crow::request&) {
+        try {
+            tile_compile::pi::PiDecisionRecordStore store(tile_compile::pi::pi_storage_dir(state));
+            const auto stored_records = store.list(nlohmann::json::object(), 0);
+            nlohmann::json records = nlohmann::json::array();
+            static const std::vector<std::string> metadata_fields = {
+                "decision_id", "created_at", "kind", "actor", "origin", "parent_decision_id",
+                "memory_id", "outcome_refs", "supersedes", "run_deleted", "redacted"};
+            for (const auto& source : stored_records) {
+                nlohmann::json record = {{"schema_version", source.value("schema_version", std::string("pi.decision-record.v1"))},
+                                         {"privacy_class", "metadata_only"}};
+                for (const auto& key : metadata_fields) if (source.contains(key)) record[key] = source[key];
+                if (source.contains("context_ref") && source["context_ref"].is_object()) {
+                    record["context_ref"] = nlohmann::json::object();
+                    for (const char* key : {"context_id", "run_uid", "image_id"})
+                        if (source["context_ref"].contains(key) && source["context_ref"][key].is_string())
+                            record["context_ref"][key] = source["context_ref"][key];
+                }
+                const auto user = source.value("rationale", nlohmann::json::object())
+                    .value("user", nlohmann::json::object());
+                record["rationale"] = {{"user", {{"reason_codes", user.value("reason_codes", nlohmann::json::array())},
+                                                  {"catalog_version", user.value("catalog_version", std::string())},
+                                                  {"no_reason_given", user.value("no_reason_given", false)},
+                                                  {"text_omitted_in_export", true}}}};
+                records.push_back(std::move(record));
+            }
+            return json_resp({{"schema_version", "pi.decision-records-export.v1"},
+                              {"privacy_class", "metadata_only"}, {"items", records},
+                              {"count", records.size()}, {"user_text_included", false}});
+        } catch (const std::exception& e) {
+            return err_resp("DECISION_EXPORT_FAILED", e.what(), 503);
+        }
     });
 
     CROW_ROUTE(app, "/api/pi/decision-records/<string>").methods("GET"_method)

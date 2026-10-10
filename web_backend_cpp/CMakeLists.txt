@@ -207,6 +207,7 @@ set(BACKEND_SOURCES
     src/services/pi/pi_assistant_event_store.cpp
     src/services/pi/pi_run_index.cpp
     src/services/pi/pi_run_learning_store.cpp
+    src/services/pi/pi_retention_store.cpp
     src/services/pi/pi_decision_record_store.cpp
     src/services/pi/pi_preview_store.cpp
     src/services/pi/pi_memory_store.cpp
@@ -436,6 +437,14 @@ if(BUILD_TESTS)
     add_backend_cpp_test(web_backend_cpp_pi_run_index tests/test_pi_run_index.cpp)
     target_sources(web_backend_cpp_pi_run_index PRIVATE src/services/pi/pi_database.cpp src/services/pi/pi_run_index.cpp)
     target_link_libraries(web_backend_cpp_pi_run_index PRIVATE ${PI_SQLITE_TARGET} OpenSSL::Crypto)
+    add_backend_cpp_test(web_backend_cpp_pi_retention_store tests/test_pi_retention_store.cpp)
+    target_sources(web_backend_cpp_pi_retention_store PRIVATE
+        src/services/pi/pi_database.cpp
+        src/services/pi/pi_decision_record_store.cpp
+        src/services/pi/pi_retention_store.cpp
+        src/services/pi/pi_jev_store.cpp
+    )
+    target_link_libraries(web_backend_cpp_pi_retention_store PRIVATE ${PI_SQLITE_TARGET} OpenSSL::Crypto)
     add_backend_cpp_test(web_backend_cpp_pi_run_learning_store tests/test_pi_run_learning_store.cpp)
     target_sources(web_backend_cpp_pi_run_learning_store PRIVATE
         src/services/pi/pi_database.cpp src/services/pi/pi_run_index.cpp src/services/pi/pi_run_learning_store.cpp
@@ -506,6 +515,7 @@ if(BUILD_TESTS)
     target_sources(web_backend_cpp_pi_routes PRIVATE
         src/services/pi/pi_context_v2.cpp
         src/services/pi/pi_parameter_catalog.cpp
+        src/services/pi/pi_decision_record_store.cpp
     )
     target_include_directories(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_INCLUDE_DIRS})
     target_sources(web_backend_cpp_pi_routes PRIVATE src/services/pi/pi_database.cpp)

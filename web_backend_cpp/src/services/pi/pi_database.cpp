@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS decision_links (
 );
 CREATE INDEX IF NOT EXISTS decision_links_decision ON decision_links(decision_id);
 
--- Append-only: Records werden nie geloescht; nur die JSON-Spalte darf sich aendern (Redaktion).
+-- Normalbetrieb append-only; gezielte Retention-Erasure darf Records/Links nur mit gesetztem DB-internen Retention-Operation-Marker loeschen. Nur JSON darf ansonsten fuer Redaktion geaendert werden.
 CREATE TRIGGER IF NOT EXISTS decision_records_no_delete BEFORE DELETE ON decision_records
 BEGIN SELECT RAISE(ABORT, 'decision_records are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS decision_records_immutable
@@ -199,22 +199,33 @@ std::shared_ptr<PiDatabase> PiDatabase::open(const std::filesystem::path& dir) {
         }
     }
     std::shared_ptr<PiDatabase> db(new PiDatabase(dir, path));
+    const auto restore_marker = dir / "pi_restore.in_progress.json";
+    std::error_code marker_ec;
+    const auto marker_status = std::filesystem::symlink_status(restore_marker, marker_ec);
+    const bool restore_pending = !marker_ec && marker_status.type() != std::filesystem::file_type::not_found;
+    if (marker_ec && marker_ec != std::errc::no_such_file_or_directory)
+        throw std::runtime_error("cannot inspect PI restore marker before database open");
     const int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
     if (sqlite3_open_v2(path.string().c_str(), &db->_db, flags, nullptr) != SQLITE_OK) {
         const std::string msg = db->_db ? sqlite3_errmsg(db->_db) : "open failed";
         throw std::runtime_error("failed to open PI database " + path.string() + ": " + msg);
     }
     sqlite3_busy_timeout(db->_db, 5000);
-    db->execute("PRAGMA journal_mode=WAL");
-    db->execute("PRAGMA synchronous=NORMAL");
-    db->execute("PRAGMA foreign_keys=ON");
-    db->init_schema();
+    if (restore_pending) {
+        db->_restore_blocked = true;
+    } else {
+        db->execute("PRAGMA journal_mode=WAL");
+        db->execute("PRAGMA synchronous=NORMAL");
+        db->execute("PRAGMA foreign_keys=ON");
+        db->init_schema();
+    }
     registry()[key] = db;
     return db;
 }
 
 int PiDatabase::execute(const std::string& sql, const std::vector<PiSqlValue>& params) {
     std::lock_guard<std::recursive_mutex> lock(_mutex);
+    if (_restore_blocked) throw std::runtime_error("PI database is blocked after an incomplete restore; recovery is required");
     if (params.empty()) {
         char* err = nullptr;
         if (sqlite3_exec(_db, sql.c_str(), nullptr, nullptr, &err) != SQLITE_OK) {
@@ -233,6 +244,7 @@ int PiDatabase::execute(const std::string& sql, const std::vector<PiSqlValue>& p
 
 std::vector<PiSqlRow> PiDatabase::query(const std::string& sql, const std::vector<PiSqlValue>& params) {
     std::lock_guard<std::recursive_mutex> lock(_mutex);
+    if (_restore_blocked) throw std::runtime_error("PI database is blocked after an incomplete restore; recovery is required");
     Stmt s(_db, sql, params);
     std::vector<PiSqlRow> rows;
     const int cols = sqlite3_column_count(s.st);
@@ -288,7 +300,7 @@ int PiDatabase::schema_version() {
 void PiDatabase::init_schema() {
     Tx tx(*this);
     const int version = schema_version();
-    if (version != 0 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 && version != kPiDatabaseSchemaVersion) {
+    if (version != 0 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != kPiDatabaseSchemaVersion) {
         throw std::runtime_error("Unsupported PI database schema: " + std::to_string(version));
     }
     if (version == 0) {
@@ -340,9 +352,88 @@ void PiDatabase::init_schema() {
         execute("CREATE INDEX assistant_thread_events_context ON assistant_thread_events(run_uid, created_at)");
         execute("CREATE TRIGGER assistant_thread_events_no_update BEFORE UPDATE ON assistant_thread_events "
                 "BEGIN SELECT RAISE(ABORT, 'assistant events are immutable'); END");
-        execute("PRAGMA user_version = 7");
+    }
+    if (version < 8) {
+        execute("CREATE TABLE IF NOT EXISTS retention_deletion_journal (operation_id TEXT PRIMARY KEY, context_uid TEXT NOT NULL, "
+                "operation TEXT NOT NULL CHECK(operation IN ('forget_run','pi_reset')), created_at TEXT NOT NULL, "
+                "categories TEXT NOT NULL DEFAULT '')");
+        execute("DROP TRIGGER IF EXISTS decision_records_no_delete");
+        execute("CREATE TRIGGER decision_records_no_delete BEFORE DELETE ON decision_records "
+                "WHEN COALESCE((SELECT value FROM meta WHERE key = 'pi.retention.operation'), '') = '' "
+                "BEGIN SELECT RAISE(ABORT, 'decision_records are append-only outside retention erasure'); END");
+        execute("DROP TRIGGER IF EXISTS decision_links_no_delete");
+        execute("CREATE TRIGGER decision_links_no_delete BEFORE DELETE ON decision_links "
+                "WHEN COALESCE((SELECT value FROM meta WHERE key = 'pi.retention.operation'), '') = '' "
+                "BEGIN SELECT RAISE(ABORT, 'decision_links are append-only outside retention erasure'); END");
+        execute("PRAGMA user_version = 8");
     }
     tx.commit();
+}
+
+void PiDatabase::backup_to(const std::filesystem::path& destination) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    sqlite3* target = nullptr;
+    const std::string path = destination.string();
+    if (sqlite3_open_v2(path.c_str(), &target, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nullptr) != SQLITE_OK) {
+        const std::string error = target ? sqlite3_errmsg(target) : "open failed";
+        if (target) sqlite3_close(target);
+        throw std::runtime_error("PI backup destination open failed: " + error);
+    }
+    sqlite3_busy_timeout(target, 5000);
+    sqlite3_backup* backup = sqlite3_backup_init(target, "main", _db, "main");
+    if (!backup) {
+        const std::string error = sqlite3_errmsg(target);
+        sqlite3_close(target);
+        throw std::runtime_error("PI backup initialization failed: " + error);
+    }
+    int rc = SQLITE_OK;
+    do {
+        rc = sqlite3_backup_step(backup, -1);
+        if (rc == SQLITE_BUSY || rc == SQLITE_LOCKED) sqlite3_sleep(25);
+    } while (rc == SQLITE_BUSY || rc == SQLITE_LOCKED);
+    const int finish_rc = sqlite3_backup_finish(backup);
+    if (rc != SQLITE_DONE || finish_rc != SQLITE_OK) {
+        const std::string error = sqlite3_errmsg(target);
+        sqlite3_close(target);
+        throw std::runtime_error("PI backup failed: " + error);
+    }
+    if (sqlite3_close(target) != SQLITE_OK) throw std::runtime_error("PI backup destination close failed");
+}
+
+void PiDatabase::restore_from(const std::filesystem::path& source) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    sqlite3* input = nullptr;
+    const std::string path = source.string();
+    if (sqlite3_open_v2(path.c_str(), &input, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nullptr) != SQLITE_OK) {
+        const std::string error = input ? sqlite3_errmsg(input) : "open failed";
+        if (input) sqlite3_close(input);
+        throw std::runtime_error("PI restore source open failed: " + error);
+    }
+    sqlite3_busy_timeout(input, 5000);
+    sqlite3_backup* backup = sqlite3_backup_init(_db, "main", input, "main");
+    if (!backup) {
+        const std::string error = sqlite3_errmsg(_db);
+        sqlite3_close(input);
+        throw std::runtime_error("PI restore initialization failed: " + error);
+    }
+    int rc = SQLITE_OK;
+    do {
+        rc = sqlite3_backup_step(backup, -1);
+        if (rc == SQLITE_BUSY || rc == SQLITE_LOCKED) sqlite3_sleep(25);
+    } while (rc == SQLITE_BUSY || rc == SQLITE_LOCKED);
+    const int finish_rc = sqlite3_backup_finish(backup);
+    const int close_rc = sqlite3_close(input);
+    if (rc != SQLITE_DONE || finish_rc != SQLITE_OK || close_rc != SQLITE_OK)
+        throw std::runtime_error("PI restore failed; active database must remain unavailable until recovery: " + std::string(sqlite3_errmsg(_db)));
+    _restore_blocked = false;
+    execute("PRAGMA foreign_keys=ON");
+    execute("PRAGMA journal_mode=WAL");
+    init_schema();
+}
+
+void PiDatabase::set_restore_blocked(bool blocked) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    _restore_blocked = blocked;
 }
 
 } // namespace tile_compile::pi
