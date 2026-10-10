@@ -56,7 +56,7 @@ Mehrprozess-Schreibkoordination und Windows-Atomic-Replace sind noch separat zu 
 
 ## Dauerhafte Post-Run-Karten und Thread-Fenster
 
-Schema v7 erweitert bestehende frische PI-Datenbanken additiv um `assistant_thread_events`. Die Tabelle enthaelt
+Schema v7 erweiterte bestehende frische PI-Datenbanken additiv um `assistant_thread_events`; Schema v8 ergänzt das Retention-Loeschjournal und kontrollierte Forget-/Reset-Loeschungen. Beide Upgrades erhalten vorherige v2-v7-Daten. Die Tabelle `assistant_thread_events` enthaelt
 unveraenderliche, UID-gebundene Snapshots explizit angefragter regelbasierter Post-Run-Beratung, keine Chat-
 Duplikate, Raw-FITS, neuen Decision Records oder impliziten Memory-Promotions. Reine Run-Dateiloeschung
 entfernt diese Karten nicht. Die freigegebene Vergessen-/Retention-Aktion bleibt gesondert zu implementieren.

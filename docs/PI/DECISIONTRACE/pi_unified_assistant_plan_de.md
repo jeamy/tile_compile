@@ -1,6 +1,6 @@
 # PI Unified Assistant — Plan (Teil B)
 
-> **Status:** Plan, nichts davon ist implementiert. Teilplan des [Gesamtplans](pi_decision_trace_und_unified_assistant_plan_de.md).
+> **Status:** Plan mit umgesetztem ersten Run-Dock-Adapter (globaler Host, UID-Threads, Post-Run-Karten, Parameterkarten mit Resume-Entwurf). Analyse- und Bild-Adapter, Scan-Jev-Merge und gespeicherter Apply-/Reason-Fluss sind **offen**. Umsetzungsstand: [Gesamtplan §7](pi_decision_trace_und_unified_assistant_plan_de.md#7-umsetzungsstand). Aussagen im Text mit „noch offen“ oder „geplant“ beschreiben den Stand des Plans, nicht zwingend den Code.
 > **Datum:** 2026-09-27, überarbeitet 2026-10-02 (Code-Review: Faktenkorrekturen, Schema- und
 > Endpunkt-Klarstellungen, ergänzte Risiken und Prüfpunkte), Analyse-Nachtrag 2026-10-02 (Arbeitskontext-Modell,
 > Rationale-Struktur, Jev-Annahmekette, Audit-Beziehung, Backfill, Session-Fortsetzung, P1-Gates), 2. Review
@@ -191,7 +191,7 @@ fuehren zu HTTP 409, es wird niemals still zusammengefuehrt. Historische Artefak
 Ein aktiver Kontext wird auf den neuen Pfad aktualisiert. `GET /api/pi/run-contexts/<run_uid>` liefert die Aliase.
 Die Run-History-Archivkarte bietet nun Auswahl erhaltener Lerndaten und explizite Neuverknuepfung einer bekannten UID,
 inklusive aktueller Alias-Liste. Datei-Lifecycle, Lern-Ausschluss und Dateiloeschdialoge sind dort implementiert.
-Dock-Kontextwechsel, Verlauf-/Session-Bezuege und die gesonderte Vergessen-Aktion sind noch offen.
+Dock-Kontextwechsel, Verlauf-/Session-Bezuege und die UI-Anbindung der Vergessen-Aktion (Backend-Endpunkt vorhanden) sind noch offen.
 
 **Entscheidungen:**
 
@@ -241,7 +241,7 @@ Dock-Kontextwechsel, Verlauf-/Session-Bezuege und die gesonderte Vergessen-Aktio
    - [Run-Lernarchiv](pi_run_learning_archive_de.md), Exclusion-Endpunkt und Run-History-Oberflaeche sind implementiert.
      Getrennte, bestaetigte Aktionen fuer Dateiloeschung und Lern-Ausschluss; Erfassungsluecken brauchen eine zweite
      Bestaetigung. Alte Backends ohne Faehigkeitsnachweis werden vor dem Delete blockiert.
-     Archive bleiben unter derselben UID lesbar; Vergessen bleibt eine gesonderte offene Aktion.
+     Archive bleiben unter derselben UID lesbar; Vergessen ist backendseitig umgesetzt, aber ohne UI-Anbindung.
    - Memories, Records und zentrale Konversationen bleiben bei reiner Dateiloeschung bestehen. Textredaktion und
      Vergessen gehoeren zu einer separaten bestaetigten Aktion bzw. der noch festzulegenden Aufbewahrungspolitik.
 5. **Verschieben, Kopieren, Umbenennen:** Weil nichts am Run-Verzeichnis hängt, überleben Records und Verlauf ein

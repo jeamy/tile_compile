@@ -1,6 +1,6 @@
 # PI Decision Trace — Plan (Teil A)
 
-> **Status:** Plan, nichts davon ist implementiert. Teilplan des [Gesamtplans](pi_decision_trace_und_unified_assistant_plan_de.md).
+> **Status:** Plan mit teilweise umgesetztem Backend (Speicher, Preview/Apply, Retention, Run-Identität). Permanente Decision-Schreibpunkte sind **noch deaktiviert**. Umsetzungsstand: [Gesamtplan §7](pi_decision_trace_und_unified_assistant_plan_de.md#7-umsetzungsstand). Aussagen im Text mit „noch offen“ oder „geplant“ beschreiben den Stand des Plans, nicht zwingend den Code.
 > **Datum:** 2026-09-27, überarbeitet 2026-10-02 (Code-Review: Faktenkorrekturen, Schema- und
 > Endpunkt-Klarstellungen, ergänzte Risiken und Prüfpunkte), Analyse-Nachtrag 2026-10-02 (Arbeitskontext-Modell,
 > Rationale-Struktur, Jev-Annahmekette, Audit-Beziehung, Backfill, Session-Fortsetzung, P1-Gates), 2. Review
@@ -60,12 +60,11 @@
   und `pi_store_v1.sqlite` werden weder geoeffnet noch importiert; die neue Datei startet leer.
   Bestehende Dateien werden nicht waehrend eines moeglicherweise laufenden Backend-Zugriffs geloescht.
   Kein Import der Altdatei und kein Alt-Schema-v1-Migrationspfad. Die neue Datenbank wird intern weiterentwickelt:
-  Schema v6 umfasst Memories, Records, Previews, Jev, Run-Index und dauerhafte Run-Lern-Snapshots;
-  additive Upgrades innerhalb der neuen Datei (v2 bis v5 nach v6) behalten neue Daten. Unbekannte Schema-Versionen werden abgewiesen.
-- **Append-only mit Overlay.** `decision_records` wird nie gelöscht oder in seinen Schlüsselspalten geändert
+  Schema v8 umfasst Memories, Records, Previews, Jev, Run-Index, Run-Lern-Snapshots, Assistant-Ereignisse und ein inhaltsfreies Retention-Loeschjournal; additive Upgrades innerhalb der neuen Datei (v2 bis v7 nach v8) behalten neue Daten. Unbekannte Schema-Versionen werden abgewiesen.
+- **Append-only mit Overlay.** `decision_records` wird im Normalbetrieb nie gelöscht oder in seinen Schlüsselspalten geändert
   (Trigger). Nachträgliche Verknüpfungen (`memory_id`, `outcome_refs`, `supersedes`, `run_deleted`, `redact`)
-  stehen als Ereignisse in `decision_links` (ebenfalls append-only); Leser mergen den Stand über `decision_id`.
-  Einzige zulässige Änderung an einem Record ist die Redaktion von `rationale.user.text` (§2.8).
+  stehen als Ereignisse in `decision_links` (append-only); Leser mergen den Stand über `decision_id`.
+  Ausnahme ist eine bestaetigte Retention-Vergessen-/Reset-Operation, die passende Records und Links gezielt physisch loescht und nur einen inhaltsfreien Tombstone behaelt (§2.8). Redaktion darf `rationale.user.text` aendern.
 - **Schreibautorität beim Backend.** Records entstehen an den realen Ereignispunkten (Apply-Route,
   Jev-Adapter, Live-Edit-Recorder, Review-Route). Der Client-Endpunkt (§3.4) nimmt nur eingeschränkte
   Nutzer-Payloads entgegen — `kind`, Bezug über `action_plan_id`/`preview_id`, `rationale.user`.
@@ -308,8 +307,7 @@ Typdefinitionen des npm-Tarballs gegen die zuvor installierte 0.87.1; das Upgrad
 
 ### 2.8 Aufbewahrung, Export und Größe
 
-Konkrete, noch nicht freigegebene Entscheidungsvorlage:
-[Aufbewahrungs- und Loeschpolitik](pi_retention_policy_draft_de.md).
+Die durch Nutzerentscheidung freigegebene [Aufbewahrungs- und Loeschpolicy](pi_retention_policy_de.md) gilt fuer neue PI-Daten. Ihre technischen Freigabegates — insbesondere Fristen-Bereinigung, Vergessen/Reset, Backup-Restore-Reconciliation und physische Bereinigung — muessen vor Aktivierung der Decision-Schreibpunkte implementiert und getestet sein.
 
 - `decision_records`/`decision_links` wachsen append-only. Die Aufbewahrungsfrist wird **vor Aktivierung** der
   Schreibpunkte festgelegt — gemeinsam mit dem Session-Löschkonzept (§2.5). Rotation entfällt (eine Datenbank,
@@ -397,7 +395,6 @@ nicht aktiviert; die folgenden Record-Bezuege sind der geplante Anschluss:
   Outcomes und Run-Qualitätsmessung.
 - **Zwei Wahrheiten:** Wenn Sidecar-Sessions und Backend-Records auseinanderlaufen, gewinnt das Backend; Sessions sind
   nur Anhänge.
-- **Offen:** Aufbewahrung/Löschung von Sessions **und** Decision Records (§2.8); separater Decision-Export
-  ja/nein; ob `noul`/`score`-Fragen (Jev) eigene Reason-Felder brauchen
+- **Offen:** Separater Decision-Export ja/nein; ob `noul`/`score`-Fragen (Jev) eigene Reason-Felder brauchen
   (empirisch nur `choice` verifiziert, siehe M0-Dokument); ob mehrere Nutzer denselben Kontext sehen sollen (derzeit
-  nein, lokales Einzelnutzer-Tool).
+  nein, lokales Einzelnutzer-Tool). Aufbewahrungsfristen sind entschieden; ihre technische Umsetzung und Verifikation ist ein Gate vor Aktivierung der Schreibpunkte.

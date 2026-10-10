@@ -9,7 +9,7 @@ Optional gibt es ein kleines PNG des Ergebnisses als visuelle Hilfe.
 
 ## Implementierter Speicher
 
-`PiRunLearningStore` verwendet die gemeinsame Datei `pi_store_v2.sqlite`, Schema v6:
+`PiRunLearningStore` verwendet die gemeinsame Datei `pi_store_v2.sqlite`. Die Run-Lerntabellen kamen in Schema v5 hinzu; die aktuelle gemeinsame PI-Datenbank ist Schema v8:
 
 - `run_learning_snapshots`: unveraenderliche, inhaltsgehashte Snapshot-Versionen je `run_uid`.
 - `run_learning_state`: aktuelle Snapshot-Referenz, Datei-Lifecycle und expliziter Lern-Ausschluss.
@@ -84,8 +84,9 @@ automatisch eine bestaetigte Loeschung). Ohne vorherige Erfassung lassen sich ex
 - `comparison_kind=unpaired`, `quality_delta=null`: keine erfundene Verbesserung ohne geeigneten Vergleich.
 - `excluded_from_learning` wird nur explizit geaendert; neue Snapshots und Dateiloeschung setzen es nicht zurueck.
 - Ausschlusscodes: `test_run`, `invalid_data`, `unreliable_measurements`, `user_choice`.
-- Archive bleiben bis zu einer ausdruecklichen Vergessen-/Reset-Aktion erhalten. Eine eigene Vergessen-Route
-  ist noch nicht implementiert; kein automatisches Purging dieser neuen Run-Lerndaten.
+- Archive bleiben bis zu einer ausdruecklichen Vergessen-/Reset-Aktion erhalten. Die bestaetigte Vergessen-Route
+  `POST /api/pi/retention/run/<run_uid>/forget` ist im Backend implementiert (siehe [Retention-Policy](pi_retention_policy_de.md)).
+  Sie hat **keine UI-Anbindung**. Kein automatisches Purging dieser Run-Lerndaten.
 - Das Archiv hat `privacy_class=local_run_archive_with_paths`. Configs und Herkunft duerfen hier lokale Pfade enthalten.
   Es ist **nicht** Bestandteil der bisherigen metadata-only Memory-Exports und wird nicht automatisch an Modelle gesendet.
 - Freitext-/Session-Aufbewahrung und Aktivierung permanenter Decision-Schreibpunkte bleiben separate offene Gates.
@@ -145,7 +146,7 @@ Ansichten responsiv; alle neuen Labels sind in DE und EN vorhanden.
 **Dock-Anbindung:** Die Archivkarte bietet jetzt **Im Assistenten oeffnen**, ohne einen Processing-Run zu
 starten oder als aktuellen Run zu setzen. Der [erste Run-Dock-Adapter](pi_assistant_dock_implementation_de.md)
 liest zentrale UID-Historien auch ohne Run-Dateien. Analyse-/Bild-Facets, dauerhaftes Jev-/Decision-Merging
-und eine gesonderte freigegebene Vergessen-Aktion bleiben offen.
+bleiben offen. Die Vergessen-Aktion ist backendseitig vorhanden, aber im Archiv und Dock noch nicht bedienbar.
 
 ## Grenzen und Tests
 
