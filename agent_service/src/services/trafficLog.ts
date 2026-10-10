@@ -20,6 +20,46 @@ type PendingTrafficRepeat = {
 
 let pendingRepeat: PendingTrafficRepeat | null = null;
 let exitFlushRegistered = false;
+let lastPruneAt = 0;
+const trafficLogRetentionMs = 30 * 24 * 60 * 60 * 1000;
+
+export function retainRecentTrafficLogLines(text: string, cutoff: number): string {
+  return text.split(/(?<=\n)/).filter((line) => {
+    if (!line.trim()) return false;
+    const match = /^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\]/.exec(line);
+    if (!match) return false; // Unverifiable log lines may contain user data; discard them.
+    const timestamp = Date.parse(match[1]);
+    return Number.isFinite(timestamp) && timestamp > cutoff;
+  }).join("");
+}
+
+function pruneTrafficLog(now = Date.now()): void {
+  if (now - lastPruneAt < 24 * 60 * 60 * 1000) return;
+  try {
+    const stat = fs.lstatSync(trafficLogPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) return;
+    const text = fs.readFileSync(trafficLogPath, "utf8");
+    const retained = retainRecentTrafficLogLines(text, now - trafficLogRetentionMs);
+    if (retained !== text) {
+      const tempPath = `${trafficLogPath}.retention-tmp`;
+      fs.writeFileSync(tempPath, retained, { mode: stat.mode, flag: "wx" });
+      try {
+        fs.renameSync(tempPath, trafficLogPath);
+      } catch (error) {
+        try { fs.unlinkSync(tempPath); } catch { /* best-effort cleanup */ }
+        throw error;
+      }
+    }
+    lastPruneAt = now;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      lastPruneAt = now;
+      return;
+    }
+    // Retention failure must remain visible operationally; do not delete or truncate on uncertainty.
+    console.error(`[PI traffic log retention] failed: ${String(error)}`);
+  }
+}
 
 function envBool(name: string, fallback: boolean): boolean {
   const raw = process.env[name];
@@ -70,6 +110,8 @@ function flushPendingTrafficRepeat(): void {
   pendingRepeat = null;
 
   if (pending.count <= 1) return;
+  const lastTimestamp = Date.parse(pending.lastTs);
+  if (!Number.isFinite(lastTimestamp) || lastTimestamp <= Date.now() - trafficLogRetentionMs) return;
   if (pending.count > 2) {
     appendTrafficLogLine(
       pending.lastTs,
@@ -93,12 +135,14 @@ export function appendTrafficLog(message: string): void {
   const redacted = redactTrafficLogText(message);
 
   if (pendingRepeat && pendingRepeat.redactedMessage === redacted) {
+    pruneTrafficLog();
     pendingRepeat.count += 1;
     pendingRepeat.lastTs = ts;
     return;
   }
 
   flushPendingTrafficRepeat();
+  pruneTrafficLog();
   appendTrafficLogLine(ts, redacted);
   pendingRepeat = { redactedMessage: redacted, count: 1, lastTs: ts };
 }
@@ -106,6 +150,7 @@ export function appendTrafficLog(message: string): void {
 export function readTrafficLog(limit = 500): { path: string; items: string[]; count: number; enabled: boolean } {
   const enabled = envBool("AI_TRAFFIC_LOG", true);
   flushPendingTrafficRepeat();
+  pruneTrafficLog();
   if (!fs.existsSync(trafficLogPath)) {
     return { path: trafficLogPath, items: [], count: 0, enabled };
   }
