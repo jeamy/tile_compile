@@ -209,6 +209,7 @@ set(BACKEND_SOURCES
     src/services/pi/pi_run_learning_store.cpp
     src/services/pi/pi_retention_store.cpp
     src/services/pi/pi_decision_record_store.cpp
+    src/services/pi/pi_decision_writes.cpp
     src/services/pi/pi_preview_store.cpp
     src/services/pi/pi_memory_store.cpp
     src/services/pi/pi_outcome_recorder.cpp
@@ -407,6 +408,8 @@ if(BUILD_TESTS)
         src/services/pi/pi_parameter_catalog.cpp
         src/services/pi/pi_recommendation_validator.cpp
         src/services/pi/pi_schema_utils.cpp
+        src/services/pi/pi_decision_record_store.cpp
+        src/services/pi/pi_decision_writes.cpp
     )
     target_sources(web_backend_cpp_ai_routes PRIVATE src/services/pi/pi_database.cpp)
     target_link_libraries(web_backend_cpp_ai_routes PRIVATE CURL::libcurl ${PI_SQLITE_TARGET})
@@ -516,6 +519,7 @@ if(BUILD_TESTS)
         src/services/pi/pi_context_v2.cpp
         src/services/pi/pi_parameter_catalog.cpp
         src/services/pi/pi_decision_record_store.cpp
+        src/services/pi/pi_decision_writes.cpp
         src/services/pi/pi_preview_store.cpp
         src/services/pi/pi_decision_state.cpp
     )

@@ -528,6 +528,27 @@ int main(int argc, char** argv) {
         expect_equal(apply["memory"]["status"].get<std::string>(), "candidate", "scan ai learned memory starts as candidate");
         expect_true(apply["memory"].contains("context_signature"), "scan ai learned memory records context signature");
         expect_true(apply["memory"].contains("scope"), "scan ai learned memory records scope");
+
+        // Decision trace: the served analysis is one llm_proposal, and the persisted apply links back to it.
+        const auto context_records = harness.get_json("/api/pi/decision-records?context_id=analysis:" + analysis_id);
+        expect_equal(context_records["_http_status"].get<long>(), 200L, "analysis decision records status");
+        std::string proposal_id;
+        long proposal_count = 0;
+        for (const auto& item : context_records["items"]) {
+            if (item.value("kind", std::string()) != "llm_proposal") continue;
+            ++proposal_count;
+            proposal_id = item.value("decision_id", std::string());
+        }
+        expect_equal(proposal_count, 1L, "served analysis records one llm_proposal");
+        expect_true(apply["decision_record_written"].get<bool>(), "scan ai apply writes a decision record");
+        bool apply_linked = false;
+        for (const auto& item : context_records["items"]) {
+            if (item.value("kind", std::string()) == "config_apply" &&
+                item.value("parent_decision_id", std::string()) == proposal_id &&
+                item["context_ref"].value("revision_id", std::string()) == apply["revision_id"].get<std::string>())
+                apply_linked = true;
+        }
+        expect_true(apply_linked, "scan ai config_apply links to its llm_proposal");
         expect_equal(apply["memory"]["context_signature"]["target"]["object_name"].get<std::string>(),
                      "M42",
                      "scan ai learned memory preserves FITS-derived target");

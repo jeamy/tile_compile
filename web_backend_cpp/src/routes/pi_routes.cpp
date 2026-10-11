@@ -15,6 +15,7 @@
 #include "services/pi/pi_user_reason_catalog.hpp"
 #include "services/pi/pi_preview_store.hpp"
 #include "services/pi/pi_decision_record_store.hpp"
+#include "services/pi/pi_decision_writes.hpp"
 #include "services/pi/pi_run_index.hpp"
 #include "services/pi/pi_decision_state.hpp"
 #include "services/pi/pi_run_learning_store.hpp"
@@ -2287,23 +2288,16 @@ bool record_config_apply(const std::shared_ptr<AppState>& state, const nlohmann:
                          const std::string& preview_id, const std::string& action_plan_id,
                          const std::string& revision_id, std::string& error) {
     try {
-        nlohmann::json paths = nlohmann::json::array();
+        tile_compile::pi::ConfigApplyEvent event;
+        event.action_plan_id = action_plan_id;
+        event.preview_id = preview_id;
+        event.revision_id = revision_id;
+        event.config_sha256 = preview.value("config_sha256", std::string());
+        event.idempotency_key = preview_id.empty() ? std::string() : "config_apply:" + preview_id;
         for (const auto& update : preview.value("config_updates", nlohmann::json::array()))
-            paths.push_back({{"path", update.value("path", std::string())}, {"from", nullptr}, {"to", nullptr}});
-        nlohmann::json record = {
-            {"schema_version", tile_compile::pi::kDecisionRecordSchemaVersion},
-            {"kind", "config_apply"}, {"actor", "user"}, {"origin", "live"},
-            {"action_plan_id", action_plan_id},
-            {"preview_id", preview_id.empty() ? nlohmann::json(nullptr) : nlohmann::json(preview_id)},
-            {"idempotency_key", preview_id.empty() ? std::string() : "config_apply:" + preview_id},
-            {"context_ref", {{"revision_id", revision_id}, {"config_sha256", preview.value("config_sha256", std::string())}}},
-            {"subject", {{"paths", paths}, {"op", "config.set"}}},
-            {"rationale", {
-                {"user", {{"reason_codes", nlohmann::json::array()}, {"catalog_version", ""}, {"text", ""}, {"no_reason_given", true}}},
-                {"basis", nlohmann::json::array()}
-            }}
-        };
-        tile_compile::pi::PiDecisionRecordStore(tile_compile::pi::pi_storage_dir(state)).append(record);
+            event.paths.push_back(update.value("path", std::string()));
+        tile_compile::pi::PiDecisionRecordStore(tile_compile::pi::pi_storage_dir(state))
+            .append(tile_compile::pi::build_config_apply_record(event));
         return true;
     } catch (const std::exception& e) {
         error = e.what();
