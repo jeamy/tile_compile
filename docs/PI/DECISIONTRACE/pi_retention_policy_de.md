@@ -49,7 +49,7 @@ Noch offene Gates:
 
 1. Physische Seitenbereinigung wird versucht und Fehler werden im Wartungsstatus gemeldet. Der Checkpoint-Fehler unter einem unabhaengigen offenen WAL-Leser ist getestet; Der VACUUM-Fehlerpfad ist getestet (Test-Hook vor VACUUM: Fehler wird gemeldet, Status `failed`, vorherige Bereinigung bleibt, Retry erfolgreich). Plattformvarianten (insbesondere die Windows-Verzeichnis-Durability) bleiben nicht verifiziert.
 2. Retention-Fristgrenzen, Wiederholung, Kategorienreset, konsistentes SQLite-Backup, Tombstone-Replay, fehlendes Journal, Restore-Recovery und Ablaufgrenze sind getestet. Die bestehenden Exportpfade fuer Memories und Decision-Record-Metadaten sind ohne Record-Freitext verifiziert. Ein vollstaendiger anwendungsweiter Datenexport ist nicht Teil der freigegebenen Policy und wird nicht behauptet.
-3. Die Schreibpunkte `llm_proposal` (je gespeicherter Analyse) und `config_apply` (Apply mit Preview, Legacy-Apply und Scan-AI-Apply mit `persist`) sind aktiv, Best-Effort mit Fehlerausweis in der Antwort. Weitere Decision-Schreibpunkte bleiben deaktiviert. Die Plattformvarianten (Windows-Durability) sind laut Nutzerentscheidung kein Blocker und bleiben unverifiziert. Der VACUUM-Fehlerpfad ist getestet.
+3. Die Schreibpunkte `llm_proposal` (je gespeicherter Analyse) und `config_apply` (Apply mit Preview, Legacy-Apply und Scan-AI-Apply mit `persist`) sind aktiv, Best-Effort mit Fehlerausweis in der Antwort. Zusaetzlich ist `config_reject` aktiv (expliziter Reject eines Proposals, idempotent, ohne Freitext-Pflicht). Weitere Decision-Schreibpunkte bleiben deaktiviert. Die Plattformvarianten (Windows-Durability) sind laut Nutzerentscheidung kein Blocker und bleiben unverifiziert. Der VACUUM-Fehlerpfad ist getestet.
 
 ## HTTP
 

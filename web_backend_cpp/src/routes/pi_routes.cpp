@@ -3644,6 +3644,61 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         return json_resp({{"ok", true}, {"preview_id", id}, {"state", "dismissed"}});
     });
 
+    // Explicit rejection of an LLM proposal (plan §2.4 config_reject). Reasons are optional and validated against the
+    // config domain of the user reason catalog; an empty reason is recorded as no_reason_given, never guessed.
+    CROW_ROUTE(app, "/api/pi/proposals/<string>/reject").methods("POST"_method)
+    ([state](const crow::request& req, const std::string& proposal_id) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        tile_compile::pi::PiDecisionRecordStore records(tile_compile::pi::pi_storage_dir(state));
+        const auto proposal = records.get(proposal_id);
+        if (proposal.is_null()) return err_resp("NOT_FOUND", "Proposal not found", 404);
+        if (proposal.value("kind", std::string()) != "llm_proposal")
+            return err_resp("BAD_REQUEST", "Only llm_proposal records can be rejected", 400);
+        if (!records.list({{"kind", "config_apply"}, {"parent_decision_id", proposal_id}}, 1).empty())
+            return err_resp("PROPOSAL_APPLIED", "Proposal was already applied", 409);
+
+        const nlohmann::json codes = body->value("reason_codes", nlohmann::json::array());
+        const std::string text = body->value("reason_text", std::string());
+        if (!codes.is_array() || (body->contains("reason_text") && !(*body)["reason_text"].is_string()))
+            return err_resp("BAD_REQUEST", "reason_codes must be an array and reason_text a string", 400);
+        nlohmann::json user = {{"reason_codes", codes}, {"catalog_version", ""}, {"text", text},
+                               {"no_reason_given", codes.empty() && text.empty()}};
+        if (!codes.empty()) {
+            nlohmann::json catalog;
+            try {
+                catalog = tile_compile::pi::load_user_reason_catalog(
+                    state->runtime.project_root / "web_backend_cpp" / "config" / "pi_user_reason_codes_v1.json");
+            } catch (const std::exception&) {
+                return err_resp("CATALOG_UNAVAILABLE", "User reason catalog unavailable", 503);
+            }
+            const auto version = catalog.value("catalog_version", std::string());
+            if (!tile_compile::pi::user_reason_codes_valid(catalog, version, "config", codes))
+                return err_resp("BAD_REQUEST", "reason_codes are not valid for the config domain", 400);
+            user["catalog_version"] = version;
+        }
+
+        nlohmann::json paths = nlohmann::json::array();
+        for (const auto& alternative : proposal.value("alternatives", nlohmann::json::array()))
+            for (const auto& path : alternative.value("subject", nlohmann::json::object()).value("paths", nlohmann::json::array()))
+                paths.push_back(path);
+        nlohmann::json record = {
+            {"schema_version", tile_compile::pi::kDecisionRecordSchemaVersion},
+            {"kind", "config_reject"}, {"actor", "user"}, {"origin", "live"},
+            {"idempotency_key", "config_reject:" + proposal_id},
+            {"parent_decision_id", proposal_id},
+            {"context_ref", {{"context_id", proposal["context_ref"].value("context_id", std::string())}}},
+            {"subject", {{"paths", paths}, {"op", nullptr}}},
+            {"rationale", {{"user", user}, {"basis", nlohmann::json::array()}}}
+        };
+        try {
+            const auto stored = records.append(record);
+            return json_resp({{"ok", true}, {"decision_id", stored["decision_id"]}, {"duplicate", stored.value("duplicate", false)}});
+        } catch (const std::invalid_argument& e) {
+            return err_resp("BAD_REQUEST", e.what(), 400);
+        }
+    });
+
     CROW_ROUTE(app, "/api/pi/action-plans/apply").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = parse_body(req);
@@ -3671,9 +3726,12 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 return err_resp("BAD_REQUEST", "proposal_decision_id must be a nonempty string", 400);
             proposal_id = (*body)["proposal_decision_id"].get<std::string>();
             // Fail closed: an apply may only be linked to a recorded llm_proposal, never to an arbitrary decision.
-            const auto proposal = tile_compile::pi::PiDecisionRecordStore(tile_compile::pi::pi_storage_dir(state)).get(proposal_id);
+            tile_compile::pi::PiDecisionRecordStore proposal_store(tile_compile::pi::pi_storage_dir(state));
+            const auto proposal = proposal_store.get(proposal_id);
             if (proposal.is_null() || proposal.value("kind", std::string()) != "llm_proposal")
                 return err_resp("PROPOSAL_NOT_FOUND", "proposal_decision_id must reference a recorded llm_proposal", 400);
+            if (!proposal_store.list({{"kind", "config_reject"}, {"parent_decision_id", proposal_id}}, 1).empty())
+                return err_resp("PROPOSAL_REJECTED", "proposal_decision_id references a rejected proposal", 409);
         }
         const auto action_plan_id = tile_compile::pi::PiPreviewStore::action_plan_id(plan);
         std::lock_guard<std::mutex> config_lock(state->config_write_mutex);

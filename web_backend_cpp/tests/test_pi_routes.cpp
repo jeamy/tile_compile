@@ -696,6 +696,34 @@ int main(int argc, char** argv) {
         });
         expect_equal(unknown_proposal["_http_status"].get<long>(), 400L, "unknown proposal reference is rejected");
 
+        // Reject: optional reasons validated against the config domain; repeats are idempotent; a rejected proposal
+        // cannot be applied; an applied proposal cannot be rejected.
+        const auto open_proposal = proposal_records.append(tile_compile::pi::build_llm_proposal_record(
+            proposal_analysis, "analysis_reject_fixture"))["decision_id"].get<std::string>();
+        const nlohmann::json other_reason = {{"reason_codes", nlohmann::json::array({"other"})}};
+        const auto rejected = harness.post_json("/api/pi/proposals/" + open_proposal + "/reject", other_reason);
+        expect_equal(rejected["_http_status"].get<long>(), 200L, "proposal reject status");
+        expect_true(!rejected["duplicate"].get<bool>(), "first reject creates a record");
+        const auto repeated_reject = harness.post_json("/api/pi/proposals/" + open_proposal + "/reject", other_reason);
+        expect_true(repeated_reject["duplicate"].get<bool>(), "repeated reject is idempotent");
+        const auto invalid_reason = harness.post_json("/api/pi/proposals/" + open_proposal + "/reject",
+            {{"reason_codes", nlohmann::json::array({"not_a_code"})}});
+        expect_equal(invalid_reason["_http_status"].get<long>(), 400L, "unknown reason code is rejected");
+        const auto rejected_apply = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", linked_id}, {"proposal_decision_id", open_proposal}
+        });
+        expect_equal(rejected_apply["_http_status"].get<long>(), 409L, "rejected proposal cannot be applied");
+        const auto applied_reject = harness.post_json("/api/pi/proposals/" + proposal_id + "/reject", {});
+        expect_equal(applied_reject["_http_status"].get<long>(), 409L, "applied proposal cannot be rejected");
+        const auto missing_reject = harness.post_json("/api/pi/proposals/dec_missing/reject", {});
+        expect_equal(missing_reject["_http_status"].get<long>(), 404L, "unknown proposal reject is not found");
+        bool reject_recorded = false;
+        const auto reject_records = harness.get_json("/api/pi/decision-records?kind=config_reject");
+        for (const auto& item : reject_records["items"])
+            if (item["parent_decision_id"].is_string() && item["parent_decision_id"].get<std::string>() == open_proposal)
+                reject_recorded = true;
+        expect_true(reject_recorded, "reject writes a config_reject linked to the proposal");
+
         auto invalid_plan = plan;
         invalid_plan["actions"][0].erase("value");
         const auto invalid_preview = harness.post_json("/api/pi/action-plans/preview", {{"plan", invalid_plan}});
@@ -1246,7 +1274,7 @@ int main(int argc, char** argv) {
         const auto all_records = harness.get_json("/api/pi/decision-records");
         for (const auto& item : all_records["items"]) {
             const auto kind = item.value("kind", std::string());
-            if (kind != "config_apply" && kind != "llm_proposal") ++unexpected_records;
+            if (kind != "config_apply" && kind != "llm_proposal" && kind != "config_reject") ++unexpected_records;
         }
         expect_equal(unexpected_records, 0L, "thread cards do not create Decision Records");
         const auto selected = harness.post_json("/api/pi/assistant/select-context", {{"run_uid", thread_uid}});
