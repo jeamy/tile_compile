@@ -1,6 +1,6 @@
 # PI Decision Trace — Plan (Teil A)
 
-> **Status:** Plan mit teilweise umgesetztem Backend (Speicher, Preview/Apply, Retention, Run-Identität). Der Schreibpunkt `config_apply` ist aktiv; weitere Decision-Schreibpunkte sind **noch deaktiviert**. Umsetzungsstand: [Gesamtplan §7](pi_decision_trace_und_unified_assistant_plan_de.md#7-umsetzungsstand). Aussagen im Text mit „noch offen“ oder „geplant“ beschreiben den Stand des Plans, nicht zwingend den Code.
+> **Status:** Plan mit teilweise umgesetztem Backend (Speicher, Preview/Apply, Retention, Run-Identität). Die Schreibpunkte `llm_proposal` und `config_apply` sind aktiv; weitere Decision-Schreibpunkte sind **noch deaktiviert**. Umsetzungsstand: [Gesamtplan §7](pi_decision_trace_und_unified_assistant_plan_de.md#7-umsetzungsstand). Aussagen im Text mit „noch offen“ oder „geplant“ beschreiben den Stand des Plans, nicht zwingend den Code.
 > **Datum:** 2026-09-27, überarbeitet 2026-10-02 (Code-Review: Faktenkorrekturen, Schema- und
 > Endpunkt-Klarstellungen, ergänzte Risiken und Prüfpunkte), Analyse-Nachtrag 2026-10-02 (Arbeitskontext-Modell,
 > Rationale-Struktur, Jev-Annahmekette, Audit-Beziehung, Backfill, Session-Fortsetzung, P1-Gates), 2. Review
