@@ -2280,8 +2280,102 @@ nlohmann::json build_validated_preview(const nlohmann::json& plan,
     return preview;
 }
 
+// Decision record for a completed config apply (plan §2.4). Best effort: the config is already saved, so a write
+// failure is reported in the response instead of turning a saved apply into an error. The idempotency key makes
+// retries of the same preview produce one record.
+bool record_config_apply(const std::shared_ptr<AppState>& state, const nlohmann::json& preview,
+                         const std::string& preview_id, const std::string& action_plan_id,
+                         const std::string& revision_id, std::string& error) {
+    try {
+        nlohmann::json paths = nlohmann::json::array();
+        for (const auto& update : preview.value("config_updates", nlohmann::json::array()))
+            paths.push_back({{"path", update.value("path", std::string())}, {"from", nullptr}, {"to", nullptr}});
+        nlohmann::json record = {
+            {"schema_version", tile_compile::pi::kDecisionRecordSchemaVersion},
+            {"kind", "config_apply"}, {"actor", "user"}, {"origin", "live"},
+            {"action_plan_id", action_plan_id},
+            {"preview_id", preview_id.empty() ? nlohmann::json(nullptr) : nlohmann::json(preview_id)},
+            {"idempotency_key", preview_id.empty() ? std::string() : "config_apply:" + preview_id},
+            {"context_ref", {{"revision_id", revision_id}, {"config_sha256", preview.value("config_sha256", std::string())}}},
+            {"subject", {{"paths", paths}, {"op", "config.set"}}},
+            {"rationale", {
+                {"user", {{"reason_codes", nlohmann::json::array()}, {"catalog_version", ""}, {"text", ""}, {"no_reason_given", true}}},
+                {"basis", nlohmann::json::array()}
+            }}
+        };
+        tile_compile::pi::PiDecisionRecordStore(tile_compile::pi::pi_storage_dir(state)).append(record);
+        return true;
+    } catch (const std::exception& e) {
+        error = e.what();
+        return false;
+    }
+}
+
+std::string read_file_bytes(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) throw std::runtime_error("cannot read config: " + path.string());
+    std::ostringstream content;
+    content << input.rdbuf();
+    return content.str();
+}
+
+// Hash of the config on disk, or "absent" when there is none. Used to decide whether an interrupted apply wrote anything.
+std::string config_file_sha256(const fs::path& path) {
+    std::error_code ec;
+    if (!fs::exists(path, ec)) return "absent";
+    return tile_compile::pi::sha256_prefixed(read_file_bytes(path));
+}
+
+enum class ApplyRecovery { Pending, Completed, Required };
+
+// Reconciles a preview left in "applying" by an interrupted apply with the config on disk. Fails closed: a config
+// that matches neither the hash before the write nor the saved hash is left untouched for manual inspection.
+std::pair<ApplyRecovery, nlohmann::json> reconcile_apply_intent(const nlohmann::json& object, const std::string& preview_id,
+                                                                tile_compile::pi::PiPreviewStore& store,
+                                                                const std::shared_ptr<AppState>& state) {
+    if (!object.contains("apply_intent") || !object["apply_intent"].is_object() || !object["apply_intent"].contains("preview"))
+        return {ApplyRecovery::Required, {}};
+    const auto& intent = object["apply_intent"];
+    const auto base = intent.value("base_sha256", std::string());
+    const auto saved = intent.value("saved_sha256", std::string());
+    const fs::path target = state->runtime.default_config_path;
+    if (saved.empty()) {
+        // No saved config was recorded: the config must still be the pre-write content, then the preview is retryable.
+        if (config_file_sha256(target) == base && store.release_apply(preview_id)) return {ApplyRecovery::Pending, {}};
+        return {ApplyRecovery::Required, {}};
+    }
+    const fs::path saved_path = intent.value("saved_path", target.string());
+    std::error_code ec;
+    if (!fs::exists(saved_path, ec)) return {ApplyRecovery::Required, {}};
+    const std::string saved_content = read_file_bytes(saved_path);
+    if (tile_compile::pi::sha256_prefixed(saved_content) != saved) return {ApplyRecovery::Required, {}};
+    // The saved config is on disk but completion was lost: finish the apply once, with the saved content as revision.
+    const std::string rev_id = state->revision_store.add(saved_path, saved_content, "pi_action_plan");
+    {
+        std::lock_guard<std::mutex> lk(state->state_mutex);
+        state->active_config_revision_id = rev_id;
+    }
+    state->ui_event_store.push("pi.action_plan.apply", "pi.action_plan_apply", {
+        {"path", saved_path.string()},
+        {"revision_id", rev_id},
+        {"config_update_count", intent["preview"].value("config_update_count", 0)}
+    });
+    nlohmann::json result = {
+        {"ok", true}, {"preview", intent["preview"]}, {"preview_id", preview_id},
+        {"action_plan_id", object.value("action_plan_id", std::string())}, {"already_applied", false},
+        {"recovered", true}, {"revision_id", rev_id}, {"path", saved_path.string()}, {"saved", true}
+    };
+    std::string record_error;
+    result["decision_record_written"] = record_config_apply(state, intent["preview"], preview_id, result["action_plan_id"],
+                                                            rev_id, record_error);
+    if (!record_error.empty()) result["decision_record_error"] = record_error;
+    if (!store.complete(preview_id, result)) return {ApplyRecovery::Required, {}};
+    return {ApplyRecovery::Completed, result};
+}
+
 nlohmann::json apply_validated_preview(const nlohmann::json& preview,
-                                       const std::shared_ptr<AppState>& state) {
+                                       const std::shared_ptr<AppState>& state,
+                                       const std::function<void(const fs::path&)>& on_saved = nullptr) {
     const std::string patched_yaml = preview.value("patched_yaml", std::string());
     fs::path target = state->runtime.default_config_path;
     // Caller holds config_write_mutex across revalidation and save.
@@ -2307,6 +2401,7 @@ nlohmann::json apply_validated_preview(const nlohmann::json& preview,
     fs::path saved_path = save_payload.contains("path") && save_payload["path"].is_string()
         ? fs::path(save_payload["path"].get<std::string>())
         : target;
+    if (on_saved) on_saved(saved_path);
     std::string rev_id = state->revision_store.add(saved_path, patched_yaml, "pi_action_plan");
     {
         std::lock_guard<std::mutex> lk(state->state_mutex);
@@ -3546,7 +3641,10 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
     ([state](const std::string& id) {
         std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
         tile_compile::pi::PiPreviewStore store(tile_compile::pi::pi_storage_dir(state));
-        if (!store.get(id, preview_now())) return err_resp("NOT_FOUND", "Preview not found", 404);
+        const auto object = store.get(id, preview_now());
+        if (!object) return err_resp("NOT_FOUND", "Preview not found", 404);
+        if (object->value("state", "") == "applying")
+            return err_resp("PREVIEW_APPLYING", "Preview apply is awaiting recovery and cannot be dismissed", 409);
         if (!store.transition(id, "dismissed")) return err_resp("PREVIEW_APPLIED", "Applied preview cannot be dismissed", 409);
         return json_resp({{"ok", true}, {"preview_id", id}, {"state", "dismissed"}});
     });
@@ -3583,6 +3681,19 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 return err_resp("PREVIEW_PLAN_MISMATCH", "Preview belongs to a different plan", 409);
             if (object->value("state", "") == "dismissed")
                 return err_resp("PREVIEW_DISMISSED", "Preview was dismissed", 409);
+            if (object->value("state", "") == "applying") {
+                // An earlier apply was interrupted: reconcile with the config on disk before doing anything else.
+                const auto [outcome, recovered] = reconcile_apply_intent(*object, preview_id, store, state);
+                if (outcome == ApplyRecovery::Completed) {
+                    auto repeated = recovered;
+                    repeated["already_applied"] = true;
+                    return json_resp(repeated);
+                }
+                if (outcome == ApplyRecovery::Required)
+                    return err_resp("PREVIEW_RECOVERY_REQUIRED",
+                                    "An interrupted apply needs manual inspection of the config before retrying", 409);
+                object = store.get(preview_id, preview_now());
+            }
             if (object->value("state", "") == "applied") {
                 if (!object->contains("apply_result")) return err_resp("PREVIEW_APPLIED", "Preview already applied", 409);
                 const auto& result = (*object)["apply_result"];
@@ -3619,8 +3730,25 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 {"error", {{"code", "STALE_PREVIEW"}, {"message", "expected_patched_yaml does not match current preview"}}}
             }, 409);
         }
-        auto applied = apply_validated_preview(preview, state);
+        if (!preview_id.empty() && !store.begin_apply(preview_id, config_file_sha256(state->runtime.default_config_path), preview))
+            return err_resp("PREVIEW_STATE_CHANGED", "Preview is no longer pending", 409);
+        std::function<void(const fs::path&)> on_saved;
+        if (!preview_id.empty()) {
+            on_saved = [&store, &preview_id](const fs::path& saved_path) {
+                // A throw here leaves the intent in "applying" with an unrecorded save: the next apply fails closed.
+                if (!store.record_saved(preview_id, config_file_sha256(saved_path), saved_path.string()))
+                    throw std::runtime_error("cannot record saved config for preview");
+            };
+        }
+        auto applied = apply_validated_preview(preview, state, on_saved);
         if (!applied.value("ok", false)) {
+            if (!preview_id.empty()) {
+                const auto fresh = store.get(preview_id, preview_now());
+                if (fresh && fresh->value("state", "") == "applying" &&
+                    reconcile_apply_intent(*fresh, preview_id, store, state).first == ApplyRecovery::Required)
+                    return err_resp("PREVIEW_RECOVERY_REQUIRED",
+                                    "A failed apply left the config in an unknown state; inspect it before retrying", 409);
+            }
             return json_resp(applied, 502);
         }
         nlohmann::json result = {
@@ -3628,6 +3756,10 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             {"action_plan_id", action_plan_id}, {"already_applied", false},
             {"revision_id", applied["revision_id"]}, {"path", applied["path"]}, {"saved", applied["saved"]}
         };
+        std::string record_error;
+        result["decision_record_written"] = record_config_apply(state, preview, preview_id, action_plan_id,
+                                                                applied["revision_id"].get<std::string>(), record_error);
+        if (!record_error.empty()) result["decision_record_error"] = record_error;
         if (!preview_id.empty()) {
             result["preview_id"] = preview_id;
             if (!store.complete(preview_id, result))

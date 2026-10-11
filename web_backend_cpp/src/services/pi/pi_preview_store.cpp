@@ -64,26 +64,67 @@ std::optional<nlohmann::json> PiPreviewStore::get(const std::string& preview_id,
     if (rows.empty()) return std::nullopt;
     auto object = pi_sql_json(rows[0][0]);
     const auto state = pi_sql_text(rows[0][1]);
-    object["state"] = state == "pending" && now >= pi_sql_int(rows[0][2]) ? "expired" : state;
+    // An in-flight apply keeps the stored state "pending" and carries apply_intent until it completes or is released.
+    if (state == "pending" && object.contains("apply_intent")) object["state"] = "applying";
+    else object["state"] = state == "pending" && now >= pi_sql_int(rows[0][2]) ? "expired" : state;
     return object;
 }
 
 bool PiPreviewStore::transition(const std::string& preview_id, const std::string& state) {
     if (state != "applied" && state != "dismissed") throw std::invalid_argument("Invalid preview state");
     PiDatabase::Tx tx(*_db);
-    const auto rows = _db->query("SELECT state FROM action_previews WHERE preview_id = ?", {preview_id});
+    const auto rows = _db->query("SELECT state, json FROM action_previews WHERE preview_id = ?", {preview_id});
     if (rows.empty()) return false;
     const auto previous = pi_sql_text(rows[0][0]);
+    if (previous == "pending" && pi_sql_json(rows[0][1]).contains("apply_intent")) return false;
     if (previous != "pending" && previous != state) return false;
     _db->execute("UPDATE action_previews SET state = ? WHERE preview_id = ?", {state, preview_id});
     tx.commit();
     return true;
 }
+bool PiPreviewStore::begin_apply(const std::string& preview_id, const std::string& base_sha256, const nlohmann::json& preview) {
+    PiDatabase::Tx tx(*_db);
+    const auto rows = _db->query("SELECT json, state FROM action_previews WHERE preview_id = ?", {preview_id});
+    if (rows.empty() || pi_sql_text(rows[0][1]) != "pending") return false;
+    auto object = pi_sql_json(rows[0][0]);
+    if (object.contains("apply_intent")) return false;
+    object["apply_intent"] = {{"base_sha256", base_sha256}, {"saved_sha256", ""}, {"saved_path", ""}, {"preview", preview}};
+    _db->execute("UPDATE action_previews SET json = ? WHERE preview_id = ?", {object.dump(), preview_id});
+    tx.commit();
+    return true;
+}
+
+bool PiPreviewStore::record_saved(const std::string& preview_id, const std::string& saved_sha256, const std::string& saved_path) {
+    PiDatabase::Tx tx(*_db);
+    const auto rows = _db->query("SELECT json, state FROM action_previews WHERE preview_id = ?", {preview_id});
+    if (rows.empty() || pi_sql_text(rows[0][1]) != "pending") return false;
+    auto object = pi_sql_json(rows[0][0]);
+    if (!object.contains("apply_intent")) return false;
+    object["apply_intent"]["saved_sha256"] = saved_sha256;
+    object["apply_intent"]["saved_path"] = saved_path;
+    _db->execute("UPDATE action_previews SET json = ? WHERE preview_id = ?", {object.dump(), preview_id});
+    tx.commit();
+    return true;
+}
+
+bool PiPreviewStore::release_apply(const std::string& preview_id) {
+    PiDatabase::Tx tx(*_db);
+    const auto rows = _db->query("SELECT json, state FROM action_previews WHERE preview_id = ?", {preview_id});
+    if (rows.empty() || pi_sql_text(rows[0][1]) != "pending") return false;
+    auto object = pi_sql_json(rows[0][0]);
+    if (!object.contains("apply_intent")) return false;
+    object.erase("apply_intent");
+    _db->execute("UPDATE action_previews SET json = ? WHERE preview_id = ?", {object.dump(), preview_id});
+    tx.commit();
+    return true;
+}
+
 bool PiPreviewStore::complete(const std::string& preview_id, const nlohmann::json& result) {
     PiDatabase::Tx tx(*_db);
     const auto rows = _db->query("SELECT json, state FROM action_previews WHERE preview_id = ?", {preview_id});
     if (rows.empty() || pi_sql_text(rows[0][1]) != "pending") return false;
     auto object = pi_sql_json(rows[0][0]);
+    object.erase("apply_intent");
     object["apply_result"] = result;
     _db->execute("UPDATE action_previews SET state = 'applied', json = ? WHERE preview_id = ?", {object.dump(), preview_id});
     tx.commit();

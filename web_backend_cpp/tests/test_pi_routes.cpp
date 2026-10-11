@@ -2,6 +2,8 @@
 #include "pi_store_test_support.hpp"
 #include "fake_sidecar.hpp"
 #include "services/pi/pi_decision_record_store.hpp"
+#include "services/pi/pi_decision_state.hpp"
+#include "services/pi/pi_preview_store.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -572,6 +574,13 @@ int main(int argc, char** argv) {
         expect_equal(repeat_apply["_http_status"].get<long>(), 200L, "preview repeat apply status");
         expect_true(repeat_apply["already_applied"].get<bool>(), "repeat apply idempotent");
         expect_equal(repeat_apply["revision_id"].get<std::string>(), apply["revision_id"].get<std::string>(), "no extra revision for repeat");
+        expect_true(apply["decision_record_written"].get<bool>(), "config apply writes a decision record");
+        const auto apply_records = harness.get_json("/api/pi/decision-records?kind=config_apply");
+        expect_equal(apply_records["_http_status"].get<long>(), 200L, "decision records list status");
+        long records_for_preview = 0;
+        for (const auto& item : apply_records["items"])
+            if (item.value("preview_id", std::string()) == preview_id) ++records_for_preview;
+        expect_equal(records_for_preview, 1L, "repeat apply does not duplicate the decision record");
         const auto dismiss_applied = harness.post_json("/api/pi/action-plans/previews/" + preview_id + "/dismiss", {});
         expect_equal(dismiss_applied["_http_status"].get<long>(), 409L, "applied preview cannot be dismissed");
         const auto dismiss_preview = harness.post_json("/api/pi/action-plans/preview", {{"plan", plan}});
@@ -608,6 +617,56 @@ int main(int argc, char** argv) {
         expect_true(!revisions["items"].empty(), "pi action revision listed");
         expect_equal(revisions["active_revision_id"].get<std::string>(), legacy_apply["revision_id"].get<std::string>(),
                      "pi action active revision id");
+
+        // Interrupted apply recovery: a preview left in "applying" is reconciled with the config on disk.
+        tile_compile::pi::PiPreviewStore recovery_store(memory_dir);
+        const auto config_sha = [&harness] { return tile_compile::pi::sha256_prefixed(slurp_file(harness.config_path())); };
+        const auto recovery_preview = [&harness, &plan](const char* label) {
+            const auto created = harness.post_json("/api/pi/action-plans/preview", {{"plan", plan}});
+            expect_equal(created["_http_status"].get<long>(), 200L, std::string(label) + " preview created");
+            return created["preview"];
+        };
+
+        // Crash before the write: the config is unchanged, so the retry applies normally.
+        const auto pre_write = recovery_preview("pre-write");
+        const auto pre_write_id = pre_write["preview_id"].get<std::string>();
+        expect_true(recovery_store.begin_apply(pre_write_id, config_sha(), pre_write), "pre-write intent recorded");
+        const auto pre_write_retry = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", pre_write_id}
+        });
+        expect_equal(pre_write_retry["_http_status"].get<long>(), 200L, "pre-write crash retry applies");
+        expect_equal(harness.get_json("/api/pi/action-plans/previews/" + pre_write_id)["state"].get<std::string>(),
+                     "applied", "pre-write crash retry completes the preview");
+
+        // Crash after the save but before completion: the saved config is finished once, without a second write.
+        const auto post_save = recovery_preview("post-save");
+        const auto post_save_id = post_save["preview_id"].get<std::string>();
+        expect_true(recovery_store.begin_apply(post_save_id, config_sha(), post_save), "post-save intent recorded");
+        expect_true(recovery_store.record_saved(post_save_id, config_sha(), harness.config_path().string()),
+                    "post-save saved hash recorded");
+        const auto post_save_retry = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", post_save_id}
+        });
+        expect_equal(post_save_retry["_http_status"].get<long>(), 200L, "post-save crash recovery completes");
+        expect_true(post_save_retry["recovered"].get<bool>(), "post-save recovery is reported as recovered");
+        expect_true(slurp_file(harness.config_path()).find("MONO") != std::string::npos, "post-save recovery keeps the saved config");
+        expect_equal(harness.get_json("/api/pi/action-plans/previews/" + post_save_id)["state"].get<std::string>(),
+                     "applied", "post-save recovery completes the preview");
+
+        // Config matches neither the pre-write nor the saved hash: fail closed and keep the intent for inspection.
+        const auto unknown_state = recovery_preview("unknown-state");
+        const auto unknown_id = unknown_state["preview_id"].get<std::string>();
+        expect_true(recovery_store.begin_apply(unknown_id, config_sha(), unknown_state), "unknown-state intent recorded");
+        expect_true(recovery_store.record_saved(unknown_id, "sha256:not-the-config", harness.config_path().string()),
+                    "unknown-state saved hash recorded");
+        const auto blocked = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", unknown_id}
+        });
+        expect_equal(blocked["_http_status"].get<long>(), 409L, "unknown config state blocks apply");
+        expect_equal(harness.get_json("/api/pi/action-plans/previews/" + unknown_id)["state"].get<std::string>(),
+                     "applying", "unknown config state keeps the preview in applying");
+        const auto blocked_dismiss = harness.post_json("/api/pi/action-plans/previews/" + unknown_id + "/dismiss", {});
+        expect_equal(blocked_dismiss["_http_status"].get<long>(), 409L, "applying preview cannot be dismissed");
 
         auto invalid_plan = plan;
         invalid_plan["actions"][0].erase("value");
@@ -1154,7 +1213,11 @@ int main(int argc, char** argv) {
         expect_equal(deleted_history["turns"][0]["message"].get<std::string>(), "stable thread", "history retained after artifact deletion");
         const auto deleted_thread = harness.get_json(thread_url);
         expect_equal(static_cast<long>(deleted_thread["items"].size()), 2L, "Jev retained after move and deletion");
-        expect_true(harness.get_json("/api/pi/decision-records")["items"].empty(), "thread cards do not create Decision Records");
+        // Config applies from earlier in this test write config_apply records; thread cards must add no other kind.
+        long non_apply_records = 0;
+        for (const auto& item : harness.get_json("/api/pi/decision-records")["items"])
+            if (item.value("kind", std::string()) != "config_apply") ++non_apply_records;
+        expect_equal(non_apply_records, 0L, "thread cards do not create Decision Records");
         const auto selected = harness.post_json("/api/pi/assistant/select-context", {{"run_uid", thread_uid}});
         expect_true(!selected["artifacts_reachable"].get<bool>(), "missing context read-only capability");
         expect_true(harness.get_json("/api/pi/assistant/capabilities")["run_uid_threads"].get<bool>(), "UID thread capability");

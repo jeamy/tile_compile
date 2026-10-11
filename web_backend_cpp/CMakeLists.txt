@@ -516,7 +516,10 @@ if(BUILD_TESTS)
         src/services/pi/pi_context_v2.cpp
         src/services/pi/pi_parameter_catalog.cpp
         src/services/pi/pi_decision_record_store.cpp
+        src/services/pi/pi_preview_store.cpp
+        src/services/pi/pi_decision_state.cpp
     )
+    target_link_libraries(web_backend_cpp_pi_routes PRIVATE OpenSSL::Crypto)
     target_include_directories(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_INCLUDE_DIRS})
     target_sources(web_backend_cpp_pi_routes PRIVATE src/services/pi/pi_database.cpp)
     target_link_libraries(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_LINK_LIBRARIES} ${PI_SQLITE_TARGET})

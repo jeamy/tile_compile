@@ -494,7 +494,7 @@ nlohmann::json PiRetentionStore::restore_backup(const std::string& backup_id, bo
                 throw std::runtime_error("PI backup integrity check failed; restore refused");
             reconcile_deletions(staged, _storage_dir, replay_entries);
             const auto preview_cutoff = now - 30 * kDay;
-            staged->execute("DELETE FROM action_previews WHERE json_valid(json) AND json_type(json, '$.created_at_epoch') = 'integer' AND CAST(json_extract(json, '$.created_at_epoch') AS INTEGER) <= ?", {preview_cutoff});
+            staged->execute("DELETE FROM action_previews WHERE json_valid(json) AND json_type(json, '$.created_at_epoch') = 'integer' AND json_type(json, '$.apply_intent') IS NULL AND CAST(json_extract(json, '$.created_at_epoch') AS INTEGER) <= ?", {preview_cutoff});
             const auto jev_cutoff = iso_utc(now - 90 * kDay);
             const auto expired_jev = staged->query("SELECT d.proposal_id, d.part FROM jev_documents d JOIN jev_documents s ON s.proposal_id=d.proposal_id AND s.part='status' WHERE d.part IN ('request','response') AND json_valid(s.json) AND json_type(s.json,'$.created_at')='text' AND json_extract(s.json,'$.created_at') <= ?", {jev_cutoff});
             for (const auto& row : expired_jev) staged->execute("DELETE FROM jev_documents WHERE proposal_id=? AND part=?", {pi_sql_text(row[0]), pi_sql_text(row[1])});
@@ -560,6 +560,7 @@ nlohmann::json PiRetentionStore::maintain(std::int64_t now) const {
         counts["previews"] = _db->execute(
             "DELETE FROM action_previews WHERE json_valid(json) "
             "AND json_type(json, '$.created_at_epoch') = 'integer' "
+            "AND json_type(json, '$.apply_intent') IS NULL "
             "AND CAST(json_extract(json, '$.created_at_epoch') AS INTEGER) <= ?",
             {preview_cutoff});
 
