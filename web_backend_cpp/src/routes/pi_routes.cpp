@@ -2294,6 +2294,7 @@ bool record_config_apply(const std::shared_ptr<AppState>& state, const nlohmann:
         event.revision_id = revision_id;
         event.config_sha256 = preview.value("config_sha256", std::string());
         event.idempotency_key = preview_id.empty() ? std::string() : "config_apply:" + preview_id;
+        event.parent_decision_id = preview.value("proposal_decision_id", std::string());
         for (const auto& update : preview.value("config_updates", nlohmann::json::array()))
             event.paths.push_back(update.value("path", std::string()));
         tile_compile::pi::PiDecisionRecordStore(tile_compile::pi::pi_storage_dir(state))
@@ -3664,6 +3665,16 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (body->contains("preview_id") && (!(*body)["preview_id"].is_string() || (*body)["preview_id"].get<std::string>().empty()))
             return err_resp("BAD_REQUEST", "preview_id must be a nonempty string", 400);
         const std::string preview_id = body->value("preview_id", std::string());
+        std::string proposal_id;
+        if (body->contains("proposal_decision_id")) {
+            if (!(*body)["proposal_decision_id"].is_string() || (*body)["proposal_decision_id"].get<std::string>().empty())
+                return err_resp("BAD_REQUEST", "proposal_decision_id must be a nonempty string", 400);
+            proposal_id = (*body)["proposal_decision_id"].get<std::string>();
+            // Fail closed: an apply may only be linked to a recorded llm_proposal, never to an arbitrary decision.
+            const auto proposal = tile_compile::pi::PiDecisionRecordStore(tile_compile::pi::pi_storage_dir(state)).get(proposal_id);
+            if (proposal.is_null() || proposal.value("kind", std::string()) != "llm_proposal")
+                return err_resp("PROPOSAL_NOT_FOUND", "proposal_decision_id must reference a recorded llm_proposal", 400);
+        }
         const auto action_plan_id = tile_compile::pi::PiPreviewStore::action_plan_id(plan);
         std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
         tile_compile::pi::PiPreviewStore store(tile_compile::pi::pi_storage_dir(state));
@@ -3707,6 +3718,8 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         auto preview = build_validated_preview(plan, apply_body, state);
         preview["action_plan_id"] = action_plan_id;
         if (!preview_id.empty()) preview["preview_id"] = preview_id;
+        // Carried in the preview so an interrupted apply keeps its proposal link through reconciliation.
+        if (!proposal_id.empty()) preview["proposal_decision_id"] = proposal_id;
         if (!preview.value("config_valid", false)) {
             return json_resp({
                 {"ok", false},

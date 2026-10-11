@@ -4,6 +4,7 @@
 #include "services/pi/pi_decision_record_store.hpp"
 #include "services/pi/pi_decision_state.hpp"
 #include "services/pi/pi_preview_store.hpp"
+#include "services/pi/pi_decision_writes.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -668,6 +669,33 @@ int main(int argc, char** argv) {
         const auto blocked_dismiss = harness.post_json("/api/pi/action-plans/previews/" + unknown_id + "/dismiss", {});
         expect_equal(blocked_dismiss["_http_status"].get<long>(), 409L, "applying preview cannot be dismissed");
 
+        // Proposal link: a preview apply may reference a recorded llm_proposal, which becomes the config_apply parent.
+        tile_compile::pi::PiDecisionRecordStore proposal_records(memory_dir);
+        const nlohmann::json proposal_update = {{"path", "data.color_mode"}, {"value", "MONO"}};
+        const nlohmann::json proposal_analysis = {{"validated_updates", nlohmann::json::array({proposal_update})}};
+        const auto proposal_id = proposal_records.append(tile_compile::pi::build_llm_proposal_record(
+            proposal_analysis, "analysis_linked_fixture"))["decision_id"].get<std::string>();
+        const auto linked = recovery_preview("proposal-linked");
+        const auto linked_id = linked["preview_id"].get<std::string>();
+        const auto linked_apply = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", linked_id}, {"proposal_decision_id", proposal_id}
+        });
+        expect_equal(linked_apply["_http_status"].get<long>(), 200L, "proposal-linked apply status");
+        bool proposal_linked = false;
+        const auto linked_records = harness.get_json("/api/pi/decision-records?kind=config_apply");
+        // Legacy and preview-less records carry null ids, so compare only real strings.
+        const auto string_field = [](const nlohmann::json& item, const char* key) {
+            return item[key].is_string() ? item[key].get<std::string>() : std::string();
+        };
+        for (const auto& item : linked_records["items"])
+            if (string_field(item, "preview_id") == linked_id && string_field(item, "parent_decision_id") == proposal_id)
+                proposal_linked = true;
+        expect_true(proposal_linked, "preview apply links its config_apply to the proposal");
+        const auto unknown_proposal = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", linked_id}, {"proposal_decision_id", "dec_missing"}
+        });
+        expect_equal(unknown_proposal["_http_status"].get<long>(), 400L, "unknown proposal reference is rejected");
+
         auto invalid_plan = plan;
         invalid_plan["actions"][0].erase("value");
         const auto invalid_preview = harness.post_json("/api/pi/action-plans/preview", {{"plan", invalid_plan}});
@@ -1213,11 +1241,14 @@ int main(int argc, char** argv) {
         expect_equal(deleted_history["turns"][0]["message"].get<std::string>(), "stable thread", "history retained after artifact deletion");
         const auto deleted_thread = harness.get_json(thread_url);
         expect_equal(static_cast<long>(deleted_thread["items"].size()), 2L, "Jev retained after move and deletion");
-        // Config applies from earlier in this test write config_apply records; thread cards must add no other kind.
-        long non_apply_records = 0;
-        for (const auto& item : harness.get_json("/api/pi/decision-records")["items"])
-            if (item.value("kind", std::string()) != "config_apply") ++non_apply_records;
-        expect_equal(non_apply_records, 0L, "thread cards do not create Decision Records");
+        // Config applies and proposals from earlier in this test are expected; thread cards must add no other kind.
+        long unexpected_records = 0;
+        const auto all_records = harness.get_json("/api/pi/decision-records");
+        for (const auto& item : all_records["items"]) {
+            const auto kind = item.value("kind", std::string());
+            if (kind != "config_apply" && kind != "llm_proposal") ++unexpected_records;
+        }
+        expect_equal(unexpected_records, 0L, "thread cards do not create Decision Records");
         const auto selected = harness.post_json("/api/pi/assistant/select-context", {{"run_uid", thread_uid}});
         expect_true(!selected["artifacts_reachable"].get<bool>(), "missing context read-only capability");
         expect_true(harness.get_json("/api/pi/assistant/capabilities")["run_uid_threads"].get<bool>(), "UID thread capability");

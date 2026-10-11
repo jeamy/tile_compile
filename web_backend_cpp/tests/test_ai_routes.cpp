@@ -544,7 +544,7 @@ int main(int argc, char** argv) {
         bool apply_linked = false;
         for (const auto& item : context_records["items"]) {
             if (item.value("kind", std::string()) == "config_apply" &&
-                item.value("parent_decision_id", std::string()) == proposal_id &&
+                item["parent_decision_id"].is_string() && item["parent_decision_id"].get<std::string>() == proposal_id &&
                 item["context_ref"].value("revision_id", std::string()) == apply["revision_id"].get<std::string>())
                 apply_linked = true;
         }
