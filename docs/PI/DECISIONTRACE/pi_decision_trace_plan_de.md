@@ -1,6 +1,6 @@
 # PI Decision Trace — Plan (Teil A)
 
-> **Status:** Plan mit teilweise umgesetztem Backend (Speicher, Preview/Apply, Retention, Run-Identität). Permanente Decision-Schreibpunkte sind **noch deaktiviert**. Umsetzungsstand: [Gesamtplan §7](pi_decision_trace_und_unified_assistant_plan_de.md#7-umsetzungsstand). Aussagen im Text mit „noch offen“ oder „geplant“ beschreiben den Stand des Plans, nicht zwingend den Code.
+> **Status:** Plan mit teilweise umgesetztem Backend (Speicher, Preview/Apply, Retention, Run-Identität). Der Schreibpunkt `config_apply` ist aktiv; weitere Decision-Schreibpunkte sind **noch deaktiviert**. Umsetzungsstand: [Gesamtplan §7](pi_decision_trace_und_unified_assistant_plan_de.md#7-umsetzungsstand). Aussagen im Text mit „noch offen“ oder „geplant“ beschreiben den Stand des Plans, nicht zwingend den Code.
 > **Datum:** 2026-09-27, überarbeitet 2026-10-02 (Code-Review: Faktenkorrekturen, Schema- und
 > Endpunkt-Klarstellungen, ergänzte Risiken und Prüfpunkte), Analyse-Nachtrag 2026-10-02 (Arbeitskontext-Modell,
 > Rationale-Struktur, Jev-Annahmekette, Audit-Beziehung, Backfill, Session-Fortsetzung, P1-Gates), 2. Review
@@ -328,7 +328,7 @@ Die durch Nutzerentscheidung freigegebene [Aufbewahrungs- und Loeschpolicy](pi_r
 
 ### 2.9 Plan- und Preview-Objekte (neu in P1)
 
-Preview und Apply haben jetzt ein persistiertes Gegenstueck. Permanente Decision-Schreibpunkte sind weiterhin
+Preview und Apply haben jetzt ein persistiertes Gegenstueck. Der Schreibpunkt `config_apply` ist aktiv; weitere Decision-Schreibpunkte sind weiterhin
 nicht aktiviert; die folgenden Record-Bezuege sind der geplante Anschluss:
 
 - `POST /api/pi/action-plans/preview` legt ein **Preview-Objekt** an (`preview_id`, `action_plan_id`, Hash des Plans,
@@ -350,12 +350,12 @@ nicht aktiviert; die folgenden Record-Bezuege sind der geplante Anschluss:
   aktuelle gespeicherte Config verwendet, nicht eine eventuell alte mitgesendete Basis.
   Ein erfolgreicher Wiederholungsaufruf liefert dieselbe Revision, solange die aktuelle Config unveraendert ist.
   Config-Lock umfasst Revalidierung und Speicherung. **Grenze:** Config-Datei und Datenbank sind nicht gemeinsam
-  crash-atomar; Apply-Intent/Recovery sind noch offen (siehe Aufbewahrungsvorlage).
+  crash-atomar; Apply-Intent und Abgleich sind umgesetzt, fail-closed (siehe [Aufbewahrungs-Policy](pi_retention_policy_de.md#bekannte-grenze-des-apply-pfads)).
 - Geplanter Record-`idempotency_key`: `context_id` + Aktionsereignis-ID + Ereignisart. Bei Apply mit Preview-Bezug
   ist die Aktionsereignis-ID die `preview_id`; ein neuer Preview desselben Plans ist ein neues Ereignis.
   Nur `action_plan_id` + Ereignisart waere falsch (derselbe Plan kann in mehreren Kontexten/zu spaeteren Zeiten
   angewendet werden). Legacy-Apply ohne Preview bleibt kompatibel, hat ohne zusaetzliche Request-ID aber keine
-  Doppelklick-Idempotenz. Die Record-Schreibpunkte sind noch nicht aktiviert.
+  Doppelklick-Idempotenz. Der Schreibpunkt `config_apply` ist aktiv, die übrigen Record-Schreibpunkte noch nicht.
 
 ---
 

@@ -102,7 +102,7 @@ Dies ist der **erste Adapter**, nicht der abgeschlossene Gesamtumbau:
 - Run-PI/Jev-Parameterkarten bieten Preview und Resume-Entwurfsuebernahme bereits an. Gespeicherter
   Apply-/Reason-Picker-Fluss, Analyse-/Bild-Karten und Entfernen der alten Parameter-AI-/Jev-Huellen sind offen.
 - Aktivierung permanenter Decision-Schreibpunkte und Vergessen bleiben hinter dem Retention-/Loeschpolitik-Gate.
-- Crash-sicheres Apply-Intent/Recovery bleibt ein eigener Backend-Schritt.
+- Apply-Intent und Abgleich sind backendseitig umgesetzt. Die Dock-Anzeige des Zustands `applying` mit Abgleich-Hinweis ist offen.
 
 ## Gemeinsame Parameterkarten: Preview und Resume-Entwurf
 

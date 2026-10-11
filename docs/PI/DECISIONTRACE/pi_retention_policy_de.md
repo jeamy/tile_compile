@@ -1,6 +1,6 @@
 # PI-Aufbewahrung und Loeschung — beschlossene Policy
 
-**Status: Policy durch Nutzeranweisung freigegeben.** Sie gilt fuer ab Freigabe neu erzeugte PI-Daten; verworfene Altbestaende werden nicht importiert. Diese Freigabe ist eine Produktentscheidung, keine Behauptung, dass die Bereinigung bereits implementiert sei. Decision-Schreibpunkte und automatische Bereinigungen bleiben gesperrt, bis die unten genannten technischen Gates erfuellt und getestet sind.
+**Status: Policy durch Nutzeranweisung freigegeben.** Sie gilt fuer ab Freigabe neu erzeugte PI-Daten; verworfene Altbestaende werden nicht importiert. Diese Freigabe ist eine Produktentscheidung, keine Behauptung, dass die Bereinigung bereits implementiert sei. Außer dem Schreibpunkt `config_apply` bleiben Decision-Schreibpunkte gesperrt, bis die unten genannten technischen Gates erfuellt und getestet sind.
 
 **Bereits implementiert:** Reine Run-Dateiloeschung behaelt zentrale Lerndaten. Config, Herkunft, Statistik und optionales PNG liegen im [Run-Lernarchiv](pi_run_learning_archive_de.md). FITS werden nicht in die Datenbank kopiert; Originale bleiben auf der Platte. Dateiloeschung ist weder Lern-Ausschluss noch Vergessen.
 
@@ -49,7 +49,7 @@ Noch offene Gates:
 
 1. Physische Seitenbereinigung wird versucht und Fehler werden im Wartungsstatus gemeldet. Der Checkpoint-Fehler unter einem unabhaengigen offenen WAL-Leser ist getestet; Der VACUUM-Fehlerpfad ist getestet (Test-Hook vor VACUUM: Fehler wird gemeldet, Status `failed`, vorherige Bereinigung bleibt, Retry erfolgreich). Plattformvarianten (insbesondere die Windows-Verzeichnis-Durability) bleiben nicht verifiziert.
 2. Retention-Fristgrenzen, Wiederholung, Kategorienreset, konsistentes SQLite-Backup, Tombstone-Replay, fehlendes Journal, Restore-Recovery und Ablaufgrenze sind getestet. Die bestehenden Exportpfade fuer Memories und Decision-Record-Metadaten sind ohne Record-Freitext verifiziert. Ein vollstaendiger anwendungsweiter Datenexport ist nicht Teil der freigegebenen Policy und wird nicht behauptet.
-3. Permanente Decision-Record-Schreibpunkte bleiben deaktiviert, bis die Plattformvarianten (Windows-Durability) verifiziert sind. Der VACUUM-Fehlerpfad ist nicht mehr offen.
+3. Der Schreibpunkt `config_apply` ist aktiv (Apply mit Preview und Legacy-Apply, Best-Effort mit Fehlerausweis in der Antwort). Weitere Decision-Schreibpunkte bleiben deaktiviert. Die Plattformvarianten (Windows-Durability) sind laut Nutzerentscheidung kein Blocker und bleiben unverifiziert. Der VACUUM-Fehlerpfad ist getestet.
 
 ## HTTP
 
@@ -63,6 +63,6 @@ Noch offene Gates:
 
 ## Bekannte Grenze des Apply-Pfads
 
-Die Config-Datei und SQLite sind zwei verschiedene Persistenzsysteme. Die aktuelle Preview-Anbindung verhindert normale Doppelklicks und erkennt Wiederholungen nach erfolgreichem Speichern des Apply-Ergebnisses. Ein Absturz zwischen Config-Speicherung und SQLite-Abschluss ist noch nicht transaktional abgesichert. Vor einer Zusage von crash-sicherem Exactly-once sind ein persistentes Apply-Intent und Recovery erforderlich.
+Die Config-Datei und SQLite sind zwei verschiedene Persistenzsysteme. Die aktuelle Preview-Anbindung verhindert normale Doppelklicks und erkennt Wiederholungen nach erfolgreichem Speichern des Apply-Ergebnisses. Der Apply-Intent ist umgesetzt: Vor dem Schreiben wird der Config-Hash im Preview-JSON festgehalten (`apply_intent`, Spaltenzustand bleibt `pending`, `GET` meldet `applying`), nach dem Schreiben Hash und Pfad der gespeicherten Config. Ein erneuter Apply derselben Preview gleicht die Datei ab: unverändert = Preview wieder `pending`; gespeichert = Abschluss wird einmalig nachgeholt (`recovered`); alles andere = `PREVIEW_RECOVERY_REQUIRED` (409, fail-closed). Ein Absturz genau zwischen Speichern und Ergänzen des gespeicherten Hashes landet in diesem Fail-closed-Fall. Ein Legacy-Apply ohne Preview hat keinen Intent.
 
 Verwandt: [Decision-Trace-Plan](pi_decision_trace_plan_de.md), [Umsetzungsstand](pi_decision_trace_und_unified_assistant_plan_de.md).
