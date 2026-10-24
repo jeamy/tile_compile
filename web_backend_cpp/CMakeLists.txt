@@ -205,6 +205,7 @@ set(BACKEND_SOURCES
     src/services/pi/pi_database.cpp
     src/services/pi/pi_jev_store.cpp
     src/services/pi/pi_assistant_event_store.cpp
+    src/services/pi/pi_analysis_context_store.cpp
     src/services/pi/pi_run_index.cpp
     src/services/pi/pi_run_learning_store.cpp
     src/services/pi/pi_retention_store.cpp
@@ -532,8 +533,14 @@ if(BUILD_TESTS)
     add_backend_cpp_test(web_backend_cpp_run_status_resume_progress tests/test_run_status_resume_progress.cpp)
     add_backend_cpp_test(web_backend_cpp_run_start_naming tests/test_run_start_naming.cpp)
     target_include_directories(web_backend_cpp_run_start_naming PRIVATE ${YAML_CPP_INCLUDE_DIRS})
-    target_sources(web_backend_cpp_run_start_naming PRIVATE src/services/pi/pi_database.cpp src/services/pi/pi_jev_store.cpp)
-    target_link_libraries(web_backend_cpp_run_start_naming PRIVATE ${YAML_CPP_LIBRARIES} ${PI_SQLITE_TARGET})
+    target_sources(web_backend_cpp_run_start_naming PRIVATE
+        src/services/pi/pi_decision_state.cpp
+        src/services/pi/pi_decision_policy.cpp
+        src/services/pi/pi_decision_outcome.cpp
+        src/services/pi/pi_scan_manifest.cpp
+        src/services/pi/pi_database.cpp
+        src/services/pi/pi_jev_store.cpp)
+    target_link_libraries(web_backend_cpp_run_start_naming PRIVATE ${YAML_CPP_LIBRARIES} OpenSSL::Crypto ${PI_SQLITE_TARGET})
     add_backend_cpp_test(web_backend_cpp_run_stop_status_overlay tests/test_run_stop_status_overlay.cpp)
     add_backend_cpp_test(web_backend_cpp_memory_guards tests/test_memory_guards.cpp)
     add_backend_cpp_test(web_backend_cpp_report_phase_issues tests/test_report_phase_issues.cpp)
@@ -551,6 +558,12 @@ if(BUILD_TESTS)
     )
     target_include_directories(web_backend_cpp_pi_live_image_session PRIVATE ${OPENCV4_INCLUDE_DIRS})
     target_link_libraries(web_backend_cpp_pi_live_image_session PRIVATE ${OPENCV4_LINK_LIBRARIES})
+    add_backend_cpp_test(web_backend_cpp_pi_analysis_context_store tests/test_pi_analysis_context_store.cpp)
+    target_sources(web_backend_cpp_pi_analysis_context_store PRIVATE src/services/pi/pi_database.cpp
+        src/services/pi/pi_analysis_context_store.cpp src/services/pi/pi_run_index.cpp
+        src/services/pi/pi_decision_state.cpp src/services/pi/pi_jev_store.cpp)
+    target_include_directories(web_backend_cpp_pi_analysis_context_store PRIVATE ${YAML_CPP_INCLUDE_DIRS})
+    target_link_libraries(web_backend_cpp_pi_analysis_context_store PRIVATE ${PI_SQLITE_TARGET} OpenSSL::Crypto ${YAML_CPP_LIBRARIES})
     add_backend_cpp_test(web_backend_cpp_pi_assistant_event_store tests/test_pi_assistant_event_store.cpp)
     target_sources(web_backend_cpp_pi_assistant_event_store PRIVATE
         src/services/pi/pi_database.cpp src/services/pi/pi_assistant_event_store.cpp)

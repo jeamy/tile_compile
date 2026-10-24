@@ -410,6 +410,8 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
           }
         }
       }
+      if (r.analysis_context?.analysis_uid)
+        window.dispatchEvent(new CustomEvent("tc-assistant-context", { detail: { analysis_uid: r.analysis_context.analysis_uid } }));
       const ids = Array.isArray(r.proposal_ids) && r.proposal_ids.length ? r.proposal_ids : [r.proposal_id];
       selected.clear();
       setUiState({ jevProposalIds: ids });

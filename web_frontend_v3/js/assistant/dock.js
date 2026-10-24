@@ -8,7 +8,7 @@ import { t } from "../i18n/i18n.js";
 import { assistantActionPlans, createAssistantActionCard } from "./action-card.js";
 
 const label = key => t(`ui.dock.${key}`);
-const preferences = getStore("assistant-dock", { open: true, width: 384, pinnedUid: null });
+const preferences = getStore("assistant-dock", { open: true, width: 384, pinnedUid: null, pinnedAnalysis: null });
 const jsonView = value => el("pre", { class: "tc-archive-json" }, JSON.stringify(value, null, 2).slice(0, 12000));
 
 export function createAssistantDock() {
@@ -35,7 +35,7 @@ export function createAssistantDock() {
       el("button", { class: "tc-btn tc-btn-sm", onclick: () => toggle(false) }, label("close"))),
     el("div", { class: "tc-dock-body" }, title,
       el("div", { class: "tc-archive-toolbar" },
-        el("button", { class: "tc-btn tc-btn-sm", onclick: () => { preferences.setState({ pinnedUid: null }); followRun(true); } }, label("follow")),
+        el("button", { class: "tc-btn tc-btn-sm", onclick: () => { preferences.setState({ pinnedUid: null, pinnedAnalysis: null }); followRun(true); } }, label("follow")),
         el("button", { class: "tc-btn tc-btn-sm", onclick: () => refresh() }, t("ui.button.refresh", "Refresh"))),
       status, el("p", { class: "tc-text-muted tc-text-sm" }, label("stage")), thread, input, controls));
   const launcher = el("button", { class: "tc-btn tc-dock-launcher", "aria-controls": "assistant-dock", onclick: () => toggle(true) }, label("title"));
@@ -69,7 +69,7 @@ export function createAssistantDock() {
   }
   async function select(uid, pin = false) {
     const version = ++generation;
-    if (pin) preferences.setState({ pinnedUid: uid, open: true });
+    if (pin) preferences.setState({ pinnedUid: uid, pinnedAnalysis: null, open: true });
     context = null; input.value = ""; title.textContent = label("loading");
     layout(); clear(thread); status.textContent = label("loading"); buttons();
     try {
@@ -90,8 +90,23 @@ export function createAssistantDock() {
       context = null; clear(thread); status.textContent = `${label("unavailable")} ${error.message}`; buttons();
     }
   }
+  async function selectAnalysis(uid) {
+    const version = ++generation;
+    preferences.setState({ pinnedUid: null, pinnedAnalysis: uid, open: true });
+    context = null; input.value = ""; clear(thread); layout(); buttons(); status.textContent = label("loading");
+    try {
+      const next = await (selectionTail = selectionTail.catch(() => {}).then(() => {
+        if (version !== generation) throw new Error("Superseded context selection");
+        return api.post(API_ENDPOINTS.pi.assistantSelectAnalysis, { analysis_uid: uid });
+      }));
+      if (version !== generation) return;
+      context = { ...next, readOnly: true };
+      title.textContent = `${context.context_id}\n${context.input_path || ""}`;
+      status.textContent = label("analysis_readonly"); buttons(); await history(version);
+    } catch (error) { if (version === generation) { status.textContent = `${label("unavailable")} ${error.message}`; buttons(); } }
+  }
   async function followRun(force = false) {
-    if (!capable || (preferences.getState().pinnedUid && !force)) return;
+    if (!capable || ((preferences.getState().pinnedUid || preferences.getState().pinnedAnalysis) && !force)) return;
     const state = getRunState();
     const ref = state.currentRunDir || state.currentRunId || "";
     if (!force && ref === lastRun) return;
@@ -102,6 +117,7 @@ export function createAssistantDock() {
       const active = await api.get(API_ENDPOINTS.pi.activeContext).catch(() => null);
       if (version !== generation) return;
       const saved = active?.context || active;
+      if (saved?.kind === "analysis" && saved.analysis_uid) { await selectAnalysis(saved.analysis_uid); return; }
       if (saved?.kind === "run" && saved.run_uid) { await select(saved.run_uid); return; }
       title.textContent = label("no_context"); status.textContent = label("no_context"); return;
     }
@@ -127,6 +143,8 @@ export function createAssistantDock() {
     return el("article", { class: "tc-card tc-dock-card" },
       el("div", { class: "tc-card-title" }, provider === "jev" ? "Jev" : "PI"),
       method === "backend_rules" ? el("p", { class: "tc-text-muted tc-text-sm" }, label("backend_rules")) : null,
+      scope.kind === "analysis" && result?.proposal ? el("p", { class: "tc-text-sm" },
+        `${result.proposal.candidate_id || ""} · ${result.proposal.status || ""} · ${result.mode || ""}`) : null,
       message ? el("p", { class: "tc-text-sm" }, message) : null,
       el("p", { class: "tc-text-sm" }, result?.summary || result?.message || label("structured")),
       why, ...assistantActionPlans(result).map(plan => createAssistantActionCard(plan, scope,
@@ -139,15 +157,22 @@ export function createAssistantDock() {
     const scope = { ...context };
     try {
       const flags = getFeatureFlags();
-      const result = threadCapable
-        ? await api.get(API_ENDPOINTS.pi.assistantThread(scope.run_uid, flags.aiEnabled, flags.jevEnabled))
+      const result = scope.kind === "analysis"
+        ? flags.jevEnabled ? await api.get(API_ENDPOINTS.pi.assistantAnalysisThread(scope.analysis_uid)) : { context_id: scope.context_id, items: [] }
+        : threadCapable ? await api.get(API_ENDPOINTS.pi.assistantThread(scope.run_uid, flags.aiEnabled, flags.jevEnabled))
         : flags.aiEnabled ? await api.get(API_ENDPOINTS.pi.runChatHistoryUid(scope.run_uid)) : { turns: [] };
       if (version !== generation || request !== historyGeneration) return;
       clear(thread);
-      if (threadCapable) {
+      if (threadCapable || scope.kind === "analysis") {
         if (result.context_id !== scope.context_id) throw new Error(label("context_mismatch"));
-        for (const item of result.items || []) thread.append(card(item.result || {}, item.provider, scope, item.message, item.evaluation_method));
-        if (thread.childNodes.length) thread.append(el("p", { class: "tc-text-muted tc-text-sm" }, label("history_window")));
+        for (const item of result.items || []) {
+          const article = card(item.result || {}, item.provider, scope, item.message, item.evaluation_method);
+          if (scope.kind === "analysis") article.prepend(el("p", { class: "tc-mono tc-text-sm" },
+            `${item.event_id} · ${item.result?.state || ""}\n${item.revision_id || ""}`));
+          thread.append(article);
+        }
+        if (thread.childNodes.length) thread.append(el("p", { class: "tc-text-muted tc-text-sm" }, label(scope.kind === "analysis" ? "analysis_window" : "history_window")));
+        if (result.truncated) thread.append(el("p", { class: "tc-text-warning tc-text-sm" }, label("analysis_truncated")));
       } else for (const turn of result.turns || []) thread.append(card(turn.result || { summary: turn.error || "" }, "pi", scope, turn.message));
       if (!thread.childNodes.length) thread.append(el("p", { class: "tc-text-muted tc-text-sm" }, label("empty")));
     } catch (error) { if (version === generation && request === historyGeneration) status.textContent = `${label("unavailable")} ${error.message}`; }
@@ -178,12 +203,16 @@ export function createAssistantDock() {
       durableJev = threadCapable && capabilities.durable_jev_post_run === true;
     } catch { capable = false; threadCapable = false; durableJev = false; }
     if (!capable) { status.textContent = label("backend_required"); buttons(); return; }
-    if (preferences.getState().pinnedUid) await select(preferences.getState().pinnedUid);
+    if (preferences.getState().pinnedAnalysis) await selectAnalysis(preferences.getState().pinnedAnalysis);
+    else if (preferences.getState().pinnedUid) await select(preferences.getState().pinnedUid);
     else await followRun(true);
   }
   getStore("run-state").subscribe(() => followRun());
   onFeatureFlagsChange(() => { buttons(); history(); });
-  window.addEventListener("tc-assistant-context", event => { if (event.detail?.run_uid) select(event.detail.run_uid, true); });
+  window.addEventListener("tc-assistant-context", event => {
+    if (event.detail?.analysis_uid) selectAnalysis(event.detail.analysis_uid);
+    else if (event.detail?.run_uid) select(event.detail.run_uid, true);
+  });
   panel.addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); toggle(false); } });
   layout();
   setTimeout(() => refresh(), 0);

@@ -2620,7 +2620,7 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
     CROW_ROUTE(app, "/api/pi/assistant/capabilities").methods("GET"_method)
     ([]() { return json_resp({{"schema_version", "pi.assistant-capabilities.v1"}, {"run_uid_threads", true},
                              {"analysis_chat", false}, {"image_chat", false}, {"decision_writes", false},
-                             {"thread_history", true}, {"durable_jev_post_run", true}}); });
+                             {"thread_history", true}, {"durable_jev_post_run", true}, {"analysis_contexts", true}, {"durable_scan_jev", true}}); });
 
     CROW_ROUTE(app, "/api/pi/assistant/thread").methods("GET"_method)
     ([state](const crow::request& req) {

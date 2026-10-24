@@ -1,7 +1,7 @@
 # PI Jev Decisions — Zielbild und verbindliche Entscheidungen
 
-> **Stand:** 2026-09-25, gegen die Pre-Run-Implementierung abgeglichen.
-> **Status:** M0-M4 und Teile von M5.1 implementiert; wissenschaftliche Kandidatenfreigabe (M5), Post-Run (M6) und Auslieferungsabnahme (M7) offen.
+> **Stand:** 2026-10-23, gegen Implementierung und aktuelle Provider-Tests abgeglichen.
+> **Status:** M0-M4 und M5.1 implementiert; M5-Screening für zwei experimentelle Kandidaten bestanden, reguläre wissenschaftliche Freigabe offen. Der deterministische M6-Kern ist umgesetzt, Modellberatung und Entwurfsübernahme fehlen; M7 ist offen.
 > **Priorität:** zuerst Config-Vorschläge vor dem Run, danach gezielte Empfehlungen nach dem ersten Run.
 
 Verknüpfte Dokumente:
@@ -179,4 +179,4 @@ Der externe State ist eine Allowlist-Projektion: keine Schlüssel, absoluten Pfa
 
 Verbindliche Reihenfolge: M0 Verträge und Evidenz -> M1 State -> M2 Kandidaten/Validierung -> M3 Adapter -> M4 Pre-Run-Oberfläche -> M5 Evaluation -> M6 Post-Run -> M7 Integration und Dokumentation.
 
-M0-M4 sind funktional umgesetzt; M5.1 ist teilweise umgesetzt. Der Backend-Pfad bindet einen Jev-Vorschlag erst beim Config-Speichern an eine Revision. Ein Jev-Save prüft seit 2026-09-25 den SHA-256-Fingerprint der geladenen Config-Datei vor dem Schreiben; Backend-interne Config-Schreibpfade sind dafür serialisiert, externe Dateischreiber nicht. Direkte Runs und Queue-Items tragen die Vorschlags-ID nur, wenn die vollständige FITS-Datenmenge und die vorgeschlagenen Config-Werte beim jeweiligen Start noch passen. Teilmengen-Queue-Items werden nicht Jev zugeordnet. Outcomes werden nur für eine geprüfte, explizite ID geschrieben. Die Dataset-Prüfung ist eine Metadatenprüfung, kein FITS-Inhaltsdigest und kein Qualitätsnachweis. Konkrete Dateien, Schnittstellen, Testfälle und offene Freigaben stehen im [Implementierungsplan](pi_jev_implementierungsplan_de.md).
+M0-M4 und M5.1 sind funktional umgesetzt; M5 hat noch keine reguläre Kandidatenfreigabe, M6 nur den deterministischen Kern. Der Backend-Pfad bindet einen Jev-Vorschlag erst beim Config-Speichern an eine Revision. Ein Jev-Save prüft seit 2026-09-25 den SHA-256-Fingerprint der geladenen Config-Datei vor dem Schreiben; Backend-interne Config-Schreibpfade sind dafür serialisiert, externe Dateischreiber nicht. Direkte Runs und Queue-Items tragen die Vorschlags-ID nur, wenn die vollständige FITS-Datenmenge und die vorgeschlagenen Config-Werte beim jeweiligen Start noch passen. Teilmengen-Queue-Items werden nicht Jev zugeordnet. Outcomes werden nur für eine geprüfte, explizite ID geschrieben. Die Dataset-Prüfung ist eine Metadatenprüfung, kein FITS-Inhaltsdigest und kein Qualitätsnachweis. Konkrete Dateien, Schnittstellen, Testfälle und offene Freigaben stehen im [Implementierungsplan](pi_jev_implementierungsplan_de.md).

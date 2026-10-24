@@ -1,6 +1,6 @@
 # Jev M5: reproduzierbare Evaluation und Freigabegrenze
 
-Stand: 2026-09-25. Der maschinenlesbare Snapshot liegt in
+Auswertungsstand: 2026-09-26. Der maschinenlesbare M5-v1-Snapshot vom 2026-09-25 liegt in
 `pi_jev_m5_report_20260925.json`. M5 stellt einen read-only Replay- und Evidenzbericht bereit; **kein
 Kandidat ist regulär freigegeben**. Die acht bestehenden M31/M42/IC5070/M66-Läufe
 liegen inhaltlich unverändert unter `/media/data/tile_compile_cache/jev-test/`.
@@ -171,13 +171,12 @@ optional und getrennt. Erst unabhängige Session-Testdaten erlauben die
 numerische Gate-Prüfung. Die bisherige `0/2`-Patchquote und
 Agreement-Diagnostik ersetzen keines dieser Kriterien.
 
-Neue Bildverarbeitungsläufe sind vom Nutzer gezielt erlaubt. Wiederholungen
-der bereits untersuchten vier Sessions wären trotz der jetzt eingefrorenen
-Schwellen kein unabhängiger Bestätigungstest. Deshalb werden bislang
-ununtersuchte IC4605- und M104-Eingaben als getrennte An/Aus-Paare vorbereitet.
-Ihre Ergebnisse gehören erst nach erfolgreichem Abschluss und einer Prüfung
-der Paaridentität in den Evidenzbericht; ein laufender oder fehlgeschlagener
-Arm gilt nicht als Qualitätsnachweis.
+Die neuen IC4605- und M104-Eingaben wurden als getrennte An/Aus-Paare
+vollständig verarbeitet und oben ausgewertet. Die zusätzliche Wiederholung
+des IC4605-Kontrollarms prüft die technische Reproduzierbarkeit; sie ist
+keine weitere unabhängige Session. Wegen unterschiedlicher Referenzbilder
+und Raster erfüllen beide neuen Paare die spätere Paarungsregel der Policy v2
+nicht und zählen nicht als Bestätigung für eine reguläre Freigabe.
 
 ## Entscheidung vom 2026-09-26: `enable_adaptive_weights` verworfen, Policy v2
 

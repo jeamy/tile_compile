@@ -1,12 +1,17 @@
 #include "backend_test_harness.hpp"
+#include "services/pi/pi_decision_outcome.hpp"
+#include "services/pi/pi_decision_state.hpp"
 #include "services/pi/pi_jev_store.hpp"
 
 #include <yaml-cpp/yaml.h>
 
 #include <cstdio>
+#include <chrono>
 #include <fstream>
+#include <optional>
 #include <regex>
 #include <sstream>
+#include <thread>
 
 int main(int argc, char** argv) {
     if (argc < 5) return 2;
@@ -296,6 +301,58 @@ int main(int argc, char** argv) {
         const auto acknowledged = harness.post_json("/api/runs/incomplete_archive/delete", {{"allow_incomplete_snapshot", true}});
         expect_equal(acknowledged["_http_status"].get<long>(), 200L, "explicit incomplete archive acknowledgement");
         expect_true(!acknowledged["capture_issues"].empty(), "capture gaps remain visible after acknowledged deletion");
+
+        // Full attribution path: applied proposal -> saved config revision ->
+        // verified run start -> completion callback -> durable Jev outcome.
+        const std::string jev_yaml = "data:\n  color_mode: OSC\n";
+        jev_store.put("p_full_chain", "source", {
+            {"input_path", input_dir}, {"dataset_manifest", manifest}
+        });
+        jev_store.put("p_full_chain", "proposal", {
+            {"status", "applied_to_draft"}, {"applied_at", "2020-01-01T00:00:00Z"},
+            {"config_hash_after", tile_compile::pi::sha256_prefixed(
+                tile_compile::pi::canonical_json_dump(tile_compile::pi::yaml_text_to_json(jev_yaml)))},
+            {"saved_revision_ids", nlohmann::json::array()},
+            {"updates", nlohmann::json::array({{{"path", "data.color_mode"}, {"value", "OSC"}}})}
+        });
+        const auto current_config = harness.get_json("/api/config/current");
+        const auto saved_jev = harness.post_json("/api/config/save", {
+            {"yaml", jev_yaml}, {"jev_proposal_id", "p_full_chain"},
+            {"expected_source_sha256", current_config["source_sha256"]}
+        });
+        expect_equal(saved_jev["_http_status"].get<long>(), 200L, "Jev config save succeeds");
+        expect_true(saved_jev["jev_revision_linked"].get<bool>(), "save links actual revision to Jev proposal");
+        const auto saved_proposal = *jev_store.get("p_full_chain", "proposal");
+        expect_true(saved_proposal["saved_revision_ids"].is_array() &&
+                    saved_proposal["saved_revision_ids"].size() == 1 &&
+                    saved_proposal["saved_revision_ids"][0] == saved_jev["revision_id"],
+                    "proposal stores the revision returned by config save");
+
+        const auto linked_direct = harness.post_json("/api/runs/start", {
+            {"input_dir", input_dir}, {"run_id", "linked_jev_full_chain"},
+            {"color_mode", "OSC"}, {"config_yaml", jev_yaml},
+            {"jev_saved_proposal_id", "p_full_chain"}
+        });
+        expect_equal(linked_direct["_http_status"].get<long>(), 202L, "saved Jev proposal permits run start");
+        const auto linked_direct_job = harness.wait_for_job(linked_direct["job_id"].get<std::string>());
+        expect_equal(linked_direct_job["state"].get<std::string>(), "ok", "linked fake run completes");
+        const auto linked_direct_run = harness.fixture_root() / "runs" / "linked_jev_full_chain";
+        const auto linked_direct_provenance = nlohmann::json::parse(
+            slurp_file(linked_direct_run / "artifacts" / "pi_run_provenance.json"));
+        expect_equal(linked_direct_provenance["jev_proposal_id"].get<std::string>(), "p_full_chain",
+                     "run provenance carries the saved Jev proposal");
+        std::optional<nlohmann::json> full_outcome;
+        for (int attempt = 0; attempt < 100 && !full_outcome; ++attempt) {
+            full_outcome = jev_store.get("p_full_chain", "outcome");
+            if (!full_outcome) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        expect_true(full_outcome.has_value(), "completion callback persists Jev outcome");
+        expect_equal((*full_outcome)["runs"][0]["run_id"].get<std::string>(), "linked_jev_full_chain",
+                     "outcome names the completed run");
+        expect_equal((*full_outcome)["runs"][0]["attribution"].get<std::string>(), "paths_present",
+                     "outcome attributes only the applied config path");
+        expect_true((*full_outcome)["runs"][0]["quality_delta"].is_null(),
+                    "unpaired completion does not claim image-quality gain");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());

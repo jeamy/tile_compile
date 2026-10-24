@@ -49,6 +49,9 @@ int main() {
         {
             auto db = PiDatabase::open(root / "store");
             db->meta_set("new_v4_data", "preserved");
+            db->execute("DROP TABLE analysis_proposals");
+            db->execute("DROP TABLE analysis_revisions");
+            db->execute("DROP TABLE analysis_contexts");
             db->execute("DROP TABLE assistant_thread_events");
             db->execute("DROP TABLE run_learning_previews");
             db->execute("DROP TABLE run_learning_state");
@@ -136,6 +139,9 @@ int main() {
         {
             auto db = PiDatabase::open(root / "v5_store");
             db->meta_set("v5_archive_marker", "keep");
+            db->execute("DROP TABLE analysis_proposals");
+            db->execute("DROP TABLE analysis_revisions");
+            db->execute("DROP TABLE analysis_contexts");
             db->execute("DROP TABLE assistant_thread_events");
             db->execute("DROP TABLE run_learning_previews");
             db->execute("CREATE TABLE run_learning_previews(run_uid TEXT PRIMARY KEY REFERENCES run_index(run_uid), "

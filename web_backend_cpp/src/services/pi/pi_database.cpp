@@ -367,6 +367,19 @@ void PiDatabase::init_schema() {
                 "BEGIN SELECT RAISE(ABORT, 'decision_links are append-only outside retention erasure'); END");
         execute("PRAGMA user_version = 8");
     }
+    if (version < 8) {
+        execute("CREATE TABLE analysis_contexts(analysis_uid TEXT PRIMARY KEY, scan_signature TEXT NOT NULL UNIQUE, json TEXT NOT NULL)");
+        execute("CREATE TABLE analysis_revisions(revision_id TEXT PRIMARY KEY, analysis_uid TEXT NOT NULL REFERENCES analysis_contexts(analysis_uid), "
+                "json TEXT NOT NULL, UNIQUE(revision_id, analysis_uid))");
+        execute("CREATE INDEX analysis_revisions_context ON analysis_revisions(analysis_uid)");
+        execute("CREATE TABLE analysis_proposals(proposal_id TEXT PRIMARY KEY, analysis_uid TEXT NOT NULL REFERENCES analysis_contexts(analysis_uid), "
+                "revision_id TEXT NOT NULL, FOREIGN KEY(revision_id, analysis_uid) REFERENCES analysis_revisions(revision_id, analysis_uid))");
+        execute("CREATE INDEX analysis_proposals_context ON analysis_proposals(analysis_uid)");
+        for (const auto* table : {"analysis_contexts", "analysis_revisions", "analysis_proposals"})
+            execute(std::string("CREATE TRIGGER ") + table + "_no_update BEFORE UPDATE ON " + table +
+                " BEGIN SELECT RAISE(ABORT, 'analysis identities and revisions are immutable'); END");
+        execute("PRAGMA user_version = 8");
+    }
     tx.commit();
 }
 

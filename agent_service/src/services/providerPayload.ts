@@ -25,9 +25,9 @@ export function sanitizeProviderPayloadForModel(payload: Record<string, unknown>
     }
   };
 
-  if (isCodexResponses) {
-    // OpenAI Codex Responses rejects temperature, including when it is added
-    // by the shared before_provider_request extension after request building.
+  if (isCodexResponses || (provider === "openai" && supportsReasoning)) {
+    // Codex and OpenAI reasoning models reject temperature, including when it
+    // is added by the shared before_provider_request extension.
     remove("temperature");
   }
 

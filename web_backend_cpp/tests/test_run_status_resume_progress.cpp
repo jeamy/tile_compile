@@ -54,7 +54,7 @@ int main(int argc, char** argv) {
                 if (test_phase_name(item) == "SCAN_INPUT") {
                     scan_seen = true;
                     expect_true(item.contains("duration_s"), "an early phase keeps its duration although its events left the tail");
-                    expect_equal(item["duration_s"].get<double>(), 11.5, "fractional seconds count", 1e-6);
+                    if (item.contains("duration_s")) expect_equal(item["duration_s"].get<double>(), 11.5, "fractional seconds count", 1e-6);
                 }
                 if (test_phase_name(item) == "NORMALIZATION") {
                     norm_seen = true;

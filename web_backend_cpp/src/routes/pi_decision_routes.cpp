@@ -6,6 +6,7 @@
 #include "services/pi/pi_decision_service.hpp"
 #include "services/pi/pi_post_run.hpp"
 #include "services/pi/pi_assistant_event_store.hpp"
+#include "services/pi/pi_analysis_context_store.hpp"
 #include "services/pi/pi_run_index.hpp"
 #include "services/pi/pi_scan_manifest.hpp"
 #include "services/pi/pi_json_io.hpp"
@@ -48,12 +49,15 @@ std::optional<json> read_json_path(const fs::path& p) { return read_json_file_op
 struct ServiceHolder {
     std::mutex m;
     std::shared_ptr<DecisionService> svc;
+    fs::path storage_root;
     std::string error;
 };
 
 std::shared_ptr<DecisionService> get_service(const std::shared_ptr<AppState>& state, ServiceHolder& h, std::string& error) {
     std::lock_guard<std::mutex> lock(h.m);
-    if (h.svc) return h.svc;
+    const auto root = pi_storage_dir(state);
+    if (h.svc && h.storage_root == root) return h.svc;
+    h.svc.reset();
     try {
         const auto dir = catalog_dir(state);
         const auto cands = read_json_path(dir / "candidates_v1.json");
@@ -78,7 +82,8 @@ std::shared_ptr<DecisionService> get_service(const std::shared_ptr<AppState>& st
         };
         deps.now_iso = [] { return utc_now_iso(); };
         deps.new_id = [] { return new_proposal_id(); };
-        h.svc = std::make_shared<DecisionService>(tile_compile::pi::pi_storage_dir(state) / "pi_decisions", load_decision_catalog(*cands, *prot), deps);
+        h.svc = std::make_shared<DecisionService>(root / "pi_decisions", load_decision_catalog(*cands, *prot), deps);
+        h.storage_root = root;
         return h.svc;
     } catch (const std::exception& e) {
         error = e.what();
@@ -203,6 +208,68 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         }
     });
 
+    CROW_ROUTE(app, "/api/pi/assistant/analysis-context").methods("POST"_method)
+    ([state](const crow::request& req) {
+        const auto body = parse_body(req);
+        if (!body || !body->is_object()) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        crow::response failure;
+        auto request = build_request(state, *body, failure);
+        if (!request) return failure;
+        try { return json_resp(PiAnalysisContextStore(pi_storage_dir(state)).resolve(*request)); }
+        catch (const std::exception& e) { return err_resp("ANALYSIS_CONTEXT_UNAVAILABLE", e.what(), 503); }
+    });
+
+    CROW_ROUTE(app, "/api/pi/assistant/analysis-contexts/<string>").methods("GET"_method)
+    ([state](const std::string& uid) {
+        try {
+            PiAnalysisContextStore store(pi_storage_dir(state));
+            const auto context = store.get(uid);
+            if (!context) return err_resp("NOT_FOUND", "Unknown analysis UID", 404);
+            json result = *context;
+            result["revisions"] = store.revisions(uid); result["proposals"] = store.proposals(uid);
+            return json_resp(result);
+        } catch (const std::exception& e) { return err_resp("ANALYSIS_CONTEXT_UNAVAILABLE", e.what(), 503); }
+    });
+
+    CROW_ROUTE(app, "/api/pi/assistant/select-analysis").methods("POST"_method)
+    ([state](const crow::request& req) {
+        const auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->contains("analysis_uid") || !(*body)["analysis_uid"].is_string())
+            return err_resp("BAD_REQUEST", "analysis_uid is required", 400);
+        try {
+            PiAnalysisContextStore store(pi_storage_dir(state));
+            const auto context = store.get((*body)["analysis_uid"]);
+            if (!context) return err_resp("NOT_FOUND", "Unknown analysis UID", 404);
+            if (!set_pi_active_context(state, *context)) return err_resp("CONTEXT_SAVE_FAILED", "Active context could not be persisted", 503);
+            return json_resp(*context);
+        } catch (const std::exception& e) { return err_resp("ANALYSIS_CONTEXT_UNAVAILABLE", e.what(), 503); }
+    });
+
+    CROW_ROUTE(app, "/api/pi/assistant/analysis-thread/<string>").methods("GET"_method)
+    ([state, holder](const std::string& uid) {
+        try {
+            PiAnalysisContextStore store(pi_storage_dir(state));
+            if (!store.get(uid)) return err_resp("NOT_FOUND", "Unknown analysis UID", 404);
+            const auto links = store.proposals(uid);
+            std::string error;
+            auto svc = links.empty() ? nullptr : get_service(state, *holder, error);
+            if (!links.empty() && !svc) return err_resp("DECISIONS_UNAVAILABLE", error, 503);
+            json items = json::array();
+            size_t bytes = 0; bool truncated = false;
+            for (const auto& link : links) {
+                const auto view = svc->view(link["proposal_id"]);
+                if (!view) continue;
+                json item = {{"event_id", link["proposal_id"]}, {"revision_id", link["revision_id"]},
+                    {"context_id", "analysis:" + uid}, {"provider", "jev"}, {"kind", "jev_scan_proposal"}, {"result", *view}};
+                bytes += item.dump().size();
+                if (bytes > 8 * 1024 * 1024) { truncated = true; break; }
+                items.push_back(std::move(item));
+            }
+            return json_resp({{"schema_version", "pi.assistant-thread.v1"}, {"context_id", "analysis:" + uid}, {"items", items},
+                {"proposal_limit", 100}, {"byte_limit", 8388608}, {"truncated", truncated}});
+        } catch (const std::exception& e) { return err_resp("ANALYSIS_THREAD_UNAVAILABLE", e.what(), 503); }
+    });
+
     CROW_ROUTE(app, "/api/scan/decisions").methods("POST"_method)
     ([state, holder](const crow::request& req) {
         auto body = parse_body(req);
@@ -216,16 +283,32 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         // One question per candidate group: every group with an applicable change gets its own proposal, so the user
         // can select which recommendations to apply. No group (nothing but baselines) is one proposal, as before.
         AdviceRequest copy = *advice;
+        json context;
+        try {
+            context = PiAnalysisContextStore(pi_storage_dir(state)).resolve(copy);
+            if (body->contains("analysis_uid") && (!(*body)["analysis_uid"].is_string() || (*body)["analysis_uid"] != context["analysis_uid"]))
+                return err_resp("ANALYSIS_CONTEXT_CHANGED", "Current scan differs from selected analysis context", 409);
+            copy.session_context["context_id"] = context["context_id"];
+            copy.session_context["analysis_revision_id"] = context["revision_id"];
+        } catch (const std::exception& e) { return err_resp("ANALYSIS_CONTEXT_UNAVAILABLE", e.what(), 503); }
         std::vector<std::string> groups;
         try { groups = svc->groups_for(copy); } catch (const std::exception& e) { return err_resp("STORE_FAILED", e.what(), 500); }
         if (groups.empty()) groups.push_back("");
         std::vector<std::string> ids;
-        try { for (size_t i = 0; i < groups.size(); ++i) ids.push_back(svc->create()); }
-        catch (const std::exception& e) { return err_resp("STORE_FAILED", e.what(), 500); }
+        try {
+            const auto db = PiDatabase::open(pi_storage_dir(state));
+            PiDatabase::Tx tx(*db);
+            PiAnalysisContextStore contexts(pi_storage_dir(state));
+            for (size_t i = 0; i < groups.size(); ++i) {
+                ids.push_back(svc->create());
+                contexts.link(context["analysis_uid"], context["revision_id"], ids.back());
+            }
+            tx.commit();
+        } catch (const std::exception& e) { return err_resp("STORE_FAILED", e.what(), 500); }
         std::thread([svc, ids, groups, copy]() {
             for (size_t i = 0; i < ids.size(); ++i) svc->run(ids[i], copy, groups[i]);
         }).detach();
-        return json_resp({{"proposal_id", ids.front()}, {"proposal_ids", ids}, {"groups", groups}, {"state", "running"}}, 202);
+        return json_resp({{"proposal_id", ids.front()}, {"proposal_ids", ids}, {"groups", groups}, {"state", "running"}, {"analysis_context", context}}, 202);
     });
 
     // Explicit rule-based advice: run artifacts are read-only; the resulting card is stored centrally.
