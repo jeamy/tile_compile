@@ -49,6 +49,16 @@ function findingMeasurements(finding) {
     return `${stageLabel(evidence.stage)} — ${t("ui.post_run.evidence.black_clipping", "Schwarz-Clipping")}: ${fmtMetric(evidence.black_clip_percent)}%; ` +
       `${t("ui.post_run.evidence.white_clipping", "Weiß-Clipping")}: ${fmtMetric(evidence.white_clip_percent)}%`;
   }
+  if (finding.code === "post_run_star_shape_measured" &&
+      Number.isFinite(evidence.median_ratio) && Number.isFinite(evidence.p90_ratio) &&
+      Number.isInteger(evidence.matched_stars)) {
+    const ci = Array.isArray(evidence.ci95_star_bootstrap) ? evidence.ci95_star_bootstrap : [];
+    const interval = ci.length === 2 && ci.every(Number.isFinite)
+      ? `; 95%-KI ${fmtMetric(ci[0])}–${fmtMetric(ci[1])}` : "";
+    return `${t("ui.post_run.evidence.star_shape", "Gepaarte Stern-FWHM nach/vor")}: ` +
+      `Median ${fmtMetric(evidence.median_ratio)}, P90 ${fmtMetric(evidence.p90_ratio)}${interval}; ` +
+      `${evidence.matched_stars} ${t("ui.post_run.evidence.matched_stars", "Sterne")}`;
+  }
   return "";
 }
 

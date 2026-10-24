@@ -149,6 +149,43 @@ json hms_clip_diagnostic(const fs::path& run_dir) {
             {"interpretation", "descriptive_measurement_only"}};
 }
 
+json post_run_star_shape_diagnostic(const fs::path& run_dir, bool run_succeeded) {
+    const std::string source = "artifacts/pi_post_run_star_shape.json";
+    if (!run_succeeded) return {{"status", "unavailable"}, {"source_ref", source}};
+    const auto artifact = read_json_file_opt(run_dir / source);
+    if (!artifact) return {{"status", "missing"}, {"source_ref", source}};
+    if (artifact->value("schema_version", std::string()) != "pi.post-run-star-shape.v1" ||
+        artifact->value("interpretation", std::string()) != "descriptive_measurement_only" ||
+        artifact->value("method", std::string()) != "fixed_control_positions_psf_patch_fwhm_v1" ||
+        artifact->value("metric", std::string()) != "matched_star_fwhm_ratio_after_over_before" ||
+        artifact->value("unit", std::string()) != "ratio" ||
+        artifact->value("before_stage", std::string()) != "selected_reconstruction" ||
+        artifact->value("after_stage", std::string()) != "final_hms_rgb_g")
+        return {{"status", "invalid"}, {"source_ref", source}};
+    if (artifact->value("status", std::string()) != "measured")
+        return {{"status", artifact->value("status", std::string("invalid"))}, {"source_ref", source}};
+    const auto median = artifact->find("median_ratio");
+    const auto p90 = artifact->find("p90_ratio");
+    const auto ci = artifact->find("ci95_star_bootstrap");
+    const auto count = artifact->find("matched_stars");
+    if (median == artifact->end() || p90 == artifact->end() || ci == artifact->end() ||
+        count == artifact->end() || !median->is_number() || !p90->is_number() ||
+        !ci->is_array() || ci->size() != 2 || !(*ci)[0].is_number() || !(*ci)[1].is_number() ||
+        !count->is_number_integer() || count->get<int>() < 20)
+        return {{"status", "invalid"}, {"source_ref", source}};
+    const double med = median->get<double>(), tail = p90->get<double>();
+    const double low = (*ci)[0].get<double>(), high = (*ci)[1].get<double>();
+    if (!std::isfinite(med) || !std::isfinite(tail) || !std::isfinite(low) ||
+        !std::isfinite(high) || med <= 0.0 || tail < med || low <= 0.0 || low > med || med > high)
+        return {{"status", "invalid"}, {"source_ref", source}};
+    return {{"status", "measured"}, {"source_ref", source},
+            {"method", artifact->value("method", std::string())},
+            {"before_stage", "selected_reconstruction"}, {"after_stage", "final_hms_rgb_g"},
+            {"median_ratio", med}, {"p90_ratio", tail}, {"ci95_star_bootstrap", ci->get<json>()},
+            {"matched_stars", count->get<int>()}, {"unit", "ratio"},
+            {"interpretation", "descriptive_measurement_only"}};
+}
+
 } // namespace
 
 json build_post_run_state(const fs::path& run_dir, const json& run_config) {
@@ -210,12 +247,19 @@ json build_post_run_state(const fs::path& run_dir, const json& run_config) {
 
     const json bge_slope = bge_slope_comparison(run_dir);
     const json hms_clip = hms_clip_diagnostic(run_dir);
+    const json post_run_star_shape = post_run_star_shape_diagnostic(
+        run_dir, run_end.is_object() && run_end.value("success", false));
+    json not_measured = json::array({"final_stretched_image_quality", "star_shape_after_downstream"});
+    if (post_run_star_shape.value("status", std::string()) == "measured")
+        not_measured.erase(std::remove(not_measured.begin(), not_measured.end(),
+                                       json("star_shape_after_downstream")), not_measured.end());
 
     json state = {{"schema_version", kStateSchema}, {"run", run}, {"identity", identity}, {"reconstruction", reconstruction},
                   {"artifacts", artifacts}, {"downstream_artifacts", downstream}, {"missing", missing},
                   {"stage_diagnostics", {{"bge_background_slope", bge_slope},
-                                          {"hms_curve_clipping", hms_clip}}},
-                  {"not_measured", json::array({"final_stretched_image_quality", "star_shape_after_downstream"})}};
+                                          {"hms_curve_clipping", hms_clip},
+                                          {"post_run_star_shape", post_run_star_shape}}},
+                  {"not_measured", not_measured}};
     state["state_hash"] = sha256_prefixed(state.dump());
     return state;
 }
@@ -264,6 +308,13 @@ json advise_post_run(const json& state, const json& run_config, const DecisionPo
         findings.push_back({{"code", "hms_curve_clipping_measured"}, {"severity", "info"},
                             {"detail", "HyperMetric stretch-curve clipping percentages are available; descriptive only."},
                             {"evidence", hms_clip}});
+    }
+    const json star_shape = state.value("stage_diagnostics", json::object())
+                                .value("post_run_star_shape", json::object());
+    if (star_shape.value("status", std::string()) == "measured") {
+        findings.push_back({{"code", "post_run_star_shape_measured"}, {"severity", "info"},
+                            {"detail", "Matched-star FWHM ratios compare the selected reconstruction with final HMS G; descriptive only."},
+                            {"evidence", star_shape}});
     }
 
     const std::set<std::string> dismissed_set(dismissed.begin(), dismissed.end());

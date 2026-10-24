@@ -2,6 +2,7 @@
 #include "services/pi/pi_post_run.hpp"
 #include "services/pi/pi_resume_scope.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <map>
@@ -115,6 +116,16 @@ int main(int argc, char** argv) {
                  {"guard_slope_pre", nullptr}, {"guard_slope_post", 0.5}}
             })}
         }.dump());
+        write(run / "artifacts/pi_post_run_star_shape.json", json{
+            {"schema_version", "pi.post-run-star-shape.v1"}, {"status", "measured"},
+            {"method", "fixed_control_positions_psf_patch_fwhm_v1"},
+            {"metric", "matched_star_fwhm_ratio_after_over_before"},
+            {"unit", "ratio"}, {"before_stage", "selected_reconstruction"},
+            {"after_stage", "final_hms_rgb_g"},
+            {"median_ratio", 1.02}, {"p90_ratio", 1.12},
+            {"ci95_star_bootstrap", json::array({0.99, 1.05})}, {"matched_stars", 368},
+            {"interpretation", "descriptive_measurement_only"}
+        }.dump());
         const json cfg = control_config();
         const json st = tile_compile::pi::build_post_run_state(run, cfg);
         expect_true(st["schema_version"] == "pi.post-run-decision-state.v1", "state schema");
@@ -135,7 +146,12 @@ int main(int argc, char** argv) {
                     "BGE comparison names stages, delta, and measurement unit");
         expect_true(st["state_hash"].get<std::string>().rfind("sha256:", 0) == 0, "state hashed");
         expect_true(st == tile_compile::pi::build_post_run_state(run, cfg), "state is deterministic");
-        expect_true(st["not_measured"].size() == 2, "what is not measured is stated");
+        expect_true(st["not_measured"] == json::array({"final_stretched_image_quality"}),
+                    "star shape is removed from not-measured only when a valid paired diagnostic exists");
+        const auto& star_shape = st["stage_diagnostics"]["post_run_star_shape"];
+        expect_true(star_shape["status"] == "measured" && star_shape["median_ratio"] == 1.02 &&
+                    star_shape["p90_ratio"] == 1.12 && star_shape["matched_stars"] == 368,
+                    "valid post-run paired star-shape diagnostic is surfaced with its evidence");
         const auto& hms = st["stage_diagnostics"]["hms_curve_clipping"];
         expect_true(hms["status"] == "measured" && hms["stage"] == "hypermetric_stretch.curve_output" &&
                     hms["black_clip_percent"] == 0.25 && hms["white_clip_percent"] == 0.75 &&
@@ -159,6 +175,14 @@ int main(int argc, char** argv) {
             if (f["code"] == "hms_curve_clipping_measured")
                 has_hms_measurement = f["severity"] == "info" && f["evidence"]["black_clip_percent"] == 0.25;
         expect_true(has_hms_measurement, "post-run advice carries HMS clipping as informational evidence only");
+        bool has_star_shape_measurement = false;
+        for (const auto& f : a["findings"])
+            if (f["code"] == "post_run_star_shape_measured")
+                has_star_shape_measurement = f["severity"] == "info" &&
+                    f["evidence"]["median_ratio"] == 1.02 &&
+                    f["evidence"]["interpretation"] == "descriptive_measurement_only";
+        expect_true(has_star_shape_measurement,
+                    "post-run advice exposes paired star shape as descriptive informational evidence");
 
         const fs::path invalid_hms = make_run(root, "run_invalid_hms");
         write(invalid_hms / "logs/run_events.jsonl", json{
@@ -168,6 +192,24 @@ int main(int argc, char** argv) {
         const json invalid_hms_state = tile_compile::pi::build_post_run_state(invalid_hms, cfg);
         expect_true(invalid_hms_state["stage_diagnostics"]["hms_curve_clipping"]["status"] == "invalid",
                     "out-of-range HMS diagnostics fail closed");
+
+        const fs::path invalid_star_shape = make_run(root, "run_invalid_star_shape");
+        write(invalid_star_shape / "logs/run_events.jsonl",
+              json{{"type", "run_end"}, {"status", "final_image_ready"}, {"success", true}}.dump() + "\n");
+        write(invalid_star_shape / "artifacts/pi_post_run_star_shape.json", json{
+            {"schema_version", "pi.post-run-star-shape.v1"}, {"status", "measured"},
+            {"method", "fixed_control_positions_psf_patch_fwhm_v1"},
+            {"metric", "matched_star_fwhm_ratio_after_over_before"}, {"unit", "ratio"},
+            {"before_stage", "selected_reconstruction"}, {"after_stage", "final_hms_rgb_g"},
+            {"median_ratio", 1.02}, {"p90_ratio", 1.12},
+            {"ci95_star_bootstrap", json::array({0.99, 1.05})}, {"matched_stars", 5},
+            {"interpretation", "descriptive_measurement_only"}
+        }.dump());
+        const json invalid_star_state = tile_compile::pi::build_post_run_state(invalid_star_shape, cfg);
+        expect_true(invalid_star_state["stage_diagnostics"]["post_run_star_shape"]["status"] == "invalid" &&
+                    std::find(invalid_star_state["not_measured"].begin(), invalid_star_state["not_measured"].end(),
+                              json("star_shape_after_downstream")) != invalid_star_state["not_measured"].end(),
+                    "invalid or undersampled star-shape artifacts stay not measured");
 
         const fs::path non_autobge = make_run(root, "run_classic_bge");
         write(non_autobge / "artifacts/bge.json", json{
