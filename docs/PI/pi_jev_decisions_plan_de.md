@@ -1,7 +1,7 @@
 # PI Jev Decisions — Zielbild und verbindliche Entscheidungen
 
 > **Stand:** 2026-10-24, gegen Implementierung und aktuelle Provider-Tests abgeglichen.
-> **Status:** M0-M4 und M5.1 implementiert; M5-Screening für zwei experimentelle Kandidaten bestanden, reguläre wissenschaftliche Freigabe offen. M6 umfasst den deterministischen Kern, PI-Thread-/Entwurfsübergabe und den ersten BGE-Messvergleich; Post-Run-Modellberatung und weitere Messproduzenten fehlen. GUI3-Release-Integration und Bundle-Smokes sind durch `.github/workflows/release-tile-compile-gui3.yml` abgedeckt.
+> **Status:** M0-M4 und M5.1 implementiert; M5-Screening für zwei experimentelle Kandidaten bestanden, reguläre wissenschaftliche Freigabe offen. M6 umfasst den deterministischen Kern, PI-Thread-/Entwurfsübergabe sowie BGE- und HMS-Clipping-Diagnosen; Post-Run-Modellberatung und Endbildqualitätsmetriken fehlen. GUI3-Release-Integration und Bundle-Smokes sind durch `.github/workflows/release-tile-compile-gui3.yml` abgedeckt.
 > **Priorität:** zuerst Config-Vorschläge vor dem Run, danach gezielte Empfehlungen nach dem ersten Run.
 
 Verknüpfte Dokumente:

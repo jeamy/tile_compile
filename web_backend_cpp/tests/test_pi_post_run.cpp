@@ -95,6 +95,13 @@ int main(int argc, char** argv) {
 
         // ---- state from run artifacts ----
         const fs::path run = make_run(root, "run_ok");
+        write(run / "logs/run_events.jsonl",
+              json{{"type", "phase_end"}, {"phase_name", "SCAN_INPUT"}}.dump() + "\n" +
+              json{{"type", "phase_end"}, {"phase_name", "FORWARD_DRIZZLE"}}.dump() + "\n" +
+              json{{"type", "phase_end"}, {"phase_name", "HYPERMETRIC_STRETCH"}, {"status", "ok"},
+                   {"black_clip_percent", 0.25}, {"white_clip_percent", 0.75}}.dump() + "\n" +
+              json{{"type", "run_end"}, {"status", "final_image_ready"}, {"success", true},
+                   {"final_image_available", true}, {"execution_scope", "forward_drizzle_m1_m3"}}.dump() + "\n");
         write(run / "artifacts/bge.json", json{
             {"requested", true}, {"attempted", true}, {"success", true},
             {"bge_method", "autobge"},
@@ -112,7 +119,7 @@ int main(int argc, char** argv) {
         const json st = tile_compile::pi::build_post_run_state(run, cfg);
         expect_true(st["schema_version"] == "pi.post-run-decision-state.v1", "state schema");
         expect_true(st["run"]["success"] == true && st["run"]["final_image_available"] == true, "terminal event read");
-        expect_true(st["run"]["phases_completed"] == json::array({"SCAN_INPUT", "FORWARD_DRIZZLE"}), "phases in log order; the truncated last line is ignored");
+        expect_true(st["run"]["phases_completed"] == json::array({"SCAN_INPUT", "FORWARD_DRIZZLE", "HYPERMETRIC_STRETCH"}), "phases in log order");
         expect_true(st["reconstruction"]["selected_candidate"] == "drizzle_raw", "selected candidate");
         expect_true(st["reconstruction"]["candidates"]["drizzle_raw"]["median_fwhm"]["value"] == 5.0, "candidate metrics carried");
         expect_true(!st["reconstruction"]["candidates"]["drizzle_raw"]["elongation"].contains("value"), "a not-applicable metric has no value (never zero)");
@@ -129,6 +136,11 @@ int main(int argc, char** argv) {
         expect_true(st["state_hash"].get<std::string>().rfind("sha256:", 0) == 0, "state hashed");
         expect_true(st == tile_compile::pi::build_post_run_state(run, cfg), "state is deterministic");
         expect_true(st["not_measured"].size() == 2, "what is not measured is stated");
+        const auto& hms = st["stage_diagnostics"]["hms_curve_clipping"];
+        expect_true(hms["status"] == "measured" && hms["stage"] == "hypermetric_stretch.curve_output" &&
+                    hms["black_clip_percent"] == 0.25 && hms["white_clip_percent"] == 0.75 &&
+                    hms["interpretation"] == "descriptive_measurement_only",
+                    "finite HMS curve clipping diagnostics are surfaced as measurements, not quality claims");
 
         // ---- advice: reconstruction suggestions from the checked catalog only, read-only ----
         const auto before = snapshot(run);
@@ -142,6 +154,20 @@ int main(int argc, char** argv) {
             }
         }
         expect_true(has_bge_measurement, "post-run advice carries the measured delta as an informational finding only");
+        bool has_hms_measurement = false;
+        for (const auto& f : a["findings"])
+            if (f["code"] == "hms_curve_clipping_measured")
+                has_hms_measurement = f["severity"] == "info" && f["evidence"]["black_clip_percent"] == 0.25;
+        expect_true(has_hms_measurement, "post-run advice carries HMS clipping as informational evidence only");
+
+        const fs::path invalid_hms = make_run(root, "run_invalid_hms");
+        write(invalid_hms / "logs/run_events.jsonl", json{
+            {"type", "phase_end"}, {"phase_name", "HYPERMETRIC_STRETCH"}, {"status", "ok"},
+            {"black_clip_percent", 0.2}, {"white_clip_percent", 120.0}
+        }.dump() + "\n");
+        const json invalid_hms_state = tile_compile::pi::build_post_run_state(invalid_hms, cfg);
+        expect_true(invalid_hms_state["stage_diagnostics"]["hms_curve_clipping"]["status"] == "invalid",
+                    "out-of-range HMS diagnostics fail closed");
 
         const fs::path non_autobge = make_run(root, "run_classic_bge");
         write(non_autobge / "artifacts/bge.json", json{

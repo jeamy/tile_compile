@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <optional>
 #include <set>
 
 namespace tile_compile::pi {
@@ -120,6 +121,34 @@ json bge_slope_comparison(const fs::path& run_dir) {
             {"source_ref", "artifacts/bge.json"}, {"comparisons", comparisons}};
 }
 
+json hms_clip_diagnostic(const fs::path& run_dir) {
+    std::ifstream in(run_dir / "logs" / "run_events.jsonl");
+    if (!in) return {{"status", "missing"}, {"source_ref", "logs/run_events.jsonl"}};
+    std::optional<json> latest;
+    std::string line;
+    while (std::getline(in, line)) {
+        const json event = json::parse(line, nullptr, false);
+        if (event.is_object() && event.value("type", std::string()) == "phase_end" &&
+            event.value("phase_name", std::string()) == "HYPERMETRIC_STRETCH") latest = event;
+    }
+    if (!latest) return {{"status", "missing"}, {"source_ref", "logs/run_events.jsonl"}};
+    if (latest->value("status", std::string()) != "ok")
+        return {{"status", "unavailable"}, {"source_ref", "logs/run_events.jsonl"}};
+    const auto black = latest->find("black_clip_percent");
+    const auto white = latest->find("white_clip_percent");
+    if (black == latest->end() || white == latest->end() || !black->is_number() || !white->is_number())
+        return {{"status", "invalid"}, {"source_ref", "logs/run_events.jsonl"}};
+    const double black_value = black->get<double>();
+    const double white_value = white->get<double>();
+    if (!std::isfinite(black_value) || !std::isfinite(white_value) ||
+        black_value < 0.0 || black_value > 100.0 || white_value < 0.0 || white_value > 100.0)
+        return {{"status", "invalid"}, {"source_ref", "logs/run_events.jsonl"}};
+    return {{"status", "measured"}, {"source_ref", "logs/run_events.jsonl"},
+            {"stage", "hypermetric_stretch.curve_output"},
+            {"black_clip_percent", black_value}, {"white_clip_percent", white_value},
+            {"interpretation", "descriptive_measurement_only"}};
+}
+
 } // namespace
 
 json build_post_run_state(const fs::path& run_dir, const json& run_config) {
@@ -180,10 +209,12 @@ json build_post_run_state(const fs::path& run_dir, const json& run_config) {
         downstream[name] = fs::is_regular_file(run_dir / "artifacts" / (std::string(name) + ".json"), ec);
 
     const json bge_slope = bge_slope_comparison(run_dir);
+    const json hms_clip = hms_clip_diagnostic(run_dir);
 
     json state = {{"schema_version", kStateSchema}, {"run", run}, {"identity", identity}, {"reconstruction", reconstruction},
                   {"artifacts", artifacts}, {"downstream_artifacts", downstream}, {"missing", missing},
-                  {"stage_diagnostics", {{"bge_background_slope", bge_slope}}},
+                  {"stage_diagnostics", {{"bge_background_slope", bge_slope},
+                                          {"hms_curve_clipping", hms_clip}}},
                   {"not_measured", json::array({"final_stretched_image_quality", "star_shape_after_downstream"})}};
     state["state_hash"] = sha256_prefixed(state.dump());
     return state;
@@ -226,6 +257,13 @@ json advise_post_run(const json& state, const json& run_config, const DecisionPo
             {"detail", "BGE background-plane slope measured before and after correction for channel " + channel + "; descriptive only."},
             {"evidence", comparison}
         });
+    }
+    const json hms_clip = state.value("stage_diagnostics", json::object())
+                              .value("hms_curve_clipping", json::object());
+    if (hms_clip.value("status", std::string()) == "measured") {
+        findings.push_back({{"code", "hms_curve_clipping_measured"}, {"severity", "info"},
+                            {"detail", "HyperMetric stretch-curve clipping percentages are available; descriptive only."},
+                            {"evidence", hms_clip}});
     }
 
     const std::set<std::string> dismissed_set(dismissed.begin(), dismissed.end());
