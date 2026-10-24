@@ -6,6 +6,7 @@
 #include "services/pi/pi_resume_scope.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <set>
 
@@ -45,6 +46,78 @@ void read_events(const fs::path& log, json& phases, json& run_end, bool& log_pre
             run_end = e;  // the LAST run_end wins (a resume appends another)
         }
     }
+}
+
+json bge_slope_comparison(const fs::path& run_dir) {
+    const auto artifact = read_json_file_opt(run_dir / "artifacts" / "bge.json");
+    if (!artifact) return {{"status", "missing"}, {"source_ref", "artifacts/bge.json"}, {"comparisons", json::array()}};
+
+    const auto config_it = artifact->find("config");
+    if (config_it == artifact->end() || !config_it->is_object())
+        return {{"status", "invalid"}, {"source_ref", "artifacts/bge.json"}, {"comparisons", json::array()}};
+    const json& config = *config_it;
+    const auto method_it = config.find("method");
+    const auto actual_method_it = artifact->find("bge_method");
+    const auto autobge_it = config.find("autobge");
+    if (method_it == config.end() || !method_it->is_string() ||
+        actual_method_it == artifact->end() || !actual_method_it->is_string() ||
+        autobge_it == config.end() || !autobge_it->is_object())
+        return {{"status", "invalid"}, {"source_ref", "artifacts/bge.json"}, {"comparisons", json::array()}};
+    const auto guards_it = autobge_it->find("apply_guards");
+    const auto requested_it = artifact->find("requested");
+    if (requested_it == artifact->end() || !requested_it->is_boolean() ||
+        guards_it == autobge_it->end() || !guards_it->is_boolean())
+        return {{"status", "invalid"}, {"source_ref", "artifacts/bge.json"}, {"comparisons", json::array()}};
+    const std::string configured_method = method_it->get<std::string>();
+    if (!requested_it->get<bool>() ||
+        !(configured_method == "autobge" || configured_method == "auto") ||
+        actual_method_it->get<std::string>() != "autobge" ||
+        !guards_it->get<bool>()) {
+        return {{"status", "not_applicable"}, {"source_ref", "artifacts/bge.json"}, {"comparisons", json::array()}};
+    }
+    const auto attempted_it = artifact->find("attempted");
+    const auto success_it = artifact->find("success");
+    const auto channels_it = artifact->find("channels");
+    if (attempted_it == artifact->end() || !attempted_it->is_boolean() ||
+        success_it == artifact->end() || !success_it->is_boolean() ||
+        channels_it == artifact->end() || !channels_it->is_array()) {
+        return {{"status", "invalid"}, {"source_ref", "artifacts/bge.json"}, {"comparisons", json::array()}};
+    }
+    if (!attempted_it->get<bool>() || !success_it->get<bool>()) {
+        return {{"status", "unavailable"}, {"source_ref", "artifacts/bge.json"}, {"comparisons", json::array()}};
+    }
+
+    json comparisons = json::array();
+    for (const auto& channel : *channels_it) {
+        if (!channel.is_object()) continue;
+        const auto fit_it = channel.find("fit_success");
+        const auto applied_it = channel.find("applied");
+        const auto rejected_it = channel.find("guard_rejected");
+        if (fit_it == channel.end() || !fit_it->is_boolean() || !fit_it->get<bool>() ||
+            applied_it == channel.end() || !applied_it->is_boolean() || !applied_it->get<bool>() ||
+            rejected_it == channel.end() || !rejected_it->is_boolean() || rejected_it->get<bool>()) continue;
+        const auto before_it = channel.find("guard_slope_pre");
+        const auto after_it = channel.find("guard_slope_post");
+        if (before_it == channel.end() || after_it == channel.end() ||
+            !before_it->is_number() || !after_it->is_number()) continue;
+        const double before = before_it->get<double>();
+        const double after = after_it->get<double>();
+        if (!std::isfinite(before) || !std::isfinite(after) || before < 0.0 || after < 0.0) continue;
+        comparisons.push_back({
+            {"channel", channel.contains("channel") && channel["channel"].is_string()
+                ? channel["channel"].get<std::string>() : std::string()},
+            {"metric", "coarse_background_plane_slope"},
+            {"before", {{"stage", "bge.input"}, {"value", before}}},
+            {"after", {{"stage", "bge.output"}, {"value", after}}},
+            {"delta", after - before},
+            {"unit", "image_value_per_pixel"},
+            {"mask", "common_valid_mask"},
+            {"source_ref", "artifacts/bge.json"},
+            {"interpretation", "descriptive_measurement_only"}
+        });
+    }
+    return {{"status", comparisons.empty() ? "unavailable" : "measured"},
+            {"source_ref", "artifacts/bge.json"}, {"comparisons", comparisons}};
 }
 
 } // namespace
@@ -106,8 +179,11 @@ json build_post_run_state(const fs::path& run_dir, const json& run_config) {
     for (const char* name : {"bge", "pcc", "chroma_denoise", "luma_denoise"})
         downstream[name] = fs::is_regular_file(run_dir / "artifacts" / (std::string(name) + ".json"), ec);
 
+    const json bge_slope = bge_slope_comparison(run_dir);
+
     json state = {{"schema_version", kStateSchema}, {"run", run}, {"identity", identity}, {"reconstruction", reconstruction},
                   {"artifacts", artifacts}, {"downstream_artifacts", downstream}, {"missing", missing},
+                  {"stage_diagnostics", {{"bge_background_slope", bge_slope}}},
                   {"not_measured", json::array({"final_stretched_image_quality", "star_shape_after_downstream"})}};
     state["state_hash"] = sha256_prefixed(state.dump());
     return state;
@@ -138,6 +214,18 @@ json advise_post_run(const json& state, const json& run_config, const DecisionPo
         // A rejected multiband candidate is a normal, gate-decided outcome, not a defect.
         if (sel == "drizzle_raw" && !rec.value("selection_reason", std::string()).empty())
             finding("selected_candidate_reason", "info", rec["selection_reason"].get<std::string>());
+    }
+
+    for (const auto& comparison : state.value("stage_diagnostics", json::object())
+                                      .value("bge_background_slope", json::object())
+                                      .value("comparisons", json::array())) {
+        const std::string channel = comparison.value("channel", std::string("?"));
+        findings.push_back({
+            {"code", "bge_background_slope_measured"},
+            {"severity", "info"},
+            {"detail", "BGE background-plane slope measured before and after correction for channel " + channel + "; descriptive only."},
+            {"evidence", comparison}
+        });
     }
 
     const std::set<std::string> dismissed_set(dismissed.begin(), dismissed.end());

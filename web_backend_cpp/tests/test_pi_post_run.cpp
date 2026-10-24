@@ -95,6 +95,19 @@ int main(int argc, char** argv) {
 
         // ---- state from run artifacts ----
         const fs::path run = make_run(root, "run_ok");
+        write(run / "artifacts/bge.json", json{
+            {"requested", true}, {"attempted", true}, {"success", true},
+            {"bge_method", "autobge"},
+            {"config", {{"method", "autobge"}, {"autobge", {{"apply_guards", true}}}}},
+            {"channels", json::array({
+                {{"channel", "R"}, {"fit_success", true}, {"applied", true}, {"guard_rejected", false},
+                 {"guard_slope_pre", 2.5}, {"guard_slope_post", 1.75}},
+                {{"channel", "G"}, {"fit_success", true}, {"applied", true}, {"guard_rejected", true},
+                 {"guard_slope_pre", 2.0}, {"guard_slope_post", 4.0}},
+                {{"channel", "B"}, {"fit_success", true}, {"applied", true}, {"guard_rejected", false},
+                 {"guard_slope_pre", nullptr}, {"guard_slope_post", 0.5}}
+            })}
+        }.dump());
         const json cfg = control_config();
         const json st = tile_compile::pi::build_post_run_state(run, cfg);
         expect_true(st["schema_version"] == "pi.post-run-decision-state.v1", "state schema");
@@ -105,6 +118,14 @@ int main(int argc, char** argv) {
         expect_true(!st["reconstruction"]["candidates"]["drizzle_raw"]["elongation"].contains("value"), "a not-applicable metric has no value (never zero)");
         expect_true(st["artifacts"]["canvas_mask"] == true && st["artifacts"]["normalized_cache"] == false, "artifact presence");
         expect_true(st["missing"].empty(), "nothing missing");
+        const auto& bge = st["stage_diagnostics"]["bge_background_slope"];
+        expect_true(bge["status"] == "measured" && bge["comparisons"].size() == 1,
+                    "only a successful, applied, unvetoed finite BGE measurement is exposed");
+        expect_true(bge["comparisons"][0]["before"]["stage"] == "bge.input" &&
+                    bge["comparisons"][0]["after"]["stage"] == "bge.output" &&
+                    bge["comparisons"][0]["delta"] == -0.75 &&
+                    bge["comparisons"][0]["unit"] == "image_value_per_pixel",
+                    "BGE comparison names stages, delta, and measurement unit");
         expect_true(st["state_hash"].get<std::string>().rfind("sha256:", 0) == 0, "state hashed");
         expect_true(st == tile_compile::pi::build_post_run_state(run, cfg), "state is deterministic");
         expect_true(st["not_measured"].size() == 2, "what is not measured is stated");
@@ -112,6 +133,27 @@ int main(int argc, char** argv) {
         // ---- advice: reconstruction suggestions from the checked catalog only, read-only ----
         const auto before = snapshot(run);
         auto a = tile_compile::pi::advise_post_run(st, cfg, frozen_test_policy(), catalog, ok, {});
+        bool has_bge_measurement = false;
+        for (const auto& f : a["findings"]) {
+            if (f["code"] == "bge_background_slope_measured") {
+                has_bge_measurement = f["severity"] == "info" &&
+                    f["evidence"]["delta"] == -0.75 &&
+                    f["evidence"]["interpretation"] == "descriptive_measurement_only";
+            }
+        }
+        expect_true(has_bge_measurement, "post-run advice carries the measured delta as an informational finding only");
+
+        const fs::path non_autobge = make_run(root, "run_classic_bge");
+        write(non_autobge / "artifacts/bge.json", json{
+            {"requested", true}, {"attempted", true}, {"success", true}, {"bge_method", "classic"},
+            {"config", {{"method", "auto"}, {"autobge", {{"apply_guards", true}}}}},
+            {"channels", json::array({{{"channel", "R"}, {"fit_success", true}, {"applied", true},
+                {"guard_rejected", false}, {"guard_slope_pre", 2.0}, {"guard_slope_post", 1.0}}})}
+        }.dump());
+        const json non_autobge_state = tile_compile::pi::build_post_run_state(non_autobge, cfg);
+        expect_true(non_autobge_state["stage_diagnostics"]["bge_background_slope"]["status"] == "not_applicable" &&
+                    non_autobge_state["stage_diagnostics"]["bge_background_slope"]["comparisons"].empty(),
+                    "a different selected BGE method is not reported as an AutoBGE guard measurement");
         expect_true(a["outcome"] == "suggest_reconstruction", "control-level reconstruction config: suggest reconstruction");
         expect_true(ids(a) == std::vector<std::string>({"set_clip_sigmas", "set_pixfrac__1"}), "both confirmed candidates, sorted");
         for (const auto& s : a["suggestions"]) {

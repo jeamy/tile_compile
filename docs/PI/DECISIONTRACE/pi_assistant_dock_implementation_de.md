@@ -147,10 +147,12 @@ Es werden keine produktiven Dienste oder Runs gestartet.
 
 2026-10-24: Backend und alle Testtargets gebaut; 32/32 serielle Backend-Tests bestanden, einschliesslich
 externem Chat-Verlauf, Alias-Kollision und abgewiesener Run-Auswahl bei Konflikt. JavaScript-Syntax und
-URL-Kodierung der Pfadangaben bestanden. Der neue Chat-/Live-Bild-Pfad wurde noch nicht gegen einen
-neu gestarteten produktiven Backend-Build Ende-zu-Ende geprueft. Verspaetete Monitor-Chat-Antworten und
-Verlaufssynchronisierungen werden beim Wechsel des Run-Pfads verworfen; lokale Chat-Schluessel nutzen
-den bekannten Run-Pfad vor dem blossen Namen.
+URL-Kodierung der Pfadangaben bestanden. Nach Backend-Neustart wurde der Run-Chat gegen den vorhandenen
+IC434-Run live Ende-zu-Ende geprueft: GPT-6 Luna erhielt die Bildvorschau, lieferte ein gueltiges Ergebnis,
+und der PI-Thread speicherte den Testturn. Der separate Live-Bild-Editor-Create/Chat-Pfad wurde nicht an
+diesem bereits editierten Run gestartet, weil Create/Chat dort persistente Edit-History oder FITS-Dateien
+schreiben kann. Verspaetete Monitor-Chat-Antworten und Verlaufssynchronisierungen werden beim Wechsel des
+Run-Pfads verworfen; lokale Chat-Schluessel nutzen den bekannten Run-Pfad vor dem blossen Namen.
 
 ```bash
 PLAYWRIGHT_MODULE_PATH=/pfad/zu/playwright/index.mjs node web_frontend_v3/tests/assistant-dock.browser.mjs > /tmp/out_dock_browser_test.txt 2>&1
