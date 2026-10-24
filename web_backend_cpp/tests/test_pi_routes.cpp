@@ -1293,6 +1293,14 @@ int main(int argc, char** argv) {
             {"run_id", old_dir.string()}, {"run_uid", thread_uid}, {"request_id", "dock_click_1"}
         });
         expect_equal(retried_advice["event_id"].get<std::string>(), durable_advice["event_id"].get<std::string>(), "same request yields one card");
+        // An external run cannot be found by basename in runs_dir; the explicit hint locates it.
+        harness.make_file("foreign_advice_run/config.yaml", "data:\n  color_mode: OSC\n");
+        const auto external_advice = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", "foreign_advice_run"},
+            {"run_dir", (harness.fixture_root() / "foreign_advice_run").string()},
+            {"request_id", "dock_click_ext"}
+        });
+        expect_equal(external_advice["_http_status"].get<long>(), 200L, "run_dir hint resolves external run dir");
         const std::string thread_url = "/api/pi/assistant/thread?run_uid=" + thread_uid;
         const auto durable_thread = harness.get_json(thread_url);
         expect_equal(static_cast<long>(durable_thread["items"].size()), 2L, "PI and Jev in one thread");
