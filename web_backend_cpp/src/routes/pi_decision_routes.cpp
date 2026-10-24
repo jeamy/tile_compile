@@ -49,6 +49,11 @@ fs::path catalog_dir(const std::shared_ptr<AppState>& state) {
 std::optional<json> read_json_path(const fs::path& p) { return read_json_file_opt(p); }
 
 json post_run_provider_projection(const json& state, const json& advice) {
+    const auto safe_identifier = [](const std::string& value) {
+        return !value.empty() && std::all_of(value.begin(), value.end(), [](unsigned char c) {
+            return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+        });
+    };
     const json run = state.value("run", json::object());
     const json rec = state.value("reconstruction", json::object());
     json projection = {
@@ -61,14 +66,10 @@ json post_run_provider_projection(const json& state, const json& advice) {
         {"not_measured", state.value("not_measured", json::array())}
     };
     const std::string selected = rec.value("selected_candidate", std::string());
-    if (!selected.empty() && std::all_of(selected.begin(), selected.end(), [](unsigned char c) {
-            return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
-        })) projection["reconstruction"]["selected_candidate"] = selected;
+    if (safe_identifier(selected)) projection["reconstruction"]["selected_candidate"] = selected;
     const json cands = rec.value("candidates", json::object());
     for (const auto& [candidate, values] : cands.items()) {
-        if (!std::all_of(candidate.begin(), candidate.end(), [](unsigned char c) {
-                return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
-            }) || !values.is_object()) continue;
+        if (!safe_identifier(candidate) || !values.is_object()) continue;
         json safe = json::object();
         for (const char* key : {"numerics_ok", "support_ok", "median_fwhm", "p90_fwhm", "tail",
                                 "elongation", "background_rms", "seam_score"}) {
@@ -83,7 +84,7 @@ json post_run_provider_projection(const json& state, const json& advice) {
     for (const auto& finding : advice.value("findings", json::array())) {
         const std::string code = finding.value("code", std::string());
         const std::string severity = finding.value("severity", std::string());
-        if (!code.empty() && (severity == "info" || severity == "warning"))
+        if (safe_identifier(code) && (severity == "info" || severity == "warning"))
             projection["findings"].push_back({{"code", code}, {"severity", severity}});
     }
     json diagnostics = json::object();
@@ -96,6 +97,8 @@ json post_run_provider_projection(const json& state, const json& advice) {
         const json after = item.value("after", json::object());
         if (!before.contains("value") || !after.contains("value") || !before["value"].is_number() ||
             !after["value"].is_number() || !item.contains("delta") || !item["delta"].is_number()) continue;
+        const std::string channel = item.value("channel", std::string());
+        if (channel != "R" && channel != "G" && channel != "B") continue;
         comparisons.push_back({{"channel", item.value("channel", std::string())},
             {"before", before["value"]}, {"after", after["value"]}, {"delta", item["delta"]}});
     }
