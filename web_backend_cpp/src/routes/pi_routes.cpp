@@ -2732,6 +2732,14 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         const std::string object_name = body->value("object_name", body->value("target", std::string()));
         if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
         if (message.empty()) return err_resp("BAD_REQUEST", "message is required", 400);
+        // Register an explicit run_dir hint first so the helpers below resolve
+        // runs located outside runs_dir via the alias.
+        const std::string run_dir_hint = body->contains("run_dir") && (*body)["run_dir"].is_string()
+            ? (*body)["run_dir"].get<std::string>() : std::string();
+        if (!run_dir_hint.empty()) {
+            fs::path hinted;
+            if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, hinted)) return std::move(*err);
+        }
         try {
             const auto identity = run_chat_identity(state, run_id, body->value("run_uid", std::string()));
             const std::string uid = identity["run_uid"];
@@ -2884,7 +2892,12 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
     ([state](const crow::request& req) {
         const std::string run_id = req.url_params.get("run_id") ? std::string(req.url_params.get("run_id")) : "";
         const std::string uid = req.url_params.get("run_uid") ? std::string(req.url_params.get("run_uid")) : "";
+        const std::string run_dir_hint = req.url_params.get("run_dir") ? std::string(req.url_params.get("run_dir")) : "";
         if (run_id.empty() && uid.empty()) return err_resp("BAD_REQUEST", "run_id or run_uid is required", 400);
+        if (!run_dir_hint.empty()) {
+            fs::path hinted;
+            if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, hinted)) return std::move(*err);
+        }
         try {
             return json_resp(read_pi_run_chat_history(state, run_id, uid));
         } catch (const std::exception& e) {
@@ -2899,6 +2912,12 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         const std::string run_id = body->value("run_id", std::string());
         const std::string uid = body->value("run_uid", std::string());
         if (run_id.empty() && uid.empty()) return err_resp("BAD_REQUEST", "run_id or run_uid is required", 400);
+        const std::string run_dir_hint = body->contains("run_dir") && (*body)["run_dir"].is_string()
+            ? (*body)["run_dir"].get<std::string>() : std::string();
+        if (!run_dir_hint.empty()) {
+            fs::path hinted;
+            if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, hinted)) return std::move(*err);
+        }
         try {
             const std::string resolved_uid = run_chat_identity(state, run_id, uid)["run_uid"];
             auto mutex = run_chat_mutex(state, resolved_uid);
@@ -3234,12 +3253,10 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
         const std::string run_id = body->value("run_id", std::string());
         if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        const std::string run_dir_hint = body->contains("run_dir") && (*body)["run_dir"].is_string()
+            ? (*body)["run_dir"].get<std::string>() : std::string();
         fs::path run_dir;
-        try {
-            run_dir = state->runtime.resolve_run_dir(run_id);
-        } catch (const std::runtime_error&) {
-            return err_resp("NOT_FOUND", "run directory not found", 404);
-        }
+        if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, run_dir)) return std::move(*err);
         try {
             if (!fs::is_directory(run_dir)) {
                 return err_resp("NOT_FOUND", "run directory not found", 404);
@@ -3333,6 +3350,12 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (from_phase.empty()) return err_resp("BAD_REQUEST", "from_phase is required", 400);
         if (feedback.empty() && result.empty()) {
             return err_resp("BAD_REQUEST", "feedback or result is required", 400);
+        }
+        const std::string run_dir_hint = body->contains("run_dir") && (*body)["run_dir"].is_string()
+            ? (*body)["run_dir"].get<std::string>() : std::string();
+        if (!run_dir_hint.empty()) {
+            fs::path hinted;
+            if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, hinted)) return std::move(*err);
         }
         try {
             // Kontext aus dem Run lesen
@@ -3907,15 +3930,11 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
         const std::string run_id = body->value("run_id", std::string());
         if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        const std::string run_dir_hint = body->contains("run_dir") && (*body)["run_dir"].is_string()
+            ? (*body)["run_dir"].get<std::string>() : std::string();
 
         fs::path run_dir;
-        try {
-            run_dir = state->runtime.resolve_run_dir(run_id);
-        } catch (const std::runtime_error&) {
-            return err_resp("NOT_FOUND", "run directory not found", 404);
-        }
-        if (!fs::is_directory(run_dir))
-            return err_resp("NOT_FOUND", "run directory not found", 404);
+        if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, run_dir)) return std::move(*err);
 
         live_store->evict_expired(1800, 5);
 

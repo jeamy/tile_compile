@@ -75,6 +75,21 @@ std::optional<crow::response> validate_path(const std::shared_ptr<AppState>& sta
                                            std::filesystem::path& path,
                                            const char* label) = delete;
 
+/// @brief Resolves the run directory for a request carrying run_id plus an optional run_dir hint.
+/// @details A non-empty hint is validated against the allowed roots and must exist; on success it
+/// is registered as an alias for run_id so later calls that only carry the id (e.g. session-scoped
+/// helpers) still resolve runs located outside runs_dir. Without a hint the runtime's run lookup
+/// is used. Errors: PATH_NOT_ALLOWED (403), NOT_FOUND (404), RUN_ID_ALIAS_CONFLICT (409).
+/// @param state Application state
+/// @param run_id Run identifier from the request
+/// @param run_dir_hint Optional explicit run directory from the request
+/// @param run_dir Output: resolved run directory
+/// @return Response if invalid, empty optional if valid
+std::optional<crow::response> resolve_hinted_run_dir(const std::shared_ptr<AppState>& state,
+                                                   const std::string& run_id,
+                                                   const std::string& run_dir_hint,
+                                                   std::filesystem::path& run_dir);
+
 /// @brief Safely parses integer parameter from request.
 /// @param req Crow request
 /// @param param_name Parameter name

@@ -1301,6 +1301,26 @@ int main(int argc, char** argv) {
             {"request_id", "dock_click_ext"}
         });
         expect_equal(external_advice["_http_status"].get<long>(), 200L, "run_dir hint resolves external run dir");
+        const auto external_history = harness.post_json("/api/pi/run-chat/history", {
+            {"run_id", "foreign_advice_run"}, {"run_dir", (harness.fixture_root() / "foreign_advice_run").string()},
+            {"history", {{"turns", nlohmann::json::array({{{"message", "external history"},
+                {"result", {{"summary", "external result"}}}}})}}}
+        });
+        expect_equal(external_history["_http_status"].get<long>(), 200L, "external run history accepts path hint");
+        const auto external_history_alias = harness.get_json("/api/pi/run-chat/history?run_id=foreign_advice_run");
+        expect_equal(external_history_alias["_http_status"].get<long>(), 200L, "validated external alias resolves history");
+        expect_equal(external_history_alias["turns"][0]["message"].get<std::string>(), "external history",
+                     "external history stays on its run");
+        harness.make_file("another_root/foreign_advice_run/config.yaml", "data:\n  color_mode: OSC\n");
+        const auto conflicting_alias = harness.get_json("/api/runs/foreign_advice_run/config?run_dir=" +
+            (harness.fixture_root() / "another_root" / "foreign_advice_run").string());
+        expect_equal(conflicting_alias["_http_status"].get<long>(), 409L,
+                     "same run id cannot be rebound to another live directory");
+        const auto conflicting_selection = harness.post_json("/api/runs/foreign_advice_run/set-current", {
+            {"run_dir", (harness.fixture_root() / "another_root" / "foreign_advice_run").string()}
+        });
+        expect_equal(conflicting_selection["_http_status"].get<long>(), 409L,
+                     "run selection rejects alias conflict before changing active context");
         const std::string thread_url = "/api/pi/assistant/thread?run_uid=" + thread_uid;
         const auto durable_thread = harness.get_json(thread_url);
         expect_equal(static_cast<long>(durable_thread["items"].size()), 2L, "PI and Jev in one thread");

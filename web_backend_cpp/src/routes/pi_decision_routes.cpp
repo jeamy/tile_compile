@@ -328,16 +328,7 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
             request_id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != std::string::npos)
             return err_resp("BAD_REQUEST", "run_id is required; request_id must be at most 128 identifier characters", 400);
         fs::path run_dir;
-        if (run_dir_hint.empty()) {
-            try { run_dir = state->runtime.resolve_run_dir(run_id); } catch (const std::exception&) { return err_resp("NOT_FOUND", "run not found", 404); }
-        } else {
-            auto resolved = state->runtime.resolve_input_path(fs::path(run_dir_hint), true);
-            if (resolved.status == PathStatus::not_allowed)
-                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + resolved.path.string(), 403, {{"path", resolved.path.string()}});
-            if (resolved.status == PathStatus::not_found)
-                return err_resp("NOT_FOUND", "run not found", 404);
-            run_dir = resolved.path;
-        }
+        if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, run_dir)) return std::move(*err);
         std::error_code ec;
         if (!fs::is_directory(run_dir, ec)) return err_resp("NOT_FOUND", "run not found", 404);
         if (auto denied = validate_path(state, run_dir, true)) return std::move(*denied);

@@ -455,6 +455,18 @@ bool BackendRuntime::is_within_root(const fs::path& candidate, const fs::path& r
 /// access, process handling, and error reporting localized to this backend component.
 fs::path BackendRuntime::resolve_run_dir(const std::string& run_id, const std::string& alt_runs_dir) const {
     if (run_id.empty()) throw std::invalid_argument("run_id is empty");
+    // A registered alias maps run ids located outside runs_dir (custom runs_dir,
+    // network drives) to their concrete directory. The entry is skipped once the
+    // directory no longer exists.
+    fs::path alias;
+    {
+        std::lock_guard<std::mutex> lk(*_roots_mutex);
+        const auto it = _run_dir_aliases.find(run_id);
+        if (it != _run_dir_aliases.end()) alias = it->second;
+    }
+    std::error_code alias_ec;
+    if (alt_runs_dir.empty() && !alias.empty() && fs::is_directory(alias, alias_ec) &&
+        !alias_ec && is_path_allowed(alias)) return alias;
     // If run_id is already an absolute path to an existing directory, return it directly.
     // This handles custom runs_dir / network drives where the frontend passes the full path.
     {
@@ -492,6 +504,28 @@ fs::path BackendRuntime::resolve_run_dir(const std::string& run_id, const std::s
         }
     }
     throw std::runtime_error("run_dir not found for run_id: " + run_id);
+}
+
+/// @brief Implements register run dir.
+/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
+/// access, process handling, and error reporting localized to this backend component.
+bool BackendRuntime::register_run_dir(const std::string& run_id, const fs::path& run_dir) {
+    if (run_id.empty() || run_dir.empty()) return false;
+    const fs::path normalized = normalize_path(run_dir);
+    std::error_code ec;
+    if (!fs::is_directory(normalized, ec) || ec || !is_path_allowed(normalized)) return false;
+    const fs::path id_path(run_id);
+    if (id_path.is_absolute()) {
+        if (normalize_path(id_path) != normalized) return false;
+    }
+    const fs::path default_path = normalize_path(runs_dir / run_id);
+    if (default_path != normalized && fs::is_directory(default_path, ec) && !ec) return false;
+    std::lock_guard<std::mutex> lk(*_roots_mutex);
+    const auto it = _run_dir_aliases.find(run_id);
+    if (it != _run_dir_aliases.end() && it->second != normalized && fs::is_directory(it->second, ec) && !ec)
+        return false;
+    _run_dir_aliases[run_id] = normalized;
+    return true;
 }
 
 /// @brief Resolves input path.

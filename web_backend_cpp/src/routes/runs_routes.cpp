@@ -471,6 +471,8 @@ static std::optional<crow::response> resolve_request_run_dir(const std::shared_p
     if (resolved.status == PathStatus::not_found || !fs::is_directory(run_dir)) {
         return err_resp("PATH_NOT_FOUND", "run_dir does not exist: " + run_dir.string(), 404, {{"path", run_dir.string()}});
     }
+    if (!state->runtime.register_run_dir(run_id, run_dir))
+        return err_resp("RUN_ID_ALIAS_CONFLICT", "Run id does not identify this allowed directory", 409, nlohmann::json::object());
     return std::nullopt;
 }
 
@@ -2347,6 +2349,12 @@ void register_runs_routes(CrowApp& app,
         if (run_dir_hint.empty()) {
             fs::path as_path(run_id);
             if (as_path.is_absolute()) run_dir_hint = run_id;
+        }
+        if (!run_dir_hint.empty()) {
+            fs::path checked_dir;
+            if (auto error = resolve_request_run_dir(state, run_id, run_dir_hint, checked_dir)) {
+                if (error->code == 403 || error->code == 409) return std::move(*error);
+            }
         }
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);

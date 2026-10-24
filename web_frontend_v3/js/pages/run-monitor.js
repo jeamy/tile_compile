@@ -814,7 +814,7 @@ function refreshCurrentImagePreview(force = false) {
 
 function getRunChatKey() {
   const { currentRunId, currentRunDir } = getRunState();
-  return currentRunId || currentRunDir || "";
+  return currentRunDir || currentRunId || "";
 }
 
 function getRunChatRecord(runKey = getRunChatKey()) {
@@ -833,10 +833,11 @@ function setRunChatRecord(runKey, record) {
 
 function persistRunChatRecordToServer(runKey = getRunChatKey()) {
   const runId = getRunApiKey();
-  if (!runId || !runKey) return;
+  if (!runId || !runKey || runKey !== getRunChatKey()) return;
   const record = getRunChatRecord(runKey);
   api.post(API_ENDPOINTS.pi.runChatHistory(runId), {
     run_id: runId,
+    run_dir: getRunState().currentRunDir || "",
     history: {
       messages: record.messages || [],
       turns: record.turns || [],
@@ -1381,7 +1382,8 @@ async function restoreMonitorRunChatFromServer(outputId = "run-monitor-chat-outp
   const runId = getRunApiKey();
   if (!runKey || !runId) return;
   try {
-    const history = await api.get(API_ENDPOINTS.pi.runChatHistory(runId));
+    const history = await api.get(API_ENDPOINTS.pi.runChatHistory(runId, getRunState().currentRunDir || ""));
+    if (runId !== getRunApiKey() || runKey !== getRunChatKey()) return;
     const serverTurns = Array.isArray(history?.turns) ? history.turns : [];
     const localTurns = Array.isArray(getRunChatRecord(runKey).turns) ? getRunChatRecord(runKey).turns : [];
     if (serverTurns.length >= localTurns.length) {
@@ -1489,10 +1491,12 @@ async function submitMonitorRunChat(inputId, outputId) {
   try {
     const result = await api.post(API_ENDPOINTS.pi.runChat, {
       run_id: runId,
+      run_dir: getRunState().currentRunDir || "",
       message,
       messages: monitorRunChatMessages.slice(-12),
       object_name: getStore("input-scan", { scanData: {} }).getState().scanData?.object_name || "",
     });
+    if (runId !== getRunApiKey() || runKey !== getRunChatKey()) return;
     monitorRunChatMessages.push({ role: "assistant", content: result?.summary || "", result });
     appendRunChatTurn(runKey, { message, result, created_at: new Date().toISOString() });
     if (input) input.value = "";
@@ -1507,6 +1511,7 @@ async function submitMonitorRunChat(inputId, outputId) {
       renderMonitorRunChatResult(output, result);
     }
   } catch (e) {
+    if (runId !== getRunApiKey() || runKey !== getRunChatKey()) return;
     appendRunChatTurn(runKey, { message, error: e.message, created_at: new Date().toISOString() });
     if (turn) turn.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));
     else if (output) output.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));

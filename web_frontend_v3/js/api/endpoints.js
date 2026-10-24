@@ -83,7 +83,11 @@ export const API_ENDPOINTS = {
     context: "/api/pi/context",
     ask: "/api/pi/assistant/ask",
     runChat: "/api/pi/run-chat",
-    runChatHistory: (runId = "") => `/api/pi/run-chat/history?run_id=${encodeURIComponent(String(runId || ""))}`,
+    runChatHistory: (runId = "", runDir = "") => {
+      const query = `?run_id=${encodeURIComponent(String(runId || ""))}`
+        + (String(runDir || "").trim() ? `&run_dir=${encodeURIComponent(String(runDir || "").trim())}` : "");
+      return `/api/pi/run-chat/history${query}`;
+    },
     actionPlanValidate: "/api/pi/action-plans/validate",
     actionPlanPreview: "/api/pi/action-plans/preview",
     actionPlanPreviewById: (id) => `/api/pi/action-plans/previews/${encodeURIComponent(id)}`,

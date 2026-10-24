@@ -105,6 +105,10 @@ Dies ist der **erste Adapter**, nicht der abgeschlossene Gesamtumbau:
 - Die Post-Run-Karte reicht bei einem ausserhalb des Standard-Run-Verzeichnisses liegenden Run dessen
   erlaubten `run_dir` an Config-Leseweg und Jev-Nachbetrachtung weiter. Das Backend prueft den Pfad
   gegen erlaubte Wurzeln; eine mitgesendete Run-UID muss weiter zur aufgeloesten Identitaet passen.
+- Run-Chat, Historie und Live-Bild geben den bekannten `run_dir` ebenfalls explizit weiter. Der prozesslokale Backend-Alias
+  fuer spaetere Aufrufe ohne Pfad gilt nur fuer erlaubte, existierende Verzeichnisse. Derselbe `run_id` darf
+  nicht gleichzeitig auf zwei verschiedene vorhandene Verzeichnisse zeigen (HTTP 409); bei Namenskonflikten
+  ist ein eindeutiger Run-Pfad beziehungsweise UID-Bezug erforderlich.
 - Weitere Decision-Schreibpunkte und die Vergessen-Anbindung im Dock bleiben offen. Die Retention-/Loeschpolitik und der Backend-Vergessen-Endpunkt sind implementiert.
 - Apply-Intent und Abgleich sind backendseitig umgesetzt. Die Dock-Anzeige des Zustands `applying` mit Abgleich-Hinweis ist offen.
 
@@ -140,6 +144,13 @@ Kontextwechsel waehrend einer Anfrage, dauerhaft rekonstruierte Jev-Karten mit R
 Collapse/Reload, UID-Isolation, Read-only ohne Dateien und 1440/390/320 Pixel. Store-Fixtures pruefen
 v6-Upgrade, unveraenderliche/idempotente Events, Kontextkonflikte, Reopen und Byte-Fenster ohne Loeschung.
 Es werden keine produktiven Dienste oder Runs gestartet.
+
+2026-10-24: Backend und alle Testtargets gebaut; 32/32 serielle Backend-Tests bestanden, einschliesslich
+externem Chat-Verlauf, Alias-Kollision und abgewiesener Run-Auswahl bei Konflikt. JavaScript-Syntax und
+URL-Kodierung der Pfadangaben bestanden. Der neue Chat-/Live-Bild-Pfad wurde noch nicht gegen einen
+neu gestarteten produktiven Backend-Build Ende-zu-Ende geprueft. Verspaetete Monitor-Chat-Antworten und
+Verlaufssynchronisierungen werden beim Wechsel des Run-Pfads verworfen; lokale Chat-Schluessel nutzen
+den bekannten Run-Pfad vor dem blossen Namen.
 
 ```bash
 PLAYWRIGHT_MODULE_PATH=/pfad/zu/playwright/index.mjs node web_frontend_v3/tests/assistant-dock.browser.mjs > /tmp/out_dock_browser_test.txt 2>&1
