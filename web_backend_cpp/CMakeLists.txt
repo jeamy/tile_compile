@@ -518,6 +518,7 @@ if(BUILD_TESTS)
     add_backend_cpp_test(web_backend_cpp_pi_routes tests/test_pi_routes.cpp)
     target_sources(web_backend_cpp_pi_routes PRIVATE
         src/services/pi/pi_context_v2.cpp
+        src/services/pi/pi_assistant_event_store.cpp
         src/services/pi/pi_parameter_catalog.cpp
         src/services/pi/pi_decision_record_store.cpp
         src/services/pi/pi_decision_writes.cpp

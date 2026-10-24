@@ -47,6 +47,8 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
 
   let lastRunId = "";
   let lastRunDir = "";
+  let lastRunUid = "";
+  let lastAdviceEventId = "";
   let lastResumeOrder = [];
   const selected = new Set();
 
@@ -82,6 +84,8 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
   function renderAdvice(payload) {
     clear(content);
     const advice = payload?.advice;
+    lastRunUid = payload?.run_uid || "";
+    lastAdviceEventId = payload?.event_id || "";
     content._suggestions = advice?.suggestions || [];
     lastResumeOrder = advice?.resume_phase_order || [];
     selected.clear();
@@ -110,7 +114,20 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
           checkbox,
           el("div", { class: "tc-text-sm" }, `${s.candidate_id}${s.experimental ? ` (${t("ui.jev.experimental", "experimentell")})` : ""}`)),
         el("div", { class: "tc-text-sm tc-text-muted" }, changes),
-        el("div", { class: "tc-text-sm tc-text-muted" }, `${how}. ${t("ui.post_run.feasibility", "Machbarkeit noch nicht geprüft (Resume-Dry-Run).")}`)));
+        el("div", { class: "tc-text-sm tc-text-muted" }, `${how}. ${t("ui.post_run.feasibility", "Machbarkeit noch nicht geprüft (Resume-Dry-Run).")}`),
+        el("button", { class: "tc-btn tc-btn-sm tc-mt-2", type: "button", onclick: async (e) => {
+          const message = t("ui.post_run.dismiss_confirm", "Diesen Vorschlag für diesen Run dauerhaft ausblenden?");
+          if (!window.confirm(message)) return;
+          await saveDismissal(s.candidate_id, true, e.currentTarget);
+        } }, t("ui.post_run.dismiss", "Nicht mehr vorschlagen"))));
+    }
+    for (const event of payload.dismissed_candidates || []) {
+      const record = event?.result || {};
+      if (!record.candidate_id) continue;
+      content.append(el("div", { class: "tc-flex tc-items-center tc-gap-2 tc-text-sm tc-text-muted" },
+        el("span", {}, `${t("ui.post_run.dismissed", "Ausgeblendet")}: ${record.candidate_id}${record.source_patch_id ? ` (${record.source_patch_id})` : ""}`),
+        el("button", { class: "tc-btn tc-btn-sm", type: "button", onclick: (e) => saveDismissal(record.candidate_id, false, e.currentTarget) },
+          t("ui.post_run.restore", "Wiederherstellen"))));
     }
     const selectable = content._suggestions.filter(isSelectable);
     if (selectable.length && onApply) {
@@ -123,6 +140,26 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
     if ((advice.not_measured || []).length)
       content.append(el("div", { class: "tc-text-sm tc-text-muted tc-mt-2" },
         `${t("ui.post_run.not_measured", "Nicht gemessen")}: ${advice.not_measured.map((k) => t(`ui.post_run.metric.${k}`, k)).join(", ")}`));
+  }
+
+  async function saveDismissal(candidateId, dismissed, buttonEl) {
+    if (!lastRunId || !lastRunUid || !lastAdviceEventId) return;
+    if (buttonEl) buttonEl.disabled = true;
+    try {
+      await api.post(API_ENDPOINTS.decisions.postRunDismissal, {
+        run_id: lastRunId,
+        run_uid: lastRunUid,
+        run_dir: lastRunDir || undefined,
+        candidate_id: candidateId,
+        advice_event_id: lastAdviceEventId,
+        request_id: `ui_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+        dismissed,
+      });
+      await request();
+    } catch (error) {
+      toastError(t("ui.post_run.dismiss_failed", "Änderung der Vorschlagsausblendung fehlgeschlagen"), error?.message || String(error));
+      if (buttonEl) buttonEl.disabled = false;
+    }
   }
 
   async function request() {

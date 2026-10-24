@@ -5,6 +5,7 @@
 #include "services/pi/pi_decision_state.hpp"
 #include "services/pi/pi_preview_store.hpp"
 #include "services/pi/pi_decision_writes.hpp"
+#include "services/pi/pi_assistant_event_store.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -1293,6 +1294,41 @@ int main(int argc, char** argv) {
             {"run_id", old_dir.string()}, {"run_uid", thread_uid}, {"request_id", "dock_click_1"}
         });
         expect_equal(retried_advice["event_id"].get<std::string>(), durable_advice["event_id"].get<std::string>(), "same request yields one card");
+        harness.make_file("runs/uid_thread_fixture/artifacts/pi_run_provenance.json",
+            nlohmann::json{{"run_uid", thread_uid}, {"jev_proposal_id", "source_patch_fixture"}}.dump());
+        tile_compile::pi::PiAssistantEventStore post_run_events(memory_dir);
+        const auto actionable_advice = post_run_events.append("fixture_actionable_advice", thread_uid,
+            {{"advice", {{"suggestions", nlohmann::json::array({{{"candidate_id", "fixture_candidate"}}})}}}});
+        const auto dismissal = harness.post_json("/api/pi/post-run/dismissal", {
+            {"run_id", "uid_thread_fixture"}, {"run_uid", thread_uid},
+            {"candidate_id", "fixture_candidate"}, {"advice_event_id", actionable_advice["event_id"]},
+            {"request_id", "dismiss_fixture_1"}, {"dismissed", true}
+        });
+        expect_equal(dismissal["_http_status"].get<long>(), 200L, "post-run suggestion dismissal persists");
+        expect_equal(dismissal["dismissal"]["result"]["source_patch_id"].get<std::string>(),
+                     "source_patch_fixture", "dismissal is linked to the run's source Jev patch");
+        const auto mismatched_candidate = harness.post_json("/api/pi/post-run/dismissal", {
+            {"run_id", "uid_thread_fixture"}, {"run_uid", thread_uid},
+            {"candidate_id", "not_in_advice"}, {"advice_event_id", actionable_advice["event_id"]},
+            {"request_id", "dismiss_fixture_bad"}, {"dismissed", true}
+        });
+        expect_equal(mismatched_candidate["_http_status"].get<long>(), 409L,
+                     "cannot dismiss a candidate absent from the linked advice event");
+        const auto advice_with_dismissal = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", "uid_thread_fixture"}, {"run_uid", thread_uid}, {"request_id", "dock_click_after_dismiss"}
+        });
+        expect_equal(static_cast<long>(advice_with_dismissal["dismissed_candidates"].size()), 1L,
+                     "run-bound advice reload includes persisted dismissal");
+        const auto restore_dismissal = harness.post_json("/api/pi/post-run/dismissal", {
+            {"run_id", "uid_thread_fixture"}, {"run_uid", thread_uid},
+            {"candidate_id", "fixture_candidate"}, {"advice_event_id", advice_with_dismissal["event_id"]},
+            {"request_id", "restore_fixture_1"}, {"dismissed", false}
+        });
+        expect_equal(restore_dismissal["_http_status"].get<long>(), 200L, "post-run suggestion dismissal can be restored");
+        const auto advice_after_restore = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", "uid_thread_fixture"}, {"run_uid", thread_uid}, {"request_id", "dock_click_after_restore"}
+        });
+        expect_true(advice_after_restore["dismissed_candidates"].empty(), "restored candidate is removed from dismissal list");
         // An external run cannot be found by basename in runs_dir; the explicit hint locates it.
         harness.make_file("foreign_advice_run/config.yaml", "data:\n  color_mode: OSC\n");
         const auto external_advice = harness.post_json("/api/pi/post-run/advice", {
@@ -1323,9 +1359,11 @@ int main(int argc, char** argv) {
                      "run selection rejects alias conflict before changing active context");
         const std::string thread_url = "/api/pi/assistant/thread?run_uid=" + thread_uid;
         const auto durable_thread = harness.get_json(thread_url);
-        expect_equal(static_cast<long>(durable_thread["items"].size()), 2L, "PI and Jev in one thread");
-        expect_equal(static_cast<long>(harness.get_json(thread_url + "&include_pi=0")["items"].size()), 1L, "PI visibility filter");
+        expect_equal(static_cast<long>(durable_thread["items"].size()), 5L, "PI and durable Jev cards share one thread; dismissal records stay hidden");
+        expect_equal(static_cast<long>(harness.get_json(thread_url + "&include_pi=0")["items"].size()), 4L, "PI visibility filter");
         expect_equal(static_cast<long>(harness.get_json(thread_url + "&include_jev=0")["items"].size()), 1L, "Jev visibility filter");
+        for (const auto& item : durable_thread["items"])
+            expect_true(item.value("kind", std::string()) != "jev_post_run_dismissal", "dismissal audit events are not rendered as advice cards");
         expect_equal(harness.get_json("/api/pi/assistant/thread?run_uid=unknown")["_http_status"].get<long>(), 404L, "unknown thread cannot be fabricated");
         const auto new_dir = harness.fixture_root() / "runs" / "uid_thread_moved";
         std::filesystem::rename(old_dir, new_dir);
@@ -1338,7 +1376,7 @@ int main(int argc, char** argv) {
         expect_equal(deleted_history["_http_status"].get<long>(), 200L, "UID history works without run files");
         expect_equal(deleted_history["turns"][0]["message"].get<std::string>(), "stable thread", "history retained after artifact deletion");
         const auto deleted_thread = harness.get_json(thread_url);
-        expect_equal(static_cast<long>(deleted_thread["items"].size()), 2L, "Jev retained after move and deletion");
+        expect_equal(static_cast<long>(deleted_thread["items"].size()), 5L, "Jev retained after move and deletion");
         // Config applies and proposals from earlier in this test are expected; thread cards must add no other kind.
         long unexpected_records = 0;
         const auto all_records = harness.get_json("/api/pi/decision-records");

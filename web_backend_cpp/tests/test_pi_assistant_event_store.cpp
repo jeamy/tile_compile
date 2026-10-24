@@ -33,6 +33,15 @@ int main() {
             require(event["context_id"] == "run:uid_a", "context binding");
             require(event["evaluation_method"] == "backend_rules", "no model evidence implied");
             require(store.append("event_a", "uid_a", result) == event, "idempotent retry");
+            const auto advice = store.append("advice_a", "uid_a", {{"advice", {{"suggestions", json::array({{{"candidate_id", "candidate_x"}}})}}}});
+            const auto dismissed = store.record_post_run_dismissal("dismiss_a", "uid_a", "candidate_x",
+                advice["event_id"], "patch_source_a", true);
+            require(dismissed["result"]["source_patch_id"] == "patch_source_a", "dismissal keeps source patch link");
+            require(store.post_run_dismissals("uid_a").size() == 1, "active dismissal is durable");
+            require(store.list("uid_a").size() == 2, "dismissal events are not shown as advice cards");
+            store.record_post_run_dismissal("restore_a", "uid_a", "candidate_x", advice["event_id"],
+                "patch_source_a", false);
+            require(store.post_run_dismissals("uid_a").empty(), "restore appends an undo event");
             require(store.list("uid_b").empty(), "foreign context isolation");
             bool conflict = false;
             try { store.append("event_a", "uid_b", result); } catch (const std::invalid_argument&) { conflict = true; }
@@ -52,7 +61,8 @@ int main() {
         }
         {
             PiAssistantEventStore reopened(dir);
-            require(reopened.list("uid_a").size() == 2, "cards survive database reopen");
+            require(reopened.list("uid_a").size() == 3, "cards survive database reopen; dismissal events remain hidden");
+            require(reopened.post_run_dismissals("uid_a").empty(), "restored dismissal remains restored after reopen");
         }
         std::filesystem::remove_all(dir); // Owned fixture only.
         std::cout << "Assistant event store tests passed\n";

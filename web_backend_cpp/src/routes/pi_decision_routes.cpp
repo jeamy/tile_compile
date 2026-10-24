@@ -346,9 +346,13 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         std::string error;
         auto svc = get_service(state, *holder, error);
         if (!svc) return err_resp("DECISIONS_UNAVAILABLE", error, 503);
+        PiAssistantEventStore event_store(pi_storage_dir(state));
         std::vector<std::string> dismissed;
-        if (body->contains("dismissed_candidates") && (*body)["dismissed_candidates"].is_array())
-            for (const auto& d : (*body)["dismissed_candidates"]) if (d.is_string()) dismissed.push_back(d.get<std::string>());
+        const json dismissal_events = event_store.post_run_dismissals(uid);
+        for (const auto& event : dismissal_events) {
+            const auto result = event.value("result", json::object());
+            if (result.value("dismissed", false)) dismissed.push_back(result.value("candidate_id", std::string()));
+        }
         DecisionPolicy policy;
         policy.allow_experimental = body->value("allow_experimental", false);
         const std::shared_ptr<AppState> st = state;
@@ -359,16 +363,83 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
             return {valid, valid ? std::string() : std::string("validate-config failed")};
         };
         const json ps = build_post_run_state(run_dir, run_config);
-        const json result = {{"state", ps}, {"advice", advise_post_run(ps, run_config, policy, svc->catalog(), validator, dismissed)}};
+        const std::string source_patch_id = read_json_file_opt(run_dir / "artifacts/pi_run_provenance.json")
+            .value_or(json::object()).value("jev_proposal_id", std::string());
+        const json result = {{"state", ps}, {"advice", advise_post_run(ps, run_config, policy, svc->catalog(), validator, dismissed)},
+                             {"dismissed_candidates", dismissal_events}, {"source_patch_id", source_patch_id}};
         try {
             const std::string id = request_id.empty() ? "jev_" + PiRunIndex::generate_uid()
                 : "jev_" + sha256_prefixed("run:" + uid + ":jev_post_run:" + request_id).substr(7);
-            const auto event = PiAssistantEventStore(pi_storage_dir(state)).append(id, uid, result);
+            const auto event = event_store.append(id, uid, result);
             json response = result;
             for (const auto* key : {"event_id", "run_uid", "context_id", "evaluation_method"}) response[key] = event[key];
             return json_resp(response);
         } catch (const std::invalid_argument& e) { return err_resp("ASSISTANT_EVENT_CONFLICT", e.what(), 409); }
           catch (const std::exception& e) { return err_resp("ASSISTANT_STORE_FAILED", e.what(), 503); }
+    });
+
+    CROW_ROUTE(app, "/api/pi/post-run/dismissal").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object()) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        for (const auto* key : {"run_id", "run_uid", "run_dir", "candidate_id", "advice_event_id", "request_id"})
+            if (body->contains(key) && !(*body)[key].is_string())
+                return err_resp("BAD_REQUEST", std::string(key) + " must be a string", 400);
+        const std::string run_id = body->value("run_id", std::string());
+        const std::string run_dir_hint = body->value("run_dir", std::string());
+        const std::string expected_uid = body->value("run_uid", std::string());
+        const std::string candidate_id = body->value("candidate_id", std::string());
+        const std::string advice_event_id = body->value("advice_event_id", std::string());
+        const std::string request_id = body->value("request_id", std::string());
+        if (run_id.empty() || candidate_id.empty() || candidate_id.size() > 128 ||
+            advice_event_id.empty() || request_id.empty() || request_id.size() > 128 ||
+            request_id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != std::string::npos)
+            return err_resp("BAD_REQUEST", "run_id, candidate_id, advice_event_id and an identifier request_id are required", 400);
+        if (!body->contains("dismissed") || !(*body)["dismissed"].is_boolean())
+            return err_resp("BAD_REQUEST", "dismissed must be a boolean", 400);
+        fs::path run_dir;
+        if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, run_dir)) return std::move(*err);
+        std::error_code ec;
+        if (!fs::is_directory(run_dir, ec)) return err_resp("NOT_FOUND", "run not found", 404);
+        if (auto denied = validate_path(state, run_dir, true)) return std::move(*denied);
+        std::string uid;
+        try {
+            const auto provenance = read_json_file_opt(run_dir / "artifacts/pi_run_provenance.json").value_or(json::object());
+            const auto identity = PiRunIndex(pi_storage_dir(state)).resolve(run_dir, provenance.value("run_uid", std::string()));
+            uid = identity["run_uid"];
+            if (!expected_uid.empty() && expected_uid != uid)
+                return err_resp("RUN_IDENTITY_CONFLICT", "Run path does not match requested context UID", 409);
+        } catch (const PiRunIdentityConflict& e) { return err_resp("RUN_IDENTITY_CONFLICT", e.what(), 409); }
+          catch (const std::exception& e) { return err_resp("RUN_CONTEXT_UNAVAILABLE", e.what(), 503); }
+
+        try {
+            PiAssistantEventStore events(pi_storage_dir(state));
+            const auto advice_event = events.get(advice_event_id);
+            if (!advice_event || advice_event->value("run_uid", std::string()) != uid ||
+                advice_event->value("kind", std::string()) != "jev_post_run")
+                return err_resp("ADVICE_EVENT_NOT_FOUND", "Advice event does not belong to this run", 404);
+            const json advice = advice_event->value("result", json::object()).value("advice", json::object());
+            bool candidate_present = false;
+            if ((*body)["dismissed"].get<bool>()) {
+                for (const auto& suggestion : advice.value("suggestions", json::array()))
+                    if (suggestion.value("candidate_id", std::string()) == candidate_id) candidate_present = true;
+            } else {
+                const json result = advice_event->value("result", json::object());
+                for (const auto& event : result.value("dismissed_candidates", json::array()))
+                    if (event.value("result", json::object()).value("candidate_id", std::string()) == candidate_id)
+                        candidate_present = true;
+            }
+            if (!candidate_present)
+                return err_resp("CANDIDATE_NOT_IN_ADVICE", "Candidate is not part of this advice event", 409);
+            const std::string source_patch_id = read_json_file_opt(run_dir / "artifacts/pi_run_provenance.json")
+                .value_or(json::object()).value("jev_proposal_id", std::string());
+            const std::string event_id = "jev_dismiss_" + sha256_prefixed(
+                uid + ":" + candidate_id + ":" + advice_event_id + ":" + request_id).substr(7);
+            const auto event = events.record_post_run_dismissal(event_id, uid, candidate_id,
+                advice_event_id, source_patch_id, (*body)["dismissed"].get<bool>());
+            return json_resp({{"ok", true}, {"dismissal", event}});
+        } catch (const std::invalid_argument& e) { return err_resp("DISMISSAL_CONFLICT", e.what(), 409); }
+          catch (const std::exception& e) { return err_resp("DISMISSAL_STORE_FAILED", e.what(), 503); }
     });
 
     CROW_ROUTE(app, "/api/scan/decisions/<string>").methods("GET"_method)
