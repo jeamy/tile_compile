@@ -179,7 +179,7 @@ void register_config_routes(CrowApp& app,
         fs::path target = body.contains("path") && body["path"].is_string()
             ? fs::path(body["path"].get<std::string>())
             : state->runtime.default_config_path;
-        if (auto err = validate_path(state, target, "config_path")) return std::move(*err);
+        if (auto err = validate_path(state, target, "config_path", false)) return std::move(*err);
 
         std::string yaml_text;
         if (body.contains("yaml") && body["yaml"].is_string()) {
@@ -308,7 +308,7 @@ void register_config_routes(CrowApp& app,
         if (!rev) return err_resp("NOT_FOUND", "revision '" + rev_id + "' not found", 404);
 
         fs::path target = rev->path.empty() ? state->runtime.default_config_path : fs::path(rev->path);
-        if (auto err = validate_path(state, target, "revision_path")) return std::move(*err);
+        if (auto err = validate_path(state, target, "revision_path", false)) return std::move(*err);
         std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
 
         if (!target.parent_path().empty()) fs::create_directories(target.parent_path());
@@ -339,7 +339,7 @@ void register_config_routes(CrowApp& app,
         fs::path target = body.contains("path") && body["path"].is_string()
             ? fs::path(body["path"].get<std::string>())
             : state->runtime.default_config_path;
-        if (auto err = validate_path(state, target, "config_path")) return std::move(*err);
+        if (auto err = validate_path(state, target, "config_path", false)) return std::move(*err);
 
         nlohmann::json base = nlohmann::json::object();
         if (body.contains("yaml") && body["yaml"].is_string()) {

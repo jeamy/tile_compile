@@ -395,6 +395,10 @@ int main(int argc, char** argv) {
         const auto memory_review = harness.post_json("/api/pi/memories/mem_route_fixture/review", {
             {"status", "accepted"},
             {"reviewer", "fixture"},
+            {"request_id", "review-1"},
+            {"rationale", {{"user", {{"reason_codes", nlohmann::json::array({"evidence_insufficient"})},
+                                      {"catalog_version", "1"}, {"text", "checked"},
+                                      {"no_reason_given", false}}}}},
             {"note", "useful"},
             {"outcome", {{"validation_valid", true}, {"report_status", "ok"}}},
             {"scope", {
@@ -410,6 +414,30 @@ int main(int argc, char** argv) {
         expect_equal(memory_review["review"]["scope"]["applies_when"][0].get<std::string>(),
                      "M42 OSC HaOIII",
                      "pi memory review stores scope metadata");
+        expect_equal(memory_review["decision"]["kind"].get<std::string>(), "memory_review",
+                     "memory review writes a Decision Record");
+        expect_equal(memory_review["decision"]["memory_id"].get<std::string>(), "mem_route_fixture",
+                     "memory review links its Decision Record");
+        expect_equal(memory_review["decision"]["rationale"]["user"]["reason_codes"][0].get<std::string>(),
+                     "evidence_insufficient", "memory review keeps the validated reason");
+        const auto duplicate_review = harness.post_json("/api/pi/memories/mem_route_fixture/review", {
+            {"status", "rejected"}, {"request_id", "review-1"}
+        });
+        expect_true(duplicate_review["decision"]["duplicate"].get<bool>(), "retry returns the existing decision");
+        expect_equal(duplicate_review["decision"]["decision_id"].get<std::string>(),
+                     memory_review["decision"]["decision_id"].get<std::string>(), "retry keeps decision identity");
+        const auto invalid_review = harness.post_json("/api/pi/memories/mem_route_fixture/review", {
+            {"status", "rejected"}, {"request_id", "review-2"},
+            {"rationale", {{"user", {{"reason_codes", nlohmann::json::array({"not_in_catalog"})},
+                                      {"catalog_version", "1"}}}}}
+        });
+        expect_equal(invalid_review["_http_status"].get<long>(), 400L, "invalid reason blocks review");
+        const auto failed_record = harness.post_json("/api/pi/memories/mem_route_fixture/review", {
+            {"status", "rejected"}, {"request_id", "review-3"},
+            {"rationale", {{"user", {{"reason_codes", nlohmann::json::array({"artifacts"})},
+                                      {"catalog_version", "1"}, {"no_reason_given", true}}}}}
+        });
+        expect_equal(failed_record["_http_status"].get<long>(), 400L, "record validation rejects contradictory rationale");
 
         const auto accepted_memories = harness.get_json("/api/pi/memories?status=accepted");
         expect_equal(accepted_memories["_http_status"].get<long>(), 200L, "pi accepted memories status");
@@ -1274,7 +1302,8 @@ int main(int argc, char** argv) {
         const auto all_records = harness.get_json("/api/pi/decision-records");
         for (const auto& item : all_records["items"]) {
             const auto kind = item.value("kind", std::string());
-            if (kind != "config_apply" && kind != "llm_proposal" && kind != "config_reject") ++unexpected_records;
+            if (kind != "config_apply" && kind != "llm_proposal" && kind != "config_reject" &&
+                kind != "memory_review") ++unexpected_records;
         }
         expect_equal(unexpected_records, 0L, "thread cards do not create Decision Records");
         const auto selected = harness.post_json("/api/pi/assistant/select-context", {{"run_uid", thread_uid}});

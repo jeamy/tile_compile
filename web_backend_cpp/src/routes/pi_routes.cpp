@@ -74,6 +74,35 @@ std::int64_t preview_ttl() {
     return 1800;
 }
 
+nlohmann::json review_user_rationale(const std::shared_ptr<AppState>& state,
+                                    const nlohmann::json& body) {
+    nlohmann::json user = {{"reason_codes", nlohmann::json::array()}, {"catalog_version", ""},
+                           {"text", ""}, {"no_reason_given", true}};
+    if (!body.contains("rationale")) return user;
+    if (!body["rationale"].is_object() || !body["rationale"].contains("user") ||
+        !body["rationale"]["user"].is_object()) {
+        throw std::invalid_argument("rationale.user must be an object");
+    }
+    const auto& input = body["rationale"]["user"];
+    user["no_reason_given"] = false;
+    for (const char* key : {"reason_codes", "catalog_version", "text", "no_reason_given"}) {
+        if (input.contains(key)) user[key] = input[key];
+    }
+    if (!user["reason_codes"].is_array() || !user["catalog_version"].is_string() ||
+        !user["text"].is_string() || !user["no_reason_given"].is_boolean()) {
+        throw std::invalid_argument("invalid rationale.user field type");
+    }
+    if (!user["reason_codes"].empty()) {
+        const auto catalog = tile_compile::pi::load_user_reason_catalog(
+            state->runtime.project_root / "web_backend_cpp" / "config" / "pi_user_reason_codes_v1.json");
+        if (!tile_compile::pi::user_reason_codes_valid(catalog, user["catalog_version"],
+                                                       "config", user["reason_codes"])) {
+            throw std::invalid_argument("unknown or incompatible user reason code");
+        }
+    }
+    return user;
+}
+
 std::optional<nlohmann::json> parse_body(const crow::request& req) {
     if (req.body.empty()) return nlohmann::json::object();
     auto parsed = nlohmann::json::parse(req.body, nullptr, false);
@@ -3024,9 +3053,43 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             : nlohmann::json::object();
         if (status.empty()) return err_resp("BAD_REQUEST", "status is required", 400);
         try {
-            tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
+            const auto user = review_user_rationale(state, *body);
+            std::string request_id;
+            if (body->contains("request_id")) {
+                if (!(*body)["request_id"].is_string() ||
+                    (*body)["request_id"].get<std::string>().empty() ||
+                    (*body)["request_id"].get<std::string>().size() > 128) {
+                    return err_resp("BAD_REQUEST", "request_id must be a non-empty string up to 128 characters", 400);
+                }
+                request_id = (*body)["request_id"].get<std::string>();
+            }
+            const auto storage_dir = tile_compile::pi::pi_storage_dir(state);
+            auto database = tile_compile::pi::PiDatabase::open(storage_dir);
+            tile_compile::pi::PiDatabase::Tx tx(*database);
+            tile_compile::pi::PiDecisionRecordStore decisions(storage_dir);
+            const std::string key = request_id.empty() ? "" : "memory_review:" + memory_id + ":" + request_id;
+            if (!key.empty()) {
+                const auto rows = database->query("SELECT decision_id FROM decision_records WHERE idempotency_key = ?", {key});
+                if (!rows.empty()) {
+                    auto decision = decisions.get(tile_compile::pi::pi_sql_text(rows[0][0]));
+                    decision["duplicate"] = true;
+                    return json_resp({{"ok", true}, {"review", nullptr}, {"decision", decision}});
+                }
+            }
+            tile_compile::pi::PiMemoryStore store(storage_dir);
             const auto review = store.review(memory_id, status, reviewer, note, outcome, scope);
-            return json_resp({{"ok", true}, {"review", review}});
+            nlohmann::json record = {
+                {"kind", "memory_review"}, {"actor", "user"}, {"origin", "live"},
+                {"idempotency_key", key}, {"context_ref", nlohmann::json::object()},
+                {"subject", {{"op", "memory_review"}, {"review_status", status},
+                             {"paths", nlohmann::json::array()}}},
+                {"rationale", {{"user", user}, {"basis", nlohmann::json::array()}}}
+            };
+            auto decision = decisions.append(std::move(record));
+            decisions.add_link(decision.value("decision_id", std::string()), "memory", {{"memory_id", memory_id}});
+            tx.commit();
+            decision = decisions.get(decision.value("decision_id", std::string()));
+            return json_resp({{"ok", true}, {"review", review}, {"decision", decision}});
         } catch (const std::invalid_argument& e) {
             return err_resp("BAD_REQUEST", e.what(), 400);
         } catch (const std::exception& e) {

@@ -1,6 +1,6 @@
 # PI Decision Trace — Plan (Teil A)
 
-> **Status:** Plan mit teilweise umgesetztem Backend (Speicher, Preview/Apply, Retention, Run-Identität). Die Schreibpunkte `llm_proposal` und `config_apply` sind aktiv; weitere Decision-Schreibpunkte sind **noch deaktiviert**. Umsetzungsstand: [Gesamtplan §7](pi_decision_trace_und_unified_assistant_plan_de.md#7-umsetzungsstand). Aussagen im Text mit „noch offen“ oder „geplant“ beschreiben den Stand des Plans, nicht zwingend den Code.
+> **Status:** Plan mit teilweise umgesetztem Backend (Speicher, Preview/Apply, Retention, Run-Identität). `llm_proposal`, `config_apply`, `config_reject` und `memory_review` sind als begrenzte Schreibpunkte aktiv; weitere Ereignisarten bleiben offen. Umsetzungsstand: [Gesamtplan §7](pi_decision_trace_und_unified_assistant_plan_de.md#7-umsetzungsstand). Aussagen im Text mit „noch offen“ oder „geplant“ beschreiben den Stand des Plans, nicht zwingend den Code.
 > **Datum:** 2026-09-27, überarbeitet 2026-10-02 (Code-Review: Faktenkorrekturen, Schema- und
 > Endpunkt-Klarstellungen, ergänzte Risiken und Prüfpunkte), Analyse-Nachtrag 2026-10-02 (Arbeitskontext-Modell,
 > Rationale-Struktur, Jev-Annahmekette, Audit-Beziehung, Backfill, Session-Fortsetzung, P1-Gates), 2. Review
@@ -307,7 +307,7 @@ Typdefinitionen des npm-Tarballs gegen die zuvor installierte 0.87.1; das Upgrad
 
 ### 2.8 Aufbewahrung, Export und Größe
 
-Die durch Nutzerentscheidung freigegebene [Aufbewahrungs- und Loeschpolicy](pi_retention_policy_de.md) gilt fuer neue PI-Daten. Ihre technischen Freigabegates — insbesondere Fristen-Bereinigung, Vergessen/Reset, Backup-Restore-Reconciliation und physische Bereinigung — muessen vor Aktivierung der Decision-Schreibpunkte implementiert und getestet sein.
+Die durch Nutzerentscheidung freigegebene [Aufbewahrungs- und Loeschpolicy](pi_retention_policy_de.md) gilt fuer neue PI-Daten. Fristen-Bereinigung, Vergessen/Reset, Backup-Restore-Reconciliation und physische Bereinigung sind fuer die aktiven Schreibpunkte implementiert und gezielt getestet; die dokumentierten Plattformgrenzen bleiben bestehen.
 
 - `decision_records`/`decision_links` wachsen append-only. Die Aufbewahrungsfrist wird **vor Aktivierung** der
   Schreibpunkte festgelegt — gemeinsam mit dem Session-Löschkonzept (§2.5). Rotation entfällt (eine Datenbank,
@@ -328,8 +328,7 @@ Die durch Nutzerentscheidung freigegebene [Aufbewahrungs- und Loeschpolicy](pi_r
 
 ### 2.9 Plan- und Preview-Objekte (neu in P1)
 
-Preview und Apply haben jetzt ein persistiertes Gegenstueck. Der Schreibpunkt `config_apply` ist aktiv; weitere Decision-Schreibpunkte sind weiterhin
-nicht aktiviert; die folgenden Record-Bezuege sind der geplante Anschluss:
+Preview und Apply haben jetzt ein persistiertes Gegenstueck. `config_apply` ist aktiv; die weiteren aktiven Schreibpunkte und ihre Grenzen stehen im Gesamtplan. Die folgenden Record-Bezuege beschreiben den Anschluss:
 
 - `POST /api/pi/action-plans/preview` legt ein **Preview-Objekt** an (`preview_id`, `action_plan_id`, Hash des Plans,
   Basis-`config_sha256`, `created_at`, `expires_at`) und liefert die IDs mit der bestehenden Antwort zurück (additiv,

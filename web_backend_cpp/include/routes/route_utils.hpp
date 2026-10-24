@@ -67,6 +67,14 @@ std::optional<crow::response> validate_path(const std::shared_ptr<AppState>& sta
                                            const std::string& label,
                                            bool must_exist = false);
 
+// A string literal silently binds to the bool overload instead of the label
+// overload (const char* -> bool is a standard conversion and beats the
+// user-defined const char* -> std::string), turning the label into
+// must_exist=true. Force callers to pass must_exist explicitly.
+std::optional<crow::response> validate_path(const std::shared_ptr<AppState>& state,
+                                           std::filesystem::path& path,
+                                           const char* label) = delete;
+
 /// @brief Safely parses integer parameter from request.
 /// @param req Crow request
 /// @param param_name Parameter name

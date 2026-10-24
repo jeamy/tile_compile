@@ -75,6 +75,7 @@ export const API_ENDPOINTS = {
     assistantAnalysisIdentity: (uid) => `/api/pi/assistant/analysis-contexts/${encodeURIComponent(uid)}`,
     activeContext: "/api/pi/active-context",
     decisionRecords: (context) => `/api/pi/decision-records?context_id=${encodeURIComponent(context)}&limit=100`,
+    reasonCodes: "/api/pi/reason-codes",
     runChatHistoryUid: (uid) => `/api/pi/run-chat/history?run_uid=${encodeURIComponent(uid)}`,
     assistantThread: (uid, pi = true, jev = true) => `/api/pi/assistant/thread?run_uid=${encodeURIComponent(uid)}&include_pi=${pi ? 1 : 0}&include_jev=${jev ? 1 : 0}`,
     tools: "/api/pi/tools",
