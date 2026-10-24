@@ -20,6 +20,38 @@ function fmt(value) {
   return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
+function fmtMetric(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat(undefined, { maximumSignificantDigits: 6 }).format(value);
+}
+
+function stageLabel(stage) {
+  if (stage === "bge.input") return t("ui.post_run.stage.bge_input", "BGE-Eingang");
+  if (stage === "bge.output") return t("ui.post_run.stage.bge_output", "BGE-Ausgang");
+  if (stage === "hypermetric_stretch.curve_output") return t("ui.post_run.stage.hms_output", "HMS-Kurvenausgang");
+  return typeof stage === "string" ? stage : "?";
+}
+
+function findingMeasurements(finding) {
+  const evidence = finding?.evidence;
+  if (!evidence || typeof evidence !== "object") return "";
+  if (finding.code === "bge_background_slope_measured") {
+    const comparisons = Array.isArray(evidence.comparisons) ? evidence.comparisons : [evidence];
+    const rows = comparisons.filter((item) => Number.isFinite(item?.before?.value) &&
+      Number.isFinite(item?.after?.value) && Number.isFinite(item?.delta)).map((item) => {
+      const unit = t("ui.post_run.unit.image_value_per_pixel", "Bildwert/Pixel");
+      return `${item.channel || "?"} (${stageLabel(item.before.stage)} → ${stageLabel(item.after.stage)}): ${fmtMetric(item.before.value)} → ${fmtMetric(item.after.value)} (${t("ui.post_run.delta", "Δ")} ${fmtMetric(item.delta)} ${unit})`;
+    });
+    return rows.length ? `${t("ui.post_run.evidence.bge_slope", "BGE-Hintergrund-Steigung")}: ${rows.join("; ")}` : "";
+  }
+  if (finding.code === "hms_curve_clipping_measured" &&
+      Number.isFinite(evidence.black_clip_percent) && Number.isFinite(evidence.white_clip_percent)) {
+    return `${stageLabel(evidence.stage)} — ${t("ui.post_run.evidence.black_clipping", "Schwarz-Clipping")}: ${fmtMetric(evidence.black_clip_percent)}%; ` +
+      `${t("ui.post_run.evidence.white_clipping", "Weiß-Clipping")}: ${fmtMetric(evidence.white_clip_percent)}%`;
+  }
+  return "";
+}
+
 /** Index of `phase` in `order` (resume_phase_order, narrowest-first); -1 if absent. */
 function phaseRank(order, phase) {
   return (order || []).indexOf(phase);
@@ -99,6 +131,8 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
     for (const f of advice.findings || []) {
       const cls = f.severity === "warning" ? "tc-text-sm" : "tc-text-sm tc-text-muted";
       content.append(el("div", { class: cls }, `${t(`ui.post_run.finding.${f.code}`, f.code)}${f.detail ? `: ${f.detail}` : ""}`));
+      const measurements = findingMeasurements(f);
+      if (measurements) content.append(el("div", { class: "tc-text-sm tc-text-muted", "data-metric-evidence": f.code }, measurements));
     }
     for (const s of content._suggestions) {
       const changes = (s.updates || []).map((u) => `${u.path}: ${fmt(u.old_value)} → ${fmt(u.value)}`).join("; ");
