@@ -4,6 +4,7 @@
 #include "services/ai_service.hpp"
 #include "services/pi/pi_decision_outcome.hpp"
 #include "services/pi/pi_decision_service.hpp"
+#include "services/pi/pi_pre_rules.hpp"
 #include "services/pi/pi_post_run.hpp"
 #include "services/pi/pi_assistant_event_store.hpp"
 #include "services/pi/pi_analysis_context_store.hpp"
@@ -17,8 +18,10 @@
 #include "time_utils.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <mutex>
 #include <random>
+#include <set>
 #include <thread>
 
 namespace tile_compile::routes {
@@ -44,6 +47,120 @@ fs::path catalog_dir(const std::shared_ptr<AppState>& state) {
 }
 
 std::optional<json> read_json_path(const fs::path& p) { return read_json_file_opt(p); }
+
+json post_run_provider_projection(const json& state, const json& advice) {
+    const json run = state.value("run", json::object());
+    const json rec = state.value("reconstruction", json::object());
+    json projection = {
+        {"domain", "post_run"},
+        {"run", {{"success", run.value("success", false)},
+                 {"final_image_available", run.value("final_image_available", false)},
+                 {"completed_phase_count", run.value("phases_completed", json::array()).size()}}},
+        {"reconstruction", json::object()},
+        {"findings", json::array()},
+        {"not_measured", state.value("not_measured", json::array())}
+    };
+    const std::string selected = rec.value("selected_candidate", std::string());
+    if (!selected.empty() && std::all_of(selected.begin(), selected.end(), [](unsigned char c) {
+            return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+        })) projection["reconstruction"]["selected_candidate"] = selected;
+    const json cands = rec.value("candidates", json::object());
+    for (const auto& [candidate, values] : cands.items()) {
+        if (!std::all_of(candidate.begin(), candidate.end(), [](unsigned char c) {
+                return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+            }) || !values.is_object()) continue;
+        json safe = json::object();
+        for (const char* key : {"numerics_ok", "support_ok", "median_fwhm", "p90_fwhm", "tail",
+                                "elongation", "background_rms", "seam_score"}) {
+            if (!values.contains(key)) continue;
+            const auto& value = values[key];
+            if (value.is_boolean() || (value.is_number() && std::isfinite(value.get<double>()))) safe[key] = value;
+            else if (value.is_object() && value.contains("value") && value["value"].is_number() &&
+                     std::isfinite(value["value"].get<double>())) safe[key] = value["value"];
+        }
+        projection["reconstruction"][candidate] = std::move(safe);
+    }
+    for (const auto& finding : advice.value("findings", json::array())) {
+        const std::string code = finding.value("code", std::string());
+        const std::string severity = finding.value("severity", std::string());
+        if (!code.empty() && (severity == "info" || severity == "warning"))
+            projection["findings"].push_back({{"code", code}, {"severity", severity}});
+    }
+    json diagnostics = json::object();
+    const json stage = state.value("stage_diagnostics", json::object());
+    const json bge = stage.value("bge_background_slope", json::object());
+    json comparisons = json::array();
+    for (const auto& item : bge.value("comparisons", json::array())) {
+        if (!item.is_object()) continue;
+        const json before = item.value("before", json::object());
+        const json after = item.value("after", json::object());
+        if (!before.contains("value") || !after.contains("value") || !before["value"].is_number() ||
+            !after["value"].is_number() || !item.contains("delta") || !item["delta"].is_number()) continue;
+        comparisons.push_back({{"channel", item.value("channel", std::string())},
+            {"before", before["value"]}, {"after", after["value"]}, {"delta", item["delta"]}});
+    }
+    if (!comparisons.empty()) diagnostics["bge_slope_comparisons"] = std::move(comparisons);
+    const json hms = stage.value("hms_curve_clipping", json::object());
+    for (const char* key : {"black_clip_percent", "white_clip_percent"})
+        if (hms.contains(key) && hms[key].is_number() && std::isfinite(hms[key].get<double>())) diagnostics[key] = hms[key];
+    if (!diagnostics.empty()) projection["diagnostics"] = std::move(diagnostics);
+    return projection;
+}
+
+json post_run_model_selection(const std::shared_ptr<DecisionService>& svc, const json& state, json& advice,
+                              const json& run_config, const DecisionPolicy& policy, const ConfigValidator& validator,
+                              bool allow_experimental, const std::string& request_id) {
+    const json suggestions = advice.value("suggestions", json::array());
+    if (suggestions.empty()) return {{"status", "skipped_no_candidates"}, {"used_for_recommendation", false}};
+    try {
+        ai::AiSidecarClient client(ai::default_ai_config());
+        const json status = client.get("/decisions/status");
+        const std::string mode = status.value("mode", std::string("off"));
+        if (mode != "suggest" && mode != "shadow") return {{"status", "skipped_mode_off"}, {"used_for_recommendation", false}};
+        if (!status.value("has_api_key", false)) return {{"status", "unavailable"}, {"mode", mode}, {"error_code", "no_api_key"}, {"used_for_recommendation", false}};
+        if (!allow_experimental) return {{"status", "skipped_experimental_disabled"}, {"used_for_recommendation", false}};
+
+        const json stub = {{"locked_paths", json::array()}, {"blocking_findings", json::array()}, {"groups", json::array()}};
+        auto candidates = build_pre_run_candidates(stub, run_config, policy, svc->catalog(), validator);
+        std::set<std::string> offered;
+        for (const auto& item : suggestions) offered.insert(item.value("candidate_id", std::string()));
+        candidates.applicable.erase(std::remove_if(candidates.applicable.begin(), candidates.applicable.end(), [&](const json& item) {
+            return !offered.contains(item.value("candidate_id", std::string()));
+        }), candidates.applicable.end());
+        const json info = provider_candidate_info(candidates, svc->catalog());
+        json allowed = json::array({"keep_current", "insufficient_evidence"});
+        for (const auto& item : suggestions) {
+            const std::string id = item.value("candidate_id", std::string());
+            if (!id.empty() && std::find(allowed.begin(), allowed.end(), id) == allowed.end()) allowed.push_back(id);
+        }
+        json request = {{"request_id", request_id}, {"state_hash", state.value("state_hash", std::string())},
+            {"question_set_version", "post-run-decisions.v1"},
+            {"state_projection", post_run_provider_projection(state, advice)}, {"allowed_candidates", allowed}};
+        if (info.contains("descriptions") && !info["descriptions"].empty()) request["candidate_descriptions"] = info["descriptions"];
+        if (info.contains("facts") && !info["facts"].empty()) request["candidate_facts"] = info["facts"];
+        const json response = client.post("/decisions", request);
+        const bool usable = response.value("status", std::string()) == "ok" &&
+            response.contains("selection") && response["selection"].is_object() &&
+            std::find(allowed.begin(), allowed.end(), response["selection"].value("candidate_id", std::string())) != allowed.end();
+        json result = {{"status", usable ? "ok" : response.value("status", std::string("unavailable"))},
+                       {"mode", mode},
+                       {"model_requested", status.value("model", std::string())},
+                       {"model_reported", response.value("model_reported", json(nullptr))},
+                       {"used_for_recommendation", mode == "suggest" && usable}};
+        if (response.contains("error_code")) result["error_code"] = response["error_code"];
+        if (usable) {
+            result["candidate_id"] = response["selection"]["candidate_id"];
+            result["probabilities"] = response["selection"].value("probabilities", json::object());
+            result["provider_confidence"] = response["selection"].value("provider_confidence", json(nullptr));
+            if (mode == "suggest") advice["model_recommendation"] = response["selection"]["candidate_id"];
+        }
+        return result;
+    } catch (const ai::AiSidecarHttpError& e) {
+        return {{"status", "unavailable"}, {"error_code", "sidecar_http_" + std::to_string(e.status())}, {"used_for_recommendation", false}};
+    } catch (const std::exception&) {
+        return {{"status", "unavailable"}, {"error_code", "sidecar_unreachable"}, {"used_for_recommendation", false}};
+    }
+}
 
 // One service per process, created on first use so a missing catalog only breaks Jev routes.
 struct ServiceHolder {
@@ -311,8 +428,9 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         return json_resp({{"proposal_id", ids.front()}, {"proposal_ids", ids}, {"groups", groups}, {"state", "running"}, {"analysis_context", context}}, 202);
     });
 
-    // Explicit rule-based advice: run artifacts are read-only; the resulting card is stored centrally.
-    // No model call, config apply, or run start. Resume still requires dry-run feasibility and explicit start.
+    // Explicit rule-based advice with optional constrained Jev selection: run artifacts stay read-only and
+    // the resulting card is stored centrally. A model cannot invent candidates or apply config/start a run.
+    // Resume still requires dry-run feasibility and explicit start.
     CROW_ROUTE(app, "/api/pi/post-run/advice").methods("POST"_method)
     ([state, holder](const crow::request& req) {
         auto body = parse_body(req);
@@ -347,6 +465,16 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         auto svc = get_service(state, *holder, error);
         if (!svc) return err_resp("DECISIONS_UNAVAILABLE", error, 503);
         PiAssistantEventStore event_store(pi_storage_dir(state));
+        const std::string effective_request_id = request_id.empty() ? PiRunIndex::generate_uid() : request_id;
+        const std::string id = "jev_" + sha256_prefixed("run:" + uid + ":jev_post_run:" + effective_request_id).substr(7);
+        if (const auto old = event_store.get(id)) {
+            if (old->value("run_uid", std::string()) != uid)
+                return err_resp("ASSISTANT_EVENT_CONFLICT", "Advice event belongs to a different run", 409);
+            json response = old->value("result", json::object());
+            for (const auto* key : {"event_id", "run_uid", "context_id", "evaluation_method"})
+                if (old->contains(key)) response[key] = (*old)[key];
+            return json_resp(response);
+        }
         std::vector<std::string> dismissed;
         const json dismissal_events = event_store.post_run_dismissals(uid);
         for (const auto& event : dismissal_events) {
@@ -365,11 +493,12 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
         const json ps = build_post_run_state(run_dir, run_config);
         const std::string source_patch_id = read_json_file_opt(run_dir / "artifacts/pi_run_provenance.json")
             .value_or(json::object()).value("jev_proposal_id", std::string());
-        const json result = {{"state", ps}, {"advice", advise_post_run(ps, run_config, policy, svc->catalog(), validator, dismissed)},
+        json advice = advise_post_run(ps, run_config, policy, svc->catalog(), validator, dismissed);
+        const json model_selection = post_run_model_selection(svc, ps, advice, run_config, policy, validator,
+            policy.allow_experimental, effective_request_id);
+        const json result = {{"state", ps}, {"advice", advice}, {"model_selection", model_selection},
                              {"dismissed_candidates", dismissal_events}, {"source_patch_id", source_patch_id}};
         try {
-            const std::string id = request_id.empty() ? "jev_" + PiRunIndex::generate_uid()
-                : "jev_" + sha256_prefixed("run:" + uid + ":jev_post_run:" + request_id).substr(7);
             const auto event = event_store.append(id, uid, result);
             json response = result;
             for (const auto* key : {"event_id", "run_uid", "context_id", "evaluation_method"}) response[key] = event[key];

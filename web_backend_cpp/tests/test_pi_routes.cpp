@@ -1283,6 +1283,8 @@ int main(int argc, char** argv) {
         });
         expect_equal(durable_advice["_http_status"].get<long>(), 200L, "absolute-path Jev advice stored");
         expect_equal(durable_advice["evaluation_method"].get<std::string>(), "backend_rules", "Jev method honest");
+        expect_equal(durable_advice["model_selection"]["status"].get<std::string>(), "skipped_no_candidates",
+                     "post-run model is not called when no validated change candidate exists");
         const auto hinted_advice = harness.post_json("/api/pi/post-run/advice", {
             {"run_id", "uid_thread_fixture"}, {"run_dir", old_dir.string()},
             {"run_uid", thread_uid}, {"request_id", "dock_click_1"}

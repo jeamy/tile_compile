@@ -27,9 +27,12 @@ nlohmann::json PiAssistantEventStore::append(const std::string& id, const std::s
     }
     const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto model_selection = result.value("model_selection", nlohmann::json::object());
+    const std::string evaluation_method = model_selection.value("used_for_recommendation", false)
+        ? "backend_rules+jev_model_choice" : "backend_rules";
     nlohmann::json event = {{"schema_version", "pi.assistant-event.v1"}, {"event_id", id},
         {"run_uid", uid}, {"context_id", "run:" + uid}, {"provider", "jev"},
-        {"kind", "jev_post_run"}, {"evaluation_method", "backend_rules"},
+        {"kind", "jev_post_run"}, {"evaluation_method", evaluation_method},
         {"created_at", utc_now_iso()}, {"created_at_epoch_ms", now}, {"result", result}};
     _db->execute("INSERT INTO assistant_thread_events(event_id, run_uid, created_at, json) VALUES(?, ?, ?, ?)",
                  {id, uid, static_cast<std::int64_t>(now), event.dump()});

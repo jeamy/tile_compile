@@ -138,6 +138,19 @@ interface QuestionSet {
 const BASELINE_CANDIDATES = ["keep_current", "insufficient_evidence"] as const;
 
 export const QUESTION_SETS: Record<string, QuestionSet> = {
+  "post-run-decisions.v1": {
+    questionId: "candidate_selection",
+    instructions:
+      "You are given a completed astrophotography run summary and only configuration candidates already validated by the backend. " +
+      "Choose exactly one option. Choose keep_current unless one listed candidate is supported by the run evidence and its checked candidate facts. " +
+      "Choose insufficient_evidence when the evidence does not support a confident choice. A selection is only a preference among listed options; " +
+      "it does not authorize applying a change or starting/resuming a run. Missing or not_applicable measurements are unknown, never zero. " +
+      "BGE slope and stretch-curve clipping are descriptive diagnostics, not measures of final image quality or star shape.",
+    describe: {
+      keep_current: "Recommend no configuration change for this completed run.",
+      insufficient_evidence: "Abstain: the available run evidence does not support a confident choice.",
+    },
+  },
   // v2: descriptions and checked facts of change candidates come from the request, so a new catalog entry needs no
   // change here. The conservative default of v1 is kept.
   "decision-questions.v2": {

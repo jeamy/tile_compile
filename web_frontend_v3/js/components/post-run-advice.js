@@ -128,6 +128,22 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
     }
     const outcome = OUTCOMES.includes(advice.outcome) ? advice.outcome : "diagnose";
     content.append(el("div", { class: "tc-text-sm", "data-outcome": outcome }, t(`ui.post_run.outcome.${outcome}`, outcome)));
+    if (advice.model_recommendation) {
+      content.append(el("div", { class: "tc-text-sm tc-text-muted", "data-model-recommendation": advice.model_recommendation },
+        t("ui.post_run.model_recommendation", "Jev-Modellauswahl unter den serverseitig geprüften Optionen: {candidate}", {
+          candidate: advice.model_recommendation,
+        })));
+    }
+    const modelSelection = payload?.model_selection;
+    if (modelSelection?.status === "unavailable" || modelSelection?.status === "invalid_response") {
+      content.append(el("div", { class: "tc-text-sm tc-text-muted", "data-model-selection-status": modelSelection.status },
+        t("ui.post_run.model_unavailable", "Modellwahl nicht verfügbar ({reason}); die Regelbefunde bleiben sichtbar.", {
+          reason: modelSelection.error_code || modelSelection.status,
+        })));
+    } else if (modelSelection?.mode === "shadow" && modelSelection?.status === "ok") {
+      content.append(el("div", { class: "tc-text-sm tc-text-muted", "data-model-selection-status": "shadow" },
+        t("ui.post_run.model_shadow", "Schatten-Modellwahl protokolliert; sie beeinflusst die Empfehlungen nicht.")));
+    }
     for (const f of advice.findings || []) {
       const cls = f.severity === "warning" ? "tc-text-sm" : "tc-text-sm tc-text-muted";
       content.append(el("div", { class: cls }, `${t(`ui.post_run.finding.${f.code}`, f.code)}${f.detail ? `: ${f.detail}` : ""}`));
