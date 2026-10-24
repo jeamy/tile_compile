@@ -102,6 +102,9 @@ Dies ist der **erste Adapter**, nicht der abgeschlossene Gesamtumbau:
   sind noch nicht in diesen Thread integriert. Vorher nur im Browser gehaltene Jev-Karten sind nicht rekonstruierbar.
 - Run-PI/Jev-Parameterkarten bieten Preview und Resume-Entwurfsuebernahme bereits an. Gespeicherter
   Apply-/Reason-Picker-Fluss, Analyse-/Bild-Karten und Entfernen der alten Parameter-AI-/Jev-Huellen sind offen.
+- Die Post-Run-Karte reicht bei einem ausserhalb des Standard-Run-Verzeichnisses liegenden Run dessen
+  erlaubten `run_dir` an Config-Leseweg und Jev-Nachbetrachtung weiter. Das Backend prueft den Pfad
+  gegen erlaubte Wurzeln; eine mitgesendete Run-UID muss weiter zur aufgeloesten Identitaet passen.
 - Weitere Decision-Schreibpunkte und die Vergessen-Anbindung im Dock bleiben offen. Die Retention-/Loeschpolitik und der Backend-Vergessen-Endpunkt sind implementiert.
 - Apply-Intent und Abgleich sind backendseitig umgesetzt. Die Dock-Anzeige des Zustands `applying` mit Abgleich-Hinweis ist offen.
 

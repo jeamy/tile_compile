@@ -46,6 +46,7 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
   const button = el("button", { class: "tc-btn tc-btn-sm", id: `${id}-button`, onclick: request }, t("ui.post_run.request", "Nachbetrachtung anfordern"));
 
   let lastRunId = "";
+  let lastRunDir = "";
   let lastResumeOrder = [];
   const selected = new Set();
 
@@ -62,7 +63,7 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
     if (applyBtn) applyBtn.disabled = true;
     if (allBtn) allBtn.disabled = true;
     try {
-      const resp = await api.get(API_ENDPOINTS.runs.config(lastRunId));
+      const resp = await api.get(API_ENDPOINTS.runs.config(lastRunId, lastRunDir));
       const yaml = resp?.config_yaml || resp?.config || "";
       if (!yaml) throw new Error(t("ui.error.no_config", "Config YAML ist leer"));
       const parsed = parseYaml(yaml);
@@ -125,13 +126,16 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
   }
 
   async function request() {
-    const { currentRunId } = getRunState();
+    const { currentRunId, currentRunDir } = getRunState();
     if (!currentRunId) return;
     lastRunId = currentRunId;
+    lastRunDir = currentRunDir || "";
     button.disabled = true;
     status.textContent = t("ui.post_run.loading", "Auswertung läuft…");
     try {
-      const payload = await api.post(API_ENDPOINTS.decisions.postRunAdvice, { run_id: currentRunId, allow_experimental: true });
+      const body = { run_id: currentRunId, allow_experimental: true };
+      if (lastRunDir) body.run_dir = lastRunDir;
+      const payload = await api.post(API_ENDPOINTS.decisions.postRunAdvice, body);
       status.textContent = currentRunId;
       renderAdvice(payload);
     } catch (error) {

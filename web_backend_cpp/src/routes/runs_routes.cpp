@@ -1776,10 +1776,12 @@ void register_runs_routes(CrowApp& app,
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/config").methods("GET"_method)
-    ([state](const crow::request&, std::string run_id) {
+    ([state](const crow::request& req, std::string run_id) {
         run_id = decode_run_id_param(run_id);
+        const std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
         try {
-            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            fs::path run_dir;
+            if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
             const fs::path config_path = run_dir / "config.yaml";
             return json_resp({
                 {"run_id", run_id},

@@ -1266,15 +1266,29 @@ int main(int argc, char** argv) {
         });
         expect_equal(mismatch["_http_status"].get<long>(), 409L, "chat rejects path/UID mismatch before provider call");
         const auto old_dir = harness.fixture_root() / "runs" / "uid_thread_fixture";
+        const auto hinted_config = harness.get_json("/api/runs/uid_thread_fixture/config?run_dir=" + old_dir.string());
+        expect_equal(hinted_config["_http_status"].get<long>(), 200L, "run config accepts explicit allowed run directory");
+        expect_equal(hinted_config["run_dir"].get<std::string>(), old_dir.string(), "run config uses requested directory");
         const auto advice_mismatch = harness.post_json("/api/pi/post-run/advice", {
             {"run_id", "pi_fixture_run"}, {"run_uid", thread_uid}
         });
         expect_equal(advice_mismatch["_http_status"].get<long>(), 409L, "Jev path/UID mismatch rejected");
+        const auto hinted_mismatch = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", "uid_thread_fixture"}, {"run_dir", old_dir.string()}, {"run_uid", "wrong_uid"}
+        });
+        expect_equal(hinted_mismatch["_http_status"].get<long>(), 409L, "Jev run-dir hint still enforces UID");
         const auto durable_advice = harness.post_json("/api/pi/post-run/advice", {
             {"run_id", old_dir.string()}, {"run_uid", thread_uid}, {"request_id", "dock_click_1"}
         });
         expect_equal(durable_advice["_http_status"].get<long>(), 200L, "absolute-path Jev advice stored");
         expect_equal(durable_advice["evaluation_method"].get<std::string>(), "backend_rules", "Jev method honest");
+        const auto hinted_advice = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", "uid_thread_fixture"}, {"run_dir", old_dir.string()},
+            {"run_uid", thread_uid}, {"request_id", "dock_click_1"}
+        });
+        expect_equal(hinted_advice["_http_status"].get<long>(), 200L, "Jev advice accepts explicit allowed run directory");
+        expect_equal(hinted_advice["event_id"].get<std::string>(), durable_advice["event_id"].get<std::string>(),
+                     "run-dir hint resolves to the same durable event");
         const auto retried_advice = harness.post_json("/api/pi/post-run/advice", {
             {"run_id", old_dir.string()}, {"run_uid", thread_uid}, {"request_id", "dock_click_1"}
         });

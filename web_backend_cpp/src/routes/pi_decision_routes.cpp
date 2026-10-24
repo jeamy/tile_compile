@@ -317,17 +317,27 @@ void register_pi_decision_routes(CrowApp& app, std::shared_ptr<AppState> state) 
     ([state, holder](const crow::request& req) {
         auto body = parse_body(req);
         if (!body || !body->is_object()) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
-        for (const auto* key : {"run_id", "run_uid", "request_id"})
+        for (const auto* key : {"run_id", "run_uid", "request_id", "run_dir"})
             if (body->contains(key) && !(*body)[key].is_string())
                 return err_resp("BAD_REQUEST", std::string(key) + " must be a string", 400);
         const std::string run_id = body->value("run_id", std::string());
         const std::string expected_uid = body->value("run_uid", std::string());
         const std::string request_id = body->value("request_id", std::string());
+        const std::string run_dir_hint = body->value("run_dir", std::string());
         if (run_id.empty() || request_id.size() > 128 ||
             request_id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != std::string::npos)
             return err_resp("BAD_REQUEST", "run_id is required; request_id must be at most 128 identifier characters", 400);
         fs::path run_dir;
-        try { run_dir = state->runtime.resolve_run_dir(run_id); } catch (const std::exception&) { return err_resp("NOT_FOUND", "run not found", 404); }
+        if (run_dir_hint.empty()) {
+            try { run_dir = state->runtime.resolve_run_dir(run_id); } catch (const std::exception&) { return err_resp("NOT_FOUND", "run not found", 404); }
+        } else {
+            auto resolved = state->runtime.resolve_input_path(fs::path(run_dir_hint), true);
+            if (resolved.status == PathStatus::not_allowed)
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + resolved.path.string(), 403, {{"path", resolved.path.string()}});
+            if (resolved.status == PathStatus::not_found)
+                return err_resp("NOT_FOUND", "run not found", 404);
+            run_dir = resolved.path;
+        }
         std::error_code ec;
         if (!fs::is_directory(run_dir, ec)) return err_resp("NOT_FOUND", "run not found", 404);
         if (auto denied = validate_path(state, run_dir, true)) return std::move(*denied);

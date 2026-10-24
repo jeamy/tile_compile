@@ -135,7 +135,10 @@ export const API_ENDPOINTS = {
     list: "/api/runs",
     start: "/api/runs/start",
     status: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/status`,
-    config: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config`,
+    config: (runId, runDir = "") => {
+      const query = String(runDir || "").trim() ? `?run_dir=${encodeURIComponent(String(runDir || "").trim())}` : "";
+      return `/api/runs/${encodeRunIdPathSegment(runId)}/config${query}`;
+    },
     configRevisions: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config-revisions`,
     configRevision: (runId, revisionId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config-revisions/${encodeURIComponent(String(revisionId || ""))}`,
     completionAnalysis: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/completion-analysis`,
