@@ -156,7 +156,7 @@ json post_run_star_shape_diagnostic(const fs::path& run_dir, bool run_succeeded)
     if (!artifact) return {{"status", "missing"}, {"source_ref", source}};
     if (artifact->value("schema_version", std::string()) != "pi.post-run-star-shape.v1" ||
         artifact->value("interpretation", std::string()) != "descriptive_measurement_only" ||
-        artifact->value("method", std::string()) != "fixed_control_positions_psf_patch_fwhm_v1" ||
+        artifact->value("method", std::string()) != "fixed_control_positions_annulus_aperture_moments_v1" ||
         artifact->value("metric", std::string()) != "matched_star_fwhm_ratio_after_over_before" ||
         artifact->value("unit", std::string()) != "ratio" ||
         artifact->value("before_stage", std::string()) != "selected_reconstruction" ||

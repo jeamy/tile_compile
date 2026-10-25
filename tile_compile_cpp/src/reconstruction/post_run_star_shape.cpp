@@ -1,6 +1,5 @@
 #include "tile_compile/reconstruction/post_run_star_shape.hpp"
 
-#include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/reconstruction/multiband_validation.hpp"
 #include "tile_compile/core/utils.hpp"
@@ -21,6 +20,8 @@ constexpr int kMinMatchedStars = 20;
 constexpr int kBootstrapSamples = 2000;
 constexpr uint64_t kBootstrapSeed = 20261024;
 constexpr double kMinFinitePatchFraction = kMultibandValidationStarPatchMinFiniteFraction;
+constexpr int kMomentPatchRadius = 10;
+constexpr int kMomentApertureRadius = 6;
 
 using nlohmann::json;
 
@@ -35,34 +36,62 @@ json unavailable(const char* reason, int detected = 0, int matched = 0) {
           {"interpretation", "descriptive_measurement_only"}};
 }
 
-bool extract_patch(const Matrix2Df& image, const std::vector<uint8_t>& valid,
-                   int x, int y, cv::Mat& patch) {
-  constexpr int radius = kMultibandValidationStarPatchRadius;
-  const int side = 2 * radius + 1;
-  if (x < radius || y < radius || x + radius >= image.cols() ||
-      y + radius >= image.rows()) return false;
-  if (!valid[static_cast<size_t>(y) * image.cols() + x]) return false;
+double median(std::vector<double> values);
 
-  std::vector<float> finite;
-  finite.reserve(static_cast<size_t>(side) * side);
-  for (int py = y - radius; py <= y + radius; ++py)
-    for (int px = x - radius; px <= x + radius; ++px) {
-      const size_t index = static_cast<size_t>(py) * image.cols() + px;
-      if (valid[index]) finite.push_back(image(py, px));
+bool estimate_paired_fwhm(const Matrix2Df& image, const std::vector<uint8_t>& valid,
+                          int x, int y, double& fwhm) {
+  constexpr int patch_radius = kMomentPatchRadius;
+  constexpr int aperture_sq = kMomentApertureRadius * kMomentApertureRadius;
+  if (x < patch_radius || y < patch_radius || x + patch_radius >= image.cols() ||
+      y + patch_radius >= image.rows()) return false;
+  std::vector<double> annulus;
+  annulus.reserve(128);
+  int aperture_total = 0, aperture_valid = 0, annulus_total = 0;
+  for (int dy = -patch_radius; dy <= patch_radius; ++dy)
+    for (int dx = -patch_radius; dx <= patch_radius; ++dx) {
+      const int r2 = dx * dx + dy * dy;
+      const size_t i = static_cast<size_t>(y + dy) * image.cols() + x + dx;
+      if (r2 <= aperture_sq) {
+        ++aperture_total;
+        if (valid[i]) ++aperture_valid;
+      }
+      if (r2 >= 64 && r2 <= patch_radius * patch_radius) {
+        ++annulus_total;
+        if (valid[i]) annulus.push_back(image(y + dy, x + dx));
+      }
     }
-  const size_t total = static_cast<size_t>(side) * side;
-  if (static_cast<double>(finite.size()) < kMinFinitePatchFraction * total) return false;
-  std::nth_element(finite.begin(), finite.begin() + finite.size() / 2, finite.end());
-  const float fill = finite[finite.size() / 2];
-  patch.create(side, side, CV_32F);
-  for (int py = 0; py < side; ++py)
-    for (int px = 0; px < side; ++px) {
-      const int iy = y - radius + py;
-      const int ix = x - radius + px;
-      const size_t index = static_cast<size_t>(iy) * image.cols() + ix;
-      patch.at<float>(py, px) = valid[index] ? image(iy, ix) : fill;
+  if (static_cast<double>(aperture_valid) < kMinFinitePatchFraction * aperture_total ||
+      static_cast<double>(annulus.size()) < kMinFinitePatchFraction * annulus_total)
+    return false;
+  const double background = median(annulus);
+  double sum = 0.0, mx = 0.0, my = 0.0;
+  for (int dy = -kMomentApertureRadius; dy <= kMomentApertureRadius; ++dy)
+    for (int dx = -kMomentApertureRadius; dx <= kMomentApertureRadius; ++dx) {
+      if (dx * dx + dy * dy > aperture_sq) continue;
+      const size_t i = static_cast<size_t>(y + dy) * image.cols() + x + dx;
+      if (!valid[i]) continue;
+      const double weight = std::max(0.0, static_cast<double>(image(y + dy, x + dx)) - background);
+      sum += weight;
+      mx += weight * dx;
+      my += weight * dy;
     }
-  return true;
+  if (!(sum > 0.0) || !std::isfinite(sum)) return false;
+  mx /= sum;
+  my /= sum;
+  double cxx = 0.0, cyy = 0.0;
+  for (int dy = -kMomentApertureRadius; dy <= kMomentApertureRadius; ++dy)
+    for (int dx = -kMomentApertureRadius; dx <= kMomentApertureRadius; ++dx) {
+      if (dx * dx + dy * dy > aperture_sq) continue;
+      const size_t i = static_cast<size_t>(y + dy) * image.cols() + x + dx;
+      if (!valid[i]) continue;
+      const double weight = std::max(0.0, static_cast<double>(image(y + dy, x + dx)) - background);
+      cxx += weight * (dx - mx) * (dx - mx);
+      cyy += weight * (dy - my) * (dy - my);
+    }
+  const double sigma_sq = (cxx + cyy) / (2.0 * sum);
+  if (!(sigma_sq > 0.0) || !std::isfinite(sigma_sq)) return false;
+  fwhm = 2.3548200450309493 * std::sqrt(sigma_sq);
+  return std::isfinite(fwhm) && fwhm > 0.2 && fwhm < 50.0;
 }
 
 double median(std::vector<double> values) {
@@ -132,7 +161,7 @@ nlohmann::json measure_post_run_star_shape(const Matrix2Df& before,
 
   std::vector<cv::Point2f> corners;
   try {
-    cv::goodFeaturesToTrack(residual, corners, kMaxControlStars, 0.01, 15.0,
+    cv::goodFeaturesToTrack(residual, corners, kMaxControlStars, 0.001, 8.0,
                             detector_mask, 3, false, 0.04);
   } catch (...) {
     return unavailable("star_detection_failed");
@@ -141,20 +170,13 @@ nlohmann::json measure_post_run_star_shape(const Matrix2Df& before,
 
   std::vector<double> ratios;
   ratios.reserve(corners.size());
-  cv::Mat before_patch, after_patch;
   for (const auto& corner : corners) {
     const int x = static_cast<int>(std::lround(corner.x));
     const int y = static_cast<int>(std::lround(corner.y));
-    if (x < kMultibandValidationStarPatchRadius || y < kMultibandValidationStarPatchRadius ||
-        x + kMultibandValidationStarPatchRadius >= before.cols() ||
-        y + kMultibandValidationStarPatchRadius >= before.rows()) continue;
-    if (!extract_patch(before, valid, x, y, before_patch) ||
-        !extract_patch(after, valid, x, y, after_patch)) continue;
-    const float fwhm_before = metrics::estimate_fwhm_from_patch(before_patch);
-    const float fwhm_after = metrics::estimate_fwhm_from_patch(after_patch);
-    if (!std::isfinite(fwhm_before) || !std::isfinite(fwhm_after) ||
-        fwhm_before <= 0.0f || fwhm_after <= 0.0f) continue;
-    const double ratio = static_cast<double>(fwhm_after) / fwhm_before;
+    double fwhm_before = 0.0, fwhm_after = 0.0;
+    if (!estimate_paired_fwhm(before, valid, x, y, fwhm_before) ||
+        !estimate_paired_fwhm(after, valid, x, y, fwhm_after)) continue;
+    const double ratio = fwhm_after / fwhm_before;
     if (std::isfinite(ratio) && ratio > 0.0) ratios.push_back(ratio);
   }
 
@@ -171,7 +193,7 @@ nlohmann::json measure_post_run_star_shape(const Matrix2Df& before,
 
   return {{"schema_version", "pi.post-run-star-shape.v1"},
           {"status", "measured"},
-          {"method", "fixed_control_positions_psf_patch_fwhm_v1"},
+          {"method", "fixed_control_positions_annulus_aperture_moments_v1"},
           {"before_stage", "selected_reconstruction"},
           {"after_stage", "final_hms_rgb_g"},
           {"metric", "matched_star_fwhm_ratio_after_over_before"},

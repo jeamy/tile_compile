@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
         }.dump());
         write(run / "artifacts/pi_post_run_star_shape.json", json{
             {"schema_version", "pi.post-run-star-shape.v1"}, {"status", "measured"},
-            {"method", "fixed_control_positions_psf_patch_fwhm_v1"},
+            {"method", "fixed_control_positions_annulus_aperture_moments_v1"},
             {"metric", "matched_star_fwhm_ratio_after_over_before"},
             {"unit", "ratio"}, {"before_stage", "selected_reconstruction"},
             {"after_stage", "final_hms_rgb_g"},
@@ -198,7 +198,7 @@ int main(int argc, char** argv) {
               json{{"type", "run_end"}, {"status", "final_image_ready"}, {"success", true}}.dump() + "\n");
         write(invalid_star_shape / "artifacts/pi_post_run_star_shape.json", json{
             {"schema_version", "pi.post-run-star-shape.v1"}, {"status", "measured"},
-            {"method", "fixed_control_positions_psf_patch_fwhm_v1"},
+            {"method", "fixed_control_positions_annulus_aperture_moments_v1"},
             {"metric", "matched_star_fwhm_ratio_after_over_before"}, {"unit", "ratio"},
             {"before_stage", "selected_reconstruction"}, {"after_stage", "final_hms_rgb_g"},
             {"median_ratio", 1.02}, {"p90_ratio", 1.12},
