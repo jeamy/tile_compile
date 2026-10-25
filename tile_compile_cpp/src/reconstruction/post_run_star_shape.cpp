@@ -1,7 +1,9 @@
 #include "tile_compile/reconstruction/post_run_star_shape.hpp"
 
 #include "tile_compile/metrics/metrics.hpp"
+#include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/reconstruction/multiband_validation.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <opencv2/imgproc.hpp>
 
@@ -181,6 +183,46 @@ nlohmann::json measure_post_run_star_shape(const Matrix2Df& before,
           {"min_matched_stars", kMinMatchedStars},
           {"unit", "ratio"},
           {"interpretation", "descriptive_measurement_only"}};
+}
+
+void write_post_run_star_shape_artifact(const std::filesystem::path& run_dir,
+                                        const std::filesystem::path& configured_hms_output,
+                                        bool hms_enabled) {
+  json diagnostic;
+  try {
+    auto final_path = configured_hms_output;
+    if (final_path.is_relative()) final_path = run_dir / "outputs" / final_path;
+    const auto before_path = run_dir / "outputs" / "reconstructed_G.fit";
+    const auto mask_path = run_dir / "outputs" / "canvas_mask.fits";
+    if (!hms_enabled || !std::filesystem::is_regular_file(before_path) ||
+        !std::filesystem::is_regular_file(final_path) || !std::filesystem::is_regular_file(mask_path)) {
+      diagnostic = unavailable("required_output_missing");
+    } else {
+      const auto before = io::read_fits_pixels_float(before_path);
+      const auto after_rgb = io::read_fits_rgb(final_path);
+      const auto mask = io::read_fits_pixels_float(mask_path);
+      if (before.rows() != after_rgb.G.rows() || before.cols() != after_rgb.G.cols() ||
+          before.rows() != mask.rows() || before.cols() != mask.cols()) {
+        diagnostic = unavailable("raster_mismatch");
+      } else {
+        std::vector<uint8_t> valid(static_cast<size_t>(before.rows()) * before.cols(), 0);
+        for (int y = 0; y < before.rows(); ++y)
+          for (int x = 0; x < before.cols(); ++x)
+            valid[static_cast<size_t>(y) * before.cols() + x] =
+                std::isfinite(mask(y, x)) && mask(y, x) > 0.0f ? 1 : 0;
+        diagnostic = measure_post_run_star_shape(before, after_rgb.G, valid);
+      }
+    }
+  } catch (...) {
+    diagnostic = unavailable("measurement_io_failed");
+  }
+  try {
+    const auto artifact_dir = run_dir / "artifacts";
+    std::filesystem::create_directories(artifact_dir);
+    core::write_text_atomic(artifact_dir / "pi_post_run_star_shape.json", diagnostic.dump(2));
+  } catch (...) {
+    // This descriptive artifact must not turn a successful image run into a failure.
+  }
 }
 
 }  // namespace tile_compile::reconstruction

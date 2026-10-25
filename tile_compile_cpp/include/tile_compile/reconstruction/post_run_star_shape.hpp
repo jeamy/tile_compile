@@ -3,6 +3,7 @@
 #include "tile_compile/core/types.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <nlohmann/json.hpp>
 #include <vector>
 
@@ -14,5 +15,11 @@ namespace tile_compile::reconstruction {
 nlohmann::json measure_post_run_star_shape(const Matrix2Df& before,
                                           const Matrix2Df& after,
                                           const std::vector<uint8_t>& common_valid_mask);
+
+// Produce the additive run artifact from existing reconstruction/HMS outputs.
+// `configured_hms_output` follows the same run-relative convention as downstream.
+void write_post_run_star_shape_artifact(const std::filesystem::path& run_dir,
+                                       const std::filesystem::path& configured_hms_output,
+                                       bool hms_enabled);
 
 }  // namespace tile_compile::reconstruction

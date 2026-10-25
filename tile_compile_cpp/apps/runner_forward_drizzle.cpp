@@ -107,53 +107,6 @@ std::string read_cpu_model_name() {
   return {};
 }
 
-void write_post_run_star_shape_diagnostic(const std::filesystem::path& run_dir,
-                                          const config::Config& cfg) {
-  json diagnostic;
-  try {
-    std::filesystem::path final_path(cfg.hypermetric_stretch.output_rgb);
-    if (final_path.is_relative()) final_path = run_dir / "outputs" / final_path;
-    const std::filesystem::path before_path = run_dir / "outputs" / "reconstructed_G.fit";
-    const std::filesystem::path mask_path = run_dir / "outputs" / "canvas_mask.fits";
-    if (!cfg.hypermetric_stretch.enabled || !std::filesystem::is_regular_file(before_path) ||
-        !std::filesystem::is_regular_file(final_path) || !std::filesystem::is_regular_file(mask_path)) {
-      diagnostic = {{"schema_version", "pi.post-run-star-shape.v1"},
-                    {"status", "not_applicable"}, {"reason_code", "required_output_missing"},
-                    {"before_stage", "selected_reconstruction"}, {"after_stage", "final_hms_rgb_g"},
-                    {"interpretation", "descriptive_measurement_only"}};
-    } else {
-      const auto before = io::read_fits_pixels_float(before_path);
-      const auto after_rgb = io::read_fits_rgb(final_path);
-      const auto mask = io::read_fits_pixels_float(mask_path);
-      if (before.rows() != after_rgb.G.rows() || before.cols() != after_rgb.G.cols() ||
-          before.rows() != mask.rows() || before.cols() != mask.cols()) {
-        diagnostic = {{"schema_version", "pi.post-run-star-shape.v1"},
-                      {"status", "not_applicable"}, {"reason_code", "raster_mismatch"},
-                      {"before_stage", "selected_reconstruction"}, {"after_stage", "final_hms_rgb_g"},
-                      {"interpretation", "descriptive_measurement_only"}};
-      } else {
-        std::vector<uint8_t> valid(static_cast<size_t>(before.rows()) * before.cols(), 0);
-        for (int y = 0; y < before.rows(); ++y)
-          for (int x = 0; x < before.cols(); ++x)
-            valid[static_cast<size_t>(y) * before.cols() + x] =
-                std::isfinite(mask(y, x)) && mask(y, x) > 0.0f ? 1 : 0;
-        diagnostic = reconstruction::measure_post_run_star_shape(before, after_rgb.G, valid);
-      }
-    }
-  } catch (...) {
-    diagnostic = {{"schema_version", "pi.post-run-star-shape.v1"},
-                  {"status", "not_applicable"}, {"reason_code", "measurement_io_failed"},
-                  {"before_stage", "selected_reconstruction"}, {"after_stage", "final_hms_rgb_g"},
-                  {"interpretation", "descriptive_measurement_only"}};
-  }
-  try {
-    const std::filesystem::path artifact_dir = run_dir / "artifacts";
-    std::filesystem::create_directories(artifact_dir);
-    core::write_text_atomic(artifact_dir / "pi_post_run_star_shape.json", diagnostic.dump(2));
-  } catch (...) {
-    // The descriptive PI diagnostic is additive and must not turn a successful image run into a failure.
-  }
-}
 const std::vector<std::string> geometry_files = {
     "registration_sampling.json", "sampling_geometry.json",
     "sampling_geometry_analysis_common_mask.fits",
@@ -1391,7 +1344,8 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           active.reset();
         }
       }
-      write_post_run_star_shape_diagnostic(dir, cfg);
+      reconstruction::write_post_run_star_shape_artifact(
+          dir, cfg.hypermetric_stretch.output_rgb, cfg.hypermetric_stretch.enabled);
       checkpoint["downstream_status"]="complete";
       if (sampling.color_mode == ColorMode::OSC && cfg.hypermetric_stretch.enabled) {
         fs::path hms_path(cfg.hypermetric_stretch.output_rgb);
@@ -1587,7 +1541,8 @@ int resume_downstream_command(const fs::path &dir, const json &provenance,
   const int rc = runner::run_rgb_downstream(dir,run_id,cfg,phase_upper,log,
                                             abort_fn);
   if (rc==0) {
-    runner::write_post_run_star_shape_diagnostic(dir, cfg);
+    tile_compile::reconstruction::write_post_run_star_shape_artifact(
+        dir, cfg.hypermetric_stretch.output_rgb, cfg.hypermetric_stretch.enabled);
     // Refresh the checkpoint's downstream markers (same contract as the
     // full-run tail).
     const auto ckpt = dir/"artifacts/forward_drizzle_checkpoint.json";
