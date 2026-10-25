@@ -11,7 +11,7 @@ Der Bericht wird bewusst außerhalb von `runs/` erzeugt.
 ```bash
 python3 -m unittest discover -s web_backend_cpp/scripts -p 'test_evaluate_pi_decisions.py' -v > /tmp/out_jev_m5_tests.txt 2>&1
 python3 web_backend_cpp/scripts/evaluate_pi_decisions.py \
-  --decisions-dir runs/.pi_memory/pi_decisions \
+  --decisions-dir /path/to/pi-storage/pi_decisions \
   --registry web_backend_cpp/config/pi_decisions/evaluation_registry_v1.json \
   --policy web_backend_cpp/config/pi_decisions/release_policy_v1.json \
   --runs-dir /media/data/tile_compile_cache/jev-test \
@@ -19,10 +19,12 @@ python3 web_backend_cpp/scripts/evaluate_pi_decisions.py \
   --out /tmp/jev_m5_report.json > /tmp/out_jev_m5_report.txt 2>&1
 ```
 
-Das Werkzeug benötigt Python 3 und PyYAML. Es liest die Jev-Dokumente aus `pi_store_v2.sqlite` im
-übergeordneten PI-Speicher mit SQLite-URI `mode=ro`; exportierte JSON-Verzeichnisse werden als
-Fallback unterstützt. Outcomes werden nur dann einem Run zugerechnet, wenn Proposal-ID, gespeicherte
-Config-Revision, Run-Config-Hash, alle vorgeschlagenen Werte und ein erfolgreicher `run_end` zusammenpassen.
+Das Werkzeug benötigt Python 3 und PyYAML. `--decisions-dir` muss auf den aktiven PI-Speicher zeigen
+(GET `/api/pi/storage`, Feld `storage_dir`) und darin auf `pi_decisions/`. Es liest Jev-Dokumente
+aus `pi_store_v2.sqlite` im übergeordneten PI-Speicher mit SQLite-URI `mode=ro`; exportierte
+JSON-Verzeichnisse werden als Fallback unterstützt. Outcomes werden nur dann einem Run zugerechnet,
+wenn Proposal-ID (einschließlich Batch-Mitgliedschaft), Run-Snapshotrevision, zuvor gespeicherte Jev-
+Revision, Run-Config-Hash, alle vorgeschlagenen Werte und ein erfolgreicher `run_end` zusammenpassen.
 Das Werkzeug liest den optionalen PiMemoryStore sowie
 Run-Provenance/Qualitätsartefakte nur lesend. Der Ausgabepfad darf nicht in
 den Decision- oder Run-Stores liegen. Der Bericht enthält Digests der
@@ -82,8 +84,10 @@ Session-Bootstrap über alle fünf Bestätigungssessions.
 
 Der Replay liest jetzt auch die Live-Tabellen `jev_documents` read-only aus der PI-SQLite-Datei.
 Ein gespeicherter Outcome-Eintrag liefert nur einen Kandidaten für den Join: verifiziert wird er
-gegen `artifacts/pi_run_provenance.json`, die exakte `config.yaml`, deren SHA-256, die gespeicherte
-Revision und das letzte erfolgreiche `run_end`. Teilweise vorhandene Kandidatenwerte bleiben
+gegen `artifacts/pi_run_provenance.json`, die exakte `config.yaml`, deren SHA-256, die am Runstart
+aktive gespeicherte Jev-Revision, die separate Run-Snapshotrevision und das letzte erfolgreiche
+`run_end`. Bei Batch-Anwendung wird jedes Mitglied einzeln gespeichert, beim Runstart geprüft und
+mit eigenem Outcome verknüpft. Teilweise vorhandene Kandidatenwerte bleiben
 `invalid`; fehlende Outcomes bleiben `unobserved`. `run_config_hash` wird nur für verifizierte
 Links gesetzt. „Auf Entwurf angewandt“, „Config gespeichert“ und „Run erfolgreich“ werden getrennt
 ausgewiesen. Das Qualitätslabel bleibt ohne gematchte Messwerte `null`.

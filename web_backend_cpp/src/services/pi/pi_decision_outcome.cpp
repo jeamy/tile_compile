@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <fstream>
 #include <regex>
+#include <set>
 #include <stdexcept>
 #include <vector>
 
@@ -96,11 +97,32 @@ void record_jev_saved_revision(const fs::path& decisions_dir, const std::string&
     auto proposal = store.get(proposal_id, "proposal");
     if (!proposal || proposal->value("status", std::string()) != "applied_to_draft")
         throw std::runtime_error("Jev proposal is not applied to a draft");
-    json& ids = (*proposal)["saved_revision_ids"];
-    if (!ids.is_array()) ids = json::array();
-    for (const auto& id : ids) if (id == revision_id) return;
-    ids.push_back(revision_id);
-    store.put(proposal_id, "proposal", *proposal);
+    json batch_ids = proposal->value("batch_proposal_ids", json::array({proposal_id}));
+    if (!batch_ids.is_array() || batch_ids.empty()) throw std::runtime_error("invalid Jev proposal batch");
+    std::set<std::string> expected;
+    for (const auto& id : batch_ids) {
+        if (!id.is_string() || !safe_proposal_id(id.get<std::string>()) ||
+            !expected.insert(id.get<std::string>()).second)
+            throw std::runtime_error("invalid Jev proposal batch");
+    }
+    if (!expected.contains(proposal_id)) throw std::runtime_error("Jev proposal is missing from its batch");
+    const std::string applied_hash = proposal->value("config_hash_after", std::string());
+    for (const auto& id : expected) {
+        auto member = store.get(id, "proposal");
+        if (!member || member->value("status", std::string()) != "applied_to_draft" ||
+            member->value("config_hash_after", std::string()) != applied_hash ||
+            member->value("batch_proposal_ids", json::array({id})) != batch_ids)
+            throw std::runtime_error("inconsistent Jev proposal batch");
+    }
+    for (const auto& id : expected) {
+        auto member = *store.get(id, "proposal");
+        json& saved_ids = member["saved_revision_ids"];
+        if (!saved_ids.is_array()) saved_ids = json::array();
+        bool present = false;
+        for (const auto& saved_id : saved_ids) present = present || saved_id == revision_id;
+        if (!present) saved_ids.push_back(revision_id);
+        store.put(id, "proposal", member);
+    }
     tx.commit();
 }
 
@@ -114,26 +136,41 @@ bool matches_saved_jev_run(const fs::path& decisions_dir, const std::string& pro
     if (!safe_proposal_id(proposal_id) || !run_config.is_object()) return false;
     PiJevStore store(decisions_dir);
     const auto proposal = store.get(proposal_id, "proposal");
-    const auto source = store.get(proposal_id, "source");
-    if (!proposal || !source || proposal->value("status", std::string()) != "applied_to_draft" ||
-        !proposal->value("saved_revision_ids", json::array()).is_array() ||
-        proposal->value("saved_revision_ids", json::array()).empty()) return false;
-    const std::string scanned_path = source->value("input_path", std::string());
-    if (scanned_path.empty() || !source->contains("dataset_manifest") || !(*source)["dataset_manifest"].is_array()) return false;
+    if (!proposal || proposal->value("status", std::string()) != "applied_to_draft") return false;
+    const json batch_ids = proposal->value("batch_proposal_ids", json::array({proposal_id}));
+    if (!batch_ids.is_array() || batch_ids.empty()) return false;
+    std::set<std::string> expected;
+    for (const auto& id : batch_ids)
+        if (!id.is_string() || !safe_proposal_id(id.get<std::string>()) ||
+            !expected.insert(id.get<std::string>()).second) return false;
+    if (!expected.contains(proposal_id)) return false;
     try {
-        if (fs::weakly_canonical(source_dir) != fs::weakly_canonical(fs::path(scanned_path))) return false;
-        json frames = json::array();
-        for (const auto& item : (*source)["dataset_manifest"])
-            frames.push_back({{"file_name", item.at("id")}});
-        if (build_scan_dataset_manifest(source_dir, {{"frames", frames}}) != (*source)["dataset_manifest"]) return false;
-        if (staged_dir != source_dir &&
-            build_scan_dataset_manifest(staged_dir, {{"frames", frames}}) != (*source)["dataset_manifest"]) return false;
-        for (const auto& update : proposal->at("updates"))
-            if (!json_values_equal(config_get(run_config, update.at("path").get<std::string>()), update.at("value"))) return false;
+        for (const auto& id : expected) {
+            const auto member = store.get(id, "proposal");
+            const auto source = store.get(id, "source");
+            if (!member || !source || member->value("status", std::string()) != "applied_to_draft" ||
+                member->value("config_hash_after", std::string()) != proposal->value("config_hash_after", std::string()) ||
+                member->value("batch_proposal_ids", json::array({id})) != batch_ids ||
+                !member->value("saved_revision_ids", json::array()).is_array() ||
+                member->value("saved_revision_ids", json::array()).empty()) return false;
+            const std::string scanned_path = source->value("input_path", std::string());
+            if (scanned_path.empty() || !source->contains("dataset_manifest") || !(*source)["dataset_manifest"].is_array() ||
+                fs::weakly_canonical(source_dir) != fs::weakly_canonical(fs::path(scanned_path))) return false;
+            json frames = json::array();
+            for (const auto& item : (*source)["dataset_manifest"])
+                frames.push_back({{"file_name", item.at("id")}});
+            if (build_scan_dataset_manifest(source_dir, {{"frames", frames}}) != (*source)["dataset_manifest"]) return false;
+            if (staged_dir != source_dir &&
+                build_scan_dataset_manifest(staged_dir, {{"frames", frames}}) != (*source)["dataset_manifest"]) return false;
+            const auto& updates = member->at("updates");
+            if (!updates.is_array() || updates.empty()) return false;
+            for (const auto& update : updates)
+                if (!json_values_equal(config_get(run_config, update.at("path").get<std::string>()), update.at("value"))) return false;
+        }
     } catch (const std::exception&) {
         return false;
     }
-    return !proposal->at("updates").empty();
+    return true;
 }
 
 json record_jev_outcome_if_needed(const fs::path& decisions_dir, const std::string& run_id, const fs::path& run_dir,
@@ -157,18 +194,47 @@ json record_jev_outcome_if_needed(const fs::path& decisions_dir, const std::stri
     const std::string started_at = provenance->value("started_at", std::string());
     if (started_at.empty()) return write_marker({{"run_id", run_id}, {"terminal", false}, {"reason", "no_provenance"}});
 
-    // Only the proposal explicitly verified at run start may be attributed.
+    // Attribute every proposal from the atomically applied batch, but only when
+    // the saved revision carried into run start is the revision recorded for it.
     std::vector<std::pair<std::string, json>> proposals;
-    const auto prop = store.get(linked_proposal_id, "proposal");
-    if (prop && prop->value("status", std::string()) == "applied_to_draft") {
-        const json saved_ids = prop->value("saved_revision_ids", json::array());
-        const std::string applied_at = prop->value("applied_at", std::string());
-        // ISO-8601 UTC strings of identical shape compare correctly as text.
-        if (saved_ids.is_array() && !saved_ids.empty() && prop->contains("updates") &&
-            (*prop)["updates"].is_array() && !(*prop)["updates"].empty() &&
-            !applied_at.empty() && applied_at.size() == started_at.size() && applied_at <= started_at)
-            proposals.emplace_back(linked_proposal_id, *prop);
+    const auto primary = store.get(linked_proposal_id, "proposal");
+    const std::string saved_revision_id = provenance->value("prior_active_config_revision_id", std::string());
+    json batch_ids = provenance->value("jev_proposal_ids", json::array());
+    if (batch_ids.empty() && primary) batch_ids = primary->value("batch_proposal_ids", json::array({linked_proposal_id}));
+    bool valid_batch = primary && batch_ids.is_array() && !batch_ids.empty() && !saved_revision_id.empty();
+    std::set<std::string> unique_batch_ids;
+    for (const auto& id : batch_ids) {
+        if (!id.is_string() || !safe_proposal_id(id.get<std::string>()) ||
+            !unique_batch_ids.insert(id.get<std::string>()).second) {
+            valid_batch = false;
+            break;
+        }
     }
+    if (!unique_batch_ids.contains(linked_proposal_id)) valid_batch = false;
+    if (valid_batch) {
+        for (const auto& id : unique_batch_ids) {
+            const auto prop = store.get(id, "proposal");
+            if (!prop || prop->value("status", std::string()) != "applied_to_draft" ||
+                prop->value("batch_proposal_ids", json::array({id})) != batch_ids ||
+                prop->value("config_hash_after", std::string()) != primary->value("config_hash_after", std::string())) {
+                valid_batch = false;
+                break;
+            }
+            const json saved_ids = prop->value("saved_revision_ids", json::array());
+            const std::string applied_at = prop->value("applied_at", std::string());
+            const bool saved_revision_matches = saved_ids.is_array() &&
+                std::find(saved_ids.begin(), saved_ids.end(), saved_revision_id) != saved_ids.end();
+            // ISO-8601 UTC strings of identical shape compare correctly as text.
+            if (!saved_revision_matches || !prop->contains("updates") || !(*prop)["updates"].is_array() ||
+                (*prop)["updates"].empty() || applied_at.empty() || applied_at.size() != started_at.size() ||
+                applied_at > started_at) {
+                valid_batch = false;
+                break;
+            }
+            proposals.emplace_back(id, *prop);
+        }
+    }
+    if (!valid_batch) proposals.clear();
     if (proposals.empty()) return write_marker({{"run_id", run_id}, {"terminal", true}, {"reason", "no_applied_proposals"}});
 
     json run_config;
@@ -203,6 +269,7 @@ json record_jev_outcome_if_needed(const fs::path& decisions_dir, const std::stri
             if (!have) {
                 outcome["runs"].push_back({{"run_id", run_id},
                                            {"config_revision_id", provenance->value("config_revision_id", std::string())},
+                                           {"saved_config_revision_id", saved_revision_id},
                                            {"attribution", attribution},
                                            {"path_checks", checks},
                                            {"comparison_kind", "unpaired"},

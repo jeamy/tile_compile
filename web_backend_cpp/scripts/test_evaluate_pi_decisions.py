@@ -37,12 +37,15 @@ class ProposalRunLinkTest(unittest.TestCase):
         }
         self.outcome = {
             "schema_version": "pi.decision-outcome.v1",
-            "runs": [{"run_id": self.run_id, "config_revision_id": "revision_001",
+            "runs": [{"run_id": self.run_id, "config_revision_id": "run_revision_001",
+                      "saved_config_revision_id": "revision_001",
                       "attribution": "paths_present"}],
         }
         (self.run_dir / "artifacts" / "pi_run_provenance.json").write_text(json.dumps({
             "jev_proposal_id": self.proposal_id,
-            "config_revision_id": "revision_001",
+            "jev_proposal_ids": [self.proposal_id],
+            "config_revision_id": "run_revision_001",
+            "prior_active_config_revision_id": "revision_001",
             "config_sha256": config_hash,
         }), encoding="utf-8")
         (self.run_dir / "artifacts" / "run_provenance.json").write_text(json.dumps({

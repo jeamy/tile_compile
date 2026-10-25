@@ -597,7 +597,19 @@ static void write_run_start_provenance(const std::shared_ptr<AppState>& state,
         // Optional AI metadata must not prevent an otherwise valid processing run.
         provenance["pi_context_warning"] = "index_registration_unavailable";
     }
-    if (!jev_proposal_id.empty()) provenance["jev_proposal_id"] = jev_proposal_id;
+    if (!jev_proposal_id.empty()) {
+        provenance["jev_proposal_id"] = jev_proposal_id;
+        try {
+            const auto proposal = tile_compile::pi::PiJevStore(
+                tile_compile::pi::pi_storage_dir(state) / "pi_decisions").get(jev_proposal_id, "proposal");
+            if (proposal) {
+                auto proposal_ids = proposal->value("batch_proposal_ids", nlohmann::json::array({jev_proposal_id}));
+                if (proposal_ids.is_array() && !proposal_ids.empty()) provenance["jev_proposal_ids"] = proposal_ids;
+            }
+        } catch (const std::exception&) {
+            // Run attribution remains fail-closed if batch provenance cannot be read.
+        }
+    }
     std::ofstream out(run_dir / "artifacts" / "pi_run_provenance.json", std::ios::out | std::ios::trunc);
     if (out) { out << provenance.dump(2); out.close(); }
     try { capture_pi_learning(state, run_id, run_dir, "start", "running"); }
@@ -1476,6 +1488,27 @@ void register_runs_routes(CrowApp& app,
                     if (!tile_compile::pi::matches_saved_jev_run(decisions_dir, requested_jev_id,
                                                                   input_dirs.front(), run_config))
                         return err_resp("JEV_PROPOSAL_STALE", "saved Jev proposal no longer matches run input or config", 409,
+                                        nlohmann::json::object());
+                }
+                const auto primary = tile_compile::pi::PiJevStore(decisions_dir).get(requested_jev_id, "proposal");
+                const auto batch_ids = primary
+                    ? primary->value("batch_proposal_ids", nlohmann::json::array({requested_jev_id}))
+                    : nlohmann::json::array();
+                if (prior_active_config_revision_id.empty() || !batch_ids.is_array() || batch_ids.empty())
+                    return err_resp("JEV_PROPOSAL_STALE", "saved Jev config revision is not active", 409,
+                                    nlohmann::json::object());
+                for (const auto& proposal_id : batch_ids) {
+                    if (!proposal_id.is_string())
+                        return err_resp("JEV_PROPOSAL_STALE", "saved Jev proposal batch is invalid", 409,
+                                        nlohmann::json::object());
+                    const auto member = tile_compile::pi::PiJevStore(decisions_dir).get(
+                        proposal_id.get<std::string>(), "proposal");
+                    const auto saved_ids = member
+                        ? member->value("saved_revision_ids", nlohmann::json::array())
+                        : nlohmann::json::array();
+                    if (!member || !saved_ids.is_array() ||
+                        std::find(saved_ids.begin(), saved_ids.end(), prior_active_config_revision_id) == saved_ids.end())
+                        return err_resp("JEV_PROPOSAL_STALE", "saved Jev config revision does not match the active config", 409,
                                         nlohmann::json::object());
                 }
                 jev_run_proposal_id = requested_jev_id;

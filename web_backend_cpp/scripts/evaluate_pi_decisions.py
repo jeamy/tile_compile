@@ -68,7 +68,7 @@ def validate_release_policy(policy):
                 raise ValueError(f"threshold outside [0,1]: {candidate_id}/{key}")
         if thresholds["maximum_invalid_patch_rate"] != 0:
             raise ValueError(f"invalid patches cannot be allowed: {candidate_id}")
-    if (thresholds["minimum_object_groups"] * thresholds["minimum_sessions_per_object_group"] >
+        if (thresholds["minimum_object_groups"] * thresholds["minimum_sessions_per_object_group"] >
                 thresholds["minimum_test_sessions"]):
             raise ValueError(f"inconsistent session strata: {candidate_id}")
 
@@ -194,12 +194,26 @@ def decision_run_links(proposal_id, proposal, outcome, runs_dir):
             config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
             config_hash = canonical_config_digest(config_path)
             run_events_path = resolved_run_dir / "logs" / "run_events.jsonl"
-            events = [json.loads(line) for line in run_events_path.read_text(encoding="utf-8").splitlines()
-                      if line.strip()]
+            events = []
+            for line in run_events_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                event = json.loads(line)
+                if not isinstance(event, dict):
+                    raise ValueError("run event is not a JSON object")
+                events.append(event)
             terminal = next((event for event in reversed(events) if event.get("type") == "run_end"), None)
             revision_id = recorded.get("config_revision_id")
             provenance_revision = pi_provenance.get("config_revision_id")
+            provenance_saved_revision = pi_provenance.get("prior_active_config_revision_id")
+            saved_revision_id = recorded.get("saved_config_revision_id") or provenance_saved_revision
             provenance_proposal = pi_provenance.get("jev_proposal_id")
+            provenance_proposals = pi_provenance.get("jev_proposal_ids", [provenance_proposal])
+            if not isinstance(provenance_proposals, list):
+                provenance_proposals = []
+            proposal_batch = proposal.get("batch_proposal_ids", [proposal_id])
+            if not isinstance(proposal_batch, list):
+                proposal_batch = []
             provenance_hash = pi_provenance.get("config_sha256")
             hash_matches = provenance_hash in {config_hash, config_hash.removeprefix("sha256:")}
             config_values_match = all(
@@ -207,9 +221,13 @@ def decision_run_links(proposal_id, proposal, outcome, runs_dir):
                 for update in proposal.get("updates", [])
             )
             checks = {
-                "proposal_id_matches": provenance_proposal == proposal_id,
-                "revision_id_matches": bool(revision_id) and revision_id == provenance_revision,
-                "revision_was_saved_for_proposal": bool(revision_id) and revision_id in saved_revisions,
+                "proposal_id_matches": (
+                    proposal_id in proposal_batch and provenance_proposal in proposal_batch and
+                    (provenance_proposal == proposal_id or proposal_id in provenance_proposals)
+                ),
+                "run_revision_id_matches": bool(revision_id) and revision_id == provenance_revision,
+                "saved_revision_matches_run_start": bool(saved_revision_id) and saved_revision_id == provenance_saved_revision,
+                "saved_revision_was_linked_to_proposal": bool(saved_revision_id) and saved_revision_id in saved_revisions,
                 "config_hash_matches_provenance": hash_matches,
                 "proposal_values_present": config_values_match,
                 "outcome_attribution_has_all_paths": recorded.get("attribution") == "paths_present",
@@ -220,6 +238,7 @@ def decision_run_links(proposal_id, proposal, outcome, runs_dir):
                 "run_id": run_id,
                 "status": "verified" if verified else "invalid",
                 "config_revision_id": revision_id,
+                "saved_config_revision_id": saved_revision_id,
                 "run_config_hash": config_hash,
                 "input_manifest_hash": (load(resolved_run_dir / "artifacts" / "run_provenance.json")
                                         .get("input_manifest", {}).get("sha256")),
