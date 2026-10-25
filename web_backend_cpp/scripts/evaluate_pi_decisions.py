@@ -8,6 +8,7 @@ import json
 import math
 import os
 from pathlib import Path
+import sqlite3
 import tempfile
 import yaml
 
@@ -110,18 +111,138 @@ def dotted_value(document, key):
     return value
 
 
-def replay(decisions_dir):
-    rows = []
+def load_decision_documents(decisions_dir):
+    """Read Jev documents from the live SQLite store, or an exported JSON tree."""
+    database_path = decisions_dir.parent / "pi_store_v2.sqlite"
+    if database_path.is_file():
+        uri = database_path.resolve().as_uri() + "?mode=ro"
+        try:
+            with sqlite3.connect(uri, uri=True) as connection:
+                raw_rows = connection.execute(
+                    "SELECT proposal_id, part, json FROM jev_documents ORDER BY proposal_id, part"
+                ).fetchall()
+        except sqlite3.Error as error:
+            raise ValueError(f"cannot read Jev SQLite store read-only: {error}") from error
+        documents = {}
+        source_digests = {}
+        for proposal_id, part, raw in raw_rows:
+            try:
+                documents.setdefault(proposal_id, {})[part] = json.loads(raw)
+            except (TypeError, json.JSONDecodeError) as error:
+                raise ValueError(f"invalid Jev document JSON: {proposal_id}/{part}") from error
+            source_digests.setdefault(proposal_id, {})[part] = (
+                "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+            )
+        return documents, source_digests
+
+    documents = {}
+    source_digests = {}
     for directory in sorted(decisions_dir.iterdir()):
         if not directory.is_dir():
             continue
-        required = [directory / (name + ".json") for name in
-                    ("status", "proposal", "state", "candidates", "request", "response")]
-        if not any(path.exists() for path in required):
+        parts = {}
+        digests = {}
+        for name in ("status", "proposal", "state", "candidates", "request", "response", "outcome"):
+            path = directory / (name + ".json")
+            if path.is_file():
+                parts[name] = load(path)
+                digests[name] = digest(path)
+        if parts:
+            documents[directory.name] = parts
+            source_digests[directory.name] = digests
+    return documents, source_digests
+
+
+def canonical_config_digest(path):
+    return digest(path)
+
+
+def decision_run_links(proposal_id, proposal, outcome, runs_dir):
+    """Join a proposal outcome to immutable run-start provenance.
+
+    A stored outcome is only a claim. It becomes a verified link when the run
+    provenance names this proposal and the exact saved revision, the run's
+    config bytes match its provenance digest, all candidate values are
+    present, and the run ended successfully.
+    """
+    if not isinstance(outcome, dict):
+        return [], "unobserved"
+    runs = outcome.get("runs", [])
+    if not isinstance(runs, list):
+        return [], "invalid_outcome"
+    saved_revisions = proposal.get("saved_revision_ids", [])
+    if not isinstance(saved_revisions, list):
+        saved_revisions = []
+
+    links = []
+    for recorded in runs:
+        if not isinstance(recorded, dict):
+            links.append({"status": "invalid", "reason": "malformed_outcome_run"})
             continue
-        if not all(path.is_file() for path in required):
-            raise ValueError(f"incomplete decision record: {directory.name}")
-        status, proposal, state, candidates, request, response = map(load, required)
+        run_id = recorded.get("run_id")
+        if not isinstance(run_id, str) or not run_id or Path(run_id).name != run_id:
+            links.append({"status": "invalid", "reason": "unsafe_run_id"})
+            continue
+        run_dir = runs_dir / run_id
+        try:
+            resolved_run_dir = run_dir.resolve(strict=True)
+            resolved_root = runs_dir.resolve(strict=True)
+            if not resolved_run_dir.is_relative_to(resolved_root):
+                raise ValueError("run_path_outside_runs_root")
+            pi_provenance = load(resolved_run_dir / "artifacts" / "pi_run_provenance.json")
+            config_path = resolved_run_dir / "config.yaml"
+            config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            config_hash = canonical_config_digest(config_path)
+            run_events_path = resolved_run_dir / "logs" / "run_events.jsonl"
+            events = [json.loads(line) for line in run_events_path.read_text(encoding="utf-8").splitlines()
+                      if line.strip()]
+            terminal = next((event for event in reversed(events) if event.get("type") == "run_end"), None)
+            revision_id = recorded.get("config_revision_id")
+            provenance_revision = pi_provenance.get("config_revision_id")
+            provenance_proposal = pi_provenance.get("jev_proposal_id")
+            provenance_hash = pi_provenance.get("config_sha256")
+            hash_matches = provenance_hash in {config_hash, config_hash.removeprefix("sha256:")}
+            config_values_match = all(
+                dotted_value(config, update["path"]) == update.get("value")
+                for update in proposal.get("updates", [])
+            )
+            checks = {
+                "proposal_id_matches": provenance_proposal == proposal_id,
+                "revision_id_matches": bool(revision_id) and revision_id == provenance_revision,
+                "revision_was_saved_for_proposal": bool(revision_id) and revision_id in saved_revisions,
+                "config_hash_matches_provenance": hash_matches,
+                "proposal_values_present": config_values_match,
+                "outcome_attribution_has_all_paths": recorded.get("attribution") == "paths_present",
+                "run_succeeded": bool(terminal and terminal.get("success") is True),
+            }
+            verified = all(checks.values())
+            links.append({
+                "run_id": run_id,
+                "status": "verified" if verified else "invalid",
+                "config_revision_id": revision_id,
+                "run_config_hash": config_hash,
+                "input_manifest_hash": (load(resolved_run_dir / "artifacts" / "run_provenance.json")
+                                        .get("input_manifest", {}).get("sha256")),
+                "checks": checks,
+                "reason": None if verified else "run_provenance_link_check_failed",
+            })
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError, yaml.YAMLError) as error:
+            links.append({"run_id": run_id, "status": "invalid", "reason": str(error)})
+    status = "verified" if links and all(link.get("status") == "verified" for link in links) else (
+        "invalid" if links else "unobserved")
+    return links, status
+
+
+def replay(decisions_dir, runs_dir):
+    rows = []
+    records, document_digests = load_decision_documents(decisions_dir)
+    required = ("status", "proposal", "state", "candidates", "request", "response")
+    for proposal_id, documents in sorted(records.items()):
+        if not any(name in documents for name in required):
+            continue
+        if not all(name in documents for name in required):
+            raise ValueError(f"incomplete decision record: {proposal_id}")
+        status, proposal, state, candidates, request, response = (documents[name] for name in required)
         selected = response.get("selection") or {}
         candidate_id = proposal.get("candidate_id")
         allowed = {item["candidate_id"]: item for item in candidates.get("applicable", [])}
@@ -136,21 +257,25 @@ def replay(decisions_dir):
         updates_match = proposal.get("updates", []) == expected_updates if applicable else False
         validation = proposal.get("validation") or {}
         validation_ok = all(validation.get(key) is True for key in VALIDATION_KEYS)
+        run_links, run_link_status = decision_run_links(
+            proposal_id, proposal, documents.get("outcome"), runs_dir)
+        verified_run_hashes = [link["run_config_hash"] for link in run_links
+                               if link.get("status") == "verified" and link.get("run_config_hash")]
         invalid_applicable_patch = (candidate_id not in ABSTAIN and
                                     (not hash_consistent or not selected_consistent or
                                      not applicable or not updates_match or not validation_ok))
         probability = (selected.get("probabilities") or {}).get(candidate_id)
         rows.append({
-            "proposal_id": directory.name,
-            "source_digests": {path.stem: digest(path) for path in required},
+            "proposal_id": proposal_id,
+            "source_digests": document_digests.get(proposal_id, {}),
             "candidate_id": candidate_id,
             "proposal_status": proposal.get("status"),
             "decision_status": status.get("state"),
             "model_requested": (proposal.get("model") or {}).get("requested"),
             "model_reported": (proposal.get("model") or {}).get("provider_reported"),
-            "model_response_digest": digest(directory / "response.json"),
+            "model_response_digest": document_digests.get(proposal_id, {}).get("response"),
             "policy_version": proposal.get("policy_version"),
-            "decision_policy_digest": digest(directory / "candidates.json"),
+            "decision_policy_digest": document_digests.get(proposal_id, {}).get("candidates"),
             "state_hash": state_hash,
             "catalog_version": candidates.get("catalog_version"),
             "hash_consistent": hash_consistent,
@@ -161,12 +286,17 @@ def replay(decisions_dir):
             "invalid_applicable_patch": invalid_applicable_patch,
             "abstained": candidate_id in ABSTAIN,
             "selection_probability": probability,
-            "user_acceptance": ("accepted" if proposal.get("status") in
-                                {"applied_to_draft", "saved", "run_started"} else "not_observed"),
+            "user_acceptance": ("saved_config" if proposal.get("saved_revision_ids") else
+                                "draft_applied" if proposal.get("status") == "applied_to_draft" else
+                                "not_observed"),
             "draft_config_hash_after_apply": (proposal.get("config_hash_after") if proposal.get("status") in
                                               {"applied_to_draft", "saved", "run_started"} else None),
-            "run_config_hash": None,
+            "run_links": run_links,
+            "run_link_status": run_link_status,
+            "run_config_hash": verified_run_hashes[0] if len(verified_run_hashes) == 1 else None,
+            "run_config_hashes": verified_run_hashes,
             "quality_label": None,
+            "quality_label_reason": "matched-position and comparable-area measurements unavailable",
         })
     return rows
 
@@ -277,10 +407,15 @@ def evaluate(decisions_dir, registry_path, policy_path, runs_dir, memory_path=No
     if registry.get("schema_version") != "pi.jev-evaluation-registry.v1":
         raise ValueError("unsupported registry version")
     validate_release_policy(policy)
-    rows = replay(decisions_dir)
+    rows = replay(decisions_dir, runs_dir)
     sessions = evidence(registry, runs_dir)
     invalid = sum(row["invalid_applicable_patch"] for row in rows)
     abstained = sum(row["abstained"] for row in rows)
+    link_status_counts = {status: sum(row["run_link_status"] == status for row in rows)
+                          for status in ("verified", "invalid", "unobserved")}
+    verified_run_link_count = sum(
+        link.get("status") == "verified"
+        for row in rows for link in row.get("run_links", []))
     eligible = {}
     for candidate_id, thresholds in policy["candidates"].items():
         reasons = ["quality_policy_not_computed"]
@@ -323,6 +458,11 @@ def evaluate(decisions_dir, registry_path, policy_path, runs_dir, memory_path=No
             "calibration_reason": "no ground-truth outcome labels for proposal probabilities",
             "quality_delta": None,
             "quality_delta_reason": "matched-position and comparable-area measurements unavailable",
+            "run_linkage": {
+                "proposal_count_by_status": link_status_counts,
+                "verified_run_link_count": verified_run_link_count,
+                "note": "run identity, saved config revision, exact run config digest, applied values, and successful terminal event are checked; no quality label is inferred",
+            },
         },
         "baselines": {
             "current_config": "paired run artifacts where registered; not a Jev trial",

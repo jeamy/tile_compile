@@ -19,7 +19,11 @@ python3 web_backend_cpp/scripts/evaluate_pi_decisions.py \
   --out /tmp/jev_m5_report.json > /tmp/out_jev_m5_report.txt 2>&1
 ```
 
-Das Werkzeug benötigt Python 3 und PyYAML. Es liest `pi_decisions/`, den optionalen PiMemoryStore sowie
+Das Werkzeug benötigt Python 3 und PyYAML. Es liest die Jev-Dokumente aus `pi_store_v2.sqlite` im
+übergeordneten PI-Speicher mit SQLite-URI `mode=ro`; exportierte JSON-Verzeichnisse werden als
+Fallback unterstützt. Outcomes werden nur dann einem Run zugerechnet, wenn Proposal-ID, gespeicherte
+Config-Revision, Run-Config-Hash, alle vorgeschlagenen Werte und ein erfolgreicher `run_end` zusammenpassen.
+Das Werkzeug liest den optionalen PiMemoryStore sowie
 Run-Provenance/Qualitätsartefakte nur lesend. Der Ausgabepfad darf nicht in
 den Decision- oder Run-Stores liegen. Der Bericht enthält Digests der
 Entscheidungsdateien, State-Hash, Policy, Modellantwort, Registry und
@@ -53,6 +57,40 @@ implementierte Mess- und Schwellwertprüfung nie `true`.
 - `filter` und `quality_group` sind im retrospektiven Register `unknown`, wo
   sie aus den verfügbaren Artefakten nicht abgesichert sind. Keine
   nachträgliche Erfindung dieser Strata.
+
+## M31/M42-Paarprüfung 2026-10-25
+
+Die vorhandenen 120-Frame-Screeningläufe wurden mit `evaluate_reconstruction_screening.py` erneut
+ausgewertet. Kontrolle und Varianten haben pro Objekt identische Frame-Manifeste, Build-ID,
+Registrierungsreferenz und Raster; je Paar blieb `drizzle_raw` ausgewählt. Es wurden keine neuen
+Bildverarbeitungsläufe gestartet.
+
+| Session | Variante | Gematchte Sterne | FWHM-Verhältnis | Elongation | Signal | Rauschen | `n_eff`-Verhältnis | Hintergrundpixel |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| M31 | `pixfrac_1.0` | 2030 | 0,9986 | 1,0006 | 1,0017 | 0,9126 | 1,4582 | 6 744 682 |
+| M31 | `clip_5_5` | 2031 | 0,9990 | 1,0004 | 1,0098 | 0,9554 | 1,0000 | 6 744 644 |
+| M42 | `pixfrac_1.0` | 1084 | 0,9987 | 1,0002 | 1,0015 | 0,9071 | 1,4612 | 7 552 604 |
+| M42 | `clip_5_5` | 1085 | 0,9987 | 0,9993 | 1,0094 | 0,9681 | 1,0000 | 7 552 666 |
+
+Diese Nachrechnung bestätigt die technischen Paarbedingungen und reproduziert die bereits bekannten
+Effekte auf M31 und M42. Sie sind retrospektive Einzel-Sessions und keine neuen Fälle für den
+blinden Vier-Baseline-Test oder die allgemeine Jev-Entscheidungsqualität. `clip_5_5` in M42 liegt
+mit seinem Einzelwert nahe der Policy-v2-Obergrenze 0,97; maßgeblich bleibt das vorab festgelegte
+Session-Bootstrap über alle fünf Bestätigungssessions.
+
+## Proposal → Revision → Run-Verknüpfung
+
+Der Replay liest jetzt auch die Live-Tabellen `jev_documents` read-only aus der PI-SQLite-Datei.
+Ein gespeicherter Outcome-Eintrag liefert nur einen Kandidaten für den Join: verifiziert wird er
+gegen `artifacts/pi_run_provenance.json`, die exakte `config.yaml`, deren SHA-256, die gespeicherte
+Revision und das letzte erfolgreiche `run_end`. Teilweise vorhandene Kandidatenwerte bleiben
+`invalid`; fehlende Outcomes bleiben `unobserved`. `run_config_hash` wird nur für verifizierte
+Links gesetzt. „Auf Entwurf angewandt“, „Config gespeichert“ und „Run erfolgreich“ werden getrennt
+ausgewiesen. Das Qualitätslabel bleibt ohne gematchte Messwerte `null`.
+
+Der Evaluator wurde gegen synthetische SQLite-Datensätze für gültige Verknüpfung, abweichende
+Proposal-ID, fehlgeschlagenen Run und partielle Kandidatenwerte getestet (4 Tests). Der Live-Backend-
+Speicher konnte in dieser Umgebung nicht gelesen werden; der bestehende Backend wurde nicht gestartet.
 
 ## Eingefrorene Grenzen für neue Test-Sessions
 
@@ -177,6 +215,14 @@ des IC4605-Kontrollarms prüft die technische Reproduzierbarkeit; sie ist
 keine weitere unabhängige Session. Wegen unterschiedlicher Referenzbilder
 und Raster erfüllen beide neuen Paare die spätere Paarungsregel der Policy v2
 nicht und zählen nicht als Bestätigung für eine reguläre Freigabe.
+
+Weiterhin offen bleiben die vier Baselines (aktuelle Config, Regeln allein,
+bestehende PI-Beratung, Regeln plus Jev) auf einer vorab getrennten,
+prospektiven Entscheidungssuite sowie die nötigen 30 vorteilhaften und 75
+unsicheren gelabelten Fälle. Die M31/M42-Paare oben sind keine solchen
+Entscheidungsfälle. Für v1-Kandidaten fehlen außerdem die mindestens 12
+unabhängigen Test-Sessions; das Sensorprofil bleibt mangels Referenz-
+Luminanzdaten blockiert. `enable_adaptive_weights` bleibt verworfen.
 
 ## Entscheidung vom 2026-09-26: `enable_adaptive_weights` verworfen, Policy v2
 
