@@ -179,7 +179,9 @@ int main() {
 
         const fs::path queued_run = root / "runs" / "queue1" / "L";
         write_text(queued_run / "artifacts" / "pi_run_provenance.json",
-                   json{{"jev_proposal_id", "p_ok"}, {"started_at", "2026-09-23T11:00:00Z"}}.dump());
+                   json{{"prior_active_config_revision_id", "cfg_saved"},
+                        {"jev_proposal_id", "p_ok"},
+                        {"started_at", "2026-09-23T11:00:00Z"}}.dump());
         write_text(queued_run / "config.yaml", slurp_file(run / "config.yaml"));
         const json queued_marker = record_jev_outcome_if_needed(dec, "queue1/L", queued_run);
         expect_true(queued_marker["reason"] == "recorded" && queued_marker["terminal"] == true,

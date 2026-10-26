@@ -168,6 +168,9 @@ void BackendHarness::start() {
         setenv("TILE_COMPILE_PORT", std::to_string(_port).c_str(), 1);
         setenv("TILE_COMPILE_ALLOWED_ROOTS", (_fixture_root.string() + ":" + _repo_root.string()).c_str(), 1);
         setenv("TILE_COMPILE_INPUT_SEARCH_ROOTS", _fixture_root.c_str(), 1);
+        for (const auto& [k, v] : _env_overrides) {
+            setenv(k.c_str(), v.c_str(), 1);
+        }
         chdir(_repo_root.c_str());
         execl(_backend_path.c_str(), _backend_path.c_str(), static_cast<char*>(nullptr));
         _exit(127);

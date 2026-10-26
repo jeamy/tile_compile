@@ -8,6 +8,7 @@ import json
 import math
 import os
 from pathlib import Path
+import random
 import sqlite3
 import tempfile
 import yaml
@@ -26,17 +27,19 @@ COUNT_FIELDS = {"minimum_test_sessions", "minimum_object_groups", "minimum_sessi
                 "minimum_matched_stars_per_session", "minimum_valid_background_pixels_per_session",
                 "minimum_unsaturated_signal_apertures_per_session", "minimum_reference_patches_per_session",
                 "minimum_beneficial_cases", "minimum_unsafe_cases"}
+V2_SAMPLE_FIELDS = {
+    "minimum_test_sessions", "minimum_object_groups", "minimum_sessions_per_object_group",
+    "minimum_matched_stars_per_session", "minimum_valid_background_pixels_per_session",
+}
 
 
-def validate_release_policy(policy):
-    if policy.get("schema_version") != "pi.jev-release-policy.v1":
-        raise ValueError("unsupported release policy version")
+def _validate_policy_header(policy, require_wilson=True):
     if policy.get("confidence_level") != 0.95 or policy.get("statistical_unit") != "independent_session":
         raise ValueError("unsupported confidence level or statistical unit")
     if (policy.get("paired_session_ci_method") != "percentile_bootstrap" or
             policy.get("bootstrap_resamples") != 10000 or
             policy.get("bootstrap_seed") != 20260925 or
-            policy.get("decision_rate_ci_method") != "wilson"):
+            (require_wilson and policy.get("decision_rate_ci_method") != "wilson")):
         raise ValueError("unsupported uncertainty procedure")
     if not isinstance(policy.get("frozen_before_test"), bool):
         raise ValueError("invalid policy freeze flag")
@@ -46,31 +49,87 @@ def validate_release_policy(policy):
         raise ValueError("invalid policy freeze timestamp") from error
     if frozen_at.tzinfo is None or frozen_at.utcoffset() != timezone.utc.utcoffset(frozen_at):
         raise ValueError("policy freeze timestamp must be UTC")
-    if set(policy.get("candidates", {})) != {"enable_adaptive_weights", "set_sensor_profile_dwarf_ii"}:
-        raise ValueError("release policy candidate set mismatch")
-    for candidate_id, thresholds in policy.get("candidates", {}).items():
-        required = COMMON_RELEASE_FIELDS | ({"minimum_matched_stars_per_session",
-            "minimum_valid_background_pixels_per_session", "minimum_unsaturated_signal_apertures_per_session",
-            "maximum_elongation_regression"} if candidate_id == "enable_adaptive_weights" else {
-            "minimum_reference_patches_per_session", "maximum_reference_luminance_error",
-            "maximum_display_clipping_increase", "maximum_shadow_contrast_loss",
-            "maximum_highlight_contrast_loss", "minimum_exact_camera_match_rate"})
-        if not required.issubset(thresholds) or not isinstance(thresholds.get("primary_endpoint"), str):
-            raise ValueError(f"incomplete release thresholds: {candidate_id}")
-        for key in required:
-            value = thresholds[key]
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                raise ValueError(f"non-finite or non-numeric release threshold: {candidate_id}/{key}")
-            if key in COUNT_FIELDS:
-                if not isinstance(value, int) or value <= 0:
-                    raise ValueError(f"invalid count threshold: {candidate_id}/{key}")
-            elif not 0 <= value <= 1:
-                raise ValueError(f"threshold outside [0,1]: {candidate_id}/{key}")
-        if thresholds["maximum_invalid_patch_rate"] != 0:
-            raise ValueError(f"invalid patches cannot be allowed: {candidate_id}")
-        if (thresholds["minimum_object_groups"] * thresholds["minimum_sessions_per_object_group"] >
-                thresholds["minimum_test_sessions"]):
-            raise ValueError(f"inconsistent session strata: {candidate_id}")
+
+
+def validate_release_policy(policy):
+    version = policy.get("schema_version")
+    if version == "pi.jev-release-policy.v1":
+        _validate_policy_header(policy, require_wilson=True)
+        if set(policy.get("candidates", {})) != {"enable_adaptive_weights", "set_sensor_profile_dwarf_ii"}:
+            raise ValueError("release policy candidate set mismatch")
+        for candidate_id, thresholds in policy.get("candidates", {}).items():
+            required = COMMON_RELEASE_FIELDS | ({"minimum_matched_stars_per_session",
+                "minimum_valid_background_pixels_per_session", "minimum_unsaturated_signal_apertures_per_session",
+                "maximum_elongation_regression"} if candidate_id == "enable_adaptive_weights" else {
+                "minimum_reference_patches_per_session", "maximum_reference_luminance_error",
+                "maximum_display_clipping_increase", "maximum_shadow_contrast_loss",
+                "maximum_highlight_contrast_loss", "minimum_exact_camera_match_rate"})
+            if not required.issubset(thresholds) or not isinstance(thresholds.get("primary_endpoint"), str):
+                raise ValueError(f"incomplete release thresholds: {candidate_id}")
+            for key in required:
+                value = thresholds[key]
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                    raise ValueError(f"non-finite or non-numeric release threshold: {candidate_id}/{key}")
+                if key in COUNT_FIELDS:
+                    if not isinstance(value, int) or value <= 0:
+                        raise ValueError(f"invalid count threshold: {candidate_id}/{key}")
+                elif not 0 <= value <= 1:
+                    raise ValueError(f"threshold outside [0,1]: {candidate_id}/{key}")
+            if thresholds["maximum_invalid_patch_rate"] != 0:
+                raise ValueError(f"invalid patches cannot be allowed: {candidate_id}")
+            if (thresholds["minimum_object_groups"] * thresholds["minimum_sessions_per_object_group"] >
+                    thresholds["minimum_test_sessions"]):
+                raise ValueError(f"inconsistent session strata: {candidate_id}")
+        return
+
+    if version == "pi.jev-release-policy.v2":
+        _validate_policy_header(policy, require_wilson=False)
+        futility = policy.get("futility_rule") or {}
+        if futility.get("minimum_evaluable_sessions") != 4:
+            raise ValueError("invalid v2 futility rule")
+        expected_candidates = {
+            "enable_adaptive_weights", "set_pixfrac", "set_clip_sigmas", "set_sensor_profile_dwarf_ii",
+        }
+        if set(policy.get("candidates", {})) != expected_candidates:
+            raise ValueError("release policy v2 candidate set mismatch")
+        for candidate_id, spec in policy.get("candidates", {}).items():
+            if not isinstance(spec, dict):
+                raise ValueError(f"invalid candidate spec: {candidate_id}")
+            status = spec.get("status")
+            if status == "rejected_by_futility":
+                if spec.get("catalog_status") != "rejected" or not isinstance(spec.get("evidence"), str):
+                    raise ValueError(f"incomplete rejected_by_futility spec: {candidate_id}")
+            elif status == "blocked":
+                if not isinstance(spec.get("reason"), str) or not spec["reason"].strip():
+                    raise ValueError(f"incomplete blocked spec: {candidate_id}")
+            elif status == "pre_registered":
+                if spec.get("primary_endpoint") != "matched_background_noise_ratio_candidate_over_control":
+                    raise ValueError(f"unsupported v2 primary endpoint: {candidate_id}")
+                upper = spec.get("noise_ratio_ci_upper_max")
+                if isinstance(upper, bool) or not isinstance(upper, (int, float)) or not (0 < upper <= 1):
+                    raise ValueError(f"invalid noise_ratio_ci_upper_max: {candidate_id}")
+                safety = spec.get("safety") or {}
+                for skey in ("star_fwhm_ratio_ci_upper_max", "elongation_ratio_ci_upper_max",
+                             "star_signal_ratio_ci_lower_min"):
+                    sval = safety.get(skey)
+                    if isinstance(sval, bool) or not isinstance(sval, (int, float)) or not math.isfinite(sval):
+                        raise ValueError(f"invalid safety threshold: {candidate_id}/{skey}")
+                if safety.get("coverage_gate_must_pass") is not True or safety.get("selected_candidate_unchanged") is not True:
+                    raise ValueError(f"safety gates must remain mandatory: {candidate_id}")
+                sample = spec.get("sample") or {}
+                if not V2_SAMPLE_FIELDS.issubset(sample):
+                    raise ValueError(f"incomplete sample spec: {candidate_id}")
+                for k in V2_SAMPLE_FIELDS:
+                    v = sample[k]
+                    if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
+                        raise ValueError(f"invalid sample count threshold: {candidate_id}/{k}")
+                if sample["minimum_object_groups"] * sample["minimum_sessions_per_object_group"] > sample["minimum_test_sessions"]:
+                    raise ValueError(f"inconsistent session strata: {candidate_id}")
+            else:
+                raise ValueError(f"unsupported v2 candidate status: {candidate_id}/{status}")
+        return
+
+    raise ValueError("unsupported release policy version")
 
 
 def enrolled_after_freeze(session, frozen_at_utc):
@@ -288,6 +347,7 @@ def replay(decisions_dir, runs_dir):
             "proposal_id": proposal_id,
             "source_digests": document_digests.get(proposal_id, {}),
             "candidate_id": candidate_id,
+            "rule_applicable_candidates": sorted(allowed.keys()),
             "proposal_status": proposal.get("status"),
             "decision_status": status.get("state"),
             "model_requested": (proposal.get("model") or {}).get("requested"),
@@ -320,7 +380,31 @@ def replay(decisions_dir, runs_dir):
     return rows
 
 
-def memory_inventory(path):
+def memory_inventory(path, decisions_dir=None):
+    if path is None and decisions_dir is not None:
+        db_path = decisions_dir.parent / "pi_store_v2.sqlite"
+        if db_path.is_file():
+            uri = db_path.resolve().as_uri() + "?mode=ro"
+            try:
+                with sqlite3.connect(uri, uri=True) as connection:
+                    table = connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_records'"
+                    ).fetchone()
+                    if table:
+                        raw_rows = connection.execute("SELECT status FROM memory_records").fetchall()
+                        counts = {}
+                        for (st,) in raw_rows:
+                            key = str(st or "missing")
+                            counts[key] = counts.get(key, 0) + 1
+                        return {
+                            "record_count": len(raw_rows),
+                            "status_counts": counts,
+                            "source": "sqlite_memory_records",
+                            "note": "inventory only; no unverified memory outcome is used as a quality label",
+                        }
+            except sqlite3.Error:
+                pass
+        return None
     if path is None:
         return None
     counts = {}
@@ -340,6 +424,68 @@ def memory_inventory(path):
             counts[status] = counts.get(status, 0) + 1
     return {"record_count": total, "status_counts": counts,
             "note": "inventory only; no unverified memory outcome is used as a quality label"}
+
+
+def _extract_matched_metrics(entry, runs_dir):
+    raw = entry.get("matched_metrics")
+    if raw is None and isinstance(entry.get("matched_metrics_path"), str):
+        mpath = Path(entry["matched_metrics_path"])
+        if not mpath.is_absolute():
+            mpath = runs_dir.parent / mpath
+        if mpath.is_file():
+            raw = load(mpath)
+    if not isinstance(raw, dict):
+        return None
+    try:
+        matched_stars = int(raw["matched_stars"])
+        fwhm_ratio = float(raw["fwhm_ratio_candidate_over_control"]["median"])
+        elong_ratio = float(raw["elongation_ratio_candidate_over_control"]["median"])
+        sig_ratio = float(raw["signal_ratio_candidate_over_control"]["median"])
+        noise_ratio = float(raw["noise"]["ratio_candidate_over_control"])
+        bg_pixels = int(raw["noise"]["valid_background_pixels"])
+        cov_inter = float(raw["coverage"]["intersection_over_control"])
+        cov_loss = float(raw["coverage"]["coverage_loss"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not all(math.isfinite(x) for x in (fwhm_ratio, elong_ratio, sig_ratio, noise_ratio, cov_inter, cov_loss)):
+        return None
+    return {
+        "matched_stars": matched_stars,
+        "signal_apertures": int(raw.get("signal_apertures", matched_stars)),
+        "fwhm_ratio_median": fwhm_ratio,
+        "elongation_ratio_median": elong_ratio,
+        "signal_ratio_median": sig_ratio,
+        "noise_ratio": noise_ratio,
+        "valid_background_pixels": bg_pixels,
+        "coverage_intersection_over_control": cov_inter,
+        "coverage_loss": cov_loss,
+    }
+
+
+def _session_quality_label(metrics):
+    if metrics is None:
+        return None, "matched-position/area measurements unavailable"
+    if (metrics["fwhm_ratio_median"] > 1.01 or metrics["elongation_ratio_median"] > 1.01 or
+            metrics["signal_ratio_median"] < 0.99 or metrics["coverage_loss"] > 0.01):
+        return "unsafe", "safety regression on matched stars, signal, or coverage"
+    if metrics["noise_ratio"] <= 0.97 or metrics["fwhm_ratio_median"] <= 0.95:
+        return "beneficial", "matched primary endpoint improved without safety regression"
+    return "neutral", "within safety tolerances without primary endpoint improvement"
+
+
+def _session_bootstrap_ci(values, resamples=10000, seed=20260925):
+    if not values:
+        return None
+    rng = random.Random(seed)
+    n = len(values)
+    means = []
+    for _ in range(resamples):
+        sample = [values[rng.randrange(n)] for _ in range(n)]
+        means.append(sum(sample) / n)
+    means.sort()
+    lo_idx = max(0, min(resamples - 1, int(round(0.025 * (resamples - 1)))))
+    hi_idx = max(0, min(resamples - 1, int(round(0.975 * (resamples - 1)))))
+    return [means[lo_idx], means[hi_idx]]
 
 
 def evidence(registry, runs_dir):
@@ -413,12 +559,165 @@ def evidence(registry, runs_dir):
                   and len({arm["execution_scope"] for arm in arms.values()}) == 1)
         selected_gates_pass = all(arm["selected_gates"] ==
                                   {"support_ok": True, "numerics_ok": True} for arm in arms.values())
+        matched = _extract_matched_metrics(entry, runs_dir)
+        q_label, q_reason = _session_quality_label(matched)
         sessions.append({**entry, "arms": arms, "input_and_build_paired": paired,
                          "selected_gates_pass": selected_gates_pass,
-                         "matched_star_quality_available": False,
-                         "quality_label": None,
-                         "quality_label_reason": "matched-position/area measurements unavailable"})
+                         "matched_star_quality_available": matched is not None,
+                         "matched_metrics": matched,
+                         "quality_label": q_label,
+                         "quality_label_reason": q_reason})
     return sessions
+
+
+def compute_baselines(rows, sessions, mem_inv):
+    control_sessions = sum("current_config" in s.get("arms", {}) for s in sessions)
+    keep_current_decisions = sum(r.get("candidate_id") == "keep_current" for r in rows)
+    rule_only_no_change = sum(
+        r.get("rule_applicable_candidates") in (["keep_current"], ["insufficient_evidence", "keep_current"])
+        for r in rows
+    )
+    rule_actionable = sum(
+        any(cid not in ABSTAIN for cid in r.get("rule_applicable_candidates", []))
+        for r in rows
+    )
+    jev_changes = sum(not r["abstained"] and not r["invalid_applicable_patch"] for r in rows)
+    verified_links = sum(
+        link.get("status") == "verified"
+        for r in rows for link in r.get("run_links", [])
+    )
+    mem_count = (mem_inv or {}).get("record_count", 0)
+    return {
+        "current_config": {
+            "status": "observed" if (control_sessions or keep_current_decisions) else "not_observed",
+            "registered_control_sessions": control_sessions,
+            "keep_current_decisions": keep_current_decisions,
+            "note": "paired control run artifacts in registry and keep_current baseline decisions",
+        },
+        "rules_only": {
+            "status": "observed" if rows else "not_observed",
+            "evaluated_decisions": len(rows),
+            "deterministic_no_change_count": rule_only_no_change,
+            "actionable_rule_candidate_count": rule_actionable,
+            "note": "deterministic candidate catalog and precondition gate before model selection",
+        },
+        "existing_pi_advice": {
+            "status": "observed" if mem_count > 0 else "not_observed",
+            "memory_record_count": mem_count,
+            "status_counts": (mem_inv or {}).get("status_counts", {}),
+            "note": "existing PI advisor memory inventory (descriptive only; no unverified outcome used as quality label)",
+        },
+        "rules_plus_jev": {
+            "status": "observed" if rows else "not_observed",
+            "decision_count": len(rows),
+            "selected_change_count": jev_changes,
+            "abstained_count": sum(r["abstained"] for r in rows),
+            "invalid_applicable_patch_count": sum(r["invalid_applicable_patch"] for r in rows),
+            "verified_run_link_count": verified_links,
+            "note": "validated Jev decisions over rule-filtered candidate sets",
+        },
+        "knn_optional": {
+            "status": "disabled",
+            "enabled": False,
+            "evaluated_decisions": 0,
+            "note": "kNN neighbor advisor is disabled in the production catalog",
+        },
+    }
+
+
+def _evaluate_candidate_release(candidate_id, thresholds, policy, registry, relevant, invalid):
+    version = policy["schema_version"]
+    reasons = []
+    if version == "pi.jev-release-policy.v2":
+        status = thresholds.get("status")
+        if status == "rejected_by_futility":
+            return {"release_eligible": False, "blocking_reasons": ["rejected_by_futility"]}
+        if status == "blocked":
+            return {"release_eligible": False, "blocking_reasons": ["candidate_blocked_in_policy"]}
+        sample = thresholds["sample"]
+        safety = thresholds["safety"]
+        min_sessions = sample["minimum_test_sessions"]
+        min_groups = sample["minimum_object_groups"]
+        min_per_group = sample["minimum_sessions_per_object_group"]
+        min_stars = sample["minimum_matched_stars_per_session"]
+        min_bg = sample["minimum_valid_background_pixels_per_session"]
+    else:
+        min_sessions = thresholds["minimum_test_sessions"]
+        min_groups = thresholds["minimum_object_groups"]
+        min_per_group = thresholds["minimum_sessions_per_object_group"]
+        min_stars = thresholds.get("minimum_matched_stars_per_session", 0)
+        min_bg = thresholds.get("minimum_valid_background_pixels_per_session", 0)
+
+    has_all_matched = bool(relevant) and all(s["matched_star_quality_available"] for s in relevant)
+    if not has_all_matched:
+        reasons.append("quality_policy_not_computed")
+    if not policy["frozen_before_test"]:
+        reasons.append("policy_not_frozen_before_test")
+    if version == "pi.jev-release-policy.v1" and any(value is None for value in thresholds.values()):
+        reasons.append("numeric_thresholds_incomplete")
+    if registry["study_kind"] != "prospective_blinded":
+        reasons.append("no_prospective_blinded_test")
+    if not relevant:
+        reasons.append("no_test_sessions")
+    elif len(relevant) < min_sessions:
+        reasons.append("insufficient_test_sessions")
+    else:
+        by_group = {}
+        for s in relevant:
+            grp = s.get("object_class") or "unknown"
+            by_group[grp] = by_group.get(grp, 0) + 1
+        qualifying_groups = sum(cnt >= min_per_group for cnt in by_group.values())
+        if qualifying_groups < min_groups:
+            reasons.append("insufficient_object_group_strata")
+    if any(not enrolled_after_freeze(s, policy["frozen_at_utc"]) for s in relevant):
+        reasons.append("test_session_not_enrolled_after_policy_freeze")
+    if any(not s["input_and_build_paired"] for s in relevant):
+        reasons.append("unpaired_test_inputs_or_build")
+    if any(not s["selected_gates_pass"] for s in relevant):
+        reasons.append("selected_quality_gate_failed_or_missing")
+    if any(not s["matched_star_quality_available"] for s in relevant):
+        reasons.append("matched_quality_missing")
+    elif relevant:
+        for s in relevant:
+            m = s["matched_metrics"]
+            if min_stars and m["matched_stars"] < min_stars:
+                reasons.append("insufficient_matched_stars_in_session")
+                break
+            if min_bg and m["valid_background_pixels"] < min_bg:
+                reasons.append("insufficient_background_pixels_in_session")
+                break
+        if version == "pi.jev-release-policy.v2":
+            resamples = policy["bootstrap_resamples"]
+            seed = policy["bootstrap_seed"]
+            noise_ci = _session_bootstrap_ci([s["matched_metrics"]["noise_ratio"] for s in relevant], resamples, seed)
+            fwhm_ci = _session_bootstrap_ci([s["matched_metrics"]["fwhm_ratio_median"] for s in relevant], resamples, seed)
+            elong_ci = _session_bootstrap_ci([s["matched_metrics"]["elongation_ratio_median"] for s in relevant], resamples, seed)
+            sig_ci = _session_bootstrap_ci([s["matched_metrics"]["signal_ratio_median"] for s in relevant], resamples, seed)
+            if len(relevant) >= policy["futility_rule"]["minimum_evaluable_sessions"] and noise_ci[0] > 1.0:
+                reasons.append("rejected_by_futility")
+            if noise_ci[1] > thresholds["noise_ratio_ci_upper_max"]:
+                reasons.append("primary_endpoint_ci_exceeds_threshold")
+            if fwhm_ci[1] > safety["star_fwhm_ratio_ci_upper_max"]:
+                reasons.append("star_fwhm_safety_exceeded")
+            if elong_ci[1] > safety["elongation_ratio_ci_upper_max"]:
+                reasons.append("elongation_safety_exceeded")
+            if sig_ci[0] < safety["star_signal_ratio_ci_lower_min"]:
+                reasons.append("star_signal_safety_below_min")
+        else:
+            resamples = policy["bootstrap_resamples"]
+            seed = policy["bootstrap_seed"]
+            fwhm_ci = _session_bootstrap_ci([s["matched_metrics"]["fwhm_ratio_median"] for s in relevant], resamples, seed)
+            noise_ci = _session_bootstrap_ci([s["matched_metrics"]["noise_ratio"] for s in relevant], resamples, seed)
+            sig_ci = _session_bootstrap_ci([s["matched_metrics"]["signal_ratio_median"] for s in relevant], resamples, seed)
+            if fwhm_ci[1] > 1.0 - thresholds["minimum_quality_improvement"]:
+                reasons.append("primary_endpoint_ci_exceeds_threshold")
+            if noise_ci[1] > 1.0 + thresholds["maximum_noise_regression"]:
+                reasons.append("noise_safety_exceeded")
+            if sig_ci[0] < 1.0 - thresholds["maximum_signal_loss"]:
+                reasons.append("star_signal_safety_below_min")
+    if invalid:
+        reasons.append("invalid_applicable_patch_observed")
+    return {"release_eligible": not reasons, "blocking_reasons": reasons}
 
 
 def evaluate(decisions_dir, registry_path, policy_path, runs_dir, memory_path=None):
@@ -428,6 +727,7 @@ def evaluate(decisions_dir, registry_path, policy_path, runs_dir, memory_path=No
     validate_release_policy(policy)
     rows = replay(decisions_dir, runs_dir)
     sessions = evidence(registry, runs_dir)
+    mem_inv = memory_inventory(memory_path, decisions_dir)
     invalid = sum(row["invalid_applicable_patch"] for row in rows)
     abstained = sum(row["abstained"] for row in rows)
     link_status_counts = {status: sum(row["run_link_status"] == status for row in rows)
@@ -437,32 +737,14 @@ def evaluate(decisions_dir, registry_path, policy_path, runs_dir, memory_path=No
         for row in rows for link in row.get("run_links", []))
     eligible = {}
     for candidate_id, thresholds in policy["candidates"].items():
-        reasons = ["quality_policy_not_computed"]
-        if not policy["frozen_before_test"]:
-            reasons.append("policy_not_frozen_before_test")
-        if any(value is None for value in thresholds.values()):
-            reasons.append("numeric_thresholds_incomplete")
-        if registry["study_kind"] != "prospective_blinded":
-            reasons.append("no_prospective_blinded_test")
         relevant = [s for s in sessions if s["candidate_id"] == candidate_id and s["split"] == "test"]
-        if not relevant:
-            reasons.append("no_test_sessions")
-        if any(not enrolled_after_freeze(s, policy["frozen_at_utc"]) for s in relevant):
-            reasons.append("test_session_not_enrolled_after_policy_freeze")
-        if any(not s["input_and_build_paired"] for s in relevant):
-            reasons.append("unpaired_test_inputs_or_build")
-        if any(not s["selected_gates_pass"] for s in relevant):
-            reasons.append("selected_quality_gate_failed_or_missing")
-        if any(not s["matched_star_quality_available"] for s in relevant):
-            reasons.append("matched_quality_missing")
-        if invalid:
-            reasons.append("invalid_applicable_patch_observed")
-        eligible[candidate_id] = {"release_eligible": not reasons, "blocking_reasons": reasons}
+        eligible[candidate_id] = _evaluate_candidate_release(
+            candidate_id, thresholds, policy, registry, relevant, invalid)
     return {
         "schema_version": "pi.jev-evaluation-report.v1",
         "source_digests": {"registry": digest(registry_path), "release_policy": digest(policy_path),
                            "pi_memory_store": digest(memory_path) if memory_path else None},
-        "pi_memory_inventory": memory_inventory(memory_path),
+        "pi_memory_inventory": mem_inv,
         "decision_replay": rows,
         "decision_metrics": {
             "count": len(rows), "invalid_applicable_patch_count": invalid,
@@ -483,13 +765,7 @@ def evaluate(decisions_dir, registry_path, policy_path, runs_dir, memory_path=No
                 "note": "run identity, saved config revision, exact run config digest, applied values, and successful terminal event are checked; no quality label is inferred",
             },
         },
-        "baselines": {
-            "current_config": "paired run artifacts where registered; not a Jev trial",
-            "rules_only": "not observed",
-            "existing_pi_advice": "not observed",
-            "rules_plus_jev": "decision records only; no linked controlled quality trial",
-            "knn_optional": "not observed",
-        },
+        "baselines": compute_baselines(rows, sessions, mem_inv),
         "registry_study_kind": registry["study_kind"],
         "sessions": sessions,
         "candidate_release": eligible,

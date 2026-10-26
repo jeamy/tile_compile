@@ -115,6 +115,120 @@ class ProposalRunLinkTest(unittest.TestCase):
         self.assertEqual(status, "invalid")
         self.assertFalse(links[0]["checks"]["outcome_attribution_has_all_paths"])
 
+    def test_validates_both_v1_and_v2_release_policies(self):
+        cfg_dir = Path(__file__).resolve().parent.parent / "config" / "pi_decisions"
+        policy_v1 = evaluator.load(cfg_dir / "release_policy_v1.json")
+        policy_v2 = evaluator.load(cfg_dir / "release_policy_v2.json")
+        evaluator.validate_release_policy(policy_v1)
+        evaluator.validate_release_policy(policy_v2)
+
+    def test_evaluate_computes_four_baselines_and_v2_matched_star_policy(self):
+        cfg_dir = Path(__file__).resolve().parent.parent / "config" / "pi_decisions"
+        policy_v2 = evaluator.load(cfg_dir / "release_policy_v2.json")
+        policy_path = self.root / "policy_v2.json"
+        policy_path.write_text(json.dumps(policy_v2), encoding="utf-8")
+
+        database = self.root / "pi_store_v2.sqlite"
+        documents = {
+            "status": {"state": "done"},
+            "proposal": {**self.proposal, "candidate_id": "set_pixfrac", "state_hash": "state_1",
+                         "policy_version": "policy_2", "validation": {
+                             "config_ok": True, "evidence_ok": True, "policy_ok": True, "schema_ok": True}},
+            "state": {"state_hash": "state_1"},
+            "candidates": {"catalog_version": "catalog_1", "applicable": [
+                {"candidate_id": "keep_current", "updates": []},
+                {"candidate_id": "set_pixfrac", "updates": self.proposal["updates"]},
+            ]},
+            "request": {"state_hash": "state_1"},
+            "response": {"status": "ok", "state_hash": "state_1",
+                         "selection": {"candidate_id": "set_pixfrac"}},
+            "outcome": self.outcome,
+        }
+        with sqlite3.connect(database) as connection:
+            connection.execute("CREATE TABLE jev_documents (proposal_id TEXT, part TEXT, json TEXT)")
+            connection.executemany("INSERT INTO jev_documents VALUES (?, ?, ?)", [
+                (self.proposal_id, part, json.dumps(document)) for part, document in documents.items()
+            ])
+            connection.execute("CREATE TABLE memory_records (memory_id TEXT, status TEXT)")
+            connection.executemany("INSERT INTO memory_records VALUES (?, ?)", [
+                ("mem_1", "confirmed"), ("mem_2", "pending_outcome"),
+            ])
+
+        sessions = []
+        for idx, obj_cls in enumerate(["galaxy", "galaxy", "galaxy", "nebula", "nebula"]):
+            ctrl_id = f"ctrl_{idx}"
+            cand_id = f"cand_{idx}"
+            for rid, pixfrac in ((ctrl_id, 0.8), (cand_id, 1.0)):
+                rdir = self.runs / rid
+                (rdir / "artifacts").mkdir(parents=True, exist_ok=True)
+                (rdir / "config.yaml").write_text(
+                    yaml.safe_dump({"reconstruction": {"drizzle": {"pixfrac": pixfrac}}}), encoding="utf-8")
+                (rdir / "artifacts" / "run_provenance.json").write_text(json.dumps({
+                    "input_manifest": {"sha256": f"sha256:in_{idx}", "entry_count": 1,
+                                       "entries": [{"sha256": f"sha256:frame_{idx}"}]},
+                    "build": {"build_id": "build_1"},
+                    "execution_scope": "reconstruct_only",
+                }), encoding="utf-8")
+                (rdir / "artifacts" / "forward_drizzle.json").write_text(json.dumps({
+                    "selected_candidate": "drizzle_raw",
+                    "selection_reason": "gates_ok",
+                    "pixels_supported": 200000,
+                    "validation": {
+                        "drizzle_raw": {"support_ok": True, "numerics_ok": True,
+                                        "median_fwhm": 3.0, "elongation": 1.05, "background_rms": 0.01, "tail": 0.1},
+                    },
+                }), encoding="utf-8")
+            sessions.append({
+                "session_id": f"sess_{idx}",
+                "object_class": obj_cls,
+                "split": "test",
+                "enrolled_at_utc": "2026-10-01T00:00:00Z",
+                "candidate_id": "set_pixfrac",
+                "arms": {"current_config": ctrl_id, "candidate_applied": cand_id},
+                "arm_assertions": {
+                    "current_config": {"reconstruction.drizzle.pixfrac": 0.8},
+                    "candidate_applied": {"reconstruction.drizzle.pixfrac": 1.0},
+                },
+                "matched_metrics": {
+                    "matched_stars": 80,
+                    "signal_apertures": 80,
+                    "fwhm_ratio_candidate_over_control": {"median": 0.995},
+                    "elongation_ratio_candidate_over_control": {"median": 1.001},
+                    "signal_ratio_candidate_over_control": {"median": 1.002},
+                    "noise": {"ratio_candidate_over_control": 0.91, "valid_background_pixels": 180000},
+                    "coverage": {"intersection_over_control": 0.999, "coverage_loss": 0.0},
+                },
+            })
+
+        registry_path = self.root / "registry.json"
+        registry_path.write_text(json.dumps({
+            "schema_version": "pi.jev-evaluation-registry.v1",
+            "study_kind": "prospective_blinded",
+            "sessions": sessions,
+        }), encoding="utf-8")
+
+        report = evaluator.evaluate(self.decisions, registry_path, policy_path, self.runs)
+        baselines = report["baselines"]
+        self.assertEqual(baselines["current_config"]["status"], "observed")
+        self.assertEqual(baselines["current_config"]["registered_control_sessions"], 5)
+        self.assertEqual(baselines["rules_only"]["status"], "observed")
+        self.assertEqual(baselines["rules_only"]["actionable_rule_candidate_count"], 1)
+        self.assertEqual(baselines["existing_pi_advice"]["status"], "observed")
+        self.assertEqual(baselines["existing_pi_advice"]["memory_record_count"], 2)
+        self.assertEqual(baselines["rules_plus_jev"]["status"], "observed")
+        self.assertEqual(baselines["rules_plus_jev"]["selected_change_count"], 1)
+        self.assertEqual(baselines["knn_optional"]["status"], "disabled")
+
+        rel = report["candidate_release"]
+        self.assertFalse(rel["enable_adaptive_weights"]["release_eligible"])
+        self.assertIn("rejected_by_futility", rel["enable_adaptive_weights"]["blocking_reasons"])
+        self.assertFalse(rel["set_sensor_profile_dwarf_ii"]["release_eligible"])
+        self.assertIn("candidate_blocked_in_policy", rel["set_sensor_profile_dwarf_ii"]["blocking_reasons"])
+        self.assertTrue(rel["set_pixfrac"]["release_eligible"])
+        self.assertEqual(rel["set_pixfrac"]["blocking_reasons"], [])
+        self.assertFalse(rel["set_clip_sigmas"]["release_eligible"])
+        self.assertIn("no_test_sessions", rel["set_clip_sigmas"]["blocking_reasons"])
+
 
 if __name__ == "__main__":
     unittest.main()

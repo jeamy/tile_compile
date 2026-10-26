@@ -15,6 +15,7 @@
 #include <fitsio.h>
 
 using backend_test::FakeSidecar;
+using backend_test::FakeMultiSidecar;
 
 static void create_minimal_fits(const std::filesystem::path& path, int width = 64, int height = 64) {
     fitsfile* fptr = nullptr;
@@ -49,7 +50,50 @@ static void create_minimal_fits(const std::filesystem::path& path, int width = 6
 int main(int argc, char** argv) {
     if (argc < 5) return 2;
     BackendHarness harness(argv[1], argv[2], argv[3], argv[4]);
+    std::atomic<int> jev_sidecar_posts{0};
+    FakeMultiSidecar jev_sidecar([&](const std::string& method, const std::string& path, const nlohmann::json& body)
+        -> std::pair<int, nlohmann::json> {
+        if (method == "GET" && path == "/decisions/status") {
+            return {200, {{"mode", "suggest"}, {"model", "typesafe/jev-1.13"},
+                          {"has_api_key", true}, {"allow_experimental_suggestions", true}}};
+        }
+        if (method == "POST" && path == "/decisions/settings") {
+            return {200, {{"mode", body.value("mode", std::string("suggest"))},
+                          {"model", "typesafe/jev-1.13"},
+                          {"has_api_key", true},
+                          {"allow_experimental_suggestions", body.value("allow_experimental_suggestions", true)}}};
+        }
+        if (method == "POST" && path == "/decisions/test") {
+            return {200, {{"ok", true}, {"status", "ok"}, {"model_reported", "typesafe/jev-1.13-20260917"}}};
+        }
+        if (method == "GET" && path.rfind("/decisions/log", 0) == 0) {
+            return {200, {{"entries", nlohmann::json::array({{{"request_id", "log_fixture_1"}, {"status", "ok"}}})}}};
+        }
+        if (method == "POST" && path == "/decisions") {
+            ++jev_sidecar_posts;
+            std::string pick = "keep_current";
+            for (const auto& c : body.value("allowed_candidates", nlohmann::json::array())) {
+                if (c.is_string()) {
+                    const std::string id = c.get<std::string>();
+                    if (id != "keep_current" && id != "insufficient_evidence") pick = id;
+                }
+            }
+            return {200, {
+                {"request_id", body.value("request_id", std::string("req_1"))},
+                {"state_hash", body.value("state_hash", std::string())},
+                {"status", "ok"},
+                {"model_requested", "typesafe/jev-1.13"},
+                {"model_reported", "typesafe/jev-1.13-20260917"},
+                {"selection", {{"candidate_id", pick}, {"probabilities", {{pick, 0.88}}}, {"provider_confidence", 0.88}}},
+                {"usage", {{"input_tokens", 12}, {"output_tokens", 2}, {"cost", 0.00001}}},
+                {"generation_id", "gen-harness-1"}
+            }};
+        }
+        return {404, {{"error", "not_found"}, {"message", "not found"}}};
+    });
     try {
+        jev_sidecar.start();
+        harness.set_env("AI_AGENT_URL", jev_sidecar.url());
         harness.start();
 
         const auto empty_records = harness.get_json("/api/pi/decision-records?limit=20");
@@ -1407,6 +1451,128 @@ int main(int argc, char** argv) {
         expect_equal(harness.post_json("/api/pi/assistant/select-analysis", {{"analysis_uid", "analysis_fixture"}})["_http_status"].get<long>(), 200L, "select historical analysis without scan or provider");
         expect_equal(harness.get_json("/api/pi/assistant/analysis-thread/unknown")["_http_status"].get<long>(), 404L, "unknown analysis cannot be manufactured");
         expect_equal(harness.post_json("/api/pi/assistant/analysis-context", nlohmann::json::object())["_http_status"].get<long>(), 400L, "analysis requires explicit draft and successful scan");
+
+        // --- Pre-Run Jev HTTP routes via BackendHarness ---
+        const auto jev_status = harness.get_json("/api/pi/decisions/status");
+        expect_equal(jev_status["_http_status"].get<long>(), 200L, "jev status route");
+        expect_true(jev_status["available"].get<bool>(), "jev sidecar reachable");
+        expect_equal(jev_status["mode"].get<std::string>(), "suggest", "jev status mode");
+        const auto jev_settings = harness.post_json("/api/pi/decisions/settings", {
+            {"mode", "suggest"}, {"allow_experimental_suggestions", true}, {"api_key", "sk-or-test"}
+        });
+        expect_equal(jev_settings["_http_status"].get<long>(), 200L, "jev settings route");
+        expect_true(!jev_settings.contains("api_key"), "jev settings never echoes api_key");
+        const auto jev_probe = harness.post_json("/api/pi/decisions/test", nlohmann::json::object());
+        expect_equal(jev_probe["_http_status"].get<long>(), 200L, "jev probe route");
+        expect_true(jev_probe["ok"].get<bool>(), "jev probe ok");
+        const auto jev_log = harness.get_json("/api/pi/decisions/log?limit=10");
+        expect_equal(jev_log["_http_status"].get<long>(), 200L, "jev log route");
+        expect_equal(harness.get_json("/api/pi/decisions/log?limit=bad")["_http_status"].get<long>(), 400L, "jev log rejects non-numeric limit");
+
+        // Prepare 12 FITS files matching fake_tile_compile_cli's scan and scan-metrics output.
+        for (int i = 0; i < 12; ++i) {
+            harness.make_file("jev_lights/frame_" + std::to_string(i) + ".fits", "fits_fixture_" + std::to_string(i));
+        }
+        const std::string jev_input_dir = (harness.fixture_root() / "jev_lights").string();
+        const auto jev_scan = harness.post_json("/api/scan", {{"input_dir", jev_input_dir}, {"frames_min", 1}});
+        expect_equal(jev_scan["_http_status"].get<long>(), 200L, "jev scan launch");
+        expect_equal(harness.wait_for_job(jev_scan["job_id"].get<std::string>())["state"].get<std::string>(), "ok", "jev scan job ok");
+
+        const std::string jev_draft =
+            "data:\n  color_mode: OSC\n"
+            "reconstruction:\n  drizzle:\n    pixfrac: 0.8\n"
+            "  clipping:\n    clip_sigma_low: 4.0\n    clip_sigma_high: 4.0\n";
+        const auto no_metrics_dec = harness.post_json("/api/scan/decisions", {{"yaml", jev_draft}});
+        expect_equal(no_metrics_dec["_http_status"].get<long>(), 400L, "decisions without scan-metrics returns 400");
+        expect_equal(no_metrics_dec["code"].get<std::string>(), "NO_SCAN_METRICS", "NO_SCAN_METRICS code");
+
+        const auto jev_metrics = harness.post_json("/api/scan/metrics", {{"input_path", jev_input_dir}, {"force", true}});
+        expect_equal(jev_metrics["_http_status"].get<long>(), 200L, "jev scan-metrics launch");
+        expect_equal(harness.wait_for_job(jev_metrics["job_id"].get<std::string>())["state"].get<std::string>(), "ok", "jev scan-metrics job ok");
+
+        expect_equal(harness.post_json("/api/scan/decisions", nlohmann::json::object())["_http_status"].get<long>(), 400L, "missing draft rejected");
+        const auto created_dec = harness.post_json("/api/scan/decisions", {
+            {"yaml", jev_draft},
+            {"locked_paths", nlohmann::json::array()},
+            {"session_context", {{"object_class", {{"value", "compact"}, {"source", "user"}}}}}
+        });
+        expect_equal(created_dec["_http_status"].get<long>(), 202L, "POST /api/scan/decisions returns 202");
+        expect_true(created_dec["proposal_ids"].is_array() && created_dec["proposal_ids"].size() >= 2, "multiple candidate groups create multiple proposals");
+
+        std::vector<std::string> validated_ids;
+        for (const auto& pid_json : created_dec["proposal_ids"]) {
+            const std::string pid = pid_json.get<std::string>();
+            nlohmann::json view;
+            for (int attempt = 0; attempt < 50; ++attempt) {
+                view = harness.get_json("/api/scan/decisions/" + pid);
+                if (view.value("state", std::string()) == "done" || view.value("state", std::string()) == "failed") break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            expect_equal(view["_http_status"].get<long>(), 200L, "GET /api/scan/decisions/<id> status");
+            expect_equal(view["state"].get<std::string>(), "done", "proposal finished: " + view.dump());
+            if (view["proposal"].value("status", std::string()) == "validated") {
+                validated_ids.push_back(pid);
+            }
+        }
+        expect_true(validated_ids.size() >= 2, "at least two groups yielded validated proposals");
+        expect_true(jev_sidecar_posts.load() >= 2, "sidecar /decisions called per group");
+
+        const std::string first_id = validated_ids[0];
+        const std::string second_id = validated_ids[1];
+        const auto stale_apply = harness.post_json("/api/scan/decisions/" + first_id + "/apply", {
+            {"yaml", jev_draft + "other:\n  flag: 1\n"},
+            {"locked_paths", nlohmann::json::array()},
+            {"session_context", {{"object_class", {{"value", "compact"}, {"source", "user"}}}}}
+        });
+        expect_equal(stale_apply["_http_status"].get<long>(), 409L, "apply with modified draft returns 409");
+        expect_equal(stale_apply["code"].get<std::string>(), "PROPOSAL_STALE", "PROPOSAL_STALE code");
+
+        const auto single_apply = harness.post_json("/api/scan/decisions/" + first_id + "/apply", {
+            {"yaml", jev_draft},
+            {"locked_paths", nlohmann::json::array()},
+            {"session_context", {{"object_class", {{"value", "compact"}, {"source", "user"}}}}}
+        });
+        expect_equal(single_apply["_http_status"].get<long>(), 200L, "single apply returns 200");
+        expect_true(single_apply.contains("patched_yaml") && single_apply["patched_yaml"].is_string(), "single apply returns patched_yaml");
+        expect_true(!single_apply["already_applied"].get<bool>(), "first apply is not already_applied");
+
+        const auto idempotent_apply = harness.post_json("/api/scan/decisions/" + first_id + "/apply", {
+            {"yaml", single_apply["patched_yaml"].get<std::string>()},
+            {"locked_paths", nlohmann::json::array()},
+            {"session_context", {{"object_class", {{"value", "compact"}, {"source", "user"}}}}}
+        });
+        expect_equal(idempotent_apply["_http_status"].get<long>(), 200L, "idempotent repeat apply returns 200");
+        expect_true(idempotent_apply["already_applied"].get<bool>(), "repeat apply sets already_applied");
+
+        // Fresh decision request for batch apply test
+        const auto batch_dec = harness.post_json("/api/scan/decisions", {
+            {"yaml", jev_draft},
+            {"locked_paths", nlohmann::json::array()},
+            {"session_context", {{"object_class", {{"value", "compact"}, {"source", "user"}}}}}
+        });
+        expect_equal(batch_dec["_http_status"].get<long>(), 202L, "second POST /api/scan/decisions returns 202");
+        std::vector<std::string> batch_ids;
+        for (const auto& pid_json : batch_dec["proposal_ids"]) {
+            const std::string pid = pid_json.get<std::string>();
+            nlohmann::json view;
+            for (int attempt = 0; attempt < 50; ++attempt) {
+                view = harness.get_json("/api/scan/decisions/" + pid);
+                if (view.value("state", std::string()) == "done" || view.value("state", std::string()) == "failed") break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            if (view["proposal"].value("status", std::string()) == "validated") batch_ids.push_back(pid);
+        }
+        expect_true(batch_ids.size() >= 2, "batch proposals ready");
+        const auto batch_apply = harness.post_json("/api/scan/decisions/apply-batch", {
+            {"proposal_ids", batch_ids},
+            {"yaml", jev_draft},
+            {"locked_paths", nlohmann::json::array()},
+            {"session_context", {{"object_class", {{"value", "compact"}, {"source", "user"}}}}}
+        });
+        expect_equal(batch_apply["_http_status"].get<long>(), 200L, "POST /api/scan/decisions/apply-batch returns 200");
+        expect_true(batch_apply["patched_yaml"].get<std::string>().find("pixfrac: 1") != std::string::npos, "batch apply includes pixfrac update");
+        expect_true(batch_apply["patched_yaml"].get<std::string>().find("clip_sigma_low: 5") != std::string::npos, "batch apply includes clip_sigma update");
+        (void)second_id;
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());
