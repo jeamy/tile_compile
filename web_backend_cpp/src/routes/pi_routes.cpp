@@ -4,6 +4,7 @@
 #include "routes/route_utils.hpp"
 #include "services/ai_service.hpp"
 #include "services/pi/pi_assistant.hpp"
+#include "services/pi/pi_assistant_event_store.hpp"
 #include "services/pi/pi_ai_request_builder.hpp"
 #include "services/pi/pi_context_builder.hpp"
 #include "services/pi/pi_context_v2.hpp"
@@ -11,6 +12,15 @@
 #include "services/pi/pi_memory_store.hpp"
 #include "services/pi/pi_param_model.hpp"
 #include "services/pi/pi_storage_paths.hpp"
+#include "services/pi/pi_user_reason_catalog.hpp"
+#include "services/pi/pi_preview_store.hpp"
+#include "services/pi/pi_decision_record_store.hpp"
+#include "services/pi/pi_decision_writes.hpp"
+#include "services/pi/pi_run_index.hpp"
+#include "services/pi/pi_decision_state.hpp"
+#include "services/pi/pi_run_learning_store.hpp"
+#include "services/pi/pi_retention_store.hpp"
+#include "services/pi/pi_json_io.hpp"
 #include "services/pi/pi_tool_registry.hpp"
 #include "services/pi/pi_image_ops.hpp"
 #include "services/pi/pi_live_edit_recorder.hpp"
@@ -24,6 +34,8 @@
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cstdlib>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -34,12 +46,62 @@
 #include <limits>
 #include <set>
 #include <sstream>
+#include <mutex>
+#include <memory>
+#include <map>
+#include <vector>
 #include <yaml-cpp/yaml.h>
 
 using namespace tile_compile::routes;
 namespace fs = std::filesystem;
 
 namespace {
+
+std::int64_t preview_now() {
+    return std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+std::int64_t preview_ttl() {
+    if (const char* raw = std::getenv("TILE_COMPILE_PI_PREVIEW_TTL_SECONDS")) {
+        try {
+            std::size_t consumed = 0;
+            const std::string text(raw);
+            const auto value = std::stoll(text, &consumed);
+            if (consumed == text.size() && value >= 1 && value <= 86400) return value;
+        } catch (const std::exception&) {}
+    }
+    return 1800;
+}
+
+nlohmann::json review_user_rationale(const std::shared_ptr<AppState>& state,
+                                    const nlohmann::json& body) {
+    nlohmann::json user = {{"reason_codes", nlohmann::json::array()}, {"catalog_version", ""},
+                           {"text", ""}, {"no_reason_given", true}};
+    if (!body.contains("rationale")) return user;
+    if (!body["rationale"].is_object() || !body["rationale"].contains("user") ||
+        !body["rationale"]["user"].is_object()) {
+        throw std::invalid_argument("rationale.user must be an object");
+    }
+    const auto& input = body["rationale"]["user"];
+    user["no_reason_given"] = false;
+    for (const char* key : {"reason_codes", "catalog_version", "text", "no_reason_given"}) {
+        if (input.contains(key)) user[key] = input[key];
+    }
+    if (!user["reason_codes"].is_array() || !user["catalog_version"].is_string() ||
+        !user["text"].is_string() || !user["no_reason_given"].is_boolean()) {
+        throw std::invalid_argument("invalid rationale.user field type");
+    }
+    if (!user["reason_codes"].empty()) {
+        const auto catalog = tile_compile::pi::load_user_reason_catalog(
+            state->runtime.project_root / "web_backend_cpp" / "config" / "pi_user_reason_codes_v1.json");
+        if (!tile_compile::pi::user_reason_codes_valid(catalog, user["catalog_version"],
+                                                       "config", user["reason_codes"])) {
+            throw std::invalid_argument("unknown or incompatible user reason code");
+        }
+    }
+    return user;
+}
 
 std::optional<nlohmann::json> parse_body(const crow::request& req) {
     if (req.body.empty()) return nlohmann::json::object();
@@ -804,7 +866,7 @@ tile_compile::ai::AiConfig current_pi_ai_config(const std::shared_ptr<AppState>&
         tile_compile::ai::merge_ai_config_json(merged, memory_config));
 }
 
-std::filesystem::path pi_run_chat_history_path(const std::shared_ptr<AppState>& state,
+std::filesystem::path legacy_central_run_chat_path(const std::shared_ptr<AppState>& state,
                                                const std::string& run_id) {
     std::string safe;
     safe.reserve(run_id.size());
@@ -824,17 +886,66 @@ std::filesystem::path legacy_pi_run_chat_history_path(const std::shared_ptr<AppS
     return run_dir / "artifacts" / "pi_run_chat_history.json";
 }
 
+nlohmann::json run_chat_identity(const std::shared_ptr<AppState>& state, const std::string& run_id,
+                                 const std::string& expected_uid = "") {
+    tile_compile::pi::PiRunIndex index(tile_compile::pi::pi_storage_dir(state));
+    if (run_id.empty()) {
+        const auto known = index.get(expected_uid);
+        if (!known) throw std::runtime_error("Unknown run UID");
+        return *known;
+    }
+    const auto dir = state->runtime.resolve_run_dir(run_id);
+    const auto provenance = tile_compile::pi::read_json_file_opt(dir / "artifacts/pi_run_provenance.json").value_or(nlohmann::json::object());
+    const auto identity = index.resolve(dir, provenance.value("run_uid", std::string()));
+    if (!expected_uid.empty() && identity["run_uid"] != expected_uid)
+        throw tile_compile::pi::PiRunIdentityConflict("Run path does not match requested context UID");
+    return identity;
+}
+
+std::shared_ptr<std::recursive_mutex> run_chat_mutex(const std::shared_ptr<AppState>& state, const std::string& uid) {
+    static std::mutex registry_mutex;
+    static std::map<std::string, std::weak_ptr<std::recursive_mutex>> registry;
+    std::lock_guard<std::mutex> lock(registry_mutex);
+    for (auto it = registry.begin(); it != registry.end();) {
+        if (it->second.expired()) it = registry.erase(it); else ++it;
+    }
+    const auto key = tile_compile::pi::pi_storage_dir(state).string() + ":" + uid;
+    auto mutex = registry[key].lock();
+    if (!mutex) { mutex = std::make_shared<std::recursive_mutex>(); registry[key] = mutex; }
+    return mutex;
+}
+
+std::filesystem::path pi_run_chat_uid_path(const std::shared_ptr<AppState>& state, const std::string& uid) {
+    return tile_compile::pi::pi_storage_dir(state) / "context_chat" / (tile_compile::pi::sha256_prefixed("run:" + uid).substr(7) + ".json");
+}
+
 nlohmann::json read_pi_run_chat_history(const std::shared_ptr<AppState>& state,
-                                        const std::string& run_id) {
-    auto path = pi_run_chat_history_path(state, run_id);
-    if (!std::filesystem::exists(path)) {
-        const auto legacy = legacy_pi_run_chat_history_path(state, run_id);
-        if (std::filesystem::exists(legacy)) path = legacy;
+                                        const std::string& run_id, const std::string& expected_uid = "") {
+    const auto identity = run_chat_identity(state, run_id, expected_uid);
+    const std::string uid = identity["run_uid"];
+    auto mutex = run_chat_mutex(state, uid);
+    std::lock_guard<std::recursive_mutex> lock(*mutex);
+    auto path = pi_run_chat_uid_path(state, uid);
+    if (!std::filesystem::exists(path) && run_id.empty()) {
+        for (const auto& alias : identity["run_keys"]) {
+            const auto central = legacy_central_run_chat_path(state, alias.get<std::string>());
+            const auto artifact = fs::path(alias.get<std::string>()) / "artifacts/pi_run_chat_history.json";
+            if (fs::exists(central)) { path = central; break; }
+            if (fs::exists(artifact)) { path = artifact; break; }
+        }
+    }
+    if (!std::filesystem::exists(path) && !run_id.empty()) {
+        const auto central = legacy_central_run_chat_path(state, run_id);
+        if (std::filesystem::exists(central)) path = central;
+        else {
+            const auto legacy = legacy_pi_run_chat_history_path(state, run_id);
+            if (std::filesystem::exists(legacy)) path = legacy;
+        }
     }
     if (!std::filesystem::exists(path)) {
         return {
             {"schema_version", "pi.run-chat-history.v1"},
-            {"run_id", run_id},
+            {"run_id", run_id}, {"run_uid", uid}, {"context_id", "run:" + uid},
             {"messages", nlohmann::json::array()},
             {"turns", nlohmann::json::array()}
         };
@@ -845,7 +956,8 @@ nlohmann::json read_pi_run_chat_history(const std::shared_ptr<AppState>& state,
         throw std::runtime_error("invalid run chat history");
     }
     parsed["schema_version"] = "pi.run-chat-history.v1";
-    parsed["run_id"] = run_id;
+    if (!run_id.empty()) parsed["run_id"] = run_id;
+    parsed["run_uid"] = uid; parsed["context_id"] = "run:" + uid;
     if (!parsed.contains("messages") || !parsed["messages"].is_array()) parsed["messages"] = nlohmann::json::array();
     if (!parsed.contains("turns") || !parsed["turns"].is_array()) parsed["turns"] = nlohmann::json::array();
     return parsed;
@@ -853,18 +965,20 @@ nlohmann::json read_pi_run_chat_history(const std::shared_ptr<AppState>& state,
 
 void write_pi_run_chat_history(const std::shared_ptr<AppState>& state,
                                const std::string& run_id,
-                               nlohmann::json history) {
-    auto path = pi_run_chat_history_path(state, run_id);
+                               nlohmann::json history, const std::string& expected_uid = "") {
+    const std::string uid = run_chat_identity(state, run_id, expected_uid)["run_uid"];
+    auto mutex = run_chat_mutex(state, uid);
+    std::lock_guard<std::recursive_mutex> lock(*mutex);
+    auto path = pi_run_chat_uid_path(state, uid);
     std::filesystem::create_directories(path.parent_path());
     history["schema_version"] = "pi.run-chat-history.v1";
-    history["run_id"] = run_id;
+    if (!run_id.empty()) history["run_id"] = run_id;
+    history["run_uid"] = uid; history["context_id"] = "run:" + uid;
     if (!history.contains("messages") || !history["messages"].is_array()) history["messages"] = nlohmann::json::array();
     if (!history.contains("turns") || !history["turns"].is_array()) history["turns"] = nlohmann::json::array();
     trim_json_array_to_latest(history["messages"], 24);
     trim_json_array_to_latest(history["turns"], 24);
-    std::ofstream out(path, std::ios::out | std::ios::trunc);
-    if (!out) throw std::runtime_error("failed to open run chat history for writing");
-    out << history.dump(2);
+    tile_compile::pi::write_json_file_atomic(path, history);
 }
 
 std::filesystem::path pi_live_image_chat_history_path(const std::shared_ptr<AppState>& state,
@@ -2196,11 +2310,99 @@ nlohmann::json build_validated_preview(const nlohmann::json& plan,
     return preview;
 }
 
+// Decision record for a completed config apply (plan §2.4). Best effort: the config is already saved, so a write
+// failure is reported in the response instead of turning a saved apply into an error. The idempotency key makes
+// retries of the same preview produce one record.
+bool record_config_apply(const std::shared_ptr<AppState>& state, const nlohmann::json& preview,
+                         const std::string& preview_id, const std::string& action_plan_id,
+                         const std::string& revision_id, std::string& error) {
+    try {
+        tile_compile::pi::ConfigApplyEvent event;
+        event.action_plan_id = action_plan_id;
+        event.preview_id = preview_id;
+        event.revision_id = revision_id;
+        event.config_sha256 = preview.value("config_sha256", std::string());
+        event.idempotency_key = preview_id.empty() ? std::string() : "config_apply:" + preview_id;
+        event.parent_decision_id = preview.value("proposal_decision_id", std::string());
+        for (const auto& update : preview.value("config_updates", nlohmann::json::array()))
+            event.paths.push_back(update.value("path", std::string()));
+        tile_compile::pi::PiDecisionRecordStore(tile_compile::pi::pi_storage_dir(state))
+            .append(tile_compile::pi::build_config_apply_record(event));
+        return true;
+    } catch (const std::exception& e) {
+        error = e.what();
+        return false;
+    }
+}
+
+std::string read_file_bytes(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) throw std::runtime_error("cannot read config: " + path.string());
+    std::ostringstream content;
+    content << input.rdbuf();
+    return content.str();
+}
+
+// Hash of the config on disk, or "absent" when there is none. Used to decide whether an interrupted apply wrote anything.
+std::string config_file_sha256(const fs::path& path) {
+    std::error_code ec;
+    if (!fs::exists(path, ec)) return "absent";
+    return tile_compile::pi::sha256_prefixed(read_file_bytes(path));
+}
+
+enum class ApplyRecovery { Pending, Completed, Required };
+
+// Reconciles a preview left in "applying" by an interrupted apply with the config on disk. Fails closed: a config
+// that matches neither the hash before the write nor the saved hash is left untouched for manual inspection.
+std::pair<ApplyRecovery, nlohmann::json> reconcile_apply_intent(const nlohmann::json& object, const std::string& preview_id,
+                                                                tile_compile::pi::PiPreviewStore& store,
+                                                                const std::shared_ptr<AppState>& state) {
+    if (!object.contains("apply_intent") || !object["apply_intent"].is_object() || !object["apply_intent"].contains("preview"))
+        return {ApplyRecovery::Required, {}};
+    const auto& intent = object["apply_intent"];
+    const auto base = intent.value("base_sha256", std::string());
+    const auto saved = intent.value("saved_sha256", std::string());
+    const fs::path target = state->runtime.default_config_path;
+    if (saved.empty()) {
+        // No saved config was recorded: the config must still be the pre-write content, then the preview is retryable.
+        if (config_file_sha256(target) == base && store.release_apply(preview_id)) return {ApplyRecovery::Pending, {}};
+        return {ApplyRecovery::Required, {}};
+    }
+    const fs::path saved_path = intent.value("saved_path", target.string());
+    std::error_code ec;
+    if (!fs::exists(saved_path, ec)) return {ApplyRecovery::Required, {}};
+    const std::string saved_content = read_file_bytes(saved_path);
+    if (tile_compile::pi::sha256_prefixed(saved_content) != saved) return {ApplyRecovery::Required, {}};
+    // The saved config is on disk but completion was lost: finish the apply once, with the saved content as revision.
+    const std::string rev_id = state->revision_store.add(saved_path, saved_content, "pi_action_plan");
+    {
+        std::lock_guard<std::mutex> lk(state->state_mutex);
+        state->active_config_revision_id = rev_id;
+    }
+    state->ui_event_store.push("pi.action_plan.apply", "pi.action_plan_apply", {
+        {"path", saved_path.string()},
+        {"revision_id", rev_id},
+        {"config_update_count", intent["preview"].value("config_update_count", 0)}
+    });
+    nlohmann::json result = {
+        {"ok", true}, {"preview", intent["preview"]}, {"preview_id", preview_id},
+        {"action_plan_id", object.value("action_plan_id", std::string())}, {"already_applied", false},
+        {"recovered", true}, {"revision_id", rev_id}, {"path", saved_path.string()}, {"saved", true}
+    };
+    std::string record_error;
+    result["decision_record_written"] = record_config_apply(state, intent["preview"], preview_id, result["action_plan_id"],
+                                                            rev_id, record_error);
+    if (!record_error.empty()) result["decision_record_error"] = record_error;
+    if (!store.complete(preview_id, result)) return {ApplyRecovery::Required, {}};
+    return {ApplyRecovery::Completed, result};
+}
+
 nlohmann::json apply_validated_preview(const nlohmann::json& preview,
-                                       const std::shared_ptr<AppState>& state) {
+                                       const std::shared_ptr<AppState>& state,
+                                       const std::function<void(const fs::path&)>& on_saved = nullptr) {
     const std::string patched_yaml = preview.value("patched_yaml", std::string());
     fs::path target = state->runtime.default_config_path;
-    std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
+    // Caller holds config_write_mutex across revalidation and save.
     SubprocessResult save_res = run_subprocess({state->runtime.cli_exe, "save-config", target.string(), "--stdin"},
                                                state->runtime.project_root.string(),
                                                patched_yaml);
@@ -2223,6 +2425,7 @@ nlohmann::json apply_validated_preview(const nlohmann::json& preview,
     fs::path saved_path = save_payload.contains("path") && save_payload["path"].is_string()
         ? fs::path(save_payload["path"].get<std::string>())
         : target;
+    if (on_saved) on_saved(saved_path);
     std::string rev_id = state->revision_store.add(saved_path, patched_yaml, "pi_action_plan");
     {
         std::lock_guard<std::mutex> lk(state->state_mutex);
@@ -2313,6 +2516,114 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         return json_resp(assistant.answer(question));
     });
 
+    CROW_ROUTE(app, "/api/pi/retention").methods("GET"_method)
+    ([state](const crow::request&) {
+        try {
+            tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+            return json_resp(store.status());
+        } catch (const std::exception& e) {
+            return err_resp("RETENTION_STATUS_FAILED", e.what(), 503);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/retention/maintenance").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->value("confirmed", false))
+            return err_resp("CONFIRMATION_REQUIRED", "confirmed=true is required", 400);
+        try {
+            const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+            return json_resp(store.maintain(now));
+        } catch (const std::exception& e) {
+            return err_resp("RETENTION_MAINTENANCE_FAILED", e.what(), 503);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/retention/backup").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->value("confirmed", false))
+            return err_resp("CONFIRMATION_REQUIRED", "confirmed=true is required", 400);
+        try {
+            const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+            return json_resp(store.create_backup(now));
+        } catch (const std::exception& e) {
+            return err_resp("PI_BACKUP_FAILED", e.what(), 503);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/retention/restore").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->value("confirmed", false) ||
+            !body->contains("backup_id") || !(*body)["backup_id"].is_string())
+            return err_resp("RESTORE_SELECTION_REQUIRED", "confirmed=true and backup_id are required", 400);
+        try {
+            const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+            const auto result = store.restore_backup((*body)["backup_id"].get<std::string>(), true, now);
+            tile_compile::pi::set_pi_active_context(state, nullptr);
+            return json_resp(result);
+        } catch (const std::invalid_argument& e) {
+            return err_resp("RESTORE_SELECTION_INVALID", e.what(), 400);
+        } catch (const std::exception& e) {
+            return err_resp("PI_RESTORE_FAILED", e.what(), 503);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/retention/reset").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->value("confirmed", false) ||
+            !body->contains("categories") || !(*body)["categories"].is_array())
+            return err_resp("RESET_SELECTION_REQUIRED", "confirmed=true and an explicit categories array are required", 400);
+        std::vector<std::string> categories;
+        for (const auto& item : (*body)["categories"]) {
+            if (!item.is_string()) return err_resp("RESET_SELECTION_INVALID", "categories must contain strings", 400);
+            categories.push_back(item.get<std::string>());
+        }
+        try {
+            const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+            const auto result = store.reset(categories, true, now);
+            if (std::find(categories.begin(), categories.end(), "run_learning") != categories.end() ||
+                std::find(categories.begin(), categories.end(), "conversations") != categories.end())
+                tile_compile::pi::set_pi_active_context(state, nullptr);
+            return json_resp(result);
+        } catch (const std::invalid_argument& e) {
+            return err_resp("RESET_SELECTION_INVALID", e.what(), 400);
+        } catch (const std::exception& e) {
+            return err_resp("PI_RESET_FAILED", e.what(), 503);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/retention/run/<string>/forget").methods("POST"_method)
+    ([state](const crow::request& req, const std::string& run_uid) {
+        auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->value("confirmed", false))
+            return err_resp("CONFIRMATION_REQUIRED", "confirmed=true is required", 400);
+        try {
+            const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+            const auto result = store.forget_run(run_uid, true, now);
+            const auto active = tile_compile::pi::pi_active_context(state);
+            if (active.is_object() && active.value("run_uid", std::string()) == run_uid)
+                tile_compile::pi::set_pi_active_context(state, nullptr);
+            return json_resp(result);
+        } catch (const std::invalid_argument& e) {
+            return err_resp("RUN_CONTEXT_NOT_FOUND", e.what(), 404);
+        } catch (const std::exception& e) {
+            return err_resp("RUN_CONTEXT_FORGET_FAILED", e.what(), 503);
+        }
+    });
+
     CROW_ROUTE(app, "/api/pi/storage").methods("GET"_method)
     ([state](const crow::request&) {
         return json_resp(tile_compile::pi::pi_storage_status(state));
@@ -2335,6 +2646,85 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         return json_resp(tile_compile::pi::pi_storage_status(state));
     });
 
+    CROW_ROUTE(app, "/api/pi/assistant/capabilities").methods("GET"_method)
+    ([]() { return json_resp({{"schema_version", "pi.assistant-capabilities.v1"}, {"run_uid_threads", true},
+                             {"analysis_chat", false}, {"image_chat", false}, {"decision_writes", false},
+                             {"thread_history", true}, {"durable_jev_post_run", true},
+                             {"durable_post_run_dismissals", true}, {"analysis_contexts", true},
+                             {"durable_scan_jev", true}}); });
+
+    CROW_ROUTE(app, "/api/pi/assistant/thread").methods("GET"_method)
+    ([state](const crow::request& req) {
+        const std::string uid = req.url_params.get("run_uid") ? req.url_params.get("run_uid") : "";
+        if (uid.empty()) return err_resp("BAD_REQUEST", "run_uid is required", 400);
+        const bool include_pi = !req.url_params.get("include_pi") || std::string(req.url_params.get("include_pi")) != "0";
+        const bool include_jev = !req.url_params.get("include_jev") || std::string(req.url_params.get("include_jev")) != "0";
+        try {
+            if (!tile_compile::pi::PiRunIndex(tile_compile::pi::pi_storage_dir(state)).get(uid))
+                return err_resp("NOT_FOUND", "Unknown run UID", 404);
+            nlohmann::json items = nlohmann::json::array();
+            if (include_pi) {
+                const auto history = read_pi_run_chat_history(state, "", uid);
+                const auto turns = history.value("turns", nlohmann::json::array());
+                const size_t begin = turns.size() > 24 ? turns.size() - 24 : 0;
+                for (size_t i = begin; i < turns.size(); ++i) {
+                    const auto& turn = turns[i];
+                    items.push_back({{"event_id", turn.value("event_id", "pi_" + tile_compile::pi::sha256_prefixed(uid + ":" + std::to_string(i) + ":" + turn.dump()).substr(7))},
+                        {"run_uid", uid}, {"context_id", "run:" + uid}, {"provider", "pi"}, {"kind", "pi_turn"},
+                        {"created_at", turn.value("created_at", std::string())},
+                        {"created_at_epoch_ms", turn.value("created_at_epoch_ms", std::int64_t(0))},
+                        {"message", turn.value("message", std::string())},
+                        {"result", turn.value("result", nlohmann::json{{"summary", turn.value("error", std::string())}})}});
+                }
+            }
+            if (include_jev) for (const auto& event : tile_compile::pi::PiAssistantEventStore(tile_compile::pi::pi_storage_dir(state)).list(uid))
+                items.push_back(event);
+            std::stable_sort(items.begin(), items.end(), [](const auto& a, const auto& b) {
+                if (a["created_at"] != b["created_at"]) return a["created_at"] < b["created_at"];
+                return a["created_at_epoch_ms"] < b["created_at_epoch_ms"];
+            });
+            const nlohmann::json response = {{"schema_version", "pi.assistant-thread.v1"}, {"run_uid", uid},
+                {"context_id", "run:" + uid}, {"items", items}, {"window", {{"pi_turn_limit", 24}, {"jev_event_limit", 100}, {"jev_byte_limit", 8388608}}}};
+            if (response.dump().size() > 16 * 1024 * 1024)
+                return err_resp("THREAD_TOO_LARGE", "Thread exceeds bounded response size", 413);
+            return json_resp(response);
+        } catch (const std::exception& e) { return err_resp("ASSISTANT_THREAD_UNAVAILABLE", e.what(), 503); }
+    });
+
+    CROW_ROUTE(app, "/api/pi/assistant/run-context").methods("GET"_method)
+    ([state](const crow::request& req) {
+        const std::string ref = req.url_params.get("run_id") ? req.url_params.get("run_id") : "";
+        if (ref.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        try {
+            auto identity = run_chat_identity(state, ref);
+            identity["kind"] = "run"; identity["run_id"] = ref;
+            identity["context_id"] = "run:" + identity["run_uid"].get<std::string>();
+            return json_resp(identity);
+        } catch (const std::exception& e) { return err_resp("RUN_CONTEXT_UNAVAILABLE", e.what(), 400); }
+    });
+
+    CROW_ROUTE(app, "/api/pi/assistant/select-context").methods("POST"_method)
+    ([state](const crow::request& req) {
+        const auto body = parse_body(req);
+        if (!body || !body->is_object() || !body->contains("run_uid") || !(*body)["run_uid"].is_string())
+            return err_resp("BAD_REQUEST", "run_uid is required", 400);
+        tile_compile::pi::PiRunIndex index(tile_compile::pi::pi_storage_dir(state));
+        const auto identity = index.get((*body)["run_uid"]);
+        if (!identity) return err_resp("NOT_FOUND", "Unknown run UID", 404);
+        const std::string uid = (*identity)["run_uid"];
+        std::string key;
+        bool reachable = false;
+        for (const auto& alias : (*identity)["run_keys"]) {
+            if (key.empty()) key = alias.get<std::string>();
+            std::error_code error;
+            if (fs::is_directory(fs::path(alias.get<std::string>()), error)) { key = alias.get<std::string>(); reachable = true; break; }
+        }
+        nlohmann::json context = {{"context_id", "run:" + uid}, {"run_uid", uid}, {"run_key", key}, {"kind", "run"}, {"artifacts_reachable", reachable}};
+        if (!tile_compile::pi::set_pi_active_context(state, context))
+            return err_resp("CONTEXT_SAVE_FAILED", "Active context could not be persisted", 503);
+        return json_resp(context);
+    });
+
     CROW_ROUTE(app, "/api/pi/run-chat").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = parse_body(req);
@@ -2344,11 +2734,23 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         const std::string object_name = body->value("object_name", body->value("target", std::string()));
         if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
         if (message.empty()) return err_resp("BAD_REQUEST", "message is required", 400);
+        // Register an explicit run_dir hint first so the helpers below resolve
+        // runs located outside runs_dir via the alias.
+        const std::string run_dir_hint = body->contains("run_dir") && (*body)["run_dir"].is_string()
+            ? (*body)["run_dir"].get<std::string>() : std::string();
+        if (!run_dir_hint.empty()) {
+            fs::path hinted;
+            if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, hinted)) return std::move(*err);
+        }
         try {
+            const auto identity = run_chat_identity(state, run_id, body->value("run_uid", std::string()));
+            const std::string uid = identity["run_uid"];
+            auto mutex = run_chat_mutex(state, uid);
+            std::lock_guard<std::recursive_mutex> chat_lock(*mutex);
             nlohmann::json target_context = {
                 {"object_name", object_name.empty() ? nlohmann::json(nullptr) : nlohmann::json(object_name)}
             };
-            nlohmann::json history = read_pi_run_chat_history(state, run_id);
+            nlohmann::json history = read_pi_run_chat_history(state, run_id, uid);
             history["target"] = target_context;
             nlohmann::json messages = compact_run_chat_history_messages(history, *body, message);
             const nlohmann::json previous_turns = run_chat_previous_turns_context(history);
@@ -2437,7 +2839,8 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                     {"prompt", prompt},
                     {"ai_request", ai_request},
                     {"pi_context", pi_context},
-                    {"run_id", run_id},
+                    {"run_id", uid},
+                    {"context_id", "run:" + uid},
                     {"object_name", object_name},
                     {"image_available", image.value("available", false)},
                     {"image_path", image.value("path", std::string())}
@@ -2468,14 +2871,20 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             history["messages"] = messages;
             if (!history.contains("turns") || !history["turns"].is_array()) history["turns"] = nlohmann::json::array();
             history["turns"].push_back({
+                {"event_id", "pi_" + tile_compile::pi::PiRunIndex::generate_uid()},
+                {"created_at_epoch_ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()},
                 {"message", message},
                 {"result", answer},
                 {"target", target_context},
                 {"created_at", utc_now_iso()}
             });
-            write_pi_run_chat_history(state, run_id, history);
+            answer["run_uid"] = uid; answer["context_id"] = "run:" + uid;
+            history["turns"].back()["result"] = answer;
+            write_pi_run_chat_history(state, run_id, history, uid);
 
             return json_resp(answer);
+        } catch (const tile_compile::pi::PiRunIdentityConflict& e) {
+            return err_resp("RUN_IDENTITY_CONFLICT", e.what(), 409);
         } catch (const std::exception& e) {
             return err_resp("RUN_CONTEXT_UNAVAILABLE", e.what(), 400);
         }
@@ -2484,9 +2893,15 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
     CROW_ROUTE(app, "/api/pi/run-chat/history").methods("GET"_method)
     ([state](const crow::request& req) {
         const std::string run_id = req.url_params.get("run_id") ? std::string(req.url_params.get("run_id")) : "";
-        if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        const std::string uid = req.url_params.get("run_uid") ? std::string(req.url_params.get("run_uid")) : "";
+        const std::string run_dir_hint = req.url_params.get("run_dir") ? std::string(req.url_params.get("run_dir")) : "";
+        if (run_id.empty() && uid.empty()) return err_resp("BAD_REQUEST", "run_id or run_uid is required", 400);
+        if (!run_dir_hint.empty()) {
+            fs::path hinted;
+            if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, hinted)) return std::move(*err);
+        }
         try {
-            return json_resp(read_pi_run_chat_history(state, run_id));
+            return json_resp(read_pi_run_chat_history(state, run_id, uid));
         } catch (const std::exception& e) {
             return err_resp("RUN_CHAT_HISTORY_UNAVAILABLE", e.what(), 400);
         }
@@ -2497,14 +2912,24 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         auto body = parse_body(req);
         if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
         const std::string run_id = body->value("run_id", std::string());
-        if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        const std::string uid = body->value("run_uid", std::string());
+        if (run_id.empty() && uid.empty()) return err_resp("BAD_REQUEST", "run_id or run_uid is required", 400);
+        const std::string run_dir_hint = body->contains("run_dir") && (*body)["run_dir"].is_string()
+            ? (*body)["run_dir"].get<std::string>() : std::string();
+        if (!run_dir_hint.empty()) {
+            fs::path hinted;
+            if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, hinted)) return std::move(*err);
+        }
         try {
+            const std::string resolved_uid = run_chat_identity(state, run_id, uid)["run_uid"];
+            auto mutex = run_chat_mutex(state, resolved_uid);
+            std::lock_guard<std::recursive_mutex> chat_lock(*mutex);
             nlohmann::json incoming = body->contains("history") && (*body)["history"].is_object()
                 ? (*body)["history"]
                 : nlohmann::json::object();
-            nlohmann::json history = merge_run_chat_history(read_pi_run_chat_history(state, run_id), incoming);
-            write_pi_run_chat_history(state, run_id, history);
-            return json_resp(read_pi_run_chat_history(state, run_id));
+            nlohmann::json history = merge_run_chat_history(read_pi_run_chat_history(state, run_id, resolved_uid), incoming);
+            write_pi_run_chat_history(state, run_id, history, resolved_uid);
+            return json_resp(read_pi_run_chat_history(state, run_id, resolved_uid));
         } catch (const std::exception& e) {
             return err_resp("RUN_CHAT_HISTORY_SAVE_FAILED", e.what(), 400);
         }
@@ -2525,12 +2950,13 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             items = std::move(filtered_items);
             trim_json_array_to_latest(items, limit);
         }
-        const fs::path memory_file = store.memories_path();
+        const fs::path memory_file = store.database_path();
         const fs::path legacy_memory_file = store.legacy_memories_path();
         const long legacy_count = count_jsonl_records(legacy_memory_file);
         return json_resp({
             {"schema_version", "pi.memories-list.v1"},
             {"memory_dir", store.memory_dir().string()},
+            {"storage", "sqlite"},
             {"memory_file", memory_file.string()},
             {"memory_file_exists", fs::exists(memory_file)},
             {"legacy_memory_file", legacy_memory_file.string()},
@@ -2648,9 +3074,43 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
             : nlohmann::json::object();
         if (status.empty()) return err_resp("BAD_REQUEST", "status is required", 400);
         try {
-            tile_compile::pi::PiMemoryStore store(tile_compile::pi::pi_storage_dir(state));
+            const auto user = review_user_rationale(state, *body);
+            std::string request_id;
+            if (body->contains("request_id")) {
+                if (!(*body)["request_id"].is_string() ||
+                    (*body)["request_id"].get<std::string>().empty() ||
+                    (*body)["request_id"].get<std::string>().size() > 128) {
+                    return err_resp("BAD_REQUEST", "request_id must be a non-empty string up to 128 characters", 400);
+                }
+                request_id = (*body)["request_id"].get<std::string>();
+            }
+            const auto storage_dir = tile_compile::pi::pi_storage_dir(state);
+            auto database = tile_compile::pi::PiDatabase::open(storage_dir);
+            tile_compile::pi::PiDatabase::Tx tx(*database);
+            tile_compile::pi::PiDecisionRecordStore decisions(storage_dir);
+            const std::string key = request_id.empty() ? "" : "memory_review:" + memory_id + ":" + request_id;
+            if (!key.empty()) {
+                const auto rows = database->query("SELECT decision_id FROM decision_records WHERE idempotency_key = ?", {key});
+                if (!rows.empty()) {
+                    auto decision = decisions.get(tile_compile::pi::pi_sql_text(rows[0][0]));
+                    decision["duplicate"] = true;
+                    return json_resp({{"ok", true}, {"review", nullptr}, {"decision", decision}});
+                }
+            }
+            tile_compile::pi::PiMemoryStore store(storage_dir);
             const auto review = store.review(memory_id, status, reviewer, note, outcome, scope);
-            return json_resp({{"ok", true}, {"review", review}});
+            nlohmann::json record = {
+                {"kind", "memory_review"}, {"actor", "user"}, {"origin", "live"},
+                {"idempotency_key", key}, {"context_ref", nlohmann::json::object()},
+                {"subject", {{"op", "memory_review"}, {"review_status", status},
+                             {"paths", nlohmann::json::array()}}},
+                {"rationale", {{"user", user}, {"basis", nlohmann::json::array()}}}
+            };
+            auto decision = decisions.append(std::move(record));
+            decisions.add_link(decision.value("decision_id", std::string()), "memory", {{"memory_id", memory_id}});
+            tx.commit();
+            decision = decisions.get(decision.value("decision_id", std::string()));
+            return json_resp({{"ok", true}, {"review", review}, {"decision", decision}});
         } catch (const std::invalid_argument& e) {
             return err_resp("BAD_REQUEST", e.what(), 400);
         } catch (const std::exception& e) {
@@ -2795,12 +3255,10 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
         const std::string run_id = body->value("run_id", std::string());
         if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        const std::string run_dir_hint = body->contains("run_dir") && (*body)["run_dir"].is_string()
+            ? (*body)["run_dir"].get<std::string>() : std::string();
         fs::path run_dir;
-        try {
-            run_dir = state->runtime.resolve_run_dir(run_id);
-        } catch (const std::runtime_error&) {
-            return err_resp("NOT_FOUND", "run directory not found", 404);
-        }
+        if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, run_dir)) return std::move(*err);
         try {
             if (!fs::is_directory(run_dir)) {
                 return err_resp("NOT_FOUND", "run directory not found", 404);
@@ -2894,6 +3352,12 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (from_phase.empty()) return err_resp("BAD_REQUEST", "from_phase is required", 400);
         if (feedback.empty() && result.empty()) {
             return err_resp("BAD_REQUEST", "feedback or result is required", 400);
+        }
+        const std::string run_dir_hint = body->contains("run_dir") && (*body)["run_dir"].is_string()
+            ? (*body)["run_dir"].get<std::string>() : std::string();
+        if (!run_dir_hint.empty()) {
+            fs::path hinted;
+            if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, hinted)) return std::move(*err);
         }
         try {
             // Kontext aus dem Run lesen
@@ -3010,6 +3474,208 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         return json_resp(pi_audit_log(state, limit));
     });
 
+    CROW_ROUTE(app, "/api/pi/run-learning/capabilities").methods("GET"_method)
+    ([]() {
+        return json_resp({{"schema_version", "pi.run-learning-capabilities.v1"},
+                          {"history_summaries", true}, {"snapshot_lookup", true}, {"delete_preserves_learning", true}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-learning").methods("GET"_method)
+    ([state](const crow::request& req) {
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        return json_resp({{"schema_version", "pi.run-learning-list.v1"},
+                          {"items", store.list(int_query_param(req, "limit", 100))}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-learning/<string>").methods("GET"_method)
+    ([state](const std::string& uid) {
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto snapshot = store.get(uid);
+        if (!snapshot) return err_resp("NOT_FOUND", "Run learning snapshot not found", 404);
+        return json_resp(*snapshot);
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-learning/<string>/history").methods("GET"_method)
+    ([state](const crow::request& req, const std::string& uid) {
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        const bool summaries = req.url_params.get("summary") && std::string(req.url_params.get("summary")) == "true";
+        return json_resp({{"items", summaries ? store.history_summaries(uid, int_query_param(req, "limit", 50))
+                                              : store.history(uid, int_query_param(req, "limit", 50))}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-learning/<string>/snapshots/<string>").methods("GET"_method)
+    ([state](const std::string& uid, const std::string& id) {
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto snapshot = store.snapshot(uid, id);
+        if (!snapshot) return err_resp("NOT_FOUND", "Run learning snapshot not found", 404);
+        return json_resp(*snapshot);
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-learning/<string>/preview").methods("GET"_method)
+    ([state](const std::string& uid) {
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto png = store.preview(uid);
+        if (!png) return err_resp("NOT_FOUND", "No archived PNG preview", 404);
+        crow::response response(200);
+        response.set_header("Content-Type", "image/png");
+        response.set_header("X-Content-Type-Options", "nosniff");
+        response.body.assign(reinterpret_cast<const char*>(png->data()), png->size());
+        return response;
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-learning/<string>/exclusion").methods("POST"_method)
+    ([state](const crow::request& req, const std::string& uid) {
+        const auto body = parse_body(req);
+        if (!body || !body->contains("confirmed") || (*body)["confirmed"] != true)
+            return err_resp("CONFIRMATION_REQUIRED", "confirmed=true is required", 409);
+        if (!body->contains("excluded") || !(*body)["excluded"].is_boolean() ||
+            (body->contains("reason_code") && !(*body)["reason_code"].is_string()))
+            return err_resp("BAD_REQUEST", "excluded must be a boolean and reason_code a string", 400);
+        tile_compile::pi::PiRunLearningStore store(tile_compile::pi::pi_storage_dir(state));
+        try {
+            if (!store.set_excluded(uid, (*body)["excluded"].get<bool>(), body->value("reason_code", std::string())))
+                return err_resp("NOT_FOUND", "Run learning snapshot not found", 404);
+        } catch (const std::invalid_argument&) {
+            return err_resp("BAD_REQUEST", "Unknown learning exclusion code", 400);
+        }
+        return json_resp({{"ok", true}, {"run_uid", uid}, {"excluded", (*body)["excluded"]}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-contexts/<string>").methods("GET"_method)
+    ([state](const std::string& uid) {
+        tile_compile::pi::PiRunIndex index(tile_compile::pi::pi_storage_dir(state));
+        const auto identity = index.get(uid);
+        if (!identity) return err_resp("NOT_FOUND", "Run identity not found", 404);
+        return json_resp(*identity);
+    });
+
+    CROW_ROUTE(app, "/api/pi/run-contexts/<string>/relink").methods("POST"_method)
+    ([state](const crow::request& req, const std::string& uid) {
+        const auto body = parse_body(req);
+        if (!body || !body->contains("confirmed") || (*body)["confirmed"] != true)
+            return err_resp("CONFIRMATION_REQUIRED", "confirmed=true is required for run relinking", 409);
+        if (!body->contains("run_dir") || !(*body)["run_dir"].is_string() || (*body)["run_dir"].get<std::string>().empty())
+            return err_resp("BAD_REQUEST", "run_dir must be a nonempty string", 400);
+        const auto target = state->runtime.resolve_input_path((*body)["run_dir"].get<std::string>(), true);
+        if (target.status == PathStatus::not_allowed)
+            return err_resp("PATH_NOT_ALLOWED", "Run directory is outside allowed roots", 403);
+        if (target.status == PathStatus::not_found || !fs::is_directory(target.path))
+            return err_resp("NOT_FOUND", "Run directory not found", 404);
+        const auto config_path = target.path / "config.yaml";
+        if (!state->runtime.is_path_allowed(config_path))
+            return err_resp("PATH_NOT_ALLOWED", "Run config is outside allowed roots", 403);
+        if (!fs::is_regular_file(config_path))
+            return err_resp("RUN_DIRECTORY_INVALID", "Target is not a run directory with config.yaml", 400);
+        const auto provenance_path = target.path / "artifacts" / "pi_run_provenance.json";
+        nlohmann::json provenance = nlohmann::json::object();
+        if (fs::exists(provenance_path)) {
+            if (!state->runtime.is_path_allowed(provenance_path))
+                return err_resp("PATH_NOT_ALLOWED", "Provenance is outside allowed roots", 403);
+            const auto loaded = tile_compile::pi::read_json_file_opt(provenance_path);
+            if (!loaded || !loaded->is_object() || (loaded->contains("run_uid") && !(*loaded)["run_uid"].is_string()))
+                return err_resp("PROVENANCE_INVALID", "Run provenance is invalid", 409);
+            provenance = *loaded;
+        }
+        try {
+            tile_compile::pi::PiRunIndex index(tile_compile::pi::pi_storage_dir(state));
+            const auto identity = index.relink(uid, target.path, provenance.value("run_uid", std::string()));
+            nlohmann::json result = {{"ok", true}, {"identity", identity}};
+            auto context = tile_compile::pi::pi_active_context(state);
+            if (context.is_object() && context.value("run_uid", std::string()) == uid) {
+                const auto previous_key = context.value("run_key", std::string());
+                context["run_key"] = identity["run_key"];
+                if (!tile_compile::pi::set_pi_active_context(state, context))
+                    result["warning"] = "context_persistence_failed";
+                std::lock_guard<std::mutex> lock(state->state_mutex);
+                try {
+                    const auto current = state->current_run_dir.empty()
+                        ? state->runtime.resolve_run_dir(state->current_run_id)
+                        : fs::path(state->current_run_dir);
+                    if (tile_compile::pi::PiRunIndex::run_key(current) == previous_key)
+                        state->current_run_dir = target.path.string();
+                } catch (const std::exception&) {
+                    result["warning"] = "current_run_path_not_updated";
+                }
+            }
+            return json_resp(result);
+        } catch (const tile_compile::pi::PiRunIdentityConflict&) {
+            return err_resp("RUN_IDENTITY_CONFLICT", "Target path or provenance belongs to another run identity", 409);
+        } catch (const std::out_of_range&) {
+            return err_resp("NOT_FOUND", "Run identity not found", 404);
+        } catch (const std::invalid_argument&) {
+            return err_resp("BAD_REQUEST", "Invalid run identity or target", 400);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/active-context").methods("GET"_method)
+    ([state]() {
+        return json_resp({{"schema_version", "pi.active-context.v1"},
+                          {"context", tile_compile::pi::pi_active_context(state)}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/decision-records").methods("GET"_method)
+    ([state](const crow::request& req) {
+        nlohmann::json filter = nlohmann::json::object();
+        for (const char* key : {"kind", "actor", "reason_code", "context_id", "run_uid", "parent_decision_id", "since"})
+            if (const char* value = req.url_params.get(key)) filter[key] = value;
+        tile_compile::pi::PiDecisionRecordStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto items = store.list(filter, std::clamp(int_query_param(req, "limit", 200), 1, 1000));
+        return json_resp({{"schema_version", "pi.decision-records-list.v1"}, {"items", items}, {"count", items.size()}});
+    });
+
+    CROW_ROUTE(app, "/api/pi/decision-records/export").methods("GET"_method)
+    ([state](const crow::request&) {
+        try {
+            tile_compile::pi::PiDecisionRecordStore store(tile_compile::pi::pi_storage_dir(state));
+            const auto stored_records = store.list(nlohmann::json::object(), 0);
+            nlohmann::json records = nlohmann::json::array();
+            static const std::vector<std::string> metadata_fields = {
+                "decision_id", "created_at", "kind", "actor", "origin", "parent_decision_id",
+                "memory_id", "outcome_refs", "supersedes", "run_deleted", "redacted"};
+            for (const auto& source : stored_records) {
+                nlohmann::json record = {{"schema_version", source.value("schema_version", std::string("pi.decision-record.v1"))},
+                                         {"privacy_class", "metadata_only"}};
+                for (const auto& key : metadata_fields) if (source.contains(key)) record[key] = source[key];
+                if (source.contains("context_ref") && source["context_ref"].is_object()) {
+                    record["context_ref"] = nlohmann::json::object();
+                    for (const char* key : {"context_id", "run_uid", "image_id"})
+                        if (source["context_ref"].contains(key) && source["context_ref"][key].is_string())
+                            record["context_ref"][key] = source["context_ref"][key];
+                }
+                const auto user = source.value("rationale", nlohmann::json::object())
+                    .value("user", nlohmann::json::object());
+                record["rationale"] = {{"user", {{"reason_codes", user.value("reason_codes", nlohmann::json::array())},
+                                                  {"catalog_version", user.value("catalog_version", std::string())},
+                                                  {"no_reason_given", user.value("no_reason_given", false)},
+                                                  {"text_omitted_in_export", true}}}};
+                records.push_back(std::move(record));
+            }
+            return json_resp({{"schema_version", "pi.decision-records-export.v1"},
+                              {"privacy_class", "metadata_only"}, {"items", records},
+                              {"count", records.size()}, {"user_text_included", false}});
+        } catch (const std::exception& e) {
+            return err_resp("DECISION_EXPORT_FAILED", e.what(), 503);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/pi/decision-records/<string>").methods("GET"_method)
+    ([state](const std::string& id) {
+        tile_compile::pi::PiDecisionRecordStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto record = store.get(id);
+        if (record.is_null()) return err_resp("NOT_FOUND", "Decision record not found", 404);
+        return json_resp(record);
+    });
+
+    CROW_ROUTE(app, "/api/pi/reason-codes").methods("GET"_method)
+    ([state]() {
+        try {
+            return json_resp(tile_compile::pi::load_user_reason_catalog(
+                state->runtime.project_root / "web_backend_cpp" / "config" / "pi_user_reason_codes_v1.json"));
+        } catch (const std::exception&) {
+            return err_resp("CATALOG_UNAVAILABLE", "User reason catalog unavailable", 503);
+        }
+    });
+
     CROW_ROUTE(app, "/api/pi/action-plans/validate").methods("POST"_method)
     ([](const crow::request& req) {
         auto body = parse_body(req);
@@ -3034,11 +3700,91 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 {"validation", validation}
             }, 400);
         }
+        auto preview = build_validated_preview(plan, *body, state);
+        tile_compile::pi::PiPreviewStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto object = store.create(plan, preview["base_config"], preview_now(), preview_ttl());
+        for (const char* key : {"preview_id", "action_plan_id", "plan_sha256", "config_sha256", "created_at_epoch", "expires_at_epoch"})
+            preview[key] = object[key];
         return json_resp({
             {"ok", true},
             {"validation", validation},
-            {"preview", build_validated_preview(plan, *body, state)}
+            {"preview", preview}
         });
+    });
+
+    CROW_ROUTE(app, "/api/pi/action-plans/previews/<string>").methods("GET"_method)
+    ([state](const std::string& id) {
+        tile_compile::pi::PiPreviewStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto object = store.get(id, preview_now());
+        if (!object) return err_resp("NOT_FOUND", "Preview not found", 404);
+        return json_resp(*object);
+    });
+
+    CROW_ROUTE(app, "/api/pi/action-plans/previews/<string>/dismiss").methods("POST"_method)
+    ([state](const std::string& id) {
+        std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
+        tile_compile::pi::PiPreviewStore store(tile_compile::pi::pi_storage_dir(state));
+        const auto object = store.get(id, preview_now());
+        if (!object) return err_resp("NOT_FOUND", "Preview not found", 404);
+        if (object->value("state", "") == "applying")
+            return err_resp("PREVIEW_APPLYING", "Preview apply is awaiting recovery and cannot be dismissed", 409);
+        if (!store.transition(id, "dismissed")) return err_resp("PREVIEW_APPLIED", "Applied preview cannot be dismissed", 409);
+        return json_resp({{"ok", true}, {"preview_id", id}, {"state", "dismissed"}});
+    });
+
+    // Explicit rejection of an LLM proposal (plan §2.4 config_reject). Reasons are optional and validated against the
+    // config domain of the user reason catalog; an empty reason is recorded as no_reason_given, never guessed.
+    CROW_ROUTE(app, "/api/pi/proposals/<string>/reject").methods("POST"_method)
+    ([state](const crow::request& req, const std::string& proposal_id) {
+        auto body = parse_body(req);
+        if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
+        tile_compile::pi::PiDecisionRecordStore records(tile_compile::pi::pi_storage_dir(state));
+        const auto proposal = records.get(proposal_id);
+        if (proposal.is_null()) return err_resp("NOT_FOUND", "Proposal not found", 404);
+        if (proposal.value("kind", std::string()) != "llm_proposal")
+            return err_resp("BAD_REQUEST", "Only llm_proposal records can be rejected", 400);
+        if (!records.list({{"kind", "config_apply"}, {"parent_decision_id", proposal_id}}, 1).empty())
+            return err_resp("PROPOSAL_APPLIED", "Proposal was already applied", 409);
+
+        const nlohmann::json codes = body->value("reason_codes", nlohmann::json::array());
+        const std::string text = body->value("reason_text", std::string());
+        if (!codes.is_array() || (body->contains("reason_text") && !(*body)["reason_text"].is_string()))
+            return err_resp("BAD_REQUEST", "reason_codes must be an array and reason_text a string", 400);
+        nlohmann::json user = {{"reason_codes", codes}, {"catalog_version", ""}, {"text", text},
+                               {"no_reason_given", codes.empty() && text.empty()}};
+        if (!codes.empty()) {
+            nlohmann::json catalog;
+            try {
+                catalog = tile_compile::pi::load_user_reason_catalog(
+                    state->runtime.project_root / "web_backend_cpp" / "config" / "pi_user_reason_codes_v1.json");
+            } catch (const std::exception&) {
+                return err_resp("CATALOG_UNAVAILABLE", "User reason catalog unavailable", 503);
+            }
+            const auto version = catalog.value("catalog_version", std::string());
+            if (!tile_compile::pi::user_reason_codes_valid(catalog, version, "config", codes))
+                return err_resp("BAD_REQUEST", "reason_codes are not valid for the config domain", 400);
+            user["catalog_version"] = version;
+        }
+
+        nlohmann::json paths = nlohmann::json::array();
+        for (const auto& alternative : proposal.value("alternatives", nlohmann::json::array()))
+            for (const auto& path : alternative.value("subject", nlohmann::json::object()).value("paths", nlohmann::json::array()))
+                paths.push_back(path);
+        nlohmann::json record = {
+            {"schema_version", tile_compile::pi::kDecisionRecordSchemaVersion},
+            {"kind", "config_reject"}, {"actor", "user"}, {"origin", "live"},
+            {"idempotency_key", "config_reject:" + proposal_id},
+            {"parent_decision_id", proposal_id},
+            {"context_ref", {{"context_id", proposal["context_ref"].value("context_id", std::string())}}},
+            {"subject", {{"paths", paths}, {"op", nullptr}}},
+            {"rationale", {{"user", user}, {"basis", nlohmann::json::array()}}}
+        };
+        try {
+            const auto stored = records.append(record);
+            return json_resp({{"ok", true}, {"decision_id", stored["decision_id"]}, {"duplicate", stored.value("duplicate", false)}});
+        } catch (const std::invalid_argument& e) {
+            return err_resp("BAD_REQUEST", e.what(), 400);
+        }
     });
 
     CROW_ROUTE(app, "/api/pi/action-plans/apply").methods("POST"_method)
@@ -3059,7 +3805,67 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 {"validation", validation}
             }, 400);
         }
-        const auto preview = build_validated_preview(plan, *body, state);
+        if (body->contains("preview_id") && (!(*body)["preview_id"].is_string() || (*body)["preview_id"].get<std::string>().empty()))
+            return err_resp("BAD_REQUEST", "preview_id must be a nonempty string", 400);
+        const std::string preview_id = body->value("preview_id", std::string());
+        std::string proposal_id;
+        if (body->contains("proposal_decision_id")) {
+            if (!(*body)["proposal_decision_id"].is_string() || (*body)["proposal_decision_id"].get<std::string>().empty())
+                return err_resp("BAD_REQUEST", "proposal_decision_id must be a nonempty string", 400);
+            proposal_id = (*body)["proposal_decision_id"].get<std::string>();
+            // Fail closed: an apply may only be linked to a recorded llm_proposal, never to an arbitrary decision.
+            tile_compile::pi::PiDecisionRecordStore proposal_store(tile_compile::pi::pi_storage_dir(state));
+            const auto proposal = proposal_store.get(proposal_id);
+            if (proposal.is_null() || proposal.value("kind", std::string()) != "llm_proposal")
+                return err_resp("PROPOSAL_NOT_FOUND", "proposal_decision_id must reference a recorded llm_proposal", 400);
+            if (!proposal_store.list({{"kind", "config_reject"}, {"parent_decision_id", proposal_id}}, 1).empty())
+                return err_resp("PROPOSAL_REJECTED", "proposal_decision_id references a rejected proposal", 409);
+        }
+        const auto action_plan_id = tile_compile::pi::PiPreviewStore::action_plan_id(plan);
+        std::lock_guard<std::mutex> config_lock(state->config_write_mutex);
+        tile_compile::pi::PiPreviewStore store(tile_compile::pi::pi_storage_dir(state));
+        std::optional<nlohmann::json> object;
+        if (!preview_id.empty()) {
+            object = store.get(preview_id, preview_now());
+            if (!object) return err_resp("NOT_FOUND", "Preview not found", 404);
+            if (object->at("action_plan_id").get<std::string>() != action_plan_id)
+                return err_resp("PREVIEW_PLAN_MISMATCH", "Preview belongs to a different plan", 409);
+            if (object->value("state", "") == "dismissed")
+                return err_resp("PREVIEW_DISMISSED", "Preview was dismissed", 409);
+            if (object->value("state", "") == "applying") {
+                // An earlier apply was interrupted: reconcile with the config on disk before doing anything else.
+                const auto [outcome, recovered] = reconcile_apply_intent(*object, preview_id, store, state);
+                if (outcome == ApplyRecovery::Completed) {
+                    auto repeated = recovered;
+                    repeated["already_applied"] = true;
+                    return json_resp(repeated);
+                }
+                if (outcome == ApplyRecovery::Required)
+                    return err_resp("PREVIEW_RECOVERY_REQUIRED",
+                                    "An interrupted apply needs manual inspection of the config before retrying", 409);
+                object = store.get(preview_id, preview_now());
+            }
+            if (object->value("state", "") == "applied") {
+                if (!object->contains("apply_result")) return err_resp("PREVIEW_APPLIED", "Preview already applied", 409);
+                const auto& result = (*object)["apply_result"];
+                if (load_preview_base_config(nlohmann::json::object(), state) != result["preview"]["patched_config"])
+                    return err_resp("CONFIG_CHANGED", "Config changed after preview apply", 409);
+                auto repeated = result;
+                repeated["already_applied"] = true;
+                return json_resp(repeated);
+            }
+        }
+        auto apply_body = *body;
+        if (!preview_id.empty()) {
+            apply_body.erase("base_config");
+            apply_body.erase("config");
+            apply_body.erase("yaml");
+        }
+        auto preview = build_validated_preview(plan, apply_body, state);
+        preview["action_plan_id"] = action_plan_id;
+        if (!preview_id.empty()) preview["preview_id"] = preview_id;
+        // Carried in the preview so an interrupted apply keeps its proposal link through reconciliation.
+        if (!proposal_id.empty()) preview["proposal_decision_id"] = proposal_id;
         if (!preview.value("config_valid", false)) {
             return json_resp({
                 {"ok", false},
@@ -3077,18 +3883,42 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
                 {"error", {{"code", "STALE_PREVIEW"}, {"message", "expected_patched_yaml does not match current preview"}}}
             }, 409);
         }
-        auto applied = apply_validated_preview(preview, state);
+        if (!preview_id.empty() && !store.begin_apply(preview_id, config_file_sha256(state->runtime.default_config_path), preview))
+            return err_resp("PREVIEW_STATE_CHANGED", "Preview is no longer pending", 409);
+        std::function<void(const fs::path&)> on_saved;
+        if (!preview_id.empty()) {
+            on_saved = [&store, &preview_id](const fs::path& saved_path) {
+                // A throw here leaves the intent in "applying" with an unrecorded save: the next apply fails closed.
+                if (!store.record_saved(preview_id, config_file_sha256(saved_path), saved_path.string()))
+                    throw std::runtime_error("cannot record saved config for preview");
+            };
+        }
+        auto applied = apply_validated_preview(preview, state, on_saved);
         if (!applied.value("ok", false)) {
+            if (!preview_id.empty()) {
+                const auto fresh = store.get(preview_id, preview_now());
+                if (fresh && fresh->value("state", "") == "applying" &&
+                    reconcile_apply_intent(*fresh, preview_id, store, state).first == ApplyRecovery::Required)
+                    return err_resp("PREVIEW_RECOVERY_REQUIRED",
+                                    "A failed apply left the config in an unknown state; inspect it before retrying", 409);
+            }
             return json_resp(applied, 502);
         }
-        return json_resp({
-            {"ok", true},
-            {"validation", validation},
-            {"preview", preview},
-            {"revision_id", applied["revision_id"]},
-            {"path", applied["path"]},
-            {"saved", applied["saved"]}
-        });
+        nlohmann::json result = {
+            {"ok", true}, {"validation", validation}, {"preview", preview},
+            {"action_plan_id", action_plan_id}, {"already_applied", false},
+            {"revision_id", applied["revision_id"]}, {"path", applied["path"]}, {"saved", applied["saved"]}
+        };
+        std::string record_error;
+        result["decision_record_written"] = record_config_apply(state, preview, preview_id, action_plan_id,
+                                                                applied["revision_id"].get<std::string>(), record_error);
+        if (!record_error.empty()) result["decision_record_error"] = record_error;
+        if (!preview_id.empty()) {
+            result["preview_id"] = preview_id;
+            if (!store.complete(preview_id, result))
+                return err_resp("PREVIEW_STATE_CHANGED", "Config saved but preview completion failed; inspect config before retry", 409);
+        }
+        return json_resp(result);
     });
 
     // ===== Live Image Chat Routes =====
@@ -3102,15 +3932,11 @@ void tile_compile::routes::register_pi_routes(CrowApp& app, std::shared_ptr<AppS
         if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
         const std::string run_id = body->value("run_id", std::string());
         if (run_id.empty()) return err_resp("BAD_REQUEST", "run_id is required", 400);
+        const std::string run_dir_hint = body->contains("run_dir") && (*body)["run_dir"].is_string()
+            ? (*body)["run_dir"].get<std::string>() : std::string();
 
         fs::path run_dir;
-        try {
-            run_dir = state->runtime.resolve_run_dir(run_id);
-        } catch (const std::runtime_error&) {
-            return err_resp("NOT_FOUND", "run directory not found", 404);
-        }
-        if (!fs::is_directory(run_dir))
-            return err_resp("NOT_FOUND", "run directory not found", 404);
+        if (auto err = resolve_hinted_run_dir(state, run_id, run_dir_hint, run_dir)) return std::move(*err);
 
         live_store->evict_expired(1800, 5);
 

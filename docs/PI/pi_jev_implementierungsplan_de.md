@@ -1,7 +1,7 @@
 # PI Jev — Detaillierter Implementierungsplan
 
-> **Stand:** 2026-09-25.
-> **Status:** M0-M4 und Teile von M5 umgesetzt; Routen und UI sind verdrahtet. Revision-/Run-Zuordnung und FITS-Metadatenprüfung ergänzt. M5-Grenzen für künftige Tests sind fixiert, die wissenschaftliche Freigabe und M6-M7 bleiben offen.
+> **Stand:** 2026-10-25.
+> **Status:** M0-M4, M5.1 und die M6-Implementierung sind umgesetzt. M5-Screening für zwei experimentelle Kandidaten bestanden, reguläre Freigabe offen. M6 erzeugt und konsumiert Post-Run-Befunde; ein allgemeines Endbild-Qualitätsurteil bleibt absichtlich `not_measured`, und Downstream-Vorschläge bleiben an einen künftig nach M5 freigegebenen Kandidaten gebunden. M7-Paketierung und Bundle-Smoke-Tests werden durch `.github/workflows/release-tile-compile-gui3.yml` abgedeckt.
 > **Verbindliche Reihenfolge:** Pre-Run-Beratung zuerst, Post-Run-Beratung danach.
 > **Lieferumfang:** Vorschläge; kein automatischer Run/Resume und kein zweiter Bildeditor.
 
@@ -226,7 +226,7 @@ Tests: `test_pi_decision_policy.cpp`, `test_pi_pre_rules.cpp`, `test_pi_decision
 
 ## 7. M3 — Jev-Adapter, Fehlerbehandlung und Betriebsmodus
 
-**Status:** umgesetzt und getestet (2026-09-23) für Adapter, Sidecar-Route und Fehlermatrix; **die Route selbst wurde nicht gestartet** (kein Sidecar-Start ohne Auftrag), sie ist per `tsc` typgeprüft, ihre Logik liegt vollständig im getesteten Service. Kein realer Provider-Smoke. **Abhängigkeit:** M0-Vertrag, für Integration M2.
+**Status:** Adapter, Sidecar-Route und Fehlermatrix umgesetzt und getestet; der reale Provider-Smoke wurde am 2026-10-23 über den laufenden Sidecar wiederholt. **Abhängigkeit:** M0-Vertrag, für Integration M2.
 
 Umgesetzt: `agent_service/src/services/decisionsService.ts` (eigener, injizierbarer HTTP-Client, keine Abhängigkeit von `@earendil-works/pi-ai`, siehe Provider-Protokoll §5), Route `POST /decisions` und `GET /decisions/status` in `server.ts`, Test `agent_service/tests/decisionsService.test.ts` (44 Fälle, `npm test`).
 
@@ -239,13 +239,13 @@ Umgesetzt: `agent_service/src/services/decisionsService.ts` (eigener, injizierba
 - [x] Gesamtdeadline (Default 30 s) für den ganzen Aufruf inkl. Retry; Antwortgrößenlimit (Default 256 KiB); höchstens ein Retry bei 429/5xx/Netzfehler; keiner bei 401/403/400/422; `Retry-After` wird nur befolgt, wenn es in das Restbudget passt.
 - [x] Abbruch über den Verbindungsabbruch des Aufrufers, Deduplizierung gleicher gleichzeitiger Entscheidungen (ein Provideraufruf, jeder Aufrufer behält seine `request_id`, kein Ergebnis-Cache), begrenzte Parallelität mit begrenzter Warteschlange (`busy` statt Blockieren).
 - [x] Stabile Anwendungscodes (Liste in `pi.decisions.response.v1`); der Traffic-Log erhält pro Aufruf nur eine Zeile (`request_id`, `state_hash`, Anzahl Kandidaten, Status, Code, Dauer, Kosten) — nie State, Body oder Key. Zusätzlich fängt `redactTrafficLogText` jetzt `JEV_*_API_KEY=` und rohe `sk-or-…`-Token ab (Lücke: das `\b` der bisherigen Anbieterliste griff bei `JEV_OPENROUTER_API_KEY` nicht).
-- [ ] `pi_decision_service` (Orchestrierung, Persistenz, Verwerfen verspäteter Antworten) — Backend-Teil, gehört zu M4, weil er die Sidecar-Route, `ConfigValidator` und die Speicherung zusammensteckt.
+- [x] `pi_decision_service` (Orchestrierung, Persistenz, Verwerfen verspäteter Antworten) — Backend-Teil von M4, der Sidecar-Route, `ConfigValidator` und Speicherung verbindet.
 
 Tests (`npm test`, `node --test` über `tsx`, Fake-Transport): Modus/Key ohne Request, Wire-Body gegen das echte Request-Fixture, lokale Request-Ablehnung (12 Fälle), Antwortprüfung mit den erfassten Fixtures plus 15 feindlichen Varianten, alle HTTP-Fehler (400/401/403/422/429/5xx/404), Retry-Logik mit Sleep-Aufzeichnung, Retry-After über Budget, Timeout, Abbruch, Deduplizierung, Parallelitäts-/Queue-Grenze, Geheimnisfreiheit, Schemakonformität jedes möglichen Ausgangs. Mutationsprobe: das Entfernen der Wahrscheinlichkeitsgrenze, der Modellprüfung bzw. der Retry-Budgetprüfung lässt jeweils Tests fehlschlagen.
 
-**Nicht verifiziert:** Verhalten des echten Alpha-Endpunkts bei 401/429/5xx und `noul` (Provider-Protokoll §6) — die Fehlerfixtures `*_assumed.json` sind Annahmen; ein realer Smoke (bewusst mit ungültigem Key, ohne Kosten) steht aus. Der Fake-Transport belegt den Vertrag, nicht den Anbieter.
+**Live-Smoke 2026-10-23:** `/decisions/status` meldete `suggest`, `typesafe/jev-1.13` und einen verfügbaren OpenRouter-Zugang. Ein erster synthetischer `decision-questions.v2`-Aufruf endete nach zwei Transportfehlern mit `network_error`; der anschließende `/decisions/test` und dieselbe v2-Frage als neuer Request waren erfolgreich. Der Provider meldete `typesafe/jev-1.13-20260917`, die Antwort bestand die Sidecar-Prüfung. Die Auswahl `set_clip_sigmas` aus synthetischen Fakten ist nur ein Protokolltest, keine fachliche Freigabe. Unverifiziert bleiben die echten 401/429/5xx- und `noul`-Fehlerformen (Provider-Protokoll §6); `*_assumed.json` sind weiter Annahmen.
 
-**Abnahme:** `off` erzeugt null Requests (getestet); ein Providerausfall verändert keine Config (der Sidecar kennt keine Config); Mock-Vertrag und realer Provider-Smoke werden getrennt ausgewiesen — der reale Smoke ist offen.
+**Abnahme:** `off` erzeugt null Requests (getestet); ein Providerausfall verändert keine Config (der Sidecar kennt keine Config). Mock-Vertrag und erfolgreicher realer Provider-Smoke sind getrennt ausgewiesen; ein vollständiger Fehlerklassen-Live-Test ist offen.
 
 ## 8. M4 — Vollständiger Pre-Run-Workflow
 
@@ -269,7 +269,7 @@ Umgesetzt:
 - [x] **Live geprüft (2026-09-23)** in isolierter Instanz (Sidecar :3011 bzw. Fake-Sidecar :3012, Backend mit temporärem PI-Speicher, echte `validate-config`-CLI, echte M31-Daten, headless Chromium per DevTools-Protokoll): Einstellungen (0600-Datei, ungültiger Modus/Key mit 400, Status ohne Key), alle Fehlercodes der Routen, Beratung mit echtem Jev (`keep_current`, gleiche Wahrscheinlichkeiten wie in der Offline-Auswertung), Shadow (kein anwendbarer Patch), Suggest-Pfad mit Fake-Sidecar: `validated` -> Apply -> 409 bei editiertem Entwurf -> 200 -> idempotent -> `DRAFT_CHANGED`, UI-Ablauf inkl. Übernahme in den Entwurf (`dirty`, Wert `true`) und Wiederherstellung nach Reload; Desktop 1440 px und Mobil 390 px ohne horizontales Überlaufen.
 - Beim Live-Test gefunden und behoben: (1) die Beratungsroute fand zwischengespeicherte Scan-Metriken nicht (nur Job-Store, nicht der Disk-Cache) -> `NO_SCAN_METRICS` trotz vorhandener Metriken; die Cache-Suche liegt jetzt in `services/scan_metrics_cache` und wird von `scan_routes.cpp` und der Jev-Route gemeinsam genutzt; (2) Text in den Jev-Ansichten brach mitten im Wort um (globales `word-break: break-all` der `.tc-card`) und die Key-Zeile war auf Mobil zu schmal -> `.tc-jev`/`.tc-jev-row` in `pages.css`.
 - [ ] Nicht automatisiert: die HTTP-Routen haben weiterhin keinen `BackendHarness`-Test (der Live-Test war manuell), und die UI hat keinen automatisierten Test.
-- [ ] Sperren (`locked_paths`): das UI sendet derzeit eine leere Liste; eine Sperr-Oberfläche existiert noch nicht.
+- [x] Sperren (`locked_paths`): im Jev-Tab können Config-Pfade zeilenweise eingegeben werden; dieselbe normalisierte Sperrliste wird an Beratung und Apply gesendet und bei Änderungen als veralteter State abgewiesen.
 - [x] FITS-Metadatenmanifest bei Anfrage und Apply aus den gemessenen Dateinamen neu gelesen; bei abweichender Dateimenge `SCAN_INPUT_CHANGED`. Ein Inhaltsdigest wird dabei nicht berechnet.
 - [x] Gespeicherte Jev-Revision mit Run-Provenienz verbunden: direkte Runs und Queue-Items mit vollständiger identischer FITS-Auswahl prüfen eine explizite Vorschlags-ID, Eingabeordner, Manifest und effektive Patch-Werte vor dem Start. Der Outcome-Recorder schreibt nur für diese ID unter `pi_decisions/`; sichere verschachtelte Queue-Run-IDs erhalten eigene Marker, vorhandene Runs werden nicht nachträglich geändert. Der positive Queue-Pfad ist mit einem Fake-Runner-Fixture getestet, nicht mit einem wissenschaftlichen Bildlauf.
 - Hinweis zum Betrieb: Das UI nimmt den Port 8080 an (`api.setBase`, sobald der Port abweicht); ein Backend auf anderem Port ruft das UI nicht an.
@@ -280,8 +280,8 @@ Tests: `test_pi_decision_service.cpp` (Modus aus, nur Baselines, Sidecar aus/kei
 
 ## 8.1 M5.1 — Katalog v2: Wertegitter, Objektklasse, Schutzliste (Entscheidungen 2026-09-24)
 
-**Status:** bis auf die Mehrfachfragen umgesetzt (2026-09-24). **Abhängigkeit:** M4, Nutzerentscheidungen in [pi_jev_decisions_plan_de.md](pi_jev_decisions_plan_de.md) 1.1.
-Ziel: die Infrastruktur, damit weitere Kandidaten einzeln aufgenommen werden können; noch kein neuer Kandidat wird freigegeben.
+**Status:** einschließlich Mehrfachfragen umgesetzt (2026-09-26). **Abhängigkeit:** M4, Nutzerentscheidungen in [pi_jev_decisions_plan_de.md](pi_jev_decisions_plan_de.md) 1.1.
+Ziel: die Infrastruktur, damit weitere Kandidaten einzeln aufgenommen werden können; `set_pixfrac` und `set_clip_sigmas` bleiben experimentell.
 
 - [x] Katalog: Kandidaten-Vorlage mit `value_grid` (`levels` oder `min`/`max`/`step`, `unit` und `basis` Pflicht, höchstens 32 Stufen,
   `integer` optional). Beim Laden wird je Stufe ein normaler Kandidat `<id>__<label>` erzeugt (Stufen auf 9 signifikante Stellen
@@ -289,8 +289,7 @@ Ziel: die Infrastruktur, damit weitere Kandidaten einzeln aufgenommen werden kö
   geschütztem Pfad, ungültige Gitter und ein Gitterpfad zusätzlich in `updates` werden abgelehnt. Ein Wert neben dem Gitter
   ergibt `value_not_allowlisted` (Stufen-ID mit falschem Wert) oder `unknown_candidate` (Stufe existiert nicht); die Stufe,
   die dem aktuellen Wert entspricht, ist ein No-op (`already_active`). Tests: `test_pi_decision_policy` (mit Mutationsprüfung).
-- [ ] (offen, wird mit der zweiten Kandidatengruppe gebraucht) Mehrere unabhängige Fragen je Anfrage (eine je Kandidatengruppe); jede Antwort wird einzeln aufgelöst, keine
-  automatische Kombination mehrerer Gruppen.
+- [x] Mehrere unabhängige Fragen je Beratung (eine Provider-Anfrage je Kandidatengruppe); jede Antwort wird einzeln aufgelöst, keine automatische Kombination mehrerer Gruppen. Details zu Apply-Batch und Speicherung stehen in Abschnitt 9.1.
 - [x] State: geprüfte Nutzerangabe `session_context.object_class` (`compact`/`diffuse`/`star_field`, Herkunft `user`; alles andere
   ergibt Finding `object_class_invalid`); Teil des State-Hashs und der Provider-Projektion. Evidenz `object_class` mit optionaler
   Kandidatenliste `object_classes`; ohne Angabe `evidence_unavailable:object_class`, falsche Klasse
@@ -302,7 +301,7 @@ Ziel: die Infrastruktur, damit weitere Kandidaten einzeln aufgenommen werden kö
   entfernt nur `cache/` und `outputs/calibrated/` eines erfolgreich beendeten Runs; lehnt fremde Ordner, unfertige oder
   fehlgeschlagene Runs und symbolische Links ab).
 
-**Abnahme:** bestehende Tests grün; neue Tests für Gitter (auf/neben/außerhalb, Rundung, Typ), mehrere Fragen je Anfrage,
+**Abnahme:** bestehende Tests grün; neue Tests für Gitter (auf/neben/außerhalb, Rundung, Typ), mehrere Fragen je Beratung,
 Objektklasse (gesetzt/fehlt), Schutzliste (erreichbar mit/ohne Katalogeintrag).
 
 ### 8.2 Erste Kandidatengruppe A1 und Anfrageinhalt (2026-09-24)
@@ -349,51 +348,69 @@ Ein erster Kandidat kann häufig `keep_current` liefern. Das rechtfertigt keine 
 - [x] `enable_adaptive_weights` im Katalog verworfen (`applicability: rejected`); Policy und Lader unterstützen den Status; Begründung in `pi_jev_m5_evaluation_de.md`.
 - [x] `release_policy_v2.json` vorab festgelegt (Paarungsregeln, Futility, Endpunkte für `set_pixfrac` und `set_clip_sigmas`).
 - [x] Bestätigung von `set_pixfrac` und `set_clip_sigmas` auf M104, M31, M42, IC5070 und M66: Endpunkte und Sicherheitsgrenzen der Policy v2 gelten ([Bestätigung](pi_jev_bestaetigung_pixfrac_clip_20260926_de.md)). Aufnahme als Katalogkandidaten (`experimental_only`, `requires_review`): `set_pixfrac` (Raster mit dem einzigen getesteten Level 1,0; nur ab Kontrollstufe 0,8) und `set_clip_sigmas` (atomares Paar 5/5; nur ab 4/4). Neue Vorbedingung `config_equals:<pfad>=<json>` (fail-closed, getestet). Konsequenz: Configs mit Clipping 2/4 (M42/IC5070/M66-Produktionsprofil) bekommen `set_clip_sigmas` nicht angeboten, weil dieser Kontrast nicht vorab registriert war. Die 2/4-Stufe kostete auf IC4605 und M104 etwa 48 % mehr Rauschen; das ist eine Frage des Pipeline-Defaults, nicht der Jev-Empfehlung.
-- [x] Mehrfachfragen je Anfrage (2026-09-26, ersetzt die frühere Entscheidung "bewusst nicht gebaut"): Der Provider-Vertrag bleibt eine `choice` je Frage; die Anfrage stellt jetzt EINE Frage je Kandidatengruppe mit anwendbarer Änderung (`groups_for`, `run(..., group)`), jede als eigenes Proposal mit eigener Provider-Anfrage im Jev-Protokoll. Die Jev-Seite zeigt die Empfehlungen als auswählbare Karten und wendet "Ausgewählte" oder "Alle" gemeinsam auf den Entwurf an (`POST /api/scan/decisions/apply-batch`, `apply_many`): alles oder nichts, jedes Proposal wird gegen den unveränderten Entwurf auf Veraltung geprüft, keine zwei Proposals dürfen denselben Pfad ändern, jedes wird gegen den laufenden Merge neu validiert. Beim Speichern wird nur ein Proposal (das erste) mit der Config-Revision verknüpft; die übrigen stehen in `batch_proposal_ids` dieses Proposals. Gruppen werden nacheinander befragt (eine Anfrage je Gruppe, Kosten und Protokolleinträge wachsen mit der Gruppenzahl).
+- [x] Mehrfachfragen je Anfrage (2026-09-26, ersetzt die frühere Entscheidung "bewusst nicht gebaut"): Der Provider-Vertrag bleibt eine `choice` je Frage; die Anfrage stellt jetzt EINE Frage je Kandidatengruppe mit anwendbarer Änderung (`groups_for`, `run(..., group)`), jede als eigenes Proposal mit eigener Provider-Anfrage im Jev-Protokoll. Die Jev-Seite zeigt Empfehlungen als auswählbare Karten und wendet "Ausgewählte" oder "Alle" gemeinsam auf den Entwurf an (`POST /api/scan/decisions/apply-batch`, `apply_many`): alles oder nichts, jedes Proposal wird gegen den unveränderten Entwurf auf Veraltung geprüft, keine zwei Proposals dürfen denselben Pfad ändern, jedes wird gegen den laufenden Merge neu validiert. Beim Speichern wird die gespeicherte Config-Revision auf alle Mitglieder des Batches verknüpft; Runstart und Outcome prüfen und protokollieren jedes Batchmitglied. Gruppen werden nacheinander befragt (eine Anfrage je Gruppe, Kosten und Protokolleinträge wachsen mit der Gruppenzahl).
 
 ## 10. M6 — Post-Run-Beratung und PI-Übergabe
 
-**Status:** Kern umgesetzt (2026-09-26), siehe 10.1. **Auslösung:** nur auf Wunsch des Nutzers (Entscheidung 2026-09-24), keine automatische Beratung. **Abhängigkeit:** M4, M5-Verfahren für jede neue Empfehlung.
+**Status:** M6-Implementierung abgeschlossen: deterministischer Kern, PI-Thread-Übergabe, optionale Post-Run-Modellberatung und beschreibende BGE-, HMS- sowie gepaarte Sternform-Diagnostik sind verdrahtet und getestet. Ein allgemeines Endbild-Qualitätsurteil wird fail-closed als `not_measured` ausgewiesen. `suggest_downstream` ist implementiert, wird aber erst erreichbar, wenn M5 mindestens einen Downstream-Kandidaten anhand einer vorab eingefrorenen Policy freigibt; derzeit gibt es keinen solchen Kandidaten. Das sind evidenzgebundene Freigabegrenzen, keine fehlenden M6-Codepfade. **Auslösung:** Beratung nur auf Nutzerwunsch; die Messung wird am Ende des normalen erfolgreichen Downstream-Pfads ohne Modellaufruf erzeugt. **Abhängigkeit:** M4; für jede neue Empfehlung M5.
 
 Zunächst die tatsächlichen Producer/Consumer von Qualitätsartefakten inventarisieren. Ein Reader für `pi_run_quality.json` beweist weder vollständige Erzeugung noch Verfügbarkeit der benötigten Zwischenstandsmetriken. Vorhandenen Completion-Analyse-Pfad nutzen; keine parallele konkurrierende Ergebniswahrheit.
 
-- [ ] `pi.post-run-decision-state.v1` definieren: Run-/Config-/Artefaktidentität, ausgeführte Phasen, Raw/Uniform/Multiband/selected, Gate-Ergebnisse und gültige Zwischenstände.
-- [ ] Fehlende Messungen explizit abbilden; bei Bedarf separaten offline/deterministischen Metrik-Producer planen. Keine Modellcalls im Runner.
-- [ ] `pi_post_run_advisor` mit vier Ergebnissen `no_change`, `diagnose`, `suggest_downstream`, `suggest_reconstruction` implementieren.
-- [ ] Erster diagnostischer Fall: validiert gemessener Unterschied zwischen benannten Vor-/Nachbearbeitungsständen. Ohne lokalisierbare Ursache nur Diagnosehinweis.
-- [ ] Pipelineparameter und sichtbare PI-Bildoperationen getrennt halten. Ein PI-Edit darf nicht ungeprüft ein Trainingslabel für Run-Config werden.
-- [ ] Resume-Vorschlag anhand vorhandener Config-Scope-, Cache-, Masken- und Provenienzprüfung erstellen. Kein frei vom Modell erzeugter Phasenname. Jede vorgeschlagene Action trägt `min_resume_phase` (serverseitig aus der Pfad-Phase-Zuordnung berechnet, nie vom Modell) — Konzept aus [M0 HARD-RULE-Review](pi_jev_m0_hard_rule_review_de.md) übernommen, dort erstmals (unimplementiert) skizziert.
-- [ ] Bisheriges Ergebnis, Patch-ID und Ablehnungshistorie erhalten; kein identischer erneut verworfener Patch ohne neue Evidenz.
-- [ ] Im Run-Monitor Befund, Unsicherheit und früheste geprüfte Phase anzeigen. Übernahme bereitet Entwurf vor; Start bleibt separate Aktion.
-- [ ] Optional strukturierte Diagnose an vorhandenen PI-Kontext übergeben; PI entscheidet im bestehenden Nachbearbeitungsworkflow mit dem Nutzer.
+- [x] `pi.post-run-decision-state.v1` definieren: Run-/Config-/Artefaktidentität, ausgeführte Phasen, Raw/Uniform/Multiband/selected, Gate-Ergebnisse und gültige Zwischenstände.
+- [x] Fehlende Messungen explizit abbilden; keine Modellcalls im Runner. Die vorhandenen HMS-Kurven-Clippingwerte werden aus dem Phasenereignis gelesen; belastbare Endbildqualitätsmetriken bleiben offen.
+- [x] Deterministischen `pi_post_run_advisor` mit den vier Ergebnisformen `no_change`, `diagnose`, `suggest_downstream`, `suggest_reconstruction` implementieren; `suggest_downstream` ist mit dem aktuellen Katalog nicht erreichbar.
+- [x] Erster diagnostischer Fall: den vom AutoBGE-Producer gespeicherten `coarse_background_plane_slope`-Messwert vor/nach BGE pro angewendetem RGB-Kanal aus `artifacts/bge.json` übernehmen. `bge_method` muss `autobge` sein; beide Werte müssen endlich sein; die Guard-Messung muss angefordert, erfolgreich und nicht verworfen sein. Der Befund benennt Stufen, Maske, Quelle, Delta und Einheit; er ist rein beschreibend, setzt keinen neuen Grenzwert und erzeugt keine Empfehlung.
+- [x] Zweiter diagnostischer Fall: `black_clip_percent` und `white_clip_percent` aus dem letzten erfolgreichen `HYPERMETRIC_STRETCH`-Phasenereignis übernehmen. Werte müssen endlich und in `[0,100]` liegen; die Stufe ist ausdrücklich `hypermetric_stretch.curve_output` (vor nachgelagerter Farb-/Kontrastkorrektur). Nur Informationsbefund, kein Grenzwert und kein Qualitätsurteil; die tatsächliche Endbildqualität bleibt `not_measured`.
+- [x] Gepaarte Sternform-Diagnostik als normales Run-Artefakt `artifacts/pi_post_run_star_shape.json` erzeugen: Kontrollsterne nur auf der ausgewählten Rekonstruktion detektieren, exakt dieselben Pixelkoordinaten, gemeinsame Canvas-Maske sowie denselben 21×21-Ausschnitt, Annulus-Hintergrund und Moment-Aperturschätzer (Radius 6 px) für Rekonstruktion und finales HMS-G verwenden. Der Schätzer entspricht der bestehenden M5-Paarmetrik. Mindestens 20 gültige Paare sind nur die Anwendbarkeitsgrenze. Median, P90 und deterministisches Stern-Bootstrap-95%-KI sind rein deskriptiv; keine Qualitätsgrenze und kein Auswahl-Gate. Bei fehlender HMS-Ausgabe, Raster-/Maskenproblemen oder zu wenigen Paaren fail-closed `not_applicable`.
+- [x] Pipelineparameter und sichtbare PI-Bildoperationen getrennt halten. `predict_param_nn()` akzeptiert ausschließlich `scan`/`live_edit`, sichere Zielpfade sowie übereinstimmende Domänen in Query-Features, Modellmetadaten und allen Referenzpunkten; inkonsistente oder gemischte Daten scheitern geschlossen. Regressionstests decken Domain-Mismatch, Metadaten-Mismatch, gemischte Referenzen und Traversal ab.
+- [x] `min_resume_phase` serverseitig aus der Pfad-Phase-Zuordnung berechnen; keinen Modell-Phasennamen übernehmen. Die tatsächliche Resume-Machbarkeit bleibt einer separaten Dry-Run-Prüfung vorbehalten.
+- [x] Ablehnungshistorie in der Anfrage berücksichtigen; ein verworfener Kandidat wird nicht erneut angeboten. Dauerhafte Verknüpfung mit früherer Patch-ID erfolgt über die im Runstart gespeicherte Jev-Proposal-ID.
+- [x] Read-only-Befund im Run-Monitor auf Anforderung anzeigen; Vorschläge können explizit als Action-Card geprüft und in den Entwurf übernommen werden. Start bleibt separate Aktion.
+- [x] Strukturierte Post-Run-Ergebnisse idempotent im gemeinsamen PI-Assistant-Thread speichern und im Dock anzeigen (`PiAssistantEventStore`, `/api/pi/assistant/thread`). PI bleibt für Nutzerentscheidung und weitere Chat-Aktionen zuständig.
 
 Tests: fehlendes `canvas_mask.fits`, fehlende Vorgängercaches, falsche Provenienz, nur finale gestreckte Metrik, ungültige Sternpopulation, abgelehnter Multiband-Kandidat, unbekannte PCC-Ursache, falsche Resume-Phase, keine Änderung und wiederholter Vorschlag. Bestehende Run-Artefakte bleiben bei Beratung unverändert.
 
-**Abnahme:** Ohne benötigte Evidenz keine scheinpräzise Reparatur. Kein Jev-Score überschreibt Gates. Resume-Machbarkeit ist separat geprüft; kein automatischer Runstart.
+**Abnahme:** Ohne benötigte Evidenz keine scheinpräzise Reparatur. Kein Jev-Score überschreibt Gates. Resume-Machbarkeit ist vor einer Übernahme separat zu prüfen; kein automatischer Runstart.
 
 ### 10.1 M6 Umsetzungsstand (2026-09-26)
 
 Inventar: `pi_run_quality.json` wird vom Runner nur im Legacy-Pfad (`runner_pipeline.cpp`) erwähnt und von `pi_outcome_recorder.cpp` gelesen; der Forward-Drizzle-Lauf erzeugt es nicht. Verlässliche Producer im aktuellen Pfad sind `artifacts/run_provenance.json`, `artifacts/forward_drizzle.json` (gewählter Kandidat, Auswahlgrund, Validierungsmetriken je Raw/Uniform/Multiband, `commit_complete`) und `logs/run_events.jsonl`. Darauf beruht der State; nichts wird neu gemessen.
 
 - [x] `pi.post-run-decision-state.v1` (`pi_post_run.cpp`, `build_post_run_state`): Run-Identität, abgeschlossene Phasen, Terminalereignis, Kandidatenmetriken (nicht anwendbare Metriken ohne Wert, nie 0), Artefakt-/Cache-Präsenz, `missing`, `not_measured`, Hash. Tolerant gegenüber abgeschnittener Logzeile; das letzte `run_end` gilt.
-- [x] `advise_post_run`: deterministisch, ohne Modellaufruf, schreibt nichts. Ergebnisse `no_change`, `diagnose`, `suggest_downstream`, `suggest_reconstruction`. Vorschläge nur aus dem geprüften Katalog (gleicher Validierungspfad wie Pre-Run gegen die effektive Run-Config). Fehlende Evidenz, fehlgeschlagener Lauf oder durchgefallene Numerik des gewählten Kandidaten führen zu `diagnose`, nie zu einer Reparatur. Ein per Gate abgelehnter Multiband-Kandidat ist nur eine Information.
+- [x] `advise_post_run`: deterministische Backend-Regeln bleiben autoritativ; optionaler Sidecar-Aufruf wählt nur aus `keep_current`, `insufficient_evidence` oder den bereits backendvalidierten Vorschlägen. Keine Modellfreitextausgabe, keine zusätzliche Kandidatenerzeugung, keine Änderung/Run-Aktion. Ergebnisse `no_change`, `diagnose`, `suggest_downstream`, `suggest_reconstruction`. Fehlende Evidenz, fehlgeschlagener Lauf oder durchgefallene Numerik des gewählten Kandidaten führen zu `diagnose`, nie zu einer Reparatur. Ein per Gate abgelehnter Multiband-Kandidat ist nur eine Information.
 - [x] `min_resume_phase` serverseitig aus der einen Tabelle `pi_resume_scope.cpp` (die `runs_routes.cpp` jetzt ebenfalls nutzt; keine zweite Kopie im Backend). Bedeutung: späteste legale Resume-Startphase; `reconstruction.*` hat keine, also `resume_mode: full_run`. Sie sagt nichts über Machbarkeit; die bestehende Resume-Dry-Run-Route bleibt die Instanz dafür (`feasibility: not_checked_use_resume_dry_run`).
-- [x] Ablehnungshistorie: `dismissed_candidates` in der Anfrage; ein verworfener Vorschlag wird nicht erneut angeboten und die Ablehnung wird berichtet.
-- [x] Route `POST /api/pi/post-run/advice` (nur auf Anforderung, read-only) und Karte "Jev-Nachbetrachtung" im Run-Monitor (DE/EN). Übernahme in einen Entwurf und Start sind nicht Teil dieser Karte.
-- [ ] Nicht umgesetzt: Jev-Modellaufruf für Post-Run (es gibt noch keinen Post-Run-Fragensatz und keinen nachgelagerten Kandidaten mit bestandener Policy), `suggest_downstream` kann daher heute nicht auftreten; Übergabe der Diagnose an den PI-Kontext; Übernahme als Entwurf; Metrikproducer für das gestreckte Endbild (`not_measured`).
-- Verifikation: `web_backend_cpp_pi_post_run` (Mutation der Ablehnungslogik wird erkannt), Backend-Suite grün (`memory_guards` schlägt nur bei paralleler Last fehl und besteht einzeln). Die Route und die UI-Karte sind gebaut/statisch geprüft, aber nicht gegen einen laufenden neuen Backend-Build und nicht im Browser geprüft (Erweiterung nicht verbunden; laufendes Backend hat den alten Build).
+- [x] Dauerhafte rungebundene Ablehnung/Wiederherstellung über `POST /api/pi/post-run/dismissal`; unveränderliche PI-Assistant-Ereignisse werden über die Advice-Karte referenziert und nicht als Chatkarten angezeigt. Wiederholte Beratung schließt aktive Ablehnungen aus und liefert sie für die Wiederherstellung zurück. `source_patch_id` übernimmt, falls vorhanden, die beim Runstart gebundene `jev_proposal_id`; die Route akzeptiert nur Kandidaten aus der referenzierten Advice-Karte (beim Wiederherstellen aus deren Ablehnungsliste).
+- [x] Gemessene BGE-Vorher/Nachher-Steigungen und HMS-Schwarz-/Weiß-Clipping-Prozente mit Stufen und Einheiten in der Advice-Karte (DE/EN) anzeigen; die Anzeige bleibt als Diagnose markiert, nicht als Qualitätsurteil.
+- [x] Optionale Post-Run-Modellwahl nur auf Nutzeranforderung: eigener Fragensatz `post-run-decisions.v1`, pfadfreie Run-Projektion und ausschließlich `keep_current`, `insufficient_evidence` sowie bereits backendvalidierte Vorschläge. In `suggest` wird nur die Modellauswahl markiert; `shadow` beeinflusst die Karte nicht. Ohne geeignete Vorschläge, aktivierten experimentellen Scope oder Providerverfügbarkeit bleibt die Regelberatung unverändert. Wiederholte Requests mit derselben ID liefern das gespeicherte Ergebnis.
+- [x] Route `POST /api/pi/post-run/advice` (nur auf Anforderung; liest Run-Artefakte, protokolliert eine Assistant-Karte und kann eine beschränkte Sidecar-Auswahl anfordern) und Karte "Jev-Nachbetrachtung" im Run-Monitor (DE/EN). Übernahme in einen Entwurf und Start sind nicht Teil dieser Karte.
+- [x] Qualitätslabel und Evidenzgrenze: Ohne eingefrorenen, mehrdimensionalen Messvertrag und unabhängige gepaarte Endbild-Evaluation bleibt `final_stretched_image_quality` explizit `not_measured`. HMS-Clipping und gepaarte Sternform sind getrennte beschreibende Befunde, keine Stellvertreter für Bildqualität.
+- [x] Downstream-Auswahl fail-closed: `suggest_downstream` wird nur bei einem bereits backendvalidierten und nach M5 freigegebenen Downstream-Kandidaten erzeugt. Der aktuelle Katalog enthält keinen solchen Kandidaten; deshalb wird keiner vorgetäuscht. Eine Modellauswahl unter Reconstruction-Vorschlägen ist keine Messung des Endbilds.
+- Messpfad-Audit 2026-10-24 (Stand vor dem Run-Producer): `screen_downstream.py` konnte in einer Lab-Kopie den vorhandenen finalen Output gegen Downstream-Varianten mit `matched_pair_metrics.compare_images` auswerten; Sternpositionen wurden einmal im Kontrollbild gewählt und in beiden Bildern gemessen. Das war kein Producer für normale Run-Artefakte. Eine read-only IC4605-Lab-Paarung (ausgewählte Raw-G-Rekonstruktion gegen finales HMS-G) hatte identisches Raster und 368 gematchte Sterne; die beobachteten Medianverhältnisse FWHM 0,9904 und Elongation 0,9963 sind wegen unterschiedlicher linearer/nichtlinearer Stufen und nur eines retrospektiven Runs keine Qualitätsfreigabe und begründen keinen Grenzwert. Der neue Producer ergänzt nun das normale Run-Artefakt; diese Einzelpaarung bleibt nur retrospektiver Kontext.
+- [x] Domänentrennung der lokalen PI-Lernmodelle gegen versehentliches Cross-Training abgesichert: Modellabfrage und alle geladenen Referenzpunkte müssen dieselbe unterstützte Domäne ausweisen; `target_path` kann den Modellroot nicht verlassen. Gezielte Param-Modelltests nach Änderung erfolgreich.
+- Verifikation 2026-10-24: `web_backend_cpp_pi_post_run` baut und besteht gezielt; Fixture prüft benannte BGE-Stufen, Delta/Einheit sowie den Ausschluss verworfener und nicht endlicher Messungen. Backend-Run-Chat wurde nach Neustart live mit GPT-6 Luna und echtem Run-Kontext/Bildvorschau erfolgreich getestet; der PI-Thread-Eintrag wurde per GET verifiziert. Die separate `/api/pi/post-run/advice`-Route wurde in diesem Live-Check nicht erneut ausgeführt.
+- Verifikation 2026-10-24: `web_backend_cpp_pi_post_run` baut; fokussierter CTest besteht. Fixture prüft HMS-Clipping aus einem erfolgreichen Phasenereignis sowie fail-closed Verhalten bei Werten außerhalb `[0,100]`; Advice enthält den Wert als `info`-Befund. Endbildqualität und Sternform werden weiterhin nicht behauptet.
+- Verifikation 2026-10-24: Backend und `web_backend_cpp_pi_routes` bauen; fokussierte Route-/Event-Store-Tests bestehen. Ablehnen, Wiederherstellen, Ablehnungsliste nach erneutem Advice, Run-UID-Bindung, Advice-Kandidatenprüfung, Patch-Verknüpfung und Ausblenden der Audit-Ereignisse aus dem Assistant-Thread sind abgedeckt.
+- Verifikation 2026-10-24: Frontend-JS Syntaxprüfung, DE/EN-JSON-Parsing, Formatter-Smoke-Test mit der echten Backend-Evidenzform und Backend-Build bestehen. Der Formatter-Smoke-Test deckt je einen BGE-Befund mit einzelnem `evidence`-Vergleich sowie HMS-Stufe, Prozentwerte und Einheit ab. Browser-Layout ohne horizontales Überlaufen bei 1280 px und 390 px geprüft; eine Post-Run-Karte mit Messwerten war im ausgewählten Live-Run nicht vorhanden.
+- Verifikation 2026-10-24: Post-Run-Fragensatz mit Sidecar-Fixture getestet (61/61 Decisions-Service-Tests); Backend gebaut und PI-Routentest mit Fixture-Sockets bestanden. Der Routentest bestätigt, dass ohne geprüfte Änderungskandidaten kein Provideraufruf erfolgt und `evaluation_method` bei `backend_rules` bleibt. Es wurde kein Live-Provideraufruf ausgeführt.
+- 2026-10-24: Nach dem damaligen Messpfad-Audit wurde der normale Run-Producer ergänzt. Die hier dokumentierte Verifikation umfasst jetzt gezielte synthetische C++-Messung, fail-closed Backend-Validierung und Anzeigeformatierung; sie ersetzt weder die frühere retrospektive Beobachtung noch stellt sie ein Qualitätsakzeptanzkriterium dar.
+- Verifikation 2026-10-25: `tile_compile_runner` und `tests` bauen; synthetischer Messkern und FITS-zu-Run-Artefakt-Producer bestehen (13 Assertions). `web_backend_cpp_pi_post_run` baut und besteht (1/1); ungültige/untersampelte Artefakte bleiben `not_measured`.
+- Live-Resume mit aktuellem Build 2026-10-25: vollständige, unabhängige Kopie des abgeschlossenen 344-Frame-IC4605-Laufs unter `/media/data/tile_compile_cache/jev-test/m6_starshape_current_copy_20261025_3c76fb20`; `tile_compile_runner` aus Commit `3c76fb20` beendet `resume-reconstruction --from-phase HYPERMETRIC_STRETCH` erfolgreich (`run_end.success=true`) und schreibt das normale Run-Artefakt. Ergebnis: 61 Kontrollpunkte, 59 gepaarte Messungen, Median FWHM-Verhältnis 1,0914, P90 1,1382, sternbasiertes Bootstrap-95%-KI [1,0750; 1,0976]. Die Paarung vergleicht lineare ausgewählte Rekonstruktion mit nichtlinear finalem HMS-G und bleibt rein deskriptive Producer-/Resume-Evidenz.
+- Separater 120-Frame-Neuaufbau 2026-10-25: Rekonstruktion, Gate-Auswahl und BGE endeten erfolgreich; der Run scheiterte anschließend am PCC-Fit (7 gematchte Katalogsterne, 0 verwendete Sterne, degenerierter adaptiver Verhältnisfaktor). Dieser Lauf ist kein erfolgreicher M6-End-to-End-Nachweis und wird nicht als solcher gewertet.
+- `tile_compile_runner` wurde aus dem aktuellen Commit `3c76fb20` gebaut; C++-Messkern/FITS-Producer (13 Assertions), Backend-Validierung (CTest 1/1) sowie die zuvor dokumentierten Frontend- und Routeprüfungen bestehen. Der erfolgreiche Live-Resume auf vollständig rekonstruierten Daten belegt den aktuellen Downstream-Pfad. Der separate frische 120-Frame-Run scheiterte vor HMS am PCC-Fit und wurde nicht als erfolgreiche M6-Abnahme gewertet.
 
 
 ## 11. M7 — Integration, Dokumentation und Regression
 
-**Status:** offen. **Abhängigkeit:** jeweiliger freizugebender Produktabschnitt.
+**Status:** GUI3-Release-Integration ist durch den GitHub-Workflow `.github/workflows/release-tile-compile-gui3.yml` abgedeckt; für ein Release muss der Workflow für den Release-Tag erfolgreich enden. **Abhängigkeit:** freizugebender Produktabschnitt.
 
-- [ ] Neue Backend-Quellen, Testtargets und auszuliefernde Katalogdateien in CMake/Packaging aufnehmen; aus installiertem Arbeitsverzeichnis testen, nicht nur aus Repository-CWD.
-- [ ] Sidecar-Konfiguration, Modi, Fehlercodes, Datenübermittlung und Rückschaltung auf `off` dokumentieren.
-- [ ] DE/EN-Nutzertexte, Reporttexte bei Änderungen und API-Verträge konsistent halten.
+Der Workflow baut Release-Bundles mit `BUILD_TESTS=OFF`; Backend-/Sidecar-Unit- und Regressionstests bleiben deshalb separate Implementierungsprüfungen und werden nicht als Workflow-Testlauf behauptet.
+
+- [x] GUI3-Bundle für Linux (ZIP/AppImage), macOS (Apple Silicon/Intel) und Windows aus Runner, Backend, Frontend, Beispielen/Schemas und optionalem PI-Sidecar bauen und ausliefern.
+- [x] Paketstart und Backend-Erreichbarkeit im Release-Workflow smoke-testen; das Linux-Bundle prüft zusätzlich Config-Validation, Linux-AppImage sowie macOS/Windows haben eigene Smoke-Schritte.
+- [x] Sidecar-Konfiguration, Modi, Fehlercodes und Datenübermittlung in den PI-/Jev-Dokumenten festhalten; DE/EN-UI-Texte und API-Verträge gehören zu den bestehenden Implementierungschecks.
 - [ ] Bei tatsächlicher Änderung eines Pipelineparameters die lokale Skill-Anweisung `.devin/skills/update-param-doc/SKILL.md` anwenden: Structs, Parser, Schemas, Beispiele und DE/EN-Referenzen gemeinsam aktualisieren. Dieser Plan selbst ändert keine Pipelineparameter.
-- [ ] Bekannte Grenzen dokumentieren: begrenzte Kandidatenabdeckung, Messproxies, fehlende Evidenz und separate empirische Freigabe.
-- [ ] Release-Nachweis enthält Codeversion, Katalog-/Policy-/Modellversion und genaue Test-/Evaluationsresultate.
+- [x] Bekannte Grenzen dokumentieren: begrenzte Kandidatenabdeckung, Messproxies, fehlende Evidenz und separate empirische Freigabe.
+- [x] Release-Artefakte und Checksummen durch den Workflow erstellen; M5-Evaluation und fachliche Qualitätsfreigabe bleiben separate Evidenz und werden nicht durch Packaging-Smokes ersetzt.
 
 Prüfreihenfolge während der Umsetzung:
 
@@ -405,6 +422,8 @@ Prüfreihenfolge während der Umsetzung:
 6. JSON/YAML, Dokumentationslinks und `git diff --check` prüfen.
 
 Alle Terminalausgaben nach `/tmp/out_<zweck>.txt` umleiten und separat lesen. Tests dürfen isolierte Backend-Fixtures verwenden; keine persistenten Backend-/Sidecar-Prozesse ohne Auftrag starten. Keine Bildverarbeitungsruns als impliziten Test beginnen. Vor Abschluss müssen gestartete Test-/Build-Sessions beendet sein.
+
+**Integrationsprüfung 2026-10-24:** Die 2026-10-23-Prüfung bleibt der Beleg für Build/Suite/isolierte UI-Fixtures. Ergänzend wurde nach Backend-Neustart `openai/gpt-6-luna` im aktiven Backend konfiguriert und der PI-Run-Chat mit echtem IC434-Run-Kontext samt Bildvorschau live über Backend und Sidecar ausgeführt. Die strukturierte Antwort war gültig, `action_plan_validation.valid=true`, ohne Vorschläge/Aktionen oder Warnungen; der Testturn wurde dauerhaft im PI-Thread gespeichert und per GET verifiziert. Kein Bildverarbeitungslauf wurde gestartet. Der Release-Packaging- und Smoke-Test-Gate ist der oben genannte GUI3-Workflow; M5-Qualitätsfreigabe und offene M6-Funktionen bleiben davon getrennt.
 
 ## 12. Abnahmematrix und offene fachliche Entscheidungen
 
@@ -420,9 +439,9 @@ Alle Terminalausgaben nach `/tmp/out_<zweck>.txt` umleiten und separat lesen. Te
 
 Offen und ausdrücklich vor der jeweiligen Freigabe zu lösen:
 
-- Exakter Provider-Vertrag und verfügbare stabile Modellkennung (M0/M3).
-- Mindestmessabdeckung und experimentelle Zulässigkeit für adaptive Gewichtung (M0/M2).
-- Empirische Nutzen-/Nichtunterlegenheitsgrenzen und Mindeststichprobe pro Kandidat (M5).
+- Echte Fehlerformen des Alpha-Endpunkts bei 401/429/5xx und `noul` (M3); Erfolgsvertrag und gepinnte Modellkennung sind live geprüft.
+- Neue Evidenz, falls der verworfene Kandidat `enable_adaptive_weights` je wieder geöffnet werden soll (M5); die bisherigen Vorregel-Cutoffs bleiben bewusst ungefroren.
+- Unabhängige, vergleichbare Qualitäts- und Entscheidungsevidenz gegen die bereits fixierten M5-Grenzen; das Screening allein ist keine reguläre Freigabe.
 - Verfügbarkeit und Producer aller erforderlichen Post-Run-Zwischenstandsmetriken (M6).
 
 Diese offenen Fachwerte sind keine Erlaubnis zu geraten. Technische Implementierung, funktionale Tests, Provider-Smoke und wissenschaftliche Qualitätsfreigabe werden jeweils separat als bestanden, offen oder fehlgeschlagen ausgewiesen.

@@ -1,11 +1,17 @@
 #include "backend_test_harness.hpp"
+#include "services/pi/pi_decision_outcome.hpp"
+#include "services/pi/pi_decision_state.hpp"
+#include "services/pi/pi_jev_store.hpp"
 
 #include <yaml-cpp/yaml.h>
 
 #include <cstdio>
+#include <chrono>
 #include <fstream>
+#include <optional>
 #include <regex>
 #include <sstream>
+#include <thread>
 
 int main(int argc, char** argv) {
     if (argc < 5) return 2;
@@ -46,15 +52,15 @@ int main(int argc, char** argv) {
             {"size", std::filesystem::file_size(input_file)},
             {"mtime", std::filesystem::last_write_time(input_file).time_since_epoch().count()}
         }});
-        std::filesystem::create_directories(decisions_dir / "p_queue");
-        std::ofstream(decisions_dir / "p_queue" / "source.json") << nlohmann::json{
+        tile_compile::pi::PiJevStore jev_store(decisions_dir);
+        jev_store.put("p_queue", "source", {
             {"input_path", input_dir}, {"dataset_manifest", manifest}
-        }.dump();
-        std::ofstream(decisions_dir / "p_queue" / "proposal.json") << nlohmann::json{
+        });
+        jev_store.put("p_queue", "proposal", {
             {"status", "applied_to_draft"}, {"applied_at", "2020-01-01T00:00:00Z"},
             {"saved_revision_ids", nlohmann::json::array({"saved_cfg"})},
             {"updates", nlohmann::json::array({{{"path", "data.color_mode"}, {"value", "OSC"}}})}
-        }.dump();
+        });
         const auto partial_queue = harness.post_json("/api/runs/start", {
             {"runs_dir", (harness.fixture_root() / "runs").string()},
             {"run_id", "partial_jev_queue"}, {"color_mode", "OSC"},
@@ -80,7 +86,9 @@ int main(int argc, char** argv) {
         const std::filesystem::path linked_run = harness.fixture_root() / "runs" / "linked_jev_queue" / "L";
         const auto linked_provenance = nlohmann::json::parse(slurp_file(linked_run / "artifacts" / "pi_run_provenance.json"));
         expect_equal(linked_provenance["jev_proposal_id"].get<std::string>(), "p_queue", "queue run carries checked Jev id");
-        const auto linked_outcome = nlohmann::json::parse(slurp_file(decisions_dir / "p_queue" / "outcome.json"));
+        expect_true(std::regex_match(linked_provenance["run_uid"].get<std::string>(), std::regex("run_[0-9a-f]{32}")),
+                    "new queue run has stable UID");
+        const auto linked_outcome = *jev_store.get("p_queue", "outcome");
         expect_equal(linked_outcome["runs"][0]["run_id"].get<std::string>(), "linked_jev_queue/L",
                      "queue outcome records nested run id");
 
@@ -113,6 +121,19 @@ int main(int argc, char** argv) {
 
         const auto job = harness.wait_for_job(started["job_id"].get<std::string>());
         expect_equal(job["run_id"].get<std::string>(), generated_run_id, "job run id matches generated run id");
+        const auto generated_run_dir = harness.fixture_root() / "runs" / generated_run_id;
+        const auto provenance_text = slurp_file(generated_run_dir / "artifacts" / "pi_run_provenance.json");
+        const auto provenance_uid = nlohmann::json::parse(provenance_text)["run_uid"].get<std::string>();
+        const auto activated = harness.post_json("/api/runs/" + generated_run_id + "/set-current", {});
+        expect_equal(activated["run_uid"].get<std::string>(), provenance_uid, "activation uses provenance UID");
+        const auto aliased = harness.post_json("/api/runs/path_alias/set-current", {{"run_dir", generated_run_dir.string()}});
+        expect_equal(aliased["run_uid"].get<std::string>(), provenance_uid, "path hint shares exact run identity");
+        const auto active_context = harness.get_json("/api/pi/active-context");
+        expect_equal(active_context["context"]["run_uid"].get<std::string>(), provenance_uid, "active context endpoint");
+        const auto ui_state = nlohmann::json::parse(slurp_file(harness.fixture_root() / "runtime" / "ui_state.json"));
+        expect_equal(ui_state["pi_active_context"]["run_uid"].get<std::string>(), provenance_uid, "active context persisted");
+        expect_equal(slurp_file(generated_run_dir / "artifacts" / "pi_run_provenance.json"), provenance_text,
+                     "activation does not rewrite run provenance");
         expect_true(job["data"]["command"].is_array(), "job command is array");
         expect_equal(job["data"]["command"][1].get<std::string>(), "reconstruct",
                      "job command uses reconstruct");
@@ -211,6 +232,127 @@ int main(int argc, char** argv) {
         expect_true(
             std::regex_match(queued_named_job["data"]["queue"][1]["run_id"].get<std::string>(), std::regex(R"(^M66_Batch_[0-9]{8}_[0-9]{6}/OIII$)")),
             "named queue should keep run_name_timestamp root for all filters");
+        // Preserve learning data before deleting run outputs; raw lights remain external.
+        harness.make_file("runs/" + generated_run_id + "/artifacts/stats.json", "{\"frames\":1,\"noise\":0.12}");
+        const auto memory_root = harness.fixture_root() / "runs" / ".pi_memory";
+        auto db = tile_compile::pi::PiDatabase::open(memory_root);
+        db->execute("CREATE TRIGGER fail_learning_capture BEFORE INSERT ON run_learning_snapshots BEGIN SELECT RAISE(ABORT, 'fixture storage failure'); END");
+        const auto blocked_delete = harness.post_json("/api/runs/" + generated_run_id + "/delete", {});
+        expect_equal(blocked_delete["_http_status"].get<long>(), 503L, "failed archive blocks file deletion");
+        expect_true(std::filesystem::exists(generated_run_dir / "config.yaml"), "run files kept after failed snapshot");
+        db->execute("DROP TRIGGER fail_learning_capture");
+        const auto deleted = harness.post_json("/api/runs/" + generated_run_id + "/delete", {});
+        expect_equal(deleted["_http_status"].get<long>(), 200L, "delete run with learning retained");
+        expect_true(deleted["learning_retained"].get<bool>(), "delete confirms learning retained");
+        expect_equal(deleted["run_uid"].get<std::string>(), provenance_uid, "delete keeps stable UID");
+        expect_true(!std::filesystem::exists(generated_run_dir), "run outputs removed");
+        expect_true(std::filesystem::exists(input_file), "raw light remains on disk");
+        const auto archived = harness.get_json("/api/pi/run-learning/" + provenance_uid);
+        expect_equal(archived["_http_status"].get<long>(), 200L, "deleted run archive readable");
+        expect_equal(archived["artifacts_state"].get<std::string>(), "deleted", "deleted artifacts marker");
+        expect_true(!archived["excluded_from_learning"].get<bool>(), "file deletion is not learning rejection");
+        expect_equal(archived["artifacts"]["artifacts/stats.json"]["data"]["frames"].get<long>(), 1L, "statistics retained");
+        expect_true(archived["config"]["yaml"].is_string(), "effective config retained");
+        expect_equal(archived["source"]["original_input_dir"].get<std::string>(), input_dir, "raw input origin retained");
+        const auto history = harness.get_json("/api/pi/run-learning/" + provenance_uid + "/history");
+        expect_true(history["items"].size() >= 2, "start and later snapshots retained");
+        const auto capabilities = harness.get_json("/api/pi/run-learning/capabilities");
+        expect_equal(capabilities["_http_status"].get<long>(), 200L, "archive capabilities route beats UID lookup");
+        expect_true(capabilities["delete_preserves_learning"].get<bool>() && capabilities["history_summaries"].get<bool>(),
+                    "archive capabilities confirmed by backend");
+        const auto summaries = harness.get_json("/api/pi/run-learning/" + provenance_uid + "/history?summary=true&limit=1");
+        expect_equal(static_cast<long>(summaries["items"].size()), 1L, "bounded summary endpoint");
+        expect_true(!summaries["items"][0].contains("artifacts"), "summary response does not load documents");
+        const std::string older_id = history["items"].back()["snapshot_id"];
+        const auto older = harness.get_json("/api/pi/run-learning/" + provenance_uid + "/snapshots/" + older_id);
+        expect_equal(older["_http_status"].get<long>(), 200L, "historical snapshot read endpoint");
+        expect_equal(older["snapshot_id"].get<std::string>(), older_id, "historical version exact ID");
+        expect_equal(harness.get_json("/api/pi/run-learning/unknown_uid/snapshots/" + older_id)["_http_status"].get<long>(),
+                     404L, "snapshot UID isolation");
+        expect_equal(harness.get_json("/api/pi/run-learning/" + provenance_uid + "/preview")["_http_status"].get<long>(), 404L,
+                     "optional preview absent without rendering enabled");
+        const auto excluded = harness.post_json("/api/pi/run-learning/" + provenance_uid + "/exclusion", {
+            {"confirmed", true}, {"excluded", true}, {"reason_code", "test_run"}
+        });
+        expect_equal(excluded["_http_status"].get<long>(), 200L, "learning exclusion is separate explicit action");
+        expect_true(harness.get_json("/api/pi/run-learning/" + provenance_uid)["excluded_from_learning"].get<bool>(),
+                    "archive exclusion persisted without erasing measurements");
+
+        harness.make_file("runs/raw_inside/config.yaml", "data:\n  color_mode: OSC\n");
+        const auto inner_run = harness.fixture_root() / "runs" / "raw_inside";
+        harness.make_file("runs/raw_inside/lights/raw.fit", "RAW");
+        harness.make_file("runs/raw_inside/artifacts/pi_run_provenance.json", nlohmann::json{
+            {"original_input_dir", (inner_run / "lights").string()}
+        }.dump());
+        const auto refused_raw_delete = harness.post_json("/api/runs/raw_inside/delete", {});
+        expect_equal(refused_raw_delete["_http_status"].get<long>(), 409L, "raw files inside run block output deletion");
+        expect_true(std::filesystem::exists(inner_run / "lights" / "raw.fit"), "inner raw light protected");
+        const auto safe_raw_path = harness.fixture_root() / "raw_moved.fit";
+        std::filesystem::rename(inner_run / "lights" / "raw.fit", safe_raw_path);
+        const auto after_raw_move = harness.post_json("/api/runs/raw_inside/delete", {});
+        expect_equal(after_raw_move["_http_status"].get<long>(), 200L, "deletion allowed after raw source moved out");
+        expect_true(std::filesystem::exists(safe_raw_path), "moved raw source retained on disk");
+        harness.make_file("runs/incomplete_archive/config.yaml", "data:\n  color_mode: OSC\n");
+        harness.make_file("runs/incomplete_archive/artifacts/stats.json", "{broken");
+        const auto incomplete_delete = harness.post_json("/api/runs/incomplete_archive/delete", {});
+        expect_equal(incomplete_delete["_http_status"].get<long>(), 409L, "invalid statistics block unconfirmed incomplete archive");
+        expect_true(std::filesystem::exists(harness.fixture_root() / "runs" / "incomplete_archive" / "config.yaml"),
+                    "run kept for incomplete archive decision");
+        const auto acknowledged = harness.post_json("/api/runs/incomplete_archive/delete", {{"allow_incomplete_snapshot", true}});
+        expect_equal(acknowledged["_http_status"].get<long>(), 200L, "explicit incomplete archive acknowledgement");
+        expect_true(!acknowledged["capture_issues"].empty(), "capture gaps remain visible after acknowledged deletion");
+
+        // Full attribution path: applied proposal -> saved config revision ->
+        // verified run start -> completion callback -> durable Jev outcome.
+        const std::string jev_yaml = "data:\n  color_mode: OSC\n";
+        jev_store.put("p_full_chain", "source", {
+            {"input_path", input_dir}, {"dataset_manifest", manifest}
+        });
+        jev_store.put("p_full_chain", "proposal", {
+            {"status", "applied_to_draft"}, {"applied_at", "2020-01-01T00:00:00Z"},
+            {"config_hash_after", tile_compile::pi::sha256_prefixed(
+                tile_compile::pi::canonical_json_dump(tile_compile::pi::yaml_text_to_json(jev_yaml)))},
+            {"saved_revision_ids", nlohmann::json::array()},
+            {"updates", nlohmann::json::array({{{"path", "data.color_mode"}, {"value", "OSC"}}})}
+        });
+        const auto current_config = harness.get_json("/api/config/current");
+        const auto saved_jev = harness.post_json("/api/config/save", {
+            {"yaml", jev_yaml}, {"jev_proposal_id", "p_full_chain"},
+            {"expected_source_sha256", current_config["source_sha256"]}
+        });
+        expect_equal(saved_jev["_http_status"].get<long>(), 200L, "Jev config save succeeds");
+        expect_true(saved_jev["jev_revision_linked"].get<bool>(), "save links actual revision to Jev proposal");
+        const auto saved_proposal = *jev_store.get("p_full_chain", "proposal");
+        expect_true(saved_proposal["saved_revision_ids"].is_array() &&
+                    saved_proposal["saved_revision_ids"].size() == 1 &&
+                    saved_proposal["saved_revision_ids"][0] == saved_jev["revision_id"],
+                    "proposal stores the revision returned by config save");
+
+        const auto linked_direct = harness.post_json("/api/runs/start", {
+            {"input_dir", input_dir}, {"run_id", "linked_jev_full_chain"},
+            {"color_mode", "OSC"}, {"config_yaml", jev_yaml},
+            {"jev_saved_proposal_id", "p_full_chain"}
+        });
+        expect_equal(linked_direct["_http_status"].get<long>(), 202L, "saved Jev proposal permits run start");
+        const auto linked_direct_job = harness.wait_for_job(linked_direct["job_id"].get<std::string>());
+        expect_equal(linked_direct_job["state"].get<std::string>(), "ok", "linked fake run completes");
+        const auto linked_direct_run = harness.fixture_root() / "runs" / "linked_jev_full_chain";
+        const auto linked_direct_provenance = nlohmann::json::parse(
+            slurp_file(linked_direct_run / "artifacts" / "pi_run_provenance.json"));
+        expect_equal(linked_direct_provenance["jev_proposal_id"].get<std::string>(), "p_full_chain",
+                     "run provenance carries the saved Jev proposal");
+        std::optional<nlohmann::json> full_outcome;
+        for (int attempt = 0; attempt < 100 && !full_outcome; ++attempt) {
+            full_outcome = jev_store.get("p_full_chain", "outcome");
+            if (!full_outcome) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        expect_true(full_outcome.has_value(), "completion callback persists Jev outcome");
+        expect_equal((*full_outcome)["runs"][0]["run_id"].get<std::string>(), "linked_jev_full_chain",
+                     "outcome names the completed run");
+        expect_equal((*full_outcome)["runs"][0]["attribution"].get<std::string>(), "paths_present",
+                     "outcome attributes only the applied config path");
+        expect_true((*full_outcome)["runs"][0]["quality_delta"].is_null(),
+                    "unpaired completion does not claim image-quality gain");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());

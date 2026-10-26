@@ -1,6 +1,7 @@
 #include "services/pi/pi_memory_store.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <algorithm>
 #include <ctime>
 #include <fstream>
@@ -370,29 +371,6 @@ nlohmann::json apply_diversity_cap(const nlohmann::json& sorted_matches, int cap
     return result;
 }
 
-nlohmann::json read_jsonl(const std::filesystem::path& path) {
-    nlohmann::json items = nlohmann::json::array();
-    std::ifstream in(path);
-    if (!in) return items;
-    std::string line;
-    while (std::getline(in, line)) {
-        if (line.empty()) continue;
-        auto parsed = nlohmann::json::parse(line, nullptr, false);
-        if (parsed.is_discarded() || !parsed.is_object()) continue;
-        items.push_back(std::move(parsed));
-    }
-    return items;
-}
-
-void write_jsonl(const std::filesystem::path& path, const nlohmann::json& items) {
-    std::ofstream out(path);
-    if (!out) throw std::runtime_error("failed to open PI memory store for writing");
-    if (items.is_array()) {
-        for (const auto& item : items) out << item.dump() << '\n';
-    }
-    if (!out) throw std::runtime_error("failed to write PI memory store");
-}
-
 void add_index_ref(nlohmann::json& index,
                    const std::string& bucket,
                    const std::string& key,
@@ -437,20 +415,13 @@ void add_index_paths(nlohmann::json& index,
 PiMemoryStore::PiMemoryStore(std::filesystem::path memory_dir)
     : _memory_dir(std::move(memory_dir)) {}
 
-std::filesystem::path PiMemoryStore::memories_path() const {
-    return _memory_dir / "memories_v2.jsonl";
+std::shared_ptr<PiDatabase> PiMemoryStore::db() const {
+    if (!_db) _db = PiDatabase::open(_memory_dir);
+    return _db;
 }
 
-std::filesystem::path PiMemoryStore::reviews_path() const {
-    return _memory_dir / "memory_reviews_v2.jsonl";
-}
-
-std::filesystem::path PiMemoryStore::outcomes_path() const {
-    return _memory_dir / "memory_outcomes_v2.jsonl";
-}
-
-std::filesystem::path PiMemoryStore::indices_path() const {
-    return _memory_dir / "memory_indices_v2.json";
+std::filesystem::path PiMemoryStore::database_path() const {
+    return _memory_dir / kPiDatabaseFileName;
 }
 
 std::filesystem::path PiMemoryStore::legacy_memories_path() const {
@@ -459,6 +430,29 @@ std::filesystem::path PiMemoryStore::legacy_memories_path() const {
 
 std::filesystem::path PiMemoryStore::legacy_reviews_path() const {
     return _memory_dir / "memory_reviews.jsonl";
+}
+
+nlohmann::json PiMemoryStore::read_table(const char* table) const {
+    nlohmann::json items = nlohmann::json::array();
+    for (const auto& row : db()->query(std::string("SELECT json FROM ") + table + " ORDER BY seq")) {
+        auto parsed = nlohmann::json::parse(pi_sql_text(row[0]), nullptr, false);
+        if (parsed.is_discarded() || !parsed.is_object()) continue;
+        items.push_back(std::move(parsed));
+    }
+    return items;
+}
+
+bool PiMemoryStore::memory_exists(const std::string& memory_id) const {
+    return !db()->query("SELECT 1 FROM memories WHERE memory_id = ? LIMIT 1", {memory_id}).empty();
+}
+
+std::string PiMemoryStore::current_status(const std::string& memory_id) const {
+    std::string status = "candidate";
+    auto base = db()->query("SELECT json FROM memories WHERE memory_id = ? ORDER BY seq LIMIT 1", {memory_id});
+    if (!base.empty()) status = pi_sql_json(base[0][0]).value("status", status);
+    auto review = db()->query("SELECT json FROM memory_reviews WHERE memory_id = ? ORDER BY seq DESC LIMIT 1", {memory_id});
+    if (!review.empty()) status = pi_sql_json(review[0][0]).value("status", status);
+    return status;
 }
 
 nlohmann::json PiMemoryStore::append_candidate(nlohmann::json memory) const {
@@ -517,6 +511,9 @@ nlohmann::json PiMemoryStore::append_candidate(nlohmann::json memory) const {
         memory["retrieval"] = nlohmann::json::object();
     }
 
+
+    auto database = db();
+    PiDatabase::Tx tx(*database);
     const nlohmann::json new_signature = memory_dedupe_signature(memory);
     for (auto existing : list(100000)) {
         if (memory_dedupe_signature(existing) == new_signature) {
@@ -527,40 +524,29 @@ nlohmann::json PiMemoryStore::append_candidate(nlohmann::json memory) const {
         }
     }
 
-    std::error_code ec;
-    std::filesystem::create_directories(_memory_dir, ec);
-    if (ec) {
-        throw std::runtime_error("failed to create PI memory directory: " + ec.message());
-    }
-
-    std::ofstream out(memories_path(), std::ios::app);
-    if (!out) {
-        throw std::runtime_error("failed to open PI memory store");
-    }
-    out << memory.dump() << '\n';
-    if (!out) {
-        throw std::runtime_error("failed to write PI memory");
-    }
+    database->execute("INSERT INTO memories(memory_id, json) VALUES(?, ?)",
+                      {memory.value("memory_id", std::string()), memory.dump()});
     rebuild_indices();
+    tx.commit();
     memory["created"] = true;
     return memory;
 }
 
 nlohmann::json PiMemoryStore::list(int limit) const {
     if (limit <= 0) return nlohmann::json::array();
-    nlohmann::json items = read_jsonl(memories_path());
+    nlohmann::json items = read_table("memories");
 
     std::map<std::string, nlohmann::json> latest_reviews;
-    for (const auto& review : read_jsonl(reviews_path())) {
+    for (const auto& review : read_table("memory_reviews")) {
         const std::string memory_id = string_field(review, "memory_id");
         if (!memory_id.empty()) latest_reviews[memory_id] = review;
     }
 
-    // Full accumulated history, grouped by memory_id — see attach_outcome()/outcomes_path() for
-    // why this cannot be a latest-wins map like reviews above: Schritt 2's promotion rule needs to
-    // count independent outcomes per memory_id, not just see the most recent one.
+    // Full accumulated history, grouped by memory_id — see attach_outcome() for why this cannot
+    // be a latest-wins map like reviews above: Schritt 2's promotion rule needs to count
+    // independent outcomes per memory_id, not just see the most recent one.
     std::map<std::string, nlohmann::json> outcome_histories;
-    for (const auto& outcome_event : read_jsonl(outcomes_path())) {
+    for (const auto& outcome_event : read_table("memory_outcomes")) {
         const std::string memory_id = string_field(outcome_event, "memory_id");
         if (memory_id.empty()) continue;
         if (!outcome_histories.count(memory_id)) outcome_histories[memory_id] = nlohmann::json::array();
@@ -596,15 +582,7 @@ nlohmann::json PiMemoryStore::review(const std::string& memory_id,
                                      const nlohmann::json& scope) const {
     if (memory_id.empty()) throw std::invalid_argument("memory_id is required");
     if (!allowed_review_status(status)) throw std::invalid_argument("unsupported memory review status");
-
-    bool found = false;
-    for (const auto& item : list(100000)) {
-        if (item.value("memory_id", std::string()) == memory_id) {
-            found = true;
-            break;
-        }
-    }
-    if (!found) throw std::invalid_argument("memory_id not found");
+    if (!memory_exists(memory_id)) throw std::invalid_argument("memory_id not found");
 
     nlohmann::json review_event = {
         {"schema_version", kMemorySchemaVersion},
@@ -622,15 +600,11 @@ nlohmann::json PiMemoryStore::review(const std::string& memory_id,
         review_event["scope"] = sanitize_memory_privacy(scope);
     }
 
-    std::error_code ec;
-    std::filesystem::create_directories(_memory_dir, ec);
-    if (ec) throw std::runtime_error("failed to create PI memory directory: " + ec.message());
-
-    std::ofstream out(reviews_path(), std::ios::app);
-    if (!out) throw std::runtime_error("failed to open PI memory review store");
-    out << review_event.dump() << '\n';
-    if (!out) throw std::runtime_error("failed to write PI memory review");
+    auto database = db();
+    PiDatabase::Tx tx(*database);
+    database->execute("INSERT INTO memory_reviews(memory_id, json) VALUES(?, ?)", {memory_id, review_event.dump()});
     rebuild_indices();
+    tx.commit();
     return review_event;
 }
 
@@ -640,24 +614,15 @@ nlohmann::json PiMemoryStore::attach_outcome(const std::string& memory_id,
                                              const std::string& note) const {
     if (memory_id.empty()) throw std::invalid_argument("memory_id is required");
     if (!outcome.is_object()) throw std::invalid_argument("outcome must be a JSON object");
+    if (!memory_exists(memory_id)) throw std::invalid_argument("memory_id not found");
+    const std::string current_status_value = current_status(memory_id);
 
-    std::string current_status;
-    bool found = false;
-    for (const auto& item : list(100000)) {
-        if (item.value("memory_id", std::string()) == memory_id) {
-            found = true;
-            current_status = item.value("status", std::string("candidate"));
-            break;
-        }
-    }
-    if (!found) throw std::invalid_argument("memory_id not found");
-
-    // Written to two places (see header comment on attach_outcome()):
-    // 1) reviews_path() — same append-only overlay review() writes to; list() already merges the
-    //    latest entry's "outcome" field per memory_id, kept for existing retrieval-scoring code
-    //    that reads item["outcome"].validation_valid. Status is carried forward unchanged — this
-    //    call attaches evidence, it does not promote or reject.
-    // 2) outcomes_path() — accumulating log; list() merges the full per-memory_id history into
+    // Written to two tables (see header comment on attach_outcome()):
+    // 1) memory_reviews — the same overlay review() writes to; list() merges the latest entry's
+    //    "outcome" field per memory_id, kept for retrieval-scoring code that reads
+    //    item["outcome"].validation_valid. Status is carried forward unchanged — this call
+    //    attaches evidence, it does not promote or reject.
+    // 2) memory_outcomes — accumulating log; list() merges the full per-memory_id history into
     //    item["outcomes"] so multiple independent outcomes (e.g. several queued runs sharing one
     //    applied config) are all preserved, not overwritten by the latest one.
     const std::string reviewed_at = utc_timestamp_iso();
@@ -668,7 +633,7 @@ nlohmann::json PiMemoryStore::attach_outcome(const std::string& memory_id,
         {"schema_version", kMemorySchemaVersion},
         {"memory_id", memory_id},
         {"id", memory_id},
-        {"status", current_status},
+        {"status", current_status_value},
         {"reviewed_at", reviewed_at},
         {"reviewer", effective_reviewer},
         {"note", note},
@@ -683,28 +648,15 @@ nlohmann::json PiMemoryStore::attach_outcome(const std::string& memory_id,
         {"outcome", sanitized_outcome}
     };
 
-    std::error_code ec;
-    std::filesystem::create_directories(_memory_dir, ec);
-    if (ec) throw std::runtime_error("failed to create PI memory directory: " + ec.message());
-
-    {
-        std::ofstream out(reviews_path(), std::ios::app);
-        if (!out) throw std::runtime_error("failed to open PI memory review store");
-        out << review_overlay_event.dump() << '\n';
-        if (!out) throw std::runtime_error("failed to write PI memory outcome");
-    }
-    {
-        std::ofstream out(outcomes_path(), std::ios::app);
-        if (!out) throw std::runtime_error("failed to open PI memory outcome history store");
-        out << outcome_history_event.dump() << '\n';
-        if (!out) throw std::runtime_error("failed to write PI memory outcome history");
-    }
+    auto database = db();
+    PiDatabase::Tx tx(*database);
+    database->execute("INSERT INTO memory_reviews(memory_id, json) VALUES(?, ?)",
+                      {memory_id, review_overlay_event.dump()});
+    database->execute("INSERT INTO memory_outcomes(memory_id, json) VALUES(?, ?)",
+                      {memory_id, outcome_history_event.dump()});
     rebuild_indices();
+    tx.commit();
     return outcome_history_event;
-}
-
-std::filesystem::path PiMemoryStore::auto_promotion_shadow_path() const {
-    return _memory_dir / "memory_auto_promotion_shadow_v1.jsonl";
 }
 
 nlohmann::json PiMemoryStore::evaluate_auto_promotion(const std::string& memory_id) const {
@@ -772,28 +724,21 @@ nlohmann::json PiMemoryStore::log_auto_promotion_shadow_decision(const nlohmann:
     if (!decision.is_object() || decision.value("memory_id", std::string()).empty()) {
         throw std::invalid_argument("decision must be an object with a non-empty memory_id");
     }
-    std::error_code ec;
-    std::filesystem::create_directories(_memory_dir, ec);
-    if (ec) throw std::runtime_error("failed to create PI memory directory: " + ec.message());
-
-    std::ofstream out(auto_promotion_shadow_path(), std::ios::app);
-    if (!out) throw std::runtime_error("failed to open PI auto-promotion shadow log");
-    out << decision.dump() << '\n';
-    if (!out) throw std::runtime_error("failed to write PI auto-promotion shadow log");
+    db()->execute("INSERT INTO memory_shadow(json) VALUES(?)", {decision.dump()});
     return decision;
 }
 
 nlohmann::json PiMemoryStore::auto_promotion_shadow_log(int limit) const {
     if (limit <= 0) return nlohmann::json::array();
-    nlohmann::json items = read_jsonl(auto_promotion_shadow_path());
+    nlohmann::json items = read_table("memory_shadow");
     while (static_cast<int>(items.size()) > limit) items.erase(items.begin());
     return items;
 }
 
 nlohmann::json PiMemoryStore::indices() const {
-    std::ifstream in(indices_path());
-    if (in) {
-        auto parsed = nlohmann::json::parse(in, nullptr, false);
+    const std::string cached = db()->meta_get("memory_indices");
+    if (!cached.empty()) {
+        auto parsed = nlohmann::json::parse(cached, nullptr, false);
         if (!parsed.is_discarded() && parsed.is_object() &&
             parsed.value("schema_version", std::string()) == "pi.memory-indices.v2") {
             return parsed;
@@ -834,13 +779,7 @@ nlohmann::json PiMemoryStore::rebuild_indices() const {
         add_index_json_value(index, "by_problem", pointer_value(ctx, "/problem/hints"), memory_id);
     }
 
-    std::error_code ec;
-    std::filesystem::create_directories(_memory_dir, ec);
-    if (ec) throw std::runtime_error("failed to create PI memory directory: " + ec.message());
-    std::ofstream out(indices_path());
-    if (!out) throw std::runtime_error("failed to open PI memory index store");
-    out << index.dump(2) << '\n';
-    if (!out) throw std::runtime_error("failed to write PI memory indices");
+    db()->meta_set("memory_indices", index.dump());
     return index;
 }
 
@@ -965,7 +904,7 @@ nlohmann::json PiMemoryStore::retrieve_negative(const nlohmann::json& query, int
 nlohmann::json PiMemoryStore::export_bundle(const std::string& privacy_class,
                                             bool include_reviews) const {
     nlohmann::json memories = nlohmann::json::array();
-    for (const auto& memory : read_jsonl(memories_path())) {
+    for (const auto& memory : read_table("memories")) {
         if (!privacy_class.empty() && privacy_class != "all" &&
             memory.value("privacy_class", std::string("metadata_only")) != privacy_class) {
             continue;
@@ -980,7 +919,7 @@ nlohmann::json PiMemoryStore::export_bundle(const std::string& privacy_class,
             const std::string memory_id = memory.value("memory_id", std::string());
             if (!memory_id.empty()) exported_ids.insert(memory_id);
         }
-        for (const auto& review : read_jsonl(reviews_path())) {
+        for (const auto& review : read_table("memory_reviews")) {
             const std::string memory_id = review.value("memory_id", std::string());
             if (exported_ids.count(memory_id)) reviews.push_back(review);
         }
@@ -1005,7 +944,7 @@ nlohmann::json PiMemoryStore::import_bundle(const nlohmann::json& bundle,
 
     std::set<std::string> existing_ids;
     std::set<std::string> existing_signatures;
-    for (const auto& memory : read_jsonl(memories_path())) {
+    for (const auto& memory : read_table("memories")) {
         const std::string memory_id = memory.value("memory_id", std::string());
         if (!memory_id.empty()) existing_ids.insert(memory_id);
         existing_signatures.insert(memory_dedupe_signature(memory).dump());
@@ -1069,20 +1008,18 @@ nlohmann::json PiMemoryStore::import_bundle(const nlohmann::json& bundle,
     }
 
     if (!dry_run) {
-        std::error_code ec;
-        std::filesystem::create_directories(_memory_dir, ec);
-        if (ec) throw std::runtime_error("failed to create PI memory directory: " + ec.message());
-        {
-            std::ofstream out(memories_path(), std::ios::app);
-            if (!out) throw std::runtime_error("failed to open PI memory import target");
-            for (const auto& memory : memories_to_add) out << memory.dump() << '\n';
+        auto database = db();
+        PiDatabase::Tx tx(*database);
+        for (const auto& memory : memories_to_add) {
+            database->execute("INSERT INTO memories(memory_id, json) VALUES(?, ?)",
+                              {memory.value("memory_id", std::string()), memory.dump()});
         }
-        if (!reviews_to_add.empty()) {
-            std::ofstream out(reviews_path(), std::ios::app);
-            if (!out) throw std::runtime_error("failed to open PI memory review import target");
-            for (const auto& review : reviews_to_add) out << review.dump() << '\n';
+        for (const auto& review : reviews_to_add) {
+            database->execute("INSERT INTO memory_reviews(memory_id, json) VALUES(?, ?)",
+                              {review.value("memory_id", std::string()), review.dump()});
         }
         rebuild_indices();
+        tx.commit();
     }
 
     return {
@@ -1095,40 +1032,41 @@ nlohmann::json PiMemoryStore::import_bundle(const nlohmann::json& bundle,
 }
 
 nlohmann::json PiMemoryStore::dedupe(bool dry_run) const {
-    nlohmann::json items = read_jsonl(memories_path());
-    nlohmann::json unique = nlohmann::json::array();
+    auto database = db();
+    PiDatabase::Tx tx(*database);
     std::set<std::string> signatures;
-    int removed = 0;
-    for (const auto& item : items) {
-        const std::string signature = memory_dedupe_signature(item).dump();
-        if (!signatures.insert(signature).second) {
-            ++removed;
-            continue;
+    std::vector<std::pair<std::int64_t, std::string>> duplicates;  // seq, raw json
+    long before = 0;
+    for (const auto& row : database->query("SELECT seq, json FROM memories ORDER BY seq")) {
+        auto parsed = nlohmann::json::parse(pi_sql_text(row[1]), nullptr, false);
+        if (parsed.is_discarded() || !parsed.is_object()) continue;
+        ++before;
+        if (!signatures.insert(memory_dedupe_signature(parsed).dump()).second) {
+            duplicates.emplace_back(pi_sql_int(row[0]), pi_sql_text(row[1]));
         }
-        unique.push_back(item);
     }
+    const long removed = static_cast<long>(duplicates.size());
 
-    std::string backup_path;
+    std::string backup_id;
     if (!dry_run && removed > 0) {
-        std::error_code ec;
-        std::filesystem::create_directories(_memory_dir, ec);
-        if (ec) throw std::runtime_error("failed to create PI memory directory: " + ec.message());
-        const auto backup = _memory_dir / ("memories.dedupe." + utc_timestamp_compact() + ".bak.jsonl");
-        if (std::filesystem::exists(memories_path())) {
-            std::filesystem::copy_file(memories_path(), backup, std::filesystem::copy_options::overwrite_existing, ec);
-            if (!ec) backup_path = backup.string();
+        backup_id = "dedupe_" + utc_timestamp_compact();
+        for (const auto& [seq, raw] : duplicates) {
+            database->execute("INSERT INTO memory_dedupe_backup(backup_id, json) VALUES(?, ?)", {backup_id, raw});
+            database->execute("DELETE FROM memories WHERE seq = ?", {seq});
         }
-        write_jsonl(memories_path(), unique);
         rebuild_indices();
     }
+    tx.commit();
 
     return {
         {"ok", true},
         {"dry_run", dry_run},
-        {"before_count", items.size()},
-        {"after_count", unique.size()},
+        {"before_count", before},
+        {"after_count", before - removed},
         {"removed_count", removed},
-        {"backup_path", backup_path}
+        // Entfernte Eintraege liegen in der Tabelle memory_dedupe_backup (restore per backup_id).
+        {"backup_id", backup_id},
+        {"backup_path", backup_id.empty() ? std::string() : database_path().string()}
     };
 }
 

@@ -11,11 +11,17 @@ import { setRunState } from "../state/run-state.js";
 import { pollJob } from "../utils/poll.js";
 import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
 import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
+import { createRunLearningArchive } from "../components/run-learning-archive.js";
+import { deleteRunFiles, deletionErrorMessage } from "../components/run-artifact-actions.js";
+
+let learningArchive;
+let selectionRequest = 0;
 
 const store = getStore("run-history", {
   selectedRunId: null,
   compareRunId: null,
   runsCache: [],
+  selectedLearningUid: null,
 });
 
 function getSelectedRunId() { return store.getState().selectedRunId; }
@@ -26,6 +32,7 @@ function getRunsCache() { return store.getState().runsCache || []; }
 function setRunsCache(runs) { store.setState({ runsCache: runs }); }
 
 export function createRunHistoryPage() {
+  ++selectionRequest;
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
 
   const header = el("div", { class: "tc-flex tc-items-center tc-justify-between" },
@@ -73,9 +80,13 @@ export function createRunHistoryPage() {
     ),
   );
 
-  const actionsBar = el("div", { class: "tc-flex tc-gap-2", id: "run-actions" });
+  const actionsBar = el("div", { class: "tc-archive-toolbar tc-run-file-actions", id: "run-actions" });
 
-  page.append(header, listCard, detailCard, compareCard, actionsBar);
+  learningArchive = createRunLearningArchive({
+    selectedUid: store.getState().selectedLearningUid,
+    onSelect: (uid) => store.setState({ selectedLearningUid: uid }),
+  });
+  page.append(header, listCard, detailCard, compareCard, actionsBar, learningArchive.element);
 
   setTimeout(() => loadRuns(), 100);
   return page;
@@ -83,16 +94,14 @@ export function createRunHistoryPage() {
 
 async function loadRuns() {
   try {
+    learningArchive?.refresh();
     const runs = await api.get(API_ENDPOINTS.runs.list);
     const list = document.getElementById("run-list");
     if (!list) return;
     clear(list);
-    if (!runs || (Array.isArray(runs) && runs.length === 0)) {
-      list.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_runs", "Keine Runs gefunden")));
-      return;
-    }
-    const runArr = Array.isArray(runs) ? runs : (runs.runs || runs.items || []);
+    const runArr = Array.isArray(runs) ? runs : (runs?.runs || runs?.items || []);
     setRunsCache(runArr);
+    if (!runArr.length) list.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_runs", "Keine Runs gefunden")));
     for (const run of runArr) {
       list.appendChild(runItem(run));
     }
@@ -117,7 +126,7 @@ function runItem(run) {
   const item = el("div", {
     class: "tc-run-item",
     "data-run-id": runId,
-    onclick: () => selectRun(runId),
+    onclick: () => selectRun(runId, run.path || run.run_dir || ""),
   },
     el("span", { class: "tc-badge" }, methodLabel(run.method)),
     el("span", { class: `tc-badge ${badgeClass}` }, status),
@@ -129,7 +138,10 @@ function runItem(run) {
   return item;
 }
 
-async function selectRun(runId) {
+async function selectRun(runId, runDirHint = "") {
+  const request = ++selectionRequest;
+  const oldActions = document.getElementById("run-actions");
+  if (oldActions) clear(oldActions);
   setSelectedRunId(runId);
   document.querySelectorAll(".tc-run-item").forEach(item => {
     item.classList.toggle("selected", item.getAttribute("data-run-id") === runId);
@@ -146,12 +158,14 @@ async function selectRun(runId) {
 
   try {
     const status = await api.get(API_ENDPOINTS.runs.status(runId)).catch(() => null);
-    const runDir = status?.run_dir || "";
+    if (request !== selectionRequest || !body.isConnected) return;
+    const runDir = runDirHint || status?.run_dir || "";
     const [stats, artifacts] = await Promise.all([
       api.get(API_ENDPOINTS.runs.stats(runId)).catch(() => null),
       api.get(API_ENDPOINTS.runs.artifacts(runId, runDir)).catch(() => null),
     ]);
 
+    if (request !== selectionRequest || !body.isConnected) return;
     if (status) {
       body.appendChild(el("div", { class: "tc-grid-2 tc-mt-2" },
         statItem(t("ui.label.status", "Status"), status.status || "\u2014"),
@@ -188,7 +202,7 @@ async function selectRun(runId) {
     }
 
     body.appendChild(createRunImagePreviewPanel("run-history-image-preview"));
-    loadRunImagePreview(runId, status?.run_dir || "", artifacts, "run-history-image-preview");
+    loadRunImagePreview(runId, runDir, artifacts, "run-history-image-preview");
 
     const actions = document.getElementById("run-actions");
     if (actions) {
@@ -202,7 +216,8 @@ async function selectRun(runId) {
         hasReport = !!statsStatus?.report_path;
       } catch {}
 
-      actions.appendChild(el("button", { class: "tc-btn tc-btn-sm", onclick: () => setRunCurrent(runId) }, t("ui.button.set_current", "Als aktuell setzen")));
+      if (request !== selectionRequest || !body.isConnected) return;
+      actions.appendChild(el("button", { class: "tc-btn tc-btn-sm", onclick: () => setRunCurrent(runId, runDir) }, t("ui.button.set_current", "Als aktuell setzen")));
 
       const dashboardBtn = el("button", {
         class: "tc-btn tc-btn-sm",
@@ -213,16 +228,21 @@ async function selectRun(runId) {
       }, t("ui.button.open_dashboard", "Live-Dashboard"));
       actions.appendChild(dashboardBtn);
 
-      const genBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !isTerminal, onclick: () => generateStatsForRun(runId) }, t("ui.button.generate_stats", "Generate Stats"));
+      const genBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !isTerminal, onclick: () => generateStatsForRun(runId, runDir) }, t("ui.button.generate_stats", "Generate Stats"));
       const openBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !hasReport, onclick: () => openStatsFolder(runId, status?.run_dir) }, t("ui.button.open_stats_folder", "Open Stats Folder"));
       const reportBtn = el("button", { class: "tc-btn tc-btn-sm", disabled: !hasReport, onclick: () => openStatsReport(runId, status?.run_dir) }, t("ui.button.open_stats_report", "Open Report"));
       actions.appendChild(genBtn);
       actions.appendChild(openBtn);
       actions.appendChild(reportBtn);
 
-      actions.appendChild(el("button", { class: "tc-btn tc-btn-sm tc-btn-danger", onclick: () => deleteRun(runId) }, t("ui.button.delete", "L\u00f6schen")));
+      actions.appendChild(el("button", { class: "tc-btn tc-btn-sm tc-btn-danger", onclick: async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try { await deleteRun(runId, runDir); } finally { button.disabled = false; }
+      } }, t("ui.archive.delete_files")));
     }
   } catch (e) {
+    if (request !== selectionRequest || !body.isConnected) return;
     body.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, e.message));
   }
 }
@@ -236,10 +256,10 @@ async function viewArtifact(runId, path, runDir = "") {
   }
 }
 
-async function setRunCurrent(runId) {
+async function setRunCurrent(runId, runDirHint = "") {
   try {
     const cached = getRunsCache().find(r => (r.run_id || r.id) === runId);
-    const runDir = cached?.path || cached?.run_dir || "";
+    const runDir = runDirHint || cached?.path || cached?.run_dir || "";
     await api.post(API_ENDPOINTS.runs.setCurrent(runId), runDir ? { run_dir: runDir } : {});
     setRunState({
       currentRunId: runId,
@@ -259,15 +279,26 @@ async function setRunCurrent(runId) {
   }
 }
 
-async function deleteRun(runId) {
-  if (!confirm(t("ui.confirm.delete_run", "Run wirklich l\u00f6schen?"))) return;
+async function deleteRun(runId, runDir = "") {
+  const request = selectionRequest;
+  const archive = learningArchive;
   try {
-    await api.post(API_ENDPOINTS.runs.delete(runId), {});
-    toastSuccess(t("ui.toast.deleted", "Gel\u00f6scht"));
-    setSelectedRunId(null);
+    const result = await deleteRunFiles(runId, runDir);
+    if (!result) return;
+    toastSuccess(t("ui.archive.files_deleted"));
+    const body = document.getElementById("run-detail-body");
+    if (request === selectionRequest && body?.isConnected) {
+      ++selectionRequest;
+      setSelectedRunId(null);
+      const actions = document.getElementById("run-actions");
+      if (actions) clear(actions);
+      clear(body);
+      store.setState({ selectedLearningUid: result.run_uid || null });
+      if (result.run_uid) await archive?.select(result.run_uid);
+    }
     loadRuns();
   } catch (e) {
-    toastError(t("ui.toast.delete_failed", "L\u00f6schen fehlgeschlagen"), e.message);
+    toastError(t("ui.toast.delete_failed", "L\u00f6schen fehlgeschlagen"), deletionErrorMessage(e));
   }
 }
 
@@ -444,15 +475,16 @@ async function renderCompare() {
   body.appendChild(btnRow);
 }
 
-async function generateStatsForRun(runId) {
+async function generateStatsForRun(runId, runDir = "") {
   try {
     toast(t("ui.toast.stats_generating", "Stats werden generiert..."), "", "info");
-    const result = await api.post(API_ENDPOINTS.runs.stats(runId), {});
+    const result = await api.post(API_ENDPOINTS.runs.stats(runId), runDir ? { run_dir: runDir } : {});
     const jobId = result?.job_id;
     if (jobId) {
       await pollJob(jobId, { intervalMs: 1000, timeoutMs: 120000 });
       toastSuccess(t("ui.toast.stats_done", "Stats generiert"));
-      selectRun(runId);
+      selectRun(runId, runDir);
+      learningArchive?.refresh();
     }
   } catch (e) {
     toastError(t("ui.toast.stats_failed", "Stats-Generierung fehlgeschlagen"), e.message);

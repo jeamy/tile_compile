@@ -11,6 +11,7 @@ import { refreshGuardrails } from "./services/guardrail-service.js";
 import { toast } from "./components/toast.js";
 import { el, clear } from "./utils/dom.js";
 import { onAiChange } from "./state/ai-state.js";
+import { createAssistantDock } from "./assistant/dock.js";
 
 import { createProcessingPage } from "./pages/processing.js";
 import { createToolsPage } from "./pages/tools.js";
@@ -66,6 +67,7 @@ async function init() {
 
   contentRoot = el("div", { class: "tc-content", id: "content" });
   appRoot.appendChild(contentRoot);
+  appRoot.appendChild(createAssistantDock());
 
   const footer = el("footer", { class: "tc-footer" },
     el("span", {}, t("ui.footer.default", "Bereit")),

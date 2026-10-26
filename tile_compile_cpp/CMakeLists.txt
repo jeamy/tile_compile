@@ -478,6 +478,7 @@ set(LIB_SOURCES
     src/reconstruction/alpha_guard.cpp
     src/reconstruction/alpha_confidence.cpp
     src/reconstruction/multiband_validation.cpp
+    src/reconstruction/post_run_star_shape.cpp
     src/reconstruction/global_quality.cpp
     src/reconstruction/quality_frame_weight_plan.cpp
     src/reconstruction/source_quality_artifact.cpp
@@ -724,6 +725,7 @@ if(BUILD_TESTS)
             tests/test_alpha_guard.cpp
             tests/test_alpha_confidence.cpp
             tests/test_multiband_validation.cpp
+            tests/test_post_run_star_shape.cpp
             tests/test_global_quality.cpp
             tests/test_quality_frame_weight_plan.cpp
             tests/test_runner_forward_drizzle.cpp

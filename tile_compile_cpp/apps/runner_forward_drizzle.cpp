@@ -4,6 +4,7 @@
 #include "tile_compile/reconstruction/source_quality_artifact.hpp"
 #include "tile_compile/reconstruction/source_quality_map_cache.hpp"
 #include "tile_compile/reconstruction/multiband_validation.hpp"
+#include "tile_compile/reconstruction/post_run_star_shape.hpp"
 #include "tile_compile/reconstruction/multiband_fusion.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2_production.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2_store.hpp"
@@ -105,6 +106,7 @@ std::string read_cpu_model_name() {
   }
   return {};
 }
+
 const std::vector<std::string> geometry_files = {
     "registration_sampling.json", "sampling_geometry.json",
     "sampling_geometry_analysis_common_mask.fits",
@@ -1342,6 +1344,8 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           active.reset();
         }
       }
+      reconstruction::write_post_run_star_shape_artifact(
+          dir, cfg.hypermetric_stretch.output_rgb, cfg.hypermetric_stretch.enabled);
       checkpoint["downstream_status"]="complete";
       if (sampling.color_mode == ColorMode::OSC && cfg.hypermetric_stretch.enabled) {
         fs::path hms_path(cfg.hypermetric_stretch.output_rgb);
@@ -1537,6 +1541,8 @@ int resume_downstream_command(const fs::path &dir, const json &provenance,
   const int rc = runner::run_rgb_downstream(dir,run_id,cfg,phase_upper,log,
                                             abort_fn);
   if (rc==0) {
+    tile_compile::reconstruction::write_post_run_star_shape_artifact(
+        dir, cfg.hypermetric_stretch.output_rgb, cfg.hypermetric_stretch.enabled);
     // Refresh the checkpoint's downstream markers (same contract as the
     // full-run tail).
     const auto ckpt = dir/"artifacts/forward_drizzle_checkpoint.json";

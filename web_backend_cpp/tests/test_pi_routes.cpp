@@ -1,5 +1,11 @@
 #include "backend_test_harness.hpp"
+#include "pi_store_test_support.hpp"
 #include "fake_sidecar.hpp"
+#include "services/pi/pi_decision_record_store.hpp"
+#include "services/pi/pi_decision_state.hpp"
+#include "services/pi/pi_preview_store.hpp"
+#include "services/pi/pi_decision_writes.hpp"
+#include "services/pi/pi_assistant_event_store.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -46,6 +52,32 @@ int main(int argc, char** argv) {
     try {
         harness.start();
 
+        const auto empty_records = harness.get_json("/api/pi/decision-records?limit=20");
+        expect_equal(empty_records["_http_status"].get<long>(), 200L, "decision records read endpoint");
+        expect_true(empty_records["items"].empty(), "no synthetic decision records");
+        expect_equal(harness.get_json("/api/pi/decision-records/unknown")["_http_status"].get<long>(), 404L,
+                     "unknown decision record");
+        const auto reason_catalog = harness.get_json("/api/pi/reason-codes");
+        expect_equal(reason_catalog["_http_status"].get<long>(), 200L, "user reason catalog status");
+        expect_equal(reason_catalog["schema_version"].get<std::string>(), "pi.user-reason-codes.v1", "user reason schema");
+        expect_equal(reason_catalog["catalog_version"].get<std::string>(), "1", "user reason catalog version");
+        const auto retention = harness.get_json("/api/pi/retention");
+        expect_equal(retention["_http_status"].get<long>(), 200L, "retention policy status");
+        expect_equal(retention["schema_version"].get<std::string>(), "pi.retention-policy.v1", "retention policy schema");
+        expect_equal(harness.post_json("/api/pi/retention/maintenance", nlohmann::json::object())["_http_status"].get<long>(),
+                     400L, "maintenance requires confirmation");
+        expect_equal(harness.post_json("/api/pi/retention/backup", nlohmann::json::object())["_http_status"].get<long>(),
+                     400L, "manual backup requires confirmation");
+        const auto manual_backup = harness.post_json("/api/pi/retention/backup", {{"confirmed", true}});
+        expect_equal(manual_backup["_http_status"].get<long>(), 200L, "confirmed manual backup succeeds");
+        expect_true(manual_backup["backup_id"].is_string(), "manual backup returns managed backup id");
+        expect_equal(harness.post_json("/api/pi/retention/restore", nlohmann::json::object())["_http_status"].get<long>(),
+                     400L, "restore requires confirmation and explicit backup id");
+        expect_equal(harness.post_json("/api/pi/retention/reset", {{"confirmed", true}, {"categories", nlohmann::json::array()}})["_http_status"].get<long>(),
+                     400L, "reset requires explicit nonempty categories");
+        expect_equal(static_cast<long>(reason_catalog["domains"]["config"].size()), 10L, "config reason count");
+        expect_equal(static_cast<long>(reason_catalog["domains"]["image"].size()), 8L, "image reason count");
+
         const auto initial = harness.get_json("/api/pi/context");
         expect_equal(initial["_http_status"].get<long>(), 200L, "pi context status");
         expect_equal(initial["schema_version"].get<std::string>(), "pi.context-overview.v1", "pi context schema");
@@ -62,7 +94,7 @@ int main(int argc, char** argv) {
         expect_equal(scan["_http_status"].get<long>(), 200L, "scan launch status");
         const std::string job_id = scan["job_id"].get<std::string>();
         const auto final_job = harness.wait_for_job(job_id);
-        expect_equal(final_job["state"].get<std::string>(), "ok", "scan job ok");
+        expect_equal(final_job["state"].get<std::string>(), "ok", "scan job ok: " + final_job.dump());
 
         const auto with_scan = harness.get_json("/api/pi/context");
         expect_equal(with_scan["_http_status"].get<long>(), 200L, "pi context with scan status");
@@ -327,7 +359,7 @@ int main(int argc, char** argv) {
                 {"status", "candidate"},
                 {"type", "optimization"}
             }.dump() << "\n";
-            std::ofstream out(memory_dir / "memories_v2.jsonl");
+            PiStoreSeed out(memory_dir, "memories");
             out << nlohmann::json{
                 {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_route_fixture"},
@@ -364,6 +396,10 @@ int main(int argc, char** argv) {
         const auto memory_review = harness.post_json("/api/pi/memories/mem_route_fixture/review", {
             {"status", "accepted"},
             {"reviewer", "fixture"},
+            {"request_id", "review-1"},
+            {"rationale", {{"user", {{"reason_codes", nlohmann::json::array({"evidence_insufficient"})},
+                                      {"catalog_version", "1"}, {"text", "checked"},
+                                      {"no_reason_given", false}}}}},
             {"note", "useful"},
             {"outcome", {{"validation_valid", true}, {"report_status", "ok"}}},
             {"scope", {
@@ -379,6 +415,30 @@ int main(int argc, char** argv) {
         expect_equal(memory_review["review"]["scope"]["applies_when"][0].get<std::string>(),
                      "M42 OSC HaOIII",
                      "pi memory review stores scope metadata");
+        expect_equal(memory_review["decision"]["kind"].get<std::string>(), "memory_review",
+                     "memory review writes a Decision Record");
+        expect_equal(memory_review["decision"]["memory_id"].get<std::string>(), "mem_route_fixture",
+                     "memory review links its Decision Record");
+        expect_equal(memory_review["decision"]["rationale"]["user"]["reason_codes"][0].get<std::string>(),
+                     "evidence_insufficient", "memory review keeps the validated reason");
+        const auto duplicate_review = harness.post_json("/api/pi/memories/mem_route_fixture/review", {
+            {"status", "rejected"}, {"request_id", "review-1"}
+        });
+        expect_true(duplicate_review["decision"]["duplicate"].get<bool>(), "retry returns the existing decision");
+        expect_equal(duplicate_review["decision"]["decision_id"].get<std::string>(),
+                     memory_review["decision"]["decision_id"].get<std::string>(), "retry keeps decision identity");
+        const auto invalid_review = harness.post_json("/api/pi/memories/mem_route_fixture/review", {
+            {"status", "rejected"}, {"request_id", "review-2"},
+            {"rationale", {{"user", {{"reason_codes", nlohmann::json::array({"not_in_catalog"})},
+                                      {"catalog_version", "1"}}}}}
+        });
+        expect_equal(invalid_review["_http_status"].get<long>(), 400L, "invalid reason blocks review");
+        const auto failed_record = harness.post_json("/api/pi/memories/mem_route_fixture/review", {
+            {"status", "rejected"}, {"request_id", "review-3"},
+            {"rationale", {{"user", {{"reason_codes", nlohmann::json::array({"artifacts"})},
+                                      {"catalog_version", "1"}, {"no_reason_given", true}}}}}
+        });
+        expect_equal(failed_record["_http_status"].get<long>(), 400L, "record validation rejects contradictory rationale");
 
         const auto accepted_memories = harness.get_json("/api/pi/memories?status=accepted");
         expect_equal(accepted_memories["_http_status"].get<long>(), 200L, "pi accepted memories status");
@@ -391,6 +451,30 @@ int main(int argc, char** argv) {
         expect_true(memory_index["by_camera"]["asi2600mc"].is_array(), "pi memory index by camera");
         expect_true(memory_index["by_filter"]["haoiii"].is_array(), "pi memory index by filter");
         expect_true(memory_index["by_problem"]["faint_nebula"].is_array(), "pi memory index by problem");
+
+        tile_compile::pi::PiDecisionRecordStore decision_store(harness.fixture_root() / "runs" / ".pi_memory");
+        nlohmann::json export_record = nlohmann::json::object();
+        export_record["schema_version"] = tile_compile::pi::kDecisionRecordSchemaVersion;
+        export_record["kind"] = "config_reject";
+        export_record["actor"] = "user";
+        export_record["origin"] = "live";
+        export_record["privacy_class"] = "metadata_plus_user_text";
+        export_record["decision_id"] = "export_privacy_fixture";
+        export_record["context_ref"] = {{"context_id", "ctx_export"}, {"run_uid", "run_export"}};
+        export_record["subject"] = {{"paths", nlohmann::json::array({{{"path", "/private/user/run/config.yaml"}}})}};
+        export_record["rationale"] = {
+            {"user", {{"reason_codes", nlohmann::json::array({"other"})}, {"catalog_version", "v1"},
+                       {"text", "private export sentinel"}, {"no_reason_given", false}}},
+            {"basis", nlohmann::json::array()}
+        };
+        decision_store.append(export_record);
+        const auto record_export = harness.get_json("/api/pi/decision-records/export");
+        expect_equal(record_export["_http_status"].get<long>(), 200L, "decision record privacy export status");
+        expect_equal(record_export["schema_version"].get<std::string>(), "pi.decision-records-export.v1", "decision record export schema");
+        expect_true(record_export.dump().find("private export sentinel") == std::string::npos, "decision record export omits user free text");
+        expect_true(record_export.dump().find("/private/user/run") == std::string::npos, "decision record export omits path metadata");
+        expect_true(decision_store.get("export_privacy_fixture")["rationale"]["user"]["text"].get<std::string>() == "private export sentinel",
+                    "export omission does not mutate source record");
 
         const auto exported_memories = harness.get_json("/api/pi/memories/export?privacy=metadata_only");
         expect_equal(exported_memories["_http_status"].get<long>(), 200L, "pi memories export status");
@@ -479,19 +563,66 @@ int main(int argc, char** argv) {
         expect_true(preview["preview"]["yaml_changed"].get<bool>(), "pi action preview yaml changed");
         expect_true(preview["preview"]["config_valid"].get<bool>(), "pi action preview config valid");
 
+        const auto preview_id = preview["preview"]["preview_id"].get<std::string>();
+        const auto stored_preview = harness.get_json("/api/pi/action-plans/previews/" + preview_id);
+        expect_equal(stored_preview["_http_status"].get<long>(), 200L, "persistent preview lookup");
+        expect_equal(stored_preview["state"].get<std::string>(), "pending", "preview pending");
+        expect_true(stored_preview["expires_at_epoch"].get<long>() > stored_preview["created_at_epoch"].get<long>(), "preview TTL");
+        auto mismatched_plan = plan;
+        mismatched_plan["goal"] = "different plan";
+        const auto mismatched_apply = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", mismatched_plan}, {"confirmed", true}, {"preview_id", preview_id}
+        });
+        expect_equal(mismatched_apply["_http_status"].get<long>(), 409L, "wrong preview plan rejected");
+        const auto missing_preview_apply = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", "unknown"}
+        });
+        expect_equal(missing_preview_apply["_http_status"].get<long>(), 404L, "unknown preview rejected");
+
+        tile_compile::pi::PiDatabase::open(memory_dir)->execute(
+            "UPDATE action_previews SET expires_at = 0 WHERE preview_id = ?", {preview_id});
+        expect_equal(harness.get_json("/api/pi/action-plans/previews/" + preview_id)["state"].get<std::string>(),
+                     "expired", "expired preview state computed on read");
         const auto unconfirmed_apply = harness.post_json("/api/pi/action-plans/apply", {{"plan", plan}});
         expect_equal(unconfirmed_apply["_http_status"].get<long>(), 409L, "pi action apply requires review");
 
         const auto apply = harness.post_json("/api/pi/action-plans/apply", {
             {"plan", plan},
             {"confirmed", true},
-            {"expected_patched_yaml", preview["preview"]["patched_yaml"]}
+            {"expected_patched_yaml", preview["preview"]["patched_yaml"]},
+            {"preview_id", preview_id}
         });
         expect_equal(apply["_http_status"].get<long>(), 200L, "pi action apply status");
         expect_true(apply["ok"].get<bool>(), "pi action apply ok");
         expect_true(apply.contains("revision_id"), "pi action apply revision id");
         expect_true(slurp_file(harness.config_path()).find("MONO") != std::string::npos,
                     "pi action apply wrote config");
+
+        const auto repeat_apply = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", preview_id}
+        });
+        expect_equal(repeat_apply["_http_status"].get<long>(), 200L, "preview repeat apply status");
+        expect_true(repeat_apply["already_applied"].get<bool>(), "repeat apply idempotent");
+        expect_equal(repeat_apply["revision_id"].get<std::string>(), apply["revision_id"].get<std::string>(), "no extra revision for repeat");
+        expect_true(apply["decision_record_written"].get<bool>(), "config apply writes a decision record");
+        const auto apply_records = harness.get_json("/api/pi/decision-records?kind=config_apply");
+        expect_equal(apply_records["_http_status"].get<long>(), 200L, "decision records list status");
+        long records_for_preview = 0;
+        for (const auto& item : apply_records["items"])
+            if (item.value("preview_id", std::string()) == preview_id) ++records_for_preview;
+        expect_equal(records_for_preview, 1L, "repeat apply does not duplicate the decision record");
+        const auto dismiss_applied = harness.post_json("/api/pi/action-plans/previews/" + preview_id + "/dismiss", {});
+        expect_equal(dismiss_applied["_http_status"].get<long>(), 409L, "applied preview cannot be dismissed");
+        const auto dismiss_preview = harness.post_json("/api/pi/action-plans/preview", {{"plan", plan}});
+        const auto dismiss_id = dismiss_preview["preview"]["preview_id"].get<std::string>();
+        const auto dismissed = harness.post_json("/api/pi/action-plans/previews/" + dismiss_id + "/dismiss", {});
+        expect_equal(dismissed["_http_status"].get<long>(), 200L, "explicit preview dismissal");
+        const auto dismissed_apply = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", dismiss_id}
+        });
+        expect_equal(dismissed_apply["_http_status"].get<long>(), 409L, "dismissed preview not applied");
+        const auto legacy_apply = harness.post_json("/api/pi/action-plans/apply", {{"plan", plan}, {"confirmed", true}});
+        expect_equal(legacy_apply["_http_status"].get<long>(), 200L, "legacy apply without preview ID");
 
         const auto audit = harness.get_json("/api/pi/audit?limit=200");
         expect_equal(audit["_http_status"].get<long>(), 200L, "pi audit status");
@@ -514,8 +645,113 @@ int main(int argc, char** argv) {
         const auto revisions = harness.get_json("/api/config/revisions");
         expect_equal(revisions["_http_status"].get<long>(), 200L, "pi action revisions status");
         expect_true(!revisions["items"].empty(), "pi action revision listed");
-        expect_equal(revisions["active_revision_id"].get<std::string>(), apply["revision_id"].get<std::string>(),
+        expect_equal(revisions["active_revision_id"].get<std::string>(), legacy_apply["revision_id"].get<std::string>(),
                      "pi action active revision id");
+
+        // Interrupted apply recovery: a preview left in "applying" is reconciled with the config on disk.
+        tile_compile::pi::PiPreviewStore recovery_store(memory_dir);
+        const auto config_sha = [&harness] { return tile_compile::pi::sha256_prefixed(slurp_file(harness.config_path())); };
+        const auto recovery_preview = [&harness, &plan](const char* label) {
+            const auto created = harness.post_json("/api/pi/action-plans/preview", {{"plan", plan}});
+            expect_equal(created["_http_status"].get<long>(), 200L, std::string(label) + " preview created");
+            return created["preview"];
+        };
+
+        // Crash before the write: the config is unchanged, so the retry applies normally.
+        const auto pre_write = recovery_preview("pre-write");
+        const auto pre_write_id = pre_write["preview_id"].get<std::string>();
+        expect_true(recovery_store.begin_apply(pre_write_id, config_sha(), pre_write), "pre-write intent recorded");
+        const auto pre_write_retry = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", pre_write_id}
+        });
+        expect_equal(pre_write_retry["_http_status"].get<long>(), 200L, "pre-write crash retry applies");
+        expect_equal(harness.get_json("/api/pi/action-plans/previews/" + pre_write_id)["state"].get<std::string>(),
+                     "applied", "pre-write crash retry completes the preview");
+
+        // Crash after the save but before completion: the saved config is finished once, without a second write.
+        const auto post_save = recovery_preview("post-save");
+        const auto post_save_id = post_save["preview_id"].get<std::string>();
+        expect_true(recovery_store.begin_apply(post_save_id, config_sha(), post_save), "post-save intent recorded");
+        expect_true(recovery_store.record_saved(post_save_id, config_sha(), harness.config_path().string()),
+                    "post-save saved hash recorded");
+        const auto post_save_retry = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", post_save_id}
+        });
+        expect_equal(post_save_retry["_http_status"].get<long>(), 200L, "post-save crash recovery completes");
+        expect_true(post_save_retry["recovered"].get<bool>(), "post-save recovery is reported as recovered");
+        expect_true(slurp_file(harness.config_path()).find("MONO") != std::string::npos, "post-save recovery keeps the saved config");
+        expect_equal(harness.get_json("/api/pi/action-plans/previews/" + post_save_id)["state"].get<std::string>(),
+                     "applied", "post-save recovery completes the preview");
+
+        // Config matches neither the pre-write nor the saved hash: fail closed and keep the intent for inspection.
+        const auto unknown_state = recovery_preview("unknown-state");
+        const auto unknown_id = unknown_state["preview_id"].get<std::string>();
+        expect_true(recovery_store.begin_apply(unknown_id, config_sha(), unknown_state), "unknown-state intent recorded");
+        expect_true(recovery_store.record_saved(unknown_id, "sha256:not-the-config", harness.config_path().string()),
+                    "unknown-state saved hash recorded");
+        const auto blocked = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", unknown_id}
+        });
+        expect_equal(blocked["_http_status"].get<long>(), 409L, "unknown config state blocks apply");
+        expect_equal(harness.get_json("/api/pi/action-plans/previews/" + unknown_id)["state"].get<std::string>(),
+                     "applying", "unknown config state keeps the preview in applying");
+        const auto blocked_dismiss = harness.post_json("/api/pi/action-plans/previews/" + unknown_id + "/dismiss", {});
+        expect_equal(blocked_dismiss["_http_status"].get<long>(), 409L, "applying preview cannot be dismissed");
+
+        // Proposal link: a preview apply may reference a recorded llm_proposal, which becomes the config_apply parent.
+        tile_compile::pi::PiDecisionRecordStore proposal_records(memory_dir);
+        const nlohmann::json proposal_update = {{"path", "data.color_mode"}, {"value", "MONO"}};
+        const nlohmann::json proposal_analysis = {{"validated_updates", nlohmann::json::array({proposal_update})}};
+        const auto proposal_id = proposal_records.append(tile_compile::pi::build_llm_proposal_record(
+            proposal_analysis, "analysis_linked_fixture"))["decision_id"].get<std::string>();
+        const auto linked = recovery_preview("proposal-linked");
+        const auto linked_id = linked["preview_id"].get<std::string>();
+        const auto linked_apply = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", linked_id}, {"proposal_decision_id", proposal_id}
+        });
+        expect_equal(linked_apply["_http_status"].get<long>(), 200L, "proposal-linked apply status");
+        bool proposal_linked = false;
+        const auto linked_records = harness.get_json("/api/pi/decision-records?kind=config_apply");
+        // Legacy and preview-less records carry null ids, so compare only real strings.
+        const auto string_field = [](const nlohmann::json& item, const char* key) {
+            return item[key].is_string() ? item[key].get<std::string>() : std::string();
+        };
+        for (const auto& item : linked_records["items"])
+            if (string_field(item, "preview_id") == linked_id && string_field(item, "parent_decision_id") == proposal_id)
+                proposal_linked = true;
+        expect_true(proposal_linked, "preview apply links its config_apply to the proposal");
+        const auto unknown_proposal = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", linked_id}, {"proposal_decision_id", "dec_missing"}
+        });
+        expect_equal(unknown_proposal["_http_status"].get<long>(), 400L, "unknown proposal reference is rejected");
+
+        // Reject: optional reasons validated against the config domain; repeats are idempotent; a rejected proposal
+        // cannot be applied; an applied proposal cannot be rejected.
+        const auto open_proposal = proposal_records.append(tile_compile::pi::build_llm_proposal_record(
+            proposal_analysis, "analysis_reject_fixture"))["decision_id"].get<std::string>();
+        const nlohmann::json other_reason = {{"reason_codes", nlohmann::json::array({"other"})}};
+        const auto rejected = harness.post_json("/api/pi/proposals/" + open_proposal + "/reject", other_reason);
+        expect_equal(rejected["_http_status"].get<long>(), 200L, "proposal reject status");
+        expect_true(!rejected["duplicate"].get<bool>(), "first reject creates a record");
+        const auto repeated_reject = harness.post_json("/api/pi/proposals/" + open_proposal + "/reject", other_reason);
+        expect_true(repeated_reject["duplicate"].get<bool>(), "repeated reject is idempotent");
+        const auto invalid_reason = harness.post_json("/api/pi/proposals/" + open_proposal + "/reject",
+            {{"reason_codes", nlohmann::json::array({"not_a_code"})}});
+        expect_equal(invalid_reason["_http_status"].get<long>(), 400L, "unknown reason code is rejected");
+        const auto rejected_apply = harness.post_json("/api/pi/action-plans/apply", {
+            {"plan", plan}, {"confirmed", true}, {"preview_id", linked_id}, {"proposal_decision_id", open_proposal}
+        });
+        expect_equal(rejected_apply["_http_status"].get<long>(), 409L, "rejected proposal cannot be applied");
+        const auto applied_reject = harness.post_json("/api/pi/proposals/" + proposal_id + "/reject", {});
+        expect_equal(applied_reject["_http_status"].get<long>(), 409L, "applied proposal cannot be rejected");
+        const auto missing_reject = harness.post_json("/api/pi/proposals/dec_missing/reject", {});
+        expect_equal(missing_reject["_http_status"].get<long>(), 404L, "unknown proposal reject is not found");
+        bool reject_recorded = false;
+        const auto reject_records = harness.get_json("/api/pi/decision-records?kind=config_reject");
+        for (const auto& item : reject_records["items"])
+            if (item["parent_decision_id"].is_string() && item["parent_decision_id"].get<std::string>() == open_proposal)
+                reject_recorded = true;
+        expect_true(reject_recorded, "reject writes a config_reject linked to the proposal");
 
         auto invalid_plan = plan;
         invalid_plan["actions"][0].erase("value");
@@ -533,12 +769,45 @@ int main(int argc, char** argv) {
         expect_equal(invalid_config_preview["_http_status"].get<long>(), 200L, "pi invalid config preview status");
         expect_true(!invalid_config_preview["preview"]["config_valid"].get<bool>(), "pi invalid config preview validation");
 
+        // Explicit relink of a moved historical run, without editing its artifacts.
+        harness.make_file("runs/historical_move/config.yaml", "data:\n  color_mode: OSC\n");
+        harness.make_file("runs/historical_move/artifacts/pi_run_provenance.json", "{\"schema_version\":\"pi.run-provenance.v1\"}");
+        const auto old_run_dir = harness.fixture_root() / "runs" / "historical_move";
+        const auto old_provenance = slurp_file(old_run_dir / "artifacts" / "pi_run_provenance.json");
+        const auto selected_history = harness.post_json("/api/runs/historical_move/set-current", {{"run_dir", old_run_dir.string()}});
+        const auto historical_uid = selected_history["run_uid"].get<std::string>();
+        const auto new_run_dir = harness.fixture_root() / "moved_history";
+        std::filesystem::rename(old_run_dir, new_run_dir);
+        const auto relink_url = "/api/pi/run-contexts/" + historical_uid + "/relink";
+        expect_equal(harness.post_json(relink_url, {{"run_dir", new_run_dir.string()}})["_http_status"].get<long>(),
+                     409L, "relink requires explicit confirmation");
+        harness.make_file("not_a_run/sentinel", "fixture");
+        expect_equal(harness.post_json(relink_url, {{"run_dir", (harness.fixture_root() / "not_a_run").string()}, {"confirmed", true}})["_http_status"].get<long>(),
+                     400L, "arbitrary non-run directory rejected");
+        const auto relinked = harness.post_json(relink_url, {{"run_dir", new_run_dir.string()}, {"confirmed", true}});
+        expect_equal(relinked["_http_status"].get<long>(), 200L, "historical run relinked");
+        expect_equal(relinked["identity"]["run_uid"].get<std::string>(), historical_uid, "relink keeps UID");
+        expect_equal(static_cast<long>(relinked["identity"]["run_keys"].size()), 2L, "old alias kept");
+        expect_equal(slurp_file(new_run_dir / "artifacts" / "pi_run_provenance.json"), old_provenance,
+                     "relink leaves historical provenance untouched");
+        expect_equal(harness.get_json("/api/pi/active-context")["context"]["run_key"].get<std::string>(),
+                     new_run_dir.string(), "active context follows relink");
+        const auto indexed_history = harness.get_json("/api/pi/run-contexts/" + historical_uid);
+        expect_equal(indexed_history["_http_status"].get<long>(), 200L, "run identity lookup");
+        const auto reactivated = harness.post_json("/api/runs/moved_history/set-current", {{"run_dir", new_run_dir.string()}});
+        expect_equal(reactivated["run_uid"].get<std::string>(), historical_uid, "activation after move keeps history UID");
+        const auto foreign_dir = harness.fixture_root() / "foreign_run";
+        harness.make_file("foreign_run/config.yaml", "data:\n  color_mode: OSC\n");
+        harness.post_json("/api/runs/foreign_run/set-current", {{"run_dir", foreign_dir.string()}});
+        expect_equal(harness.post_json(relink_url, {{"run_dir", foreign_dir.string()}, {"confirmed", true}})["_http_status"].get<long>(),
+                     409L, "relink cannot merge two existing run UIDs");
+
         // --- Outcome-Delta-Test ---
         // evaluate_memory_outcome_payload muss FWHM-Delta, Report-Warnings-Delta
         // und user_rating verarbeiten und das Verdict korrekt ableiten.
         {
             // Memory fuer Outcome-Delta-Tests anlegen
-            std::ofstream delta_out(memory_dir / "memories_v2.jsonl", std::ios::app);
+            PiStoreSeed delta_out(memory_dir, "memories");
             const nlohmann::json delta_ctx = {
                 {"schema_version", "pi.context_signature.v1"},
                 {"target", {{"object_name", "M31"}, {"object_type", "galaxy"}}},
@@ -653,7 +922,7 @@ int main(int argc, char** argv) {
 
         // Memory mit run_id-Provenance anlegen
         {
-            std::ofstream run_out(memory_dir / "memories_v2.jsonl", std::ios::app);
+            PiStoreSeed run_out(memory_dir, "memories");
             run_out << nlohmann::json{
                 {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_postrun_fixture"},
@@ -982,6 +1251,162 @@ int main(int argc, char** argv) {
         expect_equal(static_cast<long>(reset_resp["can_redo"].get<bool>()), 0L,
                      "live-image-chat reset can_redo is false");
 
+        // Run threads have a stable central UID, independent of artifact moves/deletion.
+        harness.create_run("uid_thread_fixture", {}, "OSC");
+        const auto context = harness.get_json("/api/pi/assistant/run-context?run_id=uid_thread_fixture");
+        expect_equal(context["_http_status"].get<long>(), 200L, "resolve assistant run context");
+        const std::string thread_uid = context["run_uid"];
+        const auto saved_thread = harness.post_json("/api/pi/run-chat/history", {
+            {"run_id", "uid_thread_fixture"}, {"run_uid", thread_uid},
+            {"history", {{"turns", nlohmann::json::array({{{"message", "stable thread"}, {"result", {{"summary", "retained"}}}}})}}}
+        });
+        expect_equal(saved_thread["_http_status"].get<long>(), 200L, "UID history save");
+        expect_equal(saved_thread["context_id"].get<std::string>(), "run:" + thread_uid, "thread context identity");
+        const auto mismatch = harness.post_json("/api/pi/run-chat", {
+            {"run_id", "pi_fixture_run"}, {"run_uid", thread_uid}, {"message", "do not mix contexts"}
+        });
+        expect_equal(mismatch["_http_status"].get<long>(), 409L, "chat rejects path/UID mismatch before provider call");
+        const auto old_dir = harness.fixture_root() / "runs" / "uid_thread_fixture";
+        const auto hinted_config = harness.get_json("/api/runs/uid_thread_fixture/config?run_dir=" + old_dir.string());
+        expect_equal(hinted_config["_http_status"].get<long>(), 200L, "run config accepts explicit allowed run directory");
+        expect_equal(hinted_config["run_dir"].get<std::string>(), old_dir.string(), "run config uses requested directory");
+        const auto advice_mismatch = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", "pi_fixture_run"}, {"run_uid", thread_uid}
+        });
+        expect_equal(advice_mismatch["_http_status"].get<long>(), 409L, "Jev path/UID mismatch rejected");
+        const auto hinted_mismatch = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", "uid_thread_fixture"}, {"run_dir", old_dir.string()}, {"run_uid", "wrong_uid"}
+        });
+        expect_equal(hinted_mismatch["_http_status"].get<long>(), 409L, "Jev run-dir hint still enforces UID");
+        const auto durable_advice = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", old_dir.string()}, {"run_uid", thread_uid}, {"request_id", "dock_click_1"}
+        });
+        expect_equal(durable_advice["_http_status"].get<long>(), 200L, "absolute-path Jev advice stored");
+        expect_equal(durable_advice["evaluation_method"].get<std::string>(), "backend_rules", "Jev method honest");
+        expect_equal(durable_advice["model_selection"]["status"].get<std::string>(), "skipped_no_candidates",
+                     "post-run model is not called when no validated change candidate exists");
+        const auto hinted_advice = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", "uid_thread_fixture"}, {"run_dir", old_dir.string()},
+            {"run_uid", thread_uid}, {"request_id", "dock_click_1"}
+        });
+        expect_equal(hinted_advice["_http_status"].get<long>(), 200L, "Jev advice accepts explicit allowed run directory");
+        expect_equal(hinted_advice["event_id"].get<std::string>(), durable_advice["event_id"].get<std::string>(),
+                     "run-dir hint resolves to the same durable event");
+        const auto retried_advice = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", old_dir.string()}, {"run_uid", thread_uid}, {"request_id", "dock_click_1"}
+        });
+        expect_equal(retried_advice["event_id"].get<std::string>(), durable_advice["event_id"].get<std::string>(), "same request yields one card");
+        harness.make_file("runs/uid_thread_fixture/artifacts/pi_run_provenance.json",
+            nlohmann::json{{"run_uid", thread_uid}, {"jev_proposal_id", "source_patch_fixture"}}.dump());
+        tile_compile::pi::PiAssistantEventStore post_run_events(memory_dir);
+        const auto actionable_advice = post_run_events.append("fixture_actionable_advice", thread_uid,
+            {{"advice", {{"suggestions", nlohmann::json::array({{{"candidate_id", "fixture_candidate"}}})}}}});
+        const auto dismissal = harness.post_json("/api/pi/post-run/dismissal", {
+            {"run_id", "uid_thread_fixture"}, {"run_uid", thread_uid},
+            {"candidate_id", "fixture_candidate"}, {"advice_event_id", actionable_advice["event_id"]},
+            {"request_id", "dismiss_fixture_1"}, {"dismissed", true}
+        });
+        expect_equal(dismissal["_http_status"].get<long>(), 200L, "post-run suggestion dismissal persists");
+        expect_equal(dismissal["dismissal"]["result"]["source_patch_id"].get<std::string>(),
+                     "source_patch_fixture", "dismissal is linked to the run's source Jev patch");
+        const auto mismatched_candidate = harness.post_json("/api/pi/post-run/dismissal", {
+            {"run_id", "uid_thread_fixture"}, {"run_uid", thread_uid},
+            {"candidate_id", "not_in_advice"}, {"advice_event_id", actionable_advice["event_id"]},
+            {"request_id", "dismiss_fixture_bad"}, {"dismissed", true}
+        });
+        expect_equal(mismatched_candidate["_http_status"].get<long>(), 409L,
+                     "cannot dismiss a candidate absent from the linked advice event");
+        const auto advice_with_dismissal = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", "uid_thread_fixture"}, {"run_uid", thread_uid}, {"request_id", "dock_click_after_dismiss"}
+        });
+        expect_equal(static_cast<long>(advice_with_dismissal["dismissed_candidates"].size()), 1L,
+                     "run-bound advice reload includes persisted dismissal");
+        const auto restore_dismissal = harness.post_json("/api/pi/post-run/dismissal", {
+            {"run_id", "uid_thread_fixture"}, {"run_uid", thread_uid},
+            {"candidate_id", "fixture_candidate"}, {"advice_event_id", advice_with_dismissal["event_id"]},
+            {"request_id", "restore_fixture_1"}, {"dismissed", false}
+        });
+        expect_equal(restore_dismissal["_http_status"].get<long>(), 200L, "post-run suggestion dismissal can be restored");
+        const auto advice_after_restore = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", "uid_thread_fixture"}, {"run_uid", thread_uid}, {"request_id", "dock_click_after_restore"}
+        });
+        expect_true(advice_after_restore["dismissed_candidates"].empty(), "restored candidate is removed from dismissal list");
+        // An external run cannot be found by basename in runs_dir; the explicit hint locates it.
+        harness.make_file("foreign_advice_run/config.yaml", "data:\n  color_mode: OSC\n");
+        const auto external_advice = harness.post_json("/api/pi/post-run/advice", {
+            {"run_id", "foreign_advice_run"},
+            {"run_dir", (harness.fixture_root() / "foreign_advice_run").string()},
+            {"request_id", "dock_click_ext"}
+        });
+        expect_equal(external_advice["_http_status"].get<long>(), 200L, "run_dir hint resolves external run dir");
+        const auto external_history = harness.post_json("/api/pi/run-chat/history", {
+            {"run_id", "foreign_advice_run"}, {"run_dir", (harness.fixture_root() / "foreign_advice_run").string()},
+            {"history", {{"turns", nlohmann::json::array({{{"message", "external history"},
+                {"result", {{"summary", "external result"}}}}})}}}
+        });
+        expect_equal(external_history["_http_status"].get<long>(), 200L, "external run history accepts path hint");
+        const auto external_history_alias = harness.get_json("/api/pi/run-chat/history?run_id=foreign_advice_run");
+        expect_equal(external_history_alias["_http_status"].get<long>(), 200L, "validated external alias resolves history");
+        expect_equal(external_history_alias["turns"][0]["message"].get<std::string>(), "external history",
+                     "external history stays on its run");
+        harness.make_file("another_root/foreign_advice_run/config.yaml", "data:\n  color_mode: OSC\n");
+        const auto conflicting_alias = harness.get_json("/api/runs/foreign_advice_run/config?run_dir=" +
+            (harness.fixture_root() / "another_root" / "foreign_advice_run").string());
+        expect_equal(conflicting_alias["_http_status"].get<long>(), 409L,
+                     "same run id cannot be rebound to another live directory");
+        const auto conflicting_selection = harness.post_json("/api/runs/foreign_advice_run/set-current", {
+            {"run_dir", (harness.fixture_root() / "another_root" / "foreign_advice_run").string()}
+        });
+        expect_equal(conflicting_selection["_http_status"].get<long>(), 409L,
+                     "run selection rejects alias conflict before changing active context");
+        const std::string thread_url = "/api/pi/assistant/thread?run_uid=" + thread_uid;
+        const auto durable_thread = harness.get_json(thread_url);
+        expect_equal(static_cast<long>(durable_thread["items"].size()), 5L, "PI and durable Jev cards share one thread; dismissal records stay hidden");
+        expect_equal(static_cast<long>(harness.get_json(thread_url + "&include_pi=0")["items"].size()), 4L, "PI visibility filter");
+        expect_equal(static_cast<long>(harness.get_json(thread_url + "&include_jev=0")["items"].size()), 1L, "Jev visibility filter");
+        for (const auto& item : durable_thread["items"])
+            expect_true(item.value("kind", std::string()) != "jev_post_run_dismissal", "dismissal audit events are not rendered as advice cards");
+        expect_equal(harness.get_json("/api/pi/assistant/thread?run_uid=unknown")["_http_status"].get<long>(), 404L, "unknown thread cannot be fabricated");
+        const auto new_dir = harness.fixture_root() / "runs" / "uid_thread_moved";
+        std::filesystem::rename(old_dir, new_dir);
+        const auto thread_relinked = harness.post_json("/api/pi/run-contexts/" + thread_uid + "/relink", {{"confirmed", true}, {"run_dir", new_dir.string()}});
+        expect_equal(thread_relinked["_http_status"].get<long>(), 200L, "thread relink");
+        const auto moved_history = harness.get_json("/api/pi/run-chat/history?run_id=uid_thread_moved");
+        expect_equal(moved_history["turns"][0]["message"].get<std::string>(), "stable thread", "history follows moved run");
+        std::filesystem::remove_all(new_dir);
+        const auto deleted_history = harness.get_json("/api/pi/run-chat/history?run_uid=" + thread_uid);
+        expect_equal(deleted_history["_http_status"].get<long>(), 200L, "UID history works without run files");
+        expect_equal(deleted_history["turns"][0]["message"].get<std::string>(), "stable thread", "history retained after artifact deletion");
+        const auto deleted_thread = harness.get_json(thread_url);
+        expect_equal(static_cast<long>(deleted_thread["items"].size()), 5L, "Jev retained after move and deletion");
+        // Config applies and proposals from earlier in this test are expected; thread cards must add no other kind.
+        long unexpected_records = 0;
+        const auto all_records = harness.get_json("/api/pi/decision-records");
+        for (const auto& item : all_records["items"]) {
+            const auto kind = item.value("kind", std::string());
+            if (kind != "config_apply" && kind != "llm_proposal" && kind != "config_reject" &&
+                kind != "memory_review") ++unexpected_records;
+        }
+        expect_equal(unexpected_records, 0L, "thread cards do not create Decision Records");
+        const auto selected = harness.post_json("/api/pi/assistant/select-context", {{"run_uid", thread_uid}});
+        expect_true(!selected["artifacts_reachable"].get<bool>(), "missing context read-only capability");
+        expect_true(harness.get_json("/api/pi/assistant/capabilities")["run_uid_threads"].get<bool>(), "UID thread capability");
+        // Owned central fixture: proposal display must retain DecisionService's shadow safeguards.
+        const auto analysis_db = tile_compile::pi::PiDatabase::open(memory_dir);
+        const nlohmann::json analysis_context = {{"kind", "analysis"}, {"analysis_uid", "analysis_fixture"}, {"context_id", "analysis:analysis_fixture"}, {"scan_id", "scan_fixture"}};
+        analysis_db->execute("INSERT INTO analysis_contexts(analysis_uid, scan_signature, json) VALUES(?, ?, ?)", {"analysis_fixture", "fixture_signature", analysis_context.dump()});
+        analysis_db->execute("INSERT INTO analysis_revisions(revision_id, analysis_uid, json) VALUES(?, ?, ?)", {"revision_fixture", "analysis_fixture", "{}"});
+        analysis_db->execute("INSERT INTO jev_documents(proposal_id, part, json) VALUES(?, ?, ?)", {"analysis_proposal", "status", "{\"state\":\"done\",\"mode\":\"shadow\",\"model_called\":true}"});
+        analysis_db->execute("INSERT INTO jev_documents(proposal_id, part, json) VALUES(?, ?, ?)", {"analysis_proposal", "proposal", "{\"candidate_id\":\"fixture\",\"updates\":[{\"path\":\"bge.enabled\",\"value\":true}]}"});
+        analysis_db->execute("INSERT INTO analysis_proposals(proposal_id, analysis_uid, revision_id) VALUES(?, ?, ?)", {"analysis_proposal", "analysis_fixture", "revision_fixture"});
+        const auto analysis_thread = harness.get_json("/api/pi/assistant/analysis-thread/analysis_fixture");
+        expect_equal(analysis_thread["_http_status"].get<long>(), 200L, "analysis thread read status");
+        expect_true(analysis_thread["items"][0]["result"]["shadow"].get<bool>(), "shadow proposal remains shadow");
+        expect_true(analysis_thread["items"][0]["result"]["proposal"]["updates"].empty(), "shadow updates not offered in Dock");
+        expect_equal(harness.get_json("/api/pi/assistant/analysis-contexts/analysis_fixture")["context_id"].get<std::string>(), "analysis:analysis_fixture", "analysis metadata UID");
+        expect_equal(harness.post_json("/api/pi/assistant/select-analysis", {{"analysis_uid", "analysis_fixture"}})["_http_status"].get<long>(), 200L, "select historical analysis without scan or provider");
+        expect_equal(harness.get_json("/api/pi/assistant/analysis-thread/unknown")["_http_status"].get<long>(), 404L, "unknown analysis cannot be manufactured");
+        expect_equal(harness.post_json("/api/pi/assistant/analysis-context", nlohmann::json::object())["_http_status"].get<long>(), 400L, "analysis requires explicit draft and successful scan");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());

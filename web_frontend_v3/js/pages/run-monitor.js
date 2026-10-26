@@ -182,7 +182,7 @@ export function createRunMonitorPage() {
   const runPreview = createRunImagePreviewPanel("run-monitor-image-preview");
   const completionAnalysis = aiEnabled ? createCompletionAnalysisPanel() : null;
   const postRunAdvice = jevEnabled ? createPostRunAdvicePanel("post-run-advice", { onApply: applyPostRunAdvice }) : null;
-  const runChat = aiEnabled ? createRunChatPanel() : null;
+  const runChat = aiEnabled && !document.getElementById("assistant-dock") ? createRunChatPanel() : null;
 
   // Log viewer (component-based)
   const logViewer = createLogViewer();
@@ -269,6 +269,20 @@ const RESUME_CONFIG_SECTIONS = [
 // Returns the most specific run key for API calls: full path if known, else run_id.
 // This allows the backend to locate runs on network drives or non-default runs_dir.
 function getRunApiKey() { const { currentRunDir, currentRunId } = getRunState(); return currentRunDir || currentRunId || ""; }
+
+// Dock handoff only changes the visible draft. Saving and Resume remain separate user actions.
+window.addEventListener("tc-assistant-resume-draft", event => {
+  const detail = event.detail;
+  const editor = document.getElementById("resume-config-yaml");
+  if (!detail || editor !== detail.editor || getRunApiKey() !== detail.ref || editor?.value !== detail.baseline || typeof detail.yaml !== "string") return;
+  editor.value = detail.yaml;
+  updateResumeConfigSectionHighlights(detail.yaml);
+  const panel = document.getElementById("resume-panel");
+  if (panel) panel.style.display = "";
+  const hint = document.getElementById("resume-hint");
+  if (hint) hint.textContent = t("ui.message.resume_ready", "Bereit zum Resume");
+  detail.accepted = true;
+});
 function getResumePending() { return getRunState().resumePending || false; }
 function setResumePending(v) { setRunState({ resumePending: v }); }
 function getResumeActive() { return getRunState().resumeActive || false; }
@@ -800,7 +814,7 @@ function refreshCurrentImagePreview(force = false) {
 
 function getRunChatKey() {
   const { currentRunId, currentRunDir } = getRunState();
-  return currentRunId || currentRunDir || "";
+  return currentRunDir || currentRunId || "";
 }
 
 function getRunChatRecord(runKey = getRunChatKey()) {
@@ -819,10 +833,11 @@ function setRunChatRecord(runKey, record) {
 
 function persistRunChatRecordToServer(runKey = getRunChatKey()) {
   const runId = getRunApiKey();
-  if (!runId || !runKey) return;
+  if (!runId || !runKey || runKey !== getRunChatKey()) return;
   const record = getRunChatRecord(runKey);
   api.post(API_ENDPOINTS.pi.runChatHistory(runId), {
     run_id: runId,
+    run_dir: getRunState().currentRunDir || "",
     history: {
       messages: record.messages || [],
       turns: record.turns || [],
@@ -1362,11 +1377,13 @@ function restoreMonitorRunChat(outputId = "run-monitor-chat-output") {
 }
 
 async function restoreMonitorRunChatFromServer(outputId = "run-monitor-chat-output") {
+  if (!document.getElementById(outputId)) return;
   const runKey = getRunChatKey();
   const runId = getRunApiKey();
   if (!runKey || !runId) return;
   try {
-    const history = await api.get(API_ENDPOINTS.pi.runChatHistory(runId));
+    const history = await api.get(API_ENDPOINTS.pi.runChatHistory(runId, getRunState().currentRunDir || ""));
+    if (runId !== getRunApiKey() || runKey !== getRunChatKey()) return;
     const serverTurns = Array.isArray(history?.turns) ? history.turns : [];
     const localTurns = Array.isArray(getRunChatRecord(runKey).turns) ? getRunChatRecord(runKey).turns : [];
     if (serverTurns.length >= localTurns.length) {
@@ -1474,10 +1491,12 @@ async function submitMonitorRunChat(inputId, outputId) {
   try {
     const result = await api.post(API_ENDPOINTS.pi.runChat, {
       run_id: runId,
+      run_dir: getRunState().currentRunDir || "",
       message,
       messages: monitorRunChatMessages.slice(-12),
       object_name: getStore("input-scan", { scanData: {} }).getState().scanData?.object_name || "",
     });
+    if (runId !== getRunApiKey() || runKey !== getRunChatKey()) return;
     monitorRunChatMessages.push({ role: "assistant", content: result?.summary || "", result });
     appendRunChatTurn(runKey, { message, result, created_at: new Date().toISOString() });
     if (input) input.value = "";
@@ -1492,6 +1511,7 @@ async function submitMonitorRunChat(inputId, outputId) {
       renderMonitorRunChatResult(output, result);
     }
   } catch (e) {
+    if (runId !== getRunApiKey() || runKey !== getRunChatKey()) return;
     appendRunChatTurn(runKey, { message, error: e.message, created_at: new Date().toISOString() });
     if (turn) turn.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));
     else if (output) output.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));

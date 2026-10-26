@@ -103,6 +103,35 @@ std::optional<crow::response> validate_path(const std::shared_ptr<AppState>& sta
     return std::nullopt;
 }
 
+std::optional<crow::response> resolve_hinted_run_dir(const std::shared_ptr<AppState>& state,
+                                                   const std::string& run_id,
+                                                   const std::string& run_dir_hint,
+                                                   std::filesystem::path& run_dir) {
+    if (!state) {
+        return err_resp("internal_error", "Application state not available", 500);
+    }
+    if (run_dir_hint.empty()) {
+        try {
+            run_dir = state->runtime.resolve_run_dir(run_id);
+        } catch (const std::exception& e) {
+            return err_resp("NOT_FOUND", e.what(), 404);
+        }
+        return std::nullopt;
+    }
+    auto resolved = state->runtime.resolve_input_path(fs::path(run_dir_hint), true);
+    run_dir = resolved.path;
+    if (resolved.status == PathStatus::not_allowed) {
+        return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + run_dir.string(), 403,
+                        {{"path", run_dir.string()}, {"allowed_roots", allowed_roots_json(state)}});
+    }
+    if (resolved.status == PathStatus::not_found || !fs::is_directory(run_dir)) {
+        return err_resp("NOT_FOUND", "run directory not found", 404, {{"path", run_dir.string()}});
+    }
+    if (!state->runtime.register_run_dir(run_id, run_dir))
+        return err_resp("RUN_ID_ALIAS_CONFLICT", "Run id does not identify this allowed directory", 409);
+    return std::nullopt;
+}
+
 int parse_int_param(const crow::request& req, const std::string& param_name, int default_value) {
     try {
         auto param = req.url_params.get(param_name);

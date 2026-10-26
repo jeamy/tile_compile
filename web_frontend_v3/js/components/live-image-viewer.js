@@ -952,7 +952,7 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     document.body.appendChild(overlay);
     setLoading(true);
     try {
-      const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.create, { run_id: runId });
+      const resp = await api.post(API_ENDPOINTS.pi.liveImageChat.create, { run_id: runId, ...(runDir ? { run_dir: runDir } : {}) });
       state.sessionId = resp.session_id;
       updateImage(resp.image_base64);
       imgEl.style.cursor = "grab";

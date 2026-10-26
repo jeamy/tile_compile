@@ -142,6 +142,27 @@ describe("request handling", () => {
     assert.ok(q.instructions.includes("candidate_facts"), "the question tells the provider where the checked facts are");
     assert.ok(!("candidate_facts" in projection), "the caller's projection object is not mutated");
   });
+  it("post-run question set limits the model to backend-validated options and labels diagnostics honestly", async () => {
+    const response = fixture("response_ok.json");
+    response.answers.candidate_selection.choice = "keep_current";
+    response.answers.candidate_selection.probabilities = { keep_current: 0.61 };
+    const { svc, t } = service([ok200(response)]);
+    const req = goodRequest({
+      question_set_version: "post-run-decisions.v1",
+      state_projection: { domain: "post_run", run: { success: true }, diagnostics: { hms_clip_percent: 0.5 } },
+      allowed_candidates: ["keep_current", "insufficient_evidence", "set_clip_sigmas"],
+      candidate_descriptions: { set_clip_sigmas: "Change both clipping values to the policy-validated level." },
+      candidate_facts: { set_clip_sigmas: { confirmed_sessions: 5, star_fwhm_ratio: 1.0 } },
+    });
+    const result = await svc.decide(req);
+    const body = JSON.parse(t.calls[0].body);
+    const question = body.questions.candidate_selection;
+    assert.equal(result.selection?.candidate_id, "keep_current");
+    assert.deepEqual(Object.keys(question.criteria).sort(), ["insufficient_evidence", "keep_current", "set_clip_sigmas"]);
+    assert.ok(question.instructions.includes("not measures of final image quality or star shape"));
+    assert.equal(body.state.domain, "post_run");
+    assert.equal(body.state.candidate_facts.set_clip_sigmas.confirmed_sessions, 5);
+  });
   it("v2 without facts leaves the state exactly as the projection; an undescribed change candidate has no criterion text", async () => {
     const req = validateRequest(goodRequest({ question_set_version: "decision-questions.v2", allowed_candidates: ["keep_current", "insufficient_evidence", "x_candidate"] }));
     const body = JSON.parse(buildProviderBody(req, "typesafe/jev-1.13"));

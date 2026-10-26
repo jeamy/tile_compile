@@ -58,6 +58,31 @@ endif()
 find_package(CURL REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
+
+# SQLite: PI memory and decision-record storage. Prefer the system library; fall back to the
+# official amalgamation (fetched at configure time, like Asio/Crow) when it is not installed.
+find_package(SQLite3 QUIET)
+# CMake >= 4.2 exports SQLite3::SQLite3 (SQLite::SQLite3 is the deprecated legacy name).
+if(TARGET SQLite3::SQLite3)
+    set(PI_SQLITE_TARGET SQLite3::SQLite3)
+elseif(TARGET SQLite::SQLite3)
+    set(PI_SQLITE_TARGET SQLite::SQLite3)
+else()
+    include(FetchContent)
+    FetchContent_Declare(
+        sqlite_amalgamation
+        URL https://www.sqlite.org/2024/sqlite-amalgamation-3460100.zip
+        URL_HASH SHA256=77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(sqlite_amalgamation)
+    add_library(pi_sqlite3 STATIC ${sqlite_amalgamation_SOURCE_DIR}/sqlite3.c)
+    target_include_directories(pi_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
+    target_compile_definitions(pi_sqlite3 PRIVATE SQLITE_THREADSAFE=1 SQLITE_OMIT_LOAD_EXTENSION=1)
+    set_target_properties(pi_sqlite3 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_link_libraries(pi_sqlite3 PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+    set(PI_SQLITE_TARGET pi_sqlite3)
+endif()
 find_package(Eigen3 REQUIRED)
 find_package(PkgConfig REQUIRED)
 
@@ -177,6 +202,16 @@ set(BACKEND_SOURCES
     src/services/pi/pi_action_validator.cpp
     src/services/pi/pi_ai_request_builder.cpp
     src/services/pi/pi_feature_vector.cpp
+    src/services/pi/pi_database.cpp
+    src/services/pi/pi_jev_store.cpp
+    src/services/pi/pi_assistant_event_store.cpp
+    src/services/pi/pi_analysis_context_store.cpp
+    src/services/pi/pi_run_index.cpp
+    src/services/pi/pi_run_learning_store.cpp
+    src/services/pi/pi_retention_store.cpp
+    src/services/pi/pi_decision_record_store.cpp
+    src/services/pi/pi_decision_writes.cpp
+    src/services/pi/pi_preview_store.cpp
     src/services/pi/pi_memory_store.cpp
     src/services/pi/pi_outcome_recorder.cpp
     src/services/pi/pi_param_model.cpp
@@ -229,6 +264,7 @@ endif()
 
 target_link_libraries(tile_compile_web_backend PRIVATE
     asio_header
+    ${PI_SQLITE_TARGET}
     ${YAML_CPP_LIBRARIES}
     CURL::libcurl
     OpenSSL::SSL
@@ -373,8 +409,11 @@ if(BUILD_TESTS)
         src/services/pi/pi_parameter_catalog.cpp
         src/services/pi/pi_recommendation_validator.cpp
         src/services/pi/pi_schema_utils.cpp
+        src/services/pi/pi_decision_record_store.cpp
+        src/services/pi/pi_decision_writes.cpp
     )
-    target_link_libraries(web_backend_cpp_ai_routes PRIVATE CURL::libcurl)
+    target_sources(web_backend_cpp_ai_routes PRIVATE src/services/pi/pi_database.cpp)
+    target_link_libraries(web_backend_cpp_ai_routes PRIVATE CURL::libcurl ${PI_SQLITE_TARGET})
     add_backend_cpp_test(web_backend_cpp_pi_action_plan tests/test_pi_action_plan.cpp)
     target_sources(web_backend_cpp_pi_action_plan PRIVATE
         src/services/pi/pi_action_plan.cpp
@@ -383,8 +422,40 @@ if(BUILD_TESTS)
     )
     add_backend_cpp_test(web_backend_cpp_pi_memory_store tests/test_pi_memory_store.cpp)
     target_sources(web_backend_cpp_pi_memory_store PRIVATE
+        src/services/pi/pi_database.cpp
         src/services/pi/pi_memory_store.cpp
     )
+    target_link_libraries(web_backend_cpp_pi_memory_store PRIVATE ${PI_SQLITE_TARGET})
+    add_backend_cpp_test(web_backend_cpp_pi_decision_record_store tests/test_pi_decision_record_store.cpp)
+    target_sources(web_backend_cpp_pi_decision_record_store PRIVATE
+        src/services/pi/pi_database.cpp
+        src/services/pi/pi_decision_record_store.cpp
+    )
+    target_link_libraries(web_backend_cpp_pi_decision_record_store PRIVATE ${PI_SQLITE_TARGET})
+    add_backend_cpp_test(web_backend_cpp_pi_preview_store tests/test_pi_preview_store.cpp)
+    target_sources(web_backend_cpp_pi_preview_store PRIVATE
+        src/services/pi/pi_database.cpp
+        src/services/pi/pi_preview_store.cpp
+    )
+    target_link_libraries(web_backend_cpp_pi_preview_store PRIVATE ${PI_SQLITE_TARGET} OpenSSL::Crypto)
+    add_backend_cpp_test(web_backend_cpp_pi_run_index tests/test_pi_run_index.cpp)
+    target_sources(web_backend_cpp_pi_run_index PRIVATE src/services/pi/pi_database.cpp src/services/pi/pi_run_index.cpp)
+    target_link_libraries(web_backend_cpp_pi_run_index PRIVATE ${PI_SQLITE_TARGET} OpenSSL::Crypto)
+    add_backend_cpp_test(web_backend_cpp_pi_retention_store tests/test_pi_retention_store.cpp)
+    target_sources(web_backend_cpp_pi_retention_store PRIVATE
+        src/services/pi/pi_database.cpp
+        src/services/pi/pi_decision_record_store.cpp
+        src/services/pi/pi_retention_store.cpp
+        src/services/pi/pi_jev_store.cpp
+    )
+    target_link_libraries(web_backend_cpp_pi_retention_store PRIVATE ${PI_SQLITE_TARGET} OpenSSL::Crypto)
+    add_backend_cpp_test(web_backend_cpp_pi_run_learning_store tests/test_pi_run_learning_store.cpp)
+    target_sources(web_backend_cpp_pi_run_learning_store PRIVATE
+        src/services/pi/pi_database.cpp src/services/pi/pi_run_index.cpp src/services/pi/pi_run_learning_store.cpp
+        src/services/pi/pi_decision_state.cpp src/services/pi/pi_decision_policy.cpp
+        src/services/pi/pi_decision_outcome.cpp src/services/pi/pi_scan_manifest.cpp src/services/pi/pi_jev_store.cpp)
+    target_include_directories(web_backend_cpp_pi_run_learning_store PRIVATE ${YAML_CPP_INCLUDE_DIRS})
+    target_link_libraries(web_backend_cpp_pi_run_learning_store PRIVATE ${PI_SQLITE_TARGET} OpenSSL::Crypto ${YAML_CPP_LIBRARIES})
     add_backend_cpp_test(web_backend_cpp_pi_param_model tests/test_pi_param_model.cpp)
     target_sources(web_backend_cpp_pi_param_model PRIVATE
         src/backend_runtime.cpp
@@ -427,32 +498,50 @@ if(BUILD_TESTS)
         src/services/pi/pi_decision_policy.cpp
         src/services/pi/pi_pre_rules.cpp
         src/services/pi/pi_decision_service.cpp
+        src/services/pi/pi_database.cpp
+        src/services/pi/pi_jev_store.cpp
     )
-    target_link_libraries(web_backend_cpp_pi_decision_service PRIVATE OpenSSL::Crypto)
+    target_link_libraries(web_backend_cpp_pi_decision_service PRIVATE OpenSSL::Crypto ${PI_SQLITE_TARGET})
     add_backend_cpp_test(web_backend_cpp_pi_decision_outcome tests/test_pi_decision_outcome.cpp)
     target_sources(web_backend_cpp_pi_decision_outcome PRIVATE
         src/services/pi/pi_decision_state.cpp
         src/services/pi/pi_decision_policy.cpp
         src/services/pi/pi_decision_outcome.cpp
         src/services/pi/pi_scan_manifest.cpp
+        src/services/pi/pi_database.cpp
+        src/services/pi/pi_jev_store.cpp
     )
     target_include_directories(web_backend_cpp_pi_decision_outcome PRIVATE ${YAML_CPP_INCLUDE_DIRS})
-    target_link_libraries(web_backend_cpp_pi_decision_outcome PRIVATE ${YAML_CPP_LIBRARIES} OpenSSL::Crypto)
+    target_link_libraries(web_backend_cpp_pi_decision_outcome PRIVATE ${YAML_CPP_LIBRARIES} OpenSSL::Crypto ${PI_SQLITE_TARGET})
     add_backend_cpp_test(web_backend_cpp_pi_scan_manifest tests/test_pi_scan_manifest.cpp)
     target_sources(web_backend_cpp_pi_scan_manifest PRIVATE src/services/pi/pi_scan_manifest.cpp)
     add_backend_cpp_test(web_backend_cpp_pi_routes tests/test_pi_routes.cpp)
     target_sources(web_backend_cpp_pi_routes PRIVATE
         src/services/pi/pi_context_v2.cpp
+        src/services/pi/pi_assistant_event_store.cpp
         src/services/pi/pi_parameter_catalog.cpp
+        src/services/pi/pi_decision_record_store.cpp
+        src/services/pi/pi_decision_writes.cpp
+        src/services/pi/pi_preview_store.cpp
+        src/services/pi/pi_decision_state.cpp
     )
+    target_link_libraries(web_backend_cpp_pi_routes PRIVATE OpenSSL::Crypto)
     target_include_directories(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_INCLUDE_DIRS})
-    target_link_libraries(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_LINK_LIBRARIES})
+    target_sources(web_backend_cpp_pi_routes PRIVATE src/services/pi/pi_database.cpp)
+    target_link_libraries(web_backend_cpp_pi_routes PRIVATE ${CFITSIO_LINK_LIBRARIES} ${PI_SQLITE_TARGET})
     add_backend_cpp_test(web_backend_cpp_runs_queue tests/test_runs_queue.cpp)
     add_backend_cpp_test(web_backend_cpp_run_queue_status_alias tests/test_run_queue_status_alias.cpp)
     add_backend_cpp_test(web_backend_cpp_run_status_resume_progress tests/test_run_status_resume_progress.cpp)
     add_backend_cpp_test(web_backend_cpp_run_start_naming tests/test_run_start_naming.cpp)
     target_include_directories(web_backend_cpp_run_start_naming PRIVATE ${YAML_CPP_INCLUDE_DIRS})
-    target_link_libraries(web_backend_cpp_run_start_naming PRIVATE ${YAML_CPP_LIBRARIES})
+    target_sources(web_backend_cpp_run_start_naming PRIVATE
+        src/services/pi/pi_decision_state.cpp
+        src/services/pi/pi_decision_policy.cpp
+        src/services/pi/pi_decision_outcome.cpp
+        src/services/pi/pi_scan_manifest.cpp
+        src/services/pi/pi_database.cpp
+        src/services/pi/pi_jev_store.cpp)
+    target_link_libraries(web_backend_cpp_run_start_naming PRIVATE ${YAML_CPP_LIBRARIES} OpenSSL::Crypto ${PI_SQLITE_TARGET})
     add_backend_cpp_test(web_backend_cpp_run_stop_status_overlay tests/test_run_stop_status_overlay.cpp)
     add_backend_cpp_test(web_backend_cpp_memory_guards tests/test_memory_guards.cpp)
     add_backend_cpp_test(web_backend_cpp_report_phase_issues tests/test_report_phase_issues.cpp)
@@ -470,15 +559,27 @@ if(BUILD_TESTS)
     )
     target_include_directories(web_backend_cpp_pi_live_image_session PRIVATE ${OPENCV4_INCLUDE_DIRS})
     target_link_libraries(web_backend_cpp_pi_live_image_session PRIVATE ${OPENCV4_LINK_LIBRARIES})
+    add_backend_cpp_test(web_backend_cpp_pi_analysis_context_store tests/test_pi_analysis_context_store.cpp)
+    target_sources(web_backend_cpp_pi_analysis_context_store PRIVATE src/services/pi/pi_database.cpp
+        src/services/pi/pi_analysis_context_store.cpp src/services/pi/pi_run_index.cpp
+        src/services/pi/pi_decision_state.cpp src/services/pi/pi_jev_store.cpp)
+    target_include_directories(web_backend_cpp_pi_analysis_context_store PRIVATE ${YAML_CPP_INCLUDE_DIRS})
+    target_link_libraries(web_backend_cpp_pi_analysis_context_store PRIVATE ${PI_SQLITE_TARGET} OpenSSL::Crypto ${YAML_CPP_LIBRARIES})
+    add_backend_cpp_test(web_backend_cpp_pi_assistant_event_store tests/test_pi_assistant_event_store.cpp)
+    target_sources(web_backend_cpp_pi_assistant_event_store PRIVATE
+        src/services/pi/pi_database.cpp src/services/pi/pi_assistant_event_store.cpp)
+    target_link_libraries(web_backend_cpp_pi_assistant_event_store PRIVATE ${PI_SQLITE_TARGET})
     add_backend_cpp_test(web_backend_cpp_pi_live_edit_recorder tests/test_pi_live_edit_recorder.cpp)
     target_sources(web_backend_cpp_pi_live_edit_recorder PRIVATE
         src/backend_runtime.cpp
         src/job_store.cpp
         src/subprocess_manager.cpp
         src/services/pi/pi_live_edit_recorder.cpp
+        src/services/pi/pi_database.cpp
         src/services/pi/pi_memory_store.cpp
         src/services/pi/pi_storage_paths.cpp
     )
+    target_link_libraries(web_backend_cpp_pi_live_edit_recorder PRIVATE ${PI_SQLITE_TARGET})
     target_include_directories(web_backend_cpp_pi_live_edit_recorder PRIVATE ${OPENCV4_INCLUDE_DIRS})
     target_link_libraries(web_backend_cpp_pi_live_edit_recorder PRIVATE ${OPENCV4_LINK_LIBRARIES})
 endif()
@@ -487,12 +588,12 @@ if(TRUE)
     add_executable(pi_decisions_eval tools/pi_decisions_eval.cpp
         src/services/pi/pi_decision_state.cpp src/services/pi/pi_decision_policy.cpp
         src/services/pi/pi_pre_rules.cpp src/services/pi/pi_decision_outcome.cpp
-        src/services/pi/pi_scan_manifest.cpp)
+        src/services/pi/pi_scan_manifest.cpp src/services/pi/pi_database.cpp src/services/pi/pi_jev_store.cpp)
     target_include_directories(pi_decisions_eval PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${YAML_CPP_INCLUDE_DIRS})
     if(TARGET nlohmann_json::nlohmann_json)
         target_link_libraries(pi_decisions_eval PRIVATE nlohmann_json::nlohmann_json)
     else()
         target_include_directories(pi_decisions_eval PRIVATE ${NLOHMANN_JSON_INCLUDE_DIRS})
     endif()
-    target_link_libraries(pi_decisions_eval PRIVATE OpenSSL::Crypto ${YAML_CPP_LIBRARIES})
+    target_link_libraries(pi_decisions_eval PRIVATE OpenSSL::Crypto ${YAML_CPP_LIBRARIES} ${PI_SQLITE_TARGET})
 endif()

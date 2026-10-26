@@ -16,6 +16,7 @@ import { getUiState } from "../state/ui-state.js";
 import { createJevSettingsCard } from "./jev-empfehlung.js";
 import { getFeatureFlags, setFeatureFlags } from "../state/feature-flags.js";
 import { createFeatureSwitch } from "../components/feature-switch.js";
+import { createReasonPicker } from "../assistant/reason-picker.js";
 
 export function createAiModelSettingsPage() {
   // The Jev card is its own card with its own endpoint/state: it does not share the provider slot above.
@@ -1210,12 +1211,48 @@ async function loadPiMemories() {
   }
 }
 
+function newDecisionRequestId() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), value => value.toString(16).padStart(2, "0")).join("");
+}
+
+function requestMemoryReviewRationale(status) {
+  return new Promise((resolve) => {
+    const previousFocus = document.activeElement;
+    const picker = createReasonPicker({ domain: "config" });
+    const close = (value) => {
+      backdrop.remove();
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+      resolve(value);
+    };
+    const backdrop = el("div", { class: "tc-modal-backdrop", onclick: (event) => { if (event.target === backdrop) close(null); } },
+      el("div", { class: "tc-card tc-reason-dialog", role: "dialog", "aria-modal": "true", "aria-label": t("ui.reason_picker.title", "Warum?") },
+        el("div", { class: "tc-card-title" }, t("ui.reason_picker.memory_review_title", "Grund für die Bewertung")),
+        el("p", { class: "tc-text-sm tc-text-muted" }, status === "deprecated"
+          ? t("ui.reason_picker.deprecate_help", "Optional: Warum ist diese Erfahrung überholt?")
+          : t("ui.reason_picker.reject_help", "Optional: Warum ist diese Erfahrung nicht hilfreich?")),
+        picker.element,
+        el("div", { class: "tc-flex tc-gap-2 tc-justify-end" },
+          el("button", { class: "tc-btn", onclick: () => close(null) }, t("ui.button.cancel", "Abbrechen")),
+          el("button", { class: "tc-btn tc-btn-primary", onclick: () => close(picker.getValue()) }, t("ui.button.save", "Speichern")),
+        ),
+      ),
+    );
+    document.body.append(backdrop);
+    backdrop.querySelector("textarea")?.focus();
+  });
+}
+
 async function reviewPiMemory(memoryId, reviewStatus) {
   if (!memoryId) return;
+  const rationale = ["rejected", "deprecated"].includes(reviewStatus)
+    ? await requestMemoryReviewRationale(reviewStatus) : null;
+  if (["rejected", "deprecated"].includes(reviewStatus) && !rationale) return;
   try {
     await api.post(API_ENDPOINTS.pi.memoryReview(memoryId), {
       status: reviewStatus,
       reviewer: "gui3",
+      request_id: newDecisionRequestId(),
+      ...(rationale ? { rationale: { user: rationale } } : {}),
     });
     await loadPiMemories();
     await loadPiAudit();

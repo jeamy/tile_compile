@@ -2,6 +2,7 @@
 #include "services/pi/pi_post_run.hpp"
 #include "services/pi/pi_resume_scope.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <map>
@@ -95,23 +96,132 @@ int main(int argc, char** argv) {
 
         // ---- state from run artifacts ----
         const fs::path run = make_run(root, "run_ok");
+        write(run / "logs/run_events.jsonl",
+              json{{"type", "phase_end"}, {"phase_name", "SCAN_INPUT"}}.dump() + "\n" +
+              json{{"type", "phase_end"}, {"phase_name", "FORWARD_DRIZZLE"}}.dump() + "\n" +
+              json{{"type", "phase_end"}, {"phase_name", "HYPERMETRIC_STRETCH"}, {"status", "ok"},
+                   {"black_clip_percent", 0.25}, {"white_clip_percent", 0.75}}.dump() + "\n" +
+              json{{"type", "run_end"}, {"status", "final_image_ready"}, {"success", true},
+                   {"final_image_available", true}, {"execution_scope", "forward_drizzle_m1_m3"}}.dump() + "\n");
+        write(run / "artifacts/bge.json", json{
+            {"requested", true}, {"attempted", true}, {"success", true},
+            {"bge_method", "autobge"},
+            {"config", {{"method", "autobge"}, {"autobge", {{"apply_guards", true}}}}},
+            {"channels", json::array({
+                {{"channel", "R"}, {"fit_success", true}, {"applied", true}, {"guard_rejected", false},
+                 {"guard_slope_pre", 2.5}, {"guard_slope_post", 1.75}},
+                {{"channel", "G"}, {"fit_success", true}, {"applied", true}, {"guard_rejected", true},
+                 {"guard_slope_pre", 2.0}, {"guard_slope_post", 4.0}},
+                {{"channel", "B"}, {"fit_success", true}, {"applied", true}, {"guard_rejected", false},
+                 {"guard_slope_pre", nullptr}, {"guard_slope_post", 0.5}}
+            })}
+        }.dump());
+        write(run / "artifacts/pi_post_run_star_shape.json", json{
+            {"schema_version", "pi.post-run-star-shape.v1"}, {"status", "measured"},
+            {"method", "fixed_control_positions_annulus_aperture_moments_v1"},
+            {"metric", "matched_star_fwhm_ratio_after_over_before"},
+            {"unit", "ratio"}, {"before_stage", "selected_reconstruction"},
+            {"after_stage", "final_hms_rgb_g"},
+            {"median_ratio", 1.02}, {"p90_ratio", 1.12},
+            {"ci95_star_bootstrap", json::array({0.99, 1.05})}, {"matched_stars", 368},
+            {"interpretation", "descriptive_measurement_only"}
+        }.dump());
         const json cfg = control_config();
         const json st = tile_compile::pi::build_post_run_state(run, cfg);
         expect_true(st["schema_version"] == "pi.post-run-decision-state.v1", "state schema");
         expect_true(st["run"]["success"] == true && st["run"]["final_image_available"] == true, "terminal event read");
-        expect_true(st["run"]["phases_completed"] == json::array({"SCAN_INPUT", "FORWARD_DRIZZLE"}), "phases in log order; the truncated last line is ignored");
+        expect_true(st["run"]["phases_completed"] == json::array({"SCAN_INPUT", "FORWARD_DRIZZLE", "HYPERMETRIC_STRETCH"}), "phases in log order");
         expect_true(st["reconstruction"]["selected_candidate"] == "drizzle_raw", "selected candidate");
         expect_true(st["reconstruction"]["candidates"]["drizzle_raw"]["median_fwhm"]["value"] == 5.0, "candidate metrics carried");
         expect_true(!st["reconstruction"]["candidates"]["drizzle_raw"]["elongation"].contains("value"), "a not-applicable metric has no value (never zero)");
         expect_true(st["artifacts"]["canvas_mask"] == true && st["artifacts"]["normalized_cache"] == false, "artifact presence");
         expect_true(st["missing"].empty(), "nothing missing");
+        const auto& bge = st["stage_diagnostics"]["bge_background_slope"];
+        expect_true(bge["status"] == "measured" && bge["comparisons"].size() == 1,
+                    "only a successful, applied, unvetoed finite BGE measurement is exposed");
+        expect_true(bge["comparisons"][0]["before"]["stage"] == "bge.input" &&
+                    bge["comparisons"][0]["after"]["stage"] == "bge.output" &&
+                    bge["comparisons"][0]["delta"] == -0.75 &&
+                    bge["comparisons"][0]["unit"] == "image_value_per_pixel",
+                    "BGE comparison names stages, delta, and measurement unit");
         expect_true(st["state_hash"].get<std::string>().rfind("sha256:", 0) == 0, "state hashed");
         expect_true(st == tile_compile::pi::build_post_run_state(run, cfg), "state is deterministic");
-        expect_true(st["not_measured"].size() == 2, "what is not measured is stated");
+        expect_true(st["not_measured"] == json::array({"final_stretched_image_quality"}),
+                    "star shape is removed from not-measured only when a valid paired diagnostic exists");
+        const auto& star_shape = st["stage_diagnostics"]["post_run_star_shape"];
+        expect_true(star_shape["status"] == "measured" && star_shape["median_ratio"] == 1.02 &&
+                    star_shape["p90_ratio"] == 1.12 && star_shape["matched_stars"] == 368,
+                    "valid post-run paired star-shape diagnostic is surfaced with its evidence");
+        const auto& hms = st["stage_diagnostics"]["hms_curve_clipping"];
+        expect_true(hms["status"] == "measured" && hms["stage"] == "hypermetric_stretch.curve_output" &&
+                    hms["black_clip_percent"] == 0.25 && hms["white_clip_percent"] == 0.75 &&
+                    hms["interpretation"] == "descriptive_measurement_only",
+                    "finite HMS curve clipping diagnostics are surfaced as measurements, not quality claims");
 
         // ---- advice: reconstruction suggestions from the checked catalog only, read-only ----
         const auto before = snapshot(run);
         auto a = tile_compile::pi::advise_post_run(st, cfg, frozen_test_policy(), catalog, ok, {});
+        bool has_bge_measurement = false;
+        for (const auto& f : a["findings"]) {
+            if (f["code"] == "bge_background_slope_measured") {
+                has_bge_measurement = f["severity"] == "info" &&
+                    f["evidence"]["delta"] == -0.75 &&
+                    f["evidence"]["interpretation"] == "descriptive_measurement_only";
+            }
+        }
+        expect_true(has_bge_measurement, "post-run advice carries the measured delta as an informational finding only");
+        bool has_hms_measurement = false;
+        for (const auto& f : a["findings"])
+            if (f["code"] == "hms_curve_clipping_measured")
+                has_hms_measurement = f["severity"] == "info" && f["evidence"]["black_clip_percent"] == 0.25;
+        expect_true(has_hms_measurement, "post-run advice carries HMS clipping as informational evidence only");
+        bool has_star_shape_measurement = false;
+        for (const auto& f : a["findings"])
+            if (f["code"] == "post_run_star_shape_measured")
+                has_star_shape_measurement = f["severity"] == "info" &&
+                    f["evidence"]["median_ratio"] == 1.02 &&
+                    f["evidence"]["interpretation"] == "descriptive_measurement_only";
+        expect_true(has_star_shape_measurement,
+                    "post-run advice exposes paired star shape as descriptive informational evidence");
+
+        const fs::path invalid_hms = make_run(root, "run_invalid_hms");
+        write(invalid_hms / "logs/run_events.jsonl", json{
+            {"type", "phase_end"}, {"phase_name", "HYPERMETRIC_STRETCH"}, {"status", "ok"},
+            {"black_clip_percent", 0.2}, {"white_clip_percent", 120.0}
+        }.dump() + "\n");
+        const json invalid_hms_state = tile_compile::pi::build_post_run_state(invalid_hms, cfg);
+        expect_true(invalid_hms_state["stage_diagnostics"]["hms_curve_clipping"]["status"] == "invalid",
+                    "out-of-range HMS diagnostics fail closed");
+
+        const fs::path invalid_star_shape = make_run(root, "run_invalid_star_shape");
+        write(invalid_star_shape / "logs/run_events.jsonl",
+              json{{"type", "run_end"}, {"status", "final_image_ready"}, {"success", true}}.dump() + "\n");
+        write(invalid_star_shape / "artifacts/pi_post_run_star_shape.json", json{
+            {"schema_version", "pi.post-run-star-shape.v1"}, {"status", "measured"},
+            {"method", "fixed_control_positions_annulus_aperture_moments_v1"},
+            {"metric", "matched_star_fwhm_ratio_after_over_before"}, {"unit", "ratio"},
+            {"before_stage", "selected_reconstruction"}, {"after_stage", "final_hms_rgb_g"},
+            {"median_ratio", 1.02}, {"p90_ratio", 1.12},
+            {"ci95_star_bootstrap", json::array({0.99, 1.05})}, {"matched_stars", 5},
+            {"interpretation", "descriptive_measurement_only"}
+        }.dump());
+        const json invalid_star_state = tile_compile::pi::build_post_run_state(invalid_star_shape, cfg);
+        expect_true(invalid_star_state["stage_diagnostics"]["post_run_star_shape"]["status"] == "invalid" &&
+                    std::find(invalid_star_state["not_measured"].begin(), invalid_star_state["not_measured"].end(),
+                              json("star_shape_after_downstream")) != invalid_star_state["not_measured"].end(),
+                    "invalid or undersampled star-shape artifacts stay not measured");
+
+        const fs::path non_autobge = make_run(root, "run_classic_bge");
+        write(non_autobge / "artifacts/bge.json", json{
+            {"requested", true}, {"attempted", true}, {"success", true}, {"bge_method", "classic"},
+            {"config", {{"method", "auto"}, {"autobge", {{"apply_guards", true}}}}},
+            {"channels", json::array({{{"channel", "R"}, {"fit_success", true}, {"applied", true},
+                {"guard_rejected", false}, {"guard_slope_pre", 2.0}, {"guard_slope_post", 1.0}}})}
+        }.dump());
+        const json non_autobge_state = tile_compile::pi::build_post_run_state(non_autobge, cfg);
+        expect_true(non_autobge_state["stage_diagnostics"]["bge_background_slope"]["status"] == "not_applicable" &&
+                    non_autobge_state["stage_diagnostics"]["bge_background_slope"]["comparisons"].empty(),
+                    "a different selected BGE method is not reported as an AutoBGE guard measurement");
         expect_true(a["outcome"] == "suggest_reconstruction", "control-level reconstruction config: suggest reconstruction");
         expect_true(ids(a) == std::vector<std::string>({"set_clip_sigmas", "set_pixfrac__1"}), "both confirmed candidates, sorted");
         for (const auto& s : a["suggestions"]) {

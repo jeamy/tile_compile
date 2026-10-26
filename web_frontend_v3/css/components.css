@@ -720,6 +720,46 @@
   background: var(--surface-2);
 }
 
+/* Optional user rationale; values are collected but only persisted by an enabled Decision-Trace flow. */
+.tc-reason-picker { display: flex; flex-direction: column; gap: var(--space-2); min-inline-size: 0; margin: 0; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.tc-reason-picker__chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.tc-reason-picker__chip { margin: 0; }
+.tc-reason-picker__text { resize: vertical; }
+.tc-modal-backdrop { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: var(--space-3); background: rgba(0, 0, 0, .5); }
+.tc-reason-dialog { width: min(560px, 100%); max-height: calc(100vh - 2 * var(--space-3)); overflow: auto; }
+
+/* Global assistant host survives page navigation. Width is a saved layout variable. */
+.tc-assistant-dock { position: fixed; z-index: 90; top: 112px; bottom: 40px; right: var(--space-3); width: var(--assistant-width, 384px); max-width: calc(100vw - 24px); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 4px 20px rgba(0,0,0,.15); }
+.tc-dock-header { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3); border-bottom: 1px solid var(--border); }
+.tc-dock-body { flex: 1; min-height: 0; overflow: auto; padding: var(--space-3); }
+.tc-dock-context { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-sm); }
+.tc-dock-thread { margin-block: var(--space-3); }
+.tc-dock-card { min-width: 0; overflow-wrap: anywhere; word-break: normal; }
+.tc-dock-card p { white-space: pre-wrap; }
+.tc-dock-launcher { position: fixed; right: var(--space-3); bottom: var(--space-3); z-index: 91; background: var(--surface); }
+.tc-dock-width { margin: var(--space-2); max-width: calc(100% - 16px); }
+@media (min-width: 1280px) { .tc-dock-open #content { margin-right: calc(var(--assistant-width, 384px) + 32px); } }
+@media (max-width: 600px) { .tc-assistant-dock { top: 64px; bottom: 48px; right: 8px; width: calc(100vw - 16px); max-width: calc(100vw - 16px); } .tc-dock-width { display: none; } }
+
+/* Durable run archive: same cards/actions as Run History, without extra tabs. */
+.tc-run-archive { min-width: 0; word-break: normal; overflow-wrap: anywhere; }
+.tc-archive-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.tc-archive-toolbar > span:first-child { flex: 1; }
+.tc-archive-toolbar > .tc-select { width: auto; max-width: 100%; min-width: 0; }
+.tc-run-file-actions .tc-btn { max-width: 100%; white-space: normal; }
+.tc-archive-row { width: 100%; flex-wrap: wrap; background: transparent; color: inherit; font: inherit; text-align: left; }
+.tc-archive-row:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.tc-archive-section { padding-block: var(--space-2); border-top: 1px solid var(--border); }
+.tc-archive-section > summary { cursor: pointer; font-weight: 600; }
+.tc-archive-json { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: var(--space-2); background: var(--surface-2); border-radius: var(--radius-sm); }
+.tc-run-archive .tc-mono, .tc-archive-path { overflow-wrap: anywhere; min-width: 0; }
+.tc-archive-path-input { flex: 1; min-width: 0; }
+.tc-archive-preview { display: block; max-width: 100%; width: 512px; height: auto; border-radius: var(--radius-sm); }
+.tc-run-archive .tc-btn { align-self: flex-start; }
+@media (max-width: 600px) {
+  .tc-archive-toolbar > .tc-select, .tc-archive-path-input { width: 100%; flex-basis: 100%; }
+}
+
 /* ── Modal ─────────────────────────────────────── */
 .tc-modal-overlay {
   position: fixed;

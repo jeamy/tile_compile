@@ -106,6 +106,18 @@ core::json provenance_file_json(const fs::path &path,
   return result;
 }
 
+core::json acquisition_metadata(const fs::path &path);
+
+void write_effective_config_artifact(const fs::path &run_dir, const fs::path &snapshot,
+                                     const tile_compile::config::Config &cfg, const std::string &stage) {
+  YAML::Emitter yaml;
+  yaml << cfg.to_yaml();
+  core::write_text(run_dir / "artifacts" / "effective_config.json", core::json({
+      {"schema_version", "pi.effective-config.v1"}, {"source_config_sha256", core::sha256_file(snapshot)},
+      {"expanded_yaml", std::string(yaml.c_str())}, {"stage", stage}, {"build", core::build_info_json(true)}
+  }).dump(2));
+}
+
 core::json make_run_provenance(
     const fs::path &config_snapshot,
     const std::vector<fs::path> &ordered_frames) {
@@ -142,6 +154,7 @@ core::json make_run_provenance(
     }
     core::json entry = provenance_file_json(frame, source_path);
     entry["index"] = index;
+    entry["acquisition"] = acquisition_metadata(frame);
     entries.push_back(std::move(entry));
   }
   const std::string canonical_manifest = entries.dump();
@@ -274,11 +287,48 @@ std::optional<double> extract_gain_value(const io::FitsHeader &header) {
   return read_header_numeric(header, {"GAIN"}, true);
 }
 
-template <typename Extractor>
+core::json acquisition_metadata(const fs::path &path) {
+  core::json result = core::json::object();
+  try {
+    const auto header = io::read_fits_header(path);
+    result["header_available"] = true;
+    const auto exposure = extract_exposure_seconds(header);
+    const auto temperature = extract_temperature_celsius(header);
+    result["exposure_seconds"] = exposure ? core::json(*exposure) : core::json(nullptr);
+    result["temperature_celsius"] = temperature ? core::json(*temperature) : core::json(nullptr);
+    for (const char *key : {"EXPTIME", "EXPOSURE", "CCD-TEMP", "GAIN", "OFFSET", "XBINNING", "YBINNING", "XPIXSZ", "YPIXSZ"}) {
+      if (const auto value = read_header_numeric(header, {key}, false)) result[key] = *value;
+    }
+    for (const char *key : {"INSTRUME", "CAMERA", "TELESCOP", "FILTER", "DATE-OBS", "IMAGETYP", "BAYERPAT", "OBJECT"}) {
+      if (const auto value = header.get_string(key)) result[key] = *value;
+    }
+  } catch (const std::exception &) { result["header_available"] = false; }
+  return result;
+}
+
+core::json calibration_input_manifest(const std::vector<fs::path> &frames) {
+  core::json entries = core::json::array();
+  for (const auto &path : frames) {
+    std::error_code ec;
+    auto source = fs::weakly_canonical(path, ec);
+    if (ec) source = path.lexically_normal();
+    core::json entry = {{"path", source.string()}, {"acquisition", acquisition_metadata(path)}};
+    const auto size = fs::file_size(path, ec);
+    entry["size_bytes"] = ec ? core::json(nullptr) : core::json(size);
+    const auto mtime = fs::last_write_time(path, ec);
+    entry["mtime_file_clock_ticks"] = ec ? core::json(nullptr) : core::json(mtime.time_since_epoch().count());
+    // Do not rehash raw calibration pixels. This manifest is explicitly a metadata fingerprint.
+    entry["fingerprint_kind"] = "path_size_mtime";
+    entries.push_back(std::move(entry));
+  }
+  return {{"entry_count", entries.size()}, {"entries", std::move(entries)}};
+}
+
 /// @brief Implements sample header median.
 /// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
+template <typename Extractor>
 std::optional<double> sample_header_median(const std::vector<fs::path> &paths,
                                            size_t max_samples,
                                            Extractor extractor) {
@@ -732,6 +782,7 @@ bool run_scan_input_calibration(
     }
     out.artifact["steps"]["bias"]["source"] = bias_master.source_kind;
     out.artifact["steps"]["bias"]["path"] = bias_master.source_path;
+    out.artifact["steps"]["bias"]["input_manifest"] = calibration_input_manifest(bias_master.input_frames);
     out.artifact["steps"]["bias"]["input_count"] =
         static_cast<int>(bias_master.input_frames.size());
     warn_if_gain_mismatch(input_frames, bias_master.input_frames, "bias", run_id,
@@ -777,6 +828,7 @@ bool run_scan_input_calibration(
     }
     out.artifact["steps"]["dark"]["source"] = dark_master.source_kind;
     out.artifact["steps"]["dark"]["path"] = dark_master.source_path;
+    out.artifact["steps"]["dark"]["input_manifest"] = calibration_input_manifest(dark_master.input_frames);
     out.artifact["steps"]["dark"]["input_count"] =
         static_cast<int>(dark_master.input_frames.size());
     out.artifact["steps"]["dark"]["selection"] = dark_selection;
@@ -806,6 +858,7 @@ bool run_scan_input_calibration(
     flat_master.normalization_reference = flat_median;
     out.artifact["steps"]["flat"]["source"] = flat_master.source_kind;
     out.artifact["steps"]["flat"]["path"] = flat_master.source_path;
+    out.artifact["steps"]["flat"]["input_manifest"] = calibration_input_manifest(flat_master.input_frames);
     out.artifact["steps"]["flat"]["input_count"] =
         static_cast<int>(flat_master.input_frames.size());
     out.artifact["steps"]["flat"]["normalization_median"] = flat_median;
@@ -1043,6 +1096,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     run_provenance = make_run_provenance(config_snapshot_path, frames);
     run_provenance["execution_scope"] = "forward_drizzle_m1_m3";
     core::write_text(run_provenance_path, run_provenance.dump(2));
+    write_effective_config_artifact(run_dir, config_snapshot_path, cfg, "pipeline_start");
   } catch (const std::exception &e) {
     std::cerr << "Error: cannot establish immutable run provenance: "
               << e.what() << std::endl;
@@ -1574,6 +1628,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     }
   }
 
+  write_effective_config_artifact(run_dir, config_snapshot_path, cfg, "runtime_resolved");
   runner::PhaseRegistrationContext phase_registration_ctx;
 
   runner::PhaseMetricsContext phase_metrics_ctx;
