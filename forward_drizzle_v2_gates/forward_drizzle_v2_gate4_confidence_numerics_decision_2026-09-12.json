@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "gate": 4,
+  "status": "passed",
+  "spec": "forward_drizzle_v2_gate4_confidence_numerics_spec_2026-09-12.json",
+  "spec_sha256": "808d98db7862130e9aa59ffa0c33d8d10c9c2991f789feba0a2f8c966e454bfe",
+  "results": "forward_drizzle_v2_gate4_confidence_numerics_results_2026-09-12.jsonl",
+  "noise_model": {
+    "formula": "sigma2 = sigma_noise_f^2 + (gx^2 + gy^2) * sigma_reg_f^2 + half^2/3",
+    "implementation": "forward_drizzle_v2_sigma2_model (fp64)",
+    "invalid_inputs": "nonfinite or negative input => NaN => candidate contributes sigma2=0 and increments conf_degraded; never throws",
+    "registration_sigma_contract": "provider-delivered isotropic 1-sigma position uncertainty in source px; registration_residual_factor/model_prediction_factor are quality factors and are NOT consumed as variances; upstream folds prediction into the delivered sigma",
+    "plan_schema": "FrameSamplingTransform persists registration_residual_factor/residual_applicable/model_prediction_factor only; the sigma provider fields and plan schema extension are delegated to gate 7 (artifact/resume gate)"
+  },
+  "confidence": {
+    "sufficient_statistics": {
+      "B_c": "sum of effective-set weights b",
+      "S_c": "sum of effective-set b*sigma",
+      "C_c": "sum of effective-set b^2*sigma2",
+      "storage": "3 extra doubles per pixel/channel + degraded counter; O(1) state, feeds gate-5 buffer sizing"
+    },
+    "effective_set_contract": {
+      "reservoir_sigma_clip": "clip-accepted reservoir members (inside the clip call, no post pass); B/B2/n_eff still cover the full stream per gate-3",
+      "uniform / mom_median": "all valid candidates",
+      "mom_winsorized_groups / mom_trimmed_groups": "surviving groups' frames; winsorized keeps all groups, trimmed drops clipped groups",
+      "too_few_candidates/groups and degenerate_scale fallbacks": "full valid stream",
+      "no support": "confidence 0, state no_source_support"
+    },
+    "formula": "confidence = S_c^2/(S_c^2 + C_c) in (0,1]; identical to n_eff/(n_eff+1) when all sigma equal",
+    "fallback": "C_c == 0 with B_c > 0 => confidence = n_eff/(n_eff+1), state fallback_n_eff",
+    "states": ["no_source_support", "fallback_n_eff", "modeled"],
+    "support_invariant": "verified: sigma inputs change no b/value/n_eff/support fields"
+  },
+  "numerics_decision": {
+    "measured_sequences": 5,
+    "plain_fp32": "REJECTED: rel err 4.1e-8 (wide_weights), 1.8e-5 (long_stream_1e5), 0.996 (cancellation)",
+    "compensated_fp32_neumaier": "REJECTED vs 1e-12: 1.78e-10 on long_stream_1e5; meets on the other four",
+    "fp64": "SELECTED for all per-pixel accumulators (A/B/B2 and B_c/S_c/C_c); rel err 0 vs oracle, matches existing fold and robust code",
+    "affine_geometry": "fp64 (matches gate-0 oracle and gate-1 scatter kernel inputs)",
+    "polygon_overlap": "fp64 (unchanged, dense scatter)",
+    "robust_clip_reservoir": "fp64 (mirrors production oracle)",
+    "scale_fold": "fp64 (gate-2 contract)",
+    "cpu_gpu_tolerances": {
+      "fold_parity": "1e-12 (gate-2 measured 0)",
+      "confidence_cpu_gpu": "1e-12 reserved; GPU confidence accumulation is a gate-6 batch-fold concern - no GPU confidence kernel exists yet",
+      "sigma2_model": "fp64 host-side per candidate; provider may deliver fp32 inputs widened to fp64"
+    }
+  },
+  "adversarial_verification": {
+    "gate3_matrix_with_sigma": "21 cases: all modeled confidences finite in (0,1]; degraded path verified separately",
+    "missing_sigma": "state fallback_n_eff, confidence = n_eff/(n_eff+1), support untouched",
+    "nonfinite_negative_sigma": "counted in conf_degraded, contributes sigma2=0, not fatal",
+    "single_frame": "confidence = 0.5 modeled",
+    "zero_support": "confidence 0, no_source_support",
+    "wrong_span_size": "invalid_argument on both robust entry points",
+    "determinism": "reservoir hash and confidence accumulation are pure functions of the input spans"
+  },
+  "deferred": [
+    "gate 7: FrameSamplingTransform schema extension for sigma_noise_f / sigma_reg_f providers + resume contract",
+    "gate 5: buffer sizing must add 3 doubles + counter per pixel/channel for confidence",
+    "gate 6: device-resident confidence accumulation + CPU/GPU 1e-12 parity measurement"
+  ],
+  "tests": {
+    "v2_suite": "15 cases / 7470 assertions",
+    "gate4_standard": "sigma model + confidence state machine",
+    "gate4_hidden_matrix": "5 numerics sequences + 21 adversarial confidence cases, results JSONL"
+  }
+}

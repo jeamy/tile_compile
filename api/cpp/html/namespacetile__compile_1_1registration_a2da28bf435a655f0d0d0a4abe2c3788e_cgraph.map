@@ -1,9 +1,11 @@
 <map id="tile_compile::registration::maybe_refine_similarity_to_affine" name="tile_compile::registration::maybe_refine_similarity_to_affine">
-<area shape="rect" id="Node000001" title="Implements maybe refine similarity to affine." alt="" coords="5,68,172,120"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a2e2e33db68394b6fae247c7aebdd7c6d" title="Builds similarity consensus pairs." alt="" coords="220,5,441,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="171,67,219,53,242,46,244,51,220,58,173,72"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1registration.html#ace44bae6c0411d49266a57c3fb8f4586" title="Estimates affine family transform." alt="" coords="249,68,412,120"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="172,91,233,91,233,97,172,97"/>
-<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1registration.html#a21d5634496fa1f12ce276a444c75e7f4" title="Inverts forward affine to warp." alt="" coords="249,145,412,198"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="173,118,235,138,234,143,171,123"/>
+<area shape="rect" id="Node000001" title="Implements maybe refine similarity to affine." alt="" coords="5,92,172,144"/>
+<area shape="poly" id="edge5_Node000001_Node000001" title=" " alt="" coords="41,91,42,81,50,72,66,67,89,65,114,68,131,76,126,78,113,73,88,70,67,72,53,77,47,83,47,91"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a2e2e33db68394b6fae247c7aebdd7c6d" title="Builds similarity consensus pairs." alt="" coords="220,29,441,68"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="171,91,219,77,245,71,241,74,220,82,173,96"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1registration.html#ace44bae6c0411d49266a57c3fb8f4586" title="Estimates affine family transform." alt="" coords="249,92,412,144"/>
+<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="172,115,236,117,231,119,173,121"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1registration.html#a21d5634496fa1f12ce276a444c75e7f4" title="Inverts forward affine to warp." alt="" coords="249,169,412,222"/>
+<area shape="poly" id="edge4_Node000001_Node000004" title=" " alt="" coords="172,142,237,164,232,165,172,147"/>
+<area shape="poly" id="edge2_Node000002_Node000002" title=" " alt="" coords="286,28,282,20,290,10,306,5,330,3,357,5,374,14,369,14,356,10,330,8,307,10,293,15,288,21,291,30"/>
 </map>

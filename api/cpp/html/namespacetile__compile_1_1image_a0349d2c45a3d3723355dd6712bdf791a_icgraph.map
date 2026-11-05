@@ -1,0 +1,19 @@
+<map id="tile_compile::image::transform_from_autobge_working_space" name="tile_compile::image::transform_from_autobge_working_space">
+<area shape="rect" id="Node000001" title=" " alt="" coords="1151,26,1323,79"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a2fafe2f14174d78929dc7142846e752e" title=" " alt="" coords="944,33,1103,72"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1133,53,1104,55,1104,50,1139,53"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#ae69ac18100643d03739fb64eaae72b29" title="Applies background extraction." alt="" coords="699,33,896,72"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="926,53,896,55,896,50,931,53"/>
+<area shape="poly" id="edge3_Node000003_Node000003" title=" " alt="" coords="832,18,820,14,797,12,776,14,763,19,758,25,761,35,756,32,753,24,760,15,775,9,797,7,822,9,838,18"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1runner.html#a9cf10b9ba59596f74dc7ed96e98f8c9a" title=" " alt="" coords="500,33,651,72"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="681,53,651,55,651,50,686,53"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1runner.html#acc0d4679841a580552249bbcb25ec183" title=" " alt="" coords="310,26,452,79"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="482,53,453,55,453,50,488,53"/>
+<area shape="rect" id="Node000006" href="$runner__forward__drizzle_8cpp.html#a9ffae5ca00a8665a15ced17d948fd1ae" title=" " alt="" coords="103,5,262,44"/>
+<area shape="poly" id="edge6_Node000005_Node000006" title=" " alt="" coords="292,41,262,39,262,33,297,40"/>
+<area shape="rect" id="Node000008" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="105,68,260,93"/>
+<area shape="poly" id="edge8_Node000005_Node000008" title=" " alt="" coords="297,65,260,72,260,67,292,65"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,40,55,65"/>
+<area shape="poly" id="edge7_Node000006_Node000007" title=" " alt="" coords="85,44,56,51,54,46,90,41"/>
+<area shape="poly" id="edge9_Node000008_Node000007" title=" " alt="" coords="95,66,55,60,55,54,99,63"/>
+</map>

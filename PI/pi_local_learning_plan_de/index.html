@@ -1,0 +1,3597 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/PI/pi_local_learning_plan_de/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>PI Local Learning — Design-Dokument - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pi-local-learning-design-dokument" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              PI Local Learning — Design-Dokument
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Start Here
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guides/cfa_forward_drizzle_pipeline_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Workflows & Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/configuration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../scan_ai_parameter_studio_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Professional & Technical
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/cli/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API & Development
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  History & About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start Here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schnellstart (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows & Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Workflows & Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/cfa_forward_drizzle_pipeline_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reconstruction Method (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/cfa_forward_drizzle_pipeline_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rekonstruktionsmethode (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/live_image_editor_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/live_image_editor_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – KI-Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_workflow_gui3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Basics (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Konfigurationsgrundlagen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Professional & Technical
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Professional & Technical
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_ai_recommendations_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_ki_empfehlungen_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_jev_decisions_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Jev Decisions (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_scan_pre_rules_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Pre-Rules (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_decision_trace_und_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overall Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_decision_trace_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decision Trace (Part A)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Assistant (Part B)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_assistant_dock_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assistant Dock
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_analysis_context_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_run_learning_archive_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run Learning Archive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_retention_policy_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Retention Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../forward_drizzle_v2_zielarchitektur_2026-09-12_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forward Drizzle v2 Target Architecture (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Process Flow Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume-Abhängigkeiten (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_scan_normalization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Scan & Normalization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_registration_geometry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Registration & Geometry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_quality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_forward_drizzle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Forward Drizzle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_multiband/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Multiband
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_postprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Post-Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/flow_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API & Development
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API & Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference (Getting Started)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    History & About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    History & About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_3" id="__nav_8_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Historical Methods (superseded)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Historical Methods (superseded)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-vor-implementationsbeginn-zu-verifizieren-blockierend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Vor Implementationsbeginn zu verifizieren (blockierend)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-ausgangslage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Ausgangslage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-ziel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Ziel
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-warum-beide-punkte-zusammengehoren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Warum beide Punkte zusammengehören
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-architektur" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Architektur
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Architektur">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-feature-vektor-gemeinsames-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Feature-Vektor (gemeinsames Schema)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-parametermodelle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Parametermodelle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-ablage-lokal-versioniert-performant-portabel-im-installationsordner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Ablage — lokal, versioniert, performant, portabel im Installationsordner
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-outcome-recorder-das-eigentlich-neue-stuck" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Outcome-Recorder (das eigentlich neue Stück)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-erweiterung-des-memory-stores-automatische-promotion-statt-manuellem-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Erweiterung des Memory-Stores: automatische Promotion statt manuellem Gate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-rolle-der-cloud-ki-danach" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Rolle der Cloud-KI danach
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-implementierungsreihenfolge-inkrementell-nicht-brechend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Implementierungsreihenfolge (inkrementell, nicht-brechend)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-explizit-nicht-teil-dieses-vorschlags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Explizit nicht Teil dieses Vorschlags
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-offene-fragen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Offene Fragen
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="pi-local-learning-design-dokument">PI Local Learning — Design-Dokument<a class="headerlink" href="#pi-local-learning-design-dokument" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>Status:</strong> Schritt 1–6 implementiert (2026-08-27/28) — die gesamte in Abschnitt 7 geplante Kette ist jetzt einmal komplett durch: Outcome-Recorder (Scan + Live-Editor), Auto-Promotion-Shadow-Mode, lokales NN-Modell (Scan-Klassifikation + Live-Edit-Regression, Shadow-Mode) und ein Offline-Export-/Retraining-Skript mit Rollout-Schutz und Rollback. Jeder Schritt gegen dauerhafte Unit-Tests, eine echte M31-Instanz oder einen synthetischen End-to-End-Fixture-Lauf verifiziert; zwei echte Bugs dabei gefunden und behoben (nlohmann-<code>.value()</code>-Typfalle in Schritt 1c, Duplikat-Versionen bei unveränderten Daten in Schritt 6). Der Op-Intent-Klassifikator-Teil von Schritt 5 wurde bewusst nicht gebaut (Scope-Korrektur, Text-/NLP-Problem). Ein zuvor unbekanntes, unverdrahtetes Altsystem für Outcome/Promotion wurde entdeckt (Abschnitt 9, Punkt 6) und bewusst unberührt gelassen. Schritt 7 (lokale Modelle scharf schalten, LLM auf Rationale/Cold-Start reduzieren) ist der letzte verbleibende Schritt — und braucht zuerst echte Nutzungsdaten, nicht nur weiteren Code.
+<strong>Datum:</strong> 2026-08-25
+<strong>Modul:</strong> <code>web_backend_cpp</code> (<code>services/pi/*</code>), <code>agent_service</code>, <code>web_frontend_v3</code>
+<strong>Betrifft:</strong>
+- <code>web_backend_cpp/src/services/pi/pi_memory_store.cpp</code> (Memory-Store, Review-Workflow)
+- <code>web_backend_cpp/src/services/pi/pi_ai_request_builder.cpp</code> (Prompt-Kontext, Memory-Injektion)
+- <code>web_backend_cpp/src/services/pi/pi_context_builder.cpp</code>
+- <code>web_backend_cpp/src/services/pi/pi_live_image_session.cpp</code> / <code>pi_image_ops.cpp</code> (Live Editor)
+- <code>agent_service/src/services/frameAnalysisService.ts</code> (Scan-Analyse → <code>action_plan</code>)
+- <code>agent_service/src/services/liveImageChatService.ts</code> (Live Image Chat → Bild-Operationen)
+- Verwandte Docs: <a href="../pi_ki_empfehlungen_de/"><code>pi_ki_empfehlungen_de.md</code></a>, <a href="../pi_live_image_chat_plan/"><code>pi_live_image_chat_plan.md</code></a>, <a href="../pi_context_protocol_compression_plan_de/"><code>pi_context_protocol_compression_plan_de.md</code></a></p>
+</blockquote>
+<hr />
+<h2 id="0-vor-implementationsbeginn-zu-verifizieren-blockierend">0. Vor Implementationsbeginn zu verifizieren (blockierend)<a class="headerlink" href="#0-vor-implementationsbeginn-zu-verifizieren-blockierend" title="Permanent link">&para;</a></h2>
+<p>Erneute Analyse (2026-08-27) hat einen unverifizierten Kernannahme-Fehler gefunden, auf dem Schritt 1 der Implementierungsreihenfolge (Abschnitt 7) direkt aufbaut, plus zwei Record-Schema-Entscheidungen, die <em>vor</em> dem ersten Logging-Zeilen-Schreiben feststehen müssen, weil ein Log-Format im Nachhinein zu ändern die bis dahin gesammelten Daten entwertet.</p>
+<p><strong>0.1 Fehlt die Verknüpfung Analyse → angewandte Config → Run-Qualität?</strong></p>
+<p>Wichtig: diese Prüfung ist eine reine <strong>Code-/Architekturfrage für zukünftige Runs</strong>, keine Sichtung der vorhandenen <code>.ai_analyses/*.json</code>-Dateien. Die liegen dort nur als alte Testläufe aus der Entwicklung dieses Vorschlags, sind für das neue System nicht relevant und können bedenkenlos gelöscht werden (Abschnitt 0.1a) — sie enthalten weder eine definierte Record-Struktur (Abschnitt 0.2) noch eine verknüpfte Ergebnis-Qualität und wären als Trainingsgrundlage ungeeignet, selbst wenn sie blieben.</p>
+<p><strong>Verifiziert (2026-08-27), konkreter Code-Befund statt offener Frage:</strong></p>
+<p>Die Kette zerfällt in zwei Hälften mit sehr unterschiedlichem Zustand:</p>
+<p><strong>a) <code>action_plan</code> → übernommene Aktionen: existiert bereits, ist aber toter Code.</strong>
+<code>web_backend_cpp/src/routes/ai_routes.cpp:2229-2244</code> (Route für <code>apply</code>) baut bei <code>body["learn"] == true</code> bereits genau die in Abschnitt 0.2 geforderte Struktur: <code>build_apply_candidate_memory(analysis_id, analysis_data, applied, ...)</code> legt einen <code>pi_memory_store</code>-Kandidaten mit <code>analysis_id</code>, <code>config_updates: applied</code> (die <strong>vollständige</strong> Menge der angewendeten <code>path→value</code>-Paare in einem Record, nicht pro Pfad — deckt sich bereits mit 0.2) und <code>context_signature</code> (≈ Feature-Vektor) an. Das Problem: <code>learn: true</code> wird <strong>an keiner Stelle im Frontend gesetzt</strong> (<code>grep -rn "learn.*true" web_frontend_v3/js</code> liefert keinen Treffer) — der Pfad ist vorhanden, aber inaktiv. Zusätzlich: <code>state-&gt;revision_store.add(saved_path, yaml_text, "pi_scan_ai")</code> (Zeile ~2216) ruft <code>ConfigRevisionStore::add()</code> <strong>ohne</strong> das optionale <code>run_id</code>-Argument auf — die entstehende <code>ConfigRevision</code> weiß also nicht, in welchem Run sie später verwendet wurde, selbst wenn <code>learn</code> aktiv wäre.</p>
+<p><strong>b) <code>ConfigRevision</code>/Run → <code>global_quality</code>: existiert nicht.</strong>
+<code>ConfigRevision</code> (<code>config_revisions.hpp:14-21</code>) hat kein Feld, das auf eine Analyse verweist — nur <code>run_id</code> (optional, hier ungesetzt) und <code>source</code> (String-Tag wie <code>"pi_scan_ai"</code>). Schwerer wiegt: <code>tile_compile_cpp/apps/runner_phase_aqmh_global_quality.cpp</code> berechnet <code>AqmhGlobalQualityResult</code> (Gewichte pro Frame), persistiert davon aber nur ein Event-Log-Fragment (<code>{"weights": count, "masked_invalid_frames": count}</code> via <code>emitter.phase_end</code>) — <strong>kein</strong> <code>global_quality</code>- oder <code>quality_spread</code>-Skalar wird geschrieben. Bestätigt durch <code>grep -rn "global_quality|quality_spread" web_backend_cpp/</code>: <strong>kein Treffer</strong> — der Backend-Layer liest diesen Wert an keiner Stelle. Der zweite Teil der Kette existiert schlicht nicht, weder im Runner-Output noch im Backend.</p>
+<p><strong>Konsequenz für Abschnitt 7:</strong> Schritt 1 war <strong>nicht</strong> "Logger anschließen". Er zerfiel in drei tatsächliche Arbeitspakete — inzwischen alle drei implementiert:</p>
+<ol>
+<li><strong>1a (<code>learn</code>-Pfad + Provenienz), implementiert:</strong> Checkbox "Lernkandidat speichern" (<code>ai-empfehlung.js</code>) ist jetzt Default-an statt Default-aus (die Verdrahtung selbst war entgegen der ursprünglichen Vermutung schon vorhanden — reine Korrektur einer zu ungenauen Analyse). <code>ai_routes.cpp</code> berechnet beim Apply zusätzlich <code>config_sha256</code> (Hash der angewendeten YAML) und legt ihn zusammen mit <code>revision_id</code> im Memory-Kandidaten ab (<code>build_apply_candidate_memory</code>). <code>runs_routes.cpp</code> schreibt bei <strong>jedem</strong> Run-Start (Einzel- und Queue-Pfad) <code>runs/&lt;run_id&gt;/artifacts/pi_run_provenance.json</code> mit demselben <code>config_sha256</code> — das durable, neustartsichere Bindeglied, das nicht auf die ohnehin flüchtige In-Memory-<code>ConfigRevisionStore</code>-Id-Vergabe angewiesen ist.</li>
+<li><strong>1b (Run-Qualität), implementiert mit korrigierter Metrik-Definition:</strong> <code>global_quality</code>/<code>quality_spread</code> existierten entgegen der ursprünglichen Doku-Annahme <strong>nicht</strong> als Ausgabewerte — <code>aqmh.global_quality.*</code> ist nur der Config-Block der Gewichtungsformel. Nutzer-Entscheidung: Run-Qualität = Mittelwert der gültigen AQMH-Frame-Gewichte (<code>AqmhGlobalQualityResult.weights</code>, gefiltert über <code>input_invalid</code>). <code>runner_phase_local_metrics.cpp</code> schreibt jetzt <code>runs/&lt;run_id&gt;/artifacts/pi_run_quality.json</code> (<code>schema_version: pi.run-quality.v1</code>, <code>mean_weight</code>, <code>valid_frame_fraction</code>, <code>frames_total</code>, <code>frames_valid</code>).</li>
+<li><strong>1c (Join + Attach), implementiert, nach Review korrigiert:</strong> neues Modul <code>services/pi/pi_outcome_recorder.{hpp,cpp}</code> liest beide Artefakte und hängt das Ergebnis über eine neue <code>PiMemoryStore::attach_outcome()</code>-Methode an — ohne Statusänderung.</li>
+</ol>
+<p><strong>Review-Korrekturen (drei Blocker, vor jeder Datenerfassung behoben, nicht nachträglich):</strong>
+- <strong>Join-Key:</strong> ursprünglich <code>config_sha256</code> als <em>einziger</em> Match-Key geplant — empirisch praktisch nie treffend, weil Apply-Zeit-YAML (<code>yaml_dump(patched)</code>) und Run-Start-YAML (<code>effective_config_yaml()</code>, injiziert <code>color_mode</code>/Astrometrie-Pfade, anderer Serialisierer im Frontend-Zwischenschritt) nicht byte-identisch sind. Primärer Join-Key ist jetzt die Revisions-Abstammung: <code>runs_routes.cpp</code> liest <code>state-&gt;active_config_revision_id</code> beim Run-Start, <em>bevor</em> es überschrieben wird, und schreibt es als <code>prior_active_config_revision_id</code> in die Provenienz — abgeglichen gegen <code>revision_id</code> im Memory-Kandidaten. <code>config_sha256</code> bleibt nur sekundäre Bestätigung, wenn kein Revisions-Match existiert. <code>memory_dedupe_signature</code> bezieht jetzt <code>config_sha256</code> mit ein, damit ein erneuter Apply nach geänderter Basis-Config nicht den alten Kandidaten mit veraltetem Hash zurückliefert.
+- <strong>Latest-wins-Overlay reicht nicht für Schritt 2:</strong> <code>attach_outcome()</code> schrieb nur in den bestehenden <code>reviews_path()</code>-Overlay, den <code>list()</code> als "letzter gewinnt" pro <code>memory_id</code> zusammenführt — unzählbar gegen die geplante "N ≥ 3 unabhängige Outcomes"-Regel aus Abschnitt 5, und mehrere Queue-Runs auf demselben Kandidaten hätten sich gegenseitig überschrieben. Neuer, zusätzlicher Append-only-Log <code>outcomes_path()</code>, den <code>list()</code> vollständig (nicht latest-wins) zu <code>item["outcomes"]</code> zusammenführt — akkumuliert, statt zu überschreiben. Der bestehende <code>reviews_path()</code>-Pfad bleibt parallel bestehen, damit vorhandener Code, der <code>item["outcome"].validation_valid</code> liest, unverändert funktioniert.
+- <strong>Marker cachte Fehlschläge dauerhaft:</strong> die ursprüngliche Idempotenz-Prüfung (<code>fs::exists(marker_path)</code>) hätte auch <code>no_memory_candidate</code>/<code>error</code> als endgültig behandelt — der erste Poll nach Run-Ende hätte "keine Daten" für immer festgeschrieben, auch nachdem ein Matching-Bug behoben wird. Jetzt nur <code>matched: true</code> und <code>no_provenance</code> (Provenienz-Datei entsteht nur einmal beim Run-Start, taucht nie nachträglich auf) als endgültig; alles andere bleibt wiederholbar.</p>
+<p>Damit ist bestätigt, dass die im Dokument angenommene Grundstruktur (ein Record pro Diff mit vollem Kontext) bereits im bestehenden <code>build_apply_candidate_memory</code>-Code vorgezeichnet war und wiederverwendet werden konnte statt neu entworfen werden zu müssen — ebenso das Outcome-Feld selbst und der Review-Log-Overlay-Mechanismus.</p>
+<p><strong>Verifikationsstand:</strong> Kompiliert, bestehende <code>pi_memory_store</code>-Tests grün, Logik zweimal per Code-Trace nachvollzogen (initial + nach Review). <strong>Der End-to-End-Join wurde noch nie live ausgeführt</strong> (kein realer Scan/Run in dieser Session) — der erste tatsächliche <code>{"matched": true}</code>-Marker aus einem echten Lauf steht noch aus und ist der eigentliche Beweis, dass 1a–1c zusammen funktionieren, nicht nur einzeln kompilieren.</p>
+<p><strong>Was passiert mit den gelernten Daten, wenn ein Run gelöscht wird?</strong> Der angehängte Outcome lebt im <code>pi_memory_store</code> (<code>runs/.pi_memory/</code>, außerhalb des Run-Verzeichnisses) und übersteht das Löschen eines Runs, <strong>sobald er einmal geschrieben wurde</strong> — die Herkunfts-Artefakte <code>pi_run_provenance.json</code>/<code>pi_run_quality.json</code> selbst liegen dagegen in <code>runs/&lt;run_id&gt;/artifacts/</code> und verschwinden mit dem Run.</p>
+<p>Erste Umsetzung erzwang deshalb den Join direkt vor dem Löschen in der App-Delete-Route — das war falsch und wurde zurückgenommen: Löschen ist eine legitime Nutzerentscheidung ("diesen Run will ich nicht", z. B. ein Fehlversuch), und ein erzwungenes Nacherfassen des Outcomes würde diese Entscheidung stillschweigend übergehen. Stattdessen wird der Outcome jetzt <strong>direkt beim Abschluss des Runs</strong> erfasst, nicht erst beim nächsten Status-Poll: <code>SubprocessManager::launch()</code> bekommt einen optionalen <code>on_complete</code>-Callback (generischer Mechanismus, kein PI-spezifisches Wissen in <code>subprocess_manager.cpp</code> selbst — bewusst dort nicht verankert, um diese breit genutzte, generische Komponente nicht mit Business-Logik zu koppeln), den <code>runs_routes.cpp</code> für Run-Jobs auf <code>record_run_outcome_if_needed()</code> setzt. Das schließt das Zeitfenster zwischen "Run fertig" und "Nutzer löscht ihn" fast vollständig, ohne Lösch-Semantik zu verändern. Die Status-Poll-Route ruft die Funktion weiterhin zusätzlich auf — dank Marker-Datei ein günstiges, redundantes Sicherheitsnetz, kein Doppelaufwand.</p>
+<p><strong>Zwei Fälle bleiben bewusst ungelöst, nicht verdrängt:</strong>
+- Ein Run wird gelöscht, <em>bevor</em> der <code>on_complete</code>-Callback lief (z. B. Backend-Absturz exakt in diesem Fenster) — sehr kleines, aber reales Restrisiko, kein erzwungener Nacherfassungs-Pfad mehr vorhanden.
+- Ein Run wird <strong>auf Dateisystemebene außerhalb der App</strong> gelöscht (<code>rm -rf</code>, Dateimanager, o. Ä.). Das ist grundsätzlich nicht hookbar — keine App-Route wird dabei aufgerufen, es gibt keinen Code-Pfad, der das abfangen könnte. Die Konsequenz ist Datenverlust für diesen Run, aber kein stiller Fehlerzustand: <code>pi_outcome_recorder</code> schreibt nichts falsch, es wird einfach nichts geschrieben.</p>
+<p><strong>Warum die Lerndaten nicht zusätzlich woanders dupliziert werden:</strong> Der <em>abgeleitete</em> Outcome liegt schon bewusst getrennt vom Run-Verzeichnis (im <code>pi_memory_store</code>) — das war von Anfang an so entworfen, genau um Run-Löschungen zu überstehen. Was <strong>nicht</strong> verlagert wurde, sind die rohen Quelldateien <code>pi_run_provenance.json</code>/<code>pi_run_quality.json</code> selbst — die bleiben in <code>runs/&lt;run_id&gt;/artifacts/</code>, konsistent mit jedem anderen Run-Diagnostik-Artefakt (z. B. <code>aqmh_metrics.json</code>), das dort ebenfalls verschwindet, wenn der Run gelöscht wird. Sie zusätzlich an einem zweiten Ort zu duplizieren, nur für den Fall einer Löschung außerhalb der App, würde erstens das Speicher-Design aus Abschnitt 4.3 (ein Ort pro Artefakttyp, keine Schatten-Kopien) durchbrechen, und zweitens das eigentliche Problem nicht lösen — bei direktem Dateisystem-Löschen außerhalb der App ließe sich so oder so nichts mehr retten, sobald die Löschung tatsächlich stattgefunden hat. Der richtige Hebel ist deshalb "so früh wie möglich zuverlässig erfassen" (die <code>on_complete</code>-Lösung), nicht "überall vorsichtshalber kopieren".</p>
+<p><strong>0.1a Altdaten:</strong> <code>web_backend_cpp/runtime/.ai_analyses/*.json</code> sind Testartefakte aus der Zeit vor diesem Vorschlag, ohne die in 0.2 festgelegte Record-Struktur und ohne verknüpfte Ergebnis-Qualität. Sie fließen an keiner Stelle dieses Plans als Trainingsdaten ein und sollten gelöscht statt migriert werden, damit niemand sie später versehentlich als Datengrundlage missversteht. Löschen ist unabhängig vom Rest dieses Dokuments und blockiert nichts.</p>
+<p><strong>0.2 Record-Schema für den Outcome-Recorder (§4.4) — Attribution</strong></p>
+<p>Das im Dokument gezeigte Beispiel (<code>M16_20260809_154801.json</code>) ändert drei Pfade gleichzeitig (<code>normalization.mode</code>, <code>data.bayer_pattern</code>, <code>bge.method</code>). Ein Log-Format <code>(feature_vector, path, value, quality_delta)</code> <strong>pro Pfad</strong> unterstellt eine Kausalzuordnung, die bei gemeinsam angewendeten Änderungen nicht herstellbar ist. Festlegung: es wird <strong>ein Record pro angewendetem Config-Diff</strong> geloggt — die <em>gesamte</em> Menge der geänderten <code>path→value</code>-Paare plus Delta plus Anzahl geänderter Pfade. Training kann später auf Single-Change-Runs filtern oder die Pfadmenge gemeinsam modellieren; das Log selbst ist die Trainingsmenge und lässt sich nicht rückwirkend korrigieren.</p>
+<p><strong>0.3 Cross-Run-Deltas sind durch unterschiedliche Frames konfundiert, nicht nur durch Mehrfach-Änderungen</strong></p>
+<p>Lauf N und Lauf N+1 haben in der Regel unterschiedliche Eingabe-Frames — ihr Qualitätsunterschied ist kein kontrollierter Vergleich. Bevorzugte Label-Quelle sind daher <strong>Vergleiche auf denselben Frames bei unterschiedlicher Config</strong>: der bestehende <code>bge.autotune</code>-CV-Holdout (<code>configuration.hpp:473</code>, <code>max_evals</code>/<code>holdout_fraction</code>) liefert das bereits (Features → beste Config + Score auf fixen Daten), ebenso Resume-/Re-Läufe auf unverändertem Frame-Satz. Cross-Run-Deltas über unterschiedliche Sessions bleiben ein schwächeres Sekundärsignal, nicht die primäre Quelle.</p>
+<p><strong>0.4 Live-Editor-Label — Terminalzustand statt jeder Zwischenstufe</strong></p>
+<p>Die in §4.4 beschriebene Regel ("bleibt im <code>operation_history</code> = positiv") kollidiert mit dem <code>adjust_step</code>-Mechanismus: fünf +/- Klicks erzeugen fünf Zustände, von denen nur der letzte am Sessionende zählt. Festlegung: Label ist der <strong>Terminalwert pro Op-Typ beim Sessionende/Export</strong>; die Adjust-Trajektorie (Zwischenwerte) wird als Metadatum mitgeloggt, aber nicht als eigene positive Beispiele gezählt.</p>
+<p>Diese vier Punkte sind vor dem ersten produktiven Logging-Schritt zu klären; alle übrigen Punkte in Abschnitt 9 sind Verfeinerungen, die die Implementierung nicht blockieren.</p>
+<hr />
+<h2 id="1-ausgangslage">1. Ausgangslage<a class="headerlink" href="#1-ausgangslage" title="Permanent link">&para;</a></h2>
+<p>PI hat heute zwei getrennte, aber strukturell identische KI-gestützte Empfehlungspfade:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Scan-Analyse (<code>frameAnalysisService</code>)</th>
+<th>Live Image Chat (<code>liveImageChatService</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Eingabe</td>
+<td><code>scan_metrics</code> (Aggregate, Diagnostics, Registration, Sky-Gradient …), <code>base_config</code>, <code>config_schema</code>, <code>positive_/negative_memories</code></td>
+<td>JPEG-Vorschau (Vision) + Freitext-Kommando + <code>operation_history</code></td>
+</tr>
+<tr>
+<td>Ausgabe</td>
+<td><code>action_plan</code> mit <code>{path, value, confidence, rationale, evidence, risk}</code> gegen <code>config_schema</code> (<code>bge</code>, <code>pcc</code>, <code>registration</code>, <code>normalization</code>, <code>hypermetric_stretch</code>, <code>chroma_denoise</code>, <code>tile_denoise</code>, …)</td>
+<td><code>{operations: [...], adjustable, adjust_step, repeatable}</code> gegen die <code>pi_image_ops</code>-Operationsliste (<code>brightness</code>, <code>contrast</code>, <code>sharpen</code>, <code>denoise</code>, <code>vibrance</code>, <code>dehaze</code>, …)</td>
+</tr>
+<tr>
+<td>Entscheidungslogik</td>
+<td>Zero-Shot-LLM-Urteil pro Aufruf, neu aus dem JSON-Kontext hergeleitet</td>
+<td>Zero-Shot-Vision-LLM-Urteil pro Chat-Turn, aus dem Bild "erraten"</td>
+</tr>
+<tr>
+<td>Lernen aus Vergangenheit</td>
+<td>Nur über <code>pi_memory_store</code>: Keyword-/Feld-Overlap-Retrieval (<code>context_match_score</code>), Freigabe nur nach manuellem <code>/review</code></td>
+<td><strong>keins</strong> — jeder Turn startet bei null, <code>operation_history</code> dient nur als Text-Kontext, nicht als Trainingssignal</td>
+</tr>
+<tr>
+<td>Kosten pro Anfrage</td>
+<td>18–35 KB JSON + Prompt bis 120 KB extern an den Provider</td>
+<td>Volles Bild + Prompt extern an den Provider, bei jedem Chat-Turn erneut</td>
+</tr>
+</tbody>
+</table>
+<p>Beide Pfade haben dasselbe Grundproblem: <strong>es wird bei jeder einzelnen Anfrage neu geraten</strong>, statt aus der Menge bereits gemachter, vom Nutzer akzeptierter oder verworfener Empfehlungen zu lernen. Der einzige vorhandene Lernmechanismus — <code>pi_memory_store</code> — ist an einen manuellen Review-Schritt gekoppelt (<code>status: candidate → accepted/rejected/deprecated</code> nur per explizitem <code>/review</code>-Aufruf), der in der Praxis nicht gepflegt wird. Ergebnis: viel Statistik/Bilddaten raus, kaum brauchbares Lernen zurück.</p>
+<p><strong>These dieses Dokuments:</strong> Scan-Analyse und Live Image Chat sind zwei Frontends für dasselbe Problem — <em>„gegebene Bild-/Session-Statistik → welcher Parameterwert hat sich bewährt?"</em> — und sollten sich einen gemeinsamen lokalen Lernkern und einen gemeinsamen, automatisch kuratierten Memory-Store teilen.</p>
+<hr />
+<h2 id="2-ziel">2. Ziel<a class="headerlink" href="#2-ziel" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Numerische, hochfrequente Parameterempfehlungen (Scan-Analyse <strong>und</strong> Live-Editor) laufen primär über lokal trainierte, kleine Modelle — kein externer Call, keine Statistik-/Bilddaten-Übertragung, &lt;5 ms Inferenz.</li>
+<li>Die KI (Cloud-LLM) bleibt im System, aber verschoben: Rationale-Text, Cold-Start (neue Zielobjekt-/Filter-/Op-Kombination ohne Trainingsdaten), Freitext-Interpretation im Live-Chat ("werde die Blautöne los").</li>
+<li>Memory-Promotion läuft automatisch anhand gemessener Ergebnisqualität statt an ein manuelles Review-Gate.</li>
+<li>Ein gemeinsames Feature-Schema und ein gemeinsamer Storage-Layer bedienen beide Frontends.</li>
+</ol>
+<hr />
+<h2 id="3-warum-beide-punkte-zusammengehoren">3. Warum beide Punkte zusammengehören<a class="headerlink" href="#3-warum-beide-punkte-zusammengehoren" title="Permanent link">&para;</a></h2>
+<p>Beide Pfade haben exakt dieselbe Datenstruktur, nur mit anderem Feature-Raum und anderer Zielmenge:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>(Feature-Vektor, Parameter-Pfad, gewählter Wert)  →  Ergebnis akzeptiert / korrigiert / verworfen
+</span></code></pre></div>
+<ul>
+<li><strong>Scan-Analyse:</strong> Feature-Vektor = <code>scan_metrics</code> (Session-Aggregate über alle Frames), Zielmenge = <code>config_schema</code>-Pfade, Ergebnis = wird der Wert im nächsten Run beibehalten/korrigiert (Config-Diff im Folgelauf) und verbessert er die gemessene AQMH-Qualität?</li>
+<li><strong>Live Editor:</strong> Feature-Vektor = Bildstatistik des <em>aktuellen</em> <code>current_fits</code>-Zustands (Histogramm, Stern-FWHM/Rundheit, Farbkanal-Balance, Rauschpegel — aus <code>cv::Mat</code> günstig berechenbar, ohne Vision-Call), Zielmenge = <code>pi_image_ops</code>-Operationstypen, Ergebnis = wird die Operation behalten oder per Undo verworfen/durch eine andere ersetzt?</li>
+</ul>
+<p>Beide brauchen: (a) eine automatische Feedback-Quelle statt manueller Kuratierung, (b) ein lokales Modell pro Zielgröße, (c) denselben Memory-Store für "das hat sich bewährt" / "das wurde verworfen". Getrennt umgesetzt entstünde doppelte Infrastruktur (zwei Feature-Pipelines, zwei Trainingsjobs, zwei Storage-Layouts) für dasselbe Muster. Deshalb: ein gemeinsamer Unterbau, zwei dünne Adapter.</p>
+<hr />
+<h2 id="4-architektur">4. Architektur<a class="headerlink" href="#4-architektur" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>                         ┌───────────────────────────────────────────┐
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>                         │   PI Local Learning Core (neu, C++)        │
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>                         │   web_backend_cpp/services/pi/learning/    │
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>                         │                                             │
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>                         │   FeatureVector   → { numeric fields,      │
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>                         │                        kategorial, hash }  │
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>                         │   ParamModel       → predict(features)     │
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>                         │                        → {value, conf}     │
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>                         │   OutcomeRecorder  → append_outcome(...)   │
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>                         │   ModelRegistry    → load/reload versions  │
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>                         └───────────┬─────────────────┬───────────────┘
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>                                     │                  │
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>                ┌────────────────────┘                  └────────────────────┐
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>                ▼                                                            ▼
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>   ┌─────────────────────────────┐                          ┌─────────────────────────────┐
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>   │ Scan-Analyse Adapter         │                          │ Live-Editor Adapter          │
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>   │ pi_ai_request_builder.cpp    │                          │ pi_live_image_session.cpp    │
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>   │                               │                          │                               │
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>   │ Feature = scan_metrics        │                          │ Feature = current_fits-Stats  │
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>   │ Ziel = config_schema-Pfade    │                          │ Ziel = pi_image_ops-Typen     │
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>   │ Fallback = LLM action_plan    │                          │ Fallback = LLM Vision-Chat    │
+</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>   └───────────────┬───────────────┘                          └───────────────┬───────────────┘
+</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>                   │                                                           │
+</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>                   └───────────────────────┬───────────────────────────────────┘
+</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>                                            ▼
+</span><span id="__span-1-26"><a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>                         ┌───────────────────────────────────────────┐
+</span><span id="__span-1-27"><a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>                         │   pi_memory_store (erweitert)              │
+</span><span id="__span-1-28"><a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>                         │   status: candidate → accepted/rejected    │
+</span><span id="__span-1-29"><a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>                         │   NEU: auto-promotion via OutcomeRecorder  │
+</span><span id="__span-1-30"><a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>                         └───────────────────────────────────────────┘
+</span></code></pre></div>
+<h3 id="41-feature-vektor-gemeinsames-schema">4.1 Feature-Vektor (gemeinsames Schema)<a class="headerlink" href="#41-feature-vektor-gemeinsames-schema" title="Permanent link">&para;</a></h3>
+<p>Beide Adapter erzeugen einen flachen, benannten Feature-Vektor (<code>nlohmann::json</code>, aber mit fester Feldliste + Versionierung, kein Freitext):</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>// pi.feature-vector.v1
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>{
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  &quot;schema_version&quot;: &quot;pi.feature-vector.v1&quot;,
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  &quot;domain&quot;: &quot;scan&quot; | &quot;live_edit&quot;,
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  &quot;numeric&quot;: {
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    &quot;sky_gradient_median&quot;: 0.00155,
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    &quot;sky_gradient_p90&quot;: 0.00173,
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    &quot;star_count&quot;: 812,
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    &quot;fwhm_median&quot;: 2.31,
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    &quot;roundness_median&quot;: 0.91,
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    &quot;snr_median&quot;: 34.2,
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>    &quot;noise_sigma&quot;: 0.0041,
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    &quot;hist_black_clip_frac&quot;: 0.0021,
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    &quot;hist_white_clip_frac&quot;: 0.0004,
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>    &quot;color_balance_rg&quot;: 1.02,
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    &quot;color_balance_bg&quot;: 0.97,
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>    &quot;frame_count&quot;: 536
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>    // ... erweiterbar, additiv, nie umbenannt (nur deprecaten)
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>  },
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>  &quot;categorical&quot;: {
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>    &quot;target_type&quot;: &quot;nebula&quot;,
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>    &quot;bayer_pattern&quot;: &quot;GBRG&quot;,
+</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>    &quot;color_mode&quot;: &quot;OSC&quot;
+</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>  }
+</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>}
+</span></code></pre></div>
+<p>Für die Scan-Analyse ist das größtenteils <strong>bereits vorhandenes</strong> <code>scan_metrics</code>-Material (<code>aggregate</code>, <code>diagnostics</code>, <code>registration</code>) — hier wird nur eine feste, flache Projektion daraus gezogen statt des vollen JSON-Baums, der heute in den Prompt kopiert wird.</p>
+<p>Für den Live-Editor ist das <strong>neu</strong>, aber billig: Histogramm, Clip-Fraktionen, Farbkanal-Mittel/-Balance, ggf. grobe Sternstatistik lassen sich aus <code>LiveImageSession::current_fits</code> (<code>cv::Mat</code>, bereits im Speicher) in wenigen ms in C++ berechnen — ganz ohne den JPEG-Export und ohne Vision-Call, der heute bei <em>jedem</em> Chat-Turn passiert.</p>
+<p>Zusätzlich gehört bei <code>domain: "live_edit"</code> die <strong>zuletzt angewendete Op-Sequenz</strong> (letzte 3–5 Einträge aus <code>operation_history</code>, als kategoriale Liste von Op-Typen) in den Feature-Vektor: dieselbe Bildstatistik bedeutet nach <code>denoise → sharpen</code> etwas anderes als nach <code>sharpen → denoise</code>, weil Bildoperationen nicht kommutativ sind. Ohne diesen Kontext generalisiert ein rein pixelstatistik-basiertes Modell falsch auf Sequenzen, die im Training so nicht vorkamen.</p>
+<h3 id="42-parametermodelle">4.2 Parametermodelle<a class="headerlink" href="#42-parametermodelle" title="Permanent link">&para;</a></h3>
+<p>Pro Zielgröße ein kleines, lokales Modell:</p>
+<ul>
+<li><strong>Diskrete/kategoriale Ziele</strong> (<code>bge.method</code>, <code>normalization.mode</code>, <code>chroma_denoise.mode</code>, welcher <code>pi_image_ops</code>-Typ zu einem Freitext-Intent passt) → Gradient-Boosted-Trees-Klassifikator oder, bei sehr wenig Daten, ein einfacher gewichteter Nearest-Neighbor über den Feature-Vektor (funktioniert schon ab ~20 Beispielen, kein Training nötig, nur Distanzsuche).</li>
+<li><strong>Kontinuierliche Ziele</strong> (<code>hypermetric_stretch.*</code>, <code>chroma_denoise.strength</code>, <code>brightness.midtones</code>, <code>sharpen.amount</code>) → kleine Regressions-Heads (Gradient-Boosted-Trees-Regressor oder lineares Modell mit wenigen Features) mit Konfidenzintervall aus der Trainingsdatenstreuung.</li>
+<li>Bewusst <strong>keine</strong> CNN-/Pixel-Modelle (siehe Abschnitt 8, abgegrenzt von der ursprünglichen "GraXpert-Analogie") — der Aufwand für synthetische Trainingsdaten und GPU-Training steht in keinem Verhältnis zum Nutzen, wenn das eigentliche Problem "keine gelernte Zuordnung Statistik→Parameter" ist, nicht "kein Pixel-Modell".</li>
+<li><strong>Konsistenz zwischen Pfaden:</strong> jedes Modell sagt seinen Zielpfad unabhängig vorher (z. B. <code>bge.method</code> und <code>normalization.mode</code> getrennt) — das im Dokument gezeigte reale Beispiel zeigt aber, dass diese Pfade sich gegenseitig bedingen (BGE auf Nebel-Zielen hängt von <code>normalization.mode</code> ab). Bevor eine Menge unabhängiger Modell-Vorhersagen angewendet wird, läuft sie durch dieselbe Schema-Validierung wie ein LLM-<code>action_plan</code> (<code>action_plan_validation</code>) plus einen Konsistenz-Check auf bekannten Regelpaaren; bei Konflikt gewinnt die konservativere Kombination oder es wird auf den LLM-Pfad zurückgefallen. Das ist Teil von Implementierungsschritt 7 (Scharfschaltung), nicht der ersten Schritte.</li>
+</ul>
+<h3 id="43-ablage-lokal-versioniert-performant-portabel-im-installationsordner">4.3 Ablage — lokal, versioniert, performant, portabel im Installationsordner<a class="headerlink" href="#43-ablage-lokal-versioniert-performant-portabel-im-installationsordner" title="Permanent link">&para;</a></h3>
+<p><strong>Nicht</strong> <code>~/.local/share/...</code> (GraXpert-Vorbild war nur der Denkanstoß, nicht die Zielkonvention). Das Projekt hat dafür bereits ein etabliertes, plattformunabhängiges Muster, das sich <code>pi_models</code> einfach anschließt statt eine neue Ablage-Philosophie einzuführen:</p>
+<ul>
+<li><code>BackendRuntime</code> legt <code>runs_dir</code> standardmäßig als <code>project_root / "runs"</code> an (<code>web_backend_cpp/src/backend_runtime.cpp:250-254</code>), overridable per <code>TILE_COMPILE_RUNS_DIR</code>.</li>
+<li><code>pi_storage_dir()</code> legt den Memory-Store standardmäßig als <code>runs_dir / ".pi_memory"</code> an (<code>web_backend_cpp/src/services/pi/pi_storage_paths.cpp:63-64</code>), ebenfalls overridable.</li>
+<li><code>project_root</code> selbst ist der Bundle-Payload-Ordner (<code>${PAYLOAD}</code> in <code>packaging/gui3/build_local_{linux,macos}.sh</code> / <code>build_local_windows_msys2.cmd</code>, zur Laufzeit <code>TILE_COMPILE_PROJECT_ROOT</code>) — also identisch strukturiert unter Linux, macOS und Windows, weil es kein OS-spezifisches "App-Data"-Verzeichnis ist, sondern Teil des ausgetauschten Installationsordners selbst.</li>
+</ul>
+<p><code>pi_models</code> folgt exakt demselben Muster — sichtbar auf oberster Ebene (kein Punkt-Präfix, da Nutzer diese Modelle ggf. zwischen Installationen kopieren/austauschen sollen), Default relativ zu <code>project_root</code>, override- und austauschbar per Env-Var:</p>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1">// analog pi_storage_paths.cpp</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">fs</span><span class="o">::</span><span class="n">path</span><span class="w"> </span><span class="nf">default_pi_models_dir</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="n">AppState</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">state</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">state</span><span class="o">-&gt;</span><span class="n">runtime</span><span class="p">.</span><span class="n">project_root</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="s">&quot;pi_models&quot;</span><span class="p">;</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="p">}</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1">// override: TILE_COMPILE_PI_MODELS_DIR (gleiches Muster wie TILE_COMPILE_RUNS_DIR)</span>
+</span></code></pre></div>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>&lt;installationsordner&gt;/                 (= ${PAYLOAD}, = TILE_COMPILE_PROJECT_ROOT)
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  tile_compile_cpp/
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>  web_backend_cpp/
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>  web_frontend_v3/
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>  agent_service/
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>  runs/
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    .pi_memory/
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>  pi_models/
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    scan/bge.method/v3/model.txt          (LightGBM-Textformat oder eigenes Baum-Format)
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    scan/bge.method/v3/metadata.json      (Domäne, Zielpfad, Feature-Liste, Trainingsdatum, n_samples, val_score)
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    scan/hypermetric_stretch.black_point/v1/model.txt
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>    live_edit/op_intent_classifier/v2/model.txt
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>    live_edit/brightness.midtones/v1/model.txt
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>    ...
+</span></code></pre></div>
+<ul>
+<li>Kein <code>onnxruntime</code> nötig für Baum-/Linear-Modelle → header-only Inferenz in C++, keine neue Laufzeit-Dependency, Modelle im KB-Bereich, &lt;1 ms Inferenz.</li>
+<li><code>metadata.json</code> inkl. Hash der Feature-Liste → Runtime erkennt Schema-Drift (z. B. neues Feld) und fällt sauber auf den LLM-Pfad zurück statt mit falschem Feature-Alignment zu inferieren.</li>
+<li>Laufzeit-Trennung ist fail-closed: nur <code>scan</code> und <code>live_edit</code> sind erlaubte Domänen; Zielpfade werden vor Dateizugriff auf sichere Punktpfad-Zeichen geprüft. Anfrage-Feature-Vektor und jeder Referenzpunkt müssen zur angefragten Domäne passen; <code>metadata.json</code> muss Domäne und Zielpfad korrekt ausweisen. Fehlende oder gemischte Identität macht das Modell nicht verfügbar; Live-Editor-Werte können dadurch nicht als Scan-/Pipeline-Config-Label dienen.</li>
+<li><strong>Portabilität verschärft die Kompatibilitätsprüfung:</strong> weil <code>pi_models/</code> gezielt zwischen Installationen kopierbar sein soll, reicht der Feature-Hash allein nicht — ein mitkopiertes Modell für <code>bge.method</code> kann einen Enum-Wert vorhersagen, den ein neueres <code>config_schema</code> nicht mehr kennt. <code>metadata.json</code> pinnt deshalb zusätzlich den <code>config_schema_sha256</code> (existiert bereits als Feld in <code>.ai_analyses/*.json</code> → <code>_meta.config_schema_sha256</code>, dieselbe Quelle wiederverwenden). Bei Mismatch: Modell wird ignoriert, Fallback auf LLM-Pfad, kein Silent-Apply eines möglicherweise ungültigen Werts.</li>
+<li>Rollout-Schutz: neue Version wird nur aktiv, wenn ihr Validierungsscore (Holdout aus denselben geloggten Outcomes) die aktuell aktive Version nicht unterschreitet.</li>
+<li><strong>Kill-Switch:</strong> ein Konfigurationsschalter (<code>pi.local_models.enabled: false</code> oder Env-Var) erzwingt pro Installation den reinen LLM-Pfad, unabhängig vom Inhalt von <code>pi_models/</code> — Rückfallebene, falls ein mitgeliefertes oder trainiertes Modell in der Praxis schlechter empfiehlt als der bisherige Weg.</li>
+<li>Weil der Ordner Teil des Installationsordners ist (nicht in einem versteckten OS-Nutzerverzeichnis), lässt er sich 1:1 zwischen Rechnern/Betriebssystemen kopieren oder in <code>packaging/gui3/build_local_*</code> genau wie <code>tile_compile_cpp/examples</code> als vortrainierter Startzustand mit ausgeliefert werden (<code>cp -a "${PROJECT_ROOT}/pi_models" "${PAYLOAD}/"</code>).</li>
+<li><strong>Bootstrap-Realismus:</strong> ein vortrainierter Startzustand setzt voraus, dass irgendwo genug Outcome-Daten über viele Installationen/Sessions hinweg zusammenkommen, um ihn zu erzeugen — für eine einzelne lokale Installation kann das Modell-Layer (Abschnitt 4.2) bei geringer Nutzung dauerhaft unter der für sinnvolles Training nötigen Datenmenge bleiben. Das ist kein Grund, den Ansatz zu verwerfen: Der <strong>Memory-Store mit automatischer Promotion (Abschnitt 5) ist die tragende Schicht</strong> und liefert bereits ab wenigen Dutzend Outcomes Nutzen, unabhängig davon, ob je genug Daten für ein trainiertes Modell zusammenkommen. Das Modell-Layer ist ein optionaler Beschleuniger obendrauf, kein Single Point of Failure des Vorschlags.</li>
+</ul>
+<h3 id="44-outcome-recorder-das-eigentlich-neue-stuck">4.4 Outcome-Recorder (das eigentlich neue Stück)<a class="headerlink" href="#44-outcome-recorder-das-eigentlich-neue-stuck" title="Permanent link">&para;</a></h3>
+<p>Der fehlende Baustein ist nicht "mehr KI", sondern <strong>ein Logger, der aus bereits vorhandenen Ereignissen automatisch Trainingsbeispiele macht</strong>. Record-Schema und Label-Definition sind durch Abschnitt 0.2–0.4 festgelegt, hier nur noch die Anbindung:</p>
+<ul>
+<li><strong>Scan-Analyse:</strong> Wenn ein <code>action_plan</code>-Vorschlag übernommen wird (Config-Update angewendet), wird <strong>ein Record pro angewendetem Diff</strong> geloggt: <code>{feature_vector_at_recommendation_time, applied_paths: [{path, value}, ...], changed_path_count}</code>. Das Qualitäts-Delta wird nachträglich angehängt, sobald ein Ergebnis auf denselben Frames vorliegt — primär aus <code>bge.autotune</code>-CV-Holdout-Vergleichen bzw. Resume-Läufen auf unverändertem Frame-Satz (kontrolliert), Cross-Run-Vergleiche über unterschiedliche Sessions nur als schwächeres Sekundärsignal, klar als solches markiert (<code>comparison_kind: same_frames | cross_run</code>). Voraussetzung ist die in Abschnitt 0.1 zu verifizierende Verknüpfung <code>action_plan → ConfigRevision → Run → global_quality</code>.</li>
+<li><strong>Live Editor:</strong> Label ist der <strong>Terminalwert pro Op-Typ beim Sessionende/Export</strong> (Abschnitt 0.4) — nicht jede Zwischenstufe der <code>adjust_step</code>-Trajektorie. Eine Operation, deren Terminalwert im <code>operation_history</code> verbleibt, zählt als positives Outcome; eine per Undo entfernte oder durch eine andere Operation am selben Ziel-Parameter ersetzte als negatives. Die Adjust-Trajektorie wird als Metadatum am Record mitgeführt (nachvollziehbar, aber nicht als eigene Trainingsbeispiele gezählt). <code>LiveImageSession</code> führt <code>undo_stack</code>/<code>redo_stack</code>/<code>operation_history</code> bereits — der Recorder hängt sich nur als Beobachter an <code>LiveImageSessionStore::apply_operation</code> / <code>undo</code> / <code>close</code> an, ohne die bestehende Undo/Redo-Logik zu verändern.</li>
+</ul>
+<p>Damit entsteht der Trainingsdatensatz <strong>beiläufig aus normaler Nutzung</strong>, nicht aus einem Extra-Kurationsschritt.</p>
+<hr />
+<h2 id="5-erweiterung-des-memory-stores-automatische-promotion-statt-manuellem-gate">5. Erweiterung des Memory-Stores: automatische Promotion statt manuellem Gate<a class="headerlink" href="#5-erweiterung-des-memory-stores-automatische-promotion-statt-manuellem-gate" title="Permanent link">&para;</a></h2>
+<p><code>pi_memory_store</code> bleibt als Format/API bestehen (<code>append_candidate</code>, <code>list</code>, <code>retrieve</code>, <code>export_bundle</code> — Breaking Changes vermeiden), bekommt aber einen zweiten, automatischen Übergangspfad neben dem bestehenden <code>/review</code>-Endpunkt:</p>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1">// neu, zusätzlich zu review():</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">nlohmann</span><span class="o">::</span><span class="n">json</span><span class="w"> </span><span class="nf">PiMemoryStore::auto_promote_from_outcome</span><span class="p">(</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">memory_id</span><span class="p">,</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">nlohmann</span><span class="o">::</span><span class="n">json</span><span class="o">&amp;</span><span class="w"> </span><span class="n">outcome</span><span class="w">  </span><span class="c1">// { validation_valid, quality_delta, sample_domain }</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="p">)</span><span class="w"> </span><span class="k">const</span><span class="p">;</span>
+</span></code></pre></div>
+<p>Regel: ein <code>candidate</code>-Memory wird automatisch <code>accepted</code>, sobald für seinen <code>context_signature</code> <strong>N ≥ 3</strong> unabhängige Outcomes mit <code>quality_delta &gt; 0</code> vorliegen (Schwelle konfigurierbar); automatisch <code>rejected</code> bei überwiegend negativen Outcomes. Der bestehende manuelle <code>/review</code>-Endpunkt bleibt als Override für Edge-Cases und Audit — aber <strong>nicht mehr Voraussetzung</strong> für Sichtbarkeit im Retrieval. Das behebt direkt das benannte Problem: "die derzeit gespeicherten Memories sind vom User kaum zu verwalten."</p>
+<p><strong>Sicherheitsnetz für die Einführung:</strong> Auto-Promotion wirkt direkt auf <code>positive_memories_from_session_context</code> (<code>pi_ai_request_builder.hpp:10</code>) und damit unmittelbar auf jeden nächsten LLM-Prompt — anders als die Parametermodelle (Abschnitt 4.2), die vor Scharfschaltung einen Shadow-Mode durchlaufen. Eine falsch kalibrierte Promotion-Regel würde also sofort und unbemerkt die Empfehlungsqualität verschlechtern, die das gesamte Vorhaben verbessern soll. Deshalb bekommt Schritt 2 in Abschnitt 7 denselben Shadow-Mode: Promotion-Entscheidungen werden zunächst nur berechnet und geloggt (<code>would_promote</code>/<code>would_reject</code> neben dem bestehenden <code>status</code>), nicht angewendet, bis die Entscheidungen stichprobenartig geprüft sind.</p>
+<p><code>retrieve()</code>/<code>retrieve_negative()</code> bekommen zusätzlich zum bestehenden <code>context_match_score</code> (Feld-Overlap) einen Score-Term aus der Feature-Vektor-Distanz (Kosinus-/euklidische Distanz auf <code>numeric</code>, exakter Match auf <code>categorical</code>) — das ist kein Ersatz, sondern eine dritte Signalquelle neben Pfad-Match und Kontext-Overlap, weil reine Keyword-Overlap-Scores bei numerischen Statistiken (z. B. "ähnliches <code>sky_gradient_median</code>") strukturell blind sind.</p>
+<p>Live-Editor-Operationen werden als eigener <code>type</code> (<code>"live_edit_operation"</code>) im selben Store abgelegt, mit demselben Outcome-Automatik-Pfad — dadurch teilen sich beide Frontends Speicherort, Export/Import (<code>export_bundle</code>), Dedupe (<code>dedupe()</code>) und die Review-UI, statt eine zweite Persistenzschicht zu bauen.</p>
+<hr />
+<h2 id="6-rolle-der-cloud-ki-danach">6. Rolle der Cloud-KI danach<a class="headerlink" href="#6-rolle-der-cloud-ki-danach" title="Permanent link">&para;</a></h2>
+<p>Nicht eliminiert, aber verschoben:</p>
+<table>
+<thead>
+<tr>
+<th>Aufgabe</th>
+<th>Vorher</th>
+<th>Nachher</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Zahlenempfehlung bei bekanntem Muster (genug Trainingsdaten)</td>
+<td>LLM zero-shot pro Aufruf</td>
+<td>Lokales Modell, &lt;5 ms, kein externer Call</td>
+</tr>
+<tr>
+<td>Rationale/Erklärtext zur Empfehlung</td>
+<td>LLM generiert Wert <em>und</em> Text</td>
+<td>LLM bekommt vom Modell bereits Wert+Konfidenz, generiert nur noch den erklärenden Text (kleinerer Prompt, kein Rate-Risiko am Zahlenwert)</td>
+</tr>
+<tr>
+<td>Cold-Start (neues Ziel/Filter/Op ohne Trainingsdaten)</td>
+<td>LLM zero-shot</td>
+<td>LLM zero-shot <strong>bleibt</strong> — aber Ergebnis wird automatisch als neuer Memory-Kandidat + Outcome-Tracking erfasst, sodass der nächste ähnliche Fall lokal bedient werden kann</td>
+</tr>
+<tr>
+<td>Freitext-Intent im Live-Chat ("werd die Blautöne los")</td>
+<td>Vision-LLM pro Turn, inkl. Bildübertragung</td>
+<td>LLM übersetzt Intent → Op-Typ (Klassifikation, kein Bild nötig sobald genug Trainingsdaten); Parameterwerte kommen vom lokalen Regressionsmodell auf Basis der lokal berechneten Bildstatistik. Bild/Vision-Call bleibt Fallback für neuartige, nicht katalogisierte Anweisungen.</td>
+</tr>
+</tbody>
+</table>
+<p>Damit sinkt sowohl der externe Datenabfluss (Statistiken, teils Bilddaten) als auch die Latenz/Kosten pro Interaktion für den Großteil der Fälle — ohne dem System die Fähigkeit zu nehmen, auf wirklich neue Situationen zu reagieren.</p>
+<hr />
+<h2 id="7-implementierungsreihenfolge-inkrementell-nicht-brechend">7. Implementierungsreihenfolge (inkrementell, nicht-brechend)<a class="headerlink" href="#7-implementierungsreihenfolge-inkrementell-nicht-brechend" title="Permanent link">&para;</a></h2>
+<ol>
+<li><del>Verifikation der Verknüpfungskette</del> — erledigt (Abschnitt 0.1).</li>
+<li><del>Outcome-Recorder für Scan-Analyse</del> — <strong>implementiert</strong> (2026-08-27), Details in Abschnitt 0.1:</li>
+<li><del>1a.</del> <code>learn</code>-Default umgestellt, <code>config_sha256</code>/<code>revision_id</code> im Memory-Kandidaten, <code>pi_run_provenance.json</code> bei jedem Run-Start.</li>
+<li><del>1b.</del> <code>pi_run_quality.json</code> (Mittelwert der gültigen AQMH-Frame-Gewichte) pro Run persistiert.</li>
+<li><del>1c.</del> <code>pi_outcome_recorder</code> verknüpft beide über <code>config_sha256</code> und hängt das Ergebnis per <code>PiMemoryStore::attach_outcome()</code> an — ohne Statusänderung, ohne fabriziertes <code>quality_delta</code> (<code>comparison_kind: "unpaired"</code>, Delta-Berechnung bleibt dem Offline-Training vorbehalten, Abschnitt 0.3/9). Aufgerufen aus der Status-Poll-Route und — als letzte Gelegenheit vor Datenverlust — aus der Run-Delete-Route.</li>
+<li><del>Auto-Promotion in <code>pi_memory_store</code>, Shadow-Mode</del> — <strong>implementiert</strong> (2026-08-28): <code>PiMemoryStore::evaluate_auto_promotion()</code> (reine Auswertung, kein Statuswechsel) zählt <code>item["outcomes"]</code>-Einträge mit numerischem <code>quality_delta</code> (positiv/negativ), Regel <code>N ≥ 3</code> wie in Abschnitt 5 festgelegt; <code>log_auto_promotion_shadow_decision()</code> schreibt in einen eigenen Append-only-Log (<code>memory_auto_promotion_shadow_v1.jsonl</code>), der <strong>nicht</strong> in <code>list()</code> einfließt — reine Beobachtung, kein Statuswechsel. Aufgerufen direkt nach jedem erfolgreichen <code>attach_outcome()</code> in <code>pi_outcome_recorder.cpp</code>. Lesbar über <code>GET /api/pi/memories/auto-promotion-shadow</code>.</li>
+</ol>
+<p><strong>Vor Implementation entdeckt, wichtig für die Einordnung:</strong> <code>pi_routes.cpp</code> enthält bereits ein eigenes, älteres Outcome/Promotion-System (<code>evaluate_memory_outcome_payload()</code>, <code>/api/pi/memories/evaluate-run</code>, <code>/api/pi/memories/&lt;id&gt;/outcome</code>, <code>/api/pi/memories/&lt;id&gt;/promote</code>) inklusive automatischer "Counterexample"-Erzeugung bei negativem Verdict — laut <code>docs/PI/attic/pi_integration_architektur_tile_compile_plan.md:622</code> als Post-Run-Trigger gedacht, aber nie automatisch verdrahtet ("aktuell manuell"). Zusätzlich verifiziert: <code>extract_run_outcome_metrics()</code> liest <code>run_dir/artifacts/stats.json</code>, die der Runner nachweislich nie schreibt (<code>grep -rn "stats.json" tile_compile_cpp/</code> → 0 Treffer) — das System ist also nicht nur unverdrahtet, sondern liest ein Artefakt, das nie existiert. Kein Frontend-, Backend- oder Agent-Service-Code ruft diese Routen auf. Entscheidung: unangetastet gelassen (kein Risiko, nichts hängt daran), Schritt 2 baut stattdessen auf dem verifiziert funktionierenden <code>pi_outcome_recorder</code>-Pfad auf. Zusammenführung oder Ablösung dieses Altsystems ist ein neuer, nicht-blockierender Punkt (Abschnitt 9).</p>
+<p><strong>Verifiziert per M31-Testinstanz (Abschnitt 0.1):</strong> <code>evaluate_auto_promotion()</code> liefert korrekt <code>insufficient_data</code> bei ausschließlich <code>quality_delta: null</code>-Outcomes (heutiger Normalfall, siehe Abschnitt 0.3) und korrekt <code>would_promote</code> mit <code>positive_count: 3</code> nach gezieltem Einspielen von drei synthetischen Outcomes mit positivem <code>quality_delta</code> — Zähllogik bestätigt, ohne dass dabei der Status des Memory-Kandidaten verändert wurde (Shadow-Mode hält, was er verspricht).
+3. <del>Erstes lokales Modell, Shadow-Mode</del> — <strong>implementiert</strong> (2026-08-28) für die zwei PoC-Pfade <code>bge.method</code>/<code>normalization.mode</code>:
+   - <code>pi_feature_vector.{hpp,cpp}</code>: <code>build_scan_feature_vector()</code> projiziert <code>scan_metrics.aggregate</code> (verifiziert gegen die reale Struktur aus <code>tile_compile_cpp/apps/cli_main.cpp:1207-1236</code> — <code>{min,max,mean,median,p10,p90,count}</code> je Metrik, keine erfundenen Feldnamen) auf das Schema aus Abschnitt 4.1. <code>feature_vector_distance()</code> — Summe der quadrierten Differenzen über gemeinsame numerische Schlüssel plus fixer Strafterm pro abweichendem kategorialen Schlüssel; kein gemeinsamer numerischer Schlüssel ⇒ <code>infinity</code>, nicht <code>0</code> (sonst würde ein leerer/inkompatibler Feature-Vektor fälschlich als "identisch" gewertet).
+   - <code>pi_param_model.{hpp,cpp}</code>: <code>pi_models_dir()</code> implementiert exakt die in Abschnitt 4.3 dokumentierte Konvention (<code>project_root/pi_models</code>, Override <code>TILE_COMPILE_PI_MODELS_DIR</code>, versioniert <code>scan/&lt;path&gt;/v&lt;N&gt;/{metadata.json,reference_points.jsonl}</code>, höchste qualifizierende Version gewinnt). <code>predict_param_nn()</code> ist der in Abschnitt 4.2 explizit als Low-Data-Fallback benannte gewichtete Nearest-Neighbor (inverse Distanzgewichtung, k≤5) — bewusst kein Baum-/Regressionsmodell, weil dafür schlicht keine Trainingsdaten existieren.
+   - Aufruf via <code>log_scan_param_shadow_predictions()</code> an allen drei Stellen, an denen eine Scan-Analyse abgeschlossen wird (<code>ai_routes.cpp</code>, direkter Analyse-, Stream- und Store-Pfad) — berechnet Feature-Vektor, ruft <code>predict_param_nn()</code> für beide PoC-Pfade auf, loggt <code>{feature_vector, model_prediction, llm_value, agrees_with_llm}</code> nach <code>pi_models_dir()/scan/&lt;path&gt;/shadow_predictions.jsonl</code>. Beeinflusst <code>validated_updates</code>/<code>action_plan</code> an keiner Stelle — reines Shadow-Logging, Fehler werden verschluckt statt die Analyse zu gefährden. Lesbar über <code>GET /api/pi/param-model/shadow-predictions?target_path=...</code>.
+   - <strong>Bootstrap-Realismus bestätigt:</strong> <code>pi_models/</code> ist normalerweise leer (keine Trainingspipeline existiert — das ist Schritt 6), <code>predict_param_nn()</code> liefert dann korrekt <code>available:false, reason:"no_model"</code> statt zu raten oder abzustürzen.
+   - <strong>Verifiziert per neuem Unit-Test</strong> (<code>tests/test_pi_param_model.cpp</code>, dauerhaft im Testbaum, nicht nur Ad-hoc-Curl wie bei Schritt 1/2): Feature-Vektor-Projektion korrekt, Distanzfunktion (Selbstdistanz 0, keine gemeinsamen Felder → <code>infinity</code>), NN-Vorhersage bei eingespielten Referenzpunkten korrekt (2 nahe Punkte einer Klasse schlagen 1 entfernten Punkt der anderen Klasse), höhere Modellversion gewinnt korrekt über niedrigere, Shadow-Log wird für beide PoC-Pfade geschrieben (auch für den ohne Modell) und enthält bei Vorhersage+LLM-Wert gemeinsam ein <code>agrees_with_llm</code>-Feld. <code>make web_backend_cpp_pi_param_model &amp;&amp; ./web_backend_cpp_pi_param_model</code> → exit 0.
+4. <del>Live-Editor-Bildstatistik + Outcome-Recorder</del> — <strong>implementiert</strong> (2026-08-28):
+   - <code>pi_live_edit_recorder.{hpp,cpp}</code>: <code>build_live_edit_feature_vector()</code> — Pixel-Statistik direkt aus <code>cv::Mat</code> (<code>original_fits</code>, CV_32F BGR [0,1]: <code>mean_luma</code>, <code>std_luma</code>, <code>hist_black_clip_frac</code>, <code>hist_white_clip_frac</code>, <code>color_balance_rg</code>/<code>bg</code>), bewusst als eigenes Modul statt in <code>pi_feature_vector.hpp</code> (das bleibt OpenCV-frei, da es auch von rein JSON-basiertem Code wie <code>pi_param_model.cpp</code> inkludiert wird).
+   - <code>record_live_edit_session_outcome()</code>: <strong>Feature-Vektor aus <code>original_fits</code></strong> (dem Zustand, von dem die Session startete — nicht <code>current_fits</code>, weil das Ziel ist, aus einem Bild eine gute Operation vorherzusagen, nicht das Ergebnis zu beschreiben). Terminalwert-Logik: <code>undo_stack</code> am Sessionende, letztes Vorkommen pro Op-Typ gewinnt (kollabiert automatisch korrekt, weil <code>apply_adjust()</code> bei jedem +/-Klick den kompletten Stack aus <code>last_adjust_step</code> neu aufbaut — mehrere Stack-Einträge desselben Typs mit identischen Params sind kein Sonderfall). Ein <code>live_edit_operation</code>-Memory-Kandidat pro überlebendem Typ (<code>outcome.retained: true</code>), zusätzlich einer pro Typ, der in <code>edit_history</code> je angewendet, aber bis Sessionende vollständig per Undo entfernt wurde (<code>outcome.retained: false</code>) — nicht stillschweigend verworfen.
+   - Verdrahtet <strong>ausschließlich</strong> an der <code>/api/pi/live-image-chat/close</code>-Route, direkt nach der bestehenden <code>try_persist_live_session()</code> — bewusst <em>nicht</em> an deren anderen Aufrufstellen (undo/redo/adjust), die eine durable Kopie defensiv bei jedem Schritt schreiben, aber nicht "die Session ist zu Ende" bedeuten.
+   - Anders als beim Scan-Recorder (Schritt 1) ist "behalten oder verworfen" beim Live-Editor sofort bekannt — kein Zwei-Phasen-Apply-dann-später-Attach nötig, der Outcome wird direkt beim Anlegen des Memory-Kandidaten mitgegeben.
+   - <strong>Verifiziert per neuem Unit-Test</strong> (<code>tests/test_pi_live_edit_recorder.cpp</code>): Feature-Vektor korrekt für synthetische Bilder (flaches Mittelgrau → <code>std_luma=0</code>, <code>color_balance=1.0</code>; naheschwarzes Bild → <code>hist_black_clip_frac=1.0</code>). Terminal-Logik korrekt: 3 Events in <code>edit_history</code> (apply + adjust-increase + apply+undo eines zweiten Typs) erzeugen genau 2 Records, nicht 3 oder 4 — der überlebende Typ trägt den finalen Wert (0.15, nicht den ursprünglichen 0.05), der vollständig rückgängig gemachte Typ ist korrekt <code>retained:false</code>. Leere Session erzeugt nachweislich keine Records. Bestehende <code>pi_live_image_session</code>-Tests unverändert grün (keine Regression an Undo/Redo/Adjust).
+5. <del>Live-Editor-Parameter-Regressoren</del> — <strong>implementiert</strong> (2026-08-28), <strong>Op-Intent-Klassifikator bewusst nicht</strong> (Scope-Korrektur):
+   - <strong>Warum nur die Hälfte:</strong> "Op-Intent-Klassifikator" hieße, aus Freitext ("werd die Blautöne los") den Op-Typ zu erraten — das ist ein Text-/NLP-Problem, keines, das der in Abschnitt 4.1/4.2 entworfene numerische Feature-Vektor/NN-Ansatz lösen kann. Es existiert weder Text-Feature-Extraktion noch Trainingsdaten dafür; das würde eine komplett andere Infrastruktur brauchen (Abschnitt 8 grenzt bewusst gegen unverhältnismäßigen ML-Aufwand ab). Die <strong>Parameter-Regression</strong> (aus Bild-Feature-Vektor + bereits bekanntem Op-Typ einen guten Zahlenwert vorhersagen) ist dagegen dieselbe Infrastruktur wie Schritt 3, nur mit kontinuierlichem statt kategorialem Ziel — das war der tragfähige Teil.
+   - <code>predict_param_nn()</code> (Schritt 3) erweitert: entscheidet jetzt pro Aufruf anhand der Referenzdaten selbst, ob Klassifikation (gewichtete Mehrheitsabstimmung, Strings) oder Regression (inverse-distanzgewichteter Mittelwert, Zahlen) — kein Parameter, reine Typprüfung der <code>value</code>-Felder der k nächsten Nachbarn. Zusätzlich neuer <code>domain</code>-Parameter (<code>"scan"</code> vs. <code>"live_edit"</code>), damit <code>pi_models/scan/...</code> und <code>pi_models/live_edit/...</code> getrennte Namensräume sind (Abschnitt 4.3, Beispielbaum).
+   - <code>log_live_edit_param_shadow_predictions()</code>: pro angewendeter, Chat-ausgelöster Operation und pro numerischem Parameterfeld (<code>brightness.midtones</code>, <code>brightness.shadows</code>, ...) eine eigene Shadow-Vorhersage, geloggt nach <code>pi_models/live_edit/&lt;op_type&gt;.&lt;field&gt;/shadow_predictions.jsonl</code>. Verdrahtet direkt in der <code>/api/pi/live-image-chat</code>-Route, mit dem Feature-Vektor des Bildzustands <strong>vor</strong> der Chat-Runde (nicht danach). Nicht-numerische Parameterfelder (z. B. <code>denoise.luminance: bool</code>) bewusst ausgeschlossen — Regression braucht einen numerischen Referenzdatensatz.
+   - <strong>Verifiziert per erweitertem <code>test_pi_param_model.cpp</code></strong>: Regressions-Zweig liefert nachweislich einen echten gewichteten Mittelwert zwischen zwei Referenzpunkten (nicht kollabiert auf einen der beiden — das hätte auf einen versehentlich aktiven Klassifikations-Zweig hingedeutet), bestehender Klassifikations-Pfad (Schritt 3, <code>bge.method</code>) unverändert grün. Shadow-Log pro Feld einzeln bestätigt (<code>brightness.midtones</code> und <code>brightness.shadows</code> je eigene Logdatei).
+6. <del>Gemeinsames Retraining-Skript, Versionierung/Rollback</del> — <strong>implementiert</strong> (2026-08-28): <code>scripts/pi_retrain_models.py</code>, reine Python-Stdlib (kein venv/requirements.txt nötig — Kriterium war ausschließlich die C++-Inferenzseite, Abschnitt 9 Punkt 2).
+   - <strong>Kein "Training" im ML-Sinn</strong> — konsequente Fortsetzung der Abschnitt-4.2-Entscheidung für gewichtetes NN: das Skript exportiert nur Referenzpunkte aus dem Memory-Store, es fittet kein Modell.
+   - Liest <code>memories_v2.jsonl</code>/<code>memory_reviews_v2.jsonl</code>/<code>memory_outcomes_v2.jsonl</code> direkt und bildet den <code>PiMemoryStore::list()</code>-Merge (Latest-wins-Review, akkumulierende Outcomes) in Python nach — keine C++-Abhängigkeit.
+   - <strong>Eligibility bewusst unterschiedlich pro Domain, nicht <code>quality_delta</code>-basiert:</strong> Scan-Domain nutzt <code>status == "accepted"</code> (<code>quality_delta</code> ist nach wie vor durchgängig <code>null</code>, Abschnitt 0.3 — Delta-Filterung wird die eine Zeile, die sich ändert, sobald Same-Frames-Vergleiche existieren). Live-Edit-Domain nutzt <code>outcome.retained == true</code> aus der akkumulierten Outcome-Historie (bereits sofort verlässlich verfügbar, Schritt 4).
+   - <strong>Rollout-Schutz</strong> (Abschnitt 4.3) via Leave-one-out-Kreuzvalidierung mit derselben k-NN-Logik wie die C++-Seite (von Hand nachgebildet, mit Kommentarverweis auf <code>pi_feature_vector.cpp</code>, damit beide Seiten bei Änderungen synchron gehalten werden): neue Version wird nur veröffentlicht, wenn ihr Score die aktive Version nicht unterschreitet.
+   - <code>config_schema_sha256</code>-Pinning für die Scan-Domain jetzt <strong>auf beiden Seiten</strong> geschlossen — das war in Schritt 3 bewusst zurückgestellt worden: <code>pi_param_model.cpp</code> prüft den Pin jetzt tatsächlich (neue <code>compute_file_sha256()</code>, fail-closed bei nicht lesbarem Schema statt stillschweigend zu vertrauen), das Skript pinnt beim Export mit identischem Algorithmus (rohe Dateibytes → SHA-256 → Hex).
+   - <code>--list-versions</code>/<code>--rollback</code> für explizite Versionsverwaltung (Rollback = höchste Versionsdatei entfernen, <code>predict_param_nn()</code> wählt danach automatisch die nächstniedrigere).
+   - <strong>Bug während der Verifikation gefunden und behoben:</strong> ein erneuter Lauf ohne neue Daten hätte eine inhaltlich identische Duplikat-Version veröffentlicht (<code>new_score == old_score</code> ist kein "Regression"-Fall) — bei dem in Abschnitt 7 vorgesehenen periodischen Aufruf hätte das den Ordner mit Duplikaten geflutet. Fix: expliziter Signatur-Vergleich der Referenzpunktmenge vor dem Score-Vergleich.
+   - <strong>Verifiziert end-to-end</strong> gegen einen synthetischen Memory-Store (Fixtures für beide Domains, inkl. bewusst abgelehnter/nicht-retained Gegenbeispiele, die korrekt ausgeschlossen wurden): frische Veröffentlichung ✓, Unchanged-Skip nach dem Fix ✓, legitime Verbesserung veröffentlicht ✓, künstlich zurückgesetzter Score blockiert eine echte Regression ✓, Rollback ✓, Hash-Pinning stimmt exakt mit <code>sha256sum</code>/Python <code>hashlib</code> überein ✓.
+7. Erst nach belastbarem Shadow-Vergleich: lokale Modelle als <strong>primäre</strong> Quelle scharf schalten, LLM auf Rationale/Cold-Start reduzieren (Abschnitt 6).</p>
+<p>Jeder Schritt ist einzeln sinnvoll und für sich schon ausrollbar; nichts davon setzt voraus, dass ein späterer Schritt schon existiert.</p>
+<hr />
+<h2 id="8-explizit-nicht-teil-dieses-vorschlags">8. Explizit nicht Teil dieses Vorschlags<a class="headerlink" href="#8-explizit-nicht-teil-dieses-vorschlags" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Kein CNN-/Pixel-Ebenen-Modell (à la GraXpert AI-BGE) — das war der ursprüngliche Gedankenanstoß, aber das eigentliche Problem hier ist "keine gelernte Statistik→Parameter-Zuordnung", nicht "kein neuronales Bildmodell". Bleibt als möglicher Folgeschritt, falls Classic-BGE/AutoBGE nachweislich an Grenzen stoßen — unabhängig von diesem Dokument.</li>
+<li>Kein Ersatz des <code>pi_context_protocol_compression_plan_de.md</code>-Ansatzes (kein Byte-Kompressions-Handshake mit dem Modell) — orthogonal, dieses Dokument reduziert eher die Menge dessen, was überhaupt in den Prompt muss.</li>
+<li>Kein Live-Learning/Online-Training im laufenden Betrieb — Training bleibt ein expliziter, versionierter Offline-Schritt mit Validierungs-Gate vor Rollout.</li>
+</ul>
+<hr />
+<h2 id="9-offene-fragen">9. Offene Fragen<a class="headerlink" href="#9-offene-fragen" title="Permanent link">&para;</a></h2>
+<p>Nicht blockierend — Verfeinerungen, die während oder nach den Implementierungsschritten in Abschnitt 7 entschieden werden können:</p>
+<ol>
+<li>Schwellenwert <code>N</code> für Auto-Promotion (Vorschlag: 3, konfigurierbar über <code>pi.memory.auto_promotion.min_outcomes</code>) — abhängig davon, wie schnell in der Praxis genug Runs mit vergleichbarem <code>context_signature</code> anfallen.</li>
+<li>Trainingsframework für die Offline-Modelle (LightGBM vs. eigenes minimalistisches Baum-Format ohne Python-Runtime-Abhängigkeit zur Laufzeit) — Kriterium ist ausschließlich die C++-Inferenzseite, das Trainings-Tooling darf Python sein.</li>
+<li>Wo genau die Bildstatistik-Berechnung im Live-Editor-Pfad ansetzt (<code>apply_operation</code>-Hook vs. eigener periodischer Sampler) — Performance-Grenze: darf die interaktive Latenz der +/- Buttons nicht spürbar erhöhen.</li>
+<li>Nebenläufigkeit: <code>ModelRegistry</code>-Reload nach neuem Training darf laufende Live-Editor-Inferenzen (jeder Op-Call) nicht blockieren oder mit einem halb geladenen Modellstand kollidieren — Locking-Strategie beim Hot-Swap einer neuen Modellversion.</li>
+<li>Sollen <code>pi_models/</code>-Inhalte Teil von <code>export_bundle</code> (Abschnitt 5) werden, oder bleiben Modelle explizit von Export/Import der Memories getrennt, weil sie ableitbare Binärartefakte sind statt kuratierten Wissens?</li>
+<li><strong>Neu (2026-08-28):</strong> Umgang mit dem entdeckten Altsystem (<code>evaluate_memory_outcome_payload</code>, <code>/evaluate-run</code>, <code>/outcome</code>, <code>/promote</code> in <code>pi_routes.cpp</code>) — retten (Post-Run-Trigger automatisch verdrahten, <code>stats.json</code>-Erzeugung im Runner nachrüsten) oder zugunsten von <code>pi_outcome_recorder</code> stillschweigend auslaufen lassen? Beide Systeme schreiben potenziell unterschiedliche <code>status</code>/<code>outcome</code>-Werte auf denselben Memory-Kandidaten (beobachtet im M31-Test: ein manueller <code>/outcome</code>-Aufruf setzte <code>status: promotable</code>, unabhängig vom Shadow-Log). Keine Eile, da das Altsystem nirgends automatisch aufgerufen wird — aber vor einer eventuellen Scharfschaltung von Schritt 2 sollte geklärt sein, ob beide Systeme gleichzeitig aktiv bleiben dürfen.</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

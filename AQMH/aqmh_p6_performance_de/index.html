@@ -1,0 +1,4491 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/AQMH/aqmh_p6_performance_de/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>P6 — Leistungsengpässe: Analyse, Lösungen, Umsetzung - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#p6-leistungsengpasse-analyse-losungen-umsetzung" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              P6 — Leistungsengpässe: Analyse, Lösungen, Umsetzung
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Start Here
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guides/cfa_forward_drizzle_pipeline_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Workflows & Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/configuration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../PI/scan_ai_parameter_studio_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Professional & Technical
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/cli/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API & Development
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  History & About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start Here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schnellstart (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows & Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Workflows & Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/cfa_forward_drizzle_pipeline_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reconstruction Method (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/cfa_forward_drizzle_pipeline_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rekonstruktionsmethode (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/live_image_editor_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/live_image_editor_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – KI-Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_workflow_gui3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Basics (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Konfigurationsgrundlagen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Professional & Technical
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Professional & Technical
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_ai_recommendations_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_ki_empfehlungen_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_jev_decisions_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Jev Decisions (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_scan_pre_rules_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Pre-Rules (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_decision_trace_und_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overall Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_decision_trace_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decision Trace (Part A)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Assistant (Part B)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_assistant_dock_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assistant Dock
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_analysis_context_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_run_learning_archive_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run Learning Archive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_retention_policy_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Retention Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../forward_drizzle_v2_zielarchitektur_2026-09-12_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forward Drizzle v2 Target Architecture (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Process Flow Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume-Abhängigkeiten (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_scan_normalization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Scan & Normalization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_registration_geometry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Registration & Geometry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_quality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_forward_drizzle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Forward Drizzle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_multiband/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Multiband
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_postprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Post-Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/flow_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API & Development
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API & Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference (Getting Started)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    History & About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    History & About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_3" id="__nav_8_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Historical Methods (superseded)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Historical Methods (superseded)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-gemessener-ausgangszustand-realer-600-frame-lauf-m31-affin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Gemessener Ausgangszustand (realer 600-Frame-Lauf, M31 affin)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Gemessener Ausgangszustand (realer 600-Frame-Lauf, M31 affin)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-sampling_geometry-attribution-durch-messung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 SAMPLING_GEOMETRY — Attribution durch Messung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-source_quality_maps-seriell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 SOURCE_QUALITY_MAPS — seriell
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-forward_drizzle-wiederholtes-voll-bild-lesen-re-hash" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 FORWARD_DRIZZLE — wiederholtes Voll-Bild-Lesen + Re-Hash
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-losungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Lösungen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Lösungen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#o1-streifen-parallele-compute_geometric_coverage-groter-hebel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        O1 — Streifen-parallele compute_geometric_coverage · größter Hebel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#o2-verifiednormalizedsourcecache-lru-hash-nur-beim-ersten-zugriff" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        O2 — VerifiedNormalizedSourceCache: LRU + Hash nur beim ersten Zugriff
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#o3-paralleler-sqm-bau" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        O3 — Paralleler SQM-Bau
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#o4-reserve-cfa-und-footprint-durchlauf-fusionieren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        O4 (Reserve) — CFA- und Footprint-Durchlauf fusionieren
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#o5-reserve-gesperrt-affine-flachen-schablone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        O5 (Reserve, gesperrt) — Affine Flächen-Schablone
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-gemessene-beschleunigung-referenzbox-amd-ryzen-7-3700x-8-kerne-16-threads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Gemessene Beschleunigung (Referenzbox: AMD Ryzen 7 3700X, 8 Kerne / 16 Threads)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Gemessene Beschleunigung (Referenzbox: AMD Ryzen 7 3700X, 8 Kerne / 16 Threads)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#o1-streifen-parallele-coverage-hidden-benchmark-affine-osc-320018002-20-frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        O1 — Streifen-parallele Coverage (Hidden-Benchmark, affine OSC 3200×1800×2, 20 Frames)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#o2-source-cache-lru-hash-once" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        O2 — Source-Cache LRU + Hash-once
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#o3-paralleler-sqm-bau_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        O3 — Paralleler SQM-Bau
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-erreichbarkeit-der-30-min-grenze-aktualisiert" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Erreichbarkeit der 30-min-Grenze — aktualisiert
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-fortschritt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Fortschritt
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-code-review-konkreter-weg-zum-30-minuten-ziel-3073" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Code-Review: konkreter Weg zum 30-Minuten-Ziel (§30.73)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Code-Review: konkreter Weg zum 30-Minuten-Ziel (§30.73)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-messgrenze-und-belastbare-ausgangsbasis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Messgrenze und belastbare Ausgangsbasis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-groter-zusatzlicher-befund-cuda-bandhohe-kollabiert-mit-n" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Größter zusätzlicher Befund: CUDA-Bandhöhe kollabiert mit N
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-r2-echte-bereichsprovider-statt-zyklischem-vollbild-lru" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 R2: echte Bereichsprovider statt zyklischem Vollbild-LRU
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-r3-schnellere-exakte-geometrie-ohne-o5-schablone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 R3: schnellere exakte Geometrie, ohne O5-Schablone
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-r4-vorlauf-und-qualitat-gezielt-verkurzen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 R4: Vorlauf und Qualität gezielt verkürzen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.5 R4: Vorlauf und Qualität gezielt verkürzen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#651-befund-2026-09-11-konkrete-wiederholungen-und-hash-hot-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5.1 Befund 2026-09-11: konkrete Wiederholungen und Hash-Hot-Paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-budget-reihenfolge-und-entscheidung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 Budget, Reihenfolge und Entscheidung
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="p6-leistungsengpasse-analyse-losungen-umsetzung">P6 — Leistungsengpässe: Analyse, Lösungen, Umsetzung<a class="headerlink" href="#p6-leistungsengpasse-analyse-losungen-umsetzung" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>Analyse und Lösungsentwurf; Produktionsabnahme offen.</strong> Aktuelles Ziel:
+<code>reconstruct</code> vom Kaltstart bis zur committed Rekonstruktionsausgabe <strong>&lt; 30 min</strong>,
+<strong>ohne Astrometrie, BGE, PCC und HMS</strong>, bei
+600 Frames, 3840×2160 OSC, <code>internal_scale=2</code> / <code>output_scale=1</code>. Alles darüber
+gilt als Fehlschlag (Benutzervorgabe 2026-09-09).</p>
+<p>Erstellt 2026-09-09. Protokollverweis: <strong>§30.72</strong>. Setzt auf <code>aqmh_p6_runbook_de.md</code>
+(§30.70) auf.</p>
+<p><strong>Review 2026-09-09, §30.73:</strong> Die bisherigen O2-Durchsatzaussagen sind
+korrigiert. Abschnitt 6 ist der aktuelle Lösungsentwurf: CUDA-Kandidatenbudget,
+echte zweidimensionale Bereichszugriffe, exakte Clip-Wiederverwendung und
+Kalibrierungs-/Qualitätsarbeit. O1–O3 allein belegen die Zielzeit nicht.
+Das ursprüngliche P6-Gate bis HMS bleibt ein separates, weiter offenes Gate.</p>
+<p><strong>Review 2026-09-10, §30.77 (Konsolidierung und Korrekturen):</strong> Der
+maßgebliche Prioritätenstand ist Plan §0.2; die Schnittliste in Abschnitt 6.6
+ist in der Reihenfolge revidiert. Vier Review-Korrekturen sind eingearbeitet:</p>
+<ol>
+<li>Kettenbilanzen und Realraster-Hochrechnungen sind <strong>Projektionen, keine
+   Istzustände</strong> — insbesondere ist die FD-Angabe eine Frame-lineare
+   Hochrechnung aus 20 Frames.</li>
+<li>„Irreduzibler Clip" ist <strong>zurückgenommen</strong>. Die Verwerfung des
+   k=1,0-Shortcuts bleibt als Versuchsergebnis stehen; ihre ursprüngliche
+   Begründung über die Nullflächenzählung trägt jedoch nicht — Fläche == 0
+   sagt nichts über Fläche == 1 aus, und die maßgebliche Häufigkeit
+   vollständig überdeckter Zellen wurde nicht erhoben (die ~1,6–3
+   Teilüberlappungs-Clips pro Quellpixel deuten auf deren Seltenheit,
+   beweisen sie nicht). Bit-exakte Hebel (R3, No-op-Clip-Elision) bleiben
+   offen.</li>
+<li>Das 180-s-FD-Feld in §6.6 ist ein <strong>Entwicklungsbudget</strong>, kein implizit
+   abgeleitetes CUDA-Budget; die Wirkung von R1/R2 muss gemessen werden.</li>
+<li>Der Scope umfasst affine <strong>und</strong> lokale Datensätze; daraus folgt
+   <strong>keine</strong> <code>expf</code>-Freigabe — erst getrennte Messung (Cachebau, Replay,
+   Clip, I/O), dann Entscheidung.</li>
+</ol>
+<p>Bench-Defekt der Pre-Repair-Fassung (<code>test_forward_drizzle_hotspot_
+profile.cpp</code>): die isolierten Gather-/Reduce-Sektionen verarbeiteten keine
+Kandidaten, weil die vorangehende Fill-Sektion A/B nullte (<code>Bv &gt; 0</code> griff
+nie, <code>cnt</code> blieb 0). <strong>Repariert in §30.78</strong> (Per-Frame-Ordnung wie
+Produktion, Assertions, Outlier-belebtes Clipping, bit-exakter Referenz-
+abgleich, Hoist-Timer, isolierter Sweep, echte Besuchszähler). Ergebnis:
+die Raster:Reduce-Aufteilung schließt jetzt mit den
+<code>TC_FD_PROFILE</code>-Produktionstimern (Modell 34,66/10,44 s vs Profil
+34,76/10,18 s bei W=1, &lt; 3 %) und ist damit belegt (~77 : 23 in der
+Bench-Szene); der Clip-Anteil <strong>am Raster</strong> bleibt eine mit diesem Vorbehalt
+gekennzeichnete <strong>Differenzschätzung</strong>.</p>
+<hr />
+<h2 id="1-gemessener-ausgangszustand-realer-600-frame-lauf-m31-affin">1. Gemessener Ausgangszustand (realer 600-Frame-Lauf, M31 affin)<a class="headerlink" href="#1-gemessener-ausgangszustand-realer-600-frame-lauf-m31-affin" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th style="text-align: right;">Gemessen</th>
+<th>Anmerkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SAMPLING_GEOMETRY</td>
+<td style="text-align: right;"><strong>2 h 21 min</strong> (~8460 s)</td>
+<td>seriell</td>
+</tr>
+<tr>
+<td>SOURCE_QUALITY_MAPS</td>
+<td style="text-align: right;"><strong>48 min 35 s</strong> (~2915 s)</td>
+<td>seriell</td>
+</tr>
+<tr>
+<td>GLOBAL_QUALITY</td>
+<td style="text-align: right;">4 min 26 s (~266 s)</td>
+<td></td>
+</tr>
+<tr>
+<td>FORWARD_DRIZZLE</td>
+<td style="text-align: right;">vor dem benutzerseitigen Stopp &gt;47 min beobachtet</td>
+<td>kein abgeschlossener Phasenwert</td>
+</tr>
+<tr>
+<td>MULTIBAND / Ausgabe / BGE / PCC / HMS</td>
+<td style="text-align: right;">nicht erreicht</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h3 id="11-sampling_geometry-attribution-durch-messung">1.1 SAMPLING_GEOMETRY — Attribution durch Messung<a class="headerlink" href="#11-sampling_geometry-attribution-durch-messung" title="Permanent link">&para;</a></h3>
+<p>Hidden-Benchmark <code>tests/test_coverage_hotspot_profile.cpp</code> (<code>[.][coverage-profile]</code>),
+affine OSC-Szene, <code>geomstats</code>-<code>ScopedGeometryTimer</code> auf beiden <code>rasterize_drizzle_stripe</code>-Aufrufen
+gegen die Gesamt-Wanduhr:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>scene: src 1280x720  scale 2  internal 2688x1568  frames 16  chunk 256  stripes 7
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>TOTAL coverage wall_s             : 25.410
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>  geometry (2x rasterize)        : 24.216  (95.3 %)
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>  everything else                :  1.194  ( 4.7 %)
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>cfa  rasterize : 694 ns / source-sample
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>foot rasterize : 915 ns / source-sample   (pixfrac 1.0 → größere Tropfen)
+</span></code></pre></div>
+<ul>
+<li><strong>95 % entfallen auf die beiden Rasterizer-Aufrufe</strong> in <code>rasterize_drizzle_stripe</code>:
+  <code>sample_leaves</code> → <code>build_affine_leaf</code> → pro Zelle <code>polygon_rectangle_intersection_area</code>
+  (4 Halbebenen-Clips + Shoelace). Zwei Durchläufe pro Frame (CFA-Tropfen
+  pixfrac 0,8 + dichter Footprint pixfrac 1,0), alle 600 Frames, <strong>einthreadig</strong>.
+  Der Timer umfasst auch Leaf-Bau, Enumeration und Callbacks; er isoliert
+  <code>polygon_rectangle_intersection_area</code> nicht. Die Profil-Szene verwendet nur
+  Translationen, keine Rotation oder Scherung.</li>
+<li><strong>Kein K-Faktor.</strong> Der affine Pfad begrenzt den Quell-Scan pro Streifen auf das
+  rückprojizierte Zeilenband (<code>forward_drizzle.cpp:492-512</code>);
+  <code>source_samples_visited</code> ≈ 1,02 × Quellpixel über alle Streifen, nicht 19 ×.
+  Die frühere Cache-Bau-Zuordnung war falsch — M31 hat 0 lokale Modelle, der
+  parallele lokale Geometrie-Cache wird komplett übersprungen.</li>
+<li><strong>Extrapolation:</strong> 8,29 Mpx × 600 f × 1,02 × (694 + 915) ns ≈ <strong>8100 s</strong> — deckt
+  sich mit den gemessenen 8460 s.</li>
+<li><code>(void)num_workers;</code> in <code>compute_geometric_coverage</code> (<code>sampling_geometry.cpp:275</code>)
+  — Parallelität war <strong>nie verdrahtet</strong>.</li>
+</ul>
+<h3 id="12-source_quality_maps-seriell">1.2 SOURCE_QUALITY_MAPS — seriell<a class="headerlink" href="#12-source_quality_maps-seriell" title="Permanent link">&para;</a></h3>
+<p><code>build_source_quality_map_cache</code> (<code>source_quality_map_cache.cpp:535</code>):
+<code>for (const auto &amp;f : plan.frames)</code> mit <code>cache.load()</code> + <code>compute_source_quality_proxy_v1</code>
++ <code>compute_source_quality_maps</code> + <code>writer.put(...)</code>. <strong>Kein OpenMP, kein Thread.</strong>
+2915 s / 600 f ≈ 4,86 s/f. Der Per-Frame-Rumpf ist unabhängig; nur <code>writer.put</code>
+braucht Serialisierung.</p>
+<h3 id="13-forward_drizzle-wiederholtes-voll-bild-lesen-re-hash">1.3 FORWARD_DRIZZLE — wiederholtes Voll-Bild-Lesen + Re-Hash<a class="headerlink" href="#13-forward_drizzle-wiederholtes-voll-bild-lesen-re-hash" title="Permanent link">&para;</a></h3>
+<p><code>VerifiedNormalizedSourceCache::load</code> (<code>normalized_source_cache.cpp:112</code>) liest bei
+<strong>jedem</strong> Aufruf die vollständige <code>.raw</code> (33 MB bei 3840×2160 float) <strong>und</strong> rechnet
+SHA-256 neu. Der Streifenpfad ruft das pro (Streifen, Frame) auf:
+<strong>Bei angenommenen 19 Bändern</strong>: 19 × 600 = 11 400 Loads ≈ <strong>378,2 GB</strong>
+logisches Lesevolumen plus Hashing. Die 19 Coverage-Streifen sind jedoch
+<strong>nicht die CUDA-Drizzle-Bandzahl</strong>; siehe Abschnitt 6.2. Die GDB-Stackprobe
+zeigte einen wartenden Hauptthread in <code>load</code> im CUDA-Pfad. Die 236 GB physischen
+Reads sind ein kumulativer Prozesswert, keine isolierte Drizzle-Messung.</p>
+<hr />
+<h2 id="2-losungen">2. Lösungen<a class="headerlink" href="#2-losungen" title="Permanent link">&para;</a></h2>
+<p>Reihenfolge nach Hebel × (1 / Risiko). Jede Stufe einzeln getestet und gemessen.</p>
+<h3 id="o1-streifen-parallele-compute_geometric_coverage-groter-hebel">O1 — Streifen-parallele <code>compute_geometric_coverage</code>  · größter Hebel<a class="headerlink" href="#o1-streifen-parallele-compute_geometric_coverage-groter-hebel" title="Permanent link">&para;</a></h3>
+<p>Der Streifen-Rumpf (<code>sampling_geometry.cpp:347-421</code>) ist bereits fast vollständig
+streifen-lokal (<code>B/w/w2/count/support/footprint_count/touched</code> sind Streifenpuffer,
+<code>rasterize_drizzle_stripe</code> ist read-only auf <code>plan</code>/<code>frames</code>, Quell-Scan streifen-
+begrenzt, Maskenschreibzugriffe disjunkt über <code>offset = y*width</code>).</p>
+<ul>
+<li><strong>Achse:</strong> ganze Streifen an Worker (<code>#pragma omp parallel for schedule(dynamic,1) if(workers&gt;1)</code>
+  über den Streifenindex), Muster wie §30.65/§30.67. Jeder Worker: eigene
+  <code>B/w/w2/count/support/footprint_count/touched</code> (Allokation in die Schleife
+  ziehen), eigene <code>DiskQuantile</code> je Kanal.</li>
+<li><strong><code>w[c][i] += B[c][i]</code></strong> bleibt pro <code>i</code> in Frame-Reihenfolge (ein Worker pro
+  Streifen) → <strong>bit-identisch zu <code>workers==1</code></strong>.</li>
+<li><strong><code>DiskQuantile</code></strong> je Worker; Zusammenführung durch <strong>Spool-Konkatenation</strong> vor
+  <code>p10()</code>. Radix-Select ist multiset- und damit reihenfolgeunabhängig → bit-exakt.</li>
+<li><strong><code>StripeHoles</code></strong> ist ein sequentieller Connected-Components-Akkumulator über die
+  volle Höhe → <strong>aus der Streifenschleife herausnehmen</strong>. Die drei
+  Kanal-<code>support</code>-Ebenen kanvasweit persistieren (disjunkt im Parallelbereich
+  füllen), danach ein serieller <code>holes[c]-&gt;row()</code>-Durchlauf über den fertigen
+  Kanvas. Bit-identisch (gleiche Zeilenreihenfolge, gleiche Daten).</li>
+<li><strong><code>gate.analysis_pixels</code> / <code>supported[c]</code></strong> je Streifen sammeln, nach dem
+  Parallelbereich in Streifenreihenfolge reduzieren (Integer → reihenfolgefrei).</li>
+<li><strong><code>geomstats</code></strong> im Parallelbereich deaktivieren wenn <code>workers&gt;1</code> (RAII-Restore),
+  wie §30.67. Bei <code>workers==1</code> (Default) unverändert.</li>
+<li><strong>Ausnahmen:</strong> per-Worker <code>try</code> + <code>std::exception_ptr</code> + <code>#pragma omp critical</code>.</li>
+<li><strong>Budget (kritisch):</strong> <code>memory.rows</code> <strong>weiterhin aus dem <code>workers==1</code>-Budget</strong>
+  auflösen — Worker-Zahl darf die Chunk-Höhe <strong>nicht</strong> verändern
+  (<code>resolved_chunk_rows</code> geht in den <code>geomstats</code>-Kontext und in
+  <code>sampling_geometry.json</code>; die P0-Compute-Invarianz-Tests prüfen
+  Chunk-Höhen-Unabhängigkeit). Separat prüfen, dass <code>W × per_stripe_bytes</code> +
+  die drei persistenten <code>support</code>-Ebenen ins Budget passen; wenn nicht, <strong>W
+  reduzieren</strong> (nicht <code>rows</code>). Die persistenten <code>support</code>-Ebenen in
+  <code>retained_bytes</code> des <code>plan_drizzle_memory</code>-Aufrufs aufnehmen.</li>
+<li><strong>Worker-Zahl:</strong> vom Runner durchgereicht (<code>parallel_workers ∩ hardware_concurrency</code>),
+  <code>TC_SAMPLING_GEOMETRY_WORKERS</code> überschreibt (Spiegel von
+  <code>TC_GEOMETRY_CACHE_WORKERS</code> / <code>TC_FORWARD_DRIZZLE_WORKERS</code>). <code>gate.workers_used</code>
+  füllen (bereits im Struct, wird in <code>sampling_geometry.json:504</code> serialisiert).</li>
+<li><strong>Überholte Idealprojektion:</strong> 13–16 × auf 16 Workern wurde nicht erreicht;
+  maßgeblich ist die Messung in Abschnitt 3 (SMT: 6,87 ×).</li>
+<li><strong>Gate:</strong> bestehende Compute-Invarianz-Tests + neuer <code>[geometry-parallel]</code>-Fall
+  W ∈ {1,2,4}: Masken, <code>gate</code>-Felder, <code>n_eff</code>-p10, <code>hole_area</code> byte-/bit-identisch
+  zu W=1.</li>
+</ul>
+<h3 id="o2-verifiednormalizedsourcecache-lru-hash-nur-beim-ersten-zugriff">O2 — <code>VerifiedNormalizedSourceCache</code>: LRU + Hash nur beim ersten Zugriff<a class="headerlink" href="#o2-verifiednormalizedsourcecache-lru-hash-nur-beim-ersten-zugriff" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Statt eines einzigen <code>image_</code> eine <strong>LRU-Map</strong> <code>source_index → {Matrix2Df, verifiziert}</code>,
+  Kapazität aus <code>memory_budget_mb</code> (16384 MiB: 517 von 600 Frames).</li>
+<li>Treffer: gecachte Matrix zurückgeben, <strong>kein Read, kein SHA-256</strong>.</li>
+<li>Fehltreffer: lesen + hashen + verifizieren + einfügen (LRU-Verdrängung).
+  Den gerade zurückgegebenen Eintrag <strong>nie</strong> verdrängen.</li>
+<li>Alle <code>load()</code>-Aufrufstellen in <code>forward_drizzle.cpp</code> prüfen: kein Aufrufer hält
+  eine Referenz über einen späteren <code>load()</code> eines anderen Index hinweg (§30.67
+  hat streifenweite Parallelität genau wegen dieses Aliasing verworfen — mit
+  Per-Index-Einträgen entfällt der Hazard, aber die Aufrufer-Prüfung bleibt Pflicht).</li>
+<li><strong>Wirkung nur bei Treffern:</strong> Der zyklische Scan über 600 Frames mit 517
+  Plätzen erzeugt ausschließlich Fehltreffer. Einmaliges Lesen/Hashen ist damit
+  nicht erreicht. Ein vollständiger Source-Bestand braucht 19,91 GB = 18,54 GiB
+  zusätzlich zum übrigen Arbeitsspeicher. <code>load()</code> bleibt nicht threadsicher;
+  Referenzen können durch Verdrängung ungültig werden.</li>
+<li><strong>Gate:</strong> bestehende <code>[forward-runner]</code> / <code>[cuda-parity]</code> Byte-Identität;
+  neuer Fall: wiederholtes <code>load()</code> desselben Index gibt bit-gleiche Daten,
+  Zähler „SHA-256-Aufrufe" steigt nur beim ersten Zugriff; manipulierte Datei
+  nach Cache-Eintrag wird beim ersten (verifizierenden) Zugriff erkannt.</li>
+</ul>
+<h3 id="o3-paralleler-sqm-bau">O3 — Paralleler SQM-Bau<a class="headerlink" href="#o3-paralleler-sqm-bau" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>build_source_quality_map_cache</code>: Frame-Schleife auf <code>#pragma omp parallel for
+  schedule(dynamic,1) if(workers&gt;1)</code>. Per-Frame: <code>cache.load</code> mit eigener
+  <code>VerifiedNormalizedSourceCache</code> je Worker (O2 ist nicht threadsicher),
+  <code>compute_source_quality_proxy_v1</code>, <code>compute_source_quality_maps</code> unabhängig.</li>
+<li><code>writer.put(stream, source_index, matrix)</code> — Serialisierung prüfen: entweder
+  <code>#pragma omp critical</code> um die <code>put</code>-Gruppe je Frame, oder je Frame in einen
+  lokalen Puffer und nach dem Parallelbereich in <code>source_index</code>-Reihenfolge
+  schreiben (deterministischer Store-Inhalt). <code>max_scales</code>-Reduktion.</li>
+<li><code>writer.commit()</code> unverändert seriell.</li>
+<li><strong>Erwartung:</strong> 2915 s / 16 ≈ <strong>~200–300 s</strong>.</li>
+<li><strong>Gate:</strong> <code>source_quality_cache_hash</code> byte-identisch W ∈ {1,2,4}; bestehende
+  <code>[source-quality]</code>-Tests.</li>
+</ul>
+<h3 id="o4-reserve-cfa-und-footprint-durchlauf-fusionieren">O4 (Reserve) — CFA- und Footprint-Durchlauf fusionieren<a class="headerlink" href="#o4-reserve-cfa-und-footprint-durchlauf-fusionieren" title="Permanent link">&para;</a></h3>
+<p>Ein Quell-Scan statt zwei. Beide Durchläufe scannen dieselben Quellzeilen, rufen
+<code>sample_leaves</code>. Für affine Frames unterscheiden sich der pixfrac-0,8- und der
+pixfrac-1,0-Tropfen nur im Halbmaß <code>h</code>. Ein gemeinsamer Scan + gemeinsame
+CFA-Kanalbestimmung + gemeinsame Bbox-Iterationsstruktur; die Polygon-Flächen-
+aufrufe bleiben getrennt (verschiedene Geometrie). <strong>Erwartung ~1,3–1,5 ×.</strong>
+Höheres Bit-Exaktheits-Risiko → separates Gate, erst nach O1–O3 + Messung.</p>
+<h3 id="o5-reserve-gesperrt-affine-flachen-schablone">O5 (Reserve, gesperrt) — Affine Flächen-Schablone<a class="headerlink" href="#o5-reserve-gesperrt-affine-flachen-schablone" title="Permanent link">&para;</a></h3>
+<p>Der affine Tropfen ist eine formfeste Parallelogramm; nur die Translation variiert
+mit <code>(sx,sy)</code>, der Schritt pro Quellpixel ist konstant (<code>A·[1,0]</code>). Eine exakt
+vorberechnete Clip-Schablone gegen ein Subpixel-Offset-Gitter würde
+<code>polygon_rectangle_intersection_area</code> durch Tabellen-Lookup ersetzen — <strong>5–20 ×</strong>
+auf der Geometrie selbst. <strong>Aber:</strong> die Flächen speisen <code>w</code>/<code>w2</code> → <code>n_eff</code>-p10 →
+Gate-Schwellen, und ein quantisiertes Gitter reproduziert eine <strong>stetige</strong>
+Bruch-Translation nicht bit-exakt. Das ist eine Änderung der Numerik-/
+Modellidentitätsklasse (wie die <code>expf</code>-Revision in §30.69) und braucht ein eigenes
+Gate. <strong>Geparkt.</strong> Nur anfassen, wenn O1+O2+O3 die 30 min verfehlen.</p>
+<blockquote>
+<p><strong>Für den Footprint-Pass hinfällig geworden (§30.75):</strong> dort speisen die
+Flächen nichts — nur „berührt ja/nein". <code>dense_footprint_touched_stripe</code>
+klassifiziert Zellen gegen das eine Frame-Parallelogramm und ist ohne
+Tabellen-Lookup byte-identisch (Randzellen exakt). 13,6× auf dem
+Footprint-Pass, 2,04× auf Coverage gesamt. Für den <strong>CFA-Droplet-Pass</strong>
+(Flächen → <code>w</code>/<code>w2</code> → <code>n_eff</code>) gilt die Sperre unverändert.</p>
+</blockquote>
+<hr />
+<h2 id="3-gemessene-beschleunigung-referenzbox-amd-ryzen-7-3700x-8-kerne-16-threads">3. Gemessene Beschleunigung (Referenzbox: AMD Ryzen 7 3700X, <strong>8 Kerne</strong> / 16 Threads)<a class="headerlink" href="#3-gemessene-beschleunigung-referenzbox-amd-ryzen-7-3700x-8-kerne-16-threads" title="Permanent link">&para;</a></h2>
+<h3 id="o1-streifen-parallele-coverage-hidden-benchmark-affine-osc-320018002-20-frames">O1 — Streifen-parallele Coverage (Hidden-Benchmark, affine OSC 3200×1800×2, 20 Frames)<a class="headerlink" href="#o1-streifen-parallele-coverage-hidden-benchmark-affine-osc-320018002-20-frames" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Worker</th>
+<th style="text-align: right;">Wanduhr</th>
+<th style="text-align: right;">Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">205,5 s</td>
+<td style="text-align: right;">1,0 ×</td>
+</tr>
+<tr>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">56,2 s</td>
+<td style="text-align: right;">3,66 ×</td>
+</tr>
+<tr>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">34,4 s</td>
+<td style="text-align: right;"><strong>5,97 ×</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">16 (SMT)</td>
+<td style="text-align: right;">29,9 s</td>
+<td style="text-align: right;"><strong>6,87 ×</strong></td>
+</tr>
+</tbody>
+</table>
+<p>~6 × auf 8 physischen Kernen, ~6,9 × mit SMT. <strong>Bit-identisch</strong> zu W=1
+(<code>[drizzle-audit]</code> „coverage audit: stripes preserve exact geometry",
+W=128 vs W=1 — Maskenbytes, <code>n_eff</code>-p10, Lochflächen alle gleich).</p>
+<h3 id="o2-source-cache-lru-hash-once">O2 — Source-Cache LRU + Hash-once<a class="headerlink" href="#o2-source-cache-lru-hash-once" title="Permanent link">&para;</a></h3>
+<p>Implementiert und durch <code>[cache-lru]</code> fokussiert geprüft; <strong>kein belegter
+600-Frame-Durchsatzgewinn</strong>. Beim wiederholten Scan 0…599 passen mit 16 GiB nur
+517 Frames in den Cache: null Treffer, weiterhin Hashing auf jedem Miss.
+Größe/mtime/Verifikationszeit ersetzen außerdem keinen allgemeinen
+Unveränderlichkeitsnachweis (etwa bei wiederhergestellter mtime oder einer
+Änderung zwischen Lesen und anschließendem Stat). Siehe Abschnitt 6.3.</p>
+<h3 id="o3-paralleler-sqm-bau_1">O3 — Paralleler SQM-Bau<a class="headerlink" href="#o3-paralleler-sqm-bau_1" title="Permanent link">&para;</a></h3>
+<p>Gleiches OpenMP-<code>schedule(dynamic,1)</code>-Muster wie O1 → <strong>~6 × @ 8 Worker</strong>
+erwartet. <strong>Byte-identisch</strong>: <code>source_quality_cache_hash</code> + alle Datei-SHAs
+gleich für Worker ∈ {1,2,3,6} (<code>[source-quality-parallel]</code>).</p>
+<h2 id="4-erreichbarkeit-der-30-min-grenze-aktualisiert">4. Erreichbarkeit der 30-min-Grenze — aktualisiert<a class="headerlink" href="#4-erreichbarkeit-der-30-min-grenze-aktualisiert" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th style="text-align: right;">vorher</th>
+<th style="text-align: right;">nach O1–O3 (8-Kern-Projektion)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SAMPLING_GEOMETRY</td>
+<td style="text-align: right;">8460 s</td>
+<td style="text-align: right;">~1410 s (O1, ~6 ×)</td>
+</tr>
+<tr>
+<td>SOURCE_QUALITY_MAPS</td>
+<td style="text-align: right;">2915 s</td>
+<td style="text-align: right;">~490 s (O3, ~6 ×)</td>
+</tr>
+<tr>
+<td>GLOBAL_QUALITY</td>
+<td style="text-align: right;">266 s</td>
+<td style="text-align: right;">~266 s (noch seriell)</td>
+</tr>
+<tr>
+<td>FORWARD_DRIZZLE</td>
+<td style="text-align: right;">unvollständige Phase (&gt;47 min beobachtet)</td>
+<td style="text-align: right;">O2-Gewinn nicht belegt; CUDA-Bänder separat auflösen</td>
+</tr>
+<tr>
+<td>MULTIBAND + Ausgabe + BGE/PCC/HMS</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">ungemessen, teils nicht im Pfad</td>
+</tr>
+<tr>
+<td><strong>Nur diese drei abgeschlossenen Phasen</strong></td>
+<td style="text-align: right;">~11 641 s</td>
+<td style="text-align: right;"><strong>~2166 s ≈ 36 min</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Diese Summe enthält noch keinen Scan, keine Kalibrierung, Normalisierung,
+Registrierung, Zwischenzeiten und Ausgabe. Die frühere 2430-s-Summe war
+rechnerisch falsch; sie war auch keine vollständige Kette.</p>
+<p>Referenzbox = <strong>8 physische Kerne</strong> (<code>parallel_workers: 8</code> in der M6-Config); die
+<code>/N</code>-Tabellen im Runbook (§30.70) sind auf N=16 gerahmt — hier gilt N=8, gemessen
+5,97 ×.</p>
+<p><strong>Ehrlich:</strong> O1–O3 auf 8 Kernen bringen SAMPLING_GEOMETRY auf ~24 min und die
+Q-Phasen zusammen unter 15 min — die Kette liegt damit <strong>noch über 30 min</strong>,
+bevor FORWARD_DRIZZLE/MULTIBAND/HMS zählen. Und die aufgezählten Resthebel
+reichen <strong>voraussichtlich nicht</strong>:
+- <strong>O4</strong> — bei genauer Betrachtung teilt die Fusion nur das Schleifengerüst
+  (~1,1 ×); der echte Hebel wäre ein billigeres Footprint-Prädikat statt
+  <code>polygon_rectangle_intersection_area</code>, das aber <code>k &gt; 0</code> an Tangenten/
+  Kollinearität <strong>exakt</strong> reproduzieren muss (speist <code>analysis_common_mask</code> →
+  Coverage-Gate → Lauf-Pass/Fail). Eigenes Gate, keine Anschlussänderung.
+  Optimistisch ~1,2–1,3 × → SAMPLING_GEOMETRY ~1100 s.
+- <strong>GLOBAL_QUALITY parallelisieren</strong> (~6 ×, <code>ref_star_count</code>-Abhängigkeit: Frame 0
+  seriell, Rest parallel) → ~45 s.
+- <strong>FORWARD_DRIZZLE nach O2 messen</strong> (war I/O-gebunden).
+- <strong>O5</strong> (affine Flächen-Schablone) — Numerik-/Modellidentitätsklasse, gesperrt.</p>
+<p>Eine 30-min-Prognose ist daraus nicht ableitbar. Insbesondere ist O5 keine
+zwingende Voraussetzung: Es gibt Änderungen an Speicherzugriff und exakter
+Clip-Auswertung, die keine quantisierte Flächenschablone benötigen (Abschnitt 6).</p>
+<h2 id="5-fortschritt">5. Fortschritt<a class="headerlink" href="#5-fortschritt" title="Permanent link">&para;</a></h2>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>O1 — Streifen-parallele Coverage</strong> — gemessen ~6 ×/8 Kerne, bit-identisch</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>O2 — Source-Cache LRU</strong> — implementiert; Hash-Vermeidung nur bei Treffern</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> O2-Produktionswirkung bei 600 Frames / begrenztem Gesamtbudget nachweisen
+      (LRU-Thrash bei zyklischem 0…599, §30.73 — R1/R2 muss das ablösen)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>O3 — Paralleler SQM-Bau</strong> — byte-identisch W ∈ {1,2,3,6}</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>O3-Race-Fix</strong> (§30.74) — <code>worker_error</code> war ungeschützt gelesen; jetzt
+      <code>std::atomic&lt;bool&gt;</code> Fast-Path + <code>exception_ptr</code> nur unter <code>critical</code>;
+      Klon-Ctor in try/catch</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>R1.3 — Quellrechteck auch in X</strong> (§30.74) — <code>enumerate_drizzle_stripe_leaf_cells</code>
+      bounds Quell-X (bisher nur Y), bit-identisch, hilft Coverage + affinem Drizzle</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>GLOBAL_QUALITY parallelisieren</strong> (§30.74) — Frame 0 seriell, Rest
+      <code>omp parallel for</code> auf Per-Worker-Cache-Klonen, bit-identisch
+      (<code>[drizzle-audit][geometry-parallel]</code>)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>R4 — <code>writer.put</code> Datei-Write + sha256 aus dem <code>critical</code></strong> (§30.72
+      Schritt 2) — <code>SourceQualityMapCacheWriter::put</code> intern thread-safe
+      (<code>std::mutex files_mu_</code> nur um <code>create_directories</code> + <code>files_</code>;
+      Downsample/Quantisierung/Write/sha256 lock-frei), <code>critical(sqm_writer)</code>
+      im Build entfernt; <code>source_quality_cache_hash</code> byte-identisch</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Alternativer Coverage-Footprint-Pfad</strong> (§30.75) —
+      <code>dense_footprint_touched_stripe</code>: Zellklassifikation gegen das eine
+      Parallelogramm <code>affine_f([0,W_src]×[0,H_src])</code> (innen/außen/Rand), exakter
+      Per-Pixel-Fallback nur für Randzellen → <strong>byte-identisch</strong> zum
+      Per-Pixel-Rasterize (<code>[drizzle-audit][footprint-fastpath]</code>, 500 Assert.,
+      MONO+OSC × scale {1,2} × fraction {0,5;1,0} × chunk {3,16,0} × 9 Transforme).
+      Gemessen: Footprint-Pass <strong>47,6 s → 3,5 s (13,6×)</strong>, Coverage gesamt
+      <strong>87,2 s → 42,8 s (2,04×)</strong>; <code>source_samples_visited</code> 50,9 M → 0.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>CPU-FORWARD_DRIZZLE Puffer-Hoist</strong> (§30.76) — <code>candidates</code>/<code>counts</code>/
+      <code>A/B/QA*</code> einmal auf <code>memory.rows</code> allokiert + wiederverwendet statt pro
+      Streifen neu allokiert+genullt; <code>candidates</code> nie genullt (nur <code>counts</code>-
+      Präfix). alloc 10,6 → 0,4 s, 1-Worker 44 → 33 s, Band-Speedup 2,1× →
+      3,7× @ 8 Kerne, bit-identisch (537/537). Bench
+      <code>test_forward_drizzle_hotspot_profile.cpp</code> + <code>TC_FD_PROFILE</code>.</li>
+<li>[~] <strong>Innenzellen-<code>k=1,0</code>-Shortcut für den Droplet-Rasterizer</strong> — VERWORFEN
+      mit Messung (§30.76): Droplet-Leaf ~1,6 Internal-px, 0 % Null-Flächen-
+      Clips, keine Innen-/Außenzellen. Nur der Footprint-Pass (§30.75) profitiert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong><code>[fd-hotspot]</code>-Bench repariert</strong> (§30.78, <strong>Priorität 1</strong>):
+      Per-Frame fill→accum→gather separat getimet, Assertions +
+      Outlier-Clipping, bit-exakter Referenzabgleich gegen den
+      Produktions-Volllauf (0 Mismatches über 1.015.808 Zellen × 2 Profile ×
+      3 Kanäle), Hoist-Allokation separat (1,58 s), Sweep mit
+      requested/budgeted/used + Chunk + Peak (used==budgeted==requested),
+      echte Besuchszähler (full-cover 5,6 % der Clips — neues Datum für R3;
+      Leaf-Visits/src-px ≈ Framezahl). Modell schließt mit
+      <code>TC_FD_PROFILE</code> (&lt; 3 %). <strong>Offen aus Priorität 1: die
+      167-s-Vorlauflücke</strong> (separater Messschritt).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong><code>apply_robust_clipping</code> Per-Pixel-Heap-Allokationen ersetzt</strong>
+      (§30.79, <strong>Priorität 2</strong>): wiederverwendbarer budgetierter
+      <code>DrizzleClipScratch</code> (<code>accepted</code>/<code>order</code>/<code>active</code>/<code>dev_order</code> +
+      Alpha-<code>contribs</code>), beide Pfade (Streaming-Band-Pool + Contrib-List),
+      <code>worker_scratch</code>-Formel auf tatsächlichen Bedarf umgestellt (keine
+      Doppelzählung), Numerik 1:1. Messung (idle, §30.78-Szene): W=1 reduce
+      10,18→8,18 s, W=8 gesamt 13,91→12,76 s, Speedup 3,44→3,53×,
+      <code>clip_scratch_grows</code> = exakt Workerzahl (danach warm). Bit-identisch:
+      neue <code>[clip-scratch]</code>-Parität + Bench-Referenzabgleich 0 Mismatches +
+      538/538. <strong>Erkenntnis: Allokationsanteil ≈ 20 % von reduce, ≈ 4 %
+      der Phase — Deckel bleibt die Speicherbandbreite.</strong></li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> R3 — exakte X-Clip-Wiederverwendung im Rasterizer + gespiegelter
+      CUDA-Device-Kernel + volle Paritätsmatrix (<strong>separater messbarer
+      Schritt nach Priorität 3/4</strong>, nicht gebündelt)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>CUDA-Bandplanungs-Messzähler</strong> (§30.80, Prioritäts-3-Grundlage) —
+      <code>DrizzleCudaStoreTiming</code> bekommt <code>cand_row_bytes</code>/<code>rec_row_bytes</code>/
+      <code>acc_row_bytes</code> (Aufschlüsselung von <code>bytes_per_row</code>) + <code>host_budget_bytes</code><ul>
+<li><code>band_halvings</code>/<code>min_band_rows</code>/<code>max_band_rows</code>;
+  <code>run_cuda_chunked(..., CudaChunkRunStats*)</code> optionaler Out-Parameter;
+  Runner emittiert alles in <code>forward_drizzle.json</code>. Neuer GPU-freier
+  <code>[drizzle-store]</code>-Test (N-Sweep 40/100/300/600 bei Realgeometrie).
+  <strong>Befund:</strong> <code>cand_row</code> = 93,8 %→99,6 % von <code>bytes_per_row</code>; 600 Frames
+  → 7-Zeilen-Bänder, ~618 Bänder. <strong>R1.1 allein reicht nicht</strong> (16-GiB-
+  Host-Deckel → ~19 Zeilen, ~228 Bänder). Additiv, bit-identisch, 538/538.</li>
+</ul>
+</li>
+<li>[~] <strong>2D-Kachelung + Parität + Host-Budget (Schritt 4) + Memo-Entfernung
+      (3a-1) fertig; CUDA-Producer-Begrenzung (3/3a-2) + Aspektverhältnis
+      offen</strong> (User-Review §30.81). Bandkollaps-mit-N beseitigt (103→2160 →
+      7→22 Bänder). R1.1 (Budget-Split) + 2D-Ziel-Kachelung
+      (<code>W</code>→<code>tile_w</code>) mit <strong>host-seitigem Record-Filtern</strong> statt echter Geräte-
+      Bereichsprovider; <code>[cuda-parity]</code> durchgehend. Bandplanung nur noch gegen
+      das Geräte-Glied (<code>rec_row+acc_row</code>), das Host-<code>cand_row</code> durch
+      Spaltenkacheln unter dem absoluten Deckel — 600 Frames 3840×2160×2 /
+      8-GiB-Karte: <strong>618 → ~3 Bänder</strong> (Planungszahl; <code>tile_w</code> 10, 768 Kacheln/
+      Band, Host-<strong>Kandidaten</strong>-Peak 1919 MiB ≤ 2-GiB-Deckel). Byte-identisch
+      (<code>[cuda-parity]</code>, echtes Gerät), 542/542. <strong>Offen:</strong> der Deckel begrenzt
+      nur den Kandidatenpuffer, nicht den Prozess-Peak; Producer + Q-Provider
+      lesen weiter voll-breit; die Sortierung wiederholt sich je Kachel
+      (Basis-Bench §30.81 Schritt 5: 8 Kacheln → Sort 6,95×, TOTAL 3,40×).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Schritt 1 (§30.81):</strong> Ziel-Spaltenfenster <code>x_begin</code>/<code>cols</code> in
+        <code>enumerate_drizzle_stripe_leaf_cells</code> + <code>rasterize_drizzle_stripe</code>
+        (Default = voll-breit, byte-identisch); begrenzt Source-Scan (R2) und
+        Leaf-Bbox, rebased den Sink-<code>index</code>. Bedingter <code>ClipCandidate</code>-Shrink
+        als Sackgasse ausgeschlossen (<code>emit_fine</code>/<code>emit_alpha_confidence</code> im
+        Produktions-<code>persist_forward_drizzle_multiband</code> fest an). Neuer
+        <code>[fd-tile-window]</code>-Partitionstest, 539/539.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Schritt 2 (§30.81):</strong> <code>target_x_begin</code>/<code>target_cols</code> in
+        <code>stream_forward_drizzle_uniform_and_raw</code>; alle Streifen-Puffer +
+        Ausgabe-<code>ProfilePlane</code> auf <code>win_w</code>, <code>internal_width</code> = <code>win_w</code>,
+        <code>rasterize</code>-Call reicht das Fenster durch. <code>_uniform</code> (alter M2-Pfad)
+        unberuehrt. <code>[fd-tile-window]</code>-Test: ragged Mehrband-Spaltenkacheln
+        fuegen sich bit-exakt zusammen, 540/540.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Schritt 3 (§30.81):</strong> <code>target_x_begin</code>/<code>target_cols</code> in
+        <code>accumulate_pair_impl</code> (+ <code>accumulate_pair_by_frame</code> /
+        <code>_cuda</code>): Record-Producer rastern voll-breit, Segmente mit
+        <code>key.target_x ∉ [xb,xe)</code> werden host-seitig verworfen; <code>n</code> / Puffer /
+        <code>DRIZZLE_CONTRIB_LIST_BUDGET</code>-Schranke auf <code>win_w</code>. Ragged-2D-
+        Partitionstest, 541/541.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Schritt 4 (§30.81):</strong> Kachel-Schleife in
+        <code>persist_forward_drizzle_multiband</code>. <code>chunk_plan</code> nur gegen
+        <code>device_bytes_per_row = rec_row + acc_row</code>; je Band
+        <code>tile_w = host_budget / (channels·frames·64·rows)</code>, Kacheln in einen
+        Voll-Breiten-Stripe geblittet, <strong>ein</strong> <code>sink</code>/<code>down-&gt;feed</code> pro Band.
+        <code>tile_w</code> pro <code>process</code>-Aufruf abgeleitet → Halbierung kann es nicht
+        veralten lassen, keine 2D-Leiter. Neue Timing-Felder
+        <code>resolved_tile_w</code>/<code>min_tile_w</code>/<code>max_tiles_per_band</code>.
+        <code>[drizzle-store][cuda-parity]</code>-Test (echtes Gerät): Multi-Kachel-Store
+        byte-identisch zum Ganz-Canvas-CPU-Build.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Schritt 5 Basis-Bench (§30.81):</strong> <code>TC_FD_CUDA_PROFILE</code>-gated Grob-Timer
+        (<code>produce</code>/<code>sort</code>/<code>reduce</code> + <code>.cu</code> malloc/upload/kernel/download), neuer
+        hidden Bench <code>test_forward_drizzle_cuda_tile_profile.cpp</code>
+        (<code>[.][fd-cuda-tile]</code>). 8 Kacheln, 6 Frames: <strong>Sort 6,95× / Geräte-Phasen
+        6,4–7,8× / reduce 0,87× / TOTAL 3,40×</strong>; Records sortiert exakt 8,00×.
+        → Sortierung ist der grösste Wiederholungsfaktor.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Schritt 5 (B) — Per-Band-Memo (§30.81):</strong> <code>accumulate_pair_impl</code> +
+        optionaler <code>PairTileSink</code>/<code>tile_cols</code>: <strong>ein</strong> produce + sort je (Band,
+        Frame) ins Per-Band-Memo, dann billiger Segment-Scan des Memos je
+        Spaltenkachel. Store-<code>process</code> ruft einmal <code>accumulate_pair_by_frame_cuda
+        (..., &amp;tile_sink, tile_w)</code>. Bandhöhe zusätzlich durch Memo-Budget
+        begrenzt. <code>prepare_drizzle_frames</code> einmal je Band statt je Kachel.
+        <strong>Bench (C-Spalte):</strong> Sort 8,00× → <strong>1,00×</strong>, produce 4,05× → <strong>0,73×</strong>,
+        Geräte-Phasen 7,88× → <strong>1,03×</strong>, TOTAL <strong>0,91×</strong> — Per-Kachel-Verstärker
+        weg, Parität mit dem Ein-Aufruf-Voll-Breiten-Lauf. Bit-exakt
+        (<code>[fd-tile-window]</code> GPU-frei + <code>[drizzle-store][cuda-parity]</code> echtes
+        Gerät), 543/543.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Schritt 4 — gemeinsames Host-Budget geschlossen (§30.81, <code>e59ec4b4</code>):</strong>
+        Bandhöhe <strong>und</strong> Spaltenkachelbreite jetzt <em>gemeinsam</em> aus <strong>einer</strong>
+        Decke abgeleitet: <code>(memo_row + stripe_row)·rows + cand/col·tile_w·rows +
+        src_q_const ≤ host_budget</code>. Vorher teilten Memo-Deckel und
+        Kachelbreiten-Deckel je die <strong>volle</strong> Decke, der volle Reassembly-
+        <code>stripe</code> war nirgends gezählt (Summe bis ~2–3× Decke). <code>kMinTileW =
+        min(64,W)</code> verwirft entartete Schmalkacheln. Nach innen gereichtes
+        Budget = <code>host_budget − stripe − src_q</code> (Boden 64 MiB → sonst CPU-
+        Restart). <code>accumulate_pair_impl</code>: Tiled-Zweig reserviert erst den
+        Kachelanteil, begrenzt dann das Memo, Prüfung <strong>vor</strong> produce (laufender
+        Mittelwert), Memo per <code>capacity()</code> gezählt; <code>reduce_window</code> prüft gegen
+        <code>(budget − memo)</code>. <strong>Befund:</strong> das B-Memo ist
+        <code>frame_count·source_width·cells</code> je Innenzeile und <strong>nicht</strong> gekachelt →
+        es holt die §30.80-Kollaps-mit-N zurück: 40→600 Frames = <strong>103→2160
+        Bänder</strong> (Peak fest an der Decke). Genau das motiviert 3a. Bit-Identität
+        unberührt (nur Schwellen verschoben), 543/543, Bench C/A weiter 0,87×.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Schritt 3a Fork-Entscheidung (§30.81):</strong> Spool verworfen (dichte
+        Rechnung <strong>3,8 TB / 600 Frames</strong> → 7,6 TB I/O, sprengt 30 min);
+        Kachelgruppen bringen nichts (<code>group_w == tile_w</code>); Footprint-Messung
+        → <strong>X+Y-begrenzter Producer + flaches N-unabhängiges Band</strong> (≤1,03×
+        Duplikation bei jeder Rotation am flachen Band). Spool bleibt Reserve.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Schritt 3a-1 — Memo raus, CPU-Producer gefenstert (§30.81,
+        <code>a8738e6e</code>):</strong> <code>PairFrameRecordProducer(x_begin,cols)</code> →
+        <code>build_frame_records</code> → <code>rasterize_drizzle_stripe</code>, absolute
+        <code>target_x</code>-Keys. <code>accumulate_pair_impl</code> Tiled-Zweig <strong>ohne Memo</strong>: je
+        Kachel <code>reduce_window(wx0, tw, gefensterter Producer on-demand)</code>.
+        Store-Modell <code>memo_row</code> → <code>frame_rec_row</code> (N-unabhängig): Bandkollaps
+        weg, 40→600 Frames = <strong>670→199 Zeilen / 7→22 Bänder</strong> (war 103→2160).
+        <code>cuda_pair_producer</code> verwirft nur Out-of-Window-Records (volle
+        Kernelbreite, volles Quellband). <strong>Bench:</strong> Records sortiert <strong>1,00×</strong>,
+        Geräte <strong>~8×</strong> (Kernel-X-Fenster = Schritt 3), TOTAL <strong>1,88×</strong> — CUDA-
+        Store bis Schritt 3 ~2× langsamer. <code>[cuda-parity]</code> echtes Gerät +
+        <code>[fd-tile-window]</code>, 543/543.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Schritt 3a-2 — Q-Rechteckansichten (§30.81, <code>8db3f70a</code>+<code>1c365344</code>):</strong>
+        <code>read_rect(y0,y1,x0,x1)</code> + <code>FrameQualityMaps.y_origin/x_origin</code> +
+        <code>FrameQualityRectProvider</code>. <code>reduce_window</code> holt Q für <strong>exakt</strong> die
+        Record-Quell-Bbox (keine Schätzung/Marge → Lokale-Warp-Bbox-Problem
+        entfällt). Store-Provider <code>read_rect</code>. Veto/NaN + Randklammer
+        byte-identisch (<code>[cuda-parity]</code> echtes Gerät + <code>read_rect</code>-Unit-Test).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Schritt 3a-2b — seek-Read (§30.81, <code>cf2b4e21</code>):</strong> <code>read_rect</code>
+        dekodiert nur die überdeckenden Speicherzellen (je Zell-Zeile ein
+        seek+read Wert- + Veto-Block). <code>read_bin</code>→<code>read_bin_header</code>+
+        <code>read_bin_window</code>. Zähler <code>bin_cells_decoded()</code>: T Kacheln == 1
+        Voll-Read (48==48), vor 3a-2b T×. <code>MultibandStoreBuildResult.q_bin_*</code>
+        für Lauf-Reporting. <strong>Q-Seite des Durchsatzschnitts vollständig.</strong></li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Schritt 3a-3 Teil 1 — laufinterner Source-Blockprüfindex (§30.81,
+        <code>53e07038</code> + Review-Nacharbeit):</strong> <code>VerifiedNormalizedSourceCache</code>
+        bekommt eine Block-SHA-Tabelle je <code>source_index</code>, unabhängig vom
+        Bild-LRU (~2,4 MB gesamt bei 600 Frames — Konstante, kein Budgetterm).
+        <strong>Ein Verifikationspfad, zwei Einstiege:</strong> <code>load()</code> baut den Index aus
+        dem schon geprüften Puffer (kein zweiter Read); ein
+        Bereichs-Erstzugriff streamt die Datei blockweise (Peak = <strong>ein</strong>
+        Block). <code>read_rect(idx,y0,y1,x0,x1)</code> / <code>read_region</code> liest+prüft nur
+        die von der Y-Fensterung überdeckten Blöcke; Blöcke ganzzeilig
+        (~256 KiB zeilengerundet, 3840 → 17 Zeilen/Block). X-Verengung: gleiche
+        Blöcke, <strong>gleiche gelesene Bytes</strong> — kostet nichts extra, spart aber
+        kein I/O. Index gilt über LRU-Verdrängung hinweg (Tripel Größe/mtime/
+        <code>mt&lt;verified_at</code> wie <code>load()</code>); Drift → Neubau = Ganzdatei-
+        Reverifikation. Zähler <code>blocks_verified</code> / <code>block_index_builds</code> /
+        <code>bytes_read</code> (jeder <code>.raw</code>-Byte auf beiden Einstiegen) /
+        <code>expanded_floats</code>. <strong>Getestet</strong> (<code>[cache-blocks]</code>,
+        <code>REQUIRE_THROWS_WITH</code>): Byte-Parität inkl. NaN-Payloads/−0;
+        unvollständiger letzter Block; Produktionsbreite 3840; Indexüberleben
+        nach <strong>echter</strong> Verdrängung; frische Instanz + Klon; Erkennungssemantik
+        (nur berührte Blöcke geprüft, <code>BLOCK_MISMATCH</code>); In-place-Rewrite +
+        Rename-Swap → <code>CONTENT_MISMATCH</code>. Suite 544/544.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Teil 2 Vorlauf — Zugriffssimulation (<code>scratchpad/source_access_sim.py</code>,
+        §30.81):</strong> step-4-Planer-Geometrie N=600, Quell-Y aus <code>invert_affine_2x3</code>,
+        17-Zeilen-Blöcke. Ergebnis (voller Store-Pass, θ 0–1°): <strong>Pro-Kachel
+        ~2,5 TB gehasht = 16–37× schlechter als heute</strong> (120× Block-Reverif.);
+        <strong>Per-Band-Fetch ~42 GB = ~3,7× besser als heute</strong> (~156 GB), Bytes
+        gelesen <strong>und</strong> gehasht; Sched 2 (alle Frames) vs Sched 3 (Fenster K)
+        identisches I/O, nur Peak-Quell-RAM unterschiedlich (8,5 GB vs deckel­bar
+        via K). Kandidatenpuffer bleibt N-groß, K deckelt nur Quellbytes →
+        Sched 3 = Sched 2s Schleife mit Freigabe außerhalb des K-Fensters
+        (minimaler Loop-Umbau). <strong>Empfehlung Schedule 3</strong>, awaiting Ratifizierung.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> <strong>Teil 2 — <code>SourceImageRectProvider</code> + Producer + Joint-Budget + Parität</strong>
+        (nach Ratifizierung Schedule 3): <code>read_region</code>-Einbindung in
+        <code>build_frame_records</code>/<code>cuda_pair_producer</code>, <code>to_rect_provider</code>-Adapter
+        für Streaming/Fusion, Budgetterm Quell-Bandpuffer(K)+Lesepuffer+
+        Ausgabematrix, Per-Band-K-Schleife, Paritätsmatrix.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> Schritt 3: CUDA-Producer begrenzen — konservatives inverses
+        Quellrechteck, Upload nur dieses, Kernel-Arbeitsmenge + Record-
+        Kapazität, Device-Puffer wiederverwenden (X-Filter nach voller
+        Produktion genügt nicht).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> Schritt 3b: Hybrid-Producer separat auf begrenzte Zwischenpuffer +
+        wiederholte Geometriearbeit prüfen (inverse affine Bbox dort keine
+        sichere Schranke — Begrenzung anhand der lokalen Geometrie/ihres Index).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> Aspektverhältnis: Bandhöhe × Kachelbreite gemeinsam wählen (Planer
+        pinnt <code>tile_w</code> derzeit bei <code>kMinTileW</code>); einige budgetkonforme
+        Verhältnisse vergleichen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> Schritt 5b: Paritätsmatrix + Bench als zusammenhängende Skalierungs-
+        messung (schmale/ragged Kacheln, Rotation/Scherung, lokale Modelle,
+        Modus 2/1, Budget-Retries).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> Realer/halbrealer Messlauf, Phasenbudget final</li>
+</ul>
+<p><strong>Realraster-Hochrechnung FORWARD_DRIZZLE (affin, nach Hoist, §30.76):</strong> 20
+Frames 3840×2160×2 = 217 s / 1 Worker, 56 s / 8 Worker (3,87×) — gemessen.
+Frame-linear hochgerechnet → <strong>600 Frames ≈ 1680 s ≈ 28 min @ 8 Kerne</strong>:
+<strong>Hochrechnung, kein 600-Frame-Istwert</strong> — Streifenhöhe, Worker-Auslastung,
+Speicherzugriffe und Clippingkosten ändern sich mit N. Der Clip
+(<code>polygon_rectangle_intersection_area</code>) dominiert den Rasteranteil
+(78–81 % <strong>des Rasters</strong> im Bench vor dem Hoist; die Raster:Reduce-Aufteilung
+der Gesamtphase ist wegen des im Kopf benannten Bench-Defekts nicht belegt).
+Zur Leistungsuntergrenze: der verworfene k=1,0-Shortcut bleibt als
+Versuchsergebnis verworfen; seine ursprüngliche Begründung (0 % Null-Flächen)
+trug nicht — Fläche == 0 sagt nichts über Fläche == 1, die Häufigkeit
+vollständig überdeckter Zellen wurde nicht erhoben. Daraus folgt weiterhin
+<strong>kein</strong> allgemeiner Irreduzibilitätsbeweis — exakte Hebel (R3,
+No-op-Clip-Elision) bleiben offen. Aktuell priorisierte Schritte: Plan §0.2 / Abschnitt 6.6.
+<strong>Lokale Warps</strong> (M42/M66) gehören zum Scope; die <code>expf</code>-Revision (§30.69)
+bleibt geschlossen, bis getrennte Messung (Cachebau, Replay, Clip, I/O) einen
+nachweislichen Budgetbruch zeigt.</p>
+<p><a id="p6-loesungsweg-30min"></a></p>
+<h2 id="6-code-review-konkreter-weg-zum-30-minuten-ziel-3073">6. Code-Review: konkreter Weg zum 30-Minuten-Ziel (§30.73)<a class="headerlink" href="#6-code-review-konkreter-weg-zum-30-minuten-ziel-3073" title="Permanent link">&para;</a></h2>
+<p>Direkte Codequellen (Stand des uncommitteten Arbeitsbaums beim Review):</p>
+<table>
+<thead>
+<tr>
+<th>Befund</th>
+<th>Quelle</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CUDA-Budget und Bandaufrufe</td>
+<td><a href="https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/drizzle_profile_store.cpp">drizzle_profile_store.cpp</a></td>
+</tr>
+<tr>
+<td>CPU-Sortierung/Reduktion im CUDA-Pfad</td>
+<td><a href="https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/forward_drizzle_contrib_list.cpp">forward_drizzle_contrib_list.cpp</a></td>
+</tr>
+<tr>
+<td>LRU-Verdrängung und Verifikation</td>
+<td><a href="https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/normalized_source_cache.cpp">normalized_source_cache.cpp</a></td>
+</tr>
+<tr>
+<td>Q-Provider/Vollbildexpansion</td>
+<td><a href="https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/source_quality_artifact.cpp">source_quality_artifact.cpp</a></td>
+</tr>
+<tr>
+<td>Bereichslesen und SQM-Writer</td>
+<td><a href="https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/source_quality_map_cache.cpp">source_quality_map_cache.cpp</a></td>
+</tr>
+<tr>
+<td>Polygon-Clips und Enumeration</td>
+<td><a href="https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/forward_drizzle.cpp">forward_drizzle.cpp</a></td>
+</tr>
+<tr>
+<td>Coverage-Parallelität</td>
+<td><a href="https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/registration/sampling_geometry.cpp">sampling_geometry.cpp</a></td>
+</tr>
+<tr>
+<td>Kalibrierung und Vorlauf</td>
+<td><a href="https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/apps/runner_pipeline.cpp">runner_pipeline.cpp</a>, <a href="https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/apps/runner_phase_metrics.cpp">runner_phase_metrics.cpp</a></td>
+</tr>
+<tr>
+<td>Frame-0-Abhängigkeit</td>
+<td><a href="https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/global_quality.cpp">global_quality.cpp</a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="61-messgrenze-und-belastbare-ausgangsbasis">6.1 Messgrenze und belastbare Ausgangsbasis<a class="headerlink" href="#61-messgrenze-und-belastbare-ausgangsbasis" title="Permanent link">&para;</a></h3>
+<p>Start ist der Kaltstart des Runners, Ende der Commit der Rekonstruktionsausgabe
+einschließlich Mehrbandfusion, STACKING-Pass-through und erforderlicher
+Photometrie-Rücknahme. Scan, vorhandene Kalibriermaster anwenden, Normalisierung,
+Registrierung, alle Hashes, Transfers und Writes zählen mit. Astrometrie
+(einschließlich eines gegebenenfalls aktivierten Rescue-Solvers), BGE, PCC und
+HMS zählen in diesem <strong>neuen Teilziel nicht mit</strong> und müssen tatsächlich
+deaktiviert sein. Registration ist weiterhin erforderlich. Kein Resume als
+Kaltlauf ausgeben; keine Reduktion der 600 Frames oder der Auflösung.</p>
+<p>Aus dem erhaltenen Ereignisextrakt <code>/tmp/out_bn_phases.txt</code> des inzwischen
+gestoppten M31-Laufs <code>20260909_155821_833897f4</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Vorlauf</th>
+<th style="text-align: right;">Sekunden</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SCAN_INPUT einschließlich Kalibrierung</td>
+<td style="text-align: right;">459,611</td>
+</tr>
+<tr>
+<td>NORMALIZATION</td>
+<td style="text-align: right;">375,481</td>
+</tr>
+<tr>
+<td>Abstand Normalisierung → Registrierung</td>
+<td style="text-align: right;">167,453</td>
+</tr>
+<tr>
+<td>REGISTRATION</td>
+<td style="text-align: right;">206,834</td>
+</tr>
+<tr>
+<td>NORMALIZED_CACHE</td>
+<td style="text-align: right;">12,813</td>
+</tr>
+<tr>
+<td>SCAN_INPUT-Start → SAMPLING_GEOMETRY-Start, einschließlich Lücken</td>
+<td style="text-align: right;"><strong>1222,262</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Diese Zeiten stammen aus einem erhaltenen Diagnoseextrakt, nicht aus einem
+neuen Lauf. Das ursprüngliche <code>p6_runs/.../logs/run_events.jsonl</code> ist an seinem
+damaligen Pfad bei diesem Review nicht mehr vorhanden. Die Zuordnung der
+167-s-Lücke zu einzelnen Metrikoperationen braucht eigene Timer. Bereits dieser
+Vorlauf zeigt: Selbst perfekte Geometrie allein löst das Kaltstartziel nicht.</p>
+<h3 id="62-groter-zusatzlicher-befund-cuda-bandhohe-kollabiert-mit-n">6.2 Größter zusätzlicher Befund: CUDA-Bandhöhe kollabiert mit N<a class="headerlink" href="#62-groter-zusatzlicher-befund-cuda-bandhohe-kollabiert-mit-n" title="Permanent link">&para;</a></h3>
+<p>Quellen: <code>src/reconstruction/drizzle_profile_store.cpp</code>,
+<code>persist_forward_drizzle_multiband</code>; <code>forward_drizzle_contrib_list.cpp</code>,
+<code>accumulate_pair_impl</code>; <code>forward_drizzle_cuda.cpp</code>, <code>plan_cuda_chunking</code>.</p>
+<p>Der CUDA-Pfad reserviert <strong>dicht für jede Kanal-Zielzelle alle Frames</strong>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>candidate_bytes_per_row = channels * internal_width * N * sizeof(ClipCandidate)
+</span></code></pre></div>
+<p>Bei der üblichen 64-Bit-ABI (<code>sizeof(ClipCandidate)=64</code>), 7852 Pixeln Breite,
+3 Kanälen und 600 Frames: <strong>904.550.400 B = 862,65 MiB pro interner Zeile</strong>.
+Das ist Host-RAM. Der Planer addiert diesen Term jedoch zum Device-Term und
+teilt den freien <strong>VRAM</strong> durch die Summe. Bei höchstens 6 GiB freiem VRAM und
+20 % Reserve passen schon allein wegen dieses Terms höchstens <strong>5 Zeilen</strong>.
+4620 / 5 bedeutet <strong>mindestens 924 Bänder</strong>, nicht die 19 Coverage-Streifen.
+Weniger freier VRAM oder ein Retry verkleinern die Bänder weiter. Das ist eine
+Code-/Budgetableitung, keine nachträglich gemessene Bandzahl des alten Laufs.</p>
+<p>Jedes Band iteriert wieder über alle Frames. <code>cuda_pair_producer</code> begrenzt zwar
+den Upload auf Quellzeilen, ruft <strong>vorher aber den Vollbild-Source-Provider</strong> auf.
+Der Q-Provider in <code>source_quality_artifact.cpp</code> expandiert dabei bis zu vier
+vollständige Karten (<code>composite</code>, <code>scale_0</code>, <code>scale_1</code>, <code>artifact</code>). Das bedeutet
+bei vier Karten rund <strong>79,63 GB erzeugte Float-Daten pro Vollpass</strong>. Bei 924
+Bändern wären es rund <strong>73,6 TB allein für diese Expansionen</strong>. Das ist ein
+logischer Aufwand, keine gemessene physische Diskmenge. Ein Cache-Miss auf allen
+Quellen würde zusätzlich rund 18,4 TB Source-Reads/Hashes erzeugen.</p>
+<p>Außerdem laufen im CUDA-Zweig <code>std::sort</code> der Records, Segmentreduktion und
+<code>reduce_pixel_profiles</code> auf der CPU <strong>seriell</strong>. Der Kommentar „CUDA ignoriert
+workers“ beschreibt keine vollständig auf der GPU ausgeführte Rekonstruktion.
+Ihre genaue Zeit muss getrennt gemessen werden. Ein pauschaler I/O-Befund
+aus einer einzigen Stackprobe erklärt nicht die ganze Phase.</p>
+<p><strong>Entscheidung R1, erste Priorität:</strong></p>
+<ol>
+<li>Host- und Device-Budget getrennt planen. Größere Host-Bänder dürfen nicht
+   fiktiv VRAM verbrauchen; Device-Microbatches bleiben unabhängig klein.
+   Alle gleichzeitig residenten Source-, Q-, Kandidaten-, Sortier- und
+   Ausgabepuffer tatsächlich vom gemeinsamen Host-Budget abziehen.</li>
+<li>Den Vollbreiten-Zwang des Kandidatenpuffers durch <strong>zweidimensionale
+   Zielkacheln</strong> auflösen. Beispiel 128×64 intern: derselbe dichte
+   Kandidatenpuffer benötigt etwa 900 MiB statt 55 GiB für 64 volle Zeilen.
+   Das ist eine Arbeitskachel, keine Änderung des wissenschaftlichen Bildrasters.</li>
+<li>Für jede affine Zielkachel Quellrechteck in <strong>X und Y</strong> invers bestimmen,
+   einschließlich konservativem Tropfenrand; dieselben <code>sample_leaves</code> und
+   Zellclips aufrufen. Der heutige Pfad begrenzt nur Quell-Y. Für lokale Modelle
+   den vorhandenen Geometrieindex verwenden; ein affines Rechteck allein wäre
+   dort keine gültige Schranke.</li>
+<li>Reihenfolge pro Zielzelle exakt erhalten: Frame, Quell-Y, Quell-X, Leaf.
+   Unabhängige Zielzellen dürfen parallel reduziert werden. Kein ungeordnetes
+   Floating-Point-Atomic-Add. <code>reduce_pixel_profiles</code> zunächst unverändert;
+   pro Worker eigener Scratch und deterministische Diagnostikreduktion.</li>
+<li>Kleine Kacheln nicht in Millionen synchroner CUDA-Einzelaufrufe übersetzen:
+   mehrere Frame-/Kachel-Aufträge mit begrenztem Speicher bündeln, Device-Puffer
+   wiederverwenden, CPU-Reduktion disjunkter Zellen parallelisieren. CPU und CUDA
+   separat messen. Einfach nur mehr kleine Kernel zu starten ist kein Fix.</li>
+</ol>
+<p>Getrennte Budgets allein sparen Wiederholungen, beseitigen aber nicht den
+Vollbild-Provider. R1 und R2 müssen zusammen umgesetzt werden.</p>
+<h3 id="63-r2-echte-bereichsprovider-statt-zyklischem-vollbild-lru">6.3 R2: echte Bereichsprovider statt zyklischem Vollbild-LRU<a class="headerlink" href="#63-r2-echte-bereichsprovider-statt-zyklischem-vollbild-lru" title="Permanent link">&para;</a></h3>
+<p>Quellen: <code>normalized_source_cache.cpp</code>, <code>VerifiedNormalizedSourceCache::load</code>;
+<code>source_quality_map_cache.cpp</code>, <code>read_bin</code>, <code>read_region</code>, <code>read_full</code>;
+<code>source_quality_artifact.cpp</code>, <code>persist_multiband_store_from_predecessors</code>.</p>
+<p><strong>Nachgerechnet und als LRU-Simulation geprüft:</strong> ein Frame hat 33.177.600 B;
+600 Frames haben 19.906.560.000 B = 18,54 GiB. Mit 16384 MiB und 1 MiB Reserve
+passen 517 Frames. Ein zyklischer Durchlauf 0…599 verdrängt die jeweils als
+nächstes gebrauchten Frames: über 19 Pässe <strong>0 Treffer, 11.400 Misses</strong>.
+O2 hält die Verifikation auch nicht unabhängig von den LRU-Einträgen vor.</p>
+<p>Das Runner-Objekt erhält derzeit das volle Drizzle-Budget; SQM-Klone und
+Kandidatenpuffer kommen zusätzlich dazu. 16 GiB Source-LRU plus 16 GiB
+Drizzle-Arbeitsbudget sind kein gemeinsames 16-GiB-Budget. Bei 30 GiB freiem RAM
+darf deshalb nicht ohne Gesamtbilanz ein größerer Source-Cache zugesagt werden.</p>
+<p><strong>Umsetzung:</strong></p>
+<ul>
+<li>Source-Provider um Rechteck-/Zeilenansichten mit absolutem Ursprung erweitern.
+  Nur die für R1 erforderlichen Rohdaten lesen; Source-Indizes im Clipping-Key
+  bleiben absolut. Kein Crop mit stillschweigend verschobenem CFA-Ursprung.</li>
+<li><code>SourceQualityMapCacheReader::read_rect</code> hat echtes Range-I/O: es liest nur
+  die überdeckten Speicherzellen mittels <code>read_bin_window</code>. Werte- und
+  Vetoebene bleiben getrennt und werden mit absoluten Koordinaten dekodiert.
+  Offen ist ihre Wiederverwendung über Kacheln desselben Frame-Bands.</li>
+<li>Noch günstiger als die aktuelle Rechteck-Expansion: vorhandene uint16-Werte
+  und Veto-Bytes direkt über einen
+  unveränderlichen Karten-View adressieren. <code>dequantize_quality</code>, <code>y/divisor</code>,
+  <code>x/divisor</code> und Hard-Veto→NaN müssen exakt dieselben Ergebnisse liefern.
+  Das vermeidet die wiederholte volle Float-Expansion, ohne neue Quantisierung.</li>
+<li><strong>Beschlossene Betriebsregel:</strong> Ein AQMH-Lauf besitzt seine Eingaben und
+  Zwischenartefakte. Änderungen durch den Benutzer während eines Laufs sind
+  außerhalb des Rechenvertrags. Deshalb keine SHA-256-Prüfung im Hot Path:
+  weder für normalisierte Quellen noch für Q- oder Profilcache-Dateien.
+  Laufidentität bindet weiterhin Konfiguration, kanonische Eingabeliste,
+  Geometrie und Generationenamen; Dateigröße und erwartete Struktur bleiben
+  als günstige Fehlermeldung erhalten. Eine vollständige Integritätsprüfung
+  ist ein expliziter Offline-/Diagnosemodus, niemals Voraussetzung eines
+  normalen Rekonstruktionslaufs. Tests dürfen weiterhin Bytes hashen.</li>
+<li>Zielzähler: physische und logische Reads getrennt, gelesene/expandierte Pixel,
+  Hash-Bytes, Source-/Q-Treffer, Band-/Kachelzahl, Host-/Device-Peaks und
+  <code>source_pixels_loaded / (N*P)</code>. Schranken aus tatsächlich geschnittenen
+  Rechtecken plus Randüberlappung ableiten, nicht pauschal „genau einmal“ sagen.</li>
+</ul>
+<h3 id="64-r3-schnellere-exakte-geometrie-ohne-o5-schablone">6.4 R3: schnellere exakte Geometrie, ohne O5-Schablone<a class="headerlink" href="#64-r3-schnellere-exakte-geometrie-ohne-o5-schablone" title="Permanent link">&para;</a></h3>
+<p>Quelle: <code>forward_drizzle.cpp</code>, <code>clip_one_plane</code>,
+<code>polygon_rectangle_intersection_area</code>, <code>enumerate_drizzle_stripe_leaf_cells</code>.</p>
+<p>Der vorhandene Clip führt X-min, X-max, Y-min, Y-max und Shoelace für <strong>jede</strong>
+Zielzelle erneut aus. Die ersten beiden Ergebnisse hängen von Leaf und Ziel-X
+ab, <strong>nicht von Ziel-Y</strong>. Sie können pro Leaf/X berechnet und über alle
+betroffenen Zielzeilen wiederverwendet werden. Die Ausgabe bleibt in derselben
+Y/X-Reihenfolge; lediglich ein kleiner Puffer für X-Zwischenpolygone kommt hinzu.
+Wenn alle Polygonpunkte eine Clip-Halbebene bereits erfüllen, kopiert der
+Referenzschritt die Punkte unverändert in identischer Reihenfolge. Dieser
+Schritt kann entfallen. Schnittformeln, Vertex-Reihenfolge und Shoelace bleiben
+unverändert. Keine Translation der Shoelace-Koordinaten, kein FMA/Reassociation,
+kein <code>fast-math</code>, keine gerasterte Subpixel-Schablone.</p>
+<p><strong>Isolierter Machbarkeitsversuch dieses Reviews:</strong>
+<code>/tmp/p6_clip_reuse_probe.cpp</code>, gebaut mit
+<code>g++ -O3 -std=c++20 -ffp-contract=off</code>. 100.000 Quads mit Translationen und
+kleinen Rotationen, beide Pixfracs, 784.712 Zellflächen:</p>
+<table>
+<thead>
+<tr>
+<th>Variante</th>
+<th style="text-align: right;">Zeit für fünf Wiederholungen</th>
+<th style="text-align: right;">Bitabweichungen</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>vier Clips pro Zelle</td>
+<td style="text-align: right;">0,256082 s</td>
+<td style="text-align: right;">Referenz</td>
+</tr>
+<tr>
+<td>X-Clip-Wiederverwendung + wirkungslose Clips auslassen</td>
+<td style="text-align: right;">0,165475 s</td>
+<td style="text-align: right;"><strong>0</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Das sind <strong>1,55× in einem eigenständigen Mikroversuch</strong>, der die Referenzformeln
+nachbildet, nicht die vollständige Library aufruft. Es ist weder ein
+Produktionsbenchmark noch ein Beweis für sämtliche degenerierten Polygone.
+Original- und optimierte Library-Pfade müssen direkt gegeneinander getestet
+werden: Rotation, Scherung, Spiegelung, Tangenten, ganzzahlige Grenzen und
+<code>nextafter</code>-Nachbarn, große Koordinaten, lokale Leaves und mehrere Chunkhöhen.
+Naive Variante <code>Rechteckfläche statt Shoelace</code> ist ausdrücklich ausgeschlossen:
+mathematische Flächengleichheit garantiert keine gleichen Floating-Point-Bits.</p>
+<p><strong>Zweiter, größerer Hebel:</strong> Der dichte affine Footprint benötigt nur die
+Information, ob mindestens ein Pixelquadrat eine Zelle mit <code>k&gt;0</code> berührt.
+Die Vereinigung aller ungeschrumpften Quellpixelquadrate ist mathematisch das
+transformierte Frame-Rechteck. Daher ist ein rasterisierter Frame-Footprint
+statt Milliarden Einzelpixelclips grundsätzlich möglich. Aber das heutige
+numerische <code>k&gt;0</code> ist der Referenzvertrag: Tangenten, degenerierte Transformationen
+und Rundungsartefakte dürfen nicht stillschweigend anders behandelt werden.
+Nur konservativ zertifizierte Innen-/Außenzellen beschleunigen, Grenzfälle mit
+dem bisherigen Einzelpixelpfad prüfen. Eine numerische Fehlerschranke muss
+auch die berechneten Quellpixelgrenzen abdecken; bloß ein Rand um die vier
+Framekanten reicht als Beweis nicht. Der Footprint-Anteil des bisherigen Profils
+liegt bei etwa 57 % der Rasterzeit: seine Beseitigung wäre ein wesentlich
+größerer Hebel als die bloße Fusion zweier Schleifengerüste.</p>
+<p><strong>Umgesetzt in §30.75</strong> (<code>dense_footprint_touched_stripe</code>): genau dieser Ansatz —
+Innen-/Außen-/Randklassifikation gegen das eine Parallelogramm
+<code>affine_f([0,W_src]×[0,H_src])</code>. Randzellen (inkl. numerischer Randband-Breite
+<code>2·ext+3</code>) laufen exakt über <code>sample_leaves</code> + <code>polygon_rectangle_intersection_area</code>
+auf einem invers-gemappten, um ±1 Quellpixel erweiterten Quellpixel-Superset —
+also <strong>derselbe Referenzvertrag auf den Randzellen, byte-identisch per
+Konstruktion</strong>. Reflexionen sind upstream (<code>invert_affine_2x3</code>,
+orientierungserhaltend) ausgeschlossen; lokale/singuläre Frames delegieren an den
+Rasterizer. Paritäts-Gate <code>[drizzle-audit][footprint-fastpath]</code>. Gemessen:
+Footprint-Pass 47,6 s → 3,5 s (13,6×), Coverage gesamt 87,2 s → 42,8 s (2,04×).</p>
+<h3 id="65-r4-vorlauf-und-qualitat-gezielt-verkurzen">6.5 R4: Vorlauf und Qualität gezielt verkürzen<a class="headerlink" href="#65-r4-vorlauf-und-qualitat-gezielt-verkurzen" title="Permanent link">&para;</a></h3>
+<h4 id="651-befund-2026-09-11-konkrete-wiederholungen-und-hash-hot-paths">6.5.1 Befund 2026-09-11: konkrete Wiederholungen und Hash-Hot-Paths<a class="headerlink" href="#651-befund-2026-09-11-konkrete-wiederholungen-und-hash-hot-paths" title="Permanent link">&para;</a></h4>
+<p>Der vollständige Umsetzungs-, Migrations- und Testvertrag steht in
+<a href="../aqmh_p6_trusted_run_implementierung_de/">aqmh_p6_trusted_run_implementierung_de.md</a>.</p>
+<p>Die folgende Liste ist aus den Aufrufpfaden im Source abgeleitet. Sie trennt
+gleichartige Datenarbeit von einmaligen Commit-/Test-Hashes. Die auf dieser
+Maschine gemessenen <strong>17,2 ms für einen 33,18-MB-Frame-SHA</strong> bedeuten allein
+pro vollständigem 600-Frame-Pass 10,32 s CPU-Zeit; diese Zahl enthält noch
+nicht Lesen, Kopieren oder die weiteren Block-Digests.</p>
+<table>
+<thead>
+<tr>
+<th>Priorität</th>
+<th>Aufrufpfad</th>
+<th>Tatsächliche Wiederholung</th>
+<th>Folge</th>
+<th>Schnitt</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>runner_forward_drizzle.cpp</code>: <code>for (f) cache.load(f.source_index)</code> vor <code>SOURCE_QUALITY_MAPS</code></td>
+<td>alle Quellen werden vollständig gelesen und verifiziert, obwohl <code>VerifiedNormalizedSourceCache</code> ihre Größe bereits beim Öffnen prüft</td>
+<td>ungetimte Vorlaufzeit; pro Frame Ganzdatei-SHA <strong>und</strong> Block-SHAs</td>
+<td>Vollscan entfernen; die normalisierte Generation ist Eigentum des laufenden Runners</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>VerifiedNormalizedSourceCache::verify_and_insert</code></td>
+<td>Ganzdatei-SHA über das geladene Bild, danach <code>digest_blocks()</code> über dieselben Bytes</td>
+<td>mindestens zwei vollständige Digest-Durchläufe je LRU-Miss; nur der erste ist zeitlich sichtbar</td>
+<td>im Normalmodus weder Ganzdatei- noch Block-SHA; Blockindex nur im Offline-Prüfmodus</td>
+</tr>
+<tr>
+<td>1</td>
+<td>SQM- und Global-Quality-Worker-Klone</td>
+<td>jeder Klon startet mit leerem LRU und leerem Blockindex; beide Phasen laden dieselben 600 Quellen</td>
+<td>mindestens zwei zusätzliche Vollbildpässe; bisher nicht in den Cache-Zählern des Basisobjekts</td>
+<td>Phaseübergreifenden Frame-Job bauen; SQM liefert die Global-Quality-Metriken mit</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>compute_source_quality_proxy_v1</code> in SQM und Global Quality</td>
+<td>derselbe Vollbild-Proxy pro Quelle zweimal</td>
+<td>zweiter kompletter Proxy-, Metrik- und Quellenpass; GQ allein 67 s gemessen</td>
+<td>Frame-Metriken und Sternmetriken beim SQM-Proxy berechnen, als kleines Artefakt publizieren; GQ reduziert nur Skalare</td>
+</tr>
+<tr>
+<td>1</td>
+<td>CUDA-Forward-Drizzle vor Schedule 3</td>
+<td>kachel-außen/frame-innen; bei zu kleinem LRU werden dieselben Quellen je Kachel erneut geladen</td>
+<td>Verstärkung mit Kachelzahl; erklärt weder Coverage noch SQM, kann aber FORWARD_DRIZZLE dominieren</td>
+<td>Schedule 3: Quellband je Frame-Fenster einmal lesen und über alle Kacheln des Fensters halten</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>SourceQualityMapCacheReader::has</code> und <code>file_path</code></td>
+<td>beide durchsuchen <code>meta_.files</code> linear; der Q-Provider ruft sie pro Frame und Kachel mehrfach auf</td>
+<td>Lookup-Komplexität <code>O(B·T·F·E)</code> statt <code>O(B·T·F)</code>; bei 600 Frames und mehreren Q-Streams können Milliarden Metadatenvergleiche entstehen</td>
+<td>beim Reader-Aufbau Index <code>(stream, source_index) → Pfad</code> anlegen; <code>has</code> und <code>read_rect</code> erhalten O(1)-Lookup</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>SourceQualityMapCacheWriter::put</code></td>
+<td>jede gerade geschriebene <code>.bin</code> wird unmittelbar wieder vollständig mit <code>sha256_file</code> gelesen</td>
+<td>zusätzlicher Read+SHA pro ausgegebener Q-Karte</td>
+<td>Hash aus Normalmodus entfernen; Atomarität und Metadaten behalten</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>SourceQualityMapCacheReader</code>-Konstruktor</td>
+<td>hasht jede Q-Cache-Datei beim Öffnen vor FORWARD_DRIZZLE erneut</td>
+<td>kompletter zusätzlicher Q-Cache-Pass vor der Rekonstruktion</td>
+<td>nur Metadaten/Größe/Schema im Normalmodus; Offline-Verifikation optional</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>run_phase_registration_prewarp</code>, nur bei <code>auto_engine</code></td>
+<td>bis zu vier Probe-Frames erhalten erneut einen Registration-Proxy; je bewegtem Probe-Frame laufen Stern- und ECC-Registrierung, später baut der reguläre Pfad den Proxy nochmals</td>
+<td>kleine, aber reale Doppelarbeit vor der eigentlichen Registrierung; nicht Erklärung für 218 s allein</td>
+<td>Probe-Proxys/-Sternlisten in den vorhandenen Frame-Cache übernehmen oder Probe-Metriken als reguläre Vorarbeit verwenden</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>accumulate_pair_impl</code> / CUDA-Producer</td>
+<td>Produktions- und Sortierarbeit war je Kachel wiederholt; 3a-1 begrenzt CPU-Records, CUDA produziert jedoch noch vollbreit</td>
+<td>Gerätearbeit und Transfers skalieren mit Kachelzahl, bis der Kernel ein echtes X+Y-Fenster erhält</td>
+<td>CUDA-Quellrechteck und Upload begrenzen; danach mit Schedule 3 gemeinsam messen</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>compute_geometric_coverage</code></td>
+<td>CFA-Pass rastert pro Frame exakte Polygon-Schnitte; der spätere Drizzle braucht verwandte, aber nicht direkt wiederverwendbare Beiträge</td>
+<td>1513 s enthalten <strong>keinen</strong> Source-SHA; dies ist der größte unabhängige Algorithmusblock</td>
+<td>GPU-/affin beschleunigten, paritätsgeprüften Coverage-Pfad entwickeln; kein riesiger Leaf-/Kandidaten-Spool</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>compute_geometric_coverage::run_band</code></td>
+<td>je Frame werden die CFA-Akkumulatoren gelöscht, gerastert und kanvasweit reduziert; danach folgt der Footprint- und Zählpass</td>
+<td>mehrere volle Speicherpässe pro Frame zusätzlich zu den Polygon-Clips</td>
+<td>nach dem GPU-/affinen Clip-Pfad getrennt profilieren; erst dann CFA-/Footprint-Schleifen fusionieren oder Zellenlisten einsetzen</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Output-/Profil- und Geometrie-Manifeste</td>
+<td>Hash beim Commit, bei Resume oder expliziter Prüfung</td>
+<td>einmalig je Generation, kein innerer Pixel-Loop</td>
+<td>im Normalmodus nur bei explizitem Resume-Prüfmodus aktivieren; Tests behalten Byte-Hashes</td>
+</tr>
+</tbody>
+</table>
+<p>Die vorhandene Laufzeittelemetrie reicht für eine SHA-Anteilszahl noch nicht:
+<code>whole_file_sha_seconds</code> misst nur den ersten SHA in <code>load()</code>. Sie lässt
+<code>digest_blocks()</code>, den region-first EVP-SHA, <code>read_rect</code>-Block-SHAs,
+Dateilesezeit sowie sämtliche Worker-Klone aus. Vor dem nächsten Messlauf
+müssen deshalb je Phase <code>read_seconds</code>, <code>whole_sha_seconds</code>,
+<code>block_sha_seconds</code>, <code>write_seconds</code>, Byte-Zähler und die Summe aller
+Worker-Caches erfasst werden. Das ist Diagnose, keine weitere Prüfung im
+Rechenpfad.</p>
+<ul>
+<li><code>runner_pipeline.cpp</code>, Kalibrierungsschleife über <code>input_frames</code>: derzeit
+  sequenzielles Lesen, Bias/Dark/Flat und FITS-Schreiben. Frames mit begrenzten
+  I/O-Workern verarbeiten, Ausgabepfade/Ergebnisvektor nach Index festlegen,
+  Masters read-only teilen. FITS-Threadfähigkeit und tatsächlichen
+  Speicherdurchsatz prüfen; die 459,6 s sind nicht vollständig Rechenzeit.</li>
+<li><code>runner_phase_metrics.cpp</code>: Normalisierung und frühe globale Metriken besitzen
+  <strong>bereits Worker</strong>. Noch ein Parallel-Pragma verspricht hier keinen Faktor 8.
+  Lesen, Hintergrundschätzung, Normalisierung, Cache-Schreiben und Proxybau
+  einzeln messen. Doppelte Arbeit nur bei identischen Inputs/Definitionen
+  wiederverwenden. Registrierungsmetriken dürfen nicht als AQMH-Gewichte dienen.</li>
+<li><code>source_quality_map_cache.cpp</code>: <code>writer.put</code> schreibt unterschiedliche
+  Dateien bereits parallel; Quantisierung, Schreiben und der anschließende
+  Datei-SHA laufen jedoch je Stream. Nach Wegfall des Hashes verbleiben
+  Quantisierung und Write als getrennt zu messende SQM-Anteile. SQM-Working-Set
+  pro Worker einschließlich <code>pending</code> budgetieren.
+  Nebenbefund vor Ausbau beheben: <code>worker_error</code> wird außerhalb von <code>critical</code>
+  gelesen und darin geschrieben; das ist ein ungeschützter gemeinsamer Zugriff.
+  Ein atomarer Fehlerindikator bzw. ausschließlich synchronisierte Zugriffe
+  sowie Exception-Weitergabe auch für die Cache-Klon-Konstruktion sind nötig.</li>
+<li><code>global_quality.cpp</code>: Frame 0 setzt <code>ref_star_count</code>; zuerst diesen Frame
+  berechnen, dann 1…N−1 parallel mit fixem Referenzwert. Endgültige
+  Gewichtsbildung in ursprünglicher Reihenfolge. SQM und Global Quality bauen
+  beide <code>compute_source_quality_proxy_v1</code>: gemeinsamen Proxy innerhalb eines
+  Frame-Jobs nutzen, sofern Input und Konfiguration identisch sind. Die
+  getrennten Phasen-/Resume-Artefakte dennoch vollständig veröffentlichen.</li>
+</ul>
+<h3 id="66-budget-reihenfolge-und-entscheidung">6.6 Budget, Reihenfolge und Entscheidung<a class="headerlink" href="#66-budget-reihenfolge-und-entscheidung" title="Permanent link">&para;</a></h3>
+<p><strong>Es gibt keinen aus dem Code ableitbaren mathematischen Grund für mehrere
+Stunden.</strong> Der derzeitige N-abhängige Vollbreiten-Kandidatenpuffer erzwingt
+kleinste Bänder, deren Provider dann erneut Vollbilder bearbeiten. Dieser
+vermeidbare Aufwand ist zusätzlich zur eigentlichen Rekonstruktion vorhanden.
+Seine Beseitigung ist der erste Lösungsweg; O5 ist dafür nicht erforderlich.</p>
+<p>Ein <strong>Entwicklungsbudget, keine Laufzeitprognose</strong>, für das affine 600-Frame-Ziel:</p>
+<table>
+<thead>
+<tr>
+<th>Teil</th>
+<th style="text-align: right;">Zu erreichendes Budget</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>gesamter Vorlauf bis Coverage</td>
+<td style="text-align: right;">650 s</td>
+</tr>
+<tr>
+<td>Coverage einschließlich Gate/Masken</td>
+<td style="text-align: right;">300 s</td>
+</tr>
+<tr>
+<td>SQM</td>
+<td style="text-align: right;">400 s</td>
+</tr>
+<tr>
+<td>Global Quality</td>
+<td style="text-align: right;">45 s</td>
+</tr>
+<tr>
+<td>Forward Drizzle einschließlich Clipping/Transfers</td>
+<td style="text-align: right;">180 s</td>
+</tr>
+<tr>
+<td>Mehrband, STACKING, Ausgabe-Commit</td>
+<td style="text-align: right;">55 s</td>
+</tr>
+<tr>
+<td>sonstige Übergänge/Hashes</td>
+<td style="text-align: right;">50 s</td>
+</tr>
+<tr>
+<td><strong>Summe / Reserve bis 1800 s</strong></td>
+<td style="text-align: right;"><strong>1680 s / 120 s</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Die anspruchsvollsten offenen Posten sind Coverage 300 s und Drizzle 180 s.
+Der 1,55×-Clipversuch plus O1 allein trägt Coverage 300 s nicht; dafür muss die
+Footprint-Stufe oder ein separat paritätsgeprüfter beschleunigter Coverage-Pfad
+zusätzlich bestehen. Die Tabelle darf nicht als erreichte oder bereits
+wahrscheinliche Endzeit kommuniziert werden. Lokale Modelle brauchen dieselbe
+Abnahme separat; die affine Ableitung überträgt sich darauf nicht automatisch.</p>
+<p><strong>Verbindliche nächste Schnitte (Revision 2026-09-10, §30.77 — ersetzt die
+ursprüngliche Reihenfolge dieses Reviews; maßgeblich ist Plan §0.2):</strong></p>
+<ol>
+<li><strong>Benchmarkfehler und Timerlücken beheben; tatsächliche Worker und
+   Quellbesuche erfassen.</strong> Konkret: <code>[fd-hotspot]</code>-Gather/-Reduce auf
+   befülltem Zustand, Abgleich mit den <code>TC_FD_PROFILE</code>-Produktionstimern;
+   die 167-s-Vorlauflücke attribuieren.</li>
+<li><strong>Wiederverwendbaren, budgetierten Clipping-Scratch</strong> in
+   <code>apply_robust_clipping</code> implementieren (bit-identisch; Scratch in
+   <code>retained_bytes</code>). Hilfreich für die spätere Reduce-Parallelisierung,
+   aber keine zwingende Voraussetzung dafür.</li>
+<li><strong>R1.1/R1.2/R2 gemeinsam:</strong> aktuelle Bandzahl/Peaks erfassen, getrennte
+   Host-/Device-Budgets, zweidimensionale Zielkacheln, echte Bereichsprovider
+   und CPU-Reduktionsparallelität; Vollbildexpansion aus dem inneren
+   Band-/Frame-Loop entfernen. Zunächst ohne Geometrieänderung. Welchen
+   Faktor das bringt, muss gemessen werden; auch die CPU-Seite profitiert
+   von den Bereichsprovidiern.</li>
+<li><strong>Produktionsnaher Skalierungsbenchmark</strong> mit realer Canvasgröße,
+   40/100/600 synthetischen Frames, gleichem RAM-Budget und realem
+   CPU-/CUDA-Pfad. Auch 600 bei kleinem Budget: dieses N löst die
+   Bandkollaps-/LRU-Probleme aus. Hidden-Test misst tatsächlich aktive
+   Worker; ein Requested-Wert reicht nicht.</li>
+<li><strong>R4-Vorlauf</strong> (Kalibrierung, SQM-Writer-Rest, Normalisierung anhand ihrer
+   Subtimer — nicht ungemessen weitere Worker ergänzen); danach <strong>R3</strong> als
+   separaten messbaren Schritt: exakte Clip-Wiederverwendung gegen den alten
+   Pfad testen, dieselbe Paritätsmatrix wiederverwenden, nicht bündeln.</li>
+<li>Erst wenn die Summe der Phasen auf voller Größe das Budget trägt: separat
+   autorisierte reale Kaltläufe, zwei pro Klasse, identische Selektion und
+   Gates; alle Laufstart→Commit-Zwischenzeiten mitzählen.</li>
+</ol>
+<p>Abnahme jeder Änderung: Source-/Masken-/Coverage-Gate-Bits, Clipping-Entscheide,
+Q-Artefakt-Identität und committed Profilebytes gegen Referenz; CPU-Fallback,
+Korruption/Resume und harte RAM-Grenzen. Keine Toleranzlockerung als Ersatz.
+Kein Produktionslauf wurde für diesen Review gestartet. Die Arbeit dieses
+Abschnitts besteht aus Codeanalyse, LRU-Simulation, isoliertem Clipversuch und
+Dokumentation; R1–R4 sind damit <strong>noch nicht implementiert oder abgenommen</strong>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

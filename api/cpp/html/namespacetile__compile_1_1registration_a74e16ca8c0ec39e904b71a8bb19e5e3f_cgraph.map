@@ -1,0 +1,31 @@
+<map id="tile_compile::registration::parse_from_json_string" name="tile_compile::registration::parse_from_json_string">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,351,171,389"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#afb91e474565d509e22572334226acdde" title=" " alt="" coords="220,193,382,232"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="114,348,262,239,260,244,118,352"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1registration.html#aef6e33a36212e5fde931acd2cec43fae" title=" " alt="" coords="220,319,382,357"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="170,355,206,351,202,354,172,360"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1registration.html#a3bf929d8ad59a574cd58bfffa9c04baa" title=" " alt="" coords="220,381,382,420"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="170,379,207,386,202,388,172,384"/>
+<area shape="rect" id="Node000012" href="$namespacetile__compile_1_1registration.html#a933ed1a0b91d062c56a0cbd7ab24a7d0" title=" " alt="" coords="219,475,383,513"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="124,387,255,465,250,468,123,393"/>
+<area shape="rect" id="Node000003" href="$structtile__compile_1_1registration_1_1ByteSink.html#ad49f30524c26e973048411a5e4d6d1ba" title=" " alt="" coords="442,5,605,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="311,191,357,124,391,86,429,53,439,50,435,53,433,57,394,90,361,127,316,194"/>
+<area shape="rect" id="Node000004" href="$structtile__compile_1_1registration_1_1ByteSink.html#ac2c845f46e4480c60404d4a43a3c1b10" title=" " alt="" coords="442,68,605,107"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="323,191,370,153,430,116,443,112,439,115,432,120,373,158,326,195"/>
+<area shape="rect" id="Node000005" href="$structtile__compile_1_1registration_1_1ByteSink.html#ad202e5d50ad74f41b489ac737b7ef16f" title=" " alt="" coords="442,131,605,169"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="371,191,440,172,436,175,373,195"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1core.html#a9b33f7e2ae6e53709fe1e68026d16580" title="Implements sha256 bytes." alt="" coords="462,193,585,232"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="381,210,449,211,444,214,383,215"/>
+<area shape="rect" id="Node000007" href="$structtile__compile_1_1registration_1_1ByteSink.html#a4c9ab4f5da878326fb39afb798215d21" title=" " alt="" coords="442,256,605,295"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="371,230,441,251,436,252,372,235"/>
+<area shape="rect" id="Node000008" href="$structtile__compile_1_1registration_1_1ByteSink.html#af1e480e9ab33bb143646fe3e49ba9a30" title=" " alt="" coords="442,319,605,357"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="325,230,374,267,432,304,447,312,442,313,430,308,371,271,325,235"/>
+<area shape="rect" id="Node000011" href="$namespacetile__compile.html#ad4e114e09ae7f66d9aa605b587d57596" title=" " alt="" coords="458,381,589,420"/>
+<area shape="poly" id="edge10_Node000010_Node000011" title=" " alt="" coords="382,398,446,400,441,401,383,403"/>
+<area shape="rect" id="Node000013" href="$namespacetile__compile.html#ac31569f320ed3b6cc89891d5957e9484" title=" " alt="" coords="459,444,588,483"/>
+<area shape="poly" id="edge12_Node000012_Node000013" title=" " alt="" coords="383,480,446,474,441,475,384,485"/>
+<area shape="rect" id="Node000014" href="$namespacetile__compile.html#a19f4ee1a01217c22949834089503a58c" title=" " alt="" coords="460,507,587,545"/>
+<area shape="poly" id="edge13_Node000012_Node000014" title=" " alt="" coords="383,503,448,514,442,515,384,508"/>
+<area shape="rect" id="Node000015" href="$namespacetile__compile_1_1registration.html#a1818862cd2ad40dae0a18012e3e792ba" title=" " alt="" coords="431,569,616,622"/>
+<area shape="poly" id="edge14_Node000012_Node000015" title=" " alt="" coords="342,511,432,554,446,563,441,562,430,559,341,516"/>
+</map>

@@ -1,12 +1,24 @@
 <map id="tile_compile::io::write_fits_rgb" name="tile_compile::io::write_fits_rgb">
-<area shape="rect" id="Node000001" title="Writes fits rgb." alt="" coords="481,24,626,62"/>
-<area shape="rect" id="Node000002" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="103,5,231,30"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="465,40,231,25,232,19,466,35"/>
-<area shape="rect" id="Node000004" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="279,55,433,79"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="466,56,434,60,433,55,465,51"/>
-<area shape="rect" id="Node000003" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,31,55,55"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="88,35,56,41,55,36,87,30"/>
-<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="115,55,218,79"/>
-<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="263,70,219,70,219,64,263,64"/>
-<area shape="poly" id="edge5_Node000005_Node000003" title=" " alt="" coords="100,58,55,50,56,45,101,53"/>
+<area shape="rect" id="Node000001" title="Writes fits rgb." alt="" coords="962,107,1106,146"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#ab48d279c5237f07a057a16216d7b66b7" title=" " alt="" coords="500,29,681,82"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="944,105,914,101,792,82,681,68,681,62,793,76,914,96,949,105"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1runner.html#a9cf10b9ba59596f74dc7ed96e98f8c9a" title=" " alt="" coords="515,128,666,167"/>
+<area shape="poly" id="edge8_Node000001_Node000007" title=" " alt="" coords="944,121,914,122,821,118,729,122,666,132,666,127,728,117,821,113,914,117,950,121"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1runner.html#a67a9f6ccb6ab202204bb1e8a5e96c735" title=" " alt="" coords="729,209,914,262"/>
+<area shape="poly" id="edge10_Node000001_Node000008" title=" " alt="" coords="992,154,915,199,890,211,888,206,913,195,987,155"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1runner.html#af6fed15a997c635d45ae97f7c982a35d" title="Write a stretched RGB snapshot (used for BGE/PCC intermediate outputs)." alt="" coords="750,132,893,185"/>
+<area shape="poly" id="edge12_Node000001_Node000009" title=" " alt="" coords="950,139,894,150,893,145,944,140"/>
+<area shape="poly" id="edge2_Node000002_Node000002" title=" " alt="" coords="622,14,611,10,590,8,572,10,560,15,555,21,554,30,550,27,550,19,557,10,571,5,591,3,612,5,627,14"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#acc0d4679841a580552249bbcb25ec183" title=" " alt="" coords="310,121,452,174"/>
+<area shape="poly" id="edge3_Node000002_Node000003" title=" " alt="" coords="518,88,444,123,442,118,513,90"/>
+<area shape="rect" id="Node000004" href="$runner__forward__drizzle_8cpp.html#a9ffae5ca00a8665a15ced17d948fd1ae" title=" " alt="" coords="103,100,262,139"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="292,136,263,134,262,128,297,135"/>
+<area shape="rect" id="Node000006" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="105,163,260,188"/>
+<area shape="poly" id="edge6_Node000003_Node000006" title=" " alt="" coords="292,161,261,167,259,162,297,159"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,135,55,160"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="86,139,56,146,54,141,89,135"/>
+<area shape="poly" id="edge7_Node000006_Node000005" title=" " alt="" coords="95,162,56,155,55,150,99,158"/>
+<area shape="poly" id="edge9_Node000007_Node000003" title=" " alt="" coords="498,148,453,150,453,145,503,147"/>
+<area shape="poly" id="edge11_Node000008_Node000003" title=" " alt="" coords="711,219,500,181,453,170,453,164,501,176,716,218"/>
+<area shape="poly" id="edge13_Node000009_Node000007" title=" " alt="" coords="731,155,666,154,666,148,737,154"/>
 </map>

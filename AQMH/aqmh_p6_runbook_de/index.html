@@ -1,0 +1,3803 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/AQMH/aqmh_p6_runbook_de/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>P6 — Runbook und Phasenbudget-Ableitung - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#p6-runbook-und-phasenbudget-ableitung" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              P6 — Runbook und Phasenbudget-Ableitung
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Start Here
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guides/cfa_forward_drizzle_pipeline_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Workflows & Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/configuration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../PI/scan_ai_parameter_studio_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Professional & Technical
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/cli/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API & Development
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  History & About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start Here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schnellstart (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows & Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Workflows & Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/cfa_forward_drizzle_pipeline_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reconstruction Method (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/cfa_forward_drizzle_pipeline_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rekonstruktionsmethode (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/live_image_editor_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/live_image_editor_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – KI-Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_workflow_gui3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Basics (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Konfigurationsgrundlagen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Professional & Technical
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Professional & Technical
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_ai_recommendations_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_ki_empfehlungen_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_jev_decisions_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Jev Decisions (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_scan_pre_rules_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Pre-Rules (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_decision_trace_und_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overall Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_decision_trace_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decision Trace (Part A)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Assistant (Part B)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_assistant_dock_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assistant Dock
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_analysis_context_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_run_learning_archive_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run Learning Archive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_retention_policy_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Retention Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../forward_drizzle_v2_zielarchitektur_2026-09-12_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forward Drizzle v2 Target Architecture (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Process Flow Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume-Abhängigkeiten (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_scan_normalization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Scan & Normalization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_registration_geometry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Registration & Geometry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_quality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_forward_drizzle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Forward Drizzle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_multiband/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Multiband
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_postprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Post-Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/flow_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API & Development
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API & Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference (Getting Started)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    History & About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    History & About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_3" id="__nav_8_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Historical Methods (superseded)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Historical Methods (superseded)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#aktuelle-voraussetzungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Aktuelle Voraussetzungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verifikation-dieser-anderung-2026-09-09" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifikation dieser Änderung (2026-09-09)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reale-600-frame-laufe-2026-09-09" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reale 600-Frame-Läufe (2026-09-09)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-was-34-verlangt-abnahmekriterien-wortlich-zusammengefasst" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Was §3.4 verlangt (Abnahmekriterien, wörtlich zusammengefasst)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-historische-datenlage-keine-aktuelle-endzeitprognose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Historische Datenlage — keine aktuelle Endzeitprognose
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Historische Datenlage — keine aktuelle Endzeitprognose">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-zwei-provenienzklassen-pro-phase-getrennt-behandelt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Zwei Provenienzklassen — pro Phase getrennt behandelt
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-p6-lauf-konfiguration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. P6-Lauf-Konfiguration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. P6-Lauf-Konfiguration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-kein-handgeschriebenes-single-method-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Kein handgeschriebenes Single-Method-Config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-pflicht-deltas-zur-basis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Pflicht-Deltas zur Basis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-datensatzwahl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Datensatzwahl
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-skalierungsleiter-40-100-200-600-plan-11147-erster-punkt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 Skalierungsleiter 40 / 100 / 200 / 600 (Plan §11.14.7, erster Punkt)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-speicher-i-o-referenzprofil-34-referenzprofil-einfrieren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Speicher-/I-O-Referenzprofil (§3.4 „Referenzprofil einfrieren")
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-phasenbudget-korrigierte-evidenzlage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Phasenbudget: korrigierte Evidenzlage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Phasenbudget: korrigierte Evidenzlage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-neu-zu-messende-groen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Neu zu messende Größen
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-ausfuhrungs-checkliste-fur-den-benutzer-wenn-autorisiert" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Ausführungs-Checkliste (für den Benutzer, wenn autorisiert)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-verbleibende-start-und-abnahmevoraussetzungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Verbleibende Start- und Abnahmevoraussetzungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-was-p6-nicht-ist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Was P6 nicht ist
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="p6-runbook-und-phasenbudget-ableitung">P6 — Runbook und Phasenbudget-Ableitung<a class="headerlink" href="#p6-runbook-und-phasenbudget-ableitung" title="Permanent link">&para;</a></h1>
+<p><strong>Aktueller Nachtrag (2026-09-09, §30.73):</strong> Für das neue Teilziel
+<strong>&lt;30 Minuten bis zur Rekonstruktionsausgabe ohne Astrometrie/BGE/PCC/HMS</strong> gilt
+die <a href="../aqmh_p6_performance_de/#p6-loesungsweg-30min">aktuelle Codeanalyse und der Lösungsentwurf</a>.
+Die folgenden 2400-s-Vorläufe sind historische Diagnoseversuche. Der spätere
+M31-Lauf <code>20260909_155821_833897f4</code> erreichte FORWARD_DRIZZLE und wurde auf
+Benutzerwunsch gestoppt; M42 wurde danach nicht gestartet. Die alte Aussage
+„keiner erreichte FORWARD_DRIZZLE“ bezieht sich nur auf die zwei unten genannten
+Vorläufe. Eine vollständige Abnahme liegt weiterhin nicht vor.</p>
+<p>Entscheidende neue Befunde: Source-LRU mit 16 GiB verdrängt bei 600 Frames
+zyklisch die als Nächstes benötigten Einträge;
+CUDA-Host-Kandidaten erzwingen rechnerisch hunderte kleinste Bänder;
+Vollbild-Q-Expansionen und Source-Loads wiederholen sich pro Band. Daher sind
+die frühere O2-Durchsatzzusage und die Zuordnung affiner Coverage-Kosten zum
+lokalen Cache-Bau überholt. Das ursprüngliche P6-Gate einschließlich HMS wird
+durch das neue Teilziel nicht als erfüllt markiert.</p>
+<p>Status: <strong>Implementierung verifiziert; die realen 600-Frame-Läufe sind bis zum
+P6-Gate dokumentiert, aber keine P6-Abnahme.</strong> Stand 2026-09-09. Beide Läufe
+wurden ausdrücklich gestartet und am 2400-s-Gate kontrolliert beendet; keiner
+erreichte FORWARD_DRIZZLE, STACKING oder HMS.</p>
+<h3 id="aktuelle-voraussetzungen">Aktuelle Voraussetzungen<a class="headerlink" href="#aktuelle-voraussetzungen" title="Permanent link">&para;</a></h3>
+<ul>
+<li>P3 plant Reader-, Clipping- und Alpha-Scratch pro Worker gemeinsam mit dem
+  Streifenbudget; angeforderte, budgetierte und tatsächlich verwendete
+  Workerzahlen werden getrennt erfasst. Frische Läufe behalten die konfigurierte
+  Workerzahl. Die reale Skalierung ist weiterhin ungemessen.</li>
+<li>Der neue Rekonstruktionspfad besitzt einen STACKING-Pass-through mit einmaliger
+  Photometrie-Rücknahme und gemeinsamer RGB-Downstream-Funktion für Astrometrie,
+  BGE, PCC und HMS. Kein erneutes Debayern; Raw und <code>reconstructed_*</code> bleiben
+  im normalisierten Arbeitsraum. Reale vollständige P6-Abnahme steht aus.</li>
+<li>MONO erhält derzeit keinen vollständigen RGB-Downstream; dessen Phasen sind
+  explizit nicht anwendbar. Das ersetzt keine allgemeine M9-MONO-Abnahme.</li>
+<li><strong>Keine belastbare 600-Frame-End-to-End-Endzeit verfügbar.</strong> Beide realen
+  Läufe stoppten in <code>SAMPLING_GEOMETRY</code>; frühere Summen und <code>/N</code>-
+  Extrapolationen werden in §5 nicht als Startzusage verwendet.</li>
+<li>600 Registrierungsproxies bei 3840×2160 benötigen etwa <strong>4,97 GB = 4,63 GiB</strong>.
+  16 GiB sind ein zu prüfender Budgetkandidat, kein automatisch sicherer Wert.
+  Freien RAM/cgroup-Headroom und Tempdisk unmittelbar vor dem Lauf messen.</li>
+<li>Beide Klassen benötigen 600 verschiedene Realframes, unveränderte Gates,
+  vorhandene Kalibriermaster und ein eingefrorenes Hardware-/Configprofil.</li>
+</ul>
+<h3 id="verifikation-dieser-anderung-2026-09-09">Verifikation dieser Änderung (2026-09-09)<a class="headerlink" href="#verifikation-dieser-anderung-2026-09-09" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>tile_compile_runner</code> und <code>tests</code> erfolgreich gebaut; <code>git diff --check</code> sauber.</li>
+<li>Gesamtsuite: <strong>532 Testfälle, 1.043.956 Assertions bestanden</strong>.</li>
+<li>Nach der abschließenden Worker-Diagnostikkorrektur: CPU-Fokus
+  <code>[forward-downstream],[forward-runner],[geometry-parallel],[synthetic-quality]</code>
+  mit <strong>15 Testfällen / 354 Assertions</strong> bestanden.</li>
+<li>Native GTX 1660 Ti, Treiber 610.57.04:
+  <code>[cuda-parity],[forward-runner],[forward-downstream]</code> mit
+  <strong>19 Testfällen / 387.531 Assertions</strong> bestanden. Der CPU-Scheduler-Test
+  erzwingt auf GPU-Hosts den CPU-Fallback; CUDA meldet null CPU-Reduktionsworker.</li>
+<li>Reale 600-Frame-Läufe sind im folgenden Laufabschnitt dokumentiert. Die Tests belegen weiterhin
+  keine reale Solver-/Katalog-/HMS-Abnahme.</li>
+</ul>
+<h3 id="reale-600-frame-laufe-2026-09-09">Reale 600-Frame-Läufe (2026-09-09)<a class="headerlink" href="#reale-600-frame-laufe-2026-09-09" title="Permanent link">&para;</a></h3>
+<p>Die Läufe wurden mit dem migrierten M6-Basisprofil, <code>internal_scale=2</code>,
+<code>output_scale=1</code>, <code>parallel_workers=8</code> und einem expliziten
+<code>memory_budget=16384</code> gestartet. Das Zielverzeichnis lag auf dem großen
+Arbeitsvolume unter <code>tile_compile/p6_runs</code>; das frühere <code>/media/tc_500</code>-Volume
+war für den projizierten Record-Bestand nicht ausreichend.</p>
+<table>
+<thead>
+<tr>
+<th>Klasse</th>
+<th>Laufverzeichnis</th>
+<th>Ergebnis bis zum Gate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>affin (M31)</td>
+<td><code>p6_runs/20260909_140715_ad7c7da2</code></td>
+<td>600/600 Frames; Registrierung 600 gültig, 0 lokale Modelle, affine/field-rotation; <code>NORMALIZED_CACHE</code> ok; <code>SAMPLING_GEOMETRY</code> ab 12:27:25Z; kontrollierter Stopp nach 2400 s; kein Drizzle/HMS</td>
+</tr>
+<tr>
+<td>lokal verzerrt (M42)</td>
+<td><code>p6_runs/20260909_144826_7db55408</code></td>
+<td>600/600 Frames; Registrierung 600 gültig, 4 Frames mit aktivem lokalem Modell, 596 affine-only; <code>NORMALIZED_CACHE</code> ok; <code>SAMPLING_GEOMETRY</code> ab 12:58:35Z; kontrollierter Stopp nach 2400 s; kein Drizzle/HMS</td>
+</tr>
+</tbody>
+</table>
+<p>Die vor der Geometrie erzeugten Laufdaten umfassten etwa 38 GiB (M31) bzw.
+23 GiB (M42). Der M31-Lauf auf <code>/media/tc_500</code> mit demselben 16-GiB-Budget
+wurde zuvor wegen des dort knappen freien Plattenplatzes kontrolliert beendet;
+der erste 4-GiB-Versuch brach bereits mit
+<code>DRIZZLE_MEMORY_BUDGET</code> ab. Diese Vorläufe sind Diagnoseartefakte und keine
+zusätzlichen P6-Abnahmen.</p>
+<p>Die beiden finalen Läufe liefen bereits mit <code>memory_budget=16384</code>. Das Budget
+ist eine Pipeline-Admission-Grenze und keine harte Obergrenze für den gesamten
+Prozess-RSS; während der M42-Registrierung wurde zeitweise ein RSS-Snapshot von
+rund 27,6 GiB beobachtet. Für eine Wiederholung müssen deshalb sowohl das
+Budget als auch der reale verfügbare RAM gemeinsam vorab geprüft werden.</p>
+<p>Die Registrierung nutzte den OpenCV-CUDA-Prewarp (GPU); die eigentliche
+Registrierung lief mit acht CPU-Workern. Beide Läufe meldeten
+<code>ASTAP not available</code>, obwohl <code>/home/lux/.local/share/tile_compile/astap/astap_cli</code>
+ausführbar vorhanden ist. Die aktuelle Verfügbarkeitsprüfung akzeptiert im
+Katalogverzeichnis nur <code>.290</code>/<code>.291</code>; vorhanden sind dort <code>.1476</code>-Dateien und
+<code>d80_star_database.zip</code>. Das ist eine erkannte Prüfungs-/Kompatibilitätslücke,
+kein fehlendes Binary. Da HMS nicht erreicht wurde, sind Solver, BGE, PCC und
+HMS aus diesen Läufen nicht bewertet.</p>
+<p><strong>Abnahmeentscheidung:</strong> Die 600-Frame-Voraussetzung und die Klassenbelege sind
+erfüllt, die End-to-End-Zeitgrenze und der HMS-Commit sind nicht erfüllt bzw.
+nicht gemessen. P6 bleibt daher offen; M10 bleibt blockiert. Der dominante
+Restterm ist die CPU-bound <code>SAMPLING_GEOMETRY</code>-Phase. Ein nächster Lauf muss
+deren Cache-/Range-Read-Implementierung und die ASTAP-Auflösung separat
+beheben oder mit einer begründeten neuen Budgetierung neu messen.</p>
+<hr />
+<h2 id="1-was-34-verlangt-abnahmekriterien-wortlich-zusammengefasst">1. Was §3.4 verlangt (Abnahmekriterien, wörtlich zusammengefasst)<a class="headerlink" href="#1-was-34-verlangt-abnahmekriterien-wortlich-zusammengefasst" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Zielband <strong>1800–2400 s</strong>, harte Obergrenze <strong>2400 s</strong>, gemessen vom Laufstart
+  bis zum Commit der HMS-Ausgabe, <strong>einschließlich</strong> Scan, Kalibrierung mit
+  vorhandenen Mastern, Normalisierung, Registrierung, Geometrie, Q-Maps, Drizzle,
+  Mehrband, Ausgabe, BGE/PCC/HMS, Astrometrie und <strong>allen</strong> Transfers/Hashes/I/O.</li>
+<li>OSC, internes 2×-Raster, Ausgabe 1×, unveränderte Qualitäts-Gates.</li>
+<li><strong>Alle 600 angebotenen Frames</strong> durchlaufen die reguläre Selektion. <strong>Kein</strong>
+  <code>max_frames</code>, <strong>kein</strong> Downscale.</li>
+<li>Mindestens <strong>ein affiner</strong> und <strong>ein lokal verzerrter</strong> Datensatz, je mit
+  <strong>600 verschiedenen Realframes</strong>. Reine Rotation ist affin und <strong>kein</strong> Beleg,
+  dass ein lokales Modell nötig ist — die Notwendigkeit ist pro Datensatz aus dem
+  Laufartefakt zu belegen (Anteil Frames mit aktivem lokalem Modell,
+  Rotationswinkel).</li>
+<li>Pro Klasse <strong>zwei vollständige Kaltläufe</strong> ohne lauf­abhängige Cache-Wieder­
+  verwendung, <strong>beide ≤ 2400 s</strong>.</li>
+<li><strong>Referenzprofil einfrieren</strong>: CPU/GPU, RAM, SSD, Threadzahl, Treiber/Compiler/
+  Binary-Hash, vollständige Config, Input-Manifest mit Datei-Hashes.</li>
+<li>P6-Planungsziel §11.14.7: <strong>projizierte Kette ≤ 1920 s</strong> (20 % Reserve zur
+  2400-s-Grenze). Diese Reserve ist kein behaupteter erreichbarer Wert.</li>
+<li>Scheitert die Abnahme: <strong>M10 blockiert</strong>; den dominierenden Restterm gezielt
+  neu entwerfen. Weder Minimax noch zusätzliche Threads ohne Messung als Lösung
+  deklarieren.</li>
+</ul>
+<hr />
+<h2 id="2-historische-datenlage-keine-aktuelle-endzeitprognose">2. Historische Datenlage — keine aktuelle Endzeitprognose<a class="headerlink" href="#2-historische-datenlage-keine-aktuelle-endzeitprognose" title="Permanent link">&para;</a></h2>
+<p>Alle drei Läufe: OSC, 3840×2160, <code>internal_scale=2</code> / <code>output_scale=1</code>,
+<code>parallel_workers=8</code>, GTX 1660 Ti vorhanden. Phasendauern aus
+<code>runs/&lt;lauf&gt;/logs/run_events.jsonl</code> (<code>phase_start</code>→<code>phase_end</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th style="text-align: right;">m31 40 f (M6, 06.09.)</th>
+<th style="text-align: right;">m42 40 f (M6, 06.09.)</th>
+<th style="text-align: right;">m66 100 f (M8 <code>27ba6e82</code>, 08.09.)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SCAN_INPUT</td>
+<td style="text-align: right;">6,3</td>
+<td style="text-align: right;">1,0</td>
+<td style="text-align: right;">1,6</td>
+</tr>
+<tr>
+<td>CHANNEL_SPLIT</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+</tr>
+<tr>
+<td>NORMALIZATION</td>
+<td style="text-align: right;">30,6</td>
+<td style="text-align: right;">28,0</td>
+<td style="text-align: right;">65,2</td>
+</tr>
+<tr>
+<td>REGISTRATION</td>
+<td style="text-align: right;">21,3</td>
+<td style="text-align: right;">20,3</td>
+<td style="text-align: right;">80,4</td>
+</tr>
+<tr>
+<td>NORMALIZED_CACHE</td>
+<td style="text-align: right;">0,95</td>
+<td style="text-align: right;">0,87</td>
+<td style="text-align: right;">2,3</td>
+</tr>
+<tr>
+<td>SAMPLING_GEOMETRY</td>
+<td style="text-align: right;">565,0</td>
+<td style="text-align: right;">1249,0</td>
+<td style="text-align: right;">2158,2</td>
+</tr>
+<tr>
+<td>COMMON_OVERLAP</td>
+<td style="text-align: right;">0,21</td>
+<td style="text-align: right;">0,24</td>
+<td style="text-align: right;">0,2</td>
+</tr>
+<tr>
+<td>SOURCE_QUALITY_MAPS</td>
+<td style="text-align: right;">120,1</td>
+<td style="text-align: right;">120,5</td>
+<td style="text-align: right;">279,0</td>
+</tr>
+<tr>
+<td>GLOBAL_QUALITY</td>
+<td style="text-align: right;">17,8</td>
+<td style="text-align: right;">17,6</td>
+<td style="text-align: right;">36,8</td>
+</tr>
+<tr>
+<td>FORWARD_DRIZZLE</td>
+<td style="text-align: right;">1576 / 1552 (2 Läufe)</td>
+<td style="text-align: right;">2930 / 2940 / 2954 / 2875 / 2843</td>
+<td style="text-align: right;"><em>durch Supervisor abgebrochen</em></td>
+</tr>
+<tr>
+<td>MULTIBAND</td>
+<td style="text-align: right;">38,7 / 33,6</td>
+<td style="text-align: right;">43,3 / 37,7 / 34,5 / 32,7 / 35,0</td>
+<td style="text-align: right;"><em>nicht erreicht</em></td>
+</tr>
+<tr>
+<td>Ausgabe / BGE / PCC / HMS / Astrometrie</td>
+<td style="text-align: right;"><em>läuft im <code>reconstruct</code>-Pfad nicht</em></td>
+<td style="text-align: right;"><em>dito</em></td>
+<td style="text-align: right;"><em>dito</em></td>
+</tr>
+</tbody>
+</table>
+<p>Frame-Bezug (aus den <code>phase_end</code>-Feldern, <strong>nicht</strong> geschätzt):
+- <strong>NORMALIZATION / REGISTRATION</strong>: m66 <code>global_registration.json num_frames=100</code> → alle 100.
+- <strong>SOURCE_QUALITY_MAPS</strong>: <code>phase_end.frames</code> = m31 <strong>40</strong>, m42 <strong>40</strong>, m66 <strong>100</strong>
+  (nicht 64 — der <code>linearity.max_frames=64</code>-Cap greift erst bei der
+  Drizzle-Eingangsselektion). ⇒ <strong>3,00 / 3,01 / 2,79 s pro Frame</strong> — konsistent,
+  ~linear.
+- <strong>SAMPLING_GEOMETRY</strong>: m66 sah ~64 Frames (Selektions-Cap), m31/m42 40. Zahl
+  ohnehin überholt (Klasse B).
+- <strong>FORWARD_DRIZZLE</strong>: m31/m42 auf 40 Frames (<code>max_frames=64</code>, aber nur 40
+  entdeckt). m66 abgebrochen.
+- <strong>MULTIBAND</strong>: m31/m42 40 Frames; canvasgebunden, praktisch framezahl-unabhängig.</p>
+<h3 id="21-zwei-provenienzklassen-pro-phase-getrennt-behandelt">2.1 Zwei Provenienzklassen — pro Phase getrennt behandelt<a class="headerlink" href="#21-zwei-provenienzklassen-pro-phase-getrennt-behandelt" title="Permanent link">&para;</a></h3>
+<p><strong>Klasse A — historische Messungen, für eine neue Prognose erneut zu prüfen:</strong> SCAN, CHANNEL_SPLIT, NORMALIZATION, REGISTRATION, NORMALIZED_CACHE,
+COMMON_OVERLAP, SOURCE_QUALITY_MAPS, GLOBAL_QUALITY, MULTIBAND.</p>
+<p><strong>Klasse B — überholt oder nie gemessen, Zahl nicht durch Skalierung
+gewinnbar:</strong></p>
+<ul>
+<li><strong>SAMPLING_GEOMETRY</strong>: Die 565 / 1249 / 2158 s stammen vom <strong>Pre-P1/P2-Pfad</strong>
+  (K-fache Geometrieberechnung, einthreadig). P1/P2 haben diesen Pfad ersetzt.
+  Die frühere Cache-Bau-Extrapolation aus §30.69 ist kein realer
+  3840×2160-Lauf und wird hier nicht als aktuelles Budget übernommen.</li>
+<li><strong>FORWARD_DRIZZLE</strong>: m31/m42 liefen vor Cache-/Schedulerintegration.
+  Die damaligen Zeiten können nicht direkt durch die heutige Workerzahl
+  geteilt werden. Aktuelle Messungen fehlen (§5).</li>
+<li><strong>Ausgabe / BGE / PCC / HMS / Astrometrie</strong>: in diesen historischen Läufen
+  nicht ausgeführt. Die inzwischen integrierte gemeinsame Funktion benötigt
+  noch reale End-to-End-Verifikation; es gibt keinen nachgetragenen Messwert.</li>
+</ul>
+<hr />
+<h2 id="3-p6-lauf-konfiguration">3. P6-Lauf-Konfiguration<a class="headerlink" href="#3-p6-lauf-konfiguration" title="Permanent link">&para;</a></h2>
+<h3 id="31-kein-handgeschriebenes-single-method-config">3.1 Kein handgeschriebenes Single-Method-Config<a class="headerlink" href="#31-kein-handgeschriebenes-single-method-config" title="Permanent link">&para;</a></h3>
+<p>Die Referenzläufe nutzen das Legacy-YAML über den migrierenden Loader
+(<code>from_yaml_text_migrated</code>). Was die Migration für <code>internal_scale</code>/<code>output_scale</code>
+exakt erzeugt, ist hier <strong>nicht</strong> zu erraten. Vorgehen: den <strong>M66-Gate-Config als
+Basis</strong> nehmen, die §3.4-Pflicht­änderungen als Delta anbringen (§3.2), und die
+<strong>tatsächlich aufgelösten Werte</strong> über ein Trocken-Validat bzw. einen
+4-Frame-Smoke-Lauf aus <code>run_provenance.json</code> / dem Config-SHA verifizieren
+lassen — <strong>bestätigen statt behaupten</strong>.</p>
+<p>Basis: <code>runs/m66_m9gate_20260908/config.yaml</code> (Legacy-Format,
+<code>pipeline.mode: production</code>, <code>aqmh.reconstruction.*</code>).</p>
+<h3 id="32-pflicht-deltas-zur-basis">3.2 Pflicht-Deltas zur Basis<a class="headerlink" href="#32-pflicht-deltas-zur-basis" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Schlüssel</th>
+<th>Basis (m66)</th>
+<th>P6</th>
+<th>Grund</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>linearity.max_frames</code></td>
+<td>64</td>
+<td><strong>entfernen</strong> (bzw. ≥ 600)</td>
+<td>§3.4: alle 600 Frames durch reguläre Selektion</td>
+</tr>
+<tr>
+<td>Datensatz / Frame-Manifest</td>
+<td>100 M66-Frames</td>
+<td><strong>600 verschiedene Realframes</strong> pro Klasse</td>
+<td>§3.4</td>
+</tr>
+<tr>
+<td><code>runtime_limits.memory_budget</code></td>
+<td>8192</td>
+<td><strong>16384 als Budgetkandidat</strong> — nur nach RAM-/cgroup-Preflight, explizit einfrieren (§4)</td>
+<td>§3.4 Referenzprofil</td>
+</tr>
+<tr>
+<td><code>runtime_limits.parallel_workers</code></td>
+<td>8</td>
+<td><strong>explizit festlegen und messen</strong>; Requested/Budgeted/Used getrennt protokollieren, keine lineare <code>/N</code>-Prognose</td>
+<td>§5</td>
+</tr>
+<tr>
+<td><code>aqmh.reconstruction.chunk_rows</code></td>
+<td>0 (auto)</td>
+<td>0 lassen <strong>oder</strong> eingefroren dokumentieren</td>
+<td>Referenzprofil</td>
+</tr>
+<tr>
+<td>interne/Ausgabe-Skala</td>
+<td>(migriert)</td>
+<td><strong>verifizieren = 2 / 1</strong> nach Migration</td>
+<td>§3.4</td>
+</tr>
+<tr>
+<td>Kalibrierung</td>
+<td>vorhandene Master</td>
+<td>vorhandene Master (Darks/Flats), im Manifest gehasht</td>
+<td>§3.4</td>
+</tr>
+<tr>
+<td><code>astrometry</code> / <code>bge</code> / <code>pcc</code> / <code>hypermetric_stretch</code></td>
+<td>(siehe §7)</td>
+<td>müssen im Ausführungspfad <strong>aktiv und gemessen</strong> sein</td>
+<td>§3.4 — aktiviert und erfolgreich nachzuweisen</td>
+</tr>
+</tbody>
+</table>
+<h3 id="33-datensatzwahl">3.3 Datensatzwahl<a class="headerlink" href="#33-datensatzwahl" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Lokal verzerrte Klasse</strong>: DwarfII alt-az (Feldrotation), hier die
+  M42-Familie aus <code>verify_m6m7/m42_base.yaml</code> mit <strong>600</strong> echten Frames.
+  Beleg der Lokalmodell-Notwendigkeit aus dem Lauf:
+  <code>forward_drizzle.json</code> / Checkpoint-Feld <code>hybrid_local_frames</code> bzw.
+  <code>has_smooth_local_model</code>-Anteil und die Rotationswinkelspanne. (§30.57: M42
+  40 f ergab <code>hybrid_local_frames=1</code> — bei 600 f neu zu belegen.)</li>
+<li><strong>Affine Klasse</strong>: M31 (<code>verify_m6m7</code>) wurde mit 600 Frames verwendet. Die
+  Laufartefakte zeigen 0 aktive lokale Modelle; reine Rotation zählt als affin
+  und ist kein Beleg für die lokal-verzerrte Klasse.</li>
+</ul>
+<h3 id="34-skalierungsleiter-40-100-200-600-plan-11147-erster-punkt">3.4 Skalierungsleiter 40 / 100 / 200 / 600 (Plan §11.14.7, erster Punkt)<a class="headerlink" href="#34-skalierungsleiter-40-100-200-600-plan-11147-erster-punkt" title="Permanent link">&para;</a></h3>
+<p>Vor den beiden 600-f-Kaltläufen pro Klasse eine Leiter bei <strong>realer
+3840×2160-Canvas</strong> und <strong>realem <code>internal_scale=2</code></strong>, gleicher Config bis auf die
+Frameanzahl. Zweck: die Skalierungsannahmen aus §4/§5 gegen echte Punkte prüfen —
+<strong>keine O(N·P)-RAM-Zunahme bei gleichem Budget</strong>, <strong>keine erneute K-fache
+Geometrie</strong>, wenn Kandidaten mehr Zeilenbudget verbrauchen (Plan-Wortlaut).
+Synthetische Daten dürfen die <strong>Lastskalierung</strong> testen; die <strong>echte
+Qualitätsabnahme</strong> bleibt davon getrennt (§21 / M9). Pro Sprosse festhalten:
+Peak-RSS, <code>geometry_cache_max_row_record_count</code>, <code>enumerate_call_count</code>,
+Phasendauern, <code>forward_drizzle_reduction_workers</code>.</p>
+<hr />
+<h2 id="4-speicher-i-o-referenzprofil-34-referenzprofil-einfrieren">4. Speicher-/I-O-Referenzprofil (§3.4 „Referenzprofil einfrieren")<a class="headerlink" href="#4-speicher-i-o-referenzprofil-34-referenzprofil-einfrieren" title="Permanent link">&para;</a></h2>
+<p>Aus der P4-Analyse (§30.66): der residente framezahl­abhängige Term sind die
+Registrierungs-Proxies, nach der Admission-Term-Korrektur <strong><code>pixels/4</code></strong> pro
+Frame. Bei 3840×2160 = 8,29 Mpx → <strong>≈ 2,07 M Einträge/Frame</strong>.</p>
+<ul>
+<li>600 Frames × 2,07 M Einträge × 4 B ≈ <strong>4,97 GB</strong> allein für die Proxy-Residenz,
+  <strong>vor</strong> Arbeitsmenge, Canvas-Bändern (<code>A/B/QA*</code>), Kandidatenpuffern und
+  CFITSIO-I/O.</li>
+<li>Der eingefrorene 4-GB-Envelope (§11.13) <strong>fasst 600 Frames bei 3840×2160
+  nicht</strong> — das ist bereits bei M9-Start festgestellt (M66 lief bei 8 GB).</li>
+<li><strong>Folge:</strong> P6 muss sein <code>memory_budget</code> explizit deklarieren. 16384 MiB ist
+  ein Kandidat; dessen Eignung wird anhand aktueller RAM-/cgroup-Grenzen,
+  vorhandener Proxies, Downstream-Arbeitssätze und der Leiter geprüft. Frühere
+  Angaben „32 GB frei“ sind keine aktuelle Ressourcenprüfung.</li>
+<li>Pro Worker entstehen neben dem Geometry-Reader-Block framezahlabhängige
+  temporäre Clipping-/Alpha-Vektoren. Die gemeinsamen Bild-/Kandidatenpuffer
+  werden nicht dupliziert. Der CPU-Plan budgetiert dennoch den vollständigen
+  zusätzlichen Scratch einschließlich Reader-Reallokation und Reserve;
+  zu viele Worker werden reduziert, passt ein Worker nicht, wird abgebrochen.</li>
+<li>Der Geometry-Index skaliert mit <strong>Framezahl × Quellhöhe</strong>. Eine Hochrechnung
+  von ~3 KiB/Frame bei 96 Zeilen auf 2160 Zeilen muss auch die Höhe skalieren:
+  etwa 600 × 3 KiB × 2160/96 ≈ <strong>39,6 MiB pro solcher Indexvariante</strong>,
+  nicht 1,8 MiB. Variantenanzahl und Metadaten zusätzlich berücksichtigen.</li>
+<li>Record-Disk, Hash-Lesevolumen, Reader-I/O und persistente Q-/Normalized-
+  Caches separat budgetieren. Kleine warme Testdateien belegen keinen
+  nachhaltigen SSD-Durchsatz für mehrere hundert GiB.</li>
+</ul>
+<p>Einzufrieren (Vorlage, vom Benutzer auszufüllen):</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>CPU:                 &lt;Modell, Kernzahl, Basistakt&gt;
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>GPU:                 &lt;Modell, VRAM, Treiberversion&gt;
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>RAM:                 &lt;GB, Typ, Takt&gt;
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>SSD:                 &lt;Modell, freier Platz, fs&gt;
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>parallel_workers:    &lt;n&gt;
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>memory_budget:       &lt;MB&gt;   (Erwartung &gt;= 8192, Begründung siehe oben)
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>chunk_rows:          &lt;auto/fix&gt;
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>Compiler:            &lt;gcc/clang Version, Flags: -ffp-contract=off-Liste aktiv&gt;
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>Binary-SHA256:       &lt;hash des runner-Binaries&gt;
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>Config-SHA256:       &lt;hash der migrierten P6-Config&gt;
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>Input-Manifest:      &lt;Datei -&gt; SHA256, 600 Zeilen pro Klasse&gt;
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>Kalibrier-Master:    &lt;dark/flat -&gt; SHA256&gt;
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>CUDA-Backend:        &lt;auto/on/off, tatsächlich genutzt?&gt;
+</span></code></pre></div>
+<hr />
+<h2 id="5-phasenbudget-korrigierte-evidenzlage">5. Phasenbudget: korrigierte Evidenzlage<a class="headerlink" href="#5-phasenbudget-korrigierte-evidenzlage" title="Permanent link">&para;</a></h2>
+<p>Die historischen Messungen in §2 bleiben als Belege erhalten. Sie sind keine
+Messung des aktuellen vollständigen 600-Frame-Pfads.</p>
+<p><strong>Rechenkorrektur:</strong> Die frühere Klasse-A-Tabelle summiert sich auf rund
+<strong>2850–3000 s</strong> (Scan ~5 + Normalisierung ~390 + Registrierung ~480 +
+Normalized-Cache ~15 + Overlap ~1 + Q-Maps ~1700–1800 + Global-Quality ~220–270 +
+Multiband ~40). Der früher eingesetzte Sockel von 1500 s war falsch. Darauf
+beruhende Gesamtsummen 4450–11200 s sind zurückgezogen.</p>
+<p><strong>Methodische Korrektur:</strong> Pre-P1/P2-Drizzlezeiten enthalten wiederholte lokale
+Geometrieberechnung. Sie dürfen weder unverändert dem neuen Cachepfad
+zugeordnet noch pauschal durch die CPU-Kernzahl geteilt werden. Ein separater
+Cache-Bauterm plus unveränderter alter lokaler Drizzletakt kann denselben
+Geometrieaufwand doppelt zählen. Der aktuelle <code>SOURCE_QUALITY_MAPS</code>-Orchestrator
+arbeitet Frame für Frame; aus <code>parallel_workers=8</code> in der Config folgt keine
+achtfache Parallelität dieser Phase. Vermutete I/O-Bindung ist zu messen.</p>
+<h3 id="51-neu-zu-messende-groen">5.1 Neu zu messende Größen<a class="headerlink" href="#51-neu-zu-messende-groen" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Messung</th>
+<th>Trennung / Vergleich</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Geometrie</td>
+<td>Wall-Zeit für Build, Records, fsync, Commit/Hashes und anschließende Coverage; Varianten getrennt</td>
+</tr>
+<tr>
+<td>Drizzle CPU</td>
+<td>Cache aktiv, 1/2/4/budgetverträgliche Worker, tatsächliche Teamgröße, gleiche Bild-/Canvasgeometrie</td>
+</tr>
+<tr>
+<td>Drizzle CUDA/Hybrid</td>
+<td>GPU-Backend separat; CPU-Workerparameter ist kein Device-Speedup</td>
+</tr>
+<tr>
+<td>Q-Maps/Quellen</td>
+<td>Rechenzeit, Dateiladungen, SHA-I/O, verifizierte Wiederverwendung</td>
+</tr>
+<tr>
+<td>Downstream</td>
+<td>STACKING, Astrometrie, BGE, PCC, HMS einschließlich Dateischreiben/Commit</td>
+</tr>
+<tr>
+<td>Gesamtlauf</td>
+<td>Gemeinsame monotone Wall-Zeit vom Start bis HMS-Commit; Summe paralleler Taskzeiten ist kein Ersatz</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Entscheidungsregel:</strong> Erst die aktuelle Leiter liefert eine belastbare
+Projektion. Das Planungsziel bleibt ≤1920 s, die tatsächliche P6-Grenze ≤2400 s.
+Bei überschrittener Projektion ist ein weiterer Diagnoselauf von einer
+Erfolgserwartung zu unterscheiden; M10 bleibt ohne bestandene Abnahme blockiert.
+Keine Gate-Lockerung und keine neue Numerik aus einer veralteten Projektion
+ableiten.</p>
+<hr />
+<h2 id="6-ausfuhrungs-checkliste-fur-den-benutzer-wenn-autorisiert">6. Ausführungs-Checkliste (für den Benutzer, wenn autorisiert)<a class="headerlink" href="#6-ausfuhrungs-checkliste-fur-den-benutzer-wenn-autorisiert" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Referenzprofil (§4-Vorlage) vollständig ausfüllen und einfrieren.</li>
+<li>600-Frame-Manifest je Klasse erzeugen, Datei-Hashes ins Manifest.</li>
+<li>P6-Config aus M66-Basis + §3.2-Deltas; <strong><code>max_frames</code> entfernt</strong> bestätigen;
+   migrierte Werte via <code>run_provenance.json</code> / 4-Frame-Smoke prüfen
+   (<code>internal_scale=2</code>, <code>output_scale=1</code>, <code>memory_budget</code> wie deklariert).</li>
+<li>Skalierungsleiter 40/100/200/600 pro Klasse (§3.4 hier), Kennzahlen
+   protokollieren.</li>
+<li>Pro Klasse <strong>zwei Kaltläufe in verschiedenen neuen Laufverzeichnissen</strong>
+   (keine laufabhängigen Caches übernehmen; bestehende Läufe nicht löschen), Wanduhr Laufstart →
+   HMS-Commit.</li>
+<li>Pro Lauf sichern: <code>logs/run_events.jsonl</code>, alle <code>artifacts/*.json</code>,
+   <code>forward_drizzle_geometry_profile.json</code> (enthält
+   <code>forward_drizzle_stage_stats_suppressed_reduction_workers</code>,
+   <code>geometry_cache_max_row_record_count</code>), angeforderte/budgetierte/tatsächliche
+   Workerzahl, Peak-RSS und GPU-Auslastung. CUDA verwendet keine CPU-
+   Reduktionsworker; unterdrückte Zähler sind kein Cache-Nachweis.</li>
+<li>Ergebnis gegen §3.4 auswerten: beide Läufe je Klasse ≤ 2400 s? Falls nein:
+   dominierenden Restterm aus den realen Phasendauern bestimmen → Neuentwurf,
+   M10 bleibt blockiert.</li>
+</ol>
+<hr />
+<h2 id="7-verbleibende-start-und-abnahmevoraussetzungen">7. Verbleibende Start- und Abnahmevoraussetzungen<a class="headerlink" href="#7-verbleibende-start-und-abnahmevoraussetzungen" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Zwei vollständige Input-Manifeste und Kalibriermaster festlegen, je 600
+   verschiedene Realframes. Affine und lokal verzerrte Klasse aus den
+   Registrierungsartefakten nachweisen; reine Feldrotation ist affin.</li>
+<li>Aktuellen Runner bauen und relevante CPU-/CUDA-/Downstream-Tests bestehen
+   lassen. Ein funktionierender synthetischer Eingang ersetzt keine reale
+   Astrometrie-/PCC-/HMS-Verifikation mit Katalog und Solver.</li>
+<li>Solver/Katalog vorhanden und lesbar; <code>astrometry.enabled</code>, <code>pcc.enabled</code>
+   und <code>hypermetric_stretch.enabled</code> aktiv, BGE passend konfiguriert. Ein
+   fehlender HMS-Commit oder übersprungene Pflichtphase ist kein P6-Pass.</li>
+<li>RAM/cgroup/SSD-Preflight für beide Klassen, migrierte effektive Config,
+   Master-/Input-/Binary-Hashes und Zielverzeichnisse einfrieren.</li>
+<li>Aktuelle 40/100/200/600-Leiter bei realer Geometrie messen; Index-Residenz,
+   vollständiger Scratch und Cache-I/O gehören zur Ressourcenprüfung.</li>
+<li>Erst vollständige Kaltläufe bis HMS belegen P6. Der Gesamtzeitnachweis,
+   reales MONO/Schmalband und die übrige M9-Matrix bleiben separate Abnahmen.</li>
+</ol>
+<hr />
+<h2 id="8-was-p6-nicht-ist">8. Was P6 <strong>nicht</strong> ist<a class="headerlink" href="#8-was-p6-nicht-ist" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Kein Arbeitspaket P0–P5 hat P6 autorisiert (Plan §11.14: „Kein Arbeitspaket
+  autorisiert einen Benutzerrun").</li>
+<li>Dieses Runbook <strong>bereitet vor</strong> und <strong>projiziert</strong>. Es startet nichts.</li>
+<li>Die 20-%-Reserve (≤ 1920 s projiziert) ist Planungsreserve, <strong>kein</strong> behaupteter
+  erreichbarer Wert; §5 verlangt eine neue, aktuelle Messgrundlage.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

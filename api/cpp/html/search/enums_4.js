@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['normalizationmode_0',['NormalizationMode',['../namespacetile__compile.html#a113c88ccb2f881de2fb1d31f06b42093',1,'tile_compile']]]
+  ['inputclassdecision_0',['InputClassDecision',['../namespacetile__compile_1_1core.html#a96073de082041202c42ce204c49fbfa4',1,'tile_compile::core']]]
 ];

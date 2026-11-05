@@ -1,0 +1,17 @@
+<map id="tile_compile::image::finalize_bge_from_channel_models" name="tile_compile::image::finalize_bge_from_channel_models">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,195,139,247"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a69b211635ad56038c36264981f5a59f3" title="Builds chroma background mask from rgb." alt="" coords="194,5,374,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="85,193,125,131,153,98,185,68,194,64,190,68,188,72,157,101,129,134,90,195"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#abb722201bc995b9f7c8f72667aa21ad2" title="Implements coarse background plane slope." alt="" coords="213,83,355,135"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="109,192,185,145,200,140,196,144,188,150,113,196"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1image.html#a576c733cf449ceaf9e575ad84bad16c2" title="Implements enforce canvas mask on rgb." alt="" coords="204,160,364,213"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="138,208,191,200,187,203,140,213"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1image.html#adba510b587172f627de3f16713481fb2" title="Implements log chroma std background." alt="" coords="187,236,381,275"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="138,229,174,236,169,238,140,234"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1core.html#af1361dab041db5d25f27d0f01d6075d2" title="Implements median of." alt="" coords="222,299,346,338"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="116,245,188,284,211,295,205,296,186,289,115,251"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1image.html#ad88bb65e2327d61203a234d2f6b84fe7" title="Implements spatial background spread." alt="" coords="214,361,354,414"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="92,245,134,297,160,323,188,347,203,358,197,357,185,351,156,327,130,300,91,250"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1image.html#a1372aacb5d925f9338600baaf36f875a" title="Implements canvas mask matches image." alt="" coords="429,167,637,206"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="363,184,416,186,411,187,365,189"/>
+</map>

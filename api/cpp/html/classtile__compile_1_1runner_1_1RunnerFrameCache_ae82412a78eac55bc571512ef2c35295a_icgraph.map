@@ -1,0 +1,5 @@
+<map id="tile_compile::runner::RunnerFrameCache::load_normalized" name="tile_compile::runner::RunnerFrameCache::load_normalized">
+<area shape="rect" id="Node000001" title="Load a normalized full&#45;resolution frame from the disk cache." alt="" coords="223,5,400,58"/>
+<area shape="rect" id="Node000002" href="$classtile__compile_1_1runner_1_1RunnerFrameCache.html#aec528c106e4af9bbcfcce5e874027383" title="Try to load a normalized frame, returning false if not available." alt="" coords="5,5,175,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="205,32,175,34,175,29,210,31"/>
+</map>

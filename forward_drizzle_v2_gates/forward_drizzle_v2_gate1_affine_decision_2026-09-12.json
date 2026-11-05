@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "gate": 1,
+  "status": "passed",
+  "decision": "dense_device_scatter",
+  "oracle": "CUDA target-gather on production matrix plus exact CPU record oracle on the Gate-0 small matrix",
+  "spec": {
+    "path": "docs/forward_drizzle_v2_gate1_affine_benchmark_spec_2026-09-12.json",
+    "sha256": "9be00e5a367b2ec4e3d15dc23a49270fa1c2cd0e2455fc2f03a5506809b5b149",
+    "schema_version": 2
+  },
+  "results": {
+    "path": "docs/forward_drizzle_v2_gate1_affine_results_2026-09-12.jsonl",
+    "cases": 21,
+    "flux_cases": 1
+  },
+  "build": {
+    "git_sha": "e65dbda1c6589e7813089397bf3a743a2be6fbb2",
+    "git_dirty": false,
+    "source_tree_digest": "f7b8733e1deff98a15e6402f4a0cdc42e5e92711149019e16ff1f59cd0411915",
+    "build_id": "438e97b437c79e7c96e7f800c824b787683820c25e5315af7ac325b967db02e6",
+    "tests_binary_sha256": "40bdd13f27e882e011c0dec1c51172ff120ab54de406ad4fc99f3e8b1601168c",
+    "build_type": "Release",
+    "compiler": "GNU 16.1.1",
+    "cuda": "13.0.88"
+  },
+  "hardware": {
+    "cpu": "AMD Ryzen 7 3700X 8-Core Processor",
+    "gpu": "NVIDIA GeForce GTX 1660 Ti",
+    "logical_cores": 16
+  },
+  "matrix": {
+    "source_geometry": [3840, 2160],
+    "target_geometry": [7868, 4540],
+    "transforms": 7,
+    "pixfrac_values": [0.2, 0.8, 1.0],
+    "cases": 21
+  },
+  "correctness": {
+    "positive_overlap_count_mismatches": 0,
+    "max_support_mismatches": 0,
+    "max_abs_error": 0.0,
+    "max_relative_error": 0.0,
+    "repeat_max_abs_error": 0.0,
+    "repeat_max_relative_error": 0.0,
+    "constant_field_relative_error": 0.0,
+    "point_a_relative_error": 5.238691702658115e-10,
+    "point_b_relative_error": 5.238691425102359e-10,
+    "all_predeclared_thresholds_passed": true
+  },
+  "performance": {
+    "steady_definition": "source upload plus dense-scatter kernel; frame-local A/B remains device-resident",
+    "full_ab_download_is_correctness_only": true,
+    "first_min_seconds": 0.085475872,
+    "first_median_seconds": 0.251049658,
+    "first_max_seconds": 0.714831363,
+    "first_max_case": "stress_shear_scale_a/pixfrac=1.0",
+    "repeat_min_seconds": 0.060361952,
+    "repeat_median_seconds": 0.214155061,
+    "repeat_max_seconds": 0.673498032,
+    "repeat_max_case": "stress_shear_scale_a/pixfrac=1.0",
+    "predeclared_threshold_seconds": 0.75,
+    "all_predeclared_thresholds_passed": true,
+    "device_global_synchronizations_per_frame": 0,
+    "stream_synchronizations_per_frame": 3,
+    "hotpath_device_allocations": 0,
+    "host_contribution_records": 0,
+    "gather_correctness_seconds": {
+      "min": 1.088493531,
+      "median": 1.476026414,
+      "max": 2.193545094
+    }
+  },
+  "implementation_evidence": {
+    "persistent_workspace_allocations_for_two_calls": 1,
+    "clip_implementation": "four-plane Sutherland-Hodgman with ping-pong vertex buffers",
+    "atomic_repeatability_scope": "two consecutive dense-scatter runs for every matrix case",
+    "test_result": "All tests passed: 314 assertions in one hidden Gate-1 case"
+  },
+  "selection_rationale": [
+    "Dense scatter passed every predeclared correctness, support, flux, repeatability and performance threshold.",
+    "Dense scatter creates no host contribution records and uses memory independent of frame count for frame-local A/B planes.",
+    "Target gather remains the production-size correctness oracle but was slower in every measured matrix case.",
+    "The selected scatter workspace uses no cudaDeviceSynchronize and performs no buffer allocation in the per-frame hotpath."
+  ],
+  "limitations_carried_forward": [
+    "Double atomicAdd repeatability is demonstrated on the frozen GTX 1660 Ti matrix, not proven for every future GPU architecture.",
+    "Three stream synchronizations remain for separated Gate-1 timing; Gate 6 must overlap upload, compute and downstream device reduction.",
+    "Full frame-local A/B downloads are correctness-only and must not occur per frame in the selected production pipeline.",
+    "Gate 1 selects affine enumeration only. Robust reduction, support/fold, confidence, memory/I/O, transaction and local warp gates remain open."
+  ]
+}

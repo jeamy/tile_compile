@@ -8,8 +8,10 @@ var structtile__compile_1_1astrometry_1_1PCCBackgroundNeutralizationDecision =
     [ "bg_r", "structtile__compile_1_1astrometry_1_1PCCBackgroundNeutralizationDecision.html#aa1c0402143461ba41064bed5a86708d3", null ],
     [ "bg_ref", "structtile__compile_1_1astrometry_1_1PCCBackgroundNeutralizationDecision.html#aa7096c1a665255b02b70b19989ccd06f", null ],
     [ "bg_std", "structtile__compile_1_1astrometry_1_1PCCBackgroundNeutralizationDecision.html#a6bf52f14bcfab912679d0e7fdc4cbe49", null ],
+    [ "global_chroma_offset", "structtile__compile_1_1astrometry_1_1PCCBackgroundNeutralizationDecision.html#a3bd23670df81eca18ff4e622ee2d2ee5", null ],
     [ "max_abs_shift", "structtile__compile_1_1astrometry_1_1PCCBackgroundNeutralizationDecision.html#a178fad7e8f57e7f1adde6d73d05c80d3", null ],
     [ "reason", "structtile__compile_1_1astrometry_1_1PCCBackgroundNeutralizationDecision.html#a9fcf897504b67c755cce9e77646f30b4", null ],
+    [ "relative_chroma_scatter", "structtile__compile_1_1astrometry_1_1PCCBackgroundNeutralizationDecision.html#a04b51f485d1220138f417dd0a906636f", null ],
     [ "rg_std", "structtile__compile_1_1astrometry_1_1PCCBackgroundNeutralizationDecision.html#a90f707d2c27d8b229c2906361380565d", null ],
     [ "shift_sigma_ratio", "structtile__compile_1_1astrometry_1_1PCCBackgroundNeutralizationDecision.html#a8c15befa63414132aa44cd7103e6cc3e", null ],
     [ "strength", "structtile__compile_1_1astrometry_1_1PCCBackgroundNeutralizationDecision.html#aa47c7c009e83c171de3f2bd3b15274f1", null ]

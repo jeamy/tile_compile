@@ -11,7 +11,9 @@ var structtile__compile_1_1image_1_1BGECandidateResult =
     [ "objective_normalized", "structtile__compile_1_1image_1_1BGECandidateResult.html#a0bb012b6c2e13dfa99bfc6e6f77cbbd0", null ],
     [ "objective_raw", "structtile__compile_1_1image_1_1BGECandidateResult.html#a4bd1c64b34879dd3cae1a8862b33a2e1", null ],
     [ "roughness", "structtile__compile_1_1image_1_1BGECandidateResult.html#a0746b4e59e3d930f3ae3aef8ccef4289", null ],
+    [ "sample_spread", "structtile__compile_1_1image_1_1BGECandidateResult.html#ab791ec6f9bd5ff8d2c66117ec8ace148", null ],
     [ "success", "structtile__compile_1_1image_1_1BGECandidateResult.html#aed6eef16b933ad0297e13aa6bdfbe30d", null ],
     [ "surface_sample_seconds", "structtile__compile_1_1image_1_1BGECandidateResult.html#a1e89abe2afa73f350059334f0d59cae1", null ],
+    [ "surface_spread", "structtile__compile_1_1image_1_1BGECandidateResult.html#a7355909575a00c2b0ae13bc3fe0fd921", null ],
     [ "total_seconds", "structtile__compile_1_1image_1_1BGECandidateResult.html#abf33c165219b355b78cef065c8fc8d65", null ]
 ];

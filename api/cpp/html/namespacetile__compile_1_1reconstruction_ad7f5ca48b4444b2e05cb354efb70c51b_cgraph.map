@@ -1,0 +1,23 @@
+<map id="tile_compile::reconstruction::fuse_multiband_streamed" name="tile_compile::reconstruction::fuse_multiband_streamed">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,219,186,257"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#a7ff5d604a38a421f0102e3d553ea98f8" title=" " alt="" coords="240,171,420,209"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="185,217,228,210,223,212,187,222"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1reconstruction.html#a748fafd41471fd04c692d3db7837b460" title=" " alt="" coords="234,249,427,288"/>
+<area shape="poly" id="edge10_Node000001_Node000010" title=" " alt="" coords="186,247,221,254,215,254,186,252"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#a21472a3bf3d8b6c6b4b9df738ea30b96" title=" " alt="" coords="485,5,665,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="346,168,399,112,434,80,474,53,486,49,481,52,476,58,438,84,402,115,349,172"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1reconstruction.html#acf185000e111c007bcb513e99e1ed173" title=" " alt="" coords="485,68,665,107"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="366,168,416,142,474,116,493,111,488,113,476,120,419,146,368,173"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1reconstruction.html#a806ef76d87e370a1a34b5308178c17e3" title=" " alt="" coords="475,280,675,319"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="375,207,428,234,452,250,476,265,493,274,488,274,474,270,449,255,426,239,374,213"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1reconstruction.html#a360fe4c7a51f0fbe414d8f30e0cec988" title=" " alt="" coords="485,155,665,193"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="421,181,472,180,467,181,422,187"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1reconstruction.html#aecba5784b35c36ba874b7a6c48f2a9da" title=" " alt="" coords="485,217,665,256"/>
+<area shape="poly" id="edge9_Node000002_Node000009" title=" " alt="" coords="421,205,473,216,467,217,421,210"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1reconstruction.html#ab90e5e9bdf072dbb7b4f402bc6f14574" title=" " alt="" coords="723,5,904,44"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="665,22,710,24,705,25,666,27"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1reconstruction.html#aa8112e0fdf5fdcffc270d15e79dc8c5a" title=" " alt="" coords="723,68,904,107"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="666,85,710,87,705,88,666,90"/>
+<area shape="poly" id="edge8_Node000008_Node000008" title=" " alt="" coords="531,153,528,145,535,136,551,130,575,128,601,130,618,139,613,139,600,136,575,133,552,135,538,140,533,146,536,156"/>
+<area shape="poly" id="edge11_Node000010_Node000007" title=" " alt="" coords="427,278,462,285,457,285,427,283"/>
+</map>

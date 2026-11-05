@@ -1,0 +1,10 @@
+<map id="tile_compile::registration::render_smooth_local_displacement" name="tile_compile::registration::render_smooth_local_displacement">
+<area shape="rect" id="Node000001" title=" " alt="" coords="479,36,712,75"/>
+<area shape="poly" id="edge5_Node000001_Node000001" title=" " alt="" coords="638,21,623,17,596,15,570,17,554,22,549,28,552,37,547,35,544,27,551,17,569,12,596,10,625,12,643,21"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#aeb688663a125e7d3fcfe310b6383aac7" title=" " alt="" coords="232,36,431,75"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="461,56,431,58,431,53,466,56"/>
+<area shape="poly" id="edge2_Node000002_Node000002" title=" " alt="" coords="369,21,356,17,331,15,308,17,294,22,290,28,292,37,288,35,284,27,291,17,307,12,331,10,357,12,374,21"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1registration.html#abb392e68618f7bf588cc3f4cb3c277e7" title=" " alt="" coords="5,29,184,82"/>
+<area shape="poly" id="edge3_Node000002_Node000003" title=" " alt="" coords="213,56,184,58,184,53,219,55"/>
+<area shape="poly" id="edge4_Node000003_Node000003" title=" " alt="" coords="131,15,118,10,94,8,73,10,60,15,53,21,54,29,48,28,49,19,57,10,72,5,95,3,120,5,136,14"/>
+</map>

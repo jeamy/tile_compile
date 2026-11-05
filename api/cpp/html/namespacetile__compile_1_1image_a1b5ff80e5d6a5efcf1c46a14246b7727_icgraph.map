@@ -1,0 +1,17 @@
+<map id="tile_compile::image::apply_global_warp" name="tile_compile::image::apply_global_warp">
+<area shape="rect" id="Node000001" title="Applies global warp." alt="" coords="529,75,666,113"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#ab99beda6dfaa709c49d52ce997e384dd" title="Applies global warp." alt="" coords="332,5,469,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="524,69,458,47,458,42,529,69"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#a5010168068f01a2a500816df82eda6bc" title="Runs phase registration prewarp." alt="" coords="320,68,481,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="511,94,482,97,481,91,516,94"/>
+<area shape="rect" id="Node000006" href="$classtile__compile_1_1core_1_1AccelerationOps.html#af2a7a201615ef7008d380bb358311245" title=" " alt="" coords="320,145,481,198"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="535,119,471,147,469,142,529,120"/>
+<area shape="rect" id="Node000004" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="110,82,264,106"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="303,95,266,97,264,91,308,93"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,82,55,106"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="92,96,56,96,54,92,96,92"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1runner.html#a645c3227b111cd1ccefda941e289cdb6" title=" " alt="" coords="103,141,272,180"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="302,167,273,168,272,162,307,166"/>
+<area shape="rect" id="Node000008" href="$classtile__compile_1_1core_1_1AccelerationOps.html#a8f60296e1e22270b2a23c647544cce98" title="Implements fused 3&#45;channel (RGB) warp affine frame with support mask update." alt="" coords="107,204,268,256"/>
+<area shape="poly" id="edge7_Node000006_Node000008" title=" " alt="" coords="308,197,269,210,268,205,302,198"/>
+</map>

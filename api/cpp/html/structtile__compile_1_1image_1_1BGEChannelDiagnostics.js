@@ -13,6 +13,7 @@ var structtile__compile_1_1image_1_1BGEChannelDiagnostics =
     [ "autotune_selected_fit_method", "structtile__compile_1_1image_1_1BGEChannelDiagnostics.html#a303ea3b915265ff2aafcdc3ddcb14253", null ],
     [ "autotune_selected_grid_spacing", "structtile__compile_1_1image_1_1BGEChannelDiagnostics.html#a02c11c9ff69ab812d57f0c266f9b5707", null ],
     [ "autotune_selected_rbf_mu_factor", "structtile__compile_1_1image_1_1BGEChannelDiagnostics.html#a3ecdbdea9260f6770b6e43c044eabc1e", null ],
+    [ "autotune_selected_sample_estimator", "structtile__compile_1_1image_1_1BGEChannelDiagnostics.html#a54cbe9f387f1836eb13c2d0452cd29db", null ],
     [ "autotune_selected_sample_quantile", "structtile__compile_1_1image_1_1BGEChannelDiagnostics.html#a26dba5ebc4391c3be1d9b68cf188cca2", null ],
     [ "autotune_selected_structure_thresh_percentile", "structtile__compile_1_1image_1_1BGEChannelDiagnostics.html#aa7e234ced9598e9db840eafa5947ffac", null ],
     [ "channel_name", "structtile__compile_1_1image_1_1BGEChannelDiagnostics.html#ac1d4517131aafa6f821a1336c4667c40", null ],

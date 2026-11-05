@@ -1,0 +1,145 @@
+{
+  "schema_version": 3,
+  "gate": 3,
+  "status": "frozen_decided",
+  "v2_changes": [
+    "group count sweep K in {17, 41} added to every group-based candidate before the first comparison run; K trades per-pixel state bytes (Gate 5 input) against grouped-contamination robustness",
+    "bimodal case excluded from the absolute vs-oracle bound and gated against truth instead: the production clip collapses to one mode by design when the weighted MAD is zero, so deviation from the oracle is documented, not failed"
+  ],
+  "v3_changes": [
+    "exploratory run showed all MoM candidates fail grouped_contamination_30pct at K=17 and winsorized still fails at K=41; at production N=600 periodic contamination spreads over every group, so a per-frame bounded candidate is required",
+    "candidate reservoir_sigma_clip added: deterministic hash reservoir keeps frame f iff splitmix64(frame_order ^ seed) < floor(2^64 * R / N) with R=64, seed fixed, where N is the known stream length (sampling-plan frame count, not the per-pixel valid count) so the keep decision is a true single-pass predicate; the exact oracle clip runs on the reservoir; for N <= R it is bit-identical to the oracle",
+    "cases clean_gauss_N600 and grouped_contamination_30pct_N600 added to measure the production-N regime; grouped_contamination_30pct_N600 is gated by the same worst-case vs-oracle bound, clean_gauss_N600 is reported (reservoir subsample noise) but not gated"
+  ],
+  "context": {
+    "input_stream": "per native pixel and channel: ordered frame candidates (frame_order, x_f, b_f) folded per frame by the Gate-2 contract",
+    "oracle": "production full-list iterative weighted median/MAD sigma-clip (robust_clip_core semantics: deterministic value order, weighted median, weighted MAD, asymmetric clip bounds, iterated passes, no epsilon padding)",
+    "oracle_params": {
+      "min_clip_contributors": 5,
+      "robust_passes": 3,
+      "clip_sigma_low": 3.0,
+      "clip_sigma_high": 3.0
+    },
+    "hard_architecture_constraints": {
+      "single_pass_over_frame_stream": true,
+      "per_pixel_state_bytes_independent_of_frame_count": true,
+      "host_contribution_records": 0,
+      "no_second_rasterization": true,
+      "rationale": "dense device scatter emits each frame-local A/B plane exactly once; a second pass over frame candidates would need either a pixel-times-frame store or re-rasterization, both forbidden"
+    }
+  },
+  "candidates": [
+    {
+      "id": "uniform",
+      "role": "baseline_and_fallback",
+      "memory": "O(1)",
+      "passes": 1,
+      "selectable_as_primary": false
+    },
+    {
+      "id": "mom_weighted_median",
+      "group_counts": [17, 41],
+      "description": "frames assigned deterministically to K=17 groups by frame_order mod K; group means weighted by group b; final value = weighted median of group means; weights b unchanged so B/B2 keep all frames",
+      "memory": "O(K)",
+      "passes": 1,
+      "selectable_as_primary": true
+    },
+    {
+      "id": "mom_winsorized_groups",
+      "group_counts": [17, 41],
+      "description": "same K group means; center = median of group means, scale = 1.4826*MAD; group means clamped to center +- 4.5*scale; final = weighted mean of clamped group means with group b weights; frame weights unchanged",
+      "memory": "O(K)",
+      "passes": 1,
+      "selectable_as_primary": true
+    },
+    {
+      "id": "mom_trimmed_groups",
+      "group_counts": [17, 41],
+      "description": "same K group means and same center/scale; groups outside bounds dropped entirely; final = weighted mean of surviving group means; B/B2 accumulate surviving group weights only",
+      "memory": "O(K)",
+      "passes": 1,
+      "selectable_as_primary": true
+    },
+    {
+      "id": "reservoir_sigma_clip",
+      "description": "deterministic hash reservoir: keep frame f iff splitmix64(f ^ seed) < floor(2^64 * R / N), R=64, seed fixed, N = known stream length (sampling-plan frame count) so the keep predicate is single-pass; run the exact production oracle clip on the kept candidates; B/B2 accumulate the full stream so support is preserved and estimator_b = source_b; for N <= R bit-identical to the oracle",
+      "memory": "O(min(N,R)) per pixel channel",
+      "passes": 1,
+      "selectable_as_primary": true
+    },
+    {
+      "id": "two_pass_winsorized_frames",
+      "description": "existing spike: frame-level winsorization at median(group means) +- 4.5*group MAD; needs replay of the frame stream",
+      "memory": "O(K) plus one replay",
+      "passes": 2,
+      "selectable_as_primary": false,
+      "role": "reference showing what frame-level winsorization would gain; fails the single-pass constraint"
+    }
+  ],
+  "adversarial_matrix": [
+    {"id": "clean_gauss", "n": 40, "truth": 100.0, "model": "N(100,1), b=1"},
+    {"id": "cosmic_ray_single", "n": 40, "truth": 100.0, "model": "one frame +200"},
+    {"id": "cosmic_ray_single_edge_frame", "n": 40, "truth": 100.0, "model": "outlier on first frame"},
+    {"id": "satellite_trail", "n": 40, "truth": 100.0, "model": "5 consecutive frames +30"},
+    {"id": "grouped_contamination_30pct", "n": 40, "truth": 100.0, "model": "30% frames +8"},
+    {"id": "symmetric_heavy_tail", "n": 40, "truth": 100.0, "model": "10% frames +-50 alternating"},
+    {"id": "same_group_outliers", "n": 40, "truth": 100.0, "model": "frames 8 and 25 +50, sharing group 8 at K=17"},
+    {"id": "alternating_amplitude", "n": 40, "truth": 100.0, "model": "even frames sigma 1, odd frames sigma 5"},
+    {"id": "sparse_3", "n": 3, "truth": 42.0, "model": "three values 41,42,43"},
+    {"id": "single", "n": 1, "truth": 77.0, "model": "one candidate"},
+    {"id": "unequal_weights", "n": 40, "truth": 100.0, "model": "b in [0.05,10], values N(100,1)"},
+    {"id": "mad_zero_one_outlier", "n": 40, "truth": 100.0, "model": "39 identical, one +50"},
+    {"id": "monotone_drift", "n": 40, "truth": 109.75, "model": "x_f = 100 + 0.5*f"},
+    {"id": "bimodal", "n": 40, "truth": 100.0, "model": "half 98, half 102"},
+    {"id": "extreme_outlier_dominated_weight", "n": 40, "truth": 100.0, "model": "one frame +200 with 10x weight"},
+    {"id": "all_identical", "n": 40, "truth": 100.0, "model": "constant"},
+    {"id": "sparse_5_rb", "n": 5, "truth": 100.0, "model": "R/B-like thin channel"},
+    {"id": "nonfinite", "n": 40, "truth": 100.0, "model": "NaN x, b=0, b=-1, x=inf among clean"},
+    {"id": "empty", "n": 0, "truth": 0.0, "model": "no candidates"},
+    {"id": "clean_gauss_N600", "n": 600, "truth": 100.0, "model": "N(100,1), b=1, reported not gated"},
+    {"id": "grouped_contamination_30pct_N600", "n": 600, "truth": 100.0, "model": "30% frames +8 at production N", "gated": true}
+  ],
+  "metrics": [
+    "abs(est - oracle_value)",
+    "abs(est - truth)",
+    "n_eff",
+    "state",
+    "support_preserved: b > 0 whenever source candidates exist",
+    "deterministic repeat: identical inputs produce bit-identical results"
+  ],
+  "thresholds": {
+    "support_never_deleted": true,
+    "clean_gauss_abs_vs_oracle_max": 0.25,
+    "cosmic_ray_influence_bound": "single-frame outlier of any finite magnitude shifts the estimate by at most abs(truth-shift of oracle) + 1e-6 relative to oracle value",
+    "mad_zero_outlier_bound": "with 39 identical values and one arbitrary finite outlier, estimate equals the common value exactly",
+    "determinism_bit_identical": true,
+    "worst_case_vs_oracle_abs_max": 2.0,
+    "worst_case_vs_oracle_excluded_cases": ["bimodal", "clean_gauss_N600"],
+    "bimodal_abs_vs_truth_max": 2.0,
+    "selection_rule": "among selectable single-pass O(K) candidates choose the lowest worst-case absolute deviation from the oracle across the adversarial matrix; ties broken by lower max deviation from truth, then by simpler state machine"
+  },
+  "fallback_state_machine": {
+    "states": [
+      "no_source_support",
+      "too_few_candidates_fallback",
+      "too_few_groups_fallback",
+      "degenerate_scale",
+      "primary"
+    ],
+    "rules": [
+      "no candidates with b>0 => no_source_support, all outputs zero",
+      "candidates < min_candidates => uniform fallback on all candidates",
+      "nonempty groups < min_groups => uniform fallback on all candidates",
+      "group MAD not positive finite => primary estimate = robust center with uniform weights (degenerate_scale)",
+      "every fallback preserves B>0 and finite value; robustness never deletes source support"
+    ]
+  },
+  "deliverables": [
+    "oracle implementation on materialized candidate list",
+    "four candidate implementations",
+    "deterministic adversarial matrix with assertions on all thresholds",
+    "results JSONL artifact",
+    "decision JSON with selected primary estimator and parameters",
+    "estimator_b mapping for the Gate-2 fold contract"
+  ]
+}

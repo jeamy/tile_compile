@@ -1,0 +1,27 @@
+<map id="tile_compile::reconstruction::resolve_quality_frame_weights" name="tile_compile::reconstruction::resolve_quality_frame_weights">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,196,212,235"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#aa051299ee151c704d5148e35f5148a57" title=" " alt="" coords="544,117,724,170"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="195,193,259,181,399,162,531,151,526,153,400,167,260,186,197,198"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1reconstruction.html#a755e0c81fc5c28d8bcf17f9b0288fbfe" title=" " alt="" coords="260,196,482,235"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="211,213,247,214,242,216,213,218"/>
+<area shape="rect" id="Node000011" href="$namespacetile__compile_1_1reconstruction.html#abcdc95d6bbbd507b4bfda41bdc1b2605" title=" " alt="" coords="281,258,461,311"/>
+<area shape="poly" id="edge14_Node000001_Node000011" title=" " alt="" coords="185,233,268,256,263,258,185,238"/>
+<area shape="rect" id="Node000003" href="$structtile__compile_1_1reconstruction_1_1ByteSink.html#ad49f30524c26e973048411a5e4d6d1ba" title=" " alt="" coords="786,5,967,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="675,114,727,83,785,53,796,51,801,49,787,58,729,88,678,119"/>
+<area shape="rect" id="Node000004" href="$structtile__compile_1_1reconstruction_1_1ByteSink.html#ac2c845f46e4480c60404d4a43a3c1b10" title=" " alt="" coords="786,68,967,107"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="724,120,778,110,773,111,725,125"/>
+<area shape="rect" id="Node000005" href="$structtile__compile_1_1reconstruction_1_1ByteSink.html#ad202e5d50ad74f41b489ac737b7ef16f" title=" " alt="" coords="786,131,967,169"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="724,143,773,147,768,147,725,148"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1core.html#a9b33f7e2ae6e53709fe1e68026d16580" title="Implements sha256 bytes." alt="" coords="815,193,938,232"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="725,166,802,191,797,191,725,172"/>
+<area shape="rect" id="Node000007" href="$structtile__compile_1_1reconstruction_1_1ByteSink.html#a4c9ab4f5da878326fb39afb798215d21" title=" " alt="" coords="786,256,967,295"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="720,168,740,180,756,196,765,212,773,228,788,243,794,249,789,248,785,247,769,231,760,215,752,199,737,184,719,173"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1reconstruction.html#aee8e7804f95db605723e2cef15bf4244" title=" " alt="" coords="530,194,738,247"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="482,215,517,218,512,219,483,220"/>
+<area shape="poly" id="edge9_Node000009_Node000004" title=" " alt="" coords="719,191,737,180,752,164,760,149,769,132,785,116,789,116,794,114,788,120,773,135,765,151,756,168,740,184,721,196"/>
+<area shape="poly" id="edge10_Node000009_Node000005" title=" " alt="" coords="726,191,791,175,796,174,727,196"/>
+<area shape="poly" id="edge11_Node000009_Node000006" title=" " alt="" coords="739,215,802,215,797,216,739,220"/>
+<area shape="poly" id="edge12_Node000009_Node000007" title=" " alt="" coords="739,242,776,252,770,252,739,247"/>
+<area shape="rect" id="Node000010" href="$structtile__compile_1_1reconstruction_1_1ByteSink.html#af1e480e9ab33bb143646fe3e49ba9a30" title=" " alt="" coords="786,319,967,357"/>
+<area shape="poly" id="edge13_Node000009_Node000010" title=" " alt="" coords="678,245,730,275,787,305,801,313,796,312,785,310,727,280,677,250"/>
+</map>

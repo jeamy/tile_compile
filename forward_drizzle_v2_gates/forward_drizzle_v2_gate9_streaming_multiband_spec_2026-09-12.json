@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "gate": 9,
+  "status": "frozen_decided",
+  "scope": "streaming multiband for the unpublished forward-drizzle-v2 prototype: profile production contract, halo/ring residency, reuse-aware read amplification, fusion parity, confidence calibration, matched-star validation and raw/uniform fallback. Library-level; production runner wiring stays with Gate 10.",
+  "profile_production_contract": {
+    "shared_clip_mask": "exactly one Gate-3 reservoir sigma-clip decision per (native pixel, channel) is shared by all four profiles; Q values never enter the clip decision",
+    "weights": {
+      "uniform": "w = b",
+      "raw": "w = b * g_eff * q_composite",
+      "fine": "w = b * g_eff * q_scale0^fine_quality_exponent",
+      "medium": "w = b * g_eff * q_scale1^medium_quality_exponent",
+      "defaults": {
+        "fine_quality_exponent": 4.0,
+        "medium_quality_exponent": 2.0,
+        "g_eff_missing": 1.0
+      }
+    },
+    "candidate_quality_means": "per-candidate q_c/q_0/q_1/q_a are the geometric K-averages over the frame's droplets: sum(area_j * clamp(q_j,0,inf)) / b_src; a NaN/<=0 source Q contributes 0 (explicit veto, not a fallback); a missing stream yields 1.0",
+    "artifact_flag": "qa_has_data iff sum(area_j over finite q_a samples) > 0",
+    "alpha_contributions": "per accepted candidate {b, q_c, q_a (NaN when no data), is_direct, residual_factor} feed compute_alpha_confidence_channel semantics; per-frame {g_eff, is_direct, residual_factor} arrive via a device frame-meta table indexed by frame order",
+    "profile_outputs": "per profile: value = sum(w*x)/sum(w), weight_sum = sum(w), n_eff = sum(w)^2/sum(w^2); support only where the profile weight sum > 0",
+    "fallback": "reservoir overflow / too-few-candidates fallback emits the uniform stream value for every profile and zero alpha factors"
+  },
+  "kernel_layout": {
+    "extra_source_uploads_per_frame": [
+      "q_composite",
+      "q_scale0",
+      "q_scale1",
+      "q_artifact"
+    ],
+    "extra_frame_planes_f64": [
+      "Q_c",
+      "Q_0",
+      "Q_1",
+      "Q_a",
+      "Q_aflag"
+    ],
+    "reservoir_side_array": "float4 {q_c, q_0, q_1, q_a} per kept slot, qa<0 sentinel encodes !qa_has_data; allocated only when emit_profiles",
+    "frame_meta": "16 B per frame {g_eff, is_direct, residual_factor, pad}, uploaded per accumulate call",
+    "bounded": "single reserve() allocation batch, zero hotpath allocations, unchanged frame streaming"
+  },
+  "halo_ring_contract": {
+    "fusion_input_halo_internal_rows": "multiband_fusion_halo_rows(levels) = 2*(2^levels-1) + energy_guard_window_radius(levels) + 2, evaluated on the v2 output grid; levels=4 => 64 rows",
+    "ring_semantics": "a committed output band is immutable once every input band inside its vertical halo is finalized; resident finalized bands = floor(2*halo/band_rows)+2 worst case",
+    "immutability_point": "fused core rows of band b become immutable when the last band overlapping [b_lo-halo, b_hi+halo] is finalized and committed",
+    "x_tiles": "a-trous is separable 2-D: an X-tile additionally needs the same halo in columns; the v2 default stays full-width bands (Gate-5: feasible down to ~2 GiB device)",
+    "resume": "no transient halo state is persisted; a resume reloads the persisted finalized band artifacts covering the overlap window (sichere Wiederanlaufueberlappung, section 18.2 option 2)"
+  },
+  "reuse_aware_read_amplification": {
+    "problem": "Gate-5 conservative RA counts each band's (2h+1) padded read fully; halo 62 fails the RA bound",
+    "model": "with band-edge reuse the application layer reads every needed source row once plus one halo pad per image edge: application_source_bytes = H*W + 2*halo_src*W (first band top pad), independent of band count",
+    "counters": "source_reused_bytes / quality_reused_bytes count the overlap rows served from the retained predecessor tail instead of a fresh read",
+    "gate": "reuse-aware application RA <= 1.1 required for the selected tile plan"
+  },
+  "fusion_decision": {
+    "chosen": "cpu_fusion_on_committed_band_outputs",
+    "rationale": "fusion consumes finalized, persisted band records already on host; it runs once per band, not per frame, so its cost is a small fraction of drizzle; a device port would add a second clip-adjacent code path without a memory or latency need",
+    "contract": "fuse_multiband_streamed on v2-produced profile planes must be bit-identical to fuse_multiband on every supported pixel except the documented B3 flood-fill stripe-boundary pinch",
+    "support_preservation": "fused support subset of (U coarse AND all R bands valid); multiband never widens support",
+    "revisit": "a device fusion port may be re-decided at Gate 10 if measured fusion seconds violate the run-time budget"
+  },
+  "confidence_calibration": {
+    "v2_factor": "the Gate-4 per-pixel bounded confidence in [0,1] replaces the Q_p90-Q_p50 separation factor: a_separation_v2 = clamp01(confidence) channel-min over active channels",
+    "a_artifact": "from the qa stream via the plan-14.4 weighted p10 smoothstep over clip-accepted contributions (unchanged semantics)",
+    "a_registration": "from the per-frame {is_direct, residual_factor} table over clip-accepted contributions (unchanged semantics)",
+    "calibration_gates": [
+      "clean synthetic field with high n_eff and modeled sigma2 => a_separation_v2 >= 0.9",
+      "degraded field (low n_eff or all-invalid sigma2) => a_separation_v2 <= 0.1",
+      "globally near-zero alpha is reported as its own diagnostic, never as a silent success"
+    ]
+  },
+  "matched_star_and_fallback": {
+    "module": "multiband_validation select_reconstruction_candidate reused unchanged on v2-produced images",
+    "gates": [
+      "zero effective multiband stars block a positive multiband selection",
+      "multiband equal to raw fails the FWHM ratio at equality and selects Raw",
+      "raw failing an applicable safety gate falls back to Uniform",
+      "uniform and raw remain immutable controls measured at matched star positions"
+    ]
+  },
+  "memory_amendment": {
+    "profiled_mode_per_native_pixel_estimate": 14600,
+    "notes": "reservoir side array +1024 B/px (64 slots x 16 B), five f64 frame planes +480 B/px over the gate-6 footprint; non-profiled mode is unchanged. The Gate-5 plan bound is amended for profiled mode only.",
+    "requires_amended_plan_bound": true
+  },
+  "test_matrix": {
+    "profile_parity": "v2 device profiles vs CPU oracle on scale 1/2, MONO/OSC, uniform-Q identity, Q veto (NaN/<=0), missing streams, g_eff!=1, clip-shared mask, overflow fallback",
+    "ring": "immutability point, resident band bound, first/last band edges",
+    "reuse_ra": "formula vs padded model, halo 0/14/62, counters",
+    "fusion": "v2 adapter + streamed vs whole-frame parity, stripe-boundary caveat, support subset, levels 1..4",
+    "confidence": "clean/degraded calibration cases, channel-min, near-zero-alpha diagnostic",
+    "validation": "matched-star gates on synthetic v2 images incl. zero-effective-star and alpha==0 cases"
+  },
+  "fusion_grid": {
+    "resolution": "v2 native output grid",
+    "rationale": "the Gate-2 fold produces one candidate set per native pixel; the legacy internal-resolution profile planes are not available in v2 and reproducing them would violate the fold contract",
+    "consequence": "at internal_scale=2 the same level count covers half the physical frequency reach of the legacy internal-res fusion; band semantics are a documented delta, arbitrated by the matched-star validation gates rather than bit-parity to the legacy pipeline",
+    "halo_units": "v2 output rows"
+  }
+}

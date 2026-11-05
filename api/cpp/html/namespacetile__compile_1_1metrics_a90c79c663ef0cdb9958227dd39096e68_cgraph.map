@@ -1,16 +1,21 @@
 <map id="tile_compile::metrics::measure_frame_stars" name="tile_compile::metrics::measure_frame_stars">
-<area shape="rect" id="Node000001" title="Implements measure frame stars." alt="" coords="5,177,162,216"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#ab325ae028a10bb44bd344a32bba8911a" title="Estimates fwhm xy." alt="" coords="231,92,372,131"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="134,174,235,134,237,139,136,179"/>
-<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="631,149,755,188"/>
-<area shape="poly" id="edge8_Node000001_Node000004" title=" " alt="" coords="162,190,616,170,616,175,162,196"/>
-<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1metrics.html#a4ea1548393f4997e58317de8a03d1730" title="Implements keep indices by mad clip." alt="" coords="210,235,394,273"/>
-<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="160,214,211,228,210,233,159,219"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1metrics.html#a526c21d35f9187dfb95a0ae88bdcc1ea" title="Implements fit elliptical psf 2d." alt="" coords="442,5,583,44"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="350,89,448,48,450,53,352,94"/>
-<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="373,97,473,92,529,95,584,105,622,119,655,138,652,143,619,124,583,110,529,100,473,97,373,103"/>
-<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="443,120,582,159"/>
-<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="373,118,428,125,427,131,373,123"/>
-<area shape="poly" id="edge5_Node000005_Node000004" title=" " alt="" coords="583,148,616,154,615,159,582,153"/>
-<area shape="poly" id="edge7_Node000006_Node000004" title=" " alt="" coords="394,245,486,233,583,213,638,192,639,197,584,218,487,239,395,250"/>
+<area shape="rect" id="Node000001" title="Implements measure frame stars." alt="" coords="5,176,162,215"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#ab325ae028a10bb44bd344a32bba8911a" title="Estimates fwhm xy." alt="" coords="231,93,372,132"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="135,173,236,136,233,140,138,178"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#af1361dab041db5d25f27d0f01d6075d2" title="Implements median of." alt="" coords="661,176,785,215"/>
+<area shape="poly" id="edge11_Node000001_Node000004" title=" " alt="" coords="162,193,646,193,645,198,162,198"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1metrics.html#a4ea1548393f4997e58317de8a03d1730" title="Implements keep indices by mad clip." alt="" coords="210,233,394,272"/>
+<area shape="poly" id="edge7_Node000001_Node000007" title=" " alt="" coords="160,213,213,228,208,230,160,218"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1metrics.html#a0d46483cbe0647e432b2582cb2df2f7b" title=" " alt="" coords="442,5,583,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="349,90,452,49,448,52,352,95"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="373,124,648,179,643,182,373,129"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="443,68,582,107"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="372,102,430,97,425,98,374,107"/>
+<area shape="poly" id="edge5_Node000005_Node000004" title=" " alt="" coords="553,105,673,168,667,169,552,110"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1core.html#a721dd0f6ebc4a21cd2099ec9d9eec79d" title=" " alt="" coords="631,68,815,107"/>
+<area shape="poly" id="edge6_Node000005_Node000006" title=" " alt="" coords="582,85,618,87,613,88,583,90"/>
+<area shape="poly" id="edge10_Node000007_Node000004" title=" " alt="" coords="394,238,649,205,643,206,395,243"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1core.html#ad3f5e136e6d82258715560a4a6ab6329" title=" " alt="" coords="451,284,574,323"/>
+<area shape="poly" id="edge8_Node000007_Node000008" title=" " alt="" coords="385,270,438,285,433,285,385,275"/>
+<area shape="poly" id="edge9_Node000008_Node000004" title=" " alt="" coords="551,281,667,223,673,222,553,286"/>
 </map>

@@ -1,0 +1,9 @@
+<map id="tile_compile::reconstruction::denoise_detail::robust_sigma_mad_from_mat" name="tile_compile::reconstruction::denoise_detail::robust_sigma_mad_from_mat">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,30,186,83"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="234,37,373,76"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="186,54,221,56,215,57,186,59"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#af1361dab041db5d25f27d0f01d6075d2" title="Implements median of." alt="" coords="451,5,574,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="373,43,438,36,433,37,374,49"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#a721dd0f6ebc4a21cd2099ec9d9eec79d" title=" " alt="" coords="421,68,604,107"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="374,64,408,72,403,72,373,70"/>
+</map>

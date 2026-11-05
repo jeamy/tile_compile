@@ -1,0 +1,8 @@
+<map id="tile_compile::metrics::robust_zscore_eps_scale" name="tile_compile::metrics::robust_zscore_eps_scale">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,35,183,73"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#ab1bf92a615ca51a89218e99abc0c1842" title=" " alt="" coords="231,5,372,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="183,39,218,36,213,37,184,44"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1metrics.html#aa16e6ed59b5bb4802cd13887f2ca9e7f" title=" " alt="" coords="420,35,561,73"/>
+<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="183,52,231,53,372,53,407,55,402,55,372,58,231,58,183,58"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="372,33,408,41,402,41,372,38"/>
+</map>

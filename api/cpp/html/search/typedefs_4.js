@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['tileprocessfn_0',['TileProcessFn',['../namespacetile__compile_1_1reconstruction.html#ae2df049e3a3e727e2691e2f55fd90d91',1,'tile_compile::reconstruction']]]
+  ['hypermetricstretchconfig_0',['HyperMetricStretchConfig',['../namespacetile__compile_1_1image.html#a9255eaa3ffdffc26098050538d8ace4c',1,'tile_compile::image']]]
 ];

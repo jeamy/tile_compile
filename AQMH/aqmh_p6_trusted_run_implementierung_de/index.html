@@ -1,0 +1,3766 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/AQMH/aqmh_p6_trusted_run_implementierung_de/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>P6 Trusted-Run und Performance — Implementierungsplan - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#p6-trusted-run-und-performance-implementierungsplan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              P6 Trusted-Run und Performance — Implementierungsplan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Start Here
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guides/cfa_forward_drizzle_pipeline_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Workflows & Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/configuration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../PI/scan_ai_parameter_studio_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Professional & Technical
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/cli/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API & Development
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  History & About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start Here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schnellstart (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows & Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Workflows & Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/cfa_forward_drizzle_pipeline_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reconstruction Method (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/cfa_forward_drizzle_pipeline_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rekonstruktionsmethode (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/live_image_editor_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/live_image_editor_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – KI-Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_workflow_gui3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Basics (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Konfigurationsgrundlagen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Professional & Technical
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Professional & Technical
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_ai_recommendations_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_ki_empfehlungen_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_jev_decisions_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Jev Decisions (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/pi_scan_pre_rules_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Pre-Rules (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_decision_trace_und_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overall Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_decision_trace_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decision Trace (Part A)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Assistant (Part B)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_assistant_dock_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assistant Dock
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_analysis_context_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_run_learning_archive_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run Learning Archive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PI/DECISIONTRACE/pi_retention_policy_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Retention Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../forward_drizzle_v2_zielarchitektur_2026-09-12_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forward Drizzle v2 Target Architecture (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Process Flow Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume-Abhängigkeiten (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_scan_normalization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Scan & Normalization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_registration_geometry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Registration & Geometry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_quality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_forward_drizzle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Forward Drizzle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_multiband/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Multiband
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_postprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Post-Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/flow_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API & Development
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API & Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference (Getting Started)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    History & About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    History & About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_3" id="__nav_8_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Historical Methods (superseded)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Historical Methods (superseded)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-entscheidung-und-grenze" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Entscheidung und Grenze
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-gemessene-ausgangslage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Gemessene Ausgangslage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-hot-path-entfernung-artefakte-und-prufungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Hot-Path-Entfernung: Artefakte und Prüfungen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Hot-Path-Entfernung: Artefakte und Prüfungen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-normalisierte-quellen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Normalisierte Quellen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-q-map-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Q-Map-Cache
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-profilstore-geometriecache-und-ausgabe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Profilstore, Geometriecache und Ausgabe
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-datenarbeit-die-tatsachlich-doppelt-ist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Datenarbeit, die tatsächlich doppelt ist
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Datenarbeit, die tatsächlich doppelt ist">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-sqm-und-global-quality-zusammenfuhren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 SQM und Global Quality zusammenführen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-q-metadaten-indexieren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Q-Metadaten indexieren
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-quell-und-q-residenz-im-gekachelten-forward-drizzle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Quell- und Q-Residenz im gekachelten Forward Drizzle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-prepare_drizzle_frames-ist-bandinvariant-wird-aber-pro-band-neu-gebaut-neuer-fund-2026-09-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 prepare_drizzle_frames() ist bandinvariant, wird aber pro Band neu gebaut (neuer Fund, 2026-09-11)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-eigenstandige-algorithmenprobleme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Eigenständige Algorithmenprobleme
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Eigenständige Algorithmenprobleme">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-sampling-geometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Sampling Geometry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-registrierung-und-normalisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Registrierung und Normalisierung
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-reihenfolge-der-anderungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Reihenfolge der Änderungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6a-konkrete-testfalle-fur-t1-bestand-2026-09-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6a. Konkrete Testfälle für T1 (Bestand, 2026-09-11)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-test-und-migrationsvertrag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Test- und Migrationsvertrag
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-nicht-als-optimierung-akzeptieren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Nicht als Optimierung akzeptieren
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="p6-trusted-run-und-performance-implementierungsplan">P6 Trusted-Run und Performance — Implementierungsplan<a class="headerlink" href="#p6-trusted-run-und-performance-implementierungsplan" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>verbindlicher Umsetzungsentwurf, noch nicht implementiert.</strong></p>
+<p>(2026-09-11: der kurzlebige Begleitplan <code>aqmh_sha_verifikation_streichung_plan_de.md</code>
+wurde nach Abgleich hier eingearbeitet — §2/§6a — und entfernt. Eine Datei
+bleibt maßgeblich.)</p>
+<p>Dieses Dokument konkretisiert die Leistungsarbeit aus
+<a href="../aqmh_p6_performance_de/">aqmh_p6_performance_de.md</a>. Es gilt für den
+600-Frame-P6-Lauf mit 3840×2160 OSC, <code>internal_scale=2</code>, ohne Astrometrie,
+BGE, PCC und HMS.</p>
+<h2 id="1-entscheidung-und-grenze">1. Entscheidung und Grenze<a class="headerlink" href="#1-entscheidung-und-grenze" title="Permanent link">&para;</a></h2>
+<p>Ein normaler AQMH-Lauf ist ein <strong>Trusted Run</strong>: Der Benutzer besitzt Eingaben,
+normalisierten Cache und Artefaktverzeichnis und verändert sie nicht während
+des Laufs. Eine Änderung ist ein Bedienfehler außerhalb des Rechenvertrags.</p>
+<p>Folge: SHA-256 darf nicht in normalen Phasen, Readern, LRU-Treffern oder
+Kachel-/Frame-Schleifen laufen. Atomisches Schreiben, erwartete Dateigrößen,
+Schema, Dimensionen, Frame-Indizes, Konfigurations- und Geometrieidentität
+bleiben erhalten. Sie erkennen unvollständige oder falsch zugeordnete
+Artefakte ohne einen Vollscan der Nutzdaten.</p>
+<p>Es gibt keinen Inhaltsprüfer und keinen <code>verify-artifacts</code>-Befehl. Ein
+unbekanntes oder manuell verändertes Verzeichnis wird nicht als Resume-Basis
+unterstützt; dafür wird ein neuer Lauf gestartet. Tests dürfen relevante
+Ausgaben weiterhin byteweise vergleichen oder hashen, weil dies nicht Teil
+des Produktpfads ist.</p>
+<h2 id="2-gemessene-ausgangslage">2. Gemessene Ausgangslage<a class="headerlink" href="#2-gemessene-ausgangslage" title="Permanent link">&para;</a></h2>
+<p>Ein SHA-256 über einen normalisierten Frame mit 33,18 MB dauert auf der
+Referenzmaschine 17,2 ms. Ein vollständiger 600-Frame-Durchlauf kostet somit
+10,32 s reine SHA-Zeit.</p>
+<table>
+<thead>
+<tr>
+<th>Beobachtung</th>
+<th>Nachweis im Code</th>
+<th>Direkte Konsequenz</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NORMALIZED_CACHE</code> dauerte 13 s</td>
+<td><code>seal_normalized_cache()</code> ruft <code>publish_normalized_source_manifest()</code>; dieses hasht jede <code>.raw</code></td>
+<td>rund 10,32 s sind vermeidbar</td>
+</tr>
+<tr>
+<td>Vollscan zwischen Coverage und SQM</td>
+<td><code>runner_forward_drizzle.cpp</code> lädt jede Quelle vor <code>SOURCE_QUALITY_MAPS</code></td>
+<td>ungetimte Ganzbild-Reads plus SHA und Block-SHA</td>
+</tr>
+<tr>
+<td>Jeder LRU-Miss hat zwei Digest-Durchläufe</td>
+<td><code>verify_and_insert()</code> hasht das volle Bild, <code>digest_blocks()</code> danach dieselben Bytes blockweise</td>
+<td>der existierende Timer meldet nur den ersten Durchlauf</td>
+</tr>
+<tr>
+<td>SQM und Global Quality verwenden Cache-Klone</td>
+<td>jeder Klon hat einen leeren LRU und keinen Blockindex</td>
+<td>zwei weitere vollständige Source-Pässe</td>
+</tr>
+<tr>
+<td>SQM und Global Quality erzeugen beide den Vollbild-Proxy</td>
+<td><code>compute_source_quality_proxy_v1()</code> in beiden Phasen</td>
+<td>eine vollständige, vermeidbare zweite Proxyrechnung</td>
+</tr>
+<tr>
+<td>Coverage dauert 1513 s</td>
+<td><code>compute_geometric_coverage()</code> nutzt keine normalisierten Quellen</td>
+<td>SHA-Entfernung löst diesen Hauptblock nicht</td>
+</tr>
+<tr>
+<td><code>SourceQualityMapCacheWriter::put()</code> hasht jede geschriebene <code>.bin</code> sofort nach dem Schreiben</td>
+<td><code>source_quality_map_cache.cpp:389</code>, <code>e.sha256 = core::sha256_file(target)</code></td>
+<td>bei 610 Frames × ~6 Streams ≈ 11,4 s, eingebettet in die gemessenen 522,9 s SOURCE_QUALITY_MAPS</td>
+</tr>
+<tr>
+<td><code>SourceQualityMapCacheReader</code> hasht beim Öffnen jede <code>.bin</code> einmal komplett, UND wird pro vollem Durchlauf <strong>zwei- bis dreimal</strong> konstruiert</td>
+<td><code>source_quality_map_cache.cpp:514-519</code> (Verifikationsschleife im Konstruktor); Konstruktionsstellen: <code>runner_forward_drizzle.cpp:390</code> (Resume-Validierung vor GLOBAL_QUALITY), <code>source_quality_artifact.cpp:176</code>/<code>284</code> (Single-Band- bzw. Multiband-FORWARD_DRIZZLE)</td>
+<td>je Konstruktion ≈11,4 s bei einem 22-GB-Cache (610 Frames); ein reiner FORWARD_DRIZZLE-Resume bezahlt das <strong>zweimal</strong> (Validierung + eigentlicher Reader), nicht einmal</td>
+</tr>
+<tr>
+<td>Quellen im Forward Drizzle</td>
+<td><code>persist_forward_drizzle_multiband()</code> verarbeitet alle Frames erneut für jedes Zielband; <code>source_of()</code> ruft <code>cache.load()</code></td>
+<td>bei 22 Bändern und einem LRU unterhalb aller 600 Frames bis zu 22 Ganzbild-Ladevorgänge je Frame</td>
+</tr>
+<tr>
+<td>Q-Maps im gekachelten Forward Drizzle</td>
+<td><code>reduce_window()</code> ruft <code>quality_of()</code> im Frame-Loop auf; die Provider-Lambda führt jedes Mal <code>read_rect()</code> aus</td>
+<td>pro <code>(Band, Kachel, Frame)</code> werden überlappende Q-Zellen erneut dekodiert</td>
+</tr>
+</tbody>
+</table>
+<p>Die gemeldeten Phasen ergeben bereits vor Forward Drizzle etwa 40,7 min.
+Trusted Run entfernt unnötige I/O- und CPU-Arbeit, ist aber keine Ersatzlösung
+für den Coverage-Algorithmus oder den gekachelten CUDA-Producer.</p>
+<h2 id="3-hot-path-entfernung-artefakte-und-prufungen">3. Hot-Path-Entfernung: Artefakte und Prüfungen<a class="headerlink" href="#3-hot-path-entfernung-artefakte-und-prufungen" title="Permanent link">&para;</a></h2>
+<h3 id="31-normalisierte-quellen">3.1 Normalisierte Quellen<a class="headerlink" href="#31-normalisierte-quellen" title="Permanent link">&para;</a></h3>
+<p>Betroffene Dateien:</p>
+<ul>
+<li><code>tile_compile_cpp/apps/runner_shared.cpp</code></li>
+<li><code>tile_compile_cpp/src/reconstruction/normalized_source_cache.cpp</code></li>
+<li><code>tile_compile_cpp/include/tile_compile/reconstruction/normalized_source_cache.hpp</code></li>
+<li><code>tile_compile_cpp/apps/runner_forward_drizzle.cpp</code></li>
+</ul>
+<p>Entfernen im Trusted-Run-Pfad:</p>
+<ol>
+<li><code>publish_normalized_source_manifest()</code> darf nicht mehr jede <code>&lt;index&gt;.raw</code>
+   mit <code>core::sha256_file()</code> lesen.</li>
+<li><code>VerifiedNormalizedSourceCache::load()</code> darf weder Ganzdatei-SHA noch
+   Block-SHA ausführen. <strong>Ausnahme, bewusst (User-Entscheidung 2026-09-11):</strong>
+   der bestehende <code>stat()</code>-Restat auf dem LRU-Hit-Pfad (Vergleich von
+   Dateigröße und mtime gegen die beim letzten Laden gespeicherten Werte,
+   <code>mt &lt; verified_at</code>-Wächter) bleibt erhalten. Er kostet keinen messbaren
+   Betrag (ein Syscall, keine 33-MB-Operation) und fängt weiterhin eine
+   externe Dateiänderung während eines laufenden Prozesses ab — kein
+   Zielkonflikt mit dem Trusted-Run-Vertrag, da er kein Hashing ist.</li>
+<li><code>verify_and_insert()</code>, <code>digest_blocks()</code>, <code>ensure_block_index()</code> und
+   <code>read_rect()</code> dürfen im Trusted-Run-Pfad keine Digest-Kontexte erzeugen.</li>
+<li>Der Vollscan <code>for (const auto &amp;f : sampling.frames) cache.load(...)</code> vor
+   <code>SOURCE_QUALITY_MAPS</code> entfällt vollständig.
+   Bei parallelem SQM ist er nicht nur teuer: Die Worker verwenden eigene,
+   zunächst leere Cache-Klone und können die dabei geladenen LRU-Einträge nicht
+   sehen. Er hat daher keinen Nutzwert für den Produktionspfad.</li>
+</ol>
+<p>Behalten:</p>
+<ul>
+<li>atomare Publikation der normalisierten Cache-Generation;</li>
+<li>einmalige Prüfung beim Öffnen, dass alle erwarteten Dateien vorhanden sind
+  und die erwartete Größe <code>width*height*sizeof(float)</code> besitzen;</li>
+<li><code>source_index</code>, Frame-ID, CFA-Ursprung, Dimensionen, Farbmodus und
+  Konfigurationsidentität;</li>
+<li>LRU für Vollbildzugriffe sowie Bereichslesen ohne Digest.</li>
+</ul>
+<p>Neues Manifest-Schema <code>normalized-source-v2</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;schema_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;integrity_mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;trusted&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;context&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;...&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bestehender Kontext&quot;</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">&quot;files&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">&quot;source_index&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;bytes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">33177600</span><span class="p">}],</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">&quot;manifest_identity&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256-ueber-dieses-kleine-Metadatenobjekt&quot;</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">}</span>
+</span></code></pre></div>
+<p><code>manifest_identity</code> hasht nur JSON-Metadaten und bleibt für Resume- und
+Vorgängeridentität zulässig. Er ist kein Dateiinhaltsnachweis. Schema v1 darf
+im Trusted Run gelesen werden, ohne seine Dateihashes zu prüfen. Unbekannte
+Schema-Versionen werden abgelehnt.</p>
+<h3 id="32-q-map-cache">3.2 Q-Map-Cache<a class="headerlink" href="#32-q-map-cache" title="Permanent link">&para;</a></h3>
+<p>Betroffene Dateien:</p>
+<ul>
+<li><code>tile_compile_cpp/src/reconstruction/source_quality_map_cache.cpp</code></li>
+<li><code>tile_compile_cpp/include/tile_compile/reconstruction/source_quality_map_cache.hpp</code></li>
+<li><code>tile_compile_cpp/src/reconstruction/source_quality_artifact.cpp</code></li>
+</ul>
+<p>Entfernen:</p>
+<ol>
+<li><code>SourceQualityMapCacheWriter::put()</code> darf eine frisch geschriebene <code>.bin</code>
+   nicht mit <code>sha256_file(target)</code> wieder einlesen.</li>
+<li>Der <code>SourceQualityMapCacheReader</code> darf beim Öffnen nicht jede <code>.bin</code> hashen.</li>
+<li><code>SourceQualityCacheFileEntry::sha256</code> wird in Schema v2 durch <code>bytes</code>
+   ersetzt; die Metadatenidentität bleibt ein Hash über kleine Metadaten.</li>
+</ol>
+<p>Behalten:</p>
+<ul>
+<li><code>AtomicOutput</code> pro Binärdatei und <code>metadata.json</code> als einziger Commitpunkt;</li>
+<li>Header-Magic, Version, Datentyp, Speichergeometrie, Frame-Index und
+  Dateigröße in <code>read_bin_window()</code>;</li>
+<li>Qualitätswerte, Quantisierung, Veto-/NaN-Semantik und absolute CFA-
+  Koordinaten unverändert.</li>
+</ul>
+<h3 id="33-profilstore-geometriecache-und-ausgabe">3.3 Profilstore, Geometriecache und Ausgabe<a class="headerlink" href="#33-profilstore-geometriecache-und-ausgabe" title="Permanent link">&para;</a></h3>
+<p>Normale Builds und normale Resumes prüfen nur Generation, erwartete Ebenen,
+Dateigröße, FITS-Geometrie und Manifest-Metadaten. Entfernt werden die
+Vollfile-SHAs aus:</p>
+<ul>
+<li><code>profile_store_manifest.cpp</code> beim Commit und beim Öffnen;</li>
+<li><code>drizzle_geometry_cache.cpp</code> beim normalen Resume;</li>
+<li><code>runner_forward_output.cpp</code> für Zwischenartefakte;</li>
+<li>Runner-Checkpointfeldern, die nur einen unmittelbar danach erneut gelesenen
+  Dateihash transportieren.</li>
+</ul>
+<p>Nicht entfernen: atomare Generationswechsel, fsync/rename, vollständige
+Ebenenliste, Größen-/Offsetgrenzen des Geometriecaches und die fachlichen
+Predecessor-Identitäten. Es gibt keinen nachträglichen Inhaltsvergleich.</p>
+<h2 id="4-datenarbeit-die-tatsachlich-doppelt-ist">4. Datenarbeit, die tatsächlich doppelt ist<a class="headerlink" href="#4-datenarbeit-die-tatsachlich-doppelt-ist" title="Permanent link">&para;</a></h2>
+<h3 id="41-sqm-und-global-quality-zusammenfuhren">4.1 SQM und Global Quality zusammenführen<a class="headerlink" href="#41-sqm-und-global-quality-zusammenfuhren" title="Permanent link">&para;</a></h3>
+<p><code>build_source_quality_map_cache()</code> besitzt pro Frame bereits den normalisierten
+Source und <code>proxy.proxy_full</code>. Es erweitert seinen Frame-Job um
+<code>calculate_frame_metrics()</code> und <code>measure_frame_stars()</code>.</p>
+<p>Frame 0 wird vor den parallelen Frames verarbeitet, weil es
+<code>ref_star_count</code> bestimmt. Die restlichen Frames bleiben unabhängig. Der
+SQM-Commit schreibt zusätzlich ein kleines, nach <code>source_index</code> sortiertes
+Artefakt <code>source_quality_metrics-v1.json</code> mit Frame-Metriken,
+Sternmetriken und Referenzsternzahl. <code>GLOBAL_QUALITY</code> liest nur dieses
+Artefakt und führt <code>calculate_global_weights_with_stars()</code> aus.</p>
+<p>Damit entfallen der zweite Source-Read, die zweite Proxybildung und die zweite
+Sternmessung; die Qualitätgewichte und ihre Reihenfolge bleiben gleich.
+Das Artefakt enthält keine Vollbilder und verändert keine AQMH-Gewichte durch
+Registrierungsmetriken.</p>
+<p>Abnahme:</p>
+<ul>
+<li>neue und alte <code>QualityFrameWeightPlan</code>-Bytes sind gleich;</li>
+<li>SQM-Q-Dateien und ihre quantisierten Werte bleiben gleich;</li>
+<li>Frame-0-Referenz, NaN-/Veto-Fälle und Workerzahlen 1/2/4/8 werden geprüft;</li>
+<li>Resume von <code>GLOBAL_QUALITY</code> verlangt das neue Metrikartefakt oder erzeugt
+  es deterministisch aus einem vorhandenen SQM-Cache nach.</li>
+</ul>
+<h3 id="42-q-metadaten-indexieren">4.2 Q-Metadaten indexieren<a class="headerlink" href="#42-q-metadaten-indexieren" title="Permanent link">&para;</a></h3>
+<p><code>SourceQualityMapCacheReader::has()</code> und <code>file_path()</code> durchsuchen heute
+<code>meta_.files</code> linear. Der Multiband-Provider ruft beide mehrfach pro
+<code>(Band, Kachel, Frame)</code> auf. Das ist <code>O(B*T*F*E)</code> mit <code>E</code> Cache-Dateien.</p>
+<p>Beim Konstruktor einmal bauen:</p>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">unordered_map</span><span class="o">&lt;</span><span class="n">SourceQualityKey</span><span class="p">,</span><span class="w"> </span><span class="n">fs</span><span class="o">::</span><span class="n">path</span><span class="o">&gt;</span><span class="w"> </span><span class="n">paths</span><span class="p">;</span>
+</span></code></pre></div>
+<p>Der Schlüssel ist <code>(stream, source_index)</code>, sein Hash und Gleichheitsoperator
+sind explizit zu definieren. <code>has()</code> und <code>file_path()</code> werden danach O(1).
+Die Reihenfolge von <code>meta_.files</code> bleibt für die Metadatenidentität sortiert;
+der Index ist nur ein abgeleiteter Reader-Cache.</p>
+<p>Abnahme: jeder vorhandene und fehlende Stream/Frame-Fall liefert exakt
+dieselbe Antwort oder Fehlerkennung; der Reader zählt zusätzlich
+<code>metadata_lookup_calls</code> und <code>metadata_linear_scans</code> (letzterer muss null sein).</p>
+<h3 id="43-quell-und-q-residenz-im-gekachelten-forward-drizzle">4.3 Quell- und Q-Residenz im gekachelten Forward Drizzle<a class="headerlink" href="#43-quell-und-q-residenz-im-gekachelten-forward-drizzle" title="Permanent link">&para;</a></h3>
+<p>Der aktuelle Tiled-Zweig von <code>accumulate_pair_impl()</code> ruft pro Zielkachel
+<code>produce_sorted()</code> und damit pro Frame <code>source_of(source_index)</code> auf. Im
+CUDA-Producer wird die volle Sourcebreite in <code>src_buf</code> kopiert und der Kernel
+produziert vollbreit; erst danach werden Records außerhalb der Zielkachel
+verworfen.</p>
+<p>Die bisherige Aussage „einmal pro Frame“ war zu weit: Ein Framefenster kann
+die Wiederholung <strong>zwischen Kacheln desselben Zielbandes</strong> beseitigen. Es kann
+nicht zugleich die Wiederholung zwischen 22 Zielbändern beseitigen, ohne alle
+Framebänder oder alle noch nicht reduzierten Beiträge resident zu halten. Das
+wäre wieder die verworfene Kandidatenwand beziehungsweise ein Spool.</p>
+<p>Die Umsetzung ist deshalb in vier überprüfbare Teile getrennt:</p>
+<ol>
+<li><strong>T4a, Bandfenster:</strong> pro Zielband ein budgetiertes Framefenster <code>K</code>
+   aufbauen. Für jeden Frame lädt ein <code>SourceBandView</code> das konservative
+   Source-Y-Band genau einmal und hält es über alle Zielkacheln des Fensters
+   fest. Die Ansicht liefert einen gepinnten Besitzgriff (<code>shared_ptr</code> oder
+   gleichwertig), keinen ungeschützten LRU-Referenzwert; eine nebenläufige
+   Eviction darf keine noch verwendete Matrix invalidieren.</li>
+<li><strong>T4b, Q-Bandansichten:</strong> mit demselben Framefenster je benötigtem
+   Q-Stream ein konservatives Source-Y-Rechteck einmal dekodieren und über
+   alle Kacheln wiederverwenden. <code>quality_of()</code> darf für einen bereits
+   gepinnten <code>(source_index, stream, source_y_band)</code> keine weitere
+   <code>read_rect()</code>-Dateioperation ausführen. Der Provider rebaset nur noch
+   X/Y-Offsets; Veto- und NaN-Semantik bleiben identisch.</li>
+<li><strong>T4c, Bandgrenzen ehrlich messen:</strong> Der Pool darf Einträge über
+   benachbarte Zielbänder behalten, soweit sein gemeinsames Budget reicht.
+   Er darf aber keinen falschen Anspruch „einmal pro gesamtem Lauf“ erheben.
+   Es sind getrennt <code>source_bytes_read</code>, <code>source_band_cache_hits/misses</code>,
+   <code>q_bytes_read</code> und <code>q_band_cache_hits/misses</code> je Zielband zu zählen.
+   Erst diese Messung entscheidet, ob überlappende Nachbarbänder ausreichend
+   Lokalität liefern. Eine source-frame-äußere globale Reihenfolge wäre nur
+   mit einem budgetierten Zwischenformat für noch nicht reduzierte Zielbänder
+   möglich und bleibt wegen dessen I/O-Volumen außerhalb dieses Schnitts.</li>
+<li><strong>CUDA X+Y-Fenster:</strong> aus der Zielkachel konservativ das affine
+   Quellrechteck bestimmen, nur dieses in <code>src_buf</code> kopieren und an den Kernel
+   übergeben. Der Kernel enumeriert nur diese Quelle und emittiert nur
+   In-Fenster-Records. Ränder, Rotation, Scherung, Skalierung und lokale
+   Warps erhalten eigene Paritätsfälle; lokale Warps bleiben bis zu einem
+   bewiesenen Rechteckpfad beim sicheren Hybrid-Provider.</li>
+</ol>
+<p>Kein Spool: Ein dichter 600-Frame-Kandidatenstore wäre mehrere Terabyte groß
+und verschiebt den Engpass auf NVMe-I/O.</p>
+<p>Abnahme: CPU- und CUDA-Profile, alle Multibandebenen und Alpha-Maps sind für
+Kachelbreiten, Bandhöhen und Framefenster bitidentisch. Zähler erfassen
+Source- und Q-Bytes, Bandcache-Treffer/Misses, Producer-Aufrufe, Kernelstarts,
+Records vor/nach Fensterung und reale Host-/Device-Peaks. Ein Test mit mehr
+Kacheln muss bei festem Zielband konstante Source- und Q-Readbytes zeigen.</p>
+<h3 id="44-prepare_drizzle_frames-ist-bandinvariant-wird-aber-pro-band-neu-gebaut-neuer-fund-2026-09-11">4.4 <code>prepare_drizzle_frames()</code> ist bandinvariant, wird aber pro Band neu gebaut (neuer Fund, 2026-09-11)<a class="headerlink" href="#44-prepare_drizzle_frames-ist-bandinvariant-wird-aber-pro-band-neu-gebaut-neuer-fund-2026-09-11" title="Permanent link">&para;</a></h3>
+<p><code>accumulate_pair_impl()</code> (<code>forward_drizzle_contrib_list.cpp:410</code>) ruft
+<code>prepare_drizzle_frames(plan, cfg, subdivision)</code> bei <strong>jedem</strong> Aufruf neu auf.
+<code>persist_forward_drizzle_multiband()</code> ruft <code>accumulate_pair_by_frame_cuda()</code>
+(→ <code>accumulate_pair_impl()</code>) einmal <strong>pro Zielband</strong> — bei Produktionsgeometrie
+bis zu 22 Bänder (§30.81, <code>[drizzle-store]</code>-Testtabelle: 600 Frames → 22
+Bänder bei enger Speicherdecke). <code>prepare_drizzle_frames()</code> hängt nur von
+<code>plan</code>/<code>cfg</code>/<code>subdivision</code> ab, nicht vom Zielband — sein Ergebnis
+(<code>PreparedDrizzleFrames::frames</code>, die gültigkeits- und ausschlussgefilterte,
+nach <code>source_index</code> sortierte Frameliste) ist über alle Bänder <strong>identisch</strong>.
+Es wird trotzdem bei jedem Bandaufruf neu aus <code>plan.frames</code> gebaut
+(<code>std::set</code>-Eindeutigkeitsprüfung über alle Frames, Sortierung, und — falls
+für ein lokales-Warp-Frame <code>active_geometry_cache()-&gt;frame_stats(...)</code>
+<code>present=false</code> liefert — ein voller <code>O(source_width*source_height)</code>-
+<code>sample_leaves</code>-Sweep dieses Frames, siehe die
+<code>kPrepareExclusionScan</code>-Instrumentierung).</p>
+<p><strong>Gegenprobe, dass das vermeidbar ist:</strong> <code>compute_geometric_coverage()</code>
+(<code>sampling_geometry.cpp:332</code>) ruft <code>prepare_drizzle_frames()</code> genau <strong>einmal</strong>
+für den gesamten Coverage-Lauf und reicht das Ergebnis per Referenz an die
+<code>run_band</code>-Lambda für alle Bänder durch (<code>sampling_geometry.cpp:450/467</code>) —
+die dort korrekt vermiedene Wiederholung ist in <code>accumulate_pair_impl()</code>
+vorhanden. Gleiche Datenklasse wie §4.3 (bandweise wiederholte Arbeit), aber
+eine <strong>abgeleitete Struktur</strong>, kein Rohdaten-Read — insofern ergänzt dieser
+Fund §4.3, ersetzt ihn nicht.</p>
+<p>Umsetzung (mit T4 zusammenlegen, da dieselbe Aufrufkette betroffen ist):
+<code>prepare_drizzle_frames()</code> einmal vor der Bandschleife in
+<code>persist_forward_drizzle_multiband()</code> aufrufen und das Ergebnis per Referenz
+in <code>accumulate_pair_impl()</code>/<code>accumulate_pair_by_frame[_cuda]()</code> durchreichen,
+statt es intern neu zu bauen. <strong>Implementiert 2026-09-11</strong> (mit T4a/T4b/T4c).
+Abnahme: <code>PreparedDrizzleFrames</code>-Aufrufzähler
+sinkt von <code>n_bands</code> auf 1 je Lauf; Store-Bytes bitidentisch (reine
+Wiederverwendung einer bereits deterministisch berechneten Struktur, keine
+Reihenfolgeänderung).</p>
+<h2 id="5-eigenstandige-algorithmenprobleme">5. Eigenständige Algorithmenprobleme<a class="headerlink" href="#5-eigenstandige-algorithmenprobleme" title="Permanent link">&para;</a></h2>
+<h3 id="51-sampling-geometry">5.1 Sampling Geometry<a class="headerlink" href="#51-sampling-geometry" title="Permanent link">&para;</a></h3>
+<p><code>compute_geometric_coverage()</code> ist der größte gemessene Block und enthält
+keinen Source-SHA. Für jeden Frame und Band führt der CFA-Pass exakte
+Polygon-Schnittflächen aus. Zusätzlich werden die CFA-Akkumulatoren pro Frame
+geleert und kanvasweit reduziert; danach folgen Footprint- und Zählpässe.</p>
+<p>Die Umsetzung darf nicht einen riesigen Leaf- oder Kandidatenspool einführen.
+Die Reihenfolge ist:</p>
+<ol>
+<li>Subtimer für CFA-Raster, Akkumulator-Reset, Akkumulator-Reduktion,
+   Footprint und Loch-/Quantilnachlauf in einem realgroßen Benchmark.</li>
+<li>affine GPU-Rasterisierung mit derselben Clip-/Flächenroutine und CPU-
+   Referenzvergleich; keine Floating-Point-Atomics für gewichtete Summen;</li>
+<li>getrennt danach CFA-/Footprint-Schleifen fusionieren oder aktive
+   Zellenlisten prüfen, wenn die neuen Subtimer Speicherpässe als relevant
+   belegen;</li>
+<li>lokale Warps weiter über die kanonische CPU-Geometrie behandeln, bis eine
+   GPU-Übertragung der vorab berechneten Leaves bytegleich nachgewiesen ist.</li>
+</ol>
+<h3 id="52-registrierung-und-normalisierung">5.2 Registrierung und Normalisierung<a class="headerlink" href="#52-registrierung-und-normalisierung" title="Permanent link">&para;</a></h3>
+<p>Für die gemessenen 218 s Registrierung und 103 s Normalisierung liegt noch
+keine genügende Unterteilung vor. Kein Algorithmusumbau ohne Messung.</p>
+<p>Ein belegter Nebenpfad: Bei aktiviertem <code>auto_engine</code> werden höchstens vier
+Probe-Frames registriert. Deren Proxys und Sternlisten gehen nicht in den
+regulären Proxycache ein und werden später neu gebaut. Diese Daten in den
+bestehenden Cache übernehmen; die Probe bleibt fachlich unverändert.</p>
+<p>Zuerst erfassen: FITS-Read, Kalibrierung, Normalisierung, Cache-Write,
+Proxybau, Sterndetektion, Paarzuordnung, ECC, Ankerwahl und lokale Verfeinerung.</p>
+<h2 id="6-reihenfolge-der-anderungen">6. Reihenfolge der Änderungen<a class="headerlink" href="#6-reihenfolge-der-anderungen" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Paket</th>
+<th>Änderung</th>
+<th>Numerik</th>
+<th>Messbare Wirkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>T0</td>
+<td>Referenzartefakte und Phasen-/Subtimer festschreiben</td>
+<td>keine</td>
+<td>Vergleichsbasis</td>
+</tr>
+<tr>
+<td>T1</td>
+<td>Trusted-Run-Schema; Source-, Q-, Profil- und Geometrie-Hot-Path-SHAs entfernen</td>
+<td>keine Pixeländerung</td>
+<td><code>NORMALIZED_CACHE</code> minus etwa 10,32 s; keine Digestbytes im Run</td>
+</tr>
+<tr>
+<td>T2</td>
+<td>Q-Reader-Index</td>
+<td>keine</td>
+<td>lineare Metadatenscans = 0</td>
+</tr>
+<tr>
+<td>T3</td>
+<td>SQM erzeugt Global-Quality-Metriken</td>
+<td>Gewichte bytegleich</td>
+<td>kein zweiter Proxy-/Sourcepass</td>
+</tr>
+<tr>
+<td>T4</td>
+<td>Gepinnte Source- und Q-Bandansichten, gemeinsames Hostbudget, <code>prepare_drizzle_frames()</code> einmal statt je Band (§4.4) — <strong>implementiert 2026-09-11</strong></td>
+<td>Profile bytegleich</td>
+<td>Readbytes je Band unabhängig von Kachelzahl; Bandgrenzen separat gemessen; <code>PreparedDrizzleFrames</code>-Aufrufe je Lauf statt je Band</td>
+</tr>
+<tr>
+<td>T5</td>
+<td>CUDA-X+Y-Provider und Kernel — <strong>implementiert 2026-09-11</strong></td>
+<td>CPU/CUDA-Parität</td>
+<td>Producer-, Transfer- und Kernelarbeit skaliert mit Fenster</td>
+</tr>
+<tr>
+<td>T6</td>
+<td>Coverage-Subtimer und beschleunigter affiner Pfad — <strong>implementiert 2026-09-11</strong></td>
+<td>Coveragebits gleich</td>
+<td>Coverage unter eigenes Budget bringen; CUDA-Pfad mit Mutex für <code>workers &gt; 1</code></td>
+</tr>
+<tr>
+<td>T7</td>
+<td>Registrierungs-/Normalisierungsoptimierung nach Subtimern — <strong>implementiert 2026-09-11</strong></td>
+<td>Phasenartefakte gleich</td>
+<td>Restbudget schließen</td>
+</tr>
+</tbody>
+</table>
+<p>T1 bis T3 sind unabhängig von CUDA und sofort prüfbar. T4 und T5 sind ein
+gemeinsamer Durchsatzschnitt: ein Bereichsread ohne geänderte Lebensdauer
+erzeugt nur wiederholte Reads. T6 bleibt separat, weil Coverage ein anderer
+Algorithmus und ein anderer Akzeptanzvertrag ist.</p>
+<h2 id="6a-konkrete-testfalle-fur-t1-bestand-2026-09-11">6a. Konkrete Testfälle für T1 (Bestand, 2026-09-11)<a class="headerlink" href="#6a-konkrete-testfalle-fur-t1-bestand-2026-09-11" title="Permanent link">&para;</a></h2>
+<p>Vor Umsetzung mit <code>grep -rn "hash_computation_count\|NORMALIZED_CACHE_CONTENT_MISMATCH\|SQM_CACHE_FILE_CORRUPT\|block_index_builds\|blocks_verified\b\|whole_file_sha_seconds" tests/</code> den vollständigen Bestand
+bestätigen; bekannt sind:</p>
+<ul>
+<li><code>tests/test_source_quality_artifact.cpp</code>: der ganze <code>TEST_CASE</code>
+  <code>"source cache: block-check index --- ..."</code> (<code>[cache-blocks]</code>, §30.81
+  3a-3 Teil 1) entfällt vollständig — der Blockindex wird entfernt (§8, "Block-
+  SHA im normalen Kachelpfad" ist bereits als Nicht-Optimierung verworfen).
+  <code>BlkCacheDir</code>-Testhelfer entfällt mit, falls sonst ungenutzt.</li>
+<li>Dieselbe Datei, <code>"source cache: content bound frame loading rejects
+  replacements and truncation"</code>: die <code>REQUIRE_THROWS</code>-Assertions nach einer
+  reinen <strong>Inhaltsänderung</strong> (<code>f.write(0, andere Pixelwerte, gleiche Größe)</code>)
+  entfallen — das wird im Trusted Run nicht mehr erkannt. Die
+  Trunkierungs-Assertion (kürzere Datei) bleibt gültig (Größenprüfung, kein
+  Hash).</li>
+<li><code>"source cache: LRU hit skips hashing, tamper still fails closed"</code>
+  (Name danach unpassend): <code>hash_computation_count()</code>-Assertions entfallen
+  (Zähler entfällt mit der Verifikation). Die Eviction-unter-engem-Budget-
+  Section bleibt (reine LRU-Mechanik). Die Rewrite-mit-identischer-Größe-
+  Section bleibt <strong>inhaltlich gültig</strong>, weil der mtime-Restat auf dem Hit-Pfad
+  laut §3.1-Ausnahme erhalten bleibt — sie prüft nur nicht mehr "und wird
+  dabei neu gehasht", sondern nur noch "und wird dabei neu gelesen".</li>
+<li><code>tests/test_source_quality_map_cache.cpp</code>: jede Section, die eine <code>.bin</code>
+  manipuliert und <code>SQM_CACHE_FILE_CORRUPT</code> erwartet, entfällt oder wird
+  umgedreht (Manipulation wird nicht mehr erkannt). Die <code>[.]</code>-Section zu
+  <code>bin_loads()</code>/<code>read_rect()</code> (§30.81 3a-2b, Dekodier-Optimierung) bleibt
+  unverändert — sie hat keinen SHA-Bezug.</li>
+<li>Volle Suite muss nach der Streichung wieder grün sein; die Testzahl sinkt
+  netto (mindestens der <code>[cache-blocks]</code>-Fall entfällt vollständig).</li>
+</ul>
+<h2 id="7-test-und-migrationsvertrag">7. Test- und Migrationsvertrag<a class="headerlink" href="#7-test-und-migrationsvertrag" title="Permanent link">&para;</a></h2>
+<p>Vor jedem Paket werden die bisherigen committed Profile, Qualitätspläne,
+Coverage-Masken und finalen Ausgaben als Referenz gespeichert. Ihre Hashes
+bleiben Testwerkzeug, erscheinen aber nicht mehr im normalen Laufzeitpfad.</p>
+<p>Für jede Schema-v2-Änderung gelten:</p>
+<ul>
+<li>neue Trusted-Run-Tests: normale v2-Artefakte werden ohne Inhalts-Hash
+  verwendet;</li>
+<li>Trusted-Run-Tests: absichtlich geänderte Payload bei gleicher Größe wird
+  nicht als Inhaltsfehler klassifiziert; fehlende, kurze oder strukturell
+  falsche Dateien werden weiter abgelehnt;</li>
+<li>Migrationsfälle: v1 und v2 anhand Struktur und Größe öffnen; unbekannte
+  Schema-Versionen ablehnen;</li>
+<li>Resume-Fälle: fehlende, zu kurze, falsch dimensionierte oder falsch
+  zugeordnete Artefakte lehnen weiterhin ab;</li>
+<li>numerische Fälle: Bytegleichheit über Worker, Bandhöhe, Kachelbreite,
+  Framefenster, CPU und CUDA.</li>
+</ul>
+<h2 id="8-nicht-als-optimierung-akzeptieren">8. Nicht als Optimierung akzeptieren<a class="headerlink" href="#8-nicht-als-optimierung-akzeptieren" title="Permanent link">&para;</a></h2>
+<ul>
+<li>globale Toleranzlockerung zwischen CPU und CUDA;</li>
+<li>ungeordnete Floating-Point-Atomics oder veränderte Clip-/Reduktionsordnung;</li>
+<li>ein Kandidaten- oder Leaf-Spool ohne vollständige Transferbilanz;</li>
+<li>Block-SHA im normalen Kachelpfad als vermeintliche Bereichsoptimierung;</li>
+<li>mehr Parallelität ohne gemeinsame Speicherbilanz;</li>
+<li>Behauptungen über Registrierung oder Normalisierung ohne deren Subtimer.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

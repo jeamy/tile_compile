@@ -1,0 +1,26 @@
+var structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult =
+[
+    [ "driver", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a89d6a5c15ce2dd6fa9d18ec5d5e8ba0e", null ],
+    [ "empty_affine_tiles", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a3b84815ad096705be65fcf10389a5462", null ],
+    [ "frames_excluded_subdivision_error_rate", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a9d673e3e8691409c7649b476d2d59205", null ],
+    [ "frames_participating", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a0bbac83471fa3495e54595a513fe9cdf", null ],
+    [ "frames_skipped_invalid", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a7d572b85d56fccb2e847de068215ae1d", null ],
+    [ "geometry_cache_enumerations", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a70178e820f892526f69ebdead1342146", null ],
+    [ "geometry_leaf_record_bytes_read", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#ac1388834b490004269e38057f92c2f10", null ],
+    [ "geometry_leaf_records_read", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a4138fb39b4363ce310478c92412ed22b", null ],
+    [ "geometry_unique_source_samples", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#aff3d234194ad5d67d508bd9f8222964b", null ],
+    [ "local_model_samples_discarded", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a26b0fcb81ecbb802558cd7cfd445eccd", null ],
+    [ "local_model_samples_total", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#acac4313663bdc2aac8cfcfa10f795027", null ],
+    [ "plan", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a6908bad6f7977700f5d43aa4166f0af6", null ],
+    [ "provider_hotpath_allocations", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a6b081c49f5b250e7068cfb3e5c93fa4b", null ],
+    [ "provider_quality_cells_read", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a01b73102c59580a3a335a15173fb8794", null ],
+    [ "provider_quality_denominator_bytes", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a21f863d0a14c71a722c132a3b5fd7022", null ],
+    [ "provider_quality_expanded_floats", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#ae6a485291a0e39e7a772bf4474bace48", null ],
+    [ "provider_quality_seconds", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#ad444ceb92a5c416108777450bd86dcfa", null ],
+    [ "provider_source_bytes_read", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a5f6a2a1473a6d4c0154d968bde0ebf0f", null ],
+    [ "provider_source_read_calls", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a6e6ad59f85ed0e2cf6a2d5bca9da9e5a", null ],
+    [ "provider_source_seconds", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#aef8a9a2c9ea61012ebe1e4509decf41e", null ],
+    [ "q_bin_cells_decoded", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a06f8d3dd0249e7f6d3e20e4f7e4f8620", null ],
+    [ "q_bin_loads", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#ab3aced928e818d77efa2e3dea2c77af7", null ],
+    [ "q_expanded_floats", "structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProductionResult.html#a02098d1981806957c6dfc0b60fb8a47c", null ]
+];

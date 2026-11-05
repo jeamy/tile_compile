@@ -1,0 +1,5 @@
+<map id="tile_compile::image::normalize_frame" name="tile_compile::image::normalize_frame">
+<area shape="rect" id="Node000001" title="Normalizes frame." alt="" coords="5,5,139,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#af1361dab041db5d25f27d0f01d6075d2" title="Implements median of." alt="" coords="187,5,310,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="139,22,174,24,169,25,139,27"/>
+</map>

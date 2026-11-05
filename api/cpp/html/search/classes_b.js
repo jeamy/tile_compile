@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['outputconfig_0',['OutputConfig',['../structtile__compile_1_1config_1_1OutputConfig.html',1,'tile_compile::config']]],
-  ['overlapaddstate_1',['OverlapAddState',['../structtile__compile_1_1core_1_1AccelerationOps_1_1OverlapAddState.html',1,'tile_compile::core::AccelerationOps']]]
+  ['normalizationconfig_0',['NormalizationConfig',['../structtile__compile_1_1config_1_1NormalizationConfig.html',1,'tile_compile::config']]],
+  ['normalizationscales_1',['NormalizationScales',['../structtile__compile_1_1image_1_1NormalizationScales.html',1,'tile_compile::image']]]
 ];

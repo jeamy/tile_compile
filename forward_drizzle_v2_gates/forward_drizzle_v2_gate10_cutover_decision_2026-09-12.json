@@ -1,0 +1,72 @@
+{
+    "gate": 10,
+    "spec_sha256": "bc3ebad041fef56260ca2742fe518b3f8bd1dcb192d0879ea7f7ac26a0c47143",
+    "decision": "production_matrix_and_a1_pcc_revalidation_passed",
+    "decided_at": "2026-09-14",
+    "scope": "production cutover of forward drizzle v2: runner wiring, host CPU fallback port, band-level resume through the gate-7 store, real production runs; legacy record/sort/candidate path removal only after acceptance",
+    "selection": {
+        "mechanism": "FORWARD_DRIZZLE unconditionally uses the v2 producer; the phase checkpoint carries forward_drizzle_v2 + plan_hash and MULTIBAND requires the published v2 store fail-closed",
+        "default": "v2 is the only production producer; TC_FORWARD_DRIZZLE_V2 and the legacy runner fallback were removed"
+    },
+    "store_contract": {
+        "root": "artifacts/forward_drizzle_v2",
+        "layout": "plan.json + band-%04d.bin + band-%04d.profiles.bin + checkpoint.json + commit.json + current.json per generation",
+        "profile_records": "80 B ForwardDrizzleV2ProfileResult, channel-major, same order as pixel records; committed atomically with the band transaction",
+        "publication": "current.json published only after the commit gate passes; nonfinite_pixels_inside_source_support == 0 required"
+    },
+    "band_geometry": {
+        "origin_convention": "affine6 stays the persisted canvas source_to_canvas transform; band_origin_*_native shifts only emission; local-warp inversion evaluates in canvas coordinates (oracle-exact)",
+        "band_rows": "derived from the nominal deterministic device budget and the gate-5 memory plan; plan geometry never depends on transient free VRAM; reserve() validates real capacity per band"
+    },
+    "cpu_fallback": {
+        "contract": "same artifacts, same band store, bit-identical discrete decisions, magnitudes within documented tolerance",
+        "restart": "any device error discards the unpublished generation and restarts the entire phase on the host CPU port",
+        "test_hook": "TILE_COMPILE_FD_V2_CUDA_FAULT_AFTER_BANDS forces a device fault mid-phase"
+    },
+    "resume": {
+        "prefix_reuse": "inspect_forward_drizzle_v2_store + adopt() reuse the committed band prefix verbatim; partially written band artifacts are unverifiable and recomputed",
+        "fail_closed": "corrupt band artifacts, non-contiguous checkpoints, foreign plans and ambiguous generations all reject adoption"
+    },
+    "failed_cutover_evidence": {
+        "run_id": "a2_m42_affine",
+        "completed_bands_before_abort": 7,
+        "band_count": 72,
+        "median_band_seconds": 298.39,
+        "projected_forward_drizzle_seconds": 21484.08,
+        "root_cause": "the v2 driver executed 610 full-frame provider/decode/sigma/H2D/scatter operations for every 47-row band; the Gate-9 ring was a test-only accounting model and no source/Q reuse was wired into production",
+        "verdict": "production acceptance rejected by user; run stopped"
+    },
+    "revised_acceptance": {
+        "source_read_amplification_max": 1.1,
+        "quality_read_amplification_max": 1.1,
+        "source_samples_launched_amplification_max": 1.1,
+        "a2_forward_drizzle_seconds_max": 2148.408,
+        "minimum_speedup_vs_failed_v2": 10.0,
+        "legacy_comparison": "v2 must be strictly faster on identical input/config/hardware",
+        "preproduction": "real-provider all-band benchmark must pass before restarting A1/A2/L1/L2"
+    },
+    "preproduction_result": {
+        "run_id": "bench_m42_v2_spans",
+        "forward_drizzle_seconds": 28.93,
+        "speedup_vs_old_v2": 14.573453162806775,
+        "speedup_vs_identical_input_legacy": 19.53518838575873,
+        "source_read_amplification": 1.0067556674784595,
+        "quality_read_amplification": 1.01560159063143,
+        "source_samples_launched_amplification": 1.0067556674784595,
+        "workspace_reservations": 1,
+        "hotpath_allocations": 0,
+        "device_global_synchronizations": 0,
+        "checkpoint_and_rgb_identity": "bit-identical to rectangular and tiled optimized runs",
+        "status": "pass"
+    },
+    "production_results": {
+        "A1": {"run_id": "a1_m31_affine_cuda", "frames": 645, "backend": "cuda_v2", "forward_drizzle_seconds": 251.50, "source_read_amplification": 1.014106317552816, "quality_read_amplification": 1.0316747509820428, "sample_amplification": 1.014106317552816, "forward_drizzle_status": "pass", "original_run_status": "downstream_pcc_failed", "pcc_revalidation": {"input": "unchanged stacked_rgb_bge_linear.fits", "catalog_stars": 5451, "stars_matched": 524, "stars_used": 478, "residual_rms": 0.18543647850517198, "condition_number": 1.98, "status": "pass"}},
+        "A2": {"run_id": "a2_m42_affine_cuda", "frames": 610, "backend": "cuda_v2", "forward_drizzle_seconds": 431.02, "source_read_amplification": 1.018240216784621, "quality_read_amplification": 1.0406527378671775, "sample_amplification": 1.018240216784621, "run_status": "final_image_ready"},
+        "L1": {"run_id": "l1_m42_local_cuda", "frames": 610, "backend": "cuda_v2", "forward_drizzle_seconds": 434.45, "source_read_amplification": 1.094386744443812, "quality_read_amplification": 1.0406527378671775, "sample_amplification": 1.0182401926719666, "local_model_samples_total": 33177600, "geometry_leaf_records_read": 33812405, "run_status": "final_image_ready"},
+        "L2": {"run_id": "l2_m42_local_p100_cuda", "frames": 610, "backend": "cuda_v2", "forward_drizzle_seconds": 557.71, "source_read_amplification": 1.0989480830835103, "quality_read_amplification": 1.0451731621168583, "sample_amplification": 1.0228008472633323, "local_model_samples_total": 33177600, "geometry_leaf_records_read": 33971129, "run_status": "final_image_ready"}
+    },
+    "production_runs": "FORWARD_DRIZZLE matrix passed on CUDA v2; A2/L1/L2 reached final_image_ready; A1 FORWARD_DRIZZLE and MULTIBAND passed, and PCC revalidation on the unchanged A1 RGB product passed after removal of the invalid relative-IQR hard reject",
+    "acceptance_gates": "PRODUCTION PERFORMANCE, LOCAL GEOMETRY CACHE, RESUME, CUDA FALLBACK, FAIL-CLOSED STORE CONTRACTS, AND A1 PCC REVALIDATION PASSED",
+    "legacy_removal": "PRODUCTION PATH REMOVED — runner and MULTIBAND are unconditionally v2; low-level legacy/reference algorithms remain test-only regression oracles",
+    "results": "docs/forward_drizzle_v2_gate10_cutover_results_2026-09-12.jsonl"
+}

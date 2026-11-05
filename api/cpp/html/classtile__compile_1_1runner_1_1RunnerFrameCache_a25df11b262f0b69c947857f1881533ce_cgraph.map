@@ -1,0 +1,21 @@
+<map id="tile_compile::runner::RunnerFrameCache::seal_normalized_cache" name="tile_compile::runner::RunnerFrameCache::seal_normalized_cache">
+<area shape="rect" id="Node000001" title="Seal a complete normalized cache and retain it beyond this object lifetime." alt="" coords="5,184,183,236"/>
+<area shape="rect" id="Node000002" href="$classtile__compile_1_1runner_1_1RunnerFrameCache.html#a5866d9152de4730b97ec22af03849acc" title="Normalized frame column count." alt="" coords="240,5,417,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="110,182,158,117,192,83,229,53,239,49,235,53,232,58,195,87,162,121,114,185"/>
+<area shape="rect" id="Node000003" href="$classtile__compile_1_1runner_1_1RunnerFrameCache.html#a08f68bd442ba4e45bcd35db1a9dfe7e0" title="Whether normalized frame data is available for fi." alt="" coords="241,68,416,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="137,181,229,130,245,125,240,129,232,135,141,185"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1reconstruction.html#aafc8eee55a8ce3416f12b26af024485b" title=" " alt="" coords="236,145,421,198"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="182,193,222,188,218,191,184,198"/>
+<area shape="rect" id="Node000008" href="$classtile__compile_1_1runner_1_1RunnerFrameCache.html#a88c7a3ef437ddfe0317bdfde556facc1" title="Implements store normalized." alt="" coords="231,222,426,275"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="182,222,218,229,213,231,183,227"/>
+<area shape="rect" id="Node000009" href="$classtile__compile_1_1runner_1_1RunnerFrameCache.html#aa71d27cfc0f0da5fa0a9d3ec073d4fa2" title="Normalized frame row count." alt="" coords="238,299,419,337"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="137,234,183,260,232,285,247,293,242,293,230,290,180,265,137,239"/>
+<area shape="rect" id="Node000010" href="$classtile__compile_1_1runner_1_1RunnerFrameCache.html#ae83701436e2c4ba73c6c7072d78aea32" title="Number of frame slots in the cache." alt="" coords="240,361,416,400"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="116,234,166,291,197,321,232,346,243,355,238,354,229,351,194,325,162,295,114,239"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1core.html#ad36cabee6f07e00eee8a6c15d9d66755" title="Writes text." alt="" coords="474,152,606,191"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="421,169,461,171,456,172,422,174"/>
+<area shape="rect" id="Node000006" href="$classtile__compile_1_1core_1_1AtomicOutput.html#a016cfea9ad01ca8e8b22c1b26a0e2512" title=" " alt="" coords="654,120,815,159"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="606,158,641,154,636,156,608,163"/>
+<area shape="rect" id="Node000007" href="$classtile__compile_1_1core_1_1AtomicOutput.html#a5a575a83894433e513dd9748b172f7ed" title=" " alt="" coords="663,183,806,221"/>
+<area shape="poly" id="edge6_Node000005_Node000007" title=" " alt="" coords="607,179,651,188,645,189,607,184"/>
+</map>

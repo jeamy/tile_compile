@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "gate": 4,
+  "status": "frozen_decided",
+  "context": {
+    "purpose": "define the per-pixel confidence model, its bounded sufficient statistics, and the numeric types for every v2 accumulation; all buffers feed gate 5",
+    "selected_estimator": "reservoir_sigma_clip (gate 3): confidence statistics accumulate over the clip-accepted set, so they are computed inside the clip call, not as a post pass"
+  },
+  "inputs": {
+    "sigma_noise_f": {
+      "meaning": "per-frame noise sigma in normalized source units (post-calibration ADU/e units)",
+      "source": "frame-quality/provider stream analogous to the existing FrameQualityProvider; a per-frame scalar plan field is defined but the schema extension is delegated to gate 7 (artifact/resume gate)",
+      "fallback": "not finite or not provided => confidence falls back to the n_eff formula, never loses support"
+    },
+    "gradient": {
+      "meaning": "per-source-pixel gradient (gx, gy) of the normalized source frame",
+      "computation": "central differences (x[s+1]-x[s-1])/2 per axis, edge-clamped, computed on the normalized source frame BEFORE any clip decision so the estimator is non-circular",
+      "usage": "sigma_reg term gx^2+gy^2 scaled by sigma_reg^2"
+    },
+    "sigma_reg_f": {
+      "meaning": "per-frame 1-sigma registration position uncertainty in source pixels, isotropic",
+      "source": "provider/plan field registration_sigma_px; derived upstream from inlier residual RMS; model_predicted frames scale it by 1/model_prediction_factor? NO - fixed contract: the upstream provider already folds prediction into the delivered sigma; the estimator consumes it verbatim",
+      "units": "source pixels"
+    },
+    "sigma_sampling": {
+      "meaning": "deterministic sampling variance of the square pixfrac droplet under a locally linear scene",
+      "formula": "sigma_sampling^2 = half^2 / 3 per candidate (uniform droplet of half-width 'half' has variance (2*half)^2/12 per axis)",
+      "inputs": "pixfrac half-width only; constant per frame geometry"
+    },
+    "sigma2_model": "sigma2_f,px = sigma_noise_f^2 + (gx^2 + gy^2) * sigma_reg_f^2 + sigma_sampling^2; every input finite >= 0 else the candidate contributes sigma2 = 0 and increments conf_degraded_count"
+  },
+  "sufficient_statistics": {
+    "over_estimator_effective_set": {
+      "B_c": "sum of accepted candidate weights b",
+      "S_c": "sum of accepted b * sigma",
+      "C_c": "sum of accepted b^2 * sigma2",
+      "note": "all O(1) per pixel/channel, accumulated inside the estimator's effective set (reservoir: clip-accepted members; uniform/winsorized/median: all valid; trimmed: surviving groups' frames)"
+    },
+    "formulas": {
+      "sigma_est2": "C_c / B_c^2  (variance of the weighted mean under independence)",
+      "sigma_frame": "S_c / B_c  (weight-mean frame sigma)",
+      "confidence": "S_c^2 / (S_c^2 + C_c)  in (0,1]; identical to n_eff/(n_eff+1) when all sigma equal",
+      "fallback": "C_c == 0 (no sigma information) => confidence = n_eff/(n_eff+1) with state fallback_n_eff; B_c == 0 => no confidence, state no_source_support"
+    },
+    "support_contract": "confidence is a diagnostic scalar; it can never delete or modify support"
+  },
+  "numerics_matrix": {
+    "operations": [
+      {"op": "affine/inverse geometry", "candidates": ["fp32", "fp64"]},
+      {"op": "polygon overlap", "candidates": ["fp64"], "note": "already fp64 in the selected dense scatter; not re-opened"},
+      {"op": "A/B/B2 and confidence accumulation", "candidates": ["fp32", "compensated_fp32_neumaier", "fp64"]},
+      {"op": "robust clip median/MAD on reservoir", "candidates": ["fp64"], "note": "mirrors production, not re-opened"},
+      {"op": "scale fold", "candidates": ["fp64"], "note": "gate-2 contract is fp64, not re-opened"}
+    ],
+    "measured_sequences": [
+      {"id": "equal_weights_600", "desc": "600 frames b=1 sigma=1"},
+      {"id": "wide_weights", "desc": "b in [1e-8, 1e8] geometric, sigma 1"},
+      {"id": "alternating_magnitude", "desc": "alternating 1e6 and 1e-6 weights"},
+      {"id": "cancellation", "desc": "large positive then corrective small terms"},
+      {"id": "long_stream_1e5", "desc": "100000 candidates b=1 sigma=1"}
+    ],
+    "error_metric": "relative error vs fp64 oracle for C_c and confidence"
+  },
+  "thresholds": {
+    "accumulator_rel_error_max": 1e-12,
+    "confidence_cpu_gpu_tolerance": 1e-12,
+    "fold_parity_tolerance": 1e-12,
+    "support_invariant": "confidence path can never change b/value/support",
+    "selection_rule": "cheapest accumulator meeting 1e-12 rel error across all sequences is selected; if plain fp32 fails and compensated fp32 meets it, compensated fp32 is selected; fp64 is the fallback and current default"
+  },
+  "fallback_state_machine": {
+    "no_source_support": "B_c == 0: confidence = 0, state no_source_support",
+    "fallback_n_eff": "C_c == 0 while B_c > 0: confidence = n_eff/(n_eff+1)",
+    "modeled": "confidence = S_c^2/(S_c^2 + C_c)",
+    "degraded": "per-candidate nonfinite/negative sigma2 inputs are replaced by 0 and counted in conf_degraded_count"
+  },
+  "deliverables": [
+    "sigma2_model and confidence accumulation implemented in the gate-3 oracle/reservoir path",
+    "fp32/compensated-fp32/fp64 measurement harness over the five sequences",
+    "adversarial tests: missing sigma, nonfinite sigma, single frame, thin support, zero support",
+    "results JSONL + decision JSON with tolerances and numeric-type table",
+    "gate-5 buffer inputs: confidence accumulators are 3 extra doubles per pixel/channel (B_c, S_c, C_c) plus degraded counter"
+  ]
+}

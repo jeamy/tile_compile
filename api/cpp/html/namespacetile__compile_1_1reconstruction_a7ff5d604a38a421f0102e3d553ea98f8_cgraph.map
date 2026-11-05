@@ -1,0 +1,18 @@
+<map id="tile_compile::reconstruction::fuse_multiband" name="tile_compile::reconstruction::fuse_multiband">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,131,186,169"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#a21472a3bf3d8b6c6b4b9df738ea30b96" title=" " alt="" coords="244,5,424,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="119,128,170,90,232,53,247,49,243,52,235,58,173,95,122,132"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1reconstruction.html#acf185000e111c007bcb513e99e1ed173" title=" " alt="" coords="244,68,424,107"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="170,128,245,110,241,113,173,133"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1reconstruction.html#a806ef76d87e370a1a34b5308178c17e3" title=" " alt="" coords="234,131,434,169"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="185,147,221,149,216,151,187,153"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1reconstruction.html#a360fe4c7a51f0fbe414d8f30e0cec988" title=" " alt="" coords="244,217,424,256"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="151,167,266,210,262,213,151,173"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1reconstruction.html#aecba5784b35c36ba874b7a6c48f2a9da" title=" " alt="" coords="244,280,424,319"/>
+<area shape="poly" id="edge8_Node000001_Node000008" title=" " alt="" coords="116,167,167,216,200,242,235,265,249,274,243,273,232,270,197,247,164,220,114,172"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#ab90e5e9bdf072dbb7b4f402bc6f14574" title=" " alt="" coords="482,5,662,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="424,22,469,24,464,26,425,27"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1reconstruction.html#aa8112e0fdf5fdcffc270d15e79dc8c5a" title=" " alt="" coords="482,68,662,107"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="424,85,469,87,464,88,425,90"/>
+<area shape="poly" id="edge7_Node000007_Node000007" title=" " alt="" coords="290,216,287,208,294,198,309,193,334,191,360,193,377,202,372,202,359,198,334,196,311,198,297,203,292,209,295,218"/>
+</map>

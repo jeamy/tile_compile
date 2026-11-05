@@ -1,0 +1,9 @@
+<map id="tile_compile::metrics::calculate_global_weights_impl" name="tile_compile::metrics::calculate_global_weights_impl">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,37,210,76"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#ad49730583a15489613094f217a04cd52" title=" " alt="" coords="260,5,401,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="209,39,247,36,242,38,210,45"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1metrics.html#adfd2c237d20e3db8f21eff428ea3cf91" title=" " alt="" coords="258,68,403,107"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="210,68,245,75,240,75,210,73"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#af1361dab041db5d25f27d0f01d6075d2" title="Implements median of." alt="" coords="451,5,574,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="401,22,438,24,433,25,402,27"/>
+</map>

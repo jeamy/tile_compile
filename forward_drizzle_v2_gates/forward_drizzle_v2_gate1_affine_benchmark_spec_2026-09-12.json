@@ -1,0 +1,92 @@
+{
+  "schema_version": 2,
+  "gate": 1,
+  "status": "frozen_before_decision_measurement",
+  "supersedes_spec_sha256": "6487fa7cbc4506c7006a02d77b6d3be186387be2cf63a33d8d4d0d48ef85d1de",
+  "methodology_correction": "The exploratory first run incorrectly included full frame-local A/B device-to-host downloads in selected steady-state enumeration time. V2 retains and reduces those planes on device; correctness still downloads them, but the unchanged 0.75 s selection threshold applies to upload plus kernel only. Download remains separately reported. This correction was frozen before the decision run and does not change any numeric threshold.",
+  "reference": {
+    "gate0_artifact": "forward_drizzle_v2_gate0_affine_reference_2026-09-12.json",
+    "git_sha_before_gate1_implementation": "07c5885f",
+    "source_width": 3840,
+    "source_height": 2160,
+    "target_width": 7868,
+    "target_height": 4540,
+    "color_mode": "OSC",
+    "bayer_pattern": "GBRG",
+    "cfa_origin_x": 0,
+    "cfa_origin_y": 0,
+    "pixfrac_values": [0.2, 0.8, 1.0]
+  },
+  "source_fixture": {
+    "type": "deterministic_gradient",
+    "formula": "100 + 0.001*x + 0.002*y + 0.01*((17*x+31*y) mod 29)",
+    "dtype": "float32",
+    "nonfinite_samples": "none for performance/parity matrix"
+  },
+  "transforms": [
+    {
+      "id": "m42_reference_frame_29",
+      "source": "m42-gate0-ref60 registration_sampling frame 29",
+      "source_to_canvas": [1.0, 0.0, 32.0, 0.0, 1.0, 50.0]
+    },
+    {
+      "id": "m42_positive_rotation_frame_0",
+      "source": "m42-gate0-ref60 registration_sampling frame 0",
+      "source_to_canvas": [0.9998640418052673, -0.016167480498552322, 35.636409759521484, 0.01610037311911583, 0.9999631643295288, 46.23441696166992]
+    },
+    {
+      "id": "m42_negative_rotation_frame_59",
+      "source": "m42-gate0-ref60 registration_sampling frame 59",
+      "source_to_canvas": [0.9998466372489929, 0.017386717721819878, 55.92152404785156, -0.01743965968489647, 0.9998936057090759, 68.48160552978516]
+    },
+    {
+      "id": "m42_max_condition_frame_25",
+      "source": "m42-gate0-ref60 registration_sampling frame 25",
+      "source_to_canvas": [0.9999858140945435, -0.0024168870877474546, 31.47933578491211, 0.0021460296120494604, 1.000150442123413, 56.29893493652344]
+    },
+    {
+      "id": "m42_scale_extreme_frame_17",
+      "source": "m42-gate0-ref60 registration_sampling frame 17",
+      "source_to_canvas": [1.0000033378601074, -0.006749980617314577, 28.21784782409668, 0.006637410260736942, 1.0002058744430542, 58.95621871948242]
+    },
+    {
+      "id": "stress_shear_scale_a",
+      "source": "synthetic Gate-0 oracle stress",
+      "source_to_canvas": [0.84, 0.22, 420.0, -0.16, 1.11, 380.0]
+    },
+    {
+      "id": "stress_shear_scale_b",
+      "source": "synthetic Gate-0 oracle stress",
+      "source_to_canvas": [1.13, -0.18, 510.0, 0.09, 0.88, 430.0]
+    }
+  ],
+  "correctness_thresholds": {
+    "positive_overlap_count_mismatch": 0,
+    "support_mismatches": 0,
+    "max_abs_error": 1e-10,
+    "max_relative_error": 1e-12,
+    "repeat_max_abs_error": 1e-10,
+    "repeat_max_relative_error": 1e-12
+  },
+  "flux_thresholds": {
+    "constant_field_relative_error": 1e-10,
+    "point_source_relative_error": 1e-9
+  },
+  "performance_thresholds": {
+    "selected_steady_state_seconds_per_frame_max": 0.75,
+    "hotpath_device_allocations": 0,
+    "device_global_synchronizations_per_frame": 0,
+    "host_contribution_records": 0
+  },
+  "execution": {
+    "full_matrix_cases": 21,
+    "correctness_mode": "full target A/B comparison, channel-major",
+    "repeat_runs_per_scatter_case": 2,
+    "allocation_warmup_excluded_from_steady_state": true,
+    "timing_components": ["upload", "kernel", "download", "correctness_total"],
+    "steady_state_gate_components": ["upload", "kernel"],
+    "download_policy": "full frame-local A/B downloads are correctness-only diagnostics and are excluded from the selection threshold because v2 reduces these planes on device",
+    "result_format": "one JSON object per case plus aggregate decision JSON",
+    "selection_rule": "a candidate is selectable only if every correctness and flux case passes; among selectable candidates upload plus kernel must meet the unchanged production-geometry steady-state threshold in every matrix case"
+  }
+}

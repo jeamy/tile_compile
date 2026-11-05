@@ -41,8 +41,9 @@ var NAVTREE =
       [ "Class Hierarchy", "hierarchy.html", "hierarchy" ],
       [ "Class Members", "functions.html", [
         [ "All", "functions.html", "functions_dup" ],
-        [ "Functions", "functions_func.html", null ],
+        [ "Functions", "functions_func.html", "functions_func" ],
         [ "Variables", "functions_vars.html", "functions_vars" ],
+        [ "Typedefs", "functions_type.html", null ],
         [ "Enumerations", "functions_enum.html", null ]
       ] ]
     ] ],
@@ -51,7 +52,6 @@ var NAVTREE =
       [ "File Members", "globals.html", [
         [ "All", "globals.html", null ],
         [ "Functions", "globals_func.html", null ],
-        [ "Typedefs", "globals_type.html", null ],
         [ "Macros", "globals_defs.html", null ]
       ] ]
     ] ]
@@ -61,18 +61,35 @@ var NAVTREE =
 var NAVTREEINDEX =
 [
 "acceleration_8cpp.html",
-"config_8cpp.html",
-"namespacetile__compile_1_1astrometry.html#a55aded016e86d46b3ea859a3c536bf02",
-"namespacetile__compile_1_1registration.html#a02e2524a82f5b29b4a8df5236d9348c5",
-"structtile__compile_1_1astrometry_1_1FilterCurves.html#a0be489c688edb1f47c57e5689fc8069f",
-"structtile__compile_1_1astrometry_1_1WCS.html#a54de63edd89c331eb4c499b5153292bf",
-"structtile__compile_1_1config_1_1Config.html#ac8e68cf902298d8c927320637d7153b0",
-"structtile__compile_1_1config_1_1SoftThresholdConfig.html",
-"structtile__compile_1_1image_1_1BGEChannelDiagnostics.html#a02c11c9ff69ab812d57f0c266f9b5707",
-"structtile__compile_1_1image_1_1BGEProfileTiming.html#aecedf2c0e1d385110805773b8572802d",
-"structtile__compile_1_1metrics_1_1LinearityThresholds.html",
-"structtile__compile_1_1reconstruction_1_1TileWeightProfilePairDiagnostic.html#a2f24bb050e8134992a6a863a41410a7a",
-"utils_8cpp_source.html"
+"classtile__compile_1_1reconstruction_1_1ForwardDrizzleV2CpuKernel.html#a727a7594f3ddf97c44f35430f731fcaf",
+"classtile__compile_1_1reconstruction_1_1VerifiedNormalizedSourceCache.html",
+"forward__drizzle__cuda_8hpp_source.html",
+"namespacetile__compile.html#ab16b7145e4da8b5816ca0f4b305b17b1a889574aebacda6bfd3e534e2b49b8028",
+"namespacetile__compile_1_1image.html#aec3f02cb86ff28a94d133ca328300762",
+"namespacetile__compile_1_1reconstruction.html#ad57a497a5c6fdade2d21e1a4107aede3",
+"runner__downstream_8cpp.html",
+"structtile__compile_1_1astrometry_1_1PCCBackgroundNeutralizationDecision.html#a22964f71053033131409eab682f94961",
+"structtile__compile_1_1config_1_1BGEConfig.html#a2c6419a29f9551a7c862d0cd36a68907",
+"structtile__compile_1_1config_1_1Config.html#aa1c5e4c43fe3ab52f45c4d7c78f7b45c",
+"structtile__compile_1_1config_1_1PCCConfig.html#a1936dfd9ed9e6fa242ac88577272d286",
+"structtile__compile_1_1core_1_1AccelerationCapabilities.html#a71a580f9fd2f598e5aeab03ea2cbe658",
+"structtile__compile_1_1image_1_1BGEChannelDiagnostics.html#a9f329278d2030611d8b01e5efdbdd1bf",
+"structtile__compile_1_1image_1_1DebayerResult.html#af33683806f89be5a6e8b1034980fcc34",
+"structtile__compile_1_1metrics_1_1FrameStarMetrics.html#a61367609b8114a9621e9a384cf37493d",
+"structtile__compile_1_1preprocessing_1_1QualityFilterConfig.html",
+"structtile__compile_1_1reconstruction_1_1DrizzleCachedLeaf.html#a90a811048b96e7d3df82b86d886d1fb3",
+"structtile__compile_1_1reconstruction_1_1ForwardDrizzleSubdivisionParams.html#a6e04efb325f797a41007817483635be2",
+"structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2DriverOptions.html#abce3805474988db89b867b5d5cbeba53",
+"structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2LocalWarp.html#abbac7ed738fec6489b6269797dd7f6bf",
+"structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2ProfileResult.html",
+"structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2RunPlan.html#a8d58707f58cb106c7ebc16b86ce6904c",
+"structtile__compile_1_1reconstruction_1_1GlobalQualityConfig.html#a969e09f618c83f90f69b9b2e1fd8107d",
+"structtile__compile_1_1reconstruction_1_1OutputScaleMode.html",
+"structtile__compile_1_1reconstruction_1_1SourceQualityMapResult.html#a16e883a51ce2371fc218788da966a282",
+"structtile__compile_1_1reconstruction_1_1geomstats_1_1VariantCounters.html#adcdfa04a51f5f73e6ed9e88b9c850996",
+"structtile__compile_1_1registration_1_1SingleFrameRegResult.html#aa2c48ebe1e713166843ee368c70e809f",
+"structtile__compile_1_1runner_1_1PhaseMetricsContext.html#a765741e8e792075e6df07407d6a9b947",
+"structtile__compile_1_1runner_1_1detail_1_1SmoothLocalRefinementFrameStats.html#a7849d010a3c78196e3d2d65e9331f34e"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronization';

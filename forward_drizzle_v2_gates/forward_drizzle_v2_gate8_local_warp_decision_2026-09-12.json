@@ -1,0 +1,52 @@
+{
+  "gate": 8,
+  "spec_sha256": "2fa20cd7e3b5293e391fa869b2972de8a9d8c3220935ade6a47c0ff8fbd6094b",
+  "decision": "compact_coefficients_on_device_inversion",
+  "decided_at": "2026-09-12",
+  "representation": {
+    "model": "SmoothLocalWarpModel 4x4 normalized Gaussian basis, sigma 0.28, 8% smoothstep boundary taper",
+    "per_frame_bytes": "~144 B (32 coeff floats + dims + validity + coordinate mapping + params)",
+    "device_deformation_grid": false,
+    "n_independent": true
+  },
+  "device_semantics": {
+    "inversion": "fp32 fixed-point q_{n+1} = u - d(q_n), affine seed, max_iter 6, tol 0.001 px, safety margin 64 px",
+    "subdivision": "implicit 21-node tree (1+4+16), 3x3 inversions per node, depth <= 2, position epsilon 0.05 internal px, area relative epsilon 0.005",
+    "all_or_nothing": "any inversion failure, max-depth rejection or child failure discards the whole source sample, including already accepted leaves",
+    "invalid_model": "per-sample discard (CPU oracle semantics), not a call failure",
+    "scatter": "accepted leaves emitted through the identical polygon-rectangle clip accumulation as the affine path",
+    "parity": "discrete decisions exact (states, contributors, masks, discards); magnitudes <= 1e-5 relative due to fp32 inversion internals"
+  },
+  "telemetry": {
+    "scalars[2]": "local_samples_discarded",
+    "stats": "ForwardDrizzleV2CudaWorkspaceStats::local_samples_discarded populated at finalize"
+  },
+  "implementation_findings": {
+    "band_vs_canvas_bounds": "The workspace native_rows is the BAND height, but the CPU oracle bounds the inversion against the FULL canvas. First implementation passed the band height, wrongly discarding ~97% of samples on a top band. Fixed by adding canvas_width_native/canvas_height_native to ForwardDrizzleV2KernelConfig (0 = band covers the whole canvas).",
+    "depth2_on_production_geometry": "A 4x4 Gaussian model fitted to the full canvas always has knot spacing ~nc/3 (~1311 px), far smoother than any droplet. Depth-2 subdivision is only reachable with a compressed model domain; the production test therefore covers it with a 13x13 px domain patch inside the band plus a max-iteration inversion-stress model. Structural depth-2 acceptance is proven on the small-canvas matrix.",
+    "basis_sum_degenerate": "smooth_local_basis leaves raw basis weights when sum <= 1e-8; the device port mirrors factor 1.0 (not zero).",
+    "nan_semantics": "std::min/std::clamp NaN propagation mirrored explicitly instead of fminf/fmaxf."
+  },
+  "results": "docs/forward_drizzle_v2_gate8_local_warp_results_2026-09-12.jsonl",
+  "production_geometry": {
+    "source": "3840x2160", "canvas": "7868x4540 internal", "band_rows": 59,
+    "frames": 60, "allocations": 1, "global_syncs": 0, "stream_syncs": 1,
+    "device_bytes_per_native_pixel": 13090, "plan_bound": 13210,
+    "cases": {
+      "mild_realistic": {"max_frame_s": 0.082961, "discarded": 0},
+      "inversion_stress": {"max_frame_s": 0.090744, "discarded": 77373743},
+      "depth2_patch": {"max_frame_s": 0.061959, "discarded": 4402}
+    },
+    "frame_time_bound_s": 0.75
+  },
+  "test_matrix": {
+    "cases": ["zero coefficients affine parity", "mild single bump", "strong curvature depth-2 (calibrated checkerboard)", "boundary taper", "non-invertible region", "invalid model", "translated affine seed M42", "mono + OSC/CFA", "mixed affine/local stream", "displacement bound conservativeness"],
+    "scales": [1, 2],
+    "small_canvas": "3 test cases, 26852 assertions, all exact on decisions"
+  },
+  "scope": {
+    "production_runner_wiring": false,
+    "legacy_path": "untouched",
+    "deferred": ["Gate 9 halo/ring checkpoint state", "Gate 10 runner wiring with real predecessor hashes"]
+  }
+}

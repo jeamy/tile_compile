@@ -1,0 +1,27 @@
+var structtile__compile_1_1registration_1_1SmoothLocalRefinementResult =
+[
+    [ "matched_stars", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a4ac59377cece127c16f598a586ae53d6", null ],
+    [ "max_displacement_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#acfec6112f6b0b2153e53d5224fb868e2", null ],
+    [ "max_jacobian_determinant", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a097e193cc871a38faf8d308f1a798d6f", null ],
+    [ "max_local_scale", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#af4182e7d7c922ab976144aae567aa3d8", null ],
+    [ "median_after_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a6ada65d2cb5db2ed64cf2e6b3d2051bc", null ],
+    [ "median_before_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#aa24f5deeebcf8c329b03ae8bd1a71b9f", null ],
+    [ "min_jacobian_determinant", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a41f2a7767af85ea772c9811d5a34d68c", null ],
+    [ "min_local_scale", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#ad3a25249f2a8bdd17876496ab72c0582", null ],
+    [ "model", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a4f8e0c8bcba5ade1edbad44b9f7b09c5", null ],
+    [ "p90_after_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a624f50c9dfbe34dca41f0cf276fd5504", null ],
+    [ "p90_before_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a1a5cfbf4b959d43319205d9a09cfb185", null ],
+    [ "rejection_reason", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a6d514a97d248d40aa2bacbfa60dfd5fe", null ],
+    [ "rms_after_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#ad99f6e48a1e9989139c4465adf3d2b56", null ],
+    [ "rms_before_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a7efadaf8513bc4deab327eafc22f23b0", null ],
+    [ "spatial_coverage", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a770e90f25e8e9a39c94c52816f139c87", null ],
+    [ "training_stars", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a21d830aa09cb8aff21b9ed71b62f0788", null ],
+    [ "valid", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#ad38b88705e0aa4a05279046e2fe46655", null ],
+    [ "validation_median_after_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a68daa167826f9068ac40508f96d73cda", null ],
+    [ "validation_median_before_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a831535e175fb9d6bd37a978e920dba0f", null ],
+    [ "validation_p90_after_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a4b946216ebae48e110b57cf7a411fc86", null ],
+    [ "validation_p90_before_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a023203ce434095607c0c17ddbcb315f2", null ],
+    [ "validation_rms_after_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#a810dd3d297bb4a2c490431d451c38293", null ],
+    [ "validation_rms_before_px", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#ad593c041cb7049ed83c7432e595a007f", null ],
+    [ "validation_stars", "structtile__compile_1_1registration_1_1SmoothLocalRefinementResult.html#afdf5332336d3be7e78ba790b7cda784a", null ]
+];

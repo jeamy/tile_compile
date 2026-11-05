@@ -2,602 +2,750 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://jeamy.github.io/tile_compile/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/about/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/bge_preview_gui_plan/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/code_audit_2026-09-22_de/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/configuration_examples_practical_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/configuration_examples_practical_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/configuration_reference/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/configuration_reference_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/dynamic_boost_implementierungsplan_2026-09-19_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/forward_drizzle_v2_zielarchitektur_2026-09-12_de/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/gui3_user_guide_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/gui3_user_guide_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/hms_anchor_reference_20260927_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/m42_large_scale_contrast_20260927_de/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/raw_stack_gui_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/raw_stack_gui_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/raw_stack_release_note_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/raw_stack_release_note_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/redundant_data_reload_analysis_2026-09-23_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/slopcodebench_analyse_2026-09-22_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/slopcodebench_analysis_2026-09-16_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/AQMH/aqmh_cfa_forward_drizzle_audit_2026-09-05_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/AQMH/aqmh_cfa_forward_drizzle_entwicklungsprotokoll_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/AQMH/aqmh_cfa_forward_drizzle_multiband_implementierungsplan_de/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/aqmh_methodik_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/aqmh_methodik_de_v0.2.1/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/aqmh_methodik_en_v0.2.0/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/aqmh_methodik_en_v0.2.1/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
-         <loc>https://jeamy.github.io/tile_compile/AQMH/aqmh_reconstruction_optimierung_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <loc>https://jeamy.github.io/tile_compile/AQMH/aqmh_p6_performance_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/AQMH/aqmh_p6_runbook_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/AQMH/aqmh_p6_trusted_run_implementierung_de/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_first_frontend_transition_plan/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_frontend_default_switch/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_frontend_integration_plan/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_implementation_plan/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_methodik_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_reconstruction_optimierung_de/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_v0.2.0_implementation_audit_report/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_v0.2.0_implementation_plan/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_v0.2.0_optimization_plan/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_v0.2.0_performance_analysis/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_v0.2.1_code_conformance_report/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/attic/aqmh_v0.2.1_qualitaetsanalyse/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/AQMH/attic/src_code_audit_report/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/AQMH/attic/siril_reference/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/pi_ai_recommendations_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/pi_context_protocol_compression_plan_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_bestaetigung_pixfrac_clip_20260926_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_decisions_plan_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_effektgroessen_nachgelagert_20260926/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_effektgroessen_rekonstruktion_20260926/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_hms_effektgroessen_20260925/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_implementierungsplan_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_kandidaten_inventar_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_m0_field_inventory_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_m0_hard_rule_review_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_m0_provider_protocol_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_m4_evaluation_m31_m42_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_m5_evaluation_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_jev_nachgelagert_bestaetigung_vorschlag_de/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/pi_ki_empfehlungen_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/pi_live_image_chat_plan/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_local_learning_plan_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_memory_ablauf_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/pi_scan_pre_rules_de/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/pi_workflow_gui3/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/pi_workflow_gui3_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/prime_agent_bewertung_de/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/scan_ai_parameter_studio_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/scan_ai_parameterstudio/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/DECISIONTRACE/pi_analysis_context_implementation_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/DECISIONTRACE/pi_assistant_dock_implementation_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/DECISIONTRACE/pi_decision_trace_plan_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/DECISIONTRACE/pi_decision_trace_und_unified_assistant_plan_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/DECISIONTRACE/pi_retention_policy_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/DECISIONTRACE/pi_run_learning_archive_de/</loc>
+         <lastmod>2026-11-05</lastmod>
+    </url>
+    <url>
+         <loc>https://jeamy.github.io/tile_compile/PI/DECISIONTRACE/pi_unified_assistant_plan_de/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/attic/pi_integration_architecture_plan_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/attic/pi_integration_architektur_tile_compile_plan/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/attic/pi_run_chat_empfehlungs_chat_datenplan/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/attic/pi_run_chat_recommendation_chat_data_plan_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/attic/scan_ai_implementation_plan_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/attic/scan_ai_implementation_plan_summary_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/attic/scan_ai_implementierungsplan/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/PI/attic/scan_ai_implementierungsplan_kurzfassung/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/api/cpp/html/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/api/rest/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/aqmh_performance_optimization_plan_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/autobge_integration_proposal/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/hme_preview_gui_plan/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/raw_preprocessing_integration_plan_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/tbqr_step_by_step_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/tbqr_step_by_step_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/gui3/analysis/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/gui3/mockups/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/gui3/plan/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/research_documents/algorithmen_vergleich_detail/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/research_documents/ccd_qualitaetsrekonstruktion_recherche/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/research_documents/chatgpt_recherche/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/research_documents/claude_recherche/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/research_documents/implementierungsquellen_und_referenzen/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/research_documents/mfbd_analyse_und_vergleich/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/research_documents/mfbd_vs_deine_methodik_kurzfassung/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/research_documents/recherche_executive_summary/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/research_documents/related_work_software_abgrenzung/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/astronomical_reconstruction_comparison/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/astronomical_reconstruction_extensions/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/modules/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/validation_interpretation_guide/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/validation_methodology/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/extensions/advanced_clustering/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/extensions/assumptions_analysis/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/extensions/autonomous_quality/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/extensions/cross_wavelength/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/extensions/distributed_processing/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/extensions/ml_optimization/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/extensions/multi_instrument/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/extensions/noise_modeling/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/extensions/semantic_guidance/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/specifications/cfa_registration/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/specifications/linearity_enforcement/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/attic/specs_and_extensions/specifications/tile_grid_generation/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/changelog/detailed_changelog/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/changelog/releases/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/getting_started/cli_reference/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/getting_started/configuration/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/getting_started/configuration_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/getting_started/installation/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/getting_started/installation_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/getting_started/quickstart/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/getting_started/quickstart_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
-         <loc>https://jeamy.github.io/tile_compile/guides/aqmh_overview/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <loc>https://jeamy.github.io/tile_compile/guides/cfa_forward_drizzle_pipeline_de/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
-         <loc>https://jeamy.github.io/tile_compile/guides/aqmh_overview_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <loc>https://jeamy.github.io/tile_compile/guides/cfa_forward_drizzle_pipeline_en/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/guides/live_image_editor_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/guides/live_image_editor_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/guides/pi_ai/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/guides/pi_ai_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/guides/raw_stack_gui/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/guides/raw_stack_gui_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/guides/workflow/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/guides/workflow_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/process_flow/README_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/process_flow/README_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/process_flow/data_flow_user_description_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/process_flow/data_flow_user_description_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/process_flow/flow_analysis/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/process_flow/phase_0_overview/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
-         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_1_registration/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_1_scan_normalization/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
-         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_2_normalization_metrics/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_2_registration_geometry/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
-         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_3_tile_generation/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_3_quality/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
-         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_4_local_metrics/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_4_forward_drizzle/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
-         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_5_tile_reconstruction/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_5_multiband/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
-         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_6_clustering/</loc>
-         <lastmod>2026-08-24</lastmod>
-    </url>
-    <url>
-         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_7_final_stacking/</loc>
-         <lastmod>2026-08-24</lastmod>
-    </url>
-    <url>
-         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_8_aqmh_extensions/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <loc>https://jeamy.github.io/tile_compile/process_flow/phase_6_postprocessing/</loc>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/process_flow/resume_dependencies_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/process_flow/resume_dependencies_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/reference/build/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/reference/calibration/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/reference/cli/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/reference/docker/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/reference/outputs/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/reference/project_structure/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/conformance_analysis_v3.3.9_2026-03-30/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/differences_methodology_v3.3.8_to_v3.3.9_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/differences_methodology_v3.3.8_to_v3.3.9_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/review_tile_based_quality_reconstruction_methodology_v3.3.8_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/review_tile_based_quality_reconstruction_methodology_v3.3.9_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.7_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.7_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/Wiener%20denoise/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/cpp_implementation_abweichungen/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/dark_processing/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/input_scan_spec/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/tile_based_quality_reconstruction_methodology_v3.2.2_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/tile_based_quality_reconstruction_methodology_v3.3.4_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/tile_basierte_qualitatsrekonstruktion_methodik/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/tile_basierte_qualitatsrekonstruktion_methodik_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/tile_basierte_qualitatsrekonstruktion_methodik_v_3.1_erweitert/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.1_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/tile_basierte_qualitatsrekonstruktion_methodik_v_3/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/tile_compile_parallelisierung/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
     <url>
          <loc>https://jeamy.github.io/tile_compile/v3/attic/tile_compile_parallelisierung_en/</loc>
-         <lastmod>2026-08-24</lastmod>
+         <lastmod>2026-11-05</lastmod>
     </url>
 </urlset>

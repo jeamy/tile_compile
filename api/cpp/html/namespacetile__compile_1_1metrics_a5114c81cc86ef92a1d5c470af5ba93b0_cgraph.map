@@ -1,10 +1,12 @@
 <map id="tile_compile::metrics::estimate_fwhm_from_patch" name="tile_compile::metrics::estimate_fwhm_from_patch">
 <area shape="rect" id="Node000001" title="Estimates fwhm from patch." alt="" coords="5,63,196,101"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#a526c21d35f9187dfb95a0ae88bdcc1ea" title="Implements fit elliptical psf 2d." alt="" coords="244,5,385,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="174,60,228,45,229,50,176,65"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="433,92,556,131"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="196,86,418,103,418,108,196,92"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#a0d46483cbe0647e432b2582cb2df2f7b" title=" " alt="" coords="244,5,385,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="174,60,231,46,226,49,176,65"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#af1361dab041db5d25f27d0f01d6075d2" title="Implements median of." alt="" coords="463,63,586,101"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="196,79,449,80,447,84,196,85"/>
 <area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="245,120,384,159"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="176,99,230,114,229,119,174,104"/>
-<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="384,126,417,121,418,126,385,131"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="175,99,232,116,227,117,175,105"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="384,118,445,103,450,102,385,123"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1core.html#a721dd0f6ebc4a21cd2099ec9d9eec79d" title=" " alt="" coords="433,125,616,164"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="384,138,420,142,415,142,384,144"/>
 </map>

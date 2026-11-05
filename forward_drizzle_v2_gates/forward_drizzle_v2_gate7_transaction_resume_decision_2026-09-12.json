@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "gate": 7,
+  "decision": "band_boundary_resume_with_atomic_checkpoint_commit",
+  "spec_sha256": "432af3a5c18a025fe237aa9fd263b45e0127b1159fe6e0af6988e00910a66f8b",
+  "status": "decided_and_implemented",
+  "decided": {
+    "resume_granularity": "atomically committed band boundaries only; partial bands are discarded and recomputed; reservoir/accumulator state is transient and never persisted; a phase event alone never establishes resumability",
+    "artifact_schema": {
+      "generation_dir": "forward_drizzle_v2_generation-<unique>",
+      "plan.json": "binding run plan covering every identity field listed in the spec; plan_hash = sha256 over the canonical sorted-key serialization",
+      "checkpoint.json": "committed contiguous band prefix with per-band artifact name, byte size, sha256 and dense_overlap_count; checkpoint_hash over canonical serialization; rewritten atomically as the LAST step of each band commit",
+      "band-%04d.bin": "64-byte self-describing header + record_count * 64-byte ForwardDrizzleV2PixelResult records, host byte order (trusted-run derived artifact)",
+      "commit.json": "written only after all bands verify (size + sha256) and commit gates pass",
+      "current.json": "root pointer, identical to commit.json, written atomically as the final publication step"
+    },
+    "commit_gates": [
+      "nonfinite_pixels_inside_source_support must be 0",
+      "bands_processed must equal plan.band_count",
+      "caller telemetry JSON recorded verbatim"
+    ],
+    "resume_inspection": "read-only and fail closed: current.json -> complete; exactly one unpublished generation with verified plan + checkpoint + artifacts -> resumable at the verified prefix length; zero generations -> fresh; every inconsistency (missing/corrupt artifact, hash mismatch, non-contiguous list, context mismatch, ambiguous generations) -> corrupt",
+    "unpublished_generation_ownership": "the writer removes only its own generation and only when no publication was attempted"
+  },
+  "verification": {
+    "test_tag": "[forward-drizzle-v2][gate7]",
+    "cases": 21,
+    "all_pass": true,
+    "determinism_proof": "crash-resumed run produces the identical checkpoint_hash and memcmp-identical band artifacts as the uninterrupted reference run",
+    "suite": "571 test cases, 2854010+ assertions green including all prior v2 gates"
+  },
+  "delegations": {
+    "gate_9": "multiband halo/ring state is not part of the checkpoint contract yet; a band commit today covers the plan's working columns without halo rows",
+    "gate_10": "production wiring: the phase driver must call inspect before begin/adopt, supply the real predecessor hashes, and enforce the transaction order end to end; local warp fields extend local_warp_representation after gate 8"
+  },
+  "artifacts": {
+    "spec": "docs/forward_drizzle_v2_gate7_transaction_resume_spec_2026-09-12.json",
+    "results": "docs/forward_drizzle_v2_gate7_transaction_resume_results_2026-09-12.jsonl",
+    "header": "tile_compile_cpp/include/tile_compile/reconstruction/forward_drizzle_v2_store.hpp",
+    "source": "tile_compile_cpp/src/reconstruction/forward_drizzle_v2_store.cpp"
+  }
+}

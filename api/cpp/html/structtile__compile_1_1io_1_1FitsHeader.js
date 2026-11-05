@@ -1,6 +1,5 @@
 var structtile__compile_1_1io_1_1FitsHeader =
 [
-    [ "get_bool", "structtile__compile_1_1io_1_1FitsHeader.html#aa0f6dcd4d41a3bdd16697c793812d664", null ],
     [ "get_double", "structtile__compile_1_1io_1_1FitsHeader.html#af0865328a168380616b932bd43c6c9bb", null ],
     [ "get_int", "structtile__compile_1_1io_1_1FitsHeader.html#a73021e72ebf77938e73e9657e24178ab", null ],
     [ "get_string", "structtile__compile_1_1io_1_1FitsHeader.html#a772d96a6cff28a4144ea678c052f19c1", null ],

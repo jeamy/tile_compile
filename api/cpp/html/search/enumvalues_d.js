@@ -1,8 +1,8 @@
 var searchData=
 [
-  ['rbf_0',['Rbf',['../namespacetile__compile_1_1image.html#a65ad15a8fbe763fac681dad3e90d64f6a0a53a0ee8996595bbfba0159bdbb04bd',1,'tile_compile::image']]],
-  ['reduced_1',['Reduced',['../namespacetile__compile_1_1core.html#aae0c2282a5cd483e5fd35871351903d5a4335949a935758ca1b570689c3c6750b',1,'tile_compile::core']]],
-  ['registration_2',['REGISTRATION',['../namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a6e276bad0eec495e271a9b1bfdb7e46e',1,'tile_compile']]],
-  ['rgb_3',['RGB',['../namespacetile__compile.html#ab16b7145e4da8b5816ca0f4b305b17b1a889574aebacda6bfd3e534e2b49b8028',1,'tile_compile']]],
-  ['rggb_4',['RGGB',['../namespacetile__compile.html#a7b762945e582ea84a84bb07be17b404ba849ff6e237167d8ad9f605c1ad01469f',1,'tile_compile']]]
+  ['ok_0',['ok',['../namespacetile__compile_1_1registration.html#aa9b55f4114c6cc0a9d6309bc7d072808a444bcb3a3fcf8389296c49467f27e1d6',1,'tile_compile::registration']]],
+  ['opencv_5fcuda_1',['opencv_cuda',['../namespacetile__compile_1_1core.html#ac43794b925b42155fdfbab9a4c7b9af8a8840f2896fba1d35ef7d9bc364066d53',1,'tile_compile::core']]],
+  ['opencv_5fopencl_2',['opencv_opencl',['../namespacetile__compile_1_1core.html#ac43794b925b42155fdfbab9a4c7b9af8a23d3545aeec27c96bb5d6f2af149fb52',1,'tile_compile::core']]],
+  ['oracle_5fsigma_5fclip_3',['oracle_sigma_clip',['../namespacetile__compile_1_1reconstruction.html#a9550afe2a81c8cdb33828c151a26d46aa468fb12917b6f38e5a89f0a246632086',1,'tile_compile::reconstruction']]],
+  ['osc_4',['OSC',['../namespacetile__compile.html#ab16b7145e4da8b5816ca0f4b305b17b1a0e0ec5752ef20d94dc6fbb13507f5e5e',1,'tile_compile']]]
 ];

@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "gate": 2,
+  "status": "frozen_before_implementation",
+  "gate1_decision": "dense_device_scatter",
+  "scope": "one profile and one native output pixel; the same algebra is applied independently to Uniform, Raw, Fine and Medium",
+  "input_per_frame_internal_subpixel": {
+    "frame_order": "stable zero-based frame order",
+    "geometry_b": "sum of positive geometric droplet overlaps before source validity",
+    "source_b": "sum of overlaps with finite, sensor-valid, radiometrically usable source samples",
+    "estimator_b": "source weight admitted by the selected or fallback estimator; Gate 3 supplies it",
+    "profile_a": "profile-specific weighted value numerator",
+    "profile_b": "profile-specific positive denominator"
+  },
+  "support_contract": {
+    "geometry_support": "at least one internal subpixel has geometry_b > 0 in at least one frame",
+    "source_support": "at least one internal subpixel has source_b > 0 in at least one frame",
+    "estimator_support": "at least one internal subpixel has estimator_b > 0 in at least one frame",
+    "profile_support": "folded profile denominator B_out > 0",
+    "implications": [
+      "profile_support implies estimator_support",
+      "estimator_support implies source_support",
+      "source_support implies geometry_support"
+    ],
+    "violation_policy": "invalid_argument; no silent support promotion",
+    "nonfinite_policy": "a nonfinite numerator with a positive corresponding denominator is invalid; zero denominators carry no value"
+  },
+  "partial_area_contract": {
+    "value_rule": "if profile B_out > 0, value_out = A_out / B_out regardless of missing internal subpixels",
+    "no_all_subpixel_and": true,
+    "area_fractions": "geometry, source, estimator and profile area fractions are reported independently as the sum of native area factors for internal subpixels supported by at least one frame, divided by total area",
+    "delivery_gate": "Gate 2 does not erase a finite partial-area estimate; later confidence may use the fractions, while a final delivery threshold requires a separate explicit contract",
+    "area_requirements": "all area factors are finite and nonnegative and total area is positive"
+  },
+  "fold_equations": {
+    "per_frame": [
+      "a_p_f_out = sum_j area_j * a_p_f_j",
+      "b_p_f_out = sum_j area_j * b_p_f_j"
+    ],
+    "across_frames": [
+      "A_p_out = sum_f a_p_f_out",
+      "B_p_out = sum_f b_p_f_out",
+      "B2_p_out = sum_f b_p_f_out^2",
+      "value_p_out = A_p_out / B_p_out",
+      "n_eff_p_out = B_p_out^2 / B2_p_out"
+    ],
+    "forbidden_equations": [
+      "mean_j(a_p_j / b_p_j)",
+      "B2_p_out = sum_j area_j^2 * B2_p_j",
+      "profile support = AND of all internal subpixel supports"
+    ]
+  },
+  "validation_matrix": {
+    "exact_cpu_cases": [
+      "same-frame cross terms",
+      "constant field with full and partial area",
+      "linear gradient with unequal area and profile weights",
+      "single point contribution",
+      "each support layer independently absent",
+      "multiple frames with unequal weights",
+      "invalid support implication",
+      "nonfinite positive-weight numerator",
+      "zero profile denominator"
+    ],
+    "cuda_oracle_cases": [
+      "full area",
+      "partial area",
+      "unequal frame/profile weights",
+      "all four support layer combinations allowed by implication"
+    ]
+  },
+  "thresholds": {
+    "cpu_max_abs_error": 0.0,
+    "cpu_support_mismatches": 0,
+    "cuda_max_abs_error": 1e-12,
+    "cuda_max_relative_error": 1e-12,
+    "cuda_support_mismatches": 0,
+    "nonfinite_inside_profile_support": 0
+  },
+  "architecture_constraints": {
+    "frame_b_is_folded_before_square": true,
+    "memory_must_not_scale_with_frame_count": true,
+    "production_cuda_fold_must_consume_frame-local scatter output before any host download": true,
+    "host_contribution_records": 0,
+    "production_d2h_frame_planes": 0
+  }
+}

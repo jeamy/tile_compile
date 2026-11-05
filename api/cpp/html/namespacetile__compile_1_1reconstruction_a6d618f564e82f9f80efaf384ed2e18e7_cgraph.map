@@ -1,0 +1,13 @@
+<map id="tile_compile::reconstruction::build_uniform_contrib_list" name="tile_compile::reconstruction::build_uniform_contrib_list">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,100,186,139"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#a136a021fe0e57bfcd99c02b63bb67fb9" title=" " alt="" coords="234,100,414,139"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="185,117,221,118,216,120,187,122"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#a56f653078b5e6db33745358ad21b10ac" title=" " alt="" coords="462,5,642,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="364,97,461,53,473,51,478,49,463,58,366,102"/>
+<area shape="rect" id="Node000004" href="$structtile__compile_1_1reconstruction_1_1geomstats_1_1Registry.html#a7fb244b07fabb8a2bab96cd8cd71d15a" title=" " alt="" coords="462,68,642,107"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="414,104,449,102,444,103,415,109"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1reconstruction_1_1geomstats.html#a764a64f056c9fc06ef65f105ef933924" title=" " alt="" coords="462,131,642,169"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="414,129,449,136,444,136,414,134"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1reconstruction.html#a45861e8020c0c8d693ebc2bdf2524024" title=" " alt="" coords="462,193,642,232"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="368,137,463,178,482,188,477,187,461,183,367,142"/>
+</map>

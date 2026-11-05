@@ -1,0 +1,41 @@
+<map id="tile_compile::get_bayer_offsets" name="tile_compile::get_bayer_offsets">
+<area shape="rect" id="Node000001" title=" " alt="" coords="1747,152,1901,191"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile.html#a7daf2847d9aed77c6bdf04aef1331a71" title=" " alt="" coords="1530,90,1698,128"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1740,147,1681,132,1681,126,1745,148"/>
+<area shape="rect" id="Node000018" href="$namespacetile__compile_1_1image.html#a7ae7033d1c542a2e71e52ec914628fb1" title="Implements reassemble cfa mosaic." alt="" coords="1529,152,1699,191"/>
+<area shape="poly" id="edge19_Node000001_Node000018" title=" " alt="" coords="1729,172,1699,174,1699,169,1734,172"/>
+<area shape="rect" id="Node000019" href="$namespacetile__compile_1_1image.html#abeb7a98e5326e8cb8f311ebfc4fdc436" title="Splits cfa channels." alt="" coords="1545,215,1682,254"/>
+<area shape="poly" id="edge20_Node000001_Node000019" title=" " alt="" coords="1745,195,1682,217,1681,212,1740,196"/>
+<area shape="rect" id="Node000003" href="$classtile__compile_1_1reconstruction_1_1ForwardDrizzleV2CpuKernel.html#af49a52c01a4d3d31348f1147190e8fdf" title=" " alt="" coords="1269,5,1462,58"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="1532,84,1452,61,1453,56,1537,85"/>
+<area shape="rect" id="Node000006" href="$classtile__compile_1_1reconstruction_1_1ForwardDrizzleV2CpuKernel.html#a176cd1fe3d1b905fae73ef761a5b040a" title=" " alt="" coords="1250,83,1481,135"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="1512,109,1481,112,1481,106,1517,109"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1reconstruction.html#aa478828bf14080e3e01f2b0cfc3965aa" title=" " alt="" coords="1275,160,1456,213"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="1537,133,1453,162,1452,157,1532,134"/>
+<area shape="rect" id="Node000004" href="$classtile__compile_1_1reconstruction_1_1ForwardDrizzleV2CpuKernel.html#aee35a5f35daa05b4636ef176709a92c2" title=" " alt="" coords="1009,5,1202,58"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="1251,32,1203,34,1203,29,1256,31"/>
+<area shape="rect" id="Node000005" href="$classtile__compile_1_1reconstruction_1_1ForwardDrizzleV2CpuKernel.html#a931c6790bd44f6dac75c0340ed39c0da" title=" " alt="" coords="759,5,952,58"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="991,32,953,34,953,29,996,31"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1reconstruction.html#a39f0bd76b703e70e501f53a1b577cfee" title=" " alt="" coords="1016,167,1196,206"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="1257,186,1196,189,1196,184,1262,186"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1reconstruction.html#ae4f477d44c46a3e26cd5dc56dfbdcf12" title=" " alt="" coords="751,91,961,130"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="1022,162,922,133,922,128,1028,162"/>
+<area shape="rect" id="Node000015" href="$namespacetile__compile_1_1reconstruction.html#a24a568c814642841df68524cd7c3c142" title=" " alt="" coords="766,164,946,217"/>
+<area shape="poly" id="edge15_Node000008_Node000015" title=" " alt="" coords="998,188,946,192,946,186,1003,188"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1registration.html#a05e54080ea7cdaab3143d2be365678f6" title=" " alt="" coords="500,78,703,116"/>
+<area shape="poly" id="edge9_Node000009_Node000010" title=" " alt="" coords="733,104,704,105,703,100,738,104"/>
+<area shape="rect" id="Node000011" href="$namespacetile__compile_1_1runner.html#acc0d4679841a580552249bbcb25ec183" title=" " alt="" coords="310,71,452,123"/>
+<area shape="poly" id="edge10_Node000010_Node000011" title=" " alt="" coords="483,98,453,100,452,94,488,96"/>
+<area shape="rect" id="Node000012" href="$runner__forward__drizzle_8cpp.html#a9ffae5ca00a8665a15ced17d948fd1ae" title=" " alt="" coords="103,50,262,88"/>
+<area shape="poly" id="edge11_Node000011_Node000012" title=" " alt="" coords="292,86,263,83,262,78,297,84"/>
+<area shape="rect" id="Node000014" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="105,113,260,137"/>
+<area shape="poly" id="edge13_Node000011_Node000014" title=" " alt="" coords="292,110,261,117,259,112,297,108"/>
+<area shape="rect" id="Node000013" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,85,55,109"/>
+<area shape="poly" id="edge12_Node000012_Node000013" title=" " alt="" coords="86,88,57,95,54,90,89,85"/>
+<area shape="poly" id="edge14_Node000014_Node000013" title=" " alt="" coords="95,111,56,104,54,99,99,108"/>
+<area shape="rect" id="Node000016" href="$namespacetile__compile_1_1reconstruction.html#a32cdc197473740fb042031ae2d2bfd94" title=" " alt="" coords="511,164,692,217"/>
+<area shape="poly" id="edge16_Node000015_Node000016" title=" " alt="" coords="747,191,692,193,692,188,752,190"/>
+<area shape="rect" id="Node000017" href="$namespacetile__compile_1_1reconstruction.html#a2add341aca989541e17e627802a8b6dd" title=" " alt="" coords="511,241,692,294"/>
+<area shape="poly" id="edge18_Node000015_Node000017" title=" " alt="" coords="755,221,691,243,690,238,750,222"/>
+<area shape="poly" id="edge17_Node000016_Node000016" title=" " alt="" coords="635,149,624,145,601,143,582,144,569,149,564,155,563,165,559,162,559,154,566,145,581,139,602,137,625,140,641,149"/>
+</map>

@@ -1,0 +1,15 @@
+<map id="include/tile_compile/core/atomic_output.hpp" name="include/tile_compile/core/atomic_output.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="183,5,344,44"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,92,66,117"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="209,47,81,91,79,85,208,42"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="89,92,150,117"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="231,44,155,87,153,82,226,45"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="173,92,252,117"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="254,43,230,81,227,77,249,46"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="277,92,354,117"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="277,42,302,80,297,78,275,47"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="379,92,436,117"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="299,42,376,85,370,84,298,47"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="460,92,528,117"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="320,42,448,86,443,87,319,47"/>
+</map>

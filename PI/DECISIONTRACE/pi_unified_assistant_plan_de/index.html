@@ -1,0 +1,3745 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/PI/DECISIONTRACE/pi_unified_assistant_plan_de/">
+      
+      
+        <link rel="prev" href="../pi_decision_trace_plan_de/">
+      
+      
+        <link rel="next" href="../pi_assistant_dock_implementation_de/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Unified Assistant (Part B) - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pi-unified-assistant-plan-teil-b" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Unified Assistant (Part B)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Start Here
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../guides/cfa_forward_drizzle_pipeline_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Workflows & Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../getting_started/configuration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../scan_ai_parameter_studio_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Professional & Technical
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../reference/cli/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API & Development
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  History & About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start Here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/quickstart_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schnellstart (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/installation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows & Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Workflows & Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/cfa_forward_drizzle_pipeline_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reconstruction Method (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/cfa_forward_drizzle_pipeline_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rekonstruktionsmethode (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/workflow_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/live_image_editor_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/live_image_editor_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/pi_ai_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – KI-Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pi_workflow_gui3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Basics (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/configuration_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Konfigurationsgrundlagen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Professional & Technical
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Professional & Technical
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pi_ai_recommendations_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pi_ki_empfehlungen_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pi_jev_decisions_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Jev Decisions (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pi_scan_pre_rules_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Pre-Rules (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_decision_trace_und_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overall Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_decision_trace_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decision Trace (Part A)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Assistant (Part B)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Assistant (Part B)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-ausgangslage-aus-dem-code-gelesen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Ausgangslage (aus dem Code gelesen)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-teil-b-unified-assistant-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Teil B — Unified Assistant (UI)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Teil B — Unified Assistant (UI)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#30-arbeitskontext-modell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.0 Arbeitskontext (Modell)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#31-zielbild" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Zielbild
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-jev-als-karte-im-pi-thread-gleiche-behandlung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Jev als Karte im PI-Thread, gleiche Behandlung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-architektur-im-frontend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Architektur im Frontend
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-backend-seite-des-docks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 Backend-Seite des Docks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-run-lebenszyklus-aktivieren-fortsetzen-loschen-verschieben" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 Run-Lebenszyklus: Aktivieren, Fortsetzen, Löschen, Verschieben
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#aktueller-dock-baustein" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Aktueller Dock-Baustein
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-prufpunkte-assistant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Prüfpunkte (Assistant)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-risiken-und-offene-fragen-assistant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Risiken und offene Fragen (Assistant)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_assistant_dock_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assistant Dock
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_analysis_context_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_run_learning_archive_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run Learning Archive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_retention_policy_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Retention Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../forward_drizzle_v2_zielarchitektur_2026-09-12_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forward Drizzle v2 Target Architecture (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Process Flow Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/data_flow_user_description_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/resume_dependencies_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume-Abhängigkeiten (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_1_scan_normalization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Scan & Normalization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_2_registration_geometry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Registration & Geometry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_3_quality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_4_forward_drizzle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Forward Drizzle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_5_multiband/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Multiband
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/phase_6_postprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Post-Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../process_flow/flow_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API & Development
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API & Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference (Getting Started)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    History & About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    History & About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_3" id="__nav_8_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Historical Methods (superseded)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Historical Methods (superseded)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../AQMH/aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../AQMH/aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../AQMH/aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-ausgangslage-aus-dem-code-gelesen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Ausgangslage (aus dem Code gelesen)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-teil-b-unified-assistant-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Teil B — Unified Assistant (UI)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Teil B — Unified Assistant (UI)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#30-arbeitskontext-modell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.0 Arbeitskontext (Modell)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#31-zielbild" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Zielbild
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-jev-als-karte-im-pi-thread-gleiche-behandlung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Jev als Karte im PI-Thread, gleiche Behandlung
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-architektur-im-frontend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Architektur im Frontend
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-backend-seite-des-docks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 Backend-Seite des Docks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-run-lebenszyklus-aktivieren-fortsetzen-loschen-verschieben" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 Run-Lebenszyklus: Aktivieren, Fortsetzen, Löschen, Verschieben
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#aktueller-dock-baustein" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Aktueller Dock-Baustein
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-prufpunkte-assistant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Prüfpunkte (Assistant)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-risiken-und-offene-fragen-assistant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Risiken und offene Fragen (Assistant)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="pi-unified-assistant-plan-teil-b">PI Unified Assistant — Plan (Teil B)<a class="headerlink" href="#pi-unified-assistant-plan-teil-b" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>Status:</strong> Plan mit umgesetztem ersten Run-Dock-Adapter (globaler Host, UID-Threads, Post-Run-Karten, Parameterkarten mit Resume-Entwurf). Analyse- und Bild-Adapter, Scan-Jev-Merge und gespeicherter Apply-/Reason-Fluss sind <strong>offen</strong>. Umsetzungsstand: <a href="../pi_decision_trace_und_unified_assistant_plan_de/#7-umsetzungsstand">Gesamtplan §7</a>. Aussagen im Text mit „noch offen“ oder „geplant“ beschreiben den Stand des Plans, nicht zwingend den Code.
+<strong>Datum:</strong> 2026-09-27, überarbeitet 2026-10-02 (Code-Review: Faktenkorrekturen, Schema- und
+Endpunkt-Klarstellungen, ergänzte Risiken und Prüfpunkte), Analyse-Nachtrag 2026-10-02 (Arbeitskontext-Modell,
+Rationale-Struktur, Jev-Annahmekette, Audit-Beziehung, Backfill, Session-Fortsetzung, P1-Gates), 2. Review
+2026-10-02 (LLM-Anker-Record <code>llm_proposal</code>, <code>image_id</code>-Definition, Chat-Lücke Analyse-Kontext,
+<code>run_uid</code>-Normalisierung, Löschkaskade, Session-Lock, <code>origin</code>-Feld), 3. Review 2026-10-02 (Preview-/Plan-IDs,
+Preview-TTL, Live-Session-Eviction, Redaktion im Overlay, <code>run_key</code>, Kontextdrift, Granularität <code>llm_proposal</code>).
+<strong>Betrifft:</strong> <code>web_frontend_v3/js/{main.js,pages,components,state}</code>, <code>web_backend_cpp/src/routes/{pi_routes,runs_routes,app_state_routes}.cpp</code>, <code>agent_service/src/services/*</code>
+<strong>Verwandt:</strong> <a href="../../pi_local_learning_plan_de/"><code>pi_local_learning_plan_de.md</code></a>,
+<a href="../../pi_memory_ablauf_de/"><code>pi_memory_ablauf_de.md</code></a>, <a href="../../pi_jev_decisions_plan_de/"><code>pi_jev_decisions_plan_de.md</code></a>,
+<a href="../../pi_jev_m0_provider_protocol_de/"><code>pi_jev_m0_provider_protocol_de.md</code></a>,
+<a href="../../pi_live_image_chat_plan/"><code>pi_live_image_chat_plan.md</code></a></p>
+<p>Paragraphen-Nummern sind über beide Teilpläne eindeutig: <code>§2.x</code> steht im <a href="../pi_decision_trace_plan_de/">Trace-Plan</a>, <code>§3.x</code> im
+<a href="./">Assistant-Plan</a>; Verweise ohne Zusatz sind dokumentübergreifend gemeint.
+Keine Zeit- oder Aufwandsschätzungen (AGENTS.md).</p>
+</blockquote>
+<hr />
+<h2 id="0-ausgangslage-aus-dem-code-gelesen">0. Ausgangslage (aus dem Code gelesen)<a class="headerlink" href="#0-ausgangslage-aus-dem-code-gelesen" title="Permanent link">&para;</a></h2>
+<p><strong>UI</strong></p>
+<ul>
+<li><code>main.js</code>: Header + Sub-Tab-Leiste + <code>#content</code>. Kein globaler Platz für einen Assistenten.</li>
+<li>AI-Funktionen sind verstreut und untereinander nicht verknüpft:</li>
+<li><code>pages/parameter.js</code> (1031 Zeilen): Tabs <em>Parameter</em> / <em>AI</em> (<code>ai-empfehlung.js</code>, 1491 Zeilen) / <em>Jev</em>
+    (<code>jev-empfehlung.js</code>, 454 Zeilen), beide hinter Feature-Flags.</li>
+<li><code>pages/run-monitor.js</code> (2685 Zeilen): Run-Chat, <code>post-run-advice.js</code>, <code>situation-assistant.js</code>, <code>explain-panel.js</code>.</li>
+<li><code>components/live-image-viewer.js</code> (1533 Zeilen): eigener Chat + Bildoperationen (<code>/api/pi/live-image-chat/*</code>).</li>
+<li><code>pages/tools.js</code>: <code>ai-settings</code> (AI &amp; API).</li>
+<li>State ist je Funktion getrennt (<code>ai-state.js</code> 33 Zeilen, <code>scan-state.js</code>, <code>run-state.js</code>, <code>config-state.js</code>); es gibt
+  keinen gemeinsamen "Arbeitskontext".</li>
+<li>Backend-Endpunkte sind je Funktion getrennt: <code>/api/scan/analysis*</code>, <code>/api/pi/run-chat*</code>, <code>/api/pi/live-image-chat/*</code>,
+  <code>/api/pi/assistant/ask</code>, <code>/api/pi/action-plans/{validate,preview,apply}</code>, <code>/api/pi/memories/*</code>, <code>/api/pi/audit</code>.</li>
+</ul>
+<hr />
+<h2 id="3-teil-b-unified-assistant-ui">3. Teil B — Unified Assistant (UI)<a class="headerlink" href="#3-teil-b-unified-assistant-ui" title="Permanent link">&para;</a></h2>
+<h3 id="30-arbeitskontext-modell">3.0 Arbeitskontext (Modell)<a class="headerlink" href="#30-arbeitskontext-modell" title="Permanent link">&para;</a></h3>
+<p>Dock, Threads und <code>GET /api/pi/assistant/thread</code> brauchen eine eindeutige Kontext-ID. Definition:</p>
+<ul>
+<li><strong><code>context_id</code></strong> wird vom Backend vergeben (für Runs aus der stabilen <code>run_uid</code>, §3.5) und ist Teil von <code>context_ref</code> jedes Records. Es gibt drei Ebenen mit
+  fester Verschachtelung:</li>
+<li><strong>Analyse-Kontext</strong> (<code>analysis_id</code>): Scan-Analyse, Revisionen (<code>revision_id</code>), Parameteroptimierung, Pre-Run-Jev.</li>
+<li><strong>Run-Kontext</strong> (<code>run_uid</code>): entsteht aus genau einer Analyse-Revision (<code>config_sha256</code> verknüpft sie),
+     <strong>sofern eine existiert</strong> — Direkt-Starts und Queue-Runs ohne AI-Analyse beginnen die Kette am Run.
+     Run-Chat, Post-Run-Beratung, Jev nach dem Run.</li>
+<li><strong>Bild-Kontext</strong> (<code>image_id</code>): Live-Image-Session auf einem Ergebnisbild; gehört zu genau einem Run.</li>
+<li><strong><code>image_id</code> ist neu zu definieren.</strong> Es gibt heute kein Bild-ID-Konzept: <code>live-image-chat/create</code> nimmt nur
+  <code>run_id</code> entgegen und arbeitet auf genau einem Ergebnisbild (<code>find_output_fits</code> → <code>outputs/live_edit.fits</code>);
+  die Historie liegt unter <code>live_image_chat/&lt;hash(run_id)&gt;.json</code>. Der Bild-Kontext ist daher faktisch ein Facet
+  des Run-Kontexts mit genau einem Slot: <code>image_id = "&lt;run_uid&gt;:live_edit"</code>. Bekommt ein Run künftig mehrere
+  bearbeitbare Ergebnisbilder, wächst <code>image_id</code> um den Output-Slot; die Kontextstruktur bleibt gleich.</li>
+<li>Ein Kontext zeigt im Thread seine <strong>Vorfahren schreibgeschützt mit</strong> (Bild → Run → Analyse), damit die Kette
+  Analyse → Run → Bildoperation sichtbar bleibt. Schreiben (Chat, Apply) geschieht nur im aktiven Kontext.</li>
+<li>Die Auswahl des aktiven Kontexts leitet <code>context-provider.js</code> aus dem UI-Zustand ab (laufender Run, geöffnetes Bild,
+  geladene Analyse) und lässt sie im Kontextband umschalten. Ohne Auswahl gilt der zuletzt aktive Kontext.</li>
+<li>Die bestehenden Historien (<code>run-chat/history</code>, <code>live-image-chat/history</code>, Scan-Analyse-History) werden über ihre
+  jeweilige ID (<code>run_uid</code>, Live-Session→<code>image_id</code>, <code>analysis_id</code>) auf <code>context_id</code> abgebildet; <code>assistant/thread</code>
+  mergt sie über diese Zuordnung. Wo kein Run oder keine Analyse existiert, gibt es keinen Kontext.</li>
+</ul>
+<h3 id="31-zielbild">3.1 Zielbild<a class="headerlink" href="#31-zielbild" title="Permanent link">&para;</a></h3>
+<p>Ein <strong>PI-Assistent-Dock</strong> am rechten Rand des Browsers:</p>
+<ul>
+<li>Immer erreichbar (alle Haupt-Tabs, alle Sub-Tabs), ein-/ausklappbar, in der Breite verschiebbar, Zustand in
+  <code>ui-state</code> persistiert, Tastenkürzel.</li>
+<li>Ein <strong>Kontextband</strong> oben im Dock zeigt, worauf sich der Assistent bezieht: Analyse, Config-Revision, Run, Bild. Der
+  Kontext wird aus <code>scan-state</code>, <code>run-state</code>, <code>config-state</code> und dem ausgewählten Bild abgeleitet und kann umgeschaltet
+  werden.</li>
+<li>Das Dock hat <strong>einen einzigen Thread pro Arbeitskontext</strong> (Analyse/Run/Bild), keine Unter-Tabs. Der Thread ist
+  chat-artig (Freitext möglich) und enthält <strong>Karten</strong>. Jev-Entscheidungen erscheinen als Karten im selben Thread,
+  erkennbar an Jev-Label und eigenem Kartenstil. Es gibt keinen separaten Jev-Tab und keinen Verlauf/Warum-Tab.</li>
+<li>Ein Wechsel des Arbeitskontexts wechselt den Thread.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Karte</th>
+<th>Inhalt</th>
+<th>Aktionen</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Empfehlung (LLM)</td>
+<td>Scan-AI-Empfehlungen, Evidenz, Diff</td>
+<td>Preview, Apply, Verwerfen + Grund</td>
+</tr>
+<tr>
+<td>Jev-Entscheidung</td>
+<td>Fragen, Kandidaten mit Wahrscheinlichkeit/Konfidenz, <code>keep_current</code>, Policy-Urteil, Diff, Kosten</td>
+<td>Preview, Apply, Überstimmen + Grund</td>
+</tr>
+<tr>
+<td>Run-Beratung</td>
+<td>Run-Chat, Post-Run-Advice, Situation-Assistent</td>
+<td>Nachfragen, Erklärung</td>
+</tr>
+<tr>
+<td>Bild-Operation</td>
+<td>Vorschau-Thumbnail, Parameter, Op-Historie</td>
+<td>Anpassen, Undo/Redo, Reset, Export + Grund</td>
+</tr>
+<tr>
+<td>Lernen</td>
+<td>Memory-Kandidat nach Apply</td>
+<td>Accept/Reject/Deprecate + Grund</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Warum-Bereich an jeder Karte:</strong> Jede Entscheidungskarte hat einen ausklappbaren Abschnitt "Warum" mit der Decision-Kette
+(Teil A): Evidenz, Alternativen, Begründung mit Herkunftslabel, Vorgänger-/Folgeentscheidungen, Outcome. Er ist lesend
+und lädt Details erst beim Ausklappen nach. Ein globaler Verlauf entfällt; die Kette ist über die Karte und über die
+Memory-/Audit-Ansicht erreichbar.</p>
+<p><strong>Jev-Auslöser:</strong> Jev ist kein Chat (Decisions-Modell, nur <code>choice</code>-Fragen). Im Eingabebereich des Docks stehen deshalb
+neben dem Freitextfeld Schaltflächen "Jev: Pre-Run-Empfehlung" und "Jev: Beratung nach Run" (nur auf Wunsch). Das Ergebnis
+kommt als Jev-Karte in den Thread.</p>
+<ul>
+<li>Alle schreibenden Aktionen laufen weiter durch Action-Plan → Preview → <code>validate-config</code> → Apply. Das Dock ersetzt die
+  Oberfläche, nicht die Sicherheitslogik.</li>
+<li><strong>Das große Bild bleibt eine eigene Fläche.</strong> Der Live-Image-Viewer braucht Platz. Er wird eine Ansicht im Hauptbereich,
+  gebunden an den Dock-Kontext (Bild ausgewählt → Dock zeigt Bild-Operationen). Sein eigener Chat entfällt und zieht ins
+  Dock um.</li>
+<li>Schmale Fenster: Dock wird Overlay statt Spalte.</li>
+</ul>
+<h3 id="32-jev-als-karte-im-pi-thread-gleiche-behandlung">3.2 Jev als Karte im PI-Thread, gleiche Behandlung<a class="headerlink" href="#32-jev-als-karte-im-pi-thread-gleiche-behandlung" title="Permanent link">&para;</a></h3>
+<p>Jev ist ein Empfehlungs-Provider neben dem LLM-Pfad, kein eigener Tab:</p>
+<ul>
+<li>Gemeinsame Provider-Schnittstelle im Frontend: <code>{ id, kind: "llm_scan" | "jev_pre" | "jev_post" | "context_chat" | "live_edit",
+  run(context) → Karte[] }</code>.</li>
+<li>Jev-Karten nutzen dieselben Bausteine wie LLM-Karten: Diff (<code>yaml-diff.js</code>), Guardrail-Badges, Preview/Apply,
+  <code>reason-picker.js</code>, Warum-Bereich, Decision Record, Action-Plan-Pipeline. Es gibt keine Sonderwege für Jev.</li>
+<li><strong>Vergleich im Thread:</strong> Liegen für denselben Kontext ein PI- und ein Jev-Vorschlag vor, verweisen die Karten
+  aufeinander ("Jev-Vorschlag abweichend") und der Warum-Bereich zeigt die Abweichung samt bestehendem Shadow-Vergleich.
+  Widersprüche werden im Record verknüpft (<code>parent_decision_id</code> bzw. gemeinsamer Kontext) und sind Lernmaterial.</li>
+<li>Feature-Flags (<code>feature-flags.js</code>: <code>aiEnabled</code>, <code>jevEnabled</code>) steuern, welche Provider und Auslöser sichtbar sind. Ohne Jev
+  bleibt das Dock voll nutzbar; Jev-Kosten (<code>usage.cost</code>) stehen in der Karte.</li>
+<li>Zuständigkeitsgrenzen aus dem Jev-Plan bleiben: Jev wählt nur aus Backend-Kandidaten, keine freien Pfade/Werte, keine
+  Ausführung. Eine Jev-Karte kann den Patch nur anwenden, wenn die Policy ihn akzeptiert hat.</li>
+<li>Offen: Ob eine Rückfrage im Freitext zu einer Jev-Karte den Jev-Bezug im Prompt bekommt. Der Jev-Plan erlaubt PI nur
+  Erläuterungen; der validierte Patch darf sich dadurch nicht ändern.</li>
+</ul>
+<h3 id="33-architektur-im-frontend">3.3 Architektur im Frontend<a class="headerlink" href="#33-architektur-im-frontend" title="Permanent link">&para;</a></h3>
+<p>Neu: <code>web_frontend_v3/js/assistant/</code></p>
+<ul>
+<li><code>dock.js</code> — Layout, Resize, Collapse, Fokus-Handling.</li>
+<li><code>context-provider.js</code> — leitet den aktiven Kontext aus bestehenden State-Modulen ab; kein neuer Datenhalter für Run/Scan.</li>
+<li><code>thread-store.js</code> — Threads je Kontext, Nachrichten, Karten; Persistenz über Backend-Historie (siehe 3.4).
+  Karten werden nach Reload aus Decision Records und Historien rekonstruiert (analog der Run-Monitor-Regel:
+  Zustand aus Backend-Artefakten, nicht aus transientem Browser-State). Nicht persistierte Zwischenstände wie
+  unangewendete Previews werden <strong>beim Lesen</strong> als "offen/nicht angewendet" dargestellt und nicht als Record
+  geschrieben; ein <code>preview_dismissed</code> entsteht nur bei einem tatsächlichen Dismiss-Ereignis im Dialog, nie
+  rückwirkend durch einen Reload und nie durch Ablauf (§2.9).</li>
+<li><code>cards/</code> — Kartenregistry: <code>recommendation.js</code> (PI), <code>jev-decision.js</code> (Jev), <code>run-advice.js</code>, <code>image-op.js</code>, <code>learning.js</code>, <code>why-section.js</code> (ausklappbarer Warum-Bereich, von allen Entscheidungskarten genutzt).</li>
+<li><code>providers/</code> — Adapter auf bestehende Endpunkte (<code>llm_scan</code>, <code>jev_*</code>, <code>context_chat</code>, <code>live_edit</code>; <code>context_chat</code>
+  baut auf dem verallgemeinerten <code>context-chat</code>-Pfad aus §3.4 auf).</li>
+<li><code>reason-picker.js</code> — wiederverwendbare Chips + Freitext, Katalog aus Backend (<code>/api/pi/reason-codes</code>).</li>
+</ul>
+<p>Änderungen an Bestehendem:</p>
+<ul>
+<li><code>main.js</code>: <code>app-root</code> bekommt ein Spaltenlayout (<code>tc-content</code> | Dock), Kürzel, Dock-Badge (ersetzt den
+  <code>tc-badge-running</code>-Hack am Parameter-Sub-Tab).</li>
+<li><code>layout.css</code>: Grid für Content + Dock, Dock-Breite als CSS-Variable.</li>
+<li><code>parameter.js</code>: Tabs <em>AI</em> und <em>Jev</em> verschwinden (Inhalt wandert als Karten in das Dock) (nach Migration); <code>ai-empfehlung.js</code>/<code>jev-empfehlung.js</code> werden in
+  Karten und Provider zerlegt statt gelöscht — die Logik bleibt, die Hülle ändert sich.</li>
+<li><code>run-monitor.js</code>: eingebetteter Run-Chat/Advice wandert ins Dock; Rest unverändert (große Datei, möglichst wenig
+  Eingriff).</li>
+<li><code>live-image-viewer.js</code>: Chat-Teil und Op-Liste ins Dock, Canvas bleibt.</li>
+<li><code>tools.js</code> → <code>ai-settings</code>: bleibt als Einstellungsseite, aus dem Dock verlinkt.</li>
+<li>i18n: alle neuen Texte in DE und EN (<code>js/i18n</code>, <code>i18n/</code>).</li>
+</ul>
+<h3 id="34-backend-seite-des-docks">3.4 Backend-Seite des Docks<a class="headerlink" href="#34-backend-seite-des-docks" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Zuerst <strong>keine neuen Fachendpunkte</strong>: Provider-Adapter sprechen die bestehenden Routen an. Das hält die Blast Radius klein.</li>
+<li>Neu nur: <code>GET /api/pi/reason-codes</code> (Katalog <code>pi.user-reason-codes.v1</code>), <code>POST /api/pi/decision-records</code>
+  (nur eingeschränkte Nutzer-Payloads, §2.1 Schreibautorität), <code>GET /api/pi/decision-records?context=...</code>
+  (Kette lesen, §2.7-Filter) sowie <code>GET /api/pi/assistant/thread?context=...</code> als <strong>neuer Fachendpunkt</strong>,
+  der die vorhandenen Historien (<code>run-chat/history</code>, <code>live-image-chat/history</code>, Scan-Analyse-History)
+  zeitlich mergt und dedupliziert. Der Namensraum <code>/api/pi/decisions/*</code> ist bereits durch die Jev-Decision-API
+  belegt (<code>status</code>/<code>test</code>/<code>log</code>/<code>settings</code> in <code>pi_decision_routes.cpp</code>) und bleibt unangetastet.</li>
+<li><strong>Der Analyse-Kontext braucht einen echten Chat-Pfad.</strong> <code>/api/pi/assistant/ask</code> ist ein lokaler
+  Keyword-Antwortgeber (<code>pi_assistant.cpp</code>, <code>mode: "local_read_only"</code>) ohne LLM, Session oder Historie — er
+  kann der Freitext-Thread im Analyse-Kontext nicht sein. Entscheidung: <code>run-chat</code> wird zu einem
+  kontext-parametrierten <code>context-chat</code> verallgemeinert (ein Adapter, eine Session-Verwaltung, <code>context_id</code>
+  statt <code>run_id</code>), statt einen dritten Chat-Dienst einzuführen. <code>assistant/ask</code> bleibt als lokaler
+  Fallback bei Sidecar-Ausfall bestehen.</li>
+<li>Spätere Option: ein gemeinsamer Intent-Router (<code>/api/pi/assistant/turn</code>), der deterministisch anhand von Kontext und
+  Kartentyp an LLM, Jev oder Bildoperation dispatcht. Erst nach Stabilisierung der Adapter; kein erster Schritt.</li>
+</ul>
+<h3 id="35-run-lebenszyklus-aktivieren-fortsetzen-loschen-verschieben">3.5 Run-Lebenszyklus: Aktivieren, Fortsetzen, Löschen, Verschieben<a class="headerlink" href="#35-run-lebenszyklus-aktivieren-fortsetzen-loschen-verschieben" title="Permanent link">&para;</a></h3>
+<p><strong>Ist-Zustand (aus dem Code):</strong></p>
+<ul>
+<li>Ein "Archiv" als eigenes Konzept gibt es nicht. Ein früherer Run wird über <em>Run History</em> → "Als aktuell setzen"
+  aktiviert (<code>run-history.js: setRunCurrent</code>): <code>POST /api/runs/&lt;id&gt;/set-current</code> setzt im Backend nur
+  <code>current_run_id</code>/<code>current_run_dir</code> (im Speicher), das Frontend setzt <code>run-state</code> und wechselt zum Run Monitor.
+  Eine AI-Session wird dabei nicht geladen, und der Run-Chat-Verlauf wird erst bei Bedarf gelesen.</li>
+<li>Der Run-Chat-Verlauf liegt <strong>zentral</strong> unter <code>pi_storage_dir/run_chat/&lt;run_id&gt;_&lt;hash&gt;.json</code> (Legacy:
+  <code>&lt;run_dir&gt;/artifacts/pi_run_chat_history.json</code>). Der Schlüssel ist ein Hash des <code>run_id</code>-<strong>Strings</strong>.</li>
+<li>Runs können in einem benutzerdefinierten <code>runs_dir</code> oder auf Netzlaufwerken liegen; <code>run_id</code> kann ein absoluter Pfad sein
+  (<code>resolve_run_dir</code>). Dasselbe Run kann so unter zwei Strings angesprochen werden (Name und Pfad) und bekäme zwei
+  verschiedene Verlaufsdateien. <code>resolve_run_dir</code> löst außerdem per Präfix auf (<code>name.find(run_id) == 0</code>), was bei
+  Namensüberschneidung mehrdeutig sein kann.</li>
+</ul>
+<p><strong>Implementierungsstand:</strong> Zentraler Run-Index, neue Provenance-UIDs, Kontext in <code>set-current</code> und Persistenz von
+<code>pi_active_context</code> sind implementiert. <code>GET /api/pi/active-context</code> stellt die Auswahl bereit.
+Explizites Neuverknuepfen ist per <code>POST /api/pi/run-contexts/&lt;run_uid&gt;/relink</code> implementiert:
+<code>{"run_dir":"/neuer/pfad","confirmed":true}</code>. Die UID muss bereits bekannt sein, das Ziel muss ein erlaubtes
+Run-Verzeichnis mit <code>config.yaml</code> sein. Alte Pfad-Aliase bleiben erhalten; Provenance oder Alias einer anderen UID
+fuehren zu HTTP 409, es wird niemals still zusammengefuehrt. Historische Artefakte bleiben unveraendert.
+Ein aktiver Kontext wird auf den neuen Pfad aktualisiert. <code>GET /api/pi/run-contexts/&lt;run_uid&gt;</code> liefert die Aliase.
+Die Run-History-Archivkarte bietet nun Auswahl erhaltener Lerndaten und explizite Neuverknuepfung einer bekannten UID,
+inklusive aktueller Alias-Liste. Datei-Lifecycle, Lern-Ausschluss und Dateiloeschdialoge sind dort implementiert.
+Dock-Kontextwechsel, Verlauf-/Session-Bezuege und die UI-Anbindung der Vergessen-Aktion (Backend-Endpunkt vorhanden) sind noch offen.</p>
+<p><strong>Entscheidungen:</strong></p>
+<ol>
+<li><strong>Stabile <code>run_uid</code>.</strong> Jeder Run bekommt eine unveränderliche ID, die nicht vom Anzeigenamen oder Pfad abhängt.</li>
+<li>Neue Runs: <code>run_uid</code> wird in das bereits bei Run-Start geschriebene <code>pi_run_provenance.json</code> aufgenommen.</li>
+<li>Bestehende Runs: <strong>nichts in das Run-Verzeichnis schreiben</strong> (AGENTS.md). Die Zuordnung <code>run_uid ↔ run_key ↔
+     run_id-Aliase ↔ config_sha256 ↔ Startzeit</code> liegt zentral in der Tabelle <code>run_index</code> der SQLite-Datenbank <code>pi_store_v2.sqlite</code> (append-only).</li>
+<li><strong>Kanonischer Schlüssel ist <code>run_key</code>: der aufgelöste, normalisierte Run-Verzeichnispfad.</strong> Ein Name ist nur
+     relativ zu einem <code>runs_dir</code> eindeutig (Custom-Verzeichnis, Netzlaufwerk); gleiche Namen in verschiedenen
+     Roots sind verschiedene Runs. Namen und absolute Pfade sind Aliase auf denselben <code>run_key</code>.
+     <code>config_sha256</code>/Startzeit dienen nur dem <strong>Wiederfinden</strong> eines verschobenen Runs und führen nie automatisch
+     zusammen (eine Queue kann mehrere Runs mit derselben Config starten); Mehrdeutigkeit wird dem Nutzer als
+     Auswahl angeboten.</li>
+<li><code>context_id</code> (§3.0) des Run-Kontexts wird aus der <code>run_uid</code> gebildet. Alle Schlüssel (Records, Verlauf, Session)
+     laufen über <code>run_uid</code>, nie über den rohen <code>run_id</code>-String. Vorhandene <code>run_chat/*.json</code> werden über den Index auf
+     die <code>run_uid</code> abgebildet (lesend; Migration ohne Löschen der Altdatei).</li>
+<li>Die Auflösung <code>run_id</code>/Pfad → <code>run_uid</code> ist <strong>exakt</strong>, nicht per Präfix. Da <code>run_id</code> auch ein absoluter
+     Pfad sein kann, wird vor dem Vergleich normalisiert (kanonischer Pfad, Symlinks, Trailing-Separator,
+     Case-Regeln des Dateisystems).</li>
+<li><strong>Aktivieren eines Runs</strong> (<code>set-current</code>) löst im Dock einen Kontextwechsel auf den Run-Kontext aus:</li>
+<li>Records, Karten und Chat-Verlauf werden sofort geladen (lesend, §3.3).</li>
+<li>Die <strong>Session wird nicht beim Aktivieren geöffnet</strong>, sondern lazy mit der ersten Nutzernachricht (<code>open</code> per
+     <code>session_id</code>, §2.5). Aktivieren bleibt dadurch billig und nebenläufigkeitsfrei.</li>
+<li>
+<p>Fehlende Teile degradieren sichtbar statt zu scheitern:</p>
+<table>
+<thead>
+<tr>
+<th>Zustand</th>
+<th>Verhalten</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Records und Session vorhanden</td>
+<td>Thread vollständig, Chat setzt fort</td>
+</tr>
+<tr>
+<td>Records vorhanden, Session fehlt</td>
+<td>Thread lesbar, neue Session beim ersten Senden, Hinweis im Thread</td>
+</tr>
+<tr>
+<td>Nur Altverlauf (<code>run_chat</code>, ohne Records)</td>
+<td>Verlauf lesbar, Warum-Bereich "Keine Aufzeichnung (vor Einführung)"</td>
+</tr>
+<tr>
+<td>Run-Verzeichnis nicht erreichbar (Netzlaufwerk offline)</td>
+<td>Thread lesbar aus zentralem Speicher; Aktionen, die Artefakte brauchen, deaktiviert</td>
+</tr>
+<tr>
+<td>Nichts vorhanden</td>
+<td>Leerer Thread, Session entsteht erst mit der ersten Nachricht</td>
+</tr>
+</tbody>
+</table>
+</li>
+<li>
+<p><em>Run History</em> zeigt je Run ein Kennzeichen "AI-Verlauf vorhanden" (Anzahl Entscheidungen) — ohne Session zu öffnen.</p>
+</li>
+<li>Die zuletzt aktive Kontext-Auswahl wird bereits im bestehenden UI-State (<code>runtime_dir/ui_state.json</code>),
+     Feld <code>pi_active_context</code>, persistiert. <code>set-current</code> liefert <code>pi_context</code>/<code>run_uid</code> additiv; ein nicht
+     erreichbarer Run oder eine fehlgeschlagene Index-Aufloesung liefert eine Warnung, ohne Aktivierung zu blockieren.
+     Die Tabelle <code>run_index</code> bleibt
+     unveränderliche Zuordnung und enthält keine flüchtige Auswahl — damit "Zustand überlebt Reload/Restart" gilt.</li>
+<li><strong>Resume eines Runs</strong> (<code>/api/runs/&lt;id&gt;/resume</code>) setzt denselben Run-Kontext fort; es entsteht kein neuer Kontext.
+   Das bestehende Resume-Feedback (<code>/api/pi/memories/resume-feedback</code>) wird als Record verknüpft (<code>parent_decision_id</code>).</li>
+<li><strong>Run-Dateien loeschen</strong> (<code>/api/runs/&lt;id&gt;/delete</code>):</li>
+<li>Nutzerentscheidung: valide Lerndaten behalten. Config, Herkunft, Manifeste, Statistik und optionale PNG-Vorschau
+     werden zentral gesichert; erst danach werden Run-Dateien entfernt. SQLite-Fehler blockieren die Loeschung.</li>
+<li>Datei-Lifecycle <code>deletion_pending</code>/<code>deleted</code> ist getrennt vom expliziten Lern-Ausschluss. Loeschen ist keine
+     Ablehnung und kein negatives Outcome. Originale Lights/Darks werden nicht archiviert oder geloescht.</li>
+<li><a href="../pi_run_learning_archive_de/">Run-Lernarchiv</a>, Exclusion-Endpunkt und Run-History-Oberflaeche sind implementiert.
+     Getrennte, bestaetigte Aktionen fuer Dateiloeschung und Lern-Ausschluss; Erfassungsluecken brauchen eine zweite
+     Bestaetigung. Alte Backends ohne Faehigkeitsnachweis werden vor dem Delete blockiert.
+     Archive bleiben unter derselben UID lesbar; Vergessen ist backendseitig umgesetzt, aber ohne UI-Anbindung.</li>
+<li>Memories, Records und zentrale Konversationen bleiben bei reiner Dateiloeschung bestehen. Textredaktion und
+     Vergessen gehoeren zu einer separaten bestaetigten Aktion bzw. der noch festzulegenden Aufbewahrungspolitik.</li>
+<li><strong>Verschieben, Kopieren, Umbenennen:</strong> Weil nichts am Run-Verzeichnis hängt, überleben Records und Verlauf ein
+   Verschieben auf demselben System, solange <code>run_dir</code> auflösbar bleibt oder über <code>config_sha256</code>/Startzeit
+   wiedergefunden wird. Wandert ein Run auf eine andere Maschine, ist <strong>optional</strong> ein Export "Run mit Trace" vorgesehen:
+   metadata-only Records plus <code>run_uid</code>, Session nur auf ausdrückliche Wahl (enthält Nutzertext), Import mit
+   Kollisionsprüfung über <code>run_uid</code> (Standard: vorhandene Records nicht überschreiben).</li>
+</ol>
+<hr />
+<h3 id="aktueller-dock-baustein">Aktueller Dock-Baustein<a class="headerlink" href="#aktueller-dock-baustein" title="Permanent link">&para;</a></h3>
+<p>Der <a href="../pi_assistant_dock_implementation_de/">erste Run-Adapter</a> ist implementiert: globaler rechter Host,
+Run-Chat zentral nach UID, Backend-Kontextauswahl ohne Session-Start, lazy Warum und deaktivierte Beratung
+bei fehlenden Artefakten. Move/Relink und Dateiloeschung behalten neue UID-Historien. Jev-Post-Run-Karten werden
+jetzt dauerhaft nach UID geladen und als regelbasierte Beratung gekennzeichnet. PI und neue Post-Run-Jev-Karten
+teilen einen Backend-Thread-Endpunkt. Gemeinsame Run-Parameterkarten bieten jetzt explizite Auswahl, gepruefte
+YAML-Preview und Uebernahme nur in den passenden sichtbaren Resume-Entwurf; kein Save/Start.
+Der <a href="../pi_analysis_context_implementation_de/">Analyse-/Scan-Jev-Grundbaustein</a> ergaenzt jetzt eine zentrale
+Analyse-UID mit Config-/Metrik-Revisionen und wiederherstellbaren Proposal-Zustaenden im Dock. Noch keine
+freie PI-Analyse-Unterhaltung oder Analyse-Entwurfsuebernahme. Bild-Adapter, vollstaendiges Decision-Merging,
+Analyse-zu-Run-Abstammung und gespeicherter Apply-/Reason-Fluss folgen.
+Der Plan fuer das gesamte Unified Assistant ist damit noch nicht vollstaendig umgesetzt.</p>
+<h2 id="5-prufpunkte-assistant">5. Prüfpunkte (Assistant)<a class="headerlink" href="#5-prufpunkte-assistant" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Run-Lebenszyklus:</strong> Aktivieren öffnet keine Session; alle fünf Zustände der Tabelle (§3.5) degradieren ohne Fehler; Zugriff über Name und Pfad liefert denselben Kontext; <code>run_uid</code>-Auflösung exakt (kein Präfix) inkl. Pfad-Normalisierung; Run-Dateiloeschung erhaelt Config/Herkunft/Statistik und ist kein Lern-Ausschluss; explizites Vergessen bleibt getrennt; die aktive Kontext-Auswahl überlebt einen Backend-Restart; nichts wird in bestehende Run-Verzeichnisse geschrieben.</li>
+<li><strong>Kontextmodell:</strong> <code>image_id</code> ist heute genau <code>&lt;run_uid&gt;:live_edit</code>; der Analyse-Kontext nutzt denselben
+  verallgemeinerten Chat-Pfad wie der Run (kein dritter Chat-Dienst); der Sidecar hält ein per-Session-Lock
+  (max. ein aktiver Request je Kontext).</li>
+<li><strong>Run-Identität:</strong> <code>run_key</code> ist der normalisierte Pfad; gleiche Namen in verschiedenen Roots bleiben getrennt;
+  Wiederfinden über <code>config_sha256</code> führt nie automatisch zusammen.</li>
+<li><strong>Kontextdrift:</strong> Revisionswechsel erzeugt Hinweis im Dock und Modellkontext; veraltete Vorschläge werden beim
+  Lesen markiert; neue <code>analysis_id</code> beginnt neue Session; Session-Lock wird bei Abort, Disconnect und Timeout
+  freigegeben.</li>
+<li><strong>UI:</strong> Dock auf allen Tabs, Zustand überlebt Reload, Kontextwechsel aktualisiert den Thread, Warum-Bereich lädt erst beim Ausklappen nach, schmale Fenster, DE/EN,
+  Tastatur-Bedienbarkeit, bestehende Shortcuts (<code>1/2/3</code>, Pfeiltasten) kollidieren nicht mit Eingabefeldern im Dock.</li>
+</ul>
+<hr />
+<h2 id="6-risiken-und-offene-fragen-assistant">6. Risiken und offene Fragen (Assistant)<a class="headerlink" href="#6-risiken-und-offene-fragen-assistant" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Sidecar-Ausfall:</strong> Das Dock muss degradiert nutzbar bleiben — Jev- und Backend-Karten funktionieren,
+  LLM-Karten zeigen den Ausfall. Records werden weiter geschrieben (Backend ist maßgeblich).</li>
+<li><strong>Größe von <code>run-monitor.js</code> / <code>live-image-viewer.js</code>:</strong> Migration nur schrittweise und mit Parität; Dock-Karten
+  dürfen die alten Komponenten zunächst einbetten (Wrapper), statt sofort neu geschrieben zu werden.</li>
+<li><strong>Run-Identität:</strong> Der Verlauf hängt heute am <code>run_id</code>-String. Ohne die stabile <code>run_uid</code> (§3.5) entstehen bei Name/Pfad-Doppelzugriff getrennte Verläufe, und Präfix-Auflösung kann den falschen Run treffen. Die Zuordnung muss exakt und zentral geführt werden.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

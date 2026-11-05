@@ -1,17 +1,14 @@
 <map id="tile_compile::runner::compute_adaptive_worker_count" name="tile_compile::runner::compute_adaptive_worker_count">
-<area shape="rect" id="Node000001" title="Computes adaptive worker count." alt="" coords="701,82,919,120"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#aae0fe88d47fdd0240e1a979b84f4088d" title="Runs phase channel split normalization global metrics." alt="" coords="456,5,653,58"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="721,80,652,61,654,56,722,75"/>
-<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1runner.html#a044cd053f52b6b643eaf716a7956e6e4" title="Runs phase local metrics." alt="" coords="468,82,641,120"/>
-<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="685,104,642,104,642,98,685,98"/>
-<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1runner.html#a1df23fe6a9ac933de8904e5aadf1eec4" title="Runs phase registration prewarp." alt="" coords="474,144,635,197"/>
-<area shape="poly" id="edge7_Node000001_Node000007" title=" " alt="" coords="722,128,636,151,634,146,720,122"/>
-<area shape="rect" id="Node000003" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,89,408,113"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="454,66,375,91,373,85,453,60"/>
-<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,89,206,113"/>
-<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="238,104,206,104,206,98,238,98"/>
-<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,89,55,113"/>
-<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="87,104,55,104,55,98,87,98"/>
-<area shape="poly" id="edge6_Node000006_Node000003" title=" " alt="" coords="452,104,409,104,409,98,452,98"/>
-<area shape="poly" id="edge8_Node000007_Node000003" title=" " alt="" coords="459,143,372,116,374,111,460,138"/>
+<area shape="rect" id="Node000001" title="Computes adaptive worker count." alt="" coords="564,51,783,90"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#aae0fe88d47fdd0240e1a979b84f4088d" title="Runs phase channel split normalization global metrics." alt="" coords="320,83,516,135"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="551,89,517,97,516,91,546,90"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1runner.html#a5010168068f01a2a500816df82eda6bc" title="Runs phase registration prewarp." alt="" coords="338,5,498,58"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="546,52,499,46,499,41,552,51"/>
+<area shape="rect" id="Node000003" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="110,30,264,55"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="307,78,233,58,233,53,313,77"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1runner.html#a645c3227b111cd1ccefda941e289cdb6" title=" " alt="" coords="103,90,272,128"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="302,109,273,112,272,106,307,109"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,30,55,55"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="92,44,56,45,54,40,96,41"/>
+<area shape="poly" id="edge6_Node000006_Node000003" title=" " alt="" coords="320,37,265,41,265,36,325,35"/>
 </map>

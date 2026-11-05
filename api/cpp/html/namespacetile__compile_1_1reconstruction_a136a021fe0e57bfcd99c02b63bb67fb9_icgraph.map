@@ -1,0 +1,16 @@
+<map id="tile_compile::reconstruction::prepare_drizzle_frames" name="tile_compile::reconstruction::prepare_drizzle_frames">
+<area shape="rect" id="Node000001" title=" " alt="" coords="489,100,669,139"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#a8f500dcd0e4f7ecafa9e4fbf10a43f56" title=" " alt="" coords="234,5,441,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="523,93,440,58,410,47,410,42,442,53,528,92"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#a6d618f564e82f9f80efaf384ed2e18e7" title=" " alt="" coords="247,68,428,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="471,106,428,102,428,97,476,105"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1reconstruction.html#a6c005f391724b75da407d0f7dc2d1a7f" title=" " alt="" coords="247,131,428,169"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="471,133,429,141,427,136,476,132"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1reconstruction.html#a24a568c814642841df68524cd7c3c142" title=" " alt="" coords="247,193,428,246"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="524,145,442,183,412,195,411,190,440,178,519,146"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1reconstruction.html#a32cdc197473740fb042031ae2d2bfd94" title=" " alt="" coords="5,154,186,207"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="229,203,186,198,186,192,234,202"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1reconstruction.html#a2add341aca989541e17e627802a8b6dd" title=" " alt="" coords="5,232,186,284"/>
+<area shape="poly" id="edge7_Node000005_Node000007" title=" " alt="" coords="229,237,187,246,186,241,234,236"/>
+<area shape="poly" id="edge6_Node000006_Node000006" title=" " alt="" coords="133,140,120,135,95,133,74,135,60,140,54,146,54,154,48,153,49,144,57,135,73,130,96,128,121,130,138,139"/>
+</map>

@@ -6,6 +6,8 @@ var processing_8hpp =
     [ "tile_compile::image::extract_tile", "namespacetile__compile_1_1image.html#a98edd75fcf3c82c6560448d8d04349d3", null ],
     [ "tile_compile::image::normalize_frame", "namespacetile__compile_1_1image.html#a6d7a9068115585d5368dd8fa9ea2a2ae", null ],
     [ "tile_compile::image::reassemble_cfa_mosaic", "namespacetile__compile_1_1image.html#a7ae7033d1c542a2e71e52ec914628fb1", null ],
+    [ "tile_compile::image::rgb_to_luma", "namespacetile__compile_1_1image.html#a9e7497ebe423a08aa5c61c783ebd0800", null ],
+    [ "tile_compile::image::rgb_to_luma", "namespacetile__compile_1_1image.html#a77f3d6e369d5c10b16540ae52a02f322", null ],
     [ "tile_compile::image::split_cfa_channels", "namespacetile__compile_1_1image.html#abeb7a98e5326e8cb8f311ebfc4fdc436", null ],
     [ "tile_compile::image::suppress_isolated_chroma_speckles_rgb_inplace", "namespacetile__compile_1_1image.html#adadabbc1bff350a127df7e665943dc67", null ]
 ];

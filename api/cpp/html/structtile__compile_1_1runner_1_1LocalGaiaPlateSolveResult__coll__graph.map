@@ -1,0 +1,5 @@
+<map id="tile_compile::runner::LocalGaiaPlateSolveResult" name="tile_compile::runner::LocalGaiaPlateSolveResult">
+<area shape="rect" id="Node000001" title="Result of the native near&#45;solve that matches detected image stars against the installed Siril&#45;format ..." alt="" coords="11,100,198,139"/>
+<area shape="rect" id="Node000002" href="$structtile__compile_1_1astrometry_1_1WCS.html" title=" " alt="" coords="5,5,204,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="107,44,107,100,102,99,102,47"/>
+</map>

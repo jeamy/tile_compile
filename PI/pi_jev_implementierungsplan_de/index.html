@@ -1,0 +1,3857 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/PI/pi_jev_implementierungsplan_de/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>PI Jev — Detaillierter Implementierungsplan - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pi-jev-detaillierter-implementierungsplan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              PI Jev — Detaillierter Implementierungsplan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Start Here
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guides/cfa_forward_drizzle_pipeline_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Workflows & Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting_started/configuration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../scan_ai_parameter_studio_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Professional & Technical
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/cli/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API & Development
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  History & About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start Here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/quickstart_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schnellstart (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/installation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows & Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Workflows & Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/cfa_forward_drizzle_pipeline_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reconstruction Method (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/cfa_forward_drizzle_pipeline_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rekonstruktionsmethode (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflow_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/live_image_editor_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/live_image_editor_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/pi_ai_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – KI-Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_workflow_gui3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Basics (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/configuration_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Konfigurationsgrundlagen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Professional & Technical
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Professional & Technical
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_ai_recommendations_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_ki_empfehlungen_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_jev_decisions_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Jev Decisions (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pi_scan_pre_rules_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Pre-Rules (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_decision_trace_und_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overall Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_decision_trace_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decision Trace (Part A)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Assistant (Part B)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_assistant_dock_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assistant Dock
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_analysis_context_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_run_learning_archive_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run Learning Archive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DECISIONTRACE/pi_retention_policy_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Retention Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../forward_drizzle_v2_zielarchitektur_2026-09-12_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forward Drizzle v2 Target Architecture (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Process Flow Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/data_flow_user_description_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/resume_dependencies_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume-Abhängigkeiten (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_1_scan_normalization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Scan & Normalization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_2_registration_geometry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Registration & Geometry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_3_quality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_4_forward_drizzle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Forward Drizzle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_5_multiband/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Multiband
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/phase_6_postprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Post-Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../process_flow/flow_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API & Development
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API & Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference (Getting Started)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    History & About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    History & About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_3" id="__nav_8_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Historical Methods (superseded)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Historical Methods (superseded)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AQMH/aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-abgrenzung-und-abhangigkeiten" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Abgrenzung und Abhängigkeiten
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-konkrete-eingriffspunkte" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Konkrete Eingriffspunkte
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Konkrete Eingriffspunkte">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-eigenstandige-jev-konfigurationsoberflache-nutzerentscheidung-2026-09-22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Eigenständige Jev-Konfigurationsoberfläche (Nutzerentscheidung 2026-09-22)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-daten-und-schnittstellenvertrage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Daten- und Schnittstellenverträge
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Daten- und Schnittstellenverträge">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-state-pidecision-statev1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 State: pi.decision-state.v1
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-kandidaten-und-fragenkatalog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Kandidaten- und Fragenkatalog
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-interner-sidecar-vertrag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Interner Sidecar-Vertrag
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-vorschlag-piconfig-proposalv1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 Vorschlag: pi.config-proposal.v1
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-backend-api-und-vorhandener-apply-pfad" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 Backend-API und vorhandener Apply-Pfad
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#36-persistenz-und-replay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.6 Persistenz und Replay
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-m0-vertrage-quellen-und-testgrundlage-einfrieren" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. M0 — Verträge, Quellen und Testgrundlage einfrieren
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-m1-state-builder-und-gruppenstatistik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. M1 — State-Builder und Gruppenstatistik
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-m2-pre-rules-kandidaten-und-atomare-validierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. M2 — Pre-Rules, Kandidaten und atomare Validierung
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-m3-jev-adapter-fehlerbehandlung-und-betriebsmodus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. M3 — Jev-Adapter, Fehlerbehandlung und Betriebsmodus
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-m4-vollstandiger-pre-run-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. M4 — Vollständiger Pre-Run-Workflow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#81-m51-katalog-v2-wertegitter-objektklasse-schutzliste-entscheidungen-2026-09-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.1 M5.1 — Katalog v2: Wertegitter, Objektklasse, Schutzliste (Entscheidungen 2026-09-24)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8.1 M5.1 — Katalog v2: Wertegitter, Objektklasse, Schutzliste (Entscheidungen 2026-09-24)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#82-erste-kandidatengruppe-a1-und-anfrageinhalt-2026-09-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.2 Erste Kandidatengruppe A1 und Anfrageinhalt (2026-09-24)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-m5-evaluation-und-freigabe-pro-kandidat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. M5 — Evaluation und Freigabe pro Kandidat
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. M5 — Evaluation und Freigabe pro Kandidat">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#91-m5-fortsetzung-2026-09-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.1 M5, Fortsetzung (2026-09-26)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-m6-post-run-beratung-und-pi-ubergabe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. M6 — Post-Run-Beratung und PI-Übergabe
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. M6 — Post-Run-Beratung und PI-Übergabe">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#101-m6-umsetzungsstand-2026-09-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.1 M6 Umsetzungsstand (2026-09-26)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-m7-integration-dokumentation-und-regression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. M7 — Integration, Dokumentation und Regression
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-abnahmematrix-und-offene-fachliche-entscheidungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Abnahmematrix und offene fachliche Entscheidungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="pi-jev-detaillierter-implementierungsplan">PI Jev — Detaillierter Implementierungsplan<a class="headerlink" href="#pi-jev-detaillierter-implementierungsplan" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>Stand:</strong> 2026-10-25.
+<strong>Status:</strong> M0-M4, M5.1 und die M6-Implementierung sind umgesetzt. M5-Screening für zwei experimentelle Kandidaten bestanden, reguläre Freigabe offen. M6 erzeugt und konsumiert Post-Run-Befunde; ein allgemeines Endbild-Qualitätsurteil bleibt absichtlich <code>not_measured</code>, und Downstream-Vorschläge bleiben an einen künftig nach M5 freigegebenen Kandidaten gebunden. M7-Paketierung und Bundle-Smoke-Tests werden durch <code>.github/workflows/release-tile-compile-gui3.yml</code> abgedeckt.
+<strong>Verbindliche Reihenfolge:</strong> Pre-Run-Beratung zuerst, Post-Run-Beratung danach.
+<strong>Lieferumfang:</strong> Vorschläge; kein automatischer Run/Resume und kein zweiter Bildeditor.</p>
+</blockquote>
+<p>Grundlagen: <a href="../pi_jev_decisions_plan_de/">Zielbild</a>, <a href="../pi_scan_pre_rules_de/">korrigierter Regelkatalog</a>, <a href="../pi_local_learning_plan_de/">lokaler Lernplan</a>, <a href="../pi_jev_m0_field_inventory_de/">M0-Feld-Inventar</a>, <a href="../pi_jev_m0_provider_protocol_de/">M0-Provider-Protokoll</a>, <a href="../pi_jev_m0_hard_rule_review_de/">M0-HARD-RULE-Review</a>.</p>
+<h2 id="1-abgrenzung-und-abhangigkeiten">1. Abgrenzung und Abhängigkeiten<a class="headerlink" href="#1-abgrenzung-und-abhangigkeiten" title="Permanent link">&para;</a></h2>
+<p>M0 -&gt; M1 -&gt; M2 -&gt; M3 -&gt; M4 ergibt eine vollständige, zunächst experimentelle Pre-Run-Beratung. M5 entscheidet über die Freigabe einzelner Kandidaten für reguläre Vorschläge. M6 ergänzt Post-Run. M7 schließt Integration, Betriebsdokumentation und Regression ab.</p>
+<p>M3 kann nach eingefrorenem M0-Vertrag unabhängig von der internen Implementierung des Builders entwickelt werden; die Integration wartet auf M2. Alle neuen Dateien und Schnittstellen unten sind geplant, sofern nicht ausdrücklich als bestehend bezeichnet.</p>
+<p>Keine Veränderung der Rekonstruktionsmethode, keine neue Runner-Netzwerkabhängigkeit, kein Training eines neuen numerischen Optimierers. kNN bleibt Shadow. Live Image Chat und GUI-Kurven bleiben im bisherigen PI-Pfad.</p>
+<h2 id="2-konkrete-eingriffspunkte">2. Konkrete Eingriffspunkte<a class="headerlink" href="#2-konkrete-eingriffspunkte" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Bestehende Datei/Komponente</th>
+<th>Aufgabe in dieser Umsetzung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>web_backend_cpp/src/routes/ai_routes.cpp</code></td>
+<td>Vorhandene Scan-Analyse/Apply- und Completion-Analyse-Flows anbinden; Jev-Services aufrufen, keine neue Entscheidungslogik im Routenmonolith</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/routes/scan_routes.cpp</code></td>
+<td>Vorhandene Scan-Resultate/IDs als Quellen; keine zweite Scan-Ausführung durch Beratung</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/services/pi/pi_feature_vector.cpp</code></td>
+<td>Bestehenden kNN-Vertrag bewahren; Messquellen für neuen Builder wiederverwenden</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/services/pi/pi_recommendation_validator.cpp</code></td>
+<td>Expliziten atomaren Validierungspfad ergänzen, Legacy-Teilpatchverhalten nicht versehentlich global ändern</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/services/pi/pi_parameter_catalog.cpp</code></td>
+<td>Metadaten referenzieren; keine automatische Freigabe aus Description/Enum</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/services/pi/pi_action_plan.cpp</code> und <code>pi_action_validator.cpp</code></td>
+<td>Jev-Vorschlag ohne Ausführungsaktion darstellen; Kandidaten-/Evidenzbindung prüfen</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/services/pi/pi_storage_paths.cpp</code></td>
+<td>Persistenz unter bestehendem Backend-State-Root; keine impliziten Writes in fremde Runs</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/services/pi/pi_outcome_recorder.cpp</code></td>
+<td><strong>Nicht ändern</strong> (Entscheidung 2026-09-23, <a href="../pi_jev_m0_field_inventory_de/#4-entschieden-verh%C3%A4ltnis-zum-lokalen-lernsystem-2026-09-23">Feld-Inventar §4</a>). Jev-Outcomes laufen über <code>pi_decision_outcome</code>; <code>runs_routes.cpp</code> ruft beide Recorder unabhängig bei erfolgreichem Run-Ende und beim Statusabruf auf, nicht beim Run-Delete</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/src/services/config_revisions.cpp</code>, <code>run_inspector.cpp</code>, <code>routes/runs_routes.cpp</code></td>
+<td>Aktuelle Config und bestehende Resume-Machbarkeit wiederverwenden</td>
+</tr>
+<tr>
+<td><code>agent_service/src/config.ts</code>, <code>types.ts</code>, <code>server.ts</code></td>
+<td>Optionalen Decisions-Adapter konfigurieren und anbieten; nutzt den bereits vorhandenen <code>.env</code>-Key <code>JEV_OPENROUTER_API_KEY</code>, siehe 2.1</td>
+</tr>
+<tr>
+<td><code>agent_service/src/services/frameAnalysisService.ts</code></td>
+<td>Bestehende PI-Beratung als unabhängige Vergleichs-/Fallback-Option erhalten</td>
+</tr>
+<tr>
+<td><code>web_frontend_v3/js/pages/input-scan.js</code>, <code>js/state/scan-state.js</code></td>
+<td>Vorschläge, Status, Wiederherstellung und atomare Übernahme</td>
+</tr>
+<tr>
+<td><code>web_frontend_v3/js/pages/tools.js</code>, <code>js/pages/ai-empfehlung.js</code></td>
+<td>Neue, eigenständige Jev-Konfigurationskarte neben der bestehenden AI-&amp;-API-Karte (siehe 2.1); kein zusätzlicher Eintrag im bestehenden Provider-Dropdown</td>
+</tr>
+<tr>
+<td><code>web_frontend_v3/js/pages/parameter.js</code></td>
+<td>Dritten Sub-Tab „Jev-Empfehlungen“ neben <code>Parameter</code>/<code>AI Empfehlung</code> ergänzen (bestehendes <code>switchView</code>-Muster)</td>
+</tr>
+<tr>
+<td><code>web_frontend_v3/js/pages/run-monitor.js</code></td>
+<td>Später Post-Run-Befunde und geprüfte Resume-Vorbereitung</td>
+</tr>
+<tr>
+<td><code>web_frontend_v3/i18n/de.json</code>, <code>en.json</code></td>
+<td>Alle neuen Nutzertexte in beiden Sprachen</td>
+</tr>
+<tr>
+<td><code>web_backend_cpp/CMakeLists.txt</code>, <code>agent_service/package.json</code></td>
+<td>Neue Quellen und passende Tests registrieren</td>
+</tr>
+</tbody>
+</table>
+<p>Neue Backend-Module jeweils mit Header unter <code>include/services/pi/</code> und Implementierung unter <code>src/services/pi/</code>:</p>
+<ul>
+<li><code>pi_decision_state</code>: Quellenvalidierung und kanonischer State.</li>
+<li><code>pi_pre_rules</code>: Voraussetzungen, Befunde, freigegebene Kandidaten.</li>
+<li><code>pi_decision_policy</code>: Allowlist, Locks, Auswahl-/Enthaltungsprüfung, atomare Validierung.</li>
+<li><code>pi_decision_service</code>: Orchestrierung, Sidecar-Aufruf, Status und Persistenz.</li>
+<li><code>pi_decision_outcome</code>: <code>record_jev_outcome_if_needed()</code> — Run -&gt; Jev-Vorschlag, eigener Marker, eigener Fehlerpfad (siehe 3.6).</li>
+<li><code>pi_post_run_advisor</code>: erst M6; Zwischenstandsdiagnose und Resume-Vorschlag.</li>
+</ul>
+<p>Adapter neu: <code>agent_service/src/services/decisionsService.ts</code>. Versionierte Anwendungsschemas und Kandidaten-/Fragenkataloge neu unter <code>web_backend_cpp/config/pi_decisions/</code>. Diese sind Source-Artefakte; Laufzeitantworten gehören nicht in diesen Ordner.</p>
+<h3 id="21-eigenstandige-jev-konfigurationsoberflache-nutzerentscheidung-2026-09-22">2.1 Eigenständige Jev-Konfigurationsoberfläche (Nutzerentscheidung 2026-09-22)<a class="headerlink" href="#21-eigenstandige-jev-konfigurationsoberflache-nutzerentscheidung-2026-09-22" title="Permanent link">&para;</a></h3>
+<p>Jev wird als zweite, parallele, von der bestehenden PI-Beratung unabhängige Quelle implementiert — nicht als weitere Option in deren bestehendem Auswahlpfad. Grund: <code>web_frontend_v3/js/pages/ai-empfehlung.js</code> (Karte unter Tools -&gt; AI &amp; API) verwaltet heute genau <strong>einen</strong> globalen Provider/Modell/Key-Slot (<code>persistAiProviderModelConfig()</code> patcht <code>API_ENDPOINTS.ai.config</code>, kein Rollen-/Zweck-Feld). Ein zusätzlicher Eintrag im dortigen Provider-Dropdown würde PI und Jev gegenseitig exklusiv machen, statt beide gleichzeitig aktiv zu halten — das widerspricht dem Unabhängigkeitsziel aus Abschnitt 1 direkt.</p>
+<p>Konsequenzen für die Umsetzung:</p>
+<ul>
+<li><strong>Tools -&gt; AI &amp; API</strong>: eine zweite, eigenständige Karte „Jev (Decisions API)“ neben der bestehenden AI-&amp;-API-Karte, mit eigenem <code>PI_DECISIONS_MODE</code>-Schalter (<code>off|shadow|suggest</code>), eigenem Modellfeld (gepinnte Kennung, Abschnitt 7/M3) und eigenem API-Key-Feld. Eigener Backend-Endpoint statt Wiederverwendung von <code>ai.config</code>, damit Umschalten der bestehenden PI-Provider-Auswahl den Jev-Zustand nicht mitbewegt.</li>
+<li><strong>Key-Namensraum</strong>: Jev läuft über OpenRouters Alpha-Decisions-Endpunkt (empirisch verifiziert, <a href="../pi_jev_m0_provider_protocol_de/">M0 Provider-Protokoll</a>), Modell-ID <code>typesafe/jev-1.13</code>. <code>.env</code> enthält dafür bereits einen eigenständigen, vom generischen <code>OPENROUTER_API_KEY</code> getrennten Key <code>JEV_OPENROUTER_API_KEY</code> — <code>agent_service/src/config.ts</code> braucht einen entsprechenden <code>jev_openrouter</code>-Allowlist-Eintrag (oder passende Umbenennung), nicht den bestehenden <code>openrouter</code>-Eintrag. Die Karten-Trennung aus 2.1 (eigene Jev-Karte statt Dropdown-Eintrag in der bestehenden AI-&amp;-API-Karte) bleibt nötig, weil diese Karte weiterhin nur einen einzigen aktiven Provider/Modell-Slot verwaltet und ein zusätzlicher Dropdown-Eintrag Jev und die bestehende PI-Beratung gegenseitig exklusiv machen würde.</li>
+<li><strong>Parameter-Tab</strong>: <code>web_frontend_v3/js/pages/parameter.js</code> hat heute exakt zwei Sub-Tabs (<code>Parameter</code>, <code>AI Empfehlung</code>) über ein einfaches <code>switchView(view, page, paramTab, aiTab)</code>-Muster (Klassen-/Sichtbarkeits-Toggle, lazy gemountete Containerseite). Ein dritter Tab „Jev-Empfehlungen“ ist eine direkte Erweiterung desselben Musters (neuer Button + neuer lazy gemounteter Container + zusätzlicher <code>switchView</code>-Zweig), keine strukturelle Änderung nötig.</li>
+<li>Über diese drei Stellen hinaus (Jev-Karte unter Tools, dritter Parameter-Tab, spätere Run-Monitor-Anbindung in M6) wird kein weiterer UI-Einstiegspunkt ergänzt, um den in Abschnitt 1 festgelegten Scope nicht zu überschreiten.</li>
+</ul>
+<h2 id="3-daten-und-schnittstellenvertrage">3. Daten- und Schnittstellenverträge<a class="headerlink" href="#3-daten-und-schnittstellenvertrage" title="Permanent link">&para;</a></h2>
+<h3 id="31-state-pidecision-statev1">3.1 State: <code>pi.decision-state.v1</code><a class="headerlink" href="#31-state-pidecision-statev1" title="Permanent link">&para;</a></h3>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;schema_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;pi.decision-state.v1&quot;</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;domain&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;pre_run&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;identity&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">&quot;dataset_fingerprint&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256:...&quot;</span><span class="p">,</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">&quot;scan_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">&quot;scan_hash&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256:...&quot;</span><span class="p">,</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nt">&quot;config_hash&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256:...&quot;</span><span class="p">,</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="nt">&quot;locks_hash&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256:...&quot;</span><span class="p">,</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="nt">&quot;software_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="nt">&quot;measurement_contract&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">    </span><span class="nt">&quot;method_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;scan-metrics:...&quot;</span><span class="p">,</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="nt">&quot;pixel_grid&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;source&quot;</span><span class="p">,</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="nt">&quot;calibration_state&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;unknown&quot;</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">  </span><span class="nt">&quot;coverage&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;detected&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">120</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;measured&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">120</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;read_ok&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">118</span><span class="p">},</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">  </span><span class="nt">&quot;groups&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">  </span><span class="nt">&quot;session_facts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">  </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">  </span><span class="nt">&quot;base_config&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">  </span><span class="nt">&quot;locked_paths&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="w">  </span><span class="nt">&quot;blocking_findings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Beispiel ist eine Formskizze, kein vollständiger zulässiger Beratungsfall. Schema fordert verwendete Gruppenmetriken und alle kandidatenabhängigen Pflichtfelder.</p>
+<p>Messwertvertrag: <code>{value, status, unit, source_ref, method_version, valid_count, total_count}</code>. <code>status</code> ist <code>valid|missing|invalid|not_applicable</code>; bei nicht gültigem Status ist <code>value=null</code>. Rohdaten, Diagnosewerte und daraus abgeleitete Quotienten getrennt benennen.</p>
+<p>Dataset-Identität: kanonisch sortiertes Manifest der tatsächlich selektierten Inputs einschließlich relativer ID, Größe, mtime und verfügbarem Inhaltsdigest plus Ausschlussliste. Ist kein Inhaltsdigest vorhanden, kennzeichnet <code>identity_strength=metadata</code> die Grenze: keine Behauptung inhaltlicher Identität. Vor Apply Manifest/Scan-Revision erneut prüfen; für wissenschaftliche Paarvergleiche Inhaltsidentität nachweisen. Absolute Quellpfade bleiben lokal.</p>
+<p>JSON-Kanonisierung fest definieren: sortierte Objektkeys, stabile Arrayreihenfolge, keine NaN/Infinity, keine volatil generierten Zeitfelder im semantischen Hash. Sampling-/Detektor- und Gruppierungsrevision gehören in den Hash.</p>
+<h3 id="32-kandidaten-und-fragenkatalog">3.2 Kandidaten- und Fragenkatalog<a class="headerlink" href="#32-kandidaten-und-fragenkatalog" title="Permanent link">&para;</a></h3>
+<p>Katalogversion enthält exakte Pfade/Werte, atomare Gruppe, Preconditions, Evidenzreferenzen, Textschlüssel, erwarteten Mechanismus, Risiko und Freigabestatus. Erste Kandidaten: <code>keep_current</code>, <code>insufficient_evidence</code>, <code>enable_adaptive_weights</code> gemäß Regelkatalog.</p>
+<p><code>decision_questions.yaml</code> enthält Anwendungsspezifikation, keine ungeprüft direkt weitergeleiteten Provider-Objekte. Der Adapter übersetzt explizit in den getesteten Provider-Vertrag. Fragen werden nicht blind aus Parameterbeschreibungen erzeugt.</p>
+<p>Keine freien Config-Werte in der Modellantwort. Auswahl einer ID, deren Voraussetzungen nicht erfüllt sind, ergibt <code>invalid_response</code>. Unabhängige Szenariofragen dürfen nur bei vorhandener Evidenz gestellt werden und sind nicht Voraussetzung für den ersten Kandidaten.</p>
+<h3 id="33-interner-sidecar-vertrag">3.3 Interner Sidecar-Vertrag<a class="headerlink" href="#33-interner-sidecar-vertrag" title="Permanent link">&para;</a></h3>
+<p>Geplant: <code>POST /decisions</code> im vorhandenen Sidecar, nur durch Backend benutzt.</p>
+<p>Request: <code>pi.decisions.request.v1</code> mit <code>request_id</code>, <code>state_hash</code>, <code>question_set_version</code>, providergeeigneter State-Projektion und zulässigen Fragen/Kandidaten. Kein Client-seitig vorgegebener Ziel-URL oder API-Key.</p>
+<p>Response: <code>pi.decisions.response.v1</code> mit gebundenen IDs/Hashes, <code>status</code>, normalisierten Antworten, angefragter Modellkennung und tatsächlich vom Provider gelieferter Modellkennung, falls vorhanden. Fehlende Provider-Version bleibt ausdrücklich unbekannt. <code>status=ok|unavailable|invalid_response</code>.</p>
+<p>Normalisierte Antwort enthält Auswahl und getrennte Rohwahrscheinlichkeiten. Keine erfundene <code>confidence</code>, falls der Provider sie nicht so liefert; Ableitungen wie Maximum/Marge werden als solche benannt.</p>
+<h3 id="34-vorschlag-piconfig-proposalv1">3.4 Vorschlag: <code>pi.config-proposal.v1</code><a class="headerlink" href="#34-vorschlag-piconfig-proposalv1" title="Permanent link">&para;</a></h3>
+<p>Pflichtfelder: <code>proposal_id</code>, <code>domain</code>, Identitätsblock, <code>state_hash</code>, <code>candidate_id/version</code>, <code>question_set_version</code>, <code>policy_version</code>, <code>model</code>, <code>status</code>, <code>updates</code>, <code>evidence_refs</code>, <code>reason_codes</code>, <code>review_required</code>, <code>validation</code>, <code>created_at</code>. Nach exaktem Config-Speichern kommt optional <code>saved_revision_ids</code> hinzu.</p>
+<p><code>updates</code> enthält <code>path</code>, <code>old_value</code>, <code>value</code>, <code>group_id</code>. Leere Updates bei <code>no_change</code>, <code>abstain</code>, <code>blocked</code>, <code>unavailable</code> oder <code>stale</code>. Die Anwendung darf diese Zustände nicht als leere erfolgreiche Mutation verbuchen.</p>
+<p>Validierungsstatus enthält separat Schema-, Policy-, Evidenz- und Gesamtconfig-Prüfung. Modell-Confidence wird nicht als Validierungsstatus missbraucht.</p>
+<h3 id="35-backend-api-und-vorhandener-apply-pfad">3.5 Backend-API und vorhandener Apply-Pfad<a class="headerlink" href="#35-backend-api-und-vorhandener-apply-pfad" title="Permanent link">&para;</a></h3>
+<p>Geplante neue Beratungsschnittstellen:</p>
+<ul>
+<li><code>POST /api/scan/decisions</code>: vorhandene Scan-ID, aktueller Config-Entwurf und Locks -&gt; asynchroner Beratungsjob/ID; kein Scan- oder Runner-Start.</li>
+<li><code>GET /api/scan/decisions/&lt;proposal_id&gt;</code>: persistierter Status und Ergebnis; bestehende Auth-/Scope-Regeln übernehmen.</li>
+<li><code>POST /api/scan/decisions/&lt;proposal_id&gt;/apply</code> und <code>POST /api/scan/decisions/apply-batch</code>: dedizierte Jev-Apply-Routen anhand <code>proposal_id(s)</code> mit erwarteten Dataset-/Scan-/Config-/Lock-Hashes (eigenständig statt im bestehenden <code>/api/scan/analysis/apply</code>, damit PI-Aufrufer komplett unberührt bleiben). Nur ganze Kandidatengruppe übernehmen.</li>
+</ul>
+<p>State wird serverseitig aus den Scanquellen rekonstruiert. Browser liefert keine autoritativen Messwerte. Bei veraltetem Entwurf <code>409 PROPOSAL_STALE</code>; bei Policy-/Config-Fehler strukturierte Ablehnung; keine Rückkehr auf eine alte vollständige Config.</p>
+<p>Apply vergleicht den vom Browser erneut gesendeten Entwurf mit den gespeicherten Scan-, Dataset-, Config- und Lock-Hashes und validiert unmittelbar vor der Rückgabe des gepatchten Entwurfs. Der Backend-Service besitzt keine serverseitige Entwurfsrevision; dies ist deshalb kein Compare-and-swap über einen zentral gespeicherten Entwurf. Eine Wiederholung akzeptiert nur denselben gepatchten Entwurf und dieselbe Datengrundlage. Eine Revision entsteht erst beim separaten Config-Speichern. Kein Job vom Typ Run/Resume wird erzeugt.</p>
+<h3 id="36-persistenz-und-replay">3.6 Persistenz und Replay<a class="headerlink" href="#36-persistenz-und-replay" title="Permanent link">&para;</a></h3>
+<p>Unter Backend-State-Root in der zentralen SQLite-Datenbank <code>pi_store_v2.sqlite</code> über <code>PiJevStore</code> (<code>jev_documents</code> mit <code>part</code> ∈ <code>status|state|source|candidates|request|response|proposal|outcome|run_marker</code> sowie append-only <code>jev_events</code>; eine optionale lokale <code>policy_override.json</code> liegt unter <code>pi_decisions/</code>). Transaktionale SQLite-Aktualisierung für Status und Dokumente; Replay braucht gespeicherten State, Kandidaten- und Policy-Version, nicht einen neuen Modellcall (<code>evaluate_pi_decisions.py</code> liest <code>pi_store_v2.sqlite</code> read-only mit Fallback auf einen exportierten JSON-Baum).</p>
+<p>Große Rohantworten nur größenbegrenzt und ohne Secrets speichern. Request-Hash umfasst State, Modellkennung, Fragen- und Kandidatenkatalog. Gleichzeitige gleiche Anfragen deduplizieren; Cache nicht über Versionen hinweg verwenden.</p>
+<p>Run-Outcomes referenzieren später <code>proposal_id</code> und die tatsächlich gestartete Config. Vorhandene Runs bei Beratung nicht umschreiben. Für neue Runs darf die normale Run-Erzeugung eine Referenz übernehmen; nachträgliche Beratungsdaten bleiben im Backend-State-Store.</p>
+<p><strong>Outcome-Vertrag (Entscheidung 2026-09-23, Begründung und Codebefunde in <a href="../pi_jev_m0_field_inventory_de/#4-entschieden-verh%C3%A4ltnis-zum-lokalen-lernsystem-2026-09-23">Feld-Inventar §4</a>):</strong></p>
+<ul>
+<li>Jev schreibt <strong>nie</strong> in den <code>PiMemoryStore</code> (weder Kandidat noch Outcome, d. h. nicht in <code>memories</code>/<code>memory_outcomes</code>). Vorschläge und Outcomes liegen ausschließlich in den eigenen <code>PiJevStore</code>-Tabellen (<code>jev_documents</code> mit <code>part = 'outcome'</code>). Dadurch können Auto-Promotion-Zähler und der kNN-Retrain-Export Jev strukturell nicht sehen; <code>pi_outcome_recorder.cpp</code>/<code>PiMemoryStore</code> bleiben unverändert.</li>
+<li><code>record_jev_outcome_if_needed(decisions_dir, run_id, run_dir)</code> liest <code>pi_run_provenance.json</code> und die <code>config.yaml</code> des Runs <strong>read-only</strong>. Nur die beim Run-Start explizit geprüfte <code>jev_proposal_id</code> wird zugeordnet; vorgeschlagene Pfadwerte werden nochmals geprüft. Der idempotente Marker liegt im <code>PiJevStore</code> (<code>jev_documents</code> unter <code>(run_id, 'run_marker')</code>), nicht im Run. Beide Recorder werden bei erfolgreichem Run-Ende und beim Statusabruf unabhängig aufgerufen; Run-Delete erfasst kein Outcome nachträglich.</li>
+<li>Verknüpfung über Werteprüfung, nicht über Config-Hash-Gleichheit (Serializer nicht garantiert byte-gleich). <code>attribution</code> ∈ <code>paths_present | paths_partial | paths_absent</code> (letzteres erzeugt keinen Eintrag). Outcome trägt kein <code>quality_delta</code> und keine Verbesserungsaussage (<code>comparison_kind: "unpaired"</code>); auch <code>paths_present</code> bleibt konfundiert. Kausale Aussagen erst über den gepaarten Vergleich in M5.</li>
+<li>Übernahme in den Entwurf speichert <code>applied_at</code>, <code>updates[]</code>, <code>config_hash_before/after</code>, erzeugt aber noch keine Revision. <code>/api/config/current</code> liefert den SHA-256-Fingerprint des geladenen Datei-Inhalts. <code>/api/config/save</code> verlangt bei expliziter <code>jev_proposal_id</code> den passenden <code>expected_source_sha256</code> und lehnt eine fehlende oder veraltete Basis vor dem Schreiben mit <code>CONFIG_SOURCE_CHANGED</code> (409) ab. Check und Save sind gegenüber den Config-Schreibpfaden desselben Backend-Prozesses serialisiert; direkt schreibende externe Prozesse teilen diese Sperre nicht. Erst ein Save mit exakt passender Config erzeugt eine Revision mit Autor <code>jev_proposal</code> und persistiert deren ID im Vorschlag. Direkte Runs prüfen Eingabeordner, FITS-Dateimetadaten und effektive Patch-Werte vor dem Start; eine nicht mehr passende explizite ID blockiert mit <code>JEV_PROPOSAL_STALE</code> (409). Queue-Runs mit Jev-ID sind nur bei identischer vollständiger Scan-Datenmenge je Item zulässig: Vor dem Queue-Start werden Quellordner, Manifest, Config und Filtermuster geprüft; nach der Materialisierung werden Quell- und Staging-Manifest unmittelbar vor jedem Item erneut geprüft. Ein Muster, das gemessene FITS-Dateien ausschließt, liefert <code>JEV_PROPOSAL_UNSUPPORTED</code> (409). Eine Änderung während der Queue stoppt das betroffene Item vor dessen Runner-Start; vorherige Items können bereits abgeschlossen sein. Kopier-Fallbacks mit abweichender mtime werden konservativ abgelehnt. Geänderte Configs werden normal gespeichert, ohne Jev-Zuordnung. Die Prüfung über Name/Größe/mtime ist ausdrücklich kein Inhaltsnachweis.</li>
+<li>Wechselwirkung mit dem lokalen Lernsystem nur offline (M5-Replay liest beide Speicher read-only); Jev trainiert keine lokalen Modelle und wird von ihnen nicht verändert.</li>
+</ul>
+<h2 id="4-m0-vertrage-quellen-und-testgrundlage-einfrieren">4. M0 — Verträge, Quellen und Testgrundlage einfrieren<a class="headerlink" href="#4-m0-vertrage-quellen-und-testgrundlage-einfrieren" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> inhaltlich abgeschlossen (2026-09-22). <strong>Abhängigkeit:</strong> keine.</p>
+<p>Arbeit:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Aktuelle Scan-JSONs, Feature-Vektor, Schema und ausführbare Validatoren inventarisieren; Herkunft jedes State-Feldes tabellarisch hinterlegen. -&gt; <a href="../pi_jev_m0_field_inventory_de/">Feld-Inventar</a>, gegen <code>cli_main.cpp</code>/<code>metrics.cpp</code>/<code>pi_feature_vector.cpp</code> verifiziert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Geschützte Pfade, Nutzer-Locks und erste Kandidaten-Allowlist im maschinenlesbaren Katalog definieren. -&gt; <code>web_backend_cpp/config/pi_decisions/protected_paths_v1.json</code>, <code>candidates_v1.json</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Anwendungsschemas für State, Vorschlag, Adapter und Katalog erstellen; Status-/Fehlercodes festlegen. -&gt; <code>web_backend_cpp/config/pi_decisions/schemas/pi.decision-state.v1.schema.json</code>, <code>pi.config-proposal.v1.schema.json</code>, <code>pi.decisions.request.v1.schema.json</code>, <code>pi.decisions.response.v1.schema.json</code> (JSON Schema draft-07, wie <code>tile_compile.schema.json</code>).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Provider-Protokoll aus offiziellen Quellen verifizieren; redigierte Request-/Response-/Fehlerfixtures erstellen. Live-Verifikation ausdrücklich von Mock-Tests unterscheiden. -&gt; <a href="../pi_jev_m0_provider_protocol_de/">M0 Provider-Protokoll</a>, per echtem Aufruf gegen <code>openrouter.ai/api/alpha/decisions</code> mit dem vorhandenen <code>JEV_OPENROUTER_API_KEY</code> verifiziert (2026-09-22); Wire-Schemas <code>schemas/openrouter.decisions.request.v1</code>/<code>.response.v1</code>, Fixtures unter <code>fixtures/</code>. Eine erste, rein dokumentbasierte Fassung dieses Punkts kam fälschlich zu "läuft nicht über OpenRouter" — per echtem API-Aufruf widerlegt und korrigiert; SDK-Frage per §5 des Provider-Protokolls entschieden (eigener HTTP-Client, kein Fremd-SDK für den Alpha-Endpunkt).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Review der alten „HARD RULE“-Texte: tatsächliche Enforcement-Stelle oder offene Policy markieren. Keine implizite Änderung von Pipeline-Defaults. Pre-Run bereits in <code>pi_scan_pre_rules_de.md</code> erledigt; Post-Run-Teil jetzt in <a href="../pi_jev_m0_hard_rule_review_de/">M0 HARD-RULE-Review</a> — fand <code>docs/PI/attic/pi_run_chat_empfehlungs_chat_datenplan.md</code> (nie implementiert, reiner Prompt-Text) und den realen M42-Vorfall, der die bestehenden M6-Guards begründet; empfiehlt <code>min_resume_phase</code> als neues Feld für M6 (siehe dortige Checkliste).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Lokale Fixtures aus synthetischen Daten oder freigegebenen anonymisierten Scans anlegen; bestehende Run-Dateien nicht verändern. -&gt; <code>web_backend_cpp/config/pi_decisions/fixtures/scan_metrics_synthetic.json</code>, rein synthetisch, Aggregatwerte gegenrechnet; plus die Provider-Fixtures aus dem vorigen Punkt.</li>
+</ul>
+<p><strong>Abnahme:</strong> Jedes verwendete Feld hat Quelle, Einheit, Fehlend-Verhalten und Testfixture; jede als hart deklarierte Bedingung besitzt eine geplante ausführbare Prüfung. Unbekannte Provider-Details blockieren Adapter-Freigabe, nicht State-/Policy-Arbeit. <strong>M0 ist damit inhaltlich vollständig</strong> (Katalog, Schemas, Provider-Vertrag, HARD-RULE-Review, Fixtures); es existiert noch kein Backend-/Frontend-Code. M1 (State-Builder) kann auf Basis der vorliegenden Schemas/Fixtures beginnen; M3 (Adapter) kann auf Basis des verifizierten Provider-Vertrags beginnen, sobald die offene SDK-Entscheidung (Provider-Protokoll §5) getroffen ist.</p>
+<h2 id="5-m1-state-builder-und-gruppenstatistik">5. M1 — State-Builder und Gruppenstatistik<a class="headerlink" href="#5-m1-state-builder-und-gruppenstatistik" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> umgesetzt und getestet (2026-09-23), noch nirgends in Routen/UI verdrahtet (das ist M4). <strong>Abhängigkeit:</strong> M0.</p>
+<p>Umgesetzte API (<code>web_backend_cpp/include/services/pi/pi_decision_state.hpp</code>, <code>src/services/pi/pi_decision_state.cpp</code>): <code>build_pre_run_decision_state(PreRunDecisionInputs)</code> -&gt; <code>PreRunDecisionResult{state, findings, state_hash, provider_projection}</code>. Rein funktional: kein I/O, keine Uhr, keine Modellaufrufe; keine <code>AppState</code>-Abhängigkeit. Zusätzlich exportiert: <code>canonical_json_dump</code>, <code>sha256_prefixed</code>, <code>axis_asymmetry</code>.</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Gruppen nach kompatiblen Aufnahmebedingungen (Kamera, Filter, Belichtung, Gain) bilden; ein unbekannter (fehlender/leerer) Headerwert ist ein eigener Bucket und wird nie einem bekannten gleichgesetzt. Farbmodus/Bayer sind Session-Fakten aus dem Scan-Ergebnis (nicht pro Frame gemessen).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Messabdeckung pro Metrik/Gruppe: <code>valid_count</code>/<code>total_count</code> je Messwert plus <code>metric_coverage{missing, invalid}</code>; nicht lesbare Frames zählen als <code>frames_read_failed</code>, nie als Messwert 0. <code>fwhm</code>/<code>roundness</code> &lt;= 0 (Scan-Sentinel -1) gelten als ungültig, wie in <code>cli_main.cpp</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Vergleichbare Spreads deterministisch (<code>median</code>, <code>p10</code>, <code>p90</code>, <code>mad</code>, <code>relative_spread</code>) je Gruppe aus den Frame-Werten, nicht aus dem globalen Scan-Aggregat. Nullnenner -&gt; <code>invalid</code>/<code>zero_denominator</code>; unter <code>policy.min_valid_for_spread</code> gültigen Frames -&gt; <code>not_applicable</code>/<code>insufficient_sample</code>. <strong>Der Default 5 ist ein Platzhalter, keine Freigabepolicy</strong> (bleibt M5-Thema); er steht im State (<code>policy</code>) und damit im Hash.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Symmetrische Achsenabweichung <code>abs(ln(roundness))</code> pro Frame, danach aggregiert (gegenläufige Elongationen verdecken sich nicht: Test mit 0.5/2 -&gt; Median der Rohrundheit 1.25, Median der Achsenabweichung ln 2); Roh-<code>roundness</code> bleibt unverändert im State.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Session-Schätzungen (<code>field_rotation_deg</code>, als <code>kind=estimate</code>) getrennt von Nutzerangaben (<code>user_stated</code>, nur mit <code>source=user</code>, sonst Finding <code>session_context_ignored</code>). Keine Montierung/Objektklasse abgeleitet.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> State-/Dataset-/Config-/Lock-Hashes (kanonisches JSON: sortierte Keys, <code>3</code> == <code>3.0</code>, Frame-Reihenfolge und flüchtige Zeitstempel nicht semantisch, NaN/Infinity -&gt; <code>invalid_argument</code> im Kanonisierer bzw. Finding <code>non_finite_input</code> im Builder) und Provider-Allowlist-Projektion (kein Kamera-/Zielname, keine Scan-ID/Pfade/Secrets, Filter und Nutzerfakten nur als kurze Klartext-Token, Capabilities nur Booleans; danach defensive Leak-Prüfung). Projizierte Config-Pfade sind bis M2 eine Konstante (<code>global_metrics.adaptive_weights</code>).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Bestehendes <code>pi.feature-vector.v1</code>/kNN unberührt: <code>pi_feature_vector.*</code> und <code>pi_param_model.*</code> nicht angefasst, <code>web_backend_cpp_pi_param_model</code> läuft unverändert grün.</li>
+</ul>
+<p>Blockierende Befunde (Codes in <code>state.blocking_findings</code>): <code>color_mode_unresolved</code>, <code>bayer_pattern_missing</code> (OSC), <code>scan_errors_present</code>, <code>no_readable_frames</code>, <code>metrics_missing</code>, <code>base_config_invalid</code>. Nicht blockierend (<code>findings</code>): <code>mixed_acquisition_groups</code>, <code>coverage_partial</code>, <code>identity_strength_metadata</code>, <code>scan_id_unspecified</code>, <code>non_finite_input</code>, Scan-Warnungen, ignorierte/zurückgehaltene Eingaben.</p>
+<p>Schema-Anpassungen gegenüber M0 (<code>pi.decision-state.v1.schema.json</code>): Gruppen erhielten <code>gain</code>, <code>frames_read_failed</code>, <code>metric_coverage</code>; <code>metrics</code> ist je Metrik eine <code>metricSummary</code>; <code>measurement</code> hat ein optionales <code>reason</code>; neuer Top-Level-Block <code>policy</code>; <code>session_facts</code> ist <code>{measured, user_stated}</code>.</p>
+<p>Tests: <code>tests/test_pi_decision_state.cpp</code> (CMake-Target <code>web_backend_cpp_pi_decision_state</code>). Enthält einen kleinen Draft-07-Teilprüfer, der den Builder-Output gegen das committete Schema prüft, damit Code und Schema nicht auseinanderlaufen. Abgedeckt: vollständig (synthetisches Scan-Fixture), leer, einzelne Metrik fehlend, NaN/Infinity/falscher Typ, Nullnenner, gemischte Filter/Belichtungen inkl. unbekanntem Bucket, OSC/MONO/UNKNOWN/unbekannter String, Roundness 0.5/1/2, gegenläufige Elongationen, Hash-Stabilität und -Änderung (Sperren, Config, Metrik, Policy, Digest-Stärke), Projektion ohne Geheimnisse/Pfade.</p>
+<p><strong>Abnahme:</strong> Gleiche semantische Inputs ergeben denselben State-Hash (getestet: Key-/Frame-/Lock-Reihenfolge, 100 vs 100.0, Zeitstempel). Unzureichende Inputs erzeugen nur blockierende Befunde bzw. <code>missing</code>/<code>not_applicable</code>-Messwerte, keinen scheinbar gültigen Wert. Nicht Teil dieser Abnahme: Verdrahtung in Routen (M4), Kandidatenbildung (M2).</p>
+<h2 id="6-m2-pre-rules-kandidaten-und-atomare-validierung">6. M2 — Pre-Rules, Kandidaten und atomare Validierung<a class="headerlink" href="#6-m2-pre-rules-kandidaten-und-atomare-validierung" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> umgesetzt und getestet (2026-09-23); nicht in Routen verdrahtet (M4), der Produktions-<code>ConfigValidator</code> (<code>validate-config</code>-CLI) folgt mit M4. <strong>Abhängigkeit:</strong> M1.</p>
+<p>Umgesetzt (alle rein funktional, ohne <code>AppState</code>, ohne Uhr, ohne I/O außer dem Outcome-Modul):</p>
+<ul>
+<li><code>pi_decision_policy</code> (<code>load_decision_catalog</code>, <code>validate_decision_candidate</code>, <code>resolve_decision</code>, <code>stale_reasons</code>, Pfad-/Lock-/Config-Helfer),</li>
+<li><code>pi_pre_rules</code> (<code>build_pre_run_candidates</code>),</li>
+<li><code>pi_decision_outcome</code> (<code>record_jev_outcome_if_needed</code>, Outcome-Vertrag aus 3.6).</li>
+</ul>
+<p>Entscheidungen der Umsetzung:</p>
+<ul class="task-list">
+<li><strong>Ein Codepfad für "angeboten" und "akzeptiert":</strong> <code>build_pre_run_candidates</code> ruft für jeden Kandidaten <code>validate_decision_candidate</code> auf; <code>resolve_decision</code> validiert die Modellwahl erneut, genau so. Ein angebotener Kandidat kann später nicht aus einem schon bekannten Grund scheitern (Test).</li>
+<li><strong>Atomar, ohne Kurzschluss:</strong> Alle Probleme werden gesammelt (sortiert, eindeutig), der Kandidat wird als Ganzes verworfen, nichts wird gerettet (<code>updates</code> leer, <code>merged_config</code> null). Dadurch kann die Regelreihenfolge das Ergebnis nicht ändern (Test mit umgekehrtem Katalog).</li>
+<li><strong>Allowlist statt Vertrauen:</strong> Ein Kandidat aus Modell/Client zählt nur mit <code>candidate_id</code> + Version; Pfad/Wert müssen dem Katalogeintrag <strong>exakt</strong> entsprechen (<code>path_not_allowlisted</code>, <code>value_not_allowlisted</code>, <code>incomplete_group</code>, <code>candidate_version_mismatch</code>). Der Katalog selbst wird beim Laden abgelehnt, wenn ein Kandidat einen geschützten Pfad trifft, wenn <code>keep_current</code>/<code>insufficient_evidence</code> fehlen oder die Schutzliste leer ist (fail closed).</li>
+<li><strong>Geschützte Pfade und Locks mit Präfixgrenzen:</strong> <code>bge.method</code> ist geschützt, <code>bge.methodology</code> nicht; ein Elternpfad-Lock sperrt Kindpfade, ein Schreibzugriff auf einen Elternpfad, der ein gesperrtes Blatt überschreiben würde, ebenfalls.</li>
+<li><strong>Keine erfundenen Vorregel-Schwellen:</strong> <code>DecisionPolicy.min_measurement_coverage</code>/<code>min_metric_agreement</code> sind <code>optional</code>; ohne eingefrorenen Wert ist der Kandidat unanwendbar (<code>policy_thresholds_not_frozen</code>). Produktiv ist daher nur <code>keep_current</code>/<code>insufficient_evidence</code> anwendbar. Die numerischen M5-<strong>Release</strong>-Grenzen sind davon getrennt: die vorhandenen vier Paare zeigen keinen Nutzen selbst bei hoher <code>metric_agreement</code>, daher wurde aus ihnen kein prädiktiver Vorregel-Cutoff abgeleitet. Experimentelle Kandidaten zusätzlich nur mit <code>allow_experimental</code>.</li>
+<li><strong>Evidenz aus demselben State:</strong> <code>measurement_coverage</code> = <code>read_ok/measured</code>; <code>metric_agreement</code> = Median der drei paarweisen Spearman-Rangkorrelationen von <code>background</code>, <code>noise</code> und <code>fwhm</code> (je Gruppe im State unter <code>metric_agreement</code>, nur Frames mit allen drei gültigen Werten; ab M5 statt der früheren relativen Streuung <code>quality_spread</code>, die den Effekt nicht vorhersagt) <strong>einer einzigen</strong> lesbaren Gruppe (mehrere lesbare Gruppen -&gt; <code>mixed_groups_no_single_evidence</code>, nie gepoolt). Sie zeigt, dass die adaptive Gewichtung wirkt, nicht dass die Wirkung gut ist; Kandidat <code>enable_adaptive_weights</code> ist deshalb auf Version 2 angehoben. Belegreferenzen (<code>evidence_refs</code>) zeigen auf die State-Felder; die Begründung ist ein Textschlüssel plus gemessene Zahlen (<code>rationale</code>), kein LLM-Text.</li>
+<li><strong>Modell-Wahrscheinlichkeit ist nie ein Gate:</strong> Eine niedrige Wahrscheinlichkeit verhindert einen ansonsten gültigen Kandidaten nicht, eine hohe rettet keinen ungültigen (Test).</li>
+<li><strong>Statuswerte des Vorschlags:</strong> <code>validated</code>, <code>no_change</code>, <code>abstain</code>, <code>unavailable</code>, <code>rejected</code> (+ <code>presented</code>, <code>applied_to_draft</code>, <code>stale</code> für spätere Stufen); <code>pi.config-proposal.v1</code> um <code>validated</code>/<code>presented</code> sowie optionales <code>applied_at</code>, <code>config_hash_before/after</code> erweitert. Bereits aktive adaptive Gewichtung erzeugt keinen Patch, sondern <code>already_active</code>.</li>
+<li>
+<p><strong>Outcome-Marker im Backend-State, nicht im Run:</strong> Der Idempotenz-Marker liegt im <code>PiJevStore</code> (<code>jev_documents</code> mit <code>part = 'run_marker'</code> in <code>pi_store_v2.sqlite</code>); das Modul schreibt nie in ein Run-Verzeichnis (Test: Run byte-identisch), berührt den <code>PiMemoryStore</code> nicht (Test: Sentinel-Dateien/Tabellen unverändert) und behandelt Lesefehler als wiederholbar. Default-Loader liest die <code>config.yaml</code> des Runs mit yaml-cpp (Typen bleiben erhalten, quotierte Skalare bleiben Strings).</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Erste Kandidaten aus Abschnitt 3.2; bereits aktive adaptive Gewichtung ergibt keinen Änderungs-Patch.</p>
+</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Experimentelle Zulässigkeit und reguläre Freigabe getrennt; keine Confidence-Schwellen als Defaults.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Exakte Allowlist und geschützte Pfade werden vor der Config-Validierung geprüft; die Config-Validierung läuft nur, wenn nichts Strukturelles fehlschlug.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Vollständiger Kandidat wird auf die Ausgangsconfig angewandt und über einen injizierten <code>ConfigValidator</code> geprüft; ohne Validator fail closed (<code>config_validator_missing</code>). Produktions-Validator über die bestehende <code>validate-config</code>-CLI in M4 verdrahtet (<code>validate_config_via_cli</code>).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Locks, Evidenz-Referenzen, <code>old_value</code>, Versionen und Vorbedingungen (unbekannte Vorbedingung -&gt; fail closed).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Legacy-Validator (<code>pi_recommendation_validator.cpp</code>) unverändert; der atomare Pfad ist ein eigenes Modul statt eines Modus im Legacy-Validator, damit dessen Teilpatch-Vertrag für PI unangetastet bleibt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Begründung aus versionierten Textschlüsseln und echten Messwerten; i18n-Texte folgen mit M4.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>pi_decision_outcome</code> mit Tests (<code>paths_present</code>/<code>paths_partial</code>/<code>paths_absent</code>, Marker-Idempotenz, kein Schreibzugriff auf den Run, kein <code>PiMemoryStore</code>-Zugriff, retryable Fehler, ungültige Run-ID).</li>
+</ul>
+<p>Tests: <code>test_pi_decision_policy.cpp</code>, <code>test_pi_pre_rules.cpp</code>, <code>test_pi_decision_outcome.cpp</code> (CMake-Targets <code>web_backend_cpp_pi_decision_policy</code>, <code>..._pi_pre_rules</code>, <code>..._pi_decision_outcome</code>); gemeinsame Helfer <code>tests/pi_decision_test_support.hpp</code> und <code>tests/pi_json_schema_check.hpp</code> (Draft-07-Teilprüfer, prüft Proposal und State gegen die committeten Schemas). Bestehende PI-Tests (<code>pi_param_model</code>, <code>pi_action_plan</code>, <code>pi_memory_store</code>, <code>pi_decision_state</code>) unverändert grün. <code>test_ai_routes.cpp</code> wurde nicht berührt (keine Routen geändert).</p>
+<p><strong>Abnahme:</strong> Kein Modellresultat kann einen neuen Pfad/Wert einschleusen (Tests: injizierter geschützter Pfad, neuer Pfad, geänderter Wert, Teilgruppe, unbekannte ID). <code>keep_current</code> und Enthaltung sind auch bei blockiertem State darstellbar. Die aktuelle Config bleibt bei jeder Ablehnung unverändert (Test: Eingabe-Config nach Validierung unverändert, <code>merged_config</code> nur bei Erfolg).</p>
+<h2 id="7-m3-jev-adapter-fehlerbehandlung-und-betriebsmodus">7. M3 — Jev-Adapter, Fehlerbehandlung und Betriebsmodus<a class="headerlink" href="#7-m3-jev-adapter-fehlerbehandlung-und-betriebsmodus" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Adapter, Sidecar-Route und Fehlermatrix umgesetzt und getestet; der reale Provider-Smoke wurde am 2026-10-23 über den laufenden Sidecar wiederholt. <strong>Abhängigkeit:</strong> M0-Vertrag, für Integration M2.</p>
+<p>Umgesetzt: <code>agent_service/src/services/decisionsService.ts</code> (eigener, injizierbarer HTTP-Client, keine Abhängigkeit von <code>@earendil-works/pi-ai</code>, siehe Provider-Protokoll §5), Route <code>POST /decisions</code> und <code>GET /decisions/status</code> in <code>server.ts</code>, Test <code>agent_service/tests/decisionsService.test.ts</code> (44 Fälle, <code>npm test</code>).</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>decisionsService.ts</code> mit injizierbarem Transport, Sleep, Key-Resolver und Logger; Endpoint/Modell aus <code>PI_DECISIONS_*</code> (Default <code>https://openrouter.ai/api/alpha/decisions</code>, <code>typesafe/jev-1.13</code>). Nicht-https-Endpoints nur für Loopback (Tests).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>PI_DECISIONS_MODE=off|shadow|suggest</code>, Default <code>off</code>: <code>off</code> und fehlender Key senden <strong>null</strong> Requests (getestet). <code>shadow</code>/<code>suggest</code> unterscheiden sich im Sidecar nicht; dass <code>shadow</code> keine anwendbaren UI-Patches erzeugt, setzt der Backend-Service in M4 durch. Key nur aus <code>JEV_OPENROUTER_API_KEY</code> (Env); ein in der Jev-Karte gespeicherter Key braucht einen Speicherpfad und ist M4.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>allow_experimental_suggestions</code> (<code>PI_DECISIONS_ALLOW_EXPERIMENTAL</code>, Default false) wird gelesen und über <code>/decisions/status</code> gemeldet; die Wirkung (nur in <code>suggest</code>, Kandidaten sichtbar experimentell) erzwingt der Backend-Service (M4), nicht der Sidecar.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Gepinnte Modellkennung erzwungen: Aliase (<code>*-latest</code>, <code>*-preview</code>) und unversionierte Kennungen lassen den Service gar nicht erst starten. Die vom Provider gemeldete Kennung muss zum gepinnten Modell gehören (<code>typesafe/jev-1.13</code> oder <code>typesafe/jev-1.13-&lt;Datum&gt;</code>), sonst <code>model_version_mismatch</code>; sie wird als <code>model_reported</code> protokolliert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Strikte Antwortprüfung gegen <code>openrouter.decisions.response.v1</code>: unbekannte Kandidaten-ID, Wahrscheinlichkeit nicht endlich oder außerhalb [0,1], falscher Antworttyp, zusätzliches Feld, fehlende <code>usage</code>/<code>id</code>, ungültiges JSON, Nicht-Objekt, übergroße Antwort führen zu <code>invalid_response</code> — ganz oder gar nicht, nie repariert oder geklemmt. Die Provider-<code>confidence</code> wird nur als <code>provider_confidence</code> weitergereicht (nie Gate).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Anfrage lokal geprüft, bevor irgendetwas das Netz erreicht: bekannte <code>question_set_version</code>, gültige/duplikatfreie IDs inkl. beider Baselines, Größenlimit, und ein Leak-Scan des State (Pfade, URLs, <code>sk-or-</code>, <code>api_key</code>) — Verstoß ist ein <code>DecisionsRequestError</code> (HTTP 400), kein Providerergebnis.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Gesamtdeadline (Default 30 s) für den ganzen Aufruf inkl. Retry; Antwortgrößenlimit (Default 256 KiB); höchstens ein Retry bei 429/5xx/Netzfehler; keiner bei 401/403/400/422; <code>Retry-After</code> wird nur befolgt, wenn es in das Restbudget passt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Abbruch über den Verbindungsabbruch des Aufrufers, Deduplizierung gleicher gleichzeitiger Entscheidungen (ein Provideraufruf, jeder Aufrufer behält seine <code>request_id</code>, kein Ergebnis-Cache), begrenzte Parallelität mit begrenzter Warteschlange (<code>busy</code> statt Blockieren).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Stabile Anwendungscodes (Liste in <code>pi.decisions.response.v1</code>); der Traffic-Log erhält pro Aufruf nur eine Zeile (<code>request_id</code>, <code>state_hash</code>, Anzahl Kandidaten, Status, Code, Dauer, Kosten) — nie State, Body oder Key. Zusätzlich fängt <code>redactTrafficLogText</code> jetzt <code>JEV_*_API_KEY=</code> und rohe <code>sk-or-…</code>-Token ab (Lücke: das <code>\b</code> der bisherigen Anbieterliste griff bei <code>JEV_OPENROUTER_API_KEY</code> nicht).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>pi_decision_service</code> (Orchestrierung, Persistenz, Verwerfen verspäteter Antworten) — Backend-Teil von M4, der Sidecar-Route, <code>ConfigValidator</code> und Speicherung verbindet.</li>
+</ul>
+<p>Tests (<code>npm test</code>, <code>node --test</code> über <code>tsx</code>, Fake-Transport): Modus/Key ohne Request, Wire-Body gegen das echte Request-Fixture, lokale Request-Ablehnung (12 Fälle), Antwortprüfung mit den erfassten Fixtures plus 15 feindlichen Varianten, alle HTTP-Fehler (400/401/403/422/429/5xx/404), Retry-Logik mit Sleep-Aufzeichnung, Retry-After über Budget, Timeout, Abbruch, Deduplizierung, Parallelitäts-/Queue-Grenze, Geheimnisfreiheit, Schemakonformität jedes möglichen Ausgangs. Mutationsprobe: das Entfernen der Wahrscheinlichkeitsgrenze, der Modellprüfung bzw. der Retry-Budgetprüfung lässt jeweils Tests fehlschlagen.</p>
+<p><strong>Live-Smoke 2026-10-23:</strong> <code>/decisions/status</code> meldete <code>suggest</code>, <code>typesafe/jev-1.13</code> und einen verfügbaren OpenRouter-Zugang. Ein erster synthetischer <code>decision-questions.v2</code>-Aufruf endete nach zwei Transportfehlern mit <code>network_error</code>; der anschließende <code>/decisions/test</code> und dieselbe v2-Frage als neuer Request waren erfolgreich. Der Provider meldete <code>typesafe/jev-1.13-20260917</code>, die Antwort bestand die Sidecar-Prüfung. Die Auswahl <code>set_clip_sigmas</code> aus synthetischen Fakten ist nur ein Protokolltest, keine fachliche Freigabe. Unverifiziert bleiben die echten 401/429/5xx- und <code>noul</code>-Fehlerformen (Provider-Protokoll §6); <code>*_assumed.json</code> sind weiter Annahmen.</p>
+<p><strong>Abnahme:</strong> <code>off</code> erzeugt null Requests (getestet); ein Providerausfall verändert keine Config (der Sidecar kennt keine Config). Mock-Vertrag und erfolgreicher realer Provider-Smoke sind getrennt ausgewiesen; ein vollständiger Fehlerklassen-Live-Test ist offen.</p>
+<h2 id="8-m4-vollstandiger-pre-run-workflow">8. M4 — Vollständiger Pre-Run-Workflow<a class="headerlink" href="#8-m4-vollstandiger-pre-run-workflow" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Backend, Sidecar-Einstellungen und Frontend umgesetzt (2026-09-23); Backend-Service und Sidecar getestet; Routen und UI live geprüft (manuell) (Live-Prüfung am 2026-09-23 in isolierter Instanz, siehe unten). Erste Auswertung an M31/M42: <a href="../pi_jev_m4_evaluation_m31_m42_de/">Evaluation</a> — <strong>keine verwertbare Empfehlung mit solider Basis</strong>. <strong>Abhängigkeit:</strong> M1–M3.</p>
+<p>Umgesetzt:</p>
+<ul class="task-list">
+<li><code>pi_decision_service</code> (<code>DecisionService</code>): State (M1) -&gt; Kandidaten (M2) -&gt; optionaler Sidecar-Aufruf -&gt; <code>resolve_decision</code> -&gt; Persistenz über <code>PiJevStore</code> in <code>pi_store_v2.sqlite</code> (<code>jev_documents</code> für <code>status</code>, <code>state</code>, <code>source</code>, <code>candidates</code>, <code>request</code>, <code>response</code>, <code>proposal</code> sowie <code>jev_events</code>). Kein Provider-Aufruf, wenn nur Baselines anwendbar sind (nichts zu entscheiden; nichts wird dem Modell zugeschrieben); aus, kein Key und nicht erreichbarer Sidecar werden zu ehrlichen <code>unavailable</code>-Vorschlägen. Shadow speichert den vollständigen Vorschlag, zeigt aber nie einen anwendbaren Patch und verweigert Apply (403). Schwellen lassen sich nur über eine lokale <code>policy_override.json</code> unter <code>pi_decisions/</code> einfrieren (fließt versioniert in <code>policy_version</code>).</li>
+<li>Apply (<code>DecisionService::apply</code> / <code>apply_many</code>): leitet den State aus dem mitgesendeten Entwurf neu ab, prüft ihn gegen den gespeicherten Vorschlag und validiert erneut inklusive <code>old_value</code>. Die Wiederholung verlangt den exakten gepatchten Config-Hash sowie unveränderte übrige State-Felder (Scan, Dataset, Locks). Apply schreibt nur in den <code>PiJevStore</code>, keine Config-Datei, und startet keinen Run. Fehlercodes: 404, 409 <code>NOT_READY</code>/<code>NOT_APPLICABLE</code>/<code>PROPOSAL_STALE</code>/<code>DRAFT_CHANGED</code>, 403 <code>SHADOW_MODE</code>, 422 <code>VALIDATION_FAILED</code>.</li>
+<li>Routen (<code>pi_decision_routes</code>): <code>POST /api/scan/decisions</code> (202, asynchron), <code>GET /api/scan/decisions/&lt;id&gt;</code>, <code>POST /api/scan/decisions/&lt;id&gt;/apply</code> und <code>POST /api/scan/decisions/apply-batch</code> (liefern den Entwurf als YAML), <code>GET /api/pi/decisions/status</code>, <code>POST /api/pi/decisions/settings</code>, <code>POST /api/pi/decisions/test</code>, <code>GET /api/pi/decisions/log</code>. Scan und Scan-Metriken werden serverseitig rekonstruiert (Browser liefert nur Entwurf und Sperren). Der Produktions-<code>ConfigValidator</code> ist die bestehende <code>validate-config</code>-CLI. Apply ist eine eigene Route statt eines Zweigs in <code>/api/scan/analysis/apply</code>; dadurch bleibt der PI-Apply unberührt.</li>
+<li>Sidecar: <code>POST /decisions/settings</code> und <code>decisionsSettings.ts</code> (Modus, Experimental-Flag, schreibgeschützter API-Key in <code>jev_decisions_settings.json</code>, Modus 0600, getrennt von PIs Provider-Speicher; der Key wird nie zurückgegeben, geloggt oder im Status gezeigt). Ein gespeicherter Key hat Vorrang vor der Umgebung.</li>
+<li>
+<p>Frontend: eigene Karte „Jev (Decisions API)“ unter Tools -&gt; AI &amp; API (<code>jev-empfehlung.js</code>, getrennt von der PI-Karte), dritter Parameter-Sub-Tab „Jev-Empfehlungen“ (bestehendes <code>switchView</code>-Muster), Ergebnisdarstellung mit Vergleich Aktuell/Vorgeschlagen, gemessenen Belegen, Ausschlussgründen, Experimentell-Kennzeichnung und „In Entwurf übernehmen“ (ändert nur den Entwurf); Wiederherstellung über die gemerkte Vorschlags-ID nach Reload; DE/EN-Texte (56 Schlüssel je Sprache) und <code>API_ENDPOINTS.decisions</code>.</p>
+</li>
+<li class="task-list-item">
+<p><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Asynchrone Beratungsroute und Statusabruf; vorhandene Scan-Ergebnisse werden wiederverwendet.</p>
+</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Zustände: anfordern, läuft, Vorschlag, keine Änderung, Enthaltung, nicht verfügbar, verworfen, veraltet, übernommen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Tabelle alt/neu mit Belegen und experimentellem Status; keine Formulierung „verbessert“.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Ganze Kandidatengruppe (keine Einzel-Checkboxen); Übernahme nur in den Entwurf; tatsächliche Jev-Revision erst beim getrennten Speichern exakt passender YAML erzeugt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Persistierter Status nach Reload/Neustart (Backend), Wiederherstellung im UI über die gemerkte ID.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> DE/EN-Texte, bestehende Styles wiederverwendet (<code>tc-frame-table</code>, <code>tc-badge-*</code>, <code>tc-tab</code>).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Bestehende PI-Beratung bleibt unverändert und getrennt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <strong>Live geprüft (2026-09-23)</strong> in isolierter Instanz (Sidecar :3011 bzw. Fake-Sidecar :3012, Backend mit temporärem PI-Speicher, echte <code>validate-config</code>-CLI, echte M31-Daten, headless Chromium per DevTools-Protokoll): Einstellungen (0600-Datei, ungültiger Modus/Key mit 400, Status ohne Key), alle Fehlercodes der Routen, Beratung mit echtem Jev (<code>keep_current</code>, gleiche Wahrscheinlichkeiten wie in der Offline-Auswertung), Shadow (kein anwendbarer Patch), Suggest-Pfad mit Fake-Sidecar: <code>validated</code> -&gt; Apply -&gt; 409 bei editiertem Entwurf -&gt; 200 -&gt; idempotent -&gt; <code>DRAFT_CHANGED</code>, UI-Ablauf inkl. Übernahme in den Entwurf (<code>dirty</code>, Wert <code>true</code>) und Wiederherstellung nach Reload; Desktop 1440 px und Mobil 390 px ohne horizontales Überlaufen.</li>
+<li>Beim Live-Test gefunden und behoben: (1) die Beratungsroute fand zwischengespeicherte Scan-Metriken nicht (nur Job-Store, nicht der Disk-Cache) -&gt; <code>NO_SCAN_METRICS</code> trotz vorhandener Metriken; die Cache-Suche liegt jetzt in <code>services/scan_metrics_cache</code> und wird von <code>scan_routes.cpp</code> und der Jev-Route gemeinsam genutzt; (2) Text in den Jev-Ansichten brach mitten im Wort um (globales <code>word-break: break-all</code> der <code>.tc-card</code>) und die Key-Zeile war auf Mobil zu schmal -&gt; <code>.tc-jev</code>/<code>.tc-jev-row</code> in <code>pages.css</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Automatisiert geprüft: die Pre-Run- und Post-Run-HTTP-Routen (<code>/api/scan/decisions</code>, <code>/api/scan/decisions/&lt;id&gt;</code>, <code>/api/scan/decisions/&lt;id&gt;/apply</code>, <code>/api/scan/decisions/apply-batch</code>, <code>/api/pi/decisions/status|settings|test|log</code>, <code>/api/pi/post-run/advice|dismissal</code>) sind über <code>BackendHarness</code> in <code>tests/test_pi_routes.cpp</code> (<code>web_backend_cpp_pi_routes</code>) getestet, und die Jev-UI-Ansichten (<code>jev-empfehlung.js</code>, <code>post-run-advice.js</code>) werden in <code>web_frontend_v3/tests/jev_ui.test.mjs</code> automatisiert geprüft.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Sperren (<code>locked_paths</code>): im Jev-Tab können Config-Pfade zeilenweise eingegeben werden; dieselbe normalisierte Sperrliste wird an Beratung und Apply gesendet und bei Änderungen als veralteter State abgewiesen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> FITS-Metadatenmanifest bei Anfrage und Apply aus den gemessenen Dateinamen neu gelesen; bei abweichender Dateimenge <code>SCAN_INPUT_CHANGED</code>. Ein Inhaltsdigest wird dabei nicht berechnet.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Gespeicherte Jev-Revision mit Run-Provenienz verbunden: direkte Runs und Queue-Items mit vollständiger identischer FITS-Auswahl prüfen eine explizite Vorschlags-ID, Eingabeordner, Manifest und effektive Patch-Werte vor dem Start. Der Outcome-Recorder schreibt nur für diese ID unter <code>pi_decisions/</code>; sichere verschachtelte Queue-Run-IDs erhalten eigene Marker, vorhandene Runs werden nicht nachträglich geändert. Der positive Queue-Pfad ist mit einem Fake-Runner-Fixture getestet, nicht mit einem wissenschaftlichen Bildlauf.</li>
+<li>Hinweis zum Betrieb: Das UI nimmt den Port 8080 an (<code>api.setBase</code>, sobald der Port abweicht); ein Backend auf anderem Port ruft das UI nicht an.</li>
+</ul>
+<p>Tests: <code>test_pi_decision_service.cpp</code> (Modus aus, nur Baselines, Sidecar aus/kein Key/ungültige und eingeschleuste Antworten, Shadow, vollständiger Suggest-Pfad mit Staleness, Apply, Idempotenz, Neustart, Validator-Veto, nur <code>pi_decisions/</code> beschrieben, keine Pfade/Geheimnisse in der Provider-Anfrage) und drei neue Sidecar-Tests für die Einstellungen (<code>npm test</code>, jetzt 47).</p>
+<p><strong>Abnahme (funktional):</strong> Eine synthetische geeignete Eingabe führt über Service und Apply bis in den Entwurf (getestet); ein ungeeigneter Fall bleibt unverändert mit Grund (getestet). Das ist keine Qualitätsabnahme: die Auswertung an M31/M42 zeigt, dass die damalige Evidenz (<code>quality_spread</code>, ab M5 durch <code>metric_agreement</code> ersetzt) den Effekt der adaptiven Gewichtung nicht vorhersagt und Jev in 20 von 20 Aufrufen <code>keep_current</code> wählt — Evidenz und Nutzennachweis sind M5.</p>
+<h2 id="81-m51-katalog-v2-wertegitter-objektklasse-schutzliste-entscheidungen-2026-09-24">8.1 M5.1 — Katalog v2: Wertegitter, Objektklasse, Schutzliste (Entscheidungen 2026-09-24)<a class="headerlink" href="#81-m51-katalog-v2-wertegitter-objektklasse-schutzliste-entscheidungen-2026-09-24" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> einschließlich Mehrfachfragen umgesetzt (2026-09-26). <strong>Abhängigkeit:</strong> M4, Nutzerentscheidungen in <a href="../pi_jev_decisions_plan_de/">pi_jev_decisions_plan_de.md</a> 1.1.
+Ziel: die Infrastruktur, damit weitere Kandidaten einzeln aufgenommen werden können; <code>set_pixfrac</code> und <code>set_clip_sigmas</code> bleiben experimentell.</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Katalog: Kandidaten-Vorlage mit <code>value_grid</code> (<code>levels</code> oder <code>min</code>/<code>max</code>/<code>step</code>, <code>unit</code> und <code>basis</code> Pflicht, höchstens 32 Stufen,
+  <code>integer</code> optional). Beim Laden wird je Stufe ein normaler Kandidat <code>&lt;id&gt;__&lt;label&gt;</code> erzeugt (Stufen auf 9 signifikante Stellen
+  gerundet, Vorlage nicht wählbar, Kennung nur <code>[a-z0-9_]</code>, weil der Sidecar genau dieses Alphabet annimmt); Gitter auf
+  geschütztem Pfad, ungültige Gitter und ein Gitterpfad zusätzlich in <code>updates</code> werden abgelehnt. Ein Wert neben dem Gitter
+  ergibt <code>value_not_allowlisted</code> (Stufen-ID mit falschem Wert) oder <code>unknown_candidate</code> (Stufe existiert nicht); die Stufe,
+  die dem aktuellen Wert entspricht, ist ein No-op (<code>already_active</code>). Tests: <code>test_pi_decision_policy</code> (mit Mutationsprüfung).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Mehrere unabhängige Fragen je Beratung (eine Provider-Anfrage je Kandidatengruppe); jede Antwort wird einzeln aufgelöst, keine automatische Kombination mehrerer Gruppen. Details zu Apply-Batch und Speicherung stehen in Abschnitt 9.1.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> State: geprüfte Nutzerangabe <code>session_context.object_class</code> (<code>compact</code>/<code>diffuse</code>/<code>star_field</code>, Herkunft <code>user</code>; alles andere
+  ergibt Finding <code>object_class_invalid</code>); Teil des State-Hashs und der Provider-Projektion. Evidenz <code>object_class</code> mit optionaler
+  Kandidatenliste <code>object_classes</code>; ohne Angabe <code>evidence_unavailable:object_class</code>, falsche Klasse
+  <code>evidence_below_threshold:object_class</code>. UI-Auswahl in der Jev-Ansicht (DE/EN), wird bei Anfrage und Übernahme mitgesendet.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Schutzliste überarbeitet (Schema <code>pi.protected-paths.v2</code>, Stufen <code>hard</code>/<code>user_domain</code>, <code>released_for_candidates</code> mit
+  Bedingung je Pfad; Lader lehnt fehlende Stufe, altes Schema und einen zugleich geschützten und freigegebenen Pfad ab).
+  Tests für beide Richtungen: <code>test_pi_decision_policy</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Aufbewahrungsregel für Nachweisläufe: <code>tile_compile_cpp/scripts/prune_evaluation_run.py</code> (Trockenlauf als Standard;
+  entfernt nur <code>cache/</code> und <code>outputs/calibrated/</code> eines erfolgreich beendeten Runs; lehnt fremde Ordner, unfertige oder
+  fehlgeschlagene Runs und symbolische Links ab).</li>
+</ul>
+<p><strong>Abnahme:</strong> bestehende Tests grün; neue Tests für Gitter (auf/neben/außerhalb, Rundung, Typ), mehrere Fragen je Beratung,
+Objektklasse (gesetzt/fehlt), Schutzliste (erreichbar mit/ohne Katalogeintrag).</p>
+<h3 id="82-erste-kandidatengruppe-a1-und-anfrageinhalt-2026-09-24">8.2 Erste Kandidatengruppe A1 und Anfrageinhalt (2026-09-24)<a class="headerlink" href="#82-erste-kandidatengruppe-a1-und-anfrageinhalt-2026-09-24" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Kandidat <code>set_sensor_profile_dwarf_ii</code> (tabellengetrieben): Kamera-Header nach fester Normalisierung (Großbuchstaben, nur Buchstaben und
+  Ziffern) gegen <code>camera_aliases</code> des Katalogeintrags; kein Teilstring-Abgleich; beide real beobachteten Schreibweisen <code>DWARFII</code> und <code>DWARF II</code>.
+  Mehrdeutige Alias-Tabellen werden beim Laden abgelehnt. Experimentell, <code>requires_review</code>; auf allen echten DWARF-II-Configs No-op
+  (<code>already_active</code>), weil dort das Profil schon gesetzt ist.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Beschreibung und geprüfte Fakten je Änderungskandidat kommen aus dem Backend (<code>provider_description</code> im Katalog, 1..240 Zeichen
+  druckbares ASCII ohne Pfad/URL/Schlüssel; Fakten = aufgelöste Evidenz als einfache Skalare, nie Kamera- oder Pfadnamen) und werden in
+  <code>candidate_descriptions</code>/<code>candidate_facts</code> der Anfrage an den Sidecar übergeben; dieser schreibt die Fakten in <code>state.candidate_facts</code>.
+  Fragen-Set <code>decision-questions.v2</code>; ein neuer Katalogeintrag braucht keine Sidecar-Änderung mehr. Befund: ohne Beschreibung und Fakt
+  gab Jev dem Kandidaten P=0,01 (Kamera unsichtbar, Text <code>null</code>), mit beidem 5 von 5 Mal P=0,94 (M31, Entwurf mit <code>rec709</code>).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Jev-Protokoll: <code>agent_service/src/services/decisionsLog.ts</code> schreibt je Anfrage die tatsächlich gesendete Wire-Anfrage, die rohe
+  Provider-Antwort und das normalisierte Ergebnis als eine JSON-Zeile in <code>runs/.pi_memory/jev_decisions.log</code> (Pfad überschreibbar mit
+  <code>JEV_DECISIONS_LOG_PATH</code>, abschaltbar mit <code>JEV_LOG=off</code>). Sidecar und Auswertungsskript schreiben in dieselbe Datei (Feld <code>source</code>).
+  Nie enthalten: API-Key und Header; zusätzlich Schwärzung wie im Traffic-Log.</li>
+</ul>
+<h2 id="9-m5-evaluation-und-freigabe-pro-kandidat">9. M5 — Evaluation und Freigabe pro Kandidat<a class="headerlink" href="#9-m5-evaluation-und-freigabe-pro-kandidat" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Replay/Datentrennung implementiert, reguläre Kandidatenfreigabe
+weiter gesperrt. Details und reproduzierbarer Ist-Befund:
+<code>pi_jev_m5_evaluation_de.md</code>. <strong>Abhängigkeit:</strong> M4; Bildqualitätsfreigabe
+benötigt unabhängige reale Vergleichsevidenz.</p>
+<p>Arbeit:</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Neues Replay-Werkzeug <code>web_backend_cpp/scripts/evaluate_pi_decisions.py</code> und maschinenlesbaren Evaluationsbericht mit State-/Policy-/Modelldigests erstellen; Vorschlagsauswertung ohne Runner-Start ermöglichen. Das Werkzeug liest <code>pi_decisions/</code> und (falls vorhanden) den <code>PiMemoryStore</code> <strong>nur lesend</strong>; es schreibt in keinen von beiden.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Retrospektives Datensatzregister mit Session-, Geräte-, Filter- und Qualitätsgruppen aufbauen; unbekannte Strata bleiben <code>unknown</code>. Kalibrierung und Test auf Sessionebene trennen; gleiche Frame-Hashes nicht in beide Mengen aufnehmen. Dieser Split ist kein prospektiver Holdout.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Vier Baselines protokollieren: aktuelle Config (<code>current_config</code>), Regeln allein (<code>rules_only</code>), bestehende PI-Beratung (<code>existing_pi_advice</code>), Regeln plus Jev (<code>rules_plus_jev</code>). kNN (<code>knn_optional</code>) separat ausgewiesen (<code>compute_baselines</code> in <code>evaluate_pi_decisions.py</code>, getestet in <code>test_evaluate_pi_decisions.py</code>).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Nutzerannahme, angewendete Config und Qualitätslabel im Replay getrennt ausweisen; fehlende Qualitätslabel bleiben <code>null</code>. Abgebrochene/fehlgeschlagene Runs nicht als negative Bildqualität ohne Ursache etikettieren.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Für Qualitätsnachweise gepaarte Ergebnisse derselben Inputs und vergleichbarer Ausgabezustände verwenden (<code>matched_pair_metrics.py</code> sowie <code>release_policy_v1.json</code>/<code>release_policy_v2.json</code>- und Session-Bootstrap-Auswertung in <code>evaluate_pi_decisions.py</code>); die vorhandenen retrospektiven Paare ohne prospektiven Holdout oder ohne gematchte Sternmetriken bleiben fail-closed gesperrt. Zusätzliche Runs ausschließlich nach ausdrücklichem Auftrag.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Messkanäle vor künftiger Evaluation versioniert festhalten: Sternform an gematchten Positionen, Rauschen auf gültigen vergleichbaren Flächen, Signalerhaltung, Abdeckung und bestehende Gate-Entscheidungen. Numerische Grenzen sind in <code>release_policy_v1.json</code> für neue unabhängige Tests fixiert.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Numerische Nichtunterlegenheits-/Verbesserungsgrenzen, Stichprobenanforderungen und Auswahl-/Enthaltungsschwellen pro Kandidat in einer versionierten Freigabepolicy für künftige unabhängige Tests festlegen. Retrospektive Runs qualifizieren nicht; die operative Qualitätsprüfung und damit reguläre Freigabe bleiben offen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Rate ungültiger Vorschläge, Enthaltungsrate, Kandidaten-Coverage und Wilson-Intervalle getrennt berichten; Kalibrierung/Qualitätsdeltas explizit <code>null</code> mit Grund. Agreement ist nur Diagnose.</li>
+</ul>
+<p><strong>Abnahme:</strong> Null verbotene/ungültige anwendbare Patches in der festgelegten Testsuite; keine Verletzung bestehender Qualitätsgates. Reguläre Freigabe nur bei erfüllter vorab definierter Qualitäts- und Coverage-Policy auf getrennten Testdaten. Fehlender Mehrwert hält Kandidaten im Shadow-/explizit experimentellen Modus.</p>
+<p>Ein erster Kandidat kann häufig <code>keep_current</code> liefern. Das rechtfertigt keine Absenkung der Freigabegrenzen; zusätzliche sinnvolle Kandidaten werden nach dem Erweiterungsverfahren des Regelkatalogs einzeln eingeführt.</p>
+<h3 id="91-m5-fortsetzung-2026-09-26">9.1 M5, Fortsetzung (2026-09-26)<a class="headerlink" href="#91-m5-fortsetzung-2026-09-26" title="Permanent link">&para;</a></h3>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Messwerkzeug für gematchte Sterne (<code>matched_pair_metrics.py</code>) und Screening-Werkzeuge (<code>web_backend_cpp/scripts/jev_screening/</code>, mit README und 20 Tests).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>enable_adaptive_weights</code> im Katalog verworfen (<code>applicability: rejected</code>); Policy und Lader unterstützen den Status; Begründung in <code>pi_jev_m5_evaluation_de.md</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>release_policy_v2.json</code> vorab festgelegt (Paarungsregeln, Futility, Endpunkte für <code>set_pixfrac</code> und <code>set_clip_sigmas</code>).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Bestätigung von <code>set_pixfrac</code> und <code>set_clip_sigmas</code> auf M104, M31, M42, IC5070 und M66: Endpunkte und Sicherheitsgrenzen der Policy v2 gelten (<a href="../pi_jev_bestaetigung_pixfrac_clip_20260926_de/">Bestätigung</a>). Aufnahme als Katalogkandidaten (<code>experimental_only</code>, <code>requires_review</code>): <code>set_pixfrac</code> (Raster mit dem einzigen getesteten Level 1,0; nur ab Kontrollstufe 0,8) und <code>set_clip_sigmas</code> (atomares Paar 5/5; nur ab 4/4). Neue Vorbedingung <code>config_equals:&lt;pfad&gt;=&lt;json&gt;</code> (fail-closed, getestet). Konsequenz: Configs mit Clipping 2/4 (M42/IC5070/M66-Produktionsprofil) bekommen <code>set_clip_sigmas</code> nicht angeboten, weil dieser Kontrast nicht vorab registriert war. Die 2/4-Stufe kostete auf IC4605 und M104 etwa 48 % mehr Rauschen; das ist eine Frage des Pipeline-Defaults, nicht der Jev-Empfehlung.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Mehrfachfragen je Anfrage (2026-09-26, ersetzt die frühere Entscheidung "bewusst nicht gebaut"): Der Provider-Vertrag bleibt eine <code>choice</code> je Frage; die Anfrage stellt jetzt EINE Frage je Kandidatengruppe mit anwendbarer Änderung (<code>groups_for</code>, <code>run(..., group)</code>), jede als eigenes Proposal mit eigener Provider-Anfrage im Jev-Protokoll. Die Jev-Seite zeigt Empfehlungen als auswählbare Karten und wendet "Ausgewählte" oder "Alle" gemeinsam auf den Entwurf an (<code>POST /api/scan/decisions/apply-batch</code>, <code>apply_many</code>): alles oder nichts, jedes Proposal wird gegen den unveränderten Entwurf auf Veraltung geprüft, keine zwei Proposals dürfen denselben Pfad ändern, jedes wird gegen den laufenden Merge neu validiert. Beim Speichern wird die gespeicherte Config-Revision auf alle Mitglieder des Batches verknüpft; Runstart und Outcome prüfen und protokollieren jedes Batchmitglied. Gruppen werden nacheinander befragt (eine Anfrage je Gruppe, Kosten und Protokolleinträge wachsen mit der Gruppenzahl).</li>
+</ul>
+<h2 id="10-m6-post-run-beratung-und-pi-ubergabe">10. M6 — Post-Run-Beratung und PI-Übergabe<a class="headerlink" href="#10-m6-post-run-beratung-und-pi-ubergabe" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> M6-Implementierung abgeschlossen: deterministischer Kern, PI-Thread-Übergabe, optionale Post-Run-Modellberatung und beschreibende BGE-, HMS- sowie gepaarte Sternform-Diagnostik sind verdrahtet und getestet. Ein allgemeines Endbild-Qualitätsurteil wird fail-closed als <code>not_measured</code> ausgewiesen. <code>suggest_downstream</code> ist implementiert, wird aber erst erreichbar, wenn M5 mindestens einen Downstream-Kandidaten anhand einer vorab eingefrorenen Policy freigibt; derzeit gibt es keinen solchen Kandidaten. Das sind evidenzgebundene Freigabegrenzen, keine fehlenden M6-Codepfade. <strong>Auslösung:</strong> Beratung nur auf Nutzerwunsch; die Messung wird am Ende des normalen erfolgreichen Downstream-Pfads ohne Modellaufruf erzeugt. <strong>Abhängigkeit:</strong> M4; für jede neue Empfehlung M5.</p>
+<p>Zunächst die tatsächlichen Producer/Consumer von Qualitätsartefakten inventarisieren. Ein Reader für <code>pi_run_quality.json</code> beweist weder vollständige Erzeugung noch Verfügbarkeit der benötigten Zwischenstandsmetriken. Vorhandenen Completion-Analyse-Pfad nutzen; keine parallele konkurrierende Ergebniswahrheit.</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>pi.post-run-decision-state.v1</code> definieren: Run-/Config-/Artefaktidentität, ausgeführte Phasen, Raw/Uniform/Multiband/selected, Gate-Ergebnisse und gültige Zwischenstände.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Fehlende Messungen explizit abbilden; keine Modellcalls im Runner. Die vorhandenen HMS-Kurven-Clippingwerte werden aus dem Phasenereignis gelesen; belastbare Endbildqualitätsmetriken bleiben offen.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Deterministischen <code>pi_post_run_advisor</code> mit den vier Ergebnisformen <code>no_change</code>, <code>diagnose</code>, <code>suggest_downstream</code>, <code>suggest_reconstruction</code> implementieren; <code>suggest_downstream</code> ist mit dem aktuellen Katalog nicht erreichbar.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Erster diagnostischer Fall: den vom AutoBGE-Producer gespeicherten <code>coarse_background_plane_slope</code>-Messwert vor/nach BGE pro angewendetem RGB-Kanal aus <code>artifacts/bge.json</code> übernehmen. <code>bge_method</code> muss <code>autobge</code> sein; beide Werte müssen endlich sein; die Guard-Messung muss angefordert, erfolgreich und nicht verworfen sein. Der Befund benennt Stufen, Maske, Quelle, Delta und Einheit; er ist rein beschreibend, setzt keinen neuen Grenzwert und erzeugt keine Empfehlung.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Zweiter diagnostischer Fall: <code>black_clip_percent</code> und <code>white_clip_percent</code> aus dem letzten erfolgreichen <code>HYPERMETRIC_STRETCH</code>-Phasenereignis übernehmen. Werte müssen endlich und in <code>[0,100]</code> liegen; die Stufe ist ausdrücklich <code>hypermetric_stretch.curve_output</code> (vor nachgelagerter Farb-/Kontrastkorrektur). Nur Informationsbefund, kein Grenzwert und kein Qualitätsurteil; die tatsächliche Endbildqualität bleibt <code>not_measured</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Gepaarte Sternform-Diagnostik als normales Run-Artefakt <code>artifacts/pi_post_run_star_shape.json</code> erzeugen: Kontrollsterne nur auf der ausgewählten Rekonstruktion detektieren, exakt dieselben Pixelkoordinaten, gemeinsame Canvas-Maske sowie denselben 21×21-Ausschnitt, Annulus-Hintergrund und Moment-Aperturschätzer (Radius 6 px) für Rekonstruktion und finales HMS-G verwenden. Der Schätzer entspricht der bestehenden M5-Paarmetrik. Mindestens 20 gültige Paare sind nur die Anwendbarkeitsgrenze. Median, P90 und deterministisches Stern-Bootstrap-95%-KI sind rein deskriptiv; keine Qualitätsgrenze und kein Auswahl-Gate. Bei fehlender HMS-Ausgabe, Raster-/Maskenproblemen oder zu wenigen Paaren fail-closed <code>not_applicable</code>.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Pipelineparameter und sichtbare PI-Bildoperationen getrennt halten. <code>predict_param_nn()</code> akzeptiert ausschließlich <code>scan</code>/<code>live_edit</code>, sichere Zielpfade sowie übereinstimmende Domänen in Query-Features, Modellmetadaten und allen Referenzpunkten; inkonsistente oder gemischte Daten scheitern geschlossen. Regressionstests decken Domain-Mismatch, Metadaten-Mismatch, gemischte Referenzen und Traversal ab.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>min_resume_phase</code> serverseitig aus der Pfad-Phase-Zuordnung berechnen; keinen Modell-Phasennamen übernehmen. Die tatsächliche Resume-Machbarkeit bleibt einer separaten Dry-Run-Prüfung vorbehalten.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Ablehnungshistorie in der Anfrage berücksichtigen; ein verworfener Kandidat wird nicht erneut angeboten. Dauerhafte Verknüpfung mit früherer Patch-ID erfolgt über die im Runstart gespeicherte Jev-Proposal-ID.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Read-only-Befund im Run-Monitor auf Anforderung anzeigen; Vorschläge können explizit als Action-Card geprüft und in den Entwurf übernommen werden. Start bleibt separate Aktion.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Strukturierte Post-Run-Ergebnisse idempotent im gemeinsamen PI-Assistant-Thread speichern und im Dock anzeigen (<code>PiAssistantEventStore</code>, <code>/api/pi/assistant/thread</code>). PI bleibt für Nutzerentscheidung und weitere Chat-Aktionen zuständig.</li>
+</ul>
+<p>Tests: fehlendes <code>canvas_mask.fits</code>, fehlende Vorgängercaches, falsche Provenienz, nur finale gestreckte Metrik, ungültige Sternpopulation, abgelehnter Multiband-Kandidat, unbekannte PCC-Ursache, falsche Resume-Phase, keine Änderung und wiederholter Vorschlag. Bestehende Run-Artefakte bleiben bei Beratung unverändert.</p>
+<p><strong>Abnahme:</strong> Ohne benötigte Evidenz keine scheinpräzise Reparatur. Kein Jev-Score überschreibt Gates. Resume-Machbarkeit ist vor einer Übernahme separat zu prüfen; kein automatischer Runstart.</p>
+<h3 id="101-m6-umsetzungsstand-2026-09-26">10.1 M6 Umsetzungsstand (2026-09-26)<a class="headerlink" href="#101-m6-umsetzungsstand-2026-09-26" title="Permanent link">&para;</a></h3>
+<p>Inventar: <code>pi_run_quality.json</code> wird vom Runner nur im Legacy-Pfad (<code>runner_pipeline.cpp</code>) erwähnt und von <code>pi_outcome_recorder.cpp</code> gelesen; der Forward-Drizzle-Lauf erzeugt es nicht. Verlässliche Producer im aktuellen Pfad sind <code>artifacts/run_provenance.json</code>, <code>artifacts/forward_drizzle.json</code> (gewählter Kandidat, Auswahlgrund, Validierungsmetriken je Raw/Uniform/Multiband, <code>commit_complete</code>) und <code>logs/run_events.jsonl</code>. Darauf beruht der State; nichts wird neu gemessen.</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>pi.post-run-decision-state.v1</code> (<code>pi_post_run.cpp</code>, <code>build_post_run_state</code>): Run-Identität, abgeschlossene Phasen, Terminalereignis, Kandidatenmetriken (nicht anwendbare Metriken ohne Wert, nie 0), Artefakt-/Cache-Präsenz, <code>missing</code>, <code>not_measured</code>, Hash. Tolerant gegenüber abgeschnittener Logzeile; das letzte <code>run_end</code> gilt.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>advise_post_run</code>: deterministische Backend-Regeln bleiben autoritativ; optionaler Sidecar-Aufruf wählt nur aus <code>keep_current</code>, <code>insufficient_evidence</code> oder den bereits backendvalidierten Vorschlägen. Keine Modellfreitextausgabe, keine zusätzliche Kandidatenerzeugung, keine Änderung/Run-Aktion. Ergebnisse <code>no_change</code>, <code>diagnose</code>, <code>suggest_downstream</code>, <code>suggest_reconstruction</code>. Fehlende Evidenz, fehlgeschlagener Lauf oder durchgefallene Numerik des gewählten Kandidaten führen zu <code>diagnose</code>, nie zu einer Reparatur. Ein per Gate abgelehnter Multiband-Kandidat ist nur eine Information.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> <code>min_resume_phase</code> serverseitig aus der einen Tabelle <code>pi_resume_scope.cpp</code> (die <code>runs_routes.cpp</code> jetzt ebenfalls nutzt; keine zweite Kopie im Backend). Bedeutung: späteste legale Resume-Startphase; <code>reconstruction.*</code> hat keine, also <code>resume_mode: full_run</code>. Sie sagt nichts über Machbarkeit; die bestehende Resume-Dry-Run-Route bleibt die Instanz dafür (<code>feasibility: not_checked_use_resume_dry_run</code>).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Dauerhafte rungebundene Ablehnung/Wiederherstellung über <code>POST /api/pi/post-run/dismissal</code>; unveränderliche PI-Assistant-Ereignisse werden über die Advice-Karte referenziert und nicht als Chatkarten angezeigt. Wiederholte Beratung schließt aktive Ablehnungen aus und liefert sie für die Wiederherstellung zurück. <code>source_patch_id</code> übernimmt, falls vorhanden, die beim Runstart gebundene <code>jev_proposal_id</code>; die Route akzeptiert nur Kandidaten aus der referenzierten Advice-Karte (beim Wiederherstellen aus deren Ablehnungsliste).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Gemessene BGE-Vorher/Nachher-Steigungen und HMS-Schwarz-/Weiß-Clipping-Prozente mit Stufen und Einheiten in der Advice-Karte (DE/EN) anzeigen; die Anzeige bleibt als Diagnose markiert, nicht als Qualitätsurteil.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Optionale Post-Run-Modellwahl nur auf Nutzeranforderung: eigener Fragensatz <code>post-run-decisions.v1</code>, pfadfreie Run-Projektion und ausschließlich <code>keep_current</code>, <code>insufficient_evidence</code> sowie bereits backendvalidierte Vorschläge. In <code>suggest</code> wird nur die Modellauswahl markiert; <code>shadow</code> beeinflusst die Karte nicht. Ohne geeignete Vorschläge, aktivierten experimentellen Scope oder Providerverfügbarkeit bleibt die Regelberatung unverändert. Wiederholte Requests mit derselben ID liefern das gespeicherte Ergebnis.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Route <code>POST /api/pi/post-run/advice</code> (nur auf Anforderung; liest Run-Artefakte, protokolliert eine Assistant-Karte und kann eine beschränkte Sidecar-Auswahl anfordern) und Karte "Jev-Nachbetrachtung" im Run-Monitor (DE/EN). Übernahme in einen Entwurf und Start sind nicht Teil dieser Karte.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Qualitätslabel und Evidenzgrenze: Ohne eingefrorenen, mehrdimensionalen Messvertrag und unabhängige gepaarte Endbild-Evaluation bleibt <code>final_stretched_image_quality</code> explizit <code>not_measured</code>. HMS-Clipping und gepaarte Sternform sind getrennte beschreibende Befunde, keine Stellvertreter für Bildqualität.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Downstream-Auswahl fail-closed: <code>suggest_downstream</code> wird nur bei einem bereits backendvalidierten und nach M5 freigegebenen Downstream-Kandidaten erzeugt. Der aktuelle Katalog enthält keinen solchen Kandidaten; deshalb wird keiner vorgetäuscht. Eine Modellauswahl unter Reconstruction-Vorschlägen ist keine Messung des Endbilds.</li>
+<li>Messpfad-Audit 2026-10-24 (Stand vor dem Run-Producer): <code>screen_downstream.py</code> konnte in einer Lab-Kopie den vorhandenen finalen Output gegen Downstream-Varianten mit <code>matched_pair_metrics.compare_images</code> auswerten; Sternpositionen wurden einmal im Kontrollbild gewählt und in beiden Bildern gemessen. Das war kein Producer für normale Run-Artefakte. Eine read-only IC4605-Lab-Paarung (ausgewählte Raw-G-Rekonstruktion gegen finales HMS-G) hatte identisches Raster und 368 gematchte Sterne; die beobachteten Medianverhältnisse FWHM 0,9904 und Elongation 0,9963 sind wegen unterschiedlicher linearer/nichtlinearer Stufen und nur eines retrospektiven Runs keine Qualitätsfreigabe und begründen keinen Grenzwert. Der neue Producer ergänzt nun das normale Run-Artefakt; diese Einzelpaarung bleibt nur retrospektiver Kontext.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Domänentrennung der lokalen PI-Lernmodelle gegen versehentliches Cross-Training abgesichert: Modellabfrage und alle geladenen Referenzpunkte müssen dieselbe unterstützte Domäne ausweisen; <code>target_path</code> kann den Modellroot nicht verlassen. Gezielte Param-Modelltests nach Änderung erfolgreich.</li>
+<li>Verifikation 2026-10-24: <code>web_backend_cpp_pi_post_run</code> baut und besteht gezielt; Fixture prüft benannte BGE-Stufen, Delta/Einheit sowie den Ausschluss verworfener und nicht endlicher Messungen. Backend-Run-Chat wurde nach Neustart live mit GPT-6 Luna und echtem Run-Kontext/Bildvorschau erfolgreich getestet; der PI-Thread-Eintrag wurde per GET verifiziert. Die separate <code>/api/pi/post-run/advice</code>-Route wurde in diesem Live-Check nicht erneut ausgeführt.</li>
+<li>Verifikation 2026-10-24: <code>web_backend_cpp_pi_post_run</code> baut; fokussierter CTest besteht. Fixture prüft HMS-Clipping aus einem erfolgreichen Phasenereignis sowie fail-closed Verhalten bei Werten außerhalb <code>[0,100]</code>; Advice enthält den Wert als <code>info</code>-Befund. Endbildqualität und Sternform werden weiterhin nicht behauptet.</li>
+<li>Verifikation 2026-10-24: Backend und <code>web_backend_cpp_pi_routes</code> bauen; fokussierte Route-/Event-Store-Tests bestehen. Ablehnen, Wiederherstellen, Ablehnungsliste nach erneutem Advice, Run-UID-Bindung, Advice-Kandidatenprüfung, Patch-Verknüpfung und Ausblenden der Audit-Ereignisse aus dem Assistant-Thread sind abgedeckt.</li>
+<li>Verifikation 2026-10-24: Frontend-JS Syntaxprüfung, DE/EN-JSON-Parsing, Formatter-Smoke-Test mit der echten Backend-Evidenzform und Backend-Build bestehen. Der Formatter-Smoke-Test deckt je einen BGE-Befund mit einzelnem <code>evidence</code>-Vergleich sowie HMS-Stufe, Prozentwerte und Einheit ab. Browser-Layout ohne horizontales Überlaufen bei 1280 px und 390 px geprüft; eine Post-Run-Karte mit Messwerten war im ausgewählten Live-Run nicht vorhanden.</li>
+<li>Verifikation 2026-10-24: Post-Run-Fragensatz mit Sidecar-Fixture getestet (61/61 Decisions-Service-Tests); Backend gebaut und PI-Routentest mit Fixture-Sockets bestanden. Der Routentest bestätigt, dass ohne geprüfte Änderungskandidaten kein Provideraufruf erfolgt und <code>evaluation_method</code> bei <code>backend_rules</code> bleibt. Es wurde kein Live-Provideraufruf ausgeführt.</li>
+<li>2026-10-24: Nach dem damaligen Messpfad-Audit wurde der normale Run-Producer ergänzt. Die hier dokumentierte Verifikation umfasst jetzt gezielte synthetische C++-Messung, fail-closed Backend-Validierung und Anzeigeformatierung; sie ersetzt weder die frühere retrospektive Beobachtung noch stellt sie ein Qualitätsakzeptanzkriterium dar.</li>
+<li>Verifikation 2026-10-25: <code>tile_compile_runner</code> und <code>tests</code> bauen; synthetischer Messkern und FITS-zu-Run-Artefakt-Producer bestehen (13 Assertions). <code>web_backend_cpp_pi_post_run</code> baut und besteht (1/1); ungültige/untersampelte Artefakte bleiben <code>not_measured</code>.</li>
+<li>Live-Resume mit aktuellem Build 2026-10-25: vollständige, unabhängige Kopie des abgeschlossenen 344-Frame-IC4605-Laufs unter <code>/media/data/tile_compile_cache/jev-test/m6_starshape_current_copy_20261025_3c76fb20</code>; <code>tile_compile_runner</code> aus Commit <code>3c76fb20</code> beendet <code>resume-reconstruction --from-phase HYPERMETRIC_STRETCH</code> erfolgreich (<code>run_end.success=true</code>) und schreibt das normale Run-Artefakt. Ergebnis: 61 Kontrollpunkte, 59 gepaarte Messungen, Median FWHM-Verhältnis 1,0914, P90 1,1382, sternbasiertes Bootstrap-95%-KI [1,0750; 1,0976]. Die Paarung vergleicht lineare ausgewählte Rekonstruktion mit nichtlinear finalem HMS-G und bleibt rein deskriptive Producer-/Resume-Evidenz.</li>
+<li>Separater 120-Frame-Neuaufbau 2026-10-25: Rekonstruktion, Gate-Auswahl und BGE endeten erfolgreich; der Run scheiterte anschließend am PCC-Fit (7 gematchte Katalogsterne, 0 verwendete Sterne, degenerierter adaptiver Verhältnisfaktor). Dieser Lauf ist kein erfolgreicher M6-End-to-End-Nachweis und wird nicht als solcher gewertet.</li>
+<li><code>tile_compile_runner</code> wurde aus dem aktuellen Commit <code>3c76fb20</code> gebaut; C++-Messkern/FITS-Producer (13 Assertions), Backend-Validierung (CTest 1/1) sowie die zuvor dokumentierten Frontend- und Routeprüfungen bestehen. Der erfolgreiche Live-Resume auf vollständig rekonstruierten Daten belegt den aktuellen Downstream-Pfad. Der separate frische 120-Frame-Run scheiterte vor HMS am PCC-Fit und wurde nicht als erfolgreiche M6-Abnahme gewertet.</li>
+</ul>
+<h2 id="11-m7-integration-dokumentation-und-regression">11. M7 — Integration, Dokumentation und Regression<a class="headerlink" href="#11-m7-integration-dokumentation-und-regression" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> GUI3-Release-Integration ist durch den GitHub-Workflow <code>.github/workflows/release-tile-compile-gui3.yml</code> abgedeckt; für ein Release muss der Workflow für den Release-Tag erfolgreich enden. <strong>Abhängigkeit:</strong> freizugebender Produktabschnitt.</p>
+<p>Der Workflow baut Release-Bundles mit <code>BUILD_TESTS=OFF</code>; Backend-/Sidecar-Unit- und Regressionstests bleiben deshalb separate Implementierungsprüfungen und werden nicht als Workflow-Testlauf behauptet.</p>
+<ul class="task-list">
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> GUI3-Bundle für Linux (ZIP/AppImage), macOS (Apple Silicon/Intel) und Windows aus Runner, Backend, Frontend, Beispielen/Schemas und optionalem PI-Sidecar bauen und ausliefern.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Paketstart und Backend-Erreichbarkeit im Release-Workflow smoke-testen; das Linux-Bundle prüft zusätzlich Config-Validation, Linux-AppImage sowie macOS/Windows haben eigene Smoke-Schritte.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Sidecar-Konfiguration, Modi, Fehlercodes und Datenübermittlung in den PI-/Jev-Dokumenten festhalten; DE/EN-UI-Texte und API-Verträge gehören zu den bestehenden Implementierungschecks.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Bei tatsächlicher Änderung eines Pipelineparameters die lokale Skill-Anweisung <code>.devin/skills/update-param-doc/SKILL.md</code> anwenden: Structs, Parser, Schemas, Beispiele und DE/EN-Referenzen gemeinsam aktualisieren. Dieser Plan selbst ändert keine Pipelineparameter (n/a).</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Bekannte Grenzen dokumentieren: begrenzte Kandidatenabdeckung, Messproxies, fehlende Evidenz und separate empirische Freigabe.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled checked/><span class="task-list-indicator"></span></label> Release-Artefakte und Checksummen durch den Workflow erstellen; M5-Evaluation und fachliche Qualitätsfreigabe bleiben separate Evidenz und werden nicht durch Packaging-Smokes ersetzt.</li>
+</ul>
+<p>Prüfreihenfolge während der Umsetzung:</p>
+<ol>
+<li>Neue State-/Policy-/Adapter-Tests gezielt ausführen.</li>
+<li>Backend-Testtargets und Backend ausführbar bauen; betroffene Route-/Action-/Resume-Verträge testen.</li>
+<li><code>agent_service</code>: TypeScript-Build und neue Tests; keine unbeabsichtigten Dependency-Upgrades.</li>
+<li>Frontend statisch und an Fixtures bzw. vorhandenem Dienst bei Desktop/Mobil prüfen; kein npm-Build für v3 erfinden.</li>
+<li>Falls <code>tile_compile_cpp/apps/</code> oder Messcode geändert wird: Runner und relevante C++-Tests bauen, danach vollständige Suite soweit praktisch; CUDA nur bei tatsächlicher CUDA-Änderung.</li>
+<li>JSON/YAML, Dokumentationslinks und <code>git diff --check</code> prüfen.</li>
+</ol>
+<p>Alle Terminalausgaben nach <code>/tmp/out_&lt;zweck&gt;.txt</code> umleiten und separat lesen. Tests dürfen isolierte Backend-Fixtures verwenden; keine persistenten Backend-/Sidecar-Prozesse ohne Auftrag starten. Keine Bildverarbeitungsruns als impliziten Test beginnen. Vor Abschluss müssen gestartete Test-/Build-Sessions beendet sein.</p>
+<p><strong>Integrationsprüfung 2026-10-24:</strong> Die 2026-10-23-Prüfung bleibt der Beleg für Build/Suite/isolierte UI-Fixtures. Ergänzend wurde nach Backend-Neustart <code>openai/gpt-6-luna</code> im aktiven Backend konfiguriert und der PI-Run-Chat mit echtem IC434-Run-Kontext samt Bildvorschau live über Backend und Sidecar ausgeführt. Die strukturierte Antwort war gültig, <code>action_plan_validation.valid=true</code>, ohne Vorschläge/Aktionen oder Warnungen; der Testturn wurde dauerhaft im PI-Thread gespeichert und per GET verifiziert. Kein Bildverarbeitungslauf wurde gestartet. Der Release-Packaging- und Smoke-Test-Gate ist der oben genannte GUI3-Workflow; M5-Qualitätsfreigabe und offene M6-Funktionen bleiben davon getrennt.</p>
+<h2 id="12-abnahmematrix-und-offene-fachliche-entscheidungen">12. Abnahmematrix und offene fachliche Entscheidungen<a class="headerlink" href="#12-abnahmematrix-und-offene-fachliche-entscheidungen" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Gate</th>
+<th>Nachweis</th>
+<th>Blockiert</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>G0 Vertragsklarheit</td>
+<td>Quellen, Einheiten, Status, Schemas und Provider-Fixtures</td>
+<td>Adapterintegration</td>
+</tr>
+<tr>
+<td>G1 Zulässigkeit</td>
+<td>Negative State-/Lock-/Gate-/Atomizitätstests</td>
+<td>Jede anwendbare Empfehlung</td>
+</tr>
+<tr>
+<td>G2 Funktionaler Pre-Run-Pfad</td>
+<td>Scan -&gt; Vorschlag -&gt; Entwurf; kein Runstart; Reload/Race-Tests</td>
+<td>Experimentelle UI-Freigabe</td>
+</tr>
+<tr>
+<td>G3 Empirischer Nutzen</td>
+<td>Vorab definierte Policy und getrennte gepaarte Evaluation</td>
+<td>Reguläre Kandidatenfreigabe</td>
+</tr>
+<tr>
+<td>G4 Post-Run-Evidenz</td>
+<td>Zwischenstände, Gate-Herkunft, gültige Metriken</td>
+<td>Konkreter Post-Run-Patch</td>
+</tr>
+<tr>
+<td>G5 Resume-Vertrag</td>
+<td>Vorgänger, Cache, Maske, Scope, Provenienz</td>
+<td>Resume-Empfehlung</td>
+</tr>
+<tr>
+<td>G6 Auslieferung</td>
+<td>Build, Tests, Ressourcen, DE/EN-Dokumentation</td>
+<td>Release</td>
+</tr>
+</tbody>
+</table>
+<p>Evidenzgebundene fachliche Grenzen (im Code fail-closed abgesichert):</p>
+<ul>
+<li>Der Sidecar-Adapter (<code>decisionsService.ts</code>) wertet 401/403/429/5xx rein über den HTTP-Statuscode aus (unabhängig vom Fehlerbody) und weist <code>noul</code>-Antworten fail-closed ab, da produktiv ausschließlich <code>type: "choice"</code> verwendet wird; Erfolgsvertrag und gepinnte Modellkennung sind live geprüft.</li>
+<li>Neue Evidenz, falls der verworfene Kandidat <code>enable_adaptive_weights</code> je wieder geöffnet werden soll (M5); die bisherigen Vorregel-Cutoffs bleiben bewusst ungefroren.</li>
+<li>Unabhängige, prospektiv verblindete Qualitäts- und Entscheidungsevidenz gegen die fixierten M5-Grenzen (<code>release_policy_v1.json</code> / <code>release_policy_v2.json</code>), bevor Kandidaten von <code>experimental_only</code> auf <code>regular</code> angehoben werden.</li>
+<li>Eingefrorener mehrdimensionaler Endbild-Qualitätsvertrag für <code>final_stretched_image_quality</code> und nachgelagerte M6-Downstream-Kandidaten (<code>suggest_downstream</code> bleibt bis dahin fail-closed unerreichbar).</li>
+</ul>
+<p>Diese offenen Fachwerte sind keine Erlaubnis zu geraten. Technische Implementierung, funktionale Tests, Provider-Smoke und wissenschaftliche Qualitätsfreigabe werden jeweils separat als bestanden, offen oder fehlgeschlagen ausgewiesen.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

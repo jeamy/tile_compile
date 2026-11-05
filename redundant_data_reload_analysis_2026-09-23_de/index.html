@@ -1,0 +1,4764 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jeamy.github.io/tile_compile/redundant_data_reload_analysis_2026-09-23_de/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Analyse: Redundante Daten-Reloads in Schleifen - tile_compile</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#analyse-redundante-daten-reloads-in-schleifen" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="tile_compile" class="md-header__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            tile_compile
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Analyse: Redundante Daten-Reloads in Schleifen
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting_started/quickstart/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Start Here
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../guides/cfa_forward_drizzle_pipeline_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Workflows & Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting_started/configuration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../PI/scan_ai_parameter_studio_en/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Professional & Technical
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../reference/cli/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/cpp/html/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API & Development
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../changelog/releases/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  History & About
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="tile_compile" class="md-nav__button md-logo" aria-label="tile_compile" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    tile_compile
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start Here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/quickstart_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schnellstart (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/installation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui3_user_guide_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 User Guide (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gui3_user_guide_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GUI3 Benutzerhandbuch (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows & Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Workflows & Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/cfa_forward_drizzle_pipeline_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reconstruction Method (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/cfa_forward_drizzle_pipeline_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rekonstruktionsmethode (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/workflow_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow & Pipeline (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/live_image_editor_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/live_image_editor_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Image Editor (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/raw_stack_gui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/raw_stack_gui_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw Stack GUI (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/pi_ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – AI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/pi_ai_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI – KI-Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/pi_workflow_gui3_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/pi_workflow_gui3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Workflow in GUI3 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Basics (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/configuration_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Konfigurationsgrundlagen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_reference_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_examples_practical_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration_examples_practical_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Practical Examples (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Professional & Technical
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Professional & Technical
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/scan_ai_parameter_studio_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Scan-AI for Parameter Studio (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/pi_ai_recommendations_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Recommendations (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/pi_ki_empfehlungen_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Empfehlungen (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/pi_jev_decisions_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Jev Decisions (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/pi_scan_pre_rules_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Pre-Rules (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    PI Decision Trace & Unified Assistant (DE)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/DECISIONTRACE/pi_decision_trace_und_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overall Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/DECISIONTRACE/pi_decision_trace_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decision Trace (Part A)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/DECISIONTRACE/pi_unified_assistant_plan_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Assistant (Part B)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/DECISIONTRACE/pi_assistant_dock_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Assistant Dock
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/DECISIONTRACE/pi_analysis_context_implementation_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/DECISIONTRACE/pi_run_learning_archive_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run Learning Archive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PI/DECISIONTRACE/pi_retention_policy_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Retention Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../forward_drizzle_v2_zielarchitektur_2026-09-12_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forward Drizzle v2 Target Architecture (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_0_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Process Flow Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/data_flow_user_description_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/data_flow_user_description_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Flow (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/resume_dependencies_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume Dependencies (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/resume_dependencies_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume-Abhängigkeiten (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_1_scan_normalization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 1 – Scan & Normalization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_2_registration_geometry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 2 – Registration & Geometry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_3_quality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 3 – Quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_4_forward_drizzle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 – Forward Drizzle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_5_multiband/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 5 – Multiband
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/phase_6_postprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 6 – Post-Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_flow/flow_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Outputs & Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration & External Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/project_structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/cpp/html/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API & Development
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API & Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/rest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting_started/cli_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference (Getting Started)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    History & About
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    History & About
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/detailed_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_3" id="__nav_8_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Historical Methods (superseded)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Historical Methods (superseded)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AQMH/aqmh_methodik_en_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AQMH/aqmh_methodik_de_v0.2.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.1 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AQMH/aqmh_methodik_en_v0.2.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AQMH v0.2.0 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (EN)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TBQR v3.3.9 (DE)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../about/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#zusammenfassung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zusammenfassung
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#umsetzungsstatus-nachtrag-2026-09-12-final" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Umsetzungsstatus (Nachtrag 2026-09-12, final)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Umsetzungsstatus (Nachtrag 2026-09-12, final)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#anmerkungen-zu-den-strukturellen-umbauten-runde-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anmerkungen zu den strukturellen Umbauten (Runde 2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zusatzlich-behoben-gleiche-musterklasse-nicht-in-der-ursprungsliste" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zusätzlich behoben (gleiche Musterklasse, nicht in der Ursprungsliste)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kategorie-a-daten-reload-pro-stripechunk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kategorie A: Daten-Reload pro Stripe/Chunk
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Kategorie A: Daten-Reload pro Stripe/Chunk">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a1-source-frame-wird-pro-stripe-neu-geladen-stream-forward-drizzle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A1: Source-Frame wird pro Stripe neu geladen (Stream-Forward-Drizzle)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a2-q-map-wird-pro-stripe-neu-von-disk-gelesen-kein-in-memory-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A2: Q-Map wird pro Stripe neu von Disk gelesen (kein In-Memory-Cache)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a3-source-frame-und-q-map-werden-im-stream_forward_drizzle_uniform-pro-stripe-geladen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A3: Source-Frame und Q-Map werden im stream_forward_drizzle_uniform pro Stripe geladen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a4-aqmh-reconstruction-ladt-framemaskq-map-pro-y0-chunk-neu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A4: AQMH-Reconstruction lädt Frame/Mask/Q-Map pro y0-Chunk neu
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a5-cherry-pick-pre-pass-und-haupt-pass-laden-dieselben-q-mapsmasks-doppelt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A5: Cherry-Pick-Pre-Pass und Haupt-Pass laden dieselben Q-Maps/Masks doppelt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a6-mask-validierung-ladt-mask-verwirft-sie-ladt-sie-im-haupt-pass-neu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A6: Mask-Validierung lädt Mask, verwirft sie, lädt sie im Haupt-Pass neu
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kategorie-b-daten-reload-pro-bandkanal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kategorie B: Daten-Reload pro Band/Kanal
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Kategorie B: Daten-Reload pro Band/Kanal">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#b1-aqmh-cpu-fallback-rekonstruiert-r-g-b-sequenziell-mit-gleichen-q-mapsmasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B1: AQMH CPU-Fallback rekonstruiert R, G, B sequenziell mit gleichen Q-Maps/Masks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b2-luma_band-dekomponiert-rawfinemedium-fur-jedes-band-neu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B2: luma_band dekomponiert raw/fine/medium für jedes Band neu
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b3-smooth_alpha_b3-fuhrt-b3-faltung-zweimal-fur-identische-geometrie-aus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B3: smooth_alpha_b3 führt B3-Faltung zweimal für identische Geometrie aus
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b4-compute_source_quality_proxy_v1-wird-in-zwei-phasen-unabhangig-ausgefuhrt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B4: compute_source_quality_proxy_v1 wird in zwei Phasen unabhängig ausgeführt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b5-multiband-delivery-liest-spool-planes-pro-kanal-einzeln" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B5: Multiband-Delivery liest Spool-Planes pro Kanal einzeln
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kategorie-c-redundante-rekursion-in-pixel-loops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kategorie C: Redundante Rekursion in Pixel-Loops
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Kategorie C: Redundante Rekursion in Pixel-Loops">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#c1-cfgcherry_pick_mode-string-vergleich-pro-pixel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C1: cfg.cherry_pick_mode String-Vergleich pro Pixel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c2-canvas_valid-mit-invarianten-checks-pro-pixel-pro-frame" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C2: canvas_valid() mit invarianten Checks pro Pixel pro Frame
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c3-band_sourcej-l-und-dfdm-pointer-pro-pixel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C3: band_source(j, L) und df/dm-Pointer pro Pixel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c4-cfa_channel_for_source_pixel-pro-pixel-neu-berechnet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C4: cfa_channel_for_source_pixel pro Pixel neu berechnet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c5-plancolor_mode-und-cfa-parameter-pro-source-pixel-gelesen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C5: plan.color_mode und CFA-Parameter pro Source-Pixel gelesen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c6-cfgemit_-und-exponenten-pro-akzeptiertem-clip-kandidat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C6: cfg.emit_* und Exponenten pro akzeptiertem Clip-Kandidat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c7-global_weightglobal_weights-fi-mehrfach-fur-denselben-fi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C7: global_weight(global_weights, fi) mehrfach für denselben fi
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c8-dx4dy4-arrays-pro-stack-pop-in-bfs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C8: dx[4]/dy[4] Arrays pro Stack-Pop in BFS
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kategorie-d-per-iteration-allokationen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kategorie D: Per-Iteration Allokationen
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Kategorie D: Per-Iteration Allokationen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#d1-mad_sigma-kopiert-vektor-by-value-und-allokiert-dev-pro-aufruf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D1: mad_sigma kopiert Vektor by-value und allokiert dev pro Aufruf
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d2-per-band-wxww2ab-allokationen-in-stream_forward_drizzle_uniform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D2: Per-Band wx/w/w2/A/B Allokationen in stream_forward_drizzle_uniform
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d3-per-band-forwarddrizzleuniformandrawresult-profil-allokationen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D3: Per-Band ForwardDrizzleUniformAndRawResult Profil-Allokationen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d4-per-tile-candcountsr-allokationen-in-reduce_window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D4: Per-Tile cand/counts/r Allokationen in reduce_window
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d5-per-tile-src_buf_narrowed-und-raw-im-cuda-producer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D5: Per-Tile src_buf_narrowed und raw im CUDA-Producer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d6-local_effective_klocal_margins-ohne-reserve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D6: local_effective_k/local_margins ohne reserve
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kategorie-e-strukturelle-cross-pass-redundanz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kategorie E: Strukturelle Cross-Pass-Redundanz
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Kategorie E: Strukturelle Cross-Pass-Redundanz">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#e1-rasterize_drizzle_stripe-wird-zweimal-aufgerufen-count-fill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        E1: rasterize_drizzle_stripe wird zweimal aufgerufen (Count + Fill)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#e2-cuda_pair_producer-ruft-source_of-bedingungslos-auf-auch-bei-cache-hit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        E2: cuda_pair_producer ruft source_of bedingungslos auf, auch bei Cache-Hit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#e3-affine-inverse-und-source-y-band-pro-tile-neu-berechnet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        E3: Affine Inverse und Source-Y-Band pro Tile neu berechnet
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#priorisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Priorisierung
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architekturelle-beobachtungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architekturelle Beobachtungen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#neufunde-nachtrag-2026-09-12-gleiches-muster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Neufunde (Nachtrag 2026-09-12, gleiches Muster)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Neufunde (Nachtrag 2026-09-12, gleiches Muster)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#n1-compute_aqmh_uniform_control-gleicher-chunk-auenframe-innen-reload-wie-a4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        N1: compute_aqmh_uniform_control -- gleicher Chunk-außen/Frame-innen-Reload wie A4
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#n2-cuda-sigma-clip-tile-stats-pass-clip-pass-laden-jeweils-alle-frames-q-maps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        N2: CUDA-Sigma-Clip-Tile: Stats-Pass + Clip-Pass laden jeweils alle Frames + Q-Maps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#n3-aqmh_reconstruction_openclcpp-identisches-a4-host-feed-muster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        N3: aqmh_reconstruction_opencl.cpp -- identisches A4-Host-Feed-Muster
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#n4-aqmh_reconstruction_cudacu-identisches-muster-prefetch-nur-fur-frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        N4: aqmh_reconstruction_cuda.cu -- identisches Muster, Prefetch nur für Frames
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#n5-existenz-probes-rufen-den-full-extent-q-provider-auf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        N5: Existenz-Probes rufen den Full-Extent-Q-Provider auf
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#n6-fuse_multiband_store_to_image-liest-halo-zeilen-doppelt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        N6: fuse_multiband_store_to_image liest Halo-Zeilen doppelt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#n7-zweite-single-slot-source-cache-im-diagnose-pfad" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        N7: Zweite Single-Slot-Source-Cache im Diagnose-Pfad
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#n8-masked_convolve-b3-pendant-mit-4-full-image-passen-pro-level" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        N8: masked_convolve -- B3-Pendant mit 4 Full-Image-Pässen pro Level
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#n9-veralteter-kommentar-in-drizzle_profile_storecpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        N9: Veralteter Kommentar in drizzle_profile_store.cpp
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#begrenzungen-dieser-analyse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Begrenzungen dieser Analyse
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="analyse-redundante-daten-reloads-in-schleifen">Analyse: Redundante Daten-Reloads in Schleifen<a class="headerlink" href="#analyse-redundante-daten-reloads-in-schleifen" title="Permanent link">&para;</a></h1>
+<p><strong>Branch:</strong> <code>CFA-aware-Forward-Drizzle</code>
+<strong>Datum:</strong> 2026-09-23
+<strong>Methode:</strong> Statische Code-Analyse durch grep/glob/read + vier parallele Subagents
+<strong>Scope:</strong> <code>tile_compile_cpp/src/reconstruction/</code>, <code>tile_compile_cpp/apps/</code>, <code>tile_compile_cpp/src/metrics/</code></p>
+<h2 id="zusammenfassung">Zusammenfassung<a class="headerlink" href="#zusammenfassung" title="Permanent link">&para;</a></h2>
+<p>Die Analyse identifiziert <strong>28 Funde</strong> in fünf Kategorien:</p>
+<table>
+<thead>
+<tr>
+<th>Kategorie</th>
+<th>Funde</th>
+<th>Schwergrad</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A: Daten-Reload pro Stripe/Chunk</td>
+<td>6</td>
+<td>P0/P1 — dominante Kosten</td>
+</tr>
+<tr>
+<td>B: Daten-Reload pro Band/Kanal</td>
+<td>5</td>
+<td>P1/P2</td>
+</tr>
+<tr>
+<td>C: Redundante Rekursion in Pixel-Loops</td>
+<td>8</td>
+<td>P2/P3</td>
+</tr>
+<tr>
+<td>D: Per-Iteration Allokationen</td>
+<td>6</td>
+<td>P3</td>
+</tr>
+<tr>
+<td>E: Strukturelle Cross-Pass-Redundanz</td>
+<td>3</td>
+<td>P1/P2</td>
+</tr>
+</tbody>
+</table>
+<p>Die mit Abstand teuersten Funde sind <strong>A1</strong> (Source-Frame-Reload pro Stripe)
+und <strong>A2</strong> (Q-Map-Reload pro Stripe ohne In-Memory-Cache).</p>
+<hr />
+<h2 id="umsetzungsstatus-nachtrag-2026-09-12-final">Umsetzungsstatus (Nachtrag 2026-09-12, final)<a class="headerlink" href="#umsetzungsstatus-nachtrag-2026-09-12-final" title="Permanent link">&para;</a></h2>
+<p>Alle 28 Funde plus die Neufunde N1-N9 wurden gegen den aktuellen Code
+verifiziert und -- bis auf die als Fehleinschätzung klassifizierten Punkte --
+vollständig umgesetzt. Die Arbeiten erfolgten in zwei Runden: zuerst die
+lokalen Invarianten/Allokationen (C1-C8, D2, D6), dann die strukturellen
+Loop-/Pass-Umbauten (A1-A6, B1-B3, C7, D3-D5, E1-E3, N1-N9). Verifikation
+nach der zweiten Runde: Build gruen (tile_compile_runner, tests,
+web_backend_cpp), 549/549 Catch2-Tests, 2.756.148 Assertions -- exakt die
+Baseline vor den Umbauten.</p>
+<table>
+<thead>
+<tr>
+<th>Fund</th>
+<th>Status</th>
+<th>Umsetzung / Bemerkung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A1</td>
+<td>umgesetzt</td>
+<td><code>drizzle_source_scan_box</code> (in den Rasterizer extrahiert, identische Bounds) liefert pro (Stripe, Frame) die inverse-gemappte Source-Box; <code>SourceImageRectProvider</code> liest nur diese Box banded (<code>forward_drizzle.cpp</code>), verdrahtet ueber <code>VerifiedNormalizedSourceCache::read_rect</code> (<code>source_quality_artifact.cpp</code>) und den Runner-Stash (<code>runner_phase_registration.cpp</code>)</td>
+</tr>
+<tr>
+<td>A2</td>
+<td>umgesetzt</td>
+<td><code>FrameQualityRectProvider</code> liest nur die Scan-Box via <code>read_rect</code>; die Stream-Funktionen nehmen den Rect-Provider direkt entgegen (Existenz-Probes via Leer-Rect, s. N5). Der Full-Provider bleibt als Adapter-Fallback (<code>to_rect_provider</code>)</td>
+</tr>
+<tr>
+<td>A3</td>
+<td>umgesetzt</td>
+<td><code>stream_forward_drizzle_uniform</code> nutzt denselben <code>source_rect_of</code>-Pfad; der Diagnose-Pfad im Runner teilt den Whole-Set-/Single-Slot-Stash (<code>make_normalized_source_providers</code>)</td>
+</tr>
+<tr>
+<td>A4</td>
+<td>umgesetzt</td>
+<td><code>reconstruct_aqmh_weighted</code> haelt im Non-Region-Fallback einen budget-geprueften Frame/Mask-Stash (<code>frame_stash</code>/<code>mask_stash</code>); der Cherry-Pick-Gate ist frame-aeusser organisiert, Hauptpass nutzt <code>eff_frame_region</code>/<code>eff_mask_region</code></td>
+</tr>
+<tr>
+<td>A5</td>
+<td>umgesetzt</td>
+<td>Der Gate-Pass fuehrt pro Frame genau einen <code>q_map_cache-&gt;read_cached(fi)</code>-Zugriff aus (LRU-resident fuer den Hauptpass); Masken/Frames kommen bei aktivem Stash daraus</td>
+</tr>
+<tr>
+<td>A6</td>
+<td>umgesetzt</td>
+<td>Die Mask-Validierung befuellt den Stash direkt; validierte Masken werden im Hauptpass wiederverwendet statt erneut geladen</td>
+</tr>
+<tr>
+<td>B1</td>
+<td>umgesetzt</td>
+<td>Sequenzieller RGB-Fallback im Runner teilt einen Mask-Stash (<code>rgb_mask_stash</code>) und denselben <code>aqmh_cache</code> ueber die drei Plane-Calls; Frame-Pixeldaten bleiben bewusst plane-spezifisch</td>
+</tr>
+<tr>
+<td>B2</td>
+<td>umgesetzt</td>
+<td><code>multiband_fusion.cpp</code>: Profile werden einmal dekomponiert, Baender aus den Profil-Ebenen kombiniert (kein <code>luma_band</code>-Redekomponieren pro Band)</td>
+</tr>
+<tr>
+<td>B3</td>
+<td>umgesetzt</td>
+<td><code>smooth_alpha_b3</code>: Zaehler und Nenner in einer fus einzigen separablen Faltung (identische Geometrie, ein Pass statt zwei)</td>
+</tr>
+<tr>
+<td>B4</td>
+<td>Fehleinschätzung (veraltet)</td>
+<td><code>compute_global_quality_weights_from_metrics</code> + <code>load_source_quality_metrics</code> existieren und sind verdrahtet (<code>source_quality_artifact.cpp</code>, <code>runner_forward_drizzle.cpp</code>); <code>preflight</code> erzwingt <code>star_max_corners &gt;= 1</code>, das Metrics-Artefakt existiert daher immer</td>
+</tr>
+<tr>
+<td>B5</td>
+<td>Fehleinschätzung</td>
+<td>keine Redundanz: R/G/B/L sind unterschiedliche Daten, kein doppeltes Lesen derselben Bytes; One-Plane-Peak-Memory ist bewusstes Spool-Design</td>
+</tr>
+<tr>
+<td>C1</td>
+<td>umgesetzt</td>
+<td><code>is_auto_reject</code> hoisted (<code>aqmh_reconstruction.cpp</code>)</td>
+</tr>
+<tr>
+<td>C2</td>
+<td>umgesetzt</td>
+<td><code>canvas_valid_flat</code>-Array; <code>canvas_valid()</code> komplett entfernt</td>
+</tr>
+<tr>
+<td>C3</td>
+<td>umgesetzt</td>
+<td><code>band_src_by_level</code>/<code>band_profile_by_level</code> (<code>multiband_fusion.cpp</code>)</td>
+</tr>
+<tr>
+<td>C4</td>
+<td>umgesetzt</td>
+<td>2×2-LUT <code>build_cfa_channel_2x2_lut</code> (<code>source_quality_proxy.cpp</code>)</td>
+</tr>
+<tr>
+<td>C5</td>
+<td>umgesetzt</td>
+<td><code>is_osc</code>/<code>bayer_pattern</code>/<code>cfa_origin_*</code> hoisted (<code>forward_drizzle.cpp</code>)</td>
+</tr>
+<tr>
+<td>C6</td>
+<td>umgesetzt</td>
+<td><code>emit_fine</code>/<code>emit_medium</code>/Exponenten hoisted (<code>forward_drizzle.cpp</code>)</td>
+</tr>
+<tr>
+<td>C7</td>
+<td>umgesetzt</td>
+<td><code>gw_by_fi</code>: <code>global_weight</code> wird einmal pro Frame vorberechnet (<code>aqmh_reconstruction.cpp</code>)</td>
+</tr>
+<tr>
+<td>C8</td>
+<td>umgesetzt</td>
+<td><code>dx</code>/<code>dy</code> hoisted (<code>alpha_guard.cpp</code>)</td>
+</tr>
+<tr>
+<td>D1</td>
+<td>umgesetzt (mit Korrektur des Ansatzes)</td>
+<td><code>mad_sigma</code> braucht die by-value-Kopie fuer den In-Place-Median (urspruenglicher Fix nicht tragfaehig); stattdessen <code>mad_sigma_mutate</code> mit gehisstem <code>dev</code>-Scratch dort, wo die Eingabe mutiert werden darf (<code>alpha_guard.cpp:27-48, 83, 124</code>)</td>
+</tr>
+<tr>
+<td>D2</td>
+<td>umgesetzt</td>
+<td><code>wx</code>/<code>w</code>/<code>w2</code>/<code>A</code>/<code>B</code> hoisted (<code>forward_drizzle.cpp</code>)</td>
+</tr>
+<tr>
+<td>D3</td>
+<td>umgesetzt</td>
+<td><code>result</code> + Profil-Ebenen + Arbeitsbuffer werden ueber Stripes wiederverwendet; nur das genutzte <code>[0, n)</code>-Prefix wird zurueckgesetzt (<code>forward_drizzle.cpp</code>)</td>
+</tr>
+<tr>
+<td>D4</td>
+<td>umgesetzt</td>
+<td><code>reduce_window</code> schreibt in caller-seitige, ueber Tiles wiederverwendete Ergebnis-/Scratch-Buffer (<code>forward_drizzle_contrib_list.cpp</code>)</td>
+</tr>
+<tr>
+<td>D5</td>
+<td>umgesetzt</td>
+<td><code>CudaProducerScratch</code>: <code>src_buf_narrowed</code>/<code>raw</code> u. a. werden pro Frame einmal allokiert und ueber Tiles wiederverwendet (<code>forward_drizzle_contrib_list.cpp</code>)</td>
+</tr>
+<tr>
+<td>D6</td>
+<td>umgesetzt</td>
+<td><code>reserve</code> fuer <code>local_effective_k</code>/<code>local_margins</code> (<code>aqmh_reconstruction.cpp</code>)</td>
+</tr>
+<tr>
+<td>E1</td>
+<td>umgesetzt</td>
+<td><code>build_frame_records</code> befuellt die Contrib-Listen in einem einzigen Raster-Pass (Count+Fill fusioniert, <code>forward_drizzle_contrib_list.cpp</code>)</td>
+</tr>
+<tr>
+<td>E2</td>
+<td>umgesetzt</td>
+<td><code>cuda_pair_producer</code> laedt die Source erst nach dem Band-Cache-Miss (lazy statt vor dem Lookup)</td>
+</tr>
+<tr>
+<td>E3</td>
+<td>umgesetzt</td>
+<td>Affine Inverse werden pro Frame gecacht und ueber Tiles wiederverwendet (<code>forward_drizzle_contrib_list.cpp</code>)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="anmerkungen-zu-den-strukturellen-umbauten-runde-2">Anmerkungen zu den strukturellen Umbauten (Runde 2)<a class="headerlink" href="#anmerkungen-zu-den-strukturellen-umbauten-runde-2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A1/A2 (Loop-Order):</strong> Statt die Stripe-aeussere Loop umzudrehen (grosse
+  Semantik-/Parallelisierungs-Aenderung), wurde die gelesene Datenmenge pro
+  (Stripe, Frame) auf die tatsaechlich gescannte Source-Box reduziert:
+  <code>drizzle_source_scan_box</code> ist die exakt dieselbe Box, die der Rasterizer
+  enumeriert (aus dem Enumerator extrahiert, keine zweite Implementierung).
+  Banded <code>read_rect</code>-Zugriffe auf <code>VerifiedNormalizedSourceCache</code> (mmap-nahe
+  Zeilen-Reads) und <code>SourceQualityMapCacheReader</code> machen den
+  Stripe-Factor fuer Source- und Q-Map-I/O faktisch 1x -- ohne die
+  Akkumulationsordnung zu aendern. Bit-identisch (549/549 Tests).</li>
+<li><strong>A4/A5/A6:</strong> Die Pass-Fusion wurde als Budget-gepruefter Stash geloest:
+  passt das Frame-/Mask-Set in das konfigurierte Memory-Budget, werden die
+  bei der Validierung geladenen Masken und die Frames resident gehalten und
+  Gate + Hauptpass lesen ausschliesslich daraus. Ueberschreitet das Set das
+  Budget, bleibt das bisherige Verhalten (Region-Loader bevorzugt,
+  <code>read_cached</code> fuer Q-Maps) unveraendert aktiv.</li>
+<li><strong>E2-Nuance (bestaetigt und adressiert):</strong> <code>source_of</code> ist im Store-Build
+  <code>VerifiedNormalizedSourceCache::load</code> -- bei LRU-Miss ein voller
+  Frame-Read. Die lazy Ordnung (Band-Cache-Check zuerst) eliminiert den
+  Aufruf auf dem Hit-Pfad vollstaendig; auf dem Miss-Pfad wird zusaetzlich
+  banded via <code>source_rect_of</code> gelesen, wenn verdrahtet.</li>
+<li><strong>B5</strong> ist keine Redundanz im eigentlichen Sinn: R/G/B/L sind
+  unterschiedliche Daten, kein zweifaches Lesen derselben Bytes. Das
+  Spool-Design (One-Plane-At-A-Time Peak-Memory) ist bewusst sequenziell.
+  Kein Fix noetig.</li>
+<li><strong>Verbliebene Grenzen:</strong> Der CPU-Stream-Pfad iteriert weiterhin
+  Stripe-aeusser/Frame-innen -- die Reload-Kosten sind durch banded reads
+  beseitigt, die Enumerations-Reihenfolge bleibt wie zuvor. Bei nicht
+  verdrahteten Rect-Providern (reine <code>source_of</code>-Aufrufer) faellt der Pfad
+  auf die Full-Frame-Semantik zurueck (Coverage-Check statt Exakt-Shape, da
+  <code>to_rect_provider</code> volle Maps mit Origin 0 liefert).</li>
+</ul>
+<h3 id="zusatzlich-behoben-gleiche-musterklasse-nicht-in-der-ursprungsliste">Zusätzlich behoben (gleiche Musterklasse, nicht in der Ursprungsliste)<a class="headerlink" href="#zusatzlich-behoben-gleiche-musterklasse-nicht-in-der-ursprungsliste" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>quantile()</code> in <code>aqmh_reconstruction.cpp:26-43</code>: <code>std::sort</code> durch zwei
+  <code>nth_element</code>-Aufrufe ersetzt (nur Ranks lo/hi werden gebraucht).</li>
+<li><code>aqmh_select_top_k</code>/<code>aqmh_select_auto_reject</code>: geteilte Komparatoren
+  <code>aqmh_score_invalid</code>/<code>aqmh_score_cmp</code> auf File-Scope hoisted
+  (<code>aqmh_cherry_pick.cpp</code>).</li>
+<li><code>median_of_or_nan_inplace</code> statt kopierendem <code>median_of</code> in
+  <code>metrics.cpp</code>, <code>core/utils.cpp:475</code> (<code>robust_sigma_mad</code>) und
+  <code>autobge.cpp</code> -- dieselbe Kopiervermeidung wie bei D1 motiviert.</li>
+<li>ByteSink-Deduplizierung nach <code>core/byte_sink.hpp</code> und
+  <code>rgb_to_luma</code>-Deduplizierung nach <code>image/processing.hpp</code>
+  (Duplikat-Kategorie, nicht Reload-Kategorie).</li>
+</ul>
+<hr />
+<h2 id="kategorie-a-daten-reload-pro-stripechunk">Kategorie A: Daten-Reload pro Stripe/Chunk<a class="headerlink" href="#kategorie-a-daten-reload-pro-stripechunk" title="Permanent link">&para;</a></h2>
+<h3 id="a1-source-frame-wird-pro-stripe-neu-geladen-stream-forward-drizzle">A1: Source-Frame wird pro Stripe neu geladen (Stream-Forward-Drizzle)<a class="headerlink" href="#a1-source-frame-wird-pro-stripe-neu-geladen-stream-forward-drizzle" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- statt die Loop-Order
+umzudrehen wird die gelesene Datenmenge reduziert: <code>drizzle_source_scan_box</code>
+(aus dem Enumerator extrahiert, identische Bounds) liefert pro
+(Stripe, Frame) die inverse-gemappte Source-Box; <code>source_rect_of</code> liest nur
+diese Box banded (<code>VerifiedNormalizedSourceCache::read_rect</code>). Verdrahtet in
+<code>persist_multiband_store_from_predecessors</code>,
+<code>persist_forward_drizzle_from_predecessors</code> und dem Runner-Stash
+(<code>make_normalized_source_providers</code>). Der 2/1-Pfad delegiert an dieselbe
+Funktion und profitiert mit.</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/forward_drizzle.cpp:1489-1600</code>
+<strong>Funktion:</strong> <code>stream_forward_drizzle_uniform_and_raw</code></p>
+<p><strong>Pattern:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>for (int y = 0; y &lt; memory.height; y += memory.rows) {   // Stripe-Loop (außen)
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    for (const auto *f : prepared.frames) {               // Frame-Loop (innen)
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>        const Matrix2Df &amp;source = source_of(f-&gt;source_index);  // Zeile 1595
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>        FrameQualityMaps qm;
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>        if (quality_of) {
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>            qm = quality_of(f-&gt;source_index);                   // Zeile 1600
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        }
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        // ... verarbeite Frame f für Stripe y
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    }
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>}
+</span></code></pre></div></p>
+<p><strong>Problem:</strong> Die Schleifenreihenfolge ist Stripe-außen, Frame-innen. Bei 600 Frames
+und ~15-Frame LRU-Kapazität (512 MB Budget / ~33 MB pro 4K-Frame) ist die
+Cache-Hit-Rate über Stripe-Grenzen hinweg ~0 %. Jeder Frame wird S-mal von Disk
+gelesen, wobei S = Anzahl der Stripe-Rows.</p>
+<p><strong>Implementierung im Runner:</strong> <code>source_of</code> ist entweder:
+- ein Single-Slot-Cache (<code>runner_phase_registration.cpp:511-520</code>): genau 1 Frame
+  resident → 100 % Miss bei Frame-Wechsel
+- <code>cache.load(index)</code> (<code>source_quality_artifact.cpp:385</code>): LRU mit
+  <code>memory_budget_mb</code> (Default 512 MB → ~15 Frames bei 4K)</p>
+<p><strong>Impact:</strong> Bei 600 Frames, 4K-Auflösung, ~20 Stripe-Rows:
+- 600 × 20 = 12.000 Disk-Reads statt 600
+- ~400 GB I/O statt ~20 GB
+- <strong>Dominante Kosten der FORWARD_DRIZZLE-Phase</strong></p>
+<p><strong>Lösungsansatz:</strong>
+1. <strong>Frame-außen, Stripe-innen</strong> Schleifenreihenfolge: Akkumuliere alle Stripe-
+   Buffer gleichzeitig, verarbeite einen Frame nach dem anderen. Erfordert
+   Umstrukturierung der Akkumulatoren (A/B/QA-Buffer müssen für alle Stripe
+   parallel leben).
+2. <strong>Größeres LRU-Budget</strong>: Wenn <code>memory_budget_mb</code> groß genug für alle Frames
+   ist (z.B. 20 GB für 600×4K), entfällt das Problem. Konfigurierbar via
+   <code>drizzle.memory_budget_mb</code>.
+3. <strong>Prefetch-Thread</strong> (wie <code>aqmh_pipeline_overlap.cpp:76-79</code>): Asynchrones
+   Vorladen des nächsten Frames während der aktuelle verarbeitet wird.</p>
+<p><strong>Gegenargument:</strong> Die Single-Slot/LRU-Architektur ist eine bewusste
+Speicher-Begrenzung. Bei 600×4K Frames wären ~20 GB nötig, um alle resident zu
+halten. Die aktuelle Lösung skaliert mit begrenztem RAM, zahlt aber durch
+redundantes I/O.</p>
+<hr />
+<h3 id="a2-q-map-wird-pro-stripe-neu-von-disk-gelesen-kein-in-memory-cache">A2: Q-Map wird pro Stripe neu von Disk gelesen (kein In-Memory-Cache)<a class="headerlink" href="#a2-q-map-wird-pro-stripe-neu-von-disk-gelesen-kein-in-memory-cache" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- die Stream-Funktionen nehmen
+<code>FrameQualityRectProvider</code> direkt entgegen und lesen nur die per-Stripe
+Scan-Box via <code>read_rect</code> (kein Full-Extent-Adapter mehr auf dem verdrahteten
+Pfad; <code>to_rect_provider</code> bleibt als Fallback). <code>SourceQualityMapCacheReader</code>
+hat weiterhin bewusst keinen In-Memory-Cache -- der banded Zugriff
+reduziert die dekodierte Datenmenge auf die Box, ein Cache ist nicht mehr
+noetig. Der getilte CUDA-Pfad behaelt den T4b-Q-Cache
+(1 <code>read_rect</code> pro Frame pro Band).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/source_quality_artifact.cpp:359-383</code>
+<strong>Funktion:</strong> <code>quality_of</code> Lambda in <code>persist_multiband_store_from_predecessors</code></p>
+<p><strong>Pattern:</strong>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">FrameQualityRectProvider</span><span class="w"> </span><span class="n">quality_of</span><span class="w"> </span><span class="o">=</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="p">[</span><span class="n">reader</span><span class="o">=</span><span class="n">qreader</span><span class="p">.</span><span class="n">get</span><span class="p">(),</span><span class="w"> </span><span class="n">need_medium</span><span class="p">,</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">     </span><span class="n">comp</span><span class="o">=</span><span class="n">Matrix2Df</span><span class="p">(),</span><span class="w"> </span><span class="n">s0</span><span class="o">=</span><span class="n">Matrix2Df</span><span class="p">(),</span><span class="w"> </span><span class="n">s1</span><span class="o">=</span><span class="n">Matrix2Df</span><span class="p">(),</span><span class="w"> </span><span class="n">art</span><span class="o">=</span><span class="n">Matrix2Df</span><span class="p">()](</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">        </span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="w"> </span><span class="n">si</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">y0</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">y1</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">x0</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">x1</span><span class="p">)</span><span class="w"> </span><span class="k">mutable</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">FrameQualityMaps</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="n">comp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reader</span><span class="o">-&gt;</span><span class="n">read_rect</span><span class="p">(</span><span class="s">&quot;composite&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">si</span><span class="p">,</span><span class="w"> </span><span class="n">y0</span><span class="p">,</span><span class="w"> </span><span class="n">y1</span><span class="p">,</span><span class="w"> </span><span class="n">x0</span><span class="p">,</span><span class="w"> </span><span class="n">x1</span><span class="p">);</span><span class="w">  </span><span class="c1">// Disk-Read</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">have_s0</span><span class="p">)</span><span class="w"> </span><span class="n">s0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reader</span><span class="o">-&gt;</span><span class="n">read_rect</span><span class="p">(</span><span class="s">&quot;scale_0&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">si</span><span class="p">,</span><span class="w"> </span><span class="n">y0</span><span class="p">,</span><span class="w"> </span><span class="n">y1</span><span class="p">,</span><span class="w"> </span><span class="n">x0</span><span class="p">,</span><span class="w"> </span><span class="n">x1</span><span class="p">);</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">have_s1</span><span class="p">)</span><span class="w"> </span><span class="n">s1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reader</span><span class="o">-&gt;</span><span class="n">read_rect</span><span class="p">(</span><span class="s">&quot;scale_1&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">si</span><span class="p">,</span><span class="w"> </span><span class="n">y0</span><span class="p">,</span><span class="w"> </span><span class="n">y1</span><span class="p">,</span><span class="w"> </span><span class="n">x0</span><span class="p">,</span><span class="w"> </span><span class="n">x1</span><span class="p">);</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">have_art</span><span class="p">)</span><span class="w"> </span><span class="n">art</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reader</span><span class="o">-&gt;</span><span class="n">read_rect</span><span class="p">(</span><span class="s">&quot;artifact&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">si</span><span class="p">,</span><span class="w"> </span><span class="n">y0</span><span class="p">,</span><span class="w"> </span><span class="n">y1</span><span class="p">,</span><span class="w"> </span><span class="n">x0</span><span class="p">,</span><span class="w"> </span><span class="n">x1</span><span class="p">);</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="c1">// ...</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="p">};</span>
+</span></code></pre></div></p>
+<p><strong>Problem:</strong> <code>SourceQualityMapCacheReader</code> hat <strong>keinen In-Memory-Cache</strong>.
+<code>read_rect</code> öffnet die <code>.bin</code>-Datei und dekodiert Storage-Grid-Zellen bei jedem
+Aufruf. Der Kommentar in Zeile 357-358 bestätigt: <em>"The comp/s0/... members are
+reused allocations, NOT a cache"</em>.</p>
+<p><strong>Impact:</strong> Bei 600 Frames, 4 Q-Map-Streams (composite/scale_0/scale_1/artifact),
+~20 Stripe-Rows:
+- 600 × 4 × 20 = 48.000 <code>.bin</code>-Datei-Öffnungen
+- Die I/O-Counter (<code>bin_loads_</code>, <code>bin_cells_decoded_</code>) werden pro Aufruf
+  inkrementiert</p>
+<p><strong>Kontrast zu AQMH:</strong> <code>metrics::QualityMapCache</code> (aqmh_quality_map_cache.hpp:44)
+hat ein LRU-Cache mit <code>read_cached(fi)</code>. Die Forward-Drizzle-Pipeline nutzt
+jedoch <code>SourceQualityMapCacheReader</code>, der keinen Cache hat.</p>
+<p><strong>Lösungsansatz:</strong> In-Memory-LRU-Cache für <code>SourceQualityMapCacheReader</code>
+analog zu <code>QualityMapCache::read_cached()</code>, oder Prefetch-Thread analog zu
+<code>aqmh_pipeline_overlap.cpp</code>.</p>
+<hr />
+<h3 id="a3-source-frame-und-q-map-werden-im-stream_forward_drizzle_uniform-pro-stripe-geladen">A3: Source-Frame und Q-Map werden im <code>stream_forward_drizzle_uniform</code> pro Stripe geladen<a class="headerlink" href="#a3-source-frame-und-q-map-werden-im-stream_forward_drizzle_uniform-pro-stripe-geladen" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt --
+<code>stream_forward_drizzle_uniform</code> nutzt denselben
+<code>source_rect_of</code>-Banded-Read-Pfad; beide Runner-Diagnose-Call-Sites teilen
+<code>make_normalized_source_providers</code> (Whole-Set-Stash bei Budget, sonst
+Single-Slot). Nur Diagnose-/Coverage-Pfad.</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/forward_drizzle.cpp:872-914</code>
+<strong>Funktion:</strong> <code>stream_forward_drizzle_uniform</code></p>
+<p><strong>Pattern:</strong>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">y</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">memory</span><span class="p">.</span><span class="n">height</span><span class="p">;</span><span class="w"> </span><span class="n">y</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">memory</span><span class="p">.</span><span class="n">rows</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="c1">// ...</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="w"> </span><span class="o">*</span><span class="n">f</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">prepared</span><span class="p">.</span><span class="n">frames</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">Matrix2Df</span><span class="w"> </span><span class="o">&amp;</span><span class="n">source</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">source_of</span><span class="p">(</span><span class="n">f</span><span class="o">-&gt;</span><span class="n">source_index</span><span class="p">);</span><span class="w">  </span><span class="c1">// Zeile 884</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">        </span><span class="c1">// ... verarbeite Frame für Stripe</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p><strong>Problem:</strong> Gleiche Schleifenreihenfolge wie A1, aber ohne <code>quality_of</code>
+(diese Funktion hat keinen Q-Map-Pfad). Wird für die uniform-store Vorschau
+und Coverage-Analyse verwendet.</p>
+<p><strong>Impact:</strong> Gleiches Muster wie A1, aber ohne Q-Map-Overhead. Die Funktion
+wird für diagnostische Zwecke aufgerufen, nicht für die Hauptrekonstruktion.</p>
+<hr />
+<h3 id="a4-aqmh-reconstruction-ladt-framemaskq-map-pro-y0-chunk-neu">A4: AQMH-Reconstruction lädt Frame/Mask/Q-Map pro y0-Chunk neu<a class="headerlink" href="#a4-aqmh-reconstruction-ladt-framemaskq-map-pro-y0-chunk-neu" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- im Non-Region-Fallback haelt
+<code>reconstruct_aqmh_weighted</code> einen budget-geprueften Frame/Mask-Stash
+(<code>frame_stash</code>/<code>mask_stash</code>, Gate: Gesamt-Set &lt;= konfiguriertes Budget);
+Region-Loader bleiben bevorzugt und laufen ueber <code>eff_frame_region</code>/
+<code>eff_mask_region</code>. Dasselbe Muster im OpenCL-/CUDA-Host-Feed wurde
+mitgefuehrt (N3/N4).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/aqmh_reconstruction.cpp:355-379</code>
+<strong>Funktion:</strong> <code>reconstruct_aqmh_weighted</code></p>
+<p><strong>Pattern:</strong>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">y0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">y0</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">height</span><span class="p">;</span><span class="w"> </span><span class="n">y0</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">chunk_rows</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">        </span><span class="c1">// Chunk-Loop (außen)</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="kt">ptrdiff_t</span><span class="w"> </span><span class="n">fi_signed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="p">...;</span><span class="w"> </span><span class="o">++</span><span class="n">fi_signed</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// Frame-Loop (innen)</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">frame_ok</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">load_frame_region</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">            </span><span class="o">?</span><span class="w"> </span><span class="n">load_frame_region</span><span class="p">(</span><span class="n">fi</span><span class="p">,</span><span class="w"> </span><span class="n">y0</span><span class="p">,</span><span class="w"> </span><span class="n">rows</span><span class="p">,</span><span class="w"> </span><span class="n">frame</span><span class="p">)</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">            </span><span class="o">:</span><span class="w"> </span><span class="n">load_frame</span><span class="p">(</span><span class="n">fi</span><span class="p">,</span><span class="w"> </span><span class="n">frame</span><span class="p">);</span><span class="w">                       </span><span class="c1">// Zeile 357-358</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">        </span><span class="n">Matrix2Df</span><span class="w"> </span><span class="n">q</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">q_map_cache</span><span class="o">-&gt;</span><span class="n">read_cached</span><span class="p">(</span><span class="n">fi</span><span class="p">);</span><span class="w">        </span><span class="c1">// Zeile 362-363</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">        </span><span class="n">load_frame_valid_mask</span><span class="p">(</span><span class="n">fi</span><span class="p">,</span><span class="w"> </span><span class="n">fm</span><span class="p">);</span><span class="w">                     </span><span class="c1">// Zeile 374-375</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p><strong>Problem:</strong> Wenn die Region-Loader nicht verfügbar sind, werden volle
+Frame/Mask/Q-Map pro Chunk neu geladen. <code>read_cached</code> hat zwar ein LRU, aber
+<code>load_frame</code> und <code>load_frame_valid_mask</code> haben keinen Cache.</p>
+<p><strong>Impact:</strong> Per-Frame pro Chunk. Bei 600 Frames und ~10 Chunks:
+- 6.000 Frame-Loads + 6.000 Mask-Loads (ohne Region-Loader)
+- Mit Region-Loader: nur die relevanten Zeilen, aber immer noch pro Chunk
+  neu gelesen</p>
+<p><strong>Lösungsansatz:</strong> Frame-outer/Chunk-inner Loop-Order, oder
+Single-Frame-Cache wie in <code>runner_phase_registration.cpp:509-520</code>.</p>
+<hr />
+<h3 id="a5-cherry-pick-pre-pass-und-haupt-pass-laden-dieselben-q-mapsmasks-doppelt">A5: Cherry-Pick-Pre-Pass und Haupt-Pass laden dieselben Q-Maps/Masks doppelt<a class="headerlink" href="#a5-cherry-pick-pre-pass-und-haupt-pass-laden-dieselben-q-mapsmasks-doppelt" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- der Cherry-Pick-Gate wurde
+als frame-aeusserer Pass umgebaut: pro Frame genau ein
+<code>q_map_cache-&gt;read_cached(fi)</code> (LRU-resident fuer den Hauptpass) und --
+bei aktivem Stash -- Masken/Frames aus dem Stash statt erneuten Loads.
+Keine doppelten (fi, y0)-Reads mehr zwischen Gate und Hauptpass.</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/aqmh_reconstruction.cpp:188-224</code> (Cherry-Pick)
+und <code>aqmh_reconstruction.cpp:361-375</code> (Haupt-Pass)</p>
+<p><strong>Problem:</strong> Wenn Cherry-Pick aktiviert ist, durchläuft der Cherry-Pick-Rankable-Pass
+jedes (fi, y0) und lädt <code>q_map_cache-&gt;read_region(fi, y0, rows)</code> und
+<code>load_frame_valid_mask_region(fi, y0, rows, fm)</code>. Der Haupt-Pass lädt dann
+dieselben Daten für dieselben (fi, y0) erneut.</p>
+<p><strong>Impact:</strong> Verdopplung der Q-Map- und Mask-I/O wenn Cherry-Pick aktiv ist.</p>
+<p><strong>Lösungsansatz:</strong> Fusion der beiden Pässe, oder Zwischenspeicher der
+Q-Map/Mask-Daten zwischen den Pässen.</p>
+<hr />
+<h3 id="a6-mask-validierung-ladt-mask-verwirft-sie-ladt-sie-im-haupt-pass-neu">A6: Mask-Validierung lädt Mask, verwirft sie, lädt sie im Haupt-Pass neu<a class="headerlink" href="#a6-mask-validierung-ladt-mask-verwirft-sie-ladt-sie-im-haupt-pass-neu" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- die Mask-Validierung befuellt
+den Stash direkt; der Hauptpass verwendet die validierten Masken wieder
+statt sie neu zu laden.</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/aqmh_reconstruction.cpp:164-173</code> (Validierung)
+und <code>aqmh_reconstruction.cpp:371-375</code> (Haupt-Pass)</p>
+<p><strong>Problem:</strong> Die Validierungsschleife lädt <code>full_mask</code> pro Frame, um
+<code>frame_mask_compatible[fi]</code> zu berechnen. Die Maske wird verworfen. Der
+Haupt-Chunk-Loop lädt die Maske dann erneut für jeden Chunk.</p>
+<p><strong>Impact:</strong> Mindestens eine zusätzliche vollständige Mask-Load pro Frame,
+plus die Per-Chunk-Reloads aus A4.</p>
+<hr />
+<h2 id="kategorie-b-daten-reload-pro-bandkanal">Kategorie B: Daten-Reload pro Band/Kanal<a class="headerlink" href="#kategorie-b-daten-reload-pro-bandkanal" title="Permanent link">&para;</a></h2>
+<h3 id="b1-aqmh-cpu-fallback-rekonstruiert-r-g-b-sequenziell-mit-gleichen-q-mapsmasks">B1: AQMH CPU-Fallback rekonstruiert R, G, B sequenziell mit gleichen Q-Maps/Masks<a class="headerlink" href="#b1-aqmh-cpu-fallback-rekonstruiert-r-g-b-sequenziell-mit-gleichen-q-mapsmasks" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- der sequenzielle RGB-Fallback
+teilt einen Mask-Stash (<code>rgb_mask_stash</code>, Budget: ein Viertel des
+konfigurierten Limits) und denselben <code>aqmh_cache</code> ueber die drei
+Plane-Calls; Q-Maps/Masken werden hoechstens einmal dekodiert.
+Frame-Pixeldaten bleiben bewusst plane-spezifisch (R/G/B sind verschiedene
+Daten, vgl. B5). CUDA-Pfad unveraendert <code>run_planes_rgb</code>.</p>
+<p><strong>Datei:</strong> <code>apps/runner_phase_aqmh_reconstruction.cpp:720-775</code></p>
+<p><strong>Pattern:</strong>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">auto</span><span class="w"> </span><span class="n">reconstruct_rgb_plane</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="o">&amp;</span><span class="p">](</span><span class="k">const</span><span class="w"> </span><span class="n">DiskCacheFrameStore</span><span class="w"> </span><span class="o">&amp;</span><span class="n">plane_store</span><span class="p">,</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="n">Matrix2Df</span><span class="w"> </span><span class="o">&amp;</span><span class="n">plane_out</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="o">*</span><span class="n">channel_name</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">channel_index</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="k">auto</span><span class="w"> </span><span class="n">frame_loader</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="o">&amp;</span><span class="p">](</span><span class="kt">size_t</span><span class="w"> </span><span class="n">fi</span><span class="p">,</span><span class="w"> </span><span class="n">Matrix2Df</span><span class="w"> </span><span class="o">&amp;</span><span class="n">output</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">        </span><span class="n">output</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">plane_store</span><span class="p">.</span><span class="n">load</span><span class="p">(</span><span class="n">fi</span><span class="p">);</span><span class="w">  </span><span class="c1">// lädt Kanal-Frame von Disk</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="p">};</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="k">auto</span><span class="w"> </span><span class="n">plane_recon</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">aqmh_reconstruction_ops</span><span class="p">.</span><span class="n">reconstruct_aqmh</span><span class="p">(</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">        </span><span class="n">frames</span><span class="p">.</span><span class="n">size</span><span class="p">(),</span><span class="w"> </span><span class="n">frame_loader</span><span class="p">,</span><span class="w"> </span><span class="n">aqmh_cache</span><span class="p">.</span><span class="n">get</span><span class="p">(),</span><span class="w">  </span><span class="c1">// gleicher aqmh_cache</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">        </span><span class="p">...,</span><span class="w"> </span><span class="n">aqmh_mask_loader</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span><span class="w">                     </span><span class="c1">// gleicher mask_loader</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="p">};</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="n">rgb_ok</span><span class="w"> </span><span class="o">=</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">    </span><span class="n">reconstruct_rgb_plane</span><span class="p">(</span><span class="o">*</span><span class="n">prewarped_frames_r</span><span class="p">,</span><span class="w"> </span><span class="n">out</span><span class="p">.</span><span class="n">output_R</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;R&quot;</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;&amp;</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">    </span><span class="n">reconstruct_rgb_plane</span><span class="p">(</span><span class="o">*</span><span class="n">prewarped_frames_g</span><span class="p">,</span><span class="w"> </span><span class="n">out</span><span class="p">.</span><span class="n">output_G</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;G&quot;</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;&amp;</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">    </span><span class="n">reconstruct_rgb_plane</span><span class="p">(</span><span class="o">*</span><span class="n">prewarped_frames_b</span><span class="p">,</span><span class="w"> </span><span class="n">out</span><span class="p">.</span><span class="n">output_B</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;B&quot;</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span>
+</span></code></pre></div></p>
+<p><strong>Problem:</strong> Jeder <code>reconstruct_aqmh</code>-Aufruf für R, G, B durchläuft alle Frames
+und fragt denselben <code>aqmh_cache</code> und <code>aqmh_mask_store</code> ab. Die Q-Maps und Masks
+sind kanalagnostisch, werden aber dreimal geladen (einmal pro Kanal).</p>
+<p><strong>Impact:</strong> Per-Band (×3 auf CPU). Die Luma-Pass + 3 RGB-Pässe = 4× Sweep über
+Frames/Masks/Q-Maps.</p>
+<p><strong>Kontrast:</strong> Die CUDA-Pfad verwendet <code>session.run_planes_rgb</code> mit
+<code>{r_loader, g_loader, b_loader}</code> und verarbeitet alle drei Kanäle in einem
+Sweep.</p>
+<p><strong>Lösungsansatz:</strong> CPU-Pfad sollte alle drei Kanäle in einem Sweep
+verarbeiten, oder die geladenen Q-Maps/Masks zwischen den Kanal-Pässen
+zwischenspeichern.</p>
+<hr />
+<h3 id="b2-luma_band-dekomponiert-rawfinemedium-fur-jedes-band-neu">B2: <code>luma_band</code> dekomponiert <code>raw</code>/<code>fine</code>/<code>medium</code> für jedes Band neu<a class="headerlink" href="#b2-luma_band-dekomponiert-rawfinemedium-fur-jedes-band-neu" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- die Profile (<code>raw</code>/<code>fine</code>/
+<code>medium</code>) werden einmal pro Kanal dekomponiert und die Baender aus den
+Profil-Dekompositionen kombiniert; <code>luma_band</code> fuehrt keine eigene
+Voll-Dekomposition pro Band mehr aus (<code>multiband_fusion.cpp</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/multiband_fusion.cpp:125-152</code>
+<strong>Aufgerufen von:</strong> <code>fuse_multiband:186-188</code></p>
+<p><strong>Pattern:</strong>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kt">void</span><span class="w"> </span><span class="nf">luma_band</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">ForwardDrizzleUniformResult</span><span class="w"> </span><span class="o">&amp;</span><span class="n">profile</span><span class="p">,</span><span class="w"> </span><span class="p">...,</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">               </span><span class="kt">int</span><span class="w"> </span><span class="n">band0</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="w"> </span><span class="o">&amp;</span><span class="n">out_detail</span><span class="p">,</span><span class="w"> </span><span class="p">...)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">array</span><span class="o">&lt;</span><span class="n">AtrousDecomposition</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="o">&gt;</span><span class="w"> </span><span class="n">dec</span><span class="p">;</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">nch</span><span class="p">;</span><span class="w"> </span><span class="o">++</span><span class="n">c</span><span class="p">)</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">        </span><span class="n">dec</span><span class="p">[</span><span class="n">c</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">atrous_decompose</span><span class="p">(</span><span class="n">ch</span><span class="p">[</span><span class="n">c</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="n">ch</span><span class="p">[</span><span class="n">c</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">support</span><span class="p">,</span><span class="w"> </span><span class="n">w</span><span class="p">,</span><span class="w"> </span><span class="n">h</span><span class="p">,</span><span class="w"> </span><span class="n">levels</span><span class="p">);</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="c1">// ... verwendet nur dec[c].bands[band0]</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="p">}</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="c1">// In fuse_multiband:</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">L</span><span class="p">;</span><span class="w"> </span><span class="o">++</span><span class="n">j</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">    </span><span class="n">luma_band</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span><span class="w"> </span><span class="n">mode</span><span class="p">,</span><span class="w"> </span><span class="n">width</span><span class="p">,</span><span class="w"> </span><span class="n">height</span><span class="p">,</span><span class="w"> </span><span class="n">L</span><span class="p">,</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">dr_luma</span><span class="p">,</span><span class="w"> </span><span class="n">sr</span><span class="p">);</span><span class="w">      </span><span class="c1">// Zeile 187</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">    </span><span class="n">luma_band</span><span class="p">(</span><span class="n">profile</span><span class="p">,</span><span class="w"> </span><span class="n">mode</span><span class="p">,</span><span class="w"> </span><span class="n">width</span><span class="p">,</span><span class="w"> </span><span class="n">height</span><span class="p">,</span><span class="w"> </span><span class="n">L</span><span class="p">,</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">dp_luma</span><span class="p">,</span><span class="w"> </span><span class="n">sp</span><span class="p">);</span><span class="w"> </span><span class="c1">// Zeile 188</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p><strong>Problem:</strong> <code>luma_band</code> führt eine vollständige <code>a trous</code>-Dekomposition über
+alle <code>levels</code> durch, verwendet aber nur <code>bands[band0]</code>. <code>fuse_multiband</code> ruft
+<code>luma_band</code> L-mal auf → <code>raw</code> wird L-mal vollständig dekomponiert, <code>fine</code>/<code>medium</code>
+werden L-mal bzw. (L-1)-mal dekomponiert.</p>
+<p>Zusätzlich dekomponiert <code>fuse_multiband_channel</code> (Zeile 55-61) <code>raw</code>/<code>fine</code>/<code>medium</code>
+bereits einmal pro Kanal. Die Dekompositionen in <code>luma_band</code> sind redundant.</p>
+<p><strong>Impact:</strong> Per-Band, Full-Image. Die <code>a trous</code>-Dekomposition ist O(w×h×levels).
+Bei L=4 Levels und 3 Kanälen:
+- <code>raw</code>: 4× dekomponiert in <code>luma_band</code> + 1× in <code>fuse_multiband_channel</code> = 5×
+- <code>fine</code>: 1× in <code>luma_band</code> + 1× in <code>fuse_multiband_channel</code> = 2×
+- <code>medium</code>: 3× in <code>luma_band</code> + 1× in <code>fuse_multiband_channel</code> = 4×</p>
+<p><strong>Lösungsansatz:</strong> Einmal dekomponieren und <code>bands[band0]</code> indizieren.
+Die Dekompositionen aus <code>fuse_multiband_channel</code> an <code>luma_band</code> weiterreichen.</p>
+<hr />
+<h3 id="b3-smooth_alpha_b3-fuhrt-b3-faltung-zweimal-fur-identische-geometrie-aus">B3: <code>smooth_alpha_b3</code> führt B3-Faltung zweimal für identische Geometrie aus<a class="headerlink" href="#b3-smooth_alpha_b3-fuhrt-b3-faltung-zweimal-fur-identische-geometrie-aus" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- Zaehler- und Nenner-Faltung
+laufen fusioniert in einer separablen <code>conv_axis</code>-Runde (identische
+Geometrie/Labels, ein Pass statt zwei).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/alpha_guard.cpp:174-215</code></p>
+<p><strong>Pattern:</strong>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">auto</span><span class="w"> </span><span class="n">masked_num</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="o">&amp;</span><span class="p">](</span><span class="kt">bool</span><span class="w"> </span><span class="n">weighted</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">double</span><span class="o">&gt;</span><span class="w"> </span><span class="n">src</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">);</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="c1">// src[i] = weighted ? alpha_guarded[i] : 1.0</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">double</span><span class="o">&gt;</span><span class="w"> </span><span class="n">hx</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">);</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="c1">// horizontale B3-Faltung</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">double</span><span class="o">&gt;</span><span class="w"> </span><span class="n">out</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">);</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="c1">// vertikale B3-Faltung</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">out</span><span class="p">;</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="p">};</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="w"> </span><span class="n">num</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">masked_num</span><span class="p">(</span><span class="nb">true</span><span class="p">);</span><span class="w">   </span><span class="c1">// Zeile 214</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="w"> </span><span class="n">den</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">masked_num</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span><span class="w">  </span><span class="c1">// Zeile 215</span>
+</span></code></pre></div></p>
+<p><strong>Problem:</strong> <code>masked_num</code> wird zweimal aufgerufen. Beide Aufrufe:
+1. Allokieren <code>src</code>, <code>hx</code>, <code>out</code> (je n doubles)
+2. Führen horizontale + vertikale B3-Faltung über dieselbe <code>label</code>/<code>support</code>-Geometrie aus
+3. Der einzige Unterschied: <code>src[i]</code> ist <code>alpha_guarded[i]</code> vs <code>1.0</code></p>
+<p><strong>Impact:</strong> Per <code>smooth_alpha_b3</code>-Aufruf (1× pro Band in <code>fuse_multiband</code>).
+Doppelte Full-Image-Faltung + 6 Full-Image-Allokationen.</p>
+<p><strong>Lösungsansatz:</strong> Fused Faltung: berechne <code>num</code> und <code>den</code> in einem einzigen
+horizontalen + vertikalen Pass mit zwei <code>src</code>-Werten pro Pixel.</p>
+<hr />
+<h3 id="b4-compute_source_quality_proxy_v1-wird-in-zwei-phasen-unabhangig-ausgefuhrt">B4: <code>compute_source_quality_proxy_v1</code> wird in zwei Phasen unabhängig ausgeführt<a class="headerlink" href="#b4-compute_source_quality_proxy_v1-wird-in-zwei-phasen-unabhangig-ausgefuhrt" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12):</strong> Fehleinschätzung (veraltet) -- bereits umgesetzt:
+<code>persist_source_quality_artifact</code> hat eine <code>metrics_path</code>-Überladung, die
+<code>source_quality_metrics-v1.json</code> lädt und
+<code>compute_global_quality_weights_from_metrics</code> nutzt
+(<code>source_quality_artifact.cpp:142-195</code>); der Runner übergibt <code>metrics_path</code>
+(<code>runner_forward_drizzle.cpp:431-434</code>). Da <code>preflight</code>
+<code>star_max_corners &gt;= 1</code> erzwingt, existiert das Metrics-Artefakt in diesem
+Fluss immer.</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/source_quality_map_cache.cpp:646-648</code>
+und <code>src/reconstruction/global_quality.cpp:47-48</code></p>
+<p><strong>Problem:</strong> Sowohl <code>build_source_quality_map_cache</code> als auch
+<code>compute_global_quality_weights</code> rufen <code>compute_source_quality_proxy_v1</code> für
+dieselben Source-Frames auf. Die SQM-Phase schreibt bereits
+<code>source_quality_metrics-v1.json</code>, aber die Global-Quality-Phase liest diese
+nicht und rechnet neu.</p>
+<p><strong>Teil-Lösung bereits vorhanden:</strong> Der Runner-Kommentar in
+<code>runner_forward_drizzle.cpp:429-430</code> sagt: <em>"T3: use the pre-computed metrics
+from SOURCE_QUALITY_MAPS instead of reloading and re-running
+compute_source_quality_proxy_v1 per frame."</em> und übergibt <code>metrics_path</code>.
+Aber <code>global_quality.cpp</code> selbst hat keinen Pfad, um die Metrics zu laden.</p>
+<p><strong>Impact:</strong> Per-Frame. Die Proxy-Berechnung ist eine der schwereren
+Per-Source-Operationen (B3-Spline-Blur, MAD, Edge-Aware-Green).</p>
+<hr />
+<h3 id="b5-multiband-delivery-liest-spool-planes-pro-kanal-einzeln">B5: Multiband-Delivery liest Spool-Planes pro Kanal einzeln<a class="headerlink" href="#b5-multiband-delivery-liest-spool-planes-pro-kanal-einzeln" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12):</strong> Fehleinschätzung -- keine Redundanz im eigentlichen
+Sinn: R/G/B/L sind unterschiedliche Daten, kein doppeltes Lesen derselben
+Bytes. Sequentielles, aber notwendiges I/O; das One-Plane-Peak-Memory-Design
+ist bewusst gewählt. Kein Fix nötig.</p>
+<p><strong>Datei:</strong> <code>apps/runner_forward_drizzle.cpp:699-708</code></p>
+<p><strong>Pattern:</strong>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">auto</span><span class="w"> </span><span class="n">emit_set</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="o">&amp;</span><span class="p">](</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="w"> </span><span class="o">&amp;</span><span class="n">prefix</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="w"> </span><span class="o">&amp;</span><span class="n">candidate</span><span class="p">){</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">ch</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w"> </span><span class="o">++</span><span class="n">c</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="w"> </span><span class="n">plane</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reconstruction</span><span class="o">::</span><span class="n">read_candidate_spool_plane</span><span class="p">(</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">            </span><span class="n">spool</span><span class="p">,</span><span class="w"> </span><span class="n">candidate</span><span class="p">,</span><span class="w"> </span><span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span><span class="p">(</span><span class="n">c</span><span class="p">));</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">        </span><span class="n">io</span><span class="o">::</span><span class="n">write_fits_float_rows</span><span class="p">(</span><span class="n">p</span><span class="p">,</span><span class="w"> </span><span class="n">plane</span><span class="p">,</span><span class="w"> </span><span class="n">spool</span><span class="p">.</span><span class="n">height</span><span class="p">,</span><span class="w"> </span><span class="n">spool</span><span class="p">.</span><span class="n">width</span><span class="p">,</span><span class="w"> </span><span class="n">h</span><span class="p">);</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="p">};</span>
+</span></code></pre></div></p>
+<p><strong>Problem:</strong> Jeder Kanal (R/G/B oder L) wird separat aus dem Spool gelesen und
+geschrieben. <code>emit_set</code> wird für <code>raw</code>, den selektierten Kandidaten und
+optional <code>uniform</code>/<code>multiband</code> aufgerufen.</p>
+<p><strong>Impact:</strong> Per-Kanal. Niedrig bis mittel — das Spool-Design ist für
+One-Plane-At-A-Time Peak-Memory, aber das I/O ist wiederholt.</p>
+<hr />
+<h2 id="kategorie-c-redundante-rekursion-in-pixel-loops">Kategorie C: Redundante Rekursion in Pixel-Loops<a class="headerlink" href="#kategorie-c-redundante-rekursion-in-pixel-loops" title="Permanent link">&para;</a></h2>
+<h3 id="c1-cfgcherry_pick_mode-string-vergleich-pro-pixel">C1: <code>cfg.cherry_pick_mode</code> String-Vergleich pro Pixel<a class="headerlink" href="#c1-cfgcherry_pick_mode-string-vergleich-pro-pixel" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12):</strong> umgesetzt -- <code>is_auto_reject</code> einmal am
+Funktionsanfang ausgewertet (<code>aqmh_reconstruction.cpp:191</code>, Nutzung an
+225, 262, 531).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/aqmh_reconstruction.cpp:218-223, 249-253, 516-524</code></p>
+<p><strong>Problem:</strong> <code>if (cfg.cherry_pick_mode == "auto_reject")</code> wird in Per-Pixel-Loops
+ausgewertet. Der String ist für den gesamten Funktionsaufruf invariant.</p>
+<p><strong>Lösung:</strong> <code>const bool is_auto_reject = (cfg.cherry_pick_mode == "auto_reject");</code>
+am Funktionsanfang.</p>
+<p><strong>Impact:</strong> Per-Pixel, hot path. String-Vergleich im innersten Loop.</p>
+<hr />
+<h3 id="c2-canvas_valid-mit-invarianten-checks-pro-pixel-pro-frame">C2: <code>canvas_valid()</code> mit invarianten Checks pro Pixel pro Frame<a class="headerlink" href="#c2-canvas_valid-mit-invarianten-checks-pro-pixel-pro-frame" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12):</strong> umgesetzt -- <code>canvas_valid_flat</code>-Array in beiden
+betroffenen Funktionen; <code>canvas_valid()</code> ist komplett entfernt
+(<code>aqmh_reconstruction.cpp:66-71, 114, 182-186, 252, 260</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/aqmh_reconstruction.cpp:110-113, 240-241, 247</code></p>
+<p><strong>Problem:</strong> <code>canvas_valid(canvas_mask, width, height, x, y)</code> wird pro Pixel
+aufgerufen und prüft Bounds + <code>mask.size()</code> bei jedem Aufruf.</p>
+<p><strong>Kontrast:</strong> <code>reconstruct_aqmh_weighted</code> baut bereits <code>canvas_valid_flat</code>
+(Zeile 177-182) für den Haupt-Pass, aber der Cherry-Non-Region-Pass nutzt
+noch die Funktionsform.</p>
+<p><strong>Lösung:</strong> Flat-Validity-Array einmal pro Chunk aufbauen, direkte Indexierung.</p>
+<hr />
+<h3 id="c3-band_sourcej-l-und-dfdm-pointer-pro-pixel">C3: <code>band_source(j, L)</code> und <code>df</code>/<code>dm</code>-Pointer pro Pixel<a class="headerlink" href="#c3-band_sourcej-l-und-dfdm-pointer-pro-pixel" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12):</strong> umgesetzt -- <code>band_src_by_level</code>- und
+<code>band_profile_by_level</code>-Arrays vor dem Pixel-Loop
+(<code>multiband_fusion.cpp:80-86</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/multiband_fusion.cpp:87-95</code></p>
+<p><strong>Problem:</strong> <code>const BandSource src = band_source(j, L);</code> und
+<code>const AtrousDecomposition &amp;pd = src == BandSource::kFine ? df : dm;</code>
+werden im Per-Pixel-Loop ausgewertet, hängen aber nur von <code>j</code> und <code>L</code> ab.</p>
+<p><strong>Lösung:</strong> <code>std::array&lt;BandSource, L&gt;</code> und <code>std::array&lt;const AtrousDecomposition*, L&gt;</code>
+vor dem Pixel-Loop aufbauen.</p>
+<p><strong>Impact:</strong> Per-Pixel, per-Band. Klein, aber trivial zu fixen.</p>
+<hr />
+<h3 id="c4-cfa_channel_for_source_pixel-pro-pixel-neu-berechnet">C4: <code>cfa_channel_for_source_pixel</code> pro Pixel neu berechnet<a class="headerlink" href="#c4-cfa_channel_for_source_pixel-pro-pixel-neu-berechnet" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12):</strong> umgesetzt -- 2×2-<code>CfaChannel</code>-LUT
+<code>build_cfa_channel_2x2_lut</code> vor den Loops
+(<code>source_quality_proxy.cpp:14-29, 140, 151, 172</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/source_quality_proxy.cpp:127-141, 151-158</code></p>
+<p><strong>Problem:</strong> Die CFA-Kanal-Farbe jedes Pixels wird aus Bayer-Pattern/Origin
+neu berechnet. Das Resultat ist eine periodische 2×2-Maske.</p>
+<p><strong>Lösung:</strong> 2×2 <code>CfaChannel</code>-Lookup vor den Loops aufbauen, Indexierung
+über <code>(x&amp;1, y&amp;1)</code>.</p>
+<p><strong>Impact:</strong> Per-Source-Pixel, O(pixels). Hot für große OSC-Inputs.</p>
+<hr />
+<h3 id="c5-plancolor_mode-und-cfa-parameter-pro-source-pixel-gelesen">C5: <code>plan.color_mode</code> und CFA-Parameter pro Source-Pixel gelesen<a class="headerlink" href="#c5-plancolor_mode-und-cfa-parameter-pro-source-pixel-gelesen" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12):</strong> umgesetzt -- in lokale Variablen kopiert
+(<code>forward_drizzle.cpp:566-581</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/forward_drizzle.cpp:571-574</code></p>
+<p><strong>Problem:</strong> <code>plan.color_mode</code>, <code>plan.bayer_pattern</code>, <code>plan.cfa_origin_x/y</code>
+werden im Per-Source-Pixel-Hot-Loop von <code>enumerate_drizzle_stripe_leaf_cells</code>
+gelesen.</p>
+<p><strong>Lösung:</strong> In lokale Variablen kopieren vor den Loops.</p>
+<p><strong>Impact:</strong> Per-Pixel im Rasterizer. Der Compiler mag inline, aber die
+Struct-Reads sind im hot path.</p>
+<hr />
+<h3 id="c6-cfgemit_-und-exponenten-pro-akzeptiertem-clip-kandidat">C6: <code>cfg.emit_*</code> und Exponenten pro akzeptiertem Clip-Kandidat<a class="headerlink" href="#c6-cfgemit_-und-exponenten-pro-akzeptiertem-clip-kandidat" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12):</strong> umgesetzt -- <code>emit_fine</code>/<code>emit_medium</code>/
+<code>fine_quality_exponent</code>/<code>medium_quality_exponent</code> hoisted
+(<code>forward_drizzle.cpp:1197-1211</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/forward_drizzle.cpp:1189-1192</code></p>
+<p><strong>Problem:</strong> <code>cfg.emit_fine</code>, <code>cfg.emit_medium</code>, <code>cfg.fine_quality_exponent</code>,
+<code>cfg.medium_quality_exponent</code> werden im Per-Pixel-Kandidaten-Loop geprüft.</p>
+<p><strong>Lösung:</strong> In lokale <code>bool</code>/<code>double</code> Variablen vor dem Loop kopieren.</p>
+<hr />
+<h3 id="c7-global_weightglobal_weights-fi-mehrfach-fur-denselben-fi">C7: <code>global_weight(global_weights, fi)</code> mehrfach für denselben <code>fi</code><a class="headerlink" href="#c7-global_weightglobal_weights-fi-mehrfach-fur-denselben-fi" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- <code>gw_by_fi</code> berechnet
+<code>global_weight</code> einmal pro Frame; die bisherigen Aufrufe an
+<code>aqmh_reconstruction.cpp:207, 243, 399</code>.</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/aqmh_reconstruction.cpp:200, 236, 386</code></p>
+<p><strong>Problem:</strong> <code>global_weight(global_weights, fi)</code> wird in drei separaten Loops
+für denselben <code>fi</code> aufgerufen. Der Wert hängt nur von <code>global_weights</code> und <code>fi</code>
+ab, die während des gesamten Aufrufs konstant sind.</p>
+<p><strong>Lösung:</strong> <code>std::vector&lt;float&gt; per_frame_gw(frame_count)</code> einmal am Anfang
+berechnen.</p>
+<hr />
+<h3 id="c8-dx4dy4-arrays-pro-stack-pop-in-bfs">C8: <code>dx[4]</code>/<code>dy[4]</code> Arrays pro Stack-Pop in BFS<a class="headerlink" href="#c8-dx4dy4-arrays-pro-stack-pop-in-bfs" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12):</strong> umgesetzt -- vor die BFS hoisted
+(<code>alpha_guard.cpp:150-153</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/alpha_guard.cpp:159-160</code></p>
+<p><strong>Problem:</strong> <code>const int dx[4] = {-1, 1, 0, 0};</code> und <code>const int dy[4] = {0, 0, -1, 1};</code>
+werden bei jedem Stack-Pop neu deklariert.</p>
+<p><strong>Lösung:</strong> Einmal vor der BFS deklarieren.</p>
+<p><strong>Impact:</strong> Per-Pixel-BFS. Vernachlässigbar, aber trivial zu fixieren.</p>
+<hr />
+<h2 id="kategorie-d-per-iteration-allokationen">Kategorie D: Per-Iteration Allokationen<a class="headerlink" href="#kategorie-d-per-iteration-allokationen" title="Permanent link">&para;</a></h2>
+<h3 id="d1-mad_sigma-kopiert-vektor-by-value-und-allokiert-dev-pro-aufruf">D1: <code>mad_sigma</code> kopiert Vektor by-value und allokiert <code>dev</code> pro Aufruf<a class="headerlink" href="#d1-mad_sigma-kopiert-vektor-by-value-und-allokiert-dev-pro-aufruf" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt mit korrigiertem Ansatz -- der
+vorgeschlagene by-ref/move-Fix ist nicht tragfaehig, da <code>mad_sigma</code> die
+eigene destruktible Kopie fuer den In-Place-Median zwingend braucht.
+Stattdessen: <code>mad_sigma_mutate(values, dev)</code> mit gehisstem <code>dev</code>-Scratch
+dort, wo die Eingabe mutiert werden darf (<code>alpha_guard.cpp:27-48</code>);
+<code>dr_vals</code>/<code>dp_vals</code>/<code>mix</code>/<code>mad_dev</code> sind Caller-seitig hoisted. Die
+verbleibende by-value-Stelle (<code>dr_vals</code>, dessen Ordering erhalten bleiben
+muss) ist semantisch notwendig, keine Redundanz.</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/alpha_guard.cpp:29-36</code></p>
+<p><strong>Problem:</strong>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kt">double</span><span class="w"> </span><span class="nf">mad_sigma</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">values</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">  </span><span class="c1">// by-value → Kopie</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">med</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">median_inplace</span><span class="p">(</span><span class="n">values</span><span class="p">);</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">dev</span><span class="p">;</span><span class="w">                     </span><span class="c1">// neue Allokation</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="n">dev</span><span class="p">.</span><span class="n">reserve</span><span class="p">(</span><span class="n">values</span><span class="p">.</span><span class="n">size</span><span class="p">());</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">float</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">values</span><span class="p">)</span><span class="w"> </span><span class="n">dev</span><span class="p">.</span><span class="n">push_back</span><span class="p">(...);</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="mf">1.4826</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">median_inplace</span><span class="p">(</span><span class="n">dev</span><span class="p">);</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p><code>mad_sigma</code> wird pro Pixel aufgerufen:
+- <code>mad_sigma(dr_vals)</code> 1× pro Pixel (Zeile 97)
+- <code>mad_sigma(mix)</code> 1 + <code>bisection_iters</code> × pro Pixel (Zeile 111/125)</p>
+<p>Der Kommentar in Zeile 100-106 bestätigt: <em>"mad_sigma takes its argument by
+value regardless (it needs its own destructible copy for the in-place median)"</em>.</p>
+<p><strong>Lösung:</strong> <code>mad_sigma(std::vector&lt;float&gt;&amp; values)</code> mit In-Place-Median.
+Aufrufer behält eine Kopie wenn der Originalvektor erhalten bleiben muss.
+Alternativ: <code>mad_sigma_inplace(float* begin, size_t n, std::vector&lt;float&gt;&amp; scratch)</code>.</p>
+<p><strong>Impact:</strong> Per-Pixel, very hot. Kosten wachsen mit <code>window_radius²</code> und
+<code>bisection_iters</code>.</p>
+<hr />
+<h3 id="d2-per-band-wxww2ab-allokationen-in-stream_forward_drizzle_uniform">D2: Per-Band <code>wx</code>/<code>w</code>/<code>w2</code>/<code>A</code>/<code>B</code> Allokationen in <code>stream_forward_drizzle_uniform</code><a class="headerlink" href="#d2-per-band-wxww2ab-allokationen-in-stream_forward_drizzle_uniform" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12):</strong> umgesetzt -- Buffer-Deklarationen aus dem
+Stripe-Loop hoisted (<code>forward_drizzle.cpp:880-886</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/forward_drizzle.cpp:875-882</code></p>
+<p><strong>Problem:</strong>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">y</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">memory</span><span class="p">.</span><span class="n">height</span><span class="p">;</span><span class="w"> </span><span class="n">y</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">memory</span><span class="p">.</span><span class="n">rows</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">array</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">double</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="o">&gt;</span><span class="w"> </span><span class="n">wx</span><span class="p">,</span><span class="w"> </span><span class="n">w</span><span class="p">,</span><span class="w"> </span><span class="n">w2</span><span class="p">,</span><span class="w"> </span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="n">B</span><span class="p">;</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">channels</span><span class="p">;</span><span class="w"> </span><span class="o">++</span><span class="n">c</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">        </span><span class="n">wx</span><span class="p">[</span><span class="n">c</span><span class="p">].</span><span class="n">assign</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span><span class="w">  </span><span class="c1">// neue Allokation pro Stripe</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">        </span><span class="n">w</span><span class="p">[</span><span class="n">c</span><span class="p">].</span><span class="n">assign</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">        </span><span class="c1">// ...</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p><strong>Kontrast:</strong> <code>stream_forward_drizzle_uniform_and_raw</code> (Zeile 1459-1479)
+hat diese bereits als hoisted Buffer außerhalb des Stripe-Loops mit
+<code>resize</code>/<code>fill_n</code> statt <code>assign</code>.</p>
+<p><strong>Lösung:</strong> Dasselbe Pattern wie in <code>stream_forward_drizzle_uniform_and_raw</code>
+anwenden: Buffer einmal auf Max-Größe allokieren, nur <code>[0, n)</code>-Prefix pro
+Stripe nullen.</p>
+<hr />
+<h3 id="d3-per-band-forwarddrizzleuniformandrawresult-profil-allokationen">D3: Per-Band <code>ForwardDrizzleUniformAndRawResult</code> Profil-Allokationen<a class="headerlink" href="#d3-per-band-forwarddrizzleuniformandrawresult-profil-allokationen" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- <code>result</code> und die
+Profil-Ebenen werden ueber Stripes wiederverwendet; pro Stripe wird nur das
+genutzte <code>[0, n)</code>-Prefix zurueckgesetzt (Sink-Vertrag bleibt: synchrone
+Konsumation pro Stripe).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/forward_drizzle.cpp:1493-1509</code></p>
+<p><strong>Problem:</strong> <code>result</code> und alle Profil-Ebenen (<code>L</code>, <code>R</code>, <code>G</code>, <code>B</code>, <code>fine</code>, <code>medium</code>)
+werden in jeder Stripe-Iteration neu allokiert.</p>
+<p><strong>Lösung:</strong> Einmal mit Max-Band-Größe allokieren, pro Stripe zurücksetzen.</p>
+<hr />
+<h3 id="d4-per-tile-candcountsr-allokationen-in-reduce_window">D4: Per-Tile <code>cand</code>/<code>counts</code>/<code>r</code> Allokationen in <code>reduce_window</code><a class="headerlink" href="#d4-per-tile-candcountsr-allokationen-in-reduce_window" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- <code>reduce_window</code> schreibt in
+caller-seitige Buffer, die ueber Tiles wiederverwendet werden
+(<code>forward_drizzle_contrib_list.cpp</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/forward_drizzle_contrib_list.cpp:605-643</code></p>
+<p><strong>Problem:</strong>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">ForwardDrizzleUniformAndRawResult</span><span class="w"> </span><span class="n">r</span><span class="p">;</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">ClipCandidate</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">cand</span><span class="p">(</span><span class="n">channels</span><span class="p">);</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">counts</span><span class="p">(</span><span class="n">channels</span><span class="p">);</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">channels</span><span class="p">;</span><span class="w"> </span><span class="o">++</span><span class="n">c</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span><span class="n">cand</span><span class="p">[</span><span class="n">c</span><span class="p">].</span><span class="n">resize</span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">frame_count</span><span class="p">);</span><span class="w">  </span><span class="c1">// n = tile_w * rows</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">    </span><span class="n">counts</span><span class="p">[</span><span class="n">c</span><span class="p">].</span><span class="n">assign</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p>Wird pro Tile aufgerufen. <code>n * frame_count</code> <code>ClipCandidate</code>s pro Kanal.</p>
+<p><strong>Lösung:</strong> Pre-allokieren auf Max-Tile-Größe, wiederverwenden.</p>
+<hr />
+<h3 id="d5-per-tile-src_buf_narrowed-und-raw-im-cuda-producer">D5: Per-Tile <code>src_buf_narrowed</code> und <code>raw</code> im CUDA-Producer<a class="headerlink" href="#d5-per-tile-src_buf_narrowed-und-raw-im-cuda-producer" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- <code>CudaProducerScratch</code> haelt
+<code>src_buf_narrowed</code>/<code>raw</code> u. a. pro Frame und ueber Tiles
+(<code>forward_drizzle_contrib_list.cpp</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/forward_drizzle_contrib_list.cpp:1050, 1072</code></p>
+<p><strong>Problem:</strong> <code>std::vector&lt;float&gt; src_buf_narrowed(...)</code> und
+<code>std::vector&lt;CudaDrizzleContribRecord&gt; raw(cap)</code> werden pro Tile konstruiert.</p>
+<p><strong>Lösung:</strong> Einmal pro Frame/Producer allokieren, wiederverwenden.</p>
+<hr />
+<h3 id="d6-local_effective_klocal_margins-ohne-reserve">D6: <code>local_effective_k</code>/<code>local_margins</code> ohne <code>reserve</code><a class="headerlink" href="#d6-local_effective_klocal_margins-ohne-reserve" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12):</strong> umgesetzt -- <code>reserve(pixel_count / num_threads)</code>
+vor dem Pixel-Loop (<code>aqmh_reconstruction.cpp:485-488</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/aqmh_reconstruction.cpp:464-466, 531-532, 564-565</code></p>
+<p><strong>Problem:</strong> <code>local_effective_k</code> und <code>local_margins</code> werden leer deklariert und
+mit <code>push_back</code> pro Pixel gefüllt, ohne <code>reserve</code>.</p>
+<p><strong>Lösung:</strong> <code>reserve(pixel_count / num_threads)</code> vor dem Pixel-Loop.</p>
+<hr />
+<h2 id="kategorie-e-strukturelle-cross-pass-redundanz">Kategorie E: Strukturelle Cross-Pass-Redundanz<a class="headerlink" href="#kategorie-e-strukturelle-cross-pass-redundanz" title="Permanent link">&para;</a></h2>
+<h3 id="e1-rasterize_drizzle_stripe-wird-zweimal-aufgerufen-count-fill">E1: <code>rasterize_drizzle_stripe</code> wird zweimal aufgerufen (Count + Fill)<a class="headerlink" href="#e1-rasterize_drizzle_stripe-wird-zweimal-aufgerufen-count-fill" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- <code>build_frame_records</code> fuellt
+die Records in einem einzigen Raster-Pass (Fill-on-demand statt Count+Fill;
+<code>forward_drizzle_contrib_list.cpp</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/forward_drizzle_contrib_list.cpp:75-109</code>
+<strong>Funktion:</strong> <code>build_frame_records</code></p>
+<p><strong>Problem:</strong>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1">// Count-Pass</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">rasterize_drizzle_stripe</span><span class="p">(</span><span class="n">plan</span><span class="p">,</span><span class="w"> </span><span class="n">f</span><span class="p">,</span><span class="w"> </span><span class="n">g</span><span class="p">.</span><span class="n">scale</span><span class="p">,</span><span class="w"> </span><span class="n">cfg</span><span class="p">.</span><span class="n">pixfrac</span><span class="p">,</span><span class="w"> </span><span class="n">y_begin</span><span class="p">,</span><span class="w"> </span><span class="n">rows</span><span class="p">,</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="p">[</span><span class="o">&amp;</span><span class="p">](</span><span class="kt">int</span><span class="w"> </span><span class="n">sx</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">sy</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">isfinite</span><span class="p">(</span><span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">double</span><span class="o">&gt;</span><span class="p">(</span><span class="n">src</span><span class="p">(</span><span class="n">sy</span><span class="p">,</span><span class="w"> </span><span class="n">sx</span><span class="p">))))</span><span class="w"> </span><span class="o">++</span><span class="n">count</span><span class="p">;</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">    </span><span class="p">},</span><span class="w"> </span><span class="n">sub</span><span class="p">,</span><span class="w"> </span><span class="n">xb</span><span class="p">,</span><span class="w"> </span><span class="n">win_w</span><span class="p">);</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="c1">// Fill-Pass (gleiche Geometrie, gleiche src-Checks)</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="n">rasterize_drizzle_stripe</span><span class="p">(</span><span class="n">plan</span><span class="p">,</span><span class="w"> </span><span class="n">f</span><span class="p">,</span><span class="w"> </span><span class="n">g</span><span class="p">.</span><span class="n">scale</span><span class="p">,</span><span class="w"> </span><span class="n">cfg</span><span class="p">.</span><span class="n">pixfrac</span><span class="p">,</span><span class="w"> </span><span class="n">y_begin</span><span class="p">,</span><span class="w"> </span><span class="n">rows</span><span class="p">,</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">    </span><span class="p">[</span><span class="o">&amp;</span><span class="p">](</span><span class="kt">int</span><span class="w"> </span><span class="n">sx</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">sy</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">leaf</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">k</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">        </span><span class="c1">// ... fülle records</span>
+</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="w">    </span><span class="p">},</span><span class="w"> </span><span class="n">sub</span><span class="p">,</span><span class="w"> </span><span class="n">xb</span><span class="p">,</span><span class="w"> </span><span class="n">win_w</span><span class="p">);</span>
+</span></code></pre></div></p>
+<p>Die gleiche Leaf-Geometrie, Polygon-Overlap-Flächen, Target-Indizes und
+<code>src(sy,sx)</code>-Finite-Checks werden zweimal berechnet. Der Count-Pass wird nur
+für <code>reserve</code> verwendet.</p>
+<p><strong>Lösung:</strong> Safe upper-bound <code>reserve</code> + Single-Pass, oder Geometrie einmal
+produzieren und zwischenspeichern.</p>
+<p><strong>Impact:</strong> Per-Frame. Verdoppelt die CPU-Rasterisierungsarbeit.</p>
+<hr />
+<h3 id="e2-cuda_pair_producer-ruft-source_of-bedingungslos-auf-auch-bei-cache-hit">E2: <code>cuda_pair_producer</code> ruft <code>source_of</code> bedingungslos auf, auch bei Cache-Hit<a class="headerlink" href="#e2-cuda_pair_producer-ruft-source_of-bedingungslos-auf-auch-bei-cache-hit" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- <code>cuda_pair_producer</code> laedt
+die Source erst nach dem Band-Cache-Miss (lazy). Kostennuance aus dem
+Nachtrag bestaetigt: <code>source_of</code> ist <code>VerifiedNormalizedSourceCache::load</code>
+-- LRU-Hit nur zwei Stat-Syscalls, LRU-Miss voller Frame-Read. Die lazy
+Ordnung eliminiert den Aufruf auf dem Hit-Pfad; auf dem Miss-Pfad wird
+banded via <code>source_rect_of</code> gelesen, wenn verdrahtet.</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/forward_drizzle_contrib_list.cpp:934-1022</code></p>
+<p><strong>Problem:</strong>
+<div class="language-cpp highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">const</span><span class="w"> </span><span class="n">Matrix2Df</span><span class="w"> </span><span class="o">&amp;</span><span class="n">src</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">source_of</span><span class="p">(</span><span class="n">f</span><span class="p">.</span><span class="n">source_index</span><span class="p">);</span><span class="w">  </span><span class="c1">// Zeile 934 — immer aufgerufen</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="c1">// ... dann Cache-Lookup</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">src_cache_stats</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span><span class="k">auto</span><span class="w"> </span><span class="n">it</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">src_cache</span><span class="o">-&gt;</span><span class="n">find</span><span class="p">(</span><span class="n">fo</span><span class="p">);</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">it</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">src_cache</span><span class="o">-&gt;</span><span class="n">end</span><span class="p">()</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">...)</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">        </span><span class="n">src_buf_full</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">it</span><span class="o">-&gt;</span><span class="n">second</span><span class="p">.</span><span class="n">buf</span><span class="p">.</span><span class="n">data</span><span class="p">();</span><span class="w">  </span><span class="c1">// Cache-Hit: src nicht verwendet</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p><code>source_of</code> wird aufgerufen, bevor der Cache-Lookup stattfindet. Bei Cache-Hit
+wird <code>src</code> nur für einen Shape-Check verwendet, der bereits beim ursprünglichen
+Load durchgeführt wurde.</p>
+<p><strong>Lösung:</strong> <code>source_of</code> in den Cache-Miss-Zweig verschieben, oder Cache-Lookup
+vorher durchführen.</p>
+<p><strong>Impact:</strong> Per-Tile pro Frame auf dem CUDA-Pfad. Wenn <code>source_of</code> I/O ist,
+redundante Frame-Loads.</p>
+<hr />
+<h3 id="e3-affine-inverse-und-source-y-band-pro-tile-neu-berechnet">E3: Affine Inverse und Source-Y-Band pro Tile neu berechnet<a class="headerlink" href="#e3-affine-inverse-und-source-y-band-pro-tile-neu-berechnet" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- die affine Inverse wird pro
+(Frame, Band) gecacht und ueber Tiles wiederverwendet; die Source-Band-
+Ladung selbst liegt bereits in <code>CachedSourceBand</code>
+(<code>forward_drizzle_contrib_list.cpp</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/forward_drizzle_contrib_list.cpp:952-972</code></p>
+<p><strong>Problem:</strong> <code>registration::invert_affine_2x3(s2c, ...)</code> und die Source-Y-Band-
+Berechnung werden pro Tile durchgeführt, hängen aber nur vom Frame und Stripe ab,
+nicht vom Tile-X-Window.</p>
+<p><strong>Lösung:</strong> Einmal pro Frame pro Band berechnen, in <code>CachedSourceBand</code> speichern.</p>
+<p><strong>Impact:</strong> Per-Tile pro Frame. <code>invert_affine_2x3</code> ist die teuerste Operation.</p>
+<hr />
+<h2 id="priorisierung">Priorisierung<a class="headerlink" href="#priorisierung" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Prio</th>
+<th>Fund</th>
+<th>Beschreibung</th>
+<th>Geschätzter Impact</th>
+<th>Status (2026-09-12, final)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>P0</strong></td>
+<td>A1</td>
+<td>Source-Frame pro Stripe neu geladen</td>
+<td>600×S Disk-Reads</td>
+<td>umgesetzt (banded reads via Scan-Box)</td>
+</tr>
+<tr>
+<td><strong>P0</strong></td>
+<td>A2</td>
+<td>Q-Map pro Stripe ohne In-Memory-Cache</td>
+<td>600×4×S .bin-Opens</td>
+<td>umgesetzt (banded <code>read_rect</code>; CUDA-Tiled-Pfad hat T4b-Q-Cache)</td>
+</tr>
+<tr>
+<td><strong>P1</strong></td>
+<td>B2</td>
+<td><code>luma_band</code> dekomponiert L-mal redundant</td>
+<td>L× full-image Dekomposition</td>
+<td>umgesetzt (Profile einmal dekomponiert)</td>
+</tr>
+<tr>
+<td><strong>P1</strong></td>
+<td>E1</td>
+<td><code>rasterize_drizzle_stripe</code> Count+Fill doppelt</td>
+<td>2× CPU-Rasterisierung</td>
+<td>umgesetzt (Single-Pass-Fill)</td>
+</tr>
+<tr>
+<td><strong>P1</strong></td>
+<td>B1</td>
+<td>AQMH CPU RGB 3× Sweep mit gleichen Q-Maps</td>
+<td>3× Frame/Mask/Q-Map I/O</td>
+<td>umgesetzt (geteilter Mask-Stash + Q-Cache)</td>
+</tr>
+<tr>
+<td><strong>P1</strong></td>
+<td>B3</td>
+<td><code>smooth_alpha_b3</code> 2× B3-Faltung für gleiche Geometrie</td>
+<td>2× full-image Faltung</td>
+<td>umgesetzt (fusionierter Pass)</td>
+</tr>
+<tr>
+<td><strong>P2</strong></td>
+<td>A4</td>
+<td>AQMH Frame/Mask pro Chunk ohne Cache</td>
+<td>600×C Frame-Loads</td>
+<td>umgesetzt (Budget-Stash im Non-Region-Fallback)</td>
+</tr>
+<tr>
+<td><strong>P2</strong></td>
+<td>A5</td>
+<td>Cherry-Pick + Haupt-Pass laden Q-Maps doppelt</td>
+<td>2× Q-Map I/O</td>
+<td>umgesetzt (frame-aeusserer Gate-Pass + Stash)</td>
+</tr>
+<tr>
+<td><strong>P2</strong></td>
+<td>E2</td>
+<td><code>source_of</code> bei Cache-Hit trotzdem aufgerufen</td>
+<td>Redundante Frame-Loads</td>
+<td>umgesetzt (lazy nach Cache-Miss)</td>
+</tr>
+<tr>
+<td><strong>P2</strong></td>
+<td>E3</td>
+<td>Affine Inverse pro Tile neu</td>
+<td>Per-Tile <code>invert_affine</code></td>
+<td>umgesetzt (pro-Frame-Cache)</td>
+</tr>
+<tr>
+<td><strong>P2</strong></td>
+<td>D1</td>
+<td><code>mad_sigma</code> by-value + <code>dev</code>-Allokation pro Pixel</td>
+<td>Per-Pixel Kopie+Allok</td>
+<td>umgesetzt (<code>mad_sigma_mutate</code> + gehisster <code>dev</code>-Scratch)</td>
+</tr>
+<tr>
+<td><del>P3</del></td>
+<td>B4</td>
+<td><code>compute_source_quality_proxy_v1</code> 2× in SQM+GQ</td>
+<td>Per-Frame Proxy-Neuberechnung</td>
+<td>Fehleinschätzung: bereits umgesetzt (Metrics-Artefakt)</td>
+</tr>
+<tr>
+<td><strong>P3</strong></td>
+<td>C1-C8</td>
+<td>Invariante Werte in Pixel-Loops</td>
+<td>Per-Pixel Overhead</td>
+<td>C1-C8 umgesetzt</td>
+</tr>
+<tr>
+<td><strong>P3</strong></td>
+<td>D2-D6</td>
+<td>Per-Iteration Allokationen</td>
+<td>Per-Stripe/Tile/Pixel malloc</td>
+<td>D2-D6 umgesetzt</td>
+</tr>
+<tr>
+<td><del>P3</del></td>
+<td>B5</td>
+<td>Multiband-Delivery liest Spool-Planes pro Kanal</td>
+<td>--</td>
+<td>Fehleinschätzung: keine Redundanz (versch. Daten)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="architekturelle-beobachtungen">Architekturelle Beobachtungen<a class="headerlink" href="#architekturelle-beobachtungen" title="Permanent link">&para;</a></h2>
+<ol>
+<li>
+<p><strong>AQMH-Pfad hat Prefetch + LRU-Cache</strong> (<code>aqmh_pipeline_overlap.cpp</code>,
+   <code>QualityMapCache::read_cached</code>), Forward-Drizzle-Pfad hat <strong>keinen
+   Q-Map-Cache</strong> (<code>SourceQualityMapCacheReader</code> liest immer von Disk).</p>
+</li>
+<li>
+<p><strong>CUDA-Pfad hat <code>CachedSourceBand</code></strong> für Source-Frames, CPU-Pfad hat
+   nur Single-Slot-Cache oder LRU mit begrenztem Budget.</p>
+</li>
+<li>
+<p><strong><code>stream_forward_drizzle_uniform_and_raw</code> hat bereits hoisted Buffer</strong>
+   (Zeile 1459-1479), aber <code>stream_forward_drizzle_uniform</code> nicht (Zeile 875-882).</p>
+</li>
+<li>
+<p><strong>Die Schleifenreihenfolge Stripe-außen/Frame-innen</strong> ist die
+   Architektur-Entscheidung, die A1/A2/A3/A4 verursacht. Gelöst wurde sie
+   nicht durch Umkehrung der Reihenfolge, sondern durch banded reads auf die
+   jeweils gescannte Source-Box (<code>drizzle_source_scan_box</code>) bzw. den
+   AQMH-Frame/Mask-Stash -- die Enumerations- und Akkumulationsordnung ist
+   unveraendert, die gelesene Datenmenge pro (Stripe, Frame) sinkt auf die
+   Box.</p>
+</li>
+<li>
+<p><strong><code>prepare_drizzle_frames</code> wird bereits einmal pro Build aufgerufen</strong>
+   (§4.4-Kommentar in <code>drizzle_profile_store.cpp:505-510</code>), nicht pro Band.
+   Dies war ein früheres Problem, das bereits behoben wurde.</p>
+</li>
+</ol>
+<h2 id="neufunde-nachtrag-2026-09-12-gleiches-muster">Neufunde (Nachtrag 2026-09-12, gleiches Muster)<a class="headerlink" href="#neufunde-nachtrag-2026-09-12-gleiches-muster" title="Permanent link">&para;</a></h2>
+<p>Folgende Ausprägungen desselben Musters wurden bei der Verifikation
+gefunden; sie sind nicht Teil der ursprünglichen 28 Funde.</p>
+<h3 id="n1-compute_aqmh_uniform_control-gleicher-chunk-auenframe-innen-reload-wie-a4">N1: <code>compute_aqmh_uniform_control</code> -- gleicher Chunk-außen/Frame-innen-Reload wie A4<a class="headerlink" href="#n1-compute_aqmh_uniform_control-gleicher-chunk-auenframe-innen-reload-wie-a4" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- die Funktion akkumuliert jetzt
+frame-aeusser: jeder Frame/jede Maske wird genau einmal geladen (Region-
+Loader bevorzugt, Slab-Assemblierung), der Pixel-Loop laeuft zeilenparallel
+ueber volle <code>double</code>-Akkumulatoren.</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/aqmh_reconstruction.cpp:79-134</code>
+<strong>Aufgerufen von:</strong> <code>apps/runner_phase_aqmh_reconstruction.cpp:804-818</code></p>
+<p>Die Funktion iteriert pro y0-Chunk über alle Frames und lädt Frame + Maske
+pro (Chunk × Frame) neu -- dasselbe Muster wie A4. Sie läuft als
+Fallback-Sweep zusätzlich zum Hauptpass.</p>
+<h3 id="n2-cuda-sigma-clip-tile-stats-pass-clip-pass-laden-jeweils-alle-frames-q-maps">N2: CUDA-Sigma-Clip-Tile: Stats-Pass + Clip-Pass laden jeweils alle Frames + Q-Maps<a class="headerlink" href="#n2-cuda-sigma-clip-tile-stats-pass-clip-pass-laden-jeweils-alle-frames-q-maps" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> obsolet -- die betroffene Funktion
+<code>cuda_reconstruct_aqmh_impl</code> war unerreichbarer Dead Code (der Dispatch
+ruft <code>reconstruct_aqmh_weighted_cuda</code>); der gesamte Block wurde entfernt.
+Der lebende Sigma-Clip-Tile-Pfad arbeitet auf In-Memory-Tiles und hat
+keine Reload-Problematik.</p>
+<p><strong>Datei:</strong> <code>src/acceleration/acceleration.cpp</code> (~1587 Stats-Pass, ~1693 Clip-Pass)</p>
+<p>Zweifacher Full-Sweep wie A5: Der Stats-Pass lädt alle Frames und Q-Maps,
+danach der Clip-Pass dieselben Daten erneut.</p>
+<h3 id="n3-aqmh_reconstruction_openclcpp-identisches-a4-host-feed-muster">N3: <code>aqmh_reconstruction_opencl.cpp</code> -- identisches A4-Host-Feed-Muster<a class="headerlink" href="#n3-aqmh_reconstruction_openclcpp-identisches-a4-host-feed-muster" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- Frame/Mask-Stash im
+Non-Region-Pfad plus <code>eff_frame_region</code>/<code>eff_mask_region</code>-Loader analog zum
+CPU-Pfad (A4); Q-Maps via <code>read_region</code>/<code>read_cached</code>. Zusaetzlich wurde
+eine latente Inkonsistenz korrigiert: der <code>!use_region</code>-Pfad lud einen
+Full-Frame, lehnte ihn aber an der <code>rows</code>-Dimensionspruefung ab.</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/aqmh_reconstruction_opencl.cpp:695-769</code></p>
+<p>Der OpenCL-Host-Feed lädt Frame-Region + Q-Region + Masken-Region pro
+(Chunk × Frame) -- identisch zum A4-Pattern.</p>
+<h3 id="n4-aqmh_reconstruction_cudacu-identisches-muster-prefetch-nur-fur-frames">N4: <code>aqmh_reconstruction_cuda.cu</code> -- identisches Muster, Prefetch nur für Frames<a class="headerlink" href="#n4-aqmh_reconstruction_cudacu-identisches-muster-prefetch-nur-fur-frames" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- Frame/Mask-Stash im
+Non-Region-Pfad; der asynchrone Frame-Prefetch und der Host-Feed laufen
+ueber die effektiven Region-Loader bzw. den Stash. Q-Map/Maske folgen dem
+CPU-Pfad (<code>read_cached</code>/<code>eff_mask_region</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/aqmh_reconstruction_cuda.cu:1484-1672</code></p>
+<p>Dasselbe A4-Pattern. Der Prefetch-Thread deckt nur Frames ab; Q-Map und
+Maske bleiben synchron pro (Chunk × Frame) (Code-Kommentar ~Z. 1461-1462).</p>
+<h3 id="n5-existenz-probes-rufen-den-full-extent-q-provider-auf">N5: Existenz-Probes rufen den Full-Extent-Q-Provider auf<a class="headerlink" href="#n5-existenz-probes-rufen-den-full-extent-q-provider-auf" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- die Probes laufen ueber den
+Rect-Provider mit leerem Rect (<code>y0 == y1</code>, <code>x0 == x1</code> =&gt; reiner
+Existenz-Check, kein Decode), identisch zum Contrib-List-Pfad
+(<code>forward_drizzle.cpp</code>).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/forward_drizzle.cpp:1284-1296</code></p>
+<p><code>quality_of(si).composite</code>/<code>.artifact</code> als bloßer Null-Check rufen den
+Full-Extent-Provider auf -&gt; volle Dekodierung aller Streams pro Frame. Der
+Contrib-List-Pfad nutzt bereits den kostenlosen Leer-Rect-Probe
+(<code>forward_drizzle_contrib_list.cpp:497</code>), der Stream-Pfad nicht.</p>
+<h3 id="n6-fuse_multiband_store_to_image-liest-halo-zeilen-doppelt">N6: <code>fuse_multiband_store_to_image</code> liest Halo-Zeilen doppelt<a class="headerlink" href="#n6-fuse_multiband_store_to_image-liest-halo-zeilen-doppelt" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- ein Rolling-Window-Helfer
+haelt die zuletzt gelesene Region pro Stream; der Folge-Chunk liest nur
+das Delta statt <code>[y0-halo, y1+halo)</code> komplett neu.</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/source_quality_artifact.cpp:637-649</code></p>
+<p>Jeder Chunk liest <code>[y0-halo, y1+halo)</code>; die Halo-Zeilen werden an jeder
+Chunk-Grenze zweimal gelesen, über 4 Profil- + 3 Alpha-Streams.</p>
+<h3 id="n7-zweite-single-slot-source-cache-im-diagnose-pfad">N7: Zweite Single-Slot-Source-Cache im Diagnose-Pfad<a class="headerlink" href="#n7-zweite-single-slot-source-cache-im-diagnose-pfad" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- beide Diagnose-Call-Sites
+nutzen <code>make_normalized_source_providers</code>: Whole-Set-Stash, wenn das Set
+ins Budget passt, sonst der bisherige Single-Slot-Fallback; beide Pfade
+liefern zusaetzlich <code>source_rect_of</code> fuer banded reads.</p>
+<p><strong>Datei:</strong> <code>apps/runner_phase_registration.cpp:599-610</code></p>
+<p>Zusätzlich zur bekannten Cache an Z. 511-520 eine zweite
+Single-Slot-Source-Cache, die <code>persist_forward_drizzle_uniform</code> speist --
+derselbe Diagnose-Pfad mit dem A3-Reload-Verhalten.</p>
+<h3 id="n8-masked_convolve-b3-pendant-mit-4-full-image-passen-pro-level">N8: <code>masked_convolve</code> -- B3-Pendant mit 4 Full-Image-Pässen pro Level<a class="headerlink" href="#n8-masked_convolve-b3-pendant-mit-4-full-image-passen-pro-level" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- <code>masked_convolve</code> berechnet
+<code>num</code>/<code>den</code> in einer fusionierten <code>conv_axis</code>-Runde (2 statt 4 Full-Image-
+Pässe); die Level-Scratch-Buffer <code>vm</code>/<code>md</code>/<code>c_cur</code>/<code>m_cur</code> werden ueber
+Levels wiederverwendet.</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/atrous_decomposition.cpp:39-47</code></p>
+<p><code>num</code>/<code>den</code> sind dieselbe separable B3-Faltung über identischer Geometrie
+in getrennten <code>conv_axis</code>-Pässen (4 Full-Image-Pässe + Allokationen pro
+Level) -- fusbar wie B3. Zusätzlich werden <code>vm</code>/<code>md</code>/<code>c_cur</code>/<code>m_cur</code> pro
+Level neu allokiert.</p>
+<h3 id="n9-veralteter-kommentar-in-drizzle_profile_storecpp">N9: Veralteter Kommentar in <code>drizzle_profile_store.cpp</code><a class="headerlink" href="#n9-veralteter-kommentar-in-drizzle_profile_storecpp" title="Permanent link">&para;</a></h3>
+<p><strong>Status (2026-09-12, Runde 2):</strong> umgesetzt -- der Kommentar beschreibt
+jetzt die aktuelle Architektur (Tile-Produktion, Sortierung und Reduktion
+in <code>accumulate_pair_by_frame_cuda</code>, Blit in die Full-Width-Stripe).</p>
+<p><strong>Datei:</strong> <code>src/reconstruction/drizzle_profile_store.cpp:718-723</code></p>
+<p>Der Kommentar beschreibt noch die Per-Band-Record-Memo, die §30.81 step 3a
+entfernt hat (widerspricht <code>forward_drizzle_contrib_list.cpp:763-775</code>).
+Nur Konsistenz-/Dokumentationsproblem, kein Code-Defekt.</p>
+<hr />
+<h2 id="begrenzungen-dieser-analyse">Begrenzungen dieser Analyse<a class="headerlink" href="#begrenzungen-dieser-analyse" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Keine Profiling-Messungen durchgeführt; Impact-Schätzungen basieren auf
+  Schleifenstruktur und Cache-Kapazitätsrechnung.</li>
+<li>Die tatsächlichen I/O-Kosten hängen von <code>memory_budget_mb</code>, Frame-Größe,
+  Stripe-Anzahl und LRU-Hit-Rate ab.</li>
+<li>Einige Funde (C1-C8, D6) sind einzeln vernachlässigbar, können sich aber
+  in hot Pixel-Loops addieren.</li>
+<li>Die Schleifenreihenfolge Stripe-außen/Frame-innen ist möglicherweise
+  bewusst gewählt für Memory-Bounding — eine Umstellung erfordert
+  sorgfältige Analyse der Peak-Memory-Auswirkungen.</li>
+<li>Datumsinkonsistenz: Das Dokument ist auf 2026-09-23 datiert, der
+  Verifikations-Nachtrag auf 2026-09-12 (Systemdatum). Vermutlich Tippfehler
+  im Dateinamen/Header; der Inhalt wurde nicht angepasst.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/jeamy/tile_compile" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

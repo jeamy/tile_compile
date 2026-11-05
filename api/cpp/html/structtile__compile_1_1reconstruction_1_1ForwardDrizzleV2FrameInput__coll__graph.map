@@ -1,0 +1,21 @@
+<map id="tile_compile::reconstruction::ForwardDrizzleV2FrameInput" name="tile_compile::reconstruction::ForwardDrizzleV2FrameInput">
+<area shape="rect" id="Node000001" title=" " alt="" coords="769,225,968,264"/>
+<area shape="rect" id="Node000002" href="$structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2LocalWarp.html" title=" " alt="" coords="401,5,596,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="611,34,681,52,715,66,747,84,785,116,818,155,860,226,855,224,813,158,782,120,743,88,712,71,679,57,612,39"/>
+<area shape="rect" id="Node000003" href="$structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2Sigma2FrameModel.html" title=" " alt="" coords="374,68,623,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="636,108,693,124,746,146,804,184,850,225,845,224,801,188,744,151,691,129,637,113"/>
+<area shape="rect" id="Node000004" href="$structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2SourceWindow.html" title=" " alt="" coords="388,131,609,169"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="624,167,746,195,824,225,818,225,744,201,624,173"/>
+<area shape="rect" id="Node000005" href="$structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2CachedLeaf.html" title=" " alt="" coords="397,193,600,232"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="615,220,771,236,766,237,615,225"/>
+<area shape="rect" id="Node000006" href="$structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2SourceSample.html" title=" " alt="" coords="389,256,608,295"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="623,270,745,261,771,261,766,262,745,267,624,275"/>
+<area shape="rect" id="Node000007" href="$structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2AlignedQuality.html" title=" " alt="" coords="390,319,607,357"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="622,322,683,311,744,296,788,280,827,265,832,264,790,285,746,301,684,316,623,327"/>
+<area shape="rect" id="Node000008" href="$structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2FrameQuality.html" title=" " alt="" coords="393,381,604,420"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="619,384,682,368,744,344,775,326,803,305,847,266,852,263,806,309,778,331,746,349,684,373,620,389"/>
+<area shape="rect" id="Node000009" href="$structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2PackedQualityPlane.html" title=" " alt="" coords="5,381,256,420"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="271,398,395,400,389,401,271,403"/>
+<area shape="rect" id="Node000010" href="$structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2FrameMeta.html" title=" " alt="" coords="399,444,598,483"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="613,452,680,435,713,422,743,406,782,373,814,334,839,295,856,266,861,263,844,298,819,337,786,377,747,410,715,427,682,441,613,457"/>
+</map>
