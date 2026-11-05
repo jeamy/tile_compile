@@ -1,9 +1,0 @@
-<map id="tile_compile::reconstruction::compute_source_quality_proxy_v1" name="tile_compile::reconstruction::compute_source_quality_proxy_v1">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,30,186,83"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#a61959a807b75c979254d960e8d8fdede" title=" " alt="" coords="258,5,438,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="186,43,245,37,240,39,187,48"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#aa5a64e101fdf01e7877afc177da937a7" title=" " alt="" coords="234,68,462,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="186,65,221,71,215,72,186,70"/>
-<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#a721dd0f6ebc4a21cd2099ec9d9eec79d" title=" " alt="" coords="510,68,693,107"/>
-<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="463,85,497,87,492,87,463,90"/>
-</map>

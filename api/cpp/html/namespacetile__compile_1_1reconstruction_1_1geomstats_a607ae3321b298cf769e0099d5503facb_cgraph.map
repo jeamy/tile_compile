@@ -1,7 +1,0 @@
-<map id="tile_compile::reconstruction::geomstats::to_json" name="tile_compile::reconstruction::geomstats::to_json">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,37,186,76"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction_1_1geomstats.html#a764a64f056c9fc06ef65f105ef933924" title=" " alt="" coords="234,5,414,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="185,41,221,39,216,40,187,47"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction_1_1geomstats.html#a8b533f9bedf90bed90c4d63ddf52625b" title=" " alt="" coords="234,68,414,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="186,66,221,73,215,73,186,71"/>
-</map>

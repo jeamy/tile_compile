@@ -1,7 +1,0 @@
-<map id="include/tile_compile/reconstruction/chroma_denoise.hpp" name="include/tile_compile/reconstruction/chroma_denoise.hpp">
-<area shape="rect" id="Node000001" title=" " alt="" coords="120,5,275,58"/>
-<area shape="rect" id="Node000002" href="$runner__downstream_8cpp.html" title=" " alt="" coords="5,113,198,138"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="162,68,115,115,112,111,157,70"/>
-<area shape="rect" id="Node000003" href="$chroma__denoise_8cpp.html" title=" " alt="" coords="222,106,368,145"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="237,66,278,106,272,105,235,71"/>
-</map>

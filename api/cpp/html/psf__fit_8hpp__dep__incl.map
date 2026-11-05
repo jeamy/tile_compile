@@ -1,9 +1,0 @@
-<map id="include/tile_compile/metrics/psf_fit.hpp" name="include/tile_compile/metrics/psf_fit.hpp">
-<area shape="rect" id="Node000001" title=" " alt="" coords="196,5,331,44"/>
-<area shape="rect" id="Node000002" href="$metrics_8cpp.html" title=" " alt="" coords="5,92,164,117"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="208,51,112,94,110,89,203,50"/>
-<area shape="rect" id="Node000003" href="$psf__fit_8cpp.html" title=" " alt="" coords="188,92,338,117"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="265,58,265,93,261,90,261,62"/>
-<area shape="rect" id="Node000004" href="$tile__metrics_8cpp.html" title=" " alt="" coords="363,92,545,117"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="324,48,428,91,423,92,323,53"/>
-</map>

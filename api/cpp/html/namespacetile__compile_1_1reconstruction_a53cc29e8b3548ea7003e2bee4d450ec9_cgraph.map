@@ -1,9 +1,0 @@
-<map id="tile_compile::reconstruction::write_source_quality_metrics" name="tile_compile::reconstruction::write_source_quality_metrics">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,37,204,76"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#ad36cabee6f07e00eee8a6c15d9d66755" title="Writes text." alt="" coords="252,37,384,76"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="204,54,239,56,233,57,204,59"/>
-<area shape="rect" id="Node000003" href="$classtile__compile_1_1core_1_1AtomicOutput.html#a016cfea9ad01ca8e8b22c1b26a0e2512" title=" " alt="" coords="432,5,592,44"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="384,43,414,41,419,40,385,48"/>
-<area shape="rect" id="Node000004" href="$classtile__compile_1_1core_1_1AtomicOutput.html#a5a575a83894433e513dd9748b172f7ed" title=" " alt="" coords="441,68,583,107"/>
-<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="385,64,428,74,423,74,384,70"/>
-</map>

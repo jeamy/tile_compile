@@ -1,5 +1,0 @@
-<map id="tile_compile::reconstruction::ForwardDrizzleV2CpuKernel::accumulate_frame_local_window" name="tile_compile::reconstruction::ForwardDrizzleV2CpuKernel::accumulate_frame_local_window">
-<area shape="rect" id="Node000001" title=" " alt="" coords="247,5,468,58"/>
-<area shape="rect" id="Node000002" href="$classtile__compile_1_1reconstruction_1_1ForwardDrizzleV2CpuKernel.html#a8b027df5bcc210334b976954c736f371" title=" " alt="" coords="5,5,199,58"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="228,32,199,34,199,29,234,31"/>
-</map>

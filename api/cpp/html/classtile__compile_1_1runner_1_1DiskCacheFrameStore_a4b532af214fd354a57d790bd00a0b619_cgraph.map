@@ -1,5 +1,0 @@
-<map id="tile_compile::runner::DiskCacheFrameStore::store" name="tile_compile::runner::DiskCacheFrameStore::store">
-<area shape="rect" id="Node000001" title="Persist one full frame at index fi." alt="" coords="5,5,167,58"/>
-<area shape="rect" id="Node000002" href="$classtile__compile_1_1runner_1_1DiskCacheFrameStore.html#ae2d491119a0d9f56f87add0ffc56bbf2" title="Release the mmap mapping for one frame; the cached file remains." alt="" coords="215,5,376,58"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="167,29,202,31,197,32,167,34"/>
-</map>

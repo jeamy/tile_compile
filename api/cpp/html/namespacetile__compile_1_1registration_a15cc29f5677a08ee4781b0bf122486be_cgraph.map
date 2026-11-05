@@ -1,9 +1,0 @@
-<map id="tile_compile::registration::estimate_affine_star_refinement" name="tile_compile::registration::estimate_affine_star_refinement">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,82,220,120"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#ace44bae6c0411d49266a57c3fb8f4586" title="Estimates affine family transform." alt="" coords="268,5,430,58"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="180,79,255,58,251,61,182,84"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1registration.html#a4acc7bb29b4d704ee1ecc482359ea939" title="Implements identity warp." alt="" coords="268,82,430,120"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="220,98,254,100,249,102,221,104"/>
-<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1registration.html#a21d5634496fa1f12ce276a444c75e7f4" title="Inverts forward affine to warp." alt="" coords="268,144,430,197"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="181,118,255,142,250,143,181,124"/>
-</map>

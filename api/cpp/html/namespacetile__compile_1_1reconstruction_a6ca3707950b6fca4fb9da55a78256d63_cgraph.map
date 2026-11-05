@@ -1,7 +1,0 @@
-<map id="tile_compile::reconstruction::inspect_forward_drizzle_v2_store" name="tile_compile::reconstruction::inspect_forward_drizzle_v2_store">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,40,186,93"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#ae25e7811ba23c5e7a450b33035a9004c" title=" " alt="" coords="248,5,428,58"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="186,51,236,46,231,47,187,56"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#a3093e9e0edf1bb6228417e9b200f472d" title=" " alt="" coords="234,82,443,120"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="186,77,221,84,216,84,186,82"/>
-</map>

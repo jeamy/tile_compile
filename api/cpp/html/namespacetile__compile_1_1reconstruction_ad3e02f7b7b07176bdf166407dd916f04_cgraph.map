@@ -1,9 +1,0 @@
-<map id="tile_compile::reconstruction::select_reconstruction_candidate" name="tile_compile::reconstruction::select_reconstruction_candidate">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,37,222,76"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#a560fa73bdec8e69dc5494fd41d32d69d" title=" " alt="" coords="278,5,458,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="222,40,265,37,260,38,223,46"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#addd52810871ef90747de97c4e24ea6cf" title=" " alt="" coords="270,68,467,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="222,67,257,74,252,74,222,72"/>
-<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1metrics.html#a1f59b15a138aaa114f2ea2356a6a92ee" title=" " alt="" coords="515,68,656,107"/>
-<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="468,85,502,87,497,87,468,90"/>
-</map>

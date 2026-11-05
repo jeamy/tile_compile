@@ -1,9 +1,0 @@
-<map id="tile_compile::registration::serialize_to_json_string" name="tile_compile::registration::serialize_to_json_string">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,68,170,107"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile.html#ac31569f320ed3b6cc89891d5957e9484" title=" " alt="" coords="246,5,375,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="158,65,233,46,228,48,159,70"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile.html#a19f4ee1a01217c22949834089503a58c" title=" " alt="" coords="247,68,374,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="170,85,234,86,229,88,171,90"/>
-<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1registration.html#a1818862cd2ad40dae0a18012e3e792ba" title=" " alt="" coords="218,130,403,183"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="152,105,212,125,207,126,152,110"/>
-</map>

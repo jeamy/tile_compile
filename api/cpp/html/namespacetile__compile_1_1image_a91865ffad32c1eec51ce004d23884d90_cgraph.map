@@ -1,8 +1,0 @@
-<map id="tile_compile::image::cosmetic_correction" name="tile_compile::image::cosmetic_correction">
-<area shape="rect" id="Node000001" title="Implements cosmetic correction." alt="" coords="5,35,152,73"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#ad3f5e136e6d82258715560a4a6ab6329" title=" " alt="" coords="200,5,323,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="152,40,187,36,182,37,153,45"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#af1361dab041db5d25f27d0f01d6075d2" title="Implements median of." alt="" coords="371,35,494,73"/>
-<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="152,52,200,53,323,53,358,55,353,55,323,58,200,58,152,58"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="324,33,358,41,353,41,323,38"/>
-</map>

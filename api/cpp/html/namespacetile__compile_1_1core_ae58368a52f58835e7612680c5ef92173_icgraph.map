@@ -1,5 +1,0 @@
-<map id="tile_compile::core::make_device_frame_batch" name="tile_compile::core::make_device_frame_batch">
-<area shape="rect" id="Node000001" title="Creates device frame batch." alt="" coords="204,12,388,51"/>
-<area shape="rect" id="Node000002" href="$classtile__compile_1_1core_1_1WorkerCudaStreams.html#a1e5431fee7c67c14028d0cf472071cf5" title=" " alt="" coords="5,5,156,58"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="185,32,156,34,156,29,190,31"/>
-</map>

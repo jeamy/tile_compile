@@ -1,8 +1,0 @@
-<map id="tile_compile::core::device_frame_to_json" name="tile_compile::core::device_frame_to_json">
-<area shape="rect" id="Node000001" title="Implements device frame to json." alt="" coords="398,44,554,83"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#a02eb4a83f07f7e211db6ec2b25ed5773" title="Implements device frame batch to json." alt="" coords="204,5,350,58"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="380,49,351,46,351,41,385,49"/>
-<area shape="rect" id="Node000003" href="$classtile__compile_1_1core_1_1WorkerCudaStreams.html#a1e5431fee7c67c14028d0cf472071cf5" title=" " alt="" coords="5,37,156,90"/>
-<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="380,69,350,73,204,73,156,71,156,66,204,68,350,68,385,69"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="186,47,156,54,155,49,191,45"/>
-</map>

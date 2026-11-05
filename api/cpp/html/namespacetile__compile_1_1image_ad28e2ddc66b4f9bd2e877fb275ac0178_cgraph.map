@@ -1,8 +1,0 @@
-<map id="tile_compile::image::cosmetic_correction_cfa" name="tile_compile::image::cosmetic_correction_cfa">
-<area shape="rect" id="Node000001" title="Implements cosmetic correction cfa." alt="" coords="5,35,177,73"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#ad3f5e136e6d82258715560a4a6ab6329" title=" " alt="" coords="225,5,348,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="176,39,212,36,207,37,177,44"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#af1361dab041db5d25f27d0f01d6075d2" title="Implements median of." alt="" coords="396,35,519,73"/>
-<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="177,52,225,53,348,53,383,55,378,55,348,58,225,58,177,58"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="349,33,383,41,378,41,348,38"/>
-</map>
