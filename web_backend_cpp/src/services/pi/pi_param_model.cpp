@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
@@ -113,6 +114,14 @@ fs::path target_dir_for(const std::shared_ptr<AppState>& state,
                         const std::string& target_path) {
     return pi_models_dir(state) / domain / target_path;
 }
+
+bool safe_model_key(const std::string& value) {
+    if (value.empty()) return false;
+    for (const unsigned char ch : value) {
+        if (!(std::isalnum(ch) || ch == '_' || ch == '-' || ch == '.')) return false;
+    }
+    return value != "." && value != ".." && value.find("..") == std::string::npos;
+}
 } // namespace
 
 ParamShadowPrediction predict_param_nn(const std::shared_ptr<AppState>& state,
@@ -120,8 +129,17 @@ ParamShadowPrediction predict_param_nn(const std::shared_ptr<AppState>& state,
                                        const std::string& target_path,
                                        const nlohmann::json& feature_vector) {
     ParamShadowPrediction result;
-    if (target_path.empty()) {
-        result.reason = "empty_target_path";
+    if (domain != "scan" && domain != "live_edit") {
+        result.reason = "unsupported_domain";
+        return result;
+    }
+    if (!safe_model_key(target_path)) {
+        result.reason = "invalid_target_path";
+        return result;
+    }
+    if (!feature_vector.is_object() || !feature_vector.contains("domain") ||
+        !feature_vector["domain"].is_string() || feature_vector["domain"] != domain) {
+        result.reason = "feature_domain_mismatch";
         return result;
     }
 
@@ -138,6 +156,11 @@ ParamShadowPrediction predict_param_nn(const std::shared_ptr<AppState>& state,
         return result;
     }
     result.model_version = version_dir.filename().string();
+    if (metadata->value("domain", std::string()) != domain ||
+        metadata->value("target_path", std::string()) != target_path) {
+        result.reason = "model_identity_mismatch";
+        return result;
+    }
 
     if (domain == "scan") {
         const std::string trained_schema_sha256 = metadata->value("config_schema_sha256", std::string());
@@ -166,6 +189,16 @@ ParamShadowPrediction predict_param_nn(const std::shared_ptr<AppState>& state,
         return result;
     }
 
+    for (const auto& point : reference_points) {
+        if (!point.contains("feature_vector") || !point["feature_vector"].is_object() ||
+            !point["feature_vector"].contains("domain") ||
+            !point["feature_vector"]["domain"].is_string() ||
+            point["feature_vector"]["domain"] != domain) {
+            result.reason = "reference_domain_mismatch";
+            return result;
+        }
+    }
+
     // k=5, or fewer if the reference set is smaller — Abschnitt 4.2 names ~20 examples as the point
     // a nearest-neighbor model becomes useful at all; below that this still runs, just with low
     // confidence, which is visible in the shadow log rather than hidden.
@@ -190,9 +223,8 @@ ParamShadowPrediction predict_param_nn(const std::shared_ptr<AppState>& state,
     // Inverse-distance weighting either way; which combination rule depends on whether the k
     // nearest points' "value" are all numbers (regression — Schritt 5's live-edit params, e.g.
     // brightness.midtones) or not (classification — Schritt 3's scan paths, e.g. bge.method). A
-    // reference set must not mix the two for the same target_path (undefined which branch wins if
-    // the k-nearest happen to be mixed; not guarded against here, that is a training-side
-    // invariant, not a runtime one).
+    // reference set must not mix numeric and categorical target values for one target_path. Domain
+    // identity is checked above; target-value type consistency remains a training-data invariant.
     bool all_numeric = true;
     for (int i = 0; i < k; ++i) {
         if (!(*scored[static_cast<size_t>(i)].second)["value"].is_number()) { all_numeric = false; break; }

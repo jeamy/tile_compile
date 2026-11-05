@@ -67,6 +67,16 @@ int main(int argc, char** argv) {
         expect_true(!matched_sha["jev_revision_linked"].get<bool>(), "missing Jev proposal cannot be linked");
         expect_equal(slurp_file(harness.config_path()), original_yaml, "matching save restores original config");
 
+        // "Save as" writes to a target that does not exist yet; the path
+        // validation must not require pre-existing files.
+        const std::filesystem::path preset_target = harness.fixture_root() / "presets" / "saved_preset.yaml";
+        const auto save_as = harness.post_json("/api/config/save", {
+            {"path", preset_target.string()}, {"yaml", "data:\n  color_mode: RGB\n"}
+        });
+        expect_equal(save_as["_http_status"].get<long>(), 200L, "save-as to a new path succeeds");
+        expect_true(save_as["saved"].get<bool>(), "save-as reports saved");
+        expect_equal(slurp_file(preset_target), std::string("data:\n  color_mode: RGB\n"), "save-as writes preset file");
+
         const auto validate = harness.post_json("/api/config/validate", {{"yaml", "data:\n  color_mode: MONO\n"}});
         expect_equal(validate["_http_status"].get<long>(), 200L, "config validate status");
         expect_true(validate["ok"].get<bool>(), "config validate ok");

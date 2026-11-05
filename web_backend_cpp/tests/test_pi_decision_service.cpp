@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
             h.svc->run(id, advice());
             const auto v = *h.svc->view(id);
             expect_true(v["shadow"] == true && v["proposal"]["updates"].empty() && v["comparison"].empty(), "shadow view exposes no patch");
-            const json stored = json::parse(slurp_file(h.dir / id / "proposal.json"));
+            const json stored = *tile_compile::pi::PiJevStore(h.dir).get(id, "proposal");
             expect_true(stored["updates"].size() == 1, "but the full proposal is stored for later evaluation");
             const auto r = h.svc->apply(id, advice());
             expect_equal(static_cast<long>(r.http_status), 403L, "apply refused in shadow");
@@ -190,10 +190,11 @@ int main(int argc, char** argv) {
             expect_true(sent["candidate_facts"]["enable_adaptive_weights"].contains("metric_agreement") &&
                             sent["candidate_facts"]["enable_adaptive_weights"].contains("measurement_coverage"), "and which evidence the backend already resolved for it");
             expect_equal(sent["question_set_version"].get<std::string>(), "decision-questions.v2", "current question set");
-            const std::string request_text = slurp_file(h.dir / id / "request.json");
+            const std::string request_text = tile_compile::pi::PiJevStore(h.dir).get(id, "request")->dump();
             for (const char* banned : {"/home/x", "runs_dir", "Cam", "scan-1"})
                 expect_true(request_text.find(banned) == std::string::npos, std::string("provider request leaks ") + banned);
-            expect_true(fs::exists(h.dir / id / "events.jsonl") && fs::exists(h.dir / id / "state.json"), "state/events persisted");
+            expect_true(!tile_compile::pi::PiJevStore(h.dir).events(id).empty() && tile_compile::pi::PiJevStore(h.dir).get(id, "state").has_value(), "state/events persisted in SQLite");
+            expect_true(!fs::exists(h.dir / id), "no proposal files created");
 
             // stale: draft edited elsewhere after the advice
             auto edited = advice(); edited.base_config["other"] = 1;
@@ -204,7 +205,7 @@ int main(int argc, char** argv) {
             expect_true(h.svc->apply(id, locked).body["reasons"].dump().find("locks_hash") != std::string::npos, "lock change -> stale");
             auto other_scan = advice(11);
             expect_true(h.svc->apply(id, other_scan).http_status == 409, "different scan -> stale");
-            expect_true(json::parse(slurp_file(h.dir / id / "proposal.json"))["status"] == "validated", "failed applies do not change the proposal");
+            expect_true(tile_compile::pi::PiJevStore(h.dir).get(id, "proposal")->at("status") == "validated", "failed applies do not change the proposal");
 
             // real apply
             h.clock = "2026-09-23T10:05:00Z";
@@ -241,7 +242,7 @@ int main(int argc, char** argv) {
             expect_true(!h.svc->view("../x") && !h.svc->view("missing"), "view refuses unknown/path-like ids");
 
             // nothing outside pi_decisions/ was created
-            for (const auto& [rel, _] : tree(h.root)) expect_true(rel.rfind("pi_decisions/", 0) == 0, "only pi_decisions/ written: " + rel);
+            for (const auto& [rel, _] : tree(h.root)) expect_true(rel.rfind("pi_decisions/", 0) == 0 || rel.rfind("pi_store_v2.sqlite", 0) == 0, "only PI storage written: " + rel);
             (void)before;
         }
 
@@ -294,14 +295,14 @@ int main(int argc, char** argv) {
                 if (v["proposal"]["status"] == "validated") good.push_back(id);
             }
             expect_true(good.size() >= 2, "both reconstruction groups produced a validated proposal");
-            const auto before = tree(h.dir);
+            const auto before = tile_compile::pi::PiJevStore(h.dir).get(good.front(), "proposal");
             const auto both = h.svc->apply_many(good, req);
             expect_equal(static_cast<long>(both.http_status), 200L, "apply together");
             const json merged = both.body["patched_config"];
             expect_true(merged["reconstruction"]["drizzle"]["pixfrac"] == 1.0 && merged["reconstruction"]["clipping"]["clip_sigma_low"] == 5.0, "both changes are in the draft");
             expect_true(req.base_config["reconstruction"]["drizzle"]["pixfrac"] == 0.8, "the caller's draft object is not modified");
             for (const auto& id : good) expect_true((*h.svc->view(id))["proposal"]["status"] == "applied_to_draft", "each proposal is marked applied");
-            expect_true(before != tree(h.dir), "state changed only after a successful apply");
+            expect_true(before != tile_compile::pi::PiJevStore(h.dir).get(good.front(), "proposal"), "state changed only after a successful apply");
 
             // fresh set: subset, conflict, stale, empty, duplicate
             Harness h2(repo, "groups2");

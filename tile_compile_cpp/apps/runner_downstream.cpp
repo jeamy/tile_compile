@@ -435,28 +435,10 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       return true;
     }
 
-    std::string astap_data = cfg.astrometry.astap_data_dir;
-    if (astap_data.empty()) {
-#ifdef _WIN32
-      if (const char *la = std::getenv("LOCALAPPDATA"); la && la[0] != '\0') {
-        astap_data = std::string(la) + "\\tile_compile\\astap";
-      }
-#else
-      const char *home = std::getenv("HOME");
-      if (home)
-        astap_data = std::string(home) + "/.local/share/tile_compile/astap";
-#endif
-    }
-    fs::path astap_bin_path = runner::resolve_astap_binary_path(cfg.astrometry.astap_bin, astap_data);
-    // If the resolved binary lives outside the configured data dir, use its parent as data dir
-    if (!astap_bin_path.empty()) {
-      std::error_code ec;
-      fs::path data_dir_path(astap_data);
-      auto relative = fs::relative(astap_bin_path, data_dir_path, ec);
-      if (ec || relative.empty() || relative.begin() == relative.end() || *relative.begin() == "..") {
-        astap_data = astap_bin_path.parent_path().string();
-      }
-    }
+    const auto astap_paths =
+        runner::resolve_astap_paths(cfg.astrometry.astap_bin, cfg.astrometry.astap_data_dir);
+    std::string astap_data = astap_paths.data_dir;
+    fs::path astap_bin_path = astap_paths.binary;
 
     if (astap_bin_path.empty()) {
       const std::string reported_bin = cfg.astrometry.astap_bin.empty() ? astap_data + "/astap_cli" : cfg.astrometry.astap_bin;
@@ -664,17 +646,24 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       const float fwhm = have_seeing_fwhm
                              ? static_cast<float>(seeing_fwhm_median)
                              : 3.0f;
-      const int tmin = std::max(16, cfg.tile.min_size);
-      const int divisor = std::max(1, cfg.tile.max_divisor);
+      // Fixed BGE tile-grid geometry. These were the defaults of the removed
+      // Classic `tile.*` block, which the legacy migration strips and the
+      // parser never populated, so the grid always resolved to these values.
+      constexpr int kBgeTileSizeFactor = 32;
+      constexpr int kBgeTileMinSize = 64;
+      constexpr int kBgeTileMaxDivisor = 6;
+      constexpr float kBgeTileOverlapFraction = 0.25f;
+      const int tmin = std::max(16, kBgeTileMinSize);
+      const int divisor = std::max(1, kBgeTileMaxDivisor);
       const int tmax = std::max(
           tmin, std::min(static_cast<int>(rgb.R.cols()),
                          static_cast<int>(rgb.R.rows())) /
                     divisor);
       const int tile_size = static_cast<int>(std::floor(std::clamp(
-          static_cast<float>(cfg.tile.size_factor) * fwhm,
+          static_cast<float>(kBgeTileSizeFactor) * fwhm,
           static_cast<float>(tmin), static_cast<float>(tmax))));
       const float overlap =
-          std::clamp(cfg.tile.overlap_fraction, 0.0f, 0.5f);
+          std::clamp(kBgeTileOverlapFraction, 0.0f, 0.5f);
       bge_tile_grid.tile_size = tile_size;
       bge_tile_grid.overlap_fraction = overlap;
       bge_tile_grid.tiles = tile_compile::pipeline::build_initial_tile_grid(
@@ -1082,15 +1071,8 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     image::ColorCastCorrectionResult cast_res;
     if (cfg.hypermetric_stretch.color_cast_correction.enabled &&
         rgb.G.rows() > 0 && rgb.B.rows() > 0) {
-      const auto &cc = cfg.hypermetric_stretch.color_cast_correction;
-      image::ColorCastCorrectionConfig icc;
-      icc.enabled = cc.enabled;
-      icc.max_amount = cc.max_amount;
-      icc.target_ratio = cc.target_ratio;
-      icc.min_excess = cc.min_excess;
-      icc.object_sigma = cc.object_sigma;
-      icc.brightness_bins = cc.brightness_bins;
-      icc.neutralize_sky = cc.neutralize_sky;
+      const image::ColorCastCorrectionConfig &icc =
+          cfg.hypermetric_stretch.color_cast_correction;
       cast_res = image::apply_color_cast_correction(
           rgb.R, rgb.G, rgb.B, icc, &pcc_cfg.output_valid_mask);
       std::cout << "[HMS] color cast correction: " << cast_res.status
@@ -1103,13 +1085,8 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     image::LargeScaleContrastResult lsc_res;
     if (cfg.hypermetric_stretch.large_scale_contrast.enabled &&
         rgb.G.rows() > 0 && rgb.B.rows() > 0) {
-      const auto &lc = cfg.hypermetric_stretch.large_scale_contrast;
-      image::LargeScaleContrastConfig ilc;
-      ilc.enabled = lc.enabled;
-      ilc.amount = lc.amount;
-      ilc.sigma_px = lc.sigma_px;
-      ilc.chroma_amount = lc.chroma_amount;
-      ilc.remove_vignette = lc.remove_vignette;
+      const image::LargeScaleContrastConfig &ilc =
+          cfg.hypermetric_stretch.large_scale_contrast;
       lsc_res = image::apply_large_scale_contrast(
           rgb.R, rgb.G, rgb.B, ilc, &pcc_cfg.output_valid_mask);
       std::cout << "[HMS] large-scale contrast: " << lsc_res.status

@@ -19,7 +19,6 @@
 output:
   registered_dir: registered
   write_registered_frames: false
-  crop_to_nonzero_bbox: true
 data:
   image_width: 0
   image_height: 0
@@ -75,7 +74,6 @@ registration:
   auto_engine_rotation_threshold_deg: 0.05
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.05
-  blind_chain_drift_threshold_px: 2
   use_astrometry: true
   enable_local_background_subtraction: false
   star_shift_radius_px: 200
@@ -295,11 +293,8 @@ runtime_limits:
 reconstruction:
   common_overlap_required_fraction: 1
   delete_source_cache_after_run: false
-  keep_profile_cache_after_run: true
   diagnostics:
     level: full
-    preview_forward_drizzle_uniform: false
-    persist_forward_drizzle_uniform_store: false
   drizzle:
     internal_scale: 2
     output_scale: 1
@@ -314,9 +309,6 @@ reconstruction:
   clipping:
     clip_sigma_low: 4
     clip_sigma_high: 4
-    min_fraction: 0.4
-    min_n_eff: 2
-    guard_fallback: false
     shared_frame_rejection: true
     shared_frame_rejection_consensus: 0.5
     # See docs/dynamic_boost_implementierungsplan_2026-09-19_de.md: a coherent

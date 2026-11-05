@@ -95,11 +95,10 @@ void write_forward_downstream_inputs(const fs::path &dir,
       geometric_covered > 0
           ? static_cast<double>(geometric_but_unsupported) / static_cast<double>(geometric_covered)
           : 0.0;
-  // Warn, do not fail: with config::ReconstructionClippingConfig::guard_fallback
-  // at its default (false), a nontrivial fraction here is expected on thin
-  // R/B CFA channels at low frame counts (plan 11.8 step 8) -- this is
-  // visibility, not a new gate. A hard fail-closed only becomes safe once
-  // guard_fallback (or an equivalent) is the default (see P0.1).
+  // Warn, do not fail: a nontrivial fraction here is expected on thin R/B
+  // CFA channels at low frame counts, where a geometrically covered pixel can
+  // receive no positive-weight source sample (the kernel leaves only such
+  // no-source-support pixels unsupported) -- this is visibility, not a gate.
   if (emitter && geometric_but_unsupported_fraction > 0.01 && log) {
     emitter->warning(run_id,
         "FORWARD_OUTPUT_GEOMETRIC_COVERAGE_LOST: " +

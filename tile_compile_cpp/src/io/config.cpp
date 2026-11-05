@@ -93,17 +93,6 @@ void read_float_pair(const YAML::Node &n, std::array<float, 2> &out) {
   }
 }
 
-/// @brief Reads int pair.
-/// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-void read_int_pair(const YAML::Node &n, std::array<int, 2> &out) {
-  if (n && n.IsSequence() && n.size() == 2) {
-    out[0] = n[0].as<int>();
-    out[1] = n[1].as<int>();
-  }
-}
-
 /// @brief Implements scalar looks like float.
 /// @details Part of YAML configuration loading, serialization, schema generation, and validation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -242,8 +231,6 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (yaml_has_value(o["write_registered_frames"]))
       cfg.output.write_registered_frames =
           o["write_registered_frames"].as<bool>();
-    if (yaml_has_value(o["crop_to_nonzero_bbox"]))
-      cfg.output.crop_to_nonzero_bbox = o["crop_to_nonzero_bbox"].as<bool>();
   }
 
   if (node["data"]) {
@@ -256,8 +243,6 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.data.color_mode = d["color_mode"].as<std::string>();
     if (yaml_has_value(d["bayer_pattern"]))
       cfg.data.bayer_pattern = d["bayer_pattern"].as<std::string>();
-    if (yaml_has_value(d["linear_required"]))
-      cfg.data.linear_required = d["linear_required"].as<bool>();
   }
 
   if (node["linearity"]) {
@@ -370,8 +355,6 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.registration.max_blind_chain_depth = r["max_blind_chain_depth"].as<int>();
     if (yaml_has_value(r["blind_chain_strong_anchor_cc"]))
       cfg.registration.blind_chain_strong_anchor_cc = r["blind_chain_strong_anchor_cc"].as<float>();
-    if (yaml_has_value(r["blind_chain_drift_threshold_px"]))
-      cfg.registration.blind_chain_drift_threshold_px = r["blind_chain_drift_threshold_px"].as<float>();
     // Astrometric rescue (§4.13)
     if (yaml_has_value(r["use_astrometry"]))
       cfg.registration.use_astrometry = r["use_astrometry"].as<bool>();
@@ -601,23 +584,12 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (yaml_has_value(r["delete_source_cache_after_run"]))
       rc.delete_source_cache_after_run =
           r["delete_source_cache_after_run"].as<bool>();
-    if (yaml_has_value(r["keep_profile_cache_after_run"]))
-      rc.keep_profile_cache_after_run =
-          r["keep_profile_cache_after_run"].as<bool>();
     if (yaml_has_value(r["common_overlap_required_fraction"]))
       rc.common_overlap_required_fraction =
           r["common_overlap_required_fraction"].as<float>();
     if (yaml_has_value(r["diagnostics"]) &&
         yaml_has_value(r["diagnostics"]["level"]))
       rc.diagnostics.level = r["diagnostics"]["level"].as<std::string>();
-    if (yaml_has_value(r["diagnostics"]) &&
-        yaml_has_value(r["diagnostics"]["preview_forward_drizzle_uniform"]))
-      rc.diagnostics.preview_forward_drizzle_uniform =
-          r["diagnostics"]["preview_forward_drizzle_uniform"].as<bool>();
-    if (yaml_has_value(r["diagnostics"]) &&
-        yaml_has_value(r["diagnostics"]["persist_forward_drizzle_uniform_store"]))
-      rc.diagnostics.persist_forward_drizzle_uniform_store =
-          r["diagnostics"]["persist_forward_drizzle_uniform_store"].as<bool>();
     if (yaml_has_value(r["drizzle"])) {
       auto d = r["drizzle"];
       if (yaml_has_value(d["internal_scale"]))
@@ -647,12 +619,6 @@ Config Config::from_yaml(const YAML::Node &node) {
         rc.clipping.clip_sigma_low = c["clip_sigma_low"].as<float>();
       if (yaml_has_value(c["clip_sigma_high"]))
         rc.clipping.clip_sigma_high = c["clip_sigma_high"].as<float>();
-      if (yaml_has_value(c["min_fraction"]))
-        rc.clipping.min_fraction = c["min_fraction"].as<float>();
-      if (yaml_has_value(c["min_n_eff"]))
-        rc.clipping.min_n_eff = c["min_n_eff"].as<float>();
-      if (yaml_has_value(c["guard_fallback"]))
-        rc.clipping.guard_fallback = c["guard_fallback"].as<bool>();
       if (yaml_has_value(c["shared_frame_rejection"]))
         rc.clipping.shared_frame_rejection =
             c["shared_frame_rejection"].as<bool>();
@@ -1149,13 +1115,11 @@ YAML::Node Config::to_yaml() const {
 
   node["output"]["registered_dir"] = output.registered_dir;
   node["output"]["write_registered_frames"] = output.write_registered_frames;
-  node["output"]["crop_to_nonzero_bbox"] = output.crop_to_nonzero_bbox;
 
   node["data"]["image_width"] = data.image_width;
   node["data"]["image_height"] = data.image_height;
   node["data"]["color_mode"] = data.color_mode;
   node["data"]["bayer_pattern"] = data.bayer_pattern;
-  node["data"]["linear_required"] = data.linear_required;
 
   node["linearity"]["enabled"] = linearity.enabled;
   node["linearity"]["max_frames"] = linearity.max_frames;
@@ -1210,7 +1174,6 @@ YAML::Node Config::to_yaml() const {
   // Neue Blind-Chain Parameter (§4.1, §8.B)
   node["registration"]["max_blind_chain_depth"] = registration.max_blind_chain_depth;
   node["registration"]["blind_chain_strong_anchor_cc"] = registration.blind_chain_strong_anchor_cc;
-  node["registration"]["blind_chain_drift_threshold_px"] = registration.blind_chain_drift_threshold_px;
   // Astrometric rescue (§4.13)
   node["registration"]["use_astrometry"] = registration.use_astrometry;
   // Local background subtraction (§4.4, §8.D)
@@ -1500,13 +1463,8 @@ YAML::Node Config::to_yaml() const {
     const auto &rc = reconstruction;
     auto r = node["reconstruction"];
     r["delete_source_cache_after_run"] = rc.delete_source_cache_after_run;
-    r["keep_profile_cache_after_run"] = rc.keep_profile_cache_after_run;
     r["common_overlap_required_fraction"] = rc.common_overlap_required_fraction;
     r["diagnostics"]["level"] = rc.diagnostics.level;
-    r["diagnostics"]["preview_forward_drizzle_uniform"] =
-        rc.diagnostics.preview_forward_drizzle_uniform;
-    r["diagnostics"]["persist_forward_drizzle_uniform_store"] =
-        rc.diagnostics.persist_forward_drizzle_uniform_store;
     r["drizzle"]["internal_scale"] = rc.drizzle.internal_scale;
     r["drizzle"]["output_scale"] = rc.drizzle.output_scale;
     r["drizzle"]["kernel"] = rc.drizzle.kernel;
@@ -1519,9 +1477,6 @@ YAML::Node Config::to_yaml() const {
     r["drizzle"]["memory_budget_mb"] = rc.drizzle.memory_budget_mb;
     r["clipping"]["clip_sigma_low"] = rc.clipping.clip_sigma_low;
     r["clipping"]["clip_sigma_high"] = rc.clipping.clip_sigma_high;
-    r["clipping"]["min_fraction"] = rc.clipping.min_fraction;
-    r["clipping"]["min_n_eff"] = rc.clipping.min_n_eff;
-    r["clipping"]["guard_fallback"] = rc.clipping.guard_fallback;
     r["clipping"]["shared_frame_rejection"] = rc.clipping.shared_frame_rejection;
     r["clipping"]["shared_frame_rejection_consensus"] =
         rc.clipping.shared_frame_rejection_consensus;
@@ -1630,9 +1585,6 @@ void ReconstructionConfig::validate() const {
 
   req(clipping.clip_sigma_low > 0.0f, "clipping.clip_sigma_low must be > 0");
   req(clipping.clip_sigma_high > 0.0f, "clipping.clip_sigma_high must be > 0");
-  req(clipping.min_fraction > 0.0f && clipping.min_fraction <= 1.0f,
-      "clipping.min_fraction must be in (0, 1]");
-  req(clipping.min_n_eff >= 1.0f, "clipping.min_n_eff must be >= 1");
   req(clipping.shared_frame_rejection_consensus > 0.0f &&
           clipping.shared_frame_rejection_consensus <= 1.0f,
       "clipping.shared_frame_rejection_consensus must be in (0, 1]");
@@ -1727,10 +1679,6 @@ void Config::validate() const {
   if (data.color_mode != "OSC" && data.color_mode != "MONO" &&
       data.color_mode != "RGB") {
     throw ValidationError("data.color_mode must be OSC, MONO, or RGB");
-  }
-  if (data.linear_required && data.color_mode == "RGB") {
-    throw ValidationError(
-        "data.linear_required should be false for already debayered RGB data");
   }
 
   if (linearity.max_frames < 1) {
@@ -1828,10 +1776,6 @@ void Config::validate() const {
   if (registration.blind_chain_strong_anchor_cc < 0.01f ||
       registration.blind_chain_strong_anchor_cc > 0.5f) {
     throw ValidationError("registration.blind_chain_strong_anchor_cc must be in [0.01, 0.5]");
-  }
-  if (registration.blind_chain_drift_threshold_px < 0.5f ||
-      registration.blind_chain_drift_threshold_px > 10.0f) {
-    throw ValidationError("registration.blind_chain_drift_threshold_px must be in [0.5, 10.0]");
   }
   if (registration.star_shift_radius_px < 10.0f ||
       registration.star_shift_radius_px > 2000.0f) {
@@ -2010,16 +1954,6 @@ void Config::validate() const {
   if (global_metrics.weight_exponent_scale <= 0.0f) {
     throw ValidationError(
         "global_metrics.weight_exponent_scale must be > 0");
-  }
-
-  if (tile.size_factor <= 0)
-    throw ValidationError("tile.size_factor must be positive");
-  if (tile.min_size <= 0)
-    throw ValidationError("tile.min_size must be positive");
-  if (tile.max_divisor <= 0)
-    throw ValidationError("tile.max_divisor must be positive");
-  if (tile.overlap_fraction < 0 || tile.overlap_fraction > 0.5f) {
-    throw ValidationError("tile.overlap_fraction must be between 0 and 0.5");
   }
 
   if (bge.method != "none" && bge.method != "classic" &&
@@ -2358,15 +2292,12 @@ std::string get_schema_json() {
   "properties": {
     "output": { "type":"object",
       "properties": { "registered_dir":{"type":"string"},
-                      "write_registered_frames":{"type":"boolean"},
-                      "crop_to_nonzero_bbox":{"type":"boolean"} } },
+                      "write_registered_frames":{"type":"boolean"} } },
     "data": { "type":"object",
       "properties": { "image_width":{"type":"integer","minimum":0},
                       "image_height":{"type":"integer","minimum":0},
                       "color_mode":{"type":"string","enum":["OSC","MONO","RGB"]},
-                      "bayer_pattern":{"type":"string"},
-                      "linear_required":{"type":"boolean","deprecated":true,
-                                         "description":"Deprecated: non-linear frames are warn-only in the runner and are no longer removed."} } },
+                      "bayer_pattern":{"type":"string"} } },
     "linearity": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "max_frames":{"type":"integer","minimum":1},
@@ -2403,7 +2334,6 @@ std::string get_schema_json() {
                       "reject_scale_max":{"type":"number","exclusiveMinimum":0},
                       "max_blind_chain_depth":{"type":"integer","minimum":0,"maximum":100},
                       "blind_chain_strong_anchor_cc":{"type":"number","minimum":0.01,"maximum":0.5},
-                      "blind_chain_drift_threshold_px":{"type":"number","minimum":0.5,"maximum":10.0},
                       "use_astrometry":{"type":"boolean"},
                       "enable_local_background_subtraction":{"type":"boolean"},
                       "star_shift_radius_px":{"type":"number","minimum":10,"maximum":2000},
@@ -2475,11 +2405,10 @@ std::string get_schema_json() {
     "reconstruction": { "type":"object", "description":"Single-method CFA-forward-drizzle + multiband reconstruction contract (plan sections 6.1-6.3). Parsed and validated in M0; consumed from M2 onward.",
       "properties": {
         "delete_source_cache_after_run":{"type":"boolean","default":false,"description":"Delete the normalized CFA source cache and source quality maps after a fully committed final image. Default false. Setting it true frees disk immediately but DISABLES resume-reconstruction for this run (a later resume would have to re-normalize every frame); the run report announces this as resume_reconstruction_disabled."},
-        "keep_profile_cache_after_run":{"type":"boolean","default":false,"description":"Keep the internal transactional U/R/F/M drizzle profile store after a committed final image. Default false (deleted: it is a reconstruction cache, never a downstream-resume predecessor). Setting it true keeps it as a hashed cache so a re-fuse can skip the forward-drizzle pass, at the cost of disk."},
         "common_overlap_required_fraction":{"type":"number","minimum":0,"maximum":1,"default":1.0,"description":"Fraction of accepted dense frame footprints defining the analysis region, independent of sparse CFA support; (0,1], default 1."},
-        "diagnostics":{"type":"object","properties":{"level":{"type":"string","enum":["summary","full"],"default":"summary"},"preview_forward_drizzle_uniform":{"type":"boolean","default":false,"description":"Opt-in bounded stripe Uniform diagnostic; default false. Writes summary statistics only. No complete reconstruction phase, clipping, multiband or resume contract."},"persist_forward_drizzle_uniform_store":{"type":"boolean","default":false,"description":"Opt-in, independent of preview. Streams unclipped Uniform planes into immutable generations under artifacts/forward_drizzle_uniform_store/. current.json atomically commits the complete generation after checksum and FITS validation. Includes 8 MiB IO reserve plus one float row in the drizzle budget; old generations are retained. Diagnostic only, not a pipeline resume entry."}}},
+        "diagnostics":{"type":"object","properties":{"level":{"type":"string","enum":["summary","full"],"default":"summary"}}},
         "drizzle":{"type":"object","properties":{"internal_scale":{"type":"integer","enum":[1,2],"default":2},"output_scale":{"type":"integer","enum":[1,2],"default":1},"kernel":{"type":"string","enum":["square"],"default":"square"},"pixfrac":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.8},"robust_passes":{"type":"integer","minimum":1,"maximum":6,"default":2},"min_clip_contributors":{"type":"integer","minimum":2,"default":5},"full_frame_estimator":{"type":"boolean","default":false},"chunk_rows":{"type":"integer","minimum":0,"default":0,"description":"Target stripe rows; 0 selects at most 256 rows within the memory budget. Explicit values exceeding the budget fail closed."},"chunk_halo_rows":{"type":"integer","minimum":-1,"default":-1,"description":"Compatibility field (-1 auto, >=0 explicit). Exact source-footprint enumeration completes each target stripe without an output halo; the CPU Uniform/coverage path does not duplicate halo rows."},"memory_budget_mb":{"type":"integer","minimum":0,"default":0,"description":"Phase allocation budget in MiB, including retained masks/output, one source plus transient load copy and stripe scratch. 0 inherits runtime_limits.memory_budget (library default 512 MiB). Available host/cgroup headroom may reduce it. Fails before allocation if one row does not fit."}}},
-        "clipping":{"type":"object","properties":{"clip_sigma_low":{"type":"number","exclusiveMinimum":0,"default":3.0},"clip_sigma_high":{"type":"number","exclusiveMinimum":0,"default":3.0},"min_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.4},"min_n_eff":{"type":"number","minimum":1,"default":3.0},"guard_fallback":{"type":"boolean","default":false,"description":"When the min_fraction/min_n_eff veto (plan 11.8 step 8) fails, use the sigma-clip survivors (or, if none survived, every original candidate unclipped) instead of leaving the pixel/channel unsupported. Default false preserves the exact reviewed 8-step procedure."},"shared_frame_rejection":{"type":"boolean","default":false,"description":"Off by default. The CFA forward-drizzle kernel clips per (pixel, color channel) independently, since R/G/B come from different native Bayer sub-pixel positions; in faint regions this makes the surviving frame set an effectively independent coin-flip per channel, producing anti-correlated per-pixel color noise. When true, a frame is rejected for ALL channels at a pixel only if shared_frame_rejection_consensus or more of the channels that had a candidate from it flag it as an outlier (per-channel values/weights/geometry are untouched). Runs on both the CPU and CUDA backends."},"shared_frame_rejection_consensus":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.5,"description":"Fraction of channels that must flag a frame as an outlier before shared_frame_rejection drops it for all of them. 0.5 = majority."},"bimodal_veto":{"type":"boolean","default":false,"description":"Off by default. After the asymmetric median/MAD clip pass converges, checks the accepted set for a coherent second population (e.g. a subset of frames with a small but real registration/tracking offset at this exact pixel) that the ordinary bound alone did not separate from the majority -- likelier with wide clip_sigma_low/high, which are deliberately loosened to preserve genuine signal variance. If the largest gap between consecutive accepted values exceeds bimodal_veto_gap_sigma times the pass's own MAD and splits off a minority side of at least 2 candidates holding less than half the accepted weight, that minority is dropped. Runs on both the CPU and CUDA backends."},"bimodal_veto_gap_sigma":{"type":"number","exclusiveMinimum":0,"default":2.5,"description":"Multiple of the clip pass's MAD the largest accepted-value gap must exceed before bimodal_veto treats the split as a coherent second population rather than ordinary spread. Lower values fire more readily."}}},
+        "clipping":{"type":"object","properties":{"clip_sigma_low":{"type":"number","exclusiveMinimum":0,"default":3.0},"clip_sigma_high":{"type":"number","exclusiveMinimum":0,"default":3.0},"shared_frame_rejection":{"type":"boolean","default":false,"description":"Off by default. The CFA forward-drizzle kernel clips per (pixel, color channel) independently, since R/G/B come from different native Bayer sub-pixel positions; in faint regions this makes the surviving frame set an effectively independent coin-flip per channel, producing anti-correlated per-pixel color noise. When true, a frame is rejected for ALL channels at a pixel only if shared_frame_rejection_consensus or more of the channels that had a candidate from it flag it as an outlier (per-channel values/weights/geometry are untouched). Runs on both the CPU and CUDA backends."},"shared_frame_rejection_consensus":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.5,"description":"Fraction of channels that must flag a frame as an outlier before shared_frame_rejection drops it for all of them. 0.5 = majority."},"bimodal_veto":{"type":"boolean","default":false,"description":"Off by default. After the asymmetric median/MAD clip pass converges, checks the accepted set for a coherent second population (e.g. a subset of frames with a small but real registration/tracking offset at this exact pixel) that the ordinary bound alone did not separate from the majority -- likelier with wide clip_sigma_low/high, which are deliberately loosened to preserve genuine signal variance. If the largest gap between consecutive accepted values exceeds bimodal_veto_gap_sigma times the pass's own MAD and splits off a minority side of at least 2 candidates holding less than half the accepted weight, that minority is dropped. Runs on both the CPU and CUDA backends."},"bimodal_veto_gap_sigma":{"type":"number","exclusiveMinimum":0,"default":2.5,"description":"Multiple of the clip pass's MAD the largest accepted-value gap must exceed before bimodal_veto treats the split as a coherent second population rather than ordinary spread. Lower values fire more readily."}}},
         "coverage_gate":{"type":"object","properties":{"min_frames":{"type":"integer","minimum":2,"default":2},"min_supported_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.995},"min_channel_n_eff_floor":{"type":"number","minimum":1,"default":3.0},"min_channel_n_eff_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.15},"min_analysis_pixels":{"type":"integer","minimum":1,"default":1024},"max_internal_hole_area_px":{"type":"integer","minimum":0,"default":0}}},
         "quality":{"type":"object","properties":{"pyramid":{"type":"object","properties":{"scales":{"type":"integer","minimum":1,"maximum":8,"default":4,"description":"Number of Source Quality Map pyramid levels."},"base_window_px":{"type":"integer","minimum":1,"default":4,"description":"Base local window size in pixels for Source Quality Map statistics."},"sharpness_weight":{"type":"number","minimum":0,"default":0.6,"description":"Weight of the local sharpness term in the Source Quality Map score; sharpness_weight+snr_weight must be > 0."},"snr_weight":{"type":"number","minimum":0,"default":0.4,"description":"Weight of the local signal-to-noise term in the Source Quality Map score."},"score_scale":{"type":"number","exclusiveMinimum":0,"default":1.8,"description":"Scaling factor applied to the combined Source Quality Map score."},"artifact_sigma":{"type":"number","exclusiveMinimum":0,"default":3.0,"description":"Sigma threshold above which a Source Quality Map region counts as artifact."},"max_artifact_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1,"default":0.25,"description":"Maximum tolerated artifact fraction in the Source Quality Map."}}}}},
         "multiband":{"type":"object","properties":{"enabled":{"type":"boolean","default":true},"levels":{"type":"integer","minimum":1,"maximum":4,"default":3},"alpha_cap":{"type":"number","minimum":0,"maximum":1,"default":1.0},"fine_quality_exponent":{"type":"number","minimum":0,"default":4.0},"medium_quality_exponent":{"type":"number","minimum":0,"default":2.0},"min_quality_separation":{"type":"number","minimum":0,"maximum":1,"default":0.05},"full_quality_separation":{"type":"number","minimum":0,"maximum":1,"default":0.20},"min_effective_samples":{"type":"number","minimum":1,"default":8.0},"full_effective_samples":{"type":"number","minimum":1,"default":24.0}}} } },

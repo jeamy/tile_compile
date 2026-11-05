@@ -219,6 +219,19 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
   );
   objectClassSelect.value = getUiState().jevObjectClass || "";
   objectClassSelect.addEventListener("change", () => setUiState({ jevObjectClass: objectClassSelect.value }));
+  const lockedPathsInput = el("textarea", {
+    class: "tc-input",
+    id: "jev-locked-paths",
+    rows: 2,
+    "aria-label": t("ui.jev.locked_paths.label", "Gesperrte Config-Pfade"),
+    placeholder: t("ui.jev.locked_paths.placeholder", "Ein Pfad je Zeile, z. B. global_metrics.adaptive_weights"),
+    title: t("ui.jev.locked_paths.help", "Jev darf gesperrte Pfade nicht ändern. Die Sperren gelten für Anfrage und Übernahme."),
+  });
+  lockedPathsInput.value = getUiState().jevLockedPathsText || "";
+  lockedPathsInput.addEventListener("input", () => setUiState({ jevLockedPathsText: lockedPathsInput.value }));
+  function lockedPaths() {
+    return [...new Set(lockedPathsInput.value.split(/[\n,]/).map((path) => path.trim()).filter(Boolean))].sort();
+  }
   function sessionContext() {
     const v = objectClassSelect.value;
     return v ? { object_class: { value: v, source: "user" } } : {};
@@ -230,6 +243,10 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
       el("div", { class: "tc-flex tc-items-center tc-gap-2 tc-flex-wrap" },
         el("label", { class: "tc-text-sm", for: "jev-object-class" }, t("ui.jev.object_class.label", "Objektklasse")),
         objectClassSelect, rescanBtn, requestBtn),
+      el("div", { class: "tc-mt-2" },
+        el("label", { class: "tc-text-sm", for: "jev-locked-paths" }, t("ui.jev.locked_paths.label", "Gesperrte Config-Pfade")),
+        lockedPathsInput,
+        el("div", { class: "tc-text-sm tc-text-muted" }, t("ui.jev.locked_paths.help", "Jev darf gesperrte Pfade nicht ändern. Die Sperren gelten für Anfrage und Übernahme."))),
       resultBox,
       el("div", { class: "tc-mt-4" }, traffic.element),
     ),
@@ -391,7 +408,7 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
     if (!yaml.trim()) { toastError(t("ui.jev.request_failed", "Anfrage fehlgeschlagen"), t("ui.jev.no_draft", "Kein Config-Entwurf geladen.")); return; }
     requestBtn.disabled = true;
     try {
-      const send = () => api.post(API_ENDPOINTS.decisions.advice, { yaml, locked_paths: [], session_context: sessionContext() });
+      const send = () => api.post(API_ENDPOINTS.decisions.advice, { yaml, locked_paths: lockedPaths(), session_context: sessionContext() });
       // Scan and image statistics are prepared on demand, like the AI card does, instead of asking the user to do it first.
       let r;
       for (let attempt = 0; ; ++attempt) {
@@ -410,6 +427,8 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
           }
         }
       }
+      if (r.analysis_context?.analysis_uid)
+        window.dispatchEvent(new CustomEvent("tc-assistant-context", { detail: { analysis_uid: r.analysis_context.analysis_uid } }));
       const ids = Array.isArray(r.proposal_ids) && r.proposal_ids.length ? r.proposal_ids : [r.proposal_id];
       selected.clear();
       setUiState({ jevProposalIds: ids });
@@ -429,7 +448,7 @@ export function createJevEmpfehlungPage({ onDraftApplied } = {}) {
     const ids = currentViews.filter(isApplicable).map((v) => v.proposal_id).filter((id) => all || selected.has(id));
     if (!ids.length) return;
     try {
-      const r = await api.post(API_ENDPOINTS.decisions.applyBatch, { proposal_ids: ids, yaml: currentDraftYaml(), locked_paths: [], session_context: sessionContext() });
+      const r = await api.post(API_ENDPOINTS.decisions.applyBatch, { proposal_ids: ids, yaml: currentDraftYaml(), locked_paths: lockedPaths(), session_context: sessionContext() });
       const parsed = parseYaml(r.patched_yaml);
       // The save links ONE proposal to the config revision; the others of the batch are listed on it (batch_proposal_ids).
       setConfigState({ draft: deepClone(parsed), draftYaml: r.patched_yaml, dirty: true,

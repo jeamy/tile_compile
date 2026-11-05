@@ -14,6 +14,7 @@
 #include <bit>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <limits>
 #include <new>
@@ -446,10 +447,11 @@ void cpu_full_add(CpuFullAcc &f, double b, double x, double sigma2, double g,
 // Returns the number of candidates rejected (0 if none).
 unsigned int cpu_bimodal_veto(
     const std::vector<ForwardDrizzleV2RobustCandidate> &cands,
-    std::vector<std::uint8_t> &accepted, double mad, double gap_sigma) {
+    std::vector<std::uint8_t> &accepted, double mad, double gap_sigma,
+    std::vector<unsigned int> &on) {
   if (!(mad > 0.0) || !(gap_sigma > 0.0)) return 0;
   const unsigned int n = static_cast<unsigned int>(cands.size());
-  std::vector<unsigned int> on;
+  on.clear();
   on.reserve(n);
   for (unsigned int i = 0; i < n; ++i)
     if (accepted[i]) on.push_back(i);
@@ -491,6 +493,42 @@ unsigned int cpu_bimodal_veto(
   return rejected;
 }
 
+// The band store writes ForwardDrizzleV2PixelResult / ProfileResult records
+// as raw bytes and binds their sha256 into the checkpoint, so struct padding
+// must be deterministic: a record assembled in a stack temporary (and, with a
+// parallel finalize, on a different worker stack per run) would otherwise
+// carry arbitrary padding bytes into the content hash. Zero every padding
+// byte; no member value is touched.
+void zero_padding(ForwardDrizzleV2PixelResult &r) {
+  constexpr std::size_t b0 =
+      offsetof(ForwardDrizzleV2PixelResult, confidence_state) + 1;
+  constexpr std::size_t b1 =
+      offsetof(ForwardDrizzleV2PixelResult, conf_degraded);
+  static_assert(b0 <= b1);
+  static_assert(offsetof(ForwardDrizzleV2PixelResult, conf_degraded) +
+                    sizeof(std::uint64_t) ==
+                sizeof(ForwardDrizzleV2PixelResult));
+  std::memset(reinterpret_cast<unsigned char *>(&r) + b0, 0, b1 - b0);
+}
+
+void zero_padding(ForwardDrizzleV2ProfileOutput &o) {
+  constexpr std::size_t b0 = offsetof(ForwardDrizzleV2ProfileOutput, support) + 1;
+  std::memset(reinterpret_cast<unsigned char *>(&o) + b0, 0,
+              sizeof(ForwardDrizzleV2ProfileOutput) - b0);
+}
+
+void zero_padding(ForwardDrizzleV2ProfileResult &p) {
+  static_assert(offsetof(ForwardDrizzleV2ProfileResult, raw) ==
+                    sizeof(ForwardDrizzleV2ProfileOutput) &&
+                offsetof(ForwardDrizzleV2ProfileResult, a_separation) ==
+                    4 * sizeof(ForwardDrizzleV2ProfileOutput));
+  for (auto *o : {&p.uniform, &p.raw, &p.fine, &p.medium}) zero_padding(*o);
+  constexpr std::size_t b0 =
+      offsetof(ForwardDrizzleV2ProfileResult, artifact_applicable) + 1;
+  std::memset(reinterpret_cast<unsigned char *>(&p) + b0, 0,
+              sizeof(ForwardDrizzleV2ProfileResult) - b0);
+}
+
 // Iterative weighted-median/MAD asymmetric clip shared by the reservoir
 // finalizer and the full-frame pilot barrier. `cands` must be sorted by
 // (x, frame_order). Returns the bounds of the last evaluated pass and the
@@ -501,14 +539,22 @@ struct CpuClipBounds {
   unsigned int bimodal_rejected = 0;
 };
 
+// Grow-only index scratch for cpu_sigma_clip_passes; one per worker thread
+// in the hot finalize loop so no per-pixel allocation happens.
+struct CpuClipScratch {
+  std::vector<unsigned int> ord, on;
+};
+
 CpuClipBounds cpu_sigma_clip_passes(
     const std::vector<ForwardDrizzleV2RobustCandidate> &cands,
     std::vector<std::uint8_t> &accepted, int robust_passes, double sigma_low,
     double sigma_high, bool bimodal_veto = false,
-    double bimodal_veto_gap_sigma = 0.0) {
+    double bimodal_veto_gap_sigma = 0.0, CpuClipScratch *scratch = nullptr) {
   CpuClipBounds out;
   const unsigned int n_kept = static_cast<unsigned int>(cands.size());
-  std::vector<unsigned int> ord;
+  CpuClipScratch local;
+  CpuClipScratch &sc = scratch != nullptr ? *scratch : local;
+  std::vector<unsigned int> &ord = sc.ord;
   for (int pass = 0; pass < robust_passes; ++pass) {
     double total_w = 0.0;
     unsigned int n_active = 0;
@@ -574,7 +620,7 @@ CpuClipBounds cpu_sigma_clip_passes(
   }
   if (bimodal_veto && out.evaluated)
     out.bimodal_rejected = cpu_bimodal_veto(cands, accepted, out.mad,
-                                            bimodal_veto_gap_sigma);
+                                            bimodal_veto_gap_sigma, sc.on);
   return out;
 }
 
@@ -2200,15 +2246,17 @@ bool ForwardDrizzleV2CpuKernel::finalize(
   const std::size_t np = im.nplane;
   const unsigned int slots = static_cast<unsigned int>(im.res_slots);
   const int subpixels = im.cfg.internal_scale * im.cfg.internal_scale;
-  const double fine_exp =
-      static_cast<double>(im.cfg.fine_quality_exponent);
-  const double medium_exp =
-      static_cast<double>(im.cfg.medium_quality_exponent);
   ForwardDrizzleV2ProfileConfig pcfg;
   pcfg.fine_quality_exponent = im.cfg.fine_quality_exponent;
   pcfg.medium_quality_exponent = im.cfg.medium_quality_exponent;
   std::uint64_t dense = 0;
   const int nch = im.channels;
+  // Per-pixel-channel results are independent; only the counters below are
+  // cross-iteration state (folded via reduction, order-independent integer
+  // sums). Per-pixel arithmetic order is untouched.
+  std::uint64_t bimodal_rejected_local = 0;
+  std::uint64_t bimodal_pixels_local = 0;
+  int reduce_failed = 0;
 
   // Fast path: shared_frame_rejection is opt-in and defaults to false, so
   // this must stay byte-for-byte (and timing-for-timing) identical to the
@@ -2219,13 +2267,25 @@ bool ForwardDrizzleV2CpuKernel::finalize(
   // when the feature is off. See the shared_frame_rejection branch below
   // for the consensus algorithm itself.
   if (!im.cfg.shared_frame_rejection) {
+    const int omp_threads = core::omp_effective_threads(
+        cpu_worker_cap(im.cfg),
+        static_cast<int>(std::min<std::size_t>(
+            im.pc_elems, static_cast<std::size_t>(1u << 30))));
+#pragma omp parallel num_threads(omp_threads) \
+    reduction(+ : dense, bimodal_rejected_local, bimodal_pixels_local) \
+    reduction(| : reduce_failed)
+    {
     std::vector<ForwardDrizzleV2RobustCandidate> cands;
     std::vector<double> sigma2s;
     std::vector<std::uint8_t> accepted;
     std::vector<ForwardDrizzleV2ProfileCandidate> pcands;
     std::vector<std::uint64_t> kept_order;
+    CpuClipScratch clip_scratch;
+    ForwardDrizzleV2ProfileScratch pscratch;
 
+#pragma omp for schedule(static)
     for (std::size_t tid = 0; tid < im.pc_elems; ++tid) {
+      if (reduce_failed) continue;
       const std::size_t px = tid % np;
       ForwardDrizzleV2PixelResult r;
       const double a_acc = im.accA[tid];
@@ -2352,10 +2412,10 @@ bool ForwardDrizzleV2CpuKernel::finalize(
         const auto bd = cpu_sigma_clip_passes(
             cands, accepted, im.cfg.robust_passes, im.cfg.sigma_low,
             im.cfg.sigma_high, im.cfg.bimodal_veto,
-            im.cfg.bimodal_veto_gap_sigma);
+            im.cfg.bimodal_veto_gap_sigma, &clip_scratch);
         if (bd.bimodal_rejected > 0) {
-          stats_.bimodal_veto_rejected_candidates += bd.bimodal_rejected;
-          ++stats_.bimodal_veto_pixels;
+          bimodal_rejected_local += bd.bimodal_rejected;
+          ++bimodal_pixels_local;
         }
       }
 
@@ -2380,13 +2440,16 @@ bool ForwardDrizzleV2CpuKernel::finalize(
             r.contributors > 0 && im.degraded[tid] == r.contributors;
         try {
           profiles_or_null[tid] = forward_drizzle_v2_profile_reduce(
-              pcands, accepted, im.meta, pcfg, r.confidence, fully_degraded);
+              pcands, accepted, im.meta, pcfg, r.confidence, fully_degraded,
+              pscratch);
         } catch (const std::invalid_argument &) {
-          return false;
+          reduce_failed = 1;
+          continue;
         }
       }
       results[tid] = r;
     }
+    }  // omp parallel
   } else {
     // shared_frame_rejection path: see
     // config::ReconstructionClippingConfig::shared_frame_rejection for the
@@ -2403,12 +2466,6 @@ bool ForwardDrizzleV2CpuKernel::finalize(
       ForwardDrizzleV2PixelResult r{};
       bool has_clip = false;  // false: early-exit path, r already final
     };
-    std::vector<ChannelWork> chwork(static_cast<std::size_t>(nch));
-    std::vector<std::uint64_t> kept_order;
-    // frame_order -> (channels that rejected it, channels that saw it as a
-    // clip candidate at all), rebuilt fresh per pixel.
-    std::unordered_map<std::uint64_t, std::pair<int, int>> votes;
-
     auto finish_conf_for = [](ForwardDrizzleV2PixelResult &rr, double cb,
                               double cs, double cc) {
       if (!(cb > 0.0)) {
@@ -2428,7 +2485,25 @@ bool ForwardDrizzleV2CpuKernel::finalize(
           ForwardDrizzleV2ConfidenceState::fallback_n_eff);
     };
 
+    const int omp_threads = core::omp_effective_threads(
+        cpu_worker_cap(im.cfg),
+        static_cast<int>(
+            std::min<std::size_t>(np, static_cast<std::size_t>(1u << 30))));
+#pragma omp parallel num_threads(omp_threads) \
+    reduction(+ : dense, bimodal_rejected_local, bimodal_pixels_local) \
+    reduction(| : reduce_failed)
+    {
+    std::vector<ChannelWork> chwork(static_cast<std::size_t>(nch));
+    std::vector<std::uint64_t> kept_order;
+    // frame_order -> (channels that rejected it, channels that saw it as a
+    // clip candidate at all), rebuilt fresh per pixel.
+    std::unordered_map<std::uint64_t, std::pair<int, int>> votes;
+    CpuClipScratch clip_scratch;
+    ForwardDrizzleV2ProfileScratch pscratch;
+
+#pragma omp for schedule(static)
     for (std::size_t px = 0; px < np; ++px) {
+    if (reduce_failed) continue;
     for (int ch = 0; ch < nch; ++ch) {
       const std::size_t tid = static_cast<std::size_t>(ch) * np + px;
       ChannelWork &cw = chwork[static_cast<std::size_t>(ch)];
@@ -2554,10 +2629,10 @@ bool ForwardDrizzleV2CpuKernel::finalize(
         const auto bd = cpu_sigma_clip_passes(
             cw.cands, cw.accepted, im.cfg.robust_passes, im.cfg.sigma_low,
             im.cfg.sigma_high, im.cfg.bimodal_veto,
-            im.cfg.bimodal_veto_gap_sigma);
+            im.cfg.bimodal_veto_gap_sigma, &clip_scratch);
         if (bd.bimodal_rejected > 0) {
-          stats_.bimodal_veto_rejected_candidates += bd.bimodal_rejected;
-          ++stats_.bimodal_veto_pixels;
+          bimodal_rejected_local += bd.bimodal_rejected;
+          ++bimodal_pixels_local;
         }
       }
 
@@ -2629,15 +2704,20 @@ bool ForwardDrizzleV2CpuKernel::finalize(
         try {
           profiles_or_null[tid] = forward_drizzle_v2_profile_reduce(
               cw.pcands, cw.accepted, im.meta, pcfg, r.confidence,
-              fully_degraded);
+              fully_degraded, pscratch);
         } catch (const std::invalid_argument &) {
-          return false;
+          reduce_failed = 1;
+          break;
         }
       }
       results[tid] = r;
     }
     }  // end for px
+    }  // omp parallel
   }
+  if (reduce_failed) return false;
+  stats_.bimodal_veto_rejected_candidates += bimodal_rejected_local;
+  stats_.bimodal_veto_pixels += bimodal_pixels_local;
   if (im.cfg.full_frame_estimator) {
     // Replace the pilot-only value/profiles by the all-frame accepted sums
     // for every pixel-channel that has frozen bounds and did not take a
@@ -2689,6 +2769,17 @@ bool ForwardDrizzleV2CpuKernel::finalize(
         pr.a_separation = static_cast<float>(
             fully_degraded ? 0.0 : std::clamp(r.confidence, 0.0, 1.0));
       }
+    }
+  }
+  {
+    const int pad_threads = core::omp_effective_threads(
+        cpu_worker_cap(im.cfg),
+        static_cast<int>(std::min<std::size_t>(
+            im.pc_elems, static_cast<std::size_t>(1u << 30))));
+#pragma omp parallel for schedule(static) num_threads(pad_threads)
+    for (std::size_t tid = 0; tid < im.pc_elems; ++tid) {
+      zero_padding(results[tid]);
+      if (profiles_or_null != nullptr) zero_padding(profiles_or_null[tid]);
     }
   }
   if (dense_overlap_count != nullptr) *dense_overlap_count = dense;

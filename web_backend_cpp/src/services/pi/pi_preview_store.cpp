@@ -1,0 +1,133 @@
+#include "services/pi/pi_preview_store.hpp"
+
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <limits>
+#include <stdexcept>
+
+namespace tile_compile::pi {
+namespace {
+std::string hex(const unsigned char* bytes, std::size_t size) {
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(size * 2);
+    for (std::size_t i = 0; i < size; ++i) {
+        result += digits[bytes[i] >> 4];
+        result += digits[bytes[i] & 15];
+    }
+    return result;
+}
+std::string digest(const nlohmann::json& value) {
+    const auto bytes = value.dump(); // Default JSON object keys are sorted.
+    unsigned char output[EVP_MAX_MD_SIZE];
+    unsigned int size = 0;
+    if (EVP_Digest(bytes.data(), bytes.size(), output, &size, EVP_sha256(), nullptr) != 1)
+        throw std::runtime_error("Cannot hash PI preview");
+    return hex(output, size);
+}
+}
+
+PiPreviewStore::PiPreviewStore(const std::filesystem::path& dir) : _db(PiDatabase::open(dir)) {}
+
+std::string PiPreviewStore::action_plan_id(const nlohmann::json& plan) {
+    if (!plan.is_object()) throw std::invalid_argument("Plan must be an object");
+    auto semantic = plan;
+    // Legacy callers send plan and transport fields in the same object.
+    for (const char* key : {"confirmed", "reviewed", "preview_id", "expected_patched_yaml", "base_config", "config", "yaml"})
+        semantic.erase(key);
+    return "plan_" + digest(semantic);
+}
+
+nlohmann::json PiPreviewStore::create(const nlohmann::json& plan, const nlohmann::json& base_config,
+                                     std::int64_t now, std::int64_t ttl_seconds) {
+    if (!base_config.is_object() || now < 0 || ttl_seconds <= 0 ||
+        now > std::numeric_limits<std::int64_t>::max() - ttl_seconds)
+        throw std::invalid_argument("Invalid preview config, timestamp or TTL");
+    const auto plan_id = action_plan_id(plan);
+    unsigned char random[16];
+    if (RAND_bytes(random, sizeof(random)) != 1) throw std::runtime_error("Cannot generate preview ID");
+    const auto id = "preview_" + hex(random, sizeof(random));
+    nlohmann::json object = {
+        {"schema_version", "pi.action-preview.v1"}, {"preview_id", id},
+        {"action_plan_id", plan_id}, {"plan_sha256", "sha256:" + plan_id.substr(5)},
+        {"config_sha256", "sha256:" + digest(base_config)},
+        {"created_at_epoch", now}, {"expires_at_epoch", now + ttl_seconds},
+        {"state", "pending"}, {"plan", plan}
+    };
+    _db->execute("INSERT INTO action_previews(preview_id, action_plan_id, expires_at, state, json) "
+                 "VALUES(?, ?, ?, 'pending', ?)", {id, plan_id, now + ttl_seconds, object.dump()});
+    return object;
+}
+
+std::optional<nlohmann::json> PiPreviewStore::get(const std::string& preview_id, std::int64_t now) {
+    const auto rows = _db->query("SELECT json, state, expires_at FROM action_previews WHERE preview_id = ?", {preview_id});
+    if (rows.empty()) return std::nullopt;
+    auto object = pi_sql_json(rows[0][0]);
+    const auto state = pi_sql_text(rows[0][1]);
+    // An in-flight apply keeps the stored state "pending" and carries apply_intent until it completes or is released.
+    if (state == "pending" && object.contains("apply_intent")) object["state"] = "applying";
+    else object["state"] = state == "pending" && now >= pi_sql_int(rows[0][2]) ? "expired" : state;
+    return object;
+}
+
+bool PiPreviewStore::transition(const std::string& preview_id, const std::string& state) {
+    if (state != "applied" && state != "dismissed") throw std::invalid_argument("Invalid preview state");
+    PiDatabase::Tx tx(*_db);
+    const auto rows = _db->query("SELECT state, json FROM action_previews WHERE preview_id = ?", {preview_id});
+    if (rows.empty()) return false;
+    const auto previous = pi_sql_text(rows[0][0]);
+    if (previous == "pending" && pi_sql_json(rows[0][1]).contains("apply_intent")) return false;
+    if (previous != "pending" && previous != state) return false;
+    _db->execute("UPDATE action_previews SET state = ? WHERE preview_id = ?", {state, preview_id});
+    tx.commit();
+    return true;
+}
+bool PiPreviewStore::begin_apply(const std::string& preview_id, const std::string& base_sha256, const nlohmann::json& preview) {
+    PiDatabase::Tx tx(*_db);
+    const auto rows = _db->query("SELECT json, state FROM action_previews WHERE preview_id = ?", {preview_id});
+    if (rows.empty() || pi_sql_text(rows[0][1]) != "pending") return false;
+    auto object = pi_sql_json(rows[0][0]);
+    if (object.contains("apply_intent")) return false;
+    object["apply_intent"] = {{"base_sha256", base_sha256}, {"saved_sha256", ""}, {"saved_path", ""}, {"preview", preview}};
+    _db->execute("UPDATE action_previews SET json = ? WHERE preview_id = ?", {object.dump(), preview_id});
+    tx.commit();
+    return true;
+}
+
+bool PiPreviewStore::record_saved(const std::string& preview_id, const std::string& saved_sha256, const std::string& saved_path) {
+    PiDatabase::Tx tx(*_db);
+    const auto rows = _db->query("SELECT json, state FROM action_previews WHERE preview_id = ?", {preview_id});
+    if (rows.empty() || pi_sql_text(rows[0][1]) != "pending") return false;
+    auto object = pi_sql_json(rows[0][0]);
+    if (!object.contains("apply_intent")) return false;
+    object["apply_intent"]["saved_sha256"] = saved_sha256;
+    object["apply_intent"]["saved_path"] = saved_path;
+    _db->execute("UPDATE action_previews SET json = ? WHERE preview_id = ?", {object.dump(), preview_id});
+    tx.commit();
+    return true;
+}
+
+bool PiPreviewStore::release_apply(const std::string& preview_id) {
+    PiDatabase::Tx tx(*_db);
+    const auto rows = _db->query("SELECT json, state FROM action_previews WHERE preview_id = ?", {preview_id});
+    if (rows.empty() || pi_sql_text(rows[0][1]) != "pending") return false;
+    auto object = pi_sql_json(rows[0][0]);
+    if (!object.contains("apply_intent")) return false;
+    object.erase("apply_intent");
+    _db->execute("UPDATE action_previews SET json = ? WHERE preview_id = ?", {object.dump(), preview_id});
+    tx.commit();
+    return true;
+}
+
+bool PiPreviewStore::complete(const std::string& preview_id, const nlohmann::json& result) {
+    PiDatabase::Tx tx(*_db);
+    const auto rows = _db->query("SELECT json, state FROM action_previews WHERE preview_id = ?", {preview_id});
+    if (rows.empty() || pi_sql_text(rows[0][1]) != "pending") return false;
+    auto object = pi_sql_json(rows[0][0]);
+    object.erase("apply_intent");
+    object["apply_result"] = result;
+    _db->execute("UPDATE action_previews SET state = 'applied', json = ? WHERE preview_id = ?", {object.dump(), preview_id});
+    tx.commit();
+    return true;
+}
+} // namespace tile_compile::pi

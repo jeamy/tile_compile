@@ -31,8 +31,6 @@ reconstruction:
   clipping:
     clip_sigma_low: 2.0
     clip_sigma_high: 4.0
-    min_fraction: 0.4
-    min_n_eff: 2.0
 ```
 
 ---
@@ -63,9 +61,6 @@ reconstruction:
   clipping:
     clip_sigma_low: 2.0                 # lower MAD threshold (more aggressive)
     clip_sigma_high: 4.0                # upper MAD threshold (more tolerant)
-    min_fraction: 0.4                   # minimum usable sample fraction
-    min_n_eff: 2.0                      # min. effective contribution count per pixel
-    guard_fallback: false               # false = strict veto on clip failure
   quality:
     pyramid:
       scales: 4
@@ -100,14 +95,6 @@ reconstruction:
 runtime_limits:
   parallel_workers: 2
   memory_budget: 1024
-```
-
-**Conservative against black artifact pixels:**
-
-```yaml
-reconstruction:
-  clipping:
-    guard_fallback: true     # use survivor/unclipped value instead of the veto
 ```
 
 **Field-filling objects (e.g. large galaxies):**
@@ -588,8 +575,6 @@ overlap-add stacking). When visible artifacts appear, check:
 - `reconstruction.coverage_gate.*` — coverage gates before FORWARD_DRIZZLE
 - `reconstruction.clipping.*` — too-aggressive sigma values can discard
   signal; too-loose values keep outliers
-- `reconstruction.clipping.guard_fallback` — `false` leaves unassignable
-  pixels black; `true` falls back to survivor/unclipped values
 - `reconstruction.diagnostics.level: full` — maximum diagnostics artifacts
 - downstream differences from `BGE` or `PCC`
 
@@ -653,7 +638,6 @@ registration:
   # Legacy compatibility; no effect with independent_global_consensus_v2
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.08
-  blind_chain_drift_threshold_px: 2.0
   use_astrometry: true            # Astrometric rescue when needed
   enable_local_background_subtraction: false
   star_shift_radius_px: 200       # Alt/Az: 200-400, equatorial: 60
@@ -670,7 +654,6 @@ registration:
   # Legacy compatibility; no effect with independent_global_consensus_v2
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.08
-  blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: true  # For moonlight/gradients
   star_shift_radius_px: 200
@@ -684,7 +667,6 @@ registration:
   # New parameters (v2.0) — defaults
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.08
-  blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
   star_shift_radius_px: 60        # Equatorial with good tracking
@@ -1018,7 +1000,7 @@ Adjust values to your specific hardware and conditions.
 ## Forward drizzle: streaming and memory budget (development, 2026-09-05)
 
 The CPU coverage/Uniform path processes target stripes instead of full-canvas
-accumulators per frame or worker. The preview remains disabled by default.
+accumulators per frame or worker.
 
 | Parameter | Units, range and default | Behavior |
 |---|---|---|
@@ -1026,7 +1008,6 @@ accumulators per frame or worker. The preview remains disabled by default.
 | `reconstruction.drizzle.chunk_rows` | internal target rows, integer >=0, default 0 | Auto selects at most 256 rows within budget. Oversized explicit values fail; if one row cannot fit, allocation is rejected before large buffers are created. |
 | `reconstruction.drizzle.chunk_halo_rows` | rows, integer >=-1, default -1 | Compatibility field. Exact source-footprint enumeration includes droplets crossing stripe boundaries; CPU Uniform/coverage does not need duplicate output halo rows. |
 | `reconstruction.common_overlap_required_fraction` | fraction, (0,1], default 1 | Fraction of accepted dense frame footprints defining an independent analysis region, not intersection of sparse R/G/B droplets. |
-| `reconstruction.diagnostics.preview_forward_drizzle_uniform` | boolean, default false | Streaming summary diagnostic, not a finished stack or resume commit. |
 
 Coverage and Uniform share the polygon kernel. `n_eff=(sum B)^2/sum(B^2)` uses
 geometric frame weights; missing support counts as zero within the analysis region.
@@ -1045,6 +1026,5 @@ separate accounting. There is no automatic method or scale fallback. See
 `tile_compile_cpp/examples/forward_drizzle_streaming.example.yaml`.
 
 For shared Uniform/Raw library calls, also prefer `chunk_rows: 0`: candidate storage grows with the number of frames, so more frames may require smaller stripes at the same image dimensions. If one row cannot fit, the call fails early. The streaming API avoids retaining both complete outputs in RAM; its sink must consume stripes immediately.
-`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (boolean, default `false`) is independent of preview. When enabled, it streams unclipped Uniform planes into `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` publishes the complete verified generation atomically. The existing drizzle budget includes an additional 8 MiB FITS/metadata reserve and one float row. Insufficient memory fails before source loading; insufficient free disk fails before plane writing. A failed diagnostic does not fail the run. Old generations are retained and consume disk; there is no automatic cleanup. This is a diagnostic store, not a resumable pipeline phase. Read `current.json` and validate it against the expected source, sampling and algorithm identity; old flat stores are not implicitly accepted or rewritten.
 
 The checked predecessor library API uses an explicit source-quality MiB budget (512 MiB by default). It may reject large native frames under its conservative scratch estimate; do not bypass that check. Cache manifests identify existing normalized raw float files and do not perform calibration. Commit schema 2 binds cache and quality-plan hashes.

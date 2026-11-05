@@ -112,6 +112,15 @@ struct RuntimeLimitsConfig {
   std::string acceleration_backend = "auto";
 };
 
+// Tile grid of the preprocessing stacking contract (its own JSON contract;
+// not a tile_compile.yaml section).
+struct TileConfig {
+  int size_factor = 32;
+  int min_size = 64;
+  int max_divisor = 6;
+  float overlap_fraction = 0.25f;
+};
+
 struct Config {
   std::string mode = "linear_prestack";
   std::string lights_dir;
@@ -137,7 +146,7 @@ struct Config {
   bool has_pcc_config = false;
   config::AstrometryConfig astrometry;
   config::BGEConfig bge;
-  config::TileConfig tile;
+  TileConfig tile;
   config::PCCConfig pcc;
   HyperMetricStretchConfig hypermetric_stretch;
   ReportConfig report;

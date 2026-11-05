@@ -7,6 +7,8 @@
 #include "services/run_inspector.hpp"
 #include "services/pi/pi_action_plan.hpp"
 #include "services/pi/pi_action_validator.hpp"
+#include "services/pi/pi_decision_record_store.hpp"
+#include "services/pi/pi_decision_writes.hpp"
 #include "services/pi/pi_ai_request_builder.hpp"
 #include "services/pi/pi_context_v2.hpp"
 #include "services/pi/pi_memory_store.hpp"
@@ -1279,6 +1281,16 @@ std::string persist_analysis(const std::shared_ptr<AppState>& state,
     if (!ofs) return "";
     ofs << persisted.dump(2);
     ofs.close();
+    // Best effort: the analysis stays served if recording the proposal fails.
+    const std::string proposal_analysis_id = analysis.value("analysis_id", std::string());
+    if (!proposal_analysis_id.empty()) {
+        try {
+            tile_compile::pi::PiDecisionRecordStore(tile_compile::pi::pi_storage_dir(state))
+                .append(tile_compile::pi::build_llm_proposal_record(analysis, proposal_analysis_id));
+        } catch (const std::exception& e) {
+            std::cerr << "PI llm_proposal record not written: " << e.what() << "\n";
+        }
+    }
     return filepath.string();
 }
 
@@ -2306,6 +2318,22 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
             result["saved"] = saved->value("saved", false);
             result["revision_id"] = rev_id;
             result["path"] = saved_path.string();
+            // Best effort, like the preview apply: the config is saved, a failed record is reported.
+            try {
+                tile_compile::pi::PiDecisionRecordStore records(tile_compile::pi::pi_storage_dir(state));
+                tile_compile::pi::ConfigApplyEvent event;
+                event.context_id = "analysis:" + analysis_id;
+                event.revision_id = rev_id;
+                event.config_sha256 = "sha256:" + sha256_hex(yaml_text);
+                event.idempotency_key = "config_apply:analysis:" + analysis_id + ":" + rev_id;
+                event.parent_decision_id = tile_compile::pi::find_llm_proposal_id(records, analysis_id);
+                for (const auto& u : applied) event.paths.push_back(json_string_field(u, "path"));
+                records.append(tile_compile::pi::build_config_apply_record(event));
+                result["decision_record_written"] = true;
+            } catch (const std::exception& e) {
+                result["decision_record_written"] = false;
+                result["decision_record_error"] = e.what();
+            }
         }
 
         if (body->value("learn", false)) {

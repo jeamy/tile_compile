@@ -13,7 +13,6 @@ namespace fs = std::filesystem;
 struct OutputConfig {
   std::string registered_dir = "registered";
   bool write_registered_frames = false;
-  bool crop_to_nonzero_bbox = true;
 };
 
 struct DataConfig {
@@ -21,7 +20,6 @@ struct DataConfig {
   int image_height = 0;
   std::string color_mode = "OSC";
   std::string bayer_pattern = "auto";
-  bool linear_required = true;
 };
 
 struct LinearityConfig {
@@ -85,7 +83,6 @@ struct RegistrationConfig {
   // Neue Parameter für Blind-Chain Rescue (§4.1, §8.B)
   int max_blind_chain_depth = 0;               // 0 = auto (N/10), >0 = manual
   float blind_chain_strong_anchor_cc = 0.08f;  // CC threshold for strong anchors
-  float blind_chain_drift_threshold_px = 2.0f; // Max drift per frame in chain
   // Astrometric rescue (§4.13)
   bool use_astrometry = true;                  // Enable astrometric rescue
   // Local background subtraction for star detection (§4.4, §8.D)
@@ -301,13 +298,6 @@ struct GlobalMetricsConfig {
   float weight_exponent_scale = 1.0f; // G_f = exp(k · Q_f), k>1 → stronger differentiation
 };
 
-struct TileConfig {
-  int size_factor = 32;
-  int min_size = 64;
-  int max_divisor = 6;
-  float overlap_fraction = 0.25f;
-};
-
 // ---------------------------------------------------------------------------
 // Single-method reconstruction contract (CFA forward drizzle + multiband).
 // Plan sections 6.1-6.3 / 11.2. This is the public `reconstruction:` config
@@ -316,23 +306,6 @@ struct TileConfig {
 
 struct ReconstructionDiagnosticsConfig {
   std::string level = "summary";  // "summary" | "full"
-  // M2 (plan section 11) is not yet a real pipeline phase: no clipping, no
-  // quality weights, no multiband, no transactional store/chunking, no
-  // resume contract. When true, run_phase_registration_prewarp additionally
-  // computes the CFA-forward-drizzle Uniform-Control profile as a
-  // best-effort, non-fatal diagnostic (artifacts/forward_drizzle_uniform_diagnostic.json)
-  // after SAMPLING_GEOMETRY, using the same normalized-cache source the
-  // final M2+ pipeline will use (never prewarped_frames). Off by default:
-  // the single-threaded reference kernel's exact polygon clip is
-  // meaningfully slower than SAMPLING_GEOMETRY's coverage-only touch test,
-  // and this is diagnostic-only work that must never impose that cost on a
-  // normal run.
-  bool preview_forward_drizzle_uniform = false;
-  // Independent opt-in diagnostic. Streams unclipped Uniform planes into
-  // immutable generations under artifacts/forward_drizzle_uniform_store/.
-  // current.json commits the complete, checked generation atomically.
-  // Includes FITS IO reserve in the drizzle budget. No pipeline resume claim.
-  bool persist_forward_drizzle_uniform_store = false;
 };
 
 struct ReconstructionDrizzleConfig {
@@ -354,17 +327,12 @@ struct ReconstructionDrizzleConfig {
 struct ReconstructionClippingConfig {
   float clip_sigma_low = 3.0f;      // > 0
   float clip_sigma_high = 3.0f;     // > 0
-  float min_fraction = 0.4f;        // (0, 1]
-  float min_n_eff = 3.0f;           // >= 1
-  // P0.1 (redundant_data_reload_analysis §"schwarze Artefakte"): default
-  // false preserves the exact plan-11.8 8-step procedure (step 8's
-  // min_fraction/min_n_eff veto rejects the pixel/channel outright, no
-  // fallback value). When true, a pixel/channel that fails step 8 is NOT
-  // erased: the sigma-clip-survivor set is used anyway (or, if the clip
-  // rejected every candidate, every original candidate is used unclipped) --
-  // trading the veto's noise guarantee for never leaving a geometrically
-  // covered pixel black. See robust_clip_core in forward_drizzle.cpp.
-  bool guard_fallback = false;
+  // The former plan-11.8 step-8 veto (min_fraction / min_n_eff /
+  // guard_fallback) is not part of the v2 kernel, which has no post-clip
+  // veto: a pixel/channel without source support stays unsupported; below
+  // drizzle.min_clip_contributors candidates (or on reservoir overflow) it
+  // takes the unclipped weighted mean; otherwise the weighted mean of the
+  // sigma-clip survivors. The keys are stripped by the legacy config migration.
   // Off by default (opt-in): the CFA forward-drizzle kernel runs the sigma/
   // MAD clip independently per (output pixel, color channel), because R/G/B
   // are drizzled straight from the raw, still-mosaiced Bayer samples --
@@ -479,7 +447,6 @@ struct ReconstructionMultibandValidationConfig {
 
 struct ReconstructionConfig {
   bool delete_source_cache_after_run = false;
-  bool keep_profile_cache_after_run = false;
   float common_overlap_required_fraction = 1.0f;  // (0,1], dense frame footprints
   ReconstructionDiagnosticsConfig diagnostics;
   ReconstructionDrizzleConfig drizzle;
@@ -647,11 +614,16 @@ struct HyperMetricStretchConfig {
   std::string sensor_profile = "rec709";   // rec709 | profile name | auto
   std::string fallback_profile = "rec709";
   bool adaptive_anchor = true;
-  // See image::HyperMetricStretchConfig::anchor_from_reference: uses the pre-post_pcc-denoise RGB
-  // (before chroma_denoise's post_pcc pass) for the anchor estimate instead of the possibly-denoised
-  // image being stretched, so a denoiser narrowing the sky distribution does not shift the black
-  // point. Off by default; needs the runner to have that reference available (it is, when
-  // chroma_denoise.apply_stage is post_pcc; silently unused otherwise).
+  // When true AND the caller passes a reference image (run_hypermetric_stretch_rgb's
+  // anchor_reference_R/G/B, the pre-post_pcc-denoise RGB), the black-point anchor
+  // (adaptive_anchor's histogram-shoulder search, or the plain percentile floor) is
+  // estimated from that reference instead of the image being stretched. Use this when
+  // a denoising stage between the reconstruction and HMS (chroma_denoise's post_pcc
+  // stage) narrows the sky-brightness distribution: the histogram search then crosses
+  // its fixed density threshold at a different point, measurably shifting the black
+  // point even though the true sky level did not change. Falls back to the image being
+  // stretched when no reference is passed. Off by default; not yet confirmed as a
+  // general improvement (see docs/hms_anchor_reference_20260927_de.md once filed).
   bool anchor_from_reference = false;
   float target_bg = 0.15f;
   float protect_b = 6.0f;
@@ -670,10 +642,11 @@ struct HyperMetricStretchConfig {
   // contrast in stars/highlights; it does not move the mid-tone/background
   // level, which stays pinned to target_bg regardless.
   float highlight_ceiling_percentile = 100.0f;
-  // Local contrast ("clarity"): boosts mid/large-scale luma detail the
-  // single global floor/ceiling/MTF curve above compresses away. See
-  // image::HyperMetricStretchConfig::LocalContrastConfig for the mechanism.
-  // Off by default.
+  // Local contrast ("clarity"): boosts mid/large-scale luma detail that the
+  // single GLOBAL tone curve above compresses away when it also has to lift a
+  // faint background up to target_bg (the dynamic range is present in the
+  // linear input; the compression happens in this stage's global
+  // floor/ceiling/MTF curve, which has no per-pixel awareness). Off by default.
   struct LocalContrastConfig {
     bool enabled = false;
     float radius_px = 40.0f;
@@ -723,7 +696,6 @@ struct Config {
   ChromaDenoiseConfig chroma_denoise;
   LumaDenoiseConfig luma_denoise;
   GlobalMetricsConfig global_metrics;
-  TileConfig tile;
   ReconstructionConfig reconstruction;
   AstrometryConfig astrometry;
   BGEConfig bge;

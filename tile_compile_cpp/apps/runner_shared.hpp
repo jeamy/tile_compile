@@ -1,6 +1,6 @@
-#include "tile_compile/registration/registration_sampling_plan.hpp"
 #pragma once
 
+#include "tile_compile/registration/registration_sampling_plan.hpp"
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
 #include "tile_compile/astrometry/wcs.hpp"
 #include "tile_compile/config/configuration.hpp"
@@ -65,25 +65,8 @@ uint64_t estimate_total_file_bytes(const std::vector<std::filesystem::path> &pat
 
 /// Workload class used to tune runner worker counts for CPU, IO, or mixed phases.
 enum class WorkerParallelProfile {
-  CpuBound,
   MixedIo,
   IoHeavy,
-};
-
-/// Decision record for selecting synthetic-frame weighting mode.
-///
-/// The requested mode may be downgraded from tile-weighted to global when
-/// boundary diagnostics show a high risk of visible tile seams.
-struct SyntheticWeightingDecision {
-  std::string requested_weighting = "global";
-  std::string effective_weighting = "global";
-  bool tile_seam_guard_triggered = false;
-  int boundary_pair_count = 0;
-  float boundary_pair_mean_abs_diff_p95 = 0.0f;
-  float boundary_pair_scale_ratio_deviation_p95 = 0.0f;
-  float boundary_post_background_delta_p95_abs = 0.0f;
-  float local_weight_mean_abs_delta_p95 = 0.0f;
-  float local_weight_correlation_p05 = 1.0f;
 };
 
 /// Choose a conservative worker count for the current phase and machine limits.
@@ -112,15 +95,6 @@ private:
   bool changed_ = false;
 };
 
-struct OverlapMasks {
-  std::vector<uint8_t> analysis_common;
-  std::vector<uint8_t> reconstruction_support;
-};
-
-/// Build independent analysis and output masks from per-pixel frame coverage.
-OverlapMasks compute_overlap_masks(const std::vector<uint16_t> &coverage,
-                                   int required_common_frames);
-
 /// Determine default parallel workers for CPU bound tasks without memory capping.
 int default_parallel_workers(size_t items, int requested_workers = 0);
 
@@ -128,8 +102,7 @@ int default_parallel_workers(size_t items, int requested_workers = 0);
 std::string shell_quote(const std::string &s);
 
 /// Convert config::HyperMetricStretchConfig to image::HyperMetricStretchConfig
-/// (field-for-field, no logic). Was duplicated identically in
-/// runner_pipeline.cpp, runner_downstream.cpp, and runner_resume.cpp.
+/// (an alias of the same struct; kept as the single conversion point).
 image::HyperMetricStretchConfig to_image_hms_config(
     const config::HyperMetricStretchConfig &src);
 
@@ -139,6 +112,19 @@ std::string system_cmd(const std::string &cmd);
 /// Resolve an ASTAP CLI binary path across platforms.
 std::filesystem::path resolve_astap_binary_path(const std::string &astap_bin_cfg,
                                                 const std::string &astap_data_dir);
+
+/// ASTAP data directory and binary as used by the solver phases.
+struct AstapPaths {
+  std::string data_dir;
+  std::filesystem::path binary;
+};
+
+/// Resolve the ASTAP data directory and binary. An empty `data_dir_cfg`
+/// falls back to the per-user default (`%LOCALAPPDATA%\tile_compile\astap`
+/// or `~/.local/share/tile_compile/astap`). When the resolved binary lies
+/// outside the data directory, its parent directory is used as data directory.
+AstapPaths resolve_astap_paths(const std::string &binary_cfg,
+                               const std::string &data_dir_cfg);
 
 /// Estimate the optical image-height FOV for ASTAP from original frame height
 /// and FITS focal/pixel-size metadata.
@@ -203,231 +189,6 @@ double resolve_pcc_auto_fwhm_px(const Matrix2Df &R, const Matrix2Df &G,
                                 bool have_fallback_fwhm = false,
                                 double fallback_fwhm_px = 0.0,
                                 std::string *source_out = nullptr);
-
-/// Apply seam-risk guardrails to synthetic-frame weighting selection.
-inline SyntheticWeightingDecision decide_synthetic_weighting(
-    const std::string &requested_weighting, int boundary_pair_count,
-    float boundary_pair_mean_abs_diff_p95,
-    float boundary_pair_scale_ratio_deviation_p95,
-    float boundary_post_background_delta_p95_abs,
-    float local_weight_mean_abs_delta_p95,
-    float local_weight_correlation_p05) {
-  SyntheticWeightingDecision out;
-  out.requested_weighting = requested_weighting;
-  out.effective_weighting = requested_weighting;
-  out.boundary_pair_count = boundary_pair_count;
-  out.boundary_pair_mean_abs_diff_p95 = boundary_pair_mean_abs_diff_p95;
-  out.boundary_pair_scale_ratio_deviation_p95 =
-      boundary_pair_scale_ratio_deviation_p95;
-  out.boundary_post_background_delta_p95_abs =
-      boundary_post_background_delta_p95_abs;
-  out.local_weight_mean_abs_delta_p95 = local_weight_mean_abs_delta_p95;
-  out.local_weight_correlation_p05 = local_weight_correlation_p05;
-
-  if (requested_weighting != "tile_weighted") {
-    return out;
-  }
-
-  constexpr int kMinObservedBoundaryPairs = 8;
-  // Guard only against clearly visible, severe seam regressions.
-  // Earlier thresholds were tight enough to reject historically good runs.
-  constexpr float kBoundaryMeanAbsDiffP95 = 0.25f;
-  constexpr float kBoundaryPostBackgroundDeltaP95 = 0.25f;
-
-  const bool enough_pairs = boundary_pair_count >= kMinObservedBoundaryPairs;
-  const bool severe_boundary_regression =
-      (std::isfinite(boundary_pair_mean_abs_diff_p95) &&
-       boundary_pair_mean_abs_diff_p95 > kBoundaryMeanAbsDiffP95);
-  const bool severe_background_step =
-      (std::isfinite(boundary_post_background_delta_p95_abs) &&
-       boundary_post_background_delta_p95_abs > kBoundaryPostBackgroundDeltaP95);
-
-  if (enough_pairs && severe_boundary_regression && severe_background_step) {
-    out.effective_weighting = "global";
-    out.tile_seam_guard_triggered = true;
-  }
-
-  return out;
-}
-
-/// Sentinel used for pixels outside the common-overlap mask.
-inline float common_overlap_invalid_value() {
-  return std::numeric_limits<float>::quiet_NaN();
-}
-
-/// Apply a common-overlap mask to a tile and report whether finite data remains.
-inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
-    Matrix2Df &tile, const Tile &t, const std::vector<uint8_t> &common_valid_mask,
-    int common_mask_width, int common_mask_height) {
-  if (tile.rows() != t.height || tile.cols() != t.width)
-    return false;
-  if (common_mask_width <= 0 || common_mask_height <= 0 ||
-      common_valid_mask.empty()) {
-    return false;
-  }
-
-  const int tile_cols = static_cast<int>(tile.cols());
-  const size_t mask_size = common_valid_mask.size();
-  float *tile_data = tile.data();
-  bool any_valid = false;
-  const float invalid = common_overlap_invalid_value();
-
-  for (int yy = 0; yy < t.height; ++yy) {
-    const int gy = t.y + yy;
-    const size_t tile_row_off =
-        static_cast<size_t>(yy) * static_cast<size_t>(tile_cols);
-
-    if (gy < 0 || gy >= common_mask_height) {
-      for (int xx = 0; xx < t.width; ++xx) {
-        tile_data[tile_row_off + static_cast<size_t>(xx)] = invalid;
-      }
-      continue;
-    }
-
-    const size_t row_off =
-        static_cast<size_t>(gy) * static_cast<size_t>(common_mask_width);
-
-    for (int xx = 0; xx < t.width; ++xx) {
-      const int gx = t.x + xx;
-      float &v = tile_data[tile_row_off + static_cast<size_t>(xx)];
-      if (gx < 0 || gx >= common_mask_width) {
-        v = invalid;
-        continue;
-      }
-      const size_t mask_idx = row_off + static_cast<size_t>(gx);
-      if (mask_idx >= mask_size || common_valid_mask[mask_idx] == 0) {
-        v = invalid;
-        continue;
-      }
-      if (std::isfinite(v)) {
-        any_valid = true;
-      }
-    }
-  }
-  return any_valid;
-}
-
-/// Apply the common-overlap mask consistently to full RGB frames.
-inline bool apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
-    Matrix2Df &r_frame, Matrix2Df &g_frame, Matrix2Df &b_frame,
-    const std::vector<uint8_t> &common_valid_mask, int common_mask_width,
-    int common_mask_height) {
-  if (r_frame.rows() != common_mask_height ||
-      r_frame.cols() != common_mask_width ||
-      g_frame.rows() != common_mask_height ||
-      g_frame.cols() != common_mask_width ||
-      b_frame.rows() != common_mask_height ||
-      b_frame.cols() != common_mask_width) {
-    return false;
-  }
-  if (common_mask_width <= 0 || common_mask_height <= 0 ||
-      common_valid_mask.empty()) {
-    return false;
-  }
-
-  const size_t mask_size = common_valid_mask.size();
-  float *r_data = r_frame.data();
-  float *g_data = g_frame.data();
-  float *b_data = b_frame.data();
-  bool any_valid = false;
-  const float invalid = common_overlap_invalid_value();
-  const size_t total =
-      static_cast<size_t>(common_mask_width) * static_cast<size_t>(common_mask_height);
-  for (size_t idx = 0; idx < total; ++idx) {
-    if (idx >= mask_size || common_valid_mask[idx] == 0) {
-      r_data[idx] = invalid;
-      g_data[idx] = invalid;
-      b_data[idx] = invalid;
-      continue;
-    }
-    if (std::isfinite(r_data[idx]) || std::isfinite(g_data[idx]) ||
-        std::isfinite(b_data[idx])) {
-      any_valid = true;
-    }
-  }
-  return any_valid;
-}
-
-/// Apply the common-overlap mask consistently to RGB tile planes.
-inline bool apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
-    Matrix2Df &r_tile, Matrix2Df &g_tile, Matrix2Df &b_tile, const Tile &t,
-    const std::vector<uint8_t> &common_valid_mask, int common_mask_width,
-    int common_mask_height) {
-  if (r_tile.rows() != t.height || r_tile.cols() != t.width ||
-      g_tile.rows() != t.height || g_tile.cols() != t.width ||
-      b_tile.rows() != t.height || b_tile.cols() != t.width) {
-    return false;
-  }
-  if (common_mask_width <= 0 || common_mask_height <= 0 ||
-      common_valid_mask.empty()) {
-    return false;
-  }
-
-  const int tile_cols = static_cast<int>(r_tile.cols());
-  const size_t mask_size = common_valid_mask.size();
-  float *r_data = r_tile.data();
-  float *g_data = g_tile.data();
-  float *b_data = b_tile.data();
-  bool any_valid = false;
-  const float invalid = common_overlap_invalid_value();
-
-  for (int yy = 0; yy < t.height; ++yy) {
-    const int gy = t.y + yy;
-    const size_t tile_row_off =
-        static_cast<size_t>(yy) * static_cast<size_t>(tile_cols);
-
-    if (gy < 0 || gy >= common_mask_height) {
-      for (int xx = 0; xx < t.width; ++xx) {
-        const size_t idx = tile_row_off + static_cast<size_t>(xx);
-        r_data[idx] = invalid;
-        g_data[idx] = invalid;
-        b_data[idx] = invalid;
-      }
-      continue;
-    }
-
-    const size_t row_off =
-        static_cast<size_t>(gy) * static_cast<size_t>(common_mask_width);
-
-    for (int xx = 0; xx < t.width; ++xx) {
-      const int gx = t.x + xx;
-      const size_t idx = tile_row_off + static_cast<size_t>(xx);
-      if (gx < 0 || gx >= common_mask_width) {
-        r_data[idx] = invalid;
-        g_data[idx] = invalid;
-        b_data[idx] = invalid;
-        continue;
-      }
-      const size_t mask_idx = row_off + static_cast<size_t>(gx);
-      if (mask_idx >= mask_size || common_valid_mask[mask_idx] == 0) {
-        r_data[idx] = invalid;
-        g_data[idx] = invalid;
-        b_data[idx] = invalid;
-        continue;
-      }
-      if (std::isfinite(r_data[idx]) || std::isfinite(g_data[idx]) ||
-          std::isfinite(b_data[idx])) {
-        any_valid = true;
-      }
-    }
-  }
-  return any_valid;
-}
-
-/// Fast tile-gating helper used after COMMON_OVERLAP masking.
-inline bool tile_has_nonzero_common_data(
-    const Matrix2Df &tile, size_t tile_index,
-    const std::vector<uint8_t> &tile_common_valid) {
-  if (tile_index >= tile_common_valid.size() || tile_common_valid[tile_index] == 0)
-    return false;
-  const float *ptr = tile.data();
-  for (Eigen::Index i = 0; i < tile.size(); ++i) {
-    if (std::isfinite(ptr[i])) {
-      return true;
-    }
-  }
-  return false;
-}
 
 /// Detect common disk-full messages from exception strings and library errors.
 bool message_indicates_disk_full(const std::string &message);

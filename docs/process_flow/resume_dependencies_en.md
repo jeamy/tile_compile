@@ -63,8 +63,7 @@ rerun disguised as a resume anymore.
 `cache/source_quality_maps` (and the normalized-frame cache) at run end —
 a **reconstruction resume** is then impossible; downstream resume from
 the persisted outputs keeps working.
-`reconstruction.keep_profile_cache_after_run` controls retention of
-profile caches independently.
+The v2 band store is always retained (resume predecessor).
 
 ## Environment overrides honored on resume
 

@@ -63,14 +63,6 @@ float robust_median_inplace(std::vector<float> &values) {
   return tile_compile::core::median_of(values);
 }
 
-/// @brief Implements robust median.
-/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-float robust_median(std::vector<float> values) {
-  return robust_median_inplace(values);
-}
-
 /// @brief Implements robust quantile inplace.
 /// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -2930,37 +2922,6 @@ bool select_background_surface_model(const std::vector<GridCell> &grid_cells,
 
   set_error("Unsupported fit method: " + method);
   return false;
-}
-
-// RBF interpolation (v3.3 §6.3.7)
-/// @brief Implements fit rbf surface.
-/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-Matrix2Df fit_rbf_surface(const std::vector<GridCell> &grid_cells,
-                          int image_width, int image_height, int grid_spacing,
-                          const BGEConfig &config) {
-  RBFModelState state;
-  if (!solve_rbf_model(grid_cells, grid_spacing, config, &state)) {
-    return Matrix2Df::Zero(image_height, image_width);
-  }
-  return render_rbf_surface(state, image_width, image_height);
-}
-
-// Polynomial surface fitting (v3.3 §6.3.7)
-/// @brief Implements fit polynomial surface.
-/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-Matrix2Df fit_polynomial_surface(const std::vector<GridCell> &grid_cells,
-                                 int image_width, int image_height,
-                                 const BGEConfig &config) {
-  PolynomialModelState state;
-  if (!solve_polynomial_model(grid_cells, image_width, image_height, config,
-                              &state)) {
-    return Matrix2Df::Zero(image_height, image_width);
-  }
-  return render_polynomial_surface(state, image_width, image_height);
 }
 
 // Fit background surface (v3.3 §6.3.7)

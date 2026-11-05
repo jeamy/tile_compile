@@ -186,15 +186,6 @@ float percentile(std::vector<float> values, float pct) {
 
 float median(std::vector<float> values) { return percentile(std::move(values), 50.0f); }
 
-float mean(const std::vector<float> &values) {
-  if (values.empty()) {
-    return 0.0f;
-  }
-  const double sum =
-      std::accumulate(values.begin(), values.end(), 0.0);
-  return static_cast<float>(sum / static_cast<double>(values.size()));
-}
-
 float stddev(const std::vector<float> &values, float m) {
   if (values.empty()) {
     return 0.0f;
@@ -1121,12 +1112,24 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
   diag.shadow_convergence = shadow_conv;
 
   const float D = std::pow(10.0f, diag.log_d);
+  // Per-call constants of hypermetric_hyperbolic_stretch_value(., D, b, 0):
+  // the asinh(b) and normaliser terms depend only on (D, b). Evaluating them
+  // once and keeping (term1 - term2) / norm per pixel reproduces the
+  // function value exactly.
+  const float hs_D = std::max(D, 0.1f);
+  const float hs_b = std::max(cfg.protect_b, 0.1f);
+  const float hs_term2 = std::asinh(hs_b);
+  float hs_norm = std::asinh(hs_D * (1.0f - 0.0f) + hs_b) - hs_term2;
+  if (std::abs(hs_norm) < 1e-12f) hs_norm = 1e-6f;
+  auto stretch_fast = [&](float value) -> float {
+    const float term1 = std::asinh(hs_D * (value - 0.0f) + hs_b);
+    return (term1 - hs_term2) / hs_norm;
+  };
   Matrix2Df Ls(rows, cols);
+#pragma omp parallel for schedule(static)
   for (int y = 0; y < rows; ++y) {
     for (int x = 0; x < cols; ++x) {
-      Ls(y, x) = std::clamp(
-          hypermetric_hyperbolic_stretch_value(L(y, x), D, cfg.protect_b),
-          0.0f, 1.0f);
+      Ls(y, x) = std::clamp(stretch_fast(L(y, x)), 0.0f, 1.0f);
     }
   }
   if (cfg.mode != "ready_to_use" && cfg.linear_expansion > 0.001f) {
@@ -1134,6 +1137,7 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
                            mask_cols);
   }
 
+#pragma omp parallel for schedule(static)
   for (int y = 0; y < rows; ++y) {
     for (int x = 0; x < cols; ++x) {
       if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
@@ -1153,12 +1157,9 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
       float bv = Ls(y, x) * bf;
 
       if (color_grip < 1.0f || shadow_conv > 0.01f) {
-        const float scalar_r = std::clamp(
-            hypermetric_hyperbolic_stretch_value(ra, D, cfg.protect_b), 0.0f, 1.0f);
-        const float scalar_g = std::clamp(
-            hypermetric_hyperbolic_stretch_value(ga, D, cfg.protect_b), 0.0f, 1.0f);
-        const float scalar_b = std::clamp(
-            hypermetric_hyperbolic_stretch_value(ba, D, cfg.protect_b), 0.0f, 1.0f);
+        const float scalar_r = std::clamp(stretch_fast(ra), 0.0f, 1.0f);
+        const float scalar_g = std::clamp(stretch_fast(ga), 0.0f, 1.0f);
+        const float scalar_b = std::clamp(stretch_fast(ba), 0.0f, 1.0f);
         float grip = color_grip;
         if (shadow_conv > 0.01f) {
           grip *= std::pow(Ls(y, x), shadow_conv);

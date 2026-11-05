@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.5.0 (2026-10-03)
+
+**CFA Forward Drizzle v2 and the Jev decision layer:**
+
+- Reconstruction was rebuilt as the gate-verified CFA Forward Drizzle + Multiband v2 path (dense scatter, bounded-reservoir sigma-clip, local warps, streaming multiband) with band-boundary resume and atomic commit. It is now the pipeline's single reconstruction method.
+- Major forward-drizzle performance work: parallel SQM build, target-column windows, column-tiled CUDA store path, rectangle/seek-read quality maps, and reduced host-memory pressure.
+- Registration gained a plausibility gate for model-predicted warps; colour pipeline gained opt-in average-neutral cast correction, optional sky neutralization, and scale-selective large-scale contrast in HMS.
+- Jev decision service: verified provider protocol, protected-path candidate catalog, deterministic pre-rules, backend service plus agent_service adapter, and a Jev page with traffic panel, grouped recommendations and batch apply.
+- Deterministic post-run advisor card whose apply prepares a new run or a resume; release policy v2, retrospective registry, matched-pair metrics, value grids and object-class support.
+- Platform: Windows portability shims; macOS bundles now target macOS 15, pin `openssl@3`, and ship a minimal static OpenCV.
+
 ## v0.4.A (2026-08-24)
 
 **Native local Gaia DR3 astrometry fallback and BGE draft compatibility:**

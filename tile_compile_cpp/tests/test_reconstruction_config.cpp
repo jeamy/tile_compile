@@ -34,8 +34,6 @@ TEST_CASE("reconstruction: defaults are present and valid (plan 6.1)") {
   Config cfg = parse("");  // no reconstruction block -> struct defaults
   const auto& r = cfg.reconstruction;
   REQUIRE(r.delete_source_cache_after_run == false);
-  REQUIRE(r.diagnostics.preview_forward_drizzle_uniform == false);
-  REQUIRE(r.diagnostics.persist_forward_drizzle_uniform_store == false);
   REQUIRE(r.drizzle.internal_scale == 2);
   REQUIRE(r.drizzle.output_scale == 1);
   REQUIRE(r.drizzle.kernel == "square");
@@ -49,17 +47,14 @@ TEST_CASE("reconstruction: a full block round-trips through parse (plan 6.1)") {
   const std::string block =
       "reconstruction:\n"
       "  delete_source_cache_after_run: true\n"
-      "  keep_profile_cache_after_run: true\n"
       "  common_overlap_required_fraction: 0.9\n"
-      "  diagnostics:\n    level: full\n    preview_forward_drizzle_uniform: true\n"
-      "    persist_forward_drizzle_uniform_store: true\n"
+      "  diagnostics:\n    level: full\n"
       "  drizzle:\n"
       "    internal_scale: 2\n    output_scale: 2\n    kernel: square\n"
       "    pixfrac: 0.75\n    robust_passes: 3\n    min_clip_contributors: 6\n"
       "    chunk_rows: 128\n    chunk_halo_rows: 4\n    memory_budget_mb: 2048\n"
       "  clipping:\n"
       "    clip_sigma_low: 2.5\n    clip_sigma_high: 3.5\n"
-      "    min_fraction: 0.5\n    min_n_eff: 4.0\n"
       "  coverage_gate:\n"
       "    min_frames: 12\n    min_supported_fraction: 0.99\n"
       "    min_channel_n_eff_floor: 4.0\n    min_channel_n_eff_fraction: 0.2\n"
@@ -84,8 +79,6 @@ TEST_CASE("reconstruction: a full block round-trips through parse (plan 6.1)") {
   REQUIRE(r.delete_source_cache_after_run == true);
   REQUIRE(r.common_overlap_required_fraction == 0.9f);
   REQUIRE(r.diagnostics.level == "full");
-  REQUIRE(r.diagnostics.preview_forward_drizzle_uniform == true);
-  REQUIRE(r.diagnostics.persist_forward_drizzle_uniform_store == true);
   REQUIRE(r.drizzle.output_scale == 2);
   REQUIRE(r.drizzle.pixfrac == 0.75f);
   REQUIRE(r.drizzle.min_clip_contributors == 6);
@@ -118,8 +111,6 @@ TEST_CASE("reconstruction: a full block round-trips through parse (plan 6.1)") {
   REQUIRE(cfg2.reconstruction.quality.pyramid.score_scale ==
           r.quality.pyramid.score_scale);
   REQUIRE(cfg2.reconstruction.diagnostics.level == "full");
-  REQUIRE(cfg2.reconstruction.diagnostics.preview_forward_drizzle_uniform == true);
-  REQUIRE(cfg2.reconstruction.diagnostics.persist_forward_drizzle_uniform_store == true);
   REQUIRE(cfg2.reconstruction.multiband_validation.background_rms_ratio_max ==
           r.multiband_validation.background_rms_ratio_max);
   REQUIRE(cfg2.reconstruction.multiband_validation.min_stars_fwhm ==
@@ -141,7 +132,6 @@ TEST_CASE("reconstruction: validation rejects contract violations (plan 6.3)") {
   expect_reject("reconstruction:\n  drizzle:\n    min_clip_contributors: 1\n");
   expect_reject("reconstruction:\n  drizzle:\n    chunk_halo_rows: 0\n");
   expect_reject("reconstruction:\n  clipping:\n    clip_sigma_low: 0\n");
-  expect_reject("reconstruction:\n  clipping:\n    min_n_eff: 0.5\n");
   expect_reject("reconstruction:\n  diagnostics:\n    level: verbose\n");
   expect_reject("reconstruction:\n  quality:\n    pyramid:\n      scales: 9\n");
   expect_reject("reconstruction:\n  quality:\n    pyramid:\n      base_window_px: 0\n");

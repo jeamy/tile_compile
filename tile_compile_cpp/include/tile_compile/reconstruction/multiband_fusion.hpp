@@ -28,6 +28,7 @@
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/reconstruction/adaptive_alpha.hpp"
 #include "tile_compile/reconstruction/alpha_guard.hpp"
+#include "tile_compile/reconstruction/atrous_decomposition.hpp"
 #include "tile_compile/reconstruction/forward_drizzle.hpp"  // ProfilePlane
 
 #include <cstdint>
@@ -68,6 +69,22 @@ struct MultibandChannelResult {
 // ignore alpha entirely.
 MultibandChannelResult fuse_multiband_channel(
     const MultibandChannelInput &in, int width, int height,
+    const MultibandFusionParams &params,
+    const std::vector<std::vector<float>> &alpha_by_band = {});
+
+// Same fusion over ALREADY decomposed profile planes (each produced by
+// atrous_decompose with params.levels on the same width x height geometry).
+// `medium` may be null only when params.levels == 1. Lets an orchestrator
+// that already decomposed raw/fine/medium for the energy guard reuse those
+// decompositions instead of decomposing every profile a second time.
+struct MultibandChannelDecompositions {
+  const AtrousDecomposition *uniform = nullptr;  // required
+  const AtrousDecomposition *raw = nullptr;      // required
+  const AtrousDecomposition *fine = nullptr;     // required
+  const AtrousDecomposition *medium = nullptr;   // required if levels >= 2
+};
+MultibandChannelResult fuse_multiband_channel(
+    const MultibandChannelDecompositions &dec, int width, int height,
     const MultibandFusionParams &params,
     const std::vector<std::vector<float>> &alpha_by_band = {});
 

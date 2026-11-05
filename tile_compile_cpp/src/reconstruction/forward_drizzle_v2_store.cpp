@@ -376,11 +376,6 @@ bool parse_forward_drizzle_v2_plan(const std::string &text,
   return true;
 }
 
-std::string serialize_forward_drizzle_v2_checkpoint(
-    const ForwardDrizzleV2Checkpoint &checkpoint) {
-  return checkpoint_to_json(checkpoint, true).dump(2);
-}
-
 bool parse_forward_drizzle_v2_checkpoint(const std::string &text,
                                          ForwardDrizzleV2Checkpoint &out,
                                          std::string &error) {

@@ -227,7 +227,7 @@ fs::path default_pi_models_dir(const std::shared_ptr<AppState>& state) {
     .pi_memory/
   pi_models/
     scan/bge.method/v3/model.txt          (LightGBM-Textformat oder eigenes Baum-Format)
-    scan/bge.method/v3/metadata.json      (Feature-Liste, Trainingsdatum, n_samples, val_score)
+    scan/bge.method/v3/metadata.json      (Domäne, Zielpfad, Feature-Liste, Trainingsdatum, n_samples, val_score)
     scan/hypermetric_stretch.black_point/v1/model.txt
     live_edit/op_intent_classifier/v2/model.txt
     live_edit/brightness.midtones/v1/model.txt
@@ -236,6 +236,7 @@ fs::path default_pi_models_dir(const std::shared_ptr<AppState>& state) {
 
 - Kein `onnxruntime` nötig für Baum-/Linear-Modelle → header-only Inferenz in C++, keine neue Laufzeit-Dependency, Modelle im KB-Bereich, <1 ms Inferenz.
 - `metadata.json` inkl. Hash der Feature-Liste → Runtime erkennt Schema-Drift (z. B. neues Feld) und fällt sauber auf den LLM-Pfad zurück statt mit falschem Feature-Alignment zu inferieren.
+- Laufzeit-Trennung ist fail-closed: nur `scan` und `live_edit` sind erlaubte Domänen; Zielpfade werden vor Dateizugriff auf sichere Punktpfad-Zeichen geprüft. Anfrage-Feature-Vektor und jeder Referenzpunkt müssen zur angefragten Domäne passen; `metadata.json` muss Domäne und Zielpfad korrekt ausweisen. Fehlende oder gemischte Identität macht das Modell nicht verfügbar; Live-Editor-Werte können dadurch nicht als Scan-/Pipeline-Config-Label dienen.
 - **Portabilität verschärft die Kompatibilitätsprüfung:** weil `pi_models/` gezielt zwischen Installationen kopierbar sein soll, reicht der Feature-Hash allein nicht — ein mitkopiertes Modell für `bge.method` kann einen Enum-Wert vorhersagen, den ein neueres `config_schema` nicht mehr kennt. `metadata.json` pinnt deshalb zusätzlich den `config_schema_sha256` (existiert bereits als Feld in `.ai_analyses/*.json` → `_meta.config_schema_sha256`, dieselbe Quelle wiederverwenden). Bei Mismatch: Modell wird ignoriert, Fallback auf LLM-Pfad, kein Silent-Apply eines möglicherweise ungültigen Werts.
 - Rollout-Schutz: neue Version wird nur aktiv, wenn ihr Validierungsscore (Holdout aus denselben geloggten Outcomes) die aktuell aktive Version nicht unterschreitet.
 - **Kill-Switch:** ein Konfigurationsschalter (`pi.local_models.enabled: false` oder Env-Var) erzwingt pro Installation den reinen LLM-Pfad, unabhängig vom Inhalt von `pi_models/` — Rückfallebene, falls ein mitgeliefertes oder trainiertes Modell in der Praxis schlechter empfiehlt als der bisherige Weg.

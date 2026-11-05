@@ -131,22 +131,6 @@ void apply_sigma_rejection_high(const std::vector<float>& values,
     }
 }
 
-void apply_sigma_rejection_low(const std::vector<float>& values,
-                                float k,
-                                std::vector<bool>& excluded) {
-    std::vector<float> active;
-    active.reserve(values.size());
-    for (size_t i = 0; i < values.size(); ++i) {
-        if (!excluded[i] && std::isfinite(values[i])) active.push_back(values[i]);
-    }
-    auto [med, sig] = robust_stats(active);
-    if (sig <= 0.0f) return;
-    const float threshold = med - k * sig;
-    for (size_t i = 0; i < values.size(); ++i) {
-        if (!excluded[i] && values[i] < threshold) excluded[i] = true;
-    }
-}
-
 /// Write frame_quality.csv.
 void write_frame_quality_csv(const fs::path& path,
                               const std::vector<FrameQualityRecord>& records) {

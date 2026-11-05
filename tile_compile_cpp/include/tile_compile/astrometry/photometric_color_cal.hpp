@@ -103,16 +103,4 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                   const std::vector<GaiaStar> &catalog_stars,
                   const PCCConfig &config = PCCConfig());
 
-// Default Bayer filter transmission curves for a typical CMOS sensor
-// Returns (wavelength_nm, transmission) pairs
-struct FilterCurves {
-    std::vector<double> wl;   // wavelength in nm
-    std::vector<double> tx_r; // red filter transmission
-    std::vector<double> tx_g; // green filter transmission
-    std::vector<double> tx_b; // blue filter transmission
-};
-
-// Get default filter curves for a generic OSC sensor
-FilterCurves default_osc_filter_curves();
-
 } // namespace tile_compile::astrometry

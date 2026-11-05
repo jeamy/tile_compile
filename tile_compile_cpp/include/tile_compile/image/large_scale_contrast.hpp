@@ -28,6 +28,7 @@
 // never touched; values are kept within [0, per-channel maximum of the input];
 // deterministic; no dependence on the frame count. Off by default.
 
+#include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/types.hpp"
 
 #include <cstdint>
@@ -36,13 +37,13 @@
 
 namespace tile_compile::image {
 
-struct LargeScaleContrastConfig {
-  bool enabled = false;
-  float amount = 1.0f;         // [0, 6]: factor on the large-scale luminance deviation (0 = none)
-  float sigma_px = 48.0f;      // (0, 512]: Gaussian sigma of the "large" component, output pixels
-  float chroma_amount = 0.0f;  // [0, 6]: same factor for R-G and B-G; 0 = colour unchanged
-  bool remove_vignette = true; // exclude the radially symmetric component from the boost
-};
+// Parameters are the nested public config struct (single source of truth):
+// amount [0, 6] factor on the large-scale luminance deviation, sigma_px (0, 512]
+// Gaussian sigma of the "large" component in output pixels, chroma_amount
+// [0, 6] same factor for R-G and B-G, remove_vignette excludes the radially
+// symmetric component from the boost.
+using LargeScaleContrastConfig =
+    config::HyperMetricStretchConfig::LargeScaleContrastConfig;
 
 struct LargeScaleContrastResult {
   bool applied = false;

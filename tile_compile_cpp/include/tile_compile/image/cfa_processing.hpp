@@ -124,17 +124,6 @@ void debayer_bilinear_into(const Matrix2Df& mosaic,
                            Matrix2Df& G_out,
                            Matrix2Df& B_out);
 
-void debayer_bilinear_strided_into(const float* mosaic_data,
-                                   int mosaic_rows,
-                                   int mosaic_cols,
-                                   int mosaic_stride,
-                                   BayerPattern pattern,
-                                   int origin_x,
-                                   int origin_y,
-                                   Matrix2Df& R_out,
-                                   Matrix2Df& G_out,
-                                   Matrix2Df& B_out);
-
 DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
                                BayerPattern pattern,
                                int origin_x,

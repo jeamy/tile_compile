@@ -12,6 +12,8 @@
 #include "routes/tools_routes.hpp"
 #include "routes/preprocessing_routes.hpp"
 #include "tile_compile/core/build_info.hpp"
+#include "services/pi/pi_storage_paths.hpp"
+#include "services/pi/pi_retention_store.hpp"
 
 #define CROW_MAIN
 #include "crow_app.hpp"
@@ -24,6 +26,9 @@
 #include <vector>
 #include <thread>
 #include <chrono>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <nlohmann/json.hpp>
 
 #ifdef __linux__
@@ -401,11 +406,46 @@ int main(int argc, char* argv[]) {
         std::cout << "[tile_compile_web_backend] Starting on http://"
                   << state->runtime.host << ":" << port << "/ui" << std::endl;
 
-        app.bindaddr(state->runtime.host)
-           .port(port)
-           .multithreaded()
-           .run();
+        // Run deletion-journal recovery before binding the HTTP listener: a crash after the
+        // durable external marker but before the SQLite commit must never expose stale PI rows.
+        {
+            tile_compile::pi::PiRetentionStore recovery(tile_compile::pi::pi_storage_dir(state));
+        }
 
+        std::atomic<bool> stop_retention{false};
+        std::mutex retention_mutex;
+        std::condition_variable retention_cv;
+        std::thread retention_worker([&]() {
+            while (!stop_retention.load()) {
+                try {
+                    const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                    tile_compile::pi::PiRetentionStore store(tile_compile::pi::pi_storage_dir(state));
+                    const auto result = store.maintain(now);
+                    std::cout << "[PI retention] maintenance complete: " << result["counts"].dump() << std::endl;
+                } catch (const std::exception& e) {
+                    std::cerr << "[PI retention] maintenance failed: " << e.what() << std::endl;
+                }
+                std::unique_lock<std::mutex> lock(retention_mutex);
+                retention_cv.wait_for(lock, std::chrono::hours(24), [&]() { return stop_retention.load(); });
+            }
+        });
+
+        try {
+            app.bindaddr(state->runtime.host)
+               .port(port)
+               .multithreaded()
+               .run();
+        } catch (...) {
+            stop_retention = true;
+            retention_cv.notify_all();
+            if (retention_worker.joinable()) retention_worker.join();
+            throw;
+        }
+
+        stop_retention = true;
+        retention_cv.notify_all();
+        if (retention_worker.joinable()) retention_worker.join();
         return 0;
     } catch (const std::system_error& e) {
         std::cerr << "[tile_compile_web_backend] Fatal system error: "

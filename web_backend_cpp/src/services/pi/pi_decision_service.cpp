@@ -59,7 +59,7 @@ json unavailable_response(const std::string& code, const std::string& status = "
 } // namespace
 
 DecisionService::DecisionService(fs::path decisions_dir, DecisionCatalog catalog, DecisionServiceDeps deps, std::string qsv)
-    : dir_(std::move(decisions_dir)), catalog_(std::move(catalog)), deps_(std::move(deps)), question_set_version_(std::move(qsv)) {
+    : dir_(std::move(decisions_dir)), store_(dir_), catalog_(std::move(catalog)), deps_(std::move(deps)), question_set_version_(std::move(qsv)) {
     if (!deps_.sidecar || !deps_.now_iso || !deps_.new_id) throw std::invalid_argument("DecisionService: incomplete dependencies");
 }
 
@@ -67,7 +67,7 @@ void DecisionService::event(const std::string& id, const std::string& name, cons
     try {
         json e = {{"ts", deps_.now_iso()}, {"event", name}};
         for (auto it = extra.begin(); it != extra.end(); ++it) e[it.key()] = it.value();
-        append_jsonl(pdir(id) / "events.jsonl", e);
+        store_.event(id, e);
     } catch (const std::exception&) {
         // observability only
     }
@@ -91,13 +91,13 @@ DecisionPolicy DecisionService::policy_for_mode(const std::string& mode, bool al
 std::string DecisionService::create() {
     const std::string id = deps_.new_id();
     if (id.empty() || id.find('/') != std::string::npos || id.find("..") != std::string::npos) throw std::runtime_error("invalid proposal id");
-    write_json_file_atomic(pdir(id) / "status.json", {{"proposal_id", id}, {"state", "running"}, {"created_at", deps_.now_iso()}});
+    store_.put(id, "status", {{"proposal_id", id}, {"state", "running"}, {"created_at", deps_.now_iso()}});
     event(id, "created");
     return id;
 }
 
 void DecisionService::run(const std::string& id, const AdviceRequest& request, const std::string& group) {
-    json status = read_json_file_opt(pdir(id) / "status.json").value_or(json{{"proposal_id", id}, {"created_at", deps_.now_iso()}});
+    json status = store_.get(id, "status").value_or(json{{"proposal_id", id}, {"created_at", deps_.now_iso()}});
     try {
         json sidecar_status;
         bool sidecar_ok = true;
@@ -121,11 +121,11 @@ void DecisionService::run(const std::string& id, const AdviceRequest& request, c
             cands.applicable = only;
             status["group"] = group;
         }
-        write_json_file_atomic(pdir(id) / "state.json", {{"state", sr.state}, {"state_hash", sr.state_hash}, {"findings", sr.findings},
+        store_.put(id, "state", {{"state", sr.state}, {"state_hash", sr.state_hash}, {"findings", sr.findings},
                                                          {"provider_projection", sr.provider_projection}});
-        write_json_file_atomic(pdir(id) / "source.json", {{"input_path", request.scan.value("input_path", std::string())},
+        store_.put(id, "source", {{"input_path", request.scan.value("input_path", std::string())},
                                                             {"dataset_manifest", request.dataset_manifest}});
-        write_json_file_atomic(pdir(id) / "candidates.json", {{"applicable", cands.applicable}, {"excluded", cands.excluded},
+        store_.put(id, "candidates", {{"applicable", cands.applicable}, {"excluded", cands.excluded},
                                                               {"catalog_version", cands.catalog_version}, {"policy", policy_snapshot(policy)}});
 
         bool has_real = false;
@@ -147,7 +147,7 @@ void DecisionService::run(const std::string& id, const AdviceRequest& request, c
             const json info = provider_candidate_info(cands, catalog_);
             if (!info["descriptions"].empty()) req["candidate_descriptions"] = info["descriptions"];
             if (!info["facts"].empty()) req["candidate_facts"] = info["facts"];
-            write_json_file_atomic(pdir(id) / "request.json", req);
+            store_.put(id, "request", req);
             try {
                 response = deps_.sidecar("POST", "/decisions", req);
                 model_called = true;
@@ -171,21 +171,23 @@ void DecisionService::run(const std::string& id, const AdviceRequest& request, c
         json proposal = resolve_decision(response, sr.state, request.base_config, policy, catalog_, deps_.validate_config, ctx);
         if (synthetic_baseline) proposal["reason_codes"].push_back("no_applicable_candidates");
 
-        write_json_file_atomic(pdir(id) / "response.json", response);
-        write_json_file_atomic(pdir(id) / "proposal.json", proposal);
+        PiDatabase::Tx tx(*store_.database());
+        store_.put(id, "response", response);
+        store_.put(id, "proposal", proposal);
         status["state"] = "done";
         status["finished_at"] = deps_.now_iso();
         status["mode"] = mode;
         status["model_called"] = model_called;
         status["synthetic_baseline"] = synthetic_baseline;
         status["policy"] = policy_snapshot(policy);
-        write_json_file_atomic(pdir(id) / "status.json", status);
+        store_.put(id, "status", status);
         event(id, "done", {{"proposal_status", proposal["status"]}, {"candidate_id", proposal["candidate_id"]}});
+        tx.commit();
     } catch (const std::exception& e) {
         status["state"] = "failed";
         status["error"] = e.what();
         status["finished_at"] = deps_.now_iso();
-        try { write_json_file_atomic(pdir(id) / "status.json", status); } catch (const std::exception&) {}
+        try { store_.put(id, "status", status); } catch (const std::exception&) {}
         event(id, "failed", {{"error", e.what()}});
     }
 }
@@ -207,16 +209,16 @@ std::vector<std::string> DecisionService::groups_for(const AdviceRequest& reques
 
 std::optional<json> DecisionService::view(const std::string& id) const {
     if (id.empty() || id.find('/') != std::string::npos || id.find("..") != std::string::npos) return std::nullopt;
-    const auto status = read_json_file_opt(pdir(id) / "status.json");
+    const auto status = store_.get(id, "status");
     if (!status) return std::nullopt;
     json out = {{"proposal_id", id}, {"state", status->value("state", std::string("unknown"))}, {"created_at", status->value("created_at", std::string())}};
     if (status->contains("error")) out["error"] = (*status)["error"];
     if (out["state"] != "done") return out;
 
     const bool shadow = status->value("mode", std::string()) == "shadow";
-    json proposal = read_json_file_opt(pdir(id) / "proposal.json").value_or(json::object());
-    const json cands = read_json_file_opt(pdir(id) / "candidates.json").value_or(json::object());
-    const json st = read_json_file_opt(pdir(id) / "state.json").value_or(json::object());
+    json proposal = store_.get(id, "proposal").value_or(json::object());
+    const json cands = store_.get(id, "candidates").value_or(json::object());
+    const json st = store_.get(id, "state").value_or(json::object());
     out["mode"] = status->value("mode", std::string());
     if (status->contains("group")) out["group"] = (*status)["group"];
     out["shadow"] = shadow;
@@ -246,17 +248,18 @@ std::optional<json> DecisionService::view(const std::string& id) const {
 
 ServiceResult DecisionService::apply(const std::string& id, const AdviceRequest& current) {
     std::lock_guard<std::mutex> lock(mutex_);
+    PiDatabase::Tx tx(*store_.database());
     auto fail = [](int code, const std::string& err, json extra = json::object()) {
         json b = {{"error", true}, {"code", err}};
         for (auto it = extra.begin(); it != extra.end(); ++it) b[it.key()] = it.value();
         return ServiceResult{code, b};
     };
     if (id.empty() || id.find('/') != std::string::npos || id.find("..") != std::string::npos) return fail(404, "NOT_FOUND");
-    auto status = read_json_file_opt(pdir(id) / "status.json");
+    auto status = store_.get(id, "status");
     if (!status) return fail(404, "NOT_FOUND");
     if (status->value("state", std::string()) != "done") return fail(409, "NOT_READY");
     if (status->value("mode", std::string()) == "shadow") return fail(403, "SHADOW_MODE");
-    auto proposal_opt = read_json_file_opt(pdir(id) / "proposal.json");
+    auto proposal_opt = store_.get(id, "proposal");
     if (!proposal_opt) return fail(404, "NOT_FOUND");
     json proposal = *proposal_opt;
     const std::string pstatus = proposal.value("status", std::string());
@@ -268,7 +271,7 @@ ServiceResult DecisionService::apply(const std::string& id, const AdviceRequest&
 
     if (pstatus == "applied_to_draft") {
         // A repeat is idempotent only for the exact patched draft and the same scan/locks/dataset.
-        const auto saved_state = read_json_file_opt(pdir(id) / "state.json");
+        const auto saved_state = store_.get(id, "state");
         if (!saved_state || !saved_state->contains("state")) return fail(409, "PROPOSAL_STALE");
         const PreRunDecisionResult now = build_pre_run_decision_state(to_inputs(current));
         if (now.state["identity"]["config_hash"] != proposal.value("config_hash_after", std::string()))
@@ -300,13 +303,15 @@ ServiceResult DecisionService::apply(const std::string& id, const AdviceRequest&
     proposal["applied_at"] = deps_.now_iso();
     proposal["config_hash_before"] = sr.state["identity"]["config_hash"];
     proposal["config_hash_after"] = sha256_prefixed(canonical_json_dump(v.merged_config));
-    write_json_file_atomic(pdir(id) / "proposal.json", proposal);
+    store_.put(id, "proposal", proposal);
     event(id, "applied_to_draft", {{"config_hash_after", proposal["config_hash_after"]}});
+    tx.commit();
     return {200, {{"proposal", proposal}, {"updates", v.updates}, {"patched_config", v.merged_config}, {"already_applied", false}}};
 }
 
 ServiceResult DecisionService::apply_many(const std::vector<std::string>& ids, const AdviceRequest& current) {
     std::lock_guard<std::mutex> lock(mutex_);
+    PiDatabase::Tx tx(*store_.database());
     auto fail = [](int code, const std::string& err, json extra = json::object()) {
         json b = {{"error", true}, {"code", err}};
         for (auto it = extra.begin(); it != extra.end(); ++it) b[it.key()] = it.value();
@@ -323,8 +328,8 @@ ServiceResult DecisionService::apply_many(const std::vector<std::string>& ids, c
     std::vector<Item> items;
     for (const auto& id : ids) {
         if (id.empty() || id.find('/') != std::string::npos || id.find("..") != std::string::npos) return fail(404, "NOT_FOUND", {{"proposal_id", id}});
-        const auto status = read_json_file_opt(pdir(id) / "status.json");
-        const auto proposal = read_json_file_opt(pdir(id) / "proposal.json");
+        const auto status = store_.get(id, "status");
+        const auto proposal = store_.get(id, "proposal");
         if (!status || !proposal) return fail(404, "NOT_FOUND", {{"proposal_id", id}});
         if (status->value("state", std::string()) != "done") return fail(409, "NOT_READY", {{"proposal_id", id}});
         if (status->value("mode", std::string()) == "shadow") return fail(403, "SHADOW_MODE", {{"proposal_id", id}});
@@ -360,10 +365,11 @@ ServiceResult DecisionService::apply_many(const std::vector<std::string>& ids, c
         it.proposal["config_hash_before"] = sr.state["identity"]["config_hash"];
         it.proposal["config_hash_after"] = after;
         it.proposal["batch_proposal_ids"] = ids;
-        write_json_file_atomic(pdir(it.id) / "proposal.json", it.proposal);
+        store_.put(it.id, "proposal", it.proposal);
         event(it.id, "applied_to_draft", {{"config_hash_after", after}, {"batch", ids}});
         applied.push_back(it.proposal);
     }
+    tx.commit();
     return {200, {{"proposals", applied}, {"updates", all_updates}, {"patched_config", merged}, {"applied", ids}}};
 }
 

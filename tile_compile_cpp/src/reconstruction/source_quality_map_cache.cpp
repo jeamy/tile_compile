@@ -182,15 +182,6 @@ void read_bin_window_into(const fs::path &path, int cy0, int cy1, int cx0,
   }
 }
 
-BinWindow read_bin_window(const fs::path &path, int cy0, int cy1, int cx0,
-                          int cx1) {
-  BinWindow w;
-  read_bin_window_into(path, cy0, cy1, cx0, cx1, w.storage_w, w.storage_h,
-                       w.divisor, w.cy0, w.cx0, w.win_h, w.win_w, w.cells,
-                       w.veto);
-  return w;
-}
-
 std::string stream_file_name(const std::string &stream,
                              std::size_t source_index) {
   char idx[16];

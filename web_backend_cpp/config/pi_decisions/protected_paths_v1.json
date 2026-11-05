@@ -45,11 +45,6 @@
       "reason": "User preference for how much partially covered edge area is admitted; not derivable from the data (practical guide: 1.0 recommended for every setup). Loosening lets edge bias into metrics, BGE and PCC statistics."
     },
     {
-      "prefix": "output.crop_to_nonzero_bbox",
-      "tier": "user_domain",
-      "reason": "Delivered canvas extent is the user's choice, not a data-driven tuning value."
-    },
-    {
       "prefix": "runtime_limits.hard_abort_hours",
       "tier": "user_domain",
       "reason": "Safety net chosen by the user; not a quality or throughput tuning value."
@@ -130,10 +125,6 @@
     {
       "path": "reconstruction.drizzle.min_clip_contributors",
       "condition": "one-sided value grid: only values >= the schema default (5); lowering trades outlier protection for coverage (IC5070 fix 2026-09-22). requires_review."
-    },
-    {
-      "path": "reconstruction.clipping.guard_fallback",
-      "condition": "requires_review; evidence must come from a run (unsupported / black pixel counts), not the scan."
     },
     {
       "path": "reconstruction.clipping.shared_frame_rejection",

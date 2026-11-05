@@ -23,12 +23,11 @@ std::string get_run_id();
 
 // File utilities
 std::vector<fs::path> discover_frames(const fs::path& input_dir, const std::string& pattern = "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz");
-std::vector<uint8_t> read_bytes(const fs::path& path);
 std::string read_text(const fs::path& path);
+// Reads standard input to EOF (config/JSON passed via --stdin).
+std::string read_stdin_text();
 void write_text_atomic(const fs::path& path, const std::string& text);
 void write_text(const fs::path& path, const std::string& text);
-void safe_hardlink_or_copy(const fs::path& src, const fs::path& dst);
-fs::path pick_output_file(const fs::path& dir, const std::string& prefix, const std::string& ext);
 
 // Hash utilities
 std::string sha256_bytes(const std::vector<uint8_t>& data);
@@ -61,7 +60,6 @@ inline constexpr float nan_value() {
 // source_quality_maps.cpp, multiband_validation.cpp, and
 // background_extraction.cpp.
 float median_of_or_nan(std::vector<float> v);       // returns NaN if empty
-float mad_of_or_nan(std::vector<float> v, float median); // returns NaN if empty
 
 // In-place variants: mutate the input vector (nth_element reordering) to avoid
 // copying large vectors. Use when the caller does not need the original order.
@@ -76,9 +74,6 @@ std::vector<size_t> sample_indices(size_t count, int max_samples);
 // dropped. Returns 1x1 for degenerate input. Shared by registration pyramid
 // building and CFA green-proxy downsampling.
 Matrix2Df downsample2x2_mean(const Matrix2Df& in);
-
-// Robust z-score normalization: (x - median) / (1.4826 * MAD)
-void robust_zscore(const std::vector<float>& v, std::vector<float>& out);
 
 // Median of finite positive values, with fallback
 float median_finite_positive(const std::vector<float>& v, float fallback);

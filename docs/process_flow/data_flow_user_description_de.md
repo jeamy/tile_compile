@@ -181,7 +181,7 @@ Eingabe-Frames (FITS, MONO oder OSC/CFA)
 
 - Aggregiert die Quellkarten zu finalen Frame-Gewichten `G_f` und wendet
   die Coverage-/Clipping-Gates an (`coverage_gate.*`,
-  `common_overlap_required_fraction`, `clipping.min_n_eff`).
+  `common_overlap_required_fraction`).
 - Erster unterstützter Resume-Einstiegspunkt.
 
 ### FORWARD_DRIZZLE
@@ -191,7 +191,7 @@ Eingabe-Frames (FITS, MONO oder OSC/CFA)
   `drizzle.kernel`/`drizzle.pixfrac` in die `wx`/`w`/`w²`-Akkumulatoren
   des gebänderten v2-Stores gesplattet — pro CFA-Kanal bei OSC.
 - Robuste Reduktion nach `clipping.*` (`clip_sigma_low/high`,
-  `min_clip_contributors`, `robust_passes`, `guard_fallback`).
+  `min_clip_contributors`, `robust_passes`).
 - Speicher begrenzt durch `drizzle.memory_budget_mb`; der Checkpoint
   (`forward_drizzle_checkpoint.json`) protokolliert Geometrie-Hash und
   Artefaktgrößen für das Resume.

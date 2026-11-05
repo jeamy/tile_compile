@@ -1,4 +1,5 @@
 #include "backend_test_harness.hpp"
+#include "pi_store_test_support.hpp"
 #include "fake_sidecar.hpp"
 #include "services/ai_service.hpp"
 
@@ -136,9 +137,9 @@ int main(int argc, char** argv) {
                     {"risk", "medium"}
                 },
                 {
-                    {"path", "reconstruction.diagnostics.preview_forward_drizzle_uniform"},
-                    {"value", true},
-                    {"reason", "Improves reconstruction quality by enabling the uniform preview."},
+                    {"path", "reconstruction.diagnostics.level"},
+                    {"value", "full"},
+                    {"reason", "Improves reconstruction quality by enabling full diagnostics."},
                     {"confidence", 0.8},
                     {"risk", "low"}
                 },
@@ -185,7 +186,7 @@ int main(int argc, char** argv) {
                 {"does_not_apply_when", nlohmann::json::array({"different color mode problem"})},
                 {"confidence", 0.5}
             };
-            std::ofstream out(memory_dir / "memories_v2.jsonl");
+            PiStoreSeed out(memory_dir, "memories");
             out << nlohmann::json{
                 {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_scan_context_accepted"},
@@ -245,7 +246,7 @@ int main(int argc, char** argv) {
             }.dump() << "\n";
         }
         {
-            std::ofstream out(memory_dir / "memory_reviews_v2.jsonl");
+            PiStoreSeed out(memory_dir, "memory_reviews");
             out << nlohmann::json{
                 {"schema_version", "pi.memory.v2"},
                 {"memory_id", "mem_scan_context_accepted"},
@@ -373,7 +374,7 @@ int main(int argc, char** argv) {
                 rejected.value("reject_reason", std::string()) == "unsupported_schema_claim") {
                 rejected_unsupported_schema_claim = true;
             }
-            if (rejected.value("path", std::string()) == "reconstruction.diagnostics.preview_forward_drizzle_uniform" &&
+            if (rejected.value("path", std::string()) == "reconstruction.diagnostics.level" &&
                 rejected.value("reject_reason", std::string()) == "diagnostic_only_quality_claim") {
                 rejected_diagnostic_quality_claim = true;
             }
@@ -404,17 +405,17 @@ int main(int argc, char** argv) {
                 {"detected_scenarios", {"large_frame_count"}},
                 {"recommendations", {
                     {
-                        {"path", "reconstruction.diagnostics.preview_forward_drizzle_uniform"},
-                        {"value", true},
-                        {"reason", "fixture diagnostics preview"},
+                        {"path", "reconstruction.diagnostics.level"},
+                        {"value", "full"},
+                        {"reason", "fixture diagnostics level"},
                         {"confidence", 0.9},
                         {"risk", "low"},
                         {"evidence", {"scan_metrics.fwhm.spread"}}
                     },
                     {
-                        {"path", "reconstruction.clipping.min_fraction"},
+                        {"path", "reconstruction.clipping.shared_frame_rejection_consensus"},
                         {"value", 1.5},
-                        {"reason", "fixture invalid high min_fraction"},
+                        {"reason", "fixture invalid high shared_frame_rejection_consensus"},
                         {"confidence", 0.9},
                         {"risk", "low"},
                         {"evidence", {"scan_metrics.frame_count=610"}}
@@ -460,11 +461,11 @@ int main(int argc, char** argv) {
             {"base_config", {
                 {"reconstruction", {
                     {"drizzle", {{"internal_scale", 1}}},
-                    {"clipping", {{"min_fraction", 0.3}}}
+                    {"clipping", {{"shared_frame_rejection_consensus", 0.3}}}
                 }}
             }},
             {"config_schema", {
-                {"reconstruction.clipping.min_fraction", {{"type", "number"}, {"maximum", 1}}},
+                {"reconstruction.clipping.shared_frame_rejection_consensus", {{"type", "number"}, {"maximum", 1}}},
                 {"reconstruction.drizzle.internal_scale", {{"type", "integer"}, {"enum", {1, 2}}}}
             }}
         });
@@ -477,7 +478,7 @@ int main(int argc, char** argv) {
                      "context store preserves selected indices");
         expect_equal(context_store["analysis_context"]["base_config"]["reconstruction"]["drizzle"]["internal_scale"].get<long>(), 1L,
                      "context store preserves base config");
-        expect_true(context_store["analysis_context"]["config_schema"].contains("reconstruction.clipping.min_fraction"),
+        expect_true(context_store["analysis_context"]["config_schema"].contains("reconstruction.clipping.shared_frame_rejection_consensus"),
                     "context store preserves config schema");
 
         const auto history = harness.get_json("/api/scan/analysis/history?limit=20");
@@ -509,7 +510,7 @@ int main(int argc, char** argv) {
                     {"quality", {{"pyramid", {{"base_window_px", 4}}}}}
                 }},
                 {"reconstruction", {
-                    {"diagnostics", {{"preview_forward_drizzle_uniform", false}}}
+                    {"diagnostics", {{"level", "summary"}}}
                 }},
                 {"registration", {{"enable_local_background_subtraction", false}}}
             }},
@@ -527,6 +528,27 @@ int main(int argc, char** argv) {
         expect_equal(apply["memory"]["status"].get<std::string>(), "candidate", "scan ai learned memory starts as candidate");
         expect_true(apply["memory"].contains("context_signature"), "scan ai learned memory records context signature");
         expect_true(apply["memory"].contains("scope"), "scan ai learned memory records scope");
+
+        // Decision trace: the served analysis is one llm_proposal, and the persisted apply links back to it.
+        const auto context_records = harness.get_json("/api/pi/decision-records?context_id=analysis:" + analysis_id);
+        expect_equal(context_records["_http_status"].get<long>(), 200L, "analysis decision records status");
+        std::string proposal_id;
+        long proposal_count = 0;
+        for (const auto& item : context_records["items"]) {
+            if (item.value("kind", std::string()) != "llm_proposal") continue;
+            ++proposal_count;
+            proposal_id = item.value("decision_id", std::string());
+        }
+        expect_equal(proposal_count, 1L, "served analysis records one llm_proposal");
+        expect_true(apply["decision_record_written"].get<bool>(), "scan ai apply writes a decision record");
+        bool apply_linked = false;
+        for (const auto& item : context_records["items"]) {
+            if (item.value("kind", std::string()) == "config_apply" &&
+                item["parent_decision_id"].is_string() && item["parent_decision_id"].get<std::string>() == proposal_id &&
+                item["context_ref"].value("revision_id", std::string()) == apply["revision_id"].get<std::string>())
+                apply_linked = true;
+        }
+        expect_true(apply_linked, "scan ai config_apply links to its llm_proposal");
         expect_equal(apply["memory"]["context_signature"]["target"]["object_name"].get<std::string>(),
                      "M42",
                      "scan ai learned memory preserves FITS-derived target");
@@ -542,7 +564,7 @@ int main(int argc, char** argv) {
                 {"detected_scenarios", nlohmann::json::array()},
                 {"recommendations", {
                     {
-                        {"path", "reconstruction.clipping.min_fraction"},
+                        {"path", "reconstruction.clipping.shared_frame_rejection_consensus"},
                         {"value", 0.29999999999999999},
                         {"reason", "fixture float noise"},
                         {"confidence", 0.9},
@@ -556,12 +578,12 @@ int main(int argc, char** argv) {
             {"scan_result", {{"frames_detected", 10}}},
             {"base_config", {
                 {"reconstruction", {
-                    {"clipping", {{"min_fraction", 0.4}}},
+                    {"clipping", {{"shared_frame_rejection_consensus", 0.4}}},
                     {"drizzle", {{"internal_scale", 1}}}
                 }}
             }},
             {"config_schema", {
-                {"reconstruction.clipping.min_fraction", {{"type", "number"}, {"maximum", 1}}}
+                {"reconstruction.clipping.shared_frame_rejection_consensus", {{"type", "number"}, {"maximum", 1}}}
             }}
         });
         expect_equal(rounded_store["_http_status"].get<long>(), 200L, "rounded float store status");
@@ -572,17 +594,17 @@ int main(int argc, char** argv) {
             {"analysis_id", rounded_id},
             {"base_config", {
                 {"reconstruction", {
-                    {"clipping", {{"min_fraction", 0.4}}},
+                    {"clipping", {{"shared_frame_rejection_consensus", 0.4}}},
                     {"drizzle", {{"internal_scale", 1}}}
                 }}
             }},
-            {"selected_paths", {"reconstruction.clipping.min_fraction"}},
+            {"selected_paths", {"reconstruction.clipping.shared_frame_rejection_consensus"}},
             {"persist", false},
             {"learn", true}
         });
         expect_equal(rounded_apply["_http_status"].get<long>(), 200L, "rounded float apply status");
         const std::string rounded_yaml = rounded_apply["config_yaml"].get<std::string>();
-        expect_true(rounded_yaml.find("min_fraction: 0.3") != std::string::npos,
+        expect_true(rounded_yaml.find("shared_frame_rejection_consensus: 0.3") != std::string::npos,
                     "rounded float yaml uses compact decimal: " + rounded_yaml);
         expect_true(rounded_yaml.find("0.299999999999999") == std::string::npos,
                     "rounded float yaml omits binary noise: " + rounded_yaml);
@@ -591,7 +613,7 @@ int main(int argc, char** argv) {
         expect_equal(rounded_apply["memory"]["outcome"]["applied_count"].get<long>(), 1L,
                      "learned memory records applied count");
         expect_equal(rounded_apply["memory"]["outcome"]["applied_paths"][0].get<std::string>(),
-                     "reconstruction.clipping.min_fraction",
+                     "reconstruction.clipping.shared_frame_rejection_consensus",
                      "learned memory records applied path");
 
         const auto missing_apply = harness.post_json("/api/scan/analysis/apply", nlohmann::json::object());

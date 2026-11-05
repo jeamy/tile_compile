@@ -218,24 +218,6 @@ cv::Mat warp_matrix_to_cv(const WarpMatrix &warp) {
   return warp_matrix;
 }
 
-/// @brief Creates host finite mask.
-/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-cv::Mat make_host_finite_mask(const Matrix2Df &matrix) {
-  cv::Mat mask(static_cast<int>(matrix.rows()), static_cast<int>(matrix.cols()),
-               CV_8U, cv::Scalar(0));
-  for (int y = 0; y < mask.rows; ++y) {
-    uchar *mask_row = mask.ptr<uchar>(y);
-    for (int x = 0; x < mask.cols; ++x) {
-      if (std::isfinite(matrix(y, x))) {
-        mask_row[x] = 255;
-      }
-    }
-  }
-  return mask;
-}
-
 /// @brief Writes valid outputs from mask.
 /// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -936,21 +918,6 @@ json device_frame_batch_to_json(const DeviceFrameBatch &batch) {
       {"batch_size", batch.batch_size},
       {"frame", device_frame_to_json(batch.frame)},
       {"total_bytes", batch.total_bytes},
-  };
-}
-
-/// @brief Implements device tile batch to json.
-/// @details Part of GPU/CPU backend selection and accelerated image-operation wrappers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-json device_tile_batch_to_json(const DeviceTileBatch &batch) {
-  return {
-      {"batch_size", batch.batch_size},
-      {"channels", batch.channels},
-      {"total_pixels", batch.total_pixels},
-      {"total_bytes", batch.total_bytes},
-      {"max_tile_width", batch.max_tile_width},
-      {"max_tile_height", batch.max_tile_height},
   };
 }
 

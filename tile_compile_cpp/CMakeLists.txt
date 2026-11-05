@@ -478,6 +478,7 @@ set(LIB_SOURCES
     src/reconstruction/alpha_guard.cpp
     src/reconstruction/alpha_confidence.cpp
     src/reconstruction/multiband_validation.cpp
+    src/reconstruction/post_run_star_shape.cpp
     src/reconstruction/global_quality.cpp
     src/reconstruction/quality_frame_weight_plan.cpp
     src/reconstruction/source_quality_artifact.cpp
@@ -495,6 +496,7 @@ set(LIB_SOURCES
     src/reconstruction/stack_validation.cpp
     src/reconstruction/chroma_denoise.cpp
     src/reconstruction/luma_denoise.cpp
+    src/reconstruction/denoise_common.cpp
     src/pipeline/adaptive_tile_grid.cpp
     src/preprocessing/contract.cpp
     src/astrometry/wcs.cpp
@@ -503,7 +505,11 @@ set(LIB_SOURCES
 )
 
 if(TILE_COMPILE_WITH_CUDA)
-    list(APPEND LIB_SOURCES src/reconstruction/forward_drizzle_cuda_device.cu)
+    list(APPEND LIB_SOURCES
+        src/reconstruction/forward_drizzle_cuda_device.cu
+        # Test-only device harnesses (clip parity); shares the clip code with
+        # the production TU through forward_drizzle_cuda_clip.cuh.
+        src/reconstruction/forward_drizzle_cuda_test_harness.cu)
 endif()
 
 # Plan 19.6 numerical contract --- LOAD-BEARING FOR CORRECTNESS, NOT AN
@@ -544,9 +550,13 @@ if(NOT MSVC)
         PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 if(TILE_COMPILE_WITH_CUDA)
+    # -lineinfo has no codegen effect; it only makes nsys / compute-sanitizer
+    # attribution usable on Release builds (never combined with Debug's -G).
     set_source_files_properties(
         src/reconstruction/forward_drizzle_cuda_device.cu
-        PROPERTIES COMPILE_OPTIONS "--fmad=false")
+        src/reconstruction/forward_drizzle_cuda_test_harness.cu
+        PROPERTIES COMPILE_OPTIONS
+            "--fmad=false;$<$<CONFIG:Release>:-lineinfo>")
 endif()
 
 # Main library
@@ -605,6 +615,10 @@ set(_tile_compile_runner_sources
 
 add_executable(tile_compile_runner ${_tile_compile_runner_sources})
 target_link_libraries(tile_compile_runner PRIVATE tile_compile_lib)
+if(WIN32)
+    # GetProcessMemoryInfo (peak/current RSS reporting in runner_forward_drizzle)
+    target_link_libraries(tile_compile_runner PRIVATE psapi)
+endif()
 
 if(CLI11_FOUND)
     target_link_libraries(tile_compile_runner PRIVATE CLI11::CLI11)
@@ -720,6 +734,7 @@ if(BUILD_TESTS)
             tests/test_alpha_guard.cpp
             tests/test_alpha_confidence.cpp
             tests/test_multiband_validation.cpp
+            tests/test_post_run_star_shape.cpp
             tests/test_global_quality.cpp
             tests/test_quality_frame_weight_plan.cpp
             tests/test_runner_forward_drizzle.cpp
@@ -746,6 +761,9 @@ if(BUILD_TESTS)
             FEATURE_FLAGS "${_tile_compile_feature_flags}"
             BUILD_INFO_SOURCE "${_tile_compile_build_info_source}")
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
+        if(WIN32)
+            target_link_libraries(tests PRIVATE psapi)
+        endif()
         include(CTest)
         include(Catch)
         catch_discover_tests(tests)

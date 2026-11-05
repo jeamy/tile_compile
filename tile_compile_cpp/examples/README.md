@@ -162,7 +162,6 @@ reconstruction:
   clipping:
     clip_sigma_low: 2.0
     clip_sigma_high: 2.0
-    min_fraction: 0.5
 ```
 
 - **Why:** EQ sequences usually have small drift/rotation; stricter gates
@@ -184,7 +183,6 @@ reconstruction:
   clipping:
     clip_sigma_low: 1.8
     clip_sigma_high: 1.8
-    min_fraction: 0.2
 ```
 
 - **Why:** Alt/Az near pole can show wide shift distributions; too strict
@@ -202,8 +200,6 @@ reconstruction:
   clipping:
     clip_sigma_low: 2.5
     clip_sigma_high: 2.5
-    min_fraction: 0.5
-    min_n_eff: 3.0
   drizzle:
     min_clip_contributors: 3
 global_metrics:
@@ -270,16 +266,5 @@ chroma_denoise:
 
 `memory_budget_mb: 0` inherits the runner budget; `chunk_rows: 0` chooses at
 most 256 target rows within it. Large materialized outputs fail before
-allocation; the preview uses a streaming summary sink. Coverage retains two
+allocation. Coverage retains two
 byte masks and spools exact weighted-`n_eff` quantiles to temporary disk.
-
-`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (boolean,
-default `false`) is independent of preview. When enabled, it streams unclipped
-Uniform planes into
-`artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json`
-publishes the complete verified generation atomically. The existing drizzle
-budget includes an additional 8 MiB FITS/metadata reserve and one float row.
-Insufficient memory fails before source loading; insufficient free disk fails
-before plane writing. A failed diagnostic does not fail the run. Old
-generations are retained and consume disk; there is no automatic cleanup.
-This is a diagnostic store, not a resumable pipeline phase.

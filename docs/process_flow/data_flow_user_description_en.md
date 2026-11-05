@@ -176,7 +176,7 @@ Input frames (FITS, MONO or OSC/CFA)
 
 - Aggregates source maps into final frame weights `G_f` and applies the
   coverage/clipping gates (`coverage_gate.*`,
-  `common_overlap_required_fraction`, `clipping.min_n_eff`).
+  `common_overlap_required_fraction`).
 - First supported resume entry point.
 
 ### FORWARD_DRIZZLE
@@ -186,7 +186,7 @@ Input frames (FITS, MONO or OSC/CFA)
   `drizzle.kernel`/`drizzle.pixfrac` into `wx`/`w`/`w²` accumulators of
   the banded v2 store — per CFA channel for OSC.
 - Robust reduction follows `clipping.*` (`clip_sigma_low/high`,
-  `min_clip_contributors`, `robust_passes`, `guard_fallback`).
+  `min_clip_contributors`, `robust_passes`).
 - Memory is bounded by `drizzle.memory_budget_mb`; the checkpoint
   (`forward_drizzle_checkpoint.json`) records the geometry hash and
   artifact sizes for resume.

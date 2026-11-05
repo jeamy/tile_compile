@@ -50,7 +50,7 @@ Current practical minimums for the packaged GUI3 release bundles are:
 
 Notes:
 
-- macOS release bundles are now built with an explicit deployment target and are intended to run from macOS 13 upward, not only on the exact build host version.
+- macOS release bundles are now built with an explicit deployment target and are intended to run from macOS 15 upward, not only on the exact build host version.
 - Linux compatibility below the CI build baseline is not guaranteed for the current ZIP bundles because `glibc` is not bundled.
 - Windows packaging is built and smoke-tested on `windows-2022`; Windows 10/11 x64 is the intended baseline.
 
@@ -59,7 +59,7 @@ Notes:
 The current native C++ build requirements for the GUI3 release are:
 
 - Linux: `libcurl4-openssl-dev`
-- macOS: `curl`
+- macOS: `libcurl` (provided by the macOS SDK, no Homebrew package needed)
 - Windows MSYS2: `mingw-w64-x86_64-curl`
 
 Other core dependencies still include Eigen, OpenCV, cfitsio, yaml-cpp, nlohmann-json and OpenSSL.
@@ -68,6 +68,8 @@ macOS notes:
 
 - `packaging/gui3/build_local_macos.sh` requires `xcode-select --install`, `cmake`, `ninja`, `pkg-config`, and `python3`.
 - On macOS 12, Homebrew's default `opencv` formula is not supported. The Homebrew-based packaging path therefore effectively requires macOS 15 unless OpenCV is provided from another working installation.
+- The bundled asio version is not compatible with OpenSSL 4. Install `openssl@3` and keep OpenSSL 4 headers out of `/opt/homebrew/include` (`brew unlink openssl@4`). The script sets `OPENSSL_ROOT_DIR` automatically when `openssl@3` is present.
+- The release workflow builds a minimal static OpenCV 4 (core, imgproc, imgcodecs, calib3d, features2d, flann, photo) instead of the Homebrew formula, whose dependency tree (numpy/ffmpeg/qt/vtk) keeps breaking on the runner images. For local builds, `brew install opencv` works, or set `OpenCV_DIR` to any OpenCV 4 installation.
 
 ## CI Workflow
 

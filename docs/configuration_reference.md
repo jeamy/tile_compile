@@ -11,7 +11,9 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
   Rekonstruktionsmethode. Die alten `aqmh.*`-, Classic- und `method:`-Bloecke
   existieren nicht mehr.
 - `data.bayer_pattern` ist standardmäßig `auto`; FITS-Header (`BAYERPAT`/`COLORTYP`) haben Vorrang vor dem Config-Wert.
-- `data.linear_required` entfernt (deprecated; nicht-lineare Frames werden nur noch gewarnt).
+- `output.crop_to_nonzero_bbox`, `reconstruction.keep_profile_cache_after_run` und `data.linear_required` entfernt: nie implementiert bzw. ohne Wirkung (der v2-Bandspeicher wird als Resume-Vorgaenger immer behalten; `linearity.enabled` ist das einzige Linearitaets-Gate). Die Legacy-Migration entfernt die Keys mit Warnung.
+- `registration.blind_chain_drift_threshold_px`, `reconstruction.diagnostics.preview_forward_drizzle_uniform` und `reconstruction.diagnostics.persist_forward_drizzle_uniform_store` entfernt: Sie wurden nur in einem nicht mehr erreichbaren Registrierungs-/PREWARP-Pfad ausgewertet. Die Legacy-Migration entfernt die Keys mit Warnung.
+- `reconstruction.clipping.min_fraction`, `min_n_eff` und `guard_fallback` entfernt: das Schritt-8-Veto des alten Pfads ist nicht Teil des v2-Kernels. Der Kernel hat kein nachgelagertes Veto: ohne Quellbeitrag bleibt ein Pixel unbelegt, unterhalb von `drizzle.min_clip_contributors` Kandidaten wird ungeclippt gewichtet gemittelt, sonst der gewichtete Mittelwert der Sigma-Clip-Ueberlebenden verwendet. Die Legacy-Migration entfernt die Keys mit Warnung.
 - `bge.fit.robust_loss` und `bge.fit.huber_delta` sind als Benutzerparameter dokumentiert und konfigurierbar.
 - `bge.min_valid_sample_fraction_for_apply` und `bge.min_valid_samples_for_apply` sind als kanalweise BGE-Apply-Grenzwerte dokumentiert.
 - PCC-Dokumentation umfasst die aktiven Stabilitäts- und Apply-Parameter (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
@@ -105,22 +107,6 @@ Steuerung der Ausgabeverzeichnisse und welche Zwischenergebnisse geschrieben wer
 - **`false`**: Registrierte Frames werden nur im Speicher gehalten
 
 **Hinweis:** In `tile_compile.yaml` steht `true`, der C++ Default ist `false`. Nur für Debugging empfohlen.
-
----
-
-### `output.crop_to_nonzero_bbox`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | boolean |
-| **Default** | `true` |
-
-**Zweck:** Finalen Stack auf die Bounding Box aller nicht-null Pixel zuschneiden.
-
-- **`true`**: Entfernt leere Ränder vom finalen Bild. Nur Pixel mit Werten > 0 werden behalten. Reduziert die Dateigröße und entfernt unnötige schwarze Ränder.
-- **`false`**: Behält die volle Canvas-Größe bei, inklusive leerer Ränder.
-
-**Hinweis:** Die Funktion wird nach der Stack-Phase aber vor dem Debayer (bei OSC) angewendet. Die Tile-Offsets werden entsprechend angepasst. Ungueltige Canvas-Bereiche bleiben maskiert und sollen nicht in nachgelagerte Berechnungen wie Debayer/BGE/PCC einfliessen.
 
 ---
 
@@ -635,19 +621,6 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 
 ----
 
-### `registration.blind_chain_drift_threshold_px`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | number |
-| **Minimum** | 0.5 |
-| **Maximum** | 10.0 |
-| **Default** | `2.0` |
-
-**Kompatibilitaet:** Historische Driftgrenze in Pixeln pro Frame. Da die aktuelle Registrierung keine Nachbarframe-Ketten erzeugt, ist die Metrik nicht anwendbar und der Wert hat keinen Einfluss auf neue Runs.
-
-----
-
 ### `registration.use_astrometry`
 
 | Eigenschaft | Wert |
@@ -1103,10 +1076,7 @@ Steuerung der Laplacian-Pyramide für die lokalen Qualitätskarten (Source Quali
 |------------|-----|---------|-------|
 | `reconstruction.common_overlap_required_fraction` | number | `1.0` | Mindestanteil nutzbarer Frames, in denen ein Pixel gueltig sein muss, um zu `COMMON_OVERLAP` zu gehoeren (migriert von `stacking.common_overlap_required_fraction`). |
 | `reconstruction.delete_source_cache_after_run` | boolean | `false` | Loescht den Quell-/Normalisierungs-Cache nach erfolgreichem Lauf (Plattenplatz). |
-| `reconstruction.keep_profile_cache_after_run` | boolean | `false` | Behaelt den `drizzle_profile`-Cache fuer Reuse-/Final-Render-Pfade. |
 | `reconstruction.diagnostics.level` | enum | `summary` | Diagnoseumfang: `summary`, `full`. |
-| `reconstruction.diagnostics.preview_forward_drizzle_uniform` | boolean | `false` | Best-effort Uniform-Kontroll-Diagnose nach SAMPLING_GEOMETRY (`forward_drizzle_uniform_diagnostic.json`). |
-| `reconstruction.diagnostics.persist_forward_drizzle_uniform_store` | boolean | `false` | Persistiert ungeclippte Uniform-Ebenen transaktional unter `artifacts/forward_drizzle_uniform_store/`. |
 | `reconstruction.drizzle.internal_scale` | integer | `2` | Interner Arbeits-Scale des Drizzle-Grids (`1` oder `2`). |
 | `reconstruction.drizzle.output_scale` | integer | `1` | Ausgaberaster relativ zum internen Grid (`1` oder `2`, `<= internal_scale`). |
 | `reconstruction.drizzle.kernel` | enum | `square` | Drizzle-Kernel; aktuell nur `square`. |
@@ -1118,9 +1088,6 @@ Steuerung der Laplacian-Pyramide für die lokalen Qualitätskarten (Source Quali
 | `reconstruction.drizzle.chunk_halo_rows` | integer | `-1` | Kompatibilitaetsfeld; exakte Footprint-Enumeration braucht keinen Output-Halo. |
 | `reconstruction.drizzle.memory_budget_mb` | integer | `0` | MeB; `0` erbt `runtime_limits.memory_budget`. |
 | `reconstruction.clipping.clip_sigma_low` / `clip_sigma_high` | number | `3.0` / `3.0` | MAD-Sigma-Schwellen der robusten Beitragskontrolle. |
-| `reconstruction.clipping.min_fraction` | number | `0.4` | Mindestanteil belegbarer Samples pro Pixel `(0, 1]`. |
-| `reconstruction.clipping.min_n_eff` | number | `3.0` | Minimale effektive Beitragszahl fuer einen validen Output-Pixel (`>= 1`). |
-| `reconstruction.clipping.guard_fallback` | boolean | `false` | `false` = striktes Veto (Pixel bleibt unbelegt); `true` = Survivor-/Unclipped-Fallback statt schwarzer Pixel. |
 | `reconstruction.clipping.shared_frame_rejection` | boolean | `false` | Läuft sowohl CPU- als auch CUDA-beschleunigt. Gleicht die pro-Kanal unabhängigen Sigma-Clip-Entscheidungen zwischen R/G/B ab: verwirft ein Kandidaten-Frame auch in Kanälen, die es selbst behalten hätten, wenn genug andere Kanäle es unabhängig abgelehnt haben (siehe `shared_frame_rejection_consensus`). Adressiert CFA-bedingtes Chroma-Rauschen (anti-korrelierte Clip-Entscheidungen zwischen Kanälen, da R/G/B aus disjunkten Sensor-Pixeln stammen). Frames, die nur in einem Kanal als Kandidat auftreten, bleiben von der jeweiligen Kanal-Entscheidung unberührt. |
 | `reconstruction.clipping.shared_frame_rejection_consensus` | number | `0.5` | `(0, 1]`. Schwelle des Ablehnungs-Anteils über die Kanäle, die ein Frame als Kandidat sahen, ab dem `shared_frame_rejection` es in allen dieser Kanäle verwirft. `1.0` deaktiviert die Konsens-Revision effektiv (bit-identisch zu `shared_frame_rejection: false`). |
 | `reconstruction.clipping.bimodal_veto` | boolean | `false` | Läuft sowohl CPU- als auch CUDA-beschleunigt. Prüft nach Konvergenz des Median/MAD-Clip-Durchgangs die akzeptierte Menge auf eine kohärente zweite Population, die die gewöhnliche Grenze allein nicht von der Mehrheit getrennt hat (z. B. Frames mit einem kleinen, realen Registrierungs-/Nachführ-Offset an genau diesem Pixel) -- wahrscheinlicher bei weiten `clip_sigma_low`/`clip_sigma_high`, die bewusst gelockert sind, um echte Signalstreuung zu erhalten, und dadurch auch eine kohärente Minderheit leichter zulassen. Übersteigt die größte Lücke zwischen aufeinanderfolgenden akzeptierten Werten `bimodal_veto_gap_sigma` mal die MAD des Durchgangs und trennt dabei eine Minderheitsseite mit mindestens 2 Kandidaten und unter der Hälfte des akzeptierten Gewichts ab, wird diese Minderheit verworfen. Aktualisiert bei Auslösung zusätzlich die eingefrorenen Pilot-Grenzen des Voll-Frame-Schätzers, damit die verworfene Population nicht über spätere Nicht-Pilot-Frames wieder zugelassen wird. |
@@ -1446,7 +1413,7 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 |-------------|------|
 | **Typ** | float |
 | **Bereich** | `[0.0, 1.0]` |
-| **Default** | `0.90` |
+| **Default** | `0.65` |
 
 **Zweck:** Perzentil-Schwelle für High-Structure-Tiles (v3.3 §6.3.2a). `0.80` = moderat (schließt top 20% aus), `0.90` = streng (schließt top 10% aus). Niedrigere Werte erhalten mehr Samples, riskieren aber Strukturkontamination. Bereich `0.5–0.95`.
 
@@ -2176,7 +2143,6 @@ Phasengrenzen geprüft. Bei Überschreitung endet der Lauf mit
 output:
   registered_dir: registered
   write_registered_frames: false
-  crop_to_nonzero_bbox: true
 
 # Data
 data:
@@ -2253,12 +2219,9 @@ global_metrics:
 # Reconstruction (CFA Forward Drizzle + Multiband)
 reconstruction:
   delete_source_cache_after_run: false
-  keep_profile_cache_after_run: false
   common_overlap_required_fraction: 1.0
   diagnostics:
     level: summary
-    preview_forward_drizzle_uniform: false
-    persist_forward_drizzle_uniform_store: false
   drizzle:
     internal_scale: 2
     output_scale: 1
@@ -2272,9 +2235,6 @@ reconstruction:
   clipping:
     clip_sigma_low: 3.0
     clip_sigma_high: 3.0
-    min_fraction: 0.4
-    min_n_eff: 3.0
-    guard_fallback: false
   coverage_gate:
     min_frames: 2
     min_supported_fraction: 0.995
@@ -2373,7 +2333,6 @@ Die Datei `tile_compile.yaml` im Repository enthält eine **Beispiel-/Szenario-K
 | `reconstruction.diagnostics.level` | `full` | `summary` | Volle Diagnostik |
 | `reconstruction.drizzle.robust_passes` | `4` | `2` | Zwei zusaetzliche Passes |
 | `reconstruction.clipping.clip_sigma_low` / `clip_sigma_high` | `2.0` / `4.0` | `3.0` / `3.0` | Asymmetrisches Produktions-Tuning |
-| `reconstruction.clipping.min_n_eff` | `2.0` | `3.0` | Niedrigere N_eff-Schwelle |
 | `reconstruction.quality.pyramid.score_scale` | `0.6` | `1.8` | Flachere Score-Sigmoid |
 | `reconstruction.delete_source_cache_after_run` | `true` | `false` | Cache-Bereinigung |
 | `runtime_limits.parallel_workers` | `8` | `4` | Mehr Worker |
@@ -2518,7 +2477,6 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 
 - `output.registered_dir`: Ziel-Unterordner für registrierte Frame-Ausgaben.
 - `output.write_registered_frames`: schreibt pro Frame registrierte FITS; erhöht IO- und Speicherbedarf stark.
-- `output.crop_to_nonzero_bbox`: schneidet den finalen Stack auf die nichtleere Bounding Box zu.
 - `data.image_width`, `data.image_height`: optionale Erwartungswerte; normalerweise FITS-headerbasiert erkannt.
 - `data.color_mode`: erwarteter Aufnahmemodus; Laufzeit-Autodetektion kann mit Warnung übersteuern.
 - `data.bayer_pattern`: CFA-Layout für OSC-Verarbeitung und korrekte Farbrekonstruktion.
@@ -2629,9 +2587,8 @@ Bereichen und erzeugt dunkle Pixel/Chroma-Fransen an Sternrändern.
 - `global_metrics.adaptive_weights`: Auto-Anpassung der Metrikgewichte aus Streuung.
 - `global_metrics.weight_exponent_scale`: Trennschärfe in `exp(k*Q)`.
 - `reconstruction.common_overlap_required_fraction`: Abdeckungs-Schwelle für `COMMON_OVERLAP`.
-- `reconstruction.delete_source_cache_after_run`, `keep_profile_cache_after_run`: Cache-Lebenszyklus nach dem Lauf.
+- `reconstruction.delete_source_cache_after_run`: Cache-Lebenszyklus nach dem Lauf.
 - `reconstruction.diagnostics.level`: Diagnoseumfang (`summary`/`full`).
-- `reconstruction.diagnostics.preview_forward_drizzle_uniform`, `persist_forward_drizzle_uniform_store`: Uniform-Kontroll-Diagnostik/-Persistenz.
 - `reconstruction.drizzle.internal_scale`, `output_scale`: internes vs. Ausgabe-Drizzle-Raster.
 - `reconstruction.drizzle.kernel`, `pixfrac`: Kernel und Tropfen-Schrumpfung der Forward-Drizzle-Beiträge.
 - `reconstruction.drizzle.robust_passes`: robuste Reprojektions-Durchläufe.
@@ -2639,8 +2596,6 @@ Bereichen und erzeugt dunkle Pixel/Chroma-Fransen an Sternrändern.
 - `reconstruction.drizzle.full_frame_estimator`: alle Frames statt nur des Reservoirs bestimmen den Wert (Pilot-Clip-Grenzen eingefroren, Standard aus).
 - `reconstruction.drizzle.chunk_rows`, `chunk_halo_rows`, `memory_budget_mb`: Streaming-/Speicherprofil des Reprojekters.
 - `reconstruction.clipping.clip_sigma_low`, `clip_sigma_high`: MAD-Rejection-Schwellen.
-- `reconstruction.clipping.min_fraction`, `min_n_eff`: Belegbarkeits-Gates pro Pixel.
-- `reconstruction.clipping.guard_fallback`: Fallback statt striktem Veto bei Clip-Versagen.
 - `reconstruction.clipping.shared_frame_rejection`, `shared_frame_rejection_consensus`: kanalübergreifender Konsens gegen anti-korreliertes CFA-Chroma-Rauschen (CPU und CUDA); siehe §14-Tabelle oben.
 - `reconstruction.clipping.bimodal_veto`, `bimodal_veto_gap_sigma`: verwirft eine kohärente Minderheitspopulation (z. B. eine von Registrierungsdrift betroffene Frame-Untermenge), die die gewöhnliche weite Clip-Grenze allein zulässt; siehe §14-Tabelle oben.
 - `reconstruction.coverage_gate.*`: Fail-closed Deckungs-/Qualitaets-Gates vor FORWARD_DRIZZLE.
@@ -2688,9 +2643,7 @@ gibt keinen Methoden- oder Umgebungsvariablen-Schalter zum alten Produzenten.
 Source-, Qualitäts- und gestartete Samplebereiche werden bandbegrenzt gelesen,
 der CPU-/CUDA-Workspace wird über alle Bänder wiederverwendet und MULTIBAND
 verlangt den publizierten v2-Store fail-closed. CUDA-Gerätefehler starten die
-gesamte unveröffentlichte Phase auf `cpu_v2` neu. Der separate
-CPU-Coverage-/Uniform-Previewpfad bleibt eine standardmäßig deaktivierte
-Diagnose.
+gesamte unveröffentlichte Phase auf `cpu_v2` neu.
 
 | Parameter | Einheit, Bereich und Default | Verhalten |
 |---|---|---|
@@ -2698,7 +2651,6 @@ Diagnose.
 | `reconstruction.drizzle.chunk_rows` | interne Zielzeilen, Ganzzahl >=0, Default 0 | Auto wählt höchstens 256 Zeilen innerhalb des Budgets. Ein expliziter zu großer Wert wird abgelehnt; passt nicht einmal eine Zeile, erfolgt ein kontrollierter Fehler vor der großen Allokation. |
 | `reconstruction.drizzle.chunk_halo_rows` | Zeilen, Ganzzahl >=-1, Default -1 | Kompatibilitätsfeld. Die exakte Quellfootprint-Aufzählung erfasst auch über Streifengrenzen ragende Droplets; im CPU-Uniform-/Coverage-Pfad werden keine Ausgabe-Halozeilen benötigt. |
 | `reconstruction.common_overlap_required_fraction` | Anteil, (0,1], Default 1 | Anteil akzeptierter dichter Frame-Footprints für die unabhängige Analysefläche. Keine Schnittmenge aller dünnen R/G/B-Droplets. |
-| `reconstruction.diagnostics.preview_forward_drizzle_uniform` | Bool, Default false | Streaming-Diagnose mit Summenstatistik; kein fertiger Stack, kein Resume-Commit. |
 
 Coverage und Uniform benutzen denselben Polygonkernel. `n_eff=(sum B)^2/sum(B^2)`
 verwendet geometrische Framegewichte; fehlender Support zählt in der Analysefläche
@@ -2712,14 +2664,12 @@ zwei Scanlines. FITS-Maskenexport benötigt eine Floatzeile statt eines Floatbil
 CPU-Referenz: ein Worker, feste Framefolge. Streaming kann Quellframes pro Streifen
 neu laden; affine Quellzeilen werden geometrisch eingeschränkt, lokale Warps
 konservativ erneut geprüft. Mehr I/O ist der bewusste Tausch gegen begrenzten RAM.
-Die Preview gibt `estimated_peak_bytes`, `resolved_chunk_rows` und `workers_used`
+`sampling_geometry.json` gibt `estimated_peak_bytes`, `resolved_chunk_rows` und `workers_used`
 aus. Dies ist eine Allokationsschätzung, kein gemessener Gesamtprozess-RSS; bereits
 vorhandene Registrierungsdaten und konkurrierende Prozesse bleiben gesondert zu
 berücksichtigen. Es gibt keinen automatischen Methoden- oder Skalenfallback.
 Ein Beispiel steht in `tile_compile_cpp/examples/forward_drizzle_streaming.example.yaml`.
 
 Der gemeinsame M3-Uniform/Raw-Bibliothekspfad rechnet zusätzlich im Worst Case einen Clipping-Kandidaten je Frame, Pixel und Kanal sowie zwei Ausgabestreifen an. Die materialisierende Komfortfunktion rechnet beide Vollausgaben zusätzlich an. Eine nachträgliche Kandidatenprüfung ist kein Ersatz für diese Vorabplanung. Der aktuelle Diagnose-Profilstore materialisiert noch Uniform, exportiert seine Ebenen aber ohne zusätzliche Vollbildkopien.
-
-`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (Bool, Default `false`) ist unabhängig von der Preview. Aktiviert schreibt es ungeclippte Uniform-Ebenen per Streaming nach `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` veröffentlicht die vollständige geprüfte Generation atomar. Das bestehende Drizzle-Budget umfasst zusätzlich 8 MiB für FITS/Metadaten und eine float-Zeile. Zu wenig RAM wird vor Quell-I/O abgewiesen; zu wenig freie Disk vor dem Ebenenschreiben. Ein Diagnosefehler lässt den Produktionslauf weiterlaufen. Alte Generationen bleiben erhalten und belegen Disk; es gibt keine automatische Bereinigung. Der Store ist kein Resume-Phaseneinstieg. Leser müssen `current.json` gegen erwartete Quell-, Sampling- und Algorithmusidentität prüfen; alte flache Stores werden weder automatisch akzeptiert noch umgeschrieben. Der geclippte Uniform/Raw-Bibliotheksstore ist nur noch ein Dev-/Regression-Oracle und nicht produktiv verdrahtet.
 
 Der geprüfte Quellqualitäts-Bibliothekspfad besitzt ein explizites MiB-Budget und prüft konservativ 128 Byte je Quellpixel zuzüglich Quell-/Ladepuffern, Metadaten und Metrik-Scratch vorab. Große native Bilder können früh abgelehnt werden. Das gemeinsame Drizzle-Budget berücksichtigt zusätzlich den übergebenen dichten Quellgewichtsvektor. Store-Commit-Schema 2 bindet Cache- und Qualitätsplanhash; ältere Diagnosestores werden nicht stillschweigend als geprüfte Vorgänger übernommen. Diese Bibliotheks-APIs schalten kein Pipeline-Resume frei.

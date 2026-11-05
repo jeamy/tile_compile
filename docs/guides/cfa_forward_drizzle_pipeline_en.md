@@ -90,7 +90,6 @@ All planes are in the **normalized linear working space** (same space as
 
 | Setting | Default | Effect |
 |---|---|---|
-| `reconstruction.keep_profile_cache_after_run` | `false` | The internal U/R/F/M profile store is a reconstruction cache, deleted after a committed final image. `true` keeps it (hashed) so a re-fuse can skip the forward-drizzle pass, at the cost of disk. Does not affect results. |
 | `reconstruction.delete_source_cache_after_run` | `false` | Keeps the normalized CFA source cache and quality maps so resume-reconstruction stays possible. Setting it `true` frees disk immediately but **disables resume-reconstruction** for the run; the report announces this as `resume_reconstruction_disabled`. |
 
 The run report's **CFA Forward Drizzle / Multiband** section shows the coverage

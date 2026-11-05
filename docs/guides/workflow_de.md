@@ -133,7 +133,7 @@ Mindest-Betriebssystemversionen für die aktuellen GUI3-Release-Bundles:
 
 Hinweise:
 
-- macOS-Release-Bundles sind mit einem expliziten Deployment-Target gebaut und sollen ab macOS 13 laufen.
+- macOS-Release-Bundles sind mit einem expliziten Deployment-Target gebaut und sollen ab macOS 15 laufen.
 - Linux-Bundles bündeln keine `glibc`, daher werden ältere Distributionen als die aktuelle Build-Basis nicht garantiert unterstützt.
 - Der optionale PI-AI-Sidecar (`agent_service/`) benötigt **Node.js >= 20**. Wenn Node.js nicht installiert oder zu alt ist, startet das Backend ohne AI-Sidecar und gibt eine Warnung aus. Siehe [GUI3 README](https://github.com/jeamy/tile_compile/blob/master/packaging/gui3/README.md) für Details.
 

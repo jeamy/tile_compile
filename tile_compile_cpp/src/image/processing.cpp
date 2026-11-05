@@ -9,6 +9,31 @@
 
 namespace tile_compile::image {
 
+namespace {
+
+// Median / MAD over a small fixed-capacity scratch array, in place. Same
+// selection as core::median_of / core::mad_of (nth_element at n/2 and, for
+// even n, at n/2-1), so the returned values are identical; only the
+// per-pixel std::vector copies are gone.
+float median_inplace_n(float* v, std::size_t n) {
+    if (n == 0) return 0.0f;
+    const std::size_t mid = n / 2;
+    std::nth_element(v, v + mid, v + n);
+    const float hi = v[mid];
+    if ((n % 2) == 1) return hi;
+    std::nth_element(v, v + (mid - 1), v + n);
+    const float lo = v[mid - 1];
+    return 0.5f * (lo + hi);
+}
+
+float mad_inplace_n(float* v, std::size_t n, float median) {
+    if (n == 0) return 0.0f;
+    for (std::size_t i = 0; i < n; ++i) v[i] = std::fabs(v[i] - median);
+    return median_inplace_n(v, n);
+}
+
+}  // namespace
+
 /// @brief Splits cfa channels.
 /// @details Part of general image processing, cosmetic correction, and tile extraction helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -161,8 +186,8 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
             const float v = mosaic(y, x);
             if (!std::isfinite(v)) continue;
 
-            std::vector<float> same_color_neighbors;
-            same_color_neighbors.reserve(8);
+            std::array<float, 8> same_color_neighbors{};
+            std::size_t same_color_count = 0;
             int hot_neighbor_count = 0;
             for (int dy : {-2, 0, 2}) {
                 for (int dx : {-2, 0, 2}) {
@@ -172,7 +197,7 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
                     if (!in_bounds(yy, xx)) continue;
                     const float neighbor = mosaic(yy, xx);
                     if (!std::isfinite(neighbor)) continue;
-                    same_color_neighbors.push_back(neighbor);
+                    same_color_neighbors[same_color_count++] = neighbor;
                     if (neighbor > s.neighbor_threshold) {
                         ++hot_neighbor_count;
                     }
@@ -189,10 +214,14 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
             bool extreme_outlier = false;
             bool cold_outlier = false;
             float replacement_value = 0.0f;
-            if (same_color_neighbors.size() >= 4u) {
-                const float local_median = core::median_of(same_color_neighbors);
+            if (same_color_count >= 4u) {
+                std::array<float, 8> scratch = same_color_neighbors;
+                const float local_median =
+                    median_inplace_n(scratch.data(), same_color_count);
+                scratch = same_color_neighbors;
                 const float local_sigma =
-                    core::kMadToSigma * core::mad_of(same_color_neighbors, local_median);
+                    core::kMadToSigma *
+                    mad_inplace_n(scratch.data(), same_color_count, local_median);
                 const float local_floor = std::max(
                     {2.0f * local_sigma,
                      0.35f * sigma_threshold * s.sigma,
@@ -201,8 +230,8 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
                 const float support_threshold =
                     local_median + 0.5f * local_floor;
                 int same_color_support = 0;
-                for (float neighbor : same_color_neighbors) {
-                    if (neighbor > support_threshold) {
+                for (std::size_t k = 0; k < same_color_count; ++k) {
+                    if (same_color_neighbors[k] > support_threshold) {
                         ++same_color_support;
                     }
                 }
@@ -221,7 +250,7 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
                  global_candidate_cold || cold_outlier);
 
             if (should_correct) {
-                if (same_color_neighbors.size() >= 4u) {
+                if (same_color_count >= 4u) {
                     result(y, x) = replacement_value;
                 } else {
                     float sum = 0.0f;
@@ -350,14 +379,16 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
             for (int x = kRadius; x < w - kRadius; ++x) {
                 if (!is_supported(srcR, srcG, srcB, y, x)) continue;
 
-                std::vector<float> neighR;
-                std::vector<float> neighG;
-                std::vector<float> neighB;
-                std::vector<float> neighL;
-                neighR.reserve(24);
-                neighG.reserve(24);
-                neighB.reserve(24);
-                neighL.reserve(24);
+                // (2*kRadius+1)^2 - 1 neighbours at most: fixed scratch, no
+                // per-pixel heap traffic.
+                constexpr std::size_t kMaxNeigh =
+                    static_cast<std::size_t>((2 * kRadius + 1) * (2 * kRadius + 1) - 1);
+                std::array<float, kMaxNeigh> neighR{};
+                std::array<float, kMaxNeigh> neighG{};
+                std::array<float, kMaxNeigh> neighB{};
+                std::array<float, kMaxNeigh> neighL{};
+                std::array<float, kMaxNeigh> scratch{};
+                std::size_t nn = 0;
 
                 int bright_support = 0;
                 for (int dy = -kRadius; dy <= kRadius; ++dy) {
@@ -369,22 +400,31 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
                         const float nr = srcR(yy, xx);
                         const float ng = srcG(yy, xx);
                         const float nb = srcB(yy, xx);
-                        neighR.push_back(nr);
-                        neighG.push_back(ng);
-                        neighB.push_back(nb);
-                        neighL.push_back(luma(nr, ng, nb));
+                        neighR[nn] = nr;
+                        neighG[nn] = ng;
+                        neighB[nn] = nb;
+                        neighL[nn] = luma(nr, ng, nb);
+                        ++nn;
                     }
                 }
 
-                if (neighR.size() < 12u) continue;
+                if (nn < 12u) continue;
 
-                const float medR = core::median_of(neighR);
-                const float medG = core::median_of(neighG);
-                const float medB = core::median_of(neighB);
-                const float medL = core::median_of(neighL);
+                auto med_of = [&](const std::array<float, kMaxNeigh>& v) {
+                    scratch = v;
+                    return median_inplace_n(scratch.data(), nn);
+                };
+                auto mad_of = [&](const std::array<float, kMaxNeigh>& v, float med) {
+                    scratch = v;
+                    return mad_inplace_n(scratch.data(), nn, med);
+                };
+                const float medR = med_of(neighR);
+                const float medG = med_of(neighG);
+                const float medB = med_of(neighB);
+                const float medL = med_of(neighL);
                 if (!(std::isfinite(medL) && medL > 0.0f)) continue;
 
-                const float madL = core::kMadToSigma * core::mad_of(neighL, medL);
+                const float madL = core::kMadToSigma * mad_of(neighL, medL);
                 const float curR = srcR(y, x);
                 const float curG = srcG(y, x);
                 const float curB = srcB(y, x);
@@ -392,8 +432,8 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
 
                 const float bright_support_threshold =
                     medL + std::max(3.0f * madL, 0.08f * medL);
-                for (float nl : neighL) {
-                    if (nl > bright_support_threshold) {
+                for (std::size_t k = 0; k < nn; ++k) {
+                    if (neighL[k] > bright_support_threshold) {
                         ++bright_support;
                     }
                 }
@@ -404,11 +444,11 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
 
                 const float thrFloor = 0.010f * medL + 1.0e-3f;
                 const float thrR =
-                    std::max(4.5f * core::kMadToSigma * core::mad_of(neighR, medR), thrFloor);
+                    std::max(4.5f * core::kMadToSigma * mad_of(neighR, medR), thrFloor);
                 const float thrG =
-                    std::max(4.5f * core::kMadToSigma * core::mad_of(neighG, medG), thrFloor);
+                    std::max(4.5f * core::kMadToSigma * mad_of(neighG, medG), thrFloor);
                 const float thrB =
-                    std::max(4.5f * core::kMadToSigma * core::mad_of(neighB, medB), thrFloor);
+                    std::max(4.5f * core::kMadToSigma * mad_of(neighB, medB), thrFloor);
 
                 const bool badR = resR > thrR;
                 const bool badG = resG > thrG;

@@ -2,6 +2,7 @@
 
 #include "services/pi/pi_decision_policy.hpp"
 #include "services/pi/pi_decision_state.hpp"
+#include "services/pi/pi_jev_store.hpp"
 
 #include <filesystem>
 #include <functional>
@@ -50,8 +51,7 @@ struct ServiceResult {
 };
 
 // Orchestrates one pre-run Jev advice: state (M1) -> candidates (M2) -> optional sidecar call ->
-// resolve (M2) -> persistence. All files of a proposal live in <decisions_dir>/<proposal_id>/ and
-// never touch the PiMemoryStore or any run directory.
+// resolve (M2) -> SQLite persistence in the shared PI database. Never writes run artifacts.
 class DecisionService {
 public:
     DecisionService(std::filesystem::path decisions_dir, DecisionCatalog catalog, DecisionServiceDeps deps,
@@ -82,12 +82,12 @@ public:
 
 private:
     std::filesystem::path dir_;
+    PiJevStore store_;
     DecisionCatalog catalog_;
     DecisionServiceDeps deps_;
     std::string question_set_version_;
     mutable std::mutex mutex_;
 
-    std::filesystem::path pdir(const std::string& id) const { return dir_ / id; }
     void event(const std::string& id, const std::string& name, const nlohmann::json& extra = nlohmann::json::object()) const;
 };
 

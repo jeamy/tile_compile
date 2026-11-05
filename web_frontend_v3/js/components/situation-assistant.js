@@ -26,8 +26,6 @@ const SCENARIO_DELTAS = {
   ],
   few_frames: [
     ["reconstruction.drizzle.min_clip_contributors", 3],
-    ["reconstruction.clipping.min_n_eff", 2.0],
-    ["reconstruction.clipping.min_fraction", 0.3],
   ],
   gradient: [
     ["bge.method", "autobge"],

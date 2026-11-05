@@ -74,13 +74,20 @@ std::vector<float> apply_energy_guard(const std::vector<float> &alpha_pre,
     throw std::invalid_argument("ENERGY_GUARD_ITERS");
 
   std::vector<float> out(n, 0.0f);
-  std::vector<float> win_r, win_mix;
-  // Hoisted out of the per-pixel loop (same reasoning as win_r/win_mix
-  // above): dr_vals/dp_vals were previously fresh std::vector allocations
-  // every pixel, and `mix` was reallocated on every ratio_at() call within
-  // the bisection (1 + bisection_iters times per pixel). Reusing capacity via
-  // .clear()/.resize() instead of re-declaring avoids that malloc/free churn.
+  // Every output pixel depends only on its own read-only window, so rows are
+  // independent: row-parallel with thread-private scratch, identical per-
+  // pixel arithmetic and no shared mutable state besides out[i] (written by
+  // exactly one iteration). Dynamic schedule because the per-row cost
+  // follows the support/alpha_pre distribution.
+#pragma omp parallel
+  {
+  // Hoisted out of the per-pixel loop: dr_vals/dp_vals were previously fresh
+  // std::vector allocations every pixel, and `mix` was reallocated on every
+  // ratio_at() call within the bisection (1 + bisection_iters times per
+  // pixel). Reusing capacity via .clear()/.resize() instead of re-declaring
+  // avoids that malloc/free churn.
   std::vector<float> dr_vals, dp_vals, mix, mad_dev;
+#pragma omp for schedule(dynamic, 4)
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
       const std::size_t i = static_cast<std::size_t>(y) * width + x;
@@ -90,8 +97,6 @@ std::vector<float> apply_energy_guard(const std::vector<float> &alpha_pre,
                                       : 0.0;
       if (a_pre <= 0.0) continue;  // out stays 0
 
-      win_r.clear();
-      win_mix.clear();  // filled per candidate alpha below
       dr_vals.clear();
       dp_vals.clear();
       for (int yy = std::max(0, y - window_radius);
@@ -143,6 +148,7 @@ std::vector<float> apply_energy_guard(const std::vector<float> &alpha_pre,
       out[i] = static_cast<float>(lo);
     }
   }
+  }  // omp parallel
   return out;
 }
 

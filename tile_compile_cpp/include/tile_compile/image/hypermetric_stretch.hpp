@@ -1,5 +1,6 @@
 #pragma once
 
+#include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/types.hpp"
 
 #include <array>
@@ -8,60 +9,10 @@
 
 namespace tile_compile::image {
 
-struct HyperMetricStretchConfig {
-  bool enabled = true;
-  bool require_successful_pcc = true;
-  std::string mode = "ready_to_use";
-  std::string sensor_profile = "rec709";
-  std::string fallback_profile = "rec709";
-  bool adaptive_anchor = true;
-  // When true AND the caller passes a reference image (run_hypermetric_stretch_rgb's
-  // anchor_reference_R/G/B), the black-point anchor (adaptive_anchor's histogram-shoulder search,
-  // or the plain percentile floor) is estimated from that reference instead of the image being
-  // stretched. Use this when a denoising stage between the reconstruction and HMS (chroma_denoise's
-  // post_pcc stage) narrows the sky-brightness distribution: the histogram search then crosses its
-  // fixed density threshold at a different point, measurably shifting the black point -- and with it
-  // noise/structure/black-clip -- even though the true sky level did not change. Falls back to the
-  // image being stretched when no reference is passed, so this is a no-op unless the caller supplies
-  // one. Off by default; not yet confirmed as a general improvement (see
-  // docs/hms_anchor_reference_20260927_de.md once filed).
-  bool anchor_from_reference = false;
-  float target_bg = 0.15f;
-  float protect_b = 6.0f;
-  float convergence_power = 3.5f;
-  std::string log_d_mode = "auto";
-  float fixed_log_d = 2.0f;
-  std::string color_strategy = "fixed";
-  float fixed_color_strategy = 0.0f;
-  float color_grip = 1.0f;
-  float shadow_convergence = 0.0f;
-  float linear_expansion = 0.0f;
-  // Percentile (per output channel, sampled the same way as the 99th-
-  // percentile contrast ceiling) used as the "must not clip" highlight
-  // reference in ready_to_use's adaptive_output_scaling. 100 (default)
-  // reproduces the previous behaviour exactly: the true brightest real
-  // pixel never clips, which on a target with one very bright, compact
-  // highlight (e.g. a nebula's core) caps the contrast scale far below
-  // what the rest of the frame could otherwise use. Lowering it (e.g. to
-  // 99.9) allows that small, bounded top fraction of pixels to clip in
-  // exchange for materially more contrast in stars and highlight regions;
-  // it does not change the mid-tone/background level, which stays pinned
-  // to target_bg regardless.
-  float highlight_ceiling_percentile = 100.0f;
-  // Local contrast ("clarity"): boosts mid/large-scale luma detail that the
-  // single GLOBAL tone curve above compresses away when it also has to lift
-  // a faint background up to target_bg. Verified on real M42 data that the
-  // dynamic range IS present in the linear input (stacked_rgb.fits) -- the
-  // compression happens entirely in this stage's global floor/ceiling/MTF
-  // curve, which has no per-pixel/local awareness. Off by default.
-  struct LocalContrastConfig {
-    bool enabled = false;
-    float radius_px = 40.0f;  // structure scale to boost (nebula filaments)
-    float strength = 0.6f;    // 0 = no effect
-  } local_contrast;
-  bool write_channels = false;
-  std::string output_rgb = "stacked_rgb_hms.fits";
-};
+// The stretch parameters are the public config struct itself (single source of
+// truth for defaults, parsing and schema); see config::HyperMetricStretchConfig
+// for the per-field documentation.
+using HyperMetricStretchConfig = config::HyperMetricStretchConfig;
 
 struct HyperMetricStretchDiagnostics {
   bool success = false;

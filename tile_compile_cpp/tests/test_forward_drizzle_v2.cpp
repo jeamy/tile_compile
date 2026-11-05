@@ -9485,7 +9485,7 @@ FullFrameRun run_full_frame(const Fixture &f, std::uint64_t n, double sigma,
                             bool shared_frame_rejection = true,
                             bool bimodal_veto = false,
                             double bimodal_veto_gap_sigma = 2.5,
-                            double clip_sigma = 4.0) {
+                            double clip_sigma = 4.0, int cpu_workers = 0) {
   const int nc = f.plan.canvas_width_native;
   const int nr = f.plan.canvas_height_native;
   const std::size_t nplane = static_cast<std::size_t>(nc) * nr;
@@ -9511,6 +9511,7 @@ FullFrameRun run_full_frame(const Fixture &f, std::uint64_t n, double sigma,
   kcfg.full_frame_estimator = full;
   kcfg.bimodal_veto = bimodal_veto;
   kcfg.bimodal_veto_gap_sigma = bimodal_veto_gap_sigma;
+  kcfg.cpu_workers = cpu_workers;
   std::unique_ptr<ForwardDrizzleV2Kernel> kernel_holder =
       use_cuda ? std::unique_ptr<ForwardDrizzleV2Kernel>(
                      std::make_unique<ForwardDrizzleV2CudaKernel>())
@@ -9570,6 +9571,43 @@ constexpr std::uint8_t kStatePilotFull = static_cast<std::uint8_t>(
     ForwardDrizzleV2RobustState::primary_reservoir_pilot_full_frame);
 
 }  // namespace
+
+// The CPU finalize runs pixel-channel (fast path) or pixel (shared frame
+// rejection) iterations on OpenMP workers with thread-private scratch. The
+// stored records -- including struct padding, which the band store hashes --
+// and the bimodal-veto counters must not depend on the worker count.
+TEST_CASE("forward drizzle v2 cpu finalize is invariant to the worker count",
+          "[forward-drizzle-v2][cpu-parallel]") {
+  const auto f = sfr_fixture(ColorMode::OSC, /*outlier_frame=*/5);
+  for (const bool sfr : {false, true}) {
+    for (const bool full : {false, true}) {
+      CAPTURE(sfr, full);
+      // Same population as the bimodal-veto CPU test: 30 % of frames
+      // shifted by 8 sigma with wide clip bounds -> genuinely bimodal sets.
+      const auto one = run_full_frame(f, 200, 1.0, 3, 8.0, full, 1, false,
+                                      sfr, /*bimodal_veto=*/true, 2.5, 20.0,
+                                      /*cpu_workers=*/1);
+      const auto many = run_full_frame(f, 200, 1.0, 3, 8.0, full, 1, false,
+                                       sfr, /*bimodal_veto=*/true, 2.5, 20.0,
+                                       /*cpu_workers=*/4);
+      REQUIRE(one.results.size() == many.results.size());
+      REQUIRE(one.profiles.size() == many.profiles.size());
+      REQUIRE(std::memcmp(one.results.data(), many.results.data(),
+                          one.results.size() *
+                              sizeof(ForwardDrizzleV2PixelResult)) == 0);
+      REQUIRE(std::memcmp(one.profiles.data(), many.profiles.data(),
+                          one.profiles.size() *
+                              sizeof(ForwardDrizzleV2ProfileResult)) == 0);
+      REQUIRE(one.stats.bimodal_veto_pixels == many.stats.bimodal_veto_pixels);
+      REQUIRE(one.stats.bimodal_veto_rejected_candidates ==
+              many.stats.bimodal_veto_rejected_candidates);
+    }
+  }
+  // The scenario must actually exercise the veto counters.
+  const auto probe = run_full_frame(f, 200, 1.0, 3, 8.0, false, 1, false,
+                                    false, true, 2.5, 20.0, 4);
+  REQUIRE(probe.stats.bimodal_veto_pixels > 0);
+}
 
 TEST_CASE("forward drizzle v2 full-frame estimator equals the reservoir value "
           "when every frame is a pilot frame",

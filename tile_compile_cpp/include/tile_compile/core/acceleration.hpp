@@ -136,7 +136,6 @@ DeviceTileBatch make_device_tile_batch(const std::vector<Tile> &tiles,
 
 json device_frame_to_json(const DeviceFrame &frame);
 json device_frame_batch_to_json(const DeviceFrameBatch &batch);
-json device_tile_batch_to_json(const DeviceTileBatch &batch);
 
 class AccelerationOps {
 public:

@@ -101,8 +101,10 @@ class ApiClient {
 
 export const api = new ApiClient();
 
-// Auto-detect: if we're not served from the backend (e.g. local dev server),
-// point API calls to localhost:8080 where the backend runs
-if (window.location.port && window.location.port !== "8080") {
+// Auto-detect: if we're served over plain HTTP from a port other than the backend
+// (e.g. local dev server), point API calls to the backend on 8080. HTTPS pages
+// (workspace gateway) must stay same-origin, since an http:// API call is blocked
+// as mixed content.
+if (window.location.protocol === "http:" && window.location.port && window.location.port !== "8080") {
   api.setBase(`http://${window.location.hostname}:8080`);
 }

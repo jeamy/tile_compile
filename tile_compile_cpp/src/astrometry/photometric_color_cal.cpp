@@ -137,43 +137,42 @@ static PlaneFit fit_sky_plane_huber(const std::vector<double> &xs,
     return pf;
 }
 
+// Shared per-pixel driver of the PCC apply loops: pixels outside the output
+// mask become 0, non-finite pixels become NaN; every other pixel is passed to
+// `body(y, x, idx, r0, g0, b0)`, which returns true when it counts the pixel
+// as valid. Row-major order and per-pixel arithmetic are unchanged.
+template <class Body>
+size_t for_each_masked_rgb_pixel(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
+                                 int rows, int cols, bool use_output_mask,
+                                 const std::vector<uint8_t> *output_mask,
+                                 Body &&body) {
+    size_t valid_px = 0;
+    for (int y = 0; y < rows; ++y) {
+        for (int x = 0; x < cols; ++x) {
+            const size_t idx = static_cast<size_t>(y * cols + x);
+            if (use_output_mask && (*output_mask)[idx] == 0) {
+                R(y, x) = 0.0f;
+                G(y, x) = 0.0f;
+                B(y, x) = 0.0f;
+                continue;
+            }
+            const float r0 = R(y, x);
+            const float g0 = G(y, x);
+            const float b0 = B(y, x);
+            if (!(std::isfinite(r0) && std::isfinite(g0) && std::isfinite(b0))) {
+                const float invalid = std::numeric_limits<float>::quiet_NaN();
+                R(y, x) = invalid;
+                G(y, x) = invalid;
+                B(y, x) = invalid;
+                continue;
+            }
+            if (body(y, x, idx, r0, g0, b0)) ++valid_px;
+        }
+    }
+    return valid_px;
+}
 
 } // namespace
-
-// ─── Default OSC filter curves (kept for API compatibility) ─────────────
-
-/// @brief Returns the default osc filter curves.
-/// @details Part of photometric color calibration, aperture photometry, background neutralization, and color-matrix fitting; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-FilterCurves default_osc_filter_curves() {
-    FilterCurves fc;
-    for (double wl = 336.0; wl <= 1020.0; wl += 2.0) {
-        fc.wl.push_back(wl);
-        double b = 0.0;
-        if (wl >= 380 && wl <= 530) {
-            if (wl < 400)       b = (wl - 380) / 20.0;
-            else if (wl <= 500) b = 1.0;
-            else                b = (530 - wl) / 30.0;
-        }
-        double g = 0.0;
-        if (wl >= 460 && wl <= 620) {
-            if (wl < 500)       g = (wl - 460) / 40.0;
-            else if (wl <= 580) g = 1.0;
-            else                g = (620 - wl) / 40.0;
-        }
-        double r = 0.0;
-        if (wl >= 570 && wl <= 720) {
-            if (wl < 600)       r = (wl - 570) / 30.0;
-            else if (wl <= 680) r = 1.0;
-            else                r = (720 - wl) / 40.0;
-        }
-        fc.tx_r.push_back(r);
-        fc.tx_g.push_back(g);
-        fc.tx_b.push_back(b);
-    }
-    return fc;
-}
 
 // ─── Teff estimation from XP spectrum ───────────────────────────────────
 //
@@ -2039,34 +2038,15 @@ static void apply_diagonal_color_matrix_affine(Matrix2Df &R, Matrix2Df &G, Matri
 
     size_t valid_px = 0;
     const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < cols; ++x) {
-            const size_t idx = static_cast<size_t>(y * cols + x);
-            if (use_output_mask && (*output_mask)[idx] == 0) {
-                R(y, x) = 0.0f;
-                G(y, x) = 0.0f;
-                B(y, x) = 0.0f;
-                continue;
-            }
-            const float r0 = R(y, x);
-            const float g0 = G(y, x);
-            const float b0 = B(y, x);
-            if (!(std::isfinite(r0) && std::isfinite(g0) && std::isfinite(b0))) {
-                const float invalid = std::numeric_limits<float>::quiet_NaN();
-                R(y, x) = invalid;
-                G(y, x) = invalid;
-                B(y, x) = invalid;
-                continue;
-            }
-            if (r0 == 0.0f && g0 == 0.0f && b0 == 0.0f) {
-                continue;
-            }
-            ++valid_px;
+    valid_px = for_each_masked_rgb_pixel(
+        R, G, B, rows, cols, use_output_mask, output_mask,
+        [&](int y, int x, size_t, float r0, float g0, float b0) {
+            if (r0 == 0.0f && g0 == 0.0f && b0 == 0.0f) return false;
             R(y, x) = r0 * gain_r + offset_r;
             G(y, x) = g0 * gain_g + offset_g;
             B(y, x) = b0 * gain_b + offset_b;
-        }
-    }
+            return true;
+        });
 
     if (verbose) {
         const double frac = (total_px > 0)
@@ -2127,28 +2107,11 @@ static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df
     size_t valid_px = 0;
     const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
 
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < cols; ++x) {
-            const size_t idx = static_cast<size_t>(y * cols + x);
-            if (use_output_mask && (*output_mask)[idx] == 0) {
-                R(y, x) = 0.0f;
-                G(y, x) = 0.0f;
-                B(y, x) = 0.0f;
-                continue;
-            }
-            const float r0 = R(y, x);
-            const float g0 = G(y, x);
-            const float b0 = B(y, x);
-            if (!(std::isfinite(r0) && std::isfinite(g0) && std::isfinite(b0))) {
-                const float invalid = std::numeric_limits<float>::quiet_NaN();
-                R(y, x) = invalid; G(y, x) = invalid; B(y, x) = invalid;
-                continue;
-            }
-            if (r0 == 0.0f && g0 == 0.0f && b0 == 0.0f) {
-                // Keep canvas dead area at zero in linear apply mode.
-                continue;
-            }
-            ++valid_px;
+    valid_px = for_each_masked_rgb_pixel(
+        R, G, B, rows, cols, use_output_mask, output_mask,
+        [&](int y, int x, size_t, float r0, float g0, float b0) {
+            // Keep canvas dead area at zero in linear apply mode.
+            if (r0 == 0.0f && g0 == 0.0f && b0 == 0.0f) return false;
             const float dr = r0 - ctx.bg_out;
             const float dg = g0 - ctx.bg_out;
             const float db = b0 - ctx.bg_out;
@@ -2162,8 +2125,8 @@ static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df
                                          : std::numeric_limits<float>::quiet_NaN());
             B(y, x) = (std::isfinite(nb) ? (ctx.bg_out + nb)
                                          : std::numeric_limits<float>::quiet_NaN());
-        }
-    }
+            return true;
+        });
     if (verbose) {
         const double frac = (total_px > 0) ? (static_cast<double>(valid_px) / static_cast<double>(total_px)) : 0.0;
         std::cerr << "[PCC] Apply(simple, anchored) valid pixels: " << valid_px << "/" << total_px
@@ -2206,34 +2169,15 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     size_t valid_px = 0;
     const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
 
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < cols; ++x) {
-            const size_t idx = static_cast<size_t>(y * cols + x);
-            if (use_output_mask && (*output_mask)[idx] == 0) {
-                R(y, x) = 0.0f;
-                G(y, x) = 0.0f;
-                B(y, x) = 0.0f;
-                continue;
-            }
-            const float r0 = R(y, x);
-            const float g0 = G(y, x);
-            const float b0 = B(y, x);
-            if (!(std::isfinite(r0) && std::isfinite(g0) && std::isfinite(b0))) {
-                const float invalid = std::numeric_limits<float>::quiet_NaN();
-                R(y, x) = invalid;
-                G(y, x) = invalid;
-                B(y, x) = invalid;
-                continue;
-            }
+    valid_px = for_each_masked_rgb_pixel(
+        R, G, B, rows, cols, use_output_mask, output_mask,
+        [&](int y, int x, size_t idx, float r0, float g0, float b0) {
             if (!(r0 > 0.0f && g0 > 0.0f && b0 > 0.0f)) {
                 R(y, x) = 0.0f;
                 G(y, x) = 0.0f;
                 B(y, x) = 0.0f;
-                continue;
+                return false;
             }
-
-            ++valid_px;
-
             const float dr = r0 - ctx.bg_out;
             const float dg = g0 - ctx.bg_out;
             const float db = b0 - ctx.bg_out;
@@ -2248,8 +2192,8 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                         : std::numeric_limits<float>::quiet_NaN();
             B(y, x) = std::isfinite(nb) ? (ctx.bg_out + nb)
                                         : std::numeric_limits<float>::quiet_NaN();
-        }
-    }
+            return true;
+        });
 
     const size_t skipped_px = (total_px >= valid_px) ? (total_px - valid_px) : 0;
     const double frac = (total_px > 0) ? (static_cast<double>(valid_px) / static_cast<double>(total_px)) : 0.0;

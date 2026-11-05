@@ -162,8 +162,6 @@ struct ForwardDrizzleV2Checkpoint {
   std::string checkpoint_hash;
 };
 
-std::string serialize_forward_drizzle_v2_checkpoint(
-    const ForwardDrizzleV2Checkpoint &checkpoint);
 bool parse_forward_drizzle_v2_checkpoint(const std::string &text,
                                          ForwardDrizzleV2Checkpoint &out,
                                          std::string &error);

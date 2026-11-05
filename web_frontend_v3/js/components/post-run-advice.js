@@ -20,6 +20,48 @@ function fmt(value) {
   return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
+function fmtMetric(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat(undefined, { maximumSignificantDigits: 6 }).format(value);
+}
+
+function stageLabel(stage) {
+  if (stage === "bge.input") return t("ui.post_run.stage.bge_input", "BGE-Eingang");
+  if (stage === "bge.output") return t("ui.post_run.stage.bge_output", "BGE-Ausgang");
+  if (stage === "hypermetric_stretch.curve_output") return t("ui.post_run.stage.hms_output", "HMS-Kurvenausgang");
+  return typeof stage === "string" ? stage : "?";
+}
+
+function findingMeasurements(finding) {
+  const evidence = finding?.evidence;
+  if (!evidence || typeof evidence !== "object") return "";
+  if (finding.code === "bge_background_slope_measured") {
+    const comparisons = Array.isArray(evidence.comparisons) ? evidence.comparisons : [evidence];
+    const rows = comparisons.filter((item) => Number.isFinite(item?.before?.value) &&
+      Number.isFinite(item?.after?.value) && Number.isFinite(item?.delta)).map((item) => {
+      const unit = t("ui.post_run.unit.image_value_per_pixel", "Bildwert/Pixel");
+      return `${item.channel || "?"} (${stageLabel(item.before.stage)} → ${stageLabel(item.after.stage)}): ${fmtMetric(item.before.value)} → ${fmtMetric(item.after.value)} (${t("ui.post_run.delta", "Δ")} ${fmtMetric(item.delta)} ${unit})`;
+    });
+    return rows.length ? `${t("ui.post_run.evidence.bge_slope", "BGE-Hintergrund-Steigung")}: ${rows.join("; ")}` : "";
+  }
+  if (finding.code === "hms_curve_clipping_measured" &&
+      Number.isFinite(evidence.black_clip_percent) && Number.isFinite(evidence.white_clip_percent)) {
+    return `${stageLabel(evidence.stage)} — ${t("ui.post_run.evidence.black_clipping", "Schwarz-Clipping")}: ${fmtMetric(evidence.black_clip_percent)}%; ` +
+      `${t("ui.post_run.evidence.white_clipping", "Weiß-Clipping")}: ${fmtMetric(evidence.white_clip_percent)}%`;
+  }
+  if (finding.code === "post_run_star_shape_measured" &&
+      Number.isFinite(evidence.median_ratio) && Number.isFinite(evidence.p90_ratio) &&
+      Number.isInteger(evidence.matched_stars)) {
+    const ci = Array.isArray(evidence.ci95_star_bootstrap) ? evidence.ci95_star_bootstrap : [];
+    const interval = ci.length === 2 && ci.every(Number.isFinite)
+      ? `; 95%-KI ${fmtMetric(ci[0])}–${fmtMetric(ci[1])}` : "";
+    return `${t("ui.post_run.evidence.star_shape", "Gepaarte Stern-FWHM nach/vor")}: ` +
+      `Median ${fmtMetric(evidence.median_ratio)}, P90 ${fmtMetric(evidence.p90_ratio)}${interval}; ` +
+      `${evidence.matched_stars} ${t("ui.post_run.evidence.matched_stars", "Sterne")}`;
+  }
+  return "";
+}
+
 /** Index of `phase` in `order` (resume_phase_order, narrowest-first); -1 if absent. */
 function phaseRank(order, phase) {
   return (order || []).indexOf(phase);
@@ -46,6 +88,9 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
   const button = el("button", { class: "tc-btn tc-btn-sm", id: `${id}-button`, onclick: request }, t("ui.post_run.request", "Nachbetrachtung anfordern"));
 
   let lastRunId = "";
+  let lastRunDir = "";
+  let lastRunUid = "";
+  let lastAdviceEventId = "";
   let lastResumeOrder = [];
   const selected = new Set();
 
@@ -62,7 +107,7 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
     if (applyBtn) applyBtn.disabled = true;
     if (allBtn) allBtn.disabled = true;
     try {
-      const resp = await api.get(API_ENDPOINTS.runs.config(lastRunId));
+      const resp = await api.get(API_ENDPOINTS.runs.config(lastRunId, lastRunDir));
       const yaml = resp?.config_yaml || resp?.config || "";
       if (!yaml) throw new Error(t("ui.error.no_config", "Config YAML ist leer"));
       const parsed = parseYaml(yaml);
@@ -81,6 +126,8 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
   function renderAdvice(payload) {
     clear(content);
     const advice = payload?.advice;
+    lastRunUid = payload?.run_uid || "";
+    lastAdviceEventId = payload?.event_id || "";
     content._suggestions = advice?.suggestions || [];
     lastResumeOrder = advice?.resume_phase_order || [];
     selected.clear();
@@ -91,9 +138,27 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
     }
     const outcome = OUTCOMES.includes(advice.outcome) ? advice.outcome : "diagnose";
     content.append(el("div", { class: "tc-text-sm", "data-outcome": outcome }, t(`ui.post_run.outcome.${outcome}`, outcome)));
+    if (advice.model_recommendation) {
+      content.append(el("div", { class: "tc-text-sm tc-text-muted", "data-model-recommendation": advice.model_recommendation },
+        t("ui.post_run.model_recommendation", "Jev-Modellauswahl unter den serverseitig geprüften Optionen: {candidate}", {
+          candidate: advice.model_recommendation,
+        })));
+    }
+    const modelSelection = payload?.model_selection;
+    if (modelSelection?.status === "unavailable" || modelSelection?.status === "invalid_response") {
+      content.append(el("div", { class: "tc-text-sm tc-text-muted", "data-model-selection-status": modelSelection.status },
+        t("ui.post_run.model_unavailable", "Modellwahl nicht verfügbar ({reason}); die Regelbefunde bleiben sichtbar.", {
+          reason: modelSelection.error_code || modelSelection.status,
+        })));
+    } else if (modelSelection?.mode === "shadow" && modelSelection?.status === "ok") {
+      content.append(el("div", { class: "tc-text-sm tc-text-muted", "data-model-selection-status": "shadow" },
+        t("ui.post_run.model_shadow", "Schatten-Modellwahl protokolliert; sie beeinflusst die Empfehlungen nicht.")));
+    }
     for (const f of advice.findings || []) {
       const cls = f.severity === "warning" ? "tc-text-sm" : "tc-text-sm tc-text-muted";
       content.append(el("div", { class: cls }, `${t(`ui.post_run.finding.${f.code}`, f.code)}${f.detail ? `: ${f.detail}` : ""}`));
+      const measurements = findingMeasurements(f);
+      if (measurements) content.append(el("div", { class: "tc-text-sm tc-text-muted", "data-metric-evidence": f.code }, measurements));
     }
     for (const s of content._suggestions) {
       const changes = (s.updates || []).map((u) => `${u.path}: ${fmt(u.old_value)} → ${fmt(u.value)}`).join("; ");
@@ -109,7 +174,20 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
           checkbox,
           el("div", { class: "tc-text-sm" }, `${s.candidate_id}${s.experimental ? ` (${t("ui.jev.experimental", "experimentell")})` : ""}`)),
         el("div", { class: "tc-text-sm tc-text-muted" }, changes),
-        el("div", { class: "tc-text-sm tc-text-muted" }, `${how}. ${t("ui.post_run.feasibility", "Machbarkeit noch nicht geprüft (Resume-Dry-Run).")}`)));
+        el("div", { class: "tc-text-sm tc-text-muted" }, `${how}. ${t("ui.post_run.feasibility", "Machbarkeit noch nicht geprüft (Resume-Dry-Run).")}`),
+        el("button", { class: "tc-btn tc-btn-sm tc-mt-2", type: "button", onclick: async (e) => {
+          const message = t("ui.post_run.dismiss_confirm", "Diesen Vorschlag für diesen Run dauerhaft ausblenden?");
+          if (!window.confirm(message)) return;
+          await saveDismissal(s.candidate_id, true, e.currentTarget);
+        } }, t("ui.post_run.dismiss", "Nicht mehr vorschlagen"))));
+    }
+    for (const event of payload.dismissed_candidates || []) {
+      const record = event?.result || {};
+      if (!record.candidate_id) continue;
+      content.append(el("div", { class: "tc-flex tc-items-center tc-gap-2 tc-text-sm tc-text-muted" },
+        el("span", {}, `${t("ui.post_run.dismissed", "Ausgeblendet")}: ${record.candidate_id}${record.source_patch_id ? ` (${record.source_patch_id})` : ""}`),
+        el("button", { class: "tc-btn tc-btn-sm", type: "button", onclick: (e) => saveDismissal(record.candidate_id, false, e.currentTarget) },
+          t("ui.post_run.restore", "Wiederherstellen"))));
     }
     const selectable = content._suggestions.filter(isSelectable);
     if (selectable.length && onApply) {
@@ -124,14 +202,37 @@ export function createPostRunAdvicePanel(id = "post-run-advice", { onApply } = {
         `${t("ui.post_run.not_measured", "Nicht gemessen")}: ${advice.not_measured.map((k) => t(`ui.post_run.metric.${k}`, k)).join(", ")}`));
   }
 
+  async function saveDismissal(candidateId, dismissed, buttonEl) {
+    if (!lastRunId || !lastRunUid || !lastAdviceEventId) return;
+    if (buttonEl) buttonEl.disabled = true;
+    try {
+      await api.post(API_ENDPOINTS.decisions.postRunDismissal, {
+        run_id: lastRunId,
+        run_uid: lastRunUid,
+        run_dir: lastRunDir || undefined,
+        candidate_id: candidateId,
+        advice_event_id: lastAdviceEventId,
+        request_id: `ui_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+        dismissed,
+      });
+      await request();
+    } catch (error) {
+      toastError(t("ui.post_run.dismiss_failed", "Änderung der Vorschlagsausblendung fehlgeschlagen"), error?.message || String(error));
+      if (buttonEl) buttonEl.disabled = false;
+    }
+  }
+
   async function request() {
-    const { currentRunId } = getRunState();
+    const { currentRunId, currentRunDir } = getRunState();
     if (!currentRunId) return;
     lastRunId = currentRunId;
+    lastRunDir = currentRunDir || "";
     button.disabled = true;
     status.textContent = t("ui.post_run.loading", "Auswertung läuft…");
     try {
-      const payload = await api.post(API_ENDPOINTS.decisions.postRunAdvice, { run_id: currentRunId, allow_experimental: true });
+      const body = { run_id: currentRunId, allow_experimental: true };
+      if (lastRunDir) body.run_dir = lastRunDir;
+      const payload = await api.post(API_ENDPOINTS.decisions.postRunAdvice, body);
       status.textContent = currentRunId;
       renderAdvice(payload);
     } catch (error) {

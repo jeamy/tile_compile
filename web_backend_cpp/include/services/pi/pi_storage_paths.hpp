@@ -12,6 +12,8 @@ namespace tile_compile::pi {
 std::filesystem::path default_pi_storage_dir(const std::shared_ptr<AppState>& state);
 std::filesystem::path pi_storage_dir(const std::shared_ptr<AppState>& state);
 nlohmann::json pi_storage_status(const std::shared_ptr<AppState>& state);
+nlohmann::json pi_active_context(const std::shared_ptr<AppState>& state);
+bool set_pi_active_context(const std::shared_ptr<AppState>& state, const nlohmann::json& context);
 
 bool set_pi_storage_dir(const std::shared_ptr<AppState>& state,
                         const std::filesystem::path& requested,

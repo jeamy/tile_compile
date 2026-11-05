@@ -90,28 +90,6 @@ struct WindowBuf {
   const float *end() const { return data.data() + n; }
 };
 
-float median_buf(WindowBuf &buf) {
-  if (buf.empty())
-    return nan_value();
-  const int n = buf.size();
-  const int mid = n / 2;
-  std::nth_element(buf.begin(), buf.begin() + mid, buf.end());
-  float med = buf.data[static_cast<size_t>(mid)];
-  if (n % 2 == 0) {
-    med = 0.5f * (med + *std::max_element(buf.begin(), buf.begin() + mid));
-  }
-  return med;
-}
-
-float mad_buf(WindowBuf &buf, float center, WindowBuf &tmp) {
-  if (buf.empty() || !finite(center))
-    return nan_value();
-  tmp.clear();
-  for (int i = 0; i < buf.size(); ++i)
-    tmp.push(std::abs(buf.data[static_cast<size_t>(i)] - center));
-  return median_buf(tmp);
-}
-
 float finite_median(const Matrix2Df &m) {
   return core::median_of_or_nan(finite_values(m));
 }

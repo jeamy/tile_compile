@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstring>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 namespace tile_compile::io {
@@ -355,18 +356,6 @@ std::optional<int> FitsHeader::get_int(const std::string& key) const {
     return std::nullopt;
 }
 
-/// @brief Implements get bool.
-/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::optional<bool> FitsHeader::get_bool(const std::string& key) const {
-    auto it = bool_values.find(key);
-    if (it != bool_values.end()) {
-        return it->second;
-    }
-    return std::nullopt;
-}
-
 /// @brief Implements set.
 /// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -445,7 +434,7 @@ std::pair<Matrix2Df, FitsHeader> read_fits_float(const fs::path& path) {
         Matrix2Df data = read_current_pixels_float(fptr, path, width, height, 1, status);
         FitsHeader header = read_current_header(fptr, status);
         fits_close_file(fptr, &status);
-        return {data, header};
+        return {std::move(data), std::move(header)};
     } catch (...) {
         fits_close_file(fptr, &status);
         throw;
@@ -578,70 +567,6 @@ RGBImage read_fits_rgb(const fs::path& path) {
         fits_close_file(fptr, &status);
         throw;
     }
-}
-
-/// @brief Reads fits region float.
-/// @details Part of CFITSIO-backed FITS header/image read and write helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width, int height) {
-    fitsfile* fptr = nullptr;
-    int status = 0;
-
-    if (fits_open_file(&fptr, path.string().c_str(), READONLY, &status)) {
-        throw FitsError("Cannot open FITS file: " + path.string());
-    }
-
-    int naxis = 0;
-    long naxes[3] = {0, 0, 0};
-    int bitpix = 0;
-
-    if (!move_to_first_image_hdu(fptr, bitpix, naxis, naxes, status)) {
-        fits_close_file(fptr, &status);
-        throw FitsError("Cannot read FITS image parameters: " + path.string());
-    }
-
-    int img_w = static_cast<int>(naxes[0]);
-    int img_h = static_cast<int>(naxes[1]);
-
-    int rx0 = std::max(0, x0);
-    int ry0 = std::max(0, y0);
-    int rx1 = std::min(img_w, x0 + width);
-    int ry1 = std::min(img_h, y0 + height);
-
-    int rw = std::max(0, rx1 - rx0);
-    int rh = std::max(0, ry1 - ry0);
-
-    if (rw <= 0 || rh <= 0) {
-        fits_close_file(fptr, &status);
-        return Matrix2Df();
-    }
-
-    Matrix2Df data(rh, rw);
-
-    if (naxis >= 3) {
-        // RGB cube: read ROI from first plane to keep scalar ROI API contract.
-        long fpixel[3] = {static_cast<long>(rx0 + 1), static_cast<long>(ry0 + 1), 1};
-        long lpixel[3] = {static_cast<long>(rx0 + rw), static_cast<long>(ry0 + rh), 1};
-        long inc[3] = {1, 1, 1};
-        fits_read_subset(fptr, TFLOAT, fpixel, lpixel, inc, nullptr,
-                         data.data(), nullptr, &status);
-    } else {
-        long fpixel[2] = {static_cast<long>(rx0 + 1), static_cast<long>(ry0 + 1)};
-        long lpixel[2] = {static_cast<long>(rx0 + rw), static_cast<long>(ry0 + rh)};
-        long inc[2] = {1, 1};
-        fits_read_subset(fptr, TFLOAT, fpixel, lpixel, inc, nullptr,
-                         data.data(), nullptr, &status);
-    }
-    fits_close_file(fptr, &status);
-
-    if (status) {
-        throw FitsError("Cannot read FITS ROI pixel data: " + path.string() +
-                        " (cfitsio_status=" + std::to_string(status) +
-                        ", reason=\"" + cfitsio_status_text(status) + "\")");
-    }
-
-    return data;
 }
 
 /// @brief Writes fits float.

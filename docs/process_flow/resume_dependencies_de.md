@@ -65,8 +65,7 @@ FORWARD_DRIZZLE erneut. Jeder andere Phasenname wird mit
 `cache/source_quality_maps` und `cache/normalized_frames` am Run-Ende —
 ein **Rekonstruktions-Resume** ist dann unmöglich; Downstream-Resume aus
 den persistierten Outputs funktioniert weiterhin.
-`reconstruction.keep_profile_cache_after_run` steuert die Vorhaltung der
-Profil-Caches unabhängig davon.
+Der v2-Bandspeicher wird immer behalten (Resume-Vorgaenger).
 
 ## Beim Resume beachtete Environment-Overrides
 

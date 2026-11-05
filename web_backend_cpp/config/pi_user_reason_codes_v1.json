@@ -1,0 +1,28 @@
+{
+  "schema_version": "pi.user-reason-codes.v1",
+  "catalog_version": "1",
+  "domains": {
+    "config": [
+      {"code": "too_aggressive", "label_key": "pi.reason.too_aggressive"},
+      {"code": "too_conservative", "label_key": "pi.reason.too_conservative"},
+      {"code": "artifacts", "label_key": "pi.reason.artifacts"},
+      {"code": "noise_worse", "label_key": "pi.reason.noise_worse"},
+      {"code": "sharpness_worse", "label_key": "pi.reason.sharpness_worse"},
+      {"code": "color_off", "label_key": "pi.reason.color_off"},
+      {"code": "runtime_too_long", "label_key": "pi.reason.runtime_too_long"},
+      {"code": "evidence_insufficient", "label_key": "pi.reason.evidence_insufficient"},
+      {"code": "outdated_by_new_data", "label_key": "pi.reason.outdated_by_new_data"},
+      {"code": "other", "label_key": "pi.reason.other"}
+    ],
+    "image": [
+      {"code": "too_soft", "label_key": "pi.reason.too_soft"},
+      {"code": "too_harsh", "label_key": "pi.reason.too_harsh"},
+      {"code": "halo", "label_key": "pi.reason.halo"},
+      {"code": "clipping", "label_key": "pi.reason.clipping"},
+      {"code": "background_off", "label_key": "pi.reason.background_off"},
+      {"code": "color_cast", "label_key": "pi.reason.color_cast"},
+      {"code": "taste", "label_key": "pi.reason.taste"},
+      {"code": "other", "label_key": "pi.reason.other"}
+    ]
+  }
+}

@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <string>
 #include <unordered_set>
+#include <unordered_map>
 #include <mutex>
 #include <memory>
 #include <vector>
@@ -76,6 +77,9 @@ struct BackendRuntime {
 
     /// @brief Resolves a run id or run path to the concrete run directory.
     fs::path resolve_run_dir(const std::string& run_id, const std::string& alt_runs_dir = "") const;
+    /// @brief Remembers an allowed directory for a run id outside runs_dir.
+    /// @return False for an invalid path or an ambiguous id already bound to another live run.
+    bool register_run_dir(const std::string& run_id, const fs::path& run_dir);
     /// @brief Normalizes and validates a user-provided input path.
     PathResolution resolve_input_path(const fs::path& p, bool must_exist = false) const;
     /// @brief Returns whether a path is inside one of the configured or granted roots.
@@ -93,4 +97,5 @@ private:
     mutable std::unique_ptr<std::mutex> _roots_mutex;
     std::unordered_set<std::string> _allowed_roots;
     std::vector<fs::path> _input_search_roots;
+    std::unordered_map<std::string, fs::path> _run_dir_aliases;
 };

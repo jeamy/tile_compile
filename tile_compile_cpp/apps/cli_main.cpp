@@ -93,16 +93,6 @@ static bool write_file_text(const fs::path& p, const std::string& content) {
     }
 }
 
-/// @brief Reads stdin.
-/// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-static std::string read_stdin() {
-    std::ostringstream ss;
-    ss << std::cin.rdbuf();
-    return ss.str();
-}
-
 /// @brief Implements yaml node to json.
 /// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -651,7 +641,7 @@ int cmd_pcc_apply(const std::string& input_path, const std::string& output_path,
 int cmd_save_gui_state(const std::string& path_arg, const std::string& json_text, bool use_stdin) {
     fs::path p = path_arg.empty() ? default_gui_state_path() : path_arg;
     
-    std::string raw = use_stdin ? read_stdin() : json_text;
+    std::string raw = use_stdin ? tile_compile::core::read_stdin_text() : json_text;
     if (raw.empty()) {
         std::cerr << "save-gui-state requires JSON text either as argument or via --stdin\n";
         return 2;
@@ -716,7 +706,7 @@ int cmd_load_config(const std::string& path) {
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 int cmd_save_config(const std::string& path, const std::string& yaml_text, bool use_stdin) {
-    std::string content = use_stdin ? read_stdin() : yaml_text;
+    std::string content = use_stdin ? tile_compile::core::read_stdin_text() : yaml_text;
     if (content.empty()) {
         std::cerr << "save-config requires YAML text either as argument or via --stdin\n";
         return 2;
@@ -793,7 +783,7 @@ int cmd_validate_config(const std::string& path, const std::string& yaml_arg, bo
     if (!path.empty()) {
         yaml_text = read_file_text(path);
     } else if (use_stdin) {
-        yaml_text = read_stdin();
+        yaml_text = tile_compile::core::read_stdin_text();
     } else {
         yaml_text = yaml_arg;
     }

@@ -1023,6 +1023,18 @@ ForwardDrizzleV2ProfileResult forward_drizzle_v2_profile_reduce(
     std::span<const ForwardDrizzleV2FrameMeta> frame_meta,
     const ForwardDrizzleV2ProfileConfig &cfg, double confidence,
     bool sigma_fully_degraded) {
+  ForwardDrizzleV2ProfileScratch scratch;
+  return forward_drizzle_v2_profile_reduce(candidates, accepted, frame_meta,
+                                           cfg, confidence,
+                                           sigma_fully_degraded, scratch);
+}
+
+ForwardDrizzleV2ProfileResult forward_drizzle_v2_profile_reduce(
+    std::span<const ForwardDrizzleV2ProfileCandidate> candidates,
+    std::span<const std::uint8_t> accepted,
+    std::span<const ForwardDrizzleV2FrameMeta> frame_meta,
+    const ForwardDrizzleV2ProfileConfig &cfg, double confidence,
+    bool sigma_fully_degraded, ForwardDrizzleV2ProfileScratch &scratch) {
   if (accepted.size() != candidates.size())
     throw std::invalid_argument("FORWARD_DRIZZLE_V2_PROFILE_MASK_SIZE");
   if (!std::isfinite(cfg.fine_quality_exponent) ||
@@ -1039,7 +1051,8 @@ ForwardDrizzleV2ProfileResult forward_drizzle_v2_profile_reduce(
     a.w += w;
     a.w2 += w * w;
   };
-  std::vector<AlphaFactorContribution> contribs;
+  std::vector<AlphaFactorContribution> &contribs = scratch.contribs;
+  contribs.clear();
   for (std::size_t k = 0; k < candidates.size(); ++k) {
     if (!accepted[k]) continue;
     const auto &cd = candidates[k];
@@ -1078,7 +1091,8 @@ ForwardDrizzleV2ProfileResult forward_drizzle_v2_profile_reduce(
   write(out.fine, af);
   write(out.medium, am);
   if (cfg.emit_alpha_confidence) {
-    const auto fac = compute_alpha_confidence_channel(contribs, cfg.alpha);
+    const auto fac =
+        compute_alpha_confidence_channel(contribs, cfg.alpha, scratch.alpha);
     // sigma_fully_degraded: every accepted contributor carried an invalid
     // sigma2, so no noise model underwrites fine-scale separation.
     out.a_separation = static_cast<float>(

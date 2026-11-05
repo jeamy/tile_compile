@@ -1,5 +1,6 @@
 #pragma once
 
+#include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/types.hpp"
 #include <Eigen/Dense>
 #include <array>
@@ -14,37 +15,13 @@ struct SamplePoint {
     int y = 0;
 };
 
-// BGE Configuration (matches YAML structure from v3.3 §6.3)
-struct BGEConfig {
+// BGE configuration: the public config::BGEConfig is the single source of
+// truth for every YAML-exposed field, its default and its schema entry. The
+// image-side struct only adds runner-internal, non-YAML fields.
+struct BGEConfig : config::BGEConfig {
+    // Derived by the runner from method != "none" (see to_image_bge_config);
+    // load-bearing gate inside apply_background_extraction.
     bool enabled = false;
-    std::string method = "none"; // none | classic | autobge | auto
-    // Parameters for method == "auto" (gradient detection + extended-source exclusion).
-    struct AutoDetectConfig {
-        float gradient_threshold = 0.05f;
-        float extended_source_sigma = 3.0f;
-        int   extended_source_dilate_px = 50;
-    } auto_detect;
-    struct AutoBGEConfig {
-        int num_sample_points = 0;
-        int poly_degree = 2;
-        float rbf_smooth = 2.0f;
-        int downsample_scale = 4;
-        int patch_size = 35;
-        std::string patch_estimator = "sigma_clipped_median";
-        std::string stretch_mode = "linear";
-        float stretch_target_median = 0.25f;
-        int border_margin = 10;
-        float bright_exclusion_fraction = 0.2f;
-        int gradient_descent_max_iters = 100;
-        int random_seed = 42;
-        bool normalize_between_stages = true;
-        bool apply_guards = true;
-        std::string mono_mode = "rgb_duplicate";
-        // Optional manually placed sample points. Coordinates are normalized
-        // [0..1] in the original image space so they remain valid after resize
-        // or downsample changes.
-        std::vector<std::array<float, 2>> user_sample_points;
-    } autobge;
     // Internal safety knob (not YAML-exposed): relax channel acceptance
     // guards for controlled fallback retries on difficult fields.
     bool internal_relaxed_channel_guards = false;
@@ -56,65 +33,6 @@ struct BGEConfig {
     std::vector<uint8_t> sampling_valid_mask;
     int sampling_mask_rows = 0;
     int sampling_mask_cols = 0;
-    
-    // Tile sampling (§6.3.2)
-    float sample_quantile = 0.20f;
-    // Per-tile background statistic. `quantile` preserves the historical
-    // behavior; the other modes are more robust in crowded/contaminated meshes.
-    std::string sample_estimator = "quantile"; // quantile | sigma_clipped_median | sextractor_mode | biweight
-    float min_sample_bg_value = 1.0f;
-    float structure_thresh_percentile = 0.90f;
-    int min_tiles_per_cell = 3;
-    float min_valid_sample_fraction_for_apply = 0.30f;
-    int min_valid_samples_for_apply = 96;
-    
-    // Masks (§6.3.2a)
-    struct {
-        int star_dilate_px = 4;
-        int sat_dilate_px = 4;
-    } mask;
-    
-    // Grid (§6.3.3, §6.3.8)
-    struct {
-        int N_g = 32;
-        int G_min_px = 64;
-        float G_max_fraction = 0.25f;
-        std::string insufficient_cell_strategy = "discard"; // discard | nearest | radius_expand
-    } grid;
-    
-    // Surface fitting (§6.3.4, §6.3.7)
-    struct {
-        std::string method = "rbf"; // poly | spline | bicubic | rbf | modeled_mask_mesh
-        std::string robust_loss = "huber"; // huber | tukey
-        float huber_delta = 1.5f;
-        int irls_max_iterations = 10;
-        float irls_tolerance = 1e-4f;
-        
-        // Polynomial
-        int polynomial_order = 2;
-        
-        // RBF
-        std::string rbf_phi = "multiquadric"; // thinplate | multiquadric | gaussian
-        float rbf_mu_factor = 1.0f;
-        float rbf_lambda = 1e-6f;
-        float rbf_epsilon = 1e-10f;
-    } fit;
-
-    // Autotuning (v3.3.6)
-    struct {
-        bool enabled = false;
-        int max_evals = 24;
-        float holdout_fraction = 0.25f;
-        float alpha_flatness = 0.25f;  // renamed alpha_f in §6.3.7.1
-        float beta_roughness = 0.10f;  // renamed beta_r in §6.3.7.1
-        std::string strategy = "conservative"; // conservative | extended
-    } autotune;
-
-    // Tile reliability weight (§6.3.2c): w_t = exp(-lambda_structure *
-    // structure_score_t) * (1 - masked_fraction_t), where structure_score_t is
-    // dimensionless via local noise normalization.
-    float tile_weight_lambda_structure = 1.0f;
-
     // Internal: cap OpenMP threads used inside BGE (0 = use omp_get_max_threads).
     int max_workers = 0;
 };
@@ -310,19 +228,6 @@ BackgroundModel fit_background_surface(
     const std::vector<GridCell>& grid_cells,
     int image_width, int image_height,
     int grid_spacing,
-    const BGEConfig& config);
-
-// RBF interpolation (v3.3 §6.3.7)
-Matrix2Df fit_rbf_surface(
-    const std::vector<GridCell>& grid_cells,
-    int image_width, int image_height,
-    int grid_spacing,
-    const BGEConfig& config);
-
-// Polynomial surface fitting (v3.3 §6.3.7)
-Matrix2Df fit_polynomial_surface(
-    const std::vector<GridCell>& grid_cells,
-    int image_width, int image_height,
     const BGEConfig& config);
 
 // Compute adaptive grid spacing (v3.3 §6.3.8)

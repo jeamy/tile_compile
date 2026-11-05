@@ -151,12 +151,6 @@ MultibandValidationResult select_reconstruction_candidate(
     const MultibandValidationConfig &cfg = {},
     const std::vector<uint8_t> &validation_mask = {});
 
-// Exposed for tests: per-star FWHM values (px) at the given star centres,
-// NaN-free, only stars with a successful patch fit retained.
-std::vector<double> per_star_fwhm(const Matrix2Df &image, int width, int height,
-                                  const std::vector<ValidationStar> &stars,
-                                  bool effective_only);
-
 // Exposed for tests: deterministic bootstrap 95% CI of the median of `values`.
 struct MedianCi {
   double median = 0.0;

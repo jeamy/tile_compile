@@ -29,8 +29,10 @@ json make_scan_result(const std::string& color_mode) {
 
 void write_reference_points(const std::filesystem::path& dir, const std::vector<std::pair<json, json>>& points) {
     std::filesystem::create_directories(dir);
+    const std::string target_path = dir.parent_path().filename().string();
+    const std::string domain = dir.parent_path().parent_path().filename().string();
     std::ofstream metadata(dir / "metadata.json");
-    metadata << json{{"schema_version", "pi.param-model-metadata.v1"}, {"target_path", "bge.method"},
+    metadata << json{{"schema_version", "pi.param-model-metadata.v1"}, {"domain", domain}, {"target_path", target_path},
                      {"n_samples", static_cast<int>(points.size())}}.dump(2);
     metadata.close();
 
@@ -90,6 +92,20 @@ int main() {
         expect_equal(static_cast<long>(predicted.n_reference_points), 3L, "reference point count reported");
         expect_equal(predicted.model_version, std::string("v1"), "model version reported");
 
+        const auto wrong_feature_domain = tile_compile::pi::predict_param_nn(
+            state, "live_edit", "bge.method", fv);
+        expect_true(!wrong_feature_domain.available, "scan features cannot query a live-edit model");
+        expect_equal(wrong_feature_domain.reason, std::string("feature_domain_mismatch"),
+                     "feature domain mismatch fails closed");
+        const auto unsupported_domain = tile_compile::pi::predict_param_nn(
+            state, "training", "bge.method", fv);
+        expect_equal(unsupported_domain.reason, std::string("unsupported_domain"),
+                     "unsupported model domains fail closed");
+        const auto traversal_target = tile_compile::pi::predict_param_nn(
+            state, "scan", "../outside", fv);
+        expect_equal(traversal_target.reason, std::string("invalid_target_path"),
+                     "model target paths cannot escape their domain directory");
+
         // Higher version must win over v1 when both qualify.
         write_reference_points(dir / "pi_models" / "scan" / "bge.method" / "v2", {
             {far_fv, "autobge"}, {far_fv, "autobge"}, {far_fv, "autobge"},
@@ -117,7 +133,7 @@ int main() {
             const auto v3_metadata_path = dir / "pi_models" / "scan" / "bge.method" / "v3" / "metadata.json";
 
             std::ofstream mismatched(v3_metadata_path);
-            mismatched << json{{"schema_version", "pi.param-model-metadata.v1"}, {"target_path", "bge.method"},
+            mismatched << json{{"schema_version", "pi.param-model-metadata.v1"}, {"domain", "scan"}, {"target_path", "bge.method"},
                                {"config_schema_sha256", "0000000000000000000000000000000000000000000000000000000000000000"}}.dump();
             mismatched.close();
             const auto mismatch_result = tile_compile::pi::predict_param_nn(state, "scan", "bge.method", fv);
@@ -125,7 +141,7 @@ int main() {
             expect_equal(mismatch_result.reason, std::string("config_schema_mismatch"), "mismatch reason reported");
 
             std::ofstream matching(v3_metadata_path);
-            matching << json{{"schema_version", "pi.param-model-metadata.v1"}, {"target_path", "bge.method"},
+            matching << json{{"schema_version", "pi.param-model-metadata.v1"}, {"domain", "scan"}, {"target_path", "bge.method"},
                              {"config_schema_sha256", real_hash}}.dump();
             matching.close();
             const auto match_result = tile_compile::pi::predict_param_nn(state, "scan", "bge.method", fv);
@@ -173,9 +189,33 @@ int main() {
         // --- predict_param_nn: numeric reference values -> regression, not classification ---
         // (Schritt 5, docs/PI/pi_local_learning_plan_de.md: live-edit params are continuous, e.g.
         // brightness.midtones — the vote branch used for scan's bge.method must not fire here.)
-        const json live_edit_fv_a = {{"numeric", {{"mean_luma", 0.20}, {"std_luma", 0.05}}}, {"categorical", json::object()}};
-        const json live_edit_fv_b = {{"numeric", {{"mean_luma", 0.21}, {"std_luma", 0.05}}}, {"categorical", json::object()}};
-        const json live_edit_fv_query = {{"numeric", {{"mean_luma", 0.205}, {"std_luma", 0.05}}}, {"categorical", json::object()}};
+        const json live_edit_fv_a = {{"domain", "live_edit"}, {"numeric", {{"mean_luma", 0.20}, {"std_luma", 0.05}}}, {"categorical", json::object()}};
+        const json live_edit_fv_b = {{"domain", "live_edit"}, {"numeric", {{"mean_luma", 0.21}, {"std_luma", 0.05}}}, {"categorical", json::object()}};
+        const json live_edit_fv_query = {{"domain", "live_edit"}, {"numeric", {{"mean_luma", 0.205}, {"std_luma", 0.05}}}, {"categorical", json::object()}};
+
+        write_reference_points(dir / "pi_models" / "scan" / "fixture.metadata" / "v1", {{close_fv, "none"}});
+        const auto v9_metadata = dir / "pi_models" / "scan" / "fixture.metadata" / "v1" / "metadata.json";
+        {
+            std::ofstream out(v9_metadata);
+            out << json{{"schema_version", "pi.param-model-metadata.v1"}, {"domain", "live_edit"},
+                        {"target_path", "fixture.metadata"}}.dump();
+        }
+        const auto wrong_metadata = tile_compile::pi::predict_param_nn(state, "scan", "fixture.metadata", fv);
+        expect_true(!wrong_metadata.available, "model metadata cannot relabel a model across domains");
+        expect_equal(wrong_metadata.reason, std::string("model_identity_mismatch"),
+                     "model identity mismatch fails closed");
+
+        write_reference_points(dir / "pi_models" / "scan" / "fixture.refs" / "v1", {{close_fv, "none"}});
+        const auto v10_points = dir / "pi_models" / "scan" / "fixture.refs" / "v1" / "reference_points.jsonl";
+        {
+            std::ofstream out(v10_points);
+            out << json{{"feature_vector", live_edit_fv_query}, {"value", "none"}}.dump() << "\n";
+        }
+        const auto mixed_reference = tile_compile::pi::predict_param_nn(state, "scan", "fixture.refs", fv);
+        expect_true(!mixed_reference.available, "reference features cannot cross processing domains");
+        expect_equal(mixed_reference.reason, std::string("reference_domain_mismatch"),
+                     "reference domain mismatch fails closed");
+
         write_reference_points(dir / "pi_models" / "live_edit" / "brightness.midtones" / "v1", {
             {live_edit_fv_a, 0.10}, {live_edit_fv_b, 0.20},
         });

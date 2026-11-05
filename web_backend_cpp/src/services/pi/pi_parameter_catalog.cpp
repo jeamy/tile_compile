@@ -63,12 +63,12 @@ nlohmann::json curated_parameter_metadata(const std::string& path) {
             }}
         };
     }
-    if (path == "reconstruction.diagnostics.preview_forward_drizzle_uniform") {
+    if (path == "reconstruction.diagnostics.level") {
         return {
-            {"cpp_default", false},
-            {"unit", "boolean"},
+            {"cpp_default", "summary"},
+            {"unit", "enum"},
             {"phase", "FORWARD_DRIZZLE"},
-            {"semantic", "Writes an additional uniform-reference preview output for diagnostics; does not change the reconstructed result."},
+            {"semantic", "Controls how many diagnostic control outputs are written (summary or full); does not change the reconstructed result."},
             {"diagnostic_only", true},
             {"requires_evidence", {"forward_drizzle.status"}},
             {"hard_rules", {

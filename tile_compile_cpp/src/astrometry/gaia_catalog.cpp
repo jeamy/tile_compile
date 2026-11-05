@@ -69,7 +69,6 @@ static int64_t ang2pix_nest(int order, double theta, double phi) {
     if (tt < 0) tt += TWOPI;
     tt /= HALFPI;  // in [0, 4)
 
-    int64_t npix = 12LL * nside * nside;
     int64_t face, ix, iy;
 
     if (za <= 2.0 / 3.0) {
@@ -175,19 +174,6 @@ std::string default_siril_gaia_catalog_dir() {
     if (env_dir && env_dir[0] != '\0') return std::string(env_dir);
 
     const std::string subdir = "siril_cat1_healpix8_xpsamp";
-    auto check = [&](const std::string& base) -> std::string {
-        if (base.empty()) return "";
-        // Try common subdirectory layouts: siril/, tile_compile/, or direct
-        for (const auto& candidate : {
-            base + "/siril/" + subdir,
-            base + "/tile_compile/" + subdir,
-            base + "/" + subdir,
-        }) {
-            if (fs::exists(candidate)) return candidate;
-        }
-        // Return the primary candidate even if it doesn't exist yet (will be checked by caller)
-        return base + "/siril/" + subdir;
-    };
 
 #ifdef _WIN32
     // Windows: %LOCALAPPDATA%\siril\siril_cat1_healpix8_xpsamp
@@ -452,57 +438,6 @@ std::vector<GaiaStar> siril_gaia_cone_search(
     }
 
     return results;
-}
-
-/// @brief Implements synthetic flux.
-/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-double synthetic_flux(const std::vector<float> &xp_flux,
-                      const std::vector<double> &filter_wl,
-                      const std::vector<double> &filter_tx) {
-    if (xp_flux.size() != XPSAMPLED_LEN || filter_wl.size() != filter_tx.size() ||
-        filter_wl.empty()) {
-        return 0.0;
-    }
-
-    // Integrate: sum(flux * transmission * dlambda)
-    // XP spectrum is on a regular 2nm grid starting at 336nm
-    double total = 0.0;
-    double norm = 0.0;
-
-    for (size_t i = 0; i < filter_wl.size(); ++i) {
-        double wl = filter_wl[i];
-        double tx = filter_tx[i];
-
-        // Find the XP bin for this wavelength
-        double bin_f = (wl - XPSAMPLED_WL_START) / XPSAMPLED_WL_STEP;
-        int bin = static_cast<int>(std::round(bin_f));
-        if (bin < 0 || bin >= XPSAMPLED_LEN) continue;
-
-        // Linear interpolation between adjacent bins
-        double frac = bin_f - std::floor(bin_f);
-        int bin0 = static_cast<int>(std::floor(bin_f));
-        int bin1 = bin0 + 1;
-        if (bin0 < 0) bin0 = 0;
-        if (bin1 >= XPSAMPLED_LEN) bin1 = XPSAMPLED_LEN - 1;
-
-        double flux_val = xp_flux[bin0] * (1.0 - frac) + xp_flux[bin1] * frac;
-
-        // Determine dlambda for this filter sample
-        double dlambda = 1.0;
-        if (i > 0 && i < filter_wl.size() - 1) {
-            dlambda = 0.5 * (filter_wl[i + 1] - filter_wl[i - 1]);
-        } else if (filter_wl.size() > 1) {
-            dlambda = (i == 0) ? (filter_wl[1] - filter_wl[0])
-                               : (filter_wl.back() - filter_wl[filter_wl.size() - 2]);
-        }
-
-        total += flux_val * tx * dlambda;
-        norm  += tx * dlambda;
-    }
-
-    return (norm > 0) ? total / norm : 0.0;
 }
 
 // ─── HTTP helpers via libcurl ───────────────────────────────────────────
@@ -860,22 +795,6 @@ std::string siril_catalog_chunk_url(int chunk_id) {
                   "%ssiril_cat1_healpix8_xpsamp_%d.dat.bz2?download=1",
                   SIRIL_ZENODO_BASE, chunk_id);
     return std::string(buf);
-}
-
-/// @brief Lists missing siril catalog chunks.
-/// @details Part of GAIA/Siril catalog access, decoding, download, and query support; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::vector<int> missing_siril_catalog_chunks(const std::string &catalog_dir) {
-    std::vector<int> missing;
-    for (int i = 0; i < SIRIL_CATALOG_NUM_CHUNKS; ++i) {
-        char fname[128];
-        std::snprintf(fname, sizeof(fname),
-                      "siril_cat1_healpix8_xpsamp_%d.dat", i);
-        if (!fs::exists(catalog_dir + "/" + fname))
-            missing.push_back(i);
-    }
-    return missing;
 }
 
 /// @brief Downloads chunk if needed.

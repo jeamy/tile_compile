@@ -48,7 +48,7 @@ Aktuelle praktische Mindestvoraussetzungen für die gepackten GUI3-Release-Bundl
 
 Hinweise:
 
-- macOS-Release-Bundles werden mit explizitem Deployment-Target gebaut und sind ab macOS 13 lauffähig, nicht nur auf der exakten Build-Host-Version.
+- macOS-Release-Bundles werden mit explizitem Deployment-Target gebaut und sind ab macOS 15 lauffähig, nicht nur auf der exakten Build-Host-Version.
 - Linux-Kompatibilität unterhalb der CI-Build-Basis ist für die aktuellen ZIP-Bundles nicht garantiert, da `glibc` nicht gebündelt wird.
 - Windows-Paketierung wird auf `windows-2022` gebaut und per Smoke-Test geprüft; Windows 10/11 x64 ist die vorgesehene Basis.
 
@@ -57,7 +57,7 @@ Hinweise:
 Die aktuellen nativen C++-Build-Voraussetzungen für das GUI3-Release sind:
 
 - Linux: `libcurl4-openssl-dev`
-- macOS: `curl`
+- macOS: `libcurl` (im macOS SDK enthalten, kein Homebrew-Paket nötig)
 - Windows MSYS2: `mingw-w64-x86_64-curl`
 
 Weitere Kern-Abhängigkeiten umfassen Eigen, OpenCV, cfitsio, yaml-cpp, nlohmann-json und OpenSSL.
@@ -66,6 +66,8 @@ macOS-Hinweise:
 
 - `packaging/gui3/build_local_macos.sh` erfordert `xcode-select --install`, `cmake`, `ninja`, `pkg-config` und `python3`.
 - Auf macOS 12 wird die Standard-`opencv`-Formel von Homebrew nicht unterstützt. Der Homebrew-basierte Paketierungspfad erfordert daher faktisch macOS 15, sofern OpenCV nicht aus einer anderen funktionierenden Installation bereitgestellt wird.
+- Die gebündelte asio-Version ist nicht mit OpenSSL 4 kompatibel. `openssl@3` installieren und OpenSSL-4-Header aus `/opt/homebrew/include` fernhalten (`brew unlink openssl@4`). Das Skript setzt `OPENSSL_ROOT_DIR` automatisch, wenn `openssl@3` vorhanden ist.
+- Der Release-Workflow baut ein minimales statisches OpenCV 4 (core, imgproc, imgcodecs, calib3d, features2d, flann, photo) statt der Homebrew-Formel, deren Abhängigkeitsbaum (numpy/ffmpeg/qt/vtk) auf den Runner-Images regelmäßig bricht. Für lokale Builds funktioniert `brew install opencv`, oder `OpenCV_DIR` auf eine beliebige OpenCV-4-Installation setzen.
 
 ## CI-Workflow
 

@@ -157,15 +157,15 @@ void debayer_bilinear_core(const float* src, int h, int w, int stride,
     G_out.setZero();
     B_out.setZero();
 
-    int r_row = 1, r_col = 0;
+    int r_row = 1;
     if (pattern == BayerPattern::UNKNOWN) {
         pattern = BayerPattern::GBRG;
     } else if (pattern == BayerPattern::RGGB) {
-        r_row = 0; r_col = 0;
+        r_row = 0;
     } else if (pattern == BayerPattern::BGGR) {
-        r_row = 1; r_col = 1;
+        r_row = 1;
     } else if (pattern == BayerPattern::GRBG) {
-        r_row = 0; r_col = 1;
+        r_row = 0;
     }
     uint8_t color_lut[4] = {0, 0, 0, 0};
     fill_bayer_color_lut(pattern, color_lut);
@@ -322,96 +322,86 @@ inline float average_neighbors_of_color_absolute(const float* data,
     return (std::isfinite(fallback) && fallback > 0.0f) ? fallback : 0.0f;
 }
 
-} // namespace
-
-/// @brief Implements cfa green mask.
-/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-static Matrix2Df cfa_green_mask(int height, int width, const std::string& bayer_pattern) {
-    Matrix2Df mask = Matrix2Df::Zero(height, width);
-    
+// Green sites of the 2x2 CFA cell (former cfa_green_mask convention):
+// RGGB/BGGR put green at (0,1),(1,0) (odd y+x), GBRG/GRBG at (0,0),(1,1).
+bool cfa_green_on_odd_parity(const std::string& bayer_pattern) {
     std::string bp = bayer_pattern;
     std::transform(bp.begin(), bp.end(), bp.begin(), ::toupper);
     if (bp.empty()) bp = "GBRG";
-    
-    int g0_row, g0_col, g1_row, g1_col;
-    
-    if (bp == "RGGB" || bp == "BGGR") {
-        g0_row = 0; g0_col = 1;
-        g1_row = 1; g1_col = 0;
-    } else {
-        // GBRG, GRBG
-        g0_row = 0; g0_col = 0;
-        g1_row = 1; g1_col = 1;
-    }
-    
-    for (int y = g0_row; y < height; y += 2) {
-        for (int x = g0_col; x < width; x += 2) {
-            mask(y, x) = 1.0f;
-        }
-    }
-    for (int y = g1_row; y < height; y += 2) {
-        for (int x = g1_col; x < width; x += 2) {
-            mask(y, x) = 1.0f;
-        }
-    }
-    
-    return mask;
+    return bp == "RGGB" || bp == "BGGR";
 }
+
+// Green-proxy value of one mosaic pixel: the pixel itself on a green site,
+// else the mean of its green 4-neighbours with edge replication (the same
+// values the former padded-plane formulation produced; the neighbour sum is
+// evaluated in the same up, down, left, right order and the mask product
+// keeps the NaN * 0 propagation of the plane form).
+inline float cfa_green_proxy_at(const Matrix2Df& mosaic, int h, int w, int y,
+                                int x, bool green_odd) {
+    auto gmask = [&](int yy, int xx) -> float {
+        const bool odd = ((yy + xx) & 1) != 0;
+        return (odd == green_odd) ? 1.0f : 0.0f;
+    };
+    if (gmask(y, x) > 0.5f) return mosaic(y, x);
+    const int yu = std::max(0, y - 1), yd = std::min(h - 1, y + 1);
+    const int xl = std::max(0, x - 1), xr = std::min(w - 1, x + 1);
+    const float mu = gmask(yu, x), md = gmask(yd, x);
+    const float ml = gmask(y, xl), mr = gmask(y, xr);
+    const float sum4 = mosaic(yu, x) * mu + mosaic(yd, x) * md +
+                       mosaic(y, xl) * ml + mosaic(y, xr) * mr;
+    const float cnt4 = mu + md + ml + mr;
+    return (cnt4 > 0.5f) ? (sum4 / cnt4) : 0.0f;
+}
+
+}  // namespace
 
 /// @brief Implements cfa green proxy.
 /// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
 Matrix2Df cfa_green_proxy(const Matrix2Df& mosaic, const std::string& bayer_pattern) {
-    int h = mosaic.rows();
-    int w = mosaic.cols();
-    
-    Matrix2Df gm = cfa_green_mask(h, w, bayer_pattern);
+    const int h = mosaic.rows();
+    const int w = mosaic.cols();
+    const bool green_odd = cfa_green_on_odd_parity(bayer_pattern);
     Matrix2Df out(h, w);
-    
-    // Pad input
-    Matrix2Df x_pad = Matrix2Df::Zero(h + 2, w + 2);
-    Matrix2Df gm_pad = Matrix2Df::Zero(h + 2, w + 2);
-    
-    x_pad.block(1, 1, h, w) = mosaic;
-    gm_pad.block(1, 1, h, w) = gm;
-    
-    // Edge padding
-    x_pad.row(0) = x_pad.row(1);
-    x_pad.row(h + 1) = x_pad.row(h);
-    x_pad.col(0) = x_pad.col(1);
-    x_pad.col(w + 1) = x_pad.col(w);
-    
-    gm_pad.row(0) = gm_pad.row(1);
-    gm_pad.row(h + 1) = gm_pad.row(h);
-    gm_pad.col(0) = gm_pad.col(1);
-    gm_pad.col(w + 1) = gm_pad.col(w);
-    
-    Matrix2Df g_pad = x_pad.array() * gm_pad.array();
-    
+    // Direct 4-neighbour stencil with clamped indices: no padded copies of
+    // the mosaic, mask and product planes. Serial on purpose: callers run
+    // this per frame inside std::thread worker pools.
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
-            if (gm(y, x) > 0.5f) {
-                out(y, x) = mosaic(y, x);
-            } else {
-                // Average of 4 neighbors
-                float sum4 = g_pad(y, x + 1) + g_pad(y + 2, x + 1) + 
-                             g_pad(y + 1, x) + g_pad(y + 1, x + 2);
-                float cnt4 = gm_pad(y, x + 1) + gm_pad(y + 2, x + 1) + 
-                             gm_pad(y + 1, x) + gm_pad(y + 1, x + 2);
-                out(y, x) = (cnt4 > 0.5f) ? (sum4 / cnt4) : 0.0f;
-            }
+            out(y, x) = cfa_green_proxy_at(mosaic, h, w, y, x, green_odd);
         }
     }
-    
     return out;
 }
 
 Matrix2Df cfa_green_proxy_downsample2x2(const Matrix2Df& mosaic, const std::string& bayer_pattern) {
-    Matrix2Df p = cfa_green_proxy(mosaic, bayer_pattern);
-    return core::downsample2x2_mean(p);
+    // Fused stencil + 2x2 mean straight to the half-resolution output; same
+    // shape contract and tap clamping as core::downsample2x2_mean, same
+    // per-pixel proxy values and the same 0.25f * (a + b + c + d) sum order.
+    const int h = mosaic.rows();
+    const int w = mosaic.cols();
+    if (h <= 0 || w <= 0) return Matrix2Df(0, 0);
+    const bool green_odd = cfa_green_on_odd_parity(bayer_pattern);
+    const int h2 = h - (h % 2);
+    const int w2 = w - (w % 2);
+    const int out_h = std::max(1, h2 / 2);
+    const int out_w = std::max(1, w2 / 2);
+    Matrix2Df out(out_h, out_w);
+    for (int oy = 0; oy < out_h; ++oy) {
+        const int sy = std::min(oy * 2, h - 1);
+        const int sy1 = std::min(sy + 1, h - 1);
+        for (int ox = 0; ox < out_w; ++ox) {
+            const int sx = std::min(ox * 2, w - 1);
+            const int sx1 = std::min(sx + 1, w - 1);
+            const float a = cfa_green_proxy_at(mosaic, h, w, sy, sx, green_odd);
+            const float b = cfa_green_proxy_at(mosaic, h, w, sy, sx1, green_odd);
+            const float c = cfa_green_proxy_at(mosaic, h, w, sy1, sx, green_odd);
+            const float d = cfa_green_proxy_at(mosaic, h, w, sy1, sx1, green_odd);
+            out(oy, ox) = 0.25f * (a + b + c + d);
+        }
+    }
+    return out;
 }
 
 /// @brief Implements warp cfa mosaic via subplanes.
@@ -615,31 +605,6 @@ void debayer_bilinear_into(const Matrix2Df& mosaic,
     const int w = static_cast<int>(mosaic.cols());
     debayer_bilinear_core(mosaic.data(), h, w, w, pattern, origin_x, origin_y,
                           R_out, G_out, B_out);
-}
-
-/// @brief Implements debayer bilinear strided into.
-/// @details Part of CFA/Bayer mask, green-proxy, demosaic, and channel split helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-void debayer_bilinear_strided_into(const float* mosaic_data,
-                                   int mosaic_rows,
-                                   int mosaic_cols,
-                                   int mosaic_stride,
-                                   BayerPattern pattern,
-                                   int origin_x,
-                                   int origin_y,
-                                   Matrix2Df& R_out,
-                                   Matrix2Df& G_out,
-                                   Matrix2Df& B_out) {
-    if (mosaic_data == nullptr || mosaic_rows <= 0 || mosaic_cols <= 0 ||
-        mosaic_stride < mosaic_cols) {
-        R_out.resize(0, 0);
-        G_out.resize(0, 0);
-        B_out.resize(0, 0);
-        return;
-    }
-    debayer_bilinear_core(mosaic_data, mosaic_rows, mosaic_cols, mosaic_stride,
-                          pattern, origin_x, origin_y, R_out, G_out, B_out);
 }
 
 /// @brief Implements debayer bilinear.

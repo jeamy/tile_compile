@@ -170,6 +170,5 @@ ForwardDrizzleV2DriverResult run_forward_drizzle_v2(
 // (default) disables. Process-global; the environment variable
 // TILE_COMPILE_FD_V2_CUDA_FAULT_AFTER_BANDS arms it at first read.
 void set_forward_drizzle_v2_cuda_fault_after_bands(int n);
-int forward_drizzle_v2_cuda_fault_after_bands();
 
 }  // namespace tile_compile::reconstruction

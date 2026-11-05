@@ -26,6 +26,7 @@ public:
                    std::string repo_root);
     ~BackendHarness();
 
+    void set_env(const std::string& name, const std::string& value) { _env_overrides.emplace_back(name, value); }
     void start();
     void stop();
 
@@ -61,6 +62,7 @@ private:
     std::filesystem::path _log_path;
     int _port{0};
     pid_t _pid{-1};
+    std::vector<std::pair<std::string, std::string>> _env_overrides;
 
     std::string base_url() const;
     void wait_until_ready() const;

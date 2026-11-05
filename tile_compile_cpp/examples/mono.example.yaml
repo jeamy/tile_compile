@@ -5,7 +5,6 @@
 output:
   registered_dir: registered # Ausgabeordner fuer registrierte Frames
   write_registered_frames: true # registrierte Einzelbilder speichern
-  crop_to_nonzero_bbox: true # finalen Stack auf Bounding Box nicht-null Pixel zuschneiden
 
 data:
   image_width: 3840 # erwartete Bildbreite (px)
@@ -64,7 +63,6 @@ registration:
   # Neue Parameter (v2.0)
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.05  # niedriger = mehr direkte Anker
-  blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
   star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
@@ -245,7 +243,6 @@ reconstruction:
   clipping:
     clip_sigma_high: 4.0
     clip_sigma_low: 2.0
-    min_n_eff: 2.0
   diagnostics:
     level: full
   drizzle:

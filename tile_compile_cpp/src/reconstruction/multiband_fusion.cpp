@@ -59,6 +59,43 @@ MultibandChannelResult fuse_multiband_channel(
   const AtrousDecomposition dm =
       have_m ? decompose_plane(*in.medium, width, height, L, "medium")
              : AtrousDecomposition{};
+  return fuse_multiband_channel(
+      MultibandChannelDecompositions{&du, &dr, &df, have_m ? &dm : nullptr},
+      width, height, params, alpha_by_band);
+}
+
+MultibandChannelResult fuse_multiband_channel(
+    const MultibandChannelDecompositions &dec, int width, int height,
+    const MultibandFusionParams &params,
+    const std::vector<std::vector<float>> &alpha_by_band) {
+  const int L = params.levels;
+  if (L < 1 || L > 4) throw std::invalid_argument("MULTIBAND_LEVELS_RANGE");
+  if (!dec.uniform || !dec.raw)
+    throw std::invalid_argument("MULTIBAND_MISSING_U_OR_R");
+  if (!dec.fine) throw std::invalid_argument("MULTIBAND_MISSING_FINE");
+  if (L >= 2 && !dec.medium)
+    throw std::invalid_argument("MULTIBAND_MISSING_MEDIUM");
+  const std::size_t n = static_cast<std::size_t>(width) * height;
+  if (!alpha_by_band.empty() &&
+      static_cast<int>(alpha_by_band.size()) != L)
+    throw std::invalid_argument("MULTIBAND_ALPHA_BAND_COUNT");
+  for (const auto &a : alpha_by_band)
+    if (!a.empty() && a.size() != n)
+      throw std::invalid_argument("MULTIBAND_ALPHA_MAP_SIZE");
+  const AtrousDecomposition &du = *dec.uniform;
+  const AtrousDecomposition &dr = *dec.raw;
+  const AtrousDecomposition &df = *dec.fine;
+  static const AtrousDecomposition kNoMedium{};
+  const AtrousDecomposition &dm = dec.medium ? *dec.medium : kNoMedium;
+  for (const AtrousDecomposition *d : {&du, &dr, &df})
+    if (d->width != width || d->height != height || d->levels != L ||
+        d->coarse.size() != n || d->coarse_support.size() != n ||
+        d->bands.size() != static_cast<std::size_t>(L))
+      throw std::invalid_argument("MULTIBAND_DECOMPOSITION_GEOMETRY");
+  if (dec.medium &&
+      (dm.width != width || dm.height != height || dm.levels != L ||
+       dm.bands.size() != static_cast<std::size_t>(L)))
+    throw std::invalid_argument("MULTIBAND_DECOMPOSITION_GEOMETRY");
 
   MultibandChannelResult out;
   out.width = width;
@@ -140,7 +177,7 @@ std::array<AtrousDecomposition, 3> decompose_channels(
   const auto ch = chans(profile, mode);
   const int nch = mode == ColorMode::MONO ? 1 : 3;
   for (int c = 0; c < nch; ++c)
-    dec[c] = atrous_decompose(ch[c]->value, ch[c]->support, w, h, levels);
+    dec[c] = decompose_plane(*ch[c], w, h, levels, "profile");
   return dec;
 }
 
@@ -196,7 +233,9 @@ MultibandResult fuse_multiband(
                                       a_registration);
 
   // 2. energy guard + 3. B3 smoothing, per Fine/Medium band, on luma.
-  // B2: decompose each profile once; the band loop below only combines.
+  // B2: decompose each profile once; the band loop below only combines and
+  // the per-channel blend in step 4 reuses the same decompositions.
+  const auto uniform_dec = decompose_channels(uniform, mode, width, height, L);
   const auto raw_dec = decompose_channels(raw, mode, width, height, L);
   const auto fine_dec = decompose_channels(fine, mode, width, height, L);
   const auto medium_dec =
@@ -227,15 +266,15 @@ MultibandResult fuse_multiband(
 
   // 4. per-channel band blend with the shared, guarded, smoothed alpha.
   MultibandFusionParams fp{L};
-  const auto uc = chans(uniform, mode), rc = chans(raw, mode),
-             fc = chans(fine, mode), mc = chans(medium, mode);
   const int nch = mode == ColorMode::MONO ? 1 : 3;
   std::vector<float> *outv[3] = {&out.R, &out.G, &out.B};
   std::vector<uint8_t> *outs[3] = {&out.support_R, &out.support_G,
                                    &out.support_B};
   if (mode == ColorMode::MONO) { outv[0] = &out.L; outs[0] = &out.support_L; }
   for (int c = 0; c < nch; ++c) {
-    MultibandChannelInput in{uc[c], rc[c], fc[c], L >= 2 ? mc[c] : nullptr};
+    const MultibandChannelDecompositions in{
+        &uniform_dec[c], &raw_dec[c], &fine_dec[c],
+        L >= 2 ? &medium_dec[c] : nullptr};
     auto r = fuse_multiband_channel(in, width, height, fp, out.alpha_final);
     *outv[c] = std::move(r.value);
     *outs[c] = std::move(r.support);

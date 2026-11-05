@@ -148,25 +148,24 @@ struct ScopedVariant {
 struct ScopedGeometryTimer {
   bool active;
   std::chrono::steady_clock::time_point w0;
-  std::timespec c0;
+  std::clock_t c0;
   ScopedGeometryTimer() {
     active = registry().enabled;
     if (active) {
       w0 = std::chrono::steady_clock::now();
-      clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &c0);
+      c0 = std::clock();
     }
   }
   ~ScopedGeometryTimer() {
     if (!active)
       return;
     const auto w1 = std::chrono::steady_clock::now();
-    std::timespec c1;
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &c1);
+    const std::clock_t c1 = std::clock();
     auto &c = registry().cur();
     c.geometry_wall_s +=
         std::chrono::duration<double>(w1 - w0).count();
-    c.geometry_cpu_s += static_cast<double>(c1.tv_sec - c0.tv_sec) +
-                        static_cast<double>(c1.tv_nsec - c0.tv_nsec) * 1e-9;
+    c.geometry_cpu_s +=
+        static_cast<double>(c1 - c0) / static_cast<double>(CLOCKS_PER_SEC);
   }
   ScopedGeometryTimer(const ScopedGeometryTimer &) = delete;
   ScopedGeometryTimer &operator=(const ScopedGeometryTimer &) = delete;

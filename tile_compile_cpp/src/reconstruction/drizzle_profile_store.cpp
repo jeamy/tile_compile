@@ -304,8 +304,7 @@ DrizzleStoreIdentity make_drizzle_store_identity(
   if (clipping) {
     algorithm["clipping"] = {{"min_contributors", cfg.min_clip_contributors},
       {"passes", cfg.robust_passes}, {"sigma_low", clipping->clip_sigma_low},
-      {"sigma_high", clipping->clip_sigma_high}, {"min_fraction", clipping->min_fraction},
-      {"min_n_eff", clipping->min_n_eff}, {"g_eff", g_eff}};
+      {"sigma_high", clipping->clip_sigma_high}, {"g_eff", g_eff}};
     // M5: only present when Raw actually consumed Q_composite, so a store
     // built without Q-maps keeps its previous reconstruction hash.
     if (!predecessors.source_quality_cache_hash.empty())

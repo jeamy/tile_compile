@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <iostream>
+#include <tuple>
 
 namespace tile_compile::config {
 
@@ -38,6 +39,22 @@ constexpr std::pair<const char*, const char*> kRemovedSubKeys[] = {
     {"runtime_limits", "allow_emergency_mode"},
     {"runtime_limits", "tile_analysis_max_factor_vs_stack"},
     {"runtime_limits", "tile_reconstruction_diagnostics"},
+    // Keys that were parsed but never consumed by the single-method pipeline.
+    {"output", "crop_to_nonzero_bbox"},             // never implemented
+    {"data", "linear_required"},                    // linearity.enabled is the gate
+    {"reconstruction", "keep_profile_cache_after_run"},  // v2 band store is always retained
+    {"registration", "blind_chain_drift_threshold_px"},  // no blind chains are built
+};
+
+// Removed keys two levels deep: {block, sub-block, key}. The plan-11.8 step-8
+// veto was never part of the v2 kernel (survivors are always used).
+constexpr std::tuple<const char*, const char*, const char*> kRemovedNestedKeys[] = {
+    {"reconstruction", "clipping", "min_fraction"},
+    {"reconstruction", "clipping", "min_n_eff"},
+    {"reconstruction", "clipping", "guard_fallback"},
+    // Consumed only by the removed registration-phase prewarp path.
+    {"reconstruction", "diagnostics", "preview_forward_drizzle_uniform"},
+    {"reconstruction", "diagnostics", "persist_forward_drizzle_uniform_store"},
 };
 
 void warn_stripped(const std::string& path, ConfigMigrationReport& report) {
@@ -84,6 +101,14 @@ void migrate_legacy_config_node(YAML::Node& node,
         node[block][key].IsDefined()) {
       node[block].remove(key);
       warn_stripped(std::string(block) + "." + key, report);
+    }
+  }
+  for (const auto& [block, sub, key] : kRemovedNestedKeys) {
+    if (node[block] && node[block].IsMap() && node[block][sub] &&
+        node[block][sub].IsMap() && node[block][sub][key] &&
+        node[block][sub][key].IsDefined()) {
+      node[block][sub].remove(key);
+      warn_stripped(std::string(block) + "." + sub + "." + key, report);
     }
   }
 

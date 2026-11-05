@@ -318,45 +318,6 @@ TEST_CASE("warp_affine_frame_mask_matches_non_identity_warp_support") {
                         [](float v) { return !std::isfinite(v); }) == 19);
 }
 
-TEST_CASE("overlap_masks_preserve_low_coverage_output_support") {
-  const std::vector<uint16_t> coverage = {0u, 1u, 2u, 12u, 13u, 610u};
-  const auto masks =
-      tile_compile::runner::compute_overlap_masks(coverage, 13);
-
-  REQUIRE(masks.analysis_common ==
-          std::vector<uint8_t>({0u, 0u, 0u, 0u, 1u, 1u}));
-  REQUIRE(masks.reconstruction_support ==
-          std::vector<uint8_t>({0u, 1u, 1u, 1u, 1u, 1u}));
-}
-
-TEST_CASE("common_overlap_tile_gate_keeps_negative_finite_samples") {
-  tile_compile::Matrix2Df tile(2, 2);
-  tile << -0.5f, 0.0f, 0.0f, 0.0f;
-
-  const tile_compile::Tile bounds{0, 0, 2, 2, 0, 0};
-  const std::vector<uint8_t> common_valid_mask = {1u, 1u, 1u, 1u};
-
-  REQUIRE(tile_compile::runner::apply_common_overlap_to_tile_inplace_and_check_nonzero(
-      tile, bounds, common_valid_mask, 2, 2));
-  REQUIRE(tile_compile::runner::tile_has_nonzero_common_data(tile, 0,
-                                                             {1u}));
-}
-
-TEST_CASE("common_overlap_tile_gate_marks_canvas_invalid_pixels_nonfinite") {
-  tile_compile::Matrix2Df tile(2, 2);
-  tile << 1.0f, 2.0f, 3.0f, 4.0f;
-
-  const tile_compile::Tile bounds{0, 0, 2, 2, 0, 0};
-  const std::vector<uint8_t> common_valid_mask = {1u, 0u, 1u, 0u};
-
-  REQUIRE(tile_compile::runner::apply_common_overlap_to_tile_inplace_and_check_nonzero(
-      tile, bounds, common_valid_mask, 2, 2));
-  REQUIRE(std::isfinite(tile(0, 0)));
-  REQUIRE_FALSE(std::isfinite(tile(0, 1)));
-  REQUIRE(std::isfinite(tile(1, 0)));
-  REQUIRE_FALSE(std::isfinite(tile(1, 1)));
-}
-
 // The OpenCV-CUDA prewarp wrappers reuse per-thread device buffers. Reuse
 // must never leak state between calls: warping frame A, then a frame of a
 // different size, then A again must reproduce A's result bit for bit, for

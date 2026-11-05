@@ -9,7 +9,7 @@ ARTIFACT_PREFIX="${ARTIFACT_PREFIX:-tile_compile_gui3-macos}"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 BUILD_SUFFIX="${BUILD_SUFFIX:-build-gui3-release}"
 PORT="${PORT:-8080}"
-MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-15.0}"
 GUI3_PACKAGE_DEBUG="${GUI3_PACKAGE_DEBUG:-0}"
 GUI3_MACOS_SMOKE_TIMEOUT_SECONDS="${GUI3_MACOS_SMOKE_TIMEOUT_SECONDS:-240}"
 SKIP_BUILD=0
@@ -92,6 +92,19 @@ preflight_macos() {
   require_cmd install_name_tool "Xcode Command Line Tools are required."
   require_cmd ditto "macOS system tool 'ditto' is required."
   require_cmd python3 "Install Python 3, for example with: brew install python"
+
+  # The bundled asio 1.28 is not compatible with OpenSSL 4 (OpenSSL 4 removed
+  # OPENSSL_VERSION_NUMBER, so asio falls back to its pre-1.1 code path).
+  # Prefer Homebrew's openssl@3 for both CMake projects unless the caller
+  # already selected an OpenSSL via OPENSSL_ROOT_DIR.
+  if command -v brew >/dev/null 2>&1 && [[ -z "${OPENSSL_ROOT_DIR:-}" ]]; then
+    local openssl3_prefix
+    openssl3_prefix="$(brew --prefix openssl@3 2>/dev/null || true)"
+    if [[ -n "${openssl3_prefix}" && -d "${openssl3_prefix}" ]]; then
+      export OPENSSL_ROOT_DIR="${openssl3_prefix}"
+      echo "[gui3-package] Using OPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR}"
+    fi
+  fi
 
   if [[ "${macos_major}" -lt 13 ]]; then
     if ! pkg-config --exists opencv4; then
