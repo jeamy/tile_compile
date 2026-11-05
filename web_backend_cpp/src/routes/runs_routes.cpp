@@ -1615,7 +1615,7 @@ void register_runs_routes(CrowApp& app,
                     write_run_start_provenance(state, fs::path(runs_dir) / current_run_id, current_run_id,
                                                revision_id, prepared_config_yaml,
                                                prior_active_config_revision_id, jev_run_proposal_id,
-                                               effective_input_dir.string(), input_dir);
+                                               effective_input_dir.string(), input_dir.string());
                     state->job_store.update_state(job_id, JobState::running,
                         queue_job_payload(queue, static_cast<int>(i), current_run_id, runs_dir));
                     state->job_store.update_progress(job_id, queue.empty() ? 100.0 : (100.0 * i / queue.size()));
