@@ -6,5 +6,20 @@ var searchData=
   ['deviceframebatch_3',['DeviceFrameBatch',['../structtile__compile_1_1core_1_1DeviceFrameBatch.html',1,'tile_compile::core']]],
   ['devicetilebatch_4',['DeviceTileBatch',['../structtile__compile_1_1core_1_1DeviceTileBatch.html',1,'tile_compile::core']]],
   ['diskcacheframestore_5',['DiskCacheFrameStore',['../classtile__compile_1_1runner_1_1DiskCacheFrameStore.html',1,'tile_compile::runner']]],
-  ['ditheringconfig_6',['DitheringConfig',['../structtile__compile_1_1config_1_1DitheringConfig.html',1,'tile_compile::config']]]
+  ['ditheringconfig_6',['DitheringConfig',['../structtile__compile_1_1config_1_1DitheringConfig.html',1,'tile_compile::config']]],
+  ['ditherspreadcirculardiagnostic_7',['DitherSpreadCircularDiagnostic',['../structtile__compile_1_1registration_1_1DitherSpreadCircularDiagnostic.html',1,'tile_compile::registration']]],
+  ['drizzleaffinesourcespan_8',['DrizzleAffineSourceSpan',['../structtile__compile_1_1reconstruction_1_1DrizzleAffineSourceSpan.html',1,'tile_compile::reconstruction']]],
+  ['drizzlecachedleaf_9',['DrizzleCachedLeaf',['../structtile__compile_1_1reconstruction_1_1DrizzleCachedLeaf.html',1,'tile_compile::reconstruction']]],
+  ['drizzlecachedleafwindow_10',['DrizzleCachedLeafWindow',['../structtile__compile_1_1reconstruction_1_1DrizzleCachedLeafWindow.html',1,'tile_compile::reconstruction']]],
+  ['drizzlecontrib_11',['DrizzleContrib',['../structtile__compile_1_1reconstruction_1_1DrizzleContrib.html',1,'tile_compile::reconstruction']]],
+  ['drizzlecontribkey_12',['DrizzleContribKey',['../structtile__compile_1_1reconstruction_1_1DrizzleContribKey.html',1,'tile_compile::reconstruction']]],
+  ['drizzlecontriblist_13',['DrizzleContribList',['../structtile__compile_1_1reconstruction_1_1DrizzleContribList.html',1,'tile_compile::reconstruction']]],
+  ['drizzlegeometrycachereader_14',['DrizzleGeometryCacheReader',['../classtile__compile_1_1reconstruction_1_1DrizzleGeometryCacheReader.html',1,'tile_compile::reconstruction']]],
+  ['drizzlememoryplan_15',['DrizzleMemoryPlan',['../structtile__compile_1_1reconstruction_1_1DrizzleMemoryPlan.html',1,'tile_compile::reconstruction']]],
+  ['drizzlesourcescanbox_16',['DrizzleSourceScanBox',['../structtile__compile_1_1reconstruction_1_1DrizzleSourceScanBox.html',1,'tile_compile::reconstruction']]],
+  ['drizzlestoreidentity_17',['DrizzleStoreIdentity',['../structtile__compile_1_1reconstruction_1_1DrizzleStoreIdentity.html',1,'tile_compile::reconstruction']]],
+  ['drizzlestorepredecessors_18',['DrizzleStorePredecessors',['../structtile__compile_1_1reconstruction_1_1DrizzleStorePredecessors.html',1,'tile_compile::reconstruction']]],
+  ['drizzlestoreresult_19',['DrizzleStoreResult',['../structtile__compile_1_1reconstruction_1_1DrizzleStoreResult.html',1,'tile_compile::reconstruction']]],
+  ['drizzlestorevalidation_20',['DrizzleStoreValidation',['../structtile__compile_1_1reconstruction_1_1DrizzleStoreValidation.html',1,'tile_compile::reconstruction']]],
+  ['drizzleuniformaccum_21',['DrizzleUniformAccum',['../structtile__compile_1_1reconstruction_1_1DrizzleUniformAccum.html',1,'tile_compile::reconstruction']]]
 ];

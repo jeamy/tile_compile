@@ -2,6 +2,7 @@ var structtile__compile_1_1runner_1_1PhaseMetricsContext =
 [
     [ "frame_cache", "structtile__compile_1_1runner_1_1PhaseMetricsContext.html#a1ef2db7cec3f791b34696bd943cc93ea", null ],
     [ "frame_metrics", "structtile__compile_1_1runner_1_1PhaseMetricsContext.html#a74fb54f9da7821acd2ade987300c57b1", null ],
+    [ "frame_star_metrics", "structtile__compile_1_1runner_1_1PhaseMetricsContext.html#a9341f083ef820b3e54ea533b4efdc9ed", null ],
     [ "global_weights", "structtile__compile_1_1runner_1_1PhaseMetricsContext.html#a185e88fbbc2143b694926b8d4663068e", null ],
     [ "norm_scales", "structtile__compile_1_1runner_1_1PhaseMetricsContext.html#a16d17c296672c52b07b29690824d0b33", null ],
     [ "output_bg_b", "structtile__compile_1_1runner_1_1PhaseMetricsContext.html#a26620b804498fe7395d5e85bac8b72cd", null ],

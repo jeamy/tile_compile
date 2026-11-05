@@ -1,0 +1,22 @@
+<map id="tile_compile::core::reassemble_cfa_subplanes" name="tile_compile::core::reassemble_cfa_subplanes">
+<area shape="rect" id="Node000001" title=" " alt="" coords="917,152,1104,191"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a9d7ec5b083d20d93e9c2dd8fc077c770" title="Implements warp cfa mosaic via subplanes." alt="" coords="714,145,869,198"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="899,172,870,174,869,169,904,172"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#a1b5ff80e5d6a5efcf1c46a14246b7727" title="Applies global warp." alt="" coords="529,120,666,159"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="696,156,666,154,666,148,701,156"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1runner.html#a5010168068f01a2a500816df82eda6bc" title="Runs phase registration prewarp." alt="" coords="320,179,481,231"/>
+<area shape="poly" id="edge10_Node000002_Node000005" title=" " alt="" coords="701,179,482,201,481,196,696,180"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1image.html#ab99beda6dfaa709c49d52ce997e384dd" title="Applies global warp." alt="" coords="332,116,469,155"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="511,138,469,140,469,134,516,138"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="525,164,482,181,481,176,520,165"/>
+<area shape="rect" id="Node000008" href="$classtile__compile_1_1core_1_1AccelerationOps.html#af2a7a201615ef7008d380bb358311245" title=" " alt="" coords="320,40,481,93"/>
+<area shape="poly" id="edge7_Node000003_Node000008" title=" " alt="" coords="527,114,473,96,473,91,532,114"/>
+<area shape="rect" id="Node000006" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="110,193,264,217"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="303,205,265,208,265,202,308,205"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,193,55,217"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="92,206,55,208,55,202,97,204"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1runner.html#a645c3227b111cd1ccefda941e289cdb6" title=" " alt="" coords="103,82,272,120"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="302,83,273,90,272,85,307,81"/>
+<area shape="rect" id="Node000010" href="$classtile__compile_1_1core_1_1AccelerationOps.html#a8f60296e1e22270b2a23c647544cce98" title="Implements fused 3&#45;channel (RGB) warp affine frame with support mask update." alt="" coords="107,5,268,58"/>
+<area shape="poly" id="edge9_Node000008_Node000010" title=" " alt="" coords="302,51,269,47,268,42,307,50"/>
+</map>

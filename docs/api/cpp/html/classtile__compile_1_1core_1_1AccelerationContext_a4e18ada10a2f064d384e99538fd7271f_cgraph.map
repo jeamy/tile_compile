@@ -1,0 +1,12 @@
+<map id="tile_compile::core::AccelerationContext::to_json" name="tile_compile::core::AccelerationContext::to_json">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,61,153,114"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#add0fc4a88c3af7b61d1d03a4239575a0" title="Implements acceleration phase name." alt="" coords="414,5,594,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="152,59,200,46,301,31,400,26,395,28,302,37,201,51,154,64"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#abd5e8b95465f8280f9986747f32f2da0" title="Implements acceleration selection to json." alt="" coords="201,61,359,114"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="152,85,188,86,183,88,154,90"/>
+<area shape="rect" id="Node000005" href="$classtile__compile_1_1core_1_1AccelerationContext.html#af0ebf2b3fca6d53f71d724a75eb4e9f5" title=" " alt="" coords="206,138,354,191"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="149,112,198,132,193,133,149,117"/>
+<area shape="poly" id="edge4_Node000003_Node000002" title=" " alt="" coords="358,63,420,48,415,49,360,68"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#aff9a08bc437d7b73daa9663132dec5b1" title="Implements acceleration backend name." alt="" coords="407,68,600,107"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="359,85,394,87,389,88,359,90"/>
+</map>

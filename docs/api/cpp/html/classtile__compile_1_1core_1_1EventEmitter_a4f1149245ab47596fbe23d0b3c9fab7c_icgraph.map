@@ -1,15 +1,21 @@
 <map id="tile_compile::core::EventEmitter::run_end" name="tile_compile::core::EventEmitter::run_end">
-<area shape="rect" id="Node000001" title="Runs end." alt="" coords="701,76,859,115"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#aae0fe88d47fdd0240e1a979b84f4088d" title="Runs phase channel split normalization global metrics." alt="" coords="456,5,653,58"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="694,74,649,61,650,56,696,69"/>
-<area shape="rect" id="Node000003" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,83,408,108"/>
-<area shape="poly" id="edge7_Node000001_Node000003" title=" " alt="" coords="685,98,409,98,409,93,685,93"/>
-<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1runner.html#a044cd053f52b6b643eaf716a7956e6e4" title="Runs phase local metrics." alt="" coords="468,134,641,172"/>
-<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="687,122,634,136,633,130,686,117"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="446,65,378,85,376,80,445,60"/>
-<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,83,206,108"/>
-<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="238,98,206,98,206,93,238,93"/>
-<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,83,55,108"/>
-<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="87,98,55,98,55,93,87,93"/>
-<area shape="poly" id="edge6_Node000006_Node000003" title=" " alt="" coords="461,132,381,111,383,106,463,127"/>
+<area shape="rect" id="Node000001" title="Runs end." alt="" coords="564,140,723,179"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#acc0d4679841a580552249bbcb25ec183" title=" " alt="" coords="347,5,489,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="599,131,515,79,480,61,481,56,518,75,605,131"/>
+<area shape="rect" id="Node000005" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="110,82,264,107"/>
+<area shape="poly" id="edge9_Node000001_Node000005" title=" " alt="" coords="569,135,516,124,383,106,265,98,264,93,384,101,517,118,574,135"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1runner.html#aae0fe88d47fdd0240e1a979b84f4088d" title="Runs phase channel split normalization global metrics." alt="" coords="320,133,516,186"/>
+<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="546,160,517,162,517,157,552,159"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1runner.html#a645c3227b111cd1ccefda941e289cdb6" title=" " alt="" coords="103,172,272,211"/>
+<area shape="poly" id="edge10_Node000001_Node000007" title=" " alt="" coords="578,184,517,201,453,207,389,209,273,204,272,198,389,204,453,202,516,196,573,185"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1runner.html#ae85f7c38567a0561c029bceef47c6798" title=" " alt="" coords="345,262,491,300"/>
+<area shape="poly" id="edge11_Node000001_Node000008" title=" " alt="" coords="606,187,518,245,475,264,474,259,515,240,601,189"/>
+<area shape="rect" id="Node000003" href="$runner__forward__drizzle_8cpp.html#a9ffae5ca00a8665a15ced17d948fd1ae" title=" " alt="" coords="108,15,267,54"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="329,34,268,36,267,31,334,31"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="330,57,237,84,235,79,334,53"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,53,55,77"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="91,55,57,62,54,58,94,51"/>
+<area shape="poly" id="edge5_Node000005_Node000004" title=" " alt="" coords="101,80,56,72,54,67,105,77"/>
+<area shape="poly" id="edge7_Node000006_Node000005" title=" " alt="" coords="306,129,234,110,234,105,311,128"/>
+<area shape="poly" id="edge8_Node000006_Node000007" title=" " alt="" coords="302,176,273,182,272,177,307,175"/>
 </map>

@@ -1,0 +1,17 @@
+<map id="tile_compile::reconstruction::luma_denoise_rgb_inplace" name="tile_compile::reconstruction::luma_denoise_rgb_inplace">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,68,188,107"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction_1_1denoise__detail.html#ad6650c37115b391a8616aa5ff727b3eb" title=" " alt="" coords="251,5,470,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="180,65,264,47,259,50,182,70"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction_1_1denoise__detail.html#a265417fd8ea5c50d52fc0ef3e39547c2" title=" " alt="" coords="256,68,466,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="188,85,243,86,238,88,189,90"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1reconstruction_1_1denoise__detail.html#aa4f551a5eee143a428e97763bbe1fc18" title=" " alt="" coords="236,131,486,169"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="181,105,264,126,259,127,181,110"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1reconstruction_1_1denoise__detail.html#aab7fdafdf1f1ae31faf6ff0d0da8520a" title=" " alt="" coords="534,124,714,176"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="486,147,521,150,516,150,487,153"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="762,131,902,169"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="715,147,749,150,744,150,715,153"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1core.html#af1361dab041db5d25f27d0f01d6075d2" title="Implements median of." alt="" coords="980,99,1103,137"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="902,137,961,130,967,129,902,142"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1core.html#a721dd0f6ebc4a21cd2099ec9d9eec79d" title=" " alt="" coords="950,161,1133,200"/>
+<area shape="poly" id="edge7_Node000006_Node000008" title=" " alt="" coords="902,158,937,165,932,165,902,163"/>
+</map>

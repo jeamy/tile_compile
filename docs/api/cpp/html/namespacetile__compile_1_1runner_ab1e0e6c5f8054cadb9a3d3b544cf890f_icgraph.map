@@ -1,5 +1,18 @@
 <map id="tile_compile::runner::invert_affine_warp" name="tile_compile::runner::invert_affine_warp">
-<area shape="rect" id="Node000001" title="Inverts affine warp." alt="" coords="224,5,358,44"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#a25654114abe28f59b915a79ae0ac1e3e" title="Computes warps bounds." alt="" coords="5,5,176,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="208,27,176,27,176,22,208,22"/>
+<area shape="rect" id="Node000001" title="Inverts affine warp." alt="" coords="917,40,1051,79"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#a25654114abe28f59b915a79ae0ac1e3e" title="Computes warps bounds." alt="" coords="699,5,869,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="899,45,870,42,870,37,904,45"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#a92278bb5aed61577d43718fd68db115b" title="Solve an RGB FITS image against the locally installed Gaia DR3 catalogue." alt="" coords="706,68,862,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="904,73,862,83,862,78,899,74"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1runner.html#a9cf10b9ba59596f74dc7ed96e98f8c9a" title=" " alt="" coords="500,75,651,113"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="688,94,651,97,651,91,693,94"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1runner.html#acc0d4679841a580552249bbcb25ec183" title=" " alt="" coords="310,68,452,120"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="482,94,453,97,453,91,488,94"/>
+<area shape="rect" id="Node000006" href="$runner__forward__drizzle_8cpp.html#a9ffae5ca00a8665a15ced17d948fd1ae" title=" " alt="" coords="103,47,262,85"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="292,82,262,80,262,75,297,82"/>
+<area shape="rect" id="Node000008" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="105,110,260,134"/>
+<area shape="poly" id="edge7_Node000005_Node000008" title=" " alt="" coords="297,106,260,114,260,108,292,106"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,82,55,106"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="85,85,56,92,54,87,90,82"/>
+<area shape="poly" id="edge8_Node000008_Node000007" title=" " alt="" coords="95,108,55,101,55,96,99,105"/>
 </map>

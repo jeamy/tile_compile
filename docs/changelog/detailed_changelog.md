@@ -570,7 +570,7 @@
 - This reduces the classic late-reference failure mode on long Alt/Az datasets, because early and late parts of the sequence can attach directly to nearer temporal anchors instead of being forced through one distant master frame.
 - Astrometric registration/rescue in the runner was upgraded in practice: ASTAP-based solves are no longer limited to `cc <= 0`, but can also replace weak or deeply chained results, using the nearest active anchor as the astrometric reference basis.
 - New registration telemetry was added to `global_registration.json`, including `requested_ref_frames`, `active_ref_frames`, `reg_target_active_anchor_count`, `reg_promote_limit_per_round`, `reg_max_direct_anchor_rounds`, `reg_direct_anchor_rounds`, and `reg_source_counts`.
-- Added the new example profile [tile_compile_cpp/examples/m104.example.yaml](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/m104.example.yaml) for the concrete problem class "Alt/Az, somewhat stronger rotation, poor seeing, weight better frames more strongly"; the DE/EN practical examples and [docs/process_flow/phase_1_registration.md](../process_flow/phase_1_registration.md) were updated to match the current registration flow.
+- Added the new example profile [tile_compile_cpp/examples/m104.example.yaml](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/examples/m104.example.yaml) for the concrete problem class "Alt/Az, somewhat stronger rotation, poor seeing, weight better frames more strongly"; the DE/EN practical examples and `docs/process_flow/phase_1_registration.md` (since replaced by `phase_2_registration_geometry.md`) were updated to match the current registration flow.
 
 ### (2026-04-07)
 

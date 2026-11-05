@@ -1,0 +1,7 @@
+<map id="tile_compile::core::AccelerationOps::warp_affine_frame" name="tile_compile::core::AccelerationOps::warp_affine_frame">
+<area shape="rect" id="Node000001" title=" " alt="" coords="223,33,384,86"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#a645c3227b111cd1ccefda941e289cdb6" title=" " alt="" coords="5,5,175,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="205,44,175,41,175,36,210,43"/>
+<area shape="rect" id="Node000003" href="$classtile__compile_1_1core_1_1AccelerationOps.html#a8f60296e1e22270b2a23c647544cce98" title="Implements fused 3&#45;channel (RGB) warp affine frame with support mask update." alt="" coords="9,68,171,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="205,75,172,83,171,78,210,74"/>
+</map>

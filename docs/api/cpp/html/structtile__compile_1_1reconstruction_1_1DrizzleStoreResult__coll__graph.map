@@ -1,0 +1,7 @@
+<map id="tile_compile::reconstruction::DrizzleStoreResult" name="tile_compile::reconstruction::DrizzleStoreResult">
+<area shape="rect" id="Node000001" title=" " alt="" coords="314,37,494,76"/>
+<area shape="rect" id="Node000002" href="$structtile__compile_1_1reconstruction_1_1ForwardDrizzleDiagnostics.html" title=" " alt="" coords="5,5,192,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="207,33,316,46,311,48,207,39"/>
+<area shape="rect" id="Node000003" href="$structtile__compile_1_1reconstruction_1_1DrizzleStoreIdentity.html" title=" " alt="" coords="8,68,189,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="204,81,289,73,311,73,316,73,290,79,204,86"/>
+</map>

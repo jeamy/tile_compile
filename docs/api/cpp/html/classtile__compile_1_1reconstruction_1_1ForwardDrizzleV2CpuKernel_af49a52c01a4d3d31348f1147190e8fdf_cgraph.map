@@ -1,0 +1,11 @@
+<map id="tile_compile::reconstruction::ForwardDrizzleV2CpuKernel::accumulate_affine_piece" name="tile_compile::reconstruction::ForwardDrizzleV2CpuKernel::accumulate_affine_piece">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,61,199,114"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile.html#a7daf2847d9aed77c6bdf04aef1331a71" title=" " alt="" coords="277,5,446,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="198,61,266,47,262,49,200,66"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1reconstruction.html#ae605e485ec35e5e15c9419dfa2ad0dfa" title=" " alt="" coords="247,68,476,107"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="199,85,234,87,229,88,200,90"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1core.html#a796010afc50243cafa9d4674db1083bf" title="Compute the effective OMP thread count for a parallel region, respecting the configured worker limit." alt="" coords="282,131,441,169"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="199,108,269,127,264,128,199,113"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile.html#a1495924d8dcc89fd8803e762b70e2f97" title=" " alt="" coords="524,5,678,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="446,22,511,24,506,25,446,27"/>
+</map>

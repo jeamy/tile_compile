@@ -1,0 +1,8 @@
+<map id="tile_compile::metrics::robust_median" name="tile_compile::metrics::robust_median">
+<area shape="rect" id="Node000001" title=" " alt="" coords="420,35,561,73"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#ab1bf92a615ca51a89218e99abc0c1842" title=" " alt="" coords="231,5,372,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="402,41,372,38,372,33,408,41"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1metrics.html#aee8a7ee24338f9820b4eaad34a6e9cb2" title=" " alt="" coords="5,35,183,73"/>
+<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="402,55,372,58,231,58,183,58,183,52,231,53,372,53,407,55"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="213,37,183,44,183,39,218,36"/>
+</map>

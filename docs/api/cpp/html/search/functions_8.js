@@ -1,12 +1,20 @@
 var searchData=
 [
-  ['identity_5fwarp_0',['identity_warp',['../namespacetile__compile_1_1registration.html#a4acc7bb29b4d704ee1ecc482359ea939',1,'tile_compile::registration']]],
-  ['int_5fto_5fphase_1',['int_to_phase',['../namespacetile__compile.html#ac58c5c3cde18f6690d3f34345d253925',1,'tile_compile']]],
-  ['invert_5faffine_5fwarp_2',['invert_affine_warp',['../namespacetile__compile_1_1runner.html#ab1e0e6c5f8054cadb9a3d3b544cf890f',1,'tile_compile::runner']]],
-  ['invert_5fforward_5faffine_5fto_5fwarp_3',['invert_forward_affine_to_warp',['../namespacetile__compile_1_1registration.html#a21d5634496fa1f12ce276a444c75e7f4',1,'tile_compile::registration']]],
-  ['invert_5fwarp_5f2x3_4',['invert_warp_2x3',['../namespacetile__compile_1_1registration.html#a02e2524a82f5b29b4a8df5236d9348c5',1,'tile_compile::registration']]],
-  ['ioerror_5',['IOError',['../classtile__compile_1_1IOError.html#a27d12e2ece43255306cc931ba4a74bea',1,'tile_compile::IOError']]],
-  ['is_5fastap_5favailable_6',['is_astap_available',['../namespacetile__compile_1_1registration.html#a430944ebfdc0a73ec67f82453c717be1',1,'tile_compile::registration']]],
-  ['is_5ffits_5fimage_5fpath_7',['is_fits_image_path',['../namespacetile__compile_1_1io.html#a1f483e98e366336b023d04a23e038ac3',1,'tile_compile::io']]],
-  ['is_5fsiril_5fgaia_5fcatalog_5favailable_8',['is_siril_gaia_catalog_available',['../namespacetile__compile_1_1astrometry.html#a6b86beef7d851942c01272e6a131e253',1,'tile_compile::astrometry']]]
+  ['i32_0',['i32',['../structtile__compile_1_1core_1_1ByteSink.html#ad202e5d50ad74f41b489ac737b7ef16f',1,'tile_compile::core::ByteSink::i32()'],['../structtile__compile_1_1reconstruction_1_1ByteSink.html#ad202e5d50ad74f41b489ac737b7ef16f',1,'tile_compile::reconstruction::ByteSink::i32()'],['../structtile__compile_1_1registration_1_1ByteSink.html#ad202e5d50ad74f41b489ac737b7ef16f',1,'tile_compile::registration::ByteSink::i32()']]],
+  ['identity_5fhash_1',['identity_hash',['../classtile__compile_1_1reconstruction_1_1SourceQualityMapCacheWriter.html#a38bb4e1425a69a024a31d184799a66e8',1,'tile_compile::reconstruction::SourceQualityMapCacheWriter']]],
+  ['identity_5fwarp_2',['identity_warp',['../namespacetile__compile_1_1registration.html#a4acc7bb29b4d704ee1ecc482359ea939',1,'tile_compile::registration']]],
+  ['input_5fclass_5faccepted_3',['input_class_accepted',['../namespacetile__compile_1_1core.html#a5b1f89cec8968ed3783d0412320a1ff3',1,'tile_compile::core']]],
+  ['input_5fclass_5frejection_5fmessage_4',['input_class_rejection_message',['../namespacetile__compile_1_1core.html#a54f1817495d6cd7bc679783a527bff1e',1,'tile_compile::core']]],
+  ['input_5fhi_5',['input_hi',['../structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2MultibandRing_1_1Impl.html#a1d0b68683047ce45b453d623590cd893',1,'tile_compile::reconstruction::ForwardDrizzleV2MultibandRing::Impl']]],
+  ['input_5flo_6',['input_lo',['../structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2MultibandRing_1_1Impl.html#a43a5388d19c8ee603dd530cb1f0e13dd',1,'tile_compile::reconstruction::ForwardDrizzleV2MultibandRing::Impl']]],
+  ['inspect_5fforward_5fdrizzle_5fv2_5fstore_7',['inspect_forward_drizzle_v2_store',['../namespacetile__compile_1_1reconstruction.html#a6ca3707950b6fca4fb9da55a78256d63',1,'tile_compile::reconstruction']]],
+  ['invalidate_5fmapping_8',['invalidate_mapping',['../classtile__compile_1_1runner_1_1DiskCacheFrameStore.html#ae2d491119a0d9f56f87add0ffc56bbf2',1,'tile_compile::runner::DiskCacheFrameStore']]],
+  ['invert_5faffine_5f2x3_9',['invert_affine_2x3',['../namespacetile__compile_1_1registration.html#aef6e33a36212e5fde931acd2cec43fae',1,'tile_compile::registration']]],
+  ['invert_5faffine_5fwarp_10',['invert_affine_warp',['../namespacetile__compile_1_1runner.html#ab1e0e6c5f8054cadb9a3d3b544cf890f',1,'tile_compile::runner']]],
+  ['invert_5fforward_5faffine_5fto_5fwarp_11',['invert_forward_affine_to_warp',['../namespacetile__compile_1_1registration.html#a21d5634496fa1f12ce276a444c75e7f4',1,'tile_compile::registration']]],
+  ['invert_5flocal_5fsource_5fto_5fcanvas_12',['invert_local_source_to_canvas',['../namespacetile__compile_1_1registration.html#a96e089f98973ea5a54ad3f30ee9bafaf',1,'tile_compile::registration']]],
+  ['ioerror_13',['IOError',['../classtile__compile_1_1IOError.html#a27d12e2ece43255306cc931ba4a74bea',1,'tile_compile::IOError']]],
+  ['is_5fastap_5favailable_14',['is_astap_available',['../namespacetile__compile_1_1registration.html#a430944ebfdc0a73ec67f82453c717be1',1,'tile_compile::registration']]],
+  ['is_5ffits_5fimage_5fpath_15',['is_fits_image_path',['../namespacetile__compile_1_1io.html#a1f483e98e366336b023d04a23e038ac3',1,'tile_compile::io']]],
+  ['is_5fsiril_5fgaia_5fcatalog_5favailable_16',['is_siril_gaia_catalog_available',['../namespacetile__compile_1_1astrometry.html#a6b86beef7d851942c01272e6a131e253',1,'tile_compile::astrometry']]]
 ];

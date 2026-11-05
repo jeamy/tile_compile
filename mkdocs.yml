@@ -93,7 +93,8 @@ nav:
     - Raw Stack GUI (DE): guides/raw_stack_gui_de.md
     - PI – AI Recommendations (EN): guides/pi_ai.md
     - PI – KI-Empfehlungen (DE): guides/pi_ai_de.md
-    - PI Workflow in GUI3: PI/pi_workflow_gui3_en.md
+    - PI Workflow in GUI3 (EN): PI/pi_workflow_gui3_en.md
+    - PI Workflow in GUI3 (DE): PI/pi_workflow_gui3.md
   - Configuration:
     - Configuration Basics (EN): getting_started/configuration.md
     - Konfigurationsgrundlagen (DE): getting_started/configuration_de.md
@@ -107,8 +108,15 @@ nav:
     - PI Empfehlungen (DE): PI/pi_ki_empfehlungen_de.md
     - PI Jev Decisions (DE): PI/pi_jev_decisions_plan_de.md
     - PI Pre-Rules (DE): PI/pi_scan_pre_rules_de.md
-    - Forward Drizzle Pipeline (EN): guides/cfa_forward_drizzle_pipeline_en.md
-    - Forward-Drizzle-Pipeline (DE): guides/cfa_forward_drizzle_pipeline_de.md
+    - PI Decision Trace & Unified Assistant (DE):
+      - Overall Plan: PI/DECISIONTRACE/pi_decision_trace_und_unified_assistant_plan_de.md
+      - Decision Trace (Part A): PI/DECISIONTRACE/pi_decision_trace_plan_de.md
+      - Unified Assistant (Part B): PI/DECISIONTRACE/pi_unified_assistant_plan_de.md
+      - Assistant Dock: PI/DECISIONTRACE/pi_assistant_dock_implementation_de.md
+      - Analysis Context: PI/DECISIONTRACE/pi_analysis_context_implementation_de.md
+      - Run Learning Archive: PI/DECISIONTRACE/pi_run_learning_archive_de.md
+      - Retention Policy: PI/DECISIONTRACE/pi_retention_policy_de.md
+    - Forward Drizzle v2 Target Architecture (DE): forward_drizzle_v2_zielarchitektur_2026-09-12_de.md
     - Process Flow Overview: process_flow/phase_0_overview.md
     - Data Flow (EN): process_flow/data_flow_user_description_en.md
     - Data Flow (DE): process_flow/data_flow_user_description_de.md
@@ -121,11 +129,6 @@ nav:
     - Phase 5 – Multiband: process_flow/phase_5_multiband.md
     - Phase 6 – Post-Processing: process_flow/phase_6_postprocessing.md
     - Flow Analysis: process_flow/flow_analysis.md
-    - AQMH v0.2.1 (EN): AQMH/aqmh_methodik_en_v0.2.1.md
-    - AQMH v0.2.1 (DE): AQMH/aqmh_methodik_de_v0.2.1.md
-    - AQMH v0.2.0 (EN): AQMH/aqmh_methodik_en_v0.2.0.md
-    - TBQR v3.3.9 (EN): v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md
-    - TBQR v3.3.9 (DE): v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de.md
   - Reference:
     - CLI Reference: reference/cli.md
     - Build from Source: reference/build.md
@@ -140,4 +143,10 @@ nav:
   - History & About:
     - Release Notes: changelog/releases.md
     - Detailed Changelog: changelog/detailed_changelog.md
+    - Historical Methods (superseded):
+      - AQMH v0.2.1 (EN): AQMH/aqmh_methodik_en_v0.2.1.md
+      - AQMH v0.2.1 (DE): AQMH/aqmh_methodik_de_v0.2.1.md
+      - AQMH v0.2.0 (EN): AQMH/aqmh_methodik_en_v0.2.0.md
+      - TBQR v3.3.9 (EN): v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md
+      - TBQR v3.3.9 (DE): v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de.md
     - About: about.md

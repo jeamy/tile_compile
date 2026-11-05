@@ -1,11 +1,12 @@
 var structtile__compile_1_1config_1_1Config =
 [
     [ "from_yaml", "structtile__compile_1_1config_1_1Config.html#aba42592f437b98add0261742302ce062", null ],
+    [ "from_yaml_text", "structtile__compile_1_1config_1_1Config.html#a282479e80bd9a31e61aaf37c7bed8220", null ],
+    [ "from_yaml_text_migrated", "structtile__compile_1_1config_1_1Config.html#a9ae4be11c2b108ca7539b6120f0cbc30", null ],
     [ "load", "structtile__compile_1_1config_1_1Config.html#a497b0fc1b6a298cae342e3fef34357ab", null ],
     [ "save", "structtile__compile_1_1config_1_1Config.html#ad4688d8888233a3393df20f5146b5eac", null ],
     [ "to_yaml", "structtile__compile_1_1config_1_1Config.html#a1433db62185ea00bf2e6a6c983bc6c6a", null ],
     [ "validate", "structtile__compile_1_1config_1_1Config.html#ad3b2b071a9b5ec3fbf03cf03a115f1af", null ],
-    [ "assumptions", "structtile__compile_1_1config_1_1Config.html#ac549670537d643b79c23a410216fdf6f", null ],
     [ "astrometry", "structtile__compile_1_1config_1_1Config.html#af5ea6abc2680940233e3ab9e8ddbec4e", null ],
     [ "bge", "structtile__compile_1_1config_1_1Config.html#aebf2d2ef77c44d5462d34cf1b7d36f7b", null ],
     [ "calibration", "structtile__compile_1_1config_1_1Config.html#a0f528f6763aac9108f6dde8e92c4ae7e", null ],
@@ -13,17 +14,14 @@ var structtile__compile_1_1config_1_1Config =
     [ "data", "structtile__compile_1_1config_1_1Config.html#a3e7c640bb0c1a356b60b1ffa80c32790", null ],
     [ "dithering", "structtile__compile_1_1config_1_1Config.html#acf651141483303918c28684ca6889699", null ],
     [ "global_metrics", "structtile__compile_1_1config_1_1Config.html#a49592cae6c7995355c8ff7e50f48dddd", null ],
+    [ "hypermetric_stretch", "structtile__compile_1_1config_1_1Config.html#a75aa697794e106ece2256e07208d2421", null ],
     [ "linearity", "structtile__compile_1_1config_1_1Config.html#a77c2270a6d963ab2a28179235ed74e37", null ],
-    [ "local_metrics", "structtile__compile_1_1config_1_1Config.html#af30690e4e53c6c3bf23769deca7f87ef", null ],
+    [ "luma_denoise", "structtile__compile_1_1config_1_1Config.html#aa1c5e4c43fe3ab52f45c4d7c78f7b45c", null ],
     [ "normalization", "structtile__compile_1_1config_1_1Config.html#a8eff86ae46bd4e26a7fe20d2fb7899f6", null ],
     [ "output", "structtile__compile_1_1config_1_1Config.html#ab5fcdbeaaf21b122fcd927e6648d0f94", null ],
     [ "pcc", "structtile__compile_1_1config_1_1Config.html#acc01ec82c37c3662b0b67f8866acb3aa", null ],
-    [ "pipeline", "structtile__compile_1_1config_1_1Config.html#a04d3d133e69382cd7d9435275f0bffb5", null ],
+    [ "reconstruction", "structtile__compile_1_1config_1_1Config.html#a2a800db3c5273eb90cac9ed4d74fe7fc", null ],
     [ "registration", "structtile__compile_1_1config_1_1Config.html#ac8e68cf902298d8c927320637d7153b0", null ],
     [ "runtime_limits", "structtile__compile_1_1config_1_1Config.html#a5e88de85ea9a91fd75bedbb9f7755125", null ],
-    [ "stacking", "structtile__compile_1_1config_1_1Config.html#ae2fcfc7aea8b7ceea2bcd03668b033ac", null ],
-    [ "synthetic", "structtile__compile_1_1config_1_1Config.html#af7b683f869aaa2d3c19117e18ce90010", null ],
-    [ "tile", "structtile__compile_1_1config_1_1Config.html#a0dd0b45ab76d18eb744a81219584d008", null ],
-    [ "tile_denoise", "structtile__compile_1_1config_1_1Config.html#a69b4f859df1984c1a752a80d2a8d5a95", null ],
-    [ "validation", "structtile__compile_1_1config_1_1Config.html#acb3ed72dae5a6ab1f668caf60522a444", null ]
+    [ "stacking", "structtile__compile_1_1config_1_1Config.html#ae2fcfc7aea8b7ceea2bcd03668b033ac", null ]
 ];

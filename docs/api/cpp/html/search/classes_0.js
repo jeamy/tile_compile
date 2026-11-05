@@ -1,8 +1,23 @@
 var searchData=
 [
-  ['accelerationops_0',['AccelerationOps',['../classtile__compile_1_1core_1_1AccelerationOps.html',1,'tile_compile::core']]],
-  ['accelerationselection_1',['AccelerationSelection',['../structtile__compile_1_1core_1_1AccelerationSelection.html',1,'tile_compile::core']]],
-  ['assumptionsconfig_2',['AssumptionsConfig',['../structtile__compile_1_1config_1_1AssumptionsConfig.html',1,'tile_compile::config']]],
-  ['astrometricrescueresult_3',['AstrometricRescueResult',['../structtile__compile_1_1registration_1_1AstrometricRescueResult.html',1,'tile_compile::registration']]],
-  ['astrometryconfig_4',['AstrometryConfig',['../structtile__compile_1_1config_1_1AstrometryConfig.html',1,'tile_compile::config']]]
+  ['accelerationcapabilities_0',['AccelerationCapabilities',['../structtile__compile_1_1core_1_1AccelerationCapabilities.html',1,'tile_compile::core']]],
+  ['accelerationcontext_1',['AccelerationContext',['../classtile__compile_1_1core_1_1AccelerationContext.html',1,'tile_compile::core']]],
+  ['accelerationops_2',['AccelerationOps',['../classtile__compile_1_1core_1_1AccelerationOps.html',1,'tile_compile::core']]],
+  ['accelerationselection_3',['AccelerationSelection',['../structtile__compile_1_1core_1_1AccelerationSelection.html',1,'tile_compile::core']]],
+  ['adaptivealphaparams_4',['AdaptiveAlphaParams',['../structtile__compile_1_1reconstruction_1_1AdaptiveAlphaParams.html',1,'tile_compile::reconstruction']]],
+  ['affinerefinementframestats_5',['AffineRefinementFrameStats',['../structtile__compile_1_1runner_1_1AffineRefinementFrameStats.html',1,'tile_compile::runner::AffineRefinementFrameStats'],['../structtile__compile_1_1runner_1_1detail_1_1AffineRefinementFrameStats.html',1,'tile_compile::runner::detail::AffineRefinementFrameStats']]],
+  ['affinestarrefinementresult_6',['AffineStarRefinementResult',['../structtile__compile_1_1registration_1_1AffineStarRefinementResult.html',1,'tile_compile::registration']]],
+  ['alphaconfidencefactors_7',['AlphaConfidenceFactors',['../structtile__compile_1_1reconstruction_1_1AlphaConfidenceFactors.html',1,'tile_compile::reconstruction']]],
+  ['alphaconfidenceparams_8',['AlphaConfidenceParams',['../structtile__compile_1_1reconstruction_1_1AlphaConfidenceParams.html',1,'tile_compile::reconstruction']]],
+  ['alphaconfidencescratch_9',['AlphaConfidenceScratch',['../structtile__compile_1_1reconstruction_1_1AlphaConfidenceScratch.html',1,'tile_compile::reconstruction']]],
+  ['alphafactorcontribution_10',['AlphaFactorContribution',['../structtile__compile_1_1reconstruction_1_1AlphaFactorContribution.html',1,'tile_compile::reconstruction']]],
+  ['astappaths_11',['AstapPaths',['../structtile__compile_1_1runner_1_1AstapPaths.html',1,'tile_compile::runner']]],
+  ['astrometricrescueresult_12',['AstrometricRescueResult',['../structtile__compile_1_1registration_1_1AstrometricRescueResult.html',1,'tile_compile::registration']]],
+  ['astrometryconfig_13',['AstrometryConfig',['../structtile__compile_1_1config_1_1AstrometryConfig.html',1,'tile_compile::config']]],
+  ['atomicoutput_14',['AtomicOutput',['../classtile__compile_1_1core_1_1AtomicOutput.html',1,'tile_compile::core']]],
+  ['atrousband_15',['AtrousBand',['../structtile__compile_1_1reconstruction_1_1AtrousBand.html',1,'tile_compile::reconstruction']]],
+  ['atrousdecomposition_16',['AtrousDecomposition',['../structtile__compile_1_1reconstruction_1_1AtrousDecomposition.html',1,'tile_compile::reconstruction']]],
+  ['autobgeconfig_17',['AutoBGEConfig',['../structtile__compile_1_1config_1_1BGEConfig_1_1AutoBGEConfig.html',1,'tile_compile::config::BGEConfig']]],
+  ['autobgeresult_18',['AutoBGEResult',['../structtile__compile_1_1image_1_1AutoBGEResult.html',1,'tile_compile::image']]],
+  ['autodetectconfig_19',['AutoDetectConfig',['../structtile__compile_1_1config_1_1BGEConfig_1_1AutoDetectConfig.html',1,'tile_compile::config::BGEConfig']]]
 ];

@@ -1,0 +1,62 @@
+<map id="tile_compile::reconstruction::fuse_multiband_v2_store_to_image" name="tile_compile::reconstruction::fuse_multiband_v2_store_to_image">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,553,186,606"/>
+<area shape="poly" id="edge13_Node000001_Node000001" title=" " alt="" coords="48,552,48,542,57,534,73,528,96,526,121,529,138,537,134,539,120,534,95,532,74,534,59,538,53,545,53,553"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#a4fad3633fafc0bf4aac83a906e11a9ed" title=" " alt="" coords="250,126,430,179"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="96,552,105,481,127,385,145,332,167,281,196,233,232,190,239,185,236,190,236,193,201,236,172,283,150,334,132,386,110,482,101,553"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#a58bef647603dc88888557fbe04badbdc" title=" " alt="" coords="247,204,434,256"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="99,552,112,494,137,417,154,376,176,336,201,299,232,265,237,264,234,268,236,269,206,302,180,339,159,378,142,419,117,495,104,553"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1reconstruction.html#a7ff5d604a38a421f0102e3d553ea98f8" title=" " alt="" coords="250,280,430,319"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="101,552,118,504,144,443,182,381,205,353,232,328,239,325,236,329,235,332,209,356,186,384,149,446,123,506,107,553"/>
+<area shape="rect" id="Node000013" href="$namespacetile__compile_1_1reconstruction.html#a6ca3707950b6fca4fb9da55a78256d63" title=" " alt="" coords="250,405,430,458"/>
+<area shape="poly" id="edge14_Node000001_Node000013" title=" " alt="" coords="123,551,172,509,232,468,246,463,242,467,235,472,175,513,127,554"/>
+<area shape="rect" id="Node000016" href="$namespacetile__compile_1_1reconstruction.html#a748fafd41471fd04c692d3db7837b460" title=" " alt="" coords="244,343,437,381"/>
+<area shape="poly" id="edge17_Node000001_Node000016" title=" " alt="" coords="107,551,127,515,154,471,190,428,232,391,241,387,238,391,235,395,194,431,159,475,131,518,112,553"/>
+<area shape="rect" id="Node000017" href="$namespacetile__compile_1_1reconstruction.html#a8dba2064b8316fc6e164be363c32ae04" title=" " alt="" coords="250,506,430,559"/>
+<area shape="poly" id="edge19_Node000001_Node000017" title=" " alt="" coords="185,560,237,551,233,554,188,564"/>
+<area shape="rect" id="Node000018" href="$namespacetile__compile_1_1reconstruction.html#a2258acdadf77906e82d72db774f0c744" title=" " alt="" coords="234,607,447,645"/>
+<area shape="poly" id="edge21_Node000001_Node000018" title=" " alt="" coords="185,594,223,602,218,604,187,599"/>
+<area shape="rect" id="Node000019" href="$structtile__compile_1_1reconstruction_1_1MultibandCandidateSpool.html#a5b2c8ce8d251a2fc591f4306ee51a599" title=" " alt="" coords="250,693,430,746"/>
+<area shape="poly" id="edge23_Node000001_Node000019" title=" " alt="" coords="144,604,282,684,277,686,144,609"/>
+<area shape="rect" id="Node000020" href="$namespacetile__compile_1_1reconstruction.html#a1ed26cdbce3c55a74c229ae944645b62" title=" " alt="" coords="238,769,443,808"/>
+<area shape="poly" id="edge25_Node000001_Node000020" title=" " alt="" coords="110,603,132,639,160,680,195,721,235,756,242,761,237,762,232,760,191,725,156,683,128,642,110,609"/>
+<area shape="rect" id="Node000022" href="$namespacetile__compile_1_1reconstruction.html#a054d70e078ef1de7778f64336f701c98" title=" " alt="" coords="250,832,430,884"/>
+<area shape="poly" id="edge27_Node000001_Node000022" title=" " alt="" coords="105,603,125,651,152,708,189,766,211,793,235,817,241,823,236,823,232,821,207,797,184,769,147,710,120,653,105,609"/>
+<area shape="rect" id="Node000023" href="$namespacetile__compile_1_1io.html#ae4986b6514a0b1dc6607b4efbf9bf4d1" title=" " alt="" coords="268,908,412,947"/>
+<area shape="poly" id="edge29_Node000001_Node000023" title=" " alt="" coords="101,603,115,665,139,743,157,784,178,825,204,862,235,895,257,910,251,910,232,899,200,865,174,828,152,787,134,745,110,666,100,609"/>
+<area shape="rect" id="Node000027" href="$namespacetile__compile_1_1io.html#a68752364fadffc8d632350077e93b18b" title="Writes fits rgb." alt="" coords="268,971,412,1009"/>
+<area shape="poly" id="edge33_Node000001_Node000027" title=" " alt="" coords="99,604,110,676,132,770,149,820,172,870,200,916,235,956,257,973,251,972,232,960,196,919,167,872,144,822,127,772,105,677,98,609"/>
+<area shape="rect" id="Node000004" href="$structtile__compile_1_1reconstruction_1_1ProfilePlane.html#a988dfed3e22236df4d89838d5fe17fd8" title=" " alt="" coords="510,5,690,44"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="430,201,445,189,458,173,464,156,468,123,472,88,479,71,493,54,499,51,495,56,497,57,484,73,477,89,473,123,470,158,462,176,449,193,434,205"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1reconstruction.html#a21472a3bf3d8b6c6b4b9df738ea30b96" title=" " alt="" coords="510,68,690,107"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="429,279,445,267,459,249,466,231,468,193,471,155,478,135,493,116,499,114,495,118,497,120,483,138,476,156,474,194,471,232,464,251,449,271,433,282"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1reconstruction.html#acf185000e111c007bcb513e99e1ed173" title=" " alt="" coords="510,131,690,169"/>
+<area shape="poly" id="edge7_Node000005_Node000008" title=" " alt="" coords="428,278,445,267,462,246,468,224,475,201,493,179,501,176,497,180,497,183,480,204,474,225,467,248,449,271,432,281"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1reconstruction.html#a806ef76d87e370a1a34b5308178c17e3" title=" " alt="" coords="500,343,700,381"/>
+<area shape="poly" id="edge9_Node000005_Node000010" title=" " alt="" coords="422,317,504,337,500,340,424,322"/>
+<area shape="rect" id="Node000011" href="$namespacetile__compile_1_1reconstruction.html#a360fe4c7a51f0fbe414d8f30e0cec988" title=" " alt="" coords="510,217,690,256"/>
+<area shape="poly" id="edge10_Node000005_Node000011" title=" " alt="" coords="422,277,504,259,500,262,425,282"/>
+<area shape="rect" id="Node000012" href="$namespacetile__compile_1_1reconstruction.html#aecba5784b35c36ba874b7a6c48f2a9da" title=" " alt="" coords="510,280,690,319"/>
+<area shape="poly" id="edge12_Node000005_Node000012" title=" " alt="" coords="430,297,496,298,492,301,432,302"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1reconstruction.html#ab90e5e9bdf072dbb7b4f402bc6f14574" title=" " alt="" coords="752,68,933,107"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="689,85,739,86,734,89,692,90"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1reconstruction.html#aa8112e0fdf5fdcffc270d15e79dc8c5a" title=" " alt="" coords="752,131,933,169"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="689,148,739,149,734,151,692,152"/>
+<area shape="poly" id="edge11_Node000011_Node000011" title=" " alt="" coords="555,217,552,208,559,198,575,193,600,191,626,193,643,201,638,203,625,198,600,196,576,198,562,203,557,209,560,217"/>
+<area shape="rect" id="Node000014" href="$namespacetile__compile_1_1reconstruction.html#ae25e7811ba23c5e7a450b33035a9004c" title=" " alt="" coords="510,405,690,458"/>
+<area shape="poly" id="edge15_Node000013_Node000014" title=" " alt="" coords="430,429,497,430,492,433,432,434"/>
+<area shape="rect" id="Node000015" href="$namespacetile__compile_1_1reconstruction.html#a3093e9e0edf1bb6228417e9b200f472d" title=" " alt="" coords="495,481,704,520"/>
+<area shape="poly" id="edge16_Node000013_Node000015" title=" " alt="" coords="430,453,512,476,507,478,432,458"/>
+<area shape="poly" id="edge18_Node000016_Node000010" title=" " alt="" coords="436,360,486,361,481,363,439,364"/>
+<area shape="poly" id="edge20_Node000017_Node000017" title=" " alt="" coords="293,505,293,496,301,487,317,482,340,480,366,482,383,491,378,492,365,487,340,485,318,487,304,492,298,498,298,506"/>
+<area shape="poly" id="edge22_Node000018_Node000018" title=" " alt="" coords="295,606,292,597,299,588,315,582,340,580,367,582,384,591,379,592,366,588,340,585,316,587,302,592,297,598,300,607"/>
+<area shape="poly" id="edge24_Node000019_Node000019" title=" " alt="" coords="293,691,293,682,301,674,317,668,340,666,366,669,384,678,378,679,365,674,340,672,318,674,304,678,298,685,298,693"/>
+<area shape="rect" id="Node000021" href="$namespacetile__compile_1_1core.html#a29fa3c83dd065be84136a46aafacc717" title="Implements sha256 file." alt="" coords="538,804,661,843"/>
+<area shape="poly" id="edge26_Node000020_Node000021" title=" " alt="" coords="443,800,525,813,520,814,444,805"/>
+<area shape="poly" id="edge28_Node000022_Node000021" title=" " alt="" coords="431,843,525,833,520,834,432,849"/>
+<area shape="rect" id="Node000024" href="$namespacetile__compile_1_1io.html#a03cc92f5c63f4b9918465555fbbc7d51" title="Writes fits float." alt="" coords="528,908,672,947"/>
+<area shape="poly" id="edge30_Node000023_Node000024" title=" " alt="" coords="413,925,515,927,510,928,413,930"/>
+<area shape="rect" id="Node000025" href="$classtile__compile_1_1core_1_1AtomicOutput.html#a016cfea9ad01ca8e8b22c1b26a0e2512" title=" " alt="" coords="762,876,923,915"/>
+<area shape="poly" id="edge31_Node000024_Node000025" title=" " alt="" coords="672,915,750,908,744,908,673,920"/>
+<area shape="rect" id="Node000026" href="$classtile__compile_1_1core_1_1AtomicOutput.html#a5a575a83894433e513dd9748b172f7ed" title=" " alt="" coords="771,939,914,977"/>
+<area shape="poly" id="edge32_Node000024_Node000026" title=" " alt="" coords="672,934,759,947,753,947,672,939"/>
+</map>

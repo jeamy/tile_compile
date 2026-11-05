@@ -2,7 +2,7 @@
 # Generated for MkDocs Material + Doxygen hybrid setup
 
 PROJECT_NAME           = "tile_compile"
-PROJECT_NUMBER         = "0.2.3"
+PROJECT_NUMBER         = "0.5.1"
 PROJECT_BRIEF          = "Tile-based quality reconstruction for astrophotography"
 OUTPUT_DIRECTORY       = ../docs/api/cpp
 

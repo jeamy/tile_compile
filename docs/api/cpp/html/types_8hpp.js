@@ -1,11 +1,10 @@
 var types_8hpp =
 [
+    [ "tile_compile::BayerOffsets", "structtile__compile_1_1BayerOffsets.html", "structtile__compile_1_1BayerOffsets" ],
     [ "tile_compile::Tile", "structtile__compile_1_1Tile.html", "structtile__compile_1_1Tile" ],
     [ "tile_compile::TileGrid", "structtile__compile_1_1TileGrid.html", "structtile__compile_1_1TileGrid" ],
     [ "tile_compile::FrameMetrics", "structtile__compile_1_1FrameMetrics.html", "structtile__compile_1_1FrameMetrics" ],
     [ "tile_compile::TileMetrics", "structtile__compile_1_1TileMetrics.html", "structtile__compile_1_1TileMetrics" ],
-    [ "tile_compile::ChannelMetrics", "structtile__compile_1_1ChannelMetrics.html", "structtile__compile_1_1ChannelMetrics" ],
-    [ "tile_compile::ClusteringResult", "structtile__compile_1_1ClusteringResult.html", "structtile__compile_1_1ClusteringResult" ],
     [ "tile_compile::RegistrationResult", "structtile__compile_1_1RegistrationResult.html", "structtile__compile_1_1RegistrationResult" ],
     [ "tile_compile::Matrix2Dd", "namespacetile__compile.html#a6dcaedb4f0551870437d5bf06a1b40ed", null ],
     [ "tile_compile::Matrix2Df", "namespacetile__compile.html#a365637b5b433ea1fbee9d3fb800788c9", null ],
@@ -19,6 +18,12 @@ var types_8hpp =
       [ "tile_compile::BayerPattern::BGGR", "namespacetile__compile.html#a7b762945e582ea84a84bb07be17b404ba2d3a6874a311f5507b59eff1b0a60477", null ],
       [ "tile_compile::BayerPattern::GRBG", "namespacetile__compile.html#a7b762945e582ea84a84bb07be17b404bafd0f5001516d4a5d399906833bae9dd2", null ],
       [ "tile_compile::BayerPattern::GBRG", "namespacetile__compile.html#a7b762945e582ea84a84bb07be17b404ba7e1f04bffd48aa2e163b2a925fb3986a", null ]
+    ] ],
+    [ "tile_compile::CfaChannel", "namespacetile__compile.html#a9b790157beb015e3c8cfc95e670c86df", [
+      [ "tile_compile::CfaChannel::R", "namespacetile__compile.html#a9b790157beb015e3c8cfc95e670c86dfae1e1d3d40573127e9ee0480caf1283d6", null ],
+      [ "tile_compile::CfaChannel::G", "namespacetile__compile.html#a9b790157beb015e3c8cfc95e670c86dfadfcf28d0734569a6a693bc8194de62bf", null ],
+      [ "tile_compile::CfaChannel::B", "namespacetile__compile.html#a9b790157beb015e3c8cfc95e670c86dfa9d5ed678fe57bcca610140957afab571", null ],
+      [ "tile_compile::CfaChannel::L", "namespacetile__compile.html#a9b790157beb015e3c8cfc95e670c86dfad20caec3b48a1eef164cb4ca81ba2587", null ]
     ] ],
     [ "tile_compile::ColorMode", "namespacetile__compile.html#ab16b7145e4da8b5816ca0f4b305b17b1", [
       [ "tile_compile::ColorMode::MONO", "namespacetile__compile.html#ab16b7145e4da8b5816ca0f4b305b17b1af5f75f1b95652443e4398974b82c3f7c", null ],
@@ -35,27 +40,27 @@ var types_8hpp =
       [ "tile_compile::Phase::PREWARP", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0aadec0fbd8ca551c29e7d4e1ca17092c0", null ],
       [ "tile_compile::Phase::CHANNEL_SPLIT", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a9bbd2139771a0e4d98ece87de113a2e0", null ],
       [ "tile_compile::Phase::NORMALIZATION", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a88e671162cc077335f86d9a1dd4aeaf4", null ],
-      [ "tile_compile::Phase::GLOBAL_METRICS", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a0a273cb82c4b05f28539d48f484a516e", null ],
-      [ "tile_compile::Phase::TILE_GRID", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a675887e7f3de8313e5f0df30611995a1", null ],
       [ "tile_compile::Phase::COMMON_OVERLAP", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0aa09834922de31acfdf1f51079c93f5ac", null ],
-      [ "tile_compile::Phase::LOCAL_METRICS", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0ae7ee36c099da742a31a2d70e3a97db76", null ],
-      [ "tile_compile::Phase::TILE_RECONSTRUCTION", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a698e70b98c4e9e9e07ebcb581f1b1ec4", null ],
-      [ "tile_compile::Phase::STATE_CLUSTERING", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a677a966c7186d5c4e78628101f2e02e3", null ],
-      [ "tile_compile::Phase::SYNTHETIC_FRAMES", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0aeccd6c55e02377629c90a68a9c4b7486", null ],
       [ "tile_compile::Phase::STACKING", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a279b6670861def9fc195a7ab55689f80", null ],
-      [ "tile_compile::Phase::DEBAYER", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a4de0a96a57bcd0a3a7fc44d8859be96a", null ],
       [ "tile_compile::Phase::ASTROMETRY", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a26af4fce507485535d3e20ae6424e9b4", null ],
       [ "tile_compile::Phase::BGE", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a10351fd73d4cc51eaa23d1f5d5fe04b0", null ],
       [ "tile_compile::Phase::PCC", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0ae2fc48ded7c7380a820261560faada4a", null ],
-      [ "tile_compile::Phase::DONE", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a2ba22e58ca17bb728d522bba36cf8350", null ]
+      [ "tile_compile::Phase::HYPERMETRIC_STRETCH", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0ac41b08fc53dc55f4e594f4da31d26110", null ],
+      [ "tile_compile::Phase::NORMALIZED_CACHE", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a5f7c774eecb361e11d0de0a4cf00837f", null ],
+      [ "tile_compile::Phase::SAMPLING_GEOMETRY", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0abca1709028b6c57936bfbdc89816071b", null ],
+      [ "tile_compile::Phase::GLOBAL_QUALITY", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0aa6b67a7db60f391b11d1d48b00db1695", null ],
+      [ "tile_compile::Phase::FORWARD_DRIZZLE", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a79b37826cb4c357e9560e88ca6ecd59e", null ],
+      [ "tile_compile::Phase::SOURCE_QUALITY_MAPS", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0aa27eb6c2c07a6fb4d42c97b5d1caa8f6", null ],
+      [ "tile_compile::Phase::MULTIBAND", "namespacetile__compile.html#a075391f204e4b1359010beba34e72cd0a9562daa45cb91676bab553ee73b0a2fe", null ]
     ] ],
     [ "tile_compile::TileType", "namespacetile__compile.html#ad8d0e52e979b627f908eea08d304a828", [
       [ "tile_compile::TileType::STAR", "namespacetile__compile.html#ad8d0e52e979b627f908eea08d304a828a8ab2630ada18b94a005a0c5399d9d483", null ],
       [ "tile_compile::TileType::STRUCTURE", "namespacetile__compile.html#ad8d0e52e979b627f908eea08d304a828a63d18c02d55fa0ce66b6368177bdcd22", null ]
     ] ],
     [ "tile_compile::bayer_pattern_to_string", "namespacetile__compile.html#ac31569f320ed3b6cc89891d5957e9484", null ],
+    [ "tile_compile::cfa_channel_for_source_pixel", "namespacetile__compile.html#a7daf2847d9aed77c6bdf04aef1331a71", null ],
     [ "tile_compile::color_mode_to_string", "namespacetile__compile.html#a19f4ee1a01217c22949834089503a58c", null ],
-    [ "tile_compile::int_to_phase", "namespacetile__compile.html#ac58c5c3cde18f6690d3f34345d253925", null ],
+    [ "tile_compile::get_bayer_offsets", "namespacetile__compile.html#a1495924d8dcc89fd8803e762b70e2f97", null ],
     [ "tile_compile::phase_to_int", "namespacetile__compile.html#a1c7655a51de00a8395dd85c762ec0e1f", null ],
     [ "tile_compile::phase_to_string", "namespacetile__compile.html#ab5ed503bbf802150428d65b065ae6099", null ],
     [ "tile_compile::string_to_bayer_pattern", "namespacetile__compile.html#ad4e114e09ae7f66d9aa605b587d57596", null ]

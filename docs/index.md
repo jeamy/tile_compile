@@ -8,14 +8,13 @@
 
 Tile-Compile is a scientific-grade image stacking pipeline designed for astrophotography. It reconstructs high-quality images from multiple light frames through:
 
-- **AQMH Reconstruction** — Per-pixel quality-map-driven weighted average (default method)
-- **Classic Tile-Compile (TBQR)** — Tile-based quality reconstruction with local metrics, clustering, and OLA stacking
-- **Advanced Registration** — Cascaded global + sequential alignment with astrometric fallback
+- **CFA Forward Drizzle + Multiband** — The pipeline's single reconstruction method: CFA-aware forward drizzle with quality maps and a robust sigma clip, then multiband fusion. It runs on the CPU or on CUDA and can resume from any band boundary.
+- **Advanced Registration** — Cascaded global + sequential alignment with a plausibility gate and astrometric fallback
 - **Background Gradient Extraction (BGE)** — Remove light pollution gradients
 - **Photometric Color Calibration (PCC)** — Accurate color using reference stars
 - **HyperMetric Stretch (HMS)** — VeraLux-based post-PCC stretch
 - **Modern GUI3** — Browser-based interface with full workflow support
-- **AI-Assisted Configuration** — Parameter Intelligence (PI) module for data-driven recommendations
+- **AI-Assisted Configuration** — The Parameter Intelligence (PI) module and the Jev decision layer give data-driven recommendations. A global run assistant, a post-run advisor and a recorded decision trace support them.
 - **Live Image Editor** — Non-destructive FITS editing after a run, with live preview, undo/redo, repeatable operations, and optional AI proposals
 
 Designed for smart telescope data (DWARF, Seestar, ZWO SeeStar, etc.) but works with any FITS input.
@@ -27,8 +26,8 @@ Designed for smart telescope data (DWARF, Seestar, ZWO SeeStar, etc.) but works 
 ```bash
 # Linux GUI3 (Browser Interface)
 curl -L -o tile_compile_gui3.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-linux-v0.3.0.zip
-unzip tile_compile_gui3.zip && cd tile_compile_gui3-linux-v0.3.0
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-linux-v0.5.1.zip
+unzip tile_compile_gui3.zip && cd tile_compile_gui3-linux-v0.5.1
 
 # Start GUI3 (browser opens automatically)
 ./start_gui3.sh  # http://127.0.0.1:8080/ui/
@@ -85,6 +84,7 @@ The online help is intentionally split into four levels:
 - [CFA Forward Drizzle + Multiband](guides/cfa_forward_drizzle_pipeline_en.md)
 - [Raw Stack GUI](guides/raw_stack_gui.md) — not optimized, retained for legacy reasons
 - [PI – AI-Assisted Recommendations](guides/pi_ai.md)
+- [PI Workflow in GUI3 (EN)](PI/pi_workflow_gui3_en.md) / [DE](PI/pi_workflow_gui3.md)
 - [Live Image Editor (EN)](guides/live_image_editor_en.md)
 - [Live Image Editor (DE)](guides/live_image_editor_de.md)
 

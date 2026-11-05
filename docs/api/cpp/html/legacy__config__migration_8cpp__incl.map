@@ -1,0 +1,24 @@
+<map id="src/io/legacy_config_migration.cpp" name="src/io/legacy_config_migration.cpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="510,5,648,44"/>
+<area shape="rect" id="Node000002" href="$legacy__config__migration_8hpp.html" title=" " alt="" coords="93,92,284,131"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="508,42,291,91,289,86,512,40"/>
+<area shape="rect" id="Node000007" href="$errors_8hpp.html" title=" " alt="" coords="308,99,490,124"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="542,44,439,94,437,90,537,45"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="514,99,644,124"/>
+<area shape="poly" id="edge9_Node000001_Node000009" title=" " alt="" coords="581,43,581,85,577,82,577,47"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="669,99,740,124"/>
+<area shape="poly" id="edge10_Node000001_Node000010" title=" " alt="" coords="607,42,677,90,672,90,606,47"/>
+<area shape="rect" id="Node000011" title=" " alt="" coords="764,99,813,124"/>
+<area shape="poly" id="edge11_Node000001_Node000011" title=" " alt="" coords="632,42,755,92,750,92,631,47"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,179,121,203"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="161,131,96,172,94,168,155,132"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="302,179,355,203"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="223,129,297,171,291,171,222,134"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="145,179,197,203"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="186,130,179,165,175,162,182,133"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="222,179,278,203"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="204,129,234,167,228,166,202,134"/>
+<area shape="poly" id="edge8_Node000007_Node000004" title=" " alt="" coords="391,123,351,169,348,165,386,125"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="379,179,456,203"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="403,122,414,165,409,162,400,126"/>
+</map>

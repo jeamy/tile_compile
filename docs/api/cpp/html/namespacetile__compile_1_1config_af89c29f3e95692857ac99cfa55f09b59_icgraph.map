@@ -1,0 +1,19 @@
+<map id="tile_compile::config::migrate_legacy_config_node" name="tile_compile::config::migrate_legacy_config_node">
+<area shape="rect" id="Node000001" title=" " alt="" coords="522,41,717,80"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#a04740d02588eb27519912d2ef003c40d" title="Applies the single&#45;method legacy config migration (plan section 6.5) to an input YAML and writes the ..." alt="" coords="323,5,461,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="505,40,462,33,462,28,510,39"/>
+<area shape="rect" id="Node000004" href="$structtile__compile_1_1config_1_1Config.html#a9ae4be11c2b108ca7539b6120f0cbc30" title=" " alt="" coords="310,65,474,117"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="505,76,475,83,475,77,510,75"/>
+<area shape="rect" id="Node000003" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,20,55,45"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="306,24,56,34,55,29,308,19"/>
+<area shape="rect" id="Node000005" href="$cli__main_8cpp.html#af778e37211a3f2c45ebad2f39e746435" title="Handles CLI command validate config." alt="" coords="113,44,252,69"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="292,75,253,71,252,65,297,74"/>
+<area shape="rect" id="Node000006" href="$runner__forward__drizzle_8cpp.html#a9ffae5ca00a8665a15ced17d948fd1ae" title=" " alt="" coords="103,93,262,132"/>
+<area shape="poly" id="edge6_Node000004_Node000006" title=" " alt="" coords="292,101,263,107,262,102,297,100"/>
+<area shape="rect" id="Node000008" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="105,156,260,181"/>
+<area shape="poly" id="edge8_Node000004_Node000008" title=" " alt="" coords="316,123,263,146,226,158,225,153,261,140,311,124"/>
+<area shape="poly" id="edge5_Node000005_Node000003" title=" " alt="" coords="95,45,56,39,54,34,100,41"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,128,55,153"/>
+<area shape="poly" id="edge7_Node000006_Node000007" title=" " alt="" coords="85,131,56,138,54,133,90,128"/>
+<area shape="poly" id="edge9_Node000008_Node000007" title=" " alt="" coords="95,154,55,147,55,142,99,151"/>
+</map>

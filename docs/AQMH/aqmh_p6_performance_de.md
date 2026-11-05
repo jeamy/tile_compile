@@ -547,15 +547,15 @@ Direkte Codequellen (Stand des uncommitteten Arbeitsbaums beim Review):
 
 | Befund | Quelle |
 |---|---|
-| CUDA-Budget und Bandaufrufe | [drizzle_profile_store.cpp](../../tile_compile_cpp/src/reconstruction/drizzle_profile_store.cpp) |
-| CPU-Sortierung/Reduktion im CUDA-Pfad | [forward_drizzle_contrib_list.cpp](../../tile_compile_cpp/src/reconstruction/forward_drizzle_contrib_list.cpp) |
-| LRU-Verdrängung und Verifikation | [normalized_source_cache.cpp](../../tile_compile_cpp/src/reconstruction/normalized_source_cache.cpp) |
-| Q-Provider/Vollbildexpansion | [source_quality_artifact.cpp](../../tile_compile_cpp/src/reconstruction/source_quality_artifact.cpp) |
-| Bereichslesen und SQM-Writer | [source_quality_map_cache.cpp](../../tile_compile_cpp/src/reconstruction/source_quality_map_cache.cpp) |
-| Polygon-Clips und Enumeration | [forward_drizzle.cpp](../../tile_compile_cpp/src/reconstruction/forward_drizzle.cpp) |
-| Coverage-Parallelität | [sampling_geometry.cpp](../../tile_compile_cpp/src/registration/sampling_geometry.cpp) |
-| Kalibrierung und Vorlauf | [runner_pipeline.cpp](../../tile_compile_cpp/apps/runner_pipeline.cpp), [runner_phase_metrics.cpp](../../tile_compile_cpp/apps/runner_phase_metrics.cpp) |
-| Frame-0-Abhängigkeit | [global_quality.cpp](../../tile_compile_cpp/src/reconstruction/global_quality.cpp) |
+| CUDA-Budget und Bandaufrufe | [drizzle_profile_store.cpp](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/drizzle_profile_store.cpp) |
+| CPU-Sortierung/Reduktion im CUDA-Pfad | [forward_drizzle_contrib_list.cpp](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/forward_drizzle_contrib_list.cpp) |
+| LRU-Verdrängung und Verifikation | [normalized_source_cache.cpp](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/normalized_source_cache.cpp) |
+| Q-Provider/Vollbildexpansion | [source_quality_artifact.cpp](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/source_quality_artifact.cpp) |
+| Bereichslesen und SQM-Writer | [source_quality_map_cache.cpp](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/source_quality_map_cache.cpp) |
+| Polygon-Clips und Enumeration | [forward_drizzle.cpp](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/forward_drizzle.cpp) |
+| Coverage-Parallelität | [sampling_geometry.cpp](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/registration/sampling_geometry.cpp) |
+| Kalibrierung und Vorlauf | [runner_pipeline.cpp](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/apps/runner_pipeline.cpp), [runner_phase_metrics.cpp](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/apps/runner_phase_metrics.cpp) |
+| Frame-0-Abhängigkeit | [global_quality.cpp](https://github.com/jeamy/tile_compile/blob/master/tile_compile_cpp/src/reconstruction/global_quality.cpp) |
 
 ### 6.1 Messgrenze und belastbare Ausgangsbasis
 

@@ -1,0 +1,9 @@
+<map id="tile_compile::registration::prepare_smooth_local_remap" name="tile_compile::registration::prepare_smooth_local_remap">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,29,205,68"/>
+<area shape="poly" id="edge1_Node000001_Node000001" title=" " alt="" coords="56,29,53,20,61,10,78,5,105,3,134,5,153,14,147,14,133,10,105,8,79,10,64,15,58,21,62,29"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a6ed70a2d9c4e2053525edd4eb2a40bca" title=" " alt="" coords="253,29,486,68"/>
+<area shape="poly" id="edge2_Node000001_Node000002" title=" " alt="" coords="205,46,240,48,234,49,205,51"/>
+<area shape="poly" id="edge4_Node000002_Node000002" title=" " alt="" coords="324,28,321,20,328,10,344,5,369,3,396,5,414,14,408,14,395,10,369,8,345,10,331,15,326,21,329,30"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1registration.html#a9efbe19d5ec4218f3364909e33fce02d" title=" " alt="" coords="534,22,696,75"/>
+<area shape="poly" id="edge3_Node000002_Node000003" title=" " alt="" coords="486,46,521,49,516,49,487,51"/>
+</map>

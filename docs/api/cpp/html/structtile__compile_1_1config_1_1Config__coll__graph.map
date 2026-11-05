@@ -1,77 +1,89 @@
 <map id="tile_compile::config::Config" name="tile_compile::config::Config">
-<area shape="rect" id="Node000001" title=" " alt="" coords="1040,644,1174,683"/>
-<area shape="rect" id="Node000002" href="$structtile__compile_1_1config_1_1PipelineConfig.html" title=" " alt="" coords="742,17,875,56"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="891,24,924,25,958,31,990,44,1018,64,1033,84,1047,110,1068,177,1084,260,1095,350,1106,525,1108,643,1103,643,1101,525,1090,351,1079,261,1063,179,1042,112,1029,86,1014,68,988,48,957,37,923,31,890,29"/>
-<area shape="rect" id="Node000003" href="$structtile__compile_1_1config_1_1OutputConfig.html" title=" " alt="" coords="742,80,875,119"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="891,87,924,88,958,94,990,107,1018,127,1032,144,1044,167,1064,227,1080,300,1091,381,1104,536,1108,644,1103,644,1099,537,1086,381,1075,301,1059,228,1039,169,1028,147,1014,130,988,111,957,100,923,94,891,92"/>
-<area shape="rect" id="Node000004" href="$structtile__compile_1_1config_1_1DataConfig.html" title=" " alt="" coords="742,143,875,181"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="891,150,924,151,958,157,990,170,1018,189,1042,224,1060,277,1075,340,1087,410,1102,547,1108,643,1102,643,1096,547,1082,411,1070,341,1055,278,1037,227,1014,193,988,174,957,163,924,157,891,155"/>
-<area shape="rect" id="Node000005" href="$structtile__compile_1_1config_1_1LinearityConfig.html" title=" " alt="" coords="742,205,875,244"/>
-<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="891,213,924,215,958,222,990,234,1018,253,1039,283,1056,327,1071,382,1083,441,1099,559,1107,643,1102,644,1094,560,1077,442,1066,383,1051,329,1034,286,1014,257,988,238,957,227,924,221,891,219"/>
-<area shape="rect" id="Node000006" href="$structtile__compile_1_1config_1_1CalibrationConfig.html" title=" " alt="" coords="742,268,875,307"/>
-<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="891,278,924,281,958,288,990,300,1018,320,1036,344,1052,381,1078,474,1096,571,1106,643,1101,644,1090,572,1072,475,1047,383,1031,347,1014,324,987,305,956,293,923,286,891,284"/>
-<area shape="rect" id="Node000007" href="$structtile__compile_1_1config_1_1AssumptionsConfig.html" title=" " alt="" coords="737,331,880,369"/>
-<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="897,345,928,349,960,358,991,370,1018,389,1044,418,1065,451,1080,487,1092,523,1104,592,1108,643,1103,644,1099,593,1086,525,1075,488,1060,453,1040,421,1015,393,988,375,959,363,927,355,896,351"/>
-<area shape="rect" id="Node000008" href="$structtile__compile_1_1config_1_1NormalizationConfig.html" title=" " alt="" coords="735,393,882,432"/>
-<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="898,412,960,426,991,439,1018,457,1039,478,1056,501,1082,553,1097,603,1106,643,1100,644,1092,605,1077,555,1051,504,1035,481,1015,461,988,444,959,431,897,417"/>
-<area shape="rect" id="Node000009" href="$structtile__compile_1_1config_1_1RegistrationConfig.html" title=" " alt="" coords="740,456,877,495"/>
-<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="893,479,957,495,989,508,1018,525,1047,552,1071,584,1101,642,1096,645,1066,587,1043,556,1015,529,986,513,955,500,892,485"/>
-<area shape="rect" id="Node000010" href="$structtile__compile_1_1config_1_1DitheringConfig.html" title=" " alt="" coords="742,519,875,557"/>
-<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="891,546,954,562,1018,586,1058,613,1089,642,1086,646,1054,617,1015,591,953,567,890,551"/>
-<area shape="rect" id="Node000011" href="$structtile__compile_1_1config_1_1TileDenoiseConfig.html" title=" " alt="" coords="740,581,877,620"/>
-<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="893,609,1017,633,1047,641,1045,646,1016,638,892,614"/>
-<area shape="rect" id="Node000012" href="$structtile__compile_1_1config_1_1SoftThresholdConfig.html" title=" " alt="" coords="323,203,472,241"/>
-<area shape="poly" id="edge11_Node000011_Node000012" title=" " alt="" coords="486,201,542,198,601,202,630,208,658,219,683,233,706,252,720,279,725,316,721,409,716,503,720,540,730,567,742,579,738,582,726,570,714,541,711,503,716,409,720,316,715,280,702,256,680,237,655,223,628,213,600,207,542,203,486,207"/>
-<area shape="rect" id="Node000013" href="$structtile__compile_1_1config_1_1WienerDenoiseConfig.html" title=" " alt="" coords="319,265,476,304"/>
-<area shape="poly" id="edge12_Node000011_Node000013" title=" " alt="" coords="491,278,553,279,616,284,670,294,691,302,706,312,718,334,723,364,721,439,718,515,721,545,730,567,742,579,739,582,726,570,716,547,713,515,716,439,717,364,713,335,702,316,688,306,669,299,616,289,553,284,491,284"/>
-<area shape="rect" id="Node000014" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig.html" title=" " alt="" coords="728,644,889,683"/>
-<area shape="poly" id="edge13_Node000001_Node000014" title=" " alt="" coords="905,661,1040,661,1040,666,905,666"/>
-<area shape="rect" id="Node000015" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1StarProtectionConfig.html" title=" " alt="" coords="317,328,478,380"/>
-<area shape="poly" id="edge14_Node000014_Node000015" title=" " alt="" coords="494,337,548,336,605,343,659,361,684,376,706,395,717,415,721,443,720,512,719,582,722,610,730,630,743,641,739,645,726,633,717,611,713,582,715,512,716,443,712,417,702,398,681,380,657,366,604,348,548,341,494,342"/>
-<area shape="rect" id="Node000016" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1StructureProtectionConfig.html" title=" " alt="" coords="308,405,487,458"/>
-<area shape="poly" id="edge15_Node000014_Node000016" title=" " alt="" coords="503,419,555,422,610,433,661,453,685,467,706,485,719,503,724,522,720,558,716,594,720,611,730,630,743,641,740,645,726,633,715,613,711,594,715,557,719,522,714,506,702,489,682,472,659,457,608,438,555,428,502,425"/>
-<area shape="rect" id="Node000017" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1ChromaWaveletConfig.html" title=" " alt="" coords="317,482,478,535"/>
-<area shape="poly" id="edge16_Node000014_Node000017" title=" " alt="" coords="494,506,546,512,602,524,657,545,706,576,716,589,719,603,722,617,730,629,746,641,743,645,726,633,717,619,714,604,711,592,702,580,654,550,601,530,545,517,493,511"/>
-<area shape="rect" id="Node000018" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1ChromaBilateralConfig.html" title=" " alt="" coords="317,560,478,612"/>
-<area shape="poly" id="edge17_Node000014_Node000018" title=" " alt="" coords="494,596,595,612,705,633,738,641,737,646,703,638,595,617,493,601"/>
-<area shape="rect" id="Node000019" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1BlendConfig.html" title=" " alt="" coords="317,637,478,690"/>
-<area shape="poly" id="edge18_Node000014_Node000019" title=" " alt="" coords="494,661,727,661,727,666,494,666"/>
-<area shape="rect" id="Node000020" href="$structtile__compile_1_1config_1_1GlobalMetricsConfig.html" title=" " alt="" coords="735,707,882,745"/>
-<area shape="poly" id="edge19_Node000001_Node000020" title=" " alt="" coords="897,711,1016,688,1043,681,1045,686,1017,693,898,716"/>
-<area shape="rect" id="Node000021" href="$structtile__compile_1_1config_1_1GlobalMetricsConfig_1_1Weights.html" title=" " alt="" coords="324,714,471,767"/>
-<area shape="poly" id="edge20_Node000020_Node000021" title=" " alt="" coords="486,735,734,726,734,731,487,740"/>
-<area shape="rect" id="Node000022" href="$structtile__compile_1_1config_1_1TileConfig.html" title=" " alt="" coords="742,769,875,808"/>
-<area shape="poly" id="edge21_Node000001_Node000022" title=" " alt="" coords="890,775,953,759,1015,735,1054,709,1085,681,1089,685,1057,713,1018,740,954,764,891,780"/>
-<area shape="rect" id="Node000023" href="$structtile__compile_1_1config_1_1LocalMetricsConfig.html" title=" " alt="" coords="738,832,879,871"/>
-<area shape="poly" id="edge22_Node000001_Node000023" title=" " alt="" coords="894,841,956,825,987,813,1015,796,1043,770,1066,739,1096,682,1100,684,1070,742,1047,774,1018,801,989,818,958,831,895,846"/>
-<area shape="rect" id="Node000024" href="$structtile__compile_1_1config_1_1LocalMetricsConfig_1_1NeighborhoodNormalizationConfig.html" title=" " alt="" coords="284,792,511,844"/>
-<area shape="poly" id="edge23_Node000023_Node000024" title=" " alt="" coords="527,826,738,843,738,848,526,831"/>
-<area shape="rect" id="Node000025" href="$structtile__compile_1_1config_1_1LocalMetricsConfig_1_1SpatialRegularizationConfig.html" title=" " alt="" coords="303,869,492,922"/>
-<area shape="poly" id="edge24_Node000023_Node000025" title=" " alt="" coords="507,886,704,867,737,862,738,867,704,872,508,891"/>
-<area shape="rect" id="Node000026" href="$structtile__compile_1_1config_1_1LocalMetricsConfig_1_1StarModeConfig.html" title=" " alt="" coords="327,946,468,999"/>
-<area shape="poly" id="edge25_Node000023_Node000026" title=" " alt="" coords="483,969,536,964,593,954,650,937,703,911,710,904,714,897,726,880,744,869,747,873,730,884,719,899,714,908,705,915,652,942,594,959,536,970,484,975"/>
-<area shape="rect" id="Node000027" href="$structtile__compile_1_1config_1_1LocalMetricsConfig_1_1StarModeConfig_1_1Weights.html" title=" " alt="" coords="5,946,184,999"/>
-<area shape="poly" id="edge26_Node000026_Node000027" title=" " alt="" coords="199,970,326,970,326,975,199,975"/>
-<area shape="rect" id="Node000028" href="$structtile__compile_1_1config_1_1LocalMetricsConfig_1_1StructureModeConfig.html" title=" " alt="" coords="321,1024,474,1076"/>
-<area shape="poly" id="edge27_Node000023_Node000028" title=" " alt="" coords="489,1056,543,1054,600,1045,655,1025,680,1011,702,993,712,980,716,967,715,940,713,911,716,895,726,880,739,869,742,873,730,884,721,897,718,911,720,939,721,968,717,982,706,996,683,1015,657,1030,601,1050,543,1059,489,1061"/>
-<area shape="rect" id="Node000029" href="$structtile__compile_1_1config_1_1SyntheticConfig.html" title=" " alt="" coords="742,895,875,933"/>
-<area shape="poly" id="edge28_Node000001_Node000029" title=" " alt="" coords="890,910,955,896,987,883,1015,864,1035,845,1051,822,1077,771,1092,721,1100,682,1106,683,1097,723,1082,773,1056,825,1039,848,1018,869,989,888,957,901,891,915"/>
-<area shape="rect" id="Node000030" href="$structtile__compile_1_1config_1_1SyntheticConfig_1_1ClusteringConfig.html" title=" " alt="" coords="303,1101,492,1154"/>
-<area shape="poly" id="edge29_Node000029_Node000030" title=" " alt="" coords="507,1138,558,1137,611,1129,660,1112,682,1098,702,1082,714,1066,719,1050,715,1016,711,981,715,962,726,943,740,931,743,934,730,946,720,964,716,981,721,1016,724,1051,719,1068,706,1086,685,1103,662,1116,612,1134,559,1143,508,1144"/>
-<area shape="rect" id="Node000031" href="$structtile__compile_1_1config_1_1AstrometryConfig.html" title=" " alt="" coords="742,957,875,996"/>
-<area shape="poly" id="edge30_Node000001_Node000031" title=" " alt="" coords="890,977,923,973,956,965,987,953,1015,934,1040,906,1060,874,1075,838,1087,802,1099,734,1103,683,1108,683,1104,735,1092,804,1080,840,1065,876,1044,909,1018,938,990,957,957,970,924,978,891,982"/>
-<area shape="rect" id="Node000032" href="$structtile__compile_1_1config_1_1BGEConfig.html" title=" " alt="" coords="742,1020,875,1059"/>
-<area shape="poly" id="edge31_Node000001_Node000032" title=" " alt="" coords="891,1042,923,1040,956,1033,987,1021,1014,1002,1031,979,1047,943,1072,851,1090,755,1101,683,1106,684,1096,755,1077,852,1052,945,1036,981,1018,1006,990,1025,958,1038,924,1045,891,1048"/>
-<area shape="rect" id="Node000033" href="$structtile__compile_1_1config_1_1PCCConfig.html" title=" " alt="" coords="742,1083,875,1121"/>
-<area shape="poly" id="edge32_Node000001_Node000033" title=" " alt="" coords="891,1107,924,1105,957,1099,988,1087,1014,1069,1034,1040,1051,997,1065,943,1077,884,1094,767,1102,683,1107,683,1099,767,1082,885,1071,944,1056,998,1039,1043,1018,1072,990,1092,958,1104,924,1111,891,1113"/>
-<area shape="rect" id="Node000034" href="$structtile__compile_1_1config_1_1StackingConfig.html" title=" " alt="" coords="742,1145,875,1184"/>
-<area shape="poly" id="edge33_Node000001_Node000034" title=" " alt="" coords="891,1172,924,1170,957,1164,988,1153,1014,1134,1037,1100,1055,1049,1070,986,1082,916,1096,779,1102,683,1108,683,1102,780,1087,917,1075,987,1060,1050,1042,1103,1018,1138,990,1157,958,1169,924,1175,891,1177"/>
-<area shape="rect" id="Node000035" href="$structtile__compile_1_1config_1_1StackingConfig_1_1SigmaClipConfig.html" title=" " alt="" coords="304,1178,490,1231"/>
-<area shape="poly" id="edge34_Node000034_Node000035" title=" " alt="" coords="506,1194,704,1176,741,1171,742,1177,704,1181,506,1199"/>
-<area shape="rect" id="Node000036" href="$structtile__compile_1_1config_1_1StackingConfig_1_1ClusterQualityWeightingConfig.html" title=" " alt="" coords="293,1256,502,1308"/>
-<area shape="poly" id="edge35_Node000034_Node000036" title=" " alt="" coords="517,1273,611,1255,658,1240,702,1219,714,1207,726,1193,746,1182,748,1187,730,1197,718,1210,706,1223,660,1245,612,1260,518,1278"/>
-<area shape="rect" id="Node000037" href="$structtile__compile_1_1config_1_1ValidationConfig.html" title=" " alt="" coords="742,1208,875,1247"/>
-<area shape="poly" id="edge36_Node000001_Node000037" title=" " alt="" coords="891,1236,924,1235,957,1229,988,1218,1015,1199,1028,1183,1040,1160,1060,1101,1075,1028,1086,947,1099,790,1103,683,1108,683,1104,791,1092,948,1080,1029,1065,1102,1044,1162,1032,1186,1018,1203,990,1223,958,1234,924,1240,891,1241"/>
-<area shape="rect" id="Node000038" href="$structtile__compile_1_1config_1_1RuntimeLimitsConfig.html" title=" " alt="" coords="733,1271,884,1309"/>
-<area shape="poly" id="edge37_Node000001_Node000038" title=" " alt="" coords="900,1299,931,1298,961,1292,990,1281,1014,1263,1029,1245,1042,1219,1064,1152,1080,1069,1091,978,1101,801,1103,683,1108,683,1107,802,1096,978,1085,1069,1069,1153,1047,1221,1034,1247,1018,1267,992,1286,963,1297,931,1303,900,1305"/>
+<area shape="rect" id="Node000001" title=" " alt="" coords="1110,767,1244,805"/>
+<area shape="rect" id="Node000002" href="$structtile__compile_1_1config_1_1OutputConfig.html" title=" " alt="" coords="783,265,916,304"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="931,270,972,270,1014,276,1053,289,1088,312,1112,347,1131,399,1146,463,1157,533,1172,670,1177,767,1172,765,1166,670,1152,534,1140,464,1126,401,1107,350,1084,316,1051,294,1012,281,971,275,933,275"/>
+<area shape="rect" id="Node000003" href="$structtile__compile_1_1config_1_1DataConfig.html" title=" " alt="" coords="783,328,916,367"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="931,337,972,338,1014,345,1053,359,1088,383,1109,412,1126,456,1140,509,1152,568,1168,683,1177,767,1172,765,1163,684,1147,569,1135,510,1121,457,1104,415,1084,387,1051,364,1012,350,972,343,933,341"/>
+<area shape="rect" id="Node000004" href="$structtile__compile_1_1config_1_1LinearityConfig.html" title=" " alt="" coords="783,391,916,429"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="931,408,1023,416,1062,424,1088,437,1106,462,1123,499,1148,594,1166,693,1176,767,1171,765,1161,694,1143,595,1118,501,1102,465,1085,442,1060,429,1022,421,933,413"/>
+<area shape="rect" id="Node000005" href="$structtile__compile_1_1config_1_1CalibrationConfig.html" title=" " alt="" coords="783,453,916,492"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="931,462,971,463,1013,469,1053,482,1088,504,1115,533,1137,567,1152,604,1164,642,1176,713,1178,767,1173,765,1170,714,1159,643,1147,606,1132,569,1111,536,1085,508,1050,487,1011,474,971,468,933,466"/>
+<area shape="rect" id="Node000006" href="$structtile__compile_1_1config_1_1NormalizationConfig.html" title=" " alt="" coords="776,516,923,555"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="938,528,977,531,1016,539,1054,553,1088,573,1110,594,1128,619,1154,673,1169,725,1176,768,1171,766,1164,727,1149,675,1123,622,1106,598,1085,578,1052,557,1014,544,976,537,940,533"/>
+<area shape="rect" id="Node000007" href="$structtile__compile_1_1config_1_1RegistrationConfig.html" title=" " alt="" coords="782,579,918,617"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="933,596,972,601,1012,609,1051,623,1088,643,1118,671,1142,704,1172,767,1166,766,1138,707,1114,674,1085,647,1049,628,1011,614,971,606,935,601"/>
+<area shape="rect" id="Node000008" href="$structtile__compile_1_1config_1_1DitheringConfig.html" title=" " alt="" coords="783,641,916,680"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="931,664,1009,679,1049,691,1088,706,1129,734,1161,766,1156,767,1125,738,1085,711,1048,696,1008,684,932,670"/>
+<area shape="rect" id="Node000009" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig.html" title=" " alt="" coords="769,704,930,743"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="945,731,1087,756,1119,765,1114,767,1086,761,946,737"/>
+<area shape="rect" id="Node000010" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1StarProtectionConfig.html" title=" " alt="" coords="346,25,508,78"/>
+<area shape="poly" id="edge9_Node000009_Node000010" title=" " alt="" coords="521,29,578,25,636,29,664,36,691,46,716,60,738,79,746,94,751,119,756,189,753,384,749,580,752,651,756,675,762,690,775,703,770,704,758,693,751,677,747,652,743,580,748,384,751,189,746,119,741,96,734,82,713,64,689,51,663,41,635,34,578,30,525,33"/>
+<area shape="rect" id="Node000011" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1StructureProtectionConfig.html" title=" " alt="" coords="337,102,516,155"/>
+<area shape="poly" id="edge10_Node000009_Node000011" title=" " alt="" coords="531,105,586,102,641,107,693,124,717,138,738,157,745,170,750,191,755,253,753,423,750,594,753,656,757,677,762,690,775,703,770,704,758,693,752,679,748,657,745,594,747,423,749,253,745,192,740,172,734,160,714,142,691,129,640,113,585,107,534,110"/>
+<area shape="rect" id="Node000012" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1ExtendedSourceProtectionConfig.html" title=" " alt="" coords="316,180,538,232"/>
+<area shape="poly" id="edge11_Node000009_Node000012" title=" " alt="" coords="552,181,603,180,652,187,698,204,719,217,738,234,748,263,753,316,753,462,751,608,754,661,762,690,775,703,770,704,758,693,749,662,746,608,747,462,748,317,743,264,734,237,716,221,696,209,651,192,602,186,555,185"/>
+<area shape="rect" id="Node000013" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1ChromaWaveletConfig.html" title=" " alt="" coords="346,257,508,310"/>
+<area shape="poly" id="edge12_Node000009_Node000013" title=" " alt="" coords="521,261,578,257,636,262,691,278,716,292,738,311,748,325,754,343,760,388,759,442,754,500,746,612,749,658,755,676,762,690,775,703,770,704,758,693,750,678,744,659,740,612,748,499,753,441,755,388,749,344,743,328,734,315,713,297,689,283,635,267,578,262,524,266"/>
+<area shape="rect" id="Node000014" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1ChromaBilateralConfig.html" title=" " alt="" coords="346,334,508,387"/>
+<area shape="poly" id="edge13_Node000009_Node000014" title=" " alt="" coords="521,340,578,336,635,341,691,358,716,372,738,391,751,416,756,452,753,540,748,629,752,665,762,690,775,703,770,704,758,693,747,666,743,629,748,540,751,452,746,418,734,395,713,377,689,363,634,346,578,342,524,344"/>
+<area shape="rect" id="Node000015" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1BlendConfig.html" title=" " alt="" coords="346,412,508,464"/>
+<area shape="poly" id="edge14_Node000009_Node000015" title=" " alt="" coords="522,420,578,418,636,424,691,442,716,456,738,475,756,502,762,528,760,555,754,582,747,609,743,636,747,663,762,690,776,703,771,704,758,693,742,664,738,636,741,608,748,581,755,554,757,529,752,504,734,479,713,461,688,447,635,429,578,423,525,424"/>
+<area shape="rect" id="Node000016" href="$structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1LargeScaleBiasConfig.html" title=" " alt="" coords="346,489,508,542"/>
+<area shape="poly" id="edge15_Node000009_Node000016" title=" " alt="" coords="522,502,578,502,635,510,690,529,715,543,738,562,750,578,755,594,752,626,749,658,752,674,762,690,777,703,771,704,758,693,747,676,744,659,747,626,749,595,745,580,734,565,712,548,688,534,634,515,577,507,525,506"/>
+<area shape="rect" id="Node000017" href="$structtile__compile_1_1config_1_1LumaDenoiseConfig.html" title=" " alt="" coords="776,767,923,805"/>
+<area shape="poly" id="edge16_Node000001_Node000017" title=" " alt="" coords="938,784,1112,785,1107,787,940,789"/>
+<area shape="rect" id="Node000018" href="$structtile__compile_1_1config_1_1LumaDenoiseConfig_1_1StarProtectionConfig.html" title=" " alt="" coords="349,566,504,619"/>
+<area shape="poly" id="edge17_Node000017_Node000018" title=" " alt="" coords="519,585,575,589,633,600,689,621,715,636,738,655,747,667,752,680,752,705,751,729,754,741,762,752,778,766,773,767,758,756,749,743,746,730,746,705,746,681,743,670,734,659,712,640,687,625,632,605,574,594,521,590"/>
+<area shape="rect" id="Node000019" href="$structtile__compile_1_1config_1_1LumaDenoiseConfig_1_1StructureProtectionConfig.html" title=" " alt="" coords="341,644,512,696"/>
+<area shape="poly" id="edge18_Node000017_Node000019" title=" " alt="" coords="527,676,632,695,686,711,737,732,750,742,761,752,787,766,782,767,759,756,746,746,735,736,684,716,630,700,529,681"/>
+<area shape="rect" id="Node000020" href="$structtile__compile_1_1config_1_1LumaDenoiseConfig_1_1ExtendedSourceProtectionConfig.html" title=" " alt="" coords="320,721,534,774"/>
+<area shape="poly" id="edge19_Node000017_Node000020" title=" " alt="" coords="548,756,778,778,773,781,550,761"/>
+<area shape="rect" id="Node000021" href="$structtile__compile_1_1config_1_1LumaDenoiseConfig_1_1WaveletConfig.html" title=" " alt="" coords="349,798,504,851"/>
+<area shape="poly" id="edge20_Node000017_Node000021" title=" " alt="" coords="519,818,736,800,778,796,774,799,736,805,521,822"/>
+<area shape="rect" id="Node000022" href="$structtile__compile_1_1config_1_1LumaDenoiseConfig_1_1BilateralConfig.html" title=" " alt="" coords="349,876,504,928"/>
+<area shape="poly" id="edge21_Node000017_Node000022" title=" " alt="" coords="519,890,624,871,735,842,777,824,818,804,814,808,780,829,737,847,625,877,521,894"/>
+<area shape="rect" id="Node000023" href="$structtile__compile_1_1config_1_1GlobalMetricsConfig.html" title=" " alt="" coords="776,875,923,913"/>
+<area shape="poly" id="edge22_Node000001_Node000023" title=" " alt="" coords="924,867,1118,804,1114,808,926,872"/>
+<area shape="rect" id="Node000024" href="$structtile__compile_1_1config_1_1GlobalMetricsConfig_1_1Weights.html" title=" " alt="" coords="353,953,500,1006"/>
+<area shape="poly" id="edge23_Node000023_Node000024" title=" " alt="" coords="514,979,622,972,679,964,735,951,779,933,821,912,817,916,782,938,737,956,680,969,622,978,517,984"/>
+<area shape="rect" id="Node000025" href="$structtile__compile_1_1config_1_1ReconstructionConfig.html" title=" " alt="" coords="772,1169,927,1208"/>
+<area shape="poly" id="edge24_Node000001_Node000025" title=" " alt="" coords="875,1155,1158,808,1162,804,878,1159"/>
+<area shape="rect" id="Node000026" href="$structtile__compile_1_1config_1_1ReconstructionDiagnosticsConfig.html" title=" " alt="" coords="334,1030,520,1083"/>
+<area shape="poly" id="edge25_Node000025_Node000026" title=" " alt="" coords="534,1061,635,1077,687,1090,737,1108,788,1136,829,1169,824,1169,785,1140,735,1113,685,1095,634,1082,536,1066"/>
+<area shape="rect" id="Node000027" href="$structtile__compile_1_1config_1_1ReconstructionDrizzleConfig.html" title=" " alt="" coords="329,1107,524,1145"/>
+<area shape="poly" id="edge26_Node000025_Node000027" title=" " alt="" coords="539,1133,636,1143,736,1158,777,1168,772,1170,736,1163,635,1148,541,1138"/>
+<area shape="rect" id="Node000028" href="$structtile__compile_1_1config_1_1ReconstructionClippingConfig.html" title=" " alt="" coords="326,1169,528,1208"/>
+<area shape="poly" id="edge27_Node000025_Node000028" title=" " alt="" coords="542,1186,775,1187,770,1190,544,1191"/>
+<area shape="rect" id="Node000029" href="$structtile__compile_1_1config_1_1ReconstructionCoverageGateConfig.html" title=" " alt="" coords="327,1232,526,1284"/>
+<area shape="poly" id="edge28_Node000025_Node000029" title=" " alt="" coords="541,1243,736,1214,775,1207,770,1210,736,1219,543,1248"/>
+<area shape="rect" id="Node000030" href="$structtile__compile_1_1config_1_1ReconstructionQualityConfig.html" title=" " alt="" coords="329,1308,524,1347"/>
+<area shape="poly" id="edge29_Node000025_Node000030" title=" " alt="" coords="539,1328,589,1323,640,1312,690,1294,734,1267,743,1256,746,1244,749,1231,758,1218,777,1207,773,1210,762,1221,754,1233,751,1246,748,1259,738,1272,692,1299,642,1317,590,1328,541,1333"/>
+<area shape="rect" id="Node000031" href="$structtile__compile_1_1config_1_1ReconstructionQualityPyramidConfig.html" title=" " alt="" coords="5,1301,211,1354"/>
+<area shape="poly" id="edge30_Node000030_Node000031" title=" " alt="" coords="225,1325,331,1326,327,1329,228,1330"/>
+<area shape="rect" id="Node000032" href="$structtile__compile_1_1config_1_1ReconstructionMultibandConfig.html" title=" " alt="" coords="322,1371,532,1409"/>
+<area shape="poly" id="edge31_Node000025_Node000032" title=" " alt="" coords="547,1405,597,1405,647,1397,694,1381,734,1353,746,1338,750,1322,747,1289,743,1254,747,1236,758,1218,770,1211,774,1207,762,1221,752,1238,748,1254,752,1289,756,1323,751,1340,738,1357,696,1385,648,1402,597,1410,548,1411"/>
+<area shape="rect" id="Node000033" href="$structtile__compile_1_1config_1_1ReconstructionMultibandValidationConfig.html" title=" " alt="" coords="313,1433,541,1486"/>
+<area shape="poly" id="edge32_Node000025_Node000033" title=" " alt="" coords="556,1482,604,1482,651,1476,696,1461,734,1434,743,1418,748,1393,747,1329,746,1264,749,1238,758,1218,770,1210,774,1207,762,1221,754,1239,751,1265,752,1329,753,1394,748,1420,738,1438,698,1466,653,1481,604,1488,557,1487"/>
+<area shape="rect" id="Node000034" href="$structtile__compile_1_1config_1_1AstrometryConfig.html" title=" " alt="" coords="783,1232,916,1271"/>
+<area shape="poly" id="edge33_Node000001_Node000034" title=" " alt="" coords="929,1223,938,1217,987,1185,1022,1156,1052,1122,1084,1074,1120,1000,1145,924,1161,855,1172,808,1174,804,1167,856,1150,925,1125,1002,1089,1076,1056,1125,1026,1160,990,1189,941,1222,931,1227"/>
+<area shape="rect" id="Node000035" href="$structtile__compile_1_1config_1_1BGEConfig.html" title=" " alt="" coords="783,1349,916,1388"/>
+<area shape="poly" id="edge34_Node000001_Node000035" title=" " alt="" coords="926,1341,968,1322,1011,1297,1051,1266,1084,1229,1102,1194,1118,1145,1144,1020,1161,894,1173,808,1175,804,1167,895,1149,1021,1123,1146,1107,1196,1089,1232,1054,1270,1014,1302,970,1327,928,1346"/>
+<area shape="rect" id="Node000036" href="$structtile__compile_1_1config_1_1BGEConfig_1_1AutoDetectConfig.html" title=" " alt="" coords="324,1509,530,1548"/>
+<area shape="poly" id="edge35_Node000035_Node000036" title=" " alt="" coords="524,1548,578,1553,634,1550,687,1537,712,1525,734,1509,744,1497,749,1485,747,1457,745,1428,748,1413,758,1398,781,1384,785,1381,762,1401,753,1415,750,1428,752,1457,754,1485,749,1499,738,1513,715,1529,689,1542,635,1555,578,1558,525,1554"/>
+<area shape="rect" id="Node000037" href="$structtile__compile_1_1config_1_1BGEConfig_1_1AutoBGEConfig.html" title=" " alt="" coords="330,1572,524,1611"/>
+<area shape="poly" id="edge36_Node000035_Node000037" title=" " alt="" coords="539,1600,598,1603,655,1602,703,1595,721,1589,734,1581,750,1561,756,1540,754,1518,749,1495,743,1471,740,1447,744,1423,758,1398,780,1384,785,1381,762,1401,749,1424,746,1447,748,1471,754,1494,759,1517,761,1540,755,1563,738,1585,724,1594,705,1600,656,1607,598,1608,540,1606"/>
+<area shape="rect" id="Node000038" href="$structtile__compile_1_1config_1_1PCCConfig.html" title=" " alt="" coords="783,1412,916,1451"/>
+<area shape="poly" id="edge37_Node000001_Node000038" title=" " alt="" coords="931,1423,972,1414,1013,1400,1052,1379,1084,1350,1097,1332,1108,1307,1128,1243,1143,1165,1154,1080,1168,917,1174,808,1176,804,1173,917,1160,1081,1148,1166,1133,1244,1113,1309,1102,1334,1088,1354,1055,1384,1015,1405,973,1419,932,1428"/>
+<area shape="rect" id="Node000039" href="$structtile__compile_1_1config_1_1HyperMetricStretchConfig.html" title=" " alt="" coords="760,1585,939,1624"/>
+<area shape="poly" id="edge38_Node000001_Node000039" title=" " alt="" coords="916,1576,959,1554,1006,1524,1049,1488,1084,1444,1107,1389,1126,1312,1141,1220,1153,1120,1167,931,1174,808,1176,804,1172,932,1158,1121,1147,1220,1131,1313,1112,1391,1089,1447,1053,1491,1009,1529,962,1558,918,1581"/>
+<area shape="rect" id="Node000040" href="$structtile__compile_1_1config_1_1HyperMetricStretchConfig_1_1LocalContrastConfig.html" title=" " alt="" coords="337,1634,516,1687"/>
+<area shape="poly" id="edge39_Node000039_Node000040" title=" " alt="" coords="532,1659,631,1654,735,1640,789,1626,794,1624,737,1645,632,1659,533,1664"/>
+<area shape="rect" id="Node000041" href="$structtile__compile_1_1config_1_1HyperMetricStretchConfig_1_1ColorCastCorrectionConfig.html" title=" " alt="" coords="334,1712,520,1764"/>
+<area shape="poly" id="edge40_Node000039_Node000041" title=" " alt="" coords="535,1742,585,1739,638,1730,689,1713,734,1686,743,1675,746,1662,749,1648,758,1634,773,1626,778,1624,762,1637,754,1650,751,1663,748,1677,738,1690,691,1718,639,1735,586,1744,535,1748"/>
+<area shape="rect" id="Node000042" href="$structtile__compile_1_1config_1_1HyperMetricStretchConfig_1_1LargeScaleContrastConfig.html" title=" " alt="" coords="336,1789,518,1842"/>
+<area shape="poly" id="edge41_Node000039_Node000042" title=" " alt="" coords="534,1826,586,1825,640,1817,690,1799,713,1786,734,1769,746,1754,750,1738,747,1705,743,1670,747,1652,758,1634,770,1626,774,1624,762,1637,752,1654,748,1670,752,1704,755,1739,750,1756,738,1773,716,1790,693,1804,641,1822,586,1831,534,1832"/>
+<area shape="rect" id="Node000043" href="$structtile__compile_1_1config_1_1StackingConfig.html" title=" " alt="" coords="783,1648,916,1687"/>
+<area shape="poly" id="edge42_Node000001_Node000043" title=" " alt="" coords="931,1656,972,1646,1014,1630,1052,1608,1084,1577,1101,1549,1116,1513,1139,1420,1155,1308,1166,1186,1174,955,1175,808,1177,804,1179,955,1171,1187,1161,1308,1144,1421,1121,1515,1106,1552,1088,1580,1056,1612,1016,1635,974,1651,932,1661"/>
+<area shape="rect" id="Node000044" href="$structtile__compile_1_1config_1_1RuntimeLimitsConfig.html" title=" " alt="" coords="774,1711,925,1749"/>
+<area shape="poly" id="edge43_Node000001_Node000044" title=" " alt="" coords="941,1731,980,1727,1018,1717,1054,1701,1084,1676,1095,1657,1105,1625,1122,1530,1137,1405,1149,1263,1165,985,1174,808,1176,804,1171,986,1154,1264,1142,1405,1128,1531,1110,1626,1100,1659,1088,1679,1057,1705,1020,1722,980,1732,942,1737"/>
 </map>

@@ -1,0 +1,5 @@
+<map id="tile_compile::reconstruction::FrameSamplingTransform" name="tile_compile::reconstruction::FrameSamplingTransform">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,114,186,153"/>
+<area shape="rect" id="Node000002" href="$structtile__compile_1_1registration_1_1SmoothLocalWarpModel.html" title=" " alt="" coords="10,5,181,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="98,58,98,114,93,113,93,61"/>
+</map>

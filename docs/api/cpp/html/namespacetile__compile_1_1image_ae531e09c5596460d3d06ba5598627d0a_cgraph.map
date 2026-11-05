@@ -1,7 +1,13 @@
 <map id="tile_compile::image::build_bge_candidate_prep" name="tile_compile::image::build_bge_candidate_prep">
-<area shape="rect" id="Node000001" title="Builds bge candidate prep." alt="" coords="5,40,186,79"/>
+<area shape="rect" id="Node000001" title="Builds bge candidate prep." alt="" coords="5,75,186,113"/>
 <area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#ac6185700f54db43972b8b61c3402fa6b" title="Implements aggregate to coarse grid." alt="" coords="234,5,413,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="185,43,218,38,219,43,186,48"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#af093b316187a1c2ecf52779571c32ed4" title="Implements deterministic split indices." alt="" coords="256,68,390,120"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="186,70,241,79,240,84,185,76"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="160,72,245,48,240,51,162,77"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1image.html#af093b316187a1c2ecf52779571c32ed4" title="Implements deterministic split indices." alt="" coords="256,68,390,120"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="185,91,243,93,238,95,186,97"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1image.html#a55c8764df02d0983fb47ed0cd0f23207" title=" " alt="" coords="240,144,407,183"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="162,111,245,138,240,140,161,117"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#ad3f5e136e6d82258715560a4a6ab6329" title=" " alt="" coords="461,5,584,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="413,22,448,24,443,25,414,27"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#af1361dab041db5d25f27d0f01d6075d2" title="Implements median of." alt="" coords="632,5,756,44"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="585,22,619,24,614,25,585,27"/>
 </map>

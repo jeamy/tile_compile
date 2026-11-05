@@ -1,0 +1,18 @@
+<map id="tile_compile::reconstruction::compute_global_quality_weights" name="tile_compile::reconstruction::compute_global_quality_weights">
+<area shape="rect" id="Node000001" title=" " alt="" coords="767,44,947,97"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#a1a0a76b48fd4abf5ba6b240d7bf846bc" title=" " alt="" coords="538,5,719,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="749,53,719,50,719,44,754,52"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#ade3c31245f340c5fca9d85fc5726d99f" title=" " alt="" coords="538,83,719,135"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="754,88,720,96,719,91,749,89"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1reconstruction.html#a396ec6e41906daa25f886f0226f7f6bc" title=" " alt="" coords="310,44,490,97"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="520,91,491,88,491,83,526,91"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1runner.html#acc0d4679841a580552249bbcb25ec183" title=" " alt="" coords="329,121,471,174"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="526,126,472,138,472,133,520,127"/>
+<area shape="rect" id="Node000006" href="$runner__forward__drizzle_8cpp.html#a9ffae5ca00a8665a15ced17d948fd1ae" title=" " alt="" coords="103,100,262,139"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="311,137,262,133,262,127,316,136"/>
+<area shape="rect" id="Node000008" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="105,163,260,188"/>
+<area shape="poly" id="edge7_Node000005_Node000008" title=" " alt="" coords="316,159,260,168,260,163,311,159"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,135,55,160"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="85,139,56,146,54,141,90,136"/>
+<area shape="poly" id="edge8_Node000008_Node000007" title=" " alt="" coords="95,161,55,155,55,149,99,158"/>
+</map>

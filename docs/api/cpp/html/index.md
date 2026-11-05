@@ -24,9 +24,9 @@ choco install doxygen.portable graphviz
 
 ## Output
 
-HTML documentation is generated to `doc/api/cpp/html/`.
+HTML documentation is generated to `docs/api/cpp/html/`.
 
-Open `doc/api/cpp/html/index.html` in a browser.
+Open `docs/api/cpp/html/index.html` in a browser.
 
 ## Coverage
 
@@ -37,4 +37,4 @@ Open `doc/api/cpp/html/index.html` in a browser.
 Key namespaces:
 - `tile_compile::core` — pipeline phases
 - `tile_compile::registration` — alignment
-- `tile_compile::reconstruction` — tile-based reconstruction
+- `tile_compile::reconstruction` — CFA forward drizzle, quality maps, and multiband fusion

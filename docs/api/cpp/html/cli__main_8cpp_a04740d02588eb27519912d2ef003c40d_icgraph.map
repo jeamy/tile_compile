@@ -1,0 +1,5 @@
+<map id="cmd_migrate_config" name="cmd_migrate_config">
+<area shape="rect" id="Node000001" title="Applies the single&#45;method legacy config migration (plan section 6.5) to an input YAML and writes the ..." alt="" coords="103,5,241,30"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,5,55,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="84,18,55,20,55,15,90,17"/>
+</map>

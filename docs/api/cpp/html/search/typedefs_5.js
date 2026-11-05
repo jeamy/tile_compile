@@ -1,6 +1,4 @@
 var searchData=
 [
-  ['vectorxd_0',['VectorXd',['../namespacetile__compile.html#a951ee4c8e2e86acaddfe2278905a229c',1,'tile_compile']]],
-  ['vectorxf_1',['VectorXf',['../namespacetile__compile.html#a3c8054a54e79188c7a7a042f3769b3c8',1,'tile_compile']]],
-  ['vectorxi_2',['VectorXi',['../namespacetile__compile.html#a16b120d89ae5baefe5ce17f2229f669d',1,'tile_compile']]]
+  ['json_0',['json',['../namespacetile__compile_1_1reconstruction.html#a9be3bb4db6b5967d46112974ab42581d',1,'tile_compile::reconstruction::json'],['../namespacetile__compile_1_1registration.html#a1a8f99ec031852e145951edb24eda4b9',1,'tile_compile::registration::json'],['../namespacetile__compile_1_1core.html#a0eedf0ef2ad50fda50afda8a48bfe601',1,'tile_compile::core::json'],['../namespacetile__compile_1_1runner.html#a0eedf0ef2ad50fda50afda8a48bfe601',1,'tile_compile::runner::json']]]
 ];

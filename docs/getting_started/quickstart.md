@@ -9,9 +9,9 @@ Download from [GitHub Releases](https://github.com/jeamy/tile_compile/releases):
 ```bash
 # Linux (GUI3 with web interface)
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-linux-v0.3.9.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-linux-v0.5.1.zip
 unzip tile_compile.zip
-cd tile_compile_gui3-linux-v0.3.9
+cd tile_compile_gui3-linux-v0.5.1
 
 # Start GUI3 (browser opens automatically)
 ./start_gui3.sh  # http://127.0.0.1:8080/ui/

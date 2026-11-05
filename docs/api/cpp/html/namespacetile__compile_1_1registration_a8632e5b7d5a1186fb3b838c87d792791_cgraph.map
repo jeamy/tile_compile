@@ -1,15 +1,17 @@
 <map id="tile_compile::registration::try_astrometric_rescue_from_paths" name="tile_compile::registration::try_astrometric_rescue_from_paths">
-<area shape="rect" id="Node000001" title="Implements try astrometric rescue from paths." alt="" coords="5,148,169,200"/>
+<area shape="rect" id="Node000001" title="Implements try astrometric rescue from paths." alt="" coords="5,180,169,232"/>
 <area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a00335e03bcc56984bbced1cc964ef769" title="Applies warp." alt="" coords="218,5,380,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="110,145,156,99,215,53,222,49,225,54,218,58,159,103,113,149"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="102,178,149,116,180,83,215,53,224,50,220,54,218,57,184,86,153,120,107,181"/>
 <area shape="rect" id="Node000003" href="$namespacetile__compile_1_1registration.html#af799f6cbe7b272aa9ae6c48915360aa6" title="Computes ncc masked." alt="" coords="218,92,380,131"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="168,147,217,133,218,138,170,153"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="137,177,216,140,231,135,227,138,218,144,141,181"/>
 <area shape="rect" id="Node000004" href="$namespacetile__compile_1_1registration.html#a80a96e86e068158d1e820df508631b0a" title="Implements shell quote." alt="" coords="218,155,380,193"/>
-<area shape="poly" id="edge4_Node000001_Node000004" title=" " alt="" coords="169,171,203,171,203,177,169,177"/>
-<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1registration.html#aaedc5684f1f2262d26e5754008969a32" title="Implements warp valid mask." alt="" coords="218,241,380,280"/>
-<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="155,198,237,233,235,238,153,203"/>
-<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1registration.html#a26a6b18def61c6c9ee021897840f83f8" title="Implements wcs to similarity warp." alt="" coords="217,304,382,343"/>
-<area shape="poly" id="edge7_Node000001_Node000006" title=" " alt="" coords="114,199,160,244,218,289,227,294,225,299,215,294,156,248,110,203"/>
-<area shape="poly" id="edge3_Node000003_Node000003" title=" " alt="" coords="260,93,257,82,263,73,277,67,299,65,323,68,337,74,334,79,321,73,299,71,279,73,267,77,262,83,265,91"/>
-<area shape="poly" id="edge6_Node000005_Node000005" title=" " alt="" coords="260,242,257,232,263,223,277,217,299,215,323,217,337,224,334,228,321,222,299,220,279,222,267,227,262,233,265,240"/>
+<area shape="poly" id="edge4_Node000001_Node000004" title=" " alt="" coords="168,191,205,187,201,190,170,196"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1registration.html#af84fa8d8606e5d3d8b8564ff37a0c108" title=" " alt="" coords="218,217,380,256"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="168,215,205,222,200,224,169,220"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1registration.html#aaedc5684f1f2262d26e5754008969a32" title="Implements warp valid mask." alt="" coords="218,304,380,343"/>
+<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="137,230,252,295,247,297,136,236"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1registration.html#a26a6b18def61c6c9ee021897840f83f8" title="Implements wcs to similarity warp." alt="" coords="217,367,382,405"/>
+<area shape="poly" id="edge8_Node000001_Node000007" title=" " alt="" coords="106,230,153,291,184,323,218,352,227,359,222,358,215,356,180,327,149,294,104,235"/>
+<area shape="poly" id="edge3_Node000003_Node000003" title=" " alt="" coords="260,91,257,82,263,73,277,67,299,65,323,68,338,76,333,77,321,73,299,71,279,73,267,77,262,83,265,92"/>
+<area shape="poly" id="edge7_Node000006_Node000006" title=" " alt="" coords="260,303,257,294,263,285,277,279,299,277,323,280,338,289,333,289,321,285,299,283,279,285,267,289,262,295,265,305"/>
 </map>

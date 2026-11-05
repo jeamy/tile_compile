@@ -1,0 +1,5 @@
+<map id="tile_compile::reconstruction::ForwardDrizzleV2FusionStats" name="tile_compile::reconstruction::ForwardDrizzleV2FusionStats">
+<area shape="rect" id="Node000001" title=" " alt="" coords="18,114,221,153"/>
+<area shape="rect" id="Node000002" href="$structtile__compile_1_1reconstruction_1_1ForwardDrizzleV2AlphaDiagnostic.html" title=" " alt="" coords="5,5,234,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="122,58,122,114,117,113,117,61"/>
+</map>

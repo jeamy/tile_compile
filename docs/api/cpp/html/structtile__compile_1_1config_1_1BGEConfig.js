@@ -1,6 +1,10 @@
 var structtile__compile_1_1config_1_1BGEConfig =
 [
+    [ "AutoDetectConfig", "structtile__compile_1_1config_1_1BGEConfig_1_1AutoDetectConfig.html", "structtile__compile_1_1config_1_1BGEConfig_1_1AutoDetectConfig" ],
+    [ "AutoBGEConfig", "structtile__compile_1_1config_1_1BGEConfig_1_1AutoBGEConfig.html", "structtile__compile_1_1config_1_1BGEConfig_1_1AutoBGEConfig" ],
     [ "alpha_flatness", "structtile__compile_1_1config_1_1BGEConfig.html#ae109dc7c54aff0c94e743d2ffc1d45e8", null ],
+    [ "auto_detect", "structtile__compile_1_1config_1_1BGEConfig.html#a70d5ab097d31e283665ceb4d931de77f", null ],
+    [ "autobge", "structtile__compile_1_1config_1_1BGEConfig.html#ae79a4b8917bf9d0d137c045f687783cb", null ],
     [ "autotune", "structtile__compile_1_1config_1_1BGEConfig.html#a6c8f3c776a4211ca246f9d8f09456ad9", null ],
     [ "beta_roughness", "structtile__compile_1_1config_1_1BGEConfig.html#a04c4eaf34ef00e7f2080fa931f98925c", null ],
     [ "enabled", "structtile__compile_1_1config_1_1BGEConfig.html#a1375d551ab1cf7b37f48ac492523d463", null ],

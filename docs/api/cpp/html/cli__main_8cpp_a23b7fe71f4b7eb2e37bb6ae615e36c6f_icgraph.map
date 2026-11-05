@@ -1,10 +1,13 @@
 <map id="write_file_text" name="write_file_text">
-<area shape="rect" id="Node000001" title="Writes file text." alt="" coords="291,31,393,55"/>
-<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#a3d88560fc7a740dead44063c0a636221" title="Handles CLI command save config." alt="" coords="112,5,234,30"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="275,36,234,29,235,24,276,30"/>
-<area shape="rect" id="Node000004" href="$cli__main_8cpp.html#aa5f2860acca0ac992bb0672ff2f833ea" title="Handles CLI command save gui state." alt="" coords="103,55,243,79"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="276,55,244,60,243,54,275,50"/>
-<area shape="rect" id="Node000003" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,31,55,55"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="97,34,56,41,55,36,96,29"/>
-<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="87,55,54,50,55,44,88,50"/>
+<area shape="rect" id="Node000001" title=" " alt="" coords="291,55,393,79"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#a04740d02588eb27519912d2ef003c40d" title="Applies the single&#45;method legacy config migration (plan section 6.5) to an input YAML and writes the ..." alt="" coords="104,5,242,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="280,50,218,33,218,28,285,49"/>
+<area shape="rect" id="Node000004" href="$cli__main_8cpp.html#a3d88560fc7a740dead44063c0a636221" title="Handles CLI command save config." alt="" coords="112,55,234,79"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="272,67,235,70,234,64,278,67"/>
+<area shape="rect" id="Node000005" href="$cli__main_8cpp.html#aa5f2860acca0ac992bb0672ff2f833ea" title="Handles CLI command save gui state." alt="" coords="103,104,243,129"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="285,84,218,106,217,101,280,85"/>
+<area shape="rect" id="Node000003" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,55,55,79"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="119,38,56,61,54,56,122,33"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="94,69,56,70,55,64,98,65"/>
+<area shape="poly" id="edge6_Node000005_Node000003" title=" " alt="" coords="118,100,55,78,56,73,123,97"/>
 </map>

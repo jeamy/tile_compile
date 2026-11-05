@@ -1,0 +1,5 @@
+<map id="tile_compile::runner::default_parallel_workers" name="tile_compile::runner::default_parallel_workers">
+<area shape="rect" id="Node000001" title="Determine default parallel workers for CPU bound tasks without memory capping." alt="" coords="200,5,369,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#ae85f7c38567a0561c029bceef47c6798" title=" " alt="" coords="5,5,152,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="181,25,152,27,152,22,187,24"/>
+</map>

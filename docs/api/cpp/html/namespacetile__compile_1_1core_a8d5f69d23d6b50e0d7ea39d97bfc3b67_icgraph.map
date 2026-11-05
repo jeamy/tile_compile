@@ -1,0 +1,17 @@
+<map id="tile_compile::core::stretch_rgb_to_u32_linear_from_zero_inplace" name="tile_compile::core::stretch_rgb_to_u32_linear_from_zero_inplace">
+<area shape="rect" id="Node000001" title=" " alt="" coords="890,29,1061,82"/>
+<area shape="poly" id="edge1_Node000001_Node000001" title=" " alt="" coords="1007,14,996,10,976,8,957,10,946,15,940,21,940,31,936,27,935,19,943,10,956,5,976,3,997,5,1012,15"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#af6fed15a997c635d45ae97f7c982a35d" title="Write a stretched RGB snapshot (used for BGE/PCC intermediate outputs)." alt="" coords="699,29,842,82"/>
+<area shape="poly" id="edge2_Node000001_Node000002" title=" " alt="" coords="872,56,843,58,843,53,877,56"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#a9cf10b9ba59596f74dc7ed96e98f8c9a" title=" " alt="" coords="500,36,651,75"/>
+<area shape="poly" id="edge3_Node000002_Node000003" title=" " alt="" coords="681,56,651,58,651,53,686,56"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1runner.html#acc0d4679841a580552249bbcb25ec183" title=" " alt="" coords="310,29,452,82"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="482,56,453,58,453,53,488,56"/>
+<area shape="rect" id="Node000005" href="$runner__forward__drizzle_8cpp.html#a9ffae5ca00a8665a15ced17d948fd1ae" title=" " alt="" coords="103,8,262,47"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="292,44,262,42,262,36,297,43"/>
+<area shape="rect" id="Node000007" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="105,71,260,96"/>
+<area shape="poly" id="edge7_Node000004_Node000007" title=" " alt="" coords="297,68,260,75,260,70,292,68"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,43,55,68"/>
+<area shape="poly" id="edge6_Node000005_Node000006" title=" " alt="" coords="85,47,56,54,54,49,90,44"/>
+<area shape="poly" id="edge8_Node000007_Node000006" title=" " alt="" coords="95,69,55,63,55,57,99,66"/>
+</map>

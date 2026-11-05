@@ -1,7 +1,17 @@
 <map id="tile_compile::image::apply_global_warp" name="tile_compile::image::apply_global_warp">
-<area shape="rect" id="Node000001" title="Applies global warp." alt="" coords="5,12,142,51"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#afb90e89c53e0e649e24be1e43e890448" title="Applies global warp." alt="" coords="190,12,326,51"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="142,29,174,29,174,34,142,34"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#a9d7ec5b083d20d93e9c2dd8fc077c770" title="Implements warp cfa mosaic via subplanes." alt="" coords="374,5,529,58"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="327,29,359,29,359,34,327,34"/>
+<area shape="rect" id="Node000001" title="Applies global warp." alt="" coords="5,100,142,139"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a1b5ff80e5d6a5efcf1c46a14246b7727" title="Applies global warp." alt="" coords="190,100,326,139"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="141,117,176,118,172,120,143,122"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#a9d7ec5b083d20d93e9c2dd8fc077c770" title="Implements warp cfa mosaic via subplanes." alt="" coords="374,93,529,146"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="326,117,361,119,356,120,327,122"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#abcbb95813a576c2c8d77be9ee29df53a" title=" " alt="" coords="593,5,768,44"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="499,90,576,53,590,51,595,49,578,58,501,95"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1core.html#ac5b7e52b4d95d96bd22725b04124d3d7" title=" " alt="" coords="600,68,761,107"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="529,106,588,100,583,101,530,111"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1core.html#a5bf9abd9ea53f4ff448295b987742814" title=" " alt="" coords="577,131,784,169"/>
+<area shape="poly" id="edge5_Node000003_Node000006" title=" " alt="" coords="530,127,565,134,559,134,530,132"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1core.html#a916b3d4deebbd1306326c1820efa95d0" title=" " alt="" coords="587,193,774,232"/>
+<area shape="poly" id="edge7_Node000003_Node000008" title=" " alt="" coords="504,144,578,178,599,188,594,188,576,183,502,149"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1core.html#acb833c8731beebec2b66aec03c30bbbd" title=" " alt="" coords="832,131,1011,169"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="784,147,819,150,813,150,784,153"/>
 </map>

@@ -18,11 +18,11 @@ Gebrauchsfertige Binaries von [GitHub Releases](https://github.com/jeamy/tile_co
 ```bash
 # Neueste Release herunterladen
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-linux-v0.3.9.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-linux-v0.5.1.zip
 
 # Entpacken
 unzip tile_compile.zip
-cd tile_compile_gui3-linux-v0.3.9
+cd tile_compile_gui3-linux-v0.5.1
 
 # GUI3 starten (Browser öffnet sich automatisch)
 ./start_gui3.sh  # http://127.0.0.1:8080/ui/
@@ -33,11 +33,11 @@ cd tile_compile_gui3-linux-v0.3.9
 ```bash
 # Apple Silicon
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-macos-apple-v0.3.9.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-macos-apple-v0.5.1.zip
 
 # Oder Intel
 curl -L -o tile_compile.zip \
-  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-macos-intel-v0.3.9.zip
+  https://github.com/jeamy/tile_compile/releases/latest/download/tile_compile_gui3-macos-intel-v0.5.1.zip
 
 unzip tile_compile.zip
 cd tile_compile_gui3-macos-*/
@@ -48,7 +48,7 @@ cd tile_compile_gui3-macos-*/
 
 ### Windows
 
-1. `tile_compile_gui3-windows-v0.3.9.zip` herunterladen
+1. `tile_compile_gui3-windows-v0.5.1.zip` herunterladen
 2. An gewünschten Ort entpacken
 3. Ausführen:
    ```cmd

@@ -1,0 +1,19 @@
+<map id="tile_compile::reconstruction::denoise_detail::copy_to_matrix" name="tile_compile::reconstruction::denoise_detail::copy_to_matrix">
+<area shape="rect" id="Node000001" title=" " alt="" coords="944,37,1153,76"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#a4d1cb3baa6c560d9f84a06d0cdd1e194" title=" " alt="" coords="699,5,896,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="926,41,896,40,897,35,931,41"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1reconstruction.html#a9dd72ca36c1ce486a47a64983dd51916" title=" " alt="" coords="706,68,888,107"/>
+<area shape="poly" id="edge8_Node000001_Node000008" title=" " alt="" coords="931,71,889,79,889,74,926,72"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#a9cf10b9ba59596f74dc7ed96e98f8c9a" title=" " alt="" coords="500,37,651,76"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="686,41,651,48,651,43,681,41"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1runner.html#acc0d4679841a580552249bbcb25ec183" title=" " alt="" coords="310,30,452,83"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="482,57,453,59,453,54,488,57"/>
+<area shape="rect" id="Node000005" href="$runner__forward__drizzle_8cpp.html#a9ffae5ca00a8665a15ced17d948fd1ae" title=" " alt="" coords="103,9,262,48"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="292,45,262,43,262,37,297,44"/>
+<area shape="rect" id="Node000007" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="105,72,260,97"/>
+<area shape="poly" id="edge6_Node000004_Node000007" title=" " alt="" coords="297,68,260,76,260,71,292,69"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,44,55,69"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="85,48,56,55,54,50,90,44"/>
+<area shape="poly" id="edge7_Node000007_Node000006" title=" " alt="" coords="95,71,55,64,55,58,99,67"/>
+<area shape="poly" id="edge9_Node000008_Node000003" title=" " alt="" coords="688,72,651,70,651,64,693,73"/>
+</map>
