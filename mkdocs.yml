@@ -3,6 +3,8 @@ site_url: https://jeamy.github.io/tile_compile/
 docs_dir: docs
 exclude_docs: |
   api/cpp/html/index\.html
+  api/cpp/html/*.map
+  api/cpp/html/*.md5
 theme:
   name: material
   palette:
