@@ -1,7 +1,0 @@
-<map id="tile_compile::runner::load_canvas_mask_for_rgb" name="tile_compile::runner::load_canvas_mask_for_rgb">
-<area shape="rect" id="Node000001" title="Loads canvas mask for rgb." alt="" coords="5,5,193,44"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#a32e818526043c7039bfdc47015846207" title="Loads canvas mask fits." alt="" coords="241,5,406,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="193,22,228,25,222,25,193,27"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1io.html#a7af72ae3826370803e912d70fcef995b" title="Reads fits pixels float." alt="" coords="454,5,595,44"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="407,22,441,25,436,25,407,27"/>
-</map>

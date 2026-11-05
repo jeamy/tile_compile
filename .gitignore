@@ -119,3 +119,6 @@ web_backend/runtime/*.jsonl
 
 # Backend persisted allowed roots
 .allowed_roots
+
+# Doxygen C++ API output (generate locally: cd tile_compile_cpp && doxygen Doxyfile)
+docs/api/cpp/html/

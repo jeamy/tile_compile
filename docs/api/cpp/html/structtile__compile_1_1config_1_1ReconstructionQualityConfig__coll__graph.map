@@ -1,5 +1,0 @@
-<map id="tile_compile::config::ReconstructionQualityConfig" name="tile_compile::config::ReconstructionQualityConfig">
-<area shape="rect" id="Node000001" title=" " alt="" coords="10,128,206,167"/>
-<area shape="rect" id="Node000002" href="$structtile__compile_1_1config_1_1ReconstructionQualityPyramidConfig.html" title=" " alt="" coords="5,5,211,58"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="110,72,111,128,105,127,106,76"/>
-</map>

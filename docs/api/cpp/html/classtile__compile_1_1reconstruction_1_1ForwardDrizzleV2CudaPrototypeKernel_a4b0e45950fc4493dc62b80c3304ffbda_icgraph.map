@@ -1,7 +1,0 @@
-<map id="tile_compile::reconstruction::ForwardDrizzleV2CudaPrototypeKernel::ForwardDrizzleV2CudaPrototypeKernel" name="tile_compile::reconstruction::ForwardDrizzleV2CudaPrototypeKernel::ForwardDrizzleV2CudaPrototypeKernel">
-<area shape="rect" id="Node000001" title=" " alt="" coords="310,44,566,97"/>
-<area shape="rect" id="Node000002" href="$classtile__compile_1_1reconstruction_1_1ForwardDrizzleV2CudaPrototypeKernel.html#a6c55a4fd7914c65a368882a7861379df" title=" " alt="" coords="5,5,262,58"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="291,52,262,51,262,45,297,52"/>
-<area shape="rect" id="Node000003" href="$classtile__compile_1_1reconstruction_1_1ForwardDrizzleV2CudaPrototypeKernel.html#ae727384c1d97ea3e36f9d72b30012bc7" title=" " alt="" coords="5,83,262,135"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="291,89,262,95,261,90,297,88"/>
-</map>

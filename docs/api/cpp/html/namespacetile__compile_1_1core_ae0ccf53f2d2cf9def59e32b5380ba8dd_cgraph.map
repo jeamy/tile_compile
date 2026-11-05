@@ -1,9 +1,0 @@
-<map id="tile_compile::core::build_info_json" name="tile_compile::core::build_info_json">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,37,129,76"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#a39b756346478dc5193b4f601784c11c8" title=" " alt="" coords="177,5,346,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="128,44,164,40,159,42,130,49"/>
-<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#aeff08c84565530f6703f02d450878f65" title=" " alt="" coords="177,68,347,107"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="129,64,164,71,159,72,129,69"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#a29fa3c83dd065be84136a46aafacc717" title="Implements sha256 file." alt="" coords="395,5,518,44"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="347,22,382,24,377,25,347,27"/>
-</map>

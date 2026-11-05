@@ -1,9 +1,0 @@
-<map id="tile_compile::registration::serialize_to_json_string" name="tile_compile::registration::serialize_to_json_string">
-<area shape="rect" id="Node000001" title=" " alt="" coords="523,5,688,44"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a74e16ca8c0ec39e904b71a8bb19e5e3f" title=" " alt="" coords="310,5,475,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="505,25,476,27,476,22,511,25"/>
-<area shape="rect" id="Node000003" href="$runner__forward__drizzle_8cpp.html#a9ffae5ca00a8665a15ced17d948fd1ae" title=" " alt="" coords="103,5,262,44"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="292,25,263,27,262,22,297,25"/>
-<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,12,55,37"/>
-<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="85,26,55,27,55,22,90,24"/>
-</map>

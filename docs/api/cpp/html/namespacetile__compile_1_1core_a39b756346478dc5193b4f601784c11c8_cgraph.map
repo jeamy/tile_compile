@@ -1,5 +1,0 @@
-<map id="tile_compile::core::binary_provenance_json" name="tile_compile::core::binary_provenance_json">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,5,175,44"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#a29fa3c83dd065be84136a46aafacc717" title="Implements sha256 file." alt="" coords="223,5,346,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="175,22,210,24,204,25,175,27"/>
-</map>

@@ -1,8 +1,0 @@
-<map id="tile_compile::image::debayer_bilinear_into" name="tile_compile::image::debayer_bilinear_into">
-<area shape="rect" id="Node000001" title="Implements debayer bilinear into." alt="" coords="187,37,337,76"/>
-<area shape="poly" id="edge3_Node000001_Node000001" title=" " alt="" coords="291,22,281,18,262,16,244,18,233,23,229,29,231,38,226,36,224,28,229,19,242,13,262,11,283,13,297,22"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#ab7590241de323d0666f3803b163ad247" title="Implements debayer bilinear." alt="" coords="5,5,139,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="169,42,139,39,139,33,174,41"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#a4a030494fe78c24bbc4fad8068d72416" title="Implements debayer bilinear." alt="" coords="5,68,139,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="169,72,139,79,138,74,174,71"/>
-</map>

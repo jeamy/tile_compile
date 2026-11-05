@@ -1,7 +1,0 @@
-<map id="tile_compile::runner::DiskCacheFrameStore::cols" name="tile_compile::runner::DiskCacheFrameStore::cols">
-<area shape="rect" id="Node000001" title="Stored frame column count." alt="" coords="215,47,408,86"/>
-<area shape="rect" id="Node000002" href="$classtile__compile_1_1runner_1_1DiskCacheFrameStore.html#a79c5d4231ceb531a3e2f7f57df6d52fb" title=" " alt="" coords="5,5,167,58"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="197,50,167,47,167,41,202,49"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#ae85f7c38567a0561c029bceef47c6798" title=" " alt="" coords="13,82,159,120"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="197,84,160,92,159,87,202,83"/>
-</map>

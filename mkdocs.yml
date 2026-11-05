@@ -2,9 +2,7 @@ site_name: tile_compile
 site_url: https://jeamy.github.io/tile_compile/
 docs_dir: docs
 exclude_docs: |
-  api/cpp/html/index\.html
-  api/cpp/html/*.map
-  api/cpp/html/*.md5
+  api/cpp/html/
 theme:
   name: material
   palette:
@@ -139,7 +137,7 @@ nav:
     - Calibration & External Tools: reference/calibration.md
     - Project Structure: reference/project_structure.md
   - API & Development:
-    - C++ API (Doxygen): api/cpp/html/index.md
+    - C++ API (Doxygen): api/cpp/index.md
     - REST API: api/rest/index.md
     - CLI Reference (Getting Started): getting_started/cli_reference.md
   - History & About:

@@ -1,5 +1,0 @@
-<map id="tile_compile::runner::resolve_astap_paths" name="tile_compile::runner::resolve_astap_paths">
-<area shape="rect" id="Node000001" title="Resolve the ASTAP data directory and binary." alt="" coords="5,5,154,44"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#a2f0ea4aa39a96b76caa9f6841e13afa7" title="Resolve an ASTAP CLI binary path across platforms." alt="" coords="202,5,386,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="154,22,189,24,183,25,154,27"/>
-</map>

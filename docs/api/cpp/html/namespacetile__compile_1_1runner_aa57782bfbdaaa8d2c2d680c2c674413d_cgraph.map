@@ -1,7 +1,0 @@
-<map id="tile_compile::runner::build_registration_proxy" name="tile_compile::runner::build_registration_proxy">
-<area shape="rect" id="Node000001" title="Builds registration proxy." alt="" coords="5,37,172,76"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a9aa39996cdd5affe61ec5892e538322d" title="Downsample CFA mosaic using green proxy (half resolution)." alt="" coords="220,5,446,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="172,43,206,41,201,42,173,48"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#ae355d957b0ed10ddc839a8730eaf541e" title=" " alt="" coords="252,68,414,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="172,64,239,75,233,76,172,70"/>
-</map>

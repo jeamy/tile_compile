@@ -1,9 +1,0 @@
-<map id="compute_fits_stats_buffer" name="compute_fits_stats_buffer">
-<area shape="rect" id="Node000001" title="Computes fits stats buffer." alt="" coords="405,5,538,44"/>
-<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#aade1cd59fdd883571a160f1cd0c2142a" title="Implements fits stats file." alt="" coords="258,12,357,37"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="387,25,358,27,358,22,392,25"/>
-<area shape="rect" id="Node000003" href="$cli__main_8cpp.html#a99bbdb1e94c5bf1ad01a4516539ee7fc" title="Handles CLI command fits stats." alt="" coords="103,12,210,37"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="240,25,211,27,210,22,245,25"/>
-<area shape="rect" id="Node000004" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,12,55,37"/>
-<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="85,26,55,27,55,22,89,24"/>
-</map>

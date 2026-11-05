@@ -1,9 +1,0 @@
-<map id="include/tile_compile/reconstruction/source_quality_artifact.hpp" name="include/tile_compile/reconstruction/source_quality_artifact.hpp">
-<area shape="rect" id="Node000001" title=" " alt="" coords="161,5,312,58"/>
-<area shape="rect" id="Node000002" href="$runner__forward__drizzle_8cpp.html" title=" " alt="" coords="5,113,145,152"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="184,66,107,115,104,110,179,67"/>
-<area shape="rect" id="Node000003" href="$forward__drizzle__v2__production_8cpp.html" title=" " alt="" coords="169,106,304,159"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="238,71,239,107,234,104,235,75"/>
-<area shape="rect" id="Node000004" href="$source__quality__artifact_8cpp.html" title=" " alt="" coords="327,113,508,152"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="297,63,386,112,381,113,296,68"/>
-</map>

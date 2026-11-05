@@ -1,9 +1,0 @@
-<map id="tile_compile::reconstruction::MultibandStoreContract" name="tile_compile::reconstruction::MultibandStoreContract">
-<area shape="rect" id="Node000001" title=" " alt="" coords="305,68,485,107"/>
-<area shape="rect" id="Node000002" href="$structtile__compile_1_1reconstruction_1_1AdaptiveAlphaParams.html" title=" " alt="" coords="5,5,186,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="201,41,281,57,319,67,313,68,280,62,201,46"/>
-<area shape="rect" id="Node000003" href="$structtile__compile_1_1reconstruction_1_1EnergyGuardParams.html" title=" " alt="" coords="5,68,186,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="201,85,307,86,302,88,202,90"/>
-<area shape="rect" id="Node000004" href="$structtile__compile_1_1reconstruction_1_1AlphaConfidenceParams.html" title=" " alt="" coords="5,131,186,169"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="201,128,280,112,311,108,316,107,281,117,202,133"/>
-</map>

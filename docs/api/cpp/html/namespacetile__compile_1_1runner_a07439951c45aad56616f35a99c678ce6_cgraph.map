@@ -1,5 +1,0 @@
-<map id="tile_compile::runner::estimate_astap_sensor_fov_deg" name="tile_compile::runner::estimate_astap_sensor_fov_deg">
-<area shape="rect" id="Node000001" title="Estimate the optical image&#45;height FOV for ASTAP from original frame height and FITS focal/pixel&#45;size ..." alt="" coords="5,5,170,58"/>
-<area shape="rect" id="Node000002" href="$structtile__compile_1_1io_1_1FitsHeader.html#af0865328a168380616b932bd43c6c9bb" title="Implements get double." alt="" coords="218,12,398,51"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="170,29,205,31,199,32,170,34"/>
-</map>

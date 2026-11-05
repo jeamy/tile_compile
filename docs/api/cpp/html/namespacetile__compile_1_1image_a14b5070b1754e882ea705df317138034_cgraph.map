@@ -1,6 +1,0 @@
-<map id="tile_compile::image::debayer_nearest_neighbor" name="tile_compile::image::debayer_nearest_neighbor">
-<area shape="rect" id="Node000001" title="Implements debayer nearest neighbor." alt="" coords="5,29,186,68"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a071546b145688978daa64ac067df5b96" title="Implements debayer nearest neighbor into." alt="" coords="234,29,442,68"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="186,46,221,48,215,49,186,51"/>
-<area shape="poly" id="edge2_Node000002_Node000002" title=" " alt="" coords="293,28,290,20,297,10,313,5,338,3,364,5,382,14,376,14,363,10,338,8,314,10,300,15,295,21,298,30"/>
-</map>

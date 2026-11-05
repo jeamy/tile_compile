@@ -1,7 +1,0 @@
-<map id="tile_compile::image::aggregate_to_coarse_grid" name="tile_compile::image::aggregate_to_coarse_grid">
-<area shape="rect" id="Node000001" title="Implements aggregate to coarse grid." alt="" coords="5,5,185,44"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#ad3f5e136e6d82258715560a4a6ab6329" title=" " alt="" coords="233,5,356,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="185,22,220,24,215,25,185,27"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#af1361dab041db5d25f27d0f01d6075d2" title="Implements median of." alt="" coords="404,5,527,44"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="356,22,391,25,386,25,357,27"/>
-</map>

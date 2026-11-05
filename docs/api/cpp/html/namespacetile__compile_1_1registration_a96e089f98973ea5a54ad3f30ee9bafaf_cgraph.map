@@ -1,7 +1,0 @@
-<map id="tile_compile::registration::invert_local_source_to_canvas" name="tile_compile::registration::invert_local_source_to_canvas">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,37,213,76"/>
-<area shape="rect" id="Node000002" href="$structtile__compile_1_1reconstruction_1_1geomstats_1_1Registry.html#a7fb244b07fabb8a2bab96cd8cd71d15a" title=" " alt="" coords="261,5,441,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="213,40,248,38,243,39,214,46"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction_1_1geomstats.html#a764a64f056c9fc06ef65f105ef933924" title=" " alt="" coords="261,68,441,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="213,67,248,74,243,74,213,73"/>
-</map>

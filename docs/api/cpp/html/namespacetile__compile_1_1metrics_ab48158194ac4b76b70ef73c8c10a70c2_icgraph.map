@@ -1,9 +1,0 @@
-<map id="tile_compile::metrics::linearity_thresholds_for" name="tile_compile::metrics::linearity_thresholds_for">
-<area shape="rect" id="Node000001" title="Implements linearity thresholds for." alt="" coords="518,5,682,44"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#a529fda1329b6f428cbb6a828abffe4d4" title="Validates linearity frame." alt="" coords="305,5,470,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="500,25,471,27,471,22,506,25"/>
-<area shape="rect" id="Node000003" href="$runner__pipeline_8cpp.html#a5b5fc63d2d2ed431b6cbd857e83bb06f" title="Runs pipeline command." alt="" coords="103,12,257,37"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="287,25,257,27,257,22,292,25"/>
-<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,12,55,37"/>
-<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="85,26,55,27,55,22,90,24"/>
-</map>

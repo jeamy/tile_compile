@@ -1,9 +1,0 @@
-<map id="tile_compile::io::write_fits_float_rows" name="tile_compile::io::write_fits_float_rows">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,37,150,76"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1io.html#a03cc92f5c63f4b9918465555fbbc7d51" title="Writes fits float." alt="" coords="198,37,342,76"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="150,54,185,56,180,57,150,59"/>
-<area shape="rect" id="Node000003" href="$classtile__compile_1_1core_1_1AtomicOutput.html#a016cfea9ad01ca8e8b22c1b26a0e2512" title=" " alt="" coords="390,5,550,44"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="342,42,377,39,372,40,343,48"/>
-<area shape="rect" id="Node000004" href="$classtile__compile_1_1core_1_1AtomicOutput.html#a5a575a83894433e513dd9748b172f7ed" title=" " alt="" coords="399,68,541,107"/>
-<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="343,65,387,74,381,74,342,70"/>
-</map>

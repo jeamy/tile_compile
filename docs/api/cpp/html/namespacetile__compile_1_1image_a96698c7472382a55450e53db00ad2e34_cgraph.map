@@ -1,7 +1,0 @@
-<map id="tile_compile::image::solve_rbf_model" name="tile_compile::image::solve_rbf_model">
-<area shape="rect" id="Node000001" title="Implements solve rbf model." alt="" coords="5,5,139,44"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#ad3f5e136e6d82258715560a4a6ab6329" title=" " alt="" coords="187,5,310,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="139,22,174,24,169,25,139,27"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#af1361dab041db5d25f27d0f01d6075d2" title="Implements median of." alt="" coords="358,5,481,44"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="310,22,345,25,340,25,311,27"/>
-</map>

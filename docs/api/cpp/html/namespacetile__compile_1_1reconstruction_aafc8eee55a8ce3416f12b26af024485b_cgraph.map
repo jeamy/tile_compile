@@ -1,9 +1,0 @@
-<map id="tile_compile::reconstruction::publish_normalized_source_manifest" name="tile_compile::reconstruction::publish_normalized_source_manifest">
-<area shape="rect" id="Node000001" title=" " alt="" coords="5,30,191,83"/>
-<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#ad36cabee6f07e00eee8a6c15d9d66755" title="Writes text." alt="" coords="239,37,371,76"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="191,54,226,56,221,57,192,59"/>
-<area shape="rect" id="Node000003" href="$classtile__compile_1_1core_1_1AtomicOutput.html#a016cfea9ad01ca8e8b22c1b26a0e2512" title=" " alt="" coords="419,5,579,44"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="371,43,401,41,406,40,372,48"/>
-<area shape="rect" id="Node000004" href="$classtile__compile_1_1core_1_1AtomicOutput.html#a5a575a83894433e513dd9748b172f7ed" title=" " alt="" coords="428,68,570,107"/>
-<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="372,64,415,74,410,74,371,70"/>
-</map>

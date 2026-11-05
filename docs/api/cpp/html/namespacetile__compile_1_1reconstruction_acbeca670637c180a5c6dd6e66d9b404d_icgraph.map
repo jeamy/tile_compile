@@ -1,6 +1,0 @@
-<map id="tile_compile::reconstruction::forward_drizzle_v2_profile_reduce" name="tile_compile::reconstruction::forward_drizzle_v2_profile_reduce">
-<area shape="rect" id="Node000001" title=" " alt="" coords="247,29,473,68"/>
-<area shape="poly" id="edge2_Node000001_Node000001" title=" " alt="" coords="401,14,387,10,360,8,335,10,320,15,314,21,317,30,313,28,309,20,317,10,334,5,360,3,388,5,406,14"/>
-<area shape="rect" id="Node000002" href="$classtile__compile_1_1reconstruction_1_1ForwardDrizzleV2CpuKernel.html#a2019987cabfe100b8cb54aa3166fe160" title=" " alt="" coords="5,22,199,75"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="228,49,199,51,199,46,234,48"/>
-</map>

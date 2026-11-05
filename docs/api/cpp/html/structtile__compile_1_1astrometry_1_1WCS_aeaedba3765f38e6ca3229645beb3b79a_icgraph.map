@@ -1,9 +1,0 @@
-<map id="tile_compile::astrometry::WCS::sky_to_pixel" name="tile_compile::astrometry::WCS::sky_to_pixel">
-<area shape="rect" id="Node000001" title=" " alt="" coords="424,37,585,76"/>
-<area shape="rect" id="Node000002" href="$structtile__compile_1_1astrometry_1_1WCS.html#acd2e3ce34417d7e9a407160cb06c6084" title=" " alt="" coords="215,5,376,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="406,42,376,40,376,34,411,42"/>
-<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a237ef970c25463bb423609d9a1db06b4" title="Implements measure stars." alt="" coords="215,68,376,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="411,70,377,78,376,73,406,71"/>
-<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="5,68,167,107"/>
-<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="196,88,167,90,167,85,202,87"/>
-</map>

@@ -1,7 +1,0 @@
-<map id="tile_compile::config::BGEConfig" name="tile_compile::config::BGEConfig">
-<area shape="rect" id="Node000001" title=" " alt="" coords="336,37,469,76"/>
-<area shape="rect" id="Node000002" href="$structtile__compile_1_1config_1_1BGEConfig_1_1AutoDetectConfig.html" title=" " alt="" coords="5,5,212,44"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="227,35,338,49,333,50,227,40"/>
-<area shape="rect" id="Node000003" href="$structtile__compile_1_1config_1_1BGEConfig_1_1AutoBGEConfig.html" title=" " alt="" coords="11,68,206,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="221,82,311,73,333,72,338,72,312,79,222,87"/>
-</map>

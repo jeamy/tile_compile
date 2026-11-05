@@ -1,7 +1,0 @@
-<map id="include/tile_compile/core/pipeline_contract.hpp" name="include/tile_compile/core/pipeline_contract.hpp">
-<area shape="rect" id="Node000001" title=" " alt="" coords="115,5,291,44"/>
-<area shape="rect" id="Node000002" href="$runner__downstream_8cpp.html" title=" " alt="" coords="5,92,198,117"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="169,53,118,94,115,89,164,54"/>
-<area shape="rect" id="Node000003" href="$runner__pipeline_8cpp.html" title=" " alt="" coords="222,92,387,117"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="240,51,292,92,286,91,238,56"/>
-</map>
