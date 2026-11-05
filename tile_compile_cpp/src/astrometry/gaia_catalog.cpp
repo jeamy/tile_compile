@@ -174,6 +174,22 @@ std::string default_siril_gaia_catalog_dir() {
     if (env_dir && env_dir[0] != '\0') return std::string(env_dir);
 
     const std::string subdir = "siril_cat1_healpix8_xpsamp";
+#if defined(_WIN32) || defined(__APPLE__)
+    // Only the Windows/macOS branches below probe several base layouts.
+    auto check = [&](const std::string& base) -> std::string {
+        if (base.empty()) return "";
+        // Try common subdirectory layouts: siril/, tile_compile/, or direct
+        for (const auto& candidate : {
+            base + "/siril/" + subdir,
+            base + "/tile_compile/" + subdir,
+            base + "/" + subdir,
+        }) {
+            if (fs::exists(candidate)) return candidate;
+        }
+        // Return the primary candidate even if it doesn't exist yet (will be checked by caller)
+        return base + "/siril/" + subdir;
+    };
+#endif
 
 #ifdef _WIN32
     // Windows: %LOCALAPPDATA%\siril\siril_cat1_healpix8_xpsamp

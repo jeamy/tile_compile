@@ -36,7 +36,7 @@ inline bool user_reason_codes_valid(const nlohmann::json& catalog, const std::st
     if (version != catalog.at("catalog_version").get<std::string>() || !codes.is_array() ||
         !catalog.at("domains").contains(domain)) return false;
     std::set<std::string> allowed, seen;
-    for (const auto& entry : catalog.at("domains").at(domain)) allowed.insert(entry.at("code"));
+    for (const auto& entry : catalog.at("domains").at(domain)) allowed.insert(entry.at("code").get<std::string>());
     for (const auto& code : codes) {
         if (!code.is_string()) return false;
         const auto text = code.get<std::string>();

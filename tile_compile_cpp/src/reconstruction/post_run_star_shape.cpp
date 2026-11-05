@@ -5,6 +5,10 @@
 #include "tile_compile/core/utils.hpp"
 
 #include <opencv2/imgproc.hpp>
+// OpenCV 5 moved goodFeaturesToTrack from imgproc into the features module.
+#if CV_MAJOR_VERSION >= 5
+#include <opencv2/features.hpp>
+#endif
 
 #include <algorithm>
 #include <array>
