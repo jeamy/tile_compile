@@ -435,6 +435,12 @@ TEST_CASE("forward drizzle P2: a published geometry cache removes the K factor "
   std::vector<GeometryCacheIdentity> ids = built.identities;
   DrizzleGeometryCacheReader reader(root, ids, std::vector<std::size_t>{0});
 
+  // SAMPLING_GEOMETRY coverage computed under the published geometry cache
+  // must be byte-identical to the coverage computed without it.
+  const config::ReconstructionCoverageGateConfig baseline_gate{};
+  const auto coverage_baseline = registration::compute_geometric_coverage(
+      plan, 1, 0.8f, baseline_gate, 0.5f, 1, base_cfg, false);
+
   for (int chunk : {1, 16, 64, 0}) {
     // uniform path under the cache
     {
@@ -465,7 +471,15 @@ TEST_CASE("forward drizzle P2: a published geometry cache removes the K factor "
         ScopedActiveGeometryCache guard(&reader);
         auto cov = registration::compute_geometric_coverage(
             plan, 1, 0.8f, gate_cfg, 0.5f, 1, res, false);
-        (void)cov;
+        REQUIRE(cov.analysis_common_mask == coverage_baseline.analysis_common_mask);
+        REQUIRE(cov.reconstruction_support_mask ==
+                coverage_baseline.reconstruction_support_mask);
+        REQUIRE(cov.gate.passed == coverage_baseline.gate.passed);
+        REQUIRE(cov.gate.analysis_pixels == coverage_baseline.gate.analysis_pixels);
+        REQUIRE(cov.gate.min_channel_n_eff_p10 ==
+                coverage_baseline.gate.min_channel_n_eff_p10);
+        REQUIRE(cov.gate.min_supported_fraction ==
+                coverage_baseline.gate.min_supported_fraction);
       }
       const auto &cfa = gs::registry().v[static_cast<std::size_t>(
           gs::Variant::kCoverageCfa)];

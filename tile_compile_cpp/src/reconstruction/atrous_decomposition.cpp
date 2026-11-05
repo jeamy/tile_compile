@@ -22,22 +22,45 @@ void conv_axis_pair(const std::vector<double> &src_a,
                     const std::vector<double> &src_b, int width, int height,
                     int dilation, bool horizontal,
                     std::vector<double> &out_a, std::vector<double> &out_b) {
-  out_a.assign(src_a.size(), 0.0);
-  out_b.assign(src_b.size(), 0.0);
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
-      double acc_a = 0.0, acc_b = 0.0;
-      for (int t = -2; t <= 2; ++t) {
-        const int xx = horizontal ? x + t * dilation : x;
-        const int yy = horizontal ? y : y + t * dilation;
-        if (xx < 0 || xx >= width || yy < 0 || yy >= height) continue;
-        const std::size_t j = static_cast<std::size_t>(yy) * width + xx;
-        acc_a += kW[t + 2] * src_a[j];
-        acc_b += kW[t + 2] * src_b[j];
+  out_a.resize(src_a.size());
+  out_b.resize(src_b.size());
+  // Rows are independent (pure gather from src into out); the tap order
+  // t = -2..2 and the skip rule per tap are exactly the generic form's, so
+  // the per-pixel accumulation is unchanged. The axis branch is hoisted out
+  // of the inner loop.
+  if (horizontal) {
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < height; ++y) {
+      const std::size_t row = static_cast<std::size_t>(y) * width;
+      for (int x = 0; x < width; ++x) {
+        double acc_a = 0.0, acc_b = 0.0;
+        for (int t = -2; t <= 2; ++t) {
+          const int xx = x + t * dilation;
+          if (xx < 0 || xx >= width) continue;
+          const std::size_t j = row + static_cast<std::size_t>(xx);
+          acc_a += kW[t + 2] * src_a[j];
+          acc_b += kW[t + 2] * src_b[j];
+        }
+        out_a[row + x] = acc_a;
+        out_b[row + x] = acc_b;
       }
-      const std::size_t i = static_cast<std::size_t>(y) * width + x;
-      out_a[i] = acc_a;
-      out_b[i] = acc_b;
+    }
+  } else {
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < height; ++y) {
+      const std::size_t row = static_cast<std::size_t>(y) * width;
+      for (int x = 0; x < width; ++x) {
+        double acc_a = 0.0, acc_b = 0.0;
+        for (int t = -2; t <= 2; ++t) {
+          const int yy = y + t * dilation;
+          if (yy < 0 || yy >= height) continue;
+          const std::size_t j = static_cast<std::size_t>(yy) * width + x;
+          acc_a += kW[t + 2] * src_a[j];
+          acc_b += kW[t + 2] * src_b[j];
+        }
+        out_a[row + x] = acc_a;
+        out_b[row + x] = acc_b;
+      }
     }
   }
 }

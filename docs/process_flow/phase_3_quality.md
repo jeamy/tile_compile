@@ -16,8 +16,7 @@ Sample-Gewicht nutzt.
   `k_artifact`/`frac_artifact_max` für Artefakt-Abwertung)
 - Persistenz unter `cache/source_quality_maps/` — wiederverwendbar bei
   Resume und steuerbar über
-  `reconstruction.delete_source_cache_after_run` /
-  `reconstruction.keep_profile_cache_after_run`
+  `reconstruction.delete_source_cache_after_run`
 - `artifacts/source_quality_plan.json` — der resultierende Gewichtsplan
 
 ## GLOBAL_QUALITY

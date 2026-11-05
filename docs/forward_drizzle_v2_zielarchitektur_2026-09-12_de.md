@@ -227,7 +227,8 @@ Er belegt nicht:
 
 Folgende Maßnahmen sind ausdrücklich keine v2-Zielarchitektur:
 
-- nur `min_fraction` oder `min_n_eff` absenken;
+- nur die Veto-Schwellen des alten Pfads (`min_fraction`/`min_n_eff`) absenken
+  (diese Keys sind im v2-Kernel entfernt; der Kernel kennt kein Schritt-8-Veto);
 - Supportlöcher nachträglich interpolieren;
 - fehlende Kanäle erst im Downstream inpainten;
 - den seriellen Record-Reducer lediglich mit OpenMP versehen;

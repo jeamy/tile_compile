@@ -56,45 +56,6 @@ namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
 
-/// @brief Computes required common overlap frames.
-/// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-int compute_required_common_overlap_frames(int usable_frames) {
-  if (usable_frames <= 1) {
-    return 1;
-  }
-  constexpr float kCoverageFraction = 0.02f;
-  constexpr int kCoverageFloor = 2;
-  constexpr int kCoverageCap = 32;
-  int required = static_cast<int>(
-      std::ceil(static_cast<float>(usable_frames) * kCoverageFraction));
-  required = std::max(required, kCoverageFloor);
-  required = std::min(required, kCoverageCap);
-  required = std::min(required, usable_frames);
-  return std::max(required, 1);
-}
-
-/// @brief Demosaic an OSC frame for the debayer-first reconstruction path.
-/// @details The pipeline must not reconstruct a warped CFA mosaic when
-/// debayer_first is enabled. This helper keeps demosaicing before geometric
-/// resampling so later phases work on true image planes instead of Bayer
-/// phases.
-image::DebayerResult debayer_for_prewarp(const Matrix2Df &mosaic,
-                                         BayerPattern pattern,
-                                         const std::string &method) {
-  if (method == "nearest") {
-    return image::debayer_nearest_neighbor(mosaic, pattern, 0, 0);
-  }
-  if (method == "vng") {
-    return image::debayer_opencv(mosaic, pattern, 0, 0, false);
-  }
-  if (method == "edge_aware") {
-    return image::debayer_opencv(mosaic, pattern, 0, 0, true);
-  }
-  return image::debayer_bilinear(mosaic, pattern, 0, 0);
-}
-
 using detail::AffineRefinementFrameStats;
 using detail::RegistrationResidualStats;
 using detail::SmoothLocalRefinementFrameStats;
@@ -489,338 +450,6 @@ bool write_registration_sampling_plan(
   return true;
 }
 
-// N7 (redundant-reload analysis): the stripe-outer/frame-inner drizzle
-// stream revisits every normalized source per stripe, and the single-slot
-// cache below then re-decodes N frames per stripe. When the whole set fits
-// in a quarter of the drizzle memory budget, keep it resident so each frame
-// is decoded exactly once and serve banded rect reads from the stash;
-// otherwise retain the previous single-slot behaviour.
-struct NormalizedSourceProviders {
-  reconstruction::SourceImageProvider source_of;
-  reconstruction::SourceImageRectProvider source_rect_of;
-};
-
-NormalizedSourceProviders make_normalized_source_providers(
-    const registration::RegistrationSamplingPlan &plan,
-    const std::function<Matrix2Df(size_t)> &load_frame_normalized,
-    size_t memory_budget_mb) {
-  struct Stash {
-    std::vector<Matrix2Df> frames;
-    std::vector<uint8_t> valid;
-    Matrix2Df single_slot;
-    std::optional<size_t> single_idx;
-  };
-  auto stash = std::make_shared<Stash>();
-  const size_t frame_bytes =
-      static_cast<size_t>(std::max(0, plan.source_width)) *
-      static_cast<size_t>(std::max(0, plan.source_height)) * sizeof(float);
-  const size_t budget_bytes =
-      (static_cast<size_t>(memory_budget_mb ? memory_budget_mb : 512) << 20) /
-      4;
-  const bool stash_active =
-      frame_bytes > 0 && frame_bytes <= budget_bytes &&
-      plan.frames.size() <= budget_bytes / frame_bytes;
-  if (stash_active) {
-    stash->frames.resize(plan.frames.size());
-    stash->valid.assign(plan.frames.size(), 0u);
-  }
-
-  NormalizedSourceProviders out;
-  out.source_of = [stash, &load_frame_normalized](std::size_t idx)
-      -> const Matrix2Df & {
-    if (!stash->frames.empty() && idx < stash->frames.size()) {
-      if (stash->valid[idx] == 0u) {
-        stash->frames[idx] = load_frame_normalized(idx);
-        stash->valid[idx] = 1u;
-      }
-      return stash->frames[idx];
-    }
-    if (!stash->single_idx.has_value() || *stash->single_idx != idx) {
-      stash->single_slot = load_frame_normalized(idx);
-      stash->single_idx = idx;
-    }
-    return stash->single_slot;
-  };
-  if (stash_active) {
-    out.source_rect_of = [stash, &load_frame_normalized](
-        std::size_t idx, int y0, int y1, int x0, int x1) -> Matrix2Df {
-      if (idx >= stash->frames.size() || y1 <= y0 || x1 <= x0)
-        return Matrix2Df();
-      if (stash->valid[idx] == 0u) {
-        stash->frames[idx] = load_frame_normalized(idx);
-        stash->valid[idx] = 1u;
-      }
-      const Matrix2Df &m = stash->frames[idx];
-      if (y0 < 0 || y1 > m.rows() || x0 < 0 || x1 > m.cols())
-        return Matrix2Df();
-      return m.block(y0, x0, y1 - y0, x1 - x0);
-    };
-  }
-  return out;
-}
-
-// M2 (plan section 11) diagnostic-only preview of the CFA-forward-drizzle
-// Uniform-Control kernel. Gated behind
-// reconstruction.diagnostics.preview_forward_drizzle_uniform (default off,
-// see configuration.hpp for why). This is NOT a pipeline phase: it never
-// aborts the run, never gates anything, and runs identically on both the new
-// and the legacy-reference binary (it is pure additional diagnostic output,
-// unlike SAMPLING_GEOMETRY's fail-closed gate). Source samples come from
-// `load_frame_normalized` --- the same normalized-cache source the eventual
-// M2+ pipeline will use, never `prewarped_frames` (plan section 23 M2
-// acceptance).
-void run_forward_drizzle_uniform_preview(
-    const registration::RegistrationSamplingPlan &plan,
-    const config::ReconstructionDrizzleConfig &drizzle_cfg,
-    const std::function<Matrix2Df(size_t)> &load_frame_normalized,
-    const fs::path &run_dir, core::EventEmitter &emitter,
-    const std::string &run_id, std::ostream &log_file) {
-  try {
-    const auto t0 = std::chrono::steady_clock::now();
-
-    // N7: stash-backed providers decode each normalized source at most once
-    // when the set fits the budget; otherwise the single-slot fallback inside
-    // keeps the previous bounded working set.
-    auto providers = make_normalized_source_providers(
-        plan, load_frame_normalized, drizzle_cfg.memory_budget_mb);
-
-    std::array<size_t,4> supported{};
-    const auto diagnostics = reconstruction::stream_forward_drizzle_uniform(
-        plan,providers.source_of,drizzle_cfg,[&](int,const reconstruction::ForwardDrizzleUniformResult& stripe) {
-          const std::array<const reconstruction::ProfilePlane*,4> planes={&stripe.R,&stripe.G,&stripe.B,&stripe.L};
-          for(size_t c=0;c<planes.size();++c)
-            supported[c]+=std::count(planes[c]->support.begin(),planes[c]->support.end(),uint8_t{1});
-        },{},0,providers.source_rect_of);
-    const int internal_width=plan.canvas_width_native*drizzle_cfg.internal_scale;
-    const int internal_height=plan.canvas_height_native*drizzle_cfg.internal_scale;
-    auto coverage_fraction=[&](size_t c) {
-      return static_cast<double>(supported[c])/(static_cast<size_t>(internal_width)*internal_height);
-    };
-
-    core::json extra = {
-        {"internal_width", internal_width},
-        {"internal_height", internal_height},
-        {"local_model_samples_total", diagnostics.local_model_samples_total},
-        {"local_model_samples_discarded", diagnostics.local_model_samples_discarded},
-        {"frames_excluded_subdivision_error_rate", core::json::array()},
-    };
-    for (const auto &kv : diagnostics.frames_excluded_subdivision_error_rate) {
-      extra["frames_excluded_subdivision_error_rate"].push_back(
-          {{"frame_id", kv.first}, {"rate", kv.second}});
-    }
-    if (plan.color_mode == ColorMode::MONO) {
-      extra["coverage_fraction_L"] = coverage_fraction(3);
-    } else {
-      extra["coverage_fraction_R"] = coverage_fraction(0);
-      extra["coverage_fraction_G"] = coverage_fraction(1);
-      extra["coverage_fraction_B"] = coverage_fraction(2);
-    }
-    extra["estimated_peak_bytes"] = diagnostics.estimated_peak_bytes;
-    extra["resolved_chunk_rows"] = diagnostics.resolved_chunk_rows;
-    extra["workers_used"] = diagnostics.workers_used;
-    extra["elapsed_s"] =
-        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    extra["note"] =
-        "M2 diagnostic-only preview (plan section 11); Uniform-Control only, "
-        "no clipping/quality weights/multiband, not yet a pipeline phase.";
-
-    core::write_text_atomic(run_dir / "artifacts" / "forward_drizzle_uniform_diagnostic.json",
-                     extra.dump(2));
-    std::cout << "[FORWARD_DRIZZLE_PREVIEW] (M2 diagnostic, does not gate the run) "
-             << extra.dump() << std::endl;
-  } catch (const std::exception &e) {
-    emitter.warning(run_id,
-                    std::string("forward_drizzle_uniform preview failed "
-                                "(diagnostic-only, does not affect the run): ") +
-                        e.what(),
-                    log_file);
-  }
-}
-
-// M2 (plan section 11.3) small, real step toward the transactional
-// DrizzleProfileStore: persists the materialized Uniform-Control planes as
-// FITS files, each written atomically via io::write_fits_float() (which
-// stages-and-renames internally, see fits_io.cpp). Gated behind
-// reconstruction.diagnostics.persist_forward_drizzle_uniform_store (default
-// off), independent of the preview flag. Explicitly NOT a whole-store
-// transaction: each plane file is individually atomic (never observed
-// truncated/partial), but a crash between two plane writes can leave a
-// mixed-generation set of files on disk --- the full plan 11.3 contract
-// (mmap-backed, read_region()/write_region(), single-transaction commit
-// across all planes) is still open M2 work. This function fully
-// materializes the result in memory first (via compute_forward_drizzle_uniform,
-// itself memory-budget-checked) rather than streaming plane writes row by
-// row, because no streaming FITS writer exists yet for float planes (only
-// io::write_fits_mask_rows() for boolean masks, plan section 9's need, not
-// section 11's).
-void write_forward_drizzle_uniform_store(
-    const registration::RegistrationSamplingPlan &plan,
-    const config::ReconstructionDrizzleConfig &drizzle_cfg,
-    const std::function<Matrix2Df(size_t)> &load_frame_normalized,
-    const fs::path &run_dir, core::EventEmitter &emitter,
-    const std::string &run_id, std::ostream &log_file) {
-  try {
-    const auto t0 = std::chrono::steady_clock::now();
-    // N7: same stash-backed providers as the preview path --- each normalized
-    // source is decoded at most once when the set fits the budget.
-    auto providers = make_normalized_source_providers(
-        plan, load_frame_normalized, drizzle_cfg.memory_budget_mb);
-
-    const fs::path store_dir = run_dir / "artifacts" / "forward_drizzle_uniform_store";
-    const auto result = reconstruction::persist_forward_drizzle_uniform(
-        store_dir, plan, providers.source_of, drizzle_cfg,
-        {}, providers.source_rect_of);
-    std::cout << "[FORWARD_DRIZZLE_STORE] committed " << result.generation_dir.string()
-              << " estimated_peak_bytes=" << result.diagnostics.estimated_peak_bytes
-              << " chunk_rows=" << result.diagnostics.resolved_chunk_rows
-              << " elapsed_s="
-              << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count()
-              << std::endl;
-  } catch (const std::exception &e) {
-    emitter.warning(run_id,
-                    std::string("forward_drizzle_uniform store persistence failed "
-                                "(diagnostic-only, does not affect the run): ") +
-                        e.what(),
-                    log_file);
-  }
-}
-
-// Bounded diagnostic geometry export. The surrounding legacy runner still
-// owns the PREWARP event; this helper does not claim a separate resume phase.
-bool write_sampling_geometry_mask_fits(const fs::path &mask_path,
-                                       const std::vector<uint8_t> &mask,
-                                       int rows, int cols,
-                                       const io::FitsHeader &header,
-                                       std::string &error_out) {
-  if (rows <= 0 || cols <= 0) {
-    error_out = "invalid mask dimensions";
-    return false;
-  }
-  if (mask.size() != static_cast<size_t>(rows) * static_cast<size_t>(cols)) {
-    error_out = "mask size mismatch while writing";
-    return false;
-  }
-  try {
-    std::error_code ec;
-    fs::create_directories(mask_path.parent_path(), ec);
-    (void)header;
-    io::FitsHeader mask_header;
-    mask_header.set("MASKTYPE", std::string("SAMPLING_GEOMETRY"));
-    io::write_fits_mask_rows(mask_path, mask, rows, cols, mask_header);
-    return true;
-  } catch (const std::exception &e) {
-    error_out = std::string("cannot write mask: ") + e.what();
-    return false;
-  }
-}
-
-// Returns true when the run may proceed (gate passed, or the gate is not
-// being enforced on this build), false when SAMPLING_GEOMETRY must abort the
-// run. The caller decides what "must abort" means for its own build.
-bool run_phase_sampling_geometry(
-    const registration::RegistrationSamplingPlan &plan,
-    const config::ReconstructionConfig &reconstruction_cfg,
-    const fs::path &run_dir, core::EventEmitter &emitter,
-    const std::string &run_id, std::ostream &log_file,
-    const io::FitsHeader &source_header,
-    registration::GeometricCoverageResult &out_coverage) {
-  if (plan.frames.empty()) {
-    emitter.warning(run_id, "SAMPLING_GEOMETRY: empty sampling plan", log_file);
-    return false;
-  }
-  const auto t0 = std::chrono::steady_clock::now();
-  try {
-    out_coverage = registration::compute_geometric_coverage(
-        plan, reconstruction_cfg.drizzle.internal_scale,
-        reconstruction_cfg.drizzle.pixfrac, reconstruction_cfg.coverage_gate,
-        reconstruction_cfg.common_overlap_required_fraction, 1,
-        reconstruction_cfg.drizzle, false);
-  } catch (const std::exception& e) {
-    out_coverage = {};
-    out_coverage.gate.violations.push_back(e.what());
-    emitter.warning(run_id, std::string("SAMPLING_GEOMETRY: ") + e.what(), log_file);
-  }
-  const double elapsed_s = std::chrono::duration<double>(
-                               std::chrono::steady_clock::now() - t0)
-                               .count();
-
-  // Plan section 9.3: persist the geometric masks as FITS. Written under
-  // artifacts/ (not outputs/canvas_mask.fits) so this stays additive and does
-  // not collide with the still-active PREWARP-derived COMMON_OVERLAP masks at
-  // native resolution; these are at internal-canvas resolution.
-  {
-    std::string mask_err;
-    if (!write_sampling_geometry_mask_fits(
-            run_dir / "artifacts" / "sampling_geometry_analysis_common_mask.fits",
-            out_coverage.analysis_common_mask, out_coverage.internal_height,
-            out_coverage.internal_width, source_header, mask_err)) {
-      emitter.warning(run_id,
-                      "Failed to write sampling_geometry_analysis_common_mask.fits: " +
-                          mask_err,
-                      log_file);
-      out_coverage.gate.passed = false;
-      out_coverage.gate.violations.push_back("analysis mask write failed: " + mask_err);
-    }
-    if (!write_sampling_geometry_mask_fits(
-            run_dir / "artifacts" /
-                "sampling_geometry_reconstruction_support_mask.fits",
-            out_coverage.reconstruction_support_mask, out_coverage.internal_height,
-            out_coverage.internal_width, source_header, mask_err)) {
-      emitter.warning(run_id,
-                      "Failed to write "
-                      "sampling_geometry_reconstruction_support_mask.fits: " +
-                          mask_err,
-                      log_file);
-      out_coverage.gate.passed = false;
-      out_coverage.gate.violations.push_back("support mask write failed: " + mask_err);
-    }
-  }
-
-  const std::string coverage_geometry_hash = registration::compute_coverage_geometry_hash(
-      plan,reconstruction_cfg.drizzle,reconstruction_cfg.common_overlap_required_fraction);
-
-  // Written unconditionally, independent of the gate outcome (plan 9.4: "Das
-  // Artefakt wird unabhängig vom Gate-Ergebnis atomar" geschrieben).
-  const std::string json_text = registration::serialize_sampling_geometry_json(
-      plan, coverage_geometry_hash, reconstruction_cfg.drizzle.kernel,
-      reconstruction_cfg.drizzle.pixfrac,
-      reconstruction_cfg.drizzle.internal_scale, out_coverage);
-  const fs::path artifact_path = run_dir / "artifacts" / "sampling_geometry.json";
-  try {
-    core::write_text_atomic(artifact_path, json_text);
-  } catch (const std::exception &e) {
-    emitter.warning(run_id,
-                    std::string("Failed to write sampling_geometry.json: ") +
-                        e.what(),
-                    log_file);
-    return false;
-  }
-
-  std::ostringstream msg;
-  msg << "[SAMPLING_GEOMETRY] internal=" << out_coverage.internal_width << "x"
-      << out_coverage.internal_height
-      << " valid_frames=" << out_coverage.gate.valid_frame_count
-      << " analysis_px=" << out_coverage.gate.analysis_pixels
-      << " min_supported_fraction=" << out_coverage.gate.min_supported_fraction
-      << " min_channel_n_eff_p10=" << out_coverage.gate.min_channel_n_eff_p10
-      << " gate_passed=" << (out_coverage.gate.passed ? "yes" : "no")
-      << " dither_spread_circular_px_p10=("
-      << out_coverage.dither_spread_circular.x_p10 << ","
-      << out_coverage.dither_spread_circular.y_p10
-      << ")  [diagnostic only, plan 9.3/8.x - not a gate]"
-      << " elapsed_s=" << elapsed_s;
-  std::cout << msg.str() << std::endl;
-  if (!out_coverage.gate.passed) {
-    std::ostringstream violations;
-    for (const auto &v : out_coverage.gate.violations) violations << v << "; ";
-    emitter.warning(run_id, "SAMPLING_GEOMETRY coverage_gate failed: " +
-                                violations.str(),
-                    log_file);
-    return false;
-  }
-  return true;
-}
-
 /// @brief Implements fit weighted poly.
 /// @details Part of the global registration, rescue/modeling, common-canvas, and prewarp phase implementation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -903,7 +532,7 @@ bool run_phase_registration_prewarp(
     const VectorXf &global_weights, const io::FitsHeader &first_header,
     core::AccelerationContext &acceleration, core::EventEmitter &emitter,
     std::ostream &log_file,
-    PhaseRegistrationContext &out, bool registration_only) {
+    PhaseRegistrationContext &out) {
   config::RegistrationConfig registration_cfg = cfg.registration;
 
   // T7: registration/normalization subtimers. Wall-clock accumulators for the
@@ -1195,7 +824,6 @@ bool run_phase_registration_prewarp(
   const int kMaxBlindChainAnchorDepth = get_effective_chain_depth(
       static_cast<int>(frames.size()), cfg.registration);
   const float kBlindChainStrongAnchorCc = cfg.registration.blind_chain_strong_anchor_cc;
-  const float kBlindChainDriftThresholdPx = cfg.registration.blind_chain_drift_threshold_px;
   const float kWeakGlobalRegistrationCc =
       std::max(0.05f, cfg.registration.reject_cc_min_abs * 0.25f);
   const float kStrongActiveAnchorCc =
@@ -1218,34 +846,6 @@ bool run_phase_registration_prewarp(
         reg_chain_depth[fi] = chain_depth;
         reg_provenance[fi] = provenance;
       };
-
-  auto can_anchor_blind_chain = [&](size_t fi) -> bool {
-    if (fi >= frames.size() || global_frame_cc[fi] <= 0.0f) {
-      return false;
-    }
-    switch (reg_provenance[fi]) {
-    case RegistrationProvenance::reference:
-    case RegistrationProvenance::direct_global:
-    case RegistrationProvenance::sequential_refined:
-    case RegistrationProvenance::temporal_rescue:
-    case RegistrationProvenance::seeded_ecc_rescue:
-    case RegistrationProvenance::local_reference_rescue:
-    case RegistrationProvenance::astrometric_rescue:
-      return true;
-    case RegistrationProvenance::sequential_rescue:
-      return (reg_chain_depth[fi] >= 0 &&
-              reg_chain_depth[fi] < kMaxBlindChainAnchorDepth) ||
-             global_frame_cc[fi] >= kBlindChainStrongAnchorCc;
-    case RegistrationProvenance::model_global_poly:
-    case RegistrationProvenance::model_local_poly:
-    case RegistrationProvenance::model_interpolated:
-    case RegistrationProvenance::model_blended:
-    case RegistrationProvenance::model_nearest_copy:
-    case RegistrationProvenance::unresolved:
-      return false;
-    }
-    return false;
-  };
 
   auto write_global_registration_artifact = [&](float artifact_reg_scale) {
     core::json j;
@@ -2456,136 +2056,6 @@ bool run_phase_registration_prewarp(
         int reg_sequential_rescued = 0;
         int reg_sequential_anchor_blocked = 0;
         {
-          auto try_sequential_refine = [&](size_t fi,
-                                           size_t neighbor_fi) -> bool {
-            if (fi >= frames.size() || neighbor_fi >= frames.size()) {
-              return false;
-            }
-            if (fi < is_active_anchor_frame.size() &&
-                is_active_anchor_frame[fi] != 0) {
-              return false;
-            }
-            if (global_frame_cc[neighbor_fi] <= 0.0f) {
-              return false;
-            }
-
-            const Matrix2Df mov_p = load_registration_proxy(fi);
-            const Matrix2Df nbr_p = load_registration_proxy(neighbor_fi);
-            if (mov_p.size() <= 0 || nbr_p.size() <= 0 ||
-                mov_p.rows() != ref_reg.rows() ||
-                mov_p.cols() != ref_reg.cols() ||
-                nbr_p.rows() != ref_reg.rows() ||
-                nbr_p.cols() != ref_reg.cols()) {
-              return false;
-            }
-
-            // Fast path: phase-corr + optional log-polar rotation for delta warp.
-            // Sufficient for consecutive frames where drift is typically < 30px.
-            // Fallback to full register_single_frame above that limit; larger
-            // phase-correlation shifts are commonly star-field aliases.
-            const Matrix2Df mov_ecc_img = registration::prepare_ecc_image(mov_p);
-            const Matrix2Df nbr_ecc_img = registration::prepare_ecc_image(nbr_p);
-            auto [dx, dy] = registration::phasecorr_translation(mov_ecc_img, nbr_ecc_img);
-            // phaseCorrelate returns the forward content displacement. Build
-            // the forward frame-to-neighbour transform first, then invert the
-            // complete affine transform because apply_warp() uses
-            // WARP_INVERSE_MAP. Inverting only dx/dy leaves the rotation in
-            // the wrong direction and accumulates concentric trails.
-
-            WarpMatrix w_local = registration::identity_warp();
-            if (registration_cfg.allow_rotation) {
-              cv::Mat r_cv(nbr_ecc_img.rows(), nbr_ecc_img.cols(), CV_32F,
-                           const_cast<float *>(nbr_ecc_img.data()));
-              cv::Mat m_cv(mov_ecc_img.rows(), mov_ecc_img.cols(), CV_32F,
-                           const_cast<float *>(mov_ecc_img.data()));
-              const float rot_deg =
-                  registration::estimate_rotation_logpolar(r_cv, m_cv);
-              const float th = rot_deg * 3.14159265f / 180.0f;
-              const float ct = std::cos(th);
-              const float st = std::sin(th);
-              const float cx = static_cast<float>(mov_p.cols()) * 0.5f;
-              const float cy = static_cast<float>(mov_p.rows()) * 0.5f;
-              const float tx_forward = dx + cx * (1.0f - ct) + cy * st;
-              const float ty_forward = dy + cy * (1.0f - ct) - cx * st;
-              w_local(0, 0) = ct; w_local(0, 1) = st;
-              w_local(1, 0) = -st; w_local(1, 1) = ct;
-              w_local(0, 2) = -(ct * tx_forward + st * ty_forward);
-              w_local(1, 2) = -(-st * tx_forward + ct * ty_forward);
-            } else {
-              w_local(0, 2) = -dx;
-              w_local(1, 2) = -dy;
-            }
-
-            // If phase-corr gives a suspiciously large shift, fall back to full
-            // star-matching which is more robust against aliasing.
-            const float shift_sq = dx * dx + dy * dy;
-            if (shift_sq > 900.0f) { // > 30px: phase-corr likely aliased
-              const auto sfr_local =
-                  registration::register_single_frame(mov_p, nbr_p,
-                                                      registration_cfg, -0.002f);
-              if (!sfr_local.reg.success) {
-                return false;
-              }
-              w_local = sfr_local.reg.warp;
-            }
-
-            const WarpMatrix w_nbr_proxy = registration::scale_translation_warp(
-                global_frame_warps[neighbor_fi], proxy_scale());
-            const WarpMatrix w_chained =
-                concatenate_affine_warps(w_local, w_nbr_proxy);
-
-            const Matrix2Df warped_global =
-                registration::apply_warp(mov_p, w_chained);
-            const cv::Mat valid_mask_global =
-                registration::warp_valid_mask(mov_p, w_chained);
-            int overlap_px = 0;
-            const float ncc_global = registration::compute_ncc_masked(
-                warped_global, ref_reg, valid_mask_global, &overlap_px);
-            if (overlap_px <= 16) {
-              return false;
-            }
-
-            // Compute local NCC (warped mov vs neighbor) as proxy for local correlation.
-            const Matrix2Df warped_to_nbr = registration::apply_warp(mov_p, w_local);
-            const cv::Mat valid_mask_local = registration::warp_valid_mask(mov_p, w_local);
-            const float ncc_local = registration::compute_ncc_masked(
-                warped_to_nbr, nbr_p, valid_mask_local);
-
-            const float current_cc = global_frame_cc[fi];
-            const bool missing_direct = current_cc <= 0.0f;
-            // A temporal replacement must be supported by the local frame
-            // pair itself.  Without this gate, a low/zero global NCC frame can
-            // accept an arbitrary phase-correlation alias and poison the
-            // entire chained warp even when the global comparison is weak.
-            if (ncc_local < 0.12f) {
-              return false;
-            }
-            if (ncc_global < kWeakGlobalRegistrationCc) {
-              return false;
-            }
-            const bool clearly_better = ncc_global > current_cc + 0.005f;
-            const bool comparable_but_prefer_sequential =
-                !missing_direct && current_cc >= kWeakGlobalRegistrationCc &&
-                ncc_global >= current_cc - 0.01f &&
-                ncc_local >= std::max(0.12f, current_cc * 0.25f);
-
-            if (!missing_direct && !clearly_better &&
-                !comparable_but_prefer_sequential) {
-              return false;
-            }
-
-            set_registration_state(
-                fi, registration::scale_translation_warp(w_chained, global_reg_scale),
-                std::max(ncc_global, 0.01f), true,
-                std::max(0, reg_chain_depth[neighbor_fi]) + 1,
-                RegistrationProvenance::sequential_refined);
-            if (missing_direct) {
-              ++reg_sequential_rescued;
-            } else {
-              ++reg_sequential_refined;
-            }
-            return true;
-          };
 
           // Direct-global source selections are immutable. A temporal neighbor may
           // be useful diagnostically, but it must never replace a transform
@@ -2613,113 +2083,6 @@ bool run_phase_registration_prewarp(
         // ----------------------------------------------------------------
         {
 
-          auto try_sequential = [&](size_t fi, size_t neighbor_fi) -> bool {
-            if (global_frame_cc[fi] > 0.0f) return false;
-            // Neighbor must be valid (registered or rescued)
-            if (global_frame_cc[neighbor_fi] <= 0.0f) return false;
-            if (!can_anchor_blind_chain(neighbor_fi)) {
-              ++reg_sequential_anchor_blocked;
-              return false;
-            }
-
-            const Matrix2Df mov_p = load_registration_proxy(fi);
-            const Matrix2Df nbr_p = load_registration_proxy(neighbor_fi);
-            if (mov_p.size() <= 0 || nbr_p.size() <= 0 ||
-                mov_p.rows() != ref_reg.rows() || mov_p.cols() != ref_reg.cols())
-              return false;
-
-            // 1. Calculate Delta Warp (mov -> neighbor)
-            // Phase correlation + log-polar rotation
-            const Matrix2Df mov_ecc_img = registration::prepare_ecc_image(mov_p);
-            const Matrix2Df nbr_ecc_img = registration::prepare_ecc_image(nbr_p);
-            auto [dx, dy] = registration::phasecorr_translation(mov_ecc_img, nbr_ecc_img);
-            // See the sequential-refinement path above: invert the complete
-            // forward affine transform, not just its translation component.
-
-            WarpMatrix w_delta = registration::identity_warp();
-            if (registration_cfg.allow_rotation) {
-              cv::Mat r_cv(nbr_ecc_img.rows(), nbr_ecc_img.cols(), CV_32F,
-                           const_cast<float *>(nbr_ecc_img.data()));
-              cv::Mat m_cv(mov_ecc_img.rows(), mov_ecc_img.cols(), CV_32F,
-                           const_cast<float *>(mov_ecc_img.data()));
-              const float rot_deg =
-                  registration::estimate_rotation_logpolar(r_cv, m_cv);
-              const float th = rot_deg * 3.14159265f / 180.0f;
-              const float ct = std::cos(th);
-              const float st = std::sin(th);
-              const float cx = static_cast<float>(mov_p.cols()) * 0.5f;
-              const float cy = static_cast<float>(mov_p.rows()) * 0.5f;
-              const float tx_forward = dx + cx * (1.0f - ct) + cy * st;
-              const float ty_forward = dy + cy * (1.0f - ct) - cx * st;
-              w_delta(0, 0) = ct; w_delta(0, 1) = st;
-              w_delta(1, 0) = -st; w_delta(1, 1) = ct;
-              w_delta(0, 2) = -(ct * tx_forward + st * ty_forward);
-              w_delta(1, 2) = -(-st * tx_forward + ct * ty_forward);
-            } else {
-              w_delta(0, 2) = -dx;
-              w_delta(1, 2) = -dy;
-            }
-
-            // 2. Validate Delta against NEIGHBOR (not global ref)
-            // Warp mov using delta -> should match neighbor
-            const Matrix2Df warped_to_nbr = registration::apply_warp(mov_p, w_delta);
-            const cv::Mat valid_mask = registration::warp_valid_mask(mov_p, w_delta);
-            
-            // Calculate NCC between warped_mov and neighbor
-            int overlap_px = 0;
-            const float ncc_neighbor = registration::compute_ncc_masked(
-                warped_to_nbr, nbr_p, valid_mask, &overlap_px);
-
-            // Relaxed thresholds for "Blind Chaining"
-            // If the shift is small (very likely for sequential frames), we accept lower correlation.
-            // This allows bridging through cloudy blocks where NCC drops but structure is consistent.
-            
-            // Check shift magnitude (approximate from w_delta translation)
-            const float dx_val = w_delta(0, 2);
-            const float dy_val = w_delta(1, 2);
-            const float shift_sq = dx_val * dx_val + dy_val * dy_val;
-            const bool small_shift = shift_sq < 900.0f; // 30px limit (~0.3 deg)
-            
-            bool accept = false;
-            if (overlap_px > 32) { // minimal overlap
-                if (ncc_neighbor >= 0.3f) {
-                    accept = true;
-                } else if (ncc_neighbor >= 0.05f && small_shift) {
-                    accept = true; // Blind chaining allowed for small shifts
-                }
-            }
-            
-            if (!accept) {
-                return false;
-            }
-
-            // 3. Chain to Global Reference
-            // w_global = w_neighbor_global * w_delta
-            // Note: concatenate_affine_warps(w1, w2) does w2 * w1.
-            // We want w_nbr_proxy * w_delta.
-            const WarpMatrix w_nbr_proxy = registration::scale_translation_warp(
-                global_frame_warps[neighbor_fi], proxy_scale());
-            const WarpMatrix w_chained =
-                concatenate_affine_warps(w_delta, w_nbr_proxy);
-
-            // 4. Calculate Global NCC (just for record, not for validation)
-            const Matrix2Df warped_global = registration::apply_warp(mov_p, w_chained);
-            const cv::Mat valid_mask_global = registration::warp_valid_mask(mov_p, w_chained);
-            const float ncc_global = registration::compute_ncc_masked(
-                warped_global, ref_reg, valid_mask_global);
-
-            // Keep a tiny positive CC so downstream logic sees a valid warp,
-            // but anchor propagation is controlled separately by provenance
-            // and chain depth.
-            set_registration_state(
-                fi, registration::scale_translation_warp(w_chained, global_reg_scale),
-                std::max(ncc_global, 0.01f), true,
-                std::max(0, reg_chain_depth[neighbor_fi]) + 1,
-                RegistrationProvenance::sequential_rescue);
-
-            return true;
-          };
-
           // Deliberately do not recover unresolved frames from neighboring
           // frames. A low-correlation neighbor can otherwise become a new
           // anchor and propagate one mistaken transform across the sequence.
@@ -2742,56 +2105,6 @@ bool run_phase_registration_prewarp(
         int reg_seeded_ecc_rescued_forward = 0;
         int reg_local_reference_rescued_backward = 0;
         int reg_local_reference_rescued_forward = 0;
-        auto try_temporal_rescue = [&](size_t fi, size_t anchor_fi) -> bool {
-          if (fi >= frames.size() || anchor_fi >= frames.size()) {
-            return false;
-          }
-          if (global_frame_cc[anchor_fi] <= 0.0f) {
-            return false;
-          }
-
-          const Matrix2Df mov_reg = load_registration_proxy(fi);
-          const Matrix2Df anchor_reg = load_registration_proxy(anchor_fi);
-          if (mov_reg.size() <= 0 || anchor_reg.size() <= 0 ||
-              mov_reg.rows() != ref_reg.rows() ||
-              mov_reg.cols() != ref_reg.cols() ||
-              anchor_reg.rows() != ref_reg.rows() ||
-              anchor_reg.cols() != ref_reg.cols()) {
-            return false;
-          }
-
-          const auto sfr_temp =
-              registration::register_single_frame(mov_reg, anchor_reg,
-                                                  registration_cfg, -0.002f);
-          if (!sfr_temp.reg.success) {
-            return false;
-          }
-
-          const float proxy_scale =
-              (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale) : 1.0f;
-          const WarpMatrix w_anchor_to_ref =
-              registration::scale_translation_warp(global_frame_warps[anchor_fi],
-                                                   proxy_scale);
-          const WarpMatrix w_chained =
-              concatenate_affine_warps(sfr_temp.reg.warp, w_anchor_to_ref);
-          const Matrix2Df warped = registration::apply_warp(mov_reg, w_chained);
-          const cv::Mat valid_mask = registration::warp_valid_mask(mov_reg, w_chained);
-          int overlap_pixels = 0;
-          const float ncc_identity =
-              registration::compute_ncc_masked(mov_reg, ref_reg, valid_mask,
-                                       &overlap_pixels);
-          const float ncc_chained =
-              registration::compute_ncc_masked(warped, ref_reg, valid_mask);
-          if (overlap_pixels <= 16 || ncc_chained <= ncc_identity + 0.01f) {
-            return false;
-          }
-
-          set_registration_state(
-              fi, registration::scale_translation_warp(w_chained, global_reg_scale),
-              ncc_chained, true, std::max(0, reg_chain_depth[anchor_fi]) + 1,
-              RegistrationProvenance::temporal_rescue);
-          return true;
-        };
 
         auto build_bridge_seed_proxy = [&](size_t fi, WarpMatrix &seed) -> bool {
           std::vector<size_t> valid_idx;
@@ -2929,139 +2242,6 @@ bool run_phase_registration_prewarp(
               fi, registration::scale_translation_warp(ecc_res.warp, global_reg_scale),
               ncc_warped, false, 0,
               RegistrationProvenance::seeded_ecc_rescue);
-          return true;
-        };
-
-        struct SupportFrame {
-          size_t idx = 0;
-          float weight = 0.0f;
-        };
-
-        auto build_support_reference =
-            [&](const std::vector<SupportFrame> &support,
-                Matrix2Df &local_ref) -> bool {
-          if (support.size() < 2) {
-            return false;
-          }
-          Matrix2Df accum = Matrix2Df::Zero(ref_reg.rows(), ref_reg.cols());
-          Matrix2Df weight_sum = Matrix2Df::Zero(ref_reg.rows(), ref_reg.cols());
-          int valid_pixels = 0;
-
-          for (const SupportFrame &s : support) {
-            Matrix2Df src = load_registration_proxy(s.idx);
-            if (src.size() <= 0 || src.rows() != ref_reg.rows() ||
-                src.cols() != ref_reg.cols()) {
-              continue;
-            }
-            const float proxy_scale =
-                (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale) : 1.0f;
-            const WarpMatrix w_proxy = registration::scale_translation_warp(
-                global_frame_warps[s.idx], proxy_scale);
-            const Matrix2Df warped = registration::apply_warp(src, w_proxy);
-            const cv::Mat valid_mask = registration::warp_valid_mask(src, w_proxy);
-            for (int y = 0; y < ref_reg.rows(); ++y) {
-              const float *pm = valid_mask.ptr<float>(y);
-              for (int x = 0; x < ref_reg.cols(); ++x) {
-                if (pm[x] <= 0.5f) {
-                  continue;
-                }
-                accum(y, x) += s.weight * warped(y, x);
-                weight_sum(y, x) += s.weight;
-              }
-            }
-          }
-
-          local_ref = ref_reg;
-          for (int y = 0; y < ref_reg.rows(); ++y) {
-            for (int x = 0; x < ref_reg.cols(); ++x) {
-              if (weight_sum(y, x) > 1.0e-6f) {
-                local_ref(y, x) = accum(y, x) / weight_sum(y, x);
-                ++valid_pixels;
-              }
-            }
-          }
-
-          const int min_valid_pixels = std::max(
-              1024, static_cast<int>((ref_reg.rows() * ref_reg.cols()) / 20));
-          return valid_pixels >= min_valid_pixels;
-        };
-
-        auto build_local_reference = [&](size_t fi, Matrix2Df &local_ref) -> bool {
-          std::vector<SupportFrame> support;
-          support.reserve(8);
-          for (size_t radius = 1; radius < frames.size() && support.size() < 6;
-               ++radius) {
-            bool added = false;
-            if (fi >= radius) {
-              const size_t idx = fi - radius;
-              if (global_frame_cc[idx] > 0.0f) {
-                const float temporal_w = 1.0f / (1.0f + static_cast<float>(radius));
-                support.push_back(
-                    {idx, temporal_w * std::max(0.05f, global_frame_cc[idx])});
-                added = true;
-              }
-            }
-            if (fi + radius < frames.size() && support.size() < 6) {
-              const size_t idx = fi + radius;
-              if (global_frame_cc[idx] > 0.0f) {
-                const float temporal_w = 1.0f / (1.0f + static_cast<float>(radius));
-                support.push_back(
-                    {idx, temporal_w * std::max(0.05f, global_frame_cc[idx])});
-                added = true;
-              }
-            }
-            if (!added && radius > 96) {
-              break;
-            }
-          }
-          return build_support_reference(support, local_ref);
-        };
-
-        auto try_local_reference_rescue = [&](size_t fi) -> bool {
-          if (fi >= frames.size() || global_frame_cc[fi] > 0.0f) {
-            return false;
-          }
-
-          const Matrix2Df mov_reg = load_registration_proxy(fi);
-          if (mov_reg.size() <= 0 || mov_reg.rows() != ref_reg.rows() ||
-              mov_reg.cols() != ref_reg.cols()) {
-            return false;
-          }
-
-          WarpMatrix seed = registration::identity_warp();
-          if (!build_bridge_seed_proxy(fi, seed)) {
-            return false;
-          }
-
-          Matrix2Df local_ref;
-          if (!build_local_reference(fi, local_ref)) {
-            return false;
-          }
-
-          const auto robust_res = registration::robust_phase_ecc_seeded(
-              mov_reg, local_ref, registration_cfg.allow_rotation, seed);
-          if (!robust_res.success) {
-            return false;
-          }
-
-          const Matrix2Df warped =
-              registration::apply_warp(mov_reg, robust_res.warp);
-          const cv::Mat valid_mask =
-              registration::warp_valid_mask(mov_reg, robust_res.warp);
-          int overlap_pixels = 0;
-          const float ncc_identity =
-              registration::compute_ncc_masked(mov_reg, ref_reg, valid_mask,
-                                       &overlap_pixels);
-          const float ncc_warped =
-              registration::compute_ncc_masked(warped, ref_reg, valid_mask);
-          if (overlap_pixels <= 16 || ncc_warped <= ncc_identity + 0.003f) {
-            return false;
-          }
-
-          set_registration_state(
-              fi, registration::scale_translation_warp(robust_res.warp, global_reg_scale),
-              ncc_warped, true, 1,
-              RegistrationProvenance::local_reference_rescue);
           return true;
         };
 
@@ -3276,33 +2456,17 @@ bool run_phase_registration_prewarp(
       }
     }
 
-    auto robust_median = [](std::vector<float> values) -> float {
-      if (values.empty()) {
-        return 0.0f;
-      }
-      const size_t mid = values.size() / 2;
-      std::nth_element(values.begin(), values.begin() + static_cast<long>(mid),
-                       values.end());
-      float med = values[mid];
-      if (values.size() % 2 == 0 && mid > 0) {
-        std::nth_element(values.begin(), values.begin() + static_cast<long>(mid - 1),
-                         values.end());
-        med = 0.5f * (med + values[mid - 1]);
-      }
-      return med;
-    };
-
     // For long Alt/Az sessions the correlation naturally varies with overlap
     // and field rotation. A run-global MAD threshold becomes overly aggressive
     // and rejects geometrically plausible edge frames solely for being less
     // correlated than the central bulk. Keep CC rejection absolute here.
     const float cc_min_keep = cfg.registration.reject_cc_min_abs;
 
-    const float normal_shift_median = robust_median(normal_shift_mags_positive);
+    const float normal_shift_median = median_copy(normal_shift_mags_positive);
     const float normal_shift_limit =
         std::max(cfg.registration.reject_shift_px_min,
                  cfg.registration.reject_shift_median_multiplier * normal_shift_median);
-    const float half_turn_shift_median = robust_median(half_turn_shift_mags_positive);
+    const float half_turn_shift_median = median_copy(half_turn_shift_mags_positive);
     const float half_turn_shift_limit =
         std::max(cfg.registration.reject_shift_px_min,
                  cfg.registration.reject_shift_median_multiplier * half_turn_shift_median);
@@ -3342,7 +2506,7 @@ bool run_phase_registration_prewarp(
       // so the polynomial fit sees a continuous curve.  Without this, the
       // fit would try to interpolate between the two clusters and produce
       // a meaningless trend that rejects all pre-flip frames.
-      const float median_ang = robust_median(trend_ang_anchors);
+      const float median_ang = median_copy(trend_ang_anchors);
       constexpr float kPi = 3.14159265358979323846f;
       int flip_anchors = 0;
       for (auto &ang : trend_ang_anchors) {
@@ -3415,25 +2579,10 @@ bool run_phase_registration_prewarp(
       adjacent_angle_steps.push_back(wrapped_angle_delta(
           warp_angle(cur), warp_angle(prev)));
     }
-    auto robust_median_local = [](std::vector<float> values) -> float {
-      if (values.empty()) {
-        return 0.0f;
-      }
-      const size_t mid = values.size() / 2;
-      std::nth_element(values.begin(), values.begin() + static_cast<long>(mid),
-                       values.end());
-      float med = values[mid];
-      if (values.size() % 2 == 0 && mid > 0) {
-        std::nth_element(values.begin(), values.begin() + static_cast<long>(mid - 1),
-                         values.end());
-        med = 0.5f * (med + values[mid - 1]);
-      }
-      return med;
-    };
     const float adjacent_translation_median =
-        robust_median_local(adjacent_translation_steps);
+        median_copy(adjacent_translation_steps);
     const float adjacent_angle_median =
-        robust_median_local(adjacent_angle_steps);
+        median_copy(adjacent_angle_steps);
     const float adjacent_translation_limit =
         std::max(96.0f, 8.0f * adjacent_translation_median);
     const float adjacent_angle_limit =
@@ -4365,32 +3514,10 @@ bool run_phase_registration_prewarp(
         return best_slot;
       };
 
-      std::string astap_data = cfg.astrometry.astap_data_dir;
-      if (astap_data.empty()) {
-#ifdef _WIN32
-        if (const char *la = std::getenv("LOCALAPPDATA")) {
-          astap_data = std::string(la) + "\\tile_compile\\astap";
-        }
-#else
-        if (const char *home = std::getenv("HOME")) {
-          astap_data = std::string(home) + "/.local/share/tile_compile/astap";
-        }
-#endif
-      }
-      fs::path astap_bin_path =
-          resolve_astap_binary_path(cfg.astrometry.astap_bin, astap_data);
-      if (!astap_bin_path.empty()) {
-        std::error_code ec;
-        fs::path data_dir_path(astap_data);
-        auto relative = fs::relative(astap_bin_path, data_dir_path, ec);
-        const bool relative_is_outside = [&relative]() {
-          auto component = relative.begin();
-          return component != relative.end() && *component == fs::path("..");
-        }();
-        if (ec || relative.empty() || relative_is_outside) {
-          astap_data = astap_bin_path.parent_path().string();
-        }
-      }
+      const auto astap_paths =
+          resolve_astap_paths(cfg.astrometry.astap_bin, cfg.astrometry.astap_data_dir);
+      std::string astap_data = astap_paths.data_dir;
+      fs::path astap_bin_path = astap_paths.binary;
       const std::string astap_bin = astap_bin_path.string();
       if (!astap_bin.empty() &&
           registration::is_astap_available(astap_bin, astap_data)) {
@@ -4950,9 +4077,6 @@ bool run_phase_registration_prewarp(
     st["local_refinement_s"] = reg_subtimers.local_refinement_s;
   }
 
-  if (!registration_only)
-    emitter.phase_end(run_id, Phase::REGISTRATION, global_reg_status,
-                      global_reg_extra, log_file);
 
   // Export model-predicted mask so the pipeline can apply a weight penalty.
   out.model_predicted_mask.assign(frames.size(), 0);
@@ -4969,8 +4093,6 @@ bool run_phase_registration_prewarp(
     }
   }
 
-  if (!registration_only)
-    emitter.phase_start(run_id, Phase::PREWARP, "PREWARP", log_file);
 
   // ================================================================
   // SECTION 7: Canvas bounds computation
@@ -5017,29 +4139,6 @@ bool run_phase_registration_prewarp(
     }
   }
 
-  const auto prewarp_acceleration =
-      acceleration.selection_for(core::AccelerationPhase::prewarp);
-  const core::AccelerationOps prewarp_ops(
-      acceleration, core::AccelerationPhase::prewarp,
-      cfg.registration.prewarp_interpolation);
-  const auto prewarp_input_batch =
-      core::make_device_frame_batch(frames.size(), height, width, 1);
-  const auto prewarp_output_batch =
-      core::make_device_frame_batch(frames.size(), canvas_height, canvas_width,
-                                    1);
-  {
-    std::ostringstream msg;
-    msg << "PREWARP acceleration "
-        << core::acceleration_selection_summary(prewarp_acceleration)
-        << " interpolation="
-        << cfg.registration.prewarp_interpolation;
-    if (!prewarp_acceleration.request_honored &&
-        !prewarp_acceleration.fallback_reason.empty()) {
-      emitter.warning(run_id, msg.str(), log_file);
-    }
-    std::cout << "[PREWARP] " << msg.str() << std::endl;
-  }
-  
   // Apply offset correction to all warps
   if (offset_x != 0 || offset_y != 0) {
     const float ox = static_cast<float>(offset_x);
@@ -5072,471 +4171,27 @@ bool run_phase_registration_prewarp(
         registration_cfg, run_dir, emitter, run_id, log_file,
         sampling_plan_hash, &sampling_plan);
 
-    if (registration_only) {
-      if (!sampling_written || global_reg_status != "ok") {
-        emitter.phase_end(run_id, Phase::REGISTRATION, "error",
-                          {{"error", "registration sampling artifact unavailable"}}, log_file);
-        return false;
-      }
-      std::string sampling_error;
-      registration::RegistrationSamplingPlan checked_sampling;
-      if (!registration::parse_from_json_string(
-              registration::serialize_to_json_string(sampling_plan), checked_sampling, sampling_error)) {
-        emitter.phase_end(run_id, Phase::REGISTRATION, "error", {{"error", sampling_error}}, log_file);
-        return false;
-      }
-      out.sampling_plan = std::move(checked_sampling);
-      out.canvas_width = canvas_width;
-      out.canvas_height = canvas_height;
-      out.tile_offset_x = offset_x;
-      out.tile_offset_y = offset_y;
-      emitter.phase_end(run_id, Phase::REGISTRATION, "ok",
-                        {{"sampling_plan_hash", out.sampling_plan.plan_hash}}, log_file);
-      return true; // No coverage, PREWARP images or legacy masks on this entry.
-    }
-
-    // M1 / plan sections 8.2, 9.2-9.5: SAMPLING_GEOMETRY, the real separated
-    // new-pipeline phase. On the new path (this binary, once the M0-M2 lock
-    // lifts) a failed coverage_gate aborts the run fail-closed here, before
-    // PREWARP does any image work below. The frozen legacy-reference binary
-    // is a separate, unaffected pipeline: it never enforces this gate, so
-    // historical-behaviour regression/bisection runs keep working regardless
-    // of what the new coverage_gate says about them.
-    auto resolved_reconstruction=cfg.reconstruction;
-    if(resolved_reconstruction.drizzle.memory_budget_mb==0)
-      resolved_reconstruction.drizzle.memory_budget_mb=static_cast<size_t>(std::max(1,cfg.runtime_limits.memory_budget));
-    registration::GeometricCoverageResult sampling_coverage;
-    const bool coverage_gate_ok = run_phase_sampling_geometry(
-        sampling_plan, resolved_reconstruction, run_dir, emitter, run_id, log_file,
-        first_header, sampling_coverage);
-    if (!coverage_gate_ok) {
-      core::json extra = {
-          {"analysis_pixels", sampling_coverage.gate.analysis_pixels},
-          {"min_supported_fraction",
-           sampling_coverage.gate.min_supported_fraction},
-          {"min_channel_n_eff_p10",
-           sampling_coverage.gate.min_channel_n_eff_p10},
-          {"violations", sampling_coverage.gate.violations},
-      };
-      emitter.phase_end(run_id, Phase::PREWARP, "error", extra, log_file);
-      std::cerr << "Error: SAMPLING_GEOMETRY coverage_gate failed --- "
-                << "no silent fallback to internal_scale=1, no method "
-                << "fallback (plan section 9.5). Adjust "
-                << "reconstruction.drizzle.internal_scale or the input "
-                << "dither/frame coverage and restart the run."
-                << std::endl;
-      emitter.run_end(
-          run_id, false, "error", log_file,
-          {{"message", "SAMPLING_GEOMETRY coverage_gate failed"}});
+    if (!sampling_written || global_reg_status != "ok") {
+      emitter.phase_end(run_id, Phase::REGISTRATION, "error",
+                        {{"error", "registration sampling artifact unavailable"}}, log_file);
       return false;
     }
-
-    // M2 (plan section 11) diagnostic-only preview, opt-in and off by
-    // default (config.hpp: reconstruction.diagnostics.preview_forward_drizzle_uniform).
-    // Never gates the run; it is pure additional output, not a behaviour
-    // change.
-    sampling_coverage = {}; // release full byte masks before the next budgeted phase
-    if (cfg.reconstruction.diagnostics.preview_forward_drizzle_uniform) {
-      run_forward_drizzle_uniform_preview(sampling_plan, resolved_reconstruction.drizzle,
-                                          load_frame_normalized, run_dir, emitter, run_id,
-                                          log_file);
+    std::string sampling_error;
+    registration::RegistrationSamplingPlan checked_sampling;
+    if (!registration::parse_from_json_string(
+            registration::serialize_to_json_string(sampling_plan), checked_sampling, sampling_error)) {
+      emitter.phase_end(run_id, Phase::REGISTRATION, "error", {{"error", sampling_error}}, log_file);
+      return false;
     }
-    // M2 (plan section 11.3), opt-in and independent of the preview flag
-    // above: persists the materialized Uniform-Control planes as atomic
-    // FITS files. Never gates the run.
-    if (cfg.reconstruction.diagnostics.persist_forward_drizzle_uniform_store) {
-      write_forward_drizzle_uniform_store(sampling_plan, resolved_reconstruction.drizzle,
-                                          load_frame_normalized, run_dir, emitter, run_id,
-                                          log_file);
-    }
+    out.sampling_plan = std::move(checked_sampling);
+    out.canvas_width = canvas_width;
+    out.canvas_height = canvas_height;
+    out.tile_offset_x = offset_x;
+    out.tile_offset_y = offset_y;
+    emitter.phase_end(run_id, Phase::REGISTRATION, "ok",
+                      {{"sampling_plan_hash", out.sampling_plan.plan_hash}}, log_file);
+    return true;
   }
-
-  // Log canvas expansion for field rotation
-  if (canvas_width > width || canvas_height > height) {
-    std::ostringstream msg;
-    msg << "Field rotation detected: expanding canvas from " << width << "x" << height
-        << " to " << canvas_width << "x" << canvas_height
-        << " (bbox: [" << bbox.min_x << "," << bbox.min_y << "] to ["
-        << bbox.max_x << "," << bbox.max_y << "], offset: ["
-        << offset_x << "," << offset_y << "])";
-    emitter.warning(run_id, msg.str(), log_file);
-    std::cout << "[PREWARP] " << msg.str() << std::endl;
-  }
-
-  // Pre-warp all frames at full resolution before tile extraction.
-  // Applying rotation warps to small tile ROIs is fundamentally broken:
-  // warpAffine needs source pixels outside the tile boundary that don't
-  // exist, causing CFA pattern corruption (colored tile rectangles).
-  //
-  // Disk-backed: frames are written as raw float binaries and mmap'd on
-  // demand, so RAM usage is bounded by OS page cache rather than N*W*H*4.
-  DiskCacheFrameStore prewarped_frames(
-      run_dir / "cache" / "prewarped_frames", frames.size(), canvas_height, canvas_width);
-  const BayerPattern pre_debayer_pattern =
-      string_to_bayer_pattern(detected_bayer_str);
-  const bool debayer_first_rgb =
-      detected_mode == ColorMode::OSC &&
-      cfg.registration.debayer_first &&
-      pre_debayer_pattern != BayerPattern::UNKNOWN;
-  if (detected_mode == ColorMode::OSC &&
-      cfg.registration.debayer_first &&
-      pre_debayer_pattern == BayerPattern::UNKNOWN) {
-    emitter.warning(
-        run_id,
-        "debayer_first requested but Bayer pattern is unknown; "
-        "falling back to CFA prewarp and post-stack debayer",
-        log_file);
-  }
-  DiskCacheFrameStore prewarped_frames_r;
-  DiskCacheFrameStore prewarped_frames_g;
-  DiskCacheFrameStore prewarped_frames_b;
-  if (debayer_first_rgb) {
-    prewarped_frames_r = DiskCacheFrameStore(
-        run_dir / "cache" / "prewarped_rgb" / "R", frames.size(),
-        canvas_height, canvas_width);
-    prewarped_frames_g = DiskCacheFrameStore(
-        run_dir / "cache" / "prewarped_rgb" / "G", frames.size(),
-        canvas_height, canvas_width);
-    prewarped_frames_b = DiskCacheFrameStore(
-        run_dir / "cache" / "prewarped_rgb" / "B", frames.size(),
-        canvas_height, canvas_width);
-  }
-  std::vector<uint8_t> frame_has_data(frames.size(), 0);
-  const size_t canvas_px =
-      static_cast<size_t>(std::max(0, canvas_height)) *
-      static_cast<size_t>(std::max(0, canvas_width));
-  const int prewarp_workers = compute_adaptive_worker_count(
-      cfg, frames.size(), frames, WorkerParallelProfile::IoHeavy);
-  std::vector<std::vector<uint16_t>> worker_overlap_coverage(
-      static_cast<size_t>(std::max(1, prewarp_workers)));
-  std::cout << "[PREWARP] Using " << prewarp_workers
-            << " parallel workers for " << frames.size() << " frames"
-            << " cpu_workers=" << prewarp_workers
-            << " gpu=" << (prewarp_acceleration.using_gpu ? "yes" : "no")
-            << " backend="
-            << core::acceleration_backend_name(prewarp_acceleration.selected)
-            << " interpolation="
-            << cfg.registration.prewarp_interpolation
-            << " debayer_first="
-            << (debayer_first_rgb ? "yes" : "no")
-            << (debayer_first_rgb ? " pre_debayer_method=" : "")
-            << (debayer_first_rgb ? cfg.registration.pre_debayer_method : "")
-            << std::endl;
-  const float local_model_coordinate_scale =
-      (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale) : 1.0f;
-  if (reg_local_correction_applied > 0 && prewarp_acceleration.using_gpu) {
-    std::ostringstream msg;
-    msg << "PREWARP smooth-local refinement uses the guarded CPU remap for "
-        << reg_local_correction_applied
-        << " accepted frames; remaining frames keep the selected "
-        << core::acceleration_backend_name(prewarp_acceleration.selected)
-        << " affine path";
-    emitter.warning(run_id, msg.str(), log_file);
-    std::cout << "[PREWARP] " << msg.str() << std::endl;
-  }
-  std::mutex prewarp_log_mutex;
-  std::mutex prewarp_progress_mutex;
-  std::atomic<size_t> prewarp_next{0};
-  std::atomic<size_t> prewarp_done{0};
-  std::atomic<int> n_frames_with_data{0};
-  std::atomic<bool> prewarp_failed{false};
-  std::string prewarp_error;
-
-  core::WorkerCudaStreams prewarp_streams(
-      prewarp_acceleration.selected == core::AccelerationBackend::opencv_cuda,
-      static_cast<size_t>(prewarp_workers));
-
-  auto prewarp_worker = [&](int worker_index) {
-    std::vector<uint16_t> local_overlap_coverage(canvas_px, 0);
-    while (true) {
-      const size_t fi = prewarp_next.fetch_add(1);
-      if (fi >= frames.size()) {
-        break;
-      }
-      // Skip frames whose registration is unresolved (never registered, or
-      // rejected as outlier with no usable model prediction). frame_has_data
-      // stays 0 for these, so downstream phases exclude them from stacking
-      // entirely rather than placing them at identity on the canvas.
-      if (reg_provenance[fi] == RegistrationProvenance::unresolved) {
-        prewarp_done.fetch_add(1, std::memory_order_relaxed);
-        continue;
-      }
-      try {
-        Matrix2Df img = load_frame_normalized(fi);
-        if (img.size() <= 0) {
-          continue;
-        }
-        if (cfg.stacking.per_frame_cosmetic_correction) {
-          if (detected_mode == ColorMode::OSC) {
-            img = image::cosmetic_correction_cfa(
-                img, cfg.stacking.per_frame_cosmetic_correction_sigma, true, 0,
-                0);
-          } else {
-            img = image::cosmetic_correction(
-                img, cfg.stacking.per_frame_cosmetic_correction_sigma, true);
-          }
-        }
-        const auto &w = global_frame_warps[fi];
-        Matrix2Df warped;
-        std::vector<uint8_t> warped_valid_mask;
-        bool warped_has_data = false;
-        if (debayer_first_rgb) {
-          auto debayer = debayer_for_prewarp(
-              img, pre_debayer_pattern,
-              cfg.registration.pre_debayer_method);
-          Matrix2Df warped_r;
-          Matrix2Df warped_g;
-          Matrix2Df warped_b;
-          std::vector<uint8_t> mask_r;
-          std::vector<uint8_t> mask_g;
-          std::vector<uint8_t> mask_b;
-          bool has_r = false;
-          bool has_g = false;
-          bool has_b = false;
-          const bool use_local_refinement =
-              local_refinement_stats[fi].applied &&
-              local_refinement_stats[fi].fit.model.valid;
-          auto *stream = prewarp_streams.get(static_cast<size_t>(worker_index));
-          bool local_remap_applied = false;
-          if (use_local_refinement) {
-            const auto &model = local_refinement_stats[fi].fit.model;
-            registration::SmoothLocalRemapPlan local_plan;
-            if (registration::prepare_smooth_local_remap(
-                    debayer.R.rows(), debayer.R.cols(), w, model,
-                    canvas_height, canvas_width, local_model_coordinate_scale,
-                    static_cast<float>(offset_x), static_cast<float>(offset_y),
-                    local_plan)) {
-              const bool remapped_r =
-                  registration::remap_frame_with_smooth_local_plan(
-                      debayer.R, local_plan,
-                      cfg.registration.prewarp_interpolation, warped_r,
-                      &has_r);
-              const bool remapped_g =
-                  registration::remap_frame_with_smooth_local_plan(
-                      debayer.G, local_plan,
-                      cfg.registration.prewarp_interpolation, warped_g,
-                      &has_g);
-              const bool remapped_b =
-                  registration::remap_frame_with_smooth_local_plan(
-                      debayer.B, local_plan,
-                      cfg.registration.prewarp_interpolation, warped_b,
-                      &has_b);
-              local_remap_applied = remapped_r && remapped_g && remapped_b;
-              if (local_remap_applied) {
-                mask_r = std::move(local_plan.valid_mask);
-              }
-            }
-          }
-          if (!local_remap_applied) {
-            prewarp_ops.warp_affine_rgb_frame(
-                std::move(debayer.R), std::move(debayer.G), std::move(debayer.B),
-                w, canvas_height, canvas_width, offset_x, offset_y,
-                warped_r, warped_g, warped_b, &mask_r, &has_r, stream);
-            has_g = has_r;
-            has_b = has_r;
-          }
-          if (warped_r.rows() == canvas_height &&
-              warped_r.cols() == canvas_width &&
-              warped_g.rows() == canvas_height &&
-              warped_g.cols() == canvas_width &&
-              warped_b.rows() == canvas_height &&
-              warped_b.cols() == canvas_width) {
-            warped = (warped_r * 0.25f) + (warped_g * 0.50f) +
-                     (warped_b * 0.25f);
-            warped_valid_mask = std::move(mask_r);
-            if (!local_remap_applied &&
-                warped_valid_mask.size() == canvas_px &&
-                mask_g.size() == canvas_px && mask_b.size() == canvas_px) {
-              for (size_t pi = 0; pi < canvas_px; ++pi) {
-                warped_valid_mask[pi] = static_cast<uint8_t>(
-                    warped_valid_mask[pi] != 0 && mask_g[pi] != 0 &&
-                    mask_b[pi] != 0);
-              }
-            }
-            warped_has_data = has_r && has_g && has_b;
-            if (warped_has_data) {
-              prewarped_frames_r.store(fi, warped_r);
-              prewarped_frames_g.store(fi, warped_g);
-              prewarped_frames_b.store(fi, warped_b);
-            }
-          }
-        } else {
-          const bool use_local_refinement =
-              detected_mode == ColorMode::MONO &&
-              local_refinement_stats[fi].applied &&
-              local_refinement_stats[fi].fit.model.valid;
-          bool local_remap_applied = false;
-          if (use_local_refinement) {
-            local_remap_applied =
-                registration::warp_frame_with_smooth_local_model(
-                    img, w, local_refinement_stats[fi].fit.model,
-                    canvas_height, canvas_width, local_model_coordinate_scale,
-                    static_cast<float>(offset_x), static_cast<float>(offset_y),
-                    cfg.registration.prewarp_interpolation, warped,
-                    &warped_valid_mask, &warped_has_data);
-          }
-          if (!local_remap_applied) {
-            prewarp_ops.warp_affine_frame(
-                std::move(img), w, detected_mode, canvas_height, canvas_width,
-                offset_x, offset_y, warped, &warped_valid_mask,
-                &warped_has_data,
-                prewarp_streams.get(static_cast<size_t>(worker_index)));
-          }
-        }
-        if (warped.size() > 0) {
-          prewarped_frames.store(fi, warped);
-          const bool stored = prewarped_frames.has_data(fi);
-          if (stored && warped_has_data) {
-            frame_has_data[fi] = 1;
-            n_frames_with_data.fetch_add(1, std::memory_order_relaxed);
-            if (warped_valid_mask.size() == canvas_px) {
-              for (size_t pi = 0; pi < canvas_px; ++pi) {
-                if (warped_valid_mask[pi] != 0 &&
-                    local_overlap_coverage[pi] <
-                        std::numeric_limits<uint16_t>::max()) {
-                  ++local_overlap_coverage[pi];
-                }
-              }
-            } else {
-              const float *warped_ptr = warped.data();
-              for (size_t pi = 0; pi < canvas_px; ++pi) {
-                if (std::isfinite(warped_ptr[pi]) &&
-                    local_overlap_coverage[pi] <
-                        std::numeric_limits<uint16_t>::max()) {
-                  ++local_overlap_coverage[pi];
-                }
-              }
-            }
-          }
-        }
-      } catch (const std::exception &e) {
-        prewarp_failed.store(true, std::memory_order_relaxed);
-        std::lock_guard<std::mutex> lock(prewarp_log_mutex);
-        if (prewarp_error.empty()) {
-          prewarp_error = e.what();
-        }
-      } catch (...) {
-        prewarp_failed.store(true, std::memory_order_relaxed);
-        std::lock_guard<std::mutex> lock(prewarp_log_mutex);
-        if (prewarp_error.empty()) {
-          prewarp_error = "unknown_error";
-        }
-      }
-
-      const size_t done = prewarp_done.fetch_add(1) + 1;
-      if (done % 5 == 0 || done == frames.size()) {
-        std::lock_guard<std::mutex> lock(prewarp_progress_mutex);
-        emitter.phase_progress_counts(
-            run_id, Phase::PREWARP, static_cast<int>(done),
-            static_cast<int>(frames.size()), "prewarp workers=" +
-                std::to_string(prewarp_workers) + " cpu_workers=" +
-                std::to_string(prewarp_workers) + " gpu=" +
-                (prewarp_acceleration.using_gpu ? "yes" : "no") +
-                " backend=" + core::acceleration_backend_name(
-                                   prewarp_acceleration.selected),
-            "frames", log_file);
-      }
-    }
-    worker_overlap_coverage[static_cast<size_t>(worker_index)] =
-        std::move(local_overlap_coverage);
-  };
-
-  {
-    ScopedOpenCvThreadLimit cv_thread_limit(prewarp_workers);
-    if (prewarp_workers > 1) {
-      std::vector<std::thread> workers;
-      workers.reserve(static_cast<size_t>(prewarp_workers));
-      for (int w = 0; w < prewarp_workers; ++w) {
-        workers.emplace_back(prewarp_worker, w);
-      }
-      for (auto &worker : workers) {
-        if (worker.joinable()) {
-          worker.join();
-        }
-      }
-    } else {
-      prewarp_worker(0);
-    }
-  }
-
-  if (prewarp_failed.load(std::memory_order_relaxed)) {
-    core::json extra = {
-        {"error", prewarp_error.empty() ? "unknown_error" : prewarp_error},
-        {"acceleration",
-         core::acceleration_selection_to_json(prewarp_acceleration)},
-        {"device_frame_batch_input",
-         core::device_frame_batch_to_json(prewarp_input_batch)},
-        {"device_frame_batch_output",
-         core::device_frame_batch_to_json(prewarp_output_batch)},
-    };
-    emitter.phase_end(run_id, Phase::PREWARP, "error", extra, log_file);
-    std::cerr << "Error during PREWARP: "
-              << (prewarp_error.empty() ? "unknown_error" : prewarp_error)
-              << std::endl;
-    emitter.run_end(run_id, false, "error", log_file,
-                    {{"message", std::string("Error during PREWARP: ") + (prewarp_error.empty() ? "unknown_error" : prewarp_error)}});
-    return false;
-  }
-
-  out.n_usable_frames = n_frames_with_data.load(std::memory_order_relaxed);
-  const int required_common_frames =
-      compute_required_common_overlap_frames(out.n_usable_frames);
-  out.canvas_width = canvas_width;
-  out.canvas_height = canvas_height;
-  out.tile_offset_x = offset_x;
-  out.tile_offset_y = offset_y;
-  out.overlap_coverage_count.assign(canvas_px, 0);
-  for (const auto &local_overlap_coverage : worker_overlap_coverage) {
-    if (local_overlap_coverage.size() != canvas_px) {
-      continue;
-    }
-    for (size_t pi = 0; pi < canvas_px; ++pi) {
-      const uint32_t accum =
-          static_cast<uint32_t>(out.overlap_coverage_count[pi]) +
-          static_cast<uint32_t>(local_overlap_coverage[pi]);
-      out.overlap_coverage_count[pi] = static_cast<uint16_t>(
-          std::min<uint32_t>(accum, std::numeric_limits<uint16_t>::max()));
-    }
-  }
-  out.common_valid_mask.assign(canvas_px, static_cast<uint8_t>(0));
-  for (size_t pi = 0; pi < canvas_px; ++pi) {
-    if (static_cast<int>(out.overlap_coverage_count[pi]) >=
-        required_common_frames) {
-      out.common_valid_mask[pi] = static_cast<uint8_t>(1);
-    }
-  }
-
-  core::json prewarp_extra = {
-      {"num_frames", static_cast<int>(frames.size())},
-      {"num_frames_with_data", out.n_usable_frames},
-      {"canvas_width", canvas_width},
-      {"canvas_height", canvas_height},
-      {"tile_offset_x", offset_x},
-      {"tile_offset_y", offset_y},
-      {"workers", prewarp_workers},
-      {"debayer_first_rgb", debayer_first_rgb},
-      {"pre_debayer_method",
-       debayer_first_rgb ? cfg.registration.pre_debayer_method
-                         : std::string("not_applicable")},
-      {"common_overlap_mode", "inline_prewarp_coverage"},
-      {"required_common_frames", required_common_frames},
-      {"acceleration",
-       core::acceleration_selection_to_json(prewarp_acceleration)},
-      {"device_frame_batch_input",
-       core::device_frame_batch_to_json(prewarp_input_batch)},
-      {"device_frame_batch_output",
-       core::device_frame_batch_to_json(prewarp_output_batch)},
-  };
-  emitter.phase_end(run_id, Phase::PREWARP, "ok", prewarp_extra, log_file);
-
-  out.frame_has_data = std::move(frame_has_data);
-  out.prewarped_frames = std::move(prewarped_frames);
-  out.debayer_first_rgb = debayer_first_rgb;
-  out.prewarped_frames_r = std::move(prewarped_frames_r);
-  out.prewarped_frames_g = std::move(prewarped_frames_g);
-  out.prewarped_frames_b = std::move(prewarped_frames_b);
-  out.min_valid_frames = required_common_frames;
-  return true;
 }
 
 } // namespace tile_compile::runner

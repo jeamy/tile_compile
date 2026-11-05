@@ -31,8 +31,6 @@ reconstruction:
   clipping:
     clip_sigma_low: 2.0
     clip_sigma_high: 4.0
-    min_fraction: 0.4
-    min_n_eff: 2.0
 ```
 
 ---
@@ -63,9 +61,6 @@ reconstruction:
   clipping:
     clip_sigma_low: 2.0                 # untere MAD-Schwelle (aggressiver)
     clip_sigma_high: 4.0                # obere MAD-Schwelle (toleranter)
-    min_fraction: 0.4                   # Mindestanteil belegbarer Samples
-    min_n_eff: 2.0                      # min. effektive Beitragszahl pro Pixel
-    guard_fallback: false               # false = striktes Veto bei Clip-Versagen
   quality:
     pyramid:
       scales: 4
@@ -100,14 +95,6 @@ reconstruction:
 runtime_limits:
   parallel_workers: 2
   memory_budget: 1024
-```
-
-**Konservativ bei schwarzen Artefaktpixeln:**
-
-```yaml
-reconstruction:
-  clipping:
-    guard_fallback: true     # statt Veto den Survivor-/Unclipped-Wert verwenden
 ```
 
 **Feldfuellende Objekte (z. B. grosse Galaxien):**
@@ -600,8 +587,6 @@ Overlap-Add-Stacking). Wenn sichtbare Artefakte auftreten, pruefe:
 - `reconstruction.coverage_gate.*` — Deckungs-Gates vor FORWARD_DRIZZLE
 - `reconstruction.clipping.*` — bei zu aggressiven Sigma-Werten kann Signal
   verworfen werden; bei zu losen Werten bleiben Ausreisser stehen
-- `reconstruction.clipping.guard_fallback` — `false` laesst nicht belegbare
-  Pixel schwarz; `true` faellt auf Survivor-/Unclipped-Werte zurueck
 - `reconstruction.diagnostics.level: full` — maximale Diagnose-Artefakte
 - nachgelagerte Unterschiede aus `BGE` oder `PCC`
 
@@ -665,7 +650,6 @@ registration:
   # Legacy-Kompatibilitaet; bei independent_global_consensus_v2 ohne Einfluss
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.08
-  blind_chain_drift_threshold_px: 2.0
   use_astrometry: true            # Astrometrische Rescue bei Bedarf
   enable_local_background_subtraction: false
   star_shift_radius_px: 200       # Alt/Az: 200-400, Äquatorial: 60
@@ -682,7 +666,6 @@ registration:
   # Legacy-Kompatibilitaet; bei independent_global_consensus_v2 ohne Einfluss
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.08
-  blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: true  # Bei Mondlicht/Gradienten
   star_shift_radius_px: 200
@@ -696,7 +679,6 @@ registration:
   # Neue Parameter (v2.0) — Defaults
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.08
-  blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
   star_shift_radius_px: 60        # Äquatorial mit gutem Tracking
@@ -1030,7 +1012,7 @@ Passen Sie die Werte an Ihre spezifische Hardware und Bedingungen an.
 ## Forward-Drizzle: Streaming und Speicherbudget (Entwicklungsstand 2026-09-05)
 
 Der CPU-Coverage-/Uniform-Pfad verarbeitet Zielstreifen statt Vollbild-
-Akkumulatoren pro Frame oder Worker. Die Preview bleibt standardmäßig deaktiviert.
+Akkumulatoren pro Frame oder Worker.
 
 | Parameter | Einheit, Bereich und Default | Verhalten |
 |---|---|---|
@@ -1038,7 +1020,6 @@ Akkumulatoren pro Frame oder Worker. Die Preview bleibt standardmäßig deaktivi
 | `reconstruction.drizzle.chunk_rows` | interne Zielzeilen, Ganzzahl >=0, Default 0 | Auto wählt höchstens 256 Zeilen innerhalb des Budgets. Ein expliziter zu großer Wert wird abgelehnt; passt nicht einmal eine Zeile, erfolgt ein kontrollierter Fehler vor der großen Allokation. |
 | `reconstruction.drizzle.chunk_halo_rows` | Zeilen, Ganzzahl >=-1, Default -1 | Kompatibilitätsfeld. Die exakte Quellfootprint-Aufzählung erfasst auch über Streifengrenzen ragende Droplets; im CPU-Uniform-/Coverage-Pfad werden keine Ausgabe-Halozeilen benötigt. |
 | `reconstruction.common_overlap_required_fraction` | Anteil, (0,1], Default 1 | Anteil akzeptierter dichter Frame-Footprints für die unabhängige Analysefläche. Keine Schnittmenge aller dünnen R/G/B-Droplets. |
-| `reconstruction.diagnostics.preview_forward_drizzle_uniform` | Bool, Default false | Streaming-Diagnose mit Summenstatistik; kein fertiger Stack, kein Resume-Commit. |
 
 Coverage und Uniform benutzen denselben Polygonkernel. `n_eff=(sum B)^2/sum(B^2)`
 verwendet geometrische Framegewichte; fehlender Support zählt in der Analysefläche
@@ -1052,7 +1033,7 @@ zwei Scanlines. FITS-Maskenexport benötigt eine Floatzeile statt eines Floatbil
 CPU-Referenz: ein Worker, feste Framefolge. Streaming kann Quellframes pro Streifen
 neu laden; affine Quellzeilen werden geometrisch eingeschränkt, lokale Warps
 konservativ erneut geprüft. Mehr I/O ist der bewusste Tausch gegen begrenzten RAM.
-Die Preview gibt `estimated_peak_bytes`, `resolved_chunk_rows` und `workers_used`
+`sampling_geometry.json` gibt `estimated_peak_bytes`, `resolved_chunk_rows` und `workers_used`
 aus. Dies ist eine Allokationsschätzung, kein gemessener Gesamtprozess-RSS; bereits
 vorhandene Registrierungsdaten und konkurrierende Prozesse bleiben gesondert zu
 berücksichtigen. Es gibt keinen automatischen Methoden- oder Skalenfallback.
@@ -1060,5 +1041,4 @@ Ein Beispiel steht in `tile_compile_cpp/examples/forward_drizzle_streaming.examp
 
 Für gemeinsame Uniform/Raw-Bibliotheksaufrufe empfiehlt sich ebenfalls `chunk_rows: 0`: Der Kandidatenspeicher wächst mit der Framezahl, deshalb können dieselben Bilddimensionen bei mehr Frames kleinere Streifen erfordern. Passt eine Zeile nicht, erfolgt eine frühe Ablehnung. Die Streaming-API vermeidet beide vollständigen Ausgaben im RAM; ihr Sink muss Streifen unmittelbar verbrauchen.
 
-`reconstruction.diagnostics.persist_forward_drizzle_uniform_store` (Bool, Default `false`) ist unabhängig von der Preview. Aktiviert schreibt es ungeclippte Uniform-Ebenen per Streaming nach `artifacts/forward_drizzle_uniform_store/generation-…/`; `current.json` veröffentlicht die vollständige geprüfte Generation atomar. Das bestehende Drizzle-Budget umfasst zusätzlich 8 MiB für FITS/Metadaten und eine float-Zeile. Zu wenig RAM wird vor Quell-I/O abgewiesen; zu wenig freie Disk vor dem Ebenenschreiben. Ein Diagnosefehler lässt den Lauf weiterlaufen. Alte Generationen bleiben erhalten und belegen Disk; es gibt keine automatische Bereinigung. Der Store ist kein Resume-Phaseneinstieg. Leser müssen `current.json` gegen erwartete Quell-, Sampling- und Algorithmusidentität prüfen; alte flache Stores werden weder automatisch akzeptiert noch umgeschrieben.
 Die geprüfte Vorgänger-Bibliotheks-API verwendet ein explizites Quellqualitätsbudget in MiB (Default 512 MiB). Große native Frames können wegen der konservativen Scratch-Schätzung früh abgelehnt werden; diese Prüfung nicht umgehen. Cachemanifeste identifizieren vorhandene normalisierte Float-Rohdateien und führen keine Kalibrierung aus. Store-Commit-Schema 2 bindet Cache- und Qualitätsplanhash.

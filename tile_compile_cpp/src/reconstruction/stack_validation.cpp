@@ -311,13 +311,19 @@ StackValidationMetrics measure_stack_validation_metrics_at_samples(
   const auto stats = robust_finite_stats_inplace(finite);
   const float med = stats.median;
   const float sigma = tile_compile::core::kMadToSigma * stats.mad;
-  Matrix2Df fwhm_image = image;
+  // Only materialise the median-filled copy when a mask actually masks
+  // something; otherwise the FWHM estimate reads `image` directly.
+  Matrix2Df fwhm_masked;
+  const Matrix2Df *fwhm_src = &image;
   if (!validation_mask.empty()) {
+    fwhm_masked = image;
     for (int y = 0; y < image.rows(); ++y)
       for (int x = 0; x < image.cols(); ++x)
         if (!mask_valid(validation_mask, image.cols(), image.rows(), x, y))
-          fwhm_image(y, x) = med;
+          fwhm_masked(y, x) = med;
+    fwhm_src = &fwhm_masked;
   }
+  const Matrix2Df &fwhm_image = *fwhm_src;
   out.seam_score = gradient_count > 0
       ? static_cast<float>(gradient_sum / gradient_count) /
             std::max(sigma, stats.eps)
@@ -336,7 +342,7 @@ StackValidationMetrics measure_stack_validation_metrics_at_samples(
     const int rows = std::max(1, static_cast<int>(std::lround(image.rows() * scale)));
     const int cols = std::max(1, static_cast<int>(std::lround(image.cols() * scale)));
     cv::Mat source(fwhm_image.rows(), fwhm_image.cols(), CV_32F,
-                   fwhm_image.data(),
+                   const_cast<float *>(fwhm_image.data()),
                    static_cast<size_t>(fwhm_image.outerStride()) * sizeof(float));
     Matrix2Df reduced(rows, cols);
     cv::Mat target(rows, cols, CV_32F, reduced.data(),

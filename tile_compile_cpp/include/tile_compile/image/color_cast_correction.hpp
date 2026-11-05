@@ -18,6 +18,7 @@
 // faint arms and a bright core is corrected in both without overcorrecting
 // either. brightness_bins = 1 gives a single global amount.
 
+#include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/types.hpp"
 
 #include <cstdint>
@@ -26,18 +27,9 @@
 
 namespace tile_compile::image {
 
-struct ColorCastCorrectionConfig {
-  bool enabled = false;
-  float max_amount = 1.0f;    // (0, 1]: cap on the correction strength
-  float target_ratio = 1.0f;  // median G/((R+B)/2) on object pixels to reach
-  float min_excess = 1.02f;   // >= 1: measured ratio at/below this -> no-op
-  float object_sigma = 3.0f;  // object = blurred luminance > sky + k * sigma
-  int brightness_bins = 8;    // [1, 32] brightness classes; 1 = global amount
-  // Optional: also shift G by (sky_r + sky_b) / 2 - sky_g so the sky itself is
-  // neutral. Without it the correction leaves a tinted sky tinted, and faint
-  // areas (sky + small excess) keep the sky's tint in the displayed image.
-  bool neutralize_sky = false;
-};
+// Parameters are the nested public config struct (single source of truth).
+using ColorCastCorrectionConfig =
+    config::HyperMetricStretchConfig::ColorCastCorrectionConfig;
 
 struct ColorCastCorrectionResult {
   bool applied = false;

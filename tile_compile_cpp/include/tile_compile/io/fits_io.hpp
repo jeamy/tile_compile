@@ -16,7 +16,6 @@ struct FitsHeader {
     std::optional<std::string> get_string(const std::string& key) const;
     std::optional<double> get_double(const std::string& key) const;
     std::optional<int> get_int(const std::string& key) const;
-    std::optional<bool> get_bool(const std::string& key) const;
     
     void set(const std::string& key, const std::string& value);
     void set(const std::string& key, double value);
@@ -37,8 +36,6 @@ struct RGBImage {
 };
 
 RGBImage read_fits_rgb(const fs::path& path);
-
-Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width, int height);
 
 // Float FITS mask export with one row of scratch, atomically published.
 // Atomic row-major plane export with only one conversion row of scratch.

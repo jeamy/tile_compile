@@ -92,7 +92,6 @@ Alle Ebenen liegen im **normalisierten linearen Arbeitsraum** (derselbe Raum wie
 
 | Einstellung | Standard | Wirkung |
 |---|---|---|
-| `reconstruction.keep_profile_cache_after_run` | `false` | Der interne U/R/F/M-Profilspeicher ist ein Rekonstruktionscache und wird nach einem fertigen Bild gelöscht. `true` behält ihn (gehasht), damit eine erneute Fusion den Forward-Drizzle-Durchlauf überspringt — kostet Plattenplatz. Ohne Einfluss auf das Ergebnis. |
 | `reconstruction.delete_source_cache_after_run` | `false` | Behält den normalisierten CFA-Quellcache und die Qualitätskarten, damit die Rekonstruktions-Wiederaufnahme möglich bleibt. `true` gibt sofort Plattenplatz frei, **deaktiviert aber die Rekonstruktions-Wiederaufnahme** für den Lauf; der Report weist das als `resume_reconstruction_disabled` aus. |
 
 Der Abschnitt **CFA Forward Drizzle / Multiband** im Run-Report zeigt das

@@ -1136,8 +1136,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         {"clipping",{
           {"pixel_channel_evaluations",0},
           {"pixel_channel_rejected",0},
-          {"candidate_contributions_clipped",0},
-          {"pixel_channel_guard_fallback",0}}},
+          {"candidate_contributions_clipped",0}}},
         {"local_warp",local_warp},
         {"pixels_supported",pixels},
         {"acceleration",{
@@ -1446,40 +1445,6 @@ std::map<std::string,std::string> config_section_map(
   return out;
 }
 
-// The YAML that produced the persisted predecessors: the recorded run-start
-// config revision when present (it survives config.yaml edits made for a
-// downstream resume), else config.yaml itself iff its sha256 still matches
-// run provenance. Empty when neither can be verified.
-//
-// Duplicated (not shared) from the same-named helper near validate_
-// provenance above: this file has two separate anonymous namespaces (this
-// one is not nested in tile_compile::runner, so run_forward_drizzle_stages
-// -- defined directly in tile_compile::runner -- can call it from outside),
-// and symbols in one are not visible in the other.
-std::string original_run_config_yaml(const fs::path &dir,
-                                     const json &provenance) {
-  const auto idx_path = dir/"artifacts/config_revisions/index.json";
-  std::error_code ec;
-  if (fs::is_regular_file(idx_path,ec)) {
-    try {
-      const auto idx = json::parse(core::read_text(idx_path));
-      for (const auto &e : idx) {
-        if (e.value("source",std::string())=="run_start" &&
-            e.contains("file_name")) {
-          const auto rev =
-              idx_path.parent_path()/e["file_name"].get<std::string>();
-          if (fs::is_regular_file(rev,ec)) return core::read_text(rev);
-        }
-      }
-    } catch (...) {
-    }
-  }
-  if (provenance.at("config").at("sha256")==
-      core::sha256_file(dir/"config.yaml"))
-    return core::read_text(dir/"config.yaml");
-  return {};
-}
-
 int resume_downstream_command(const fs::path &dir, const json &provenance,
                               const std::string &phase_upper) {
   config::ConfigMigrationReport migration;
@@ -1487,7 +1452,7 @@ int resume_downstream_command(const fs::path &dir, const json &provenance,
       core::read_text(dir/"config.yaml"),migration);
   cfg.validate();
 
-  const std::string orig_yaml = original_run_config_yaml(dir,provenance);
+  const std::string orig_yaml = tile_compile::runner::original_run_config_yaml(dir,provenance);
   if (orig_yaml.empty())
     throw std::runtime_error("FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH");
   config::ConfigMigrationReport orig_migration;

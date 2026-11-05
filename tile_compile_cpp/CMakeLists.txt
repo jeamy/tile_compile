@@ -496,6 +496,7 @@ set(LIB_SOURCES
     src/reconstruction/stack_validation.cpp
     src/reconstruction/chroma_denoise.cpp
     src/reconstruction/luma_denoise.cpp
+    src/reconstruction/denoise_common.cpp
     src/pipeline/adaptive_tile_grid.cpp
     src/preprocessing/contract.cpp
     src/astrometry/wcs.cpp
@@ -504,7 +505,11 @@ set(LIB_SOURCES
 )
 
 if(TILE_COMPILE_WITH_CUDA)
-    list(APPEND LIB_SOURCES src/reconstruction/forward_drizzle_cuda_device.cu)
+    list(APPEND LIB_SOURCES
+        src/reconstruction/forward_drizzle_cuda_device.cu
+        # Test-only device harnesses (clip parity); shares the clip code with
+        # the production TU through forward_drizzle_cuda_clip.cuh.
+        src/reconstruction/forward_drizzle_cuda_test_harness.cu)
 endif()
 
 # Plan 19.6 numerical contract --- LOAD-BEARING FOR CORRECTNESS, NOT AN
@@ -545,9 +550,13 @@ if(NOT MSVC)
         PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 if(TILE_COMPILE_WITH_CUDA)
+    # -lineinfo has no codegen effect; it only makes nsys / compute-sanitizer
+    # attribution usable on Release builds (never combined with Debug's -G).
     set_source_files_properties(
         src/reconstruction/forward_drizzle_cuda_device.cu
-        PROPERTIES COMPILE_OPTIONS "--fmad=false")
+        src/reconstruction/forward_drizzle_cuda_test_harness.cu
+        PROPERTIES COMPILE_OPTIONS
+            "--fmad=false;$<$<CONFIG:Release>:-lineinfo>")
 endif()
 
 # Main library

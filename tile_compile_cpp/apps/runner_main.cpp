@@ -63,7 +63,6 @@ int main(int argc, char *argv[]) {
   std::string config_path, input_dir, runs_dir, project_root;
   std::string run_id_override;
   std::string resume_run_dir;
-  std::string resume_from_phase = "PCC";
   std::string preprocess_config_path;
   std::string preprocess_runs_dir;
   std::string preprocess_project_root;

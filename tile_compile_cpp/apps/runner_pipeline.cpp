@@ -986,13 +986,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   std::string cfg_text;
   // M0 / plan section 6.5: the production run path migrates a legacy config
   // (reject method/engine fail-closed, strip removed structural blocks) and
-  // records the changes in config_migration.json below. The frozen
-  // legacy-reference runner intentionally loads the config verbatim.
+  // records the changes in config_migration.json below.
   config::ConfigMigrationReport config_migration_report;
   if (use_stdin_config) {
-    std::ostringstream ss;
-    ss << std::cin.rdbuf();
-    cfg_text = ss.str();
+    cfg_text = core::read_stdin_text();
     if (cfg_text.empty()) {
       std::cerr << "Error: --stdin provided but no config YAML received"
                 << std::endl;
@@ -1414,7 +1411,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   core::json linearity_info;
   std::vector<size_t> rejected_indices;
-  if (cfg.linearity.enabled || cfg.data.linear_required) {
+  if (cfg.linearity.enabled) {
     auto indices = core::sample_indices(frames.size(), cfg.linearity.max_frames);
     int failed = 0;
     float score_sum = 0.0f;
@@ -1656,7 +1653,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (!runner::run_phase_registration_prewarp(run_id, cfg, frames, run_dir,
               height, width, detected_mode, detected_bayer_str, frame_cache,
               norm_scales, frame_metrics, global_weights, first_header,
-              acceleration, emitter, log_file, phase_registration_ctx, true)) {
+              acceleration, emitter, log_file, phase_registration_ctx)) {
         emitter.run_end(run_id, false, "error", log_file, {{"message", "registration failed"}});
         return 1;
       }

@@ -78,16 +78,15 @@ Die `reconstruction.*`-Sektion steuert den Rekonstruktionskern
 - `reconstruction.drizzle.*` — `pixfrac`, `kernel`, `internal_scale`,
   `min_clip_contributors`, Chunking (`chunk_rows`, `chunk_halo_rows`),
   `memory_budget_mb`
-- `reconstruction.clipping.*` — `clip_sigma_low/high`, `min_n_eff`,
-  `robust_passes`, `guard_fallback`
+- `reconstruction.clipping.*` — `clip_sigma_low/high`,
+  `shared_frame_rejection`, `bimodal_veto`
 - `reconstruction.coverage_gate.*` — Coverage-Mindestanforderungen
 - `reconstruction.multiband.*` — Bandaufteilung und Fusion
 - `reconstruction.quality.pyramid.*` — Quell-Qualitätskarten-Pyramide
 - `reconstruction.diagnostics.*` — Diagnose-Umfang, Uniform-Store-Persistenz,
   Preview
 - `reconstruction.common_overlap_required_fraction` — Overlap-Mindestanteil
-- `reconstruction.delete_source_cache_after_run`,
-  `reconstruction.keep_profile_cache_after_run` — Cache-Lebenszyklus
+- `reconstruction.delete_source_cache_after_run` — Cache-Lebenszyklus
 
 ## Verzeichnisstruktur eines Laufs
 

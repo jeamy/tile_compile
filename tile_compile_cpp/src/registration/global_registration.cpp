@@ -35,28 +35,6 @@ WarpMatrix scale_translation_warp(const WarpMatrix &w, float scale) {
   return out;
 }
 
-// Invert a 2×3 affine warp matrix: given M→R, return R→M (or vice versa).
-/// @brief Inverts warp 2x3.
-/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-static WarpMatrix invert_warp_2x3(const WarpMatrix &w) {
-  const float a00 = w(0, 0), a01 = w(0, 1), tx = w(0, 2);
-  const float a10 = w(1, 0), a11 = w(1, 1), ty = w(1, 2);
-  const float det = a00 * a11 - a01 * a10;
-  if (std::fabs(det) < 1e-12f)
-    return w; // degenerate — return as-is
-  const float inv_det = 1.0f / det;
-  WarpMatrix inv;
-  inv(0, 0) = a11 * inv_det;
-  inv(0, 1) = -a01 * inv_det;
-  inv(1, 0) = -a10 * inv_det;
-  inv(1, 1) = a00 * inv_det;
-  inv(0, 2) = -(inv(0, 0) * tx + inv(0, 1) * ty);
-  inv(1, 2) = -(inv(1, 0) * tx + inv(1, 1) * ty);
-  return inv;
-}
-
 // --- Sub-functions (exported via header) ---
 
 // Estimate rotation (deg) between ref and mov using log-polar phase correlation
@@ -2488,6 +2466,35 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
 
   bool accepted = false;
 
+  // Blur before NCC: makes the quality metric robust against hot pixels and
+  // sharp point sources that cause extreme NCC sensitivity to sub-pixel shifts.
+  // sigma=1.5 matches the ECC pre-processing blur (prepare_ecc_image).
+  // Important: clamp to zero first so that negative background-subtracted
+  // values do not bleed into star peaks via Gaussian blur.
+  auto blur_for_ncc = [](const Matrix2Df &img) -> Matrix2Df {
+    cv::Mat m(img.rows(), img.cols(), CV_32F,
+              const_cast<float *>(img.data()));
+    cv::Mat clamped;
+    cv::max(m, 0.0f, clamped);          // remove negative background artefacts
+    cv::GaussianBlur(clamped, clamped, cv::Size(0, 0), 1.5);
+    Matrix2Df result(img.rows(), img.cols());
+    std::memcpy(result.data(), clamped.data,
+                static_cast<size_t>(img.size()) * sizeof(float));
+    return result;
+  };
+  // mov/ref do not change across cascade candidates: blur them once per
+  // call (lazily, so the identity/early-exit paths pay nothing) instead of
+  // once per candidate. Same blur on the same input: NCC values unchanged.
+  Matrix2Df mov_b_cache, ref_b_cache;
+  bool ncc_inputs_blurred = false;
+  auto blurred_inputs = [&]() {
+    if (!ncc_inputs_blurred) {
+      mov_b_cache = blur_for_ncc(mov);
+      ref_b_cache = blur_for_ncc(ref);
+      ncc_inputs_blurred = true;
+    }
+  };
+
   // Try a cascade method and validate with NCC
   auto try_method = [&](RegistrationResult rr,
                         const std::string &method) -> bool {
@@ -2501,25 +2508,10 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
     Matrix2Df warped = apply_warp(mov, rr.warp);
     const cv::Mat valid_mask = warp_valid_mask(mov, rr.warp);
     int overlap_pixels = 0;
-    // Blur before NCC: makes the quality metric robust against hot pixels and
-    // sharp point sources that cause extreme NCC sensitivity to sub-pixel shifts.
-    // sigma=1.5 matches the ECC pre-processing blur (prepare_ecc_image).
-    // Important: clamp to zero first so that negative background-subtracted
-    // values do not bleed into star peaks via Gaussian blur.
-    auto blur_for_ncc = [](const Matrix2Df &img) -> Matrix2Df {
-      cv::Mat m(img.rows(), img.cols(), CV_32F,
-                const_cast<float *>(img.data()));
-      cv::Mat clamped;
-      cv::max(m, 0.0f, clamped);          // remove negative background artefacts
-      cv::GaussianBlur(clamped, clamped, cv::Size(0, 0), 1.5);
-      Matrix2Df result(img.rows(), img.cols());
-      std::memcpy(result.data(), clamped.data,
-                  static_cast<size_t>(img.size()) * sizeof(float));
-      return result;
-    };
-    const Matrix2Df mov_b    = blur_for_ncc(mov);
+    blurred_inputs();
+    const Matrix2Df &mov_b   = mov_b_cache;
     const Matrix2Df warped_b = blur_for_ncc(warped);
-    const Matrix2Df ref_b    = blur_for_ncc(ref);
+    const Matrix2Df &ref_b   = ref_b_cache;
     const float ncc_identity_overlap =
         compute_ncc_masked(mov_b, ref_b, valid_mask, &overlap_pixels);
     float ncc = compute_ncc_masked(warped_b, ref_b, valid_mask);
@@ -2650,21 +2642,6 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
 // register_single_frame directly with its own rescue passes).
 // Kept as a thin wrapper for tests/CLI that may call it.
 // =====================================================================
-
-/// @brief Implements concatenate warps.
-/// @details Part of global registration algorithms, star matching, ECC fallback, and warp validation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-static WarpMatrix concatenate_warps(const WarpMatrix &w1, const WarpMatrix &w2) {
-  WarpMatrix result;
-  result(0,0) = w2(0,0)*w1(0,0) + w2(0,1)*w1(1,0);
-  result(0,1) = w2(0,0)*w1(0,1) + w2(0,1)*w1(1,1);
-  result(1,0) = w2(1,0)*w1(0,0) + w2(1,1)*w1(1,0);
-  result(1,1) = w2(1,0)*w1(0,1) + w2(1,1)*w1(1,1);
-  result(0,2) = w2(0,0)*w1(0,2) + w2(0,1)*w1(1,2) + w2(0,2);
-  result(1,2) = w2(1,0)*w1(0,2) + w2(1,1)*w1(1,2) + w2(1,2);
-  return result;
-}
 
 GlobalRegistrationOutput
 /// @brief Implements register frames to reference.

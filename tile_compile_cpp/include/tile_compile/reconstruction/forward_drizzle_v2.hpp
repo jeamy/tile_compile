@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
+#include "tile_compile/reconstruction/alpha_confidence.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_contrib_list.hpp"
 
 #include <cstddef>
@@ -467,6 +468,23 @@ ForwardDrizzleV2ProfileResult forward_drizzle_v2_profile_reduce(
     const ForwardDrizzleV2ProfileConfig &cfg = {},
     double confidence = std::numeric_limits<double>::quiet_NaN(),
     bool sigma_fully_degraded = false);
+
+// Grow-only buffers the reduction above needs internally (the alpha
+// contribution list plus the AlphaConfidenceScratch of
+// compute_alpha_confidence_channel). Hot per-pixel callers keep one per
+// worker thread so the reduction allocates nothing per pixel.
+struct ForwardDrizzleV2ProfileScratch {
+  std::vector<AlphaFactorContribution> contribs;
+  AlphaConfidenceScratch alpha;
+};
+
+// Identical result to the overload above, reusing `scratch` capacity.
+ForwardDrizzleV2ProfileResult forward_drizzle_v2_profile_reduce(
+    std::span<const ForwardDrizzleV2ProfileCandidate> candidates,
+    std::span<const std::uint8_t> accepted,
+    std::span<const ForwardDrizzleV2FrameMeta> frame_meta,
+    const ForwardDrizzleV2ProfileConfig &cfg, double confidence,
+    bool sigma_fully_degraded, ForwardDrizzleV2ProfileScratch &scratch);
 
 // Halo a multiband fusion needs of FINALIZED input rows on each side of a
 // committed core, measured in v2-output (native) rows. The fusion runs on the

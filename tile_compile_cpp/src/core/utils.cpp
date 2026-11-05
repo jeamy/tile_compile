@@ -10,6 +10,7 @@
 #include <memory>
 #include <random>
 #include <regex>
+#include <iostream>
 #include <sstream>
 #include <thread>
 
@@ -132,30 +133,6 @@ std::vector<fs::path> discover_frames(const fs::path& input_dir, const std::stri
     return frames;
 }
 
-/// @brief Reads bytes.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::vector<uint8_t> read_bytes(const fs::path& path) {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file) {
-        throw IOError("Cannot open file: " + path.string());
-    }
-    
-    auto size = file.tellg();
-    if (size <= 0) {
-        throw IOError("Empty or unreadable file: " + path.string());
-    }
-    file.seekg(0, std::ios::beg);
-    
-    std::vector<uint8_t> buffer(static_cast<size_t>(size));
-    if (!file.read(reinterpret_cast<char*>(buffer.data()), size)) {
-        throw IOError("Cannot read file: " + path.string());
-    }
-    
-    return buffer;
-}
-
 /// @brief Reads text.
 /// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -169,6 +146,12 @@ std::string read_text(const fs::path& path) {
     std::ostringstream oss;
     oss << file.rdbuf();
     return oss.str();
+}
+
+std::string read_stdin_text() {
+    std::ostringstream ss;
+    ss << std::cin.rdbuf();
+    return ss.str();
 }
 
 /// @brief Writes text.
@@ -190,41 +173,6 @@ void write_text(const fs::path& path, const std::string& text) {
         throw IOError("Cannot create file: " + path.string());
     }
     file << text;
-}
-
-/// @brief Implements safe hardlink or copy.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-void safe_hardlink_or_copy(const fs::path& src, const fs::path& dst) {
-    std::error_code ec;
-    fs::create_hard_link(src, dst, ec);
-    if (ec) {
-        fs::copy_file(src, dst, fs::copy_options::overwrite_existing);
-    }
-}
-
-/// @brief Implements pick output file.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-fs::path pick_output_file(const fs::path& dir, const std::string& prefix, const std::string& ext) {
-    fs::create_directories(dir);
-    
-    int counter = 0;
-    fs::path candidate;
-    do {
-        std::ostringstream oss;
-        oss << prefix;
-        if (counter > 0) {
-            oss << "_" << counter;
-        }
-        oss << ext;
-        candidate = dir / oss.str();
-        ++counter;
-    } while (fs::exists(candidate) && counter < 10000);
-    
-    return candidate;
 }
 
 /// @brief Implements sha256 bytes.
@@ -427,13 +375,6 @@ float median_of_or_nan(std::vector<float> v) {
     return median_of(std::move(v));
 }
 
-float mad_of_or_nan(std::vector<float> v, float median) {
-    if (v.empty() || !std::isfinite(median))
-        return std::numeric_limits<float>::quiet_NaN();
-    for (float& x : v) x = std::fabs(x - median);
-    return median_of(std::move(v));
-}
-
 float median_of_or_nan_inplace(std::vector<float>& v) {
     if (v.empty()) return std::numeric_limits<float>::quiet_NaN();
     const size_t n = v.size();
@@ -495,11 +436,22 @@ float percentile_from_sorted(const std::vector<float>& sorted, float pct) {
 }
 
 /// @brief Implements percentile of.
-/// @details Sorts the values in place and returns the requested percentile.
+/// @details Selects the requested percentile in place with nth_element (the
+/// same element a full sort + percentile_from_sorted returns); `values` is
+/// left partially reordered.
 /// Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers.
 float percentile_of(std::vector<float>& values, float pct) {
-    std::sort(values.begin(), values.end());
-    return percentile_from_sorted(values, pct);
+    if (values.empty()) return 0.0f;
+    // Same element percentile_from_sorted would pick after a full sort
+    // (index round(pct/100 * (n-1))), selected with nth_element instead; the
+    // caller-owned vector is still reordered (partially), as documented.
+    const float clamped = std::min(std::max(pct, 0.0f), 100.0f);
+    const float pos = (clamped / 100.0f) * static_cast<float>(values.size() - 1);
+    size_t idx = static_cast<size_t>(std::round(pos));
+    idx = std::min(idx, values.size() - 1);
+    std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(idx),
+                     values.end());
+    return values[idx];
 }
 
 /// @brief Estimates background sigma clip.
@@ -548,29 +500,6 @@ std::vector<size_t> sample_indices(size_t count, int max_samples) {
         }
     }
     return out;
-}
-
-/// @brief Implements robust zscore.
-/// @details Part of filesystem, hashing, robust statistics, string, sampling, and output scaling helpers; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-void robust_zscore(const std::vector<float>& v, std::vector<float>& out) {
-    out.assign(v.size(), 0.0f);
-    if (v.empty())
-        return;
-    std::vector<float> tmp = v;
-    float med = median_of(tmp);
-    for (float& x : tmp)
-        x = std::fabs(x - med);
-    float mad = median_of(tmp);
-    float sigma = kMadToSigma * mad;
-    if (!(sigma > 0.0f)) {
-        std::fill(out.begin(), out.end(), 0.0f);
-        return;
-    }
-    for (size_t i = 0; i < v.size(); ++i) {
-        out[i] = (v[i] - med) / sigma;
-    }
 }
 
 /// @brief Implements median finite positive.

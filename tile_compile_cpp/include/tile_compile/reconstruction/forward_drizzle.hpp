@@ -123,37 +123,6 @@ struct FrameQualityMaps {
 using FrameQualityProvider =
     std::function<FrameQualityMaps(std::size_t source_index)>;
 
-// §30.81 step 3a-2: a quality provider that decodes only the source rectangle
-// [y0, y1) x [x0, x1) (a negative `y1` or `x1` => the full extent on that
-// axis; y0 == y1 or x0 == x1 => a pure existence probe, no decode). The
-// returned FrameQualityMaps carry the rectangle origin so an absolute
-// (source_y, source_x) lookup rebases into it. The plain FrameQualityProvider
-// (full source geometry) is unchanged; `to_rect_provider` adapts it.
-using FrameQualityRectProvider = std::function<FrameQualityMaps(
-    std::size_t source_index, int y0, int y1, int x0, int x1)>;
-
-inline FrameQualityRectProvider to_rect_provider(
-    const FrameQualityProvider &full) {
-  if (!full) return {};
-  return [full](std::size_t si, int, int, int, int) { return full(si); };
-}
-
-// Which quality profiles / alpha inputs the drizzle should additionally emit
-// (plan 11.9 / 14.1 / 14.4). Fine uses pow(Q_scale0, fine_quality_exponent);
-// Medium uses pow(Q_scale1, medium_quality_exponent). emit_alpha_confidence
-// computes the per-pixel, channel-min A_separation / A_artifact /
-// A_registration maps (plan 14.4) from the accepted frame contributions ---
-// it needs the composite AND artifact quality streams. All share the
-// Uniform/Raw clip mask unchanged (plan 11.8).
-struct MultibandProfileParams {
-  bool emit_fine = false;
-  bool emit_medium = false;
-  bool emit_alpha_confidence = false;
-  float fine_quality_exponent = 4.0f;
-  float medium_quality_exponent = 2.0f;
-  AlphaConfidenceParams alpha_confidence{};
-};
-
 // Computes the Uniform-Control profile only (M2 scope, see header note).
 ForwardDrizzleUniformResult compute_forward_drizzle_uniform(
     const registration::RegistrationSamplingPlan &plan,

@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
                         {"clipping", {
                             {"type", "object"},
                             {"properties", {
-                                {"min_fraction", {
+                                {"shared_frame_rejection_consensus", {
                                     {"type", "number"},
                                     {"exclusiveMinimum", 0},
                                     {"maximum", 1}
@@ -83,9 +83,10 @@ int main(int argc, char** argv) {
                         {"diagnostics", {
                             {"type", "object"},
                             {"properties", {
-                                {"preview_forward_drizzle_uniform", {
-                                    {"type", "boolean"},
-                                    {"default", false}
+                                {"level", {
+                                    {"type", "string"},
+                                    {"enum", {"summary", "full"}},
+                                    {"default", "summary"}
                                 }}
                             }}
                         }}

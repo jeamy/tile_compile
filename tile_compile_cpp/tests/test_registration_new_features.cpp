@@ -56,7 +56,6 @@ TEST_CASE("RegistrationConfig new parameter defaults") {
     // §4.1, §8.B — Blind-Chain Parameter
     REQUIRE(cfg.max_blind_chain_depth == 0);  // auto
     REQUIRE(cfg.blind_chain_strong_anchor_cc == Catch::Approx(0.08f));
-    REQUIRE(cfg.blind_chain_drift_threshold_px == Catch::Approx(2.0f));
     
     // §4.13 — Astrometrische Rescue
     REQUIRE(cfg.use_astrometry == true);
@@ -130,10 +129,7 @@ TEST_CASE("RegistrationConfig parameter validation ranges") {
     // blind_chain_strong_anchor_cc: [0.01, 0.5]
     REQUIRE(RegistrationConfig{}.blind_chain_strong_anchor_cc >= 0.01f);
     REQUIRE(RegistrationConfig{}.blind_chain_strong_anchor_cc <= 0.5f);
-    
-    // blind_chain_drift_threshold_px: [0.5, 10.0]
-    REQUIRE(RegistrationConfig{}.blind_chain_drift_threshold_px >= 0.5f);
-    REQUIRE(RegistrationConfig{}.blind_chain_drift_threshold_px <= 10.0f);
+
 }
 
 } // namespace tile_compile::config

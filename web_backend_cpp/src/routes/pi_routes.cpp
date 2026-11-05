@@ -1853,14 +1853,7 @@ nlohmann::json build_run_chat_action_plan(const std::string& run_id,
 
     for (const auto& hint : hints) {
         const std::string id = hint.value("id", std::string());
-        if (id == "empty_valid_crop") {
-            add_set("output.crop_to_nonzero_bbox", false,
-                    "Der letzte Resume scheiterte in STACKING mit empty_valid_crop; automatisches Crop muss fuer den naechsten Resume deaktiviert werden.",
-                    true);
-        } else if (id == "cropped_nebula") {
-            add_set("output.crop_to_nonzero_bbox", false,
-                    "Wenn Nebel am Rand abgeschnitten wirkt, zuerst ohne automatisches Crop testen.");
-        } else if (id == "faint_nebula") {
+        if (id == "faint_nebula") {
             add_set("bge.method", "none",
                     "Bei ausgedehntem Nebel kann Hintergrundextraktion echte schwache Nebelanteile abschwaechen.");
             add_set("normalization.mode", "median",
@@ -1902,7 +1895,7 @@ nlohmann::json build_resume_recommendation(const nlohmann::json& hints) {
         const std::string id = hint.value("id", std::string());
         if (id == "empty_valid_crop") {
             choose(1, "STACKING",
-                   "Der letzte Resume brach in STACKING mit empty_valid_crop ab; nach Deaktivieren von output.crop_to_nonzero_bbox reicht Resume ab STACKING.");
+                   "Der letzte Resume brach in STACKING mit empty_valid_crop ab; Resume ab STACKING reicht, sobald Common-Overlap und Registrierung geprueft sind.");
         } else if (id == "soft_or_elongated_stars") {
             choose(5, "REGISTRATION", "Sternform und Schaerfe haengen oft an Registrierung, Frame-Gewichtung oder fruehen Geometrieschritten.");
         }
@@ -1968,13 +1961,13 @@ nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
         const std::string id = hint.value("id", std::string());
         if (id == "empty_valid_crop") {
             likely_causes.push_back(append_text_item(
-                "Der letzte Lauf scheiterte nach MULTIBAND, weil crop_to_nonzero_bbox kein gueltiges Nicht-Null-Crop-Fenster mehr fand.",
+                "Der letzte Lauf scheiterte nach MULTIBAND, weil kein gueltiges Nicht-Null-Fenster mehr gefunden wurde.",
                 "artifacts"));
             checks.push_back(append_text_item(
-                "Pruefe FORWARD_DRIZZLE/MULTIBAND phase_end-Warnungen: empty_valid_crop, unsupported_pixels und post-clipping numerical guard zeigen, dass automatisches Crop hier nicht belastbar ist.",
+                "Pruefe FORWARD_DRIZZLE/MULTIBAND phase_end-Warnungen: empty_valid_crop, unsupported_pixels und post-clipping numerical guard zeigen, dass die Abdeckung hier nicht belastbar ist.",
                 "artifacts"));
             recommendations.push_back(append_text_item(
-                "Vor dem naechsten Lauf `output.crop_to_nonzero_bbox=false` setzen und neu rechnen.",
+                "Vor dem naechsten Lauf Common-Overlap und Registrierungsdiagnostik pruefen und neu rechnen.",
                 "artifacts"));
         } else if (id == "black_star_cores") {
             likely_causes.push_back(append_text_item(
@@ -1994,7 +1987,7 @@ nlohmann::json build_run_chat_answer(const std::shared_ptr<AppState>& state,
                 "Pruefe common_overlap, Registration-Artefakte und ob das finale Output kleiner als die registrierten Frames ist.",
                 "artifacts"));
             recommendations.push_back(append_text_item(
-                "Testweise `output.crop_to_nonzero_bbox=false` und Common-Overlap/Registrierungsdiagnostik pruefen.",
+                "Common-Overlap- und Registrierungsdiagnostik pruefen.",
                 "report"));
         } else if (id == "faint_nebula") {
             likely_causes.push_back(append_text_item(

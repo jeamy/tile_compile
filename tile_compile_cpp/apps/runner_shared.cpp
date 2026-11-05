@@ -866,8 +866,7 @@ int compute_adaptive_worker_count(
         std::min(workers, static_cast<int>(std::max<size_t>(1, task_count)));
   }
   workers = std::max(1, workers);
-  if (workers <= 1 || profile == WorkerParallelProfile::CpuBound ||
-      frames.empty()) {
+  if (workers <= 1 || frames.empty()) {
     return workers;
   }
 
@@ -882,65 +881,6 @@ int compute_adaptive_worker_count(
     return workers;
   }
   return std::max(1, std::min(workers, io_cap));
-}
-
-uint64_t query_available_memory_bytes() {
-#ifdef _WIN32
-  MEMORYSTATUSEX status{};
-  status.dwLength = sizeof(status);
-  return GlobalMemoryStatusEx(&status) ? status.ullAvailPhys : 0ull;
-#elif defined(__APPLE__)
-  mach_port_t host = mach_host_self();
-  vm_size_t page_size = 0;
-  if (host_page_size(host, &page_size) != KERN_SUCCESS || page_size == 0) {
-    mach_port_deallocate(mach_task_self(), host);
-    return 0ull;
-  }
-
-  vm_statistics64_data_t vm_stat{};
-  mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
-  const kern_return_t result = host_statistics64(
-      host, HOST_VM_INFO64, reinterpret_cast<host_info64_t>(&vm_stat),
-      &count);
-  mach_port_deallocate(mach_task_self(), host);
-  if (result != KERN_SUCCESS) {
-    return 0ull;
-  }
-
-  // Include reclaimable inactive, speculative, and purgeable pages. This is
-  // the closest portable equivalent to Linux MemAvailable for worker sizing.
-  const uint64_t available_pages =
-      static_cast<uint64_t>(vm_stat.free_count) +
-      static_cast<uint64_t>(vm_stat.inactive_count) +
-      static_cast<uint64_t>(vm_stat.speculative_count) +
-      static_cast<uint64_t>(vm_stat.purgeable_count);
-  return available_pages * static_cast<uint64_t>(page_size);
-#else
-  std::ifstream meminfo("/proc/meminfo");
-  std::string key;
-  uint64_t value_kib = 0;
-  std::string unit;
-  while (meminfo >> key >> value_kib >> unit) {
-    if (key == "MemAvailable:") {
-      return value_kib * 1024ull;
-    }
-  }
-  return 0ull;
-#endif
-}
-
-OverlapMasks compute_overlap_masks(const std::vector<uint16_t> &coverage,
-                                   int required_common_frames) {
-  OverlapMasks masks;
-  masks.analysis_common.assign(coverage.size(), 0u);
-  masks.reconstruction_support.assign(coverage.size(), 0u);
-  const int common_floor = std::max(1, required_common_frames);
-  for (size_t i = 0; i < coverage.size(); ++i) {
-    const int count = static_cast<int>(coverage[i]);
-    masks.reconstruction_support[i] = count > 0 ? 1u : 0u;
-    masks.analysis_common[i] = count >= common_floor ? 1u : 0u;
-  }
-  return masks;
 }
 
 FrameSubBatchPlan compute_memory_capped_frame_sub_batch(
@@ -1070,94 +1010,18 @@ bool load_canvas_mask_for_rgb(const fs::path &mask_path, const Matrix2Df &R,
 /// artifact, and error-handling semantics expected by callers.
 image::HyperMetricStretchConfig to_image_hms_config(
     const config::HyperMetricStretchConfig &src) {
-  image::HyperMetricStretchConfig dst;
-  dst.enabled = src.enabled;
-  dst.require_successful_pcc = src.require_successful_pcc;
-  dst.mode = src.mode;
-  dst.sensor_profile = src.sensor_profile;
-  dst.fallback_profile = src.fallback_profile;
-  dst.adaptive_anchor = src.adaptive_anchor;
-  dst.anchor_from_reference = src.anchor_from_reference;
-  dst.target_bg = src.target_bg;
-  dst.protect_b = src.protect_b;
-  dst.convergence_power = src.convergence_power;
-  dst.log_d_mode = src.log_d_mode;
-  dst.fixed_log_d = src.fixed_log_d;
-  dst.color_strategy = src.color_strategy;
-  dst.fixed_color_strategy = src.fixed_color_strategy;
-  dst.color_grip = src.color_grip;
-  dst.shadow_convergence = src.shadow_convergence;
-  dst.linear_expansion = src.linear_expansion;
-  dst.highlight_ceiling_percentile = src.highlight_ceiling_percentile;
-  dst.local_contrast.enabled = src.local_contrast.enabled;
-  dst.local_contrast.radius_px = src.local_contrast.radius_px;
-  dst.local_contrast.strength = src.local_contrast.strength;
-  dst.write_channels = src.write_channels;
-  dst.output_rgb = src.output_rgb;
-  return dst;
+  // image::HyperMetricStretchConfig is an alias of the config struct.
+  return src;
 }
 
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   image::BGEConfig dst;
+  static_cast<config::BGEConfig &>(dst) = src;
   // config::BGEConfig has no `enabled` field of its own (method == "none"
   // is the sole on/off switch); image::BGEConfig still has a real,
   // load-bearing `enabled` gate used deep in the BGE algorithm itself
   // (background_extraction.cpp), so derive it here.
   dst.enabled = (src.method != "none");
-  dst.method = src.method;
-  dst.auto_detect.gradient_threshold      = src.auto_detect.gradient_threshold;
-  dst.auto_detect.extended_source_sigma   = src.auto_detect.extended_source_sigma;
-  dst.auto_detect.extended_source_dilate_px = src.auto_detect.extended_source_dilate_px;
-  dst.autobge.num_sample_points = src.autobge.num_sample_points;
-  dst.autobge.poly_degree = src.autobge.poly_degree;
-  dst.autobge.rbf_smooth = src.autobge.rbf_smooth;
-  dst.autobge.downsample_scale = src.autobge.downsample_scale;
-  dst.autobge.patch_size = src.autobge.patch_size;
-  dst.autobge.patch_estimator = src.autobge.patch_estimator;
-  dst.autobge.stretch_mode = src.autobge.stretch_mode;
-  dst.autobge.stretch_target_median = src.autobge.stretch_target_median;
-  dst.autobge.border_margin = src.autobge.border_margin;
-  dst.autobge.bright_exclusion_fraction =
-      src.autobge.bright_exclusion_fraction;
-  dst.autobge.gradient_descent_max_iters =
-      src.autobge.gradient_descent_max_iters;
-  dst.autobge.random_seed = src.autobge.random_seed;
-  dst.autobge.normalize_between_stages =
-      src.autobge.normalize_between_stages;
-  dst.autobge.apply_guards = src.autobge.apply_guards;
-  dst.autobge.mono_mode = src.autobge.mono_mode;
-  dst.autobge.user_sample_points = src.autobge.user_sample_points;
-  dst.sample_quantile = src.sample_quantile;
-  dst.sample_estimator = src.sample_estimator;
-  dst.min_sample_bg_value = src.min_sample_bg_value;
-  dst.structure_thresh_percentile = src.structure_thresh_percentile;
-  dst.min_tiles_per_cell = src.min_tiles_per_cell;
-  dst.min_valid_sample_fraction_for_apply =
-      src.min_valid_sample_fraction_for_apply;
-  dst.min_valid_samples_for_apply = src.min_valid_samples_for_apply;
-  dst.mask.star_dilate_px = src.mask.star_dilate_px;
-  dst.mask.sat_dilate_px = src.mask.sat_dilate_px;
-  dst.grid.N_g = src.grid.N_g;
-  dst.grid.G_min_px = src.grid.G_min_px;
-  dst.grid.G_max_fraction = src.grid.G_max_fraction;
-  dst.grid.insufficient_cell_strategy = src.grid.insufficient_cell_strategy;
-  dst.fit.method = src.fit.method;
-  dst.fit.robust_loss = src.fit.robust_loss;
-  dst.fit.huber_delta = src.fit.huber_delta;
-  dst.fit.irls_max_iterations = src.fit.irls_max_iterations;
-  dst.fit.irls_tolerance = src.fit.irls_tolerance;
-  dst.fit.polynomial_order = src.fit.polynomial_order;
-  dst.fit.rbf_phi = src.fit.rbf_phi;
-  dst.fit.rbf_mu_factor = src.fit.rbf_mu_factor;
-  dst.fit.rbf_lambda = src.fit.rbf_lambda;
-  dst.fit.rbf_epsilon = src.fit.rbf_epsilon;
-  dst.autotune.enabled = src.autotune.enabled;
-  dst.autotune.max_evals = src.autotune.max_evals;
-  dst.autotune.holdout_fraction = src.autotune.holdout_fraction;
-  dst.autotune.alpha_flatness = src.autotune.alpha_flatness;
-  dst.autotune.beta_roughness = src.autotune.beta_roughness;
-  dst.autotune.strategy = src.autotune.strategy;
-  dst.tile_weight_lambda_structure = src.tile_weight_lambda_structure;
   return dst;
 }
 
@@ -2154,6 +2018,32 @@ fs::path resolve_astap_binary_path(const std::string &astap_bin_cfg,
 #endif
 
   return {};
+}
+
+AstapPaths resolve_astap_paths(const std::string &binary_cfg,
+                               const std::string &data_dir_cfg) {
+  AstapPaths out;
+  out.data_dir = data_dir_cfg;
+  if (out.data_dir.empty()) {
+#ifdef _WIN32
+    if (const char *la = std::getenv("LOCALAPPDATA"); la && la[0] != '\0') {
+      out.data_dir = std::string(la) + "\\tile_compile\\astap";
+    }
+#else
+    if (const char *home = std::getenv("HOME")) {
+      out.data_dir = std::string(home) + "/.local/share/tile_compile/astap";
+    }
+#endif
+  }
+  out.binary = resolve_astap_binary_path(binary_cfg, out.data_dir);
+  if (!out.binary.empty()) {
+    std::error_code ec;
+    const auto relative = fs::relative(out.binary, fs::path(out.data_dir), ec);
+    if (ec || relative.empty() || *relative.begin() == "..") {
+      out.data_dir = out.binary.parent_path().string();
+    }
+  }
+  return out;
 }
 
 } // namespace tile_compile::runner

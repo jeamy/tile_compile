@@ -60,12 +60,6 @@ using tile_compile::TileType;
 
 
 
-std::string read_all_stdin() {
-  std::ostringstream ss;
-  ss << std::cin.rdbuf();
-  return ss.str();
-}
-
 std::string json_string(const json& j, const std::string& key,
                         const std::string& fallback = "") {
   return j.contains(key) && j[key].is_string() ? j[key].get<std::string>()
@@ -1178,7 +1172,7 @@ float accepted_median_fwhm(const runner::QualityAnalysisContext& qa) {
 
 TileGrid build_preprocess_bge_grid(int rows,
                                    int cols,
-                                   const config::TileConfig& tile_cfg,
+                                   const prep::TileConfig& tile_cfg,
                                    float seeing_fwhm) {
   if (!(seeing_fwhm > 0.0f) || !std::isfinite(seeing_fwhm)) {
     seeing_fwhm = 3.0f;
@@ -1282,29 +1276,11 @@ PreprocessPostprocessResult run_preprocess_postprocess(
     emitter.phase_end(run_id, prep::phase_to_string(prep::Phase::ASTROMETRY), "skipped",
                       {{"reason", "no_rgb_stack"}}, event_out);
   } else {
-    std::string astap_data = cfg.has_astrometry_config ? cfg.astrometry.astap_data_dir : "";
-    if (astap_data.empty()) {
-#ifdef _WIN32
-      if (const char *la = std::getenv("LOCALAPPDATA"); la && la[0] != '\0') {
-        astap_data = std::string(la) + "\\tile_compile\\astap";
-      }
-#else
-      if (const char* home = std::getenv("HOME")) {
-        astap_data = std::string(home) + "/.local/share/tile_compile/astap";
-      }
-#endif
-    }
     const std::string astap_bin_cfg = cfg.has_astrometry_config ? cfg.astrometry.astap_bin : "";
-    fs::path astap_bin_path = runner::resolve_astap_binary_path(astap_bin_cfg, astap_data);
-    // If the resolved binary lives outside the configured data dir, use its parent as data dir
-    if (!astap_bin_path.empty()) {
-      std::error_code ec;
-      fs::path data_dir_path(astap_data);
-      auto relative = fs::relative(astap_bin_path, data_dir_path, ec);
-      if (ec || relative.empty() || relative.begin() == relative.end() || *relative.begin() == "..") {
-        astap_data = astap_bin_path.parent_path().string();
-      }
-    }
+    const auto astap_paths = runner::resolve_astap_paths(
+        astap_bin_cfg, cfg.has_astrometry_config ? cfg.astrometry.astap_data_dir : std::string());
+    std::string astap_data = astap_paths.data_dir;
+    fs::path astap_bin_path = astap_paths.binary;
     const int search_radius = cfg.has_astrometry_config ? cfg.astrometry.search_radius : 180;
     if (astap_bin_path.empty()) {
       const std::string reported_bin = astap_bin_cfg.empty() ? astap_data + "/astap_cli" : astap_bin_cfg;
@@ -1949,7 +1925,7 @@ int preprocess_command(const std::string& config_path,
     const bool use_stdin_config = config_from_stdin || config_path == "-";
     std::string raw_config;
     if (use_stdin_config) {
-      raw_config = read_all_stdin();
+      raw_config = core::read_stdin_text();
     } else {
       raw_config = core::read_text(fs::path(config_path));
     }

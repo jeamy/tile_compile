@@ -123,8 +123,6 @@ reconstruction:
   coverage_gate:
     min_channel_n_eff_floor: 1.0
     min_analysis_pixels: 16
-  clipping:
-    min_n_eff: 1.0
 )";
     core::write_text_atomic(dir/"config.yaml",yaml);
     cfg=config::Config::from_yaml_text(yaml);
@@ -498,8 +496,8 @@ TEST_CASE("forward runner: diagnostics.level and profile-cache retention do not 
           "[forward-runner]") {
   // §23.1 / M8: "`summary`/`full` und Profilcache-Retention verändern keine
   // Rechenergebnisse." diagnostics.level=full only writes EXTRA control FITS;
-  // keep_profile_cache_after_run / delete_source_cache_after_run only act on
-  // caches AFTER the committed image. None feeds the store math.
+  // delete_source_cache_after_run only acts on caches AFTER the committed
+  // image (the v2 band store is always retained). Neither feeds the store math.
   // Scope: this proves retention does NOT change the run that produces the
   // store. It does not exercise a *subsequent* re-fuse consuming a retained
   // profile store -- that is a separate case if it ever matters.
@@ -512,7 +510,7 @@ TEST_CASE("forward runner: diagnostics.level and profile-cache retention do not 
                      bool delete_source) {
     Fixture f;
     f.cfg.reconstruction.diagnostics.level = level;
-    f.cfg.reconstruction.keep_profile_cache_after_run = keep_profile;
+    (void)keep_profile;  // the v2 band store is always retained (no config knob)
     f.cfg.reconstruction.delete_source_cache_after_run = delete_source;
     std::ostringstream log;
     REQUIRE(f.execute(log));
@@ -580,7 +578,6 @@ TEST_CASE("forward runner: geometry veto never completes overlap or reconstructi
 }
 TEST_CASE("forward runner: resume validates predecessors before starting a phase", "[forward-runner]") {
   Fixture f; std::ostringstream first;
-  f.cfg.reconstruction.keep_profile_cache_after_run=true;  // inspect the store across runs
   REQUIRE(f.execute(first));
   const auto current=f.dir/"artifacts/forward_drizzle_v2/current.json";
   std::ostringstream resumed;
@@ -642,8 +639,6 @@ reconstruction:
   coverage_gate:
     min_channel_n_eff_floor: 1.0
     min_analysis_pixels: 16
-  clipping:
-    min_n_eff: 1.0
 )";
     core::write_text_atomic(dir/"config.yaml",yaml);
     cfg=config::Config::from_yaml_text(yaml);
@@ -700,7 +695,6 @@ TEST_CASE("forward runner: local-warp geometry cache is built, published, "
   // at 1 reduction worker (the registry is disabled for band parallelism).
   ForwardDrizzleWorkersEnvGuard reduction_workers("1");
   LocalWarpFixture f;
-  f.cfg.reconstruction.keep_profile_cache_after_run=true;
   std::ostringstream first;
   const bool ok_first=f.execute(first);
   INFO("first run log:\n"<<first.str());
@@ -787,7 +781,6 @@ TEST_CASE("forward runner: FORWARD_DRIZZLE reports zero reduction workers "
   auto run_at = [&](const char *workers) {
     ForwardDrizzleWorkersEnvGuard env(workers);
     LocalWarpFixture f;
-    f.cfg.reconstruction.keep_profile_cache_after_run = true;
     std::ostringstream out;
     const bool ok = f.execute(out);
     INFO("workers=" << workers << " log:\n" << out.str());

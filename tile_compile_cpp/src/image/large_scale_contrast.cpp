@@ -384,7 +384,6 @@ double span_p5_p95(const cv::Mat &dev, const cv::Mat &ok) {
   return percentile_of(v, 0.95) - percentile_of(v, 0.05);
 }
 
-cv::Mat wrap(Matrix2Df &m) { return cv::Mat(static_cast<int>(m.rows()), static_cast<int>(m.cols()), CV_32F, m.data()); }
 cv::Mat wrap_const(const Matrix2Df &m) {
   return cv::Mat(static_cast<int>(m.rows()), static_cast<int>(m.cols()), CV_32F, const_cast<float *>(m.data()));
 }

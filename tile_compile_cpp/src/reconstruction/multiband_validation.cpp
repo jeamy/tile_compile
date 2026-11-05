@@ -135,16 +135,6 @@ MedianCi bootstrap_median_ci(const std::vector<double> &values) {
   return out;
 }
 
-std::vector<double> per_star_fwhm(const Matrix2Df &image, int width, int height,
-                                  const std::vector<ValidationStar> &stars,
-                                  bool effective_only) {
-  auto aligned = per_star_fwhm_aligned(image, width, height, stars, effective_only);
-  std::vector<double> out;
-  for (double v : aligned)
-    if (std::isfinite(v)) out.push_back(v);
-  return out;
-}
-
 std::vector<ValidationStar> prepare_validation_samples(
     const Matrix2Df &uniform_control, int width, int height,
     const std::vector<uint8_t> &validation_mask,

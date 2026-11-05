@@ -20,17 +20,6 @@ namespace {
 
 constexpr float kTiny = 1.0e-12f;
 
-float sorted_quantile_local(const std::vector<float>& sorted_values, float q) {
-  if (sorted_values.empty())
-    return 0.0f;
-  q = std::max(0.0f, std::min(1.0f, q));
-  const float pos = q * static_cast<float>(sorted_values.size() - 1);
-  const size_t lo = static_cast<size_t>(std::floor(pos));
-  const size_t hi = std::min(sorted_values.size() - 1, lo + 1);
-  const float t = pos - static_cast<float>(lo);
-  return sorted_values[lo] * (1.0f - t) + sorted_values[hi] * t;
-}
-
 BGEValueStats stats_from_values_local(const std::vector<float>& values) {
   BGEValueStats stats;
   std::vector<float> finite;
@@ -45,12 +34,19 @@ BGEValueStats stats_from_values_local(const std::vector<float>& values) {
   stats.n = static_cast<int>(finite.size());
   if (finite.empty())
     return stats;
-  std::sort(finite.begin(), finite.end());
-  stats.min = finite.front();
-  stats.max = finite.back();
+  // Selection instead of a full sort: the same min/max/median values as the
+  // sorted form (the even-size lower median is the max of the lower half).
+  const auto mm = std::minmax_element(finite.begin(), finite.end());
+  stats.min = *mm.first;
+  stats.max = *mm.second;
+  const size_t mid = finite.size() / 2;
+  std::nth_element(finite.begin(), finite.begin() + static_cast<std::ptrdiff_t>(mid),
+                   finite.end());
   stats.median = (finite.size() % 2 != 0)
-      ? finite[finite.size() / 2]
-      : 0.5f * (finite[finite.size() / 2 - 1] + finite[finite.size() / 2]);
+      ? finite[mid]
+      : 0.5f * (*std::max_element(finite.begin(),
+                                  finite.begin() + static_cast<std::ptrdiff_t>(mid)) +
+                finite[mid]);
   stats.mean = static_cast<float>(sum / static_cast<double>(finite.size()));
   double var = 0.0;
   for (float v : finite) {
@@ -82,11 +78,6 @@ int autobge_min_stage1_points(const BGEConfig::AutoBGEConfig& config) {
 
 constexpr int kAutoBGEMinStage2Points = 16;
 
-float percentile_of_valid(const std::vector<float>& sorted_vals, float pct) {
-  if (sorted_vals.empty()) return 0.0f;
-  return tile_compile::core::percentile_from_sorted(sorted_vals, pct * 100.0f);
-}
-
 std::vector<float> collect_patch_values(const Matrix2Df& img, int cx, int cy,
                                         int patch_size) {
   const int half = patch_size / 2;
@@ -106,37 +97,45 @@ std::vector<float> collect_patch_values(const Matrix2Df& img, int cx, int cy,
 
 float patch_estimate(const Matrix2Df& img, int cx, int cy, int patch_size,
                      const std::string& estimator) {
-  std::vector<float> vals = collect_patch_values(img, cx, cy, patch_size);
+  // Grow-only per-thread scratch: the gradient descent calls this thousands
+  // of times per seed; no heap traffic per call once warmed up. The in-place
+  // medians permute these buffers, which is fine because every pass below
+  // only needs the multiset of values.
+  thread_local std::vector<float> vals, dev, clipped;
+  vals.clear();
+  const int half = patch_size / 2;
+  const int r0 = std::max(0, cy - half);
+  const int r1 = std::min(static_cast<int>(img.rows()) - 1, cy + half);
+  const int c0 = std::max(0, cx - half);
+  const int c1 = std::min(static_cast<int>(img.cols()) - 1, cx + half);
+  for (int r = r0; r <= r1; ++r)
+    for (int c = c0; c <= c1; ++c) {
+      const float v = img(r, c);
+      if (std::isfinite(v) && v > 0.0f) vals.push_back(v);
+    }
   if (vals.empty())
     return 0.0f;
   if (estimator != "sigma_clipped_median")
-    return tile_compile::core::median_of(std::move(vals));
+    return tile_compile::core::median_of_or_nan_inplace(vals);
 
-  // vals already known non-empty above; the reorder from the in-place
-  // variant is harmless since the loop below only needs the same values.
   const float med = tile_compile::core::median_of_or_nan_inplace(vals);
-  std::vector<float> dev;
-  dev.reserve(vals.size());
+  dev.clear();
   for (float v : vals)
     dev.push_back(std::fabs(v - med));
-  const float mad = tile_compile::core::median_of(std::move(dev));
+  const float mad = tile_compile::core::median_of_or_nan_inplace(dev);
   const float sigma = tile_compile::core::kMadToSigma * mad;
   if (!(sigma > kTiny))
     return med;
 
-  std::vector<float> clipped;
-  clipped.reserve(vals.size());
+  clipped.clear();
   const float lo = med - 3.0f * sigma;
   const float hi = med + 3.0f * sigma;
   for (float v : vals) {
     if (v >= lo && v <= hi)
       clipped.push_back(v);
   }
-  return clipped.empty() ? med : tile_compile::core::median_of(std::move(clipped));
-}
-
-float patch_median(const Matrix2Df& img, int cx, int cy, int patch_size) {
-  return patch_estimate(img, cx, cy, patch_size, "median");
+  return clipped.empty() ? med
+                         : tile_compile::core::median_of_or_nan_inplace(clipped);
 }
 
 float patch_sigma(const Matrix2Df& img, int cx, int cy, int patch_size) {
@@ -269,17 +268,26 @@ Matrix2Df transform_to_autobge_working_space(
     return channel;
   }
 
-  std::sort(valid_vals.begin(), valid_vals.end());
-  const float p01 = percentile_of_valid(valid_vals, 0.01f);
-  const float p99 = percentile_of_valid(valid_vals, 0.99f);
-  const float vmin = valid_vals.front();
-  std::vector<float> shifted_vals;
-  shifted_vals.reserve(valid_vals.size());
-  for (float v : valid_vals)
-    shifted_vals.push_back(std::max(0.0f, v - vmin));
-  std::sort(shifted_vals.begin(), shifted_vals.end());
-  const float median_shifted = percentile_of_valid(shifted_vals, 0.50f);
-  const float median = percentile_of_valid(valid_vals, 0.50f);
+  // Three single quantiles by selection instead of a full sort (same element
+  // percentile_from_sorted picks: index round(p * (n - 1))). The shifted
+  // median is max(0, v - vmin) applied to the median element: that map is
+  // monotone non-decreasing, so it commutes with the rank selection exactly.
+  auto select_quantile = [&](float p) -> float {
+    // Exactly percentile_from_sorted's index expression (pct in percent).
+    const float clamped = std::min(std::max(p * 100.0f, 0.0f), 100.0f);
+    const float pos = (clamped / 100.0f) * static_cast<float>(valid_vals.size() - 1);
+    size_t idx = static_cast<size_t>(std::round(pos));
+    idx = std::min(idx, valid_vals.size() - 1);
+    std::nth_element(valid_vals.begin(),
+                     valid_vals.begin() + static_cast<std::ptrdiff_t>(idx),
+                     valid_vals.end());
+    return valid_vals[idx];
+  };
+  const float vmin = *std::min_element(valid_vals.begin(), valid_vals.end());
+  const float p01 = select_quantile(0.01f);
+  const float p99 = select_quantile(0.99f);
+  const float median = select_quantile(0.50f);
+  const float median_shifted = std::max(0.0f, median - vmin);
 
   if (params) {
     if (static_cast<int>(params->original_mins.size()) <= channel_index) {
@@ -438,22 +446,43 @@ Matrix2Df upscale_lanczos4(const Matrix2Df& background, int target_rows, int tar
     return std::sin(px) * std::sin(npx) / (px * npx);
   };
 
-  for (int tr = 0; tr < target_rows; ++tr) {
-    const float src_r = (tr + 0.5f) * scale_r - 0.5f;
-    const int r0 = std::max(0, static_cast<int>(std::floor(src_r)) - a + 1);
-    const int r1 = std::min(src_rows - 1, static_cast<int>(std::floor(src_r)) + a);
-    for (int tc = 0; tc < target_cols; ++tc) {
-      const float src_c = (tc + 0.5f) * scale_c - 0.5f;
-      const int c0 = std::max(0, static_cast<int>(std::floor(src_c)) - a + 1);
-      const int c1 = std::min(src_cols - 1, static_cast<int>(std::floor(src_c)) + a);
+  // The kernel is separable: the column taps (c0, c1, wc[]) depend only on
+  // tc and the row taps only on tr. Tabulate both once (2*a taps each) and
+  // keep the per-pixel accumulation loop, order and arithmetic unchanged, so
+  // the result is identical to the direct per-tap evaluation.
+  constexpr int taps = 2 * a;
+  struct AxisTaps {
+    int i0 = 0, i1 = -1;
+    float w[taps] = {};
+  };
+  auto tabulate = [&](int target_n, int src_n, float scale,
+                      std::vector<AxisTaps>& table) {
+    table.resize(static_cast<size_t>(target_n));
+    for (int t = 0; t < target_n; ++t) {
+      const float src = (t + 0.5f) * scale - 0.5f;
+      AxisTaps& at = table[static_cast<size_t>(t)];
+      at.i0 = std::max(0, static_cast<int>(std::floor(src)) - a + 1);
+      at.i1 = std::min(src_n - 1, static_cast<int>(std::floor(src)) + a);
+      for (int i = at.i0; i <= at.i1; ++i)
+        at.w[i - at.i0] = lanczos_kernel(src - i, a);
+    }
+  };
+  std::vector<AxisTaps> row_taps, col_taps;
+  tabulate(target_rows, src_rows, scale_r, row_taps);
+  tabulate(target_cols, src_cols, scale_c, col_taps);
 
+#pragma omp parallel for schedule(static)
+  for (int tr = 0; tr < target_rows; ++tr) {
+    const AxisTaps& rt = row_taps[static_cast<size_t>(tr)];
+    for (int tc = 0; tc < target_cols; ++tc) {
+      const AxisTaps& ct = col_taps[static_cast<size_t>(tc)];
       float weight_sum = 0.0f;
       float value_sum = 0.0f;
-      for (int sr = r0; sr <= r1; ++sr) {
-        const float wr = lanczos_kernel(src_r - sr, a);
+      for (int sr = rt.i0; sr <= rt.i1; ++sr) {
+        const float wr = rt.w[sr - rt.i0];
         if (wr == 0.0f) continue;
-        for (int sc = c0; sc <= c1; ++sc) {
-          const float wc = lanczos_kernel(src_c - sc, a);
+        for (int sc = ct.i0; sc <= ct.i1; ++sc) {
+          const float wc = ct.w[sc - ct.i0];
           if (wc == 0.0f) continue;
           const float w = wr * wc;
           value_sum += w * background(sr, sc);
@@ -498,14 +527,16 @@ std::vector<SamplePoint> generate_autobge_sample_points(
     }
   if (valid_vals.empty()) return {};
 
-  std::sort(valid_vals.begin(), valid_vals.end());
   // bright_exclusion_fraction is the fraction at the bright end to reject.
   // Example: 0.30 keeps the darkest 70%, matching AutoBGE.py semantics.
   const float keep_fraction = 1.0f - config.bright_exclusion_fraction;
   const int bright_idx = static_cast<int>(
       static_cast<float>(valid_vals.size()) * keep_fraction);
-  const float bright_threshold = valid_vals[std::min(bright_idx,
-      static_cast<int>(valid_vals.size()) - 1)];
+  const int bright_sel = std::min(bright_idx,
+      static_cast<int>(valid_vals.size()) - 1);
+  std::nth_element(valid_vals.begin(), valid_vals.begin() + bright_sel,
+                   valid_vals.end());
+  const float bright_threshold = valid_vals[bright_sel];
 
   // Helper: check if a point is valid (not bright, not masked)
   auto is_valid_point = [&](int x, int y) -> bool {
@@ -927,9 +958,21 @@ AutoBGEResult build_autobge_models(
     }
   }
   if (valid_luma.size() >= 16) {
-    std::sort(valid_luma.begin(), valid_luma.end());
-    const float fg_thresh =
-        sorted_quantile_local(valid_luma, config.structure_thresh_percentile);
+    // sorted_quantile_local interpolates between ranks lo and lo+1; select
+    // those two order statistics instead of sorting all values.
+    const float q = std::max(0.0f, std::min(1.0f, config.structure_thresh_percentile));
+    const float pos = q * static_cast<float>(valid_luma.size() - 1);
+    const size_t lo = static_cast<size_t>(std::floor(pos));
+    const size_t hi = std::min(valid_luma.size() - 1, lo + 1);
+    const float t = pos - static_cast<float>(lo);
+    std::nth_element(valid_luma.begin(),
+                     valid_luma.begin() + static_cast<std::ptrdiff_t>(lo),
+                     valid_luma.end());
+    const float v_lo = valid_luma[lo];
+    const float v_hi = hi == lo ? v_lo
+        : *std::min_element(valid_luma.begin() + static_cast<std::ptrdiff_t>(lo + 1),
+                            valid_luma.end());
+    const float fg_thresh = v_lo * (1.0f - t) + v_hi * t;
     for (int y = 0; y < rows; ++y) {
       for (int x = 0; x < cols; ++x) {
         const size_t idx = static_cast<size_t>(y * cols + x);

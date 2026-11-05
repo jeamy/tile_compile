@@ -18,19 +18,5 @@ WarpMatrix identity_warp();
 
 Matrix2Df apply_warp(const Matrix2Df& img, const WarpMatrix& warp);
 
-/**
- * Compute bounding box that contains all warped frame corners.
- * Returns (min_x, min_y, max_x, max_y) in output space.
- * Used for field rotation: output canvas must be large enough to contain all rotated frames.
- */
-struct BoundingBox {
-    int min_x;
-    int min_y;
-    int max_x;
-    int max_y;
-    int width() const { return max_x - min_x; }
-    int height() const { return max_y - min_y; }
-};
-
 
 } // namespace tile_compile::registration

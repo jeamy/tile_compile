@@ -499,11 +499,6 @@ void set_forward_drizzle_v2_cuda_fault_after_bands(int n) {
   g_fd_v2_cuda_fault_after_bands.store(n);
 }
 
-int forward_drizzle_v2_cuda_fault_after_bands() {
-  read_fault_env_once();
-  return g_fd_v2_cuda_fault_after_bands.load();
-}
-
 ForwardDrizzleV2DriverResult run_forward_drizzle_v2(
     const fs::path &store_root, const ForwardDrizzleV2RunPlan &plan,
     int source_width, int source_height,

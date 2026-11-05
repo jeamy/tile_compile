@@ -30,8 +30,11 @@ Ausgabepixel invers in Quellframes zu sampeln.
    Kernel-Beitrag × Support-Maske.
 5. **Robuste Reduktion:** `reconstruction.clipping.*` steuert
    Sigma-Clipping (`clip_sigma_low/high`), Mindestbeiträge
-   (`min_clip_contributors`, `min_n_eff`), Iterationen (`robust_passes`)
-   und das `guard_fallback`-Verhalten bei unzureichender n_eff.
+   (`drizzle.min_clip_contributors`) und Iterationen (`robust_passes`).
+   Unterhalb der Mindestbeiträge wird ungeclippt gewichtet gemittelt,
+   sonst der gewichtete Mittelwert der Clip-Überlebenden verwendet. Ein
+   nachgelagertes n_eff-/Anteils-Veto gibt es im v2-Kernel nicht; unbelegt
+   bleibt nur ein Pixel ohne Quellbeitrag.
 
 ## Chunking und Speicher
 
@@ -65,8 +68,7 @@ Pass-Through-Marker).
 ## Diagnose-Schalter
 
 `reconstruction.diagnostics.*` steuert ausschließlich Diagnoseausgaben
-(`level`, `preview_forward_drizzle_uniform`,
-`persist_forward_drizzle_uniform_store`) — ohne Einfluss auf das
+(`level`) — ohne Einfluss auf das
 Rekonstruktionsergebnis.
 
 ## Resume

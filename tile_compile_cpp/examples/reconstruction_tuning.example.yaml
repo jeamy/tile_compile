@@ -21,7 +21,6 @@
 output:
   registered_dir: registered
   write_registered_frames: false
-  crop_to_nonzero_bbox: true
 
 data:
   image_width: 0
@@ -82,7 +81,6 @@ registration:
   auto_engine_rotation_threshold_deg: 0.05
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.05
-  blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
   star_shift_radius_px: 200
@@ -379,11 +377,8 @@ hypermetric_stretch:
 reconstruction:
   common_overlap_required_fraction: 1.0
   delete_source_cache_after_run: true
-  keep_profile_cache_after_run: false
   diagnostics:
     level: full
-    preview_forward_drizzle_uniform: false
-    persist_forward_drizzle_uniform_store: false
   drizzle:
     internal_scale: 2
     output_scale: 1
@@ -399,9 +394,6 @@ reconstruction:
   clipping:
     clip_sigma_low: 4.0
     clip_sigma_high: 4.0
-    min_fraction: 0.4
-    min_n_eff: 2.0
-    guard_fallback: false
   coverage_gate:
     min_frames: 2
     min_supported_fraction: 0.995

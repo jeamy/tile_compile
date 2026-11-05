@@ -339,7 +339,7 @@ int main(int argc, char** argv) {
         expect_true(path_is_protected(catalog, "reconstruction.coverage_gate.min_frames"), "coverage_gate protected");
         expect_true(!path_is_protected(catalog, "reconstruction.drizzle.min_clip_contributors"), "min_clip_contributors released for candidates");
         expect_true(path_is_protected(catalog, "pcc.k_max") && path_is_protected(catalog, "reconstruction.multiband_validation.fwhm_ratio_max"), "acceptance gates stay hard-protected");
-        expect_true(path_is_protected(catalog, "calibration.dark_master") && path_is_protected(catalog, "output.crop_to_nonzero_bbox") && path_is_protected(catalog, "reconstruction.common_overlap_required_fraction"), "user-domain paths stay protected");
+        expect_true(path_is_protected(catalog, "calibration.dark_master") && path_is_protected(catalog, "reconstruction.common_overlap_required_fraction"), "user-domain paths stay protected");
         expect_true(!path_is_protected(catalog, "reconstruction.clipping.shared_frame_rejection") && !path_is_protected(catalog, "reconstruction.clipping.bimodal_veto") && !path_is_protected(catalog, "calibration.dark_match_temp_tolerance_c") && !path_is_protected(catalog, "runtime_limits.memory_budget"), "released tuning knobs are not protected");
         expect_true(path_is_protected(catalog, "runtime_limits.hard_abort_hours"), "hard_abort_hours stays a user-domain value");
         expect_true(!path_is_protected(catalog, "reconstruction.drizzle.pixfrac"), "pixfrac not protected");

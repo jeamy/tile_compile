@@ -340,8 +340,6 @@ reconstruction:
     min_channel_n_eff_fraction: 0.08
     min_analysis_pixels: 256
     min_supported_fraction: 0.90
-  clipping:
-    min_n_eff: 1.5
   diagnostics:
     level: full
 )";

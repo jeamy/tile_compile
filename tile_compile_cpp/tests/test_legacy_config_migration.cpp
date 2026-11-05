@@ -64,12 +64,26 @@ TEST_CASE("migration strips removed structural blocks with a report (plan 6.5)")
       "tile_denoise:\n  wiener:\n    enabled: true\n"
       "local_metrics:\n  k_local: 1\n"
       "synthetic:\n  frames_min: 4\n"
+      "output:\n  crop_to_nonzero_bbox: true\n"
+      "data:\n  linear_required: true\n"
+      "reconstruction:\n  keep_profile_cache_after_run: true\n  clipping:\n    min_n_eff: 2\n    guard_fallback: false\n    clip_sigma_low: 2.5\n  diagnostics:\n    level: full\n    preview_forward_drizzle_uniform: true\n"
       "registration:\n  engine: triangle_star_matching\n";
   YAML::Node n = load(yaml);
   ConfigMigrationReport report;
   REQUIRE_NOTHROW(migrate_legacy_config_node(n, report));
 
   REQUIRE(report.applied);
+  REQUIRE(has(report.stripped_keys, "output.crop_to_nonzero_bbox"));
+  REQUIRE(has(report.stripped_keys, "data.linear_required"));
+  REQUIRE(has(report.stripped_keys, "reconstruction.keep_profile_cache_after_run"));
+  REQUIRE_FALSE(n["output"]["crop_to_nonzero_bbox"]);
+  REQUIRE_FALSE(n["reconstruction"]["keep_profile_cache_after_run"]);
+  REQUIRE(has(report.stripped_keys, "reconstruction.clipping.min_n_eff"));
+  REQUIRE(has(report.stripped_keys, "reconstruction.clipping.guard_fallback"));
+  REQUIRE_FALSE(n["reconstruction"]["clipping"]["min_n_eff"]);
+  REQUIRE(n["reconstruction"]["clipping"]["clip_sigma_low"]);  // untouched sibling
+  REQUIRE(has(report.stripped_keys, "reconstruction.diagnostics.preview_forward_drizzle_uniform"));
+  REQUIRE(n["reconstruction"]["diagnostics"]["level"]);
   REQUIRE(has(report.stripped_keys, "tile"));
   REQUIRE(has(report.stripped_keys, "tile_denoise"));
   REQUIRE(has(report.stripped_keys, "local_metrics"));

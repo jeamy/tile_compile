@@ -54,8 +54,8 @@ coverage, GLOBAL_QUALITY and the gather — no consumer re-runs
 
 Cache retention is explicit: `delete_source_cache_after_run` removes both
 source caches at run end (disabling resume, reported in `run_end` as
-`cache_retention`); `keep_profile_cache_after_run` controls the profile
-cache separately.
+`cache_retention`); the v2 band store is always retained because it is a
+resume predecessor.
 
 ## 3. The gather and the store
 
@@ -74,8 +74,10 @@ Key properties:
   planner. `TC_FORWARD_DRIZZLE_MEMORY_BUDGET_MB` allows budget sweeps
   without invalidating the checkpoint (the committed store is
   budget-invariant and bit-exact on the CPU path).
-- **Robust reduction:** `clipping.*` sigma-clipping, minimum contributor
-  and `n_eff` gates, `guard_fallback` for under-supported regions.
+- **Robust reduction:** `clipping.*` sigma-clipping; below
+  `drizzle.min_clip_contributors` candidates the unclipped weighted mean is
+  used, otherwise the survivors' weighted mean (no post-clip veto in the v2
+  kernel; only pixels without source support stay unsupported).
 
 ## 4. Resume contract
 

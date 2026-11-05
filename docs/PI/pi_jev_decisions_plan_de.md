@@ -38,9 +38,9 @@ Config-Werte**, nicht nur ein Kandidat; `enable_adaptive_weights` war nur der er
    (`protected_paths_v1.json`, Schema v2, zwei Stufen). **`hard`:** Akzeptanzgrenzen und Architektur-Invarianten
    (`reconstruction.coverage_gate.*`, `reconstruction.multiband_validation.*`, `pcc.k_max`, `pcc.max_residual_rms`,
    `pcc.max_condition_number`, `method`). **`user_domain`:** Werte in der Zuständigkeit von Nutzer oder System, nicht
-   datengetrieben (`common_overlap_required_fraction`, `output.crop_to_nonzero_bbox`, `runtime_limits.hard_abort_hours`,
+   datengetrieben (`common_overlap_required_fraction`, `runtime_limits.hard_abort_hours`,
    Kalibrationspfade, Master, `use_*`). **Freigegeben für Kandidaten** (mit `requires_review`, Bedingungen in
-   `released_for_candidates`): `min_clip_contributors` (nur einseitiges Gitter nach oben), `guard_fallback`,
+   `released_for_candidates`): `min_clip_contributors` (nur einseitiges Gitter nach oben),
    `shared_frame_rejection`, `bimodal_veto`, `bge.method`, die Dark-Matching-Toleranzen und
    `runtime_limits.parallel_workers/memory_budget/acceleration_backend` (die letzten beiden Gruppen brauchen erst
    Systemfakten im State). Die Einteilung ist meine Auslegung von "alles was sinnvoll ist"; einzelne Pfade lassen sich

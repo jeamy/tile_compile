@@ -91,6 +91,6 @@ bool run_phase_registration_prewarp(
     const VectorXf &global_weights, const io::FitsHeader &first_hdr,
     core::AccelerationContext &acceleration, core::EventEmitter &emitter,
     std::ostream &log_file,
-    PhaseRegistrationContext &out, bool registration_only = false);
+    PhaseRegistrationContext &out);
 
 } // namespace tile_compile::runner

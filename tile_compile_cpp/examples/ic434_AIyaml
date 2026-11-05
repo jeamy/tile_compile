@@ -196,7 +196,6 @@ normalization:
   mode: background
   per_channel: true
 output:
-  crop_to_nonzero_bbox: true
   registered_dir: registered
   write_registered_frames: false
 pcc:
@@ -228,9 +227,6 @@ reconstruction:
     bimodal_veto_gap_sigma: 2.5
     clip_sigma_high: 5
     clip_sigma_low: 5
-    guard_fallback: false
-    min_fraction: 0.4
-    min_n_eff: 2
     shared_frame_rejection: true
     shared_frame_rejection_consensus: 0.5
   common_overlap_required_fraction: 1
@@ -244,8 +240,6 @@ reconstruction:
   delete_source_cache_after_run: false
   diagnostics:
     level: full
-    persist_forward_drizzle_uniform_store: false
-    preview_forward_drizzle_uniform: false
   drizzle:
     chunk_halo_rows: -1
     chunk_rows: 0
@@ -257,7 +251,6 @@ reconstruction:
     output_scale: 1
     pixfrac: 1
     robust_passes: 4
-  keep_profile_cache_after_run: true
   multiband:
     alpha_cap: 1
     enabled: true
@@ -284,7 +277,6 @@ registration:
   allow_rotation: true
   auto_engine: true
   auto_engine_rotation_threshold_deg: 0.05
-  blind_chain_drift_threshold_px: 2
   blind_chain_strong_anchor_cc: 0.05
   debayer_first: true
   enable_local_background_subtraction: false
