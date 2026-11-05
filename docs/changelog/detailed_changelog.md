@@ -1,5 +1,90 @@
 ## Changelog
 
+### (2026-11-05)
+
+**v0.5.1 — PI decision trace, unified run assistant, and code-review cleanup:**
+
+**PI decision trace and persistence:**
+
+- **SQLite storage.** PI memories and decision records moved to one SQLite database (`PiDatabase`), with a one-time import of the old JSONL files. The decision-record store adds an overlay, redaction, and compaction. Jev persistence, preview routes, and a user reason catalog run on the same storage.
+- **Stable run contexts.** Run contexts are keyed by a stable `run_uid`. A context whose run directory moved can be relinked explicitly instead of being matched by guesswork.
+- **Decision write points:**
+  - Each persisted scan-AI analysis records one `llm_proposal`.
+  - Scan-AI and preview applies record a `config_apply` linked through `parent_decision_id`.
+  - `POST /api/pi/proposals/<id>/reject` records a `config_reject` with optional catalog-validated reasons. Rejection is idempotent. An applied proposal cannot be rejected (409), and applying a rejected proposal is refused with `PROPOSAL_REJECTED`.
+  - Memory reviews are recorded with validated reasons.
+  - Recording is best effort: a failure is reported as `decision_record_written=false` and does not fail an apply that already saved.
+- **Apply intent and recovery.** An apply first writes an intent containing the pre-write config hash, then the saved hash and path. Repeating an interrupted apply reconciles against the config on disk, fail-closed:
+  - If the config is unchanged, the preview returns to pending.
+  - If the config was already saved, the apply completes once (`recovered=true`).
+  - Anything else returns `PREVIEW_RECOVERY_REQUIRED` (409).
+- **Replay linkage.** Proposals now link to the runs they produced (M5). Jev batch applies carry full provenance, and lock handling is complete.
+
+**Retention and run learning archive:**
+
+- **Run learning snapshots** are kept independently of run artifacts. The history page shows retained run archives and offers guarded file deletion.
+- **`PiRetentionStore`** applies a fixed v1 policy to previews, raw Jev parts, user text, and idle conversations. It also provides:
+  - confirmed forget of a run and reset of a category, both leaving content-free tombstones;
+  - managed SQLite backups that expire after 14 days;
+  - a confirmed restore that reconciles the external deletion journal before it replaces the active database.
+
+  WAL checkpoint and VACUUM failures are reported as failed maintenance.
+- **Sidecar traffic logs** (prompt and response text) are pruned to 30 days. Lines with a missing or invalid timestamp are dropped.
+- **Domain isolation.** Learning models are now strictly separated by domain.
+
+**Unified run assistant:**
+
+- **Global dock.** A run assistant dock is available on every page, with stable UID-scoped threads.
+- **Restored state.** Durable Jev cards and persisted scan-analysis contexts come back after a reload.
+- **Shared handoffs.** Guarded preview cards and the Resume draft handoff are shared with the dock.
+
+**Post-run advisor:**
+
+- **New measurements.** The advisor reports measured BGE deltas, stretch clipping, and paired post-run star shape. The star metric uses the same paired-aperture method as the comparison metric.
+- **Jev selection.** A constrained post-run Jev selection was added, and suggestion dismissals now persist.
+- **External run directories.** Advice resolves external run paths and aliases consistently, and the measurement evidence is rendered in the UI.
+
+**Code-review cleanup (tile_compile_cpp):**
+
+- **Breaking: removed config keys.** These keys were parsed but never read. Legacy config migration strips them with a `[CONFIG-MIGRATION] WARN`:
+  - `output.crop_to_nonzero_bbox`
+  - `data.linear_required`
+  - `reconstruction.keep_profile_cache_after_run`
+  - `reconstruction.clipping.{min_fraction,min_n_eff,guard_fallback}`
+  - `reconstruction.diagnostics.{preview_forward_drizzle_uniform,persist_forward_drizzle_uniform_store}`
+  - `registration.blind_chain_drift_threshold_px`
+
+  Schema JSON/YAML, docs DE/EN, examples, the backend catalog, and i18n were updated together.
+- **Unreachable code removed.** The registration-phase tail never ran in production because it was always called with `registration_only=true`. It covered SAMPLING_GEOMETRY, PREWARP, and the uniform preview/store after the early return. The tail, its helpers, and about 40 other dead functions and types were removed. Production coverage still comes from the parallel forward-stage SAMPLING_GEOMETRY.
+- **Duplicates merged:**
+  - `denoise_common` helpers
+  - `resolve_astap_paths`
+  - the PCC masked RGB loop
+  - `core::read_stdin_text`
+  - image config structs, now aliased to the config structs
+- **Stable forward-drizzle v2 resume hashes.** Struct padding is zeroed before store hashing, on CPU finalize and in CUDA `d_init_record`. Resume checkpoint hashes are now reproducible.
+- **CPU performance:** parallel FD v2 finalize and parallel multiband and AutoBGE hot loops. The CPU polygon clip is split into a per-column and a per-row step (`polygon_clip_columns` / `polygon_clipped_rows_area`); the result is bit-identical to `polygon_rectangle_intersection_area`. New diagnostics fields: `v2_finalize_seconds`, `v2_cpu_scatter_seconds`, `v2_cpu_fold_seconds`.
+- **CUDA:**
+  - clip header with bit-exact early-outs
+  - separate test-harness translation unit
+  - contiguous planes with a row window
+  - pinned staging buffers
+  - `DevBuf` RAII
+  - non-blocking coverage stream
+  - `-lineinfo`
+- **Fixed example.** `forward_drizzle_streaming.example.yaml` is valid again.
+- **Validation:**
+  - CPU and CUDA suites: 507/507 each, including 18 CUDA parity cases (cleanup commit). After the merge of the CPU polygon-clip change, the suite in the default build passes 508/508.
+  - All 13 example configs validate.
+  - Backend ctest: 31/32. The failing test is `run_start_naming`, a fixture problem in an untouched route.
+  - An IC434 run on real data with the old config: registration and SAMPLING_GEOMETRY are identical to the earlier result, and forward-drizzle raw, uniform, and reconstructed outputs are bit-identical wherever both are finite.
+
+**Platform, frontend, and examples:**
+
+- **PI sidecar.** `agent_service` now pins `@earendil-works/pi-coding-agent` 1.5.0 (previously `^0.87.1`). Sidecar typecheck and 76/76 sidecar tests pass.
+- **HTTPS gateway fix.** Pages served over HTTPS now use relative `/api` paths. Before, behind the HTTPS workspace gateway, the API client switched to `http://<host>:8080` and the browser blocked those requests as mixed content. That broke features such as the directory picker.
+- **New example.** An IC434 AI example profile was added under `tile_compile_cpp/examples/`.
+
 ### (2026-10-03)
 
 **v0.5.0 — CFA Forward Drizzle v2 production cutover and the Jev decision layer:**

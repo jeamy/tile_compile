@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.5.1 (2026-11-05)
+
+**PI decision trace, unified run assistant, and code cleanup:**
+
+- PI/Jev state now lives in SQLite: memories, decision records, previews, Jev proposals, and stable run contexts. Moved runs can be relinked explicitly.
+- Decision trace: LLM proposals, config applies, rejections, and memory reviews are recorded with validated reasons. Interrupted applies recover fail-closed.
+- A global run assistant dock with stable per-run threads restores Jev cards, scan-analysis contexts, and guarded preview/resume handoffs.
+- Run learning snapshots are kept independently of run artifacts, with a retention store (backup, restore, forget). Sidecar traffic logs are pruned after 30 days.
+- The post-run advisor now measures BGE deltas, stretch clipping, and paired star shape. It supports external run directories, persistent dismissals, and a constrained Jev selection.
+- Breaking: config keys that were parsed but never used were removed. Old configs are migrated with a warning.
+- Reconstruction: unreachable registration-phase code was removed and forward-drizzle v2 store hashes are now stable. Parts of the CPU and CUDA paths are faster, with the same results.
+- The PI sidecar now uses `@earendil-works/pi-coding-agent` 1.5.0. Same-origin API calls behind an HTTPS gateway were fixed, and a new IC434 AI example profile was added.
+
 ## v0.5.0 (2026-10-03)
 
 **CFA Forward Drizzle v2 and the Jev decision layer:**
