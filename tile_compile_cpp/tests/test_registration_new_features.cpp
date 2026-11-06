@@ -7,6 +7,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -211,11 +212,30 @@ TEST_CASE("detect_stars_simple basic functionality") {
 
 // §4.13 — Tests für astrometrische Rescue (ohne ASTAP-Abhängigkeit)
 TEST_CASE("is_astap_available returns false when binary missing") {
-    // Mit leeren Pfaden sollte ASTAP nicht verfügbar sein
-    REQUIRE_FALSE(is_astap_available("", ""));
-    
-    // Mit nicht-existentem Pfad sollte es nicht verfügbar sein
+    // Leere Pfade fallen auf $HOME zurück und hängen damit von der Maschine
+    // ab; hier nur explizite, nicht existierende Pfade prüfen.
     REQUIRE_FALSE(is_astap_available("/nonexistent/astap_cli", "/nonexistent"));
+    REQUIRE_FALSE(is_astap_available("", "/nonexistent"));
+}
+
+TEST_CASE("is_astap_available accepts .290 and D-series .1476 catalogs") {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() /
+        ("tc_astap_avail_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(dir);
+    std::ofstream(dir / "astap_cli") << "x";
+    const std::string bin = (dir / "astap_cli").string();
+
+    CHECK_FALSE(is_astap_available(bin, dir.string()));  // binary, no catalog
+    std::ofstream(dir / "d50_0101.1476") << "x";
+    CHECK(is_astap_available(bin, dir.string()));
+    fs::remove(dir / "d50_0101.1476");
+    std::ofstream(dir / "h18_0101.290") << "x";
+    CHECK(is_astap_available(bin, dir.string()));
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
 }
 
 TEST_CASE("wcs_to_similarity_warp basic transformation") {

@@ -33,7 +33,7 @@ http://localhost:8080
 
 ### Config
 
-- `POST /api/config/validate` — validate config YAML
+- `POST /api/config/validate` — validate config YAML; returns `ok`, `errors`, `warnings` and `path_issues` (configured paths missing on this machine, each with `key`, `status`, `fallback`, `blocking`, `message`)
 - `POST /api/config/suggest` — parameter suggestions
 - `GET /api/config/schema` — config schema
 

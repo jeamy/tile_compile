@@ -43,12 +43,13 @@ bool is_astap_available(const std::string& astap_bin_hint,
     return false;
   }
 
-  // Prüfen ob Katalog-Daten existieren (mindestens eine .290 Datei)
+  // Prüfen ob Katalog-Daten existieren: H17/H18/V17 (.290/.291) oder
+  // D05/D20/D50/D80 (.1476). Synchron halten mit config_path_check.cpp.
   bool has_catalog = false;
   if (fs::exists(astap_data) && fs::is_directory(astap_data)) {
     for (const auto& entry : fs::directory_iterator(astap_data)) {
-      if (entry.path().extension() == ".290" ||
-          entry.path().extension() == ".291") {
+      const auto ext = entry.path().extension();
+      if (ext == ".290" || ext == ".291" || ext == ".1476") {
         has_catalog = true;
         break;
       }

@@ -101,6 +101,7 @@ export function createParameterPage() {
       ),
     ),
     el("div", { class: "tc-mt-2", id: "param-validation-result" }),
+    el("div", { class: "tc-mt-2", id: "param-path-check" }),
     el("div", { class: "tc-mt-4 tc-card", style: { background: "var(--bg)" }, id: "param-yaml-diff" },
       el("div", { class: "tc-card-title" }, "YAML Diff"),
       el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_changes", "Keine Änderungen")),
@@ -210,6 +211,9 @@ async function initParameterData(restoreView = null, page = null, paramTab = nul
   const savedCat = getUiState().selectedCategory || "all";
   renderEditorForCategory(savedCat);
   loadPresets();
+  // Warn early about configured paths that do not exist on this machine
+  // (e.g. a config copied from another computer).
+  refreshPathCheck();
   if ((restoreView === "ai" || restoreView === "jev") && page && paramTab) {
     switchView(restoreView, page, paramTab, aiTab);
   }
@@ -398,6 +402,7 @@ function editableParamRow(path, value, fieldSchema) {
     markDirty();
     setConfigState({ draftYaml: stringifyYaml(getConfigState().draft) });
     updateDiff();
+    if (PATH_CHECK_TRIGGER.test(path)) schedulePathCheck();
     if (path === "bge.method") {
       const savedCat = getUiState().selectedCategory || "all";
       renderEditorForCategory(savedCat);
@@ -650,11 +655,46 @@ function getConfigValue(obj, path) {
   return val;
 }
 
+// Config keys whose edit re-runs the path check (paths, and the switches
+// that decide whether the run needs a path).
+const PATH_CHECK_TRIGGER = /(_dir|_master|_bin|\.use_(bias|dark|flat)|^astrometry\.enabled|^pcc\.(enabled|source)|\.use_astrometry)$/;
+let pathCheckTimer = null;
+
+function schedulePathCheck(delayMs = 600) {
+  clearTimeout(pathCheckTimer);
+  pathCheckTimer = setTimeout(() => { refreshPathCheck(); }, delayMs);
+}
+
+async function refreshPathCheck() {
+  const result = await validateConfig();
+  renderPathCheck(result?.path_issues || []);
+}
+
+function renderPathCheck(issues) {
+  const panel = document.getElementById("param-path-check");
+  if (!panel) return;
+  clear(panel);
+  if (!issues?.length) return;
+  const blocking = issues.some(i => i.blocking);
+  panel.appendChild(el("div", { class: "tc-card", style: { background: blocking ? "var(--error-bg)" : "var(--surface-2)" } },
+    el("div", { class: `tc-card-title ${blocking ? "tc-text-error" : "tc-text-warning"}` },
+      blocking
+        ? t("ui.path_check.title_blocking", "Fehlende Pfade – ein Run würde abbrechen")
+        : t("ui.path_check.title_warning", "Konfigurierte Pfade nicht gefunden")),
+    el("div", { class: "tc-text-sm tc-text-muted" },
+      t("ui.path_check.hint", "Diese Pfade existieren auf diesem Rechner nicht. ✖ = der Run braucht die Daten und bricht ab. ⚠ = ein Standardpfad oder eine andere Quelle wird verwendet, oder der Pfad wird nicht genutzt.")),
+    ...issues.map(i => el("div", { class: `tc-text-sm tc-mono ${i.blocking ? "tc-text-error" : "tc-text-warning"}` },
+      `${i.blocking ? "✖" : "⚠"} ${i.key}: ${i.message}`)),
+  ));
+}
+
 async function doValidate() {
   toast(t("ui.toast.validating", "Validiere..."), "", "info");
   const result = await validateConfig();
   const valPanel = document.getElementById("param-validation-result");
   if (valPanel) clear(valPanel);
+  renderPathCheck(result?.path_issues || []);
+  const otherWarnings = result?.warnings || [];
 
   if (result?.errors?.length) {
     toastError(t("ui.toast.validation_failed", "Validation failed"), `${result.errors.length} Fehler`);
@@ -671,11 +711,11 @@ async function doValidate() {
         }),
       ));
     }
-  } else if (result?.warnings?.length) {
+  } else if (otherWarnings.length) {
     if (valPanel) {
       valPanel.appendChild(el("div", { class: "tc-card", style: { background: "var(--surface-2)" } },
         el("div", { class: "tc-card-title" }, t("ui.toast.validation_ok", "Config valid")),
-        ...result.warnings.map(w => el("div", { class: "tc-text-sm tc-text-muted" },
+        ...otherWarnings.map(w => el("div", { class: "tc-text-sm tc-text-muted" },
           `${w.path || w.field || "?"}: ${w.message || w.msg || String(w)}`,
         )),
       ));

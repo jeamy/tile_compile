@@ -82,6 +82,7 @@ int main(int argc, char** argv) {
         expect_true(validate["ok"].get<bool>(), "config validate ok");
         expect_true(validate["errors"].is_array(), "config validate errors array");
         expect_true(validate["warnings"].is_array(), "config validate warnings array");
+        expect_true(validate["path_issues"].is_array(), "config validate path_issues array");
 
         const auto missing = harness.get_json("/api/runs/does_not_exist/status");
         expect_equal(missing["_http_status"].get<long>(), 404L, "missing run status");

@@ -2012,6 +2012,21 @@ async function startRun() {
       configYaml = injectCalibrationIntoYaml(configYaml, calValues);
     }
 
+    // Re-check the configured paths on the YAML the run will actually get
+    // (after the Input & Scan / ASTAP / catalog injections above). A path
+    // whose data the run needs and that has no standard replacement stops
+    // the start here; the runner repeats the same check authoritatively.
+    const pathIssues = await checkRunConfigPaths(configYaml);
+    const blockingPaths = pathIssues.filter(i => i.blocking);
+    if (blockingPaths.length) {
+      clearRunWarnings();
+      showPathIssuesInBanner(pathIssues);
+      toastError(t("ui.toast.run_start_failed", "Start fehlgeschlagen"),
+        t("ui.error.path_issues_blocking", "Der Run braucht Daten aus Pfaden, die auf diesem Rechner nicht existieren: {details}",
+          { details: blockingPaths.map(i => i.key).join(", ") }));
+      return;
+    }
+
     const payload = {
       input_dir: sd.input_dir || "",
       runs_dir: sd.runs_dir || "",
@@ -2027,6 +2042,12 @@ async function startRun() {
     toast(t("ui.toast.run_starting", "Run wird gestartet..."), "", "info");
     setAiState({ currentAnalysis: null });
     clearRunWarnings();
+    if (pathIssues.length) {
+      showPathIssuesInBanner(pathIssues);
+      toast(t("ui.toast.path_issues_warning", "Pfad-Warnungen"),
+        t("ui.path_check.run_warning", "{count} konfigurierte Pfade fehlen; Standardpfad oder Ersatz wird verwendet.", { count: pathIssues.length }),
+        "warning");
+    }
     let result;
     try {
       result = await api.post(API_ENDPOINTS.runs.start, payload);
@@ -2534,6 +2555,25 @@ function addRunWarning(banner, msg, type) {
   );
   list.appendChild(item);
   banner.style.display = "";
+}
+
+async function checkRunConfigPaths(configYaml) {
+  if (!configYaml) return [];
+  try {
+    const res = await api.post(API_ENDPOINTS.config.validate, { yaml: configYaml });
+    return Array.isArray(res?.path_issues) ? res.path_issues : [];
+  } catch {
+    // The runner performs the same check before any phase and aborts itself.
+    return [];
+  }
+}
+
+function showPathIssuesInBanner(issues) {
+  const banner = document.getElementById("run-warning-banner");
+  for (const i of issues) {
+    // Same text as the runner's warning event, so addRunWarning de-duplicates.
+    addRunWarning(banner, `Config path ${i.key}: ${i.message}`, i.blocking ? "error" : "warning");
+  }
 }
 
 function clearRunWarnings() {

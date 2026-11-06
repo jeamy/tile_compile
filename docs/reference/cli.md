@@ -75,7 +75,10 @@ resume (downstream resume from persisted outputs still works).
 ./tile_compile_cli dump-default-config                     # Print default config as JSON
 ./tile_compile_cli load-config <path>                    # Load and display config YAML
 ./tile_compile_cli save-config <path> [--stdin]            # Save config YAML
-./tile_compile_cli validate-config (--path P | --yaml Y | --stdin)
+./tile_compile_cli validate-config (--path P | --yaml Y | --stdin) [--project-root R]
+#   JSON: valid, errors, warnings, path_issues. path_issues lists configured paths that do
+#   not exist (key, status, fallback, blocking, message); relative calibration paths resolve
+#   against R (default: project root of --path, else the current directory).
 
 # Run inspection
 ./tile_compile_cli list-runs /path/to/runs

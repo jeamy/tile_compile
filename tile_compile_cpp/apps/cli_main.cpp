@@ -1,6 +1,7 @@
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/config/legacy_config_migration.hpp"
+#include "tile_compile/config/path_check.hpp"
 #include "tile_compile/core/build_info.hpp"
 #include "tile_compile/core/errors.hpp"
 #include "tile_compile/core/utils.hpp"
@@ -778,7 +779,8 @@ int cmd_migrate_config(const std::string& in_path, const std::string& out_path) 
 /// @details Part of the GUI/CLI adapter that exposes configuration, FITS inspection, run listing, and artifact commands; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
 /// artifact, and error-handling semantics expected by callers.
-int cmd_validate_config(const std::string& path, const std::string& yaml_arg, bool use_stdin, bool strict_exit) {
+int cmd_validate_config(const std::string& path, const std::string& yaml_arg, bool use_stdin, bool strict_exit,
+                        const std::string& project_root_arg) {
     std::string yaml_text;
     if (!path.empty()) {
         yaml_text = read_file_text(path);
@@ -792,6 +794,7 @@ int cmd_validate_config(const std::string& path, const std::string& yaml_arg, bo
     result["valid"] = false;
     result["errors"] = json::array();
     result["warnings"] = json::array();
+    result["path_issues"] = json::array();
     if (!path.empty()) result["path"] = path;
     
     // Use the migrated parser so validation reports exactly what the runner
@@ -803,6 +806,17 @@ int cmd_validate_config(const std::string& path, const std::string& yaml_arg, bo
             tile_compile::config::Config::from_yaml_text_migrated(yaml_text, migration_report);
         cfg.validate();
         result["valid"] = true;
+        // Configured paths that do not exist on this machine, in their own
+        // `path_issues` array (never in `errors`, and not mixed into the
+        // string-only `warnings`): the parameter window only warns, the run
+        // start and the runner decide whether to abort. Relative calibration
+        // paths resolve like the runner does.
+        const fs::path project_root =
+            !project_root_arg.empty() ? fs::path(project_root_arg)
+            : !path.empty()           ? tile_compile::core::resolve_project_root(fs::path(path))
+                                      : fs::current_path();
+        const auto issues = tile_compile::config::check_config_paths(cfg, project_root);
+        result["path_issues"] = tile_compile::config::path_issues_to_json(issues);
     } catch (const std::exception& e) {
         result["errors"].push_back(e.what());
     }
@@ -1785,7 +1799,7 @@ void print_usage() {
               << "  save-gui-state [--path P] [--stdin | JSON]  Save GUI state\n"
               << "  load-config <path>              Load config YAML file\n"
               << "  save-config <path> [--stdin | YAML]  Save config YAML file\n"
-              << "  validate-config (--path P | --yaml Y | --stdin)  Validate config\n"
+              << "  validate-config (--path P | --yaml Y | --stdin) [--project-root R]  Validate config and configured paths\n"
               << "  migrate-config <in> <out>       Apply the single-method legacy config migration\n"
               << "  scan <input_path> [--frames-min N]  Scan input directory for frames\n"
               << "  list-runs <runs_dir>            List pipeline runs\n"
@@ -1899,7 +1913,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "validate-config requires --path, --yaml, or --stdin\n";
             return 1;
         }
-        return cmd_validate_config(path, yaml, use_stdin, strict);
+        return cmd_validate_config(path, yaml, use_stdin, strict, get_arg("--project-root"));
     }
 
     if (command == "migrate-config") {

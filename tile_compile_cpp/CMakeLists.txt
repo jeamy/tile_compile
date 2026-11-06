@@ -445,6 +445,7 @@ set(LIB_SOURCES
     src/core/cfa_warp.cpp
     src/io/fits_io.cpp
     src/io/config.cpp
+    src/io/config_path_check.cpp
     src/io/legacy_config_migration.cpp
     src/image/processing.cpp
     src/image/cfa_processing.cpp
@@ -500,6 +501,7 @@ set(LIB_SOURCES
     src/pipeline/adaptive_tile_grid.cpp
     src/preprocessing/contract.cpp
     src/astrometry/wcs.cpp
+    src/astrometry/astap_paths.cpp
     src/astrometry/gaia_catalog.cpp
     src/astrometry/photometric_color_cal.cpp
 )
@@ -693,6 +695,7 @@ if(BUILD_TESTS)
         add_executable(tests
             tests/test_main.cpp
             tests/test_acceleration_backend.cpp
+            tests/test_config_path_check.cpp
             apps/runner_forward_drizzle.cpp
             apps/runner_downstream.cpp
             apps/runner_forward_output.cpp

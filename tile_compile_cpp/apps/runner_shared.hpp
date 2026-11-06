@@ -1,9 +1,11 @@
 #pragma once
 
 #include "tile_compile/registration/registration_sampling_plan.hpp"
+#include "tile_compile/astrometry/astap_paths.hpp"
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
 #include "tile_compile/astrometry/wcs.hpp"
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/config/path_check.hpp"
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/image/background_extraction.hpp"
@@ -109,22 +111,31 @@ image::HyperMetricStretchConfig to_image_hms_config(
 /// Wrap a command for execution via std::system (cmd /c "..." on Windows).
 std::string system_cmd(const std::string &cmd);
 
-/// Resolve an ASTAP CLI binary path across platforms.
-std::filesystem::path resolve_astap_binary_path(const std::string &astap_bin_cfg,
-                                                const std::string &astap_data_dir);
+// ASTAP path resolution lives in the library so `tile_compile_cli
+// validate-config` and the runner share one implementation.
+using astrometry::AstapPaths;
+using astrometry::resolve_astap_binary_path;
+using astrometry::resolve_astap_paths;
 
-/// ASTAP data directory and binary as used by the solver phases.
-struct AstapPaths {
-  std::string data_dir;
-  std::filesystem::path binary;
-};
+/// Check the configured paths before any work starts. Every finding is
+/// emitted as a `warning` event (GUI run-warning banner) and written to
+/// `artifacts/path_check.json` (only when `write_artifact`; a resume must not
+/// rewrite the original run's artifacts). When a path whose data the run needs is
+/// missing and no standard location replaces it, emits `run_end` with
+/// status "error" and returns false; the caller must then stop.
+bool run_path_preflight(const std::string &run_id, const config::Config &cfg,
+                        const std::filesystem::path &project_root,
+                        const config::PathCheckScope &scope,
+                        const std::filesystem::path &run_dir,
+                        core::EventEmitter &emitter, std::ostream &log,
+                        bool write_artifact = true);
 
-/// Resolve the ASTAP data directory and binary. An empty `data_dir_cfg`
-/// falls back to the per-user default (`%LOCALAPPDATA%\tile_compile\astap`
-/// or `~/.local/share/tile_compile/astap`). When the resolved binary lies
-/// outside the data directory, its parent directory is used as data directory.
-AstapPaths resolve_astap_paths(const std::string &binary_cfg,
-                               const std::string &data_dir_cfg);
+/// Emit already computed path findings the same way (warnings, optional
+/// artifact at `artifact_path`, `run_end` error on a blocking finding).
+bool emit_path_preflight(const std::string &run_id,
+                         const std::vector<config::PathIssue> &issues,
+                         const std::filesystem::path &artifact_path,
+                         core::EventEmitter &emitter, std::ostream &log);
 
 /// Estimate the optical image-height FOV for ASTAP from original frame height
 /// and FITS focal/pixel-size metadata.

@@ -1174,6 +1174,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   std::cout << "Frames: " << frames.size() << std::endl;
   std::cout << "Output: " << run_dir.string() << std::endl;
 
+  // Fail fast on configured paths that do not exist on this machine, before
+  // scanning or calibrating. A dry run executes no phase, so it only warns.
+  {
+    config::PathCheckScope path_scope;
+    if (dry_run) path_scope = {false, false, false, false};
+    if (!runner::run_path_preflight(run_id, cfg, proj_root, path_scope, run_dir,
+                            emitter, log_file)) {
+      return 1;
+    }
+  }
+
   if (dry_run) {
     emitter.phase_start(run_id, Phase::SCAN_INPUT, "SCAN_INPUT", log_file);
     emitter.phase_end(run_id, Phase::SCAN_INPUT, "skipped",

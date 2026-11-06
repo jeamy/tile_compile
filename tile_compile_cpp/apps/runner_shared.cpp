@@ -1925,125 +1925,46 @@ std::string shell_quote(const std::string &s) {
 #endif
 }
 
-namespace {
 
-bool astap_binary_exists(const fs::path &candidate) {
-  if (candidate.empty()) return false;
-  std::error_code ec;
-  if (fs::is_regular_file(candidate, ec)) return true;
-#ifdef _WIN32
-  // Also try the .exe extension on Windows
-  fs::path with_exe = candidate;
-  std::string ext = with_exe.extension().string();
-  std::transform(ext.begin(), ext.end(), ext.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  if (ext != ".exe") {
-    with_exe += ".exe";
-    if (fs::is_regular_file(with_exe, ec)) return true;
+bool run_path_preflight(const std::string &run_id, const config::Config &cfg,
+                        const fs::path &project_root,
+                        const config::PathCheckScope &scope,
+                        const fs::path &run_dir, core::EventEmitter &emitter,
+                        std::ostream &log, bool write_artifact) {
+  return emit_path_preflight(
+      run_id, config::check_config_paths(cfg, project_root, scope),
+      write_artifact ? run_dir / "artifacts" / "path_check.json" : fs::path(),
+      emitter, log);
+}
+
+bool emit_path_preflight(const std::string &run_id,
+                         const std::vector<config::PathIssue> &issues,
+                         const fs::path &artifact_path,
+                         core::EventEmitter &emitter, std::ostream &log) {
+  if (issues.empty()) return true;
+  const core::json issues_json = config::path_issues_to_json(issues);
+  if (!artifact_path.empty()) {
+    try {
+      core::write_text(artifact_path, core::json{{"issues", issues_json}}.dump(2));
+    } catch (const std::exception &) {
+      // The events below still carry every finding.
+    }
   }
-#endif
+  std::string blocking_msg;
+  for (const auto &issue : issues) {
+    emitter.warning(run_id, "Config path " + issue.key + ": " + issue.message, log);
+    if (issue.blocking) {
+      if (!blocking_msg.empty()) blocking_msg += "; ";
+      blocking_msg += issue.key + ": " + issue.message;
+    }
+  }
+  if (blocking_msg.empty()) return true;
+  const std::string message =
+      "missing config path(s) needed by this run: " + blocking_msg;
+  emitter.run_end(run_id, false, "error", log,
+                  {{"message", message}, {"path_issues", issues_json}});
+  std::cerr << "Error: " << message << std::endl;
   return false;
-}
-
-std::optional<std::string> popen_first_line(const std::string &cmd) {
-  FILE *fp = popen(cmd.c_str(), "r");
-  if (!fp) return std::nullopt;
-  char buf[512] = {};
-  if (fgets(buf, sizeof(buf), fp)) {
-    std::string found(buf);
-    while (!found.empty() &&
-           (found.back() == '\n' || found.back() == '\r' || found.back() == ' '))
-      found.pop_back();
-    pclose(fp);
-    if (!found.empty()) return found;
-  } else {
-    pclose(fp);
-  }
-  return std::nullopt;
-}
-
-} // namespace
-
-/// @brief Resolve an ASTAP CLI binary path across platforms.
-/// @details Tries the configured path, the data directory, PATH lookup, and common
-/// install locations. On Windows, .exe extensions are handled automatically.
-fs::path resolve_astap_binary_path(const std::string &astap_bin_cfg,
-                                    const std::string &astap_data_dir) {
-  // 1. Explicitly configured path
-  if (!astap_bin_cfg.empty()) {
-    fs::path explicit_path(astap_bin_cfg);
-    if (astap_binary_exists(explicit_path)) return explicit_path;
-  }
-
-  // 2. Inside the configured data directory
-  if (!astap_data_dir.empty()) {
-    fs::path data_dir_path(astap_data_dir);
-    for (const char *name : {"astap_cli", "astap"}) {
-      fs::path candidate = data_dir_path / name;
-      if (astap_binary_exists(candidate)) return candidate;
-    }
-  }
-
-  // 3. PATH lookup
-  for (const char *name : {"astap_cli", "astap"}) {
-#ifdef _WIN32
-    std::string cmd = std::string("where ") + name + " 2>nul";
-#else
-    std::string cmd = std::string("which ") + name + " 2>/dev/null";
-#endif
-    auto found = popen_first_line(cmd);
-    if (found && astap_binary_exists(*found)) return fs::path(*found);
-  }
-
-  // 4. Common Windows install locations
-#ifdef _WIN32
-  auto probe_common_dirs = [](const std::vector<fs::path> &roots) -> fs::path {
-    for (const auto &root : roots) {
-      if (root.empty()) continue;
-      for (const char *name : {"astap_cli.exe", "astap.exe"}) {
-        fs::path candidate = root / "astap" / name;
-        if (astap_binary_exists(candidate)) return candidate;
-        candidate = root / name;
-        if (astap_binary_exists(candidate)) return candidate;
-      }
-    }
-    return {};
-  };
-  std::vector<fs::path> roots;
-  if (const char *pf = std::getenv("ProgramFiles")) roots.emplace_back(pf);
-  if (const char *pf = std::getenv("ProgramFiles(x86)")) roots.emplace_back(pf);
-  if (const char *la = std::getenv("LOCALAPPDATA")) roots.emplace_back(la);
-  fs::path common = probe_common_dirs(roots);
-  if (!common.empty()) return common;
-#endif
-
-  return {};
-}
-
-AstapPaths resolve_astap_paths(const std::string &binary_cfg,
-                               const std::string &data_dir_cfg) {
-  AstapPaths out;
-  out.data_dir = data_dir_cfg;
-  if (out.data_dir.empty()) {
-#ifdef _WIN32
-    if (const char *la = std::getenv("LOCALAPPDATA"); la && la[0] != '\0') {
-      out.data_dir = std::string(la) + "\\tile_compile\\astap";
-    }
-#else
-    if (const char *home = std::getenv("HOME")) {
-      out.data_dir = std::string(home) + "/.local/share/tile_compile/astap";
-    }
-#endif
-  }
-  out.binary = resolve_astap_binary_path(binary_cfg, out.data_dir);
-  if (!out.binary.empty()) {
-    std::error_code ec;
-    const auto relative = fs::relative(out.binary, fs::path(out.data_dir), ec);
-    if (ec || relative.empty() || *relative.begin() == "..") {
-      out.data_dir = out.binary.parent_path().string();
-    }
-  }
-  return out;
 }
 
 } // namespace tile_compile::runner

@@ -1970,6 +1970,14 @@ int preprocess_command(const std::string& config_path,
     core::EventEmitter emitter;
     emitter.run_start(run_id, {{"process", "preprocessing"}, {"run_dir", run_dir.string()}}, event_out);
 
+    // Fail fast on configured paths missing on this machine, before any phase.
+    if (!runner::emit_path_preflight(run_id,
+                                     config::check_preprocessing_paths(cfg, proj_root),
+                                     artifact_dir / "path_check.json", emitter,
+                                     event_out)) {
+      return 1;
+    }
+
     runner::PreprocessPipelineContext pp;
     if (!runner::run_preprocess_pipeline(run_id, cfg, run_dir, proj_root,
                                          emitter, event_out, pp)) {

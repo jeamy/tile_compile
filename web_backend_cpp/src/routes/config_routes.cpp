@@ -153,6 +153,10 @@ void register_config_routes(CrowApp& app,
         }
 
         if (strict) cmd.push_back("--strict-exit-codes");
+        // Same project root the runner gets, so relative calibration paths
+        // are checked exactly as the run resolves them.
+        cmd.push_back("--project-root");
+        cmd.push_back(state->runtime.project_root.string());
         SubprocessResult res = run_subprocess(cmd, state->runtime.project_root.string(), stdin_text);
         auto parsed = parse_json_string(res.stdout_str);
         if (!parsed || !parsed->is_object()) {
@@ -167,6 +171,7 @@ void register_config_routes(CrowApp& app,
             {"ok", parsed->value("valid", false)},
             {"errors", parsed->value("errors", nlohmann::json::array())},
             {"warnings", parsed->value("warnings", nlohmann::json::array())},
+            {"path_issues", parsed->value("path_issues", nlohmann::json::array())},
         });
     });
 

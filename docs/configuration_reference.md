@@ -332,6 +332,8 @@ konfigurierte Quelle:
 
 **Zweck:** Verzeichnispfade für Bias/Dark/Flat-Einzelframes (zum Erzeugen von Master-Frames).
 
+**Pfadprüfung:** Konfigurierte (nicht leere) Pfade werden im Parameterfenster, beim Run-Start und vom Runner vor der ersten Phase geprüft. Relative Pfade gelten relativ zum Projektverzeichnis. Fehlt ein Verzeichnis und ist `use_<typ>=true`, wird der Master-Frame desselben Typs verwendet, sofern er existiert (Warnung). Gibt es keine andere Quelle, bricht der Run vor dem Scan ab – für Kalibrierdaten existiert kein Standardpfad. Bei `use_<typ>=false` gibt es nur eine Warnung.
+
 ---
 
 ### `calibration.bias_master` / `calibration.dark_master` / `calibration.flat_master`
@@ -341,7 +343,9 @@ konfigurierte Quelle:
 | **Typ** | string |
 | **Default** | `""` (leer) |
 
-**Zweck:** Pfade zu fertigen Master-Frames (nur wenn `*_use_master=true`).
+**Zweck:** Pfade zu fertigen Master-Frames. Mit `*_use_master=true` hat der Master Vorrang vor dem Verzeichnis, sonst dient er als Ersatz, wenn das Verzeichnis keine Frames liefert.
+
+**Pfadprüfung:** Konfigurierte (nicht leere) Pfade werden im Parameterfenster, beim Run-Start und vom Runner vor der ersten Phase geprüft. Relative Pfade gelten relativ zum Projektverzeichnis. Fehlt der Master und ist `use_<typ>=true`, wird das Verzeichnis desselben Typs verwendet, sofern es existiert (Warnung); sonst bricht der Run vor dem Scan ab. Bei `use_<typ>=false` gibt es nur eine Warnung.
 
 ---
 
@@ -1162,6 +1166,8 @@ erhalten.
 
 **Zweck:** Pfad zur ASTAP-CLI. Leer bedeutet: Systempfad/Standardauflösung.
 
+**Pfadprüfung:** Konfigurierte (nicht leere) Pfade werden im Parameterfenster, beim Run-Start und vom Runner vor der ersten Phase geprüft. Existiert die Datei nicht, sucht der Runner wie bei leerem Wert (Datenverzeichnis, `PATH`). Wird dort ASTAP mit Sternkatalog gefunden, gibt es eine Warnung und dieser wird verwendet; sonst bricht ein Run mit `astrometry.enabled=true` ab.
+
 ---
 
 ### `astrometry.astap_data_dir`
@@ -1171,7 +1177,9 @@ erhalten.
 | **Typ** | string |
 | **Default** | `""` |
 
-**Zweck:** ASTAP-Datenverzeichnis. Leer bedeutet: Standardpfad.
+**Zweck:** ASTAP-Datenverzeichnis. Leer bedeutet: Standardpfad (`~/.local/share/tile_compile/astap`, Windows `%LOCALAPPDATA%\tile_compile\astap`).
+
+**Pfadprüfung:** Konfigurierte (nicht leere) Pfade werden im Parameterfenster, beim Run-Start und vom Runner vor der ersten Phase geprüft. Ein nicht existierendes Verzeichnis (z. B. aus einer Config von einem anderen Rechner) wird wie ein leerer Wert behandelt: Liegt im Standardpfad oder im `PATH` ein ASTAP mit Sternkatalog (`.290`/`.291`/`.1476`), gibt es eine Warnung und dieser wird verwendet. Sonst bricht ein Run mit `astrometry.enabled=true` ab; ist nur `registration.use_astrometry` aktiv, wird lediglich die astrometrische Rettung übersprungen (Warnung).
 
 ---
 
@@ -1825,6 +1833,8 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 | **Default** | `""` |
 
 **Zweck:** Lokaler Siril-Katalogpfad; leer = Standardpfad.
+
+**Pfadprüfung:** Konfigurierte (nicht leere) Pfade werden im Parameterfenster, beim Run-Start und vom Runner vor der ersten Phase geprüft. Enthält der Pfad keinen Siril-Gaia-Katalog, wird der Standardpfad verwendet, falls dort einer liegt (Warnung). Sonst: `pcc.source: auto` fragt VizieR online ab (Warnung, Internet nötig); `pcc.source: siril` bricht den Run ab.
 
 ### `pcc.apply_attenuation`
 

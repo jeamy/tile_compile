@@ -2370,5 +2370,11 @@
   "ui.dock.actions.valid": "Config gültig. Diff prüfen; Resume-Eignung ist noch nicht bestätigt.",
   "ui.dock.actions.invalid": "Config ungültig; keine Übernahme möglich.",
   "ui.dock.actions.no_config": "Keine Config für diesen Run verfügbar.",
-  "ui.dock.actions.invalid_preview": "Backend lieferte keine vollständige validierte Preview."
+  "ui.dock.actions.invalid_preview": "Backend lieferte keine vollständige validierte Preview.",
+  "ui.path_check.title_blocking": "Fehlende Pfade – ein Run würde abbrechen",
+  "ui.path_check.title_warning": "Konfigurierte Pfade nicht gefunden",
+  "ui.path_check.hint": "Diese Pfade existieren auf diesem Rechner nicht. ✖ = der Run braucht die Daten und bricht ab. ⚠ = ein Standardpfad oder eine andere Quelle wird verwendet, oder der Pfad wird nicht genutzt.",
+  "ui.path_check.run_warning": "{count} konfigurierte Pfade fehlen; Standardpfad oder Ersatz wird verwendet.",
+  "ui.toast.path_issues_warning": "Pfad-Warnungen",
+  "ui.error.path_issues_blocking": "Der Run braucht Daten aus Pfaden, die auf diesem Rechner nicht existieren: {details}"
 }

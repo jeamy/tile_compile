@@ -1501,6 +1501,16 @@ int resume_downstream_command(const fs::path &dir, const json &provenance,
   if (!log) throw std::runtime_error("FORWARD_STAGE_LOG_UNAVAILABLE");
   core::EventEmitter emitter;
   const std::string run_id = dir.filename().string();
+  {
+    // Downstream resume never calibrates or registers; ASTAP is read only
+    // when ASTROMETRY re-runs, the Siril catalog only up to PCC.
+    config::PathCheckScope scope{false, false, phase_upper == "ASTROMETRY",
+                                 phase_upper == "ASTROMETRY" ||
+                                     phase_upper == "BGE" || phase_upper == "PCC"};
+    if (!runner::run_path_preflight(run_id, cfg, fs::current_path(), scope, dir,
+                                    emitter, log, /*write_artifact=*/false))
+      return 1;
+  }
   const auto t0 = std::chrono::steady_clock::now();
   const auto abort_fn = [&](const std::string &) {
     return std::chrono::duration<double>(
@@ -1568,6 +1578,12 @@ int resume_forward_drizzle_command(const std::string &path,const std::string &ph
     std::ofstream log(dir/"logs/run_events.jsonl",std::ios::app);
     if (!log) throw std::runtime_error("FORWARD_STAGE_LOG_UNAVAILABLE");
     core::EventEmitter emitter;
+    // Reconstruction resume re-runs everything after registration: no
+    // calibration, no registration rescue, but ASTROMETRY and PCC.
+    if (!runner::run_path_preflight(dir.filename().string(), cfg, fs::current_path(),
+                                    config::PathCheckScope{false, false, true, true},
+                                    dir, emitter, log, /*write_artifact=*/false))
+      return 1;
     return runner::run_forward_drizzle_stages(dir.filename().string(),cfg,dir,sampling,
                                              nullptr,emitter,log,phase_upper) ? 0:1;
   } catch (const std::exception &e) { std::cerr<<e.what()<<std::endl; return 1; }

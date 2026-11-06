@@ -273,6 +273,8 @@ source:
 
 **Purpose:** Input directories for calibration stacks.
 
+**Path check:** Configured (non-empty) paths are checked in the parameter window, at run start, and by the runner before the first phase. Relative paths resolve against the project root. If a directory is missing and `use_<type>=true`, the master file of the same type is used when it exists (warning). Without another source the run aborts before scanning – calibration data has no standard location. With `use_<type>=false` it is only a warning.
+
 ### `calibration.bias_master` / `calibration.dark_master` / `calibration.flat_master`
 
 | Property | Value |
@@ -280,7 +282,9 @@ source:
 | **Type** | string |
 | **Default** | `""` (disabled) |
 
-**Purpose:** Paths to precomputed master calibration files.
+**Purpose:** Paths to precomputed master calibration files. With `*_use_master=true` the master takes precedence over the directory; otherwise it is the fallback when the directory yields no frames.
+
+**Path check:** Configured (non-empty) paths are checked in the parameter window, at run start, and by the runner before the first phase. Relative paths resolve against the project root. If the master is missing and `use_<type>=true`, the directory of the same type is used when it exists (warning); otherwise the run aborts before scanning. With `use_<type>=false` it is only a warning.
 
 ### `calibration.pattern`
 
@@ -1142,6 +1146,8 @@ Gaia catalogue is unavailable or the star match is not robust, the existing
 
 **Purpose:** Path to ASTAP binary (empty = system/default path).
 
+**Path check:** Configured (non-empty) paths are checked in the parameter window, at run start, and by the runner before the first phase. If the file does not exist, the runner searches as for an empty value (data directory, `PATH`). If an ASTAP with a star catalog is found there, it is used with a warning; otherwise a run with `astrometry.enabled=true` aborts.
+
 ### `astrometry.astap_data_dir`
 
 | Property | Value |
@@ -1149,7 +1155,9 @@ Gaia catalogue is unavailable or the star match is not robust, the existing
 | **Type** | string |
 | **Default** | `""` |
 
-**Purpose:** Path to ASTAP data directory (empty = default path).
+**Purpose:** Path to ASTAP data directory (empty = default path: `~/.local/share/tile_compile/astap`, Windows `%LOCALAPPDATA%\tile_compile\astap`).
+
+**Path check:** Configured (non-empty) paths are checked in the parameter window, at run start, and by the runner before the first phase. A non-existent directory (e.g. from a config written on another computer) is treated like an empty value: if the default location or `PATH` provides ASTAP with a star catalog (`.290`/`.291`/`.1476`), it is used with a warning. Otherwise a run with `astrometry.enabled=true` aborts; with only `registration.use_astrometry` on, just the astrometric rescue is skipped (warning).
 
 ### `astrometry.search_radius`
 
@@ -1726,7 +1734,9 @@ Photometric Color Calibration settings.
 | **Type** | string |
 | **Default** | `""` |
 
-**Purpose:** Optional local Siril catalog path.
+**Purpose:** Optional local Siril catalog path (empty = default path).
+
+**Path check:** Configured (non-empty) paths are checked in the parameter window, at run start, and by the runner before the first phase. If the path holds no Siril Gaia catalog, the default location is used when it has one (warning). Otherwise `pcc.source: auto` queries VizieR online (warning, needs internet); `pcc.source: siril` aborts the run.
 
 ### `pcc.apply_attenuation`
 
