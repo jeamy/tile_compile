@@ -1,5 +1,7 @@
 #include "tile_compile/reconstruction/normalized_source_cache.hpp"
 #include "runner_shared.hpp"
+#include <stdexcept>
+#include <cerrno>
 
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/astrometry/gaia_catalog.hpp"
@@ -1492,40 +1494,56 @@ void DiskCacheFrameStore::store(size_t fi, const Matrix2Df &frame) {
   invalidate_mapping(fi);
   fs::path p = frame_path(fi);
 #ifdef _WIN32
+  // A failed write (disk full, I/O error) is an error of the run, not a
+  // missing frame: losing frames silently would change the stack.
+  auto fail = [&](const std::string &why) {
+    has_data_[fi] = static_cast<uint8_t>(0);
+    std::error_code ec;
+    fs::remove(p, ec);
+    throw std::runtime_error("DISK_CACHE_WRITE_FAILED: frame " + std::to_string(fi) +
+                             " (" + p.string() + "): " + why);
+  };
   HANDLE hFile = CreateFileW(p.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-  if (hFile == INVALID_HANDLE_VALUE) {
-    has_data_[fi] = static_cast<uint8_t>(0);
-    return;
-  }
-  DWORD written = 0;
+  if (hFile == INVALID_HANDLE_VALUE) fail("cannot create file");
+  size_t total = 0;
   const char *src = reinterpret_cast<const char *>(frame.data());
-  WriteFile(hFile, src, static_cast<DWORD>(frame_bytes_), &written, NULL);
+  bool ok = true;
+  while (total < frame_bytes_) {
+    const DWORD chunk = static_cast<DWORD>(std::min<size_t>(frame_bytes_ - total, 1u << 30));
+    DWORD written = 0;
+    if (!WriteFile(hFile, src + total, chunk, &written, NULL) || written == 0) { ok = false; break; }
+    total += written;
+  }
   CloseHandle(hFile);
-  if (written == frame_bytes_) {
-    has_data_[fi] = static_cast<uint8_t>(1);
-  } else {
-    has_data_[fi] = static_cast<uint8_t>(0);
-  }
+  if (!ok) fail("write failed");
+  has_data_[fi] = static_cast<uint8_t>(1);
 #else
-  int fd = ::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
-  if (fd < 0) {
+  auto fail = [&](int err) {
     has_data_[fi] = static_cast<uint8_t>(0);
-    return;
-  }
+    std::error_code ec;
+    fs::remove(p, ec);
+    throw std::runtime_error("DISK_CACHE_WRITE_FAILED: frame " + std::to_string(fi) +
+                             " (" + p.string() + "): " + std::strerror(err));
+  };
+  int fd;
+  do {
+    fd = ::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  } while (fd < 0 && errno == EINTR);
+  if (fd < 0) fail(errno);
   size_t written = 0;
   const char *src = reinterpret_cast<const char *>(frame.data());
   while (written < frame_bytes_) {
     ssize_t n = ::write(fd, src + written, frame_bytes_ - written);
-    if (n <= 0)
-      break;
+    if (n < 0 && errno == EINTR) continue;
+    if (n <= 0) {
+      const int err = n < 0 ? errno : ENOSPC;
+      ::close(fd);
+      fail(err);
+    }
     written += static_cast<size_t>(n);
   }
-  ::close(fd);
-  if (written == frame_bytes_) {
-    has_data_[fi] = static_cast<uint8_t>(1);
-  } else {
-    has_data_[fi] = static_cast<uint8_t>(0);
-  }
+  if (::close(fd) != 0 && errno != EINTR) fail(errno);
+  has_data_[fi] = static_cast<uint8_t>(1);
 #endif
 }
 
@@ -1548,59 +1566,6 @@ Matrix2Df DiskCacheFrameStore::load(size_t fi) const {
 /// artifact, and error-handling semantics expected by callers.
 const float *DiskCacheFrameStore::frame_data(size_t fi) const {
   return mapped_frame_ptr(fi);
-}
-
-/// @brief Extracts tile.
-/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t,
-                                            int offset_x,
-                                            int offset_y) const {
-  Matrix2Df tile;
-  if (!extract_tile_into(fi, t, tile, offset_x, offset_y)) {
-    return Matrix2Df();
-  }
-  return tile;
-}
-
-/// @brief Extracts tile into.
-/// @details Part of shared runner utilities for caching, masking, catalog lookup, canvas geometry, and output diagnostics; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-bool DiskCacheFrameStore::extract_tile_into(size_t fi, const Tile &t,
-                                            Matrix2Df &out, int offset_x,
-                                            int offset_y) const {
-  const float *src = mapped_frame_ptr(fi);
-  if (src == nullptr) {
-    out.resize(0, 0);
-    return false;
-  }
-  int x0 = std::max(0, t.x + offset_x);
-  int y0 = std::max(0, t.y + offset_y);
-  int tw = t.width;
-  int th = t.height;
-  if (x0 + tw > cols_)
-    tw = cols_ - x0;
-  if (y0 + th > rows_)
-    th = rows_ - y0;
-  if (tw <= 0 || th <= 0) {
-    out.resize(0, 0);
-    return false;
-  }
-
-  if (out.rows() != th || out.cols() != tw) {
-    out.resize(th, tw);
-  }
-  for (int r = 0; r < th; ++r) {
-    const float *row_src = src + static_cast<size_t>(y0 + r) *
-                                     static_cast<size_t>(cols_) +
-                           static_cast<size_t>(x0);
-    float *row_dst =
-        out.data() + static_cast<size_t>(r) * static_cast<size_t>(tw);
-    std::memcpy(row_dst, row_src, static_cast<size_t>(tw) * sizeof(float));
-  }
-  return true;
 }
 
 /// @brief Implements mapped frame ptr.
@@ -1965,6 +1930,84 @@ bool emit_path_preflight(const std::string &run_id,
                   {{"message", message}, {"path_issues", issues_json}});
   std::cerr << "Error: " << message << std::endl;
   return false;
+}
+
+std::vector<fs::path> discover_calibration_frames(const fs::path &dir,
+                                                  const std::string &pattern) {
+  auto frames = core::discover_frames(dir, pattern);
+  frames.erase(
+      std::remove_if(frames.begin(), frames.end(),
+                     [](const fs::path &p) { return !io::is_fits_image_path(p); }),
+      frames.end());
+  return frames;  // discover_frames sorts and lists each file once
+}
+
+bool average_calibration_frames(const std::vector<fs::path> &paths,
+                                int expected_rows, int expected_cols,
+                                Matrix2Df &out, std::string &error_out) {
+  if (paths.empty()) {
+    error_out = "no calibration frames found";
+    return false;
+  }
+  const size_t n = static_cast<size_t>(std::max(0, expected_rows)) *
+                   static_cast<size_t>(std::max(0, expected_cols));
+  std::vector<double> sum(n, 0.0);
+  std::vector<std::uint32_t> count(n, 0);
+  for (const auto &path : paths) {
+    Matrix2Df img;
+    try {
+      img = io::read_fits_pixels_float(path);
+    } catch (const std::exception &e) {
+      error_out = "failed to read calibration frame '" + path.string() +
+                  "': " + e.what();
+      return false;
+    }
+    if (img.rows() != expected_rows || img.cols() != expected_cols) {
+      error_out = "calibration frame dimension mismatch for '" + path.string() +
+                  "': expected " + std::to_string(expected_cols) + "x" +
+                  std::to_string(expected_rows) + ", got " +
+                  std::to_string(img.cols()) + "x" + std::to_string(img.rows());
+      return false;
+    }
+    const float *data = img.data();
+    for (size_t i = 0; i < n; ++i) {
+      if (std::isfinite(data[i])) {
+        sum[i] += static_cast<double>(data[i]);
+        ++count[i];
+      }
+    }
+  }
+  out.resize(expected_rows, expected_cols);
+  float *dst = out.data();
+  for (size_t i = 0; i < n; ++i)
+    dst[i] = count[i] > 0
+                 ? static_cast<float>(sum[i] / static_cast<double>(count[i]))
+                 : 0.0f;
+  return true;
+}
+
+std::optional<double> header_exposure_seconds(const io::FitsHeader &header) {
+  for (const char *key : {"EXPTIME", "EXPOSURE", "EXPOSURETIME",
+                           "EXPOSURE_TIME", "EXP_TIME", "DURATION", "EXPOS"}) {
+    if (auto value = header.get_double(key);
+        value && std::isfinite(*value) && *value > 0.0)
+      return value;
+    if (auto value = header.get_int(key); value && *value > 0)
+      return static_cast<double>(*value);
+    if (auto value = header.get_string(key)) {
+      const auto first = value->find_first_not_of(" \t");
+      if (first == std::string::npos) continue;
+      const std::string text =
+          value->substr(first, value->find_last_not_of(" \t") - first + 1);
+      char *end = nullptr;
+      errno = 0;
+      const double d = std::strtod(text.c_str(), &end);
+      if (errno == 0 && end != text.c_str() && *end == '\0' &&
+          std::isfinite(d) && d > 0.0)
+        return d;
+    }
+  }
+  return std::nullopt;
 }
 
 } // namespace tile_compile::runner

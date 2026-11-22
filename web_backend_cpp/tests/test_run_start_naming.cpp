@@ -80,7 +80,8 @@ int main(int argc, char** argv) {
             {"jev_saved_proposal_id", "p_queue"},
             {"queue", nlohmann::json::array({{{"input_dir", input_dir}, {"filter", "L"}, {"pattern", "*.fit"}}})}
         });
-        expect_equal(linked_queue["_http_status"].get<long>(), 202L, "queue with exact scanned FITS starts");
+        expect_equal(linked_queue["_http_status"].get<long>(), 202L,
+                     "queue with exact scanned FITS starts: " + linked_queue.dump());
         const auto linked_queue_job = harness.wait_for_job(linked_queue["job_id"].get<std::string>());
         expect_equal(linked_queue_job["state"].get<std::string>(), "ok", "linked Jev queue completes");
         const std::filesystem::path linked_run = harness.fixture_root() / "runs" / "linked_jev_queue" / "L";

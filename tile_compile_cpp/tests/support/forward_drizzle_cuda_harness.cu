@@ -1,7 +1,7 @@
-// CFA forward drizzle v2 --- CUDA parity harness TU.
+// CFA forward drizzle v2 --- CUDA parity harness TU (tests only).
 //
-// Test-only device entry points that are not part of the production hot
-// path live here so the production TU (forward_drizzle_cuda_device.cu)
+// Test-only device entry points are compiled into the `tests` target, not
+// into tile_compile_lib, so the production TU (forward_drizzle_cuda_device.cu)
 // carries only the kernels the driver can reach. The harness exercises the
 // SAME device code as production through forward_drizzle_cuda_clip.cuh (a
 // kernel defined in another TU cannot be launched from here without -rdc,
@@ -9,13 +9,13 @@
 // production driver can also reach, stays in the production TU).
 // Compiled with --fmad=false like the production TU (CMakeLists.txt).
 
-#include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
+#include "forward_drizzle_cuda_harness.hpp"
 
 #if TILE_COMPILE_WITH_CUDA
 
 #include <cuda_runtime.h>
 
-#include "forward_drizzle_cuda_clip.cuh"
+#include "../../src/reconstruction/forward_drizzle_cuda_clip.cuh"
 
 #include <cstddef>
 

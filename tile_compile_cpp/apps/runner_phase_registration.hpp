@@ -18,55 +18,26 @@ namespace tile_compile::runner {
 
 class RunnerFrameCache;
 
-/// Output bundle produced by the combined REGISTRATION and PREWARP phases.
+/// Output of the REGISTRATION phase.
 ///
 /// The registration phase estimates one full-resolution affine warp per input
-/// frame, rejects or models weak registrations, and then prewarps usable frames
-/// onto a common canvas. Later phases consume the disk-backed frame store and
-/// the validity masks here instead of re-reading or re-warping the original
-/// FITS files.
+/// frame and rejects or models weak registrations. Forward drizzle consumes the
+/// resulting sampling plan directly; no prewarped canvas is materialized.
 struct PhaseRegistrationContext {
+  /// Also carries the per-frame weight factors (model_prediction_factor,
+  /// registration_residual_factor) that forward drizzle folds into g_eff.
   registration::RegistrationSamplingPlan sampling_plan;
-  /// Disk-backed prewarped frames on the common canvas.
-  DiskCacheFrameStore prewarped_frames;
-  /// True when OSC input was demosaiced before the prewarp. In that mode
-  /// prewarped_frames contains luma and the RGB stores contain color planes.
-  bool debayer_first_rgb = false;
-  /// Optional disk-backed RGB prewarped planes for debayer-first OSC.
-  DiskCacheFrameStore prewarped_frames_r;
-  DiskCacheFrameStore prewarped_frames_g;
-  DiskCacheFrameStore prewarped_frames_b;
-  /// Per-input-frame flag indicating whether the prewarp store contains data.
-  std::vector<uint8_t> frame_has_data;
-  /// Per-canvas-pixel count of usable prewarped frames contributing data.
-  std::vector<uint16_t> overlap_coverage_count;
-  /// Binary common-overlap mask used to gate local metrics and reconstruction.
-  std::vector<uint8_t> common_valid_mask;
-  /// Per-input-frame flag: 1 if the warp was supplied by the field-rotation
-  /// model (model_interpolated / model_blended / model_global_poly /
-  /// model_local_poly / model_nearest_copy) rather than directly measured.
-  /// Used by the pipeline to apply a configurable weight penalty so that
-  /// model-predicted frames contribute less to the stack than directly
-  /// registered frames even when their image quality metrics are good.
-  std::vector<uint8_t> model_predicted_mask;
-  /// Per-input-frame multiplicative weight factor derived from post-warp
-  /// matched-star residuals on the registration proxy. Values are in [0, 1].
-  /// Later phases multiply global frame weights by this factor when the
-  /// registration weight guard is enabled.
-  std::vector<float> registration_residual_weight_factors;
-  /// Number of frames retained after registration, modeling, and prewarp.
-  int n_usable_frames = 0;
-  /// Minimum frame support required by downstream common-overlap decisions.
-  int min_valid_frames = 1;
-  /// Width of the prewarped common canvas in full-resolution pixels.
-  int canvas_width = 0;
-  /// Height of the prewarped common canvas in full-resolution pixels.
-  int canvas_height = 0;
-  /// X offset from original frame coordinates into canvas coordinates.
-  int tile_offset_x = 0;
-  /// Y offset from original frame coordinates into canvas coordinates.
-  int tile_offset_y = 0;
 };
+
+/// True when a model-predicted frame is left out of the stack: its median
+/// matched-star residual (registration proxy px) exceeds `max_residual_px`, or
+/// it could not be measured. `max_residual_px <= 0` keeps every frame
+/// (registration.model_prediction_max_residual_px).
+inline bool drop_model_predicted_frame(bool residual_applicable, float median_px,
+                                       float max_residual_px) {
+  if (max_residual_px <= 0.0f) return false;
+  return !residual_applicable || !(median_px <= max_residual_px);
+}
 
 /// Run the REGISTRATION and PREWARP phases and fill downstream phase context.
 ///

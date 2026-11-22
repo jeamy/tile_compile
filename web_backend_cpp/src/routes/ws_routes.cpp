@@ -1,4 +1,6 @@
+#include "base64url.hpp"
 #include "routes/ws_routes.hpp"
+#include "time_utils.hpp"
 #include "services/run_inspector.hpp"
 #include <nlohmann/json.hpp>
 #include <thread>
@@ -15,24 +17,6 @@ namespace fs = std::filesystem;
 namespace {
 
 using json = nlohmann::json;
-
-/// @brief Implements utc now iso.
-/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::string utc_now_iso() {
-    using namespace std::chrono;
-    const auto now = system_clock::now();
-    const auto tt = system_clock::to_time_t(now);
-    std::tm tm{};
-#ifdef _WIN32
-    gmtime_s(&tm, &tt);
-#else
-    gmtime_r(&tt, &tm);
-#endif
-    std::ostringstream ss;
-    ss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
-    return ss.str();
-}
 
 /// @brief Implements to pct.
 /// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
@@ -122,18 +106,8 @@ json normalize_event(const json& raw, const std::string& fallback_run_id) {
     return ev;
 }
 
-/// @brief Finds event file.
-/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
 fs::path find_event_file(const fs::path& run_dir) {
-    for (const auto& candidate : {
-        run_dir / "logs" / "run_events.jsonl",
-        run_dir / "events.jsonl",
-        run_dir / "logs" / "events.jsonl"
-    }) {
-        if (fs::exists(candidate)) return candidate;
-    }
-    return {};
+    return find_run_event_file(run_dir).value_or(fs::path{});
 }
 
 /// @brief Implements count existing event lines.
@@ -212,34 +186,6 @@ std::string url_decode(std::string value) {
     return out;
 }
 
-/// @brief Implements decode base64url.
-/// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::string decode_base64url(std::string value) {
-    for (char& ch : value) {
-        if (ch == '-') ch = '+';
-        else if (ch == '_') ch = '/';
-    }
-    while (value.size() % 4 != 0) value.push_back('=');
-    static const std::string alphabet =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string out;
-    int buffer = 0;
-    int bits_collected = 0;
-    for (char ch : value) {
-        if (ch == '=') break;
-        const auto pos = alphabet.find(ch);
-        if (pos == std::string::npos) return "";
-        buffer = (buffer << 6) | static_cast<int>(pos);
-        bits_collected += 6;
-        if (bits_collected >= 8) {
-            bits_collected -= 8;
-            out.push_back(static_cast<char>((buffer >> bits_collected) & 0xFF));
-        }
-    }
-    return out;
-}
-
 /// @brief Implements run id from ws url.
 /// @details This implementation streams run, job, and system updates over WebSockets; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -253,11 +199,7 @@ std::string run_id_from_ws_url(const std::string& url) {
         suffix = suffix.substr(0, query_pos);
     }
     suffix = url_decode(suffix);
-    if (suffix.rfind("b64_", 0) == 0) {
-        const std::string decoded = decode_base64url(suffix.substr(4));
-        if (!decoded.empty()) return decoded;
-    }
-    return suffix;
+    return decode_b64_run_id(suffix);
 }
 
 /// @brief Builds run ctx.
@@ -434,7 +376,11 @@ void stream_run(crow::websocket::connection& conn, const std::shared_ptr<RunWsCo
 
             const auto queue_event = queue_event_for_run(*ctx->state, ctx->run_id);
             if (!queue_event.is_null()) {
-                const std::string fingerprint = queue_event.dump();
+                // Without the timestamp: it changes every tick and would resend
+                // the unchanged queue every second.
+                json fingerprint_json = queue_event;
+                fingerprint_json.erase("ts");
+                const std::string fingerprint = fingerprint_json.dump();
                 if (fingerprint != ctx->last_queue_fingerprint) {
                     if (!send_json(conn, queue_event)) {
                         ctx->stop.store(true);
@@ -596,6 +542,13 @@ void destroy_ctx(crow::websocket::connection& conn) {
 
 /// @brief Registers WebSocket endpoints that stream run, job, and system updates.
 /// @details This is the route-group entry point called from main during Crow setup.
+/// @brief Origin check for WebSocket upgrades, which bypass Crow middlewares.
+static bool ws_origin_allowed(const crow::request& req) {
+    static const std::string extra = origin_guard::configured_extra_origins();
+    return origin_guard::origin_allowed(req.get_header_value("Origin"),
+                                        req.get_header_value("Host"), extra);
+}
+
 void register_ws_routes(CrowApp& app,
                          std::shared_ptr<AppState> state) {
 
@@ -610,10 +563,12 @@ void register_ws_routes(CrowApp& app,
         destroy_ctx<RunWsContext>(conn);
     })
     .onaccept([state](const crow::request& req, void** userdata) -> bool {
+        if (!ws_origin_allowed(req)) return false;
         std::string run_id = run_id_from_ws_url(req.url);
+        if (run_id.empty()) return false;  // a refused upgrade never reaches onclose
         const std::string run_dir = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
         *userdata = new std::shared_ptr<RunWsContext>(make_run_ctx(state, run_id, run_dir));
-        return !run_id.empty();
+        return true;
     });
 
     CROW_WEBSOCKET_ROUTE(app, "/api/ws/jobs/<string>")
@@ -627,9 +582,11 @@ void register_ws_routes(CrowApp& app,
         destroy_ctx<JobWsContext>(conn);
     })
     .onaccept([state](const crow::request& req, void** userdata) -> bool {
+        if (!ws_origin_allowed(req)) return false;
         std::string job_id = last_path_component(req.url);
+        if (job_id.empty()) return false;  // a refused upgrade never reaches onclose
         *userdata = new std::shared_ptr<JobWsContext>(make_job_ctx(state, job_id));
-        return !job_id.empty();
+        return true;
     });
 
     CROW_WEBSOCKET_ROUTE(app, "/api/ws/system")
@@ -642,7 +599,8 @@ void register_ws_routes(CrowApp& app,
     .onclose([](crow::websocket::connection& conn, const std::string&) {
         destroy_ctx<SystemWsContext>(conn);
     })
-    .onaccept([state](const crow::request&, void** userdata) -> bool {
+    .onaccept([state](const crow::request& req, void** userdata) -> bool {
+        if (!ws_origin_allowed(req)) return false;
         *userdata = new std::shared_ptr<SystemWsContext>(make_system_ctx(state));
         return true;
     });

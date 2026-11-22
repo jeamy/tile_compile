@@ -145,32 +145,45 @@ expose `cpu_workers`, `gpu`, and `backend`.
 
 ### CUDA 13 with OpenCV CUDA 13
 
-When using an OpenCV build that was compiled against CUDA 13, configure
-`tile_compile_cpp` with the matching OpenCV and CUDA paths. Mixing an
-OpenCV-CUDA build for one CUDA version with a different CUDA toolkit can make
-CMake fail during `find_package(OpenCV)`.
+An OpenCV-CUDA build records the CUDA version it was compiled with and, by
+itself, accepts only that exact toolkit. `cmake/TileCompileOpenCV.cmake`
+(used by `tile_compile_cpp` and `web_backend_cpp`) handles this automatically:
 
-Example for OpenCV installed in `/opt/opencv-4.11-cuda13` and CUDA installed in
-`/usr/local/cuda-13.0`:
+- it reads the toolkit version from `nvcc` (`/usr/local/cuda` unless
+  `CUDA_TOOLKIT_ROOT_DIR`, `CUDA_NVCC_EXECUTABLE` or `TILE_COMPILE_NVCC_EXECUTABLE`
+  name another), and `nvcc` does not need to be on `PATH`;
+- a `TILE_COMPILE_OPENCV_DIR` or `OpenCV_DIR` environment variable is taken as
+  is; otherwise it checks `/opt/opencv-4.11-cuda<major>`,
+  `~/.local/opencv-cuda<major>-4.11`, `~/.local/opencv-cuda-4.11` and
+  `~/.local/opencv-cuda`, prefers the one built for exactly the installed
+  toolkit, and else takes the first one of the same major version; candidates
+  built for another major version are skipped with a status line;
+- a newer toolkit of the same major version is accepted (CUDA minor-version
+  compatibility), for example OpenCV built against CUDA 13.0 with the CUDA 13.5
+  toolkit. CMake then prints
+  `OpenCV was built against CUDA 13.0; using CUDA 13.5 (same major version, minor-version compatible)`.
+  An older toolkit or another major version is not bridged.
+
+With OpenCV in `/opt/opencv-4.11-cuda13` or `~/.local/opencv-cuda13-4.11` and
+`/usr/local/cuda` pointing to CUDA 13.5, no paths are needed. An existing
+build directory keeps an `OpenCV_DIR` it chose itself only until the next
+configure, so a toolkit upgrade picks the matching OpenCV again:
 
 ```bash
 rm -rf tile_compile_cpp/build
-cmake -S tile_compile_cpp -B tile_compile_cpp/build \
-  -DOpenCV_DIR=/opt/opencv-4.11-cuda13/lib64/cmake/opencv4 \
-  -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-13.0 \
-  -DCUDA_NVCC_EXECUTABLE=/usr/local/cuda-13.0/bin/nvcc \
-  -DTILE_COMPILE_NVCC_EXECUTABLE=/usr/local/cuda-13.0/bin/nvcc \
-  -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc \
-  -DTILE_COMPILE_ENABLE_CUDA=ON
+cmake -S tile_compile_cpp -B tile_compile_cpp/build -DCMAKE_BUILD_TYPE=Release
 cmake --build tile_compile_cpp/build -j$(nproc)
 ```
+
+Explicit paths still take precedence, for example
+`-DOpenCV_DIR=/opt/opencv-4.11-cuda13/lib64/cmake/opencv4 -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-13.5`.
 
 The configuration summary should show:
 
 ```text
 TILE_COMPILE_ENABLE_CUDA: ON
 TILE_COMPILE_WITH_CUDA: ON
-CUDA nvcc: /usr/local/cuda-13.0/bin/nvcc
+CUDA nvcc: /usr/local/cuda/bin/nvcc
 OpenCV: 4.11.0
 ```
 

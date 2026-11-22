@@ -571,6 +571,20 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 
 ---
 
+### `registration.model_prediction_max_residual_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >=0 |
+| **Default** | `0.7` |
+
+**Zweck:** Grenze für modell-vorhergesagte Warps (Feldrotations-Modell statt gemessener Registrierung). Liegt der Median-Fehler der zugeordneten Sterne auf dem Registrierungs-Proxy über diesem Wert (Proxy-Pixel), oder lässt er sich nicht messen, fällt der Frame aus dem Stack. `0` schaltet die Prüfung ab.
+
+**Hinweis:** Der Proxy ist bei OSC meist 2× verkleinert; 0,7 Proxy-px sind dann rund 1,4 px in voller Auflösung. Direkt registrierte Frames liegen typisch bei 0,07–0,1.
+
+---
+
 ### `registration.reject_shift_median_multiplier`
 
 | Eigenschaft | Wert |
@@ -2522,6 +2536,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `registration.reject_outliers`: robustes Verwerfen unplausibler Warps nach Matching.
 - `registration.reject_cc_min_abs`: absolute NCC-Untergrenze in Outlier-Logik.
 - `registration.reject_shift_px_min`: absolute Shift-Untergrenze für Shift-Outlier.
+- `registration.model_prediction_max_residual_px`: Grenze für den Median-Sternfehler modell-vorhergesagter Warps; darüber oder unmessbar fällt der Frame weg.
 - `registration.reject_shift_median_multiplier`: relativer Shift-Schwellwert zur Median-Shift.
 - `registration.reject_scale_min`, `reject_scale_max`: erlaubtes Similarity-Scale-Band.
 - `registration.prewarp_interpolation`: Interpolationsmethode der Warp/Resample-Schritte.

@@ -29,6 +29,7 @@
 #include "subprocess_manager.hpp"
 #include "time_utils.hpp"
 
+#include "fits_plane_io.hpp"
 #include <fitsio.h>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
@@ -345,39 +346,6 @@ nlohmann::json extract_run_outcome_metrics(const fs::path& run_dir) {
     return metrics;
 }
 
-std::vector<float> read_fits_plane_preview(const fs::path& path, long plane,
-                                           long& width, long& height, long& planes) {
-    fitsfile* file = nullptr;
-    int status = 0;
-    if (fits_open_file(&file, path.string().c_str(), READONLY, &status)) {
-        throw std::runtime_error("Cannot open FITS: " + fits_status_text(status));
-    }
-    int naxis = 0;
-    long axes[3]{1, 1, 1};
-    if (fits_get_img_dim(file, &naxis, &status) ||
-        fits_get_img_size(file, 3, axes, &status) || naxis < 2) {
-        fits_close_file(file, &status);
-        throw std::runtime_error("Invalid FITS image");
-    }
-    width = axes[0];
-    height = axes[1];
-    planes = naxis >= 3 ? axes[2] : 1;
-    if (plane < 1 || plane > planes) {
-        fits_close_file(file, &status);
-        throw std::runtime_error("Missing FITS plane");
-    }
-    std::vector<float> pixels(static_cast<size_t>(width * height));
-    long first[3]{1, 1, plane};
-    int any_null = 0;
-    if (fits_read_pix(file, TFLOAT, first, width * height, nullptr, pixels.data(), &any_null, &status)) {
-        const auto message = fits_status_text(status);
-        fits_close_file(file, &status);
-        throw std::runtime_error("Cannot read FITS: " + message);
-    }
-    fits_close_file(file, &status);
-    return pixels;
-}
-
 cv::Mat plane_to_mat(const std::vector<float>& values, long width, long height) {
     cv::Mat mat(static_cast<int>(height), static_cast<int>(width), CV_32F);
     for (long y = 0; y < height; ++y)
@@ -397,16 +365,16 @@ unsigned char linear_float_to_u8(float value) {
 
 std::vector<unsigned char> render_fits_preview_png_for_pi(const fs::path& path, int max_edge = 1024) {
     long w = 0, h = 0, p = 0;
-    auto rv = read_fits_plane_preview(path, 1, w, h, p);
+    auto rv = read_fits_plane(path, 1, w, h, p);
     cv::Mat r = plane_to_mat(rv, w, h);
     cv::Mat g = r;
     cv::Mat b = r;
     if (p >= 3) {
         long wg = 0, hg = 0, pg = 0;
-        auto gv = read_fits_plane_preview(path, 2, wg, hg, pg);
+        auto gv = read_fits_plane(path, 2, wg, hg, pg);
         g = plane_to_mat(gv, wg, hg);
         long wb = 0, hb = 0, pb = 0;
-        auto bv = read_fits_plane_preview(path, 3, wb, hb, pb);
+        auto bv = read_fits_plane(path, 3, wb, hb, pb);
         b = plane_to_mat(bv, wb, hb);
     }
     const int edge = std::max(r.rows, r.cols);
@@ -434,16 +402,16 @@ std::vector<unsigned char> render_fits_preview_png_for_pi(const fs::path& path, 
 
 std::vector<unsigned char> render_fits_full_jpeg(const fs::path& path, int quality = 92) {
     long w = 0, h = 0, p = 0;
-    auto rv = read_fits_plane_preview(path, 1, w, h, p);
+    auto rv = read_fits_plane(path, 1, w, h, p);
     cv::Mat r = plane_to_mat(rv, w, h);
     cv::Mat g = r;
     cv::Mat b = r;
     if (p >= 3) {
         long wg = 0, hg = 0, pg = 0;
-        auto gv = read_fits_plane_preview(path, 2, wg, hg, pg);
+        auto gv = read_fits_plane(path, 2, wg, hg, pg);
         g = plane_to_mat(gv, wg, hg);
         long wb = 0, hb = 0, pb = 0;
-        auto bv = read_fits_plane_preview(path, 3, wb, hb, pb);
+        auto bv = read_fits_plane(path, 3, wb, hb, pb);
         b = plane_to_mat(bv, wb, hb);
     }
     // No downscale — 1:1 resolution
@@ -491,16 +459,16 @@ cv::Mat render_float_bgr_to_bgr8(const cv::Mat& img) {
 
 cv::Mat read_fits_to_float_bgr(const fs::path& path) {
     long w = 0, h = 0, p = 0;
-    auto rv = read_fits_plane_preview(path, 1, w, h, p);
+    auto rv = read_fits_plane(path, 1, w, h, p);
     cv::Mat r = plane_to_mat(rv, w, h);
     cv::Mat g = r;
     cv::Mat b = r;
     if (p >= 3) {
         long wg = 0, hg = 0, pg = 0;
-        auto gv = read_fits_plane_preview(path, 2, wg, hg, pg);
+        auto gv = read_fits_plane(path, 2, wg, hg, pg);
         g = plane_to_mat(gv, wg, hg);
         long wb = 0, hb = 0, pb = 0;
-        auto bv = read_fits_plane_preview(path, 3, wb, hb, pb);
+        auto bv = read_fits_plane(path, 3, wb, hb, pb);
         b = plane_to_mat(bv, wb, hb);
     }
 

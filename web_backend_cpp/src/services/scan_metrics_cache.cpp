@@ -84,7 +84,7 @@ json find_cached_scan_metrics(const std::shared_ptr<AppState>& state,
         const std::string cached_object = j.data.value("object_name", r.value("object_name", r.value("target", std::string())));
         const int cached_frames = r.value("frames_total", r.value("frame_count", 0));
         if (scan_metrics_cache_key(cached_input, cached_object, cached_frames) != wanted_key) continue;
-        if (j.job_id > best_job_id) {
+        if (job_id_newer(j.job_id, best_job_id)) {
             best_job_id = j.job_id;
             best = r;
         }

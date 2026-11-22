@@ -28,4 +28,15 @@ struct AppState {
     nlohmann::json ui_state = nlohmann::json::object();
     nlohmann::json preprocessing_parameters = nlohmann::json::object();
     bool ui_state_loaded = false;
+
+    /// Copies taken under state_mutex, for readers outside a locked scope
+    /// (routes run on several Crow threads; the fields are written under the lock).
+    std::string locked_last_scan_input_path() const {
+        std::lock_guard<std::mutex> lk(state_mutex);
+        return last_scan_input_path;
+    }
+    std::string locked_active_config_revision_id() const {
+        std::lock_guard<std::mutex> lk(state_mutex);
+        return active_config_revision_id;
+    }
 };

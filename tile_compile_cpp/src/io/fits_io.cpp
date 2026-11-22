@@ -623,11 +623,8 @@ void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHea
     // directory, fsync, then rename into place --- matches
     // write_fits_mask_rows() above, so every reader of `path` observes either
     // the complete previous file or the complete new one, never a partial
-    // write from cfitsio's own "!"-prefix clobber-in-place. NOTE: the two
-    // other FITS writers in this file (write_fits_rgb, write_fits_rgb_u32)
-    // still use the non-atomic "!" convention; only this function and
-    // write_fits_mask_rows are fixed so far (tracked, not silently assumed
-    // fixed elsewhere).
+    // write from cfitsio's own "!"-prefix clobber-in-place. write_fits_rgb and
+    // write_fits_rgb_u32 below follow the same pattern.
     core::AtomicOutput output(path);
     fitsfile* fptr = nullptr;
     int status = 0;
@@ -701,12 +698,13 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
         throw FitsError("RGB channel dimensions must match");
     }
 
+    // Atomic like write_fits_float: a reader sees the old or the new file,
+    // never a partial one (abort, disk full).
+    core::AtomicOutput output(path);
     fitsfile* fptr = nullptr;
     int status = 0;
 
-    std::string filepath = "!" + path.string();
-
-    if (fits_create_file(&fptr, filepath.c_str(), &status)) {
+    if (fits_create_file(&fptr, output.path().string().c_str(), &status)) {
         throw FitsError(fits_write_error_message("create FITS file", path, status));
     }
 
@@ -761,6 +759,7 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
     if (status) {
         throw FitsError(fits_write_error_message("close FITS file", path, status));
     }
+    output.commit();
 }
 
 void write_fits_rgb_u32(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G,
@@ -770,10 +769,10 @@ void write_fits_rgb_u32(const fs::path& path, const Matrix2Df& R, const Matrix2D
         throw FitsError("RGB channel dimensions must match");
     }
 
+    core::AtomicOutput output(path);  // atomic, see write_fits_rgb
     fitsfile* fptr = nullptr;
     int status = 0;
-    const std::string filepath = "!" + path.string();
-    if (fits_create_file(&fptr, filepath.c_str(), &status)) {
+    if (fits_create_file(&fptr, output.path().string().c_str(), &status)) {
         throw FitsError(fits_write_error_message("create FITS file", path, status));
     }
 
@@ -800,11 +799,11 @@ void write_fits_rgb_u32(const fs::path& path, const Matrix2Df& R, const Matrix2D
     const long nrows = static_cast<long>(R.rows());
     const long ncols = static_cast<long>(R.cols());
     const Matrix2Df* planes[3] = {&R, &G, &B};
+    std::vector<unsigned int> values(static_cast<size_t>(ncols));
     for (int p = 0; p < 3 && !status; ++p) {
         for (long row = 0; row < nrows && !status; ++row) {
             long fpixel[3] = {1, row + 1, p + 1};
             const float* row_ptr = planes[p]->data() + row * ncols;
-            std::vector<unsigned int> values(static_cast<size_t>(ncols));
             for (long col = 0; col < ncols; ++col) {
                 const float value = row_ptr[col];
                 const double rounded = std::isfinite(value)
@@ -827,6 +826,7 @@ void write_fits_rgb_u32(const fs::path& path, const Matrix2Df& R, const Matrix2D
     if (status) {
         throw FitsError(fits_write_error_message("close FITS file", path, status));
     }
+    output.commit();
 }
 
 /// @brief Updates fits header in place.

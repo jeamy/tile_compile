@@ -263,7 +263,7 @@ nlohmann::json build_phase_preview_plan(const std::shared_ptr<AppState>& state,
         {"report_stats", stats.is_null() ? nlohmann::json::object() : stats},
         {"planned_command", {
             {"executable", "tile_compile_runner"},
-            {"args", nlohmann::json::array({"resume", "--run-dir", run_dir.string(), "--from-phase", phase})}
+            {"args", nlohmann::json::array({"resume-reconstruction", "--run-dir", run_dir.string(), "--from-phase", phase})}
         }},
         {"safety", {
             {"will_start_job", false},

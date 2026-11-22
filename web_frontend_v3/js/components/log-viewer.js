@@ -2,17 +2,18 @@
 
 import { el, clear } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
-import { formatLogLevel } from "../utils/log.js";
+import { LOG_LEVELS, normalizeLogLevel } from "../utils/log.js";
 
 const MAX_LINES = 10000;
-const RENDER_BATCH = 50;
+const SEARCH_DEBOUNCE_MS = 150;
 
 export function createLogViewer() {
   let lines = [];
   let lineKeys = new Set();
   let paused = false;
-  let filterLevels = new Set(["INFO", "WARN", "ERROR", "DEBUG", "TRACE"]);
+  let filterLevels = new Set(LOG_LEVELS);
   let searchText = "";
+  let searchTimer = null;
 
   const wrapper = el("div", { class: "tc-card" },
     el("div", { class: "tc-card-title tc-flex tc-justify-between tc-items-center" },
@@ -29,6 +30,7 @@ export function createLogViewer() {
           onclick: () => {
             paused = !paused;
             document.getElementById("log-pause-btn").textContent = paused ? "\u25b6" : "\u23f8";
+            if (!paused) render();
           },
         }, "\u23f8"),
         el("button", {
@@ -39,7 +41,11 @@ export function createLogViewer() {
     ),
     el("input", {
       type: "text", class: "tc-input tc-mb-2", placeholder: t("ui.placeholder.search_log", "Log durchsuchen..."),
-      oninput: (e) => { searchText = e.target.value.toLowerCase(); render(); },
+      oninput: (e) => {
+        const value = e.target.value.toLowerCase();
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => { searchText = value; render(); }, SEARCH_DEBOUNCE_MS);
+      },
     }),
     el("div", { class: "tc-log-viewer", id: "log-viewer-body" }),
   );
@@ -52,7 +58,7 @@ export function createLogViewer() {
       "data-level": level,
       onclick: () => {
         if (level === "All") {
-          filterLevels = new Set(["INFO", "WARN", "ERROR", "DEBUG", "TRACE"]);
+          filterLevels = new Set(LOG_LEVELS);
         } else {
           if (filterLevels.has(level)) filterLevels.delete(level);
           else filterLevels.add(level);
@@ -71,7 +77,7 @@ export function createLogViewer() {
       const colorKey = btn.className.match(/tc-log-filter-(\w+)/)?.[1] || "all";
       let active;
       if (level === "All") {
-        active = filterLevels.size === 5;
+        active = filterLevels.size === LOG_LEVELS.length;
       } else {
         active = filterLevels.has(level);
       }
@@ -80,50 +86,75 @@ export function createLogViewer() {
     });
   }
 
+  function matches(line) {
+    if (!filterLevels.has(line.level)) return false;
+    if (searchText && !line.text.toLowerCase().includes(searchText)) return false;
+    return true;
+  }
+
   function getFilteredLines() {
-    return lines.filter(l => {
-      if (!filterLevels.has(l.level)) return false;
-      if (searchText && !l.text.toLowerCase().includes(searchText)) return false;
-      return true;
-    });
+    return lines.filter(matches);
   }
 
   function render() {
     const body = wrapper.querySelector("#log-viewer-body");
     if (!body) return;
     clear(body);
-    const filtered = getFilteredLines();
-    const visible = filtered.slice(-MAX_LINES);
+    const visible = getFilteredLines().slice(-MAX_LINES);
     for (const line of visible) {
       body.appendChild(logLineEl(line));
     }
     if (!paused) body.scrollTop = body.scrollHeight;
   }
 
-  function addLine(time, level, text, dedupeKey = "") {
-    const key = dedupeKey || `${time}|${level}|${text}`;
-    if (lineKeys.has(key)) return;
-    lineKeys.add(key);
-    lines.push({ time, level, text, key });
-    if (lines.length > MAX_LINES * 2) {
-      lines = lines.slice(-MAX_LINES);
-      lineKeys = new Set(lines.map(l => l.key || `${l.time}|${l.level}|${l.text}`));
+  // Append only the new lines that pass the filter instead of rebuilding the
+  // whole list per line; the DOM keeps at most MAX_LINES rows.
+  function appendRendered(added) {
+    const body = wrapper.querySelector("#log-viewer-body");
+    if (!body) return;
+    for (const line of added) {
+      if (matches(line)) body.appendChild(logLineEl(line));
     }
-    if (!paused) render();
+    while (body.childNodes.length > MAX_LINES) body.removeChild(body.firstChild);
+    if (!paused) body.scrollTop = body.scrollHeight;
+  }
+
+  function push(time, level, text, dedupeKey) {
+    const normalized = normalizeLogLevel(level);
+    const key = dedupeKey || `${time}|${normalized}|${text}`;
+    if (lineKeys.has(key)) return null;
+    lineKeys.add(key);
+    const line = { time, level: normalized, text: String(text ?? ""), key };
+    lines.push(line);
+    return line;
+  }
+
+  function trimHistory() {
+    if (lines.length <= MAX_LINES * 2) return false;
+    lines = lines.slice(-MAX_LINES);
+    lineKeys = new Set(lines.map(l => l.key));
+    return true;
+  }
+
+  function settle(added) {
+    if (paused || added.length === 0) return;
+    if (trimHistory()) render();
+    else appendRendered(added);
+  }
+
+  function addLine(time, level, text, dedupeKey = "") {
+    const line = push(time, level, text, dedupeKey);
+    if (line) settle([line]);
+    else trimHistory();
   }
 
   function addLines(newLines) {
+    const added = [];
     for (const l of newLines) {
-      const key = `${l.time}|${l.level}|${l.text}`;
-      if (lineKeys.has(key)) continue;
-      lineKeys.add(key);
-      lines.push({ ...l, key });
+      const line = push(l.time, l.level, l.text, l.key || "");
+      if (line) added.push(line);
     }
-    if (lines.length > MAX_LINES * 2) {
-      lines = lines.slice(-MAX_LINES);
-      lineKeys = new Set(lines.map(l => l.key || `${l.time}|${l.level}|${l.text}`));
-    }
-    if (!paused) render();
+    if (added.length) settle(added);
   }
 
   function clearLines() {

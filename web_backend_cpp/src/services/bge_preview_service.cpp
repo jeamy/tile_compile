@@ -2,13 +2,16 @@
 
 #include "tile_compile/image/background_extraction.hpp"
 
+#include "fits_plane_io.hpp"
 #include <fitsio.h>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -32,30 +35,8 @@ struct CachedResult {
     nlohmann::json diagnostics;
 };
 std::mutex cache_mutex;
-std::unordered_map<std::string, InputProxy> input_cache;
+std::unordered_map<std::string, std::shared_ptr<const InputProxy>> input_cache;
 std::unordered_map<std::string, CachedResult> result_cache;
-
-std::string fits_error(int status) {
-    char text[FLEN_STATUS]{}; fits_get_errstatus(status, text); return text;
-}
-
-std::vector<float> read_plane(const fs::path& path, long plane,
-                              long& width, long& height, long& planes) {
-    fitsfile* file = nullptr; int status = 0;
-    if (fits_open_file(&file, path.string().c_str(), READONLY, &status))
-        throw std::runtime_error("Cannot open FITS " + path.string() + ": " + fits_error(status));
-    int naxis = 0; long axes[3]{1,1,1};
-    if (fits_get_img_dim(file, &naxis, &status) || fits_get_img_size(file, 3, axes, &status) || naxis < 2) {
-        fits_close_file(file, &status); throw std::runtime_error("Invalid FITS image " + path.string());
-    }
-    width = axes[0]; height = axes[1]; planes = naxis >= 3 ? axes[2] : 1;
-    if (plane > planes) { fits_close_file(file, &status); throw std::runtime_error("Missing FITS plane"); }
-    std::vector<float> out(static_cast<size_t>(width * height)); long first[3]{1,1,plane}; int any = 0;
-    if (fits_read_pix(file, TFLOAT, first, width * height, nullptr, out.data(), &any, &status)) {
-        const auto message = fits_error(status); fits_close_file(file, &status); throw std::runtime_error(message);
-    }
-    fits_close_file(file, &status); return out;
-}
 
 Matrix2Df matrix_from(const std::vector<float>& values, int rows, int cols) {
     Matrix2Df out(rows, cols);
@@ -81,7 +62,7 @@ std::string signature(const fs::path& image, const fs::path& mask) {
             fs::last_write_time(mask).time_since_epoch().count()));
 }
 
-InputProxy load_input(const fs::path& run_dir) {
+std::shared_ptr<const InputProxy> load_input(const fs::path& run_dir) {
     const fs::path outputs=run_dir/"outputs";
     fs::path image=outputs/"stacked_rgb_solve.fits";
     if (!fs::exists(image)) image=outputs/"stacked_rgb.fits";
@@ -92,22 +73,19 @@ InputProxy load_input(const fs::path& run_dir) {
     const std::string key=fs::weakly_canonical(run_dir).string();
     {
         std::lock_guard<std::mutex> lock(cache_mutex);
-        auto it=input_cache.find(key); if(it!=input_cache.end()&&it->second.signature==sig)return it->second;
+        auto it=input_cache.find(key); if(it!=input_cache.end()&&it->second&&it->second->signature==sig)return it->second;
     }
-    long w,h,p; auto rv=read_plane(image,1,w,h,p);
-    if(p<3) throw std::runtime_error("Pre-BGE RGB artifact has fewer than three planes");
-    long gw,gh,gp,bw,bh,bp; auto gv=read_plane(image,2,gw,gh,gp); auto bv=read_plane(image,3,bw,bh,bp);
-    if(gw!=w||gh!=h||bw!=w||bh!=h) throw std::runtime_error("Pre-BGE RGB dimensions mismatch");
-    long mw,mh,mp; auto mv=read_plane(mask_path,1,mw,mh,mp);
+    long w=0,h=0; auto rgb_planes=read_fits_rgb_cube(image,w,h);
+    long mw=0,mh=0,mp=0; auto mv=read_fits_plane(mask_path,1,mw,mh,mp);
     if(mw!=w||mh!=h) throw std::runtime_error("Canvas mask dimensions mismatch");
-    InputProxy proxy{matrix_from(rv,h,w),matrix_from(gv,gh,gw),matrix_from(bv,bh,bw),{},image.filename().string(),sig};
-    proxy.mask.resize(mv.size()); for(size_t i=0;i<mv.size();++i)proxy.mask[i]=std::isfinite(mv[i])&&mv[i]>0.5f?1u:0u;
+    auto proxy = std::make_shared<InputProxy>(InputProxy{matrix_from(rgb_planes[0],h,w),matrix_from(rgb_planes[1],h,w),matrix_from(rgb_planes[2],h,w),{},image.filename().string(),sig});
+    proxy->mask.resize(mv.size()); for(size_t i=0;i<mv.size();++i)proxy->mask[i]=std::isfinite(mv[i])&&mv[i]>0.5f?1u:0u;
     const int edge=std::max<int>(h,w);
     if(edge>kMaxEdge){
         const double s=static_cast<double>(kMaxEdge)/edge; const int rows=std::max(1,static_cast<int>(std::lround(h*s))); const int cols=std::max(1,static_cast<int>(std::lround(w*s)));
-        proxy.r=resize_matrix(proxy.r,rows,cols,cv::INTER_AREA); proxy.g=resize_matrix(proxy.g,rows,cols,cv::INTER_AREA); proxy.b=resize_matrix(proxy.b,rows,cols,cv::INTER_AREA);
-        cv::Mat m(h,w,CV_8U,proxy.mask.data()), mr; cv::resize(m,mr,cv::Size(cols,rows),0,0,cv::INTER_NEAREST);
-        proxy.mask.assign(mr.data,mr.data+static_cast<size_t>(rows*cols));
+        proxy->r=resize_matrix(proxy->r,rows,cols,cv::INTER_AREA); proxy->g=resize_matrix(proxy->g,rows,cols,cv::INTER_AREA); proxy->b=resize_matrix(proxy->b,rows,cols,cv::INTER_AREA);
+        cv::Mat m(h,w,CV_8U,proxy->mask.data()), mr; cv::resize(m,mr,cv::Size(cols,rows),0,0,cv::INTER_NEAREST);
+        proxy->mask.assign(mr.data,mr.data+static_cast<size_t>(rows*cols));
     }
     std::lock_guard<std::mutex> lock(cache_mutex); if(input_cache.size()>=4)input_cache.erase(input_cache.begin()); input_cache[key]=proxy; return proxy;
 }
@@ -152,7 +130,7 @@ std::vector<unsigned char> encode(const Matrix2Df&r,const Matrix2Df&g,const Matr
 BgePreviewResult create_bge_preview(const fs::path& run_dir,const nlohmann::json& params,const nlohmann::json& polygons,const nlohmann::json& manual_sample_points,const std::string& view){
     BgePreviewResult out;
     try{
-        InputProxy input=load_input(run_dir); const std::string cache_key=input.signature+params.dump()+polygons.dump()+manual_sample_points.dump();
+        auto input_ptr=load_input(run_dir); const InputProxy& input=*input_ptr; const std::string cache_key=input.signature+params.dump()+polygons.dump()+manual_sample_points.dump();
         {std::lock_guard<std::mutex>lock(cache_mutex);auto it=result_cache.find(cache_key);if(it!=result_cache.end()){out.ok=true;out.status=200;out.diagnostics=it->second.diagnostics;if(view!="diagnostics"){auto im=it->second.images.find(view);if(im==it->second.images.end())throw std::invalid_argument("Unknown BGE preview view");out.png=im->second;}return out;}}
         auto cfg=make_config(params,input,polygons);if(manual_sample_points.is_array()){for(const auto& pt:manual_sample_points){if(!pt.is_array()||pt.size()<2)continue;if(!pt[0].is_number()||!pt[1].is_number())continue;const double nx=pt[0].get<double>(), ny=pt[1].get<double>();if(nx<0.0||nx>1.0||ny<0.0||ny>1.0)continue;cfg.autobge.user_sample_points.push_back({static_cast<float>(nx),static_cast<float>(ny)});}} auto models=image::build_autobge_models(input.r,input.g,input.b,cfg); if(!models.success)throw std::runtime_error("AutoBGE could not build channel models");
         Matrix2Df cr=input.r,cg=input.g,cb=input.b; image::BGEDiagnostics diag; diag.attempted=true;diag.bge_method="autobge";diag.method="autobge";diag.channels=models.channel_diagnostics;

@@ -4,7 +4,7 @@
 // codebase (little-endian integers, IEEE-754 float bit patterns with NaN
 // payload normalized so a NaN never makes a hash unstable, length-prefixed
 // strings). Previously reimplemented independently in
-// registration_sampling_plan.cpp, profile_store_manifest.cpp,
+// registration_sampling_plan.cpp, the former profile_store_manifest.cpp,
 // source_quality_map_cache.cpp, and quality_frame_weight_plan.cpp -- each a
 // different subset of these methods, none byte-incompatible with another.
 // Consolidated here so a future encoding change (or bug fix) only has one

@@ -42,8 +42,9 @@ The active reconstruction phases, in run order:
 | `FORWARD_DRIZZLE` | CFA forward drizzle → the transactional U/R/F/M profile store (CPU or CUDA, byte-identical) |
 | `MULTIBAND` | À-trous fusion to `X_out`, three-way candidate selection, per-channel delivery |
 
-Downstream phases (`STACKING` pass-through, `DEBAYER`, `ASTROMETRY`, `BGE`,
-`PCC`, `HYPERMETRIC_STRETCH`) are unchanged.
+Downstream phases (`STACKING` pass-through, `ASTROMETRY`, `BGE`, `PCC`,
+`HYPERMETRIC_STRETCH`) are unchanged; there is no separate `DEBAYER` phase any
+more (the channels come straight out of the forward drizzle).
 
 ### Coverage gate
 

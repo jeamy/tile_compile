@@ -23,10 +23,6 @@ class ApiClient {
     return this._request("PATCH", path, body);
   }
 
-  async delete(path) {
-    return this._request("DELETE", path);
-  }
-
   ws(path, onEvent, onError) {
     const wsUrl = this._toWsUrl(path);
     const socket = new WebSocket(wsUrl);
@@ -44,6 +40,10 @@ class ApiClient {
 
   httpUrl(path) {
     return this._toHttpUrl(path);
+  }
+
+  wsUrl(path) {
+    return this._toWsUrl(path);
   }
 
   async _request(method, path, body, opts = {}) {

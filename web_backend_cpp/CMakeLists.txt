@@ -88,7 +88,11 @@ find_package(PkgConfig REQUIRED)
 
 # OpenCV — try find_package first (works with Homebrew's CMake config on
 # macOS which may not ship a pkg-config .pc file), fall back to pkg-config.
-find_package(OpenCV QUIET)
+# The shared module picks the OpenCV-CUDA build that matches the installed
+# CUDA toolkit's major version (see cmake/TileCompileOpenCV.cmake).
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/TileCompileOpenCV.cmake")
+tile_compile_select_opencv_dir()
+tile_compile_find_opencv(QUIET)
 if(OpenCV_FOUND)
     set(OPENCV4_INCLUDE_DIRS ${OpenCV_INCLUDE_DIRS})
     set(OPENCV4_LINK_LIBRARIES ${OpenCV_LIBS})
@@ -275,8 +279,10 @@ target_link_libraries(tile_compile_web_backend PRIVATE
     ${OPENCV4_LINK_LIBRARIES}
 )
 
+# No CROW_ENABLE_SSL: the backend never serves TLS (no ssl_file/ssl_context),
+# and the flag only pulled in asio's SSL layer, which asio 1.28 cannot compile
+# against OpenSSL 4.
 target_compile_definitions(tile_compile_web_backend PRIVATE
-    CROW_ENABLE_SSL
     CROW_ENFORCE_WS_SPEC
 )
 
@@ -288,7 +294,7 @@ if(NOT _tile_compile_backend_opencv_version)
     set(_tile_compile_backend_opencv_version "${OPENCV4_VERSION}")
 endif()
 set(_tile_compile_backend_feature_flags
-    "crow_ssl=true|backend_static_stdlib=${TILE_COMPILE_BACKEND_STATIC_STDLIB}|cuda=false")
+    "crow_ssl=false|backend_static_stdlib=${TILE_COMPILE_BACKEND_STATIC_STDLIB}|cuda=false")
 tile_compile_add_build_info(tile_compile_web_backend
     COMPONENT tile_compile_web_backend
     PROJECT_VERSION "${PROJECT_VERSION}"
@@ -544,6 +550,11 @@ if(BUILD_TESTS)
     target_link_libraries(web_backend_cpp_run_start_naming PRIVATE ${YAML_CPP_LIBRARIES} OpenSSL::Crypto ${PI_SQLITE_TARGET})
     add_backend_cpp_test(web_backend_cpp_run_stop_status_overlay tests/test_run_stop_status_overlay.cpp)
     add_backend_cpp_test(web_backend_cpp_memory_guards tests/test_memory_guards.cpp)
+    add_executable(web_backend_cpp_shared_helpers tests/test_shared_helpers.cpp)
+    target_include_directories(web_backend_cpp_shared_helpers PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    add_test(NAME web_backend_cpp_shared_helpers COMMAND web_backend_cpp_shared_helpers)
+    add_backend_cpp_test(web_backend_cpp_audit_security tests/test_audit_security.cpp)
+    target_sources(web_backend_cpp_audit_security PRIVATE src/backend_runtime.cpp src/job_store.cpp)
     add_backend_cpp_test(web_backend_cpp_report_phase_issues tests/test_report_phase_issues.cpp)
     add_backend_cpp_test(web_backend_cpp_report_forward_drizzle tests/test_report_forward_drizzle.cpp)
     add_backend_cpp_test(web_backend_cpp_pi_image_ops tests/test_pi_image_ops.cpp)

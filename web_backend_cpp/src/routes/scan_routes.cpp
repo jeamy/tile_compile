@@ -333,7 +333,7 @@ void register_scan_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/scan/latest").methods("GET"_method)
     ([state]() {
         auto job     = latest_scan_job(state->job_store);
-        auto summary = summarize_scan_job(job, state->last_scan_input_path);
+        auto summary = summarize_scan_job(job, state->locked_last_scan_input_path());
         return json_resp(summary);
     });
 
@@ -361,14 +361,20 @@ void register_scan_routes(CrowApp& app,
         }
         if (input_path.empty()) {
             // Try to infer from last scan
-            input_path = state->last_scan_input_path;
+            input_path = state->locked_last_scan_input_path();
         }
         if (input_path.empty()) {
             return json_resp({{"error", "no input_path provided and no previous scan"}}, 400);
         }
+        {
+            // Same rule as /api/scan: the CLI gets only a path inside an allowed root.
+            fs::path checked(input_path);
+            if (auto err = validate_path(state, checked, !checked.is_absolute())) return std::move(*err);
+            input_path = checked.string();
+        }
         if (frame_count <= 0) {
             auto latest = latest_scan_job(state->job_store);
-            auto summary = summarize_scan_job(latest, state->last_scan_input_path);
+            auto summary = summarize_scan_job(latest, state->locked_last_scan_input_path());
             frame_count = summary.value("frames_detected", summary.value("frames_total", 0));
             if (object_name.empty()) object_name = summary.value("object_name", summary.value("target", std::string()));
         }
@@ -404,7 +410,7 @@ void register_scan_routes(CrowApp& app,
             if (j.data.contains("result") && j.data["result"].is_object()) {
                 const auto& r = j.data["result"];
                 if (r.value("ok", false)) {
-                    if (j.job_id > best_ts) {
+                    if (job_id_newer(j.job_id, best_ts)) {
                         best_ts = j.job_id;
                         best_result = r;
                     }

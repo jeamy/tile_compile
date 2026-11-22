@@ -294,7 +294,10 @@ nlohmann::json read_status_from_job(const nlohmann::json& job_json) {
             status = "ok";
             pct = 1.0;
         } else if (state == "running") {
-            if (current_phase_str.empty() || current_phase_str == phase) {
+            // Without a reported phase only the first pending phase runs, not all.
+            const bool is_current = current_phase_str.empty() ? !found_current
+                                                              : current_phase_str == phase;
+            if (is_current) {
                 status = "running";
                 pct = job_json.value("progress", 0.0);
                 found_current = true;

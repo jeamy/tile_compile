@@ -191,20 +191,24 @@ std::shared_ptr<PiDatabase> PiDatabase::open(const std::filesystem::path& dir) {
     const std::filesystem::path path = dir / kPiDatabaseFileName;
     const std::string key = std::filesystem::absolute(path).lexically_normal().string();
 
-    std::lock_guard<std::mutex> lock(registry_mutex());
-    auto it = registry().find(key);
-    if (it != registry().end()) {
-        if (auto existing = it->second.lock()) {
-            if (std::filesystem::exists(path)) return existing;  // Datei geloescht -> neu oeffnen
-        }
-    }
-    std::shared_ptr<PiDatabase> db(new PiDatabase(dir, path));
     const auto restore_marker = dir / "pi_restore.in_progress.json";
     std::error_code marker_ec;
     const auto marker_status = std::filesystem::symlink_status(restore_marker, marker_ec);
     const bool restore_pending = !marker_ec && marker_status.type() != std::filesystem::file_type::not_found;
     if (marker_ec && marker_ec != std::errc::no_such_file_or_directory)
         throw std::runtime_error("cannot inspect PI restore marker before database open");
+
+    std::lock_guard<std::mutex> lock(registry_mutex());
+    auto it = registry().find(key);
+    if (it != registry().end()) {
+        if (auto existing = it->second.lock()) {
+            if (std::filesystem::exists(path) && existing->_restore_blocked == restore_pending) {
+                return existing;
+            }
+        }
+        registry().erase(it);
+    }
+    std::shared_ptr<PiDatabase> db(new PiDatabase(dir, path));
     const int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
     if (sqlite3_open_v2(path.string().c_str(), &db->_db, flags, nullptr) != SQLITE_OK) {
         const std::string msg = db->_db ? sqlite3_errmsg(db->_db) : "open failed";

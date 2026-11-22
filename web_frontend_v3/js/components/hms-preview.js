@@ -1,7 +1,10 @@
+import { wheelZoom } from "../utils/canvas-zoom.js";
+import { yamlScalar, yamlScalarText } from "../utils/yaml-scalar.js";
 import { el } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
 import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
+import { imageFromResponse } from "../utils/image-blob.js";
 
 const FIELDS = {
   mode: ["ready_to_use", "scientific"], sensor_profile: "rec709", fallback_profile: "rec709",
@@ -41,14 +44,7 @@ const SENSOR_PROFILES = [
   ["Narrowband HOO", "Narrowband HOO"], ["Narrowband SHO", "Narrowband SHO"],
 ];
 
-function scalar(raw, fallback) {
-  const value = String(raw || "").trim().replace(/\s+#.*$/, "");
-  if (typeof fallback === "boolean") return value === "true" ? true : value === "false" ? false : fallback;
-  if (typeof fallback === "number") { const n = Number(value); return Number.isFinite(n) ? n : fallback; }
-  return value.replace(/^['"]|['"]$/g, "") || fallback;
-}
-
-export function readHmsYaml(yaml) {
+function readHmsYaml(yaml) {
   const result = {};
   const lines = String(yaml || "").split(/\r?\n/);
   const start = lines.findIndex((line) => /^hypermetric_stretch:\s*(?:#.*)?$/.test(line));
@@ -56,17 +52,12 @@ export function readHmsYaml(yaml) {
   for (const [key, spec] of Object.entries(FIELDS)) {
     const fallback = Array.isArray(spec) ? spec[0] : spec;
     const match = lines.slice(start + 1).find((line) => new RegExp(`^\\s+${key}:`).test(line));
-    result[key] = match ? scalar(match.replace(new RegExp(`^\\s+${key}:\\s*`), ""), fallback) : fallback;
+    result[key] = match ? yamlScalar(match.replace(new RegExp(`^\\s+${key}:\\s*`), ""), fallback) : fallback;
   }
   return result;
 }
 
-function yamlValue(value) {
-  if (typeof value === "boolean") return value ? "true" : "false";
-  return String(value);
-}
-
-export function patchHmsYaml(yaml, params) {
+function patchHmsYaml(yaml, params) {
   const lines = String(yaml || "").split(/\r?\n/);
   let start = lines.findIndex((line) => /^hypermetric_stretch:\s*(?:#.*)?$/.test(line));
   if (start < 0) { if (lines.length && lines.at(-1) !== "") lines.push(""); start = lines.length; lines.push("hypermetric_stretch:"); }
@@ -74,8 +65,8 @@ export function patchHmsYaml(yaml, params) {
   while (end < lines.length && (lines[end].trim() === "" || /^\s+/.test(lines[end]))) end++;
   for (const [key, value] of Object.entries(params)) {
     const index = lines.findIndex((line, i) => i > start && i < end && new RegExp(`^\\s+${key}:`).test(line));
-    if (index >= 0) lines[index] = lines[index].replace(new RegExp(`^(\\s+${key}:\\s*).*$`), (_, prefix) => `${prefix}${yamlValue(value)}`);
-    else { lines.splice(end, 0, `  ${key}: ${yamlValue(value)}`); end++; }
+    if (index >= 0) lines[index] = lines[index].replace(new RegExp(`^(\\s+${key}:\\s*).*$`), (_, prefix) => `${prefix}${yamlScalarText(value)}`);
+    else { lines.splice(end, 0, `  ${key}: ${yamlScalarText(value)}`); end++; }
   }
   return lines.join("\n");
 }
@@ -100,7 +91,7 @@ export function openHmsPreview({ runId, runDir, yaml, onApply }) {
   let image = null, scale = 1, offsetX = 0, offsetY = 0, dragging = false, lastX = 0, lastY = 0;
   const controls = {};
   const canvas = el("canvas", { width: 900, height: 600, style: "width:100%;height:min(62vh,600px);background:#05070a;cursor:grab" });
-  const hist = el("canvas", { width: 256, height: 90, style: "width:256px;height:90px;background:#0b1020;border:1px solid var(--tc-border-color,#334155)" });
+  const hist = el("canvas", { width: 256, height: 90, style: "width:256px;height:90px;background:#0b1020;border:1px solid var(--border);border-radius:var(--radius-sm)" });
   const status = el("div", { class: "tc-text-sm tc-text-muted", style: "min-height:1.5em" }, t("ui.message.hms_loading", "Vorschau wird geladen…"));
   const diagnostics = el("div", { class: "tc-text-sm tc-mono" }, "");
 
@@ -114,7 +105,7 @@ export function openHmsPreview({ runId, runDir, yaml, onApply }) {
     if (!image) return; scale = Math.min(canvas.width / image.width, canvas.height / image.height);
     offsetX = (canvas.width - image.width * scale) / 2; offsetY = (canvas.height - image.height * scale) / 2; draw();
   }
-  canvas.addEventListener("wheel", (event) => { event.preventDefault(); if (!image) return; const old = scale; scale = Math.max(.1, Math.min(20, scale * (event.deltaY < 0 ? 1.15 : .87))); const rect = canvas.getBoundingClientRect(); const x = (event.clientX - rect.left) * canvas.width / rect.width; const y = (event.clientY - rect.top) * canvas.height / rect.height; offsetX = x - (x - offsetX) * scale / old; offsetY = y - (y - offsetY) * scale / old; draw(); });
+  canvas.addEventListener("wheel", (event) => { event.preventDefault(); if (!image) return; ({ scale, offsetX, offsetY } = wheelZoom({ scale, offsetX, offsetY }, event, canvas.getBoundingClientRect(), canvas.width, canvas.height)); draw(); });
   canvas.addEventListener("pointerdown", (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; canvas.setPointerCapture(e.pointerId); });
   canvas.addEventListener("pointermove", (e) => { if (!dragging) return; const rect = canvas.getBoundingClientRect(); offsetX += (e.clientX - lastX) * canvas.width / rect.width; offsetY += (e.clientY - lastY) * canvas.height / rect.height; lastX = e.clientX; lastY = e.clientY; draw(); });
   canvas.addEventListener("pointerup", () => { dragging = false; }); canvas.addEventListener("dblclick", fit);
@@ -136,8 +127,7 @@ export function openHmsPreview({ runId, runDir, yaml, onApply }) {
     try {
       const response = await fetch(api.httpUrl(API_ENDPOINTS.runs.hmePreview(runId)), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ run_dir: runDir, params: params() }), signal: controller.signal });
       if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error?.error?.message || `HTTP ${response.status}`); }
-      const diag = JSON.parse(response.headers.get("X-HMS-Diagnostics") || "{}"); const blob = await response.blob(); const url = URL.createObjectURL(blob); const next = new Image();
-      await new Promise((resolve, reject) => { next.onload = resolve; next.onerror = reject; next.src = url; }); URL.revokeObjectURL(url);
+      const diag = JSON.parse(response.headers.get("X-HMS-Diagnostics") || "{}"); const next = await imageFromResponse(response);
       if (current !== generation) return; image = next; fit(); histogram(hist, image);
       diagnostics.textContent = `${t("ui.label.hms_source", "Quelle")}: ${diag.source || "PCC"} · log D ${Number(diag.log_d || 0).toFixed(3)} · ${t("ui.label.hms_anchor", "Anker")} ${Number(diag.anchor || 0).toFixed(4)} · ${t("ui.label.hms_black_clip", "Schwarz")} ${Number(diag.black_clip_percent || 0).toFixed(3)}% · ${t("ui.label.hms_white_clip", "Weiß")} ${Number(diag.white_clip_percent || 0).toFixed(3)}%`;
       status.textContent = "";
@@ -182,13 +172,13 @@ export function openHmsPreview({ runId, runDir, yaml, onApply }) {
     field("shadow_convergence", t("param.hypermetric_stretch.shadow_convergence.label", "Shadow convergence"), { numeric:true,min:0,max:3,step:.1 }), field("linear_expansion", t("param.hypermetric_stretch.linear_expansion.label", "Linear expansion"), { numeric:true,min:0,max:1,step:.01 }),
     field("highlight_ceiling_percentile", t("param.hypermetric_stretch.highlight_ceiling_percentile.label", "Highlight ceiling percentile"), { numeric:true,min:90,max:100,step:.1 })
   );
-  const backdrop = el("div", { style: "position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:16px" });
+  const backdrop = el("div", { style: "position:fixed;inset:0;z-index:10000;background:rgba(3,7,18,.68);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px" });
   const modal = el("div", { class: "tc-card", role: "dialog", "aria-modal": "true", style: "width:min(1500px,96vw);max-height:95vh;overflow:auto" });
   const close = () => { generation++; controller?.abort(); clearTimeout(timer); backdrop.remove(); };
   const apply = async () => { const button = modal.querySelector("[data-apply]"); button.disabled = true; try { await onApply(patchHmsYaml(yaml, params())); close(); } catch (error) { status.textContent = error.message; button.disabled = false; } };
   modal.append(
     el("div", { class: "tc-card-title tc-flex tc-justify-between tc-items-center" }, el("span", {}, t("ui.title.hms_preview", "HyperMetric Stretch konfigurieren")), el("button", { class:"tc-btn tc-btn-sm", onclick:close }, "×")),
-    el("div", { style:"display:grid;grid-template-columns:minmax(0,2fr) minmax(320px,1fr);gap:16px" }, el("div", {}, canvas, el("div", { class:"tc-mt-2 tc-flex tc-gap-3 tc-items-center tc-flex-wrap" }, hist, diagnostics)), form), status,
+    el("div", { class: "tc-preview-split" }, el("div", {}, canvas, el("div", { class:"tc-mt-2 tc-flex tc-gap-3 tc-items-center tc-flex-wrap" }, hist, diagnostics)), form), status,
     el("div", { class:"tc-mt-3 tc-flex tc-gap-2 tc-justify-between" }, el("button", { class:"tc-btn", onclick:() => { for (const [k,input] of Object.entries(controls)) { if (input.type === "checkbox") input.checked = initial[k]; else input.value = initial[k]; } schedule(); } }, t("ui.button.hms_reset", "Reset")), el("div", { class:"tc-flex tc-gap-2" }, el("button", { class:"tc-btn", onclick:close }, t("ui.button.cancel", "Cancel")), el("button", { class:"tc-btn tc-btn-primary", "data-apply":"1", onclick:apply }, t("ui.button.hms_apply_resume", "Apply & start resume"))))
   );
   backdrop.appendChild(modal); document.body.appendChild(backdrop); updateDependencies(); preview();

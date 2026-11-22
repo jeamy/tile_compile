@@ -229,7 +229,7 @@ std::optional<AdviceRequest> build_request(const std::shared_ptr<AppState>& stat
         return std::nullopt;
     }
     const auto job = latest_scan_job(state->job_store);
-    r.scan = summarize_scan_job(job, state->last_scan_input_path);
+    r.scan = summarize_scan_job(job, state->locked_last_scan_input_path());
     if (!r.scan.value("has_scan", false) || !r.scan.value("ok", false)) {
         error_out = err_resp("NO_SCAN", "no successful scan available", 400);
         return std::nullopt;

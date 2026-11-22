@@ -24,44 +24,6 @@ namespace image = tile_compile::image;
 namespace io = tile_compile::io;
 namespace metrics = tile_compile::metrics;
 
-namespace {
-
-/// @brief Extracts exposure seconds.
-/// @details Part of the channel metadata, normalization, and global-metrics phase implementation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::optional<double> extract_exposure_seconds(const io::FitsHeader &header) {
-  auto read_positive = [&](const char *key) -> std::optional<double> {
-    if (auto value = header.get_double(key);
-        value && std::isfinite(*value) && *value > 0.0) {
-      return value;
-    }
-    if (auto value = header.get_int(key); value && *value > 0) {
-      return static_cast<double>(*value);
-    }
-    if (auto value = header.get_string(key)) {
-      char *end = nullptr;
-      errno = 0;
-      const double d = std::strtod(value->c_str(), &end);
-      if (errno == 0 && end != value->c_str() && *end == '\0' &&
-          std::isfinite(d) && d > 0.0) {
-        return d;
-      }
-    }
-    return std::nullopt;
-  };
-
-  for (const char *key : {"EXPTIME", "EXPOSURE", "EXPOSURETIME",
-                           "EXPOSURE_TIME", "EXP_TIME", "DURATION", "EXPOS"}) {
-    if (auto value = read_positive(key)) {
-      return value;
-    }
-  }
-  return std::nullopt;
-}
-
-} // namespace
-
 /// @brief Runs phase channel split normalization global metrics.
 /// @details Part of the channel metadata, normalization, and global-metrics phase implementation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -122,7 +84,7 @@ bool run_phase_channel_split_normalization_global_metrics(
     for (size_t i = 0; i < frames.size(); ++i) {
       try {
         const auto header = io::read_fits_header(frames[i]);
-        const auto exposure = extract_exposure_seconds(header);
+        const auto exposure = header_exposure_seconds(header);
         if (!exposure || !std::isfinite(*exposure) || *exposure <= 0.0) {
           all_exposures_available = false;
           break;

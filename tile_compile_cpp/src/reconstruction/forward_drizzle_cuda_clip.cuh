@@ -1,6 +1,6 @@
 // CFA forward drizzle --- device polygon clip shared by the production
 // scatter/gather kernels (forward_drizzle_cuda_device.cu) and the parity
-// harness TU (forward_drizzle_cuda_test_harness.cu). One copy only: every
+// harness TU (tests/support/forward_drizzle_cuda_harness.cu). One copy only: every
 // kernel that computes a droplet/cell overlap area includes this header.
 //
 // 1:1 device port of the CPU polygon_rectangle_intersection_area math

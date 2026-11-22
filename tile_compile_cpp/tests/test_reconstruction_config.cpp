@@ -7,6 +7,7 @@
 #include "tile_compile/core/errors.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include <string>
 
@@ -302,4 +303,19 @@ TEST_CASE("hypermetric_stretch.color_cast_correction defaults off, parses and va
                      bad + "\n");
     REQUIRE_THROWS_AS(b.validate(), ValidationError);
   }
+}
+
+TEST_CASE("registration.model_prediction_max_residual_px parses, round-trips "
+          "and rejects negatives", "[config][registration]") {
+  REQUIRE(Config{}.registration.model_prediction_max_residual_px == 0.7f);
+  auto cfg = Config::from_yaml_text(
+      base_yaml("") + "registration:\n  model_prediction_max_residual_px: 0.4\n");
+  REQUIRE(cfg.registration.model_prediction_max_residual_px == 0.4f);
+  REQUIRE_NOTHROW(cfg.validate());
+  const auto again = Config::from_yaml_text(YAML::Dump(cfg.to_yaml()));
+  REQUIRE(again.registration.model_prediction_max_residual_px == 0.4f);
+  cfg.registration.model_prediction_max_residual_px = 0.0f;  // 0 disables
+  REQUIRE_NOTHROW(cfg.validate());
+  cfg.registration.model_prediction_max_residual_px = -0.1f;
+  REQUIRE_THROWS_AS(cfg.validate(), ValidationError);
 }

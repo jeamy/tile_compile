@@ -9,11 +9,11 @@ function createStore(key, initialState = {}) {
   const listeners = new Set();
 
   if (PERSIST_LOCAL.has(key)) {
-    const saved = localStorage.getItem(`gui3.${key}`);
-    if (saved) {
-      try {
-        state = { ...state, ...JSON.parse(saved) };
-      } catch {}
+    try {
+      const saved = localStorage.getItem(`gui3.${key}`);
+      if (saved) state = { ...state, ...JSON.parse(saved) };
+    } catch {
+      // Storage blocked or corrupt entry: start from the defaults.
     }
   }
 
@@ -25,7 +25,12 @@ function createStore(key, initialState = {}) {
     setState(patch) {
       state = { ...state, ...patch };
       if (PERSIST_LOCAL.has(key)) {
-        localStorage.setItem(`gui3.${key}`, JSON.stringify(state));
+        try {
+          localStorage.setItem(`gui3.${key}`, JSON.stringify(state));
+        } catch (e) {
+          // QuotaExceededError or blocked storage: keep the in-memory state.
+          console.warn(`Could not persist gui3.${key}:`, e?.name || e);
+        }
       }
       for (const fn of listeners) {
         try { fn(state); } catch (e) { console.error("Store listener error:", e); }
@@ -45,9 +50,3 @@ export function getStore(key, initialState) {
   return stores.get(key);
 }
 
-// Server-UI-State sync
-let _api = null;
-
-export function setApi(api) {
-  _api = api;
-}

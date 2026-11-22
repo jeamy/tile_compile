@@ -42,8 +42,9 @@ Emittierte Phasen eines `reconstruct`-Laufs (kanonisch in
 | 15 | `HYPERMETRIC_STRETCH` | `runner_downstream.cpp` | Optional: finale Streckung |
 
 `STACKING` wird als Pass-Through-Marker vor den Downstream-Phasen emittiert;
-`PREWARP`-Events gehören intern zur REGISTRATION (kein eigener Eintrag in der
-kanonischen UI-Reihenfolge).
+Der Runner emittiert keine `PREWARP`-Phase-Events mehr; `PREWARP` erscheint nur
+noch als Log-Präfix der Vorverarbeitung und wird vom Backend der REGISTRATION
+zugeordnet (kein eigener Eintrag in der kanonischen UI-Reihenfolge).
 
 ## Zentrale Artefakte
 

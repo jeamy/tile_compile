@@ -251,6 +251,46 @@ TEST_CASE("forward downstream PCC resume reapplies post-stack denoise when BGE i
   REQUIRE(artifact.at("passes").at(0).at("applied") == true);
 }
 
+TEST_CASE("forward downstream BGE resume without BGE denoises once",
+          "[forward-runner][forward-downstream][denoise]") {
+  core::AtomicOutput temporary(
+      fs::temp_directory_path() / "forward-bge-resume-denoise");
+  const auto dir = temporary.path();
+  fs::create_directories(dir / "outputs");
+  fs::create_directories(dir / "artifacts");
+  fs::create_directories(dir / "logs");
+  Matrix2Df r(16, 16), g(16, 16), b(16, 16);
+  for (int y = 0; y < 16; ++y)
+    for (int x = 0; x < 16; ++x) {
+      const float n = ((x + y) & 1) ? 1.0f : -1.0f;
+      r(y, x) = g(y, x) = b(y, x) = 20.0f + n;
+    }
+  io::write_fits_rgb(dir / "outputs/stacked_rgb.fits", r, g, b, {});
+  io::write_fits_float(dir / "outputs/canvas_mask.fits",
+                       Matrix2Df::Ones(16, 16), {});
+  config::Config cfg;
+  cfg.astrometry.enabled = false;
+  cfg.bge.method = "none";
+  cfg.pcc.enabled = false;
+  cfg.luma_denoise.enabled = true;
+  cfg.luma_denoise.star_protection.enabled = false;
+  cfg.luma_denoise.structure_protection.enabled = false;
+  cfg.chroma_denoise.enabled = true;
+  cfg.chroma_denoise.apply_stage = "post_stack_linear";
+  std::ostringstream evlog;
+  // BGE falls through into PCC; with BGE off there is no linear BGE snapshot,
+  // which must not make PCC run the post-stack denoisers a second time.
+  REQUIRE(runner::run_rgb_downstream(
+              dir, "synthetic", cfg, "BGE", evlog,
+              [](const std::string &) { return false; }) == 0);
+  for (const char *name : {"artifacts/luma_denoise.json", "artifacts/chroma_denoise.json"}) {
+    INFO(name);
+    const auto artifact = core::json::parse(core::read_text(dir / name));
+    REQUIRE(artifact.at("passes").size() == 1);
+    REQUIRE(artifact.at("passes").at(0).at("stage") == "post_stack_linear");
+  }
+}
+
 TEST_CASE("forward runner: ordered phases retain cache and never create prewarp frames", "[forward-runner]") {
   Fixture f; std::ostringstream log;
   REQUIRE(f.execute(log));
@@ -377,6 +417,10 @@ TEST_CASE("forward runner: ordered phases retain cache and never create prewarp 
     REQUIRE(j.at("geometry").at("kernel").is_string());
     REQUIRE(j.at("geometry").at("reconstruction_width")==32);
     REQUIRE(j.at("clipping").contains("pixel_channel_evaluations"));
+    // Not counted by the v2 path: reported as unmeasured, not as zero.
+    REQUIRE(j.at("clipping").at("measured")==false);
+    REQUIRE(j.at("clipping").at("pixel_channel_evaluations").is_null());
+    REQUIRE(j.at("clipping").at("candidate_contributions_clipped").is_null());
     {
       const std::string be=
           j.at("acceleration").at("forward_drizzle_backend").get<std::string>();
@@ -465,8 +509,7 @@ TEST_CASE("forward runner: an injected FORWARD_DRIZZLE CUDA fault restarts the "
   if (core::select_acceleration_backend(
           "auto", core::AccelerationPhase::forward_drizzle)
           .selected != core::AccelerationBackend::cuda) {
-    SUCCEED("cuda backend not buildable here; the restart path is covered "
-            "bit-exact by test_drizzle_profile_store");
+    SUCCEED("cuda backend not buildable here");
     return;
   }
   Fixture f; std::ostringstream log;
@@ -839,6 +882,38 @@ TEST_CASE("forward downstream normalization provenance is checked before resume 
   REQUIRE_FALSE(f.execute(resumed,"FORWARD_DRIZZLE"));
   for (const auto &e:events(resumed.str())) REQUIRE(e["type"]!="phase_start");
   REQUIRE(core::sha256_file(f.dir/"outputs/forward_drizzle_raw_L.fit")==raw);
+}
+
+TEST_CASE("forward run made without downstream phases can be resumed with them",
+          "[forward-runner][forward-downstream]") {
+  Fixture f;
+  f.cfg.astrometry.enabled=false;
+  f.cfg.bge.method="none";
+  f.cfg.pcc.enabled=false;
+  f.cfg.hypermetric_stretch.enabled=false;
+  const auto normalization=f.dir/"artifacts/normalization.json";
+  core::write_text_atomic(normalization,
+      core::json({{"P_mono",{2.0}}, {"B_mono",{7.0}}}).dump());
+  std::ostringstream log;
+  REQUIRE(f.execute(log));
+  const auto checkpoint_path=f.dir/"artifacts/forward_drizzle_checkpoint.json";
+  auto checkpoint=core::json::parse(core::read_text(checkpoint_path));
+  // Recorded although no downstream phase ran.
+  REQUIRE(checkpoint.at("normalization_bytes")==std::to_string(fs::file_size(normalization)));
+  // A checkpoint from before that change has no value: resuming with a
+  // downstream phase enabled must not be refused as a mismatch.
+  checkpoint.erase("normalization_bytes");
+  core::write_text_atomic(checkpoint_path,checkpoint.dump());
+  f.cfg.astrometry.enabled=true;
+  std::ostringstream resumed;
+  const bool ok=f.execute(resumed,"FORWARD_DRIZZLE");
+  INFO(resumed.str());
+  REQUIRE(resumed.str().find("NORMALIZATION_PREDECESSOR_MISMATCH")==std::string::npos);
+  REQUIRE(ok);
+  bool astrometry_ran=false;
+  for (const auto &e:events(resumed.str()))
+    if (e["type"]=="phase_start" && e["phase_name"]=="ASTROMETRY") astrometry_ran=true;
+  REQUIRE(astrometry_ran);
 }
 
 TEST_CASE("forward runner uses the banded v2 path and MULTIBAND v2 store "

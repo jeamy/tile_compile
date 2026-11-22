@@ -1,4 +1,6 @@
 #include "subprocess_manager.hpp"
+#include <cerrno>
+#include <csignal>
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -226,12 +228,24 @@ CapturedText drain_fd(int fd, size_t capture_limit_bytes) {
     return out;
 }
 
+/// @brief Creates the three stdio pipes, or none: on a partial failure the
+/// pipes already created are closed again.
+bool open_stdio_pipes(int out[2], int err[2], int in[2]) {
+    int* pipes[] = {out, err, in};
+    for (int i = 0; i < 3; ++i) {
+        if (pipe(pipes[i]) == 0) continue;
+        for (int j = 0; j < i; ++j) { close(pipes[j][0]); close(pipes[j][1]); }
+        return false;
+    }
+    return true;
+}
+
 bool spawn_subprocess(const std::vector<std::string>& args,
                       const std::string& cwd,
                       const std::string& stdin_text,
                       SpawnedProcess& proc_out) {
     int pfd_out[2], pfd_err[2], pfd_in[2];
-    if (pipe(pfd_out) || pipe(pfd_err) || pipe(pfd_in)) return false;
+    if (!open_stdio_pipes(pfd_out, pfd_err, pfd_in)) return false;
 
     pid_t pid = fork();
     if (pid < 0) {
@@ -243,6 +257,7 @@ bool spawn_subprocess(const std::vector<std::string>& args,
     }
 
     if (pid == 0) {
+        signal(SIGPIPE, SIG_DFL);  // the backend ignores it; an ignored signal survives exec
         close(pfd_out[0]); close(pfd_err[0]); close(pfd_in[1]);
         dup2(pfd_out[1], STDOUT_FILENO);
         dup2(pfd_err[1], STDERR_FILENO);
@@ -264,7 +279,8 @@ bool spawn_subprocess(const std::vector<std::string>& args,
         ssize_t total = 0;
         while (total < static_cast<ssize_t>(stdin_text.size())) {
             ssize_t n = write(pfd_in[1], stdin_text.data() + total, stdin_text.size() - static_cast<size_t>(total));
-            if (n <= 0) break;
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) break;  // e.g. EPIPE: the child closed stdin early (SIGPIPE is ignored, see main.cpp)
             total += n;
         }
     }
@@ -295,9 +311,18 @@ int wait_for_process(BackgroundProcess& proc) {
     // Allow up to ~3 s for graceful shutdown after SIGTERM before sending SIGKILL.
     constexpr int SIGKILL_AFTER_CYCLES = 20; // 20 * 150 ms = 3 s
     while (true) {
-        pid_t rc = waitpid(static_cast<pid_t>(proc.pid.load()), &status, WNOHANG);
-        if (rc == static_cast<pid_t>(proc.pid.load())) return status;
-        if (rc < 0) return -1;
+        const pid_t pid = static_cast<pid_t>(proc.pid.load());
+        pid_t rc = waitpid(pid, &status, WNOHANG);
+        if (rc == pid) {
+            // Reaped: the pid may be reused from now on, so nothing may signal it.
+            proc.pid.store(-1);
+            return status;
+        }
+        if (rc < 0 && errno == EINTR) continue;
+        if (rc < 0) {
+            proc.pid.store(-1);
+            return -1;
+        }
 
         if (proc.cancelled.load()) {
             if (!term_sent) {
@@ -442,7 +467,7 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
 
 #else
     int pfd_out[2], pfd_err[2], pfd_in[2];
-    if (pipe(pfd_out) || pipe(pfd_err) || pipe(pfd_in)) { res.exit_code = -1; return res; }
+    if (!open_stdio_pipes(pfd_out, pfd_err, pfd_in)) { res.exit_code = -1; return res; }
 
     pid_t pid = fork();
     if (pid < 0) {
@@ -454,6 +479,7 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
     }
 
     if (pid == 0) {
+        signal(SIGPIPE, SIG_DFL);  // the backend ignores it; an ignored signal survives exec
         close(pfd_out[0]); close(pfd_err[0]); close(pfd_in[1]);
         dup2(pfd_out[1], STDOUT_FILENO);
         dup2(pfd_err[1], STDERR_FILENO);
@@ -476,7 +502,8 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
         ssize_t total = 0;
         while (total < static_cast<ssize_t>(stdin_text.size())) {
             ssize_t n = write(pfd_in[1], stdin_text.data() + total, stdin_text.size() - static_cast<size_t>(total));
-            if (n <= 0) break;
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) break;  // e.g. EPIPE: the child closed stdin early (SIGPIPE is ignored, see main.cpp)
             total += n;
         }
     }
@@ -502,7 +529,7 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
     res.stderr_truncated = stderr_capture.truncated;
 
     int status = 0;
-    waitpid(pid, &status, 0);
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
     res.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 #endif
 
@@ -633,31 +660,15 @@ bool SubprocessManager::cancel(const std::string& job_id) {
     auto proc = it->second;
     _store.cancel(job_id);
 #ifndef _WIN32
+    // The worker thread that waits for the process sends SIGTERM (and later
+    // SIGKILL) once the flag is set. It alone may signal: only it knows the
+    // pid has not been reaped and reused yet.
     std::thread([proc]() {
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
         proc->cancelled.store(true);
-        if (proc->pid.load() > 0) {
-            terminate_spawned_process(proc->pid.load(), SIGTERM);
-        }
     }).detach();
 #else
     proc->cancelled.store(true);
 #endif
     return true;
-}
-
-/// @brief Cancels by run.
-/// @details This implementation captures subprocess output and coordinates asynchronous cancellable jobs; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-/// @brief Cancels all tracked background processes for a run id.
-/// @details Scans the active process map for matching job metadata and forwards each match to
-/// the single-job cancellation path.
-void SubprocessManager::cancel_by_run(const std::string& run_id) {
-    auto jobs = _store.list(500);
-    for (auto& j : jobs) {
-        if (j.run_id == run_id &&
-            (j.state == JobState::running || j.state == JobState::pending)) {
-            cancel(j.job_id);
-        }
-    }
 }

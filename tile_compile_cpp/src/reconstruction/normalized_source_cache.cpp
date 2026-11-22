@@ -126,9 +126,12 @@ VerifiedNormalizedSourceCache::VerifiedNormalizedSourceCache(
     : root_(proto.root_), width_(proto.width_), height_(proto.height_),
       hashes_(proto.hashes_), manifest_hash_(proto.manifest_hash_),
       context_hash_(proto.context_hash_) {
-  if (memory_budget_mb < 2)
-    throw std::runtime_error("NORMALIZED_CACHE_MEMORY_BUDGET");
+  // Same budget rule as the primary constructor: no size_t overflow in the
+  // MiB conversion, and room for at least one frame plus the 1 MiB slack.
   const size_t bytes = frame_bytes(width_, height_);
+  if (memory_budget_mb > std::numeric_limits<size_t>::max()/(1024*1024) ||
+      memory_budget_mb < 2 || bytes > memory_budget_mb*1024*1024-1024*1024)
+    throw std::runtime_error("NORMALIZED_CACHE_MEMORY_BUDGET");
   const size_t usable = memory_budget_mb*1024*1024 - 1024*1024;
   capacity_ = std::max<size_t>(1, std::min<size_t>(hashes_.size(),
                                                    bytes ? usable/bytes : 1));
@@ -208,20 +211,38 @@ void VerifiedNormalizedSourceCache::read_rect_into(
   if (hashes_.find(source_index)==hashes_.end())
     throw std::invalid_argument("NORMALIZED_CACHE_UNKNOWN_FRAME");
   out.resize(static_cast<size_t>(rows)*static_cast<size_t>(cols));
-  const size_t row_bytes=static_cast<size_t>(width_)*sizeof(float);
   const size_t x_bytes=static_cast<size_t>(cols)*sizeof(float);
+  if (auto it = resident_.find(source_index); it != resident_.end()) {
+    const float *src = it->second->image.data();
+    for (int r = 0; r < rows; ++r) {
+      std::memcpy(out.data() + static_cast<size_t>(r) * cols,
+                  src + static_cast<size_t>(y0 + r) * width_ + x0, x_bytes);
+    }
+    ++rect_read_calls_;
+    bytes_read_+=static_cast<std::uint64_t>(rows)*x_bytes;
+    expanded_floats_+=static_cast<std::uint64_t>(rows)*static_cast<std::uint64_t>(cols);
+    return;
+  }
+  const size_t row_bytes=static_cast<size_t>(width_)*sizeof(float);
   const auto path=root_/(std::to_string(source_index)+".raw");
   std::ifstream file(path,std::ios::binary);
-  // Seek/read only the [x0,x1) span of each requested row directly into the
-  // output span; no covering source row is read.
-  for (int r=0;r<rows;++r) {
-    file.seekg(static_cast<std::streamoff>(
-        static_cast<size_t>(y0+r)*row_bytes+
-        static_cast<size_t>(x0)*sizeof(float)));
-    file.read(reinterpret_cast<char *>(
-                  out.data()+static_cast<size_t>(r)*cols),
-              static_cast<std::streamsize>(x_bytes));
+  if (x0 == 0 && x1 == width_) {
+    file.seekg(static_cast<std::streamoff>(static_cast<size_t>(y0)*row_bytes));
+    file.read(reinterpret_cast<char *>(out.data()),
+              static_cast<std::streamsize>(static_cast<size_t>(rows)*row_bytes));
     if (!file) throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+  } else {
+    // Seek/read only the [x0,x1) span of each requested row directly into the
+    // output span; no covering source row is read.
+    for (int r=0;r<rows;++r) {
+      file.seekg(static_cast<std::streamoff>(
+          static_cast<size_t>(y0+r)*row_bytes+
+          static_cast<size_t>(x0)*sizeof(float)));
+      file.read(reinterpret_cast<char *>(
+                    out.data()+static_cast<size_t>(r)*cols),
+                static_cast<std::streamsize>(x_bytes));
+      if (!file) throw std::runtime_error("NORMALIZED_CACHE_READ_FAILED");
+    }
   }
   ++rect_read_calls_;
   bytes_read_+=static_cast<std::uint64_t>(rows)*x_bytes;
@@ -245,6 +266,21 @@ void VerifiedNormalizedSourceCache::read_row_intervals_into(
   }
   out.resize(total);  // resize keeps capacity for the reusable buffer
   if (intervals.empty()) return;
+  if (auto it = resident_.find(source_index); it != resident_.end()) {
+    const float *src = it->second->image.data();
+    size_t off = 0;
+    for (const auto &s : intervals) {
+      const size_t n = static_cast<size_t>(s.x_end - s.x_begin);
+      std::memcpy(out.data() + off,
+                  src + static_cast<size_t>(s.source_y) * width_ + s.x_begin,
+                  n * sizeof(float));
+      off += n;
+    }
+    ++rect_read_calls_;
+    bytes_read_+=static_cast<std::uint64_t>(total)*sizeof(float);
+    expanded_floats_+=static_cast<std::uint64_t>(total);
+    return;
+  }
   const size_t row_bytes=static_cast<size_t>(width_)*sizeof(float);
   const auto path=root_/(std::to_string(source_index)+".raw");
   std::ifstream file(path,std::ios::binary);

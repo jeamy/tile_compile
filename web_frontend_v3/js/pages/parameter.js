@@ -3,7 +3,7 @@
 import { el, clear } from "../utils/dom.js";
 import { getUiState, setUiState } from "../state/ui-state.js";
 import { goToSubTab } from "../utils/navigation.js";
-import { getConfigState, loadSchema, loadConfig, validateConfig, saveConfig, getOutgoingConfig, humanizeCategory, setConfigState, markDirty, deepClone } from "../state/config-state.js";
+import { getConfigState, loadSchema, loadConfig, validateConfig, saveConfig, getOutgoingConfig, humanizeCategory, setConfigState, setPendingDraftFlush, markDirty, deepClone } from "../state/config-state.js";
 import { t } from "../i18n/i18n.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { createAiEmpfehlungPage } from "./ai-empfehlung.js";
@@ -18,8 +18,11 @@ import { API_ENDPOINTS } from "../api/endpoints.js";
 import { refreshGuardrails } from "../services/guardrail-service.js";
 import { getStore } from "../state/store.js";
 import { getFeatureFlags } from "../state/feature-flags.js";
+import { onPageUnmount } from "../utils/page-lifecycle.js";
 
 export function createParameterPage() {
+  // A field edited right before leaving the page is committed, not dropped.
+  onPageUnmount(() => { if (draftCommitTimer) commitDraftNow(); });
   const page = el("div", { class: "tc-flex-col tc-gap-4" });
   const { aiEnabled, jevEnabled } = getFeatureFlags();
   let paramView = getUiState().paramView || "parameter";
@@ -396,12 +399,30 @@ function explainHelpForPath(path, fieldSchema) {
   return shortHelpForPath(path, fieldSchema);
 }
 
+
+// Field edits change the draft in place at once; serializing it to YAML,
+// persisting it and redrawing the diff waits for a pause in typing.
+const DRAFT_COMMIT_MS = 250;
+let draftCommitTimer = null;
+
+function commitDraftNow() {
+  clearTimeout(draftCommitTimer);
+  draftCommitTimer = null;
+  setPendingDraftFlush(null);
+  setConfigState({ dirty: true, draftYaml: stringifyYaml(getConfigState().draft) });
+  updateDiff();
+}
+
+function scheduleDraftCommit() {
+  clearTimeout(draftCommitTimer);
+  setPendingDraftFlush(commitDraftNow);
+  draftCommitTimer = setTimeout(commitDraftNow, DRAFT_COMMIT_MS);
+}
+
 function editableParamRow(path, value, fieldSchema) {
   const onChange = (rawVal) => {
     setConfigValue(getConfigState().draft, path, rawVal);
-    markDirty();
-    setConfigState({ draftYaml: stringifyYaml(getConfigState().draft) });
-    updateDiff();
+    scheduleDraftCommit();
     if (PATH_CHECK_TRIGGER.test(path)) schedulePathCheck();
     if (path === "bge.method") {
       const savedCat = getUiState().selectedCategory || "all";
@@ -465,9 +486,7 @@ function editableParamRow(path, value, fieldSchema) {
       value: formatValue(value),
       oninput: (e) => {
         setConfigValue(getConfigState().draft, path, parseValue(e.target.value));
-        markDirty();
-        setConfigState({ draftYaml: stringifyYaml(getConfigState().draft) });
-        updateDiff();
+        scheduleDraftCommit();
       },
     });
   }

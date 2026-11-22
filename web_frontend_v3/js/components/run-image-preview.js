@@ -43,34 +43,13 @@ function bestArtifact(items) {
     .sort((a, b) => scoreArtifact(b) - scoreArtifact(a))[0] || null;
 }
 
-function previewKindForArtifact(item) {
-  const p = lowerPath(item);
-  if (p.endsWith(".png")) return "raw";
-  if (/\.(fits?|fts)$/.test(p)) return "fits";
-  if (p.includes("stacked_rgb_hms") || p.includes("hms_")) return "hms";
-  if (p.includes("stacked_rgb_pcc") || p.includes("pcc_")) return "hms";
-  if (p.includes("stacked_rgb_bge")) return "bge";
-  return "";
-}
-
-async function fetchPngPreview(runId, runDir, artifact, kind) {
-  if (kind === "raw") {
-    return api.httpUrl(API_ENDPOINTS.runs.artifactRaw(runId, artifactPath(artifact), runDir));
-  }
-  if (kind === "fits") {
-    return api.httpUrl(API_ENDPOINTS.runs.imagePreview(runId, artifactPath(artifact), runDir));
-  }
-  const endpoint = kind === "bge" ? API_ENDPOINTS.runs.bgePreview(runId) : API_ENDPOINTS.runs.hmePreview(runId);
-  const body = kind === "bge"
-    ? { run_dir: runDir || "", view: "corrected", params: {} }
-    : { run_dir: runDir || "", params: {} };
-  const response = await fetch(api.httpUrl(endpoint), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return URL.createObjectURL(await response.blob());
+// bestArtifact only returns PNG and FITS files: a PNG is shown as it is, a
+// FITS through the backend's image preview.
+function previewUrl(runId, runDir, artifact) {
+  const path = artifactPath(artifact);
+  return lowerPath(artifact).endsWith(".png")
+    ? api.httpUrl(API_ENDPOINTS.runs.artifactRaw(runId, path, runDir))
+    : api.httpUrl(API_ENDPOINTS.runs.imagePreview(runId, path, runDir));
 }
 
 function panelBody(targetId) {
@@ -89,7 +68,7 @@ function openLiveEditor(runId, runDir, targetId) {
   viewer.open();
 }
 
-export function refreshRunImagePreviewPanel(targetId = "run-image-preview") {
+function refreshRunImagePreviewPanel(targetId = "run-image-preview") {
   const body = panelBody(targetId);
   const runId = body?._runId || "";
   const runDir = body?._runDir || "";
@@ -128,11 +107,12 @@ export async function loadRunImagePreview(runId, runDir = "", artifactsPayload =
   const previewKey = `${runId || ""}|${runDir || ""}`;
   if (!opts.force && body._previewBuiltKey === previewKey) return;
   body._previewBuiltKey = previewKey;
+  // Each load owns the panel until a newer one starts; a stale response must
+  // not draw.
+  const generation = (body._previewGeneration || 0) + 1;
+  body._previewGeneration = generation;
+  const stale = () => body._previewGeneration !== generation;
   clear(body);
-  if (body._objectUrl) {
-    URL.revokeObjectURL(body._objectUrl);
-    body._objectUrl = "";
-  }
   if (!runId) {
     setPreviewStatus(targetId, t("ui.state.no_run_selected", "Kein Run ausgewählt"));
     body.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.no_run_selected", "Kein Run ausgewählt")));
@@ -143,6 +123,7 @@ export async function loadRunImagePreview(runId, runDir = "", artifactsPayload =
   body.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.loading", "Lädt...")));
   try {
     const artifacts = artifactsPayload || await api.get(API_ENDPOINTS.runs.artifacts(runId, runDir));
+    if (stale()) return;
     const candidate = bestArtifact(artifacts);
     if (!candidate) {
       clear(body);
@@ -151,10 +132,7 @@ export async function loadRunImagePreview(runId, runDir = "", artifactsPayload =
       return;
     }
 
-    const kind = previewKindForArtifact(candidate);
-    if (!kind) throw new Error(t("ui.state.no_image_preview", "Kein Bildpreview verfügbar"));
-    const src = await fetchPngPreview(runId, runDir, candidate, kind);
-    if (src.startsWith("blob:")) body._objectUrl = src;
+    const src = previewUrl(runId, runDir, candidate);
     clear(body);
     const path = artifactPath(candidate);
     setPreviewStatus(targetId, path);
@@ -186,6 +164,7 @@ export async function loadRunImagePreview(runId, runDir = "", artifactsPayload =
       },
     }));
   } catch (e) {
+    if (stale()) return;
     clear(body);
     setPreviewStatus(targetId, t("ui.state.preview_failed", "Preview fehlgeschlagen"));
     body.appendChild(el("div", { class: "tc-text-error tc-text-sm" }, e.message));

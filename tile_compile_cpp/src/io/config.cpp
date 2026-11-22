@@ -338,6 +338,9 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.registration.reject_cc_min_abs = r["reject_cc_min_abs"].as<float>();
     if (yaml_has_value(r["reject_shift_px_min"]))
       cfg.registration.reject_shift_px_min = r["reject_shift_px_min"].as<float>();
+    if (yaml_has_value(r["model_prediction_max_residual_px"]))
+      cfg.registration.model_prediction_max_residual_px =
+          r["model_prediction_max_residual_px"].as<float>();
     if (yaml_has_value(r["reject_shift_median_multiplier"]))
       cfg.registration.reject_shift_median_multiplier =
           r["reject_shift_median_multiplier"].as<float>();
@@ -1164,6 +1167,8 @@ YAML::Node Config::to_yaml() const {
   node["registration"]["reject_outliers"] = registration.reject_outliers;
   node["registration"]["reject_cc_min_abs"] = registration.reject_cc_min_abs;
   node["registration"]["reject_shift_px_min"] = registration.reject_shift_px_min;
+  node["registration"]["model_prediction_max_residual_px"] =
+      registration.model_prediction_max_residual_px;
   node["registration"]["reject_shift_median_multiplier"] =
       registration.reject_shift_median_multiplier;
   node["registration"]["reject_scale_min"] = registration.reject_scale_min;
@@ -1763,6 +1768,10 @@ void Config::validate() const {
         "registration.reject_shift_px_min must be >= 0 and "
         "registration.reject_shift_median_multiplier must be > 0");
   }
+  if (!(registration.model_prediction_max_residual_px >= 0.0f)) {
+    throw ValidationError(
+        "registration.model_prediction_max_residual_px must be >= 0 (0 disables)");
+  }
   if (registration.reject_scale_min <= 0.0f ||
       registration.reject_scale_max < registration.reject_scale_min) {
     throw ValidationError(
@@ -2329,6 +2338,7 @@ std::string get_schema_json() {
                       "reject_outliers":{"type":"boolean"},
                       "reject_cc_min_abs":{"type":"number","minimum":0,"maximum":1},
                       "reject_shift_px_min":{"type":"number","minimum":0},
+                      "model_prediction_max_residual_px":{"type":"number","minimum":0},
                       "reject_shift_median_multiplier":{"type":"number","exclusiveMinimum":0},
                       "reject_scale_min":{"type":"number","exclusiveMinimum":0},
                       "reject_scale_max":{"type":"number","exclusiveMinimum":0},

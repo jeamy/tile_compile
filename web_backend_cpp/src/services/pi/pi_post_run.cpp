@@ -1,4 +1,5 @@
 #include "services/pi/pi_post_run.hpp"
+#include "run_event_file.hpp"
 
 #include "services/pi/pi_decision_state.hpp"
 #include "services/pi/pi_json_io.hpp"
@@ -122,7 +123,7 @@ json bge_slope_comparison(const fs::path& run_dir) {
 }
 
 json hms_clip_diagnostic(const fs::path& run_dir) {
-    std::ifstream in(run_dir / "logs" / "run_events.jsonl");
+    std::ifstream in(find_run_event_file(run_dir).value_or(run_dir / "logs" / "run_events.jsonl"));
     if (!in) return {{"status", "missing"}, {"source_ref", "logs/run_events.jsonl"}};
     std::optional<json> latest;
     std::string line;

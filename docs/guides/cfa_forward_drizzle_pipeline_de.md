@@ -44,8 +44,9 @@ Die aktiven Rekonstruktionsphasen in Laufreihenfolge:
 | `FORWARD_DRIZZLE` | CFA-Forward-Drizzle → der transaktionale U/R/F/M-Profilspeicher (CPU oder CUDA, byte-identisch) |
 | `MULTIBAND` | À-trous-Fusion zu `X_out`, Drei-Wege-Kandidatenauswahl, Auslieferung je Kanal |
 
-Die nachgelagerten Phasen (`STACKING`-Pass-through, `DEBAYER`, `ASTROMETRY`,
-`BGE`, `PCC`, `HYPERMETRIC_STRETCH`) sind unverändert.
+Die nachgelagerten Phasen (`STACKING`-Pass-through, `ASTROMETRY`, `BGE`, `PCC`,
+`HYPERMETRIC_STRETCH`) sind unverändert; eine eigene `DEBAYER`-Phase gibt es
+nicht mehr (die Kanäle entstehen direkt im Forward-Drizzle).
 
 ### Coverage-Gate
 

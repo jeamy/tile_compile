@@ -137,7 +137,7 @@ void register_app_state_routes(CrowApp& app,
         resp["tools"]   = nlohmann::json::object();
         resp["ui_state"] = ui_state;
         resp["events"]  = {{"latest_seq", state->ui_event_store.latest_seq()}};
-        resp["i18n"]    = {{"locale", ui_state.value("gui2.locale", std::string("de"))}};
+        resp["i18n"]    = {{"locale", ui_state.value("locale", ui_state.value("gui2.locale", std::string("de")))}};
         return json_resp(resp);
     });
 

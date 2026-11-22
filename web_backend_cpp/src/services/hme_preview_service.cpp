@@ -2,13 +2,16 @@
 
 #include "tile_compile/image/hypermetric_stretch.hpp"
 
+#include "fits_plane_io.hpp"
 #include <fitsio.h>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <sstream>
@@ -29,46 +32,9 @@ struct Proxy {
 };
 
 std::mutex cache_mutex;
-std::unordered_map<std::string, Proxy> cache;
+std::unordered_map<std::string, std::shared_ptr<const Proxy>> cache;
 constexpr int kMaxProxyEdge = 1600;
 constexpr size_t kMaxCacheEntries = 4;
-
-std::string fits_error(int status) {
-    char text[FLEN_STATUS]{};
-    fits_get_errstatus(status, text);
-    return text;
-}
-
-std::vector<float> read_fits_plane(const fs::path& path, long plane,
-                                   long& width, long& height, long& planes) {
-    fitsfile* file = nullptr;
-    int status = 0;
-    if (fits_open_file(&file, path.string().c_str(), READONLY, &status))
-        throw std::runtime_error("Cannot open FITS " + path.string() + ": " + fits_error(status));
-    int naxis = 0;
-    long axes[3]{1, 1, 1};
-    if (fits_get_img_dim(file, &naxis, &status) ||
-        fits_get_img_size(file, 3, axes, &status) || naxis < 2) {
-        fits_close_file(file, &status);
-        throw std::runtime_error("Invalid FITS image " + path.string());
-    }
-    width = axes[0]; height = axes[1]; planes = naxis >= 3 ? axes[2] : 1;
-    if (plane < 1 || plane > planes) {
-        fits_close_file(file, &status);
-        throw std::runtime_error("Missing RGB plane in " + path.string());
-    }
-    std::vector<float> pixels(static_cast<size_t>(width * height));
-    long first[3]{1, 1, plane};
-    int any_null = 0;
-    if (fits_read_pix(file, TFLOAT, first, width * height, nullptr,
-                      pixels.data(), &any_null, &status)) {
-        const auto message = fits_error(status);
-        fits_close_file(file, &status);
-        throw std::runtime_error("Cannot read FITS " + path.string() + ": " + message);
-    }
-    fits_close_file(file, &status);
-    return pixels;
-}
 
 Matrix2Df to_matrix(const std::vector<float>& values, long width, long height) {
     Matrix2Df result(static_cast<int>(height), static_cast<int>(width));
@@ -138,14 +104,10 @@ Proxy load_proxy(const fs::path& run_dir) {
     long w = 0, h = 0, p = 0;
 
     if (fs::exists(cube)) {
-        auto rv = read_fits_plane(cube, 1, w, h, p);
-        if (p < 3) throw std::runtime_error("stacked_rgb_pcc.fits has fewer than three planes");
-        long w2, h2, p2;
-        proxy.r = to_matrix(rv, w, h);
-        auto gv = read_fits_plane(cube, 2, w2, h2, p2);
-        proxy.g = to_matrix(gv, w2, h2);
-        auto bv = read_fits_plane(cube, 3, w2, h2, p2);
-        proxy.b = to_matrix(bv, w2, h2);
+        auto planes_rgb = read_fits_rgb_cube(cube, w, h);
+        proxy.r = to_matrix(planes_rgb[0], w, h);
+        proxy.g = to_matrix(planes_rgb[1], w, h);
+        proxy.b = to_matrix(planes_rgb[2], w, h);
         proxy.source = "stacked_rgb_pcc.fits";
         source_paths = {cube};
     } else if (std::all_of(channels.begin(), channels.end(), [](const fs::path& pth) { return fs::exists(pth); })) {
@@ -194,7 +156,7 @@ Proxy load_proxy(const fs::path& run_dir) {
     return proxy;
 }
 
-Proxy get_proxy(const fs::path& run_dir) {
+std::shared_ptr<const Proxy> get_proxy(const fs::path& run_dir) {
     const std::string key = fs::weakly_canonical(run_dir).string();
     const fs::path outputs = run_dir / "outputs";
     const std::vector<fs::path> channels = {outputs / "pcc_R.fit", outputs / "pcc_G.fit", outputs / "pcc_B.fit"};
@@ -213,9 +175,9 @@ Proxy get_proxy(const fs::path& run_dir) {
     {
         std::lock_guard<std::mutex> lock(cache_mutex);
         auto it = cache.find(key);
-        if (it != cache.end() && it->second.signature == signature) return it->second;
+        if (it != cache.end() && it->second && it->second->signature == signature) return it->second;
     }
-    Proxy loaded = load_proxy(run_dir);
+    auto loaded = std::make_shared<Proxy>(load_proxy(run_dir));
     std::lock_guard<std::mutex> lock(cache_mutex);
     if (cache.size() >= kMaxCacheEntries && cache.find(key) == cache.end()) cache.erase(cache.begin());
     cache[key] = loaded;
@@ -290,7 +252,8 @@ HmePreviewResult create_hme_preview(const fs::path& run_dir, const nlohmann::jso
             return result;
         }
 
-        Proxy proxy = get_proxy(run_dir);
+        auto proxy_ptr = get_proxy(run_dir);
+        const Proxy& proxy = *proxy_ptr;
         Matrix2Df r = proxy.r, g = proxy.g, b = proxy.b;
         if (r.rows() != g.rows() || r.rows() != b.rows() || r.cols() != g.cols() || r.cols() != b.cols()) {
             throw std::runtime_error("Proxy RGB dimensions mismatch: R=" + std::to_string(r.rows()) + "x" + std::to_string(r.cols()) +

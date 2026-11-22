@@ -5,8 +5,9 @@
 // Production (FORWARD_DRIZZLE backend "cuda_v2") drives
 // ForwardDrizzleV2CudaPrototypeKernel through ForwardDrizzleV2CudaKernel
 // (forward_drizzle_v2_cpu.hpp). SAMPLING_GEOMETRY uses the geometry-only
-// coverage gather. The remaining free functions are device parity harnesses
-// for code the production kernels share (polygon clip, local-warp scatter).
+// coverage gather. forward_drizzle_cuda_local_dense_scatter is a device parity
+// harness for the production local-warp scatter kernel (the polygon-clip
+// harness is test-only: tests/support/forward_drizzle_cuda_harness.hpp).
 // Every entry point returns false (or throws ForwardDrizzleCudaError) on a
 // CUDA-free build, no usable device, or a CUDA error; the caller restarts on
 // the CPU reference path.
@@ -41,22 +42,6 @@ struct CudaDeviceMemory {
   std::size_t total_bytes = 0;
 };
 CudaDeviceMemory forward_drizzle_cuda_device_memory();
-
-// --- Plan 19.2 stage 3/5 kernel building block ----------------------------
-
-// The exact square-droplet vs. output-cell overlap area (Sutherland-Hodgman
-// convex clip + shoelace), evaluated ON THE DEVICE for a batch of
-// (convex quad, axis-aligned rectangle) pairs. Ported 1:1 from the CPU
-// polygon_rectangle_intersection_area(); parity harness for the clip every
-// production scatter kernel shares.
-//   quad_xy  : n*8 doubles  --- x0,y0, x1,y1, x2,y2, x3,y3  per quad
-//   rect     : n*4 doubles  --- rx0,ry0, rx1,ry1            per cell
-//   out_area : n doubles    --- caller-allocated
-// Returns false (out_area untouched) on a CUDA-free build, no usable device,
-// or any CUDA error; true on success.
-bool forward_drizzle_cuda_polygon_rect_area_batch(const double *quad_xy,
-                                                  const double *rect, int n,
-                                                  double *out_area);
 
 // --- SAMPLING_GEOMETRY coverage ---------------------------------------------
 

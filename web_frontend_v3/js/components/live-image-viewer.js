@@ -62,7 +62,7 @@ function signedOperationLabel(type, params) {
     : ["liveImage.operation.temperatureWarm", "Warm colors"];
 }
 
-export function liveImageOperationLabel(operation, translate = t) {
+function liveImageOperationLabel(operation, translate = t) {
   const type = String(operation?.type || "").trim();
   if (!type) return translate("liveImage.operationUnknown", "the last operation");
   const params = operation?.params && typeof operation.params === "object"
@@ -251,6 +251,8 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     imgEl.style.cursor = "grabbing";
   });
 
+  // Window-level drag listeners live as long as the viewer; doClose() aborts them.
+  const windowListeners = new AbortController();
   window.addEventListener("mousemove", (e) => {
     if (!state.isDragging) return;
     if (Math.abs(e.clientX - state.dragStartX - state.panX) > 3 ||
@@ -258,14 +260,14 @@ export function createLiveImageViewer(runId, runDir, onClose) {
     state.panX = e.clientX - state.dragStartX;
     state.panY = e.clientY - state.dragStartY;
     applyTransform();
-  });
+  }, { signal: windowListeners.signal });
 
   window.addEventListener("mouseup", () => {
     if (state.isDragging) {
       state.isDragging = false;
       imgEl.style.cursor = "grab";
     }
-  });
+  }, { signal: windowListeners.signal });
 
   function applyTransform() {
     imgEl.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
@@ -1525,6 +1527,8 @@ export function createLiveImageViewer(runId, runDir, onClose) {
         // ignore close errors
       }
     }
+    windowListeners.abort();
+    if (cropOverlayEl && cropOverlayEl._cleanup) cropOverlayEl._cleanup();
     overlay.remove();
     if (typeof onClose === "function") onClose();
   }

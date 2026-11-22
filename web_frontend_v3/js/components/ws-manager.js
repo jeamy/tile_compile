@@ -11,21 +11,26 @@ let currentRunDir = "";
 let wsGeneration = 0;
 
 export function connectWebSocket(runId, force = false, runDir = "") {
-  if (ws && currentRunId === runId && currentRunDir === String(runDir || "") && !force) return;
-  if (force) disconnectWebSocket();
+  const sameTarget = currentRunId === runId && currentRunDir === String(runDir || "");
+  const live = ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN);
+  if (live && sameTarget && !force) return;
+  // A different run, a forced reconnect or a dead socket: drop the old one
+  // (and any pending reconnect) before opening the next.
+  disconnectWebSocket();
   currentRunId = runId;
   currentRunDir = String(runDir || "");
   const generation = ++wsGeneration;
 
-  const url = api._toWsUrl(API_ENDPOINTS.ws.run(runId, currentRunDir));
-  ws = new WebSocket(url);
+  const url = api.wsUrl(API_ENDPOINTS.ws.run(runId, currentRunDir));
+  const socket = new WebSocket(url);
+  ws = socket;
 
-  ws.onopen = () => {
+  socket.onopen = () => {
     if (generation !== wsGeneration) return;
     notify({ type: "ws:open" });
   };
 
-  ws.onmessage = (event) => {
+  socket.onmessage = (event) => {
     if (generation !== wsGeneration) return;
     try {
       const data = JSON.parse(event.data);
@@ -35,16 +40,23 @@ export function connectWebSocket(runId, force = false, runDir = "") {
     }
   };
 
-  ws.onerror = (err) => {
+  socket.onerror = (err) => {
     if (generation !== wsGeneration) return;
     notify({ type: "ws:error", error: err });
   };
 
-  ws.onclose = () => {
+  socket.onclose = () => {
     if (generation !== wsGeneration) return;
+    if (ws === socket) ws = null;
     notify({ type: "ws:close" });
     if (currentRunId) {
-      reconnectTimer = setTimeout(() => connectWebSocket(currentRunId, false, currentRunDir), 3000);
+      const runIdAtClose = currentRunId;
+      const runDirAtClose = currentRunDir;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (generation !== wsGeneration) return;
+        connectWebSocket(runIdAtClose, false, runDirAtClose);
+      }, 3000);
     }
   };
 }

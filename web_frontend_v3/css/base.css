@@ -1,64 +1,100 @@
-/* css/base.css – Reset, Body, Layout-Grundlagen */
+/* css/base.css – Reset, Body, Layout-Grundlagen, Barrierefreiheit */
 
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 
-html {
-  font-size: var(--text-base);
-  font-family: var(--font-ui);
-  color: var(--foreground);
-  background: var(--bg-page);
-}
+  html {
+    font-size: var(--text-base);
+    font-family: var(--font-ui);
+    color: var(--foreground);
+    background: var(--bg-page);
+    overflow-x: clip;
+  }
 
-body {
-  min-height: 100vh;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+  body {
+    min-height: 100vh;
+    line-height: 1.5;
+    overflow-x: clip;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 
-#app-root {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
+  html[data-theme="dark"] body {
+    background:
+      radial-gradient(900px 420px at 18% -10%, rgba(45, 212, 191, 0.08), transparent 65%),
+      radial-gradient(700px 360px at 88% -8%, rgba(96, 165, 250, 0.07), transparent 65%),
+      var(--bg-page);
+  }
 
-a {
-  color: var(--primary);
-  text-decoration: none;
-}
+  #app-root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
 
-a:hover {
-  text-decoration: underline;
-}
+  a {
+    color: var(--primary);
+    text-decoration: none;
+  }
 
-code, pre, .tc-mono {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-}
+  a:hover {
+    text-decoration: underline;
+  }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
+  code, pre, .tc-mono, table {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
 
-::-webkit-scrollbar-track {
-  background: var(--bg-page);
-}
+  code, pre, .tc-mono {
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+  }
 
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
-}
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  summary:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--muted);
-}
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
 
-.tc-scroll {
-  overflow-y: auto;
-  scrollbar-width: thin;
+  ::-webkit-scrollbar-track {
+    background: var(--bg-page);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted);
+  }
+
+  .tc-scroll {
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }

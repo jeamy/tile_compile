@@ -1,4 +1,5 @@
 #include "backend_runtime.hpp"
+#include <optional>
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
@@ -401,7 +402,11 @@ BackendRuntime BackendRuntime::from_env() {
 
     // Load persisted granted roots from file
     {
-        fs::path roots_file = rt.project_root / ".allowed_roots";
+        const std::string roots_file_env = env_string("TILE_COMPILE_ALLOWED_ROOTS_FILE", "");
+        rt.allowed_roots_file = !roots_file_env.empty() ? fs::path(roots_file_env)
+                              : rt.project_root.empty() ? fs::path()
+                              : rt.project_root / ".allowed_roots";
+        const fs::path& roots_file = rt.allowed_roots_file;
         std::error_code ec;
         if (fs::exists(roots_file, ec)) {
             std::ifstream in(roots_file);
@@ -436,9 +441,9 @@ fs::path BackendRuntime::normalize_path(const fs::path& p) {
 /// @brief Checks whether within root.
 /// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
-bool BackendRuntime::is_within_root(const fs::path& candidate, const fs::path& root) {
-    const fs::path normalized_candidate = normalize_path(candidate);
-    const fs::path normalized_root = normalize_path(root);
+namespace {
+// Component-wise containment of two already normalized paths.
+bool normalized_within(const fs::path& normalized_candidate, const fs::path& normalized_root) {
     if (normalized_candidate.empty() || normalized_root.empty()) return false;
     if (normalized_candidate == normalized_root) return true;
 
@@ -448,6 +453,11 @@ bool BackendRuntime::is_within_root(const fs::path& candidate, const fs::path& r
         if (*root_it != *candidate_it) return false;
     }
     return root_it == normalized_root.end();
+}
+}  // namespace
+
+bool BackendRuntime::is_within_root(const fs::path& candidate, const fs::path& root) {
+    return normalized_within(normalize_path(candidate), normalize_path(root));
 }
 
 /// @brief Resolves run dir.
@@ -467,42 +477,57 @@ fs::path BackendRuntime::resolve_run_dir(const std::string& run_id, const std::s
     std::error_code alias_ec;
     if (alt_runs_dir.empty() && !alias.empty() && fs::is_directory(alias, alias_ec) &&
         !alias_ec && is_path_allowed(alias)) return alias;
-    // If run_id is already an absolute path to an existing directory, return it directly.
-    // This handles custom runs_dir / network drives where the frontend passes the full path.
-    {
-        fs::path as_path(run_id);
-        if (as_path.is_absolute()) {
-            std::error_code ec;
-            if (fs::is_directory(as_path, ec) && !ec) return as_path;
-        }
-    }
-    // Try alt_runs_dir first if provided (e.g. from job data for custom runs_dir)
-    if (!alt_runs_dir.empty()) {
-        fs::path alt_candidate = fs::path(alt_runs_dir) / run_id;
-        if (fs::is_directory(alt_candidate)) return alt_candidate;
+    // An absolute run_id names the run directory itself (custom runs_dir,
+    // network drives); it must lie inside an allowed root like any other path.
+    const fs::path id_path(run_id);
+    if (id_path.is_absolute()) {
         std::error_code ec;
-        if (fs::is_directory(alt_runs_dir, ec)) {
-            for (auto& entry : fs::directory_iterator(alt_runs_dir, ec)) {
-                if (ec) break;
-                if (!entry.is_directory()) continue;
-                std::string name = entry.path().filename().string();
-                if (name == run_id || name.find(run_id) == 0)
-                    return entry.path();
-            }
+        if (fs::is_directory(id_path, ec) && !ec && is_path_allowed(id_path)) return id_path;
+        throw std::runtime_error("run_dir not found for run_id: " + run_id);
+    }
+    // A relative run_id is a path below a runs directory: one name, or
+    // "<queue root>/<sub run>" for queue runs. No component may be empty,
+    // "." or "..", so the result always stays inside that runs directory.
+    bool nested = false;
+    {
+        size_t start = 0;
+        while (true) {
+            const size_t end = run_id.find_first_of("/\\", start);
+            const std::string part = run_id.substr(start, end == std::string::npos ? std::string::npos : end - start);
+            if (part.empty() || part == "." || part == "..")
+                throw std::invalid_argument("run_id is not a run path: " + run_id);
+            if (end == std::string::npos) break;
+            nested = true;
+            start = end + 1;
         }
     }
-    fs::path candidate = runs_dir / run_id;
-    if (fs::is_directory(candidate)) return candidate;
-    std::error_code ec2;
-    if (fs::is_directory(runs_dir, ec2)) {
-        for (auto& entry : fs::directory_iterator(runs_dir, ec2)) {
-            if (ec2) break;
-            if (!entry.is_directory()) continue;
-            std::string name = entry.path().filename().string();
-            if (name == run_id || name.find(run_id) == 0)
-                return entry.path();
+
+    // Exact path first, then (for a single name) a prefix that matches exactly
+    // one run directory; an ambiguous prefix would pick whichever entry the
+    // listing returns first.
+    auto lookup = [&](const fs::path& root) -> std::optional<fs::path> {
+        std::error_code ec;
+        const fs::path exact = root / run_id;
+        if (fs::is_directory(exact, ec) && !ec) return exact;
+        if (nested) return std::nullopt;
+        if (!fs::is_directory(root, ec) || ec) return std::nullopt;
+        std::vector<fs::path> matches;
+        for (auto& entry : fs::directory_iterator(root, ec)) {
+            if (ec) break;
+            std::error_code entry_ec;
+            if (!entry.is_directory(entry_ec) || entry_ec) continue;
+            if (entry.path().filename().string().rfind(run_id, 0) == 0) matches.push_back(entry.path());
         }
+        if (matches.size() == 1) return matches.front();
+        if (matches.size() > 1)
+            throw std::runtime_error("run_id prefix is ambiguous: " + run_id);
+        return std::nullopt;
+    };
+    // alt_runs_dir comes from the request or job data: only inside an allowed root.
+    if (!alt_runs_dir.empty() && is_path_allowed(fs::path(alt_runs_dir))) {
+        if (auto found = lookup(fs::path(alt_runs_dir))) return *found;
     }
+    if (auto found = lookup(runs_dir)) return *found;
     throw std::runtime_error("run_dir not found for run_id: " + run_id);
 }
 
@@ -557,9 +582,16 @@ PathResolution BackendRuntime::resolve_input_path(const fs::path& p, bool must_e
 /// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 bool BackendRuntime::is_path_allowed(const fs::path& p) const {
-    std::lock_guard<std::mutex> lk(*_roots_mutex);
-    for (auto& root : _allowed_roots) {
-        if (is_within_root(p, fs::path(root))) return true;
+    // weakly_canonical touches the filesystem (slow on network drives): copy
+    // the roots under the lock, resolve outside it, the candidate only once.
+    std::vector<std::string> roots;
+    {
+        std::lock_guard<std::mutex> lk(*_roots_mutex);
+        roots.assign(_allowed_roots.begin(), _allowed_roots.end());
+    }
+    const fs::path candidate = normalize_path(p);
+    for (const auto& root : roots) {
+        if (normalized_within(candidate, normalize_path(fs::path(root)))) return true;
     }
     return false;
 }
@@ -575,14 +607,6 @@ std::vector<fs::path> BackendRuntime::allowed_roots() const {
     return roots;
 }
 
-/// @brief Implements input search roots.
-/// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::vector<fs::path> BackendRuntime::input_search_roots() const {
-    std::lock_guard<std::mutex> lk(*_roots_mutex);
-    return _input_search_roots;
-}
-
 /// @brief Implements grant root.
 /// @details This implementation resolves backend runtime paths, environment overrides, and filesystem safety roots; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -591,9 +615,8 @@ void BackendRuntime::grant_root(const fs::path& p) {
     _allowed_roots.insert(normalize_path(p).string());
 
     // Persist to file so granted roots survive backend restarts
-    if (!project_root.empty()) {
-        fs::path roots_file = project_root / ".allowed_roots";
-        std::ofstream out(roots_file, std::ios::app);
+    if (!allowed_roots_file.empty()) {
+        std::ofstream out(allowed_roots_file, std::ios::app);
         if (out) {
             out << normalize_path(p).string() << "\n";
         }

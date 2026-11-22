@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <future>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -154,11 +155,11 @@ fs::path user_home_dir() {
     return home.empty() ? fs::current_path() : fs::path(home);
 }
 
-/// @brief Implements gui2 install root.
-/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-fs::path gui2_install_root() {
-    const std::string raw = getenv_or("TILE_COMPILE_GUI2_INSTALL_ROOT");
+/// @brief Optional install root for downloaded tools (TILE_COMPILE_INSTALL_ROOT;
+/// the old name TILE_COMPILE_GUI2_INSTALL_ROOT is still read as a fallback).
+fs::path tools_install_root() {
+    std::string raw = getenv_or("TILE_COMPILE_INSTALL_ROOT");
+    if (raw.empty()) raw = getenv_or("TILE_COMPILE_GUI2_INSTALL_ROOT");
     if (raw.empty()) return {};
     return fs::path(raw);
 }
@@ -186,7 +187,7 @@ std::string astap_cli_download_url() {
 fs::path default_astap_data_dir() {
     const std::string env_dir = getenv_or("TILE_COMPILE_ASTAP_DATA_DIR");
     if (!env_dir.empty()) return fs::path(env_dir);
-    if (const fs::path install_root = gui2_install_root(); !install_root.empty()) {
+    if (const fs::path install_root = tools_install_root(); !install_root.empty()) {
         return install_root / "astap";
     }
 #ifdef _WIN32
@@ -203,7 +204,7 @@ fs::path default_astap_data_dir() {
 fs::path default_siril_catalog_dir() {
     const std::string env_dir = getenv_or("TILE_COMPILE_SIRIL_CATALOG_DIR");
     if (!env_dir.empty()) return fs::path(env_dir);
-    if (const fs::path install_root = gui2_install_root(); !install_root.empty()) {
+    if (const fs::path install_root = tools_install_root(); !install_root.empty()) {
         // Configured install root wins even before the catalog is downloaded —
         // the status endpoint reports the suggestion, not only existing dirs.
         return install_root / "pcc" / "siril_cat1_healpix8_xpsamp";
@@ -654,6 +655,29 @@ bool extract_exe_archive(const fs::path& archive, const fs::path& dest, std::str
 #endif
 }
 
+/// Unpacks an installer archive into `tmp`, copies the catalog's files
+/// (named "<catalog_id>_*") from anywhere in it into data_dir and removes
+/// `tmp` again. Throws on an extraction error.
+void extract_catalog_files(bool (*extract)(const fs::path&, const fs::path&, std::string&),
+                           const fs::path& archive, const fs::path& tmp, const fs::path& data_dir,
+                           const std::string& catalog_id) {
+    fs::create_directories(tmp);
+    std::string error;
+    if (!extract(archive, tmp, error)) {
+        std::error_code ec;
+        fs::remove_all(tmp, ec);
+        throw std::runtime_error(error);
+    }
+    for (const auto& entry : fs::recursive_directory_iterator(tmp)) {
+        if (!entry.is_regular_file()) continue;
+        if (entry.path().filename().string().rfind(catalog_id + "_", 0) == 0) {
+            fs::copy_file(entry.path(), data_dir / entry.path().filename(), fs::copy_options::overwrite_existing);
+        }
+    }
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+}
+
 /// @brief Decompresses bz2 archive.
 /// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -691,15 +715,6 @@ bool decompress_bz2_archive(const fs::path& archive, std::string& error) {
 /// access, process handling, and error reporting localized to this backend component.
 size_t curl_discard_write(char* ptr, size_t size, size_t nmemb, void*) {
     return size * nmemb;
-}
-
-/// @brief Implements payload text.
-/// @details This implementation serves tool discovery, install, catalog download, and astrometry helpers; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::string payload_text(const nlohmann::json& payload, const std::string& key, const std::string& fallback = "") {
-    if (!payload.is_object() || !payload.contains(key) || payload[key].is_null()) return fallback;
-    if (payload[key].is_string()) return payload[key].get<std::string>();
-    return payload[key].dump();
 }
 
 /// @brief Implements payload float.
@@ -1045,44 +1060,11 @@ void register_tools_routes(CrowApp& app,
                 if (archive.extension() == ".zip") {
                     if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
                 } else if (archive.extension() == ".deb") {
-                    fs::path tmp = data_dir / "_deb_extract";
-                    fs::create_directories(tmp);
-                    if (!extract_deb_archive(archive, tmp, error)) throw std::runtime_error(error);
-                    for (const auto& entry : fs::recursive_directory_iterator(tmp)) {
-                        if (!entry.is_regular_file()) continue;
-                        const auto name = entry.path().filename().string();
-                        if (name.rfind(catalog_id + "_", 0) == 0) {
-                            fs::copy_file(entry.path(), data_dir / entry.path().filename(), fs::copy_options::overwrite_existing);
-                        }
-                    }
-                    std::error_code ec;
-                    fs::remove_all(tmp, ec);
+                    extract_catalog_files(extract_deb_archive, archive, data_dir / "_deb_extract", data_dir, catalog_id);
                 } else if (archive.extension() == ".pkg") {
-                    fs::path tmp = data_dir / "_pkg_extract";
-                    fs::create_directories(tmp);
-                    if (!extract_pkg_archive(archive, tmp, error)) throw std::runtime_error(error);
-                    for (const auto& entry : fs::recursive_directory_iterator(tmp)) {
-                        if (!entry.is_regular_file()) continue;
-                        const auto name = entry.path().filename().string();
-                        if (name.rfind(catalog_id + "_", 0) == 0) {
-                            fs::copy_file(entry.path(), data_dir / entry.path().filename(), fs::copy_options::overwrite_existing);
-                        }
-                    }
-                    std::error_code ec;
-                    fs::remove_all(tmp, ec);
+                    extract_catalog_files(extract_pkg_archive, archive, data_dir / "_pkg_extract", data_dir, catalog_id);
                 } else if (archive.extension() == ".exe") {
-                    fs::path tmp = data_dir / "_exe_extract";
-                    fs::create_directories(tmp);
-                    if (!extract_exe_archive(archive, tmp, error)) throw std::runtime_error(error);
-                    for (const auto& entry : fs::recursive_directory_iterator(tmp)) {
-                        if (!entry.is_regular_file()) continue;
-                        const auto name = entry.path().filename().string();
-                        if (name.rfind(catalog_id + "_", 0) == 0) {
-                            fs::copy_file(entry.path(), data_dir / entry.path().filename(), fs::copy_options::overwrite_existing);
-                        }
-                    }
-                    std::error_code ec;
-                    fs::remove_all(tmp, ec);
+                    extract_catalog_files(extract_exe_archive, archive, data_dir / "_exe_extract", data_dir, catalog_id);
                 } else {
                     throw std::runtime_error("unsupported archive format");
                 }
@@ -1499,30 +1481,38 @@ void register_tools_routes(CrowApp& app,
             {"VizieR Gaia DR3",  "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?-source=I/355/gaiadr3&-c=0%200&-c.rd=0.01&-out=RA_ICRS,DE_ICRS,Gmag&-out.max=1"},
             {"VizieR APASS",     "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?-source=II/336/apass9&-c=0%200&-c.rd=0.01&-out=RA,Dec,Vmag&-out.max=1"},
         };
+        std::vector<std::future<nlohmann::json>> futures;
+        futures.reserve(std::size(sources));
+        for (const auto& src : sources) {
+            futures.push_back(std::async(std::launch::async, [src]() -> nlohmann::json {
+                CURL* curl = curl_easy_init();
+                if (!curl) {
+                    return {{"name", src.name}, {"ok", false}, {"error", "curl init failed"}};
+                }
+                const auto t0 = std::chrono::steady_clock::now();
+                curl_easy_setopt(curl, CURLOPT_URL, src.url);
+                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_discard_write);
+                curl_easy_setopt(curl, CURLOPT_TIMEOUT, 8L);
+                curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+                curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+                CURLcode rc = curl_easy_perform(curl);
+                long latency_ms = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count());
+                curl_easy_cleanup(curl);
+                bool ok = (rc == CURLE_OK);
+                return {
+                    {"name", src.name},
+                    {"ok", ok},
+                    {"latency_ms", latency_ms},
+                    {"error", ok ? "" : curl_easy_strerror(rc)},
+                };
+            }));
+        }
         nlohmann::json sources_arr = nlohmann::json::array();
         bool any_ok = false;
-        for (const auto& src : sources) {
-            CURL* curl = curl_easy_init();
-            if (!curl) {
-                sources_arr.push_back({{"name", src.name}, {"ok", false}, {"error", "curl init failed"}});
-                continue;
-            }
-            const auto t0 = std::chrono::steady_clock::now();
-            curl_easy_setopt(curl, CURLOPT_URL, src.url);
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_discard_write);
-            curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-            curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-            CURLcode rc = curl_easy_perform(curl);
-            long latency_ms = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count());
-            curl_easy_cleanup(curl);
-            bool ok = (rc == CURLE_OK);
-            if (ok) any_ok = true;
-            sources_arr.push_back({
-                {"name", src.name},
-                {"ok", ok},
-                {"latency_ms", latency_ms},
-                {"error", ok ? "" : curl_easy_strerror(rc)},
-            });
+        for (auto& fut : futures) {
+            auto entry = fut.get();
+            if (entry.value("ok", false)) any_ok = true;
+            sources_arr.push_back(std::move(entry));
         }
         nlohmann::json response = {
             {"ok", any_ok},

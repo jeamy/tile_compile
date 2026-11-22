@@ -334,6 +334,12 @@ int main(int argc, char** argv) {
                     "English candidate card title gone from German report");
         expect_true(de_visible.find(">Resources and throughput<") == std::string::npos,
                     "English resources card title gone from German report");
+        expect_true(de.find("180Grad") == std::string::npos,
+                    "CSS linear-gradient angle not corrupted by German translation");
+        expect_true(de.find("kpi-ribbon") != std::string::npos,
+                    "Executive KPI ribbon rendered");
+        expect_true(de.find("class=\"toc\"") != std::string::npos,
+                    "Section TOC rendered");
 
         harness.stop();
         return 0;

@@ -1,4 +1,5 @@
 #include "services/pi/pi_context_v2.hpp"
+#include "run_event_file.hpp"
 
 #include <fstream>
 #include <optional>
@@ -88,7 +89,7 @@ nlohmann::json build_run_completed_pi_context(const SchemaPathMap& schema_paths,
         if (run_status.contains("status")) add_fact(facts, "run.status", run_status["status"], "run_status.status");
     }
 
-    std::ifstream events(run_dir / "logs" / "run_events.jsonl");
+    std::ifstream events(find_run_event_file(run_dir).value_or(run_dir / "logs" / "run_events.jsonl"));
     std::string line;
     while (std::getline(events, line)) {
         auto parsed = nlohmann::json::parse(line, nullptr, false);

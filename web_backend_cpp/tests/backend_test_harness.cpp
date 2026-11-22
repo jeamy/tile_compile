@@ -1,5 +1,7 @@
 #include "backend_test_harness.hpp"
 
+#include <algorithm>
+
 #include <curl/curl.h>
 #include <cmath>
 #include <csignal>
@@ -60,7 +62,8 @@ int reserve_port() {
 
 HttpResponse http_request(const std::string& method,
                           const std::string& url,
-                          const std::optional<std::string>& body = std::nullopt) {
+                          const std::optional<std::string>& body = std::nullopt,
+                          const std::vector<std::string>& extra_headers = {}) {
     CURL* curl = curl_easy_init();
     if (!curl) throw TestFailure("curl_easy_init failed");
 
@@ -69,14 +72,21 @@ HttpResponse http_request(const std::string& method,
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    // Send dot segments as written, so traversal tests reach the server.
+    curl_easy_setopt(curl, CURLOPT_PATH_AS_IS, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
 
     struct curl_slist* headers = nullptr;
+    const bool custom_content_type = std::any_of(extra_headers.begin(), extra_headers.end(),
+        [](const std::string& h) { return h.rfind("Content-Type:", 0) == 0; });
+    for (const auto& header : extra_headers) headers = curl_slist_append(headers, header.c_str());
+    if (headers) curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     if (method == "POST") {
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
         if (body.has_value()) {
             curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body->c_str());
-            headers = curl_slist_append(headers, "Content-Type: application/json");
+            if (!custom_content_type)
+                headers = curl_slist_append(headers, "Content-Type: application/json");
             curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         }
     } else if (method == "PATCH") {
@@ -168,6 +178,9 @@ void BackendHarness::start() {
         setenv("TILE_COMPILE_PORT", std::to_string(_port).c_str(), 1);
         setenv("TILE_COMPILE_ALLOWED_ROOTS", (_fixture_root.string() + ":" + _repo_root.string()).c_str(), 1);
         setenv("TILE_COMPILE_INPUT_SEARCH_ROOTS", _fixture_root.c_str(), 1);
+        // Not the checkout's .allowed_roots: its grants (possibly "/") would
+        // widen every path check, and grant-root calls would append to it.
+        setenv("TILE_COMPILE_ALLOWED_ROOTS_FILE", (_runtime_dir / "allowed_roots").c_str(), 1);
         for (const auto& [k, v] : _env_overrides) {
             setenv(k.c_str(), v.c_str(), 1);
         }
@@ -224,6 +237,16 @@ HttpResponse BackendHarness::get(const std::string& path) const {
 
 HttpResponse BackendHarness::post(const std::string& path, const nlohmann::json& payload) const {
     return http_request("POST", base_url() + path, payload.dump());
+}
+
+HttpResponse BackendHarness::post_raw(const std::string& path, const std::string& body,
+                                      const std::vector<std::string>& headers) const {
+    return http_request("POST", base_url() + path, body, headers);
+}
+
+HttpResponse BackendHarness::get_with_headers(const std::string& path,
+                                              const std::vector<std::string>& headers) const {
+    return http_request("GET", base_url() + path, std::nullopt, headers);
 }
 
 nlohmann::json BackendHarness::get_json(const std::string& path) const {

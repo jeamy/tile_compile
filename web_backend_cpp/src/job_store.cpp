@@ -83,6 +83,13 @@ bool InMemoryJobStore::update_state(const std::string& job_id, JobState state,
     std::lock_guard<std::mutex> lk(_mutex);
     auto it = _jobs.find(job_id);
     if (it == _jobs.end()) return false;
+    const auto terminal = [](JobState s) {
+        return s == JobState::ok || s == JobState::error || s == JobState::cancelled;
+    };
+    // A job that has ended stays ended: a worker reporting "running" after a
+    // cancel (or after a fast subprocess already finished) only updates the
+    // payload, it does not revive the job.
+    if (terminal(it->second.state) && !terminal(state)) state = it->second.state;
     if (state == JobState::running && it->second.started_at.empty()) {
         it->second.started_at = utc_now_iso();
     }
@@ -170,6 +177,7 @@ bool InMemoryJobStore::cancel(const std::string& job_id) {
 std::vector<Job> InMemoryJobStore::list(int limit) const {
     std::lock_guard<std::mutex> lk(_mutex);
     std::vector<Job> result;
+    if (limit <= 0) return result;
     result.reserve(std::min(static_cast<size_t>(limit), _order.size()));
     int start = (int)_order.size() - limit;
     if (start < 0) start = 0;

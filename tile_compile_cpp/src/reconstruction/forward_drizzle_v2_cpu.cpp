@@ -2119,116 +2119,147 @@ bool ForwardDrizzleV2CpuKernel::end_pilot() {
     CpuClipBounds bd;
     bool ok = false;
   };
-  std::vector<Ch> chs(static_cast<std::size_t>(nch));
-  std::vector<unsigned int> kept_order;
-  std::unordered_map<std::uint64_t, std::pair<int, int>> votes;
-  for (std::size_t px = 0; px < np; ++px) {
-    for (int ch = 0; ch < nch; ++ch) {
-      Ch &c = chs[static_cast<std::size_t>(ch)];
-      c.cands.clear();
-      c.slot.clear();
-      c.ok = false;
-      const std::size_t tid = static_cast<std::size_t>(ch) * np + px;
-      const unsigned int n_kept = im.kept[tid];
-      // Same eligibility as the reservoir finalizer's clip stage (the
-      // all-frame contributor guard is evaluated at finalize).
-      if (!(im.accB[tid] > 0.0) || n_kept > slots ||
-          n_kept < static_cast<unsigned int>(im.cfg.min_clip_contributors)) {
-        if (im.contrib[tid] > 0) ++stats_.full_frame_no_bounds;
-        continue;
-      }
-      kept_order.clear();
-      for (unsigned int i = 0; i < n_kept; ++i) kept_order.push_back(i);
-      std::sort(kept_order.begin(), kept_order.end(),
-                [&](unsigned int i, unsigned int j) {
-                  const auto &ri = im.res[tid * slots + i];
-                  const auto &rj = im.res[tid * slots + j];
-                  if (ri.x != rj.x) return ri.x < rj.x;
-                  return ri.order < rj.order;
-                });
-      for (unsigned int pos = 0; pos < n_kept; ++pos) {
-        const auto &rc = im.res[tid * slots + kept_order[pos]];
-        ForwardDrizzleV2RobustCandidate cand;
-        cand.frame_order = static_cast<std::size_t>(rc.order);
-        cand.x = rc.x;
-        cand.b = rc.b;
-        c.cands.push_back(cand);
-        c.slot.push_back(kept_order[pos]);
-      }
-      c.accepted.assign(n_kept, std::uint8_t{1});
-      c.bd = cpu_sigma_clip_passes(c.cands, c.accepted, im.cfg.robust_passes,
-                                   im.cfg.sigma_low, im.cfg.sigma_high,
-                                   im.cfg.bimodal_veto,
-                                   im.cfg.bimodal_veto_gap_sigma);
-      if (c.bd.bimodal_rejected > 0) {
-        stats_.bimodal_veto_rejected_candidates += c.bd.bimodal_rejected;
-        ++stats_.bimodal_veto_pixels;
-        // The frozen bounds above were captured before the veto ran: without
-        // refreshing them, the full-frame pilot's frozen bounds would still
-        // admit the just-removed population's non-pilot frames later. One
-        // more (veto-off) pass recomputes median/MAD/bounds from the now-
-        // reduced accepted set; it will not reduce further (already
-        // unimodal) so this only refreshes c.bd.lower/upper/mad.
-        const auto refreshed = cpu_sigma_clip_passes(
-            c.cands, c.accepted, /*robust_passes=*/1, im.cfg.sigma_low,
-            im.cfg.sigma_high);
-        c.bd.lower = refreshed.lower;
-        c.bd.upper = refreshed.upper;
-        c.bd.mad = refreshed.mad;
-        c.bd.evaluated = refreshed.evaluated;
-      }
-      c.ok = true;
-    }
-    if (im.cfg.shared_frame_rejection && nch > 1) {
-      votes.clear();
+  struct VoteEntry {
+    std::uint64_t frame_order = 0;
+    int rejected = 0;
+    int total = 0;
+  };
+  std::uint64_t acc_no_bounds = 0;
+  std::uint64_t acc_bimodal_rejected = 0;
+  std::uint64_t acc_bimodal_pixels = 0;
+  std::uint64_t acc_degenerate_pilot = 0;
+#ifdef _OPENMP
+#pragma omp parallel reduction(+ : acc_no_bounds, acc_bimodal_rejected, \
+                                   acc_bimodal_pixels, acc_degenerate_pilot)
+#endif
+  {
+    std::vector<Ch> chs(static_cast<std::size_t>(nch));
+    std::vector<unsigned int> kept_order;
+    std::vector<VoteEntry> votes;
+    kept_order.reserve(slots);
+    votes.reserve(static_cast<std::size_t>(slots) *
+                  static_cast<std::size_t>(nch));
+#ifdef _OPENMP
+#pragma omp for schedule(static)
+#endif
+    for (std::size_t px = 0; px < np; ++px) {
       for (int ch = 0; ch < nch; ++ch) {
         Ch &c = chs[static_cast<std::size_t>(ch)];
-        if (!c.ok) continue;
-        for (std::size_t i = 0; i < c.cands.size(); ++i) {
-          auto &vote = votes[c.cands[i].frame_order];
-          ++vote.second;
-          if (!c.accepted[i]) ++vote.first;
+        c.cands.clear();
+        c.slot.clear();
+        c.ok = false;
+        const std::size_t tid = static_cast<std::size_t>(ch) * np + px;
+        const unsigned int n_kept = im.kept[tid];
+        // Same eligibility as the reservoir finalizer's clip stage (the
+        // all-frame contributor guard is evaluated at finalize).
+        if (!(im.accB[tid] > 0.0) || n_kept > slots ||
+            n_kept < static_cast<unsigned int>(im.cfg.min_clip_contributors)) {
+          if (im.contrib[tid] > 0) ++acc_no_bounds;
+          continue;
+        }
+        kept_order.clear();
+        for (unsigned int i = 0; i < n_kept; ++i) kept_order.push_back(i);
+        std::sort(kept_order.begin(), kept_order.end(),
+                  [&](unsigned int i, unsigned int j) {
+                    const auto &ri = im.res[tid * slots + i];
+                    const auto &rj = im.res[tid * slots + j];
+                    if (ri.x != rj.x) return ri.x < rj.x;
+                    return ri.order < rj.order;
+                  });
+        for (unsigned int pos = 0; pos < n_kept; ++pos) {
+          const auto &rc = im.res[tid * slots + kept_order[pos]];
+          ForwardDrizzleV2RobustCandidate cand;
+          cand.frame_order = static_cast<std::size_t>(rc.order);
+          cand.x = rc.x;
+          cand.b = rc.b;
+          c.cands.push_back(cand);
+          c.slot.push_back(kept_order[pos]);
+        }
+        c.accepted.assign(n_kept, std::uint8_t{1});
+        c.bd = cpu_sigma_clip_passes(c.cands, c.accepted, im.cfg.robust_passes,
+                                     im.cfg.sigma_low, im.cfg.sigma_high,
+                                     im.cfg.bimodal_veto,
+                                     im.cfg.bimodal_veto_gap_sigma);
+        if (c.bd.bimodal_rejected > 0) {
+          acc_bimodal_rejected += c.bd.bimodal_rejected;
+          ++acc_bimodal_pixels;
+          const auto refreshed = cpu_sigma_clip_passes(
+              c.cands, c.accepted, /*robust_passes=*/1, im.cfg.sigma_low,
+              im.cfg.sigma_high);
+          c.bd.lower = refreshed.lower;
+          c.bd.upper = refreshed.upper;
+          c.bd.mad = refreshed.mad;
+          c.bd.evaluated = refreshed.evaluated;
+        }
+        c.ok = true;
+      }
+      if (im.cfg.shared_frame_rejection && nch > 1) {
+        votes.clear();
+        for (int ch = 0; ch < nch; ++ch) {
+          Ch &c = chs[static_cast<std::size_t>(ch)];
+          if (!c.ok) continue;
+          for (std::size_t i = 0; i < c.cands.size(); ++i) {
+            const std::uint64_t fo = c.cands[i].frame_order;
+            VoteEntry *found = nullptr;
+            for (auto &v : votes) {
+              if (v.frame_order == fo) { found = &v; break; }
+            }
+            if (!found) {
+              votes.push_back(VoteEntry{fo, 0, 0});
+              found = &votes.back();
+            }
+            ++found->total;
+            if (!c.accepted[i]) ++found->rejected;
+          }
+        }
+        for (int ch = 0; ch < nch; ++ch) {
+          Ch &c = chs[static_cast<std::size_t>(ch)];
+          if (!c.ok) continue;
+          for (std::size_t i = 0; i < c.cands.size(); ++i) {
+            if (!c.accepted[i]) continue;
+            const std::uint64_t fo = c.cands[i].frame_order;
+            const VoteEntry *found = nullptr;
+            for (const auto &v : votes) {
+              if (v.frame_order == fo) { found = &v; break; }
+            }
+            if (!found || found->total <= 1) continue;
+            if (static_cast<double>(found->rejected) /
+                    static_cast<double>(found->total) >
+                static_cast<double>(im.cfg.shared_frame_rejection_consensus))
+              c.accepted[i] = 0;
+          }
         }
       }
       for (int ch = 0; ch < nch; ++ch) {
         Ch &c = chs[static_cast<std::size_t>(ch)];
         if (!c.ok) continue;
+        const std::size_t tid = static_cast<std::size_t>(ch) * np + px;
+        CpuFullAcc &f = im.full[tid];
+        if (c.bd.evaluated && c.bd.mad > 0.0) {
+          f.state = 1;
+          f.lo = c.bd.lower;
+          f.hi = c.bd.upper;
+        } else {
+          f.state = 2;
+          ++acc_degenerate_pilot;
+        }
         for (std::size_t i = 0; i < c.cands.size(); ++i) {
           if (!c.accepted[i]) continue;
-          const auto it = votes.find(c.cands[i].frame_order);
-          if (it == votes.end() || it->second.second <= 1) continue;
-          if (static_cast<double>(it->second.first) /
-                  static_cast<double>(it->second.second) >
-              static_cast<double>(im.cfg.shared_frame_rejection_consensus))
-            c.accepted[i] = 0;
+          const unsigned int sl = c.slot[i];
+          const auto &rc = im.res[tid * slots + sl];
+          const auto &qv = im.resq[tid * slots + sl];
+          const double g = im.meta[static_cast<std::size_t>(rc.order)].g_eff;
+          cpu_full_add(f, rc.b, rc.x, rc.sigma2, g, qv.qc, qv.q0, qv.q1,
+                       im.cfg.fine_quality_exponent,
+                       im.cfg.medium_quality_exponent);
         }
-      }
-    }
-    for (int ch = 0; ch < nch; ++ch) {
-      Ch &c = chs[static_cast<std::size_t>(ch)];
-      if (!c.ok) continue;
-      const std::size_t tid = static_cast<std::size_t>(ch) * np + px;
-      CpuFullAcc &f = im.full[tid];
-      if (c.bd.evaluated && c.bd.mad > 0.0) {
-        f.state = 1;
-        f.lo = c.bd.lower;
-        f.hi = c.bd.upper;
-      } else {
-        f.state = 2;
-        ++stats_.full_frame_degenerate_pilot;
-      }
-      for (std::size_t i = 0; i < c.cands.size(); ++i) {
-        if (!c.accepted[i]) continue;
-        const unsigned int sl = c.slot[i];
-        const auto &rc = im.res[tid * slots + sl];
-        const auto &qv = im.resq[tid * slots + sl];
-        const double g = im.meta[static_cast<std::size_t>(rc.order)].g_eff;
-        cpu_full_add(f, rc.b, rc.x, rc.sigma2, g, qv.qc, qv.q0, qv.q1,
-                     im.cfg.fine_quality_exponent,
-                     im.cfg.medium_quality_exponent);
       }
     }
   }
+  stats_.full_frame_no_bounds += acc_no_bounds;
+  stats_.bimodal_veto_rejected_candidates += acc_bimodal_rejected;
+  stats_.bimodal_veto_pixels += acc_bimodal_pixels;
+  stats_.full_frame_degenerate_pilot += acc_degenerate_pilot;
   im.pilot_done = true;
   return true;
 }

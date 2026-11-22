@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include "run_event_file.hpp"
 #include <nlohmann/json.hpp>
 #include "job_store.hpp"
 
@@ -66,5 +67,7 @@ void apply_runtime_liveness_to_run_status(nlohmann::json& status,
 std::vector<nlohmann::json> discover_runs(const fs::path& runs_dir, int limit = 50);
 /// @brief Reads the tail of known run log files for display in the UI.
 std::string read_run_logs(const fs::path& run_dir, int tail = 250);
+/// @brief First `head` non-empty event lines; stops reading after them.
+std::string read_run_logs_head(const fs::path& run_dir, int head);
 /// @brief Lists reportable files and generated artifacts for a run.
 nlohmann::json list_run_artifacts(const fs::path& run_dir);

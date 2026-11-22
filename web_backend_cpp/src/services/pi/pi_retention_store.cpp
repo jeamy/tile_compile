@@ -1,4 +1,5 @@
 #include "services/pi/pi_retention_store.hpp"
+#include "sha256_hex.hpp"
 
 #include "services/pi/pi_decision_record_store.hpp"
 
@@ -47,20 +48,6 @@ std::recursive_mutex& retention_operation_mutex() {
     return mutex;
 }
 
-std::string sha256_hex(const std::string& value) {
-    unsigned char output[EVP_MAX_MD_SIZE];
-    unsigned int size = 0;
-    if (EVP_Digest(value.data(), value.size(), output, &size, EVP_sha256(), nullptr) != 1)
-        throw std::runtime_error("cannot hash PI context identifier");
-    static constexpr char digits[] = "0123456789abcdef";
-    std::string result;
-    result.reserve(size * 2);
-    for (unsigned int i = 0; i < size; ++i) {
-        result += digits[output[i] >> 4];
-        result += digits[output[i] & 15];
-    }
-    return result;
-}
 
 std::string safe_alias(const std::string& alias) {
     std::string safe;

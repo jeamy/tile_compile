@@ -8,7 +8,6 @@ export const API_ENDPOINTS = {
     openPath: "/api/fs/open",
   },
   jobs: {
-    list: "/api/jobs",
     byId: (jobId) => `/api/jobs/${encodeURIComponent(String(jobId || ""))}`,
   },
   guardrails: {
@@ -16,19 +15,14 @@ export const API_ENDPOINTS = {
   },
   app: {
     state: "/api/app/state",
-    constants: "/api/app/constants",
-    uiState: "/api/app/ui-state",
   },
   scan: {
     root: "/api/scan",
     latest: "/api/scan/latest",
     jobStatus: (jobId) => `/api/jobs/${encodeURIComponent(String(jobId || ""))}`,
-    quality: "/api/scan/quality",
     metrics: "/api/scan/metrics",
-    metricsLatest: "/api/scan/metrics/latest",
     analysis: "/api/scan/analysis",
     analysisLatest: "/api/scan/analysis/latest",
-    analysisStore: "/api/scan/analysis/store",
     analysisHistory: "/api/scan/analysis/history",
     analysisHistoryItem: (filename) => `/api/scan/analysis/history/${encodeURIComponent(String(filename || ""))}`,
     analysisApply: "/api/scan/analysis/apply",
@@ -39,7 +33,6 @@ export const API_ENDPOINTS = {
     account: (provider = "") => `/api/ai/account?provider=${encodeURIComponent(String(provider || ""))}`,
     traffic: (limit = 500) => `/api/ai/traffic?limit=${encodeURIComponent(String(limit || 500))}`,
     auth: "/api/ai/auth",
-    authProvider: (provider = "") => `/api/ai/auth/${encodeURIComponent(String(provider || ""))}`,
     test: "/api/ai/test",
   },
   // Jev pre-run advice (independent of the PI provider slot under `ai`)
@@ -47,7 +40,6 @@ export const API_ENDPOINTS = {
     advice: "/api/scan/decisions",
     byId: (id) => `/api/scan/decisions/${encodeURIComponent(String(id || ""))}`,
     applyBatch: "/api/scan/decisions/apply-batch",
-    apply: (id) => `/api/scan/decisions/${encodeURIComponent(String(id || ""))}/apply`,
     status: "/api/pi/decisions/status",
     settings: "/api/pi/decisions/settings",
     postRunAdvice: "/api/pi/post-run/advice",
@@ -70,36 +62,23 @@ export const API_ENDPOINTS = {
     assistantCapabilities: "/api/pi/assistant/capabilities",
     assistantRunContext: (ref) => `/api/pi/assistant/run-context?run_id=${encodeURIComponent(ref)}`,
     assistantSelectContext: "/api/pi/assistant/select-context",
-    assistantAnalysisContext: "/api/pi/assistant/analysis-context",
     assistantSelectAnalysis: "/api/pi/assistant/select-analysis",
     assistantAnalysisThread: (uid) => `/api/pi/assistant/analysis-thread/${encodeURIComponent(uid)}`,
-    assistantAnalysisIdentity: (uid) => `/api/pi/assistant/analysis-contexts/${encodeURIComponent(uid)}`,
     activeContext: "/api/pi/active-context",
     decisionRecords: (context) => `/api/pi/decision-records?context_id=${encodeURIComponent(context)}&limit=100`,
     reasonCodes: "/api/pi/reason-codes",
     runChatHistoryUid: (uid) => `/api/pi/run-chat/history?run_uid=${encodeURIComponent(uid)}`,
     assistantThread: (uid, pi = true, jev = true) => `/api/pi/assistant/thread?run_uid=${encodeURIComponent(uid)}&include_pi=${pi ? 1 : 0}&include_jev=${jev ? 1 : 0}`,
-    tools: "/api/pi/tools",
-    toolsCall: "/api/pi/tools/call",
     context: "/api/pi/context",
-    ask: "/api/pi/assistant/ask",
     runChat: "/api/pi/run-chat",
-    runChatHistory: (runId = "", runDir = "") => {
-      const query = `?run_id=${encodeURIComponent(String(runId || ""))}`
-        + (String(runDir || "").trim() ? `&run_dir=${encodeURIComponent(String(runDir || "").trim())}` : "");
-      return `/api/pi/run-chat/history${query}`;
-    },
-    actionPlanValidate: "/api/pi/action-plans/validate",
     actionPlanPreview: "/api/pi/action-plans/preview",
     actionPlanPreviewById: (id) => `/api/pi/action-plans/previews/${encodeURIComponent(id)}`,
-    actionPlanApply: "/api/pi/action-plans/apply",
     storage: "/api/pi/storage",
     memories: "/api/pi/memories",
     memoriesExport: "/api/pi/memories/export",
     memoriesImport: "/api/pi/memories/import",
     memoriesDedupe: "/api/pi/memories/dedupe",
     memoryReview: (memoryId = "") => `/api/pi/memories/${encodeURIComponent(String(memoryId || ""))}/review`,
-    memoryRetrieve: "/api/pi/memories/retrieve",
     audit: "/api/pi/audit",
     liveImageChat: {
       create: "/api/pi/live-image-chat/create",
@@ -134,7 +113,6 @@ export const API_ENDPOINTS = {
     applyPreset: "/api/config/presets/apply",
     validate: "/api/config/validate",
     save: "/api/config/save",
-    revisions: "/api/config/revisions",
   },
   runs: {
     list: "/api/runs",
@@ -186,8 +164,14 @@ export const API_ENDPOINTS = {
       if (String(runDir || "").trim()) params.set("run_dir", String(runDir || "").trim());
       return `/api/runs/${encodeRunIdPathSegment(runId)}/logs?${params.toString()}`;
     },
+    // The first `head` lines of the run log (run_start, scan summary).
+    logsHead: (runId, head = 20, runDir = "") => {
+      const params = new URLSearchParams();
+      params.set("head", String(head));
+      if (String(runDir || "").trim()) params.set("run_dir", String(runDir || "").trim());
+      return `/api/runs/${encodeRunIdPathSegment(runId)}/logs?${params.toString()}`;
+    },
     setCurrent: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/set-current`,
-    restoreRevision: (runId, revisionId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config-revisions/${encodeURIComponent(String(revisionId || ""))}/restore`,
   },
   ws: {
     run: (runId, runDir = "") => {
@@ -199,25 +183,19 @@ export const API_ENDPOINTS = {
     detect: "/api/tools/astrometry/detect",
     installCli: "/api/tools/astrometry/install-cli",
     downloadCatalog: "/api/tools/astrometry/catalog/download",
-    cancelDownload: "/api/tools/astrometry/catalog/cancel",
     solve: "/api/tools/astrometry/solve",
     saveSolved: "/api/tools/astrometry/save-solved",
   },
   pcc: {
     sirilStatus: (catalogDir = "") => `/api/tools/pcc/siril/status?catalog_dir=${encodeURIComponent(String(catalogDir || ""))}`,
     downloadMissing: "/api/tools/pcc/siril/download-missing",
-    cancelDownload: "/api/tools/pcc/siril/cancel",
     checkOnline: "/api/tools/pcc/check-online",
     run: "/api/tools/pcc/run",
     saveCorrected: "/api/tools/pcc/save-corrected",
   },
   preprocessing: {
-    defaults: "/api/tools/preprocessing/defaults",
-    parameters: "/api/tools/preprocessing/parameters",
-    scan: "/api/tools/preprocessing/scan",
     run: "/api/tools/preprocessing/run",
     cancel: "/api/tools/preprocessing/cancel",
     status: (jobId = "") => `/api/tools/preprocessing/status?job_id=${encodeURIComponent(String(jobId || ""))}`,
-    report: (jobId = "") => `/api/tools/preprocessing/report?job_id=${encodeURIComponent(String(jobId || ""))}`,
   },
 };

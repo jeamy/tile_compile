@@ -10,13 +10,12 @@ BUILD_TYPE="${BUILD_TYPE:-Release}"
 BACKEND_BIN="${BACKEND_BIN:-}"
 CPP_BUILD_DIR_DEFAULT="${PROJECT_ROOT}/tile_compile_cpp/build"
 CPP_BUILD_DIR="${CPP_BUILD_DIR:-${CPP_BUILD_DIR_DEFAULT}}"
-DEFAULT_OPENCV_CUDA_DIR="${HOME}/.local/opencv-cuda-4.11/lib64/cmake/opencv4"
-DEFAULT_CUDA_ROOT="/usr/local/cuda-12.9"
+# The default toolkit is whatever /usr/local/cuda points to. OpenCV is left to
+# CMake (cmake/TileCompileOpenCV.cmake picks the OpenCV-CUDA build whose CUDA
+# major version matches that toolkit); TILE_COMPILE_OPENCV_DIR overrides it.
+DEFAULT_CUDA_ROOT="/usr/local/cuda"
 DEFAULT_CUDA_NVCC="${DEFAULT_CUDA_ROOT}/bin/nvcc"
 TILE_COMPILE_OPENCV_DIR="${TILE_COMPILE_OPENCV_DIR:-${OpenCV_DIR:-}}"
-if [[ -z "${TILE_COMPILE_OPENCV_DIR}" && -f "${DEFAULT_OPENCV_CUDA_DIR}/OpenCVConfig.cmake" ]]; then
-  TILE_COMPILE_OPENCV_DIR="${DEFAULT_OPENCV_CUDA_DIR}"
-fi
 TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR="${TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR:-${CUDA_TOOLKIT_ROOT_DIR:-}}"
 if [[ -z "${TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR}" && -d "${DEFAULT_CUDA_ROOT}" ]]; then
   TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR="${DEFAULT_CUDA_ROOT}"

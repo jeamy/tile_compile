@@ -17,9 +17,13 @@
 
 #define CROW_MAIN
 #include "crow_app.hpp"
+#include "proc_scan.hpp"
 
 #include <iostream>
+#include <csignal>
+#include <cstdlib>
 #include <fstream>
+#include <sstream>
 #include <memory>
 #include <filesystem>
 #include <system_error>
@@ -50,27 +54,7 @@ bool is_queue_staging_job_dir(const fs::path& path) {
 }
 
 #ifdef __linux__
-/// @brief Reads process argv.
-/// @details This implementation initializes runtime state, cleans orphaned resources, registers routes, and starts Crow; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::vector<std::string> read_process_argv(const fs::path& proc_dir) {
-    std::ifstream cmdline(proc_dir / "cmdline", std::ios::binary);
-    if (!cmdline) return {};
-    std::string raw((std::istreambuf_iterator<char>(cmdline)),
-                    std::istreambuf_iterator<char>());
-    if (raw.empty()) return {};
-
-    std::vector<std::string> argv;
-    size_t start = 0;
-    while (start < raw.size()) {
-        size_t end = raw.find('\0', start);
-        if (end == std::string::npos) end = raw.size();
-        if (end > start) argv.push_back(raw.substr(start, end - start));
-        start = end + 1;
-    }
-    return argv;
-}
-
+/// True if any argv element contains target_path.
 bool argv_references_path(const std::vector<std::string>& argv,
                           const fs::path& target_path) {
     const std::string target = target_path.string();
@@ -83,89 +67,44 @@ bool argv_references_path(const std::vector<std::string>& argv,
 bool process_cmdline_references_path(const fs::path& target_path,
                                      const std::string& runner_name,
                                      int self_pid) {
-    std::error_code ec;
-    if (!fs::exists("/proc", ec)) return false;
-
-    for (const auto& entry : fs::directory_iterator("/proc", ec)) {
-        if (ec || !entry.is_directory()) continue;
-        const std::string pid_text = entry.path().filename().string();
-        if (pid_text.empty() ||
-            !std::all_of(pid_text.begin(), pid_text.end(),
-                         [](unsigned char ch) { return std::isdigit(ch) != 0; })) {
-            continue;
-        }
-
-        int pid = 0;
-        try {
-            pid = std::stoi(pid_text);
-        } catch (...) {
-            continue;
-        }
-        if (pid == self_pid) continue;
-
-        std::vector<std::string> argv = read_process_argv(entry.path());
-        if (argv.empty()) continue;
-
-        const std::string exe_name = fs::path(argv.front()).filename().string();
-        const bool is_runner =
-            exe_name == runner_name ||
-            exe_name.find("tile_compile_runner") != std::string::npos;
-        if (!is_runner) continue;
-
-        if (argv_references_path(argv, target_path)) {
-            return true;
-        }
-    }
-
-    return false;
+    bool found = false;
+    for_each_process([&](int pid, const fs::path&, const std::vector<std::string>& argv) {
+        if (pid == self_pid || !argv_is_runner_exe(argv, runner_name)) return true;
+        found = argv_references_path(argv, target_path);
+        return !found;
+    });
+    return found;
 }
 
-/// @brief Checks process exists.
-/// @details This implementation initializes runtime state, cleans orphaned resources, registers routes, and starts Crow; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-bool pid_exists(pid_t pid) {
-    if (pid <= 0) return false;
-    if (kill(pid, 0) == 0) return true;
-    return errno == EPERM;
-}
-
-/// @brief Implements terminate pid group.
-/// @details This implementation initializes runtime state, cleans orphaned resources, registers routes, and starts Crow; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-bool terminate_pid_group(pid_t pid) {
-    if (pid <= 0) return false;
-    if (kill(-pid, SIGTERM) != 0) {
-        if (kill(pid, SIGTERM) != 0) return false;
-    }
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (!pid_exists(pid)) return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    if (kill(-pid, SIGKILL) != 0) {
-        if (kill(pid, SIGKILL) != 0) return false;
-    }
-    return true;
+/// @brief Parent pid from /proc/<pid>/stat (-1 if unreadable).
+int read_parent_pid(const fs::path& proc_entry) {
+    std::ifstream in(proc_entry / "stat");
+    std::string stat((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    // "pid (comm) state ppid ...": comm may contain spaces and parentheses.
+    const auto close = stat.rfind(')');
+    if (close == std::string::npos) return -1;
+    std::istringstream rest(stat.substr(close + 1));
+    std::string state;
+    int ppid = -1;
+    if (!(rest >> state >> ppid)) return -1;
+    return ppid;
 }
 
 bool is_backend_managed_process(const std::vector<std::string>& argv,
-                                const BackendRuntime& runtime) {
+                                const BackendRuntime& runtime,
+                                int parent_pid) {
     if (argv.empty()) return false;
+    // Only CLI helpers. A runner is never killed: an orphaned runner is the
+    // live run of a backend that died, and it finishes on its own.
     const std::string exe_name = fs::path(argv.front()).filename().string();
-    const std::string runner_name = fs::path(runtime.runner_exe).filename().string();
     const std::string cli_name = fs::path(runtime.cli_exe).filename().string();
-    const bool matches_runner =
-        exe_name == runner_name || exe_name.find("tile_compile_runner") != std::string::npos;
     const bool matches_cli =
         exe_name == cli_name || exe_name.find("tile_compile_cli") != std::string::npos;
-    if (!matches_runner && !matches_cli) return false;
-
-    if (matches_runner) {
-        const bool is_run_like = std::any_of(argv.begin() + 1, argv.end(), [](const std::string& arg) {
-            return arg == "run" || arg == "resume";
-        });
-        if (!is_run_like) return false;
-    }
+    if (!matches_cli) return false;
+    // Only real orphans: reparented to init after their backend died. A
+    // process whose parent is alive belongs to another backend instance (or
+    // a test harness, or the user's shell) and must survive this start.
+    if (parent_pid != 1) return false;
 
     return argv_references_path(argv, runtime.project_root) ||
            argv_references_path(argv, runtime.runs_dir) ||
@@ -177,37 +116,17 @@ bool is_backend_managed_process(const std::vector<std::string>& argv,
 /// @details This implementation initializes runtime state, cleans orphaned resources, registers routes, and starts Crow; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 void cleanup_orphan_backend_processes(const BackendRuntime& runtime) {
-    std::error_code ec;
-    if (!fs::exists("/proc", ec)) return;
-
     int killed = 0;
     int failed = 0;
-    for (const auto& entry : fs::directory_iterator("/proc", ec)) {
-        if (ec || !entry.is_directory()) continue;
-        const std::string pid_text = entry.path().filename().string();
-        if (pid_text.empty() ||
-            !std::all_of(pid_text.begin(), pid_text.end(),
-                         [](unsigned char ch) { return std::isdigit(ch) != 0; })) {
-            continue;
-        }
-
-        int pid = 0;
-        try {
-            pid = std::stoi(pid_text);
-        } catch (...) {
-            continue;
-        }
-        if (pid == static_cast<int>(::getpid())) continue;
-
-        const std::vector<std::string> argv = read_process_argv(entry.path());
-        if (!is_backend_managed_process(argv, runtime)) continue;
-
+    for_each_process([&](int pid, const fs::path& proc_dir, const std::vector<std::string>& argv) {
+        if (!is_backend_managed_process(argv, runtime, read_parent_pid(proc_dir))) return true;
         if (terminate_pid_group(static_cast<pid_t>(pid))) {
             ++killed;
         } else {
             ++failed;
         }
-    }
+        return true;
+    });
 
     if (killed > 0 || failed > 0) {
         std::cout << "[tile_compile_web_backend] Startup process cleanup: killed="
@@ -293,6 +212,11 @@ int main(int argc, char* argv[]) {
         return 0;
     }
     try {
+#ifndef _WIN32
+        // A child that closes its stdin early, or a client that drops its
+        // connection, must cost an EPIPE on that write, not the backend.
+        std::signal(SIGPIPE, SIG_IGN);
+#endif
         auto state = std::make_shared<AppState>();
         state->runtime = BackendRuntime::from_env();
         state->job_store.configure_retention(state->runtime.guard_limits.retained_jobs);
@@ -319,20 +243,19 @@ int main(int argc, char* argv[]) {
         tile_compile::routes::register_ai_routes(app, state);
         tile_compile::routes::register_pi_routes(app, state);
         tile_compile::routes::register_pi_decision_routes(app, state);
-        register_config_routes(app, state, nullptr);
+        register_config_routes(app, state);
         register_runs_routes(app, state);
         register_ws_routes(app, state);
         register_tools_routes(app, state);
         register_preprocessing_routes(app, state);
 
         auto read_ui_file = [&state](const fs::path& relative_path) -> std::optional<std::pair<fs::path, std::string>> {
-            fs::path f = state->runtime.ui_dir / relative_path;
+            if (relative_path.is_absolute() || relative_path.has_root_name()) return std::nullopt;
+            fs::path f = (state->runtime.ui_dir / relative_path).lexically_normal();
             std::error_code ec;
-            f = f.lexically_normal();
-            const fs::path ui_root = state->runtime.ui_dir.lexically_normal();
-            const std::string ui_root_text = ui_root.string();
-            const std::string file_text = f.string();
-            if (file_text.compare(0, ui_root_text.size(), ui_root_text) != 0) return std::nullopt;
+            // Component-wise on the resolved paths: a string prefix would let
+            // "ui_evil/..." pass for "ui", and a symlink could point outside.
+            if (!BackendRuntime::is_within_root(f, state->runtime.ui_dir)) return std::nullopt;
             if (!fs::exists(f, ec) || fs::is_directory(f, ec)) return std::nullopt;
             std::ifstream in(f, std::ios::binary);
             if (!in) return std::nullopt;

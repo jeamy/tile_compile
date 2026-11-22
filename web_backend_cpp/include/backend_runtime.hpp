@@ -60,6 +60,9 @@ struct BackendRuntime {
     fs::path ui_dir;
     fs::path runtime_dir;
     fs::path ui_events_path;
+    /// Granted roots persisted across restarts (TILE_COMPILE_ALLOWED_ROOTS_FILE,
+    /// default <project_root>/.allowed_roots).
+    fs::path allowed_roots_file;
     std::string host{"127.0.0.1"};
     std::string cli_exe;
     std::string runner_exe;
@@ -89,11 +92,12 @@ struct BackendRuntime {
     /// @brief Returns a snapshot of all roots currently accepted by path guardrails.
     std::vector<fs::path> allowed_roots() const;
     /// @brief Returns roots searched when resolving relative input paths.
-    std::vector<fs::path> input_search_roots() const;
+
+    /// @brief Component-wise containment on resolved (weakly canonical) paths.
+    static bool is_within_root(const fs::path& candidate, const fs::path& root);
 
 private:
     static fs::path normalize_path(const fs::path& p);
-    static bool is_within_root(const fs::path& candidate, const fs::path& root);
     mutable std::unique_ptr<std::mutex> _roots_mutex;
     std::unordered_set<std::string> _allowed_roots;
     std::vector<fs::path> _input_search_roots;

@@ -65,11 +65,12 @@ void UiEventStore::push(const std::string& event,
 std::vector<UiEvent> UiEventStore::list(int since_seq, int limit) const {
     std::lock_guard<std::mutex> lk(_mutex);
     std::vector<UiEvent> result;
-    // _events is ordered by seq; skip events up to since_seq with lower_bound.
-    for (auto it = _events.begin(); it != _events.end(); ++it) {
-        if (it->seq <= since_seq) continue;
+    if (limit <= 0) return result;
+    auto it = std::lower_bound(
+        _events.begin(), _events.end(), since_seq + 1,
+        [](const UiEvent& e, int target) { return e.seq < target; });
+    for (; it != _events.end() && static_cast<int>(result.size()) < limit; ++it) {
         result.push_back(*it);
-        if ((int)result.size() >= limit) break;
     }
     return result;
 }

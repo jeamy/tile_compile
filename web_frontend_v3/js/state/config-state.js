@@ -169,7 +169,17 @@ export async function loadConfig() {
 // preview, etc. -- sees the fixed value instead of re-discovering the same
 // stale field on every call. Use this (not `store.getState().draftYaml`
 // directly) anywhere a draft is about to be sent to the backend.
+// The parameter editor commits keystrokes after a short pause; a draft that
+// leaves the browser must include the last one, so its commit runs first.
+let pendingDraftFlush = null;
+export function setPendingDraftFlush(fn) { pendingDraftFlush = typeof fn === "function" ? fn : null; }
+
 export function getOutgoingConfig() {
+  if (pendingDraftFlush) {
+    const flush = pendingDraftFlush;
+    pendingDraftFlush = null;
+    flush();
+  }
   let { draft, draftYaml } = store.getState();
   if (draft && migrateLegacyDraftKeys(draft)) {
     draftYaml = stringifyYaml(draft);

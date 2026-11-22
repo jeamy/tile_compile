@@ -43,6 +43,7 @@ registration:
   reject_outliers: true
   reject_cc_min_abs: 0.25
   reject_shift_px_min: 100
+  model_prediction_max_residual_px: 0.7
   reject_shift_median_multiplier: 5
   reject_scale_min: 0.92
   reject_scale_max: 1.08

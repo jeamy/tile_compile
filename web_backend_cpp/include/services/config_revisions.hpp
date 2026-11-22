@@ -40,7 +40,6 @@ public:
     /// @brief Returns the number of stored in-memory revisions.
     int count() const;
     /// @brief Returns the newest revision id, or an empty string when the store is empty.
-    std::string latest_id() const;
 
 private:
     mutable std::mutex _mutex;

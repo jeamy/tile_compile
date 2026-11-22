@@ -1,6 +1,7 @@
 #include "services/report_generator.hpp"
 #include "backend_runtime.hpp"
 #include "services/run_inspector.hpp"
+#include "time_utils.hpp"
 
 #include <algorithm>
 #include <array>
@@ -554,45 +555,6 @@ double scale_linear(double v, double in_min, double in_max, double out_min, doub
     return out_min + t * (out_max - out_min);
 }
 
-/// @brief Parses iso utc seconds.
-/// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::optional<double> parse_iso_utc_seconds(const std::string& raw) {
-    if (raw.size() < 19) return std::nullopt;
-    int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
-    if (std::sscanf(raw.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d",
-                    &year, &month, &day, &hour, &minute, &second) != 6) {
-        return std::nullopt;
-    }
-    double fractional = 0.0;
-    auto dot = raw.find('.');
-    if (dot != std::string::npos) {
-        size_t end = raw.find_first_of("Z+-", dot);
-        const auto frac = raw.substr(dot + 1, end == std::string::npos ? std::string::npos : end - dot - 1);
-        if (!frac.empty()) {
-            try {
-                fractional = std::stod("0." + frac);
-            } catch (...) {
-                fractional = 0.0;
-            }
-        }
-    }
-    std::tm tm{};
-    tm.tm_year = year - 1900;
-    tm.tm_mon = month - 1;
-    tm.tm_mday = day;
-    tm.tm_hour = hour;
-    tm.tm_min = minute;
-    tm.tm_sec = second;
-#ifdef _WIN32
-    const auto epoch = _mkgmtime(&tm);
-#else
-    const auto epoch = timegm(&tm);
-#endif
-    if (epoch < 0) return std::nullopt;
-    return static_cast<double>(epoch) + fractional;
-}
-
 /// @brief Implements phase name from event.
 /// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -1008,6 +970,7 @@ std::string svg_scatter(const std::vector<double>& raw_x,
                         const std::string& xlabel,
                         const std::string& ylabel,
                         const std::string& cmap = "plasma",
+                        const std::string& clabel = "",
                         int width = 620,
                         int height = 420) {
     struct Point {
@@ -1072,9 +1035,16 @@ std::string svg_scatter(const std::vector<double>& raw_x,
         const double y = scale_linear(p.y, yb.first, yb.second, y0 + ph, y0);
         const double t = cb.second > cb.first ? (p.c - cb.first) / (cb.second - cb.first) : 0.5;
         out << "<circle cx=\"" << x << "\" cy=\"" << y << "\" r=\"" << radius
-            << "\" fill=\"" << colormap_hex(cmap, t) << "\" opacity=\"0.82\"/>";
+            << "\" fill=\"" << colormap_hex(cmap, t) << "\" opacity=\"0.82\"><title>"
+            << html_escape(xlabel + "=" + format_number(p.x, 3) + ", " + ylabel + "=" + format_number(p.y, 3) +
+                           (clabel.empty() ? "" : ", " + clabel + "=" + format_number(p.c, 3)))
+            << "</title></circle>";
     }
 
+    if (!clabel.empty()) {
+        out << "<text x=\"" << (cbx + cbw * 0.5) << "\" y=\"" << (y0 - 8)
+            << "\" class=\"svg-tick\" text-anchor=\"middle\">" << html_escape(clabel) << "</text>";
+    }
     for (int i = 0; i < 64; ++i) {
         const double t0 = static_cast<double>(i) / 64.0;
         const double y = y0 + ph - t0 * ph;
@@ -1165,9 +1135,11 @@ std::string svg_bar_horizontal(const std::vector<std::string>& labels,
     if (labels.empty() || labels.size() != values.size()) return svg_message(title, "No data", width, 220);
     const int height = std::max(180, 88 + static_cast<int>(labels.size()) * 36);
     const double max_val = std::max(1.0, *std::max_element(values.begin(), values.end()) * 1.18);
-    const double x0 = 180.0;
+    size_t max_label_len = 0;
+    for (const auto& l : labels) max_label_len = std::max(max_label_len, sanitize_label(l).size());
+    const double x0 = std::clamp(static_cast<double>(max_label_len) * 6.8 + 24.0, 160.0, 260.0);
     const double y0 = 36.0;
-    const double pw = width - 220.0;
+    const double pw = std::max(160.0, static_cast<double>(width) - x0 - 48.0);
     const double ph = height - 74.0;
     const double step = ph / static_cast<double>(labels.size());
     const double bar_h = std::max(14.0, step * 0.68);
@@ -1511,8 +1483,14 @@ std::string render_bge_phase_details(const json& bge) {
         ? bge["summary"] : json::object();
     const json cfg = bge.contains("config") && bge["config"].is_object()
         ? bge["config"] : json::object();
-    const double min_fraction = json_number_or(cfg, "min_valid_sample_fraction_for_apply", 0.0);
-    const int min_samples = static_cast<int>(json_number_or(cfg, "min_valid_samples_for_apply", 0.0));
+    const json classic_cfg = cfg.contains("classic") && cfg["classic"].is_object()
+        ? cfg["classic"] : json::object();
+    const double min_fraction = classic_cfg.contains("min_valid_sample_fraction_for_apply")
+        ? json_number_or(classic_cfg, "min_valid_sample_fraction_for_apply", 0.0)
+        : json_number_or(cfg, "min_valid_sample_fraction_for_apply", 0.0);
+    const int min_samples = static_cast<int>(classic_cfg.contains("min_valid_samples_for_apply")
+        ? json_number_or(classic_cfg, "min_valid_samples_for_apply", 0.0)
+        : json_number_or(cfg, "min_valid_samples_for_apply", 0.0));
     
     const std::string tile_metrics_source = json_string_or(bge, "tile_metrics_source", "");
     if (!tile_metrics_source.empty() && tile_metrics_source != "none") {
@@ -1752,16 +1730,21 @@ std::optional<ReportSection> gen_timeline(const std::vector<json>& events) {
 /// @brief Generates frame usage.
 /// @details This implementation turns run artifacts and events into the generated HTML report payload; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
-std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events) {
+std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events,
+                                             const json& reg,
+                                             const json& reg_sampling,
+                                             const json& fwd_drizzle) {
     json run_start = json::object();
     json scan_end = json::object();
     json reg_end = json::object();
+    json fd_end = json::object();
     for (const auto& ev : events) {
         const auto type = json_string_or(ev, "type", "");
         const auto phase = phase_name_from_event(ev);
         if (type == "run_start") run_start = ev;
         if (type == "phase_end" && phase == "SCAN_INPUT") scan_end = ev;
         if (type == "phase_end" && phase == "REGISTRATION") reg_end = ev;
+        if (type == "phase_end" && phase == "FORWARD_DRIZZLE") fd_end = ev;
     }
 
     const int frames_discovered = static_cast<int>(json_number_or(run_start, "frames_discovered", 0.0));
@@ -1772,15 +1755,36 @@ std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events) {
     const std::string linearity_action = json_string_or(linearity, "action", "");
     const int frames_after_scan = static_cast<int>(json_number_or(scan_end, "frames_scanned", frames_discovered));
 
-    int frames_usable_reg = static_cast<int>(json_number_or(reg_end, "frames_usable", 0.0));
-    const int reg_rejected = static_cast<int>(json_number_or(reg_end, "reg_rejected_frames", 0.0));
-    const int frames_cc_negative = static_cast<int>(json_number_or(reg_end, "frames_cc_negative", 0.0));
+    const json reg_extra = reg.is_object() && reg.contains("extra") && reg["extra"].is_object()
+        ? reg["extra"] : json::object();
+    const int reg_rejected = static_cast<int>(reg_extra.contains("reg_rejected_frames")
+        ? json_number_or(reg_extra, "reg_rejected_frames", 0.0)
+        : json_number_or(reg_end, "reg_rejected_frames", 0.0));
+    const int frames_cc_negative = static_cast<int>(reg_extra.contains("frames_cc_negative")
+        ? json_number_or(reg_extra, "frames_cc_negative", 0.0)
+        : json_number_or(reg_end, "frames_cc_negative", 0.0));
+
+    int frames_usable_reg = 0;
+    if (reg_sampling.is_object() && reg_sampling.contains("frames") && reg_sampling["frames"].is_array()) {
+        for (const auto& f : reg_sampling["frames"]) {
+            if (json_bool_or(f, "valid", false)) ++frames_usable_reg;
+        }
+    }
     if (frames_usable_reg == 0) {
-        const int num_frames = static_cast<int>(json_number_or(reg_end, "num_frames", 0.0));
+        frames_usable_reg = static_cast<int>(json_number_or(reg_end, "frames_usable", 0.0));
+    }
+    if (frames_usable_reg == 0) {
+        const int num_frames = reg.is_object() && reg.contains("warps") && reg["warps"].is_array()
+            ? static_cast<int>(reg["warps"].size())
+            : static_cast<int>(json_number_or(reg_end, "num_frames", 0.0));
         if (num_frames > 0) frames_usable_reg = std::max(0, num_frames - reg_rejected);
     }
     const int frames_excluded_negative = static_cast<int>(json_number_or(reg_end, "frames_excluded_negative", frames_cc_negative));
     const int frames_excluded_identity = std::max(0, reg_rejected - frames_excluded_negative);
+    int frames_participating = static_cast<int>(json_number_or(fd_end, "v2_frames_participating", 0.0));
+    if (frames_participating == 0 && fwd_drizzle.is_object() && fwd_drizzle.contains("throughput") && fwd_drizzle["throughput"].is_object()) {
+        frames_participating = static_cast<int>(json_number_or(fwd_drizzle["throughput"], "frames_used", 0.0));
+    }
 
     struct Stage {
         std::string label;
@@ -1799,12 +1803,15 @@ std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events) {
     }
     if (frames_usable_reg > 0) {
         std::vector<std::string> reasons;
-        if (frames_excluded_identity > 0) reasons.push_back(std::to_string(frames_excluded_identity) + " identity");
+        if (frames_excluded_identity > 0) reasons.push_back(std::to_string(frames_excluded_identity) + " rejected/identity");
         if (frames_excluded_negative > 0) reasons.push_back(std::to_string(frames_excluded_negative) + " negative CC");
         const std::string reason = reasons.empty()
             ? "All usable"
             : reasons.front() + (reasons.size() > 1 ? std::string(", ") + reasons.back() : std::string());
         stages.push_back({"Registered usable", static_cast<double>(frames_usable_reg), reason});
+    }
+    if (frames_participating > 0) {
+        stages.push_back({"Forward drizzle", static_cast<double>(frames_participating), "Participating frames"});
     }
     if (stages.size() < 2) return std::nullopt;
 
@@ -1943,6 +1950,48 @@ std::optional<ReportSection> gen_normalization(const json& norm) {
         }
     }
 
+    const auto p_mono = json_double_array(norm.value("P_mono", json::array()));
+    const auto p_r = json_double_array(norm.value("P_r", json::array()));
+    const auto p_g = json_double_array(norm.value("P_g", json::array()));
+    const auto p_b = json_double_array(norm.value("P_b", json::array()));
+    if (mode == "OSC" && (!p_r.empty() || !p_g.empty() || !p_b.empty())) {
+        charts.push_back({
+            svg_multi_timeseries({{"R", p_r}, {"G", p_g}, {"B", p_b}}, "Per-channel photometric scale", "scale P"),
+            explain_panel(
+                "Photometrische Skalierung pro OSC-Kanal",
+                {
+                    "Zeigt den multiplikativen Transparenz-/Skalenfaktor P pro Frame getrennt für R, G und B.",
+                    "Abweichungen spiegeln Luftmasse, dünne Bewölkung oder Transparenzwechsel wider."
+                },
+                {
+                    "<span class=\"good\">Unauffälliger Befund:</span> Werte nahe 1 mit ruhigem Verlauf.",
+                    "<span class=\"bad\">Prüfbedarf:</span> Starke Einbrüche oder Ausreißer deuten auf Wolken oder Extinktionssprünge hin."
+                }
+            )
+        });
+        for (const auto& item : std::vector<std::pair<std::string, std::vector<double>>>{{"P_R", p_r}, {"P_G", p_g}, {"P_B", p_b}}) {
+            const auto s = basic_stats(item.second);
+            if (s.n > 0) evals.push_back(item.first + ": median=" + format_number(s.median, 4) + ", std=" + format_number(s.std_dev, 4));
+        }
+    } else if (!p_mono.empty()) {
+        charts.push_back({
+            svg_timeseries(p_mono, "Photometric scale", "scale P"),
+            explain_panel(
+                "Photometrische Skalierung (MONO)",
+                {
+                    "Multiplikativer Skalenfaktor P pro Frame für MONO-Daten.",
+                    "Macht Transparenz- und Extinktionsschwankungen über die Session sichtbar."
+                },
+                {
+                    "<span class=\"good\">Unauffälliger Befund:</span> Stabil nahe 1.",
+                    "<span class=\"bad\">Prüfbedarf:</span> Starke Einbrüche sprechen für Wolken oder Tau."
+                }
+            )
+        });
+        const auto s = basic_stats(p_mono);
+        if (s.n > 0) evals.push_back("P_mono: median=" + format_number(s.median, 4) + ", std=" + format_number(s.std_dev, 4));
+    }
+
     if (charts.empty()) return std::nullopt;
     return ReportSection{"Normalization", make_card_html("Background levels", charts, evals, infer_status(evals))};
 }
@@ -1953,7 +2002,7 @@ std::optional<ReportSection> gen_normalization(const json& norm) {
 std::optional<ReportSection> gen_global_metrics(const json& gm) {
     if (!gm.is_object() || !gm.contains("metrics") || !gm["metrics"].is_array() || gm["metrics"].empty()) return std::nullopt;
 
-    std::vector<double> bg, noise, grad, gw, fwhm, wfwhm, roundness, star_count;
+    std::vector<double> bg, noise, grad, gw, fwhm, wfwhm, fwhm_x, fwhm_y, roundness, star_count, sky_grad;
     for (const auto& m : gm["metrics"]) {
         bg.push_back(json_number_or(m, "background", NAN));
         noise.push_back(json_number_or(m, "noise", NAN));
@@ -1961,8 +2010,11 @@ std::optional<ReportSection> gen_global_metrics(const json& gm) {
         gw.push_back(json_number_or(m, "global_weight", NAN));
         fwhm.push_back(json_number_or(m, "fwhm", NAN));
         wfwhm.push_back(json_number_or(m, "wfwhm", NAN));
+        fwhm_x.push_back(json_number_or(m, "fwhm_x", NAN));
+        fwhm_y.push_back(json_number_or(m, "fwhm_y", NAN));
         roundness.push_back(json_number_or(m, "roundness", NAN));
         star_count.push_back(json_number_or(m, "star_count", NAN));
+        sky_grad.push_back(json_number_or(m, "sky_gradient", NAN));
     }
 
     std::vector<ChartBlock> charts = {
@@ -2062,17 +2114,16 @@ std::optional<ReportSection> gen_global_metrics(const json& gm) {
                 "<span class=\"bad\">Auffällig:</span> Einbrüche sprechen oft für Wolken, Defokus, Tau oder starke Hintergrundprobleme."
             }
         )},
-        {svg_scatter(fwhm, roundness, star_count, "FWHM vs roundness", "FWHM (px)", "roundness"), explain_panel(
+        {svg_scatter(fwhm, roundness, star_count, "FWHM vs roundness", "FWHM (px)", "roundness", "plasma", "Stars"), explain_panel(
             "FWHM gegen Rundheit",
             {
                 "Jeder Punkt repräsentiert einen Frame. Die Position kombiniert zwei zentrale Sternqualitätsmetriken: Schärfe und Form.",
-                "Die Farbskala folgt der Frame-Reihenfolge und macht dadurch auch zeitliche Drift sichtbar."
+                "Die Farbskala codiert die detektierte Sternanzahl pro Frame (niedrig bis hoch)."
             },
             {
-                "<span class=\"good\">Gut:</span> Ein kompakter Cluster bei niedriger FWHM und Rundheit nahe 1.",
+                "<span class=\"good\">Gut:</span> Ein kompakter Cluster bei niedriger FWHM, hoher Sternanzahl und Rundheit nahe 1.",
                 "<span class=\"neutral\">Neutral:</span> Mehrere Cluster können auf unterschiedliche Wetter- oder Fokusphasen hindeuten.",
-                "<span class=\"bad\">Auffällig:</span> Ausreißer mit hoher FWHM und schlechter Rundheit sind die schlechtesten Kandidaten im Datensatz.",
-                "Ein systematischer Farbverlauf der Punkte zeigt, ob sich die Qualität im Laufe der Session verbessert oder verschlechtert hat."
+                "<span class=\"bad\">Auffällig:</span> Ausreißer mit hoher FWHM, geringer Sternanzahl und schlechter Rundheit sind die schwächsten Frames im Datensatz."
             }
         )},
     };
@@ -2081,9 +2132,13 @@ std::optional<ReportSection> gen_global_metrics(const json& gm) {
     evals.push_back("frames: " + std::to_string(gm["metrics"].size()));
     if (gm.contains("weights") && gm["weights"].is_object()) {
         const auto& w = gm["weights"];
-        evals.push_back("weights: bg=" + json_string_or(w, "background", "?") +
-                        ", noise=" + json_string_or(w, "noise", "?") +
-                        ", grad=" + json_string_or(w, "gradient", "?"));
+        std::string ws = "weights: bg=" + json_string_or(w, "background", "?") +
+                         ", noise=" + json_string_or(w, "noise", "?") +
+                         ", grad=" + json_string_or(w, "gradient", "?");
+        if (w.contains("fwhm")) ws += ", fwhm=" + json_string_or(w, "fwhm", "?");
+        if (w.contains("roundness")) ws += ", roundness=" + json_string_or(w, "roundness", "?");
+        if (w.contains("star_count")) ws += ", stars=" + json_string_or(w, "star_count", "?");
+        evals.push_back(ws);
     }
     const auto s_w = basic_stats(gw);
     if (s_w.n > 0) {
@@ -2094,6 +2149,13 @@ std::optional<ReportSection> gen_global_metrics(const json& gm) {
     }
     const auto s_f = basic_stats(fwhm);
     if (s_f.n > 0) evals.push_back("FWHM: median=" + format_number(s_f.median, 2) + " px");
+    const auto s_wf = basic_stats(wfwhm);
+    if (s_wf.n > 0) evals.push_back("wFWHM: median=" + format_number(s_wf.median, 2) + " px");
+    const auto s_fx = basic_stats(fwhm_x);
+    const auto s_fy = basic_stats(fwhm_y);
+    if (s_fx.n > 0 && s_fy.n > 0) {
+        evals.push_back("FWHM_x / FWHM_y: median=" + format_number(s_fx.median, 2) + " / " + format_number(s_fy.median, 2) + " px");
+    }
     const auto s_r = basic_stats(roundness);
     if (s_r.n > 0) {
         evals.push_back("roundness: median=" + format_number(s_r.median, 3));
@@ -2101,8 +2163,10 @@ std::optional<ReportSection> gen_global_metrics(const json& gm) {
     }
     const auto s_s = basic_stats(star_count);
     if (s_s.n > 0) evals.push_back("star count: median=" + format_number(s_s.median, 0));
+    const auto s_sg = basic_stats(sky_grad);
+    if (s_sg.n > 0) evals.push_back("sky gradient: median=" + format_number(s_sg.median, 4));
 
-    return ReportSection{"Pipeline-wide Frame Metrics", make_card_html("Shared input-frame quality (all reconstruction methods)", charts, evals, infer_status(evals))};
+    return ReportSection{"Pipeline-wide Frame Metrics", make_card_html("Input-frame quality metrics", charts, evals, infer_status(evals))};
 }
 
 /// @brief Generates registration.
@@ -2124,16 +2188,16 @@ std::optional<ReportSection> gen_registration(const json& reg) {
     }
 
     std::vector<ChartBlock> charts = {
-        {svg_scatter(tx, ty, ccs, "Translation scatter", "tx (px)", "ty (px)"), explain_panel(
+        {svg_scatter(tx, ty, ccs, "Translation scatter", "tx (px)", "ty (px)", "plasma", "CC"), explain_panel(
             "Translations-Scatter",
             {
                 "Jeder Punkt zeigt die erkannte Verschiebung eines Frames relativ zum Referenzframe in x- und y-Richtung.",
-                "Die Farbskala transportiert die Reihenfolge der Frames und hilft, Driftmuster zu erkennen."
+                "Die Farbskala codiert den Registrierungs-Korrelationskoeffizienten (CC) jedes Frames."
             },
             {
-                "<span class=\"good\">Gut:</span> Kompakte Punktwolke ohne starke Ausreißer.",
+                "<span class=\"good\">Gut:</span> Kompakte Punktwolke mit hohen CC-Werten ohne starke Ausreißer.",
                 "<span class=\"neutral\">Neutral:</span> Eine langsame gerichtete Drift ist bei Session-Drift möglich.",
-                "<span class=\"bad\">Auffällig:</span> Große Streuung oder isolierte Cluster sprechen für instabile Nachführung, Wind oder problematische Registrierung."
+                "<span class=\"bad\">Auffällig:</span> Große Streuung, isolierte Cluster oder niedrige CC-Werte sprechen für instabile Nachführung, Wind oder problematische Registrierung."
             }
         )},
         {svg_multi_timeseries({{"tx", tx}, {"ty", ty}}, "Translation over time", "shift (px)"), explain_panel(
@@ -2203,6 +2267,67 @@ std::optional<ReportSection> gen_registration(const json& reg) {
     if (s_tx.n > 0) evals.push_back("tx range=[" + format_number(s_tx.min, 2) + ", " + format_number(s_tx.max, 2) + "]");
     if (s_ty.n > 0) evals.push_back("ty range=[" + format_number(s_ty.min, 2) + ", " + format_number(s_ty.max, 2) + "]");
 
+    const json extra = reg.contains("extra") && reg["extra"].is_object() ? reg["extra"] : json::object();
+    const json diag = extra.contains("diag") && extra["diag"].is_object() ? extra["diag"] : json::object();
+    if (diag.contains("reg_source_counts") && diag["reg_source_counts"].is_object() && !diag["reg_source_counts"].empty()) {
+        std::vector<std::string> src_labels;
+        std::vector<double> src_vals;
+        for (auto it = diag["reg_source_counts"].begin(); it != diag["reg_source_counts"].end(); ++it) {
+            if (!it.value().is_number()) continue;
+            const double v = it.value().get<double>();
+            if (v > 0.0) {
+                src_labels.push_back(it.key());
+                src_vals.push_back(v);
+            }
+        }
+        if (!src_labels.empty()) {
+            charts.push_back({svg_bar_horizontal(src_labels, src_vals, "Registration cascade sources", "frames"), explain_panel(
+                "Registrierungs-Kaskade",
+                {
+                    "Zeigt, über welche Stufe der Registrierungs-Kaskade die einzelnen Frames erfolgreich ausgerichtet wurden."
+                },
+                {
+                    "<span class=\"good\">Gut:</span> Hoher Anteil über direkte globale Registrierung.",
+                    "<span class=\"bad\">Auffällig:</span> Viele Fallback- oder ungelöste Frames weisen auf schwache Sterne, starke Rotation oder Wolken hin."
+                }
+            )});
+        }
+    }
+    if (reg.contains("star_residuals") && reg["star_residuals"].is_array() && !reg["star_residuals"].empty()) {
+        std::vector<double> res_med, res_p90;
+        for (const auto& sr : reg["star_residuals"]) {
+            res_med.push_back(json_number_or(sr, "median_px", NAN));
+            res_p90.push_back(json_number_or(sr, "p90_px", NAN));
+        }
+        const auto s_rm = basic_stats(res_med);
+        if (s_rm.n > 0) {
+            charts.push_back({svg_multi_timeseries({{"median_px", res_med}, {"p90_px", res_p90}}, "Star registration residuals", "residual (px)"), explain_panel(
+                "Stern-Registrierungsresiduen",
+                {
+                    "Median und p90 der Stern-Ausrichtungsfehler (in Pixeln) pro Frame nach der Registrierung."
+                },
+                {
+                    "<span class=\"good\">Gut:</span> Subpixel-Residuen (< 0,5 px).",
+                    "<span class=\"bad\">Auffällig:</span> Hohe p90-Residuen deuten auf Feldverzerrung, Nachführfehler oder ungenaues Modell hin."
+                }
+            )});
+            evals.push_back("star residual median: " + format_number(s_rm.median, 3) + " px (max=" + format_number(s_rm.max, 3) + " px)");
+        }
+    }
+    if (diag.contains("effective_engine") && diag["effective_engine"].is_string()) {
+        evals.push_back("engine: " + diag["effective_engine"].get<std::string>() +
+                        ", model: " + json_string_or(diag, "effective_transform_model", "?"));
+    }
+    if (extra.contains("reg_rejected_frames")) {
+        evals.push_back("rejected frames: " + json_string_or(extra, "reg_rejected_frames", "0"));
+    }
+    if (diag.contains("meridian_flip_detected") && json_bool_or(diag, "meridian_flip_detected", false)) {
+        evals.push_back("meridian flip detected: true");
+    }
+    if (extra.contains("dithering") && extra["dithering"].is_object()) {
+        evals.push_back("dithering detected fraction: " + format_number(json_number_or(extra["dithering"], "detected_fraction", 0.0) * 100.0, 1) + "%");
+    }
+
     return ReportSection{"Global Registration", make_card_html("Frame alignment", charts, evals, infer_status(evals))};
 }
 
@@ -2212,8 +2337,17 @@ std::optional<ReportSection> gen_registration(const json& reg) {
 /// the displayed numbers can be checked against the actual run artifacts ---
 /// coverage & geometry, candidate selection & gates, flux space & pixel scale,
 /// noise diagnostics, resources & throughput, per-band alpha confidence.
-std::optional<ReportSection> gen_forward_drizzle(const json& fd, const json& sg) {
+std::optional<ReportSection> gen_forward_drizzle(const json& fd, const json& sg,
+                                                 const std::vector<json>& events) {
     if (!fd.is_object() || !fd.contains("geometry")) return std::nullopt;
+    json fd_end = json::object();
+    json astrometry_end = json::object();
+    for (const auto& ev : events) {
+        if (json_string_or(ev, "type", "") != "phase_end") continue;
+        const auto ph = phase_name_from_event(ev);
+        if (ph == "FORWARD_DRIZZLE") fd_end = ev;
+        else if (ph == "ASTROMETRY") astrometry_end = ev;
+    }
 
     auto row = [](const std::string& k, const std::string& v) {
         return std::make_pair(k, v);
@@ -2320,14 +2454,30 @@ std::optional<ReportSection> gen_forward_drizzle(const json& fd, const json& sg)
             {"drizzle_uniform", "Uniform"}, {"drizzle_raw", "Raw"}, {"drizzle_multiband", "Multiband"}}};
         const std::array<const char*, 6> metrics = {
             "median_fwhm", "p90_fwhm", "tail", "elongation", "background_rms", "seam_score"};
-        body << "<table class=\"kv\"><thead><tr><th>Metric</th>";
+        body << "<table class=\"data-table\"><thead><tr><th>Metric</th>";
         for (const auto& c : cols) body << "<th>" << c.second << "</th>";
         body << "</tr></thead><tbody>";
+        const json uni_cand = v.value("drizzle_uniform", json::object());
         for (const char* mk : metrics) {
             body << "<tr><th>" << mk << "</th>";
+            const json uni_m = uni_cand.value(mk, json());
+            const bool uni_valid = uni_m.is_object() && uni_m.value("applicable", false) &&
+                                   uni_m.contains("value") && uni_m["value"].is_number() &&
+                                   std::abs(uni_m["value"].get<double>()) > 1e-12;
+            const double uni_val = uni_valid ? uni_m["value"].get<double>() : 0.0;
             for (const auto& c : cols) {
                 const json cand = v.value(c.first, json::object());
-                body << "<td>" << metric_cell(cand.value(mk, json())) << "</td>";
+                const json cm = cand.value(mk, json());
+                std::string cell = metric_cell(cm);
+                if (std::string(c.first) != "drizzle_uniform" && uni_valid &&
+                    cm.is_object() && cm.value("applicable", false) &&
+                    cm.contains("value") && cm["value"].is_number()) {
+                    const double pct = (cm["value"].get<double>() - uni_val) / std::abs(uni_val) * 100.0;
+                    const char* cls = pct < -0.2 ? "delta-good" : (pct > 0.2 ? "delta-bad" : "delta-neutral");
+                    cell += " <span class=\"" + std::string(cls) + "\">(" +
+                            (pct >= 0.0 ? "+" : "") + format_number(pct, 1) + "%)</span>";
+                }
+                body << "<td>" << cell << "</td>";
             }
             body << "</tr>";
         }
@@ -2359,22 +2509,82 @@ std::optional<ReportSection> gen_forward_drizzle(const json& fd, const json& sg)
             row("Note", json_string_or(fx, "note", "")),
             row("Pixel scale (recon / source)", (sx > 0.0) ? format_number(rx / sx, 4) + " x" : "n/a"),
             row("Internal x output", num(geom, "internal_scale", 0) + " x " + num(geom, "output_scale", 0)),
-            row("Sky pixel scale (WCS)", "deferred to M10 (canonical WCS/photometry)"),
+            row("Sky pixel scale (WCS)", [&]() -> std::string {
+                const double ps = json_number_or(astrometry_end, "pixel_scale_arcsec", 0.0);
+                if (std::isfinite(ps) && ps > 0.0) {
+                    const std::string solver = json_string_or(astrometry_end, "solver", "");
+                    return format_number(ps, 3) + " arcsec/px" + (solver.empty() ? "" : " (" + solver + ")");
+                }
+                return "n/a (astrometry not run)";
+            }()),
         };
         cards << make_plain_card_html("Flux space and pixel scale", render_kv_table(kv), "ok");
     }
 
-    // ---- Card 4: Noise diagnostics ---------------------------------------
+    // ---- Card 4: Noise, estimator & clipping diagnostics -----------------
     {
         const json v = fd.value("validation", json::object());
+        const json fd_v2 = fd.value("forward_drizzle_v2", json::object());
         std::ostringstream body;
-        body << "<table class=\"kv\"><thead><tr><th>Candidate</th><th>background_rms</th><th>seam_score</th></tr></thead><tbody>";
+        body << "<table class=\"data-table\"><thead><tr><th>Candidate</th><th>background_rms</th><th>seam_score</th></tr></thead><tbody>";
         for (const char* ck : {"drizzle_uniform", "drizzle_raw", "drizzle_multiband"}) {
             const json cand = v.value(ck, json::object());
             body << "<tr><th>" << ck << "</th><td>" << metric_cell(cand.value("background_rms", json()))
                  << "</td><td>" << metric_cell(cand.value("seam_score", json())) << "</td></tr>";
         }
         body << "</tbody></table>";
+
+        std::vector<std::pair<std::string, std::string>> v2_kv;
+        if (fd_end.contains("v2_estimator")) {
+            v2_kv.push_back(row("v2 estimator", json_string_or(fd_end, "v2_estimator", "?")));
+        }
+        const double acc_n = json_number_or(fd_end, "v2_full_frame_accepted", -1.0);
+        const double rej_n = json_number_or(fd_end, "v2_full_frame_rejected", -1.0);
+        if (acc_n >= 0.0 && rej_n >= 0.0) {
+            const double tot = acc_n + rej_n;
+            const double rej_pct = tot > 0.0 ? (rej_n / tot * 100.0) : 0.0;
+            v2_kv.push_back(row("Full-frame accepted / rejected",
+                                format_number(acc_n, 0) + " / " + format_number(rej_n, 0) +
+                                " (" + format_number(rej_pct, 2) + "% rejected)"));
+        }
+        if (fd_end.contains("v2_bimodal_veto_pixels")) {
+            v2_kv.push_back(row("Bimodal veto (pixels / candidates)",
+                                num(fd_end, "v2_bimodal_veto_pixels", 0) + " / " +
+                                num(fd_end, "v2_bimodal_veto_rejected_candidates", 0)));
+        }
+        if (fd_end.contains("v2_bands_committed") || fd_end.contains("v2_bands_reused")) {
+            v2_kv.push_back(row("Bands committed / reused",
+                                num(fd_end, "v2_bands_committed", 0) + " / " +
+                                num(fd_end, "v2_bands_reused", 0)));
+        }
+        if (fd_v2.contains("read_amplification") && fd_v2["read_amplification"].is_number()) {
+            v2_kv.push_back(row("Read amplification", num(fd_v2, "read_amplification", 2) + "x"));
+        }
+        if (fd_v2.contains("alpha_near_zero_fraction") && fd_v2["alpha_near_zero_fraction"].is_number()) {
+            v2_kv.push_back(row("Alpha near-zero fraction",
+                                format_number(fd_v2["alpha_near_zero_fraction"].get<double>() * 100.0, 2) + "%"));
+        }
+        if (!v2_kv.empty()) {
+            body << "<div style=\"margin-top:10px\">" << render_kv_table(v2_kv) << "</div>";
+        }
+        std::vector<std::string> t_labels;
+        std::vector<double> t_vals;
+        for (const auto& [k, lbl] : std::vector<std::pair<const char*, const char*>>{
+                 {"v2_upload_seconds", "GPU upload"},
+                 {"v2_kernel_seconds", "GPU kernel"},
+                 {"v2_download_seconds", "GPU download"},
+                 {"v2_cpu_scatter_seconds", "CPU scatter"},
+                 {"v2_cpu_fold_seconds", "CPU fold"},
+                 {"v2_commit_seconds", "Commit"},
+                 {"v2_finalize_seconds", "Finalize"}}) {
+            const double sec = json_number_or(fd_end, k, 0.0);
+            if (sec > 0.0) { t_labels.push_back(lbl); t_vals.push_back(sec); }
+        }
+        if (!t_labels.empty()) {
+            body << "<div style=\"margin-top:10px\">"
+                 << svg_bar_horizontal(t_labels, t_vals, "Forward Drizzle v2 sub-timings", "seconds")
+                 << "</div>";
+        }
         body << "<div class=\"metric-box\"><ul><li>"
              << html_escape("Lower background_rms and seam_score near 1.0 indicate a flat background and no visible band seams. "
                             "background_rms is in the normalised linear working space, not ADU.")
@@ -2408,6 +2618,15 @@ std::optional<ReportSection> gen_forward_drizzle(const json& fd, const json& sg)
                     (json_bool_or(bld.value("source", json::object()), "git_dirty", false) ? " (dirty)" : "")),
             row("Peak RSS (KiB)", num(res, "rss_process_peak_kib", 0)),
         };
+        if (acc.contains("cuda_fallback_reason") && acc["cuda_fallback_reason"].is_string() &&
+            !acc["cuda_fallback_reason"].get<std::string>().empty()) {
+            kv.push_back(row("CUDA fallback reason", acc["cuda_fallback_reason"].get<std::string>()));
+        }
+        if (res.contains("multiband_phase_rss_growth_kib") && res["multiband_phase_rss_growth_kib"].is_number()) {
+            kv.push_back(row("Multiband RSS growth / envelope (KiB)",
+                             num(res, "multiband_phase_rss_growth_kib", 0) + " / " +
+                             num(res, "multiband_phase_rss_envelope_kib", 0)));
+        }
         std::vector<std::string> evals;
         std::string status = "ok";
         const bool env_ok = json_bool_or(res, "multiband_phase_rss_within_envelope", false);
@@ -2723,7 +2942,143 @@ std::optional<ReportSection> gen_bge(const json& bge) {
         )});
     }
 
+    if (bge.contains("bge_method") && bge["bge_method"].is_string()) {
+        evals.push_back("bge_method: " + bge["bge_method"].get<std::string>());
+    }
+    if (bge.contains("safety_fallback") && json_bool_or(bge, "safety_fallback", false)) {
+        evals.push_back("WARNING: safety_fallback triggered");
+    }
+    if (bge.contains("auto_detect") && bge["auto_detect"].is_object()) {
+        const auto& ad = bge["auto_detect"];
+        evals.push_back("auto_detect gradient: " + format_number(json_number_or(ad, "gradient_strength", 0.0), 4) +
+                        " (threshold=" + format_number(json_number_or(ad, "gradient_threshold", 0.0), 4) + ")");
+    }
+    if (bge.contains("autotune") && bge["autotune"].is_object() &&
+        bge["autotune"].contains("best") && bge["autotune"]["best"].is_object()) {
+        const auto& best = bge["autotune"]["best"];
+        evals.push_back("autotune best: " + json_string_or(best, "fit_method", "?") +
+                        ", cv_rms=" + format_number(json_number_or(best, "cv_rms", 0.0), 4) +
+                        ", flatness=" + format_number(json_number_or(best, "flatness", 0.0), 4));
+    }
+
     return ReportSection{"Background Gradient Extraction (BGE)", make_card_html("BGE diagnostics", charts, evals, infer_status(evals))};
+}
+
+std::optional<ReportSection> gen_astrometry_pcc(const std::vector<json>& events) {
+    json astro = json::object();
+    json pcc = json::object();
+    for (const auto& ev : events) {
+        if (json_string_or(ev, "type", "") != "phase_end") continue;
+        const auto ph = phase_name_from_event(ev);
+        if (ph == "ASTROMETRY") astro = ev;
+        else if (ph == "PCC") pcc = ev;
+    }
+    if (astro.empty() && pcc.empty()) return std::nullopt;
+    std::ostringstream cards;
+    if (!astro.empty()) {
+        const std::string st = json_string_or(astro, "status", "ok");
+        std::vector<std::pair<std::string, std::string>> kv = {
+            {"Status", st},
+            {"Solver", json_string_or(astro, "solver", "n/a")},
+            {"RA / Dec (deg)", format_number(json_number_or(astro, "ra", NAN), 4) + " / " + format_number(json_number_or(astro, "dec", NAN), 4)},
+            {"Pixel scale (arcsec/px)", format_number(json_number_or(astro, "pixel_scale_arcsec", NAN), 3)},
+            {"Rotation (deg)", format_number(json_number_or(astro, "rotation_deg", NAN), 2)},
+        };
+        if (astro.contains("local_gaia_inlier_stars")) {
+            kv.push_back({"Gaia inliers / image stars",
+                          json_string_or(astro, "local_gaia_inlier_stars", "0") + " / " +
+                          json_string_or(astro, "local_gaia_image_stars", "0")});
+        }
+        cards << make_plain_card_html("Astrometry and WCS", render_kv_table(kv),
+                                      (st == "ok" ? "ok" : (st == "skipped" ? "warn" : "bad")));
+    }
+    if (!pcc.empty()) {
+        const std::string st = json_string_or(pcc, "status", "ok");
+        std::vector<std::pair<std::string, std::string>> kv = {
+            {"Status", st},
+            {"Catalog source", json_string_or(pcc, "source", "n/a")},
+            {"Stars matched / used", json_string_or(pcc, "stars_matched", "0") + " / " + json_string_or(pcc, "stars_used", "0")},
+            {"Residual RMS", format_number(json_number_or(pcc, "residual_rms", NAN), 4)},
+            {"Matrix determinant / cond", format_number(json_number_or(pcc, "determinant", NAN), 4) + " / " +
+                                          format_number(json_number_or(pcc, "condition_number", NAN), 2)},
+            {"Apply mode", json_string_or(pcc, "apply_mode", "n/a")},
+        };
+        if (pcc.contains("isolated_chroma_speckles_corrected")) {
+            kv.push_back({"Chroma speckles corrected", json_string_or(pcc, "isolated_chroma_speckles_corrected", "0")});
+        }
+        cards << make_plain_card_html("Photometric Color Calibration (PCC)", render_kv_table(kv),
+                                      (st == "ok" ? "ok" : (st == "skipped" ? "warn" : "bad")));
+    }
+    return ReportSection{"Astrometry and PCC", cards.str()};
+}
+
+std::optional<ReportSection> gen_hms_denoise(const std::vector<json>& events,
+                                             const json& luma_denoise,
+                                             const json& chroma_denoise) {
+    json hms = json::object();
+    for (const auto& ev : events) {
+        if (json_string_or(ev, "type", "") == "phase_end" &&
+            phase_name_from_event(ev) == "HYPERMETRIC_STRETCH") {
+            hms = ev;
+        }
+    }
+    const bool has_luma = luma_denoise.is_object() && !luma_denoise.empty();
+    const bool has_chroma = chroma_denoise.is_object() && !chroma_denoise.empty();
+    if (hms.empty() && !has_luma && !has_chroma) return std::nullopt;
+
+    std::ostringstream cards;
+    if (!hms.empty()) {
+        const std::string st = json_string_or(hms, "status", "ok");
+        std::vector<std::pair<std::string, std::string>> kv = {
+            {"Status", st},
+            {"Profile", json_string_or(hms, "profile", "n/a") + " (" + json_string_or(hms, "profile_source", "?") + ")"},
+            {"Anchor / log D", format_number(json_number_or(hms, "anchor", NAN), 4) + " / " + format_number(json_number_or(hms, "log_d", NAN), 3)},
+            {"Target background", format_number(json_number_or(hms, "target_bg", NAN), 3)},
+            {"Black / white clip (%)", format_number(json_number_or(hms, "black_clip_percent", NAN), 3) + "% / " +
+                                       format_number(json_number_or(hms, "white_clip_percent", NAN), 3) + "%"},
+            {"Color strategy", json_string_or(hms, "color_strategy", "n/a")},
+        };
+        if (hms.contains("color_cast_correction") && hms["color_cast_correction"].is_object()) {
+            const auto& ccc = hms["color_cast_correction"];
+            kv.push_back({"Color cast correction",
+                          json_string_or(ccc, "status", "?") + " (applied=" +
+                          (json_bool_or(ccc, "applied", false) ? "yes" : "no") + ")"});
+        }
+        if (hms.contains("large_scale_contrast") && hms["large_scale_contrast"].is_object()) {
+            const auto& lsc = hms["large_scale_contrast"];
+            kv.push_back({"Large-scale contrast",
+                          json_string_or(lsc, "status", "?") + " (applied=" +
+                          (json_bool_or(lsc, "applied", false) ? "yes" : "no") + ")"});
+        }
+        cards << make_plain_card_html("HyperMetric Stretch (HMS)", render_kv_table(kv),
+                                      (st == "ok" ? "ok" : (st == "skipped" ? "warn" : "bad")));
+    }
+    if (has_luma || has_chroma) {
+        std::ostringstream tbl;
+        tbl << "<table class=\"data-table\"><thead><tr><th>Pass</th><th>Stage</th><th>Applied</th><th>Input sigma</th><th>Protected</th><th>Mean denoise</th></tr></thead><tbody>";
+        auto emit_passes = [&](const char* kind, const json& doc) {
+            if (!doc.is_object()) return;
+            const json arr = doc.contains("passes") && doc["passes"].is_array()
+                ? doc["passes"] : json::array({doc});
+            for (const auto& p : arr) {
+                if (!p.is_object()) continue;
+                const double sigma = p.contains("input_chroma_sigma")
+                    ? json_number_or(p, "input_chroma_sigma", NAN)
+                    : json_number_or(p, "input_luma_sigma", NAN);
+                tbl << "<tr><th>" << kind << "</th>"
+                    << "<td>" << html_escape(json_string_or(p, "stage", "-")) << "</td>"
+                    << "<td>" << (json_bool_or(p, "applied", false) ? "yes" : "no") << "</td>"
+                    << "<td>" << html_escape(format_number(sigma, 4)) << "</td>"
+                    << "<td>" << html_escape(format_number(json_number_or(p, "combined_protected_fraction", NAN) * 100.0, 1)) << "%</td>"
+                    << "<td>" << html_escape(format_number(json_number_or(p, "mean_denoise_fraction", NAN) * 100.0, 1)) << "%</td></tr>";
+            }
+        };
+        if (has_luma) emit_passes("Luma", luma_denoise);
+        if (has_chroma) emit_passes("Chroma", chroma_denoise);
+        tbl << "</tbody></table>";
+        cards << make_plain_card_html("Luma and Chroma Denoise", tbl.str(), "ok");
+    }
+    return ReportSection{"Post-Processing (HMS and Denoise)", cards.str()};
 }
 
 std::string build_report_html(const fs::path& run_dir,
@@ -2740,12 +3095,17 @@ std::string build_report_html(const fs::path& run_dir,
                               const json& source_quality_plan,
                               const json& acceleration_context,
                               const json& bge,
+                              const json& luma_denoise,
+                              const json& chroma_denoise,
                               const std::string& config_yaml,
                               const std::string& locale) {
     std::vector<std::string> meta_lines = {
         "run_id: " + run_dir.filename().string(),
         "run_dir: " + run_dir.string(),
     };
+    std::string final_status = json_string_or(status, "status", "unknown");
+    std::string frames_meta = "-";
+    double wcs_scale = NAN;
     for (const auto& ev : events) {
         const auto type = json_string_or(ev, "type", "");
         if (type == "run_start") {
@@ -2753,12 +3113,16 @@ std::string build_report_html(const fs::path& run_dir,
             const auto frames = json_string_or(ev, "frames_discovered", "");
             const auto ts = json_string_or(ev, "ts", "");
             if (!input_dir.empty()) meta_lines.push_back("input_dir: " + input_dir);
-            if (!frames.empty()) meta_lines.push_back("frames: " + frames);
+            if (!frames.empty()) { meta_lines.push_back("frames: " + frames); frames_meta = frames; }
             if (!ts.empty()) meta_lines.push_back("timestamp: " + ts);
         }
         if (type == "run_end") {
             const auto st = json_string_or(ev, "status", "");
-            if (!st.empty()) meta_lines.push_back("final status: " + st);
+            if (!st.empty()) { meta_lines.push_back("final status: " + st); final_status = st; }
+        }
+        if (type == "phase_end" && phase_name_from_event(ev) == "ASTROMETRY") {
+            const double ps = json_number_or(ev, "pixel_scale_arcsec", NAN);
+            if (std::isfinite(ps) && ps > 0.0) wcs_scale = ps;
         }
     }
 
@@ -2768,80 +3132,130 @@ std::string build_report_html(const fs::path& run_dir,
     };
     add(gen_overview(run_dir, status, artifacts, events));
     add(gen_timeline(events));
-    add(gen_frame_usage(events));
+    add(gen_frame_usage(events, reg, registration_sampling, fwd_drizzle));
     add(gen_normalization(norm));
     add(gen_global_metrics(gm));
     add(gen_registration(reg));
     add(gen_sampling_geometry(registration_sampling, common_overlap));
     add(gen_source_quality(source_quality_plan));
-    add(gen_forward_drizzle(fwd_drizzle, sampling_geometry));
+    add(gen_forward_drizzle(fwd_drizzle, sampling_geometry, events));
     add(gen_acceleration(acceleration_context));
+    add(gen_astrometry_pcc(events));
     add(gen_bge(bge));
+    add(gen_hms_denoise(events, luma_denoise, chroma_denoise));
     add(gen_phase_issue_summary(events, bge));
 
+    // Build Executive KPI Ribbon + Section TOC inside report-content
+    std::ostringstream header_inner;
+    header_inner << "<h1>Tile-Compile Report</h1><div class=\"meta\">";
+    for (const auto& line : meta_lines) header_inner << "<span>" << html_escape(line) << "</span>";
+    header_inner << "</div>";
+
+    std::ostringstream content_inner;
+    {
+        const std::string sel_cand = fwd_drizzle.is_object() ? json_string_or(fwd_drizzle, "selected_candidate", "-") : "-";
+        const std::string cov_gate = (sampling_geometry.is_object() && sampling_geometry.contains("coverage_gate") &&
+                                      sampling_geometry["coverage_gate"].is_object())
+            ? (json_bool_or(sampling_geometry["coverage_gate"], "passed", false) ? "PASS" : "FAIL")
+            : "-";
+        const double peak_kib = (fwd_drizzle.is_object() && fwd_drizzle.contains("resources") && fwd_drizzle["resources"].is_object())
+            ? json_number_or(fwd_drizzle["resources"], "rss_process_peak_kib", 0.0) : 0.0;
+        content_inner << "<div class=\"kpi-ribbon\">"
+                      << "<div class=\"kpi\"><div class=\"kpi-label\">Status</div><div class=\"kpi-val\">" << html_escape(final_status) << "</div></div>"
+                      << "<div class=\"kpi\"><div class=\"kpi-label\">Frames</div><div class=\"kpi-val\">" << html_escape(frames_meta) << "</div></div>"
+                      << "<div class=\"kpi\"><div class=\"kpi-label\">Selected candidate</div><div class=\"kpi-val\">" << html_escape(sel_cand) << "</div></div>"
+                      << "<div class=\"kpi\"><div class=\"kpi-label\">Coverage gate</div><div class=\"kpi-val\">" << html_escape(cov_gate) << "</div></div>"
+                      << "<div class=\"kpi\"><div class=\"kpi-label\">WCS scale</div><div class=\"kpi-val\">"
+                      << (std::isfinite(wcs_scale) ? html_escape(format_number(wcs_scale, 2) + "\"/px") : std::string("-")) << "</div></div>"
+                      << "<div class=\"kpi\"><div class=\"kpi-label\">Peak RSS</div><div class=\"kpi-val\">"
+                      << (peak_kib > 0.0 ? html_escape(format_number(peak_kib / 1024.0, 0) + " MiB") : std::string("-")) << "</div></div>"
+                      << "</div>";
+    }
+    if (!sections.empty()) {
+        content_inner << "<nav class=\"toc\" aria-label=\"Sections\">";
+        for (size_t i = 0; i < sections.size(); ++i) {
+            content_inner << "<a href=\"#sec-" << i << "\">" << html_escape(sections[i].title) << "</a>";
+        }
+        content_inner << "</nav>";
+    }
+    for (size_t i = 0; i < sections.size(); ++i) {
+        content_inner << "<section id=\"sec-" << i << "\"><h2>" << html_escape(sections[i].title)
+                      << "</h2><div class=\"grid\">" << sections[i].cards_html << "</div></section>";
+    }
+
+    // Translate ONLY the header and content fragments so <style> (180deg) and
+    // <pre>config.yaml</pre> (internal_scale, output_scale) are never corrupted.
+    json templates = json::object();
+    std::string active_header;
+    std::string active_content;
+    for (const std::string lang : {"de", "en"}) {
+        const std::string loc_header = apply_report_translations(header_inner.str(), lang);
+        const std::string loc_content = apply_report_translations(content_inner.str(), lang);
+        templates[lang] = {
+            {"header", loc_header},
+            {"content", loc_content}
+        };
+        if (lang == locale) {
+            active_header = loc_header;
+            active_content = loc_content;
+        }
+    }
+    if (active_header.empty()) {
+        active_header = apply_report_translations(header_inner.str(), locale);
+        active_content = apply_report_translations(content_inner.str(), locale);
+    }
+
     std::ostringstream html;
-    html << "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"/>"
+    html << "<!doctype html><html lang=\"" << html_escape(locale) << "\"><head><meta charset=\"utf-8\"/>"
          << "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>"
          << "<title>" << html_escape("Tile-Compile Report - " + run_dir.filename().string()) << "</title>"
          << "<style>"
-         << ":root{color-scheme:dark;--bg:#020617;--panel:#0f172a;--panel2:#111827;--line:#334155;--text:#e2e8f0;--muted:#94a3b8;--good:#4ade80;--warn:#fbbf24;--bad:#f87171;}"
+         << ":root{color-scheme:dark;--bg:#020617;--panel:#0f172a;--panel2:#111827;--line:#334155;--text:#e2e8f0;--muted:#94a3b8;--good:#4ade80;--warn:#fbbf24;--bad:#f87171;--accent:#2dd4bf;}"
          << "*{box-sizing:border-box;}body{margin:0;background:radial-gradient(circle at top,#0f172a,#020617 60%);color:var(--text);font:14px/1.5 ui-sans-serif,system-ui,sans-serif;}"
-         << "header{padding:32px 28px 18px;border-bottom:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(15,23,42,.88),rgba(2,6,23,.96));position:sticky;top:0;backdrop-filter:blur(10px);z-index:5;}"
-         << "header h1{margin:0 0 8px;font-size:28px;}header .meta{color:var(--muted);font-size:13px;display:flex;flex-wrap:wrap;gap:8px 16px;}"
+         << "header{padding:24px 28px 16px;border-bottom:1px solid rgba(148,163,184,.16);background:linear-gradient(180deg,rgba(15,23,42,.88),rgba(2,6,23,.96));position:sticky;top:0;backdrop-filter:blur(10px);z-index:5;}"
+         << "header h1{margin:0 0 8px;font-size:26px;}header .meta{color:var(--muted);font-size:13px;display:flex;flex-wrap:wrap;gap:8px 16px;}"
          << ".header-top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;}.language-switch{display:inline-flex;align-items:center;gap:4px;padding:3px;border:1px solid rgba(148,163,184,.24);border-radius:999px;background:rgba(2,6,23,.55);flex:0 0 auto;}"
          << ".language-switch button{border:0;border-radius:999px;background:transparent;color:var(--muted);font:600 12px/1 ui-sans-serif,system-ui,sans-serif;padding:7px 10px;cursor:pointer;}.language-switch button.active{background:#2563eb;color:#fff;}.language-switch button:focus-visible{outline:2px solid #93c5fd;outline-offset:2px;}"
-         << "main{padding:24px 22px 34px;max-width:1600px;margin:0 auto;}section{margin:0 0 28px;}section h2{margin:0 0 14px;font-size:19px;}"
+         << "main{padding:20px 22px 34px;max-width:1600px;margin:0 auto;}section{margin:0 0 28px;scroll-margin-top:110px;}section h2{margin:0 0 14px;font-size:19px;}"
+         << ".kpi-ribbon{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:0 0 16px;}"
+         << ".kpi{background:rgba(15,23,42,.92);border:1px solid rgba(148,163,184,.18);border-radius:12px;padding:10px 14px;}"
+         << ".kpi-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}"
+         << ".kpi-val{font-size:16px;font-weight:700;font-family:ui-monospace,SFMono-Regular,monospace;font-variant-numeric:tabular-nums;margin-top:3px;overflow-wrap:anywhere;}"
+         << ".toc{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 22px;padding:10px 12px;background:rgba(15,23,42,.75);border:1px solid rgba(148,163,184,.14);border-radius:12px;}"
+         << ".toc a{color:var(--text);text-decoration:none;font-size:12px;padding:4px 10px;border-radius:999px;background:rgba(30,41,59,.8);border:1px solid rgba(148,163,184,.16);}"
+         << ".toc a:hover{border-color:var(--accent);color:var(--accent);}"
          << ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px;align-items:start;}"
          << ".card{background:linear-gradient(180deg,rgba(17,24,39,.96),rgba(15,23,42,.96));border:1px solid rgba(148,163,184,.15);border-radius:16px;padding:16px 16px 12px;box-shadow:0 8px 28px rgba(0,0,0,.18);}"
          << ".card h3{margin:0 0 12px;font-size:16px;display:flex;align-items:center;gap:10px;}"
          << ".badge{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:11px;text-transform:uppercase;border:1px solid currentColor;}"
          << ".badge.ok,.card.ok .badge{color:var(--good);} .badge.warn,.card.warn .badge{color:var(--warn);} .badge.bad,.card.bad .badge{color:var(--bad);}"
+         << ".delta-good{color:var(--good);font-weight:600;font-size:12px;} .delta-bad{color:var(--bad);font-weight:600;font-size:12px;} .delta-neutral{color:var(--muted);font-size:12px;}"
          << ".chart-row{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin:0 0 14px;align-items:start;}"
          << ".chart-col{min-width:0;}"
          << ".explain-col{color:var(--muted);font-size:13px;background:rgba(255,255,255,.025);border:1px solid rgba(148,163,184,.12);border-radius:12px;padding:12px 13px;}"
          << ".explain-col h4{margin:0 0 8px;font-size:12px;color:#93c5fd;text-transform:uppercase;letter-spacing:.04em;}"
          << ".explain-col p{margin:0 0 8px;line-height:1.55;} .explain-col ul{margin:4px 0 0 16px;padding:0;} .explain-col li{margin:4px 0;line-height:1.5;} .explain-col .good{color:var(--good);font-weight:600;} .explain-col .neutral{color:var(--warn);font-weight:600;} .explain-col .bad{color:var(--bad);font-weight:600;}"
          << ".metric-box{border-top:1px solid rgba(148,163,184,.12);padding-top:10px;margin-top:6px;} .metric-box ul{margin:0;padding-left:18px;} .metric-box li{margin:3px 0;} .metric-box li.warn{color:#fecaca;}"
-         << ".kv,.phases{width:100%;border-collapse:collapse;} .kv th,.kv td,.phases th,.phases td{padding:8px 10px;border-bottom:1px solid rgba(148,163,184,.12);text-align:left;vertical-align:top;} .kv th,.phases th{color:#cbd5e1;width:36%;font-weight:600;}"
+         << ".kv,.phases,.data-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;} .kv th,.kv td,.phases th,.phases td,.data-table th,.data-table td{padding:8px 10px;border-bottom:1px solid rgba(148,163,184,.12);text-align:left;vertical-align:top;} .kv th,.phases th{color:#cbd5e1;width:36%;font-weight:600;} .data-table th{color:#cbd5e1;font-weight:600;}"
          << ".artifact-list{margin:0;padding-left:18px;} .artifact-list li{margin:3px 0;} .muted{color:var(--muted);} code,pre{font-family:ui-monospace,SFMono-Regular,monospace;} pre{margin:0;white-space:pre-wrap;overflow:auto;background:#020617;border:1px solid rgba(148,163,184,.14);border-radius:12px;padding:12px;}"
          << "details.config{margin-top:26px;background:rgba(15,23,42,.92);border:1px solid rgba(148,163,184,.15);border-radius:14px;padding:14px 16px;} details summary{cursor:pointer;font-weight:600;}"
          << ".footer{margin-top:18px;color:var(--muted);font-size:12px;}"
          << "svg.report-chart{width:100%;height:auto;display:block;} svg.report-chart line,svg.report-chart polyline,svg.report-chart path{vector-effect:non-scaling-stroke;} .svg-title{fill:#e2e8f0;font-size:14px;font-weight:700;} .svg-title-small{fill:#e2e8f0;font-size:18px;font-weight:700;} .svg-label{fill:#94a3b8;font-size:11px;} .svg-note{fill:#94a3b8;font-size:13px;} .svg-tick{fill:#94a3b8;font-size:10px;} .svg-axis{stroke:#64748b;stroke-width:0.8;} .svg-grid{stroke:#1e293b;stroke-width:0.7;}"
          << "@media (min-width:1100px){.chart-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}}"
          << "@media (max-width:720px){.header-top{flex-direction:column;}.language-switch{align-self:flex-start;}}"
+         << "@media print{header{position:static;backdrop-filter:none;}.language-switch,.toc{display:none;}.card{break-inside:avoid;box-shadow:none;}}"
          << "</style></head><body>";
-    html << "<header><div class=\"header-top\"><div id=\"report-header-content\"><!--REPORT_HEADER_BEGIN--><h1>Tile-Compile Report</h1><div class=\"meta\">";
-    for (const auto& line : meta_lines) html << "<span>" << html_escape(line) << "</span>";
-    html << "</div><!--REPORT_HEADER_END--></div><nav class=\"language-switch\" aria-label=\"Report language\"><button type=\"button\" data-report-lang=\"de\">Deutsch</button><button type=\"button\" data-report-lang=\"en\">English</button></nav></div></header><main><div id=\"report-content\"><!--REPORT_CONTENT_BEGIN-->";
-    for (const auto& section : sections) {
-        html << "<section><h2>" << html_escape(section.title) << "</h2><div class=\"grid\">" << section.cards_html << "</div></section>";
-    }
-    html << "<!--REPORT_CONTENT_END--></div>";
+    html << "<header><div class=\"header-top\"><div id=\"report-header-content\"><!--REPORT_HEADER_BEGIN-->"
+         << active_header
+         << "<!--REPORT_HEADER_END--></div><nav class=\"language-switch\" aria-label=\"Report language\"><button type=\"button\" data-report-lang=\"de\">Deutsch</button><button type=\"button\" data-report-lang=\"en\">English</button></nav></div></header><main><div id=\"report-content\"><!--REPORT_CONTENT_BEGIN-->"
+         << active_content
+         << "<!--REPORT_CONTENT_END--></div>";
     if (!config_yaml.empty()) {
         html << "<details class=\"config\"><summary>Config (config.yaml)</summary><pre>" << html_escape(config_yaml) << "</pre></details>";
     }
     html << "<div class=\"footer\">Generated by tile_compile_web_backend (C++ inline SVG report)</div>";
-    html << "</main>__REPORT_LANGUAGE_SCRIPT__</body></html>";
-    const std::string base_html = html.str();
-    // Render both locales so the embedded language switch can swap the
-    // already-rendered header/content without a backend round-trip.
-    json templates = json::object();
-    std::string localized;
-    for (const std::string lang : {"de", "en"}) {
-        const std::string variant = apply_report_translations(base_html, lang);
-        templates[lang] = {
-            {"header", extract_between(variant, "<!--REPORT_HEADER_BEGIN-->", "<!--REPORT_HEADER_END-->")},
-            {"content", extract_between(variant, "<!--REPORT_CONTENT_BEGIN-->", "<!--REPORT_CONTENT_END-->")}
-        };
-        if (lang == locale) localized = variant;
-    }
-    if (localized.empty()) localized = apply_report_translations(base_html, locale);
-    const std::string marker = "__REPORT_LANGUAGE_SCRIPT__";
-    const auto marker_pos = localized.find(marker);
-    if (marker_pos != std::string::npos) {
-        localized.replace(marker_pos, marker.size(), build_language_switch_script(locale, templates));
-    }
-    return localized;
+    html << "</main>" << build_language_switch_script(locale, templates) << "</body></html>";
+    return html.str();
 }
 
 } // namespace
@@ -2875,6 +3289,8 @@ nlohmann::json generate_run_report(const fs::path& run_dir) {
         const json gm = read_json_if_exists(artifacts_dir / "global_metrics.json");
         const json reg = read_json_if_exists(artifacts_dir / "global_registration.json");
         const json bge = read_json_if_exists(artifacts_dir / "bge.json");
+        const json luma_denoise = read_json_if_exists(artifacts_dir / "luma_denoise.json");
+        const json chroma_denoise = read_json_if_exists(artifacts_dir / "chroma_denoise.json");
         const json fwd_drizzle = read_json_if_exists(artifacts_dir / "forward_drizzle.json");
         const json sampling_geometry = read_json_if_exists(artifacts_dir / "sampling_geometry.json");
         const json registration_sampling = read_json_if_exists(artifacts_dir / "registration_sampling.json");
@@ -2888,7 +3304,8 @@ nlohmann::json generate_run_report(const fs::path& run_dir) {
                                                           fwd_drizzle, sampling_geometry,
                                                           registration_sampling, common_overlap,
                                                           source_quality_plan, acceleration_context,
-                                                          bge, config_yaml, locale);
+                                                          bge, luma_denoise, chroma_denoise,
+                                                          config_yaml, locale);
 
         std::ofstream report_out(report_path, std::ios::binary);
         if (!report_out) {

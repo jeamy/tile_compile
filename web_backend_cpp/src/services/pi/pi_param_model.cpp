@@ -1,4 +1,6 @@
 #include "services/pi/pi_param_model.hpp"
+#include "sha256_hex.hpp"
+#include "time_utils.hpp"
 
 #include "app_state.hpp"
 #include "services/pi/pi_feature_vector.hpp"
@@ -88,13 +90,7 @@ std::string compute_file_sha256(const fs::path& path) {
     if (!in) return {};
     std::ostringstream contents;
     contents << in.rdbuf();
-    const std::string bytes = contents.str();
-    unsigned char digest[SHA256_DIGEST_LENGTH];
-    SHA256(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(), digest);
-    std::ostringstream hex;
-    hex << std::hex << std::setfill('0');
-    for (unsigned char byte : digest) hex << std::setw(2) << static_cast<int>(byte);
-    return hex.str();
+    return sha256_hex(contents.str());
 }
 
 fs::path default_pi_models_dir(const std::shared_ptr<AppState>& state) {
@@ -294,20 +290,6 @@ ParamShadowPrediction predict_param_nn(const std::shared_ptr<AppState>& state,
 
 namespace {
 
-std::string now_iso() {
-    const auto now = std::chrono::system_clock::now();
-    const std::time_t t = std::chrono::system_clock::to_time_t(now);
-    std::tm tm_buf{};
-#ifdef _WIN32
-    gmtime_s(&tm_buf, &t);
-#else
-    gmtime_r(&t, &tm_buf);
-#endif
-    std::ostringstream out;
-    out << std::put_time(&tm_buf, "%Y-%m-%dT%H:%M:%SZ");
-    return out.str();
-}
-
 // actual_value may be null (no ground truth known for this call, e.g. Schritt 5 when the field
 // simply wasn't part of this operation's params) — the entry is still logged for visibility into
 // how often that happens, just without an agreement verdict.
@@ -323,7 +305,7 @@ void log_one_shadow_prediction(const std::shared_ptr<AppState>& state,
         {"schema_version", "pi.param-shadow-prediction.v1"},
         {"domain", domain},
         {"target_path", target_path},
-        {"logged_at", now_iso()},
+        {"logged_at", utc_now_iso()},
         {"feature_vector", feature_vector},
         {"model_available", prediction.available},
     };

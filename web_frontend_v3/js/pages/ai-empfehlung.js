@@ -5,6 +5,7 @@ import { t } from "../i18n/i18n.js";
 import { getAiState, setAiState, getAiFormData, setAiFormData, onAiChange } from "../state/ai-state.js";
 import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
+import { loadAiTrafficLines } from "../components/ai-traffic.js";
 import { toast, toastSuccess, toastError } from "../components/toast.js";
 import { pollJob } from "../utils/poll.js";
 import { getScanData, getQueueItems, getEffectiveCalValues } from "./input-scan.js";
@@ -17,6 +18,24 @@ import { createJevSettingsCard } from "./jev-empfehlung.js";
 import { getFeatureFlags, setFeatureFlags } from "../state/feature-flags.js";
 import { createFeatureSwitch } from "../components/feature-switch.js";
 import { createReasonPicker } from "../assistant/reason-picker.js";
+
+// GETs of this page, kept 15 s: a tab switch renders from them instead of
+// sending the same requests again. Any write of this page drops them (before
+// and after it), and the refresh buttons ask for fresh data.
+const GET_CACHE_TTL_MS = 15000;
+const _getCache = new Map();
+function cachedGet(url, fresh = false) {
+  const hit = _getCache.get(url);
+  if (!fresh && hit && Date.now() - hit.at < GET_CACHE_TTL_MS) return hit.promise;
+  const promise = api.get(url);
+  _getCache.set(url, { at: Date.now(), promise });
+  promise.catch(() => { if (_getCache.get(url)?.promise === promise) _getCache.delete(url); });
+  return promise;
+}
+const apiWrite = {
+  post: (...args) => { _getCache.clear(); return api.post(...args).finally(() => _getCache.clear()); },
+  patch: (...args) => { _getCache.clear(); return api.patch(...args).finally(() => _getCache.clear()); },
+};
 
 export function createAiModelSettingsPage() {
   // The Jev card is its own card with its own endpoint/state: it does not share the provider slot above.
@@ -193,7 +212,7 @@ export function createAiEmpfehlungPage() {
         class: "tc-btn",
         style: { flexShrink: "0" },
         title: t("ui.tooltip.ai.refresh_pi_storage", "Laedt den aktiven PI-Speicherort neu."),
-        onclick: () => loadPiStorage(),
+        onclick: () => loadPiStorage(true),
       }, t("ui.button.refresh", "Aktualisieren")),
     ),
     el("div", { class: "tc-text-muted tc-text-sm tc-mt-2", id: "ai-pi-storage-status" }, t("ui.state.not_loaded", "nicht geladen")),
@@ -210,7 +229,7 @@ export function createAiEmpfehlungPage() {
         el("option", { value: "deprecated" }, t("ui.pi.status.deprecated", "Deprecated")),
         el("option", { value: "all" }, t("ui.option.all", "Alle")),
       ),
-      el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.refresh_memories", "Laedt die PI Memory-Liste neu."), onclick: () => loadPiMemories() }, t("ui.button.refresh", "Aktualisieren")),
+      el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.refresh_memories", "Laedt die PI Memory-Liste neu."), onclick: () => loadPiMemories(true) }, t("ui.button.refresh", "Aktualisieren")),
       el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.export_memories", "Exportiert PI Memories ohne Bilddaten."), onclick: () => exportPiMemories() }, t("ui.button.export", "Export")),
       el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.import_memories", "Importiert ein PI Memory-Bundle."), onclick: () => importPiMemories() }, t("ui.button.import", "Import")),
       el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.dedupe_memories", "Entfernt doppelte PI Memory-Kandidaten nach Bestaetigung."), onclick: () => dedupePiMemories() }, t("ui.button.dedupe", "Dedupe")),
@@ -223,7 +242,7 @@ export function createAiEmpfehlungPage() {
   const piAudit = el("div", { class: "tc-card", id: "ai-pi-audit" },
     el("div", { class: "tc-card-title" }, t("ui.title.pi_audit", "PI Audit")),
     el("div", { class: "tc-flex tc-gap-2 tc-items-center tc-mb-2" },
-      el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.refresh_audit", "Laedt PI Audit-Eintraege neu."), onclick: () => loadPiAudit() }, t("ui.button.refresh", "Aktualisieren")),
+      el("button", { class: "tc-btn tc-btn-sm", title: t("ui.tooltip.ai.refresh_audit", "Laedt PI Audit-Eintraege neu."), onclick: () => loadPiAudit(true) }, t("ui.button.refresh", "Aktualisieren")),
       el("span", { class: "tc-text-muted tc-text-sm", id: "ai-pi-audit-status" }, t("ui.state.not_loaded", "nicht geladen")),
     ),
     el("div", { class: "tc-flex-col tc-gap-2", id: "ai-pi-audit-list" }),
@@ -252,33 +271,38 @@ export function createAiEmpfehlungPage() {
 
   page.append(scanCtx, actions, recs, applyBar, piStorage, piMemories, piAudit, traffic);
 
-  // Load persisted provider/model before loading the model registry.
+  // Load persisted provider/model before loading the model registry. Every
+  // mount fills its fields; repeated tab switches are served by cachedGet.
   loadAiConfig().finally(() => loadModels());
-  loadPiContext();
   loadPiStorage();
   loadPiMemories();
   loadPiAudit();
   loadAiAccountStatus(fd.provider);
 
-  // Restore loading state if analysis is in progress
-  if (aiState.loading) {
-    const recsContainer = document.getElementById("ai-recommendations");
-    if (recsContainer) {
-      recsContainer.innerHTML = "";
-      recsContainer.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.toast.analysis_creating", "KI-Analyse wird erstellt...") + " " + t("ui.state.background_tab_ok", "(Tab-Wechsel OK, läuft im Hintergrund)")));
+  // The restore looks its targets up by id, so it waits until the caller has
+  // attached the page (renderContent appends it right after this returns).
+  setTimeout(() => {
+    // Restore loading state if analysis is in progress
+    if (aiState.loading) {
+      const recsContainer = document.getElementById("ai-recommendations");
+      if (recsContainer) {
+        recsContainer.innerHTML = "";
+        recsContainer.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.toast.analysis_creating", "KI-Analyse wird erstellt...") + " " + t("ui.state.background_tab_ok", "(Tab-Wechsel OK, läuft im Hintergrund)")));
+      }
     }
-  }
 
-  // Load saved analyses history and restore current analysis
-  loadAnalysisHistory();
-  if (analysisMatchesCurrentScope(aiState.currentAnalysis)) {
-    renderRecommendations(analysisRecommendations(aiState.currentAnalysis));
-  } else if (aiState.currentAnalysis) {
-    setAiState({ currentAnalysis: null });
-  }
-  if (aiState.trafficLog?.length > 0) {
-    renderTrafficLog(aiState.trafficLog);
-  }
+    // Load saved analyses history and restore current analysis
+    loadAnalysisHistory();
+    if (analysisMatchesCurrentScope(aiState.currentAnalysis)) {
+      renderRecommendations(analysisRecommendations(aiState.currentAnalysis));
+    } else if (aiState.currentAnalysis) {
+      setAiState({ currentAnalysis: null });
+    }
+    if (aiState.trafficLog?.length > 0) {
+      renderTrafficLog(aiState.trafficLog);
+    }
+
+  }, 0);
 
   // Live-update: subscribe to ai-state changes so traffic log and
   // recommendations update in real-time even after tab switches.
@@ -386,14 +410,6 @@ function syncAiControlsFromForm() {
   setChecked("ai-calibration-bias", fd.calibration_bias);
 }
 
-async function loadPiContext() {
-  try {
-    await api.get(API_ENDPOINTS.pi.context);
-  } catch {
-    // PI context is optional for the AI tab.
-  }
-}
-
 function ensureProviderOption(provider) {
   const select = document.getElementById("ai-provider");
   if (!select || !provider) return;
@@ -421,7 +437,7 @@ function renderProviderOptions(providers) {
 
 async function loadAiConfig() {
   try {
-    const config = await api.get(API_ENDPOINTS.ai.config);
+    const config = await cachedGet(API_ENDPOINTS.ai.config);
     if (!config || config.available === false) return;
     const provider = String(config.provider || "").trim();
     const model = String(config.model || "").trim();
@@ -454,7 +470,7 @@ async function loadAiConfig() {
 async function persistAiUiConfig(uiPatch = {}) {
   const ui = { ...persistentAiUiFromForm(), ...uiPatch };
   try {
-    const saved = await api.patch(API_ENDPOINTS.ai.config, { ui });
+    const saved = await apiWrite.patch(API_ENDPOINTS.ai.config, { ui });
     setAiState({ config: saved });
     return saved;
   } catch (e) {
@@ -485,7 +501,7 @@ async function persistAiProviderModelConfig(patch) {
   if (Object.prototype.hasOwnProperty.call(patch, "provider")) clean.provider = String(patch.provider || "").trim();
   if (Object.prototype.hasOwnProperty.call(patch, "model")) clean.model = String(patch.model || "").trim();
   try {
-    const saved = await api.patch(API_ENDPOINTS.ai.config, clean);
+    const saved = await apiWrite.patch(API_ENDPOINTS.ai.config, clean);
     setAiState({ config: saved });
     return saved;
   } catch (e) {
@@ -517,7 +533,7 @@ async function loadModels() {
   const piVersionEl = document.getElementById("ai-pi-version-status");
   const modelSelect = document.getElementById("ai-model");
   try {
-    const models = await api.get(API_ENDPOINTS.ai.models);
+    const models = await cachedGet(API_ENDPOINTS.ai.models);
     if (models?.available === false) {
       if (statusEl) statusEl.textContent = t("ui.state.model_unavailable", "Sidecar nicht erreichbar");
       if (piVersionEl) piVersionEl.textContent = "";
@@ -645,7 +661,7 @@ async function saveVisionOverride() {
   const model = document.getElementById("ai-model")?.value || "";
   if (!model) return;
   try {
-    const result = await api.post(API_ENDPOINTS.ai.test, {
+    const result = await apiWrite.post(API_ENDPOINTS.ai.test, {
       model,
       vision_override: currentVisionOverrideValue(),
     });
@@ -713,7 +729,7 @@ async function loadAiAccountStatus(provider = "") {
   const selectedProvider = provider || document.getElementById("ai-provider")?.value || "";
   if (container) container.textContent = t("ui.state.account_loading", "Kontostatus wird geladen...");
   try {
-    const payload = await api.get(API_ENDPOINTS.ai.account(selectedProvider));
+    const payload = await cachedGet(API_ENDPOINTS.ai.account(selectedProvider));
     if (payload?.available === false) {
       if (container) container.textContent = t("ui.state.account_unavailable", "Kontostatus nicht verfügbar.");
       return;
@@ -736,7 +752,7 @@ async function refreshAiProviderStatus() {
   try {
     const [account, modelCheck] = await Promise.all([
       api.get(API_ENDPOINTS.ai.account(provider)),
-      api.post(API_ENDPOINTS.ai.test, {
+      apiWrite.post(API_ENDPOINTS.ai.test, {
         model,
         vision_probe: true,
         vision_override: currentVisionOverrideValue(),
@@ -763,7 +779,7 @@ async function saveApiKey() {
   const key = document.getElementById("ai-apikey")?.value || "";
   if (!provider || !key) return;
   try {
-    await api.post(API_ENDPOINTS.ai.auth, { provider, api_key: key });
+    await apiWrite.post(API_ENDPOINTS.ai.auth, { provider, api_key: key });
     toastSuccess(t("ui.toast.key_saved", "API-Key gespeichert"));
     setAiFormData({ apiKey: "" });
     const keyInput = document.getElementById("ai-apikey");
@@ -798,7 +814,7 @@ export async function autoScanForAnalysis() {
     queue: getQueueItems(),
     calibration: getEffectiveCalValues(),
   };
-  const jobStart = await api.post(API_ENDPOINTS.scan.root, payload);
+  const jobStart = await apiWrite.post(API_ENDPOINTS.scan.root, payload);
   if (!jobStart?.job_id) {
     throw new Error(t("ui.error.no_job_id", "Backend hat keine job_id zurückgegeben."));
   }
@@ -867,7 +883,7 @@ async function createAnalysis(force = false) {
     let scanMetrics = null;
     try {
       addTrafficEntry({ type: "info", text: "Loading image statistics..." });
-      const metricsStart = await api.post(API_ENDPOINTS.scan.metrics, {
+      const metricsStart = await apiWrite.post(API_ENDPOINTS.scan.metrics, {
         input_path: latestScan.input_path || latestScan.input_dirs?.[0] || "",
         object_name: objectName || latestScan.object_name || latestScan.target || "",
         target: objectName || latestScan.object_name || latestScan.target || "",
@@ -931,7 +947,7 @@ async function createAnalysis(force = false) {
     addTrafficEntry({ type: "progress", text: "Prompt wird gebaut... 10%" });
     addTrafficEntry({ type: "progress", text: "Warte auf KI-Antwort... 15%" });
 
-    const result = await api.post(API_ENDPOINTS.scan.analysis, payload, { timeoutMs: 1200000 });
+    const result = await apiWrite.post(API_ENDPOINTS.scan.analysis, payload, { timeoutMs: 1200000 });
     const recs = result?.validated_updates || result?.updates || result?.recommendations || [];
     addTrafficEntry({ type: "progress", text: "Antwort wird verarbeitet... 90%" });
     if (recs.length > 0) {
@@ -1014,7 +1030,7 @@ async function applyRecommendations(all = false) {
   }
   try {
     const learn = Boolean(document.getElementById("ai-learn-memory")?.checked);
-    const result = await api.post(API_ENDPOINTS.scan.analysisApply, {
+    const result = await apiWrite.post(API_ENDPOINTS.scan.analysisApply, {
       analysis_id: currentAnalysis.analysis_id || currentAnalysis.job_id || "",
       selected_paths: selected.map((r) => r.path).filter(Boolean),
       recommendations: selected,
@@ -1118,12 +1134,12 @@ function memoryEvidenceSummary(memory) {
   return parts.length ? `${t("ui.pi.evidence", "Evidenz")}: ${parts.join(" · ")}` : "";
 }
 
-async function loadPiStorage() {
+async function loadPiStorage(fresh = false) {
   const input = document.getElementById("ai-pi-storage-dir");
   const status = document.getElementById("ai-pi-storage-status");
   if (status) status.textContent = t("ui.state.loading", "Lädt...");
   try {
-    const payload = await api.get(API_ENDPOINTS.pi.storage);
+    const payload = await cachedGet(API_ENDPOINTS.pi.storage, fresh);
     if (input) input.value = payload?.storage_dir || "";
     if (status) {
       const configured = payload?.configured
@@ -1146,7 +1162,7 @@ async function savePiStorage() {
     return;
   }
   try {
-    const payload = await api.post(API_ENDPOINTS.pi.storage, { storage_dir: raw });
+    const payload = await apiWrite.post(API_ENDPOINTS.pi.storage, { storage_dir: raw });
     if (input) input.value = payload?.storage_dir || raw;
     await loadPiMemories();
     await loadPiAudit();
@@ -1156,14 +1172,14 @@ async function savePiStorage() {
   }
 }
 
-async function loadPiMemories() {
+async function loadPiMemories(fresh = false) {
   const filter = document.getElementById("ai-pi-memory-filter")?.value || "candidate";
   const status = document.getElementById("ai-pi-memory-status");
   const list = document.getElementById("ai-pi-memory-list");
   const dir = document.getElementById("ai-pi-memory-dir");
   if (status) status.textContent = t("ui.state.loading", "Lädt...");
   try {
-    const payload = await api.get(`${API_ENDPOINTS.pi.memories}?limit=100&status=${encodeURIComponent(filter)}`);
+    const payload = await cachedGet(`${API_ENDPOINTS.pi.memories}?limit=100&status=${encodeURIComponent(filter)}`, fresh);
     if (dir) {
       dir.textContent = payload?.memory_dir ? `${t("ui.pi.memory_store", "Memory Store")}: ${payload.memory_dir}` : "";
     }
@@ -1248,7 +1264,7 @@ async function reviewPiMemory(memoryId, reviewStatus) {
     ? await requestMemoryReviewRationale(reviewStatus) : null;
   if (["rejected", "deprecated"].includes(reviewStatus) && !rationale) return;
   try {
-    await api.post(API_ENDPOINTS.pi.memoryReview(memoryId), {
+    await apiWrite.post(API_ENDPOINTS.pi.memoryReview(memoryId), {
       status: reviewStatus,
       reviewer: "gui3",
       request_id: newDecisionRequestId(),
@@ -1287,7 +1303,7 @@ async function applyPiMemoryToDraft(memory) {
   }
   const yamlText = stringifyYaml(next);
   try {
-    const validation = await api.post(API_ENDPOINTS.config.validate, { yaml: yamlText });
+    const validation = await apiWrite.post(API_ENDPOINTS.config.validate, { yaml: yamlText });
     if (validation?.errors?.length) {
       toastError(t("ui.toast.validation_failed", "Validation failed"), `${validation.errors.length} Fehler`);
       return;
@@ -1337,7 +1353,7 @@ async function editPiMemoryScope(memory) {
     ? currentStatus
     : "promotable";
   try {
-    await api.post(API_ENDPOINTS.pi.memoryReview(memoryId), {
+    await apiWrite.post(API_ENDPOINTS.pi.memoryReview(memoryId), {
       status: reviewStatus,
       reviewer: "gui3",
       note: t("ui.pi.scope_updated", "Scope updated in GUI3"),
@@ -1384,7 +1400,7 @@ async function importPiMemories() {
     try {
       const text = await file.text();
       const bundle = JSON.parse(text);
-      const result = await api.post(API_ENDPOINTS.pi.memoriesImport, { bundle, dry_run: false });
+      const result = await apiWrite.post(API_ENDPOINTS.pi.memoriesImport, { bundle, dry_run: false });
       await loadPiMemories();
       await loadPiAudit();
       toastSuccess(t("ui.pi.import_result", "Import: {count} Memories", { count: result.imported_memories || 0 }));
@@ -1401,7 +1417,7 @@ async function importPiMemories() {
 async function dedupePiMemories() {
   if (!window.confirm(t("ui.confirm.pi_dedupe", "PI Memories deduplizieren?"))) return;
   try {
-    const result = await api.post(API_ENDPOINTS.pi.memoriesDedupe, { dry_run: false });
+    const result = await apiWrite.post(API_ENDPOINTS.pi.memoriesDedupe, { dry_run: false });
     await loadPiMemories();
     await loadPiAudit();
     toastSuccess(t("ui.pi.dedupe_result", "Dedupe: {count} entfernt", { count: result.removed_count || 0 }));
@@ -1420,12 +1436,12 @@ function summarizeAuditItem(item) {
   return `${item?.event || item?.audit_type || t("ui.title.pi_audit", "PI Audit")} · ${item?.source || ""}`;
 }
 
-async function loadPiAudit() {
+async function loadPiAudit(fresh = false) {
   const status = document.getElementById("ai-pi-audit-status");
   const list = document.getElementById("ai-pi-audit-list");
   if (status) status.textContent = t("ui.state.loading", "Lädt...");
   try {
-    const payload = await api.get(`${API_ENDPOINTS.pi.audit}?limit=200`);
+    const payload = await cachedGet(`${API_ENDPOINTS.pi.audit}?limit=200`, fresh);
     if (list) {
       list.innerHTML = "";
       const items = Array.isArray(payload?.items) ? payload.items.slice(-50).reverse() : [];
@@ -1455,9 +1471,9 @@ function discardRecommendations() {
   }
 }
 
-async function loadAnalysisHistory() {
+async function loadAnalysisHistory(fresh = false) {
   try {
-    const result = await api.get(API_ENDPOINTS.scan.analysisHistory);
+    const result = await cachedGet(API_ENDPOINTS.scan.analysisHistory, fresh);
     const items = result?.items || [];
     const select = document.getElementById("ai-history-select");
     if (!select) return;
@@ -1511,18 +1527,10 @@ function renderTrafficLog(log) {
 }
 
 async function loadPersistentTrafficLog() {
-  const status = document.getElementById("ai-traffic-status");
-  if (status) status.textContent = t("ui.state.loading", "Lädt...");
   try {
-    const payload = await api.get(API_ENDPOINTS.ai.traffic(500));
-    const items = Array.isArray(payload?.items) ? payload.items : [];
+    const items = await loadAiTrafficLines(document.getElementById("ai-traffic-status"), { showPath: true });
     renderTrafficLog(items.map((line) => ({ type: "log", text: line, ts: "" })));
-    if (status) {
-      const enabled = payload?.enabled === false ? t("ui.state.disabled", "deaktiviert") : t("ui.state.enabled", "aktiv");
-      status.textContent = `${enabled} · ${t("ui.pi.traffic_count", "{count} Zeilen", { count: payload?.count || items.length })} · ${payload?.path || ""}`;
-    }
   } catch (e) {
-    if (status) status.textContent = e.message;
     toastError(t("ui.toast.traffic_load_failed", "Traffic-Log laden fehlgeschlagen"), e.message);
   }
 }

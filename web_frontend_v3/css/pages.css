@@ -1,168 +1,193 @@
 /* css/pages.css – Seitenspezifische Styles */
 
-/* ── Input & Scan ───────────────────────────────── */
-.tc-input-scan-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
-}
-
-@media (max-width: 900px) {
-  .tc-input-scan-grid { grid-template-columns: 1fr; }
-}
-
-.tc-queue-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--text-sm);
-}
-
-.tc-queue-table th {
-  text-align: left;
-  padding: var(--space-2);
-  color: var(--muted);
-  font-weight: 500;
-  border-bottom: 1px solid var(--border);
-}
-
-.tc-queue-table td {
-  padding: var(--space-2);
-  border-bottom: 1px solid var(--border);
-}
-
-/* ── Parameter Studio ───────────────────────────── */
-.tc-param-grid {
-  display: grid;
-  grid-template-columns: 220px 1fr 340px;
-  gap: var(--space-4);
-  height: 100%;
-}
-
-@media (max-width: 1200px) {
-  .tc-param-grid {
-    grid-template-columns: 200px 1fr;
+@layer pages {
+  /* ── Input & Scan ───────────────────────────────── */
+  .tc-input-scan-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
   }
-  .tc-param-explain { display: none; }
+
+  @container tc-content (max-width: 780px) {
+    .tc-input-scan-grid { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 900px) {
+    .tc-input-scan-grid { grid-template-columns: 1fr; }
+  }
+
+  .tc-queue-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+
+  .tc-queue-table th {
+    text-align: left;
+    padding: var(--space-2);
+    color: var(--muted);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+
+  .tc-queue-table td {
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  /* ── Parameter Studio ───────────────────────────── */
+  .tc-param-grid {
+    display: grid;
+    grid-template-columns: 220px 1fr 340px;
+    gap: var(--space-4);
+    height: 100%;
+    align-items: start;
+  }
+
+  @container tc-content (max-width: 1040px) {
+    .tc-param-grid {
+      grid-template-columns: 200px 1fr;
+    }
+    .tc-param-explain {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @container tc-content (max-width: 680px) {
+    .tc-param-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 1200px) {
+    .tc-param-grid {
+      grid-template-columns: 200px 1fr;
+    }
+    .tc-param-explain { display: none; }
+  }
+
+  #situation-preview {
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  #situation-preview .tc-mono,
+  #param-changed-list .tc-mono {
+    overflow-wrap: anywhere;
+    line-height: 1.45;
+  }
+
+  .tc-param-category {
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    border-left: 3px solid transparent;
+    font-size: var(--text-sm);
+    color: var(--muted);
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+  }
+
+  .tc-param-category:hover {
+    background: var(--surface-2);
+    color: var(--foreground);
+  }
+
+  .tc-param-category.active {
+    background: var(--primary-soft);
+    color: var(--primary);
+    border-left-color: var(--primary);
+    font-weight: 600;
+  }
+
+  /* ── Log Viewer ─────────────────────────────────── */
+  .tc-log-viewer {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--text-xs);
+    padding: var(--space-3);
+    height: 300px;
+    overflow-y: auto;
+  }
+
+  .tc-log-line {
+    display: flex;
+    gap: var(--space-2);
+    padding: 1px 0;
+    line-height: 1.65;
+  }
+
+  .tc-log-time { color: var(--muted); flex-shrink: 0; }
+  .tc-log-level { font-weight: 700; flex-shrink: 0; width: 60px; }
+  .tc-log-level-INFO  { color: var(--info); }
+  .tc-log-level-WARN  { color: var(--warning); }
+  .tc-log-level-ERROR { color: var(--error); }
+  .tc-log-level-DEBUG { color: var(--muted); }
+  .tc-log-msg { color: var(--foreground); overflow-wrap: anywhere; }
+
+  /* ── Log Filter Buttons ─────────────────────────── */
+  .tc-log-filter-all    { border: 1px solid var(--border); }
+  .tc-log-filter-INFO   { border: 1px solid color-mix(in srgb, var(--info) 55%, transparent); }
+  .tc-log-filter-WARN   { border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent); }
+  .tc-log-filter-ERROR  { border: 1px solid color-mix(in srgb, var(--error) 55%, transparent); }
+  .tc-log-filter-DEBUG  { border: 1px solid var(--border-strong); }
+
+  .tc-log-filter-INFO.tc-log-filter-active   { background: var(--info); color: var(--bg); border-color: var(--info); font-weight: 600; }
+  .tc-log-filter-WARN.tc-log-filter-active   { background: var(--warning); color: var(--bg); border-color: var(--warning); font-weight: 600; }
+  .tc-log-filter-ERROR.tc-log-filter-active  { background: var(--error); color: var(--bg); border-color: var(--error); font-weight: 600; }
+  .tc-log-filter-DEBUG.tc-log-filter-active  { background: var(--muted); color: var(--bg); border-color: var(--muted); font-weight: 600; }
+  .tc-log-filter-all.tc-log-filter-active    { background: var(--primary); color: var(--on-primary); border-color: var(--primary); font-weight: 600; }
+
+  .tc-log-filter-inactive { opacity: 0.55; }
+
+  .tc-log-phase-marker {
+    border-top: 1px dashed var(--border);
+    margin: var(--space-1) 0;
+  }
+
+  /* ── Tools (Raw Stack, Astrometry, PCC) ─────────── */
+  .tc-tools-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+  }
+
+  @container tc-content (max-width: 780px) {
+    .tc-tools-grid { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 900px) {
+    .tc-tools-grid { grid-template-columns: 1fr; }
+  }
+
+  .tc-wcs-results {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--text-sm);
+  }
+
+  .tc-color-matrix {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--text-sm);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-2);
+    padding: var(--space-3);
+    background: var(--bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+  }
+
+  /* ── Jev (Tools card + Parameter tab) ─────────────── */
+  .tc-jev { word-break: normal; overflow-wrap: break-word; }
+  .tc-jev-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .tc-jev-row > .tc-jev-grow { flex: 1 1 14rem; min-width: 0; }
+  .tc-jev-row > .tc-jev-grow .tc-input { width: 100%; }
 }
-
-#situation-preview {
-  max-height: 200px;
-  overflow-y: auto;
-}
-#situation-preview .tc-mono {
-  word-break: break-all;
-  overflow-wrap: break-word;
-  line-height: 1.4;
-}
-#param-changed-list .tc-mono {
-  word-break: break-all;
-  overflow-wrap: break-word;
-  line-height: 1.4;
-}
-
-.tc-param-category {
-  padding: var(--space-2) var(--space-3);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  color: var(--foreground);
-  transition: background var(--transition);
-}
-
-.tc-param-category:hover { background: var(--surface-2); }
-.tc-param-category.active {
-  background: var(--primary-soft);
-  color: var(--primary);
-  font-weight: 500;
-}
-
-/* ── Log Viewer ─────────────────────────────────── */
-.tc-log-viewer {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  padding: var(--space-2);
-  height: 300px;
-  overflow-y: auto;
-}
-
-.tc-log-line {
-  display: flex;
-  gap: var(--space-2);
-  padding: 1px 0;
-  line-height: 1.6;
-}
-
-.tc-log-time { color: var(--muted); flex-shrink: 0; }
-.tc-log-level { font-weight: 600; flex-shrink: 0; width: 60px; }
-.tc-log-level-INFO  { color: var(--info); }
-.tc-log-level-WARN  { color: var(--warning); }
-.tc-log-level-ERROR { color: var(--error); }
-.tc-log-level-DEBUG { color: var(--muted); }
-.tc-log-msg { color: var(--foreground); }
-
-/* ── Log Filter Buttons ─────────────────────────── */
-.tc-log-filter-all    { border: 1px solid var(--border); }
-.tc-log-filter-INFO   { border: 1px solid var(--info); }
-.tc-log-filter-WARN   { border: 1px solid var(--warning); }
-.tc-log-filter-ERROR  { border: 1px solid var(--error); }
-.tc-log-filter-DEBUG  { border: 1px solid var(--muted); }
-
-.tc-log-filter-INFO.tc-log-filter-active   { background: var(--info); color: var(--bg); border-color: var(--info); }
-.tc-log-filter-WARN.tc-log-filter-active   { background: var(--warning); color: var(--bg); border-color: var(--warning); }
-.tc-log-filter-ERROR.tc-log-filter-active  { background: var(--error); color: var(--bg); border-color: var(--error); }
-.tc-log-filter-DEBUG.tc-log-filter-active  { background: var(--muted); color: var(--bg); border-color: var(--muted); }
-.tc-log-filter-all.tc-log-filter-active    { background: var(--primary); color: var(--bg); border-color: var(--primary); }
-
-.tc-log-filter-inactive { opacity: 0.5; }
-
-.tc-log-phase-marker {
-  border-top: 1px dashed var(--border);
-  margin: var(--space-1) 0;
-}
-
-/* ── Run History ────────────────────────────────── */
-.tc-run-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-/* ── Tools (Raw Stack, Astrometry, PCC) ─────────── */
-.tc-tools-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
-}
-
-@media (max-width: 900px) {
-  .tc-tools-grid { grid-template-columns: 1fr; }
-}
-
-.tc-wcs-results {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-}
-
-.tc-color-matrix {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-2);
-  padding: var(--space-3);
-  background: var(--bg);
-  border-radius: var(--radius-sm);
-}
-
-/* ── Jev (Tools card + Parameter tab) ───────────────
-   .tc-card breaks words anywhere; prose in the Jev views must wrap at word boundaries. */
-.tc-jev { word-break: normal; overflow-wrap: break-word; }
-.tc-jev-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.tc-jev-row > .tc-jev-grow { flex: 1 1 14rem; min-width: 0; }
-.tc-jev-row > .tc-jev-grow .tc-input { width: 100%; }

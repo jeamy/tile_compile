@@ -110,61 +110,6 @@ Matrix2Df make_proxy(const Matrix2Df& img, ColorMode mode,
 constexpr float kFlatFloor = 1.0e-6f;
 constexpr double kGainMatchTolerance = 0.25;
 
-bool load_average_master(const std::vector<fs::path>& paths,
-                         int expected_rows, int expected_cols,
-                         Matrix2Df& out, std::string& err) {
-    if (paths.empty()) { err = "no calibration frames"; return false; }
-    Matrix2Df accum;
-    size_t loaded = 0;
-    for (const auto& p : paths) {
-        Matrix2Df img;
-        try { img = io::read_fits_pixels_float(p); }
-        catch (const std::exception& e) {
-            err = "cannot read '" + p.string() + "': " + e.what();
-            return false;
-        }
-        if (img.rows() != expected_rows || img.cols() != expected_cols) {
-            err = "dimension mismatch in '" + p.string() + "'";
-            return false;
-        }
-        if (loaded == 0) accum = img; else accum += img;
-        ++loaded;
-    }
-    out = accum / static_cast<float>(loaded);
-    return true;
-}
-
-std::vector<std::string> split_patterns(const std::string& raw) {
-    std::vector<std::string> patterns;
-    std::string cur;
-    for (char c : raw) {
-        if (c == ';') {
-            if (!cur.empty()) patterns.push_back(cur);
-            cur.clear();
-        } else {
-            cur.push_back(c);
-        }
-    }
-    if (!cur.empty()) patterns.push_back(cur);
-    if (patterns.empty()) patterns.push_back("*");
-    return patterns;
-}
-
-std::vector<fs::path> discover_calib_frames(const fs::path& dir,
-                                            const std::string& pattern) {
-    std::vector<fs::path> frames;
-    for (const auto& pat : split_patterns(pattern)) {
-        auto part = core::discover_frames(dir, pat);
-        frames.insert(frames.end(), part.begin(), part.end());
-    }
-    frames.erase(std::remove_if(frames.begin(), frames.end(),
-                                [](const fs::path& p){ return !io::is_fits_image_path(p); }),
-                 frames.end());
-    std::sort(frames.begin(), frames.end());
-    frames.erase(std::unique(frames.begin(), frames.end()), frames.end());
-    return frames;
-}
-
 Matrix2Df load_master_file(const fs::path& path,
                            int expected_rows,
                            int expected_cols,
@@ -267,9 +212,9 @@ bool build_calib_masters(const preprocessing::Config& cfg,
                                 {"master", true}};
         } else {
             const fs::path dir = resolve(cfg.bias_dir);
-            auto frames = discover_calib_frames(dir, cfg.calibration.pattern);
+            auto frames = discover_calibration_frames(dir, cfg.calibration.pattern);
             if (frames.empty()) { err = "bias_dir empty: " + dir.string(); return false; }
-            if (!load_average_master(frames, rows, cols, out.bias, err)) return false;
+            if (!average_calibration_frames(frames, rows, cols, out.bias, err)) return false;
             artifact["bias"] = {
                 {"source", dir.string()}, {"frames", static_cast<int>(frames.size())},
                 {"master", false}
@@ -287,9 +232,9 @@ bool build_calib_masters(const preprocessing::Config& cfg,
                                 {"bias_corrected", false}};
         } else {
             const fs::path dir = resolve(cfg.darks_dir);
-            auto frames = discover_calib_frames(dir, cfg.calibration.pattern);
+            auto frames = discover_calibration_frames(dir, cfg.calibration.pattern);
             if (frames.empty()) { err = "darks_dir empty: " + dir.string(); return false; }
-            if (!load_average_master(frames, rows, cols, out.dark, err)) return false;
+            if (!average_calibration_frames(frames, rows, cols, out.dark, err)) return false;
             out.dark_frames = frames;
             artifact["dark"] = {
                 {"source", dir.string()}, {"frames", static_cast<int>(frames.size())},
@@ -312,9 +257,9 @@ bool build_calib_masters(const preprocessing::Config& cfg,
                                 {"master", true}};
         } else {
             const fs::path dir = resolve(cfg.flats_dir);
-            auto frames = discover_calib_frames(dir, cfg.calibration.pattern);
+            auto frames = discover_calibration_frames(dir, cfg.calibration.pattern);
             if (frames.empty()) { err = "flats_dir empty: " + dir.string(); return false; }
-            if (!load_average_master(frames, rows, cols, out.flat, err)) return false;
+            if (!average_calibration_frames(frames, rows, cols, out.flat, err)) return false;
             artifact["flat"] = {
                 {"source", dir.string()}, {"frames", static_cast<int>(frames.size())},
                 {"master", false}
@@ -352,10 +297,10 @@ bool build_calib_masters(const preprocessing::Config& cfg,
             }
         } else {
             const fs::path dir = resolve(cfg.darkflats_dir);
-            auto frames = discover_calib_frames(dir, cfg.calibration.pattern);
+            auto frames = discover_calibration_frames(dir, cfg.calibration.pattern);
             if (!frames.empty()) {
                 Matrix2Df darkflat_master;
-                if (load_average_master(frames, rows, cols, darkflat_master, err)) {
+                if (average_calibration_frames(frames, rows, cols, darkflat_master, err)) {
                     const float mean = out.flat.mean();
                     if (std::isfinite(mean) && std::fabs(mean) > kFlatFloor) {
                         out.flat -= darkflat_master / mean;
@@ -452,7 +397,7 @@ bool select_dark_for_light(const preprocessing::Config& cfg,
         return false;
     }
     std::string load_err;
-    if (!load_average_master(selected, rows, cols, dark_out, load_err)) {
+    if (!average_calibration_frames(selected, rows, cols, dark_out, load_err)) {
         err = load_err + "; failed to build selected dark master";
         return false;
     }

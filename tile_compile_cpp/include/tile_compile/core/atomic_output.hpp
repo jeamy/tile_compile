@@ -40,11 +40,13 @@ public:
   AtomicOutput(const AtomicOutput &) = delete;
   AtomicOutput &operator=(const AtomicOutput &) = delete;
   ~AtomicOutput() {
+    // The staging directory is ours alone; a payload that is itself a
+    // directory (a scratch tree, a multi-file generation) goes with it.
+    // After commit() the payload has been renamed away and only the empty
+    // directory remains.
     std::error_code ec;
-    if (!staged_.empty())
-      std::filesystem::remove(staged_, ec);
     if (!directory_.empty())
-      std::filesystem::remove(directory_, ec);
+      std::filesystem::remove_all(directory_, ec);
   }
   const std::filesystem::path &path() const { return staged_; }
   void commit() {

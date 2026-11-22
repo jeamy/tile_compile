@@ -1,7 +1,10 @@
+import { wheelZoom } from "../utils/canvas-zoom.js";
+import { yamlScalar, yamlScalarText } from "../utils/yaml-scalar.js";
 import { el } from "../utils/dom.js";
 import { t } from "../i18n/i18n.js";
 import { api } from "../api/client.js";
 import { API_ENDPOINTS } from "../api/endpoints.js";
+import { imageFromResponse } from "../utils/image-blob.js";
 
 const SPECS = {
   num_sample_points: { value: 0, min: 0, max: 3000, step: 10 },
@@ -24,18 +27,6 @@ const SPECS = {
   mono_mode: { value: "rgb_duplicate", options: ["rgb_duplicate", "disabled"] },
 };
 
-function scalar(raw, fallback) {
-  const v = String(raw ?? "")
-    .trim()
-    .replace(/\s+#.*$/, "");
-  if (typeof fallback === "boolean")
-    return v === "true" ? true : v === "false" ? false : fallback;
-  if (typeof fallback === "number") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : fallback;
-  }
-  return v.replace(/^['"]|['"]$/g, "") || fallback;
-}
 function block(lines, name, start = 0, indent = 0) {
   const re = new RegExp(`^${" ".repeat(indent)}${name}:\\s*(?:#.*)?$`);
   const s = lines.findIndex((line, i) => i >= start && re.test(line));
@@ -48,7 +39,7 @@ function block(lines, name, start = 0, indent = 0) {
     e++;
   return { s, e };
 }
-export function readBgeYaml(yaml) {
+function readBgeYaml(yaml) {
   const lines = String(yaml || "").split(/\r?\n/),
     out = {};
   const b = block(lines, "bge", 0, 0),
@@ -61,7 +52,7 @@ export function readBgeYaml(yaml) {
         .slice(a.s + 1, a.e)
         .find((line) => new RegExp(`^\\s{4}${key}:`).test(line));
     out[key] = found
-      ? scalar(found.replace(new RegExp(`^\\s{4}${key}:\\s*`), ""), fallback)
+      ? yamlScalar(found.replace(new RegExp(`^\\s{4}${key}:\\s*`), ""), fallback)
       : fallback;
   }
   out.method = b
@@ -111,10 +102,7 @@ export function readBgeYaml(yaml) {
   }
   return out;
 }
-function yv(v) {
-  return typeof v === "boolean" ? (v ? "true" : "false") : String(v);
-}
-export function patchBgeYaml(yaml, params, polygons, points) {
+function patchBgeYaml(yaml, params, polygons, points) {
   const lines = String(yaml || "").split(/\r?\n/);
   let b = block(lines, "bge", 0, 0);
   if (!b) {
@@ -141,9 +129,9 @@ export function patchBgeYaml(yaml, params, polygons, points) {
         n > a.s && n < a.e && new RegExp(`^\\s{4}${key}:`).test(line),
     );
     if (i < 0) {
-      lines.splice(a.e, 0, `    ${key}: ${yv(value)}`);
+      lines.splice(a.e, 0, `    ${key}: ${yamlScalarText(value)}`);
       a.e++;
-    } else lines[i] = `    ${key}: ${yv(value)}`;
+    } else lines[i] = `    ${key}: ${yamlScalarText(value)}`;
   }
   let p = lines.findIndex(
     (line, n) => n > a.s && n < a.e && /^\s{4}exclusion_polygons:/.test(line),
@@ -224,13 +212,13 @@ export function openBgePreview({ runId, runDir, yaml, onApply }) {
     width: 256,
     height: 90,
     style:
-      "width:256px;height:90px;background:#0b1020;border:1px solid var(--tc-border-color,#334155)",
+      "width:256px;height:90px;background:#0b1020;border:1px solid var(--border);border-radius:var(--radius-sm)",
   });
   const status = el(
     "div",
     {
       class: "tc-text-sm",
-      style: "min-height:1.5em;color:var(--tc-danger,#ef4444)",
+      style: "min-height:1.5em;color:var(--error)",
     },
     t("ui.message.bge_loading", "Calculating BGE preview…"),
   );
@@ -405,13 +393,13 @@ export function openBgePreview({ runId, runDir, yaml, onApply }) {
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
     if (!image) return;
-    const old = scale;
-    scale = Math.max(0.1, Math.min(20, scale * (e.deltaY < 0 ? 1.15 : 0.87)));
-    const r = canvas.getBoundingClientRect(),
-      x = ((e.clientX - r.left) * canvas.width) / r.width,
-      y = ((e.clientY - r.top) * canvas.height) / r.height;
-    ox = x - ((x - ox) * scale) / old;
-    oy = y - ((y - oy) * scale) / old;
+    ({ scale, offsetX: ox, offsetY: oy } = wheelZoom(
+      { scale, offsetX: ox, offsetY: oy },
+      e,
+      canvas.getBoundingClientRect(),
+      canvas.width,
+      canvas.height,
+    ));
     draw();
   });
   const params = () =>
@@ -468,21 +456,12 @@ export function openBgePreview({ runId, runDir, yaml, onApply }) {
       "ui.message.bge_loading",
       "Calculating BGE preview…",
     );
-    status.style.color = "var(--tc-danger,#ef4444)";
+    status.style.color = "var(--error)";
     const applyButton = document.querySelector("[data-bge-apply]");
     if (applyButton) applyButton.disabled = true;
     try {
       diag = await (await request("diagnostics")).json();
-      const response = await request(view),
-        blob = await response.blob(),
-        url = URL.createObjectURL(blob),
-        next = new Image();
-      await new Promise((ok, no) => {
-        next.onload = ok;
-        next.onerror = no;
-        next.src = url;
-      });
-      URL.revokeObjectURL(url);
+      const next = await imageFromResponse(await request(view));
       if (current !== generation) return;
       image = next;
       fit();
@@ -499,7 +478,7 @@ export function openBgePreview({ runId, runDir, yaml, onApply }) {
           "ui.message.bge_ready",
           "BGE preview calculated.",
         );
-        status.style.color = "var(--tc-success,#22c55e)";
+        status.style.color = "var(--success)";
       } else {
         const reasonKey = `ui.message.bge_guard_reason_${diag.failure_reason || "unknown"}`;
         const reason = t(reasonKey, diag.failure_reason || "unknown");
@@ -508,7 +487,7 @@ export function openBgePreview({ runId, runDir, yaml, onApply }) {
         const guardDetails = formatGuardReasons(diag.channels);
         if (guardDetails) info.textContent += ` · ${guardDetails}`;
         status.textContent = `${t("ui.message.bge_guard_rejected", "Preview rejected by guards")}: ${reason}${hint ? ` · ${hint}` : ""}`;
-        status.style.color = "var(--tc-danger,#ef4444)";
+        status.style.color = "var(--error)";
       }
       if (applyButton)
         applyButton.disabled = !diag.success && controls.apply_guards.checked;
@@ -525,30 +504,25 @@ export function openBgePreview({ runId, runDir, yaml, onApply }) {
       timer = setTimeout(preview, 400);
     } catch (e) {
       status.textContent = e.message;
-      status.style.color = "var(--tc-danger,#ef4444)";
+      status.style.color = "var(--error)";
     }
   }
   async function switchView(v) {
+    // Shares the generation counter with preview(): only the newest request
+    // may replace the image.
+    const current = ++generation;
     view = v;
     updateViewButtons();
     controller?.abort();
     controller = new AbortController();
     try {
-      const response = await request(v),
-        blob = await response.blob(),
-        url = URL.createObjectURL(blob),
-        next = new Image();
-      await new Promise((ok, no) => {
-        next.onload = ok;
-        next.onerror = no;
-        next.src = url;
-      });
-      URL.revokeObjectURL(url);
+      const next = await imageFromResponse(await request(v));
+      if (current !== generation) return;
       image = next;
       fit();
       updateHistogram();
     } catch (e) {
-      if (e.name !== "AbortError") status.textContent = e.message;
+      if (e.name !== "AbortError" && current === generation) status.textContent = e.message;
     }
   }
   function field(key) {
@@ -615,7 +589,7 @@ export function openBgePreview({ runId, runDir, yaml, onApply }) {
   );
   const backdrop = el("div", {
       style:
-        "position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:16px",
+        "position:fixed;inset:0;z-index:10000;background:rgba(3,7,18,.68);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px",
     }),
     modal = el("div", {
       class: "tc-card",
@@ -704,10 +678,7 @@ export function openBgePreview({ runId, runDir, yaml, onApply }) {
       : null,
     el(
       "div",
-      {
-        style:
-          "display:grid;grid-template-columns:minmax(0,2fr) minmax(340px,1fr);gap:16px",
-      },
+      { class: "tc-preview-split" },
       el(
         "div",
         {},

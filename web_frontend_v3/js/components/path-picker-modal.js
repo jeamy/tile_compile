@@ -2,6 +2,7 @@
 
 import { el, clear } from "../utils/dom.js";
 import { api } from "../api/client.js";
+import { API_ENDPOINTS } from "../api/endpoints.js";
 import { t } from "../i18n/i18n.js";
 
 export async function promptGrantRoot(path, _allowedRoots) {
@@ -40,7 +41,7 @@ export async function promptGrantRoot(path, _allowedRoots) {
 
     async function grant() {
       try {
-        await api.post("/api/fs/grant-root", { path: rootToGrant });
+        await api.post(API_ENDPOINTS.fs.grantRoot, { path: rootToGrant });
         close(true);
       } catch (e) {
         close(false);

@@ -28,7 +28,6 @@ public:
     std::filesystem::path database_path() const;
     // Legacy-v1-Dateien: werden weiterhin ignoriert (nur fuer die Statusanzeige).
     std::filesystem::path legacy_memories_path() const;
-    std::filesystem::path legacy_reviews_path() const;
 
     nlohmann::json append_candidate(nlohmann::json memory) const;
     nlohmann::json list(int limit = 100) const;

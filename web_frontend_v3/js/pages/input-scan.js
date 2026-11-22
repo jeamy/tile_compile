@@ -69,7 +69,7 @@ function calBool(v) {
   return undefined;
 }
 
-export function deriveCalValuesFromConfig(draft) {
+function deriveCalValuesFromConfig(draft) {
   const cal = draft?.calibration;
   if (!cal || typeof cal !== "object") return {};
   const out = {};

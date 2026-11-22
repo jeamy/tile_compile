@@ -1,15 +1,26 @@
 #if __has_include(<catch2/catch_test_macros.hpp>)
 #include "../apps/runner_shared.hpp"
+#include "../apps/runner_phase_registration.hpp"
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/acceleration.hpp"
+#include "tile_compile/io/fits_io.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <filesystem>
+#include <chrono>
+#include <atomic>
+#include <stdexcept>
+#include <string>
+#include <vector>
 #include <cmath>
 #include <cstring>
 #include <thread>
+#include <fstream>
+#include <limits>
+#include <unistd.h>
 
 TEST_CASE("runtime_limits_acceleration_backend_parses_and_validates") {
   YAML::Node node = YAML::Load(R"(
@@ -358,7 +369,126 @@ TEST_CASE("opencv_cuda prewarp buffer reuse is stateless across calls") {
                           static_cast<size_t>(r1.size()) * sizeof(float)) == 0);
     }
 }
+
+TEST_CASE("parallel_for_indices rethrows a worker exception on the caller", "[runner][parallel]") {
+  std::atomic<int> ran{0};
+  std::string message;
+  try {
+    tile_compile::runner::parallel_for_indices(64, 4, [&](size_t i) {
+      ++ran;
+      if (i == 5) throw std::runtime_error("frame 5 failed");
+    });
+  } catch (const std::runtime_error &e) {
+    message = e.what();
+  }
+  REQUIRE(message == "frame 5 failed");
+  REQUIRE(ran.load() >= 1);
+  REQUIRE(ran.load() <= 64);
+
+  std::vector<int> seen(32, 0);
+  tile_compile::runner::parallel_for_indices(seen.size(), 4, [&](size_t i) { seen[i] = 1; });
+  REQUIRE(std::count(seen.begin(), seen.end(), 1) == 32);
+}
+TEST_CASE("DiskCacheFrameStore reports a failed write instead of dropping the frame", "[runner][disk-cache]") {
+  const auto dir = std::filesystem::temp_directory_path() /
+                   ("tc-disk-cache-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  {
+    tile_compile::runner::DiskCacheFrameStore cache(dir, 2, 4, 5);
+    tile_compile::Matrix2Df frame = tile_compile::Matrix2Df::Constant(4, 5, 3.5f);
+    cache.store(0, frame);
+    REQUIRE(cache.has_data(0));
+    REQUIRE(cache.load(0).isApprox(frame));
+    cache.clear_mappings();
+    std::filesystem::remove_all(dir);  // the cache directory vanishes (or the disk fails)
+    std::string message;
+    try {
+      cache.store(1, frame);
+    } catch (const std::runtime_error &e) {
+      message = e.what();
+    }
+    REQUIRE(message.rfind("DISK_CACHE_WRITE_FAILED: frame 1", 0) == 0);
+    REQUIRE_FALSE(cache.has_data(1));
+  }
+  std::filesystem::remove_all(dir);
+}
+
 #else
 int tile_compile_tests_acceleration_backend_stub() { return 0; }
 
 #endif
+
+TEST_CASE("header_exposure_seconds reads the first positive exposure key", "[runner][exposure]") {
+  using tile_compile::io::FitsHeader;
+  using tile_compile::runner::header_exposure_seconds;
+  {
+    FitsHeader h;  // a FITS string value with blanks around the number
+    h.set("EXPTIME", std::string("  30  "));
+    REQUIRE(header_exposure_seconds(h) == 30.0);
+  }
+  {
+    FitsHeader h;  // zero is no exposure: the next key counts
+    h.set("EXPTIME", 0.0);
+    h.set("EXPOSURE", 10.0);
+    REQUIRE(header_exposure_seconds(h) == 10.0);
+  }
+  {
+    FitsHeader h;
+    h.set("DURATION", 120);
+    REQUIRE(header_exposure_seconds(h) == 120.0);
+  }
+  {
+    FitsHeader h;
+    h.set("EXPTIME", std::string("n/a"));
+    REQUIRE_FALSE(header_exposure_seconds(h).has_value());
+    REQUIRE_FALSE(header_exposure_seconds(FitsHeader{}).has_value());
+  }
+}
+
+TEST_CASE("model-predicted frames above the residual limit are left out", "[runner][registration]") {
+  using tile_compile::runner::drop_model_predicted_frame;
+  REQUIRE_FALSE(drop_model_predicted_frame(true, 0.10f, 0.7f));  // close to the stars
+  REQUIRE_FALSE(drop_model_predicted_frame(true, 0.70f, 0.7f));  // at the limit
+  REQUIRE(drop_model_predicted_frame(true, 1.89f, 0.7f));        // ic434: ~3.8 px full-res
+  REQUIRE(drop_model_predicted_frame(false, 0.0f, 0.7f));        // not measurable
+  REQUIRE_FALSE(drop_model_predicted_frame(false, 0.0f, 0.0f));  // check disabled
+  REQUIRE_FALSE(drop_model_predicted_frame(true, 5.0f, 0.0f));
+}
+
+TEST_CASE("calibration frames are discovered and averaged in double, NaN-aware",
+          "[calibration]") {
+  namespace fs = std::filesystem;
+  namespace io = tile_compile::io;
+  const fs::path dir = fs::temp_directory_path() /
+                       ("tc_calib_avg_" + std::to_string(::getpid()));
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  io::FitsHeader hdr;
+  tile_compile::Matrix2Df a(2, 3), b(2, 3);
+  a << 1.0f, 2.0f, std::numeric_limits<float>::quiet_NaN(), 6.0f, 0.5f,
+      std::numeric_limits<float>::quiet_NaN();
+  b << 3.0f, 2.0f, 5.0f, 1.0f, 0.25f, std::numeric_limits<float>::quiet_NaN();
+  io::write_fits_float(dir / "b.fits", b, hdr);
+  io::write_fits_float(dir / "a.fit", a, hdr);
+  std::ofstream(dir / "notes.txt") << "x";
+
+  const auto frames =
+      tile_compile::runner::discover_calibration_frames(dir, "*.fit;*.fits,*.txt");
+  REQUIRE(frames.size() == 2);
+  REQUIRE(frames[0].filename() == "a.fit");
+  REQUIRE(frames[1].filename() == "b.fits");
+
+  tile_compile::Matrix2Df mean;
+  std::string error;
+  REQUIRE(tile_compile::runner::average_calibration_frames(frames, 2, 3, mean, error));
+  REQUIRE(mean(0, 0) == 2.0f);
+  REQUIRE(mean(0, 1) == 2.0f);
+  REQUIRE(mean(0, 2) == 5.0f);           // the NaN sample is skipped
+  REQUIRE(mean(1, 0) == 3.5f);
+  REQUIRE(mean(1, 1) == 0.375f);
+  REQUIRE(mean(1, 2) == 0.0f);           // no finite sample
+
+  REQUIRE_FALSE(tile_compile::runner::average_calibration_frames(frames, 3, 3, mean, error));
+  REQUIRE(error.find("dimension mismatch") != std::string::npos);
+  REQUIRE_FALSE(tile_compile::runner::average_calibration_frames({}, 2, 3, mean, error));
+  fs::remove_all(dir);
+}

@@ -1,4 +1,7 @@
 #include "services/run_inspector.hpp"
+#include "runner_commands.hpp"
+#include "proc_scan.hpp"
+#include "time_utils.hpp"
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -23,46 +26,6 @@
 #endif
 
 namespace {
-// "2026-09-25T14:35:32.490Z" (fraction optional) -> seconds since the epoch; nullopt when it is not that shape.
-std::optional<double> parse_event_ts_seconds(const nlohmann::json& ev) {
-    if (!ev.contains("ts") || !ev["ts"].is_string()) return std::nullopt;
-    const std::string ts = ev["ts"].get<std::string>();
-    std::tm tm{};
-    int consumed = 0;
-    if (std::sscanf(ts.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d%n", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec, &consumed) != 6) return std::nullopt;
-    tm.tm_year -= 1900;
-    tm.tm_mon -= 1;
-    double frac = 0.0;
-    if (static_cast<size_t>(consumed) < ts.size() && ts[consumed] == '.') {
-        size_t e = consumed + 1;
-        while (e < ts.size() && std::isdigit(static_cast<unsigned char>(ts[e]))) ++e;
-        frac = std::strtod(("0" + ts.substr(consumed, e - consumed)).c_str(), nullptr);
-    }
-#if defined(_WIN32)
-    const std::time_t t = _mkgmtime(&tm);
-#else
-    const std::time_t t = timegm(&tm);
-#endif
-    return static_cast<double>(t) + frac;
-}
-} // namespace
-
-namespace {
-
-/// @brief Finds event file.
-/// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::optional<fs::path> find_event_file(const fs::path& run_dir) {
-    const std::vector<fs::path> candidates = {
-        run_dir / "logs" / "run_events.jsonl",
-        run_dir / "events.jsonl",
-        run_dir / "logs" / "events.jsonl",
-    };
-    for (const auto& candidate : candidates) {
-        if (fs::exists(candidate) && fs::is_regular_file(candidate)) return candidate;
-    }
-    return std::nullopt;
-}
 
 bool visit_jsonl(const fs::path& path,
                  const std::function<bool(const nlohmann::json&)>& visitor) {
@@ -177,38 +140,10 @@ double overall_progress(const nlohmann::json& phases,
     return progress;
 }
 
-/// @brief Parses an ISO-8601 UTC event timestamp (with optional fraction) to epoch seconds.
+/// @brief Epoch seconds of an event's ISO-8601 "ts".
 std::optional<double> event_ts_seconds(const nlohmann::json& ev) {
     if (!ev.contains("ts") || !ev["ts"].is_string()) return std::nullopt;
-    const std::string raw = ev["ts"].get<std::string>();
-    int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
-    if (raw.size() < 19 ||
-        std::sscanf(raw.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d", &year, &month, &day, &hour, &minute, &second) != 6) {
-        return std::nullopt;
-    }
-    double fractional = 0.0;
-    const auto dot = raw.find('.');
-    if (dot != std::string::npos) {
-        const auto end = raw.find_first_of("Z+-", dot);
-        const std::string frac = raw.substr(dot + 1, end == std::string::npos ? std::string::npos : end - dot - 1);
-        if (!frac.empty() && std::all_of(frac.begin(), frac.end(), [](unsigned char c) { return std::isdigit(c); })) {
-            fractional = std::stod("0." + frac);
-        }
-    }
-    std::tm tm{};
-    tm.tm_year = year - 1900;
-    tm.tm_mon = month - 1;
-    tm.tm_mday = day;
-    tm.tm_hour = hour;
-    tm.tm_min = minute;
-    tm.tm_sec = second;
-#ifdef _WIN32
-    const auto epoch = _mkgmtime(&tm);
-#else
-    const auto epoch = timegm(&tm);
-#endif
-    if (epoch < 0) return std::nullopt;
-    return static_cast<double>(epoch) + fractional;
+    return parse_iso_utc_seconds(ev["ts"].get<std::string>());
 }
 
 void normalize_phase_list_for_status(nlohmann::json& phase_list) {
@@ -273,7 +208,7 @@ std::string read_run_color_mode(const fs::path& run_dir) {
             }
         } catch (...) {}
     }
-    auto event_file = find_event_file(run_dir);
+    auto event_file = find_run_event_file(run_dir);
     if (!event_file) return "UNKNOWN";
     std::string detected = "UNKNOWN";
     visit_jsonl(*event_file, [&](const nlohmann::json& ev) {
@@ -622,54 +557,16 @@ bool has_live_runner_process(const std::string& runner_exe,
     return false;
 #else
     const std::string runner_name = fs::path(runner_exe).filename().string();
-    if (run_id.empty() || runner_name.empty() || !fs::exists("/proc")) return false;
-    const int self_pid = static_cast<int>(::getpid());
-    for (const auto& entry : fs::directory_iterator("/proc")) {
-        if (!entry.is_directory()) continue;
-        const std::string pid_text = entry.path().filename().string();
-        if (pid_text.empty() || !std::all_of(pid_text.begin(), pid_text.end(), ::isdigit)) continue;
-        int pid = 0;
-        try {
-            pid = std::stoi(pid_text);
-        } catch (...) {
-            continue;
-        }
-        if (pid == self_pid) continue;
-
-        std::ifstream cmdline(entry.path() / "cmdline", std::ios::binary);
-        if (!cmdline) continue;
-        std::string raw((std::istreambuf_iterator<char>(cmdline)), std::istreambuf_iterator<char>());
-        if (raw.empty()) continue;
-
-        std::vector<std::string> argv;
-        size_t start = 0;
-        while (start < raw.size()) {
-            size_t end = raw.find('\0', start);
-            if (end == std::string::npos) end = raw.size();
-            if (end > start) argv.push_back(raw.substr(start, end - start));
-            start = end + 1;
-        }
-        if (argv.empty()) continue;
-
-        const std::string exe_name = fs::path(argv.front()).filename().string();
-        if (exe_name != runner_name && exe_name.find("tile_compile_runner") == std::string::npos) continue;
-        const bool is_runner = std::any_of(argv.begin() + 1, argv.end(), [](const std::string& arg) {
-            return arg == "run" || arg == "resume";
-        });
-        if (!is_runner) continue;
-
-        std::string joined;
-        for (const auto& part : argv) {
-            if (!joined.empty()) joined += ' ';
-            joined += part;
-        }
-        if (joined.find(run_id) == std::string::npos &&
-            (run_dir.empty() || joined.find(run_dir) == std::string::npos)) {
-            continue;
-        }
-        return true;
-    }
-    return false;
+    if (run_id.empty() || runner_name.empty()) return false;
+    bool found = false;
+    for_each_process([&](int, const fs::path&, const std::vector<std::string>& argv) {
+        if (!argv_is_runner_exe(argv, runner_name) || !argv_has_runner_run_subcommand(argv)) return true;
+        const std::string joined = join_argv(argv);
+        found = joined.find(run_id) != std::string::npos ||
+                (!run_dir.empty() && joined.find(run_dir) != std::string::npos);
+        return !found;
+    });
+    return found;
 #endif
 }
 
@@ -692,7 +589,7 @@ void apply_runtime_liveness_to_run_status(nlohmann::json& status,
 /// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 nlohmann::json read_run_status(const fs::path& run_dir) {
-    auto event_file = find_event_file(run_dir);
+    auto event_file = find_run_event_file(run_dir);
     const auto& phase_order = FORWARD_DRIZZLE_PHASE_ORDER;
     nlohmann::json result = {
         {"run_dir", run_dir.string()},
@@ -975,7 +872,7 @@ std::vector<nlohmann::json> discover_runs(const fs::path& runs_dir, int limit) {
 /// @details This implementation derives run status, progress, logs, and artifacts from run directories; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 std::string read_run_logs(const fs::path& run_dir, int tail) {
-    auto event_file = find_event_file(run_dir);
+    auto event_file = find_run_event_file(run_dir);
     if (!event_file) return "";
 
     std::ifstream in(*event_file);
@@ -991,6 +888,23 @@ std::string read_run_logs(const fs::path& run_dir, int tail) {
 
     std::ostringstream oss;
     for (const auto& item : lines) oss << item << "\n";
+    return oss.str();
+}
+
+std::string read_run_logs_head(const fs::path& run_dir, int head) {
+    auto event_file = find_run_event_file(run_dir);
+    if (!event_file) return "";
+    std::ifstream in(*event_file);
+    if (!in) return "";
+    std::ostringstream oss;
+    std::string line;
+    int taken = 0;
+    const int limit = std::max(1, head);
+    while (taken < limit && std::getline(in, line)) {
+        if (line.empty()) continue;
+        oss << line << "\n";
+        ++taken;
+    }
     return oss.str();
 }
 

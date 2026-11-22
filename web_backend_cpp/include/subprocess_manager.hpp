@@ -40,9 +40,6 @@ struct BackgroundProcess {
     std::thread thread;
     std::atomic<bool> cancelled{false};
     std::atomic<int> pid{-1};
-#ifdef _WIN32
-    void* process_handle{nullptr};
-#endif
 };
 
 /// @brief Launches, tracks, and cancels asynchronous backend subprocess jobs.
@@ -72,8 +69,6 @@ public:
 
     /// @brief Requests cancellation for a single tracked job and its process group.
     bool cancel(const std::string& job_id);
-    /// @brief Requests cancellation for all tracked jobs associated with a run id.
-    void cancel_by_run(const std::string& run_id);
 
 private:
     InMemoryJobStore& _store;

@@ -3,6 +3,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+#include <exception>
 #include <fstream>
 #include <algorithm>
 #include <chrono>
@@ -81,7 +82,23 @@ struct DownloadContext {
     bool headers_processed{false};
     bool stream_ready{false};
     std::ofstream out;
+    // An exception from a callback (cancel check, progress, state) must not
+    // unwind through libcurl's C frames: it is kept here, the transfer is
+    // aborted, and download_once rethrows it after curl_easy_perform.
+    std::exception_ptr callback_error;
 };
+
+/// @brief Runs fn; on an exception stores it in ctx and returns fallback.
+template <typename Fn, typename R>
+R guarded(DownloadContext& ctx, R fallback, Fn&& fn) {
+    if (ctx.callback_error) return fallback;
+    try {
+        return fn();
+    } catch (...) {
+        ctx.callback_error = std::current_exception();
+        return fallback;
+    }
+}
 
 /// @brief Trims ascii.
 /// @details This implementation downloads files with retry, resume, progress, and cancellation support; it keeps JSON shapes, filesystem
@@ -138,9 +155,14 @@ bool ensure_output_stream(DownloadContext& ctx) {
 size_t write_to_file(void* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* ctx = static_cast<DownloadContext*>(userdata);
     if (!ctx) return 0;
-    if (!ensure_output_stream(*ctx)) return 0;
-    ctx->out.write(static_cast<const char*>(ptr), static_cast<std::streamsize>(size * nmemb));
-    return ctx->out.good() ? size * nmemb : 0;
+    // The body of an error response is not the file: never let it truncate
+    // or extend a partial download.
+    if (ctx->status_code >= 400) return size * nmemb;
+    return guarded(*ctx, size_t{0}, [&]() -> size_t {
+        if (!ensure_output_stream(*ctx)) return 0;
+        ctx->out.write(static_cast<const char*>(ptr), static_cast<std::streamsize>(size * nmemb));
+        return ctx->out.good() ? size * nmemb : 0;
+    });
 }
 
 /// @brief Implements header cb.
@@ -194,6 +216,7 @@ int progress_cb(void* userdata, curl_off_t dltotal, curl_off_t dlnow,
                 curl_off_t, curl_off_t) {
     auto* ctx = static_cast<DownloadContext*>(userdata);
     if (!ctx) return 0;
+    return guarded(*ctx, 1, [&]() -> int {
     if (ctx->should_cancel && ctx->should_cancel()) return 1;
     if (ctx->on_progress) {
         std::uintmax_t total = ctx->bytes_total;
@@ -207,6 +230,7 @@ int progress_cb(void* userdata, curl_off_t dltotal, curl_off_t dlnow,
         ctx->on_progress(received, total);
     }
     return 0;
+    });
 }
 
 DownloadResult download_once(const std::string& url,
@@ -274,7 +298,14 @@ DownloadResult download_once(const std::string& url,
 
     CURLcode rc = curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &ctx.status_code);
-    if (!ctx.stream_ready) ensure_output_stream(ctx);
+    if (ctx.callback_error) {
+        if (ctx.out.is_open()) ctx.out.close();
+        curl_easy_cleanup(curl);
+        std::rethrow_exception(ctx.callback_error);
+    }
+    // A successful empty body still creates the file; a failed transfer must
+    // not open it with trunc and destroy a partial download kept for resume.
+    if (!ctx.stream_ready && rc == CURLE_OK && ctx.status_code < 400) ensure_output_stream(ctx);
     if (ctx.out.is_open()) ctx.out.close();
 
     result.status_code = ctx.status_code;

@@ -149,15 +149,6 @@ int ConfigRevisionStore::count() const {
     return (int)_revisions.size();
 }
 
-/// @brief Implements latest id.
-/// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-std::string ConfigRevisionStore::latest_id() const {
-    std::lock_guard<std::mutex> lk(_mutex);
-    if (_revisions.empty()) return "";
-    return _revisions.back().revision_id;
-}
-
 /// @brief Implements run config revisions dir.
 /// @details This implementation stores configuration revision snapshots in memory and on disk; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.

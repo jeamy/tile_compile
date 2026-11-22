@@ -77,6 +77,11 @@ struct RegistrationConfig {
   bool reject_outliers = true;
   float reject_cc_min_abs = 0.25f;
   float reject_shift_px_min = 100.0f;
+  /// A model-predicted warp (field-rotation model, not measured) whose median
+  /// matched-star residual on the registration proxy exceeds this many proxy
+  /// pixels, or whose residual cannot be measured, removes the frame from the
+  /// stack. 0 disables the check.
+  float model_prediction_max_residual_px = 0.7f;
   float reject_shift_median_multiplier = 5.0f;
   float reject_scale_min = 0.92f;
   float reject_scale_max = 1.08f;

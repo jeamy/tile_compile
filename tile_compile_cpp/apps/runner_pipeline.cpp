@@ -257,17 +257,6 @@ std::optional<double> read_header_numeric(
   return std::nullopt;
 }
 
-/// @brief Extracts exposure seconds.
-/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::optional<double> extract_exposure_seconds(const io::FitsHeader &header) {
-  return read_header_numeric(
-      header, {"EXPTIME", "EXPOSURE", "EXPOSURETIME", "EXPOSURE_TIME",
-               "EXP_TIME", "DURATION", "EXPOS"},
-      true);
-}
-
 /// @brief Extracts temperature celsius.
 /// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -292,7 +281,7 @@ core::json acquisition_metadata(const fs::path &path) {
   try {
     const auto header = io::read_fits_header(path);
     result["header_available"] = true;
-    const auto exposure = extract_exposure_seconds(header);
+    const auto exposure = runner::header_exposure_seconds(header);
     const auto temperature = extract_temperature_celsius(header);
     result["exposure_seconds"] = exposure ? core::json(*exposure) : core::json(nullptr);
     result["temperature_celsius"] = temperature ? core::json(*temperature) : core::json(nullptr);
@@ -406,54 +395,6 @@ fs::path resolve_config_path(const fs::path &project_root,
   return ec ? path : absolute;
 }
 
-/// @brief Loads average master from files.
-/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-bool load_average_master_from_files(const std::vector<fs::path> &paths,
-                                    int expected_height, int expected_width,
-                                    Matrix2Df &out, std::string &error_out) {
-  if (paths.empty()) {
-    error_out = "no calibration frames found";
-    return false;
-  }
-
-  Matrix2Df accum;
-  bool first = true;
-  size_t loaded = 0;
-  for (const auto &path : paths) {
-    Matrix2Df img;
-    try {
-      img = io::read_fits_pixels_float(path);
-    } catch (const std::exception &e) {
-      error_out = "failed to read calibration frame '" + path.string() +
-                  "': " + e.what();
-      return false;
-    }
-    if (img.rows() != expected_height || img.cols() != expected_width) {
-      error_out = "calibration frame dimension mismatch for '" + path.string() +
-                  "': expected " + std::to_string(expected_width) + "x" +
-                  std::to_string(expected_height) + ", got " +
-                  std::to_string(img.cols()) + "x" +
-                  std::to_string(img.rows());
-      return false;
-    }
-    if (first) {
-      accum = img;
-      first = false;
-    } else {
-      accum += img;
-    }
-    ++loaded;
-  }
-  if (loaded == 0) {
-    error_out = "no readable calibration frames found";
-    return false;
-  }
-  out = accum / static_cast<float>(loaded);
-  return true;
-}
-
 /// @brief Normalizes flat master.
 /// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -479,22 +420,6 @@ bool normalize_flat_master(Matrix2Df &flat, float &median_out,
   }
   flat.array() /= median_out;
   return true;
-}
-
-/// @brief Implements discover calibration frames.
-/// @details Part of the production runner pipeline that coordinates scan, registration, metrics, reconstruction, stacking, astrometry, BGE, and PCC phases; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-std::vector<fs::path> discover_calibration_frames(const fs::path &dir,
-                                                  const std::string &pattern) {
-
-  auto frames = core::discover_frames(dir, pattern);
-  frames.erase(
-      std::remove_if(frames.begin(), frames.end(),
-                     [](const fs::path &p) { return !io::is_fits_image_path(p); }),
-      frames.end());
-  std::sort(frames.begin(), frames.end());
-  return frames;
 }
 
 /// @brief Implements select dark inputs.
@@ -524,7 +449,7 @@ std::vector<fs::path> select_dark_inputs(
   for (size_t i = 0; i < sample_count; ++i) {
     try {
       const io::FitsHeader hdr = io::read_fits_header(lights[i]);
-      if (auto exptime = extract_exposure_seconds(hdr)) {
+      if (auto exptime = runner::header_exposure_seconds(hdr)) {
         light_exposures.push_back(static_cast<float>(*exptime));
       }
       if (cfg.dark_match_use_temp) {
@@ -590,7 +515,7 @@ std::vector<fs::path> select_dark_inputs(
       ++gain_mismatch;
       continue;
     }
-    const auto dark_exposure = extract_exposure_seconds(hdr);
+    const auto dark_exposure = runner::header_exposure_seconds(hdr);
     if (!dark_exposure || !std::isfinite(*dark_exposure) ||
         *dark_exposure <= 0.0) {
       ++missing_exposure;
@@ -664,7 +589,7 @@ bool resolve_calibration_master(
       return false;
     }
     Matrix2Df master;
-    if (!load_average_master_from_files({path}, expected_height, expected_width,
+    if (!runner::average_calibration_frames({path}, expected_height, expected_width,
                                         master, error_out)) {
       return false;
     }
@@ -686,13 +611,13 @@ bool resolve_calibration_master(
     }
     std::vector<fs::path> frames =
         preset_inputs ? *preset_inputs
-                      : discover_calibration_frames(directory, pattern);
+                      : runner::discover_calibration_frames(directory, pattern);
     if (frames.empty()) {
       error_out = "no calibration frames found in " + directory.string();
       return false;
     }
     Matrix2Df master;
-    if (!load_average_master_from_files(frames, expected_height, expected_width,
+    if (!runner::average_calibration_frames(frames, expected_height, expected_width,
                                         master, error_out)) {
       return false;
     }
@@ -794,7 +719,7 @@ bool run_scan_input_calibration(
     core::json dark_selection;
     const fs::path dark_dir = resolve_config_path(project_root, cal.darks_dir);
     if (!dark_dir.empty() && fs::exists(dark_dir) && fs::is_directory(dark_dir)) {
-      const auto all_darks = discover_calibration_frames(dark_dir, cal.pattern);
+      const auto all_darks = runner::discover_calibration_frames(dark_dir, cal.pattern);
       selected_dark_inputs =
           select_dark_inputs(all_darks, input_frames, cal, dark_selection);
       if (selected_dark_inputs.empty() && !all_darks.empty()) {
@@ -1660,6 +1585,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       for (size_t i = 0; i < frames.size(); ++i)
         if (!frame_cache->has_normalized(i))
           throw std::runtime_error("FORWARD_RUN_NORMALIZATION_INCOMPLETE");
+      // Released before registration on purpose: taking the normalization
+      // proxies over instead raised the M31 peak RSS from 13.8 to 21.1 GB
+      // (comparison run 2026-11-21) with identical output.
       frame_cache->release_registration_proxies();
       if (!runner::run_phase_registration_prewarp(run_id, cfg, frames, run_dir,
               height, width, detected_mode, detected_bayer_str, frame_cache,

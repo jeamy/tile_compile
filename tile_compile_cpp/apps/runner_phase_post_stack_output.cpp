@@ -22,12 +22,22 @@ void write_stretched_rgb_snapshot(
     const io::FitsHeader &hdr,
     bool apply_stretch,
     const char *stage_tag) {
+  const bool apply_mask =
+      !canvas_mask.empty() &&
+      canvas_mask.size() == static_cast<size_t>(canvas_rows) * canvas_cols;
+  std::error_code ec;
+  if (!apply_mask && !apply_stretch) {
+    // Nothing changes the planes: write them as they are, no copy.
+    std::filesystem::remove(path, ec);
+    io::write_fits_rgb(path, R_src, G_src, B_src, hdr);
+    return;
+  }
+
   Matrix2Df R_disk = R_src;
   Matrix2Df G_disk = G_src;
   Matrix2Df B_disk = B_src;
 
-  if (!canvas_mask.empty() &&
-      canvas_mask.size() == static_cast<size_t>(canvas_rows) * canvas_cols) {
+  if (apply_mask) {
     image::enforce_canvas_mask_on_rgb(R_disk, G_disk, B_disk, canvas_mask);
   }
 
@@ -42,7 +52,6 @@ void write_stretched_rgb_snapshot(
     }
   }
 
-  std::error_code ec;
   std::filesystem::remove(path, ec);
   if (apply_stretch) {
     io::write_fits_rgb_u32(path, R_disk, G_disk, B_disk, hdr);

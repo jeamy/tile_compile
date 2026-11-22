@@ -226,6 +226,11 @@ properties:
         minimum: 0
         description: 'Minimum shift in pixels for outlier rejection. Shifts below this are always accepted regardless of other criteria. Range 0–100. Recommended: 0.'
         default: 100.0
+      model_prediction_max_residual_px:
+        type: number
+        minimum: 0
+        description: 'Model-predicted warps (field-rotation model instead of a measured registration): a frame whose median matched-star residual on the registration proxy exceeds this many proxy pixels, or whose residual cannot be measured, is removed from the stack. 0 disables the check.'
+        default: 0.7
       reject_shift_median_multiplier:
         type: number
         exclusiveMinimum: 0

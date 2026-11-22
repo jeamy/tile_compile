@@ -1,4 +1,8 @@
+#include "base64url.hpp"
+#include "proc_scan.hpp"
 #include "routes/runs_routes.hpp"
+#include "sha256_hex.hpp"
+#include "time_utils.hpp"
 #include "routes/route_utils.hpp"
 #include "services/report_generator.hpp"
 #include "services/run_inspector.hpp"
@@ -40,7 +44,6 @@
 #ifndef _WIN32
 #include <signal.h>
 #include <unistd.h>
-#include <openssl/sha.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -164,8 +167,6 @@ static constexpr const char* kSingleReconstructionMethod = "cfa_forward_drizzle_
 /// separate provenance/cache-based checks apply instead) or when the check
 /// cannot be evaluated (missing run_start revision) -- in both cases the
 /// runner remains the fail-closed authority.
-static std::string pi_provenance_sha256_hex(const std::string& value);
-
 std::optional<std::string> downstream_resume_scope_violation(
         const fs::path& run_dir, const std::string& phase_upper,
         const std::string& new_yaml, const nlohmann::json& provenance) {
@@ -216,7 +217,7 @@ std::optional<std::string> downstream_resume_scope_violation(
                 ? provenance["config"].value("sha256", std::string())
                 : std::string();
             if (expected_sha.empty() ||
-                pi_provenance_sha256_hex(new_yaml) != expected_sha) {
+                sha256_hex(new_yaml) != expected_sha) {
                 return "FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH: " + phase_upper +
                        " resume requires the run-start config unchanged when "
                        "no config revision history is available to verify a "
@@ -276,6 +277,15 @@ static std::string sanitize_run_id(std::string value) {
     return value;
 }
 
+/// @brief A sanitized run id that is also a safe directory name.
+/// @details sanitize_run_id keeps dots, so "." and ".." would name the runs
+/// directory itself or its parent; they become "run".
+static std::string sanitize_run_dir_name(const std::string& value) {
+    std::string id = sanitize_run_id(value);
+    if (id == "." || id == "..") id = "run";
+    return id;
+}
+
 /// @brief Implements url decode component.
 /// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
@@ -301,42 +311,11 @@ static std::string url_decode_component(const std::string& value) {
     return out;
 }
 
-/// @brief Implements decode base64url.
-/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-static std::string decode_base64url(std::string value) {
-    for (char& ch : value) {
-        if (ch == '-') ch = '+';
-        else if (ch == '_') ch = '/';
-    }
-    while (value.size() % 4 != 0) value.push_back('=');
-    static const std::string alphabet =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string out;
-    int buffer = 0;
-    int bits_collected = 0;
-    for (char ch : value) {
-        if (ch == '=') break;
-        const auto pos = alphabet.find(ch);
-        if (pos == std::string::npos) return "";
-        buffer = (buffer << 6) | static_cast<int>(pos);
-        bits_collected += 6;
-        if (bits_collected >= 8) {
-            bits_collected -= 8;
-            out.push_back(static_cast<char>((buffer >> bits_collected) & 0xFF));
-        }
-    }
-    return out;
-}
-
 /// @brief Implements decode run id param.
 /// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
 /// access, process handling, and error reporting localized to this backend component.
 static std::string decode_run_id_param(std::string run_id) {
-    if (run_id.rfind("b64_", 0) == 0) {
-        const std::string decoded = decode_base64url(run_id.substr(4));
-        return decoded.empty() ? run_id : decoded;
-    }
+    if (run_id.rfind("b64_", 0) == 0) return decode_b64_run_id(run_id);
     if (run_id.find('%') == std::string::npos && run_id.find('+') == std::string::npos) return run_id;
     return url_decode_component(run_id);
 }
@@ -382,11 +361,11 @@ static std::string current_run_date_minutes() {
 /// access, process handling, and error reporting localized to this backend component.
 static std::string make_effective_run_id(const nlohmann::json& body) {
     const std::string raw_run_id = body.value("run_id", "");
-    if (!raw_run_id.empty()) return sanitize_run_id(raw_run_id);
+    if (!raw_run_id.empty()) return sanitize_run_dir_name(raw_run_id);
 
     const std::string raw_run_name = body.value("run_name", "");
     const std::string base_name = raw_run_name.empty() ? std::string("run")
-                                                       : sanitize_run_id(raw_run_name);
+                                                       : sanitize_run_dir_name(raw_run_name);
     return base_name + "_" + current_run_timestamp();
 }
 
@@ -395,11 +374,11 @@ static std::string make_effective_run_id(const nlohmann::json& body) {
 /// access, process handling, and error reporting localized to this backend component.
 static std::string make_queue_root_run_id(const nlohmann::json& body) {
     const std::string raw_run_id = body.value("run_id", "");
-    if (!raw_run_id.empty()) return sanitize_run_id(raw_run_id);
+    if (!raw_run_id.empty()) return sanitize_run_dir_name(raw_run_id);
 
     const std::string raw_run_name = body.value("run_name", "");
     if (!raw_run_name.empty()) {
-        return sanitize_run_id(raw_run_name) + "_" + current_run_timestamp();
+        return sanitize_run_dir_name(raw_run_name) + "_" + current_run_timestamp();
     }
 
     return current_run_date_minutes();
@@ -539,28 +518,6 @@ static void release_run_start_config_claim(const fs::path& run_dir) {
 // durable, restart-safe link between the config a run actually used and the AI-apply memory
 // candidate that produced it, so the outcome recorder (Schritt 1c) can join them by content hash
 // instead of relying on the in-memory ConfigRevisionStore id space.
-static std::string pi_provenance_sha256_hex(const std::string& value) {
-    unsigned char digest[SHA256_DIGEST_LENGTH];
-    SHA256(reinterpret_cast<const unsigned char*>(value.data()), value.size(), digest);
-    std::ostringstream out;
-    out << std::hex << std::setfill('0');
-    for (unsigned char byte : digest) out << std::setw(2) << static_cast<int>(byte);
-    return out.str();
-}
-
-static std::string pi_provenance_now_iso() {
-    const auto now = std::chrono::system_clock::now();
-    const std::time_t t = std::chrono::system_clock::to_time_t(now);
-    std::tm tm_buf{};
-#ifdef _WIN32
-    gmtime_s(&tm_buf, &t);
-#else
-    gmtime_r(&t, &tm_buf);
-#endif
-    std::ostringstream out;
-    out << std::put_time(&tm_buf, "%Y-%m-%dT%H:%M:%SZ");
-    return out.str();
-}
 
 static void write_run_start_provenance(const std::shared_ptr<AppState>& state,
                                        const fs::path& run_dir,
@@ -584,8 +541,8 @@ static void write_run_start_provenance(const std::shared_ptr<AppState>& state,
         // serializers are not guaranteed to match byte-for-byte (different serializers, and
         // effective_config_yaml() injects color_mode/astap paths), so it cannot be the primary key.
         {"prior_active_config_revision_id", prior_active_config_revision_id},
-        {"config_sha256", pi_provenance_sha256_hex(config_yaml)},
-        {"started_at", pi_provenance_now_iso()},
+        {"config_sha256", sha256_hex(config_yaml)},
+        {"started_at", utc_now_iso()},
         {"effective_input_dir", effective_input_dir},
         {"original_input_dir", original_input_dir}
     };
@@ -1242,80 +1199,23 @@ static std::optional<nlohmann::json> pending_run_status(const std::shared_ptr<Ap
 }
 
 #ifndef _WIN32
-/// @brief Checks process exists.
-/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-static bool pid_exists(pid_t pid) {
-    if (pid <= 0) return false;
-    if (kill(pid, 0) == 0) return true;
-    return errno == EPERM;
-}
-
-/// @brief Implements terminate pid group.
-/// @details This implementation serves run listing, status, queue, resume, artifact, and report endpoints; it keeps JSON shapes, filesystem
-/// access, process handling, and error reporting localized to this backend component.
-static bool terminate_pid_group(pid_t pid) {
-    if (pid <= 0) return false;
-    // Send to process group (pgid == pid) to also kill child processes
-    if (kill(-pid, SIGTERM) != 0) kill(pid, SIGTERM);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (!pid_exists(pid)) return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    if (kill(-pid, SIGKILL) != 0) kill(pid, SIGKILL);
-    return true;
-}
-
 static std::vector<int> terminate_orphan_runner_processes(const BackendRuntime& runtime,
                                                           const std::string& run_id,
                                                           const std::string& run_dir) {
     std::vector<int> killed;
 #ifdef __linux__
     const std::string runner_name = fs::path(runtime.runner_exe).filename().string();
-    if (!fs::exists("/proc")) return killed;
-    for (const auto& entry : fs::directory_iterator("/proc")) {
-        if (!entry.is_directory()) continue;
-        const std::string pid_text = entry.path().filename().string();
-        if (pid_text.empty() || !std::all_of(pid_text.begin(), pid_text.end(), ::isdigit)) continue;
-        int pid = 0;
-        try {
-            pid = std::stoi(pid_text);
-        } catch (...) {
-            continue;
-        }
-        if (pid == static_cast<int>(::getpid())) continue;
-
-        std::ifstream cmdline(entry.path() / "cmdline", std::ios::binary);
-        if (!cmdline) continue;
-        std::string raw((std::istreambuf_iterator<char>(cmdline)), std::istreambuf_iterator<char>());
-        if (raw.empty()) continue;
-
-        std::vector<std::string> argv;
-        size_t start = 0;
-        while (start < raw.size()) {
-            size_t end = raw.find('\0', start);
-            if (end == std::string::npos) end = raw.size();
-            if (end > start) argv.push_back(raw.substr(start, end - start));
-            start = end + 1;
-        }
-        if (argv.empty()) continue;
-
-        const std::string exe_name = fs::path(argv.front()).filename().string();
-        if (exe_name != runner_name && exe_name.find("tile_compile_runner") == std::string::npos) continue;
+    for_each_process([&](int pid, const fs::path&, const std::vector<std::string>& argv) {
+        if (!argv_is_runner_exe(argv, runner_name)) return true;
         const bool is_runner = std::any_of(argv.begin() + 1, argv.end(), [](const std::string& arg) {
             return arg == "reconstruct" || arg == "resume-reconstruction";
         });
-        if (!is_runner) continue;
-
-        std::string joined;
-        for (const auto& part : argv) {
-            if (!joined.empty()) joined += ' ';
-            joined += part;
-        }
-        if (joined.find(run_id) == std::string::npos && joined.find(run_dir) == std::string::npos) continue;
+        if (!is_runner) return true;
+        const std::string joined = join_argv(argv);
+        if (joined.find(run_id) == std::string::npos && joined.find(run_dir) == std::string::npos) return true;
         if (terminate_pid_group(static_cast<pid_t>(pid))) killed.push_back(pid);
-    }
+        return true;
+    });
 #endif
     return killed;
 }
@@ -1378,12 +1278,6 @@ void register_runs_routes(CrowApp& app,
         auto body_opt = tile_compile::routes::parse_body(req);
         if (!body_opt) return err_resp("Invalid JSON");
         auto& body = *body_opt;
-
-        auto guardrails = scan_guardrails(state->job_store);
-        if (guardrails.value("status", std::string()) == "error") {
-            state->ui_event_store.push("run.start.blocked", "runs.run_start", {{"reason", "guardrail_error"}, {"guardrails", guardrails}});
-            return err_resp("GUARDRAIL_BLOCKED", "run start blocked by guardrails", 409, guardrails);
-        }
 
         auto input_dirs = collect_input_dirs(body);
         std::string runs_dir    = body.value("runs_dir", state->runtime.runs_dir.string());
@@ -2180,11 +2074,16 @@ void register_runs_routes(CrowApp& app,
         int tail = 250;
         if (req.url_params.get("tail"))
             try { tail = std::stoi(req.url_params.get("tail")); } catch (...) {}
+        // head=N: the first N lines instead of the last (run_start and the
+        // scan summary sit at the top of a log that can be very long).
+        int head = 0;
+        if (req.url_params.get("head"))
+            try { head = std::stoi(req.url_params.get("head")); } catch (...) {}
         try {
             std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
             fs::path run_dir;
             if (auto err = resolve_request_run_dir(state, run_id, run_dir_str, run_dir)) return std::move(*err);
-            std::string text = read_run_logs(run_dir, tail);
+            std::string text = head > 0 ? read_run_logs_head(run_dir, head) : read_run_logs(run_dir, tail);
             nlohmann::json lines = nlohmann::json::array();
             std::istringstream iss(text);
             std::string line;
@@ -2229,6 +2128,12 @@ void register_runs_routes(CrowApp& app,
             }
             if (!fs::exists(*full) || !fs::is_regular_file(*full)) {
                 return err_resp("ARTIFACT_NOT_FILE", "artifact path is not a file", 400, nlohmann::json::object());
+            }
+            constexpr std::uintmax_t kMaxArtifactViewBytes = 64ULL * 1024ULL * 1024ULL;
+            std::error_code sz_ec;
+            const auto fsize = fs::file_size(*full, sz_ec);
+            if (!sz_ec && fsize > kMaxArtifactViewBytes) {
+                return err_resp("ARTIFACT_TOO_LARGE", "artifact exceeds 64 MiB view limit", 413, nlohmann::json::object());
             }
             std::ifstream f(*full);
             std::string content((std::istreambuf_iterator<char>(f)),
@@ -2285,6 +2190,12 @@ void register_runs_routes(CrowApp& app,
             auto full = resolve_artifact_path(run_dir, rel_path);
             if (!full) return err_resp("ARTIFACT_PATH_INVALID", "artifact path must stay inside run directory", 400, nlohmann::json::object());
             if (!fs::exists(*full) || !fs::is_regular_file(*full)) return err_resp("ARTIFACT_NOT_FILE", "artifact path is not a file", 400, nlohmann::json::object());
+            constexpr std::uintmax_t kMaxArtifactRawBytes = 512ULL * 1024ULL * 1024ULL;
+            std::error_code sz_ec;
+            const auto fsize = fs::file_size(*full, sz_ec);
+            if (!sz_ec && fsize > kMaxArtifactRawBytes) {
+                return err_resp("ARTIFACT_TOO_LARGE", "artifact exceeds 512 MiB raw download limit", 413, nlohmann::json::object());
+            }
             std::ifstream f(*full, std::ios::binary);
             std::string body((std::istreambuf_iterator<char>(f)),
                               std::istreambuf_iterator<char>());

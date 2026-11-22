@@ -37,7 +37,8 @@ Misst die Geometrie, die später jeden Quellpixel ins Ausgaberaster abbildet.
   optionales lokales Modell
 - `artifacts/run_provenance.json` — Config-sha256 als Resume-Anker
 
-`PREWARP`-Events gehören intern zu dieser Phase; ein materialisierter
+`PREWARP` erscheint nur noch als Log-Präfix dieser Phase (keine eigenen
+Phase-Events); ein materialisierter
 Prewarp-Canvas existiert nicht — Forward Drizzle nutzt die geometrische
 Beschreibung direkt statt vorgewarpter Bilder.
 

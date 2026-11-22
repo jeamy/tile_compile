@@ -6,9 +6,9 @@ import { API_ENDPOINTS } from "../api/endpoints.js";
 import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { t } from "../i18n/i18n.js";
 import { getStore } from "../state/store.js";
-import { getUiState, setUiState } from "../state/ui-state.js";
 import { setRunState } from "../state/run-state.js";
 import { pollJob } from "../utils/poll.js";
+import { goToSubTab } from "../utils/navigation.js";
 import { openStatsFolder, openStatsReport } from "../utils/stats-utils.js";
 import { createRunImagePreviewPanel, loadRunImagePreview } from "../components/run-image-preview.js";
 import { createRunLearningArchive } from "../components/run-learning-archive.js";
@@ -249,7 +249,7 @@ async function selectRun(runId, runDirHint = "") {
 
 async function viewArtifact(runId, path, runDir = "") {
   try {
-    const url = api._toHttpUrl(API_ENDPOINTS.runs.artifactView(runId, path, runDir));
+    const url = api.httpUrl(API_ENDPOINTS.runs.artifactView(runId, path, runDir));
     window.open(url, "_blank");
   } catch (e) {
     toastError(t("ui.toast.view_failed", "Anzeigen fehlgeschlagen"), e.message);
@@ -270,10 +270,7 @@ async function setRunCurrent(runId, runDirHint = "") {
       resumeFromPhase: "",
     });
     toastSuccess(t("ui.toast.set_current", "Als aktuell gesetzt"));
-    const ui = getUiState();
-    setUiState({ activeTab: "processing", activeSubTab: { ...ui.activeSubTab, processing: "run-monitor" } });
-    window.location.hash = "#processing";
-    window.dispatchEvent(new Event("tc-subtab-change"));
+    goToSubTab("processing", "run-monitor");
   } catch (e) {
     toastError(t("ui.toast.set_current_failed", "Fehlgeschlagen"), e.message);
   }
@@ -336,10 +333,9 @@ async function loadRunSnapshot(runId) {
     if (!status) return null;
     const runDir = status.run_dir || "";
 
-    const [statsStatus, artifactsResult, logs] = await Promise.all([
+    const [statsStatus, artifactsResult] = await Promise.all([
       api.get(API_ENDPOINTS.runs.statsStatus(runId, runDir)).catch(() => null),
       api.get(API_ENDPOINTS.runs.artifacts(runId, runDir)).catch(() => null),
-      api.get(API_ENDPOINTS.runs.logs(runId, 99999)).catch(() => null),
     ]);
     const artifacts = artifactsResult?.items || artifactsResult || [];
 
@@ -352,21 +348,31 @@ async function loadRunSnapshot(runId) {
     const events = status.events || [];
     for (const ev of events) {
       if (ev.loaded_frames != null && frames === "-") frames = ev.loaded_frames;
+      if (ev.frames_discovered != null && frames === "-") frames = ev.frames_discovered;
       if (ev.ts) {
         if (!firstTs || ev.ts < firstTs) firstTs = ev.ts;
         if (!lastTs || ev.ts > lastTs) lastTs = ev.ts;
       }
     }
 
-    if (logs?.lines) {
-      for (const line of logs.lines) {
-        try {
-          const ev = typeof line === "string" ? JSON.parse(line) : line;
-          if (ev.frames_discovered != null) frames = ev.frames_discovered;
-          if (ev.type === "run_start" && ev.ts) firstTs = ev.ts;
-          if (ev.type === "run_end" && ev.ts) lastTs = ev.ts;
-          if (ev.method) method = ev.method;
-        } catch {}
+    if (frames === "-" || !firstTs || !lastTs) {
+      // run_start and the scan summary open the log, run_end closes it: two
+      // small reads instead of the whole (possibly very long) log.
+      const [head, tail] = await Promise.all([
+        api.get(API_ENDPOINTS.runs.logsHead(runId, 20, runDir)).catch(() => null),
+        api.get(API_ENDPOINTS.runs.logs(runId, 20, runDir)).catch(() => null),
+      ]);
+      const lines = [...(head?.lines || []), ...(tail?.lines || [])];
+      if (lines.length) {
+        for (const line of lines) {
+          try {
+            const ev = typeof line === "string" ? JSON.parse(line) : line;
+            if (ev.frames_discovered != null) frames = ev.frames_discovered;
+            if (ev.type === "run_start" && ev.ts) firstTs = ev.ts;
+            if (ev.type === "run_end" && ev.ts) lastTs = ev.ts;
+            if (ev.method) method = ev.method;
+          } catch {}
+        }
       }
     }
 
@@ -408,7 +414,10 @@ async function loadRunSnapshot(runId) {
   }
 }
 
+let compareRequest = 0;
+
 async function renderCompare() {
+  const request = ++compareRequest;
   const body = document.getElementById("compare-body");
   if (!body) return;
   clear(body);
@@ -427,6 +436,8 @@ async function renderCompare() {
     loadRunSnapshot(selectedId),
     loadRunSnapshot(compareId),
   ]);
+  // A newer selection started its own comparison while these loaded.
+  if (request !== compareRequest || !body.isConnected) return;
 
   if (!snapA || !snapB) {
     body.appendChild(el("div", { class: "tc-text-muted tc-text-sm" }, t("ui.state.compare_failed", "Run-Daten konnten nicht geladen werden")));

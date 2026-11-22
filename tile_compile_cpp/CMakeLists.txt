@@ -12,28 +12,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(_tile_compile_opencv_dir_candidates
-    "$ENV{TILE_COMPILE_OPENCV_DIR}"
-    "$ENV{OpenCV_DIR}"
-    "$ENV{HOME}/.local/opencv-cuda-4.11/lib64/cmake/opencv4"
-    "$ENV{HOME}/.local/opencv-cuda/lib64/cmake/opencv4")
-set(_tile_compile_preferred_opencv_dir "")
-foreach(_opencv_dir ${_tile_compile_opencv_dir_candidates})
-    if(_opencv_dir AND EXISTS "${_opencv_dir}/OpenCVConfig.cmake")
-        set(_tile_compile_preferred_opencv_dir "${_opencv_dir}")
-        break()
-    endif()
-endforeach()
-if((NOT DEFINED OpenCV_DIR OR "${OpenCV_DIR}" STREQUAL "") OR
-   (DEFINED TILE_COMPILE_OPENCV_DIR_AUTO_LAST AND
-    "${OpenCV_DIR}" STREQUAL "${TILE_COMPILE_OPENCV_DIR_AUTO_LAST}"))
-    if(_tile_compile_preferred_opencv_dir)
-        set(OpenCV_DIR "${_tile_compile_preferred_opencv_dir}" CACHE PATH
-            "Preferred OpenCV config directory for tile_compile" FORCE)
-    endif()
-endif()
-set(TILE_COMPILE_OPENCV_DIR_AUTO_LAST "${_tile_compile_preferred_opencv_dir}"
-    CACHE INTERNAL "Last auto-detected preferred OpenCV_DIR")
+# OpenCV_DIR is chosen in the OpenCV section below (after nvcc is known), so
+# the OpenCV build whose CUDA major version matches the toolkit wins.
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/TileCompileOpenCV.cmake")
 
 set(_tile_compile_cuda_hints)
 if(DEFINED ENV{CUDA_NVCC_EXECUTABLE} AND NOT "$ENV{CUDA_NVCC_EXECUTABLE}" STREQUAL "")
@@ -42,8 +23,7 @@ if(DEFINED ENV{CUDA_NVCC_EXECUTABLE} AND NOT "$ENV{CUDA_NVCC_EXECUTABLE}" STREQU
         list(APPEND _tile_compile_cuda_hints "${_tile_compile_env_nvcc_dir}")
     endif()
 endif()
-foreach(_cuda_root "/usr/local/cuda-12.9"
-                   "$ENV{CUDA_TOOLKIT_ROOT_DIR}" "$ENV{CUDA_HOME}" "$ENV{CUDA_PATH}"
+foreach(_cuda_root "$ENV{CUDA_TOOLKIT_ROOT_DIR}" "$ENV{CUDA_HOME}" "$ENV{CUDA_PATH}"
                    "/usr/local/cuda" "/opt/cuda")
     if(_cuda_root)
         list(APPEND _tile_compile_cuda_hints "${_cuda_root}" "${_cuda_root}/bin")
@@ -117,6 +97,11 @@ if(TILE_COMPILE_ENABLE_CUDA)
     # Eigen's GPU Complex headers call constexpr __host__ std::complex operators
     # from __host__ __device__ code. Allow this explicitly to avoid warning #20015-D.
     set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
+    # Hand the detected nvcc to enable_language(CUDA): nvcc need not be on
+    # PATH (a toolkit upgrade leaves /usr/local/cuda pointing at the new one).
+    if(NOT CMAKE_CUDA_COMPILER AND NOT DEFINED ENV{CUDACXX} AND TILE_COMPILE_NVCC_EXECUTABLE)
+        set(CMAKE_CUDA_COMPILER "${TILE_COMPILE_NVCC_EXECUTABLE}" CACHE FILEPATH "CUDA compiler" FORCE)
+    endif()
     enable_language(CUDA)
 
     if(TILE_COMPILE_NVCC_EXECUTABLE)
@@ -156,7 +141,8 @@ if(NOT Eigen3_FOUND)
 endif()
 
 # OpenCV
-find_package(OpenCV QUIET)
+tile_compile_select_opencv_dir()
+tile_compile_find_opencv(QUIET)
 if(NOT OpenCV_FOUND AND WIN32)
     foreach(_opencv_prefix
         "C:/msys64/mingw64"
@@ -484,10 +470,8 @@ set(LIB_SOURCES
     src/reconstruction/quality_frame_weight_plan.cpp
     src/reconstruction/source_quality_artifact.cpp
     src/reconstruction/normalized_source_cache.cpp
-    src/reconstruction/drizzle_profile_store.cpp
     src/reconstruction/forward_drizzle_cuda.cpp
     src/reconstruction/output_scale.cpp
-    src/reconstruction/profile_store_manifest.cpp
     src/metrics/metrics.cpp
     src/metrics/tile_metrics.cpp
     src/metrics/linearity.cpp
@@ -508,10 +492,7 @@ set(LIB_SOURCES
 
 if(TILE_COMPILE_WITH_CUDA)
     list(APPEND LIB_SOURCES
-        src/reconstruction/forward_drizzle_cuda_device.cu
-        # Test-only device harnesses (clip parity); shares the clip code with
-        # the production TU through forward_drizzle_cuda_clip.cuh.
-        src/reconstruction/forward_drizzle_cuda_test_harness.cu)
+        src/reconstruction/forward_drizzle_cuda_device.cu)
 endif()
 
 # Plan 19.6 numerical contract --- LOAD-BEARING FOR CORRECTNESS, NOT AN
@@ -556,7 +537,9 @@ if(TILE_COMPILE_WITH_CUDA)
     # attribution usable on Release builds (never combined with Debug's -G).
     set_source_files_properties(
         src/reconstruction/forward_drizzle_cuda_device.cu
-        src/reconstruction/forward_drizzle_cuda_test_harness.cu
+        # Test-only clip parity harness (compiled into `tests`); shares the
+        # clip code with the production TU through forward_drizzle_cuda_clip.cuh.
+        tests/support/forward_drizzle_cuda_harness.cu
         PROPERTIES COMPILE_OPTIONS
             "--fmad=false;$<$<CONFIG:Release>:-lineinfo>")
 endif()
@@ -742,9 +725,7 @@ if(BUILD_TESTS)
             tests/test_quality_frame_weight_plan.cpp
             tests/test_runner_forward_drizzle.cpp
             tests/test_source_quality_artifact.cpp
-            tests/test_drizzle_profile_store.cpp
             tests/test_output_scale.cpp
-            tests/test_profile_store_manifest.cpp
             tests/test_coverage_filtered_grid.cpp
             tests/test_hypermetric_stretch.cpp
             tests/test_color_cast_correction.cpp
@@ -763,6 +744,9 @@ if(BUILD_TESTS)
             CUDA_VERSION "${CUDAToolkit_VERSION}"
             FEATURE_FLAGS "${_tile_compile_feature_flags}"
             BUILD_INFO_SOURCE "${_tile_compile_build_info_source}")
+        if(TILE_COMPILE_WITH_CUDA)
+            target_sources(tests PRIVATE tests/support/forward_drizzle_cuda_harness.cu)
+        endif()
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         if(WIN32)
             target_link_libraries(tests PRIVATE psapi)

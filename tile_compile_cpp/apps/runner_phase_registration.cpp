@@ -1,4 +1,3 @@
-#include "tile_compile/reconstruction/drizzle_profile_store.hpp"
 #include "runner_phase_registration.hpp"
 #include "runner_registration_refinement_state.hpp"
 #include "runner_shared.hpp"
@@ -13,7 +12,6 @@
 #include "tile_compile/registration/global_registration.hpp"
 #include "tile_compile/registration/registration.hpp"
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
-#include "tile_compile/reconstruction/profile_store_manifest.hpp"
 #include "tile_compile/registration/registration_sampling_plan.hpp"
 #include "tile_compile/registration/sampling_geometry.hpp"
 #include "tile_compile/registration/warp_prediction_gate.hpp"
@@ -351,6 +349,7 @@ bool write_registration_sampling_plan(
   const float det_max = registration_cfg.reject_scale_max * registration_cfg.reject_scale_max;
 
   int invalid_frames = 0;
+  std::vector<size_t> dropped_model_frames;
   plan.frames.reserve(frames.size());
   for (size_t fi = 0; fi < frames.size(); ++fi) {
     FrameSamplingTransform f;
@@ -422,7 +421,32 @@ bool write_registration_sampling_plan(
         break;
     }
 
+    // A predicted warp that misses the stars by more than the limit (or whose
+    // miss cannot be measured) would broaden every star of the stack even at
+    // the reduced weight above: the frame is left out.
+    if (f.model_predicted &&
+        drop_model_predicted_frame(rs.applicable, rs.median_px,
+                                   registration_cfg.model_prediction_max_residual_px)) {
+      f.valid = false;
+      f.source_to_canvas_affine_valid = false;
+      ++invalid_frames;
+      dropped_model_frames.push_back(fi);
+    }
+
     plan.frames.push_back(std::move(f));
+  }
+  if (!dropped_model_frames.empty()) {
+    std::string list;
+    for (size_t i = 0; i < dropped_model_frames.size() && i < 20; ++i)
+      list += (i ? "," : "") + std::to_string(dropped_model_frames[i]);
+    if (dropped_model_frames.size() > 20) list += ",...";
+    emitter.warning(run_id,
+                    "REGISTRATION: " + std::to_string(dropped_model_frames.size()) +
+                        " model-predicted frame(s) left out: median star residual above " +
+                        std::to_string(registration_cfg.model_prediction_max_residual_px) +
+                        " proxy px or not measurable (registration.model_prediction_max_residual_px; frames " +
+                        list + ")",
+                    log_file);
   }
 
   plan.plan_hash = registration::compute_plan_hash(plan);
@@ -445,6 +469,7 @@ bool write_registration_sampling_plan(
 
   std::cout << "[REGISTRATION_SAMPLING] wrote " << artifact_path
             << " frames=" << plan.frames.size() << " invalid=" << invalid_frames
+            << " model_predicted_dropped=" << dropped_model_frames.size()
             << " plan_hash=" << plan.plan_hash.substr(0, 16) << "..." << std::endl;
   if (out_plan) *out_plan = std::move(plan);
   return true;
@@ -4078,20 +4103,6 @@ bool run_phase_registration_prewarp(
   }
 
 
-  // Export model-predicted mask so the pipeline can apply a weight penalty.
-  out.model_predicted_mask.assign(frames.size(), 0);
-  out.registration_residual_weight_factors =
-      registration_residual_weight_factors;
-  for (size_t fi = 0; fi < frames.size(); ++fi) {
-    const auto p = reg_provenance[fi];
-    if (p == RegistrationProvenance::model_interpolated ||
-        p == RegistrationProvenance::model_blended ||
-        p == RegistrationProvenance::model_global_poly ||
-        p == RegistrationProvenance::model_local_poly ||
-        p == RegistrationProvenance::model_nearest_copy) {
-      out.model_predicted_mask[fi] = 1;
-    }
-  }
 
 
   // ================================================================
@@ -4184,10 +4195,6 @@ bool run_phase_registration_prewarp(
       return false;
     }
     out.sampling_plan = std::move(checked_sampling);
-    out.canvas_width = canvas_width;
-    out.canvas_height = canvas_height;
-    out.tile_offset_x = offset_x;
-    out.tile_offset_y = offset_y;
     emitter.phase_end(run_id, Phase::REGISTRATION, "ok",
                       {{"sampling_plan_hash", out.sampling_plan.plan_hash}}, log_file);
     return true;

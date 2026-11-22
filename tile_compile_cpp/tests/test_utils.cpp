@@ -319,6 +319,35 @@ TEST_CASE("artifact audit: abandoned staging preserves published data", "[drizzl
                           std::filesystem::directory_iterator{})==1);
 }
 
+TEST_CASE("artifact audit: a staged directory payload leaves no staging dir", "[drizzle-audit]") {
+    using namespace tile_compile::core;
+    AtomicOutput fixture(std::filesystem::temp_directory_path()/"atomic-dir-test");
+    const auto root=fixture.path();
+    std::filesystem::create_directories(root);
+    auto entries=[&]{
+        std::vector<std::string> names;
+        for (const auto& e : std::filesystem::directory_iterator(root)) names.push_back(e.path().filename().string());
+        std::sort(names.begin(),names.end());
+        return names;
+    };
+    {
+        // A multi-file generation that is abandoned (as after an exception).
+        AtomicOutput abandoned(root/"generation");
+        std::filesystem::create_directories(abandoned.path()/"nested");
+        std::ofstream(abandoned.path()/"a.fits")<<"a";
+        std::ofstream(abandoned.path()/"nested"/"b.fits")<<"b";
+    }
+    REQUIRE(entries().empty());
+    {
+        AtomicOutput committed(root/"generation");
+        std::filesystem::create_directories(committed.path());
+        std::ofstream(committed.path()/"a.fits")<<"a";
+        committed.commit();
+    }
+    REQUIRE(entries()==std::vector<std::string>{"generation"});
+    REQUIRE(read_text(root/"generation"/"a.fits")=="a");
+}
+
 TEST_CASE("contract audit: unknown future pipeline is not resumable", "[drizzle-audit]") {
     using namespace tile_compile::core;
     REQUIRE(pipeline_contract_is_single_method(1));

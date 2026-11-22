@@ -41,6 +41,22 @@ struct Job {
     std::string ended_at;
 };
 
+/// @brief True if job id a was created after job id b ("job_<n>_<suffix>",
+/// compared by n; a plain string comparison puts "job_9_…" after "job_10_…").
+inline bool job_id_newer(const std::string& a, const std::string& b) {
+    auto counter = [](const std::string& id) -> long long {
+        if (id.rfind("job_", 0) != 0) return -1;
+        long long n = 0;
+        size_t i = 4;
+        if (i >= id.size() || id[i] < '0' || id[i] > '9') return -1;
+        for (; i < id.size() && id[i] >= '0' && id[i] <= '9'; ++i) n = n * 10 + (id[i] - '0');
+        return n;
+    };
+    const long long ca = counter(a), cb = counter(b);
+    if (ca != cb) return ca > cb;
+    return a > b;
+}
+
 /// @brief Serializes a Job into the public REST/WebSocket JSON shape.
 nlohmann::json job_to_json(const Job& j);
 

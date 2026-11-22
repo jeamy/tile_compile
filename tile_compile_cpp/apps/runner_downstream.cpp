@@ -1177,24 +1177,26 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     }
     phase_l = "bge";
   }
-  if (phase_l == "bge") {
-    (void)run_astrometry_if_needed();
-    if (abort_if_runtime_limit_exceeded("ASTROMETRY")) {
-      return 1;
-    }
-    // Luma denoise runs first (opt-in, off by default): it smooths
-    // brightness noise on the rawest available post-stack linear RGB,
-    // before chroma_denoise, BGE, PCC or HMS touch it. See
-    // config::LumaDenoiseConfig's comment for why this stage exists.
-    const bool needs_post_stack_denoise =
-        cfg.luma_denoise.enabled ||
-        (cfg.chroma_denoise.enabled &&
-         cfg.chroma_denoise.apply_stage == "post_stack_linear");
-    if (needs_post_stack_denoise && !ensure_denoise_valid_mask()) return 1;
-    if (rgb.G.rows() > 0 && rgb.B.rows() > 0 && cfg.luma_denoise.enabled) {
+  // Set once the BGE block has handled the post-stack linear denoisers, so
+  // the PCC block it falls through to does not apply them again when BGE is
+  // off (no linear BGE snapshot to reload). A resume that starts at PCC
+  // still applies them there.
+  // Luma then chroma denoise on the post-stack linear RGB (both opt-in).
+  // Luma runs first: it smooths brightness noise on the rawest available
+  // post-stack linear RGB, before chroma_denoise, BGE, PCC or HMS touch it
+  // (config::LumaDenoiseConfig). It runs once per run: in the BGE block, or
+  // in the PCC block when BGE did not run. False if the valid mask cannot be
+  // built.
+  auto run_post_stack_linear_denoise = [&]() -> bool {
+    const bool chroma_here = cfg.chroma_denoise.enabled &&
+                             cfg.chroma_denoise.apply_stage == "post_stack_linear";
+    if (!cfg.luma_denoise.enabled && !chroma_here) return true;
+    if (!ensure_denoise_valid_mask()) return false;
+    if (rgb.G.rows() <= 0 || rgb.B.rows() <= 0) return true;
+    const bool full_diag = cfg.reconstruction.diagnostics.level == "full";
+    if (cfg.luma_denoise.enabled) {
       Matrix2Df luma_mask;
       reconstruction::LumaDenoiseDiagnostics luma_diag;
-      const bool full_diag = cfg.reconstruction.diagnostics.level == "full";
       const auto luma_stats = reconstruction::luma_denoise_rgb_inplace(
           rgb.R, rgb.G, rgb.B, cfg.luma_denoise,
           full_diag ? &luma_mask : nullptr, &denoise_valid_mask,
@@ -1205,12 +1207,9 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       if (luma_stats.applied)
         std::cout << "[LUMA_DENOISE] applied post_stack_linear" << std::endl;
     }
-    if (rgb.G.rows() > 0 && rgb.B.rows() > 0 &&
-        cfg.chroma_denoise.enabled &&
-        cfg.chroma_denoise.apply_stage == "post_stack_linear") {
+    if (chroma_here) {
       Matrix2Df chroma_mask;
       reconstruction::ChromaDenoiseDiagnostics chroma_diag;
-      const bool full_diag = cfg.reconstruction.diagnostics.level == "full";
       const auto chroma_stats = reconstruction::chroma_denoise_rgb_inplace(
           rgb.R, rgb.G, rgb.B, cfg.chroma_denoise,
           full_diag ? &chroma_mask : nullptr, &denoise_valid_mask,
@@ -1223,6 +1222,16 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
         std::cout << "[CHROMA_DENOISE] applied post_stack_linear (chroma-only)"
                   << std::endl;
     }
+    return true;
+  };
+  bool post_stack_denoise_done = false;
+  if (phase_l == "bge") {
+    (void)run_astrometry_if_needed();
+    if (abort_if_runtime_limit_exceeded("ASTROMETRY")) {
+      return 1;
+    }
+    if (!run_post_stack_linear_denoise()) return 1;
+    post_stack_denoise_done = true;
     if (!run_bge_phase()) {
       core::emit_event("downstream_end", run_id,
                        {{"success", false},
@@ -1360,34 +1369,8 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
                   << e.what() << std::endl;
       }
     }
-    if (!have_bge_linear && cfg.luma_denoise.enabled) {
-      if (!ensure_denoise_valid_mask()) return 1;
-      Matrix2Df luma_mask;
-      reconstruction::LumaDenoiseDiagnostics luma_diag;
-      const bool full_diag = cfg.reconstruction.diagnostics.level == "full";
-      const auto stats = reconstruction::luma_denoise_rgb_inplace(
-          rgb.R, rgb.G, rgb.B, cfg.luma_denoise,
-          full_diag ? &luma_mask : nullptr, &denoise_valid_mask,
-          full_diag ? &luma_diag : nullptr);
-      record_luma_denoise("post_stack_linear", stats);
-      save_protection_mask("luma_post_stack_linear", luma_mask);
-      if (full_diag) save_luma_diagnostics("post_stack_linear", luma_diag);
-    }
-    if (!have_bge_linear && cfg.chroma_denoise.enabled &&
-        cfg.chroma_denoise.apply_stage == "post_stack_linear") {
-      if (!ensure_denoise_valid_mask()) return 1;
-      Matrix2Df chroma_mask;
-      reconstruction::ChromaDenoiseDiagnostics chroma_diag;
-      const bool full_diag = cfg.reconstruction.diagnostics.level == "full";
-      const auto stats = reconstruction::chroma_denoise_rgb_inplace(
-          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise,
-          full_diag ? &chroma_mask : nullptr, &denoise_valid_mask,
-          full_diag ? &chroma_diag : nullptr);
-      record_chroma_denoise("post_stack_linear", stats);
-      save_protection_mask("chroma_post_stack_linear", chroma_mask);
-      if (full_diag)
-        save_chroma_diagnostics("post_stack_linear", chroma_diag);
-    }
+    const bool denoise_here = !have_bge_linear && !post_stack_denoise_done;
+    if (denoise_here && !run_post_stack_linear_denoise()) return 1;
 
     const fs::path pcc_input_rgb_path =
         have_bge_linear ? stacked_rgb_bge_linear_path : rgb_path;

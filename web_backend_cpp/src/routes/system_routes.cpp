@@ -7,9 +7,20 @@
 #include <filesystem>
 #include <algorithm>
 #include <cstdlib>
+#include <string>
+#include <thread>
+#include <vector>
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
+#else
+#include <cerrno>
+#include <csignal>
+#include <fcntl.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+extern char** environ;
 #endif
 
 namespace fs = std::filesystem;
@@ -52,6 +63,58 @@ static nlohmann::json installed_binary_version(const fs::path& path) {
 
 /// @brief Registers system endpoints for runtime health, path resolution, and backend metadata.
 /// @details This is the route-group entry point called from main during Crow setup.
+#ifndef _WIN32
+/// @brief The desktop "open" program; TILE_COMPILE_OPEN_COMMAND overrides it.
+static std::string desktop_opener() {
+    const char* custom = std::getenv("TILE_COMPILE_OPEN_COMMAND");
+    if (custom && *custom) return custom;
+#ifdef __APPLE__
+    return "open";
+#else
+    return "xdg-open";
+#endif
+}
+
+/// @brief Starts argv without a shell (the path is one argument, never
+/// parsed), its stdio on /dev/null, in a session of its own. A detached
+/// thread reaps it, so neither a zombie is left nor SIGCHLD is touched
+/// (SubprocessManager waits for its own children).
+/// @return 0 if the program was started, an errno value otherwise.
+static int spawn_detached(const std::vector<std::string>& command) {
+    std::vector<char*> argv;
+    argv.reserve(command.size() + 1);
+    for (const auto& part : command) argv.push_back(const_cast<char*>(part.c_str()));
+    argv.push_back(nullptr);
+
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    for (int fd = 0; fd <= 2; ++fd)
+        posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", fd == 0 ? O_RDONLY : O_WRONLY, 0);
+    posix_spawnattr_t attr;
+    posix_spawnattr_init(&attr);
+    // The backend ignores SIGPIPE; the opener gets the default back.
+    sigset_t defaults;
+    sigemptyset(&defaults);
+    sigaddset(&defaults, SIGPIPE);
+    posix_spawnattr_setsigdefault(&attr, &defaults);
+    short flags = POSIX_SPAWN_SETSIGDEF;
+#ifdef POSIX_SPAWN_SETSID
+    flags |= POSIX_SPAWN_SETSID;
+#endif
+    posix_spawnattr_setflags(&attr, flags);
+    pid_t pid = -1;
+    const int rc = posix_spawnp(&pid, argv[0], &actions, &attr, argv.data(), environ);
+    posix_spawnattr_destroy(&attr);
+    posix_spawn_file_actions_destroy(&actions);
+    if (rc != 0) return rc;
+    std::thread([pid] {
+        int status = 0;
+        while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+    }).detach();
+    return 0;
+}
+#endif
+
 void register_system_routes(CrowApp& app,
                               std::shared_ptr<AppState> state) {
 
@@ -190,16 +253,13 @@ void register_system_routes(CrowApp& app,
         if (!fs::exists(target))
             return err_resp("PATH_NOT_FOUND", "path does not exist", 400, {{"path", path}});
         target = normalized_existing_path(target);
-#ifdef __APPLE__
-        std::vector<std::string> command = {"open", target.string()};
-        int rc = std::system(("open '" + target.string() + "' >/dev/null 2>&1 &").c_str());
-#elif defined(_WIN32)
+#ifdef _WIN32
         std::vector<std::string> command = {"startfile", target.string()};
         int rc = 0;
         ShellExecuteA(nullptr, "open", target.string().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 #else
-        std::vector<std::string> command = {"xdg-open", target.string()};
-        int rc = std::system(("xdg-open '" + target.string() + "' >/dev/null 2>&1 &").c_str());
+        std::vector<std::string> command = {desktop_opener(), target.string()};
+        const int rc = spawn_detached(command);
 #endif
         if (rc != 0) {
             return err_resp("OPEN_FAILED", "failed to open path", 400, {{"path", target.string()}});

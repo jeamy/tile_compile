@@ -430,6 +430,15 @@
     "Der CC-Wert beschreibt, wie zuverlässig ein Einzelbild geometrisch und photometrisch zum Referenzbild passt.": "The CC value describes how reliably an individual frame matches the reference image geometrically and photometrically.",
     "<span class=\"good\">Unauffälliger Befund:</span> Eine enge Häufung bei hohen CC-Werten bedeutet, dass die meisten Einzelbilder stabil und eindeutig auf das Referenzbild registriert werden konnten.": "<span class=\"good\">Unremarkable finding:</span> A tight concentration at high CC values means most individual frames could be registered to the reference image stably and unambiguously.",
     "<span class=\"neutral\">Normaler Befund:</span> Ein kleiner linker Ausläufer ist bei schwierigen Sessions plausibel, solange nur wenige Einzelbilder deutlich schwächer korrelieren.": "<span class=\"neutral\">Normal finding:</span> A small left tail is plausible in difficult sessions as long as only a few individual frames correlate much more weakly.",
-    "<span class=\"bad\">Prüfbedarf:</span> Viele niedrige CC-Werte bedeuten, dass zahlreiche Einzelbilder geometrisch oder photometrisch nur unsicher zum Referenzbild passen; typische Ursachen sind Wolken, Drift, schwache Sterne, Fokusänderungen oder wechselnde Transparenz.": "<span class=\"bad\">Needs review:</span> Many low CC values mean numerous individual frames match the reference image only uncertainly in geometric or photometric terms; typical causes are clouds, drift, weak stars, focus changes, or changing transparency."
+    "<span class=\"bad\">Prüfbedarf:</span> Viele niedrige CC-Werte bedeuten, dass zahlreiche Einzelbilder geometrisch oder photometrisch nur unsicher zum Referenzbild passen; typische Ursachen sind Wolken, Drift, schwache Sterne, Fokusänderungen oder wechselnde Transparenz.": "<span class=\"bad\">Needs review:</span> Many low CC values mean numerous individual frames match the reference image only uncertainly in geometric or photometric terms; typical causes are clouds, drift, weak stars, focus changes, or changing transparency.",
+    "Phase Issues Summary": "Phase Issues Summary",
+    "Abgebrochene oder übersprungene Phasen": "Aborted or skipped phases",
+    "Keine Phase wurde abgebrochen oder übersprungen.": "No phase was aborted or skipped.",
+    "Photometrische Skalierung pro OSC-Kanal": "Photometric scale per OSC channel",
+    "Photometrische Skalierung (MONO)": "Photometric scale (MONO)",
+    "Registrierungs-Kaskade": "Registration cascade",
+    "Stern-Registrierungsresiduen": "Star registration residuals",
+    "Die Farbskala codiert die detektierte Sternanzahl pro Frame (niedrig bis hoch).": "The color scale encodes the detected star count per frame (low to high).",
+    "Die Farbskala codiert den Registrierungs-Korrelationskoeffizienten (CC) jedes Frames.": "The color scale encodes the registration correlation coefficient (CC) of each frame."
   }
 }

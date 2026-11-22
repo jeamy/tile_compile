@@ -32,6 +32,11 @@ public:
 
     HttpResponse get(const std::string& path) const;
     HttpResponse post(const std::string& path, const nlohmann::json& payload) const;
+    /// POST a raw body with explicit headers (e.g. "Origin: ...", "Content-Type: text/plain").
+    HttpResponse post_raw(const std::string& path, const std::string& body,
+                          const std::vector<std::string>& headers) const;
+    HttpResponse get_with_headers(const std::string& path, const std::vector<std::string>& headers) const;
+    int port() const { return _port; }
     nlohmann::json get_json(const std::string& path) const;
     nlohmann::json post_json(const std::string& path, const nlohmann::json& payload) const;
     nlohmann::json patch_json(const std::string& path, const nlohmann::json& payload) const;

@@ -11,7 +11,9 @@
 #include "tile_compile/image/background_extraction.hpp"
 #include "tile_compile/image/hypermetric_stretch.hpp"
 
+#include <algorithm>
 #include <cstdint>
+#include <exception>
 #include <cmath>
 #include <filesystem>
 #include <limits>
@@ -31,6 +33,23 @@ struct RGBImage;
 }
 
 namespace tile_compile::runner {
+
+/// Exposure time in seconds from a FITS header: the first positive, finite
+/// value among EXPTIME, EXPOSURE, EXPOSURETIME, EXPOSURE_TIME, EXP_TIME,
+/// DURATION, EXPOS (number or numeric string, surrounding blanks ignored).
+std::optional<double> header_exposure_seconds(const io::FitsHeader &header);
+
+/// The FITS calibration frames in `dir` matching `pattern` (';'/','
+/// separated globs), sorted.
+std::vector<std::filesystem::path> discover_calibration_frames(
+    const std::filesystem::path &dir, const std::string &pattern);
+
+/// Per-pixel mean of calibration frames of the expected size, accumulated in
+/// double; non-finite samples are skipped (a pixel with none is 0). False
+/// with `error_out` set if a frame is missing, unreadable or of another size.
+bool average_calibration_frames(const std::vector<std::filesystem::path> &paths,
+                                int expected_rows, int expected_cols,
+                                Matrix2Df &out, std::string &error_out);
 
 /// Result of the native near-solve that matches detected image stars against
 /// the installed Siril-format Gaia DR3 catalogue.  This is deliberately a
@@ -143,6 +162,9 @@ std::optional<double> estimate_astap_sensor_fov_deg(const io::FitsHeader &header
                                                     int image_height);
 
 /// Simple parallel-for loop over indices [0, count).
+/// An exception thrown by fn stops the remaining indices and is rethrown on
+/// the calling thread after all workers joined (as in the serial loop),
+/// instead of escaping a std::thread and terminating the process.
 template <typename Fn>
 void parallel_for_indices(size_t count, int workers, Fn fn) {
   if (count == 0) return;
@@ -152,20 +174,31 @@ void parallel_for_indices(size_t count, int workers, Fn fn) {
     return;
   }
   std::atomic<size_t> next{0};
+  std::atomic<bool> failed{false};
+  std::exception_ptr first_error;
+  std::mutex error_mutex;
   std::vector<std::thread> threads;
   threads.reserve(static_cast<size_t>(workers));
   for (int w = 0; w < workers; ++w) {
     threads.emplace_back([&]() {
-      while (true) {
+      while (!failed.load(std::memory_order_relaxed)) {
         const size_t i = next.fetch_add(1);
         if (i >= count) break;
-        fn(i);
+        try {
+          fn(i);
+        } catch (...) {
+          std::lock_guard<std::mutex> lock(error_mutex);
+          if (!first_error) first_error = std::current_exception();
+          failed.store(true, std::memory_order_relaxed);
+          break;
+        }
       }
     });
   }
   for (auto& t : threads) {
     if (t.joinable()) t.join();
   }
+  if (first_error) std::rethrow_exception(first_error);
 }
 
 
@@ -308,12 +341,6 @@ public:
   Matrix2Df load(size_t fi) const;
   /// Return a mapped pointer to full-frame data; valid until cache cleanup.
   const float *frame_data(size_t fi) const;
-  /// Extract a tile by value, applying optional canvas coordinate offsets.
-  Matrix2Df extract_tile(size_t fi, const Tile &t, int offset_x = 0,
-                         int offset_y = 0) const;
-  /// Extract a tile into an existing matrix to avoid repeated allocations.
-  bool extract_tile_into(size_t fi, const Tile &t, Matrix2Df &out,
-                         int offset_x = 0, int offset_y = 0) const;
   /// Release all currently mapped frame views without deleting cached files.
   void clear_mappings() const;
   /// Release the mmap mapping for one frame; the cached file remains.

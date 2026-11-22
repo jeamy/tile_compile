@@ -6,6 +6,7 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#include <cstdlib>
 
 namespace fs = std::filesystem;
 
@@ -29,6 +30,9 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::string command = argv[1];
+    if (const char* log = std::getenv("FAKE_CLI_CALL_LOG")) {
+        std::ofstream(log, std::ios::app) << command << "\n";
+    }
 
     if (command == "get-schema") {
         std::cout << nlohmann::json{

@@ -1,4 +1,5 @@
 #include "services/pi/pi_decision_state.hpp"
+#include "sha256_hex.hpp"
 
 #include <openssl/sha.h>
 
@@ -333,14 +334,7 @@ bool axis_asymmetry(double roundness, double& out) {
 
 std::string canonical_json_dump(const json& value) { return normalize_for_hash(value).dump(); }
 
-std::string sha256_prefixed(const std::string& bytes) {
-    unsigned char digest[SHA256_DIGEST_LENGTH];
-    SHA256(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(), digest);
-    std::ostringstream hex;
-    hex << "sha256:" << std::hex << std::setfill('0');
-    for (unsigned char b : digest) hex << std::setw(2) << static_cast<int>(b);
-    return hex.str();
-}
+std::string sha256_prefixed(const std::string& bytes) { return "sha256:" + sha256_hex(bytes); }
 
 PreRunDecisionResult build_pre_run_decision_state(const PreRunDecisionInputs& in) {
     PreRunDecisionResult result;

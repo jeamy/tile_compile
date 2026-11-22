@@ -1,7 +1,7 @@
 #pragma once
 #include "tile_compile/reconstruction/normalized_source_cache.hpp"
 #include "tile_compile/reconstruction/quality_frame_weight_plan.hpp"
-#include "tile_compile/reconstruction/drizzle_profile_store.hpp"
+#include "tile_compile/reconstruction/drizzle_store_identity.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2_store.hpp"
 
 #include <array>

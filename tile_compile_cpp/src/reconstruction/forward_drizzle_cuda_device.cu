@@ -7,7 +7,7 @@
 // (ForwardDrizzleV2CudaPrototypeKernel: scatter, fold, finalize, shared frame
 // rejection, pilot/full-frame estimator) and the local-warp scatter parity
 // harness. The polygon clip itself is forward_drizzle_cuda_clip.cuh (shared
-// with the clip harness TU forward_drizzle_cuda_test_harness.cu).
+// with the test-only clip harness tests/support/forward_drizzle_cuda_harness.cu).
 
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_v2.hpp"
@@ -2134,7 +2134,7 @@ bool local_warp_valid(const ForwardDrizzleV2LocalWarp &w) {
 }  // namespace
 
 // forward_drizzle_cuda_polygon_rect_area_batch (clip parity harness) lives
-// in forward_drizzle_cuda_test_harness.cu; it shares the clip code through
+// in tests/support/forward_drizzle_cuda_harness.cu (tests only); it shares the clip code through
 // forward_drizzle_cuda_clip.cuh.
 
 bool forward_drizzle_cuda_affine_coverage_gather(

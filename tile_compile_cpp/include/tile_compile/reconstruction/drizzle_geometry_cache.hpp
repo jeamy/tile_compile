@@ -18,7 +18,7 @@
 //     sample never reappears in a later coverage / profile phase. Chunk height
 //     does not influence that set.
 //   * Transactional generation commit + per-file checksums + schema/identity
-//     verification, like `drizzle_profile_store`. No silent use of an
+//     verification, like the v2 band store. No silent use of an
 //     incomplete generation after an abort. Disk pre-flight before writing.
 //   * No full-leaf cache of all frames in RAM: the builder streams budgeted
 //     record batches to disk; the reader holds only a bounded working window

@@ -37,6 +37,22 @@ int main(int argc, char** argv) {
     try {
         harness.start();
 
+        // logs?head=N returns the first N lines (run_start of a long log), tail=N the last.
+        {
+            std::vector<nlohmann::json> events = {
+                {{"ts", "2026-03-10T10:00:00Z"}, {"type", "run_start"}, {"frames_discovered", 645}}};
+            for (int i = 0; i < 50; ++i)
+                events.push_back({{"ts", "2026-03-10T10:00:01Z"}, {"type", "phase_progress"}, {"i", i}});
+            events.push_back({{"ts", "2026-03-10T11:00:00Z"}, {"type", "run_end"}, {"status", "ok"}});
+            harness.create_run("long_log_run", events, "OSC");
+            const auto head = harness.get_json("/api/runs/long_log_run/logs?head=2");
+            expect_equal(static_cast<long>(head["lines"].size()), 2L, "head=2 returns two lines");
+            expect_true(head["lines"][0].get<std::string>().find("run_start") != std::string::npos, "head starts at run_start");
+            const auto tail = harness.get_json("/api/runs/long_log_run/logs?tail=1");
+            expect_equal(static_cast<long>(tail["lines"].size()), 1L, "tail=1 returns one line");
+            expect_true(tail["lines"][0].get<std::string>().find("run_end") != std::string::npos, "tail ends at run_end");
+        }
+
         // Phase durations come from the whole log, not from the capped events tail: many progress events must not hide them.
         {
             std::vector<nlohmann::json> events = {

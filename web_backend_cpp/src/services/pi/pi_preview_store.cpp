@@ -1,4 +1,5 @@
 #include "services/pi/pi_preview_store.hpp"
+#include "sha256_hex.hpp"
 
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -18,12 +19,7 @@ std::string hex(const unsigned char* bytes, std::size_t size) {
     return result;
 }
 std::string digest(const nlohmann::json& value) {
-    const auto bytes = value.dump(); // Default JSON object keys are sorted.
-    unsigned char output[EVP_MAX_MD_SIZE];
-    unsigned int size = 0;
-    if (EVP_Digest(bytes.data(), bytes.size(), output, &size, EVP_sha256(), nullptr) != 1)
-        throw std::runtime_error("Cannot hash PI preview");
-    return hex(output, size);
+    return sha256_hex(value.dump()); // Default JSON object keys are sorted.
 }
 }
 

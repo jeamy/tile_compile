@@ -123,6 +123,14 @@ ImageOpResult LiveImageSessionStore::apply_operation(const std::string& session_
                     stack_entry["source"] = op.value("source", std::string("chat"));
                     s->undo_stack.push_back(stack_entry);
                     s->undo_snapshots.push_back(before);
+                    constexpr size_t kMaxHistorySnapshots = 100;
+                    if (s->undo_snapshots.size() > kMaxHistorySnapshots) {
+                        const size_t excess = s->undo_snapshots.size() - kMaxHistorySnapshots;
+                        s->undo_snapshots.erase(s->undo_snapshots.begin(), s->undo_snapshots.begin() + static_cast<std::ptrdiff_t>(excess));
+                        if (s->undo_stack.size() > kMaxHistorySnapshots) {
+                            s->undo_stack.erase(s->undo_stack.begin(), s->undo_stack.begin() + static_cast<std::ptrdiff_t>(s->undo_stack.size() - kMaxHistorySnapshots));
+                        }
+                    }
                     s->redo_stack.clear();
                     s->redo_snapshots.clear();
                     s->operation_history = s->undo_stack;
@@ -216,6 +224,14 @@ ImageOpResult LiveImageSessionStore::repeat_operation(const std::string& session
         stack_entry["source"] = "repeat";
         s->undo_stack.push_back(stack_entry);
         s->undo_snapshots.push_back(before);
+        constexpr size_t kMaxHistorySnapshots = 100;
+        if (s->undo_snapshots.size() > kMaxHistorySnapshots) {
+            const size_t excess = s->undo_snapshots.size() - kMaxHistorySnapshots;
+            s->undo_snapshots.erase(s->undo_snapshots.begin(), s->undo_snapshots.begin() + static_cast<std::ptrdiff_t>(excess));
+            if (s->undo_stack.size() > kMaxHistorySnapshots) {
+                s->undo_stack.erase(s->undo_stack.begin(), s->undo_stack.begin() + static_cast<std::ptrdiff_t>(s->undo_stack.size() - kMaxHistorySnapshots));
+            }
+        }
         s->redo_stack.clear();
         s->redo_snapshots.clear();
         s->operation_history = s->undo_stack;

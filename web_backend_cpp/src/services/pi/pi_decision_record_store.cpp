@@ -1,4 +1,5 @@
 #include "services/pi/pi_decision_record_store.hpp"
+#include "time_utils.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -27,14 +28,6 @@ std::tm gmtime_safe(const std::time_t& t) {
     gmtime_r(&t, &tm);
 #endif
     return tm;
-}
-
-std::string utc_iso_now() {
-    const std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    const std::tm tm = gmtime_safe(t);
-    std::ostringstream out;
-    out << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
-    return out.str();
 }
 
 std::string new_id(const char* prefix) {
@@ -277,7 +270,7 @@ json PiDecisionRecordStore::append(json record) const {
     if (!record.is_object()) throw std::invalid_argument("decision record must be a JSON object");
     record["schema_version"] = kDecisionRecordSchemaVersion;
     if (str_field(record, "decision_id").empty()) record["decision_id"] = new_id("dec_");
-    if (str_field(record, "created_at").empty()) record["created_at"] = utc_iso_now();
+    if (str_field(record, "created_at").empty()) record["created_at"] = utc_now_iso();
     if (str_field(record, "origin").empty()) record["origin"] = "live";
     if (!record.contains("context_ref") || !record["context_ref"].is_object()) {
         record["context_ref"] = json::object();
@@ -389,7 +382,7 @@ json PiDecisionRecordStore::add_link(const std::string& decision_id, const std::
         {"decision_id", decision_id},
         {"type", type},
         {"data", data.is_object() ? data : json::object()},
-        {"created_at", utc_iso_now()},
+        {"created_at", utc_now_iso()},
     };
     auto database = db();
     PiDatabase::Tx tx(*database);

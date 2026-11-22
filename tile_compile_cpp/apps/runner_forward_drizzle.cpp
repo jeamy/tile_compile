@@ -39,6 +39,25 @@ namespace {
 using core::json;
 constexpr const char *scope = "forward_drizzle_m1_m3";
 
+// Worker counts of the phases below. Every phase's output is bit-identical for
+// any count; the env variable (>= 1) replaces the count, =1 restores the serial
+// reference.
+int hardware_workers() {
+  const int hw=static_cast<int>(std::thread::hardware_concurrency());
+  return hw>=1 ? hw : 1;
+}
+// runtime_limits.parallel_workers, at least 1, at most the core count.
+int configured_workers(int parallel_workers) {
+  return std::min(std::max(1,parallel_workers),hardware_workers());
+}
+int env_workers(const char *name,int workers) {
+  if (const char *e=std::getenv(name)) {
+    const int v=std::atoi(e);
+    if (v>=1) return v;
+  }
+  return workers;
+}
+
 // Process-lifetime peak RSS, in KiB (Linux ru_maxrss is already KiB). This is a
 // LIFETIME maximum -- the difference of two such readings is NOT phase-local
 // growth (plan 11.13(4)); it is reported only as `rss_process_peak_kib`.
@@ -186,23 +205,54 @@ const std::set<std::string> &allowed_reconstruction_resume_sections(
   return p=="GLOBAL_QUALITY" ? global_quality : base;
 }
 
-// Per-top-level-key YAML serialisation for the scoped resume comparison,
-// operating directly on YAML text (no config parse/validate needed here) --
-// mirrors the equivalent check the web backend runs as a preflight
-// (web_backend_cpp's downstream_resume_scope_violation).
-std::map<std::string,std::string> yaml_section_map(
-    const std::string &yaml_text) {
+// Top-level config sections for the scoped resume comparisons, serialised
+// from the parsed and migrated Config. validate_provenance (reconstruction
+// resume) and resume_downstream_command (downstream resume) both compare
+// through these helpers, so formatting, comments or defaults written out
+// explicitly never count as a change, and a config that does not parse fails
+// loud instead of turning into an empty map that matches everything.
+std::map<std::string,std::string> config_sections(const config::Config &cfg) {
   std::map<std::string,std::string> out;
-  try {
-    const YAML::Node root = YAML::Load(yaml_text);
-    for (const auto &kv : root) {
-      YAML::Emitter e;
-      e << kv.second;
-      out[kv.first.as<std::string>()] = e.c_str();
-    }
-  } catch (...) {
+  const YAML::Node root = cfg.to_yaml();
+  for (const auto &kv : root) {
+    YAML::Emitter e;
+    e << kv.second;
+    out[kv.first.as<std::string>()] = e.c_str();
   }
   return out;
+}
+
+std::map<std::string,std::string> config_sections_of_yaml(
+    const std::string &yaml_text, const std::string &which) {
+  config::ConfigMigrationReport migration;
+  try {
+    return config_sections(
+        config::Config::from_yaml_text_migrated(yaml_text, migration));
+  } catch (const std::exception &e) {
+    throw std::runtime_error("FORWARD_STAGE_CONFIG_UNPARSEABLE: " + which +
+                             " config: " + e.what());
+  }
+}
+
+// Comma-separated names of the sections outside `allowed` that differ.
+std::string out_of_scope_changes(
+    const std::map<std::string,std::string> &before,
+    const std::map<std::string,std::string> &after,
+    const std::set<std::string> &allowed) {
+  std::set<std::string> keys;
+  for (const auto &[k,v] : before) keys.insert(k);
+  for (const auto &[k,v] : after)  keys.insert(k);
+  std::string bad;
+  for (const auto &k : keys) {
+    if (allowed.count(k)) continue;
+    const auto ia = before.find(k), ib = after.find(k);
+    const std::string va =
+        ia==before.end() ? std::string("<absent>") : ia->second;
+    const std::string vb =
+        ib==after.end() ? std::string("<absent>") : ib->second;
+    if (va!=vb) { if (!bad.empty()) bad+=", "; bad+=k; }
+  }
+  return bad;
 }
 
 json validate_provenance(const fs::path &dir,
@@ -224,22 +274,11 @@ json validate_provenance(const fs::path &dir,
     const std::string orig_yaml = original_run_config_yaml(dir,provenance);
     if (orig_yaml.empty())
       throw std::runtime_error("FORWARD_STAGE_CONFIG_OR_SCOPE_MISMATCH");
-    const auto before = yaml_section_map(orig_yaml);
-    const auto after = yaml_section_map(core::read_text(dir/"config.yaml"));
-    const auto &allowed = allowed_reconstruction_resume_sections(resume_from);
-    std::set<std::string> keys;
-    for (const auto &[k,v] : before) keys.insert(k);
-    for (const auto &[k,v] : after)  keys.insert(k);
-    std::string bad;
-    for (const auto &k : keys) {
-      if (allowed.count(k)) continue;
-      const auto ia = before.find(k), ib = after.find(k);
-      const std::string va =
-          ia==before.end() ? std::string("<absent>") : ia->second;
-      const std::string vb =
-          ib==after.end() ? std::string("<absent>") : ib->second;
-      if (va!=vb) { if (!bad.empty()) bad+=", "; bad+=k; }
-    }
+    const auto before = config_sections_of_yaml(orig_yaml, "original run");
+    const auto after = config_sections_of_yaml(
+        core::read_text(dir/"config.yaml"), "current");
+    const std::string bad = out_of_scope_changes(
+        before, after, allowed_reconstruction_resume_sections(resume_from));
     if (!bad.empty())
       throw std::runtime_error(
           "FORWARD_STAGE_CONFIG_SCOPE_MISMATCH: "+resume_from+
@@ -312,8 +351,18 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     const auto artifacts=dir/"artifacts";
     const bool downstream_requested = cfg.astrometry.enabled || cfg.bge.method != "none" ||
         cfg.pcc.enabled || cfg.hypermetric_stretch.enabled;
-    const std::string normalization_id = downstream_requested
-        ? std::to_string(fs::file_size(artifacts/"normalization.json")) : std::string();
+    // Recorded in every checkpoint, so a run first made without downstream
+    // phases can later be resumed with BGE/PCC/HMS enabled.
+    const std::string normalization_id = [&] {
+      std::error_code ec;
+      const auto size = fs::file_size(artifacts/"normalization.json", ec);
+      if (ec) {
+        if (downstream_requested)
+          throw std::runtime_error("FORWARD_STAGE_NORMALIZATION_PREDECESSOR_MISSING");
+        return std::string();
+      }
+      return std::to_string(size);
+    }();
     const auto cache_dir=dir/"cache/normalized_frames";
     const auto checkpoint_path=artifacts/"forward_drizzle_checkpoint.json";
     const auto geometry_hash=registration::compute_coverage_geometry_hash(
@@ -377,12 +426,9 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         // parallelise even while the reduction stays single-threaded. The
         // committed store is byte-identical to the 1-worker reference.
         // TC_GEOMETRY_CACHE_WORKERS overrides (=1 restores the reference mode).
-        int geom_workers=static_cast<int>(std::thread::hardware_concurrency());
-        if (geom_workers<1) geom_workers=1;
-        if (const char *e=std::getenv("TC_GEOMETRY_CACHE_WORKERS")) {
-          const int v=std::atoi(e);
-          if (v>=1) geom_workers=v;
-        }
+        // Starts from the core count, not parallel_workers: a build task
+        // holds only one source row.
+        int geom_workers=env_workers("TC_GEOMETRY_CACHE_WORKERS",hardware_workers());
         geom_workers=std::min<int>(geom_workers,
             std::max<std::size_t>(1,geom_local_indices.size()*geom_variants.size()));
         const auto gc0=std::chrono::steady_clock::now();
@@ -413,16 +459,10 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         checkpoint_geometry_cache=gc;
       }
       // Plan §30.72 O1: SAMPLING_GEOMETRY coverage is stripe-parallel and
-      // bit-identical to the serial run. Same resolution as the geometry-cache
-      // and forward-drizzle worker counts; TC_SAMPLING_GEOMETRY_WORKERS=1
+      // bit-identical to the serial run; TC_SAMPLING_GEOMETRY_WORKERS=1
       // restores the exact serial reference.
-      int cov_workers=std::max(1,cfg.runtime_limits.parallel_workers);
-      if (const int hw=static_cast<int>(std::thread::hardware_concurrency()); hw>=1)
-        cov_workers=std::min(cov_workers,hw);
-      if (const char *e=std::getenv("TC_SAMPLING_GEOMETRY_WORKERS")) {
-        const int v=std::atoi(e);
-        if (v>=1) cov_workers=v;
-      }
+      const int cov_workers=env_workers("TC_SAMPLING_GEOMETRY_WORKERS",
+          configured_workers(cfg.runtime_limits.parallel_workers));
       const auto coverage_progress=[&](std::size_t done,std::size_t total,const std::string &detail){
         const float progress = total ? static_cast<float>(done)/static_cast<float>(total) : 1.0f;
         emitter.phase_progress(run_id,Phase::SAMPLING_GEOMETRY,progress,detail,log);
@@ -465,12 +505,15 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       for (const auto &name:geometry_files) checkpoint["artifacts"][name]=fs::file_size(artifacts/name);
       if (!checkpoint_geometry_cache.is_null())
         checkpoint["geometry_cache"]=checkpoint_geometry_cache;
-      if (downstream_requested) checkpoint["normalization_bytes"]=normalization_id;
+      if (!normalization_id.empty()) checkpoint["normalization_bytes"]=normalization_id;
       core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
       end();
     } else {
       checkpoint=checked_json(checkpoint_path);
-      if (downstream_requested && checkpoint.value("normalization_bytes",std::string())!=normalization_id)
+      // A checkpoint written before normalization_bytes was always recorded
+      // has no value to compare; one that has it must still match.
+      if (downstream_requested && checkpoint.contains("normalization_bytes") &&
+          checkpoint.value("normalization_bytes",std::string())!=normalization_id)
         throw std::runtime_error("FORWARD_STAGE_NORMALIZATION_PREDECESSOR_MISMATCH");
       if (checkpoint.at("schema_version")!=1 || checkpoint.at("execution_scope")!=scope ||
           checkpoint.at("config_sha256")!=provenance.at("config").at("sha256") ||
@@ -523,13 +566,8 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       // Plan §30.72 O3: per-frame proxy + quality maps run concurrently; the
       // committed store is byte-identical. TC_SOURCE_QUALITY_WORKERS=1 restores
       // the serial reference.
-      int sqm_workers=std::max(1,cfg.runtime_limits.parallel_workers);
-      if (const int hw=static_cast<int>(std::thread::hardware_concurrency()); hw>=1)
-        sqm_workers=std::min(sqm_workers,hw);
-      if (const char *e=std::getenv("TC_SOURCE_QUALITY_WORKERS")) {
-        const int v=std::atoi(e);
-        if (v>=1) sqm_workers=v;
-      }
+      const int sqm_workers=env_workers("TC_SOURCE_QUALITY_WORKERS",
+          configured_workers(cfg.runtime_limits.parallel_workers));
       // T3: pass star detection parameters so SQM also computes per-frame
       // metrics and writes source_quality_metrics-v1.json.
       reconstruction::SourceQualityMapCacheConfig sqm_cfg;
@@ -561,13 +599,8 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       begin(Phase::GLOBAL_QUALITY);
       // Plan §30.72 R4: parallel per-frame proxy/metrics; bit-identical.
       // TC_GLOBAL_QUALITY_WORKERS=1 restores the serial reference.
-      int gq_workers=std::max(1,cfg.runtime_limits.parallel_workers);
-      if (const int hw=static_cast<int>(std::thread::hardware_concurrency()); hw>=1)
-        gq_workers=std::min(gq_workers,hw);
-      if (const char *e=std::getenv("TC_GLOBAL_QUALITY_WORKERS")) {
-        const int v=std::atoi(e);
-        if (v>=1) gq_workers=v;
-      }
+      const int gq_workers=env_workers("TC_GLOBAL_QUALITY_WORKERS",
+          configured_workers(cfg.runtime_limits.parallel_workers));
       // T3: use the pre-computed metrics from SOURCE_QUALITY_MAPS instead of
       // reloading and re-running compute_source_quality_proxy_v1 per frame.
       const auto metrics_path=sqm_cache_root/"source_quality_metrics-v1.json";
@@ -628,15 +661,9 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     // Requested CPU parallelism. Streaming resolves a budgeted worker count
     // including concurrent clipping/alpha and geometry-reader scratch, then
     // records the actual OpenMP team size separately. CUDA ignores this count.
-    int fd_workers=std::max(1,cfg.runtime_limits.parallel_workers);
-    if (const int hw=static_cast<int>(std::thread::hardware_concurrency()); hw>=1)
-      fd_workers=std::min(fd_workers,hw);
-    if (const char *e=std::getenv("TC_FORWARD_DRIZZLE_WORKERS")) {
-      const int v=std::atoi(e);
-      if (v>=1) fd_workers=v;
-    }
-    if (const auto hw=std::thread::hardware_concurrency(); hw>0)
-      fd_workers=std::min(fd_workers,static_cast<int>(hw));
+    // Unlike the phases above, an override is clamped to the core count too.
+    const int fd_workers=std::min(env_workers("TC_FORWARD_DRIZZLE_WORKERS",
+        configured_workers(cfg.runtime_limits.parallel_workers)),hardware_workers());
 
     begin(Phase::FORWARD_DRIZZLE);
     // Gate-10 cutover: the banded v2 producer (artifacts/forward_drizzle_v2,
@@ -878,7 +905,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     }
 
     bool final_image_available=false;
-    if (want_multiband) {
+    {  // multiband is required: FORWARD_DRIZZLE_V2_REQUIRES_MULTIBAND above
       begin(Phase::MULTIBAND);
       // Internal artifact: the multiband X_out in one file (kept for debugging
       // and as the fuse commit target). The canonical deliverables are the
@@ -985,10 +1012,7 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
       // (drizzle_uniform / drizzle_raw / drizzle_multiband), stars detected
       // ONCE on the uniform control (16.3).
       auto to_mat=[](const std::vector<float> &v,int w,int h){
-        Matrix2Df m(h,w);
-        for (int y=0;y<h;++y) for (int x=0;x<w;++x)
-          m(y,x)=v[static_cast<std::size_t>(y)*w+x];
-        return m;
+        return Matrix2Df(Eigen::Map<const Matrix2Df>(v.data(), h, w));
       };
       const auto uni_m=to_mat(cand.uniform_luma,cand.width,cand.height);
       const auto raw_m=to_mat(cand.raw_luma,cand.width,cand.height);
@@ -1116,7 +1140,9 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
         local_warp["frames_excluded_subdivision_error_rate"]=fx; }
       json fwd={
         // v2 (2026-09-08, plan M8): additive -- throughput, runtime_environment,
-        // flux_space, alpha_confidence_summary. No existing key changed shape.
+        // flux_space, alpha_confidence_summary. No existing key changed shape;
+        // the clipping counters became null (2026-11-21: never measured by
+        // v2, and no reader of this file uses them).
         {"schema_version",2},
         {"pipeline_method","cfa_forward_drizzle_multiband"},
         {"pipeline_contract_version",1},
@@ -1137,10 +1163,15 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
           {"output_scale_applied",applied_2x2},
           {"kernel",drizzle.kernel},
           {"pixfrac",drizzle.pixfrac}}},
+        // The v2 path does not count per pixel-channel clipping; null says
+        // "not measured" where 0 claimed "measured, none". Its own frame and
+        // veto counters are in the FORWARD_DRIZZLE phase_end event (v2_*).
         {"clipping",{
-          {"pixel_channel_evaluations",0},
-          {"pixel_channel_rejected",0},
-          {"candidate_contributions_clipped",0}}},
+          {"measured",false},
+          {"pixel_channel_evaluations",nullptr},
+          {"pixel_channel_rejected",nullptr},
+          {"candidate_contributions_clipped",nullptr},
+          {"counters_in","FORWARD_DRIZZLE phase_end v2_*"}}},
         {"local_warp",local_warp},
         {"pixels_supported",pixels},
         {"acceleration",{
@@ -1317,9 +1348,6 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
            {"selection_reason",sel.reason},
            {"stars_total",sel.stars_total},
            {"multiband_levels",mb_identity.multiband_levels}});
-    } else {
-      checkpoint["status"]="reconstruction_ready";
-      core::write_text_atomic(checkpoint_path,checkpoint.dump(2));
     }
 
     if (final_image_available && downstream_requested) {
@@ -1367,10 +1395,8 @@ bool run_forward_drizzle_stages(const std::string &run_id,const config::Config &
     // sequence is unchanged.
     json cache_actions=json::object();
     if (final_image_available) {
-      if (want_multiband) {
-        cache_actions["profile_cache"]="retained";
-        checkpoint["profile_cache_retained"]=true;
-      }
+      cache_actions["profile_cache"]="retained";
+      checkpoint["profile_cache_retained"]=true;
       if (reconstruction_cfg.delete_source_cache_after_run) {
         std::error_code e1,e2;
         fs::remove_all(sqm_cache_root,e1);
@@ -1434,21 +1460,6 @@ const std::set<std::string> &allowed_resume_sections(const std::string &p) {
   return astro;
 }
 
-// Serialised top-level config sections for the scoped resume comparison.
-// Emitting each section separately yields a per-section diff so the error
-// can name exactly which out-of-scope sections changed.
-std::map<std::string,std::string> config_section_map(
-    const config::Config &cfg) {
-  std::map<std::string,std::string> out;
-  const YAML::Node root = cfg.to_yaml();
-  for (const auto &kv : root) {
-    YAML::Emitter e;
-    e << kv.second;
-    out[kv.first.as<std::string>()] = e.c_str();
-  }
-  return out;
-}
-
 int resume_downstream_command(const fs::path &dir, const json &provenance,
                               const std::string &phase_upper) {
   config::ConfigMigrationReport migration;
@@ -1464,21 +1475,9 @@ int resume_downstream_command(const fs::path &dir, const json &provenance,
       orig_yaml,orig_migration);
   const auto &allowed = allowed_resume_sections(
       phase_upper=="HMS" ? "HYPERMETRIC_STRETCH" : phase_upper);
-  const auto before = config_section_map(orig);
-  const auto after  = config_section_map(cfg);
-  std::set<std::string> keys;
-  for (const auto &[k,v] : before) keys.insert(k);
-  for (const auto &[k,v] : after)  keys.insert(k);
-  std::string bad;
-  for (const auto &k : keys) {
-    if (allowed.count(k)) continue;
-    const auto ia = before.find(k), ib = after.find(k);
-    const std::string va =
-        ia==before.end() ? std::string("<absent>") : ia->second;
-    const std::string vb =
-        ib==after.end() ? std::string("<absent>") : ib->second;
-    if (va!=vb) { if (!bad.empty()) bad+=", "; bad+=k; }
-  }
+  const std::string bad = tile_compile::runner::out_of_scope_changes(
+      tile_compile::runner::config_sections(orig),
+      tile_compile::runner::config_sections(cfg), allowed);
   if (!bad.empty())
     throw std::runtime_error(
         "FORWARD_STAGE_CONFIG_SCOPE_MISMATCH: "+phase_upper+
@@ -1553,7 +1552,9 @@ int resume_downstream_command(const fs::path &dir, const json &provenance,
 int resume_forward_drizzle_command(const std::string &path,const std::string &phase) {
   using namespace tile_compile;
   try {
-    const fs::path dir=fs::absolute(path);
+    // "runs/run_001/" has an empty filename(); the run id is the directory name.
+    fs::path dir=fs::absolute(path).lexically_normal();
+    if (dir.filename().empty()) dir=dir.parent_path();
     std::string phase_upper=phase;
     for (auto &c : phase_upper)
       c=static_cast<char>(std::toupper(static_cast<unsigned char>(c)));

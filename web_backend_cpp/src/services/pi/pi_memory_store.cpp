@@ -1,4 +1,5 @@
 #include "services/pi/pi_memory_store.hpp"
+#include "time_utils.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -34,15 +35,6 @@ std::string utc_timestamp_compact() {
     const std::tm tm = gmtime_safe(t);
     std::ostringstream out;
     out << std::put_time(&tm, "%Y%m%d_%H%M%S") << "_" << ticks;
-    return out.str();
-}
-
-std::string utc_timestamp_iso() {
-    const auto now = std::chrono::system_clock::now();
-    const std::time_t t = std::chrono::system_clock::to_time_t(now);
-    const std::tm tm = gmtime_safe(t);
-    std::ostringstream out;
-    out << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
     return out.str();
 }
 
@@ -428,10 +420,6 @@ std::filesystem::path PiMemoryStore::legacy_memories_path() const {
     return _memory_dir / "memories.jsonl";
 }
 
-std::filesystem::path PiMemoryStore::legacy_reviews_path() const {
-    return _memory_dir / "memory_reviews.jsonl";
-}
-
 nlohmann::json PiMemoryStore::read_table(const char* table) const {
     nlohmann::json items = nlohmann::json::array();
     for (const auto& row : db()->query(std::string("SELECT json FROM ") + table + " ORDER BY seq")) {
@@ -472,7 +460,7 @@ nlohmann::json PiMemoryStore::append_candidate(nlohmann::json memory) const {
         memory["id"] = memory["memory_id"];
     }
     if (string_field(memory, "created_at").empty()) {
-        memory["created_at"] = utc_timestamp_iso();
+        memory["created_at"] = utc_now_iso();
     }
     if (string_field(memory, "status").empty()) {
         memory["status"] = "candidate";
@@ -589,7 +577,7 @@ nlohmann::json PiMemoryStore::review(const std::string& memory_id,
         {"memory_id", memory_id},
         {"id", memory_id},
         {"status", status},
-        {"reviewed_at", utc_timestamp_iso()},
+        {"reviewed_at", utc_now_iso()},
         {"reviewer", reviewer.empty() ? "user" : reviewer},
         {"note", note}
     };
@@ -625,7 +613,7 @@ nlohmann::json PiMemoryStore::attach_outcome(const std::string& memory_id,
     // 2) memory_outcomes — accumulating log; list() merges the full per-memory_id history into
     //    item["outcomes"] so multiple independent outcomes (e.g. several queued runs sharing one
     //    applied config) are all preserved, not overwritten by the latest one.
-    const std::string reviewed_at = utc_timestamp_iso();
+    const std::string reviewed_at = utc_now_iso();
     const std::string effective_reviewer = recorder.empty() ? "pi_outcome_recorder" : recorder;
     const nlohmann::json sanitized_outcome = sanitize_memory_privacy(outcome);
 
@@ -716,7 +704,7 @@ nlohmann::json PiMemoryStore::evaluate_auto_promotion(const std::string& memory_
         {"total_outcomes", static_cast<int>(outcomes.size())},
         {"total_with_delta", total_with_delta},
         {"threshold", kAutoPromotionMinOutcomes},
-        {"evaluated_at", utc_timestamp_iso()}
+        {"evaluated_at", utc_now_iso()}
     };
 }
 
@@ -927,7 +915,7 @@ nlohmann::json PiMemoryStore::export_bundle(const std::string& privacy_class,
 
     return {
         {"schema_version", kMemoryExportSchemaVersion},
-        {"exported_at", utc_timestamp_iso()},
+        {"exported_at", utc_now_iso()},
         {"privacy_class", privacy_class.empty() ? "all" : privacy_class},
         {"memories", memories},
         {"reviews", reviews},
@@ -973,7 +961,7 @@ nlohmann::json PiMemoryStore::import_bundle(const nlohmann::json& bundle,
             if (string_field(memory, "memory_id").empty()) {
                 memory["memory_id"] = "mem_import_" + utc_timestamp_compact() + "_" + std::to_string(memories_to_add.size());
             }
-            if (string_field(memory, "created_at").empty()) memory["created_at"] = utc_timestamp_iso();
+            if (string_field(memory, "created_at").empty()) memory["created_at"] = utc_now_iso();
             if (string_field(memory, "status").empty()) memory["status"] = "candidate";
             if (string_field(memory, "privacy_class").empty()) memory["privacy_class"] = "metadata_only";
             if (!memory.contains("context_signature") || !memory["context_signature"].is_object() ||

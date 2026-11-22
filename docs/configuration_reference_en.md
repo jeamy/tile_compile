@@ -455,6 +455,18 @@ All chained warps are validated with NCC against the reference frame. Particular
 
 **Purpose:** Fixed minimum shift threshold for rejection logic.
 
+### `registration.model_prediction_max_residual_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | >=0 |
+| **Default** | `0.7` |
+
+**Purpose:** Limit for model-predicted warps (field-rotation model instead of a measured registration). A frame whose median matched-star residual on the registration proxy exceeds this many proxy pixels, or whose residual cannot be measured, is removed from the stack. `0` disables the check.
+
+**Note:** For OSC the proxy is usually downsampled 2×, so 0.7 proxy px are about 1.4 px at full resolution. Directly registered frames typically sit at 0.07–0.1.
+
 ### `registration.reject_shift_median_multiplier`
 
 | Property | Value |
@@ -2113,6 +2125,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `registration.reject_outliers`: enables robust rejection of implausible warps after matching.
 - `registration.reject_cc_min_abs`: absolute NCC floor in outlier logic.
 - `registration.reject_shift_px_min`: absolute shift floor for shift-outlier rejection.
+- `registration.model_prediction_max_residual_px`: limit for the median star residual of model-predicted warps; above it, or unmeasurable, the frame is dropped.
 - `registration.reject_shift_median_multiplier`: relative shift threshold scale from median shift.
 - `registration.reject_scale_min`, `reject_scale_max`: accepted similarity scale band.
 - `registration.prewarp_interpolation`: interpolation method of the warp/resample steps.

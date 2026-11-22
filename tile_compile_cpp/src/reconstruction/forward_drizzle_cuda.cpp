@@ -7,10 +7,6 @@ namespace tile_compile::reconstruction {
 // forward_drizzle_cuda_device.cu against the real runtime.
 bool forward_drizzle_cuda_runtime_available() { return false; }
 CudaDeviceMemory forward_drizzle_cuda_device_memory() { return {}; }
-bool forward_drizzle_cuda_polygon_rect_area_batch(const double *, const double *,
-                                                  int, double *) {
-  return false;
-}
 bool forward_drizzle_cuda_affine_coverage_gather(
     const double *, const double *, int, double, int, int, int, int, int, int,
     int, int, int, bool, double *) {

@@ -126,7 +126,7 @@ int main(int argc, char** argv) {
             });
             expect_equal(job["_http_status"].get<long>(), 202L, "prune pcc run accepted");
             const auto done = harness.wait_for_job(job["job_id"].get<std::string>(), 20.0);
-            expect_equal(done["state"].get<std::string>(), "ok", "prune pcc run completed");
+            expect_equal(done["state"].get<std::string>(), "ok", "prune pcc run completed: " + done.dump().substr(0, 2000));
         }
 
         const auto jobs = harness.get_json("/api/jobs?limit=200");

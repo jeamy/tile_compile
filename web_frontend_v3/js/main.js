@@ -1,8 +1,6 @@
 // js/main.js – Entry point: Initialisierung, Tab-Routing
 
 import { initUiState, getUiState, setUiState } from "./state/ui-state.js";
-import { setApi } from "./state/store.js";
-import { api } from "./api/client.js";
 import { loadLocale, t } from "./i18n/i18n.js";
 import { createHeader, updateActiveTab } from "./components/header.js";
 import { createSubTabs } from "./components/sub-tabs.js";
@@ -12,29 +10,34 @@ import { toast } from "./components/toast.js";
 import { el, clear } from "./utils/dom.js";
 import { onAiChange } from "./state/ai-state.js";
 import { createAssistantDock } from "./assistant/dock.js";
+import { runPageUnmount } from "./utils/page-lifecycle.js";
 
 import { createProcessingPage } from "./pages/processing.js";
 import { createToolsPage } from "./pages/tools.js";
 import { createHistoryPage } from "./pages/history.js";
 
-setApi(api);
-
-const SUB_TABS = {
+// Labels are looked up when the bar is drawn: at import time the locale is not
+// loaded yet and t() would only return the fallback text.
+const SUB_TAB_DEFS = {
   processing: [
-    { id: "input-scan", label: t("ui.subtab.input_scan", "Input & Scan") },
-    { id: "parameter", label: t("ui.subtab.parameter", "Parameter") },
-    { id: "run-monitor", label: t("ui.subtab.run_monitor", "Run Monitor") },
+    ["input-scan", "ui.subtab.input_scan", "Input & Scan"],
+    ["parameter", "ui.subtab.parameter", "Parameter"],
+    ["run-monitor", "ui.subtab.run_monitor", "Run Monitor"],
   ],
   tools: [
-    { id: "raw-stack", label: t("ui.subtab.raw_stack", "Raw Stack") },
-    { id: "astrometry", label: t("ui.subtab.astrometry", "Astrometry") },
-    { id: "pcc", label: t("ui.subtab.pcc", "PCC") },
-    { id: "ai-settings", label: t("ui.subtab.ai_settings", "AI & API") },
+    ["raw-stack", "ui.subtab.raw_stack", "Raw Stack"],
+    ["astrometry", "ui.subtab.astrometry", "Astrometry"],
+    ["pcc", "ui.subtab.pcc", "PCC"],
+    ["ai-settings", "ui.subtab.ai_settings", "AI & API"],
   ],
   history: [
-    { id: "run-history", label: t("ui.subtab.run_history", "Run History") },
+    ["run-history", "ui.subtab.run_history", "Run History"],
   ],
 };
+
+function subTabsFor(tab) {
+  return (SUB_TAB_DEFS[tab] || []).map(([id, key, fallback]) => ({ id, label: t(key, fallback) }));
+}
 
 const PAGES = {
   processing: createProcessingPage,
@@ -108,8 +111,8 @@ function renderSubTabs(tab) {
   const bar = document.getElementById("subtab-bar");
   clear(bar);
 
-  const tabs = SUB_TABS[tab];
-  if (!tabs || tabs.length === 0) return;
+  const tabs = subTabsFor(tab);
+  if (tabs.length === 0) return;
 
   const subTabs = createSubTabs(tabs, tab, (subId) => {
     currentSubTab = subId;
@@ -125,11 +128,12 @@ function renderSubTabs(tab) {
 
 function renderContent(tab, subId) {
   if (!contentRoot) return;
+  runPageUnmount();
   clear(contentRoot);
 
   const ui = getUiState();
   if (!subId) {
-    subId = ui.activeSubTab[tab] || SUB_TABS[tab]?.[0]?.id;
+    subId = ui.activeSubTab[tab] || subTabsFor(tab)[0]?.id;
   }
   currentSubTab = subId;
 
@@ -142,16 +146,16 @@ function renderContent(tab, subId) {
 
 window.addEventListener("hashchange", () => {
   const hash = window.location.hash.slice(1);
-  if (hash && PAGES[hash]) {
+  // goToSubTab already rendered this tab; a hashchange for it would mount the
+  // page a second time.
+  if (hash && PAGES[hash] && hash !== currentTab) {
     navigateToTab(hash);
   }
 });
 
 window.addEventListener("tc-subtab-change", () => {
   const ui = getUiState();
-  const tab = ui.activeTab || "processing";
-  renderSubTabs(tab);
-  renderContent(tab);
+  navigateToTab(ui.activeTab || "processing");
 });
 
 function setupKeyboardShortcuts() {
@@ -192,16 +196,20 @@ function setupKeyboardShortcuts() {
     if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
       const ui = getUiState();
       const tab = ui.activeTab || "processing";
-      const subs = SUB_TABS[tab];
+      const subs = SUB_TAB_DEFS[tab];
       if (!subs || subs.length < 2) return;
-      const currentIdx = subs.findIndex(s => s.id === currentSubTab);
+      const currentIdx = subs.findIndex(([id]) => id === currentSubTab);
       if (currentIdx < 0) return;
       const nextIdx = e.key === "ArrowRight"
         ? Math.min(currentIdx + 1, subs.length - 1)
         : Math.max(currentIdx - 1, 0);
       if (nextIdx !== currentIdx) {
-        currentSubTab = subs[nextIdx].id;
-        renderContent(tab, subs[nextIdx].id);
+        // Same path as a click: remember the sub-tab and redraw the bar so its
+        // active style follows.
+        const nextId = subs[nextIdx][0];
+        setUiState({ activeSubTab: { ...ui.activeSubTab, [tab]: nextId } });
+        renderSubTabs(tab);
+        renderContent(tab, nextId);
       }
     }
   });

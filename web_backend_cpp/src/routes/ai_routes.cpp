@@ -1,4 +1,6 @@
+#include "base64url.hpp"
 #include "routes/ai_routes.hpp"
+#include "sha256_hex.hpp"
 #include "app_state.hpp"
 #include "routes/pi_routes.hpp"
 #include "routes/route_utils.hpp"
@@ -853,45 +855,7 @@ fs::path ai_analyses_dir(const std::shared_ptr<AppState>& state) {
     return state->runtime.runtime_dir / ".ai_analyses";
 }
 
-std::string completion_decode_base64url(std::string value) {
-    for (char& ch : value) {
-        if (ch == '-') ch = '+';
-        else if (ch == '_') ch = '/';
-    }
-    while (value.size() % 4 != 0) value.push_back('=');
-    static const std::string alphabet =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string out;
-    int buffer = 0;
-    int bits_collected = 0;
-    for (char ch : value) {
-        if (ch == '=') break;
-        const auto pos = alphabet.find(ch);
-        if (pos == std::string::npos) return "";
-        buffer = (buffer << 6) | static_cast<int>(pos);
-        bits_collected += 6;
-        if (bits_collected >= 8) {
-            bits_collected -= 8;
-            out.push_back(static_cast<char>((buffer >> bits_collected) & 0xFF));
-        }
-    }
-    return out;
-}
 
-std::string decode_completion_run_id(std::string run_id) {
-    if (run_id.rfind("b64_", 0) != 0) return run_id;
-    const std::string decoded = completion_decode_base64url(run_id.substr(4));
-    return decoded.empty() ? run_id : decoded;
-}
-
-std::string sha256_hex(const std::string& value) {
-    unsigned char digest[SHA256_DIGEST_LENGTH];
-    SHA256(reinterpret_cast<const unsigned char*>(value.data()), value.size(), digest);
-    std::ostringstream out;
-    out << std::hex << std::setfill('0');
-    for (unsigned char byte : digest) out << std::setw(2) << static_cast<int>(byte);
-    return out.str();
-}
 
 std::mutex completion_job_mutex;
 
@@ -1923,13 +1887,13 @@ void tile_compile::routes::register_ai_routes(CrowApp& app, std::shared_ptr<AppS
 
     CROW_ROUTE(app, "/api/runs/<string>/completion-analysis").methods("GET"_method)
     ([state](const crow::request&, std::string run_id) {
-        run_id = decode_completion_run_id(std::move(run_id));
+        run_id = decode_b64_run_id(std::move(run_id));
         return json_resp(load_completion_analysis(state, run_id));
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/completion-analysis").methods("POST"_method)
     ([state](const crow::request& req, std::string run_id) {
-        run_id = decode_completion_run_id(std::move(run_id));
+        run_id = decode_b64_run_id(std::move(run_id));
         auto body = parse_body(req);
         if (!body) return err_resp("BAD_REQUEST", "Invalid JSON", 400);
 

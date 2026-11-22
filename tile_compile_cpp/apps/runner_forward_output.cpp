@@ -3,9 +3,11 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
+#include <algorithm>
 #include <cmath>
-#include <fstream>
 #include <iostream>
+#include <optional>
+#include <vector>
 
 namespace tile_compile::runner {
 void write_forward_downstream_inputs(const fs::path &dir,
@@ -13,6 +15,9 @@ void write_forward_downstream_inputs(const fs::path &dir,
     const config::ReconstructionDrizzleConfig &drizzle,
     core::EventEmitter *emitter, const std::string &run_id, std::ostream *log) {
   const bool mono = sampling.color_mode == ColorMode::MONO;
+  if (drizzle.output_scale < 1 || drizzle.internal_scale < drizzle.output_scale ||
+      drizzle.internal_scale % drizzle.output_scale != 0)
+    throw std::runtime_error("FORWARD_OUTPUT_SCALE: internal_scale must be a positive multiple of output_scale");
   const auto normalization_path = dir / "artifacts/normalization.json";
   const auto normalization = core::json::parse(core::read_text(normalization_path));
   auto median = [&](const std::string &key, bool positive) {
@@ -115,13 +120,28 @@ void write_forward_downstream_inputs(const fs::path &dir,
   const auto provenance = core::json::parse(core::read_text(dir / "artifacts/run_provenance.json"));
   if (provenance.at("input_manifest").contains("entries") &&
       !provenance.at("input_manifest").at("entries").empty()) {
-    const auto source = io::read_fits_header(provenance.at("input_manifest").at("entries").at(0).at("path").get<std::string>());
-    for (const auto *key : {"RA", "DEC", "OBJCTRA", "OBJCTDEC", "OBJECT", "INSTRUME", "TELESCOP"}) {
-      if (auto v = source.get_string(key)) header.set(key,*v);
-      else if (auto v = source.get_double(key)) header.set(key,*v);
+    // Only pointing/instrument hints are copied. On a resume the original
+    // lights may have been moved or deleted; that must not fail the run,
+    // astrometry then solves without the hints.
+    const std::string source_path =
+        provenance.at("input_manifest").at("entries").at(0).at("path").get<std::string>();
+    std::optional<io::FitsHeader> source;
+    try {
+      source = io::read_fits_header(source_path);
+    } catch (const std::exception &e) {
+      const std::string msg = "FORWARD_OUTPUT_SOURCE_HEADER_UNAVAILABLE: " + source_path +
+                              " (" + e.what() + "); output written without pointing metadata";
+      if (emitter && log) emitter->warning(run_id, msg, *log);
+      else std::cout << "[FORWARD_OUTPUT][warn] " << msg << std::endl;
     }
-    for (const auto *key : {"FOCALLEN", "XPIXSZ", "YPIXSZ"})
-      if (auto v = source.get_double(key)) header.set(key,*v);
+    if (source) {
+      for (const auto *key : {"RA", "DEC", "OBJCTRA", "OBJCTDEC", "OBJECT", "INSTRUME", "TELESCOP"}) {
+        if (auto v = source->get_string(key)) header.set(key,*v);
+        else if (auto v = source->get_double(key)) header.set(key,*v);
+      }
+      for (const auto *key : {"FOCALLEN", "XPIXSZ", "YPIXSZ"})
+        if (auto v = source->get_double(key)) header.set(key,*v);
+    }
   }
   header.set("FDSPACE",std::string("RESTORED_LINEAR"));
   header.set("FDSCALE",drizzle.output_scale);
@@ -134,15 +154,21 @@ void write_forward_downstream_inputs(const fs::path &dir,
   io::write_fits_float(stage / "stacked.fits",luma,header);
   if (!mono) {
     io::write_fits_rgb(stage / "stacked_rgb.fits",planes[0],planes[1],planes[2],header);
-    io::write_fits_rgb(stage / "stacked_rgb_solve.fits",planes[0],planes[1],planes[2],header);
+    // Byte-identical to stacked_rgb.fits: copy instead of encoding it twice.
+    fs::copy_file(stage / "stacked_rgb.fits",stage / "stacked_rgb_solve.fits");
   }
   io::write_fits_mask_rows(stage / "canvas_mask.fits",support,h,w,header);
   io::write_fits_mask_rows(stage / "common_overlap_mask.fits",analysis,h,w,header);
   core::json files=core::json::object();
-  for (const auto &entry : fs::directory_iterator(stage)) {
-    files[entry.path().filename().string()]=fs::file_size(entry.path());
-    core::AtomicOutput target(outputs / entry.path().filename());
-    fs::copy_file(entry.path(),target.path());
+  std::vector<fs::path> staged;
+  for (const auto &entry : fs::directory_iterator(stage)) staged.push_back(entry.path());
+  std::sort(staged.begin(),staged.end());
+  for (const auto &path : staged) {
+    files[path.filename().string()]=fs::file_size(path);
+    // Same run directory, so a rename moves the finished file without a
+    // second copy; the staging generation removes itself on scope exit.
+    core::AtomicOutput target(outputs / path.filename());
+    fs::rename(path,target.path());
     target.commit();
   }
   core::write_text_atomic(dir / "artifacts/forward_downstream_inputs.json",

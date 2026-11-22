@@ -11,6 +11,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <sstream>
@@ -88,24 +90,73 @@ std::optional<std::string> config_file_sha256(const fs::path& path) {
 
 /// @brief Registers configuration endpoints for YAML loading, validation, saving, and revision history.
 /// @details This is the route-group entry point called from main during Crow setup.
+namespace {
+
+/// Output of a CLI command that depends only on the CLI binary (get-schema,
+/// dump-default-config: compiled in, the library is linked statically): kept
+/// until the binary changes (path, size, mtime). Without a stamp (the binary
+/// cannot be stat'ed) nothing is cached.
+class CliOutputCache {
+public:
+    std::optional<nlohmann::json> get(const std::string& cli, const std::string& command) {
+        const std::string stamp = stamp_of(cli);
+        if (stamp.empty()) return std::nullopt;
+        std::lock_guard<std::mutex> lk(_mutex);
+        auto it = _entries.find(command);
+        if (it == _entries.end() || it->second.stamp != stamp) return std::nullopt;
+        return it->second.value;
+    }
+    void put(const std::string& cli, const std::string& command, const nlohmann::json& value) {
+        const std::string stamp = stamp_of(cli);
+        if (stamp.empty()) return;
+        std::lock_guard<std::mutex> lk(_mutex);
+        _entries[command] = {stamp, value};
+    }
+
+private:
+    static std::string stamp_of(const std::string& cli) {
+        std::error_code ec;
+        const auto size = fs::file_size(cli, ec);
+        if (ec) return "";  // not a plain file path: never matches, so no caching
+        const auto mtime = fs::last_write_time(cli, ec);
+        if (ec) return "";
+        return cli + "|" + std::to_string(size) + "|" +
+               std::to_string(mtime.time_since_epoch().count());
+    }
+    struct Entry { std::string stamp; nlohmann::json value; };
+    std::mutex _mutex;
+    std::map<std::string, Entry> _entries;
+};
+
+CliOutputCache& cli_output_cache() {
+    static CliOutputCache cache;
+    return cache;
+}
+
+crow::response cached_cli_json(const std::shared_ptr<AppState>& state, const std::string& command,
+                               const std::string& failure) {
+    const std::string& cli = state->runtime.cli_exe;
+    if (auto hit = cli_output_cache().get(cli, command)) return json_resp(*hit);
+    SubprocessResult res = run_subprocess({cli, command}, state->runtime.project_root.string());
+    auto parsed = parse_json_string(res.stdout_str);
+    if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed(failure, res);
+    cli_output_cache().put(cli, command, *parsed);
+    return json_resp(*parsed);
+}
+
+}  // namespace
+
 void register_config_routes(CrowApp& app,
-                            std::shared_ptr<AppState> state,
-                            std::shared_ptr<ConfigRevisionStore> /*unused*/) {
+                            std::shared_ptr<AppState> state) {
 
     CROW_ROUTE(app, "/api/config/schema").methods("GET"_method)
     ([state](const crow::request&) {
-        SubprocessResult res = run_subprocess({state->runtime.cli_exe, "get-schema"}, state->runtime.project_root.string());
-        auto parsed = parse_json_string(res.stdout_str);
-        if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed("failed to fetch schema", res);
-        return json_resp(*parsed);
+        return cached_cli_json(state, "get-schema", "failed to fetch schema");
     });
 
     CROW_ROUTE(app, "/api/config/defaults").methods("GET"_method)
     ([state](const crow::request&) {
-        SubprocessResult res = run_subprocess({state->runtime.cli_exe, "dump-default-config"}, state->runtime.project_root.string());
-        auto parsed = parse_json_string(res.stdout_str);
-        if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed("failed to fetch defaults", res);
-        return json_resp(*parsed);
+        return cached_cli_json(state, "dump-default-config", "failed to fetch defaults");
     });
 
     CROW_ROUTE(app, "/api/config/current").methods("GET"_method)
@@ -304,7 +355,7 @@ void register_config_routes(CrowApp& app,
         auto revisions = state->revision_store.list();
         nlohmann::json items = nlohmann::json::array();
         for (const auto& revision : revisions) items.push_back(config_revision_to_json(revision));
-        return json_resp({{"items", items}, {"active_revision_id", state->active_config_revision_id}});
+        return json_resp({{"items", items}, {"active_revision_id", state->locked_active_config_revision_id()}});
     });
 
     CROW_ROUTE(app, "/api/config/revisions/<string>/restore").methods("POST"_method)

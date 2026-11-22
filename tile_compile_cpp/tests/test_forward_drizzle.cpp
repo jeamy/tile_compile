@@ -4,6 +4,7 @@
 
 #include "tile_compile/reconstruction/forward_drizzle.hpp"
 #include "tile_compile/reconstruction/forward_drizzle_cuda.hpp"
+#include "support/forward_drizzle_cuda_harness.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>

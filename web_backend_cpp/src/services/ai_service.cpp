@@ -287,7 +287,11 @@ nlohmann::json AiSidecarClient::request(const std::string& method,
     const std::string payload_text = payload ? payload->dump() : std::string();
 
     std::cerr << "[AI_SIDECAR] " << method << " " << endpoint;
-    if (payload) {
+    static const bool debug_payload_log = []() {
+        const char* v = std::getenv("TILE_COMPILE_AI_DEBUG_LOG");
+        return v && (std::string(v) == "1" || std::string(v) == "true");
+    }();
+    if (payload && debug_payload_log) {
         std::cerr << " payload=" << redact_ai_payload_for_log(*payload).dump().substr(0, 2000);
     }
     std::cerr << std::endl;
