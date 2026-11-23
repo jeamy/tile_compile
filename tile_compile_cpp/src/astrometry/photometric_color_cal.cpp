@@ -2601,6 +2601,12 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                 config.background_neutralization_mode, analysis_mask,
                 output_mask_ptr, true);
             result.apply_mode = "affine_diagonal";
+            // Same gains as apply_diagonal_color_matrix_affine.
+            const double s_applied = std::clamp(chroma_strength, 0.0, 1.0);
+            result.applied_linear = {{{1.0 + s_applied * (fitted_diagonal_matrix[0][0] - 1.0), 0, 0},
+                                      {0, 1.0 + s_applied * (fitted_diagonal_matrix[1][1] - 1.0), 0},
+                                      {0, 0, 1.0 + s_applied * (fitted_diagonal_matrix[2][2] - 1.0)}}};
+            result.applied_linear_valid = true;
         } else if (effective_apply_attenuation) {
             apply_color_matrix_impl(R, G, B, result.matrix, true,
                                     analysis_mask_ptr,
@@ -2614,6 +2620,8 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                            analysis_mask_ptr,
                                            output_mask_ptr);
             result.apply_mode = "linear";
+            result.applied_linear = result.matrix;
+            result.applied_linear_valid = true;
         }
         if (have_output_mask) {
             image::enforce_canvas_mask_on_rgb(R, G, B, config.output_valid_mask);

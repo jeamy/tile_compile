@@ -77,6 +77,13 @@ struct PCCResult {
     double determinant;       // determinant of fitted matrix
     double condition_number;  // condition number of fitted matrix
     std::string apply_mode = "linear";
+    // The linear part of the transform applied to the pixels (d out / d in,
+    // the same for every pixel): the effective diagonal gains in
+    // affine_diagonal mode, the matrix in linear mode. Offsets (background
+    // pivot, neutralization) are not part of it. Not valid in the attenuated
+    // modes, whose gain depends on the pixel.
+    bool   applied_linear_valid = false;
+    ColorMatrix applied_linear = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
     bool   success;
     std::string error_message;
 };

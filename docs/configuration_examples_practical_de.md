@@ -326,6 +326,33 @@ chroma_denoise:
   tatsaechlich angewandte Denoise-Mengenkarte als FITS unter `artifacts/`
   geschrieben. Damit lassen sich Halo- und Maskengrenzen getrennt pruefen.
 
+**Automatisch statt fest (`mode: auto`) und Guided Filter (`chroma_guided`):**
+
+```yaml
+chroma_denoise:
+  mode: auto            # ignoriert enabled
+  auto_min_excess: 0.5  # bei/unter diesem Überschuss: übersprungen
+  auto_full_excess: 1.0 # ab hier voller blend.amount
+  chroma_guided:
+    enabled: true       # Guided Filter mit Y als Führung, nach Wavelet/Bilateral
+```
+
+- `auto` misst den **Chroma-Rauschüberschuss**: gemessenes
+  `chroma_sigma / luma_sigma` geteilt durch den Wert, den unabhängiges
+  Rauschen der drei Kanäle ergäbe. `1` heißt „gewöhnliches, unabhängiges
+  Kanalrauschen“ und bekommt mit den Standardwerten die volle Stärke; nur
+  Stacks, deren Rauschen weitgehend von allen Kanälen geteilt wird
+  (Überschuss `<= 0.5`), werden übersprungen. Ein Maß für „wie stark rauscht
+  das Bild“ ist das bewusst nicht: der Stretch überträgt die Farbe relativ zur
+  Luminanz, sichtbar ist also das Verhältnis.
+- Die Schwellen sind vorläufig. `artifacts/chroma_denoise.json` schreibt
+  `chroma_noise_excess`, `expected_chroma_to_luma_ratio` und `auto_mode_scale`
+  in jedem Lauf mit — daran lassen sie sich später eichen.
+- Großflächiges Farb-Mottling (15–40 px) sieht die Messung nicht (Pixel-Hochpass);
+  dafür bleibt `large_scale_bias` zuständig.
+- `chroma_guided` ist Standard `false`; eingeschaltet ändert es das Ergebnis
+  bestehender Konfigurationen (Luminanz bleibt exakt, Sternfarbsäume nicht).
+
 ---
 
 ## Luminanz-Denoise (`luma_denoise.*`)
@@ -367,6 +394,24 @@ luma_denoise:
   oder feine, schwache Nebeldetails (z. B. bei M42) durch das Wavelet-
   Soft-Thresholding weichgezeichnet werden — vor einer Aktivierung an
   strukturreichen Zielen die Crop-Vorschau prüfen.
+- **Schärfe-Gate (`sharpness_guard`, Standard aus):**
+
+  ```yaml
+  luma_denoise:
+    sharpness_guard:
+      enabled: true
+      max_fwhm_increase_pct: 1.0
+      min_matched_stars: 15
+      max_backoff_steps: 2
+  ```
+
+  Misst FWHM und Peak heller Sterne (`>= 10 sigma`) an denselben Positionen
+  vor und nach dem Denoise, halbiert bei Verschlechterung `blend_amount` und
+  verwirft den Pass, wenn es nicht reicht. Bei weniger als
+  `min_matched_stars` messbaren Sternen wird ebenfalls verworfen
+  (`guard_reason: insufficient_stars` in `artifacts/luma_denoise.json`) — bei
+  sternarmen Feldern das Gate ausschalten. Es prüft nur helle Sterne, nicht
+  schwache flächige Nebeldetails; dafür bleibt die Crop-Vorschau nötig.
 - Default: deaktiviert (Opt-in), wie alle Denoise-Stufen.
 
 ---

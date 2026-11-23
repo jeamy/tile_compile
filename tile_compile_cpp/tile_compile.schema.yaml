@@ -335,6 +335,24 @@ properties:
         type: boolean
         description: 'Enable chroma (color) noise denoise. Removes color noise blotches while preserving luma detail. Default: false.'
         default: false
+      mode:
+        type: string
+        enum:
+        - 'off'
+        - manual
+        - auto
+        description: 'Activation mode for chroma denoise. off = disabled; manual = controlled by enabled flag; auto = automatic activation on the chroma noise excess (measured chroma_sigma / luma_sigma divided by the ratio independent channel noise would give; independent of color_space and per-channel gains), ignoring enabled. Default: manual.'
+        default: manual
+      auto_min_excess:
+        type: number
+        minimum: 0
+        description: 'Chroma noise excess in mode=auto at or below which chroma denoise is skipped (skip_reason chroma_noise_below_threshold). 1 = independent channel noise, below 1 = noise shared by the channels. Provisional default, not yet calibrated on a set of runs. Default: 0.5.'
+        default: 0.5
+      auto_full_excess:
+        type: number
+        exclusiveMinimum: 0
+        description: 'Chroma noise excess in mode=auto at or above which the full configured blend.amount applies; linear in between (must be > auto_min_excess). Provisional default, not yet calibrated on a set of runs. Default: 1.0.'
+        default: 1.0
       color_space:
         type: string
         enum:
@@ -359,11 +377,20 @@ properties:
         maximum: 1
         description: 'Strength of the protection-mask guard. 0 = masks do not reduce denoise, 1 = fully masked pixels keep original chroma. Range 0–1. Recommended: 0.75.'
         default: 0.75
-      adaptation_reference_ratio:
+      adaptation_reference_excess:
         type: number
         exclusiveMinimum: 0
-        description: 'Reference chroma-to-luma noise-sigma ratio used to scale wavelet/bilateral strength to the dataset''s actual noise level. Expressed relative to the image''s own measured luma-noise sigma, so it stays meaningful across normalized, ADU, and stretched data (unlike a fixed absolute reference). Recommended: 1.0.'
+        description: 'Chroma noise excess at which the wavelet/bilateral strength and the blend stay as configured: adaptation = clamp(excess / this, 0.8, 1.4). The excess is the measured chroma/luma noise ratio over the ratio independent channel noise would give (1 = independent channel noise), so it does not depend on scale, colour space or PCC gains. Replaces adaptation_reference_ratio (migrated on load). Recommended: 1.0.'
         default: 1.0
+      preserve_luminance:
+        type: string
+        enum: [color_space, hms_profile]
+        description: 'The luminance the chroma pass keeps unchanged. color_space = the Y of color_space (previous behaviour); hms_profile = the luminance hypermetric_stretch stretches (weights of hypermetric_stretch.sensor_profile), restored by one common offset per pixel, so the stretch luminance takes no part of the chroma noise. Default: hms_profile.'
+        default: hms_profile
+      excess_from_pre_denoise:
+        type: boolean
+        description: 'Measure the chroma noise excess (mode=auto, adaptation) on the image as it would be without the earlier denoise passes (luma_denoise lowers the luma noise and so inflates the excess). Needs the post-stack denoise delta of this run; without it the image is measured (excess_source in chroma_denoise.json). Default: true.'
+        default: true
       star_protection:
         type: object
         properties:
@@ -436,6 +463,26 @@ properties:
             exclusiveMinimum: 0
             maximum: 20
             description: 'Range-sigma multiplier relative to the measured unprotected background chroma sigma. This makes the bilateral filter scale-invariant for normalized and ADU-valued data. Recommended: 2.0.'
+            default: 2.0
+      chroma_guided:
+        type: object
+        description: 'Luminance-guided Joint Guided Filter (O(N), 32-bit float) for chroma planes. Uses linear luma Y as the guide image so star and nebula edges stop color bleeding while smoothing flat background chroma mottling with exact luma invariance.'
+        properties:
+          enabled:
+            type: boolean
+            description: 'Enable the luminance-guided joint guided filter after the wavelet and bilateral chroma passes. Off by default so existing chroma_denoise configs keep their result. Default: false.'
+            default: false
+          radius:
+            type: integer
+            minimum: 1
+            maximum: 64
+            description: 'Window radius in pixels for the guided filter box average (window size 2*radius+1). Range 1–64. Default: 4.'
+            default: 4
+          eps_sigma_scale:
+            type: number
+            exclusiveMinimum: 0
+            maximum: 50
+            description: 'Regularization scale relative to measured luma noise sigma: eps = (eps_sigma_scale * sigma_y)^2. Scale-invariant across normalized and ADU data. Range (0,50]. Default: 2.0.'
             default: 2.0
       blend:
         type: object
@@ -613,6 +660,31 @@ properties:
             maximum: 20
             description: 'Range-sigma multiplier relative to the measured unprotected background luma sigma. This makes the bilateral filter scale-invariant for normalized and ADU-valued data. Recommended: 2.0.'
             default: 2.0
+      sharpness_guard:
+        type: object
+        description: 'Fail-closed matched-star sharpness gate. Detects bright stars (>= 10 sigma, up to 120) once on input luminance and measures median FWHM and peak at the exact same positions before and after blending. On a FWHM increase above max_fwhm_increase_pct or a peak drop above max(3 %, 3 x max_fwhm_increase_pct) blend_amount is halved up to max_backoff_steps times; if it still fails, or fewer than min_matched_stars stars are measurable, the pass is rejected. Checks bright stars only, not faint extended detail.'
+        properties:
+          enabled:
+            type: boolean
+            description: 'Enable the matched-star sharpness guard for luma denoise. Off by default so existing luma_denoise configs keep their result. Default: false.'
+            default: false
+          max_fwhm_increase_pct:
+            type: number
+            minimum: 0
+            maximum: 100
+            description: 'Maximum allowed median FWHM increase in percent on matched stars before backoff/rejection. Range 0–100. Default: 1.0.'
+            default: 1.0
+          min_matched_stars:
+            type: integer
+            minimum: 1
+            description: 'Minimum number of bright stars (>= 10 sigma, measurable before and after) the guard needs. With fewer the pass is rejected (guard_reason insufficient_stars, output unchanged): disable the guard for fields with few stars. Default: 15.'
+            default: 15
+          max_backoff_steps:
+            type: integer
+            minimum: 0
+            maximum: 10
+            description: 'Number of blend-halving retry steps before fail-closed rejection when FWHM increases beyond max_fwhm_increase_pct. Range 0–10. Default: 2.'
+            default: 2
   global_metrics:
     type: object
     properties:
@@ -1043,10 +1115,10 @@ properties:
         type: boolean
         description: 'When true, the anchor point for the stretch is determined adaptively from the image histogram. When false, a fixed anchor is used. Default: true.'
         default: true
-      anchor_from_reference:
+      params_from_pre_denoise:
         type: boolean
-        description: 'When true, the black-point anchor is estimated from the RGB state before chroma_denoise''s post_pcc pass instead of the (possibly denoised) image being stretched, so a denoiser that narrows the sky brightness distribution does not shift the black point. Has no effect unless the runner has that reference available (chroma_denoise.apply_stage: post_pcc). Default: false.'
-        default: false
+        description: 'When true, HMS derives every data-dependent parameter (input normalization, black-point anchor, log D, output floors, scale and the midtone that pins the background) from the pre-denoise state (the RGB as HMS would get it with every denoise pass off: the state just before the post_pcc chroma pass, with luma_denoise and a post_stack_linear chroma pass taken out through PCC''s linear part) and applies them to the denoised image. The denoise passes then lower the noise only, not how bright the sky, the noise or the stars come out. Without that state (no denoise pass, attenuated PCC with only post-stack passes) the image''s own parameters are used and phase_end says why. Replaces anchor_from_reference (migrated on load). Default: true.'
+        default: true
       target_bg:
         type: number
         minimum: 0.05

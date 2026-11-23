@@ -94,3 +94,20 @@ nirgends aktiviert (weder in `tile_compile.yaml` noch in Beispiel-Configs) — e
 Problem auf echten Daten nicht. Die eigentliche Ursache der M42-Schwarzpunkt-Empfindlichkeit vom
 26.09. ist offen; eine der drei oben genannten Richtungen (oder Variante 1/3 aus der ursprünglichen
 Liste) müsste als Nächstes geprüft werden.
+
+## Nachtrag 2026-11-22: Ursache gefunden, Option ersetzt
+
+Die offene Ursache ist der zweite Kandidat oben: `adaptive_output_scaling`. Seine Kanal-Floors liegen einen gemeinsamen Abstand unter dem Himmel (p20) jedes Kanals; der Abstand ist `min(2,7·σ, max(p20 − Minimum))`, und auf echten Daten greift praktisch immer das Minimum. Das Minimum hängt an den Extremwerten des Kanalrauschens. Chroma-Denoise schneidet diese Extreme weg, der Abstand schrumpft, der Himmel liegt vor dem MTF tiefer, und der MTF hebt ihn mit steilerer Kurve auf `target_bg` — mehr sichtbares Rauschen, hellere und breiter wirkende Sterne. Der Anker ändert sich dabei kaum, deshalb half `anchor_from_reference` nicht.
+
+Gemessen an IC434 (`ic434a1_20261122_150803`, Kopien, neue Diagnose `output_scaling` im `phase_end`):
+
+| | ohne Denoise | nur Chroma | Chroma + Luma |
+|---|---|---|---|
+| Anker | 0,000931 | 0,000931 | 0,000946 |
+| Abstand (aus dem Minimum) | 0,02316 | 0,02108 (−9 %) | 0,02064 (−11 %) |
+| Skalierung (`physical_ceiling`) | 1,1417 | 1,1478 | 1,1570 |
+| MTF-Mittelton | 0,1507 | 0,1366 | 0,1311 |
+
+Robuste Perzentile statt des Minimums lösen das nicht: Kanal-p0,1 schrumpft durch Chroma-Denoise um 57 % (stärker als das Minimum), ein Luma-Perzentil wäre etwa fünfmal kleiner als der heutige Abstand und änderte jeden Lauf. Keine Statistik des entrauschten Bildes ist invariant.
+
+Ersatz: `hypermetric_stretch.params_from_pre_denoise` (Standard aus; `anchor_from_reference` wird beim Laden darauf umbenannt). HMS streckt den Zustand direkt vor dem Chroma-Pass — nach dem Speckle-Unterdrücker, der auch ohne Denoise läuft; der alte Schnappschuss lag davor — und wendet alle abgeleiteten Parameter (Eingangsnormierung, Anker, `log D`, Floors, Skalierung, Mittelton) auf das entrauschte Bild an. IC434, nur Chroma, mit Schalter: Parameter identisch mit dem Lauf ohne Denoise, Luma-Rauschen ×1,000, Stern-FWHM ±0 %. Ohne Schalter bleibt das Endbild byte-identisch. Außerdem löscht jeder PCC-Lauf ältere `pcc_predenoise_*.fit`, damit ein späterer HMS-Resume keine Dateien einer früheren Konfiguration verwendet.

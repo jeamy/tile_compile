@@ -1,5 +1,6 @@
 #include "tile_compile/reconstruction/luma_denoise.hpp"
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/metrics/psf_fit.hpp"
 #include "denoise_common.hpp"
 #include <opencv2/opencv.hpp>
 #include <algorithm>
@@ -245,6 +246,121 @@ void denoise_luma_bilateral_inplace(
   y = out;
 }
 
+std::vector<cv::Point> detect_guard_stars(const cv::Mat& y,
+                                          const cv::Mat& valid,
+                                          int half_patch = 7) {
+  std::vector<cv::Point> result;
+  const int margin = half_patch + 1;
+  if (y.rows < 2 * margin + 3 || y.cols < 2 * margin + 3) return result;
+
+  const float sky_med = percentile_from_mat(y, 50.0f, valid);
+  const float sky_sigma = std::max(1.0e-6f, robust_sigma_mad_from_mat(y, valid));
+  const float thr = sky_med + 10.0f * sky_sigma;
+
+  struct Cand {
+    float peak;
+    int x;
+    int y;
+  };
+  std::vector<Cand> cands;
+  for (int row = margin; row < y.rows - margin; ++row) {
+    const float* prev = y.ptr<float>(row - 1);
+    const float* curr = y.ptr<float>(row);
+    const float* next = y.ptr<float>(row + 1);
+    const std::uint8_t* vrow = valid.ptr<std::uint8_t>(row);
+    for (int col = margin; col < y.cols - margin; ++col) {
+      if (vrow[col] == 0) continue;
+      const float val = curr[col];
+      if (!std::isfinite(val) || val <= thr) continue;
+      // Local 3x3 maximum and not flat-saturated
+      if (val < prev[col - 1] || val < prev[col] || val < prev[col + 1] ||
+          val < curr[col - 1] || val < curr[col + 1] ||
+          val < next[col - 1] || val < next[col] || val < next[col + 1]) {
+        continue;
+      }
+      if (val <= curr[col - 1] && val <= curr[col + 1] &&
+          val <= prev[col] && val <= next[col]) {
+        continue;
+      }
+      cands.push_back({val, col, row});
+    }
+  }
+  if (cands.empty()) return result;
+
+  std::sort(cands.begin(), cands.end(),
+            [](const Cand& a, const Cand& b) { return a.peak > b.peak; });
+
+  const int min_sep = 2 * half_patch + 1;
+  const int min_sep2 = min_sep * min_sep;
+  const int patch_area = (2 * half_patch + 1) * (2 * half_patch + 1);
+  constexpr size_t kMaxGuardStars = 120;
+
+  for (const auto& c : cands) {
+    bool too_close = false;
+    for (const auto& p : result) {
+      const int dx = c.x - p.x;
+      const int dy = c.y - p.y;
+      if (dx * dx + dy * dy < min_sep2) {
+        too_close = true;
+        break;
+      }
+    }
+    if (too_close) continue;
+    cv::Rect roi(c.x - half_patch, c.y - half_patch,
+                 2 * half_patch + 1, 2 * half_patch + 1);
+    if (cv::countNonZero(valid(roi)) < patch_area) continue;
+    result.emplace_back(c.x, c.y);
+    if (result.size() >= kMaxGuardStars) break;
+  }
+  return result;
+}
+
+struct StarMeasure {
+  float fwhm = -1.0f;
+  float peak_above_bg = 0.0f;
+};
+
+std::vector<StarMeasure> measure_star_metrics(
+    const cv::Mat& y, const std::vector<cv::Point>& stars, int half_patch = 7) {
+  std::vector<StarMeasure> out(stars.size());
+  const int side = 2 * half_patch + 1;
+  std::vector<float> border_vals;
+  border_vals.reserve(static_cast<size_t>(4 * side));
+
+  for (size_t i = 0; i < stars.size(); ++i) {
+    const cv::Rect roi(stars[i].x - half_patch, stars[i].y - half_patch,
+                       side, side);
+    const cv::Mat patch = y(roi);
+    border_vals.clear();
+    for (int k = 0; k < side; ++k) {
+      border_vals.push_back(patch.at<float>(0, k));
+      border_vals.push_back(patch.at<float>(side - 1, k));
+      if (k > 0 && k < side - 1) {
+        border_vals.push_back(patch.at<float>(k, 0));
+        border_vals.push_back(patch.at<float>(k, side - 1));
+      }
+    }
+    const float local_bg = tile_compile::core::median_of(border_vals);
+    double min_v = 0.0, max_v = 0.0;
+    cv::minMaxLoc(patch, &min_v, &max_v);
+    const float peak_above_bg = static_cast<float>(max_v) - local_bg;
+    if (!(peak_above_bg > 1.0e-5f)) continue;
+    // Threshold at 20% of star peak above local background so outer-patch sky
+    // noise (which luma_denoise removes) cannot artificially shrink fwhm_after
+    // and mask real star-core blurring.
+    const float psf_floor = local_bg + 0.20f * peak_above_bg;
+    const auto fit = tile_compile::metrics::fit_elliptical_psf_2d(patch, psf_floor);
+    if (std::isfinite(fit.fwhm_major) && std::isfinite(fit.fwhm_minor) &&
+        fit.fwhm_major > 0.3f && fit.fwhm_minor > 0.3f &&
+        fit.fwhm_major < static_cast<float>(side) &&
+        fit.fwhm_minor < static_cast<float>(side)) {
+      out[i].fwhm = 0.5f * (fit.fwhm_major + fit.fwhm_minor);
+      out[i].peak_above_bg = peak_above_bg;
+    }
+  }
+  return out;
+}
+
 } // namespace
 
 LumaDenoiseStats luma_denoise_rgb_inplace(
@@ -284,15 +400,104 @@ LumaDenoiseStats luma_denoise_rgb_inplace(
   denoise_luma_plane_inplace(Y_denoised, cfg.wavelet, valid, protect);
   denoise_luma_bilateral_inplace(Y_denoised, cfg.bilateral, valid, protect);
 
-  cv::Mat amount_map(Y.size(), CV_32F, cv::Scalar(cfg.blend_amount));
-  amount_map = amount_map.mul(1.0f - cfg.luma_guard_strength * protect);
-  cv::min(amount_map, cfg.blend_amount, amount_map);
-  cv::max(amount_map, 0.0, amount_map);
+  cv::Mat base_weight = 1.0f - cfg.luma_guard_strength * protect;
+  cv::min(base_weight, 1.0, base_weight);
+  cv::max(base_weight, 0.0, base_weight);
+
+  std::vector<cv::Point> guard_stars;
+  std::vector<StarMeasure> before_metrics;
+  if (cfg.sharpness_guard.enabled) {
+    guard_stars = detect_guard_stars(Y, valid);
+    if (!guard_stars.empty()) {
+      before_metrics = measure_star_metrics(Y, guard_stars);
+    }
+  }
+
+  // Every exit of the gate records why: disabled, passed, insufficient_stars
+  // (fewer than min_matched_stars measurable stars: the pass is rejected, as
+  // a regression that cannot be measured cannot be excluded),
+  // fwhm_regression or star_peak_erosion (still failing after the backoff).
+  auto reject = [&](const char* reason) {
+    stats.applied = false;
+    stats.guard_rejected = true;
+    stats.guard_reason = reason;
+    stats.effective_blend_amount = 0.0;
+    stats.mean_denoise_fraction = 0.0;
+    return stats;
+  };
+
+  const int max_steps =
+      cfg.sharpness_guard.enabled ? std::max(0, cfg.sharpness_guard.max_backoff_steps) : 0;
+  cv::Mat amount_map;
+  cv::Mat Y_mix;
+  float accepted_blend = cfg.blend_amount;
+  stats.guard_reason = cfg.sharpness_guard.enabled ? "passed" : "disabled";
+
+  for (int step = 0; step <= max_steps; ++step) {
+    const float eff_blend =
+        cfg.blend_amount * std::pow(0.5f, static_cast<float>(step));
+    amount_map = base_weight * eff_blend;
+    cv::min(amount_map, eff_blend, amount_map);
+    cv::max(amount_map, 0.0, amount_map);
+
+    cv::Mat one_minus = 1.0f - amount_map;
+    Y_mix = Y.mul(one_minus) + Y_denoised.mul(amount_map);
+    accepted_blend = eff_blend;
+
+    if (!cfg.sharpness_guard.enabled) break;
+
+    const std::vector<StarMeasure> after_metrics =
+        guard_stars.empty() ? std::vector<StarMeasure>{}
+                            : measure_star_metrics(Y_mix, guard_stars);
+    std::vector<float> paired_before;
+    std::vector<float> paired_after;
+    std::vector<float> peak_before;
+    std::vector<float> peak_after;
+    paired_before.reserve(guard_stars.size());
+    paired_after.reserve(guard_stars.size());
+    peak_before.reserve(guard_stars.size());
+    peak_after.reserve(guard_stars.size());
+    for (size_t i = 0; i < after_metrics.size(); ++i) {
+      if (before_metrics[i].fwhm > 0.0f && after_metrics[i].fwhm > 0.0f) {
+        paired_before.push_back(before_metrics[i].fwhm);
+        paired_after.push_back(after_metrics[i].fwhm);
+        peak_before.push_back(before_metrics[i].peak_above_bg);
+        peak_after.push_back(after_metrics[i].peak_above_bg);
+      }
+    }
+    const int matched = static_cast<int>(paired_before.size());
+    stats.matched_stars = matched;
+    stats.backoff_steps = step;
+    if (matched > 0) {
+      const double med_before = tile_compile::core::median_of(paired_before);
+      const double med_after = tile_compile::core::median_of(paired_after);
+      stats.fwhm_before = med_before;
+      stats.fwhm_after = med_after;
+      stats.fwhm_delta_pct =
+          (med_before > 1.0e-6) ? ((med_after - med_before) / med_before * 100.0) : 0.0;
+    }
+    if (matched < cfg.sharpness_guard.min_matched_stars) {
+      return reject("insufficient_stars");
+    }
+    const double med_pk_before = tile_compile::core::median_of(peak_before);
+    const double med_pk_after = tile_compile::core::median_of(peak_after);
+    const double peak_drop_pct =
+        (med_pk_before > 1.0e-6) ? ((med_pk_before - med_pk_after) / med_pk_before * 100.0) : 0.0;
+    const bool fwhm_fail =
+        stats.fwhm_delta_pct > static_cast<double>(cfg.sharpness_guard.max_fwhm_increase_pct);
+    // Peak erosion limit: max(3 %, 3 x the FWHM tolerance).
+    const double max_peak_drop_pct =
+        std::max(3.0, 3.0 * static_cast<double>(cfg.sharpness_guard.max_fwhm_increase_pct));
+    const bool peak_fail = peak_drop_pct > max_peak_drop_pct;
+    if (!fwhm_fail && !peak_fail) break;
+    if (step == max_steps) {
+      return reject(fwhm_fail ? "fwhm_regression" : "star_peak_erosion");
+    }
+  }
+
+  stats.effective_blend_amount = accepted_blend;
   stats.mean_denoise_fraction = cv::mean(amount_map, valid)[0];
   if (diagnostics) copy_to_matrix(amount_map, diagnostics->effective_amount);
-
-  cv::Mat one_minus = 1.0f - amount_map;
-  cv::Mat Y_mix = Y.mul(one_minus) + Y_denoised.mul(amount_map);
 
   // Preserve each pixel's original per-channel DIFFERENCE from luma (the
   // chroma, R-Y/G-Y/B-Y) rather than its RATIO to luma. A ratio divides two

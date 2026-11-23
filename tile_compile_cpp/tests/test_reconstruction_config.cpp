@@ -266,14 +266,29 @@ TEST_CASE("hypermetric_stretch.large_scale_contrast defaults off, parses, valida
   }
 }
 
-TEST_CASE("hypermetric_stretch.anchor_from_reference defaults off, parses and round-trips") {
+TEST_CASE("hypermetric_stretch.params_from_pre_denoise defaults on, parses and round-trips") {
   Config def = parse("hypermetric_stretch:\n  enabled: true\n");
-  REQUIRE_FALSE(def.hypermetric_stretch.anchor_from_reference);
-  Config on = parse("hypermetric_stretch:\n  anchor_from_reference: true\n");
-  REQUIRE(on.hypermetric_stretch.anchor_from_reference);
-  REQUIRE_NOTHROW(on.validate());
-  Config again = Config::from_yaml(on.to_yaml());
-  REQUIRE(again.hypermetric_stretch.anchor_from_reference);
+  REQUIRE(def.hypermetric_stretch.params_from_pre_denoise);
+  Config off = parse("hypermetric_stretch:\n  params_from_pre_denoise: false\n");
+  REQUIRE_FALSE(off.hypermetric_stretch.params_from_pre_denoise);
+  REQUIRE_NOTHROW(off.validate());
+  Config again = Config::from_yaml(off.to_yaml());
+  REQUIRE_FALSE(again.hypermetric_stretch.params_from_pre_denoise);
+}
+
+TEST_CASE("chroma_denoise.preserve_luminance and excess_from_pre_denoise default on, parse, validate and round-trip") {
+  Config def = parse("chroma_denoise:\n  enabled: true\n");
+  REQUIRE(def.chroma_denoise.preserve_luminance == "hms_profile");
+  REQUIRE(def.chroma_denoise.excess_from_pre_denoise);
+  Config off = parse("chroma_denoise:\n  preserve_luminance: color_space\n  excess_from_pre_denoise: false\n");
+  REQUIRE(off.chroma_denoise.preserve_luminance == "color_space");
+  REQUIRE_FALSE(off.chroma_denoise.excess_from_pre_denoise);
+  REQUIRE_NOTHROW(off.validate());
+  Config again = Config::from_yaml(off.to_yaml());
+  REQUIRE(again.chroma_denoise.preserve_luminance == "color_space");
+  REQUIRE_FALSE(again.chroma_denoise.excess_from_pre_denoise);
+  Config bad = parse("chroma_denoise:\n  preserve_luminance: rec709\n");
+  REQUIRE_THROWS_AS(bad.validate(), ValidationError);
 }
 
 TEST_CASE("hypermetric_stretch.color_cast_correction defaults off, parses and validates") {

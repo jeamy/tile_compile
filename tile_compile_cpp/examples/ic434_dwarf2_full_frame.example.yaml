@@ -98,7 +98,7 @@ chroma_denoise:
   apply_stage: post_pcc
   protect_luma: true
   luma_guard_strength: 0.85
-  adaptation_reference_ratio: 1
+  adaptation_reference_excess: 1
   star_protection:
     enabled: true
     threshold_sigma: 8

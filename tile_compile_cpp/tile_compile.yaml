@@ -72,11 +72,16 @@ global_metrics:
     star_count: 0
 chroma_denoise:
   enabled: false
+  mode: manual
+  auto_min_excess: 0.5
+  auto_full_excess: 1.0
   color_space: ycbcr_linear
   apply_stage: post_pcc
   protect_luma: true
   luma_guard_strength: 0.85
-  adaptation_reference_ratio: 1
+  adaptation_reference_excess: 1
+  preserve_luminance: hms_profile
+  excess_from_pre_denoise: true
   star_protection:
     enabled: true
     threshold_sigma: 8
@@ -93,6 +98,10 @@ chroma_denoise:
     enabled: true
     sigma_spatial: 2
     sigma_range: 2
+  chroma_guided:
+    enabled: false
+    radius: 4
+    eps_sigma_scale: 2
   blend:
     mode: chroma_only
     amount: 1
@@ -129,6 +138,11 @@ luma_denoise:
     enabled: false
     sigma_spatial: 1.5
     sigma_range: 2
+  sharpness_guard:
+    enabled: false
+    max_fwhm_increase_pct: 1
+    min_matched_stars: 15
+    max_backoff_steps: 2
 astrometry:
   enabled: true
   astap_data_dir: /home/lux/.local/share/tile_compile/astap
@@ -223,6 +237,7 @@ hypermetric_stretch:
   sensor_profile: Sony IMX415 (DWARF II)
   fallback_profile: Sony IMX415 (DWARF II)
   adaptive_anchor: true
+  params_from_pre_denoise: true
   target_bg: 0.14
   protect_b: 6
   convergence_power: 4

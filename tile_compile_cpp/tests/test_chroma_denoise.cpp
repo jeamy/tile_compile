@@ -1,6 +1,8 @@
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/errors.hpp"
+#include "tile_compile/astrometry/detail/photometric_color_cal_detail.hpp"
 #include "tile_compile/reconstruction/chroma_denoise.hpp"
+#include "tile_compile/reconstruction/luma_denoise.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -259,7 +261,7 @@ TEST_CASE("chroma denoise large_scale_bias does not subtract the interpolated "
   REQUIRE(core_chroma > 0.9f * 0.25f);
 }
 
-TEST_CASE("chroma denoise adaptation_reference_ratio keeps adaptation "
+TEST_CASE("chroma denoise adaptation_reference_excess keeps adaptation "
           "scale-invariant across normalized vs. ADU-scale data",
           "[chroma-denoise][adaptation]") {
   constexpr int W = 96;
@@ -450,14 +452,14 @@ TEST_CASE("new BGE and chroma protection ranges are validated",
   REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
 }
 
-TEST_CASE("chroma denoise adaptation_reference_ratio and large_scale_bias "
+TEST_CASE("chroma denoise adaptation_reference_excess and large_scale_bias "
           "ranges are validated",
           "[config][chroma-denoise]") {
   tile_compile::config::Config cfg;
 
-  cfg.chroma_denoise.adaptation_reference_ratio = 0.0f;
+  cfg.chroma_denoise.adaptation_reference_excess = 0.0f;
   REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
-  cfg.chroma_denoise.adaptation_reference_ratio = 1.0f;
+  cfg.chroma_denoise.adaptation_reference_excess = 1.0f;
 
   cfg.chroma_denoise.large_scale_bias.block_size = 3;
   REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
@@ -471,5 +473,337 @@ TEST_CASE("chroma denoise adaptation_reference_ratio and large_scale_bias "
   REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
   cfg.chroma_denoise.large_scale_bias.strength = 1.0f;
 
+  cfg.chroma_denoise.mode = "invalid";
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.chroma_denoise.mode = "auto";
+
+  cfg.chroma_denoise.auto_min_excess = -0.1f;
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.chroma_denoise.auto_min_excess = 0.35f;
+
+  cfg.chroma_denoise.auto_full_excess = 0.35f;
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.chroma_denoise.auto_full_excess = 1.10f;
+
+  cfg.chroma_denoise.chroma_guided.radius = 0;
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.chroma_denoise.chroma_guided.radius = 4;
+
+  cfg.chroma_denoise.chroma_guided.eps_sigma_scale = 0.0f;
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.chroma_denoise.chroma_guided.eps_sigma_scale = 2.0f;
+
   REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("chroma joint guided filter preserves exact luma and cuts background chroma noise > 50%",
+          "[chroma-denoise][guided]") {
+  constexpr int W = 160, H = 128;
+  Matrix2Df r(H, W), g(H, W), b(H, W);
+  std::mt19937 rng(123);
+  std::normal_distribution<float> cnoise(0.0f, 0.08f);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      const float dx = static_cast<float>(x - W / 2);
+      const float dy = static_cast<float>(y - H / 2);
+      const float star = 12.0f * std::exp(-(dx * dx + dy * dy) / (2.0f * 2.0f * 2.0f));
+      const float luma = 1.0f + star;
+      const float cr = (star > 1.0f ? 0.3f : 0.0f) + cnoise(rng);
+      const float cb = (star > 1.0f ? -0.3f : 0.0f) + cnoise(rng);
+      r(y, x) = luma + cr;
+      g(y, x) = luma - 0.5f * (cr + cb);
+      b(y, x) = luma + cb;
+    }
+  }
+  const Matrix2Df y_before = (0.25f * r + 0.5f * g + 0.25f * b).eval();
+  auto bg_chroma_rms = [&](const Matrix2Df& rm, const Matrix2Df& gm) {
+    double acc = 0.0;
+    int n = 0;
+    for (int y = 8; y < 48; ++y)
+      for (int x = 8; x < 48; ++x) {
+        const double d = static_cast<double>(rm(y, x) - gm(y, x));
+        acc += d * d;
+        ++n;
+      }
+    return std::sqrt(acc / std::max(1, n));
+  };
+  const double rms_before = bg_chroma_rms(r, g);
+
+  tile_compile::config::ChromaDenoiseConfig cfg;
+  cfg.enabled = true;
+  cfg.protect_luma = false;
+  cfg.chroma_wavelet.enabled = false;
+  cfg.chroma_bilateral.enabled = false;
+  cfg.chroma_guided.enabled = true;
+  cfg.chroma_guided.radius = 4;
+  cfg.chroma_guided.eps_sigma_scale = 2.0f;
+  cfg.blend.amount = 1.0f;
+
+  const auto stats = tile_compile::reconstruction::chroma_denoise_rgb_inplace(r, g, b, cfg);
+  const Matrix2Df y_after = (0.25f * r + 0.5f * g + 0.25f * b).eval();
+  const double rms_after = bg_chroma_rms(r, g);
+
+  REQUIRE(stats.applied);
+  REQUIRE(stats.guided_applied);
+  REQUIRE((y_after - y_before).cwiseAbs().maxCoeff() < 1.0e-5f);
+  REQUIRE(rms_after < 0.5 * rms_before);
+}
+
+TEST_CASE("chroma denoise mode=auto scales on the noise excess over independent channel noise",
+          "[chroma-denoise][auto]") {
+  constexpr int W = 128, H = 96;
+  tile_compile::config::ChromaDenoiseConfig cfg;
+  cfg.enabled = false; // mode=auto must activate independently of enabled
+  cfg.mode = "auto";
+  cfg.auto_min_excess = 0.5f;
+  cfg.auto_full_excess = 1.0f;
+
+  // Noise shared by all channels: no chroma noise at all -> excess ~ 0 -> skip.
+  {
+    std::mt19937 rng(99);
+    std::normal_distribution<float> n(0.0f, 0.05f);
+    Matrix2Df r(H, W), g(H, W), b(H, W);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x) r(y, x) = g(y, x) = b(y, x) = 1.0f + n(rng);
+    const Matrix2Df r_orig = r;
+    const auto st = tile_compile::reconstruction::chroma_denoise_rgb_inplace(r, g, b, cfg);
+    REQUIRE_FALSE(st.applied);
+    REQUIRE(st.chroma_noise_excess < 0.1);
+    REQUIRE(st.auto_mode_scale == Catch::Approx(0.0).margin(1.0e-6));
+    REQUIRE(st.skip_reason == "chroma_noise_below_threshold");
+    REQUIRE((r - r_orig).cwiseAbs().maxCoeff() == 0.0f);
+  }
+
+  // Independent channel noise gives excess ~ 1 whatever the noise amplitude,
+  // the per-channel gains (as after PCC) and the color space, while the raw
+  // chroma/luma ratio differs between the color spaces and gains.
+  auto independent = [&](float sigma, float gain_r, float gain_b,
+                         const char* space, unsigned seed) {
+    std::mt19937 rng(seed);
+    std::normal_distribution<float> n(0.0f, sigma);
+    Matrix2Df r(H, W), g(H, W), b(H, W);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x) {
+        r(y, x) = gain_r * (1.0f + n(rng));
+        g(y, x) = 1.0f + n(rng);
+        b(y, x) = gain_b * (1.0f + n(rng));
+      }
+    tile_compile::config::ChromaDenoiseConfig c = cfg;
+    c.color_space = space;
+    return tile_compile::reconstruction::chroma_denoise_rgb_inplace(r, g, b, c);
+  };
+  const auto low = independent(0.01f, 1.0f, 1.0f, "ycbcr_linear", 1);
+  const auto high = independent(0.2f, 1.0f, 1.0f, "ycbcr_linear", 2);
+  const auto gains = independent(0.05f, 1.6f, 2.3f, "ycbcr_linear", 3);
+  const auto opp = independent(0.05f, 1.6f, 2.3f, "opponent_linear", 4);
+  for (const auto* st : {&low, &high, &gains, &opp}) {
+    REQUIRE(st->chroma_noise_excess == Catch::Approx(1.0).margin(0.1));
+    REQUIRE(st->applied);
+    REQUIRE(st->auto_mode_scale > 0.8);
+    // The strength adaptation reads the same excess: independent channel
+    // noise leaves the configured strength alone (the raw ratio, ~1.9 in
+    // ycbcr, used to push it to the 1.4 clamp).
+    REQUIRE(st->adaptation == Catch::Approx(1.0).margin(0.1));
+  }
+  REQUIRE(std::abs(low.measured_chroma_to_luma_ratio - opp.measured_chroma_to_luma_ratio) > 0.3);
+
+  // R and B noise anti-correlated (as demosaicing leaves it) over small
+  // independent noise: more chroma noise than independent channels give,
+  // excess > 1, full blend.
+  {
+    std::mt19937 rng(7);
+    std::normal_distribution<float> en(0.0f, 0.02f), cn(0.0f, 0.08f);
+    Matrix2Df r(H, W), g(H, W), b(H, W);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x) {
+        const float c = cn(rng);
+        r(y, x) = 1.0f + c + en(rng);
+        g(y, x) = 1.0f + en(rng);
+        b(y, x) = 1.0f - c + en(rng);
+      }
+    const auto st = tile_compile::reconstruction::chroma_denoise_rgb_inplace(r, g, b, cfg);
+    REQUIRE(st.applied);
+    REQUIRE(st.chroma_noise_excess > 1.0);
+    REQUIRE(st.auto_mode_scale == Catch::Approx(1.0));
+    REQUIRE(st.adaptation > 1.0);
+    REQUIRE(st.adaptation <= 1.4 + 1.0e-6);
+  }
+}
+
+TEST_CASE("chroma guided filter and luma sharpness guard are off by default",
+          "[chroma-denoise][luma-denoise][defaults]") {
+  const tile_compile::config::Config defaults;
+  REQUIRE_FALSE(defaults.chroma_denoise.chroma_guided.enabled);
+  REQUIRE_FALSE(defaults.luma_denoise.sharpness_guard.enabled);
+  REQUIRE(defaults.chroma_denoise.mode == "manual");
+
+  // An enabled chroma_denoise without a chroma_guided key does not run it.
+  constexpr int W = 64, H = 48;
+  std::mt19937 rng(5);
+  std::normal_distribution<float> n(0.0f, 0.05f);
+  Matrix2Df r(H, W), g(H, W), b(H, W);
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < W; ++x) {
+      r(y, x) = 1.0f + n(rng);
+      g(y, x) = 1.0f + n(rng);
+      b(y, x) = 1.0f + n(rng);
+    }
+  tile_compile::config::ChromaDenoiseConfig cfg = defaults.chroma_denoise;
+  cfg.enabled = true;
+  const auto st = tile_compile::reconstruction::chroma_denoise_rgb_inplace(r, g, b, cfg);
+  REQUIRE(st.applied);
+  REQUIRE_FALSE(st.guided_applied);
+}
+
+TEST_CASE("chroma denoise preserve_luminance=hms_profile keeps the stretch "
+          "luminance and the denoised chroma",
+          "[chroma-denoise][preserve-luminance]") {
+  constexpr int W = 96, H = 80;
+  std::mt19937 rng(21);
+  std::normal_distribution<float> en(0.0f, 0.02f), cn(0.0f, 0.06f);
+  Matrix2Df r0(H, W), g0(H, W), b0(H, W);
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < W; ++x) {
+      const float c = cn(rng);
+      r0(y, x) = 1.0f + c + en(rng);
+      g0(y, x) = 1.1f + en(rng);
+      b0(y, x) = 0.9f - c + en(rng);
+    }
+  tile_compile::config::ChromaDenoiseConfig cfg;
+  cfg.enabled = true;
+  cfg.protect_luma = false;
+  cfg.star_protection.enabled = false;
+  cfg.structure_protection.enabled = false;
+
+  const std::array<float, 3> w{0.2703f, 0.5405f, 0.1892f};  // IMX415
+  auto lum = [&](const Matrix2Df& r, const Matrix2Df& g, const Matrix2Df& b) {
+    return Matrix2Df(w[0] * r + w[1] * g + w[2] * b);
+  };
+
+  cfg.preserve_luminance = "color_space";
+  Matrix2Df r1 = r0, g1 = g0, b1 = b0;
+  const auto st_default =
+      tile_compile::reconstruction::chroma_denoise_rgb_inplace(r1, g1, b1, cfg);
+  REQUIRE(st_default.applied);
+  REQUIRE(st_default.luminance_preserved == "color_space");
+  // color_space keeps Y = 0.25/0.5/0.25, so the stretch luminance moves.
+  REQUIRE((lum(r1, g1, b1) - lum(r0, g0, b0)).cwiseAbs().maxCoeff() > 1.0e-3f);
+
+  cfg.preserve_luminance = "hms_profile";
+  tile_compile::reconstruction::ChromaDenoiseOptions opts;
+  opts.have_preserve_weights = true;
+  opts.preserve_weights = w;
+  Matrix2Df r2 = r0, g2 = g0, b2 = b0;
+  const auto st = tile_compile::reconstruction::chroma_denoise_rgb_inplace(
+      r2, g2, b2, cfg, nullptr, nullptr, nullptr, &opts);
+  REQUIRE(st.applied);
+  REQUIRE(st.luminance_preserved == "hms_profile");
+  REQUIRE(st.luminance_weights[0] == Catch::Approx(w[0]));
+  REQUIRE((lum(r2, g2, b2) - lum(r0, g0, b0)).cwiseAbs().maxCoeff() < 1.0e-5f);
+  // Same chroma as the color_space pass: every channel difference is kept.
+  REQUIRE(((r2 - g2) - (r1 - g1)).cwiseAbs().maxCoeff() < 1.0e-5f);
+  REQUIRE(((b2 - g2) - (b1 - g1)).cwiseAbs().maxCoeff() < 1.0e-5f);
+
+  // Without weights the key has no effect.
+  Matrix2Df r3 = r0, g3 = g0, b3 = b0;
+  const auto st_none =
+      tile_compile::reconstruction::chroma_denoise_rgb_inplace(r3, g3, b3, cfg);
+  REQUIRE(st_none.luminance_preserved == "color_space");
+  REQUIRE((r3 - r1).cwiseAbs().maxCoeff() == 0.0f);
+  REQUIRE((b3 - b1).cwiseAbs().maxCoeff() == 0.0f);
+}
+
+TEST_CASE("chroma denoise excess_from_pre_denoise reads the excess before the "
+          "luma pass, rebuilt after BGE and PCC",
+          "[chroma-denoise][excess-from-pre-denoise]") {
+  constexpr int W = 128, H = 96;
+  std::mt19937 rng(31);
+  std::normal_distribution<float> n(0.0f, 0.05f);
+  // Independent channel noise: excess ~ 1 before any denoise.
+  Matrix2Df r(H, W), g(H, W), b(H, W);
+  for (int y = 0; y < H; ++y)
+    for (int x = 0; x < W; ++x) {
+      r(y, x) = 1.0f + n(rng);
+      g(y, x) = 1.2f + n(rng);
+      b(y, x) = 0.8f + n(rng);
+    }
+
+  // The luma pass on the post-stack image.
+  tile_compile::config::LumaDenoiseConfig lcfg;
+  lcfg.enabled = true;
+  lcfg.star_protection.enabled = false;
+  lcfg.structure_protection.enabled = false;
+  Matrix2Df lr = r, lg = g, lb = b;
+  const auto lst =
+      tile_compile::reconstruction::luma_denoise_rgb_inplace(lr, lg, lb, lcfg);
+  REQUIRE(lst.applied);
+  const std::vector<Matrix2Df> delta{Matrix2Df(lr - r)};
+  // The luma pass adds the same delta to every channel.
+  REQUIRE(((lg - g) - delta[0]).cwiseAbs().maxCoeff() < 1.0e-5f);
+
+  // BGE (a per-channel background subtracted) and diagonal PCC, on the image
+  // with and without the luma pass.
+  auto bge_pcc = [&](Matrix2Df R, Matrix2Df G, Matrix2Df B) {
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x) {
+        R(y, x) -= 0.001f * x;
+        G(y, x) -= 0.0005f * y;
+        B(y, x) -= 0.0008f * (x + y) - 0.05f;
+      }
+    const std::vector<std::uint8_t> mask(static_cast<std::size_t>(W * H), 1);
+    tile_compile::astrometry::detail::apply_diagonal_color_correction(
+        R, G, B, {{{1.4, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.8}}}, 0.8,
+        "off", mask);
+    return std::array<Matrix2Df, 3>{R, G, B};
+  };
+  const auto truth = bge_pcc(r, g, b);
+  auto image = bge_pcc(lr, lg, lb);
+  // PCC's applied linear part: gains 1 + strength * (fitted - 1).
+  const std::array<std::array<double, 3>, 3> J{
+      {{1.0 + 0.8 * 0.4, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0 + 0.8 * 0.8}}};
+  auto rebuilt = image;
+  REQUIRE(tile_compile::reconstruction::remove_denoise_delta_inplace(
+      rebuilt[0], rebuilt[1], rebuilt[2], delta, J));
+  // Equal to the image without the luma pass up to a constant per channel
+  // (PCC's offsets come from the background median of each image).
+  for (int c = 0; c < 3; ++c) {
+    const Matrix2Df diff = rebuilt[c] - truth[c];
+    const float mean = diff.mean();
+    REQUIRE(std::abs(mean) < 0.01f);
+    REQUIRE((diff.array() - mean).abs().maxCoeff() < 1.0e-4f);
+  }
+  // A delta of another size is refused and changes nothing.
+  auto untouched = image;
+  REQUIRE_FALSE(tile_compile::reconstruction::remove_denoise_delta_inplace(
+      untouched[0], untouched[1], untouched[2], {Matrix2Df::Zero(H, W - 1)}, J));
+  REQUIRE((untouched[0] - image[0]).cwiseAbs().maxCoeff() == 0.0f);
+
+  tile_compile::config::ChromaDenoiseConfig cfg;
+  cfg.mode = "auto";
+  cfg.protect_luma = false;
+  auto excess_of = [&](bool from_pre, bool with_reference) {
+    tile_compile::config::ChromaDenoiseConfig c = cfg;
+    c.excess_from_pre_denoise = from_pre;
+    tile_compile::reconstruction::ChromaDenoiseOptions opts;
+    if (with_reference) {
+      opts.excess_r = &rebuilt[0];
+      opts.excess_g = &rebuilt[1];
+      opts.excess_b = &rebuilt[2];
+    }
+    auto planes = image;
+    return tile_compile::reconstruction::chroma_denoise_rgb_inplace(
+        planes[0], planes[1], planes[2], c, nullptr, nullptr, nullptr, &opts);
+  };
+  const auto on_image = excess_of(false, true);
+  const auto on_reference = excess_of(true, true);
+  const auto no_reference = excess_of(true, false);
+  // The luma pass inflates the excess measured on its output.
+  REQUIRE(on_image.chroma_noise_excess > 1.3);
+  REQUIRE(on_image.excess_source == "image");
+  REQUIRE(on_reference.excess_source == "pre_denoise");
+  REQUIRE(on_reference.chroma_noise_excess == Catch::Approx(1.0).margin(0.1));
+  REQUIRE(on_reference.adaptation == Catch::Approx(1.0).margin(0.1));
+  REQUIRE(no_reference.excess_source == "image");
+  REQUIRE(no_reference.chroma_noise_excess ==
+          Catch::Approx(on_image.chroma_noise_excess));
 }

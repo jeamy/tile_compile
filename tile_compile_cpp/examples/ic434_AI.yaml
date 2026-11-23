@@ -76,7 +76,7 @@ calibration:
   use_dark: true
   use_flat: false
 chroma_denoise:
-  adaptation_reference_ratio: 1
+  adaptation_reference_excess: 1
   apply_stage: post_pcc
   blend:
     amount: 1

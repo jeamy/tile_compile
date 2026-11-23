@@ -1971,6 +1971,21 @@ VeraLux HyperMetric Stretch (HMS) ist eine optionale finale RGB-Stretch-Phase na
 
 **Zweck:** Nutzt den adaptiven VeraLux-Anchor aus dem Luminanzhistogramm. Bei `false` wird der statistische 0.5%-Floor-Anker verwendet.
 
+### `hypermetric_stretch.params_from_pre_denoise`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` (seit 2026-11-23; ohne Denoise-Pass ohne Wirkung) |
+
+**Zweck:** HMS streckt zuerst den Vor-Denoise-Zustand – das Bild, wie HMS es mit allen Denoise-Pässen aus bekäme – und wendet dessen abgeleitete Parameter auf das entrauschte Bild an: Eingangsnormierung, Schwarzpunkt-Anker, `log D`, die Kanal-Floors, die Skalierung und den Mittelton, der den Hintergrund auf `target_bg` setzt. Die Denoise-Pässe senken dann nur das Rauschen, ändern aber nicht, wie hell Himmel, Rauschen und Sterne im Endbild erscheinen.
+
+**Vor-Denoise-Zustand:** der Stand direkt vor dem Chroma-Pass bei `post_pcc` (nach PCC und Speckle-Unterdrücker). Die Post-Stack-Pässe (`luma_denoise`, `chroma_denoise` bei `post_stack_linear`) laufen vor BGE/PCC; ihre Änderung (Delta, nachher − vorher) wird festgehalten und mit dem linearen Anteil von PCC herausgerechnet: BGE zieht je Kanal einen Hintergrund ab, PCC ist in den Modi `affine_diagonal` und `linear` linear plus Offsets, also Zustand = PCC-Ausgabe − J·Delta. In den `attenuated`-Modi geht das nicht (`pre_denoise_post_stack: pcc_apply_nonlinear`); dann gleicht die Referenz nur den Chroma-Pass bei `post_pcc` aus. Das Delta liegt für einen PCC-Resume als `outputs/post_stack_denoise_delta_R.fit` (nur `luma_denoise`: eine Ebene, gleich in R, G, B) bzw. `_{R,G,B}.fit`; jeder Lauf der Post-Stack-Pässe löscht ältere Dateien.
+
+**Warum:** Die Ausgabeskalierung von `ready_to_use` legt jeden Kanal-Floor einen gemeinsamen Abstand unter seinen Himmel; dieser Abstand ist durch die Spanne Himmel–Minimum des breitesten Kanals begrenzt und folgt damit den Extremwerten des Kanalrauschens. Weniger Farbrauschen verkleinert ihn, der Himmel liegt vor dem MTF tiefer, und der MTF hebt ihn steiler an. Gemessen an IC434 (2026-11-22, nur Chroma, `auto`): Abstand −9 %, Mittelton 0,151 → 0,137, sichtbares Luma-Rauschen +12 %, Sterne +2 % breiter. Mit dem Schalter: Luma-Rauschen ×1,000, Stern-FWHM ±0 %.
+
+**Ohne Wirkung**, wenn der Vor-Denoise-Zustand fehlt; `phase_end` von HYPERMETRIC_STRETCH nennt den Grund in `params_from_pre_denoise` (`used`, `disabled`, `denoise_inactive`, `denoise_not_applied`, `post_stack_denoise_not_compensated`, `reference_missing`, `reference_stretch_failed`, `reference_size_mismatch`), wie die Post-Stack-Pässe herausgerechnet wurden in `pre_denoise_post_stack` (`compensated`, `none`, `delta_missing`, `pcc_apply_nonlinear`, `delta_size_mismatch`, `from_saved_reference`) und die Quelle in `params_source` (`pre_denoise_reference` | `image`). Für einen reinen HYPERMETRIC_STRETCH-Resume liegt der Zustand als `outputs/pcc_predenoise_{R,G,B}.fit`; jeder PCC-Lauf löscht ältere Dateien. Die HMS-Vorschau der Weboberfläche verwendet diese Dateien ebenso, wenn sie vorliegen (abschaltbar mit `params_from_pre_denoise: false` in den Vorschau-Parametern; Diagnose `params_source`). `color_cast_correction`, `large_scale_contrast` und `local_contrast` (falls an) werten weiter das entrauschte Bild aus. Ersetzt `anchor_from_reference` (wird beim Laden umbenannt), das nur den Anker übernahm und auf echten Daten nichts bewirkte.
+
 ### `hypermetric_stretch.target_bg`
 
 | Eigenschaft | Wert |
@@ -2462,6 +2477,7 @@ HMS ist per Default aktiv. Die Detailparameter entsprechen dem normalen Tile-Com
 | `hypermetric_stretch.sensor_profile` | string | `rec709` |
 | `hypermetric_stretch.fallback_profile` | string | `rec709` |
 | `hypermetric_stretch.adaptive_anchor` | boolean | `true` |
+| `hypermetric_stretch.params_from_pre_denoise` | boolean | `true` |
 | `hypermetric_stretch.target_bg` | number | `0.15` |
 | `hypermetric_stretch.protect_b` | number | `6.0` |
 | `hypermetric_stretch.convergence_power` | number | `3.5` |
@@ -2549,6 +2565,12 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 
 
 - `chroma_denoise.enabled`: aktiviert chroma-fokussierte Denoise (OSC-Pfad). Standard: `false` (opt-in).
+- `chroma_denoise.mode`: Aktivierungsmodus (`off` | `manual` | `auto`). Standard: `manual` (gesteuert über `enabled`; `off` schaltet unabhängig von `enabled` ab). `auto` ignoriert `enabled` und skaliert `blend.amount` mit dem **Chroma-Rauschüberschuss**: dem gemessenen Verhältnis `chroma_sigma / luma_sigma` (Hochpass-Sigma auf den gültigen Pixeln) geteilt durch das Verhältnis, das unabhängiges Rauschen mit den gemessenen Kanal-Sigmas in diesem `color_space` ergäbe. Überschuss `1` = Rauschen der Kanäle unabhängig, `< 1` = von den Kanälen geteiltes Rauschen (wenig Farbrauschen), `> 1` = zusätzliches Farbrauschen (z. B. gegenläufiges R/B-Rauschen aus dem Debayering). Der Überschuss hängt weder von `color_space` noch von den Kanal-Verstärkungen (PCC) noch von der Rauschstärke ab; da der Stretch die Farbe relativ zur Luminanz überträgt, bestimmt dieses Verhältnis die Sichtbarkeit des Farbrauschens. Das Sigma ist ein Pixel-Hochpass: großflächiges Farb-Mottling (15–40 px) sieht die Messung nicht. Im JSON stehen `measured_chroma_to_luma_ratio`, `expected_chroma_to_luma_ratio`, `chroma_noise_excess`, `auto_mode_scale` und bei einem Skip `skip_reason`.
+- `chroma_denoise.auto_min_excess`: Chroma-Rauschüberschuss, bei oder unter dem `auto` den Pass überspringt (`skip_reason: chroma_noise_below_threshold`, Bild unverändert). Dimensionslos, `>= 0`. Standard: `0.5` — vorläufig, noch nicht an einer Reihe von Läufen geeicht.
+- `chroma_denoise.auto_full_excess`: Chroma-Rauschüberschuss, ab dem `auto` den vollen `blend.amount` anwendet; dazwischen linear (`> auto_min_excess`). Standard: `1.0` (unabhängiges Kanalrauschen bekommt die volle Stärke) — vorläufig, noch nicht geeicht.
+- `chroma_denoise.adaptation_reference_excess`: Chroma-Rauschüberschuss, bei dem Wavelet-Schwelle, Bilateral-Bereich und Blend so bleiben wie konfiguriert. `adaptation = clamp(Überschuss / adaptation_reference_excess, 0,8, 1,4)`: Wavelet-Schwelle ×adaptation, Bilateral-Bereich ×√adaptation, Blend ×adaptation (höchstens 1). Gilt in `manual` und `auto`. `> 0`. Standard: `1.0` (unabhängiges Kanalrauschen = konfigurierte Stärke). Ersetzt `adaptation_reference_ratio` (wird beim Laden umbenannt), das das rohe Verhältnis auswertete: unabhängiges Kanalrauschen ergibt dort in `ycbcr_linear` etwa 1,9, sodass fast jeder Lauf mit 1,4 lief. **Ergebniswirkung:** Läufe mit gewöhnlichem Rauschen (Überschuss um 1) laufen jetzt mit 1,0 statt 1,4 — bei den Standardwerten Blend 0,85 statt 1,0 und Wavelet-Schwelle 2,5 statt 3,5. Im JSON: `adaptation`.
+- `chroma_denoise.preserve_luminance`: Luminanz, die der Pass unverändert lässt (`color_space` | `hms_profile`). `color_space` erhält das Y von `color_space` (0,25/0,5/0,25 in `ycbcr_linear`, je 1/3 in `opponent_linear`), das bisherige Verhalten. HMS streckt aber die Luminanz von `hypermetric_stretch.sensor_profile` (IMX415: 0,2703/0,5405/0,1892), sodass ein Teil des Farbrauschens, das der Pass verschiebt, in der gestreckten Luminanz landet. `hms_profile` stellt diese Luminanz nach dem Pass mit einem gemeinsamen Offset je Pixel wieder her (`(L_w(vorher) − L_w(nachher)) / Σw`); keine Kanaldifferenz ändert sich, die Farbe bleibt genau so entrauscht. Gewichte aus derselben Tabelle wie HMS (`auto` → `fallback_profile`). Im JSON: `luminance_preserved`, `luminance_weights`. Standard: `hms_profile` (seit 2026-11-23; `color_space` war das Verhalten davor).
+- `chroma_denoise.excess_from_pre_denoise`: misst den Chroma-Rauschüberschuss (`mode: auto`, `adaptation`) am Bild, wie es ohne die vorigen Denoise-Pässe wäre. `luma_denoise` senkt nur das Luma-Rauschen; am entrauschten Bild gemessen erscheint der Überschuss deshalb als zusätzliches Farbrauschen (M42: 0,97 → 2,40). Bei `apply_stage: post_stack_linear` misst der Pass an seiner Eingabe vor `luma_denoise`, bei `post_pcc` am aus dem Post-Stack-Delta zurückgerechneten Vor-Denoise-Zustand (siehe `hypermetric_stretch.params_from_pre_denoise`). Fehlt dieser Zustand, wird das Bild gemessen. Im JSON: `excess_source` (`image` | `pre_denoise`). Standard: `true` (seit 2026-11-23).
 - `chroma_denoise.color_space`: Chroma/Luma-Transform (`ycbcr_linear` oder `opponent_linear`).
 - `chroma_denoise.apply_stage`: waehlt genau eine unterstuetzte Stelle: nach dem finalen linearen Stack oder nach PCC.
 - `chroma_denoise.protect_luma`: aktiviert die luminanzbasierten Schutzmasken; die lineare Luminanz bleibt immer unverändert.
@@ -2565,6 +2587,9 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `chroma_denoise.chroma_bilateral.enabled`: bilaterale Glättung auf Chroma-Komponenten.
 - `chroma_denoise.chroma_bilateral.sigma_spatial`: räumliche bilaterale Stärke.
 - `chroma_denoise.chroma_bilateral.sigma_range`: Farbdistanz-Selektivität bilateral.
+- `chroma_denoise.chroma_guided.enabled`: Luminanz-geführter Joint Guided Filter (32-Bit-Float, `O(N)`) für Chroma-Kanäle mit `Y` als Kanten-Führungsbild. Läuft nach Wavelet- und Bilateral-Pass, stoppt Farbbluten an Stern- und Nebelkanten; die Luminanz bleibt unverändert (`Y_out == Y_in`), die Farbsäume der Sterne können sich ändern. Standard: `false` (aus, damit bestehende `chroma_denoise`-Konfigurationen dasselbe Ergebnis liefern).
+- `chroma_denoise.chroma_guided.radius`: Fensterradius in Pixeln für den Guided Filter (Fenstergröße `2*radius+1`, Bereich `[1, 64]`). Standard: `4`.
+- `chroma_denoise.chroma_guided.eps_sigma_scale`: Regularisierungsfaktor relativ zur gemessenen Luma-Rauschsigma (`eps = (eps_sigma_scale * sigma_y)^2`, Bereich `(0, 50]`, skaleninvariant). Standard: `2.0`.
 - `chroma_denoise.blend.mode`: aktuell chroma-only Blending-Modus.
 - `chroma_denoise.blend.amount`: Mischanteil Original vs. denoised Chroma.
 - `chroma_denoise.extended_source_protection.enabled`: Schutz für Extended Sources (Galaxien-Discs, große Nebel) vor Chroma-Denoising. Aktivieren, wenn das Feld eine Galaxie oder einen großen Nebel enthält, damit der Denoiser die echte Farbe der Quelle nicht als Rauschen behandelt.
@@ -2600,6 +2625,10 @@ Luminanzsignal steckt, bevor es in die Multiband-Fusion läuft — anders als
 - `luma_denoise.bilateral.enabled`: Bilateraler Filter nach der Wavelet-Stufe, analog zu `chroma_denoise.chroma_bilateral`. Default: `false`. Die Wavelet-Rekonstruktion addiert ihre gröbste Approximationsebene immer unverändert zurück — dieser Rest trägt reales Hintergrundrauschen, das keine Wavelet-Stärke entfernt; Bilateral adressiert das direkt.
 - `luma_denoise.bilateral.sigma_spatial`: Räumliches Sigma. Recommended: 1.5; für Hintergrundrauschen nahe DWARF-Onboard-Niveau eher 6–10.
 - `luma_denoise.bilateral.sigma_range`: Multiplikator der gemessenen Hintergrund-Luma-Sigma. Recommended: 2.0.
+- `luma_denoise.sharpness_guard.enabled`: Schärfe-Gate auf identischen Sternpositionen. Sucht helle Sterne (`>= 10 sigma`, höchstens 120, Patch 15×15 px) einmal auf dem Eingangs-`Y` und misst mediane FWHM und Sternpeak an denselben Positionen vor und nach dem Blend. Steigt die FWHM um mehr als `max_fwhm_increase_pct` oder fällt der Peak um mehr als `max(3 %, 3 × max_fwhm_increase_pct)`, wird `blend_amount` halbiert (bis `max_backoff_steps`); scheitert es danach weiter, wird der Pass verworfen (Bild unverändert). Prüft nur helle Sterne, keine schwachen flächigen Details. `guard_reason` im JSON: `disabled`, `passed`, `insufficient_stars`, `fwhm_regression`, `star_peak_erosion`. Standard: `false` (aus, damit bestehende `luma_denoise`-Konfigurationen dasselbe Ergebnis liefern).
+- `luma_denoise.sharpness_guard.max_fwhm_increase_pct`: Maximal erlaubte Zunahme der medianen FWHM in Prozent (`[0, 100]`). Standard: `1.0`.
+- `luma_denoise.sharpness_guard.min_matched_stars`: Mindestanzahl vorher und nachher messbarer Sterne (`>= 1`). Darunter verwirft das Gate den Pass (`guard_reason: insufficient_stars`, Bild unverändert), weil sich ein Schärfeverlust nicht ausschließen lässt; für sternarme Felder das Gate ausschalten. Standard: `15`.
+- `luma_denoise.sharpness_guard.max_backoff_steps`: Anzahl der Blend-Halbierungsschritte vor Fail-Closed-Verwerfung (`[0, 10]`). Standard: `2`.
 
 Die Rekonstruktion ist additiv (`R_neu = R + (Y_denoised − Y)` usw.), nicht
 ratio-basiert — Letzteres verstärkt Rauschen in schwachen/teilgeschützten

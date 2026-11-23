@@ -3055,7 +3055,7 @@ std::optional<ReportSection> gen_hms_denoise(const std::vector<json>& events,
     }
     if (has_luma || has_chroma) {
         std::ostringstream tbl;
-        tbl << "<table class=\"data-table\"><thead><tr><th>Pass</th><th>Stage</th><th>Applied</th><th>Input sigma</th><th>Protected</th><th>Mean denoise</th></tr></thead><tbody>";
+        tbl << "<table class=\"data-table\"><thead><tr><th>Pass</th><th>Stage</th><th>Applied</th><th>Input sigma</th><th>Protected</th><th>Mean denoise</th><th>Auto / Sharpness Guard</th></tr></thead><tbody>";
         auto emit_passes = [&](const char* kind, const json& doc) {
             if (!doc.is_object()) return;
             const json arr = doc.contains("passes") && doc["passes"].is_array()
@@ -3065,12 +3065,53 @@ std::optional<ReportSection> gen_hms_denoise(const std::vector<json>& events,
                 const double sigma = p.contains("input_chroma_sigma")
                     ? json_number_or(p, "input_chroma_sigma", NAN)
                     : json_number_or(p, "input_luma_sigma", NAN);
+                std::ostringstream detail;
+                if (std::string(kind) == "Chroma") {
+                    if (p.contains("guided_applied")) {
+                        detail << "guided=" << (json_bool_or(p, "guided_applied", false) ? "yes" : "no");
+                    }
+                    if (p.contains("auto_mode_scale")) {
+                        if (!detail.str().empty()) detail << ", ";
+                        detail << "auto_scale=" << format_number(json_number_or(p, "auto_mode_scale", NAN), 2);
+                    }
+                    if (p.contains("measured_chroma_to_luma_ratio")) {
+                        if (!detail.str().empty()) detail << ", ";
+                        detail << "ratio=" << format_number(json_number_or(p, "measured_chroma_to_luma_ratio", NAN), 2);
+                    }
+                    if (p.contains("chroma_noise_excess")) {
+                        if (!detail.str().empty()) detail << ", ";
+                        detail << "excess=" << format_number(json_number_or(p, "chroma_noise_excess", NAN), 2);
+                    }
+                    const std::string skip_r = json_string_or(p, "skip_reason", "");
+                    if (!skip_r.empty()) {
+                        if (!detail.str().empty()) detail << ", ";
+                        detail << "skip=" << skip_r;
+                    }
+                } else {
+                    const int mstars = static_cast<int>(json_number_or(p, "matched_stars", 0.0));
+                    if (mstars > 0 && p.contains("fwhm_before") && p.contains("fwhm_after")) {
+                        detail << "FWHM " << format_number(json_number_or(p, "fwhm_before", NAN), 2)
+                               << " -> " << format_number(json_number_or(p, "fwhm_after", NAN), 2)
+                               << " (" << format_number(json_number_or(p, "fwhm_delta_pct", NAN), 2) << "%, n=" << mstars << ")";
+                    }
+                    const int bsteps = static_cast<int>(json_number_or(p, "backoff_steps", 0.0));
+                    if (bsteps > 0) {
+                        if (!detail.str().empty()) detail << ", ";
+                        detail << "backoff=" << bsteps;
+                    }
+                    if (json_bool_or(p, "guard_rejected", false)) {
+                        if (!detail.str().empty()) detail << ", ";
+                        detail << "REJECTED (" << json_string_or(p, "guard_reason", "guard") << ")";
+                    }
+                }
+                const std::string detail_str = detail.str().empty() ? "-" : detail.str();
                 tbl << "<tr><th>" << kind << "</th>"
                     << "<td>" << html_escape(json_string_or(p, "stage", "-")) << "</td>"
                     << "<td>" << (json_bool_or(p, "applied", false) ? "yes" : "no") << "</td>"
                     << "<td>" << html_escape(format_number(sigma, 4)) << "</td>"
                     << "<td>" << html_escape(format_number(json_number_or(p, "combined_protected_fraction", NAN) * 100.0, 1)) << "%</td>"
-                    << "<td>" << html_escape(format_number(json_number_or(p, "mean_denoise_fraction", NAN) * 100.0, 1)) << "%</td></tr>";
+                    << "<td>" << html_escape(format_number(json_number_or(p, "mean_denoise_fraction", NAN) * 100.0, 1)) << "%</td>"
+                    << "<td>" << html_escape(detail_str) << "</td></tr>";
             }
         };
         if (has_luma) emit_passes("Luma", luma_denoise);

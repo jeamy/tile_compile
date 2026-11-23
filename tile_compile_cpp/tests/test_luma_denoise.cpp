@@ -349,3 +349,168 @@ TEST_CASE("luma bilateral range is invariant to normalized versus ADU scale",
                                                           adu[2], cfg);
   REQUIRE((normalized[0] - adu[0] / 500.0f).cwiseAbs().maxCoeff() < 2.0e-5f);
 }
+
+TEST_CASE("luma sharpness_guard config ranges are validated",
+          "[config][luma-denoise][sharpness-guard]") {
+  tile_compile::config::Config cfg;
+  cfg.luma_denoise.sharpness_guard.max_fwhm_increase_pct = -0.5f;
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.luma_denoise.sharpness_guard.max_fwhm_increase_pct = 1.0f;
+
+  cfg.luma_denoise.sharpness_guard.min_matched_stars = 0;
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.luma_denoise.sharpness_guard.min_matched_stars = 15;
+
+  cfg.luma_denoise.sharpness_guard.max_backoff_steps = -1;
+  REQUIRE_THROWS_AS(cfg.validate(), tile_compile::ValidationError);
+  cfg.luma_denoise.sharpness_guard.max_backoff_steps = 2;
+
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("luma sharpness_guard rejects fail-closed when unprotected stars blur and passes when protected",
+          "[luma-denoise][sharpness-guard]") {
+  constexpr int W = 240, H = 200;
+  auto make_star_field = [&]() {
+    std::array<Matrix2Df, 3> rgb{Matrix2Df::Constant(H, W, 20.0f),
+                                 Matrix2Df::Constant(H, W, 20.0f),
+                                 Matrix2Df::Constant(H, W, 20.0f)};
+    std::mt19937 rng(321);
+    std::normal_distribution<float> noise(0.0f, 0.35f);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x) {
+        const float n = noise(rng);
+        rgb[0](y, x) += n;
+        rgb[1](y, x) += n;
+        rgb[2](y, x) += n;
+      }
+    // 5x4 = 20 compact Gaussian stars (sigma = 1.1 px, FWHM ~ 2.6 px, ~28 sigma)
+    for (int gy = 0; gy < 4; ++gy) {
+      for (int gx = 0; gx < 5; ++gx) {
+        const float cx = 30.0f + gx * 45.0f;
+        const float cy = 30.0f + gy * 45.0f;
+        for (int dy = -6; dy <= 6; ++dy) {
+          for (int dx = -6; dx <= 6; ++dx) {
+            const float val = 10.0f * std::exp(-(dx * dx + dy * dy) / (2.0f * 1.1f * 1.1f));
+            const int yy = static_cast<int>(cy) + dy;
+            const int xx = static_cast<int>(cx) + dx;
+            rgb[0](yy, xx) += val;
+            rgb[1](yy, xx) += val;
+            rgb[2](yy, xx) += val;
+          }
+        }
+      }
+    }
+    return rgb;
+  };
+
+  // Case 1: Star & structure protection disabled + wide bilateral smoothing -> stars blur -> fail-closed reject
+  {
+    auto img = make_star_field();
+    const Matrix2Df r_orig = img[0];
+    tile_compile::config::LumaDenoiseConfig cfg;
+    cfg.enabled = true;
+    cfg.star_protection.enabled = false;
+    cfg.structure_protection.enabled = false;
+    cfg.blend_amount = 1.0f;
+    cfg.wavelet.enabled = true;
+    cfg.wavelet.levels = 4;
+    cfg.wavelet.threshold_scale = 8.0f;
+    cfg.bilateral.enabled = true;
+    cfg.bilateral.sigma_spatial = 6.0f;
+    cfg.bilateral.sigma_range = 20.0f;
+    cfg.sharpness_guard.enabled = true;
+    cfg.sharpness_guard.max_fwhm_increase_pct = 1.0f;
+    cfg.sharpness_guard.min_matched_stars = 10;
+    cfg.sharpness_guard.max_backoff_steps = 1;
+
+    const auto stats = tile_compile::reconstruction::luma_denoise_rgb_inplace(
+        img[0], img[1], img[2], cfg);
+    REQUIRE(stats.matched_stars >= 10);
+    REQUIRE(stats.guard_rejected == true);
+    REQUIRE((stats.guard_reason == "fwhm_regression" ||
+             stats.guard_reason == "star_peak_erosion"));
+    REQUIRE(stats.applied == false);
+    REQUIRE((img[0] - r_orig).cwiseAbs().maxCoeff() == 0.0f);
+  }
+
+  // Case 2: Star protection enabled -> stars stay sharp -> guard passes
+  {
+    auto img = make_star_field();
+    tile_compile::config::LumaDenoiseConfig cfg;
+    cfg.enabled = true;
+    cfg.star_protection.enabled = true;
+    cfg.star_protection.threshold_sigma = 5.0f;
+    cfg.star_protection.dilate_px = 6;
+    cfg.structure_protection.enabled = true;
+    cfg.luma_guard_strength = 1.0f;
+    cfg.blend_amount = 0.85f;
+    cfg.wavelet.levels = 3;
+    cfg.wavelet.threshold_scale = 1.5f;
+    cfg.sharpness_guard.enabled = true;
+    cfg.sharpness_guard.max_fwhm_increase_pct = 1.0f;
+    cfg.sharpness_guard.min_matched_stars = 10;
+    cfg.sharpness_guard.max_backoff_steps = 2;
+
+    const auto stats = tile_compile::reconstruction::luma_denoise_rgb_inplace(
+        img[0], img[1], img[2], cfg);
+    REQUIRE(stats.matched_stars >= 10);
+    REQUIRE(stats.guard_rejected == false);
+    REQUIRE(stats.guard_reason == "passed");
+    REQUIRE(stats.applied == true);
+    REQUIRE(stats.fwhm_delta_pct <= 1.0);
+  }
+}
+
+TEST_CASE("luma sharpness_guard rejects when too few stars can be measured and records why",
+          "[luma-denoise][sharpness-guard]") {
+  constexpr int W = 200, H = 160;
+  auto field = [&](int stars) {
+    std::array<Matrix2Df, 3> rgb{Matrix2Df::Constant(H, W, 20.0f),
+                                 Matrix2Df::Constant(H, W, 20.0f),
+                                 Matrix2Df::Constant(H, W, 20.0f)};
+    std::mt19937 rng(11);
+    std::normal_distribution<float> noise(0.0f, 0.35f);
+    for (int y = 0; y < H; ++y)
+      for (int x = 0; x < W; ++x) {
+        const float v = noise(rng);
+        for (auto& c : rgb) c(y, x) += v;
+      }
+    for (int s = 0; s < stars; ++s) {
+      const int cx = 40 + 50 * s, cy = 80;
+      for (int dy = -6; dy <= 6; ++dy)
+        for (int dx = -6; dx <= 6; ++dx) {
+          const float v = 10.0f * std::exp(-(dx * dx + dy * dy) / (2.0f * 1.1f * 1.1f));
+          for (auto& c : rgb) c(cy + dy, cx + dx) += v;
+        }
+    }
+    return rgb;
+  };
+  tile_compile::config::LumaDenoiseConfig cfg;
+  cfg.enabled = true;
+  cfg.sharpness_guard.enabled = true;
+  cfg.sharpness_guard.min_matched_stars = 15;
+
+  for (int stars : {0, 3}) {
+    auto img = field(stars);
+    const Matrix2Df r_orig = img[0];
+    const auto st = tile_compile::reconstruction::luma_denoise_rgb_inplace(
+        img[0], img[1], img[2], cfg);
+    REQUIRE_FALSE(st.applied);
+    REQUIRE(st.guard_rejected);
+    REQUIRE(st.guard_reason == "insufficient_stars");
+    REQUIRE(st.matched_stars < 15);
+    REQUIRE((img[0] - r_orig).cwiseAbs().maxCoeff() == 0.0f);
+  }
+
+  // Guard off: the pass applies as before and says the guard did not run.
+  cfg.sharpness_guard.enabled = false;
+  auto img = field(3);
+  const Matrix2Df r_orig = img[0];
+  const auto st = tile_compile::reconstruction::luma_denoise_rgb_inplace(
+      img[0], img[1], img[2], cfg);
+  REQUIRE(st.applied);
+  REQUIRE_FALSE(st.guard_rejected);
+  REQUIRE(st.guard_reason == "disabled");
+  REQUIRE((img[0] - r_orig).cwiseAbs().maxCoeff() > 0.0f);
+}

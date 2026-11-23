@@ -2,6 +2,7 @@
 // (docs/AQMH/aqmh_cfa_forward_drizzle_multiband_implementierungsplan_de.md
 //  section 6.5, decision 2026-09-03).
 
+#include "tile_compile/config/configuration.hpp"
 #include "tile_compile/config/legacy_config_migration.hpp"
 #include "tile_compile/core/errors.hpp"
 
@@ -151,6 +152,53 @@ TEST_CASE("migration strips removed sub-keys but keeps their parent block "
   REQUIRE_FALSE(n["stacking"]["sigma_clip"]);
 
   REQUIRE_FALSE(n["validation"]);
+}
+
+TEST_CASE("migration renames chroma_denoise.adaptation_reference_ratio to "
+          "adaptation_reference_excess") {
+  YAML::Node n = load(
+      "chroma_denoise:\n  enabled: true\n  adaptation_reference_ratio: 1.2\n");
+  ConfigMigrationReport report;
+  REQUIRE_NOTHROW(migrate_legacy_config_node(n, report));
+  REQUIRE(report.applied);
+  REQUIRE(report.renamed_keys.size() == 1);
+  REQUIRE(report.renamed_keys[0].first == "chroma_denoise.adaptation_reference_ratio");
+  REQUIRE(report.renamed_keys[0].second == "chroma_denoise.adaptation_reference_excess");
+  REQUIRE_FALSE(n["chroma_denoise"]["adaptation_reference_ratio"]);
+  REQUIRE(n["chroma_denoise"]["adaptation_reference_excess"].as<float>() == 1.2f);
+  REQUIRE(n["chroma_denoise"]["enabled"].as<bool>());
+
+  // An explicitly set new key wins over the legacy one.
+  YAML::Node both = load(
+      "chroma_denoise:\n  adaptation_reference_ratio: 1.2\n"
+      "  adaptation_reference_excess: 0.9\n");
+  ConfigMigrationReport r2;
+  migrate_legacy_config_node(both, r2);
+  REQUIRE(both["chroma_denoise"]["adaptation_reference_excess"].as<float>() == 0.9f);
+  REQUIRE_FALSE(both["chroma_denoise"]["adaptation_reference_ratio"]);
+
+  ConfigMigrationReport r3;
+  const auto cfg = tile_compile::config::Config::from_yaml_text_migrated(
+      "chroma_denoise:\n  adaptation_reference_ratio: 1.3\n", r3);
+  REQUIRE(cfg.chroma_denoise.adaptation_reference_excess == 1.3f);
+}
+
+TEST_CASE("migration renames hypermetric_stretch.anchor_from_reference to "
+          "params_from_pre_denoise") {
+  YAML::Node n = load(
+      "hypermetric_stretch:\n  enabled: true\n  anchor_from_reference: true\n");
+  ConfigMigrationReport report;
+  REQUIRE_NOTHROW(migrate_legacy_config_node(n, report));
+  REQUIRE(report.renamed_keys.size() == 1);
+  REQUIRE(report.renamed_keys[0].first == "hypermetric_stretch.anchor_from_reference");
+  REQUIRE(report.renamed_keys[0].second == "hypermetric_stretch.params_from_pre_denoise");
+  REQUIRE_FALSE(n["hypermetric_stretch"]["anchor_from_reference"]);
+  REQUIRE(n["hypermetric_stretch"]["params_from_pre_denoise"].as<bool>());
+
+  ConfigMigrationReport r2;
+  const auto cfg = tile_compile::config::Config::from_yaml_text_migrated(
+      "hypermetric_stretch:\n  anchor_from_reference: true\n", r2);
+  REQUIRE(cfg.hypermetric_stretch.params_from_pre_denoise);
 }
 
 TEST_CASE("migration is a no-op on an already-clean config (plan 6.5)") {

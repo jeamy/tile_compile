@@ -395,6 +395,12 @@ Config Config::from_yaml(const YAML::Node &node) {
     auto cd = node["chroma_denoise"];
     if (yaml_has_value(cd["enabled"]))
       cfg.chroma_denoise.enabled = cd["enabled"].as<bool>();
+    if (yaml_has_value(cd["mode"]))
+      cfg.chroma_denoise.mode = cd["mode"].as<std::string>();
+    if (yaml_has_value(cd["auto_min_excess"]))
+      cfg.chroma_denoise.auto_min_excess = cd["auto_min_excess"].as<float>();
+    if (yaml_has_value(cd["auto_full_excess"]))
+      cfg.chroma_denoise.auto_full_excess = cd["auto_full_excess"].as<float>();
     if (yaml_has_value(cd["color_space"]))
       cfg.chroma_denoise.color_space = cd["color_space"].as<std::string>();
     if (yaml_has_value(cd["apply_stage"]))
@@ -403,9 +409,15 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.chroma_denoise.protect_luma = cd["protect_luma"].as<bool>();
     if (yaml_has_value(cd["luma_guard_strength"]))
       cfg.chroma_denoise.luma_guard_strength = cd["luma_guard_strength"].as<float>();
-    if (yaml_has_value(cd["adaptation_reference_ratio"]))
-      cfg.chroma_denoise.adaptation_reference_ratio =
-          cd["adaptation_reference_ratio"].as<float>();
+    if (yaml_has_value(cd["adaptation_reference_excess"]))
+      cfg.chroma_denoise.adaptation_reference_excess =
+          cd["adaptation_reference_excess"].as<float>();
+    if (yaml_has_value(cd["preserve_luminance"]))
+      cfg.chroma_denoise.preserve_luminance =
+          cd["preserve_luminance"].as<std::string>();
+    if (yaml_has_value(cd["excess_from_pre_denoise"]))
+      cfg.chroma_denoise.excess_from_pre_denoise =
+          cd["excess_from_pre_denoise"].as<bool>();
 
     if (yaml_has_value(cd["star_protection"])) {
       auto sp = cd["star_protection"];
@@ -450,6 +462,17 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (yaml_has_value(cb["sigma_range"]))
         cfg.chroma_denoise.chroma_bilateral.sigma_range =
             cb["sigma_range"].as<float>();
+    }
+
+    if (yaml_has_value(cd["chroma_guided"])) {
+      auto cg = cd["chroma_guided"];
+      if (yaml_has_value(cg["enabled"]))
+        cfg.chroma_denoise.chroma_guided.enabled = cg["enabled"].as<bool>();
+      if (yaml_has_value(cg["radius"]))
+        cfg.chroma_denoise.chroma_guided.radius = cg["radius"].as<int>();
+      if (yaml_has_value(cg["eps_sigma_scale"]))
+        cfg.chroma_denoise.chroma_guided.eps_sigma_scale =
+            cg["eps_sigma_scale"].as<float>();
     }
 
     if (yaml_has_value(cd["blend"])) {
@@ -552,6 +575,21 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.luma_denoise.bilateral.sigma_spatial = lb["sigma_spatial"].as<float>();
       if (yaml_has_value(lb["sigma_range"]))
         cfg.luma_denoise.bilateral.sigma_range = lb["sigma_range"].as<float>();
+    }
+
+    if (yaml_has_value(ld["sharpness_guard"])) {
+      auto sg = ld["sharpness_guard"];
+      if (yaml_has_value(sg["enabled"]))
+        cfg.luma_denoise.sharpness_guard.enabled = sg["enabled"].as<bool>();
+      if (yaml_has_value(sg["max_fwhm_increase_pct"]))
+        cfg.luma_denoise.sharpness_guard.max_fwhm_increase_pct =
+            sg["max_fwhm_increase_pct"].as<float>();
+      if (yaml_has_value(sg["min_matched_stars"]))
+        cfg.luma_denoise.sharpness_guard.min_matched_stars =
+            sg["min_matched_stars"].as<int>();
+      if (yaml_has_value(sg["max_backoff_steps"]))
+        cfg.luma_denoise.sharpness_guard.max_backoff_steps =
+            sg["max_backoff_steps"].as<int>();
     }
   }
 
@@ -1000,9 +1038,9 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (yaml_has_value(h["adaptive_anchor"]))
       cfg.hypermetric_stretch.adaptive_anchor =
           h["adaptive_anchor"].as<bool>();
-    if (yaml_has_value(h["anchor_from_reference"]))
-      cfg.hypermetric_stretch.anchor_from_reference =
-          h["anchor_from_reference"].as<bool>();
+    if (yaml_has_value(h["params_from_pre_denoise"]))
+      cfg.hypermetric_stretch.params_from_pre_denoise =
+          h["params_from_pre_denoise"].as<bool>();
     if (yaml_has_value(h["target_bg"]))
       cfg.hypermetric_stretch.target_bg = h["target_bg"].as<float>();
     if (yaml_has_value(h["protect_b"]))
@@ -1197,12 +1235,19 @@ YAML::Node Config::to_yaml() const {
   node["dithering"]["min_shift_px"] = dithering.min_shift_px;
 
   node["chroma_denoise"]["enabled"] = chroma_denoise.enabled;
+  node["chroma_denoise"]["mode"] = chroma_denoise.mode;
+  node["chroma_denoise"]["auto_min_excess"] = chroma_denoise.auto_min_excess;
+  node["chroma_denoise"]["auto_full_excess"] = chroma_denoise.auto_full_excess;
   node["chroma_denoise"]["color_space"] = chroma_denoise.color_space;
   node["chroma_denoise"]["apply_stage"] = chroma_denoise.apply_stage;
   node["chroma_denoise"]["protect_luma"] = chroma_denoise.protect_luma;
   node["chroma_denoise"]["luma_guard_strength"] = chroma_denoise.luma_guard_strength;
-  node["chroma_denoise"]["adaptation_reference_ratio"] =
-      chroma_denoise.adaptation_reference_ratio;
+  node["chroma_denoise"]["adaptation_reference_excess"] =
+      chroma_denoise.adaptation_reference_excess;
+  node["chroma_denoise"]["preserve_luminance"] =
+      chroma_denoise.preserve_luminance;
+  node["chroma_denoise"]["excess_from_pre_denoise"] =
+      chroma_denoise.excess_from_pre_denoise;
   node["chroma_denoise"]["star_protection"]["enabled"] =
       chroma_denoise.star_protection.enabled;
   node["chroma_denoise"]["star_protection"]["threshold_sigma"] =
@@ -1227,6 +1272,12 @@ YAML::Node Config::to_yaml() const {
       chroma_denoise.chroma_bilateral.sigma_spatial;
   node["chroma_denoise"]["chroma_bilateral"]["sigma_range"] =
       chroma_denoise.chroma_bilateral.sigma_range;
+  node["chroma_denoise"]["chroma_guided"]["enabled"] =
+      chroma_denoise.chroma_guided.enabled;
+  node["chroma_denoise"]["chroma_guided"]["radius"] =
+      chroma_denoise.chroma_guided.radius;
+  node["chroma_denoise"]["chroma_guided"]["eps_sigma_scale"] =
+      chroma_denoise.chroma_guided.eps_sigma_scale;
   node["chroma_denoise"]["blend"]["mode"] = chroma_denoise.blend.mode;
   node["chroma_denoise"]["blend"]["amount"] = chroma_denoise.blend.amount;
   node["chroma_denoise"]["extended_source_protection"]["enabled"] =
@@ -1273,6 +1324,14 @@ YAML::Node Config::to_yaml() const {
       luma_denoise.bilateral.sigma_spatial;
   node["luma_denoise"]["bilateral"]["sigma_range"] =
       luma_denoise.bilateral.sigma_range;
+  node["luma_denoise"]["sharpness_guard"]["enabled"] =
+      luma_denoise.sharpness_guard.enabled;
+  node["luma_denoise"]["sharpness_guard"]["max_fwhm_increase_pct"] =
+      luma_denoise.sharpness_guard.max_fwhm_increase_pct;
+  node["luma_denoise"]["sharpness_guard"]["min_matched_stars"] =
+      luma_denoise.sharpness_guard.min_matched_stars;
+  node["luma_denoise"]["sharpness_guard"]["max_backoff_steps"] =
+      luma_denoise.sharpness_guard.max_backoff_steps;
 
   node["global_metrics"]["adaptive_weights"] = global_metrics.adaptive_weights;
   node["global_metrics"]["weight_exponent_scale"] = global_metrics.weight_exponent_scale;
@@ -1414,8 +1473,8 @@ YAML::Node Config::to_yaml() const {
       hypermetric_stretch.fallback_profile;
   node["hypermetric_stretch"]["adaptive_anchor"] =
       hypermetric_stretch.adaptive_anchor;
-  node["hypermetric_stretch"]["anchor_from_reference"] =
-      hypermetric_stretch.anchor_from_reference;
+  node["hypermetric_stretch"]["params_from_pre_denoise"] =
+      hypermetric_stretch.params_from_pre_denoise;
   node["hypermetric_stretch"]["target_bg"] = hypermetric_stretch.target_bg;
   node["hypermetric_stretch"]["protect_b"] = hypermetric_stretch.protect_b;
   node["hypermetric_stretch"]["convergence_power"] =
@@ -1808,10 +1867,36 @@ void Config::validate() const {
     throw ValidationError("dithering.min_shift_px must be >= 0");
   }
 
+  if (chroma_denoise.mode != "off" && chroma_denoise.mode != "manual" &&
+      chroma_denoise.mode != "auto") {
+    throw ValidationError(
+        "chroma_denoise.mode must be 'off', 'manual', or 'auto'");
+  }
+  if (chroma_denoise.auto_min_excess < 0.0f) {
+    throw ValidationError("chroma_denoise.auto_min_excess must be >= 0");
+  }
+  if (chroma_denoise.auto_full_excess <= chroma_denoise.auto_min_excess) {
+    throw ValidationError(
+        "chroma_denoise.auto_full_excess must be > chroma_denoise.auto_min_excess");
+  }
+  if (chroma_denoise.chroma_guided.radius < 1 ||
+      chroma_denoise.chroma_guided.radius > 64) {
+    throw ValidationError("chroma_denoise.chroma_guided.radius must be in [1,64]");
+  }
+  if (chroma_denoise.chroma_guided.eps_sigma_scale <= 0.0f ||
+      chroma_denoise.chroma_guided.eps_sigma_scale > 50.0f) {
+    throw ValidationError(
+        "chroma_denoise.chroma_guided.eps_sigma_scale must be in (0,50]");
+  }
   if (chroma_denoise.color_space != "ycbcr_linear" &&
       chroma_denoise.color_space != "opponent_linear") {
     throw ValidationError(
         "chroma_denoise.color_space must be 'ycbcr_linear' or 'opponent_linear'");
+  }
+  if (chroma_denoise.preserve_luminance != "color_space" &&
+      chroma_denoise.preserve_luminance != "hms_profile") {
+    throw ValidationError(
+        "chroma_denoise.preserve_luminance must be 'color_space' or 'hms_profile'");
   }
   if (chroma_denoise.apply_stage != "post_stack_linear" &&
       chroma_denoise.apply_stage != "post_pcc") {
@@ -1868,9 +1953,9 @@ void Config::validate() const {
     throw ValidationError(
         "chroma_denoise.extended_source_protection.dilate_px must be in [0,100]");
   }
-  if (chroma_denoise.adaptation_reference_ratio <= 0.0f) {
+  if (chroma_denoise.adaptation_reference_excess <= 0.0f) {
     throw ValidationError(
-        "chroma_denoise.adaptation_reference_ratio must be > 0");
+        "chroma_denoise.adaptation_reference_excess must be > 0");
   }
   if (chroma_denoise.large_scale_bias.block_size < 4) {
     throw ValidationError(
@@ -1929,6 +2014,20 @@ void Config::validate() const {
       luma_denoise.bilateral.sigma_range > 20.0f) {
     throw ValidationError(
         "luma_denoise.bilateral sigma_spatial must be in (0,64] and sigma_range in (0,20]");
+  }
+  if (luma_denoise.sharpness_guard.max_fwhm_increase_pct < 0.0f ||
+      luma_denoise.sharpness_guard.max_fwhm_increase_pct > 100.0f) {
+    throw ValidationError(
+        "luma_denoise.sharpness_guard.max_fwhm_increase_pct must be in [0,100]");
+  }
+  if (luma_denoise.sharpness_guard.min_matched_stars < 1) {
+    throw ValidationError(
+        "luma_denoise.sharpness_guard.min_matched_stars must be >= 1");
+  }
+  if (luma_denoise.sharpness_guard.max_backoff_steps < 0 ||
+      luma_denoise.sharpness_guard.max_backoff_steps > 10) {
+    throw ValidationError(
+        "luma_denoise.sharpness_guard.max_backoff_steps must be in [0,10]");
   }
 
   auto check_weight_sum = [](std::initializer_list<float> weights,
@@ -2356,6 +2455,8 @@ std::string get_schema_json() {
     "chroma_denoise": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "color_space":{"type":"string","enum":["ycbcr_linear","opponent_linear"]},
+                      "preserve_luminance":{"type":"string","enum":["color_space","hms_profile"]},
+                      "excess_from_pre_denoise":{"type":"boolean"},
                       "apply_stage":{"type":"string","enum":["post_stack_linear","post_pcc"]},
                       "protect_luma":{"type":"boolean"},
                       "luma_guard_strength":{"type":"number","minimum":0,"maximum":1},
@@ -2429,7 +2530,7 @@ std::string get_schema_json() {
                       "sensor_profile":{"type":"string"},
                       "fallback_profile":{"type":"string"},
                       "adaptive_anchor":{"type":"boolean"},
-                      "anchor_from_reference":{"type":"boolean"},
+                      "params_from_pre_denoise":{"type":"boolean"},
                       "target_bg":{"type":"number","minimum":0.05,"maximum":0.50},
                       "protect_b":{"type":"number","minimum":0.1},
                       "convergence_power":{"type":"number","minimum":1.0,"maximum":10.0},

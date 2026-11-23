@@ -563,6 +563,27 @@ if(BUILD_TESTS)
     )
     target_include_directories(web_backend_cpp_pi_image_ops PRIVATE ${OPENCV4_INCLUDE_DIRS})
     target_link_libraries(web_backend_cpp_pi_image_ops PRIVATE ${OPENCV4_LINK_LIBRARIES})
+    add_executable(web_backend_cpp_hme_preview tests/test_hme_preview.cpp
+        src/services/hme_preview_service.cpp
+        ../tile_compile_cpp/src/image/hypermetric_stretch.cpp
+        ../tile_compile_cpp/src/core/utils.cpp
+    )
+    target_include_directories(web_backend_cpp_hme_preview PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tile_compile_cpp/include
+        ${YAML_CPP_INCLUDE_DIRS}
+        ${CFITSIO_INCLUDE_DIRS}
+        ${OPENCV4_INCLUDE_DIRS}
+    )
+    if(TARGET nlohmann_json::nlohmann_json)
+        target_link_libraries(web_backend_cpp_hme_preview PRIVATE nlohmann_json::nlohmann_json)
+    else()
+        target_include_directories(web_backend_cpp_hme_preview PRIVATE ${NLOHMANN_JSON_INCLUDE_DIRS})
+    endif()
+    target_link_libraries(web_backend_cpp_hme_preview PRIVATE
+        Eigen3::Eigen OpenSSL::Crypto ${YAML_CPP_LIBRARIES} ${CFITSIO_LINK_LIBRARIES} ${OPENCV4_LINK_LIBRARIES})
+    add_test(NAME web_backend_cpp_hme_preview COMMAND web_backend_cpp_hme_preview)
     add_backend_cpp_test(web_backend_cpp_pi_live_image_session tests/test_pi_live_image_session.cpp)
     target_sources(web_backend_cpp_pi_live_image_session PRIVATE
         src/services/pi/pi_image_ops.cpp

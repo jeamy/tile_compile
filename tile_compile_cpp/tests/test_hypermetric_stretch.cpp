@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <random>
 #include <vector>
@@ -144,6 +145,64 @@ TEST_CASE("hypermetric_ready_to_use_floors_do_not_follow_channel_min") {
   REQUIRE(g_med > 0.01f);
   REQUIRE(r_med / g_med == Catch::Approx(1.0f).margin(0.15f));
   REQUIRE(b_med / g_med == Catch::Approx(1.0f).margin(0.15f));
+}
+
+// The ready_to_use output scaling places each channel floor a shared margin
+// below its sky level; that margin is bounded by the widest channel's
+// sky-to-minimum span, so it follows the extremes of the per-channel noise.
+// Removing only the chroma part of the noise (same common/luma part) narrows
+// the margin. Where the sky then lands before the MTF, and so which way the
+// midtone moves, depends on the data (IC434 2026-11-22: margin -9%, midtone
+// 0.151 -> 0.137, visible luma noise +12% after a chroma-only denoise). The
+// diagnostics expose margin, scale and midtone with what bounded them.
+TEST_CASE("hypermetric_output_scaling_margin_follows_chroma_noise_extremes") {
+  constexpr int kSize = 128;
+  auto run = [&](float chroma_sigma) {
+    std::mt19937 rng(7);
+    std::normal_distribution<float> common(0.0f, 0.004f);
+    std::normal_distribution<float> chroma(0.0f, 1.0f);
+    tile_compile::Matrix2Df R(kSize, kSize), G(kSize, kSize), B(kSize, kSize);
+    for (int y = 0; y < kSize; ++y) {
+      for (int x = 0; x < kSize; ++x) {
+        const float sky = 0.05f + common(rng);
+        const float c = chroma_sigma * chroma(rng);
+        R(y, x) = sky + c;
+        G(y, x) = sky;
+        B(y, x) = sky - c;
+      }
+    }
+    for (int i = 0; i < 20; ++i) {
+      const int y = 8 + (i * 23) % 112;
+      const int x = 8 + (i * 37) % 112;
+      R(y, x) = G(y, x) = B(y, x) = 0.7f;
+    }
+    tile_compile::image::HyperMetricStretchConfig cfg;
+    cfg.enabled = true;
+    cfg.mode = "ready_to_use";
+    cfg.sensor_profile = "rec709";
+    cfg.adaptive_anchor = false;
+    cfg.log_d_mode = "fixed";
+    cfg.fixed_log_d = 2.0f;
+    cfg.color_strategy = "fixed";
+    cfg.target_bg = 0.15f;
+    return tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);
+  };
+  const auto noisy = run(0.012f);
+  const auto clean = run(0.0f);
+  REQUIRE(noisy.success);
+  REQUIRE(clean.success);
+  for (const auto *d : {&noisy, &clean}) {
+    REQUIRE(d->output_floor_margin > 0.0f);
+    REQUIRE((d->output_margin_source == "sigma" ||
+             d->output_margin_source == "minimum"));
+    REQUIRE(d->output_scale > 0.0f);
+    REQUIRE((d->output_scale_source == "p99_span" ||
+             d->output_scale_source == "physical_ceiling"));
+    REQUIRE(d->output_mtf_midtone > 0.0f);
+    REQUIRE(d->output_mtf_midtone < 1.0f);
+  }
+  REQUIRE(noisy.output_margin_source == "minimum");
+  REQUIRE(clean.output_floor_margin < 0.8f * noisy.output_floor_margin);
 }
 
 TEST_CASE("hypermetric_ready_to_use_scaling_preserves_weak_blue_channel") {
@@ -483,94 +542,107 @@ TEST_CASE("hypermetric_uses_common_overlap_statistics_without_cropping_output") 
 
 namespace {
 
-// A flat sky with per-pixel Gaussian noise of the given sigma, plus a fixed faint "nebula" patch in
-// one corner (well above sky+noise, so its presence does not itself determine the anchor). Same seed
-// and same sky/nebula levels for every sigma, so two calls differ only in noise width -- exactly what
-// a denoiser that narrows (but does not shift) the sky distribution would produce.
-tile_compile::Matrix2Df make_sky_channel(int n, float sky, float sigma, float nebula, std::mt19937 &rng) {
-  tile_compile::Matrix2Df m(n, n);
-  std::normal_distribution<float> noise(0.0f, sigma);
+// A sky with noise shared by all channels plus, optionally, chroma noise
+// (R up, B down), a few stars and a faint nebula: the same seed and levels for
+// every call, so two calls differ only in the chroma noise -- what a
+// chroma-only denoise removes.
+std::array<tile_compile::Matrix2Df, 3> make_sky_rgb(int n, float chroma_sigma) {
+  std::mt19937 rng(11);
+  std::normal_distribution<float> common(0.0f, 0.004f);
+  std::normal_distribution<float> chroma(0.0f, 1.0f);
+  std::array<tile_compile::Matrix2Df, 3> rgb{tile_compile::Matrix2Df(n, n),
+                                             tile_compile::Matrix2Df(n, n),
+                                             tile_compile::Matrix2Df(n, n)};
   for (int y = 0; y < n; ++y) {
     for (int x = 0; x < n; ++x) {
-      const float add = (x > n / 2 && y > n / 2) ? nebula : 0.0f;
-      m(y, x) = sky + noise(rng) + add;
+      const float sky = 0.05f + common(rng) + ((x > n / 2 && y > n / 2) ? 0.02f : 0.0f);
+      const float c = chroma_sigma * chroma(rng);
+      rgb[0](y, x) = sky + c;
+      rgb[1](y, x) = sky;
+      rgb[2](y, x) = sky - c;
     }
   }
-  return m;
+  for (int i = 0; i < 20; ++i) {
+    const int y = 8 + (i * 23) % (n - 16);
+    const int x = 8 + (i * 37) % (n - 16);
+    rgb[0](y, x) = rgb[1](y, x) = rgb[2](y, x) = 0.7f;
+  }
+  return rgb;
 }
 
 } // namespace
 
-TEST_CASE("hypermetric_anchor_from_reference_recovers_the_pre_denoise_anchor") {
-  const int n = 96;
-  const float sky = 0.15f;
-  const float nebula = 0.03f;
-  std::mt19937 rng_wide(7), rng_narrow(7);  // same seed: only sigma differs below
-  tile_compile::Matrix2Df wide_R = make_sky_channel(n, sky, 0.01f, nebula, rng_wide);
-  tile_compile::Matrix2Df wide_G = wide_R, wide_B = wide_R;
-  tile_compile::Matrix2Df narrow_R = make_sky_channel(n, sky, 0.001f, nebula, rng_narrow);
-  tile_compile::Matrix2Df narrow_G = narrow_R, narrow_B = narrow_R;
-
+TEST_CASE("hypermetric_frozen_params_give_the_reference_transfer_curve") {
+  constexpr int n = 128;
   tile_compile::image::HyperMetricStretchConfig cfg;
   cfg.enabled = true;
+  cfg.mode = "ready_to_use";
   cfg.adaptive_anchor = true;
 
-  float reference_anchor = 0.0f;
-  {
-    auto R = wide_R, G = wide_G, B = wide_B;
-    const auto diag = tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);
-    REQUIRE(diag.success);
-    reference_anchor = diag.anchor;
-  }
+  const auto noisy = make_sky_rgb(n, 0.012f);   // before the chroma pass
+  const auto clean = make_sky_rgb(n, 0.0f);     // after a chroma-only denoise
 
-  float anchor_without_reference = 0.0f;
-  {
-    auto R = narrow_R, G = narrow_G, B = narrow_B;
-    const auto diag = tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);
-    REQUIRE(diag.success);
-    anchor_without_reference = diag.anchor;
-  }
+  auto ref = noisy;
+  const auto ref_diag =
+      tile_compile::image::run_hypermetric_stretch_rgb(ref[0], ref[1], ref[2], cfg);
+  REQUIRE(ref_diag.success);
+  REQUIRE(ref_diag.derived.valid);
+  REQUIRE(ref_diag.derived.output_scaling);
+  REQUIRE(ref_diag.params_source == "image");
 
-  // The narrowed (post-denoise) distribution alone gives a measurably different anchor than the
-  // pre-denoise reference -- this is the shift this feature exists to avoid.
-  REQUIRE(std::abs(anchor_without_reference - reference_anchor) > 0.002f);
+  // Derived from the denoised image itself, the floors move.
+  auto own = clean;
+  const auto own_diag =
+      tile_compile::image::run_hypermetric_stretch_rgb(own[0], own[1], own[2], cfg);
+  REQUIRE(own_diag.success);
+  REQUIRE(std::abs(own_diag.derived.floor_r - ref_diag.derived.floor_r) > 1.0e-2f);
+  REQUIRE(std::abs(own_diag.derived.mtf_midtone - ref_diag.derived.mtf_midtone) > 1.0e-2f);
 
-  cfg.anchor_from_reference = true;
-  float anchor_with_reference = 0.0f;
-  {
-    auto R = narrow_R, G = narrow_G, B = narrow_B;
-    const auto diag = tile_compile::image::run_hypermetric_stretch_rgb(
-        R, G, B, cfg, nullptr, 0, 0, nullptr, &wide_R, &wide_G, &wide_B);
-    REQUIRE(diag.success);
-    anchor_with_reference = diag.anchor;
-  }
-  // Passing the pre-denoise reference recovers (closely) the pre-denoise anchor, although the
-  // WORKING image (the one actually stretched) is still the narrow/denoised one.
-  REQUIRE(anchor_with_reference == Catch::Approx(reference_anchor).margin(0.0005f));
+  // Frozen: the denoised image gets exactly the reference's parameters.
+  auto frozen = clean;
+  const auto frozen_diag = tile_compile::image::run_hypermetric_stretch_rgb(
+      frozen[0], frozen[1], frozen[2], cfg, nullptr, 0, 0, nullptr,
+      &ref_diag.derived);
+  REQUIRE(frozen_diag.success);
+  REQUIRE(frozen_diag.params_source == "frozen");
+  const auto &a = frozen_diag.derived;
+  const auto &b = ref_diag.derived;
+  REQUIRE(a.input_scale == b.input_scale);
+  REQUIRE(a.anchor == b.anchor);
+  REQUIRE(a.log_d == b.log_d);
+  REQUIRE(a.star_pressure == b.star_pressure);
+  REQUIRE(a.floor_r == b.floor_r);
+  REQUIRE(a.floor_g == b.floor_g);
+  REQUIRE(a.floor_b == b.floor_b);
+  REQUIRE(a.scale == b.scale);
+  REQUIRE(a.mtf_applied == b.mtf_applied);
+  REQUIRE(a.mtf_midtone == b.mtf_midtone);
 
-  // Fallback contract: without a reference, or with a dimension mismatch, or with the flag off, this
-  // is a no-op -- identical to the plain (unpatched) behaviour, never an error.
-  {
-    auto R = narrow_R, G = narrow_G, B = narrow_B;
-    const auto diag = tile_compile::image::run_hypermetric_stretch_rgb(R, G, B, cfg);  // flag on, no reference passed
-    REQUIRE(diag.success);
-    REQUIRE(diag.anchor == Catch::Approx(anchor_without_reference).margin(1e-9f));
+  // The same transfer curve: pixels identical in both inputs (the stars) come
+  // out identical. Elsewhere HMS stretches each pixel's own luminance and
+  // keeps its own channel ratios, so the chroma noise still shows there.
+  int stars = 0;
+  for (int y = 0; y < n; ++y) {
+    for (int x = 0; x < n; ++x) {
+      if (noisy[0](y, x) != clean[0](y, x) || noisy[2](y, x) != clean[2](y, x)) continue;
+      ++stars;
+      for (int c = 0; c < 3; ++c) REQUIRE(frozen[c](y, x) == ref[c](y, x));
+    }
   }
-  {
-    tile_compile::Matrix2Df wrong_size(n - 1, n - 1);
-    auto R = narrow_R, G = narrow_G, B = narrow_B;
-    const auto diag = tile_compile::image::run_hypermetric_stretch_rgb(
-        R, G, B, cfg, nullptr, 0, 0, nullptr, &wrong_size, &wrong_size, &wrong_size);
-    REQUIRE(diag.success);
-    REQUIRE(diag.anchor == Catch::Approx(anchor_without_reference).margin(1e-9f));
-  }
-  {
-    cfg.anchor_from_reference = false;
-    auto R = narrow_R, G = narrow_G, B = narrow_B;
-    const auto diag = tile_compile::image::run_hypermetric_stretch_rgb(
-        R, G, B, cfg, nullptr, 0, 0, nullptr, &wide_R, &wide_G, &wide_B);
-    REQUIRE(diag.success);
-    REQUIRE(diag.anchor == Catch::Approx(anchor_without_reference).margin(1e-9f));
-  }
+  REQUIRE(stars >= 15);
+
+  // Replaying an image's own parameters reproduces its own run exactly, and
+  // parameters marked invalid are ignored.
+  auto replay = noisy;
+  tile_compile::image::run_hypermetric_stretch_rgb(
+      replay[0], replay[1], replay[2], cfg, nullptr, 0, 0, nullptr, &ref_diag.derived);
+  for (int c = 0; c < 3; ++c) REQUIRE((replay[c] - ref[c]).cwiseAbs().maxCoeff() == 0.0f);
+  tile_compile::image::HyperMetricDerivedParams invalid = ref_diag.derived;
+  invalid.valid = false;
+  auto ignored = clean;
+  const auto ignored_diag = tile_compile::image::run_hypermetric_stretch_rgb(
+      ignored[0], ignored[1], ignored[2], cfg, nullptr, 0, 0, nullptr, &invalid);
+  REQUIRE(ignored_diag.params_source == "image");
+  for (int c = 0; c < 3; ++c) REQUIRE((ignored[c] - own[c]).cwiseAbs().maxCoeff() == 0.0f);
 }
 #endif

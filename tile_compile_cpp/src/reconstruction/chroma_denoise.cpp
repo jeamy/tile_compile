@@ -29,6 +29,31 @@ void rgb_to_chroma_space(const cv::Mat& R, const cv::Mat& G, const cv::Mat& B,
     C2 = R - Y;
 }
 
+/// Chroma-to-luma noise ratio that independent (uncorrelated) channel noise
+/// with the given per-channel sigmas produces under rgb_to_chroma_space: each
+/// plane is a linear combination w of R, G, B, so its sigma is
+/// sqrt(sum w_i^2 sigma_i^2); the two chroma sigmas are averaged as in the
+/// measurement.
+float expected_independent_chroma_to_luma_ratio(const std::string& color_space,
+                                                float sr, float sg, float sb) {
+    auto plane_sigma = [&](float wr, float wg, float wb) {
+        return std::sqrt(wr * wr * sr * sr + wg * wg * sg * sg + wb * wb * sb * sb);
+    };
+    float sy, sc1, sc2;
+    if (color_space == "opponent_linear") {
+        constexpr float third = 1.0f / 3.0f;
+        sy = plane_sigma(third, third, third);
+        sc1 = plane_sigma(1.0f, -1.0f, 0.0f);
+        sc2 = plane_sigma(0.0f, -1.0f, 1.0f);
+    } else {
+        sy = plane_sigma(0.25f, 0.5f, 0.25f);
+        sc1 = plane_sigma(-0.25f, -0.5f, 0.75f);
+        sc2 = plane_sigma(0.75f, -0.5f, -0.25f);
+    }
+    if (!(sy > 1.0e-12f)) return 0.0f;
+    return 0.5f * (sc1 + sc2) / sy;
+}
+
 /// @brief Implements chroma space to rgb.
 /// @details Part of tile reconstruction, sigma clipping, overlap-add, and synthetic stacking helpers; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -436,15 +461,85 @@ void denoise_chroma_plane_inplace(cv::Mat& c,
     }
 }
 
+/// @brief 32-bit float Luminance-Guided Joint Guided Filter (O(N) via boxFilter).
+/// @details Uses linear luma Y as the edge guide so star cores and nebula edges
+/// prevent chroma bleeding while flat background color mottling is smoothed.
+void guided_filter_chroma_plane(
+    const cv::Mat& guide_y, cv::Mat& c, const cv::Mat& valid,
+    const config::ChromaDenoiseConfig::ChromaGuidedConfig& gcfg) {
+    if (!gcfg.enabled || gcfg.radius < 1) return;
+    const int r = std::max(1, gcfg.radius);
+    const cv::Size ksize(2 * r + 1, 2 * r + 1);
+
+    cv::Mat I = guide_y.clone();
+    cv::Mat p = c.clone();
+    if (cv::countNonZero(valid) < static_cast<int>(valid.total())) {
+        const float fill_sigma = std::max(1.0f, static_cast<float>(r));
+        cv::Mat I_fill = masked_gaussian_blur(guide_y, valid, fill_sigma);
+        cv::Mat p_fill = masked_gaussian_blur(c, valid, fill_sigma);
+        I_fill.copyTo(I, valid == 0);
+        p_fill.copyTo(p, valid == 0);
+    }
+
+    const float sigma_y = high_frequency_sigma(guide_y, valid);
+    const float mad_y = robust_sigma_mad_from_mat(guide_y, valid);
+    const float mean_y_scalar = static_cast<float>(cv::mean(I, valid)[0]);
+    const float scale_ref = std::max(
+        {sigma_y, mad_y, 1.0e-5f * std::fabs(mean_y_scalar), 1.0e-6f});
+    const float eps_term = gcfg.eps_sigma_scale * scale_ref;
+    const float eps = std::max(1.0e-12f, eps_term * eps_term);
+
+    // Center the guide around its mean to avoid catastrophic cancellation in
+    // var_I = E[I^2] - E[I]^2 on large ADU offsets, and lightly pre-smooth to
+    // decorrelate pixel-level luma shot noise from chroma noise.
+    I = I - mean_y_scalar;
+    cv::GaussianBlur(I, I, cv::Size(0, 0), 1.2, 1.2, cv::BORDER_REFLECT_101);
+
+    cv::Mat mean_I, mean_p, mean_Ip, mean_II;
+    cv::boxFilter(I, mean_I, CV_32F, ksize, cv::Point(-1, -1), true,
+                  cv::BORDER_REFLECT_101);
+    cv::boxFilter(p, mean_p, CV_32F, ksize, cv::Point(-1, -1), true,
+                  cv::BORDER_REFLECT_101);
+    cv::boxFilter(I.mul(p), mean_Ip, CV_32F, ksize, cv::Point(-1, -1), true,
+                  cv::BORDER_REFLECT_101);
+    cv::boxFilter(I.mul(I), mean_II, CV_32F, ksize, cv::Point(-1, -1), true,
+                  cv::BORDER_REFLECT_101);
+
+    cv::Mat cov_Ip = mean_Ip - mean_I.mul(mean_p);
+    cv::Mat var_I = mean_II - mean_I.mul(mean_I);
+    cv::max(var_I, 0.0f, var_I);
+
+    cv::Mat a = cov_Ip / (var_I + eps);
+    cv::Mat b = mean_p - a.mul(mean_I);
+
+    cv::Mat mean_a, mean_b;
+    cv::boxFilter(a, mean_a, CV_32F, ksize, cv::Point(-1, -1), true,
+                  cv::BORDER_REFLECT_101);
+    cv::boxFilter(b, mean_b, CV_32F, ksize, cv::Point(-1, -1), true,
+                  cv::BORDER_REFLECT_101);
+
+    cv::Mat q = mean_a.mul(I) + mean_b;
+    c.copyTo(q, valid == 0);
+    c = q;
+}
+
 } // namespace
 ChromaDenoiseStats chroma_denoise_rgb_inplace(
         Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
         const config::ChromaDenoiseConfig& cfg,
         Matrix2Df* protection_mask_out,
         const std::vector<std::uint8_t>* valid_mask,
-        ChromaDenoiseDiagnostics* diagnostics) {
+        ChromaDenoiseDiagnostics* diagnostics,
+        const ChromaDenoiseOptions* options) {
     ChromaDenoiseStats stats;
-    if (!cfg.enabled) return stats;
+    if (cfg.mode == "off") {
+        stats.skip_reason = "mode_off";
+        return stats;
+    }
+    if (cfg.mode != "auto" && !cfg.enabled) {
+        stats.skip_reason = "disabled";
+        return stats;
+    }
     if (r.size() <= 0 || g.size() <= 0 || b.size() <= 0) return stats;
     if (r.rows() != g.rows() || r.cols() != g.cols() ||
         r.rows() != b.rows() || r.cols() != b.cols()) {
@@ -474,18 +569,80 @@ ChromaDenoiseStats chroma_denoise_rgb_inplace(
     const float sigma_c2 = high_frequency_sigma(C2, valid);
     const float chroma_sigma = 0.5f * (sigma_c1 + sigma_c2);
     const float luma_sigma = std::max(1.0e-6f, high_frequency_sigma(Y, valid));
-    const float ref_ratio = std::max(1.0e-6f, cfg.adaptation_reference_ratio);
-    const float adapt =
-        std::clamp((chroma_sigma / luma_sigma) / ref_ratio, 0.8f, 1.4f);
-    tuned.blend.amount = std::clamp(cfg.blend.amount * adapt, 0.0f, 1.0f);
+    const float ratio = chroma_sigma / luma_sigma;
+    stats.valid_pixels = valid_pixels;
+    stats.input_chroma_sigma = chroma_sigma;
+    stats.input_luma_sigma = luma_sigma;
+    stats.measured_chroma_to_luma_ratio = ratio;
+
+    // The raw ratio depends on the color space and on the per-channel gains
+    // (PCC), so it is compared with the ratio independent channel noise of the
+    // measured per-channel sigmas would give: excess = 1 is plain independent
+    // channel noise, < 1 noise shared by the channels, > 1 extra chroma noise.
+    const float expected_ratio = expected_independent_chroma_to_luma_ratio(
+        cfg.color_space, high_frequency_sigma(R, valid),
+        high_frequency_sigma(G, valid), high_frequency_sigma(B, valid));
+    float excess = expected_ratio > 1.0e-6f ? ratio / expected_ratio : 0.0f;
+    stats.expected_chroma_to_luma_ratio = expected_ratio;
+
+    // excess_from_pre_denoise: the same measurement on the image without the
+    // earlier denoise passes. A luma pass lowers the luma sigma alone, so on
+    // the denoised image the excess reads as extra chroma noise.
+    if (cfg.excess_from_pre_denoise && options != nullptr &&
+        options->excess_r != nullptr && options->excess_g != nullptr &&
+        options->excess_b != nullptr &&
+        options->excess_r->rows() == r.rows() && options->excess_r->cols() == r.cols() &&
+        options->excess_g->rows() == r.rows() && options->excess_g->cols() == r.cols() &&
+        options->excess_b->rows() == r.rows() && options->excess_b->cols() == r.cols()) {
+        const cv::Mat PR(r.rows(), r.cols(), CV_32F,
+                         const_cast<float*>(options->excess_r->data()));
+        const cv::Mat PG(r.rows(), r.cols(), CV_32F,
+                         const_cast<float*>(options->excess_g->data()));
+        const cv::Mat PB(r.rows(), r.cols(), CV_32F,
+                         const_cast<float*>(options->excess_b->data()));
+        cv::Mat PY, PC1, PC2;
+        rgb_to_chroma_space(PR, PG, PB, cfg.color_space, PY, PC1, PC2);
+        const float p_chroma = 0.5f * (high_frequency_sigma(PC1, valid) +
+                                       high_frequency_sigma(PC2, valid));
+        const float p_luma = std::max(1.0e-6f, high_frequency_sigma(PY, valid));
+        const float p_expected = expected_independent_chroma_to_luma_ratio(
+            cfg.color_space, high_frequency_sigma(PR, valid),
+            high_frequency_sigma(PG, valid), high_frequency_sigma(PB, valid));
+        if (p_expected > 1.0e-6f) {
+            excess = (p_chroma / p_luma) / p_expected;
+            stats.excess_source = "pre_denoise";
+        }
+    }
+    stats.chroma_noise_excess = excess;
+
+    float auto_scale = 1.0f;
+    if (cfg.mode == "auto") {
+        const float denom =
+            std::max(1.0e-6f, cfg.auto_full_excess - cfg.auto_min_excess);
+        auto_scale =
+            std::clamp((excess - cfg.auto_min_excess) / denom, 0.0f, 1.0f);
+        stats.auto_mode_scale = auto_scale;
+        if (auto_scale <= 0.0f) {
+            stats.applied = false;
+            stats.skip_reason = "chroma_noise_below_threshold";
+            return stats;
+        }
+    } else {
+        stats.auto_mode_scale = 1.0;
+    }
+
+    // Strength follows the same colour-space- and gain-independent excess as
+    // mode=auto; the raw ratio would read independent channel noise as
+    // ~1.9x (ycbcr) and push every run to the 1.4 clamp.
+    const float ref_excess = std::max(1.0e-6f, cfg.adaptation_reference_excess);
+    const float adapt = std::clamp(excess / ref_excess, 0.8f, 1.4f);
+    tuned.blend.amount =
+        std::clamp(cfg.blend.amount * adapt * auto_scale, 0.0f, 1.0f);
     tuned.chroma_wavelet.threshold_scale =
         std::max(0.1f, cfg.chroma_wavelet.threshold_scale * adapt);
     tuned.chroma_bilateral.sigma_range =
         std::max(1.0e-4f, cfg.chroma_bilateral.sigma_range * std::sqrt(adapt));
     stats.applied = true;
-    stats.valid_pixels = valid_pixels;
-    stats.input_chroma_sigma = chroma_sigma;
-    stats.input_luma_sigma = luma_sigma;
     stats.adaptation = adapt;
     stats.effective_blend_amount = tuned.blend.amount;
 
@@ -534,6 +691,11 @@ ChromaDenoiseStats chroma_denoise_rgb_inplace(
 
     denoise_chroma_plane_inplace(C1, tuned, valid, protect);
     denoise_chroma_plane_inplace(C2, tuned, valid, protect);
+    if (tuned.chroma_guided.enabled) {
+        guided_filter_chroma_plane(Y, C1, valid, tuned.chroma_guided);
+        guided_filter_chroma_plane(Y, C2, valid, tuned.chroma_guided);
+        stats.guided_applied = true;
+    }
 
     cv::Mat amount_map(Y.size(), CV_32F, cv::Scalar(tuned.blend.amount));
     if (tuned.protect_luma) {
@@ -553,10 +715,60 @@ ChromaDenoiseStats chroma_denoise_rgb_inplace(
     cv::Mat R_new, G_new, B_new;
     chroma_space_to_rgb(Y, C1_mix, C2_mix, cfg.color_space, R_new, G_new, B_new);
 
+    // preserve_luminance=hms_profile: chroma_space_to_rgb keeps the Y of
+    // color_space, not the luminance HMS stretches. One common offset per
+    // pixel, (L_w(before) - L_w(after)) / sum(w), restores L_w exactly and
+    // changes no channel difference, so the chroma stays as denoised.
+    if (cfg.preserve_luminance == "hms_profile" && options != nullptr &&
+        options->have_preserve_weights) {
+        const auto& w = options->preserve_weights;
+        const float wsum = w[0] + w[1] + w[2];
+        if (std::isfinite(wsum) && wsum > 1.0e-6f) {
+            cv::Mat offset = (w[0] * (R - R_new) + w[1] * (G - G_new) +
+                              w[2] * (B - B_new)) / wsum;
+            offset.setTo(0.0f, valid == 0);
+            R_new += offset;
+            G_new += offset;
+            B_new += offset;
+            stats.luminance_preserved = "hms_profile";
+            stats.luminance_weights = w;
+        }
+    }
+
     R_new.copyTo(R);
     G_new.copyTo(G);
     B_new.copyTo(B);
     return stats;
+}
+
+bool remove_denoise_delta_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
+                                  const std::vector<Matrix2Df>& delta,
+                                  const std::array<std::array<double, 3>, 3>& J,
+                                  const std::vector<std::uint8_t>* output_mask) {
+    if (delta.size() != 1 && delta.size() != 3) return false;
+    if (g.rows() != r.rows() || g.cols() != r.cols() || b.rows() != r.rows() ||
+        b.cols() != r.cols())
+        return false;
+    for (const auto& d : delta)
+        if (d.rows() != r.rows() || d.cols() != r.cols()) return false;
+    const bool one = delta.size() == 1;
+    const Matrix2Df& dR = delta[0];
+    const Matrix2Df& dG = one ? delta[0] : delta[1];
+    const Matrix2Df& dB = one ? delta[0] : delta[2];
+    const bool use_mask = output_mask != nullptr &&
+                          output_mask->size() == static_cast<std::size_t>(r.size());
+    for (Eigen::Index i = 0; i < r.size(); ++i) {
+        if (use_mask && (*output_mask)[static_cast<std::size_t>(i)] == 0) continue;
+        float* pr = r.data() + i;
+        float* pg = g.data() + i;
+        float* pb = b.data() + i;
+        if (*pr == 0.0f && *pg == 0.0f && *pb == 0.0f) continue;
+        const double vr = dR.data()[i], vg = dG.data()[i], vb = dB.data()[i];
+        *pr -= static_cast<float>(J[0][0] * vr + J[0][1] * vg + J[0][2] * vb);
+        *pg -= static_cast<float>(J[1][0] * vr + J[1][1] * vg + J[1][2] * vb);
+        *pb -= static_cast<float>(J[2][0] * vr + J[2][1] * vg + J[2][2] * vb);
+    }
+    return true;
 }
 
 } // namespace tile_compile::reconstruction

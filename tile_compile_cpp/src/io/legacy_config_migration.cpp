@@ -144,6 +144,26 @@ void migrate_legacy_config_node(YAML::Node& node,
              "stacking.common_overlap_required_fraction",
              "reconstruction.common_overlap_required_fraction");
   }
+  // chroma_denoise.adaptation_reference_ratio -> adaptation_reference_excess:
+  // the adaptation now divides the colour-space- and gain-independent chroma
+  // noise excess instead of the raw chroma/luma ratio. Every shipped config
+  // used 1.0, which keeps its meaning ("leave the configured strength at the
+  // reference noise").
+  if (node["chroma_denoise"] && node["chroma_denoise"].IsMap()) {
+    move_key(node["chroma_denoise"], "adaptation_reference_ratio",
+             node["chroma_denoise"], "adaptation_reference_excess",
+             "chroma_denoise.adaptation_reference_ratio",
+             "chroma_denoise.adaptation_reference_excess");
+  }
+  // hypermetric_stretch.anchor_from_reference -> params_from_pre_denoise: the
+  // pre-denoise reference now supplies every derived stretch parameter, not
+  // only the anchor (same switch, same intent, default off).
+  if (node["hypermetric_stretch"] && node["hypermetric_stretch"].IsMap()) {
+    move_key(node["hypermetric_stretch"], "anchor_from_reference",
+             node["hypermetric_stretch"], "params_from_pre_denoise",
+             "hypermetric_stretch.anchor_from_reference",
+             "hypermetric_stretch.params_from_pre_denoise");
+  }
 }
 
 std::string ConfigMigrationReport::to_json_string() const {

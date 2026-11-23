@@ -162,6 +162,15 @@ struct ChromaDenoiseConfig {
     float sigma_range = 2.0f; // multiplier of measured background chroma sigma
   } chroma_bilateral;
 
+  // Luminance-guided Joint Guided Filter (O(N), 32-bit float) for chroma
+  // planes. Uses linear luma Y as the guide image so star and nebula edges
+  // stop color bleeding while smoothing flat background chroma mottling.
+  struct ChromaGuidedConfig {
+    bool enabled = false; // off: existing chroma_denoise configs keep their result
+    int radius = 4;
+    float eps_sigma_scale = 2.0f; // eps = (eps_sigma_scale * sigma_y)^2
+  } chroma_guided;
+
   struct BlendConfig {
     std::string mode = "chroma_only"; // chroma_only
     float amount = 0.85f;
@@ -190,20 +199,39 @@ struct ChromaDenoiseConfig {
   } large_scale_bias;
 
   bool enabled = false;
+  std::string mode = "manual"; // off | manual | auto
+  // mode=auto scales blend.amount on the chroma noise excess: the measured
+  // chroma/luma sigma ratio divided by the ratio independent channel noise
+  // would give (1 = independent channel noise). Provisional defaults: not yet
+  // calibrated on a set of runs.
+  float auto_min_excess = 0.5f;  // skip in mode=auto at or below this excess
+  float auto_full_excess = 1.0f; // full blend in mode=auto at or above this
   std::string color_space = "ycbcr_linear";      // ycbcr_linear | opponent_linear
   std::string apply_stage = "post_pcc"; // post_stack_linear | post_pcc
   bool protect_luma = true;
   float luma_guard_strength = 0.75f;
-  // Reference chroma-to-luma noise-sigma ratio used to scale the wavelet/
-  // bilateral strength to the dataset's actual noise level (see `adapt` in
-  // chroma_denoise.cpp). Replaces a previous fixed ABSOLUTE reference sigma
-  // (0.02f) that was calibrated for [0,1]-normalized data: on real,
-  // unnormalized (ADU-scale) data the absolute chroma sigma is routinely in
-  // the tens, so chroma_sigma/0.02f saturated the [0.8,1.4] clamp on every
-  // real run, making the adaptation a no-op. Expressing the reference
-  // relative to the image's own measured luma-noise sigma keeps it
-  // scale-invariant across normalized, ADU, and stretched data.
-  float adaptation_reference_ratio = 1.0f;
+  // Chroma noise excess at which the wavelet/bilateral strength and the blend
+  // are left as configured (see `adapt` in chroma_denoise.cpp): adaptation =
+  // clamp(excess / adaptation_reference_excess, 0.8, 1.4). The excess is the
+  // measured chroma/luma sigma ratio over the ratio independent channel noise
+  // would give, so it is independent of scale, colour space and PCC gains.
+  // Was adaptation_reference_ratio on the raw ratio (migrated on load), which
+  // put independent channel noise at ~1.9 and so nearly every run at 1.4.
+  float adaptation_reference_excess = 1.0f;
+  // Luminance the chroma pass keeps unchanged. color_space: the Y of
+  // color_space (0.25/0.5/0.25 or 1/3 each), the previous behaviour.
+  // hms_profile: the luminance hypermetric_stretch stretches (the weights of
+  // its sensor_profile); one common offset per pixel restores it after the
+  // pass, the chroma differences stay as denoised. With color_space the HMS
+  // luminance takes part of the chroma noise (measured: +14 % on M31).
+  // Default hms_profile since 2026-11-23 (only runs with a chroma pass).
+  std::string preserve_luminance = "hms_profile"; // color_space | hms_profile
+  // Measure the chroma noise excess (mode=auto, adaptation) on the image as
+  // it would be without the earlier denoise passes. luma_denoise lowers the
+  // luma sigma and so inflates the excess (measured on M42: 0.97 -> 2.40).
+  // Off: measured on the image as the pass gets it (previous behaviour).
+  // Default on since 2026-11-23.
+  bool excess_from_pre_denoise = true;
 };
 
 // Luminance noise reduction on the post-stack linear RGB, applied before
@@ -278,6 +306,18 @@ struct LumaDenoiseConfig {
     float sigma_spatial = 1.5f;
     float sigma_range = 2.0f; // multiplier of measured background luma sigma
   } bilateral;
+
+  // Fail-closed matched-star sharpness gate: detects bright stars once on
+  // input Y, measures median FWHM and peak at the exact same positions before
+  // and after blending, backs off blend_amount on regression, and rejects the
+  // pass (output unchanged) when the regression persists or when fewer than
+  // min_matched_stars stars can be measured.
+  struct SharpnessGuardConfig {
+    bool enabled = false; // off: existing luma_denoise configs keep their result
+    float max_fwhm_increase_pct = 1.0f;
+    int min_matched_stars = 15;
+    int max_backoff_steps = 2;
+  } sharpness_guard;
 
   bool enabled = false;
   float luma_guard_strength = 0.85f;
@@ -619,17 +659,20 @@ struct HyperMetricStretchConfig {
   std::string sensor_profile = "rec709";   // rec709 | profile name | auto
   std::string fallback_profile = "rec709";
   bool adaptive_anchor = true;
-  // When true AND the caller passes a reference image (run_hypermetric_stretch_rgb's
-  // anchor_reference_R/G/B, the pre-post_pcc-denoise RGB), the black-point anchor
-  // (adaptive_anchor's histogram-shoulder search, or the plain percentile floor) is
-  // estimated from that reference instead of the image being stretched. Use this when
-  // a denoising stage between the reconstruction and HMS (chroma_denoise's post_pcc
-  // stage) narrows the sky-brightness distribution: the histogram search then crosses
-  // its fixed density threshold at a different point, measurably shifting the black
-  // point even though the true sky level did not change. Falls back to the image being
-  // stretched when no reference is passed. Off by default; not yet confirmed as a
-  // general improvement (see docs/hms_anchor_reference_20260927_de.md once filed).
-  bool anchor_from_reference = false;
+  // When true, the runner stretches the pre-denoise state first (the RGB as
+  // HMS would get it with every denoise pass off: the state just before the
+  // post_pcc chroma pass, with the post-stack passes taken out through PCC's
+  // linear part, runner_downstream post_stack_delta) and applies its
+  // derived parameters (image::HyperMetricDerivedParams: input scale, anchor,
+  // log D, output floors/scale/midtone) to the denoised image. The output
+  // scaling's floor margin follows the per-channel noise extremes, so without
+  // this a chroma-only denoise moves the black point and the background gain
+  // (IC434 2026-11-22: margin -9%, visible luma noise +12%, stars +2%;
+  // docs/hms_anchor_reference_20260927_de.md). Off: the image's own
+  // parameters. Replaces anchor_from_reference, which froze only the anchor
+  // and had no measurable effect. Default on since 2026-11-23; without a
+  // denoise pass it has no effect (phase_end: denoise_inactive).
+  bool params_from_pre_denoise = true;
   float target_bg = 0.15f;
   float protect_b = 6.0f;
   float convergence_power = 3.5f;

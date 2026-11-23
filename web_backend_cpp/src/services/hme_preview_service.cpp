@@ -25,6 +25,11 @@ namespace {
 
 struct Proxy {
     Matrix2Df r, g, b;
+    // The state before the post_pcc chroma pass (outputs/pcc_predenoise_*.fit),
+    // present only when the run used hypermetric_stretch.params_from_pre_denoise;
+    // every PCC run removes older files.
+    bool has_predenoise = false;
+    Matrix2Df pre_r, pre_g, pre_b;
     std::vector<uint8_t> statistics_mask;
     std::vector<uint8_t> output_mask;
     std::string source;
@@ -82,6 +87,15 @@ std::vector<uint8_t> resize_mask(const std::vector<uint8_t>& input, int input_ro
     return result;
 }
 
+std::vector<fs::path> predenoise_paths(const fs::path& outputs) {
+    return {outputs / "pcc_predenoise_R.fit", outputs / "pcc_predenoise_G.fit",
+            outputs / "pcc_predenoise_B.fit"};
+}
+
+bool all_exist(const std::vector<fs::path>& paths) {
+    return std::all_of(paths.begin(), paths.end(), [](const fs::path& pth) { return fs::exists(pth); });
+}
+
 std::vector<uint8_t> read_mask(const fs::path& path, long width, long height) {
     long mask_width = 0, mask_height = 0, planes = 0;
     const auto values = read_fits_plane(path, 1, mask_width, mask_height, planes);
@@ -133,6 +147,19 @@ Proxy load_proxy(const fs::path& run_dir) {
         proxy.output_mask = read_mask(output_mask_path, w, h);
         source_paths.push_back(output_mask_path);
     }
+    const auto pre_paths = predenoise_paths(outputs);
+    if (all_exist(pre_paths)) {
+        std::array<Matrix2Df*, 3> dst = {&proxy.pre_r, &proxy.pre_g, &proxy.pre_b};
+        bool ok = true;
+        for (size_t c = 0; c < 3 && ok; ++c) {
+            long pw = 0, ph = 0, pp = 0;
+            auto values = read_fits_plane(pre_paths[c], 1, pw, ph, pp);
+            ok = pw == w && ph == h;
+            if (ok) *dst[c] = to_matrix(values, w, h);
+        }
+        proxy.has_predenoise = ok;
+        for (const auto& pth : pre_paths) source_paths.push_back(pth);
+    }
     const size_t pixels = static_cast<size_t>(w) * h;
     if (proxy.statistics_mask.empty()) proxy.statistics_mask.assign(pixels, 1u);
     if (proxy.output_mask.empty()) proxy.output_mask.assign(pixels, 1u);
@@ -147,6 +174,11 @@ Proxy load_proxy(const fs::path& run_dir) {
         proxy.r = resize_matrix(proxy.r, rows, cols);
         proxy.g = resize_matrix(proxy.g, rows, cols);
         proxy.b = resize_matrix(proxy.b, rows, cols);
+        if (proxy.has_predenoise) {
+            proxy.pre_r = resize_matrix(proxy.pre_r, rows, cols);
+            proxy.pre_g = resize_matrix(proxy.pre_g, rows, cols);
+            proxy.pre_b = resize_matrix(proxy.pre_b, rows, cols);
+        }
         proxy.statistics_mask = resize_mask(proxy.statistics_mask, input_rows, input_cols,
                                             rows, cols);
         proxy.output_mask = resize_mask(proxy.output_mask, input_rows, input_cols,
@@ -171,6 +203,8 @@ std::shared_ptr<const Proxy> get_proxy(const fs::path& run_dir) {
                              outputs / "canvas_mask.fits"}) {
         if (fs::exists(mask)) sources.push_back(mask);
     }
+    const auto pre_paths = predenoise_paths(outputs);
+    if (all_exist(pre_paths)) sources.insert(sources.end(), pre_paths.begin(), pre_paths.end());
     const std::string signature = file_signature(sources);
     {
         std::lock_guard<std::mutex> lock(cache_mutex);
@@ -260,9 +294,22 @@ HmePreviewResult create_hme_preview(const fs::path& run_dir, const nlohmann::jso
                 " G=" + std::to_string(g.rows()) + "x" + std::to_string(g.cols()) +
                 " B=" + std::to_string(b.rows()) + "x" + std::to_string(b.cols()));
         }
+        // Like the runner's hypermetric_stretch.params_from_pre_denoise: when the
+        // run kept its pre-chroma-denoise state, stretch it first and apply its
+        // derived parameters, so the preview matches the run's stretch.
+        const bool use_pre = proxy.has_predenoise &&
+                             value<bool>(params, "params_from_pre_denoise", true);
+        image::HyperMetricStretchDiagnostics ref_diag;
+        if (use_pre) {
+            Matrix2Df pr = proxy.pre_r, pg = proxy.pre_g, pb = proxy.pre_b;
+            ref_diag = image::run_hypermetric_stretch_rgb(
+                pr, pg, pb, cfg, &proxy.statistics_mask, pr.rows(), pr.cols(),
+                &proxy.output_mask);
+        }
+        const bool frozen = use_pre && ref_diag.success && ref_diag.derived.valid;
         auto diag = image::run_hypermetric_stretch_rgb(
             r, g, b, cfg, &proxy.statistics_mask, r.rows(), r.cols(),
-            &proxy.output_mask);
+            &proxy.output_mask, frozen ? &ref_diag.derived : nullptr);
         if (!diag.success) { result.status = 400; result.error = diag.error_message; return result; }
 
         cv::Mat rgb(r.rows(), r.cols(), CV_8UC3);
@@ -276,7 +323,11 @@ HmePreviewResult create_hme_preview(const fs::path& run_dir, const nlohmann::jso
         result.diagnostics = {{"success", true}, {"status", diag.status}, {"source", proxy.source},
             {"profile", diag.profile}, {"profile_source", diag.profile_source}, {"anchor", diag.anchor},
             {"log_d", diag.log_d}, {"star_pressure", diag.star_pressure},
-            {"black_clip_percent", diag.black_clip_percent}, {"white_clip_percent", diag.white_clip_percent}};
+            {"black_clip_percent", diag.black_clip_percent}, {"white_clip_percent", diag.white_clip_percent},
+            {"params_source", frozen ? "pre_denoise_reference" : "image"},
+            {"output_scaling", {{"floor_r", diag.derived.floor_r}, {"floor_g", diag.derived.floor_g},
+                                {"floor_b", diag.derived.floor_b}, {"scale", diag.derived.scale},
+                                {"mtf_midtone", diag.derived.mtf_applied ? diag.derived.mtf_midtone : 0.0f}}}};
         result.ok = true; result.status = 200;
     } catch (const std::exception& e) {
         result.status = std::string(e.what()).find("No PCC") != std::string::npos ? 404 : 400;

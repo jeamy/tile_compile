@@ -187,8 +187,14 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     chroma_denoise_passes.push_back({
         {"stage", stage},
         {"applied", stats.applied},
+        {"guided_applied", stats.guided_applied},
         {"valid_pixels", stats.valid_pixels},
         {"input_chroma_sigma", stats.input_chroma_sigma},
+        {"measured_chroma_to_luma_ratio", stats.measured_chroma_to_luma_ratio},
+        {"expected_chroma_to_luma_ratio", stats.expected_chroma_to_luma_ratio},
+        {"chroma_noise_excess", stats.chroma_noise_excess},
+        {"auto_mode_scale", stats.auto_mode_scale},
+        {"skip_reason", stats.skip_reason},
         {"adaptation", stats.adaptation},
         {"effective_blend_amount", stats.effective_blend_amount},
         {"star_protected_fraction", stats.star_protected_fraction},
@@ -211,6 +217,9 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
          stats.large_scale_bias_removed_rms_c2},
         {"large_scale_bias_grid_holes_filled_fraction",
          stats.large_scale_bias_grid_holes_filled_fraction},
+        {"excess_source", stats.excess_source},
+        {"luminance_preserved", stats.luminance_preserved},
+        {"luminance_weights", stats.luminance_weights},
     });
     core::write_text_atomic(
         run_dir / "artifacts" / "chroma_denoise.json",
@@ -232,6 +241,14 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
         {"combined_protected_fraction", stats.combined_protected_fraction},
         {"mean_protection", stats.mean_protection},
         {"mean_denoise_fraction", stats.mean_denoise_fraction},
+        {"effective_blend_amount", stats.effective_blend_amount},
+        {"fwhm_before", stats.fwhm_before},
+        {"fwhm_after", stats.fwhm_after},
+        {"fwhm_delta_pct", stats.fwhm_delta_pct},
+        {"matched_stars", stats.matched_stars},
+        {"guard_rejected", stats.guard_rejected},
+        {"guard_reason", stats.guard_reason},
+        {"backoff_steps", stats.backoff_steps},
     });
     core::write_text_atomic(
         run_dir / "artifacts" / "luma_denoise.json",
@@ -957,14 +974,72 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
   astro::PCCConfig pcc_cfg{};
   io::FitsHeader out_hdr;
 
-  // Pre-post_pcc-denoise snapshot of the linear RGB (see
-  // hypermetric_stretch.anchor_from_reference / include/tile_compile/image/hypermetric_stretch.hpp):
-  // populated either in-process right after PCC succeeds (same run), or reloaded from
-  // outputs/pcc_predenoise_{R,G,B}.fit on a HYPERMETRIC_STRETCH-only resume. Only ever populated when
-  // it will actually be used (chroma_denoise's post_pcc pass ran and the config asks for the
-  // reference); staying empty is always a safe fallback (run_hms_phase treats it as "no reference").
+  // The linear RGB just before the post_pcc chroma_denoise pass (after PCC
+  // and the speckle suppressor, i.e. what HMS would get with the chroma pass
+  // off), for hypermetric_stretch.params_from_pre_denoise: HMS stretches it
+  // first and applies its derived parameters to the denoised image. Taken in
+  // this run right before the chroma pass, or reloaded from
+  // outputs/pcc_predenoise_{R,G,B}.fit on a HYPERMETRIC_STRETCH-only resume.
+  // predenoise_reason says why it is or is not used (phase_end).
   bool have_pcc_predenoise = false;
   Matrix2Df pcc_predenoise_R, pcc_predenoise_G, pcc_predenoise_B;
+  std::string predenoise_reason =
+      cfg.hypermetric_stretch.params_from_pre_denoise ? "reference_missing"
+                                                      : "disabled";
+  const bool chroma_configured =
+      cfg.chroma_denoise.mode == "auto" ||
+      (cfg.chroma_denoise.mode != "off" && cfg.chroma_denoise.enabled);
+  const bool chroma_configured_post_pcc =
+      chroma_configured && cfg.chroma_denoise.apply_stage == "post_pcc";
+  const bool post_stack_denoise_configured =
+      cfg.luma_denoise.enabled ||
+      (chroma_configured && cfg.chroma_denoise.apply_stage == "post_stack_linear");
+  const auto predenoise_reason_for_config = [&]() -> std::string {
+    if (!cfg.hypermetric_stretch.params_from_pre_denoise) return "disabled";
+    if (!chroma_configured_post_pcc && !post_stack_denoise_configured)
+      return "denoise_inactive";
+    return "";
+  };
+  // The pre-denoise state is also needed to measure the chroma excess on it
+  // (chroma_denoise.excess_from_pre_denoise).
+  const bool need_pre_denoise_state =
+      cfg.hypermetric_stretch.params_from_pre_denoise ||
+      (chroma_configured && cfg.chroma_denoise.excess_from_pre_denoise);
+  // What the post-stack linear denoise passes (luma_denoise, chroma_denoise
+  // at post_stack_linear) changed, after - before, so the pre-denoise state
+  // at the post_pcc chroma pass can be rebuilt: BGE subtracts a background
+  // per channel and PCC applies a linear transform plus offsets
+  // (affine_diagonal, linear), so that state is the PCC output minus PCC's
+  // linear part applied to this delta. One plane when only luma_denoise
+  // changed the image (it adds the same delta to R, G and B), three when the
+  // chroma pass ran there too. Kept only when need_pre_denoise_state;
+  // persisted as outputs/post_stack_denoise_delta_{R[,G,B]}.fit for a PCC
+  // resume, which reuses the BGE snapshot and does not rerun the passes.
+  std::vector<Matrix2Df> post_stack_delta;
+  // none: no post-stack pass changed the image; kept; missing: a pass is
+  // configured but its delta is not there (PCC resume of an older run).
+  std::string post_stack_delta_state = "none";
+  // How the post-stack passes are taken out of the pre-denoise state:
+  // compensated | none (nothing to take out) | delta_missing |
+  // pcc_apply_nonlinear | delta_size_mismatch | from_saved_reference.
+  std::string predenoise_post_stack = "none";
+  auto post_stack_delta_path = [&](int c) {
+    static const char *names[3] = {"R", "G", "B"};
+    return run_dir / "outputs" /
+           (std::string("post_stack_denoise_delta_") + names[c] + ".fit");
+  };
+  // chroma_denoise inputs from outside its section: the HMS luminance
+  // weights for preserve_luminance=hms_profile (the same call HMS makes).
+  auto chroma_options_for_config = [&]() {
+    reconstruction::ChromaDenoiseOptions o;
+    if (cfg.chroma_denoise.preserve_luminance == "hms_profile") {
+      o.preserve_weights = image::hypermetric_profile_weights(
+          cfg.hypermetric_stretch.sensor_profile,
+          cfg.hypermetric_stretch.fallback_profile);
+      o.have_preserve_weights = true;
+    }
+    return o;
+  };
 
   // Loads the output canvas mask and the COMMON_OVERLAP analysis mask into
   // pcc_cfg for the current `rgb` image. On failure emits a `err_phase`
@@ -1047,13 +1122,29 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     core::EventEmitter hms_emitter;
     image::HyperMetricStretchConfig hms_cfg =
         to_image_hms_config(cfg.hypermetric_stretch);
+    // params_from_pre_denoise: stretch the pre-denoise state first, with the
+    // same config and masks, and take its derived parameters.
+    image::HyperMetricStretchDiagnostics ref_diag;
+    bool use_reference = false;
+    if (cfg.hypermetric_stretch.params_from_pre_denoise && have_pcc_predenoise) {
+      Matrix2Df ref_R = pcc_predenoise_R, ref_G = pcc_predenoise_G,
+                ref_B = pcc_predenoise_B;
+      if (ref_R.rows() == rgb.R.rows() && ref_R.cols() == rgb.R.cols()) {
+        ref_diag = image::run_hypermetric_stretch_rgb(
+            ref_R, ref_G, ref_B, hms_cfg, &pcc_cfg.common_valid_mask,
+            pcc_cfg.common_mask_rows, pcc_cfg.common_mask_cols,
+            &pcc_cfg.output_valid_mask);
+        use_reference = ref_diag.success && ref_diag.derived.valid;
+        predenoise_reason = use_reference ? "used" : "reference_stretch_failed";
+      } else {
+        predenoise_reason = "reference_size_mismatch";
+      }
+    }
     auto hms_diag = image::run_hypermetric_stretch_rgb(
         rgb.R, rgb.G, rgb.B, hms_cfg, &pcc_cfg.common_valid_mask,
         pcc_cfg.common_mask_rows, pcc_cfg.common_mask_cols,
         &pcc_cfg.output_valid_mask,
-        have_pcc_predenoise ? &pcc_predenoise_R : nullptr,
-        have_pcc_predenoise ? &pcc_predenoise_G : nullptr,
-        have_pcc_predenoise ? &pcc_predenoise_B : nullptr);
+        use_reference ? &ref_diag.derived : nullptr);
     if (!hms_diag.success) {
       hms_emitter.phase_end(run_id, Phase::HYPERMETRIC_STRETCH, "error",
                             {{"reason", "stretch_failed"},
@@ -1136,6 +1227,18 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
          {"highlight_ceiling_percentile", hms_diag.highlight_ceiling_percentile},
          {"black_clip_percent", hms_diag.black_clip_percent},
          {"white_clip_percent", hms_diag.white_clip_percent},
+         {"params_source", hms_diag.params_source == "frozen"
+                               ? "pre_denoise_reference" : "image"},
+         {"params_from_pre_denoise", predenoise_reason},
+         {"pre_denoise_post_stack", predenoise_post_stack},
+         {"output_scaling",
+          {{"floor_margin", use_reference ? ref_diag.output_floor_margin
+                                          : hms_diag.output_floor_margin},
+           {"margin_source", use_reference ? ref_diag.output_margin_source
+                                           : hms_diag.output_margin_source},
+           {"scale", hms_diag.output_scale},
+           {"scale_source", hms_diag.output_scale_source},
+           {"mtf_midtone", hms_diag.output_mtf_midtone}}},
          {"color_cast_correction",
           {{"status", cast_res.status},
            {"applied", cast_res.applied},
@@ -1187,13 +1290,34 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
   // (config::LumaDenoiseConfig). It runs once per run: in the BGE block, or
   // in the PCC block when BGE did not run. False if the valid mask cannot be
   // built.
+  auto chroma_denoise_active = [&]() -> bool {
+    return cfg.chroma_denoise.mode == "auto" ||
+           (cfg.chroma_denoise.mode != "off" && cfg.chroma_denoise.enabled);
+  };
   auto run_post_stack_linear_denoise = [&]() -> bool {
-    const bool chroma_here = cfg.chroma_denoise.enabled &&
-                             cfg.chroma_denoise.apply_stage == "post_stack_linear";
+    const bool chroma_here =
+        chroma_denoise_active() &&
+        cfg.chroma_denoise.apply_stage == "post_stack_linear";
+    // A delta of an earlier run or configuration never stands for this one.
+    post_stack_delta.clear();
+    post_stack_delta_state = "none";
+    for (int c = 0; c < 3; ++c) {
+      std::error_code ec_delta;
+      fs::remove(post_stack_delta_path(c), ec_delta);
+    }
     if (!cfg.luma_denoise.enabled && !chroma_here) return true;
     if (!ensure_denoise_valid_mask()) return false;
     if (rgb.G.rows() <= 0 || rgb.B.rows() <= 0) return true;
     const bool full_diag = cfg.reconstruction.diagnostics.level == "full";
+    // The input of these passes, kept while the pre-denoise state is needed.
+    Matrix2Df before_R, before_G, before_B;
+    if (need_pre_denoise_state) {
+      before_R = rgb.R;
+      before_G = rgb.G;
+      before_B = rgb.B;
+    }
+    bool luma_applied = false;
+    bool chroma_applied = false;
     if (cfg.luma_denoise.enabled) {
       Matrix2Df luma_mask;
       reconstruction::LumaDenoiseDiagnostics luma_diag;
@@ -1202,6 +1326,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
           full_diag ? &luma_mask : nullptr, &denoise_valid_mask,
           full_diag ? &luma_diag : nullptr);
       record_luma_denoise("post_stack_linear", luma_stats);
+      luma_applied = luma_stats.applied;
       save_protection_mask("luma_post_stack_linear", luma_mask);
       if (full_diag) save_luma_diagnostics("post_stack_linear", luma_diag);
       if (luma_stats.applied)
@@ -1210,11 +1335,18 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     if (chroma_here) {
       Matrix2Df chroma_mask;
       reconstruction::ChromaDenoiseDiagnostics chroma_diag;
+      reconstruction::ChromaDenoiseOptions chroma_opts = chroma_options_for_config();
+      if (need_pre_denoise_state && luma_applied) {
+        chroma_opts.excess_r = &before_R;
+        chroma_opts.excess_g = &before_G;
+        chroma_opts.excess_b = &before_B;
+      }
       const auto chroma_stats = reconstruction::chroma_denoise_rgb_inplace(
           rgb.R, rgb.G, rgb.B, cfg.chroma_denoise,
           full_diag ? &chroma_mask : nullptr, &denoise_valid_mask,
-          full_diag ? &chroma_diag : nullptr);
+          full_diag ? &chroma_diag : nullptr, &chroma_opts);
       record_chroma_denoise("post_stack_linear", chroma_stats);
+      chroma_applied = chroma_stats.applied;
       save_protection_mask("chroma_post_stack_linear", chroma_mask);
       if (full_diag)
         save_chroma_diagnostics("post_stack_linear", chroma_diag);
@@ -1222,7 +1354,38 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
         std::cout << "[CHROMA_DENOISE] applied post_stack_linear (chroma-only)"
                   << std::endl;
     }
+    if (need_pre_denoise_state && (luma_applied || chroma_applied)) {
+      post_stack_delta.push_back(rgb.R - before_R);
+      if (chroma_applied) {
+        post_stack_delta.push_back(rgb.G - before_G);
+        post_stack_delta.push_back(rgb.B - before_B);
+      }
+      for (std::size_t c = 0; c < post_stack_delta.size(); ++c)
+        io::write_fits_float(post_stack_delta_path(static_cast<int>(c)),
+                             post_stack_delta[c], rgb.header);
+      post_stack_delta_state = "kept";
+    }
     return true;
+  };
+  // PCC resume from the BGE snapshot: the post-stack passes are in it, their
+  // delta comes from the files the run wrote.
+  auto load_post_stack_delta = [&]() {
+    post_stack_delta.clear();
+    post_stack_delta_state = "none";
+    if (!need_pre_denoise_state || !post_stack_denoise_configured) return;
+    post_stack_delta_state = "missing";
+    std::error_code ec;
+    if (!fs::is_regular_file(post_stack_delta_path(0), ec)) return;
+    const bool three = fs::is_regular_file(post_stack_delta_path(1), ec) &&
+                       fs::is_regular_file(post_stack_delta_path(2), ec);
+    try {
+      for (int c = 0; c < (three ? 3 : 1); ++c)
+        post_stack_delta.push_back(
+            io::read_fits_float(post_stack_delta_path(c)).first);
+      post_stack_delta_state = "kept";
+    } catch (const std::exception &) {
+      post_stack_delta.clear();
+    }
   };
   bool post_stack_denoise_done = false;
   if (phase_l == "bge") {
@@ -1312,9 +1475,14 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     if (!load_pcc_masks_for_rgb(Phase::HYPERMETRIC_STRETCH)) {
       return 1;
     }
-    // Best-effort reload of the anchor_from_reference snapshot (see run_pcc's success block above):
-    // absent for a run/config that never wrote it, and that is a normal fallback, not an error.
-    if (cfg.hypermetric_stretch.anchor_from_reference) {
+    // Best-effort reload of the pre-denoise state (see the snapshot in the PCC
+    // block below): absent for a run/config that never wrote it, which is a
+    // normal fallback (phase_end names the reason), not an error. Only for a
+    // config whose chroma pass would have produced it, so a file left by an
+    // earlier configuration is never used.
+    predenoise_reason = predenoise_reason_for_config();
+    if (predenoise_reason.empty()) {
+      predenoise_reason = "reference_missing";
       const fs::path predenoise_r_path = run_dir / "outputs" / "pcc_predenoise_R.fit";
       const fs::path predenoise_g_path = run_dir / "outputs" / "pcc_predenoise_G.fit";
       const fs::path predenoise_b_path = run_dir / "outputs" / "pcc_predenoise_B.fit";
@@ -1327,6 +1495,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
           pcc_predenoise_G = io::read_fits_float(predenoise_g_path).first;
           pcc_predenoise_B = io::read_fits_float(predenoise_b_path).first;
           have_pcc_predenoise = true;
+          predenoise_post_stack = "from_saved_reference";
         } catch (const std::exception &) {
           have_pcc_predenoise = false;
         }
@@ -1371,6 +1540,7 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     }
     const bool denoise_here = !have_bge_linear && !post_stack_denoise_done;
     if (denoise_here && !run_post_stack_linear_denoise()) return 1;
+    if (have_bge_linear && !post_stack_denoise_done) load_post_stack_delta();
 
     const fs::path pcc_input_rgb_path =
         have_bge_linear ? stacked_rgb_bge_linear_path : rgb_path;
@@ -1494,16 +1664,42 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       return 1;
     }
 
-    // Snapshot the linear RGB right after PCC's own colour correction, before the speckle
-    // suppressor and the post_pcc chroma_denoise pass mutate it -- this is the
-    // hypermetric_stretch.anchor_from_reference reference (see that field's comment). Only taken
-    // (and only persisted below) when it will actually be used, to avoid the copy/IO cost otherwise.
-    if (cfg.hypermetric_stretch.anchor_from_reference &&
-        cfg.chroma_denoise.enabled && cfg.chroma_denoise.apply_stage == "post_pcc") {
-      pcc_predenoise_R = rgb.R;
-      pcc_predenoise_G = rgb.G;
-      pcc_predenoise_B = rgb.B;
-      have_pcc_predenoise = true;
+    // The pre-denoise state: what HMS would get with every denoise pass off,
+    // at the point right before the post_pcc chroma pass. The post-stack
+    // passes are taken out here, before the speckle suppressor, by PCC's
+    // linear part applied to their delta (see post_stack_delta); BGE's and
+    // PCC's offsets do not depend on the pixel. The suppressor then runs on
+    // that state as well, as it would in a run without denoise: it decides
+    // on single extreme pixels, and those set HMS's output floor margin.
+    // Only built when needed: for hypermetric_stretch.params_from_pre_denoise
+    // and for chroma_denoise.excess_from_pre_denoise.
+    predenoise_reason = predenoise_reason_for_config();
+    have_pcc_predenoise = false;
+    predenoise_post_stack = "none";
+    Matrix2Df pre_R, pre_G, pre_B;
+    bool post_stack_compensated = false;
+    if (need_pre_denoise_state && rgb.G.rows() > 0 && rgb.B.rows() > 0) {
+      if (post_stack_delta_state == "missing") {
+        predenoise_post_stack = "delta_missing";
+      } else if (post_stack_delta_state == "kept") {
+        if (!result.applied_linear_valid) {
+          predenoise_post_stack = "pcc_apply_nonlinear";
+        } else {
+          pre_R = rgb.R;
+          pre_G = rgb.G;
+          pre_B = rgb.B;
+          post_stack_compensated = reconstruction::remove_denoise_delta_inplace(
+              pre_R, pre_G, pre_B, post_stack_delta, result.applied_linear,
+              &pcc_cfg.output_valid_mask);
+          predenoise_post_stack =
+              post_stack_compensated ? "compensated" : "delta_size_mismatch";
+          if (post_stack_compensated) {
+            (void)image::suppress_isolated_chroma_speckles_rgb_inplace(
+                pre_R, pre_G, pre_B, &pcc_cfg.common_valid_mask,
+                pcc_cfg.common_mask_rows, pcc_cfg.common_mask_cols);
+          }
+        }
+      }
     }
 
     const auto chroma_speckle_stats =
@@ -1516,17 +1712,46 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
                 << " isolated pixels (candidates="
                 << chroma_speckle_stats.candidate_pixels << ")" << std::endl;
     }
+    if (predenoise_reason.empty() && rgb.G.rows() > 0 && rgb.B.rows() > 0) {
+      // Without the chroma pass here the reference differs from the image
+      // only by the compensated post-stack passes.
+      if (post_stack_compensated) {
+        pcc_predenoise_R = std::move(pre_R);
+        pcc_predenoise_G = std::move(pre_G);
+        pcc_predenoise_B = std::move(pre_B);
+        have_pcc_predenoise = true;
+      } else if (chroma_configured_post_pcc) {
+        pcc_predenoise_R = rgb.R;
+        pcc_predenoise_G = rgb.G;
+        pcc_predenoise_B = rgb.B;
+        have_pcc_predenoise = true;
+      }
+      if (have_pcc_predenoise) {
+        predenoise_reason = "reference_missing";  // until HMS uses it
+      } else {
+        predenoise_reason = predenoise_post_stack == "none"
+                                ? "denoise_not_applied"
+                                : "post_stack_denoise_not_compensated";
+      }
+    }
     if (rgb.G.rows() > 0 && rgb.B.rows() > 0 &&
-        cfg.chroma_denoise.enabled &&
+        chroma_denoise_active() &&
         cfg.chroma_denoise.apply_stage == "post_pcc") {
       if (!ensure_denoise_valid_mask()) return 1;
       Matrix2Df chroma_mask;
       reconstruction::ChromaDenoiseDiagnostics chroma_diag;
       const bool full_diag = cfg.reconstruction.diagnostics.level == "full";
+      reconstruction::ChromaDenoiseOptions chroma_opts = chroma_options_for_config();
+      if (post_stack_compensated) {
+        const bool in_reference = have_pcc_predenoise;
+        chroma_opts.excess_r = in_reference ? &pcc_predenoise_R : &pre_R;
+        chroma_opts.excess_g = in_reference ? &pcc_predenoise_G : &pre_G;
+        chroma_opts.excess_b = in_reference ? &pcc_predenoise_B : &pre_B;
+      }
       const auto chroma_stats = reconstruction::chroma_denoise_rgb_inplace(
           rgb.R, rgb.G, rgb.B, cfg.chroma_denoise,
           full_diag ? &chroma_mask : nullptr, &denoise_valid_mask,
-          full_diag ? &chroma_diag : nullptr);
+          full_diag ? &chroma_diag : nullptr, &chroma_opts);
       record_chroma_denoise("post_pcc", chroma_stats);
       save_protection_mask("chroma_post_pcc", chroma_mask);
       if (full_diag) save_chroma_diagnostics("post_pcc", chroma_diag);
@@ -1554,11 +1779,11 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
     // Never apply output_stretch here; HMS needs the original linear data.
     write_atomic_rgb(pcc_rgb_path, rgb.R, rgb.G, rgb.B, out_hdr);
 
-    // Persist the pre-denoise anchor reference (see the snapshot above) so a HYPERMETRIC_STRETCH-only
-    // resume can still use it without redoing PCC/chroma_denoise. Absent for any run/config that
-    // does not need it -- a resume with no such file simply falls back (never fail-closed here: the
-    // reference is an accuracy improvement, not a correctness contract).
-    if (have_pcc_predenoise) {
+    // Persist the pre-denoise state (see the snapshot above) so a
+    // HYPERMETRIC_STRETCH-only resume can use it without redoing PCC and the
+    // chroma pass. Files of an earlier configuration are always removed, so
+    // they never stand for this run's pre-denoise state.
+    {
       const fs::path predenoise_r_path = run_dir / "outputs" / "pcc_predenoise_R.fit";
       const fs::path predenoise_g_path = run_dir / "outputs" / "pcc_predenoise_G.fit";
       const fs::path predenoise_b_path = run_dir / "outputs" / "pcc_predenoise_B.fit";
@@ -1566,9 +1791,11 @@ int run_rgb_downstream(const fs::path &run_dir, const std::string &run_id,
       fs::remove(predenoise_r_path, ec_pr);
       fs::remove(predenoise_g_path, ec_pg);
       fs::remove(predenoise_b_path, ec_pb);
-      io::write_fits_float(predenoise_r_path, pcc_predenoise_R, out_hdr);
-      io::write_fits_float(predenoise_g_path, pcc_predenoise_G, out_hdr);
-      io::write_fits_float(predenoise_b_path, pcc_predenoise_B, out_hdr);
+      if (have_pcc_predenoise) {
+        io::write_fits_float(predenoise_r_path, pcc_predenoise_R, out_hdr);
+        io::write_fits_float(predenoise_g_path, pcc_predenoise_G, out_hdr);
+        io::write_fits_float(predenoise_b_path, pcc_predenoise_B, out_hdr);
+      }
     }
 
     core::json matrix_json = core::json::array();

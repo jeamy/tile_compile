@@ -321,6 +321,32 @@ chroma_denoise:
   amount map as FITS artifacts in addition to the combined protection mask.
   This separates halo detection from mask-transition effects.
 
+**Automatic instead of fixed (`mode: auto`) and guided filter (`chroma_guided`):**
+
+```yaml
+chroma_denoise:
+  mode: auto            # ignores enabled
+  auto_min_excess: 0.5  # at/below this excess: skipped
+  auto_full_excess: 1.0 # full blend.amount from here on
+  chroma_guided:
+    enabled: true       # guided filter with Y as guide, after wavelet/bilateral
+```
+
+- `auto` measures the **chroma noise excess**: measured
+  `chroma_sigma / luma_sigma` divided by the value independent noise in the
+  three channels would give. `1` means "ordinary independent channel noise"
+  and gets full strength with the defaults; only stacks whose noise is
+  largely shared by all channels (excess `<= 0.5`) are skipped. This is
+  deliberately not a measure of "how noisy the image is": the stretch carries
+  color relative to luminance, so the ratio is what is visible.
+- The thresholds are provisional. `artifacts/chroma_denoise.json` records
+  `chroma_noise_excess`, `expected_chroma_to_luma_ratio` and `auto_mode_scale`
+  in every run, so they can be calibrated later.
+- Large-scale color mottling (15-40 px) is not seen by the measurement
+  (pixel-scale high-pass); `large_scale_bias` remains the tool for it.
+- `chroma_guided` defaults to `false`; enabling it changes the result of
+  existing configs (luminance stays exact, star color fringes do not).
+
 ---
 
 ## Luminance denoise (`luma_denoise.*`)
@@ -362,6 +388,24 @@ luma_denoise:
   faint nebula detail (e.g. in M42) from being blurred by the wavelet
   soft-thresholding -- check a crop preview before enabling on
   structure-rich targets.
+- **Sharpness gate (`sharpness_guard`, off by default):**
+
+  ```yaml
+  luma_denoise:
+    sharpness_guard:
+      enabled: true
+      max_fwhm_increase_pct: 1.0
+      min_matched_stars: 15
+      max_backoff_steps: 2
+  ```
+
+  Measures FWHM and peak of bright stars (`>= 10 sigma`) at the same
+  positions before and after denoising, halves `blend_amount` on a
+  regression and rejects the pass if that is not enough. With fewer than
+  `min_matched_stars` measurable stars the pass is rejected as well
+  (`guard_reason: insufficient_stars` in `artifacts/luma_denoise.json`) --
+  disable the gate for fields with few stars. It checks bright stars only,
+  not faint extended nebula detail; the crop preview is still needed for that.
 - Default: disabled (opt-in), like every denoise stage.
 
 ---

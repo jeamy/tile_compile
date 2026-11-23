@@ -4,6 +4,7 @@
 #include "tile_compile/core/types.hpp"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace tile_compile::reconstruction {
@@ -22,6 +23,14 @@ struct LumaDenoiseStats {
   double combined_protected_fraction = 0.0;
   double mean_protection = 0.0;
   double mean_denoise_fraction = 0.0;
+  double effective_blend_amount = 0.0;
+  double fwhm_before = 0.0;
+  double fwhm_after = 0.0;
+  double fwhm_delta_pct = 0.0;
+  int matched_stars = 0;
+  bool guard_rejected = false;
+  std::string guard_reason;
+  int backoff_steps = 0;
 };
 
 struct LumaDenoiseDiagnostics {

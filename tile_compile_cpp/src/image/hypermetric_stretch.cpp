@@ -468,9 +468,64 @@ void adaptive_output_scaling(
     const std::array<float, 3> &w, float target_bg,
     const std::vector<uint8_t> *statistics_mask,
     const std::vector<uint8_t> *output_mask, int mask_rows, int mask_cols,
-    float highlight_ceiling_percentile = 100.0f) {
+    float highlight_ceiling_percentile = 100.0f,
+    HyperMetricStretchDiagnostics *diag = nullptr,
+    const HyperMetricDerivedParams *frozen = nullptr) {
   const int rows = static_cast<int>(R.rows());
   const int cols = static_cast<int>(R.cols());
+  constexpr float pedestal = 0.001f;
+
+  // Channel floor + shared scale preserves the color relation while retaining
+  // headroom for the MTF and soft highlight rolloff.
+  auto apply_expand = [&](float floor_r, float floor_g, float floor_b,
+                          float scale) {
+    auto expand = [scale](float v, float floor_ch) {
+      return std::clamp((v - floor_ch) * scale + pedestal, 0.0f, 1.0f);
+    };
+    for (int y = 0; y < rows; ++y) {
+      for (int x = 0; x < cols; ++x) {
+        if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
+          R(y, x) = G(y, x) = B(y, x) = 0.0f;
+          continue;
+        }
+        R(y, x) = expand(R(y, x), floor_r);
+        G(y, x) = expand(G(y, x), floor_g);
+        B(y, x) = expand(B(y, x), floor_b);
+      }
+    }
+  };
+  auto apply_mtf = [&](float m) {
+    for (int y = 0; y < rows; ++y) {
+      for (int x = 0; x < cols; ++x) {
+        if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
+          continue;
+        }
+        R(y, x) = mtf_value(R(y, x), m);
+        G(y, x) = mtf_value(G(y, x), m);
+        B(y, x) = mtf_value(B(y, x), m);
+      }
+    }
+  };
+
+  if (frozen != nullptr && frozen->output_scaling) {
+    apply_expand(frozen->floor_r, frozen->floor_g, frozen->floor_b, frozen->scale);
+    if (frozen->mtf_applied) apply_mtf(frozen->mtf_midtone);
+    if (diag != nullptr) {
+      diag->derived.output_scaling = true;
+      diag->derived.floor_r = frozen->floor_r;
+      diag->derived.floor_g = frozen->floor_g;
+      diag->derived.floor_b = frozen->floor_b;
+      diag->derived.scale = frozen->scale;
+      diag->derived.mtf_applied = frozen->mtf_applied;
+      diag->derived.mtf_midtone = frozen->mtf_midtone;
+      diag->output_floor_margin = 0.0f;
+      diag->output_margin_source = "frozen";
+      diag->output_scale = frozen->scale;
+      diag->output_scale_source = "frozen";
+      diag->output_mtf_midtone = frozen->mtf_applied ? frozen->mtf_midtone : 0.0f;
+    }
+    return;
+  }
 
   // Sample per-channel statistics for channel-specific floor computation.
   // Using a luma-based floor (with rec709 weights where G=71.5%) causes the
@@ -529,10 +584,13 @@ void adaptive_output_scaling(
       shared_margin,
       std::max({stat_r[3] - stat_r[2], stat_g[3] - stat_g[2],
                 stat_b[3] - stat_b[2]}));
+  if (diag != nullptr) {
+    diag->output_floor_margin = margin;
+    diag->output_margin_source = shared_margin <= margin ? "sigma" : "minimum";
+  }
   const float floor_r = stat_r[3] - margin;
   const float floor_g = stat_g[3] - margin;
   const float floor_b = stat_b[3] - margin;
-  constexpr float pedestal = 0.001f;
 
   // Per-channel soft ceilings define candidate dynamic ranges. The expansion
   // uses a shared span, preventing low-dynamic-range channels from being
@@ -626,51 +684,38 @@ void adaptive_output_scaling(
     const float physical_scale = (0.999f - pedestal) / physical_span;
     scale = std::min(contrast_scale, physical_scale);
   }
-
-  // Channel floor + shared scale preserves the color relation while retaining
-  // headroom for the MTF and soft highlight rolloff.
-  auto make_expand = [&](float floor_ch) {
-    return [floor_ch, scale, pedestal](float v) {
-      return std::clamp((v - floor_ch) * scale + pedestal, 0.0f, 1.0f);
-    };
-  };
-
-  auto expand_r = make_expand(floor_r);
-  auto expand_g = make_expand(floor_g);
-  auto expand_b = make_expand(floor_b);
-
-  for (int y = 0; y < rows; ++y) {
-    for (int x = 0; x < cols; ++x) {
-      if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
-        R(y, x) = G(y, x) = B(y, x) = 0.0f;
-        continue;
-      }
-      R(y, x) = expand_r(R(y, x));
-      G(y, x) = expand_g(G(y, x));
-      B(y, x) = expand_b(B(y, x));
-    }
+  if (diag != nullptr) {
+    diag->output_scale = scale;
+    diag->output_scale_source = scale < contrast_scale ? "physical_ceiling" : "p99_span";
   }
 
+  apply_expand(floor_r, floor_g, floor_b, scale);
+
+  // The MTF midtone pins the background of the expanded image to target_bg.
   const std::vector<float> scaled_luma = sample_luminance(
       R, G, B, w, statistics_mask, mask_rows, mask_cols, 500000u);
   const float current_bg = median(scaled_luma);
+  bool mtf_applied = false;
+  float m = 0.5f;
   if (current_bg > 0.0f && current_bg < 1.0f &&
       std::abs(current_bg - target_bg) > 1e-3f) {
     const float denom =
         current_bg * (2.0f * target_bg - 1.0f) - target_bg;
     if (std::abs(denom) > 1e-9f) {
-      const float m = (current_bg * (target_bg - 1.0f)) / denom;
-      for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < cols; ++x) {
-          if (!mask_valid(output_mask, mask_rows, mask_cols, y, x)) {
-            continue;
-          }
-          R(y, x) = mtf_value(R(y, x), m);
-          G(y, x) = mtf_value(G(y, x), m);
-          B(y, x) = mtf_value(B(y, x), m);
-        }
-      }
+      m = (current_bg * (target_bg - 1.0f)) / denom;
+      mtf_applied = true;
+      apply_mtf(m);
     }
+  }
+  if (diag != nullptr) {
+    diag->output_mtf_midtone = mtf_applied ? m : 0.0f;
+    diag->derived.output_scaling = true;
+    diag->derived.floor_r = floor_r;
+    diag->derived.floor_g = floor_g;
+    diag->derived.floor_b = floor_b;
+    diag->derived.scale = scale;
+    diag->derived.mtf_applied = mtf_applied;
+    diag->derived.mtf_midtone = m;
   }
 }
 
@@ -968,9 +1013,10 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
     const HyperMetricStretchConfig &cfg,
     const std::vector<uint8_t> *statistics_mask, int mask_rows, int mask_cols,
     const std::vector<uint8_t> *output_mask,
-    const Matrix2Df *anchor_reference_R, const Matrix2Df *anchor_reference_G,
-    const Matrix2Df *anchor_reference_B) {
+    const HyperMetricDerivedParams *frozen) {
   HyperMetricStretchDiagnostics diag;
+  if (frozen != nullptr && !frozen->valid) frozen = nullptr;
+  diag.params_source = frozen != nullptr ? "frozen" : "image";
   diag.target_bg = cfg.target_bg;
   diag.protect_b = cfg.protect_b;
   diag.convergence_power = cfg.convergence_power;
@@ -1003,30 +1049,18 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
     output_mask = statistics_mask;
   }
 
-  const float input_scale = normalize_rgb_input_inplace(
-      R, G, B, statistics_mask, output_mask, mask_rows, mask_cols);
-
-  // anchor_from_reference: normalize a COPY of the caller's reference with the exact scale/mask just
-  // applied to R/G/B (never the reference's own auto-detected scale -- denoising can shift its max
-  // pixel value enough to flip the legacy-range heuristic, which would put it in different units than
-  // the working image). A dimension mismatch or a partial R/G/B set is "no reference", not an error.
-  bool have_anchor_reference = false;
-  Matrix2Df ref_r, ref_g, ref_b;
-  if (cfg.anchor_from_reference && anchor_reference_R != nullptr &&
-      anchor_reference_G != nullptr && anchor_reference_B != nullptr &&
-      anchor_reference_R->rows() == R.rows() && anchor_reference_R->cols() == R.cols() &&
-      anchor_reference_G->rows() == R.rows() && anchor_reference_G->cols() == R.cols() &&
-      anchor_reference_B->rows() == R.rows() && anchor_reference_B->cols() == R.cols()) {
-    ref_r = *anchor_reference_R;
-    ref_g = *anchor_reference_G;
-    ref_b = *anchor_reference_B;
-    apply_scale_and_mask_inplace(ref_r, ref_g, ref_b, input_scale, output_mask, mask_rows,
+  // A frozen input scale keeps both images in the same units: denoising can
+  // move the brightest pixel enough to flip the legacy-range heuristic.
+  float input_scale = 1.0f;
+  if (frozen != nullptr) {
+    input_scale = frozen->input_scale;
+    apply_scale_and_mask_inplace(R, G, B, input_scale, output_mask, mask_rows,
                                  mask_cols);
-    have_anchor_reference = true;
+  } else {
+    input_scale = normalize_rgb_input_inplace(R, G, B, statistics_mask,
+                                              output_mask, mask_rows, mask_cols);
   }
-  const Matrix2Df &anchor_r = have_anchor_reference ? ref_r : R;
-  const Matrix2Df &anchor_g = have_anchor_reference ? ref_g : G;
-  const Matrix2Df &anchor_b = have_anchor_reference ? ref_b : B;
+  diag.derived.input_scale = input_scale;
 
   std::string resolved_profile;
   std::string profile_source;
@@ -1039,11 +1073,11 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
   diag.weights_b = w[2];
 
   diag.anchor =
-      cfg.adaptive_anchor
-          ? calculate_anchor_adaptive(anchor_r, anchor_g, anchor_b, w, statistics_mask,
-                                      mask_rows, mask_cols)
-          : calculate_anchor_statistical(anchor_r, anchor_g, anchor_b, statistics_mask,
-                                         mask_rows, mask_cols);
+      frozen != nullptr ? frozen->anchor
+      : cfg.adaptive_anchor
+          ? calculate_anchor_adaptive(R, G, B, w, statistics_mask, mask_rows, mask_cols)
+          : calculate_anchor_statistical(R, G, B, statistics_mask, mask_rows, mask_cols);
+  diag.derived.anchor = diag.anchor;
 
   const int rows = static_cast<int>(R.rows());
   const int cols = static_cast<int>(R.cols());
@@ -1073,21 +1107,28 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
     }
   }
 
-  diag.star_pressure = estimate_star_pressure(valid_luma);
+  diag.star_pressure =
+      frozen != nullptr ? frozen->star_pressure : estimate_star_pressure(valid_luma);
+  diag.derived.star_pressure = diag.star_pressure;
   float target_bg = cfg.target_bg;
   target_bg = std::clamp(target_bg, 0.05f, 0.50f);
   diag.target_bg = target_bg;
 
-  std::vector<float> auto_luma;
-  if (cfg.log_d_mode != "fixed") {
-    auto_luma = build_auto_luma_sample(R, G, B, w, cfg.adaptive_anchor,
-                                       statistics_mask, mask_rows, mask_cols);
+  if (frozen != nullptr) {
+    diag.log_d = frozen->log_d;
+  } else {
+    std::vector<float> auto_luma;
+    if (cfg.log_d_mode != "fixed") {
+      auto_luma = build_auto_luma_sample(R, G, B, w, cfg.adaptive_anchor,
+                                         statistics_mask, mask_rows, mask_cols);
+    }
+    diag.log_d = cfg.log_d_mode == "fixed"
+                     ? std::clamp(cfg.fixed_log_d, 0.0f, 7.0f)
+                     : solve_auto_log_d(std::move(auto_luma), target_bg,
+                                        cfg.protect_b, diag.star_pressure,
+                                        cfg.mode == "ready_to_use");
   }
-  diag.log_d = cfg.log_d_mode == "fixed"
-                   ? std::clamp(cfg.fixed_log_d, 0.0f, 7.0f)
-                   : solve_auto_log_d(std::move(auto_luma), target_bg,
-                                      cfg.protect_b, diag.star_pressure,
-                                      cfg.mode == "ready_to_use");
+  diag.derived.log_d = diag.log_d;
 
   float strategy = cfg.fixed_color_strategy;
   if (cfg.color_strategy == "auto") {
@@ -1178,7 +1219,7 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
   if (cfg.mode == "ready_to_use") {
     adaptive_output_scaling(R, G, B, w, target_bg, statistics_mask,
                             output_mask, mask_rows, mask_cols,
-                            cfg.highlight_ceiling_percentile);
+                            cfg.highlight_ceiling_percentile, &diag, frozen);
     apply_local_contrast(R, G, B, cfg.local_contrast, output_mask, mask_rows,
                          mask_cols);
     soft_clip(R, 0.98f, 2.0f);
@@ -1211,6 +1252,7 @@ HyperMetricStretchDiagnostics run_hypermetric_stretch_rgb(
                               static_cast<float>(valid_px);
   }
   diag.success = true;
+  diag.derived.valid = true;
   diag.status = "ok";
   return diag;
 }
