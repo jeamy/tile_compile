@@ -77,6 +77,8 @@ calibration:
   use_flat: false
 chroma_denoise:
   adaptation_reference_excess: 1
+  preserve_luminance: hms_profile # color_space | hms_profile (the luminance HMS stretches)
+  excess_from_pre_denoise: true # measure the excess without the earlier luma_denoise
   apply_stage: post_pcc
   blend:
     amount: 1
@@ -131,6 +133,7 @@ global_metrics:
     star_count: 0
 hypermetric_stretch:
   adaptive_anchor: true
+  params_from_pre_denoise: true # stretch parameters from the state without denoise
   color_cast_correction:
     brightness_bins: 8
     enabled: false
@@ -283,8 +286,6 @@ registration:
   enable_star_pair_fallback: true
   engine: triangle_star_matching
   max_blind_chain_depth: 0
-  pre_debayer_method: edge_aware
-  prewarp_interpolation: cubic
   reject_cc_min_abs: 0.25
   reject_outliers: true
   reject_scale_max: 1.08

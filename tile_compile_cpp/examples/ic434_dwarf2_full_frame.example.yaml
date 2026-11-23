@@ -78,9 +78,7 @@ registration:
   star_shift_radius_px: 200
   affine_refinement_enabled: true
   smooth_local_refinement_enabled: true
-  prewarp_interpolation: cubic
   debayer_first: true
-  pre_debayer_method: edge_aware
 global_metrics:
   adaptive_weights: true
   weight_exponent_scale: 1.2
@@ -99,6 +97,8 @@ chroma_denoise:
   protect_luma: true
   luma_guard_strength: 0.85
   adaptation_reference_excess: 1
+  preserve_luminance: hms_profile # color_space | hms_profile (the luminance HMS stretches)
+  excess_from_pre_denoise: true # measure the excess without the earlier luma_denoise
   star_protection:
     enabled: true
     threshold_sigma: 8
@@ -245,6 +245,7 @@ hypermetric_stretch:
   sensor_profile: Sony IMX415 (DWARF II)
   fallback_profile: Sony IMX415 (DWARF II)
   adaptive_anchor: true
+  params_from_pre_denoise: true # stretch parameters from the state without denoise
   target_bg: 0.14
   protect_b: 6
   convergence_power: 4

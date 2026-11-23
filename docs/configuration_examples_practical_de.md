@@ -18,9 +18,7 @@ Dieser Leitfaden ergänzt die Konfigurationsreferenz mit praktischen Beispielen,
 registration:
   engine: triangle_star_matching
   enable_star_pair_fallback: true
-  prewarp_interpolation: lanczos4
   debayer_first: true
-  pre_debayer_method: linear
 
 reconstruction:
   common_overlap_required_fraction: 1.0
@@ -48,9 +46,7 @@ Streaming-/Speichersteuerung (`drizzle.*`) und die lokalen Qualitaetskarten
 registration:
   affine_refinement_enabled: true       # nur bei vollständig bestandenen Residual-/NCC-/Overlap-Gates anwenden
   smooth_local_refinement_enabled: true # zusätzlicher Held-out-/Jacobian-Guard; sonst atomarer Warp-Fallback
-  prewarp_interpolation: lanczos4       # schärfste Interpolation; cubic/linear = schnellere Fallbacks
   debayer_first: true                   # OSC: vor dem Prewarp debayern, RGB direkt rekonstruieren
-  pre_debayer_method: linear            # Demosaicing-Methode des debayer_first-Pfads
 
 reconstruction:
   delete_source_cache_after_run: true   # Cache nach erfolgreichem Lauf loeschen (Plattenplatz)
@@ -129,7 +125,6 @@ sollten nur mit Beleg aus den Validierungsartefakten gelockert werden.
 
 ```yaml
 bge:
-  enabled: true
   method: classic
   autotune:
     enabled: false
@@ -154,7 +149,6 @@ bge:
 
 ```yaml
 bge:
-  enabled: true
   method: classic
   sample_quantile: 0.15  # Noch konservativer
   structure_thresh_percentile: 0.95  # Mehr Tiles ausschließen
@@ -171,7 +165,6 @@ bge:
 
 ```yaml
 bge:
-  enabled: true
   method: classic
   min_valid_sample_fraction_for_apply: 0.28  # Toleranter fuer dichte Nebel-/Sternfelder
   min_valid_samples_for_apply: 96
@@ -183,7 +176,6 @@ bge:
 
 ```yaml
 bge:
-  enabled: true
   method: classic
   sample_quantile: 0.25  # Weniger konservativ
   min_valid_sample_fraction_for_apply: 0.30
@@ -197,7 +189,6 @@ bge:
 
 ```yaml
 bge:
-  enabled: true       # Legacy-Kompatibilität; method ist maßgeblich
   method: autobge    # none | classic | autobge
   autobge:
     num_sample_points: 0
@@ -352,6 +343,31 @@ chroma_denoise:
   dafür bleibt `large_scale_bias` zuständig.
 - `chroma_guided` ist Standard `false`; eingeschaltet ändert es das Ergebnis
   bestehender Konfigurationen (Luminanz bleibt exakt, Sternfarbsäume nicht).
+
+**Endbild schützen (Standard seit 2026-11-23):**
+
+```yaml
+chroma_denoise:
+  preserve_luminance: hms_profile   # color_space | hms_profile
+  excess_from_pre_denoise: true
+hypermetric_stretch:
+  params_from_pre_denoise: true
+```
+
+- `preserve_luminance: hms_profile`: Der Chroma-Pass lässt die Luminanz
+  unverändert, die HMS streckt (Gewichte von `sensor_profile`), nicht nur das
+  Y seines Farbraums. Sonst landet ein Teil des Farbrauschens in der
+  gestreckten Helligkeit (M42 +6 %, M31 +19 %).
+- `excess_from_pre_denoise: true`: Der Überschuss für `auto` und die
+  Adaption wird ohne den vorigen `luma_denoise` gemessen. Der Luma-Pass senkt
+  nur das Luma-Rauschen und lässt das Farbrauschen größer erscheinen
+  (M42 0,97 → 2,40, IC434 0,98 → 2,68).
+- `params_from_pre_denoise: true`: HMS nimmt alle Stretch-Parameter aus dem
+  Zustand ohne Denoise (siehe unten bei HMS). Ohne ihn verschieben die
+  Denoise-Pässe Himmel, Mittelton und Sterngröße des Endbilds (Luma + Chroma:
+  Sterne bis +9,5 % breiter); mit ihm ±0 %.
+- Ohne aktiven Denoise-Pass ändern die drei Schlüssel nichts. Das Verhalten
+  vor 2026-11-23: `color_space`, `false`, `false`.
 
 ---
 
@@ -534,6 +550,8 @@ hypermetric_stretch:
 
 `ready_to_use` folgt dem VeraLux-GUI-Default: Auto LogD, adaptives Output-Scaling auf den Zielhintergrund und finaler Soft Clip. Das ist der empfohlene Modus für normale finale RGB-Ausgaben.
 
+Mit Denoise: `params_from_pre_denoise: true` (Standard) streckt zuerst das Bild ohne Denoise und wendet dessen Parameter (Anker, `log D`, Floors, Skalierung, Mittelton) auf das entrauschte Bild an. Das Output-Scaling hängt an den Extremwerten des Rauschens; ohne diesen Schalter würde weniger Rauschen den Himmel steiler anheben. `phase_end` von HYPERMETRIC_STRETCH nennt in `params_from_pre_denoise` und `pre_denoise_post_stack`, ob und wie es angewandt wurde (in den PCC-Modi `attenuated` lässt sich `luma_denoise` nicht herausrechnen).
+
 **Scientific-Modus:**
 
 ```yaml
@@ -658,6 +676,9 @@ Mit dem Single-Method-Cutover wurden die Bloecke `aqmh.*`, `tile.*`,
 `assumptions.*`, `pipeline.*`, `method` sowie die Classic-`stacking.*`-Felder
 (`method`, `sigma_clip.*`, `cluster_quality_weighting.*`, `output_stretch`,
 `tile_common_valid_min_fraction`, `cosmetic_correction*`) entfernt.
+Am 2026-11-23 folgten `registration.prewarp_interpolation` und
+`registration.pre_debayer_method` (gelesen, aber nie verwendet); `bge.enabled`
+gibt es nicht mehr, BGE schaltet allein `bge.method` (`none` = aus).
 Die Zuordnung migrierter Schluessel steht in der Konfigurationsreferenz §1.
 
 Die folgenden Praxisbeispiele verwenden nur noch aktuell aktive Parameter aus Code und Schema.

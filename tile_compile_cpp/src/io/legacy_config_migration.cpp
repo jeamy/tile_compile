@@ -44,6 +44,8 @@ constexpr std::pair<const char*, const char*> kRemovedSubKeys[] = {
     {"data", "linear_required"},                    // linearity.enabled is the gate
     {"reconstruction", "keep_profile_cache_after_run"},  // v2 band store is always retained
     {"registration", "blind_chain_drift_threshold_px"},  // no blind chains are built
+    {"registration", "prewarp_interpolation"},  // prewarp always used cubic (2026-11-23)
+    {"registration", "pre_debayer_method"},     // no demosaic step read it (2026-11-23)
 };
 
 // Removed keys two levels deep: {block, sub-block, key}. The plan-11.8 step-8

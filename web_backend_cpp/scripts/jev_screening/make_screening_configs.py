@@ -36,8 +36,6 @@ PRESETS = {
         ("pyramid_snr_0.7", {R + "quality.pyramid.sharpness_weight": 0.3, R + "quality.pyramid.snr_weight": 0.7}),
         ("pyramid_score_scale_2.5", {R + "quality.pyramid.score_scale": 2.5}),
         ("exponent_0.8", {"global_metrics.weight_exponent_scale": 0.8}), ("exponent_1.8", {"global_metrics.weight_exponent_scale": 1.8}),
-        ("prewarp_lanczos4", {"registration.prewarp_interpolation": "lanczos4"}),
-        ("prewarp_linear", {"registration.prewarp_interpolation": "linear"}),
     ],
     # the pre-registered confirmation arms of release_policy_v2.json
     "confirmation": [

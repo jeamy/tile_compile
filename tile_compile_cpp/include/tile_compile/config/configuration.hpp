@@ -104,15 +104,12 @@ struct RegistrationConfig {
   // warp. Held-out, coverage, Jacobian, NCC, and overlap gates must all pass;
   // otherwise prewarp uses the unchanged affine/global warp.
   bool smooth_local_refinement_enabled = true;
-  // Prewarp stage: interpolation kernel applied when warping frames onto the
-  // common canvas ("bilinear" | "cubic").
-  std::string prewarp_interpolation = "cubic";
   // OSC: demosaic before prewarp, then reconstruct the RGB channels directly
   // (instead of CFA prewarp + post-stack debayer).
   bool debayer_first = true;
-  // Demosaic method used when debayer_first is active:
-  // "bilinear" | "nearest" | "vng" | "edge_aware".
-  std::string pre_debayer_method = "edge_aware";
+  // prewarp_interpolation and pre_debayer_method were removed 2026-11-23:
+  // parsed and validated, but never passed on (the prewarp always used
+  // cubic, no demosaic step read the method). The migration strips them.
 };
 
 // §4.1, §8.B — Berechnung effektiver Chain-Tiefe

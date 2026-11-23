@@ -201,6 +201,30 @@ TEST_CASE("migration renames hypermetric_stretch.anchor_from_reference to "
   REQUIRE(cfg.hypermetric_stretch.params_from_pre_denoise);
 }
 
+TEST_CASE("migration strips the unused registration.prewarp_interpolation and "
+          "pre_debayer_method, keeping debayer_first") {
+  // Both were parsed and validated but never passed on (2026-11-23); an old
+  // config with them, even with a value the old validation rejected, loads.
+  const std::string yaml =
+      "registration:\n  prewarp_interpolation: lanczos4\n"
+      "  debayer_first: false\n  pre_debayer_method: linear\n";
+  YAML::Node n = load(yaml);
+  ConfigMigrationReport report;
+  REQUIRE_NOTHROW(migrate_legacy_config_node(n, report));
+  REQUIRE(has(report.stripped_keys, "registration.prewarp_interpolation"));
+  REQUIRE(has(report.stripped_keys, "registration.pre_debayer_method"));
+  REQUIRE_FALSE(n["registration"]["prewarp_interpolation"]);
+  REQUIRE_FALSE(n["registration"]["pre_debayer_method"]);
+
+  ConfigMigrationReport r2;
+  const auto cfg = Config::from_yaml_text_migrated(yaml, r2);
+  REQUIRE_NOTHROW(cfg.validate());
+  REQUIRE_FALSE(cfg.registration.debayer_first);
+  const YAML::Node out = cfg.to_yaml();
+  REQUIRE_FALSE(out["registration"]["prewarp_interpolation"]);
+  REQUIRE_FALSE(out["registration"]["pre_debayer_method"]);
+}
+
 TEST_CASE("migration is a no-op on an already-clean config (plan 6.5)") {
   YAML::Node n = load(
       "normalization:\n  enabled: true\n"

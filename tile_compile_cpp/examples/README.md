@@ -8,7 +8,6 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
 - `reconstruction_tuning.example.yaml`
   Canonical full OSC reference configuration, kept in sync with the production
   `tile_compile.yaml` tuning: `drizzle.pixfrac: 0.6`,
-  `registration.prewarp_interpolation: cubic`,
   `chroma_denoise` configured for the single `post_pcc` stage with
   `star_protection.threshold_sigma: 4` / `dilate_px: 8`
   (the dilate radius must cover the full PSF including wings — a too-small
@@ -100,6 +99,16 @@ reconstruction method: **CFA Forward Drizzle + Multiband**.
   new sky structure. The bilateral filter and stronger wavelet settings were
   not better (details in the plan). The stage is applied to the working image
   only; `outputs/stacked_rgb.fits` stays the plain reconstruction.
+
+- Denoise and the stretched result (2026-11-23): every profile sets
+  `chroma_denoise.preserve_luminance: hms_profile`,
+  `chroma_denoise.excess_from_pre_denoise: true` and
+  `hypermetric_stretch.params_from_pre_denoise: true`, the defaults since
+  2026-11-23. HMS then takes its parameters from the state without denoise,
+  so `luma_denoise`/`chroma_denoise` lower the noise without changing the sky
+  level, the midtone or the star size of `stacked_rgb_hms.fits` (measured on
+  M42, M31 and IC434: star FWHM +-0 %; before, luma + chroma made stars up to
+  9.5 % wider). Without a denoise pass the keys change nothing.
 
 - Colour-cast correction (`hypermetric_stretch.color_cast_correction`):
   optional adaptive average-neutral (SCNR-style) correction of a green cast,

@@ -69,6 +69,7 @@ configuration. Semantic method selectors are rejected fail-closed.
 | `runtime_limits.allow_emergency_mode` | removed |
 | `runtime_limits.tile_analysis_max_factor_vs_stack`, `runtime_limits.tile_reconstruction_diagnostics` | removed |
 | `stacking.method`, `stacking.sigma_clip.*`, `stacking.cluster_quality_weighting.*`, `stacking.output_stretch`, `stacking.tile_common_valid_min_fraction`, `stacking.cosmetic_correction*` | removed (STACKING is a pass-through) |
+| `registration.prewarp_interpolation`, `registration.pre_debayer_method` | removed (2026-11-23): parsed but never passed on; the prewarp always interpolates `cubic`, no demosaic step read the method |
 
 **Mapped (migrated) keys:**
 
@@ -594,18 +595,6 @@ All chained warps are validated with NCC against the reference frame. Particular
 
 ----
 
-### `registration.prewarp_interpolation`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `bilinear`, `cubic`, `lanczos4` |
-| **Default** | `"lanczos4"` |
-
-**Purpose:** Interpolation method for the warp/resample steps in REGISTRATION (prewarp of frames into the shared output geometry). `lanczos4` is the sharpest/recommended method; `bilinear` is faster but softer.
-
----
-
 ### `registration.debayer_first`
 
 | Property | Value |
@@ -614,18 +603,6 @@ All chained warps are validated with NCC against the reference frame. Particular
 | **Default** | `true` |
 
 **Purpose:** OSC only. When `true`, frames are demosaiced before the prewarp and the R/G/B planes are reconstructed directly. When `false`, a CFA prewarp is used and the final CFA stack is demosaiced after reconstruction. See §15.
-
----
-
-### `registration.pre_debayer_method`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `linear`, `vng`, `edge_aware`, `mask` |
-| **Default** | `"linear"` |
-
-**Purpose:** Demosaicing method used on the `debayer_first` path.
 
 ---
 
@@ -1820,6 +1797,9 @@ VeraLux HyperMetric Stretch (HMS) is an optional final RGB stretch phase after P
 | `hypermetric_stretch.color_cast_correction.brightness_bins` | integer | `8` | Brightness classes of the object pixels, [1, 32]; the strength is chosen per class and interpolated over the pixel brightness (1 = one global strength). |
 | `hypermetric_stretch.color_cast_correction.neutralize_sky` | boolean | `false` | Also shift G so the sky is neutral: `G += (sky R + sky B)/2 - sky G` (skipped above 25 % offset). |
 | `hypermetric_stretch.color_cast_correction.object_sigma` | number | `3.0` | Object pixels: blurred luminance above sky + k sigma, (0, 50]; brightest 1 % excluded. |
+| `hypermetric_stretch.local_contrast.enabled` | boolean | `false` | Local contrast ("clarity") on the stretched luma: lifts mid/large-scale detail that the global tone curve compresses while lifting the background to `target_bg`. |
+| `hypermetric_stretch.local_contrast.radius_px` | number | `40` | Radius of the detail scale in pixels, (0, 256]. |
+| `hypermetric_stretch.local_contrast.strength` | number | `0.6` | Strength of the boost, [0, 3]. |
 | `hypermetric_stretch.large_scale_contrast.enabled` | boolean | `false` | Lifts only the large-scale sky structure (dust lanes, reflection nebulae) of the stretched image; no extra noise, stars unchanged. Runs after the colour-cast correction. Schema default `false`; the shipped `tile_compile.yaml` sets `true` (with `amount: 2.0`, `chroma_amount: 1.0`) — one confirmed M42 session as of 2026-09-27 (`docs/m42_large_scale_contrast_20260927_de.md`), not yet confirmed for other object types. |
 | `hypermetric_stretch.large_scale_contrast.amount` | number | `1.0` | Factor on the large-scale deviation from the sky level, [0, 6]; 1 doubles, 2 triples the visible structure (the gain at sigma_px 48 is about 60 % of that). Shipped `tile_compile.yaml`: `2.0`. |
 | `hypermetric_stretch.large_scale_contrast.sigma_px` | number | `48.0` | Gaussian sigma of the "large" component in output pixels, (0, 512]; structure below stays untouched. |
@@ -2130,9 +2110,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `registration.model_prediction_max_residual_px`: limit for the median star residual of model-predicted warps; above it, or unmeasurable, the frame is dropped.
 - `registration.reject_shift_median_multiplier`: relative shift threshold scale from median shift.
 - `registration.reject_scale_min`, `reject_scale_max`: accepted similarity scale band.
-- `registration.prewarp_interpolation`: interpolation method of the warp/resample steps.
 - `registration.debayer_first`: OSC — demosaic before prewarp instead of CFA prewarp.
-- `registration.pre_debayer_method`: demosaicing method for the `debayer_first` path.
 - `dithering.enabled`: enables dither diagnostics output in registration artifacts.
 - `dithering.min_shift_px`: minimum frame-to-frame shift to count as dither.
 
@@ -2233,7 +2211,7 @@ protected regions and produces dark pixels/chroma fringing at star edges.
 
 ### A.6 Debayer / Astrometry / PCC / HMS / Stacking / Runtime
 
-- Debayer is controlled via `registration.debayer_first`/`pre_debayer_method` (see §15); there is no standalone `debayer` block.
+- Debayer is controlled via `registration.debayer_first` (see §15); there is no standalone `debayer` block.
 - `astrometry.enabled`: enables plate-solving stage.
 - `astrometry.astap_bin`: ASTAP executable path.
 - `astrometry.astap_data_dir`: ASTAP star catalog/data path.

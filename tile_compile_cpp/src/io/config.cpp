@@ -372,14 +372,8 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (yaml_has_value(r["smooth_local_refinement_enabled"]))
       cfg.registration.smooth_local_refinement_enabled =
           r["smooth_local_refinement_enabled"].as<bool>();
-    if (yaml_has_value(r["prewarp_interpolation"]))
-      cfg.registration.prewarp_interpolation =
-          r["prewarp_interpolation"].as<std::string>();
     if (yaml_has_value(r["debayer_first"]))
       cfg.registration.debayer_first = r["debayer_first"].as<bool>();
-    if (yaml_has_value(r["pre_debayer_method"]))
-      cfg.registration.pre_debayer_method =
-          r["pre_debayer_method"].as<std::string>();
   }
 
   if (node["dithering"]) {
@@ -1226,10 +1220,7 @@ YAML::Node Config::to_yaml() const {
       registration.affine_refinement_enabled;
   node["registration"]["smooth_local_refinement_enabled"] =
       registration.smooth_local_refinement_enabled;
-  node["registration"]["prewarp_interpolation"] =
-      registration.prewarp_interpolation;
   node["registration"]["debayer_first"] = registration.debayer_first;
-  node["registration"]["pre_debayer_method"] = registration.pre_debayer_method;
 
   node["dithering"]["enabled"] = dithering.enabled;
   node["dithering"]["min_shift_px"] = dithering.min_shift_px;
@@ -1849,19 +1840,6 @@ void Config::validate() const {
       registration.star_shift_radius_px > 2000.0f) {
     throw ValidationError("registration.star_shift_radius_px must be in [10, 2000]");
   }
-  if (registration.prewarp_interpolation != "linear" &&
-      registration.prewarp_interpolation != "cubic" &&
-      registration.prewarp_interpolation != "lanczos4") {
-    throw ValidationError(
-        "registration.prewarp_interpolation must be linear, cubic, or lanczos4");
-  }
-  if (registration.pre_debayer_method != "bilinear" &&
-      registration.pre_debayer_method != "nearest" &&
-      registration.pre_debayer_method != "vng" &&
-      registration.pre_debayer_method != "edge_aware") {
-    throw ValidationError(
-        "registration.pre_debayer_method must be bilinear, nearest, vng, or edge_aware");
-  }
 
   if (dithering.min_shift_px < 0.0f) {
     throw ValidationError("dithering.min_shift_px must be >= 0");
@@ -2446,9 +2424,7 @@ std::string get_schema_json() {
                       "use_astrometry":{"type":"boolean"},
                       "enable_local_background_subtraction":{"type":"boolean"},
                       "star_shift_radius_px":{"type":"number","minimum":10,"maximum":2000},
-                      "prewarp_interpolation":{"type":"string","enum":["linear","cubic","lanczos4"],"default":"cubic"},
-                      "debayer_first":{"type":"boolean","default":true},
-                      "pre_debayer_method":{"type":"string","enum":["bilinear","nearest","vng","edge_aware"],"default":"edge_aware"} } },
+                      "debayer_first":{"type":"boolean","default":true} } },
     "dithering": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "min_shift_px":{"type":"number","minimum":0} } },

@@ -356,31 +356,10 @@
           "description": "Enable gated smooth local per-frame refinement after the global/optional affine warp. Fits a regularized 4x4 Gaussian inverse displacement field from mutual star matches and applies it only when spatial coverage, held-out median/p90/RMS, maximum displacement, Jacobian/local-scale, NCC, and overlap gates pass. Supported for MONO and OSC debayer-first RGB prewarp; otherwise the global/affine warp is preserved. Default: true.",
           "default": true
         },
-        "prewarp_interpolation": {
-          "type": "string",
-          "enum": [
-            "linear",
-            "cubic",
-            "lanczos4"
-          ],
-          "default": "cubic",
-          "description": "Interpolation kernel used when prewarping registered frames onto the common canvas before reconstruction and stacking. cubic is the default because controlled sharpness comparisons preserved more high-frequency detail than linear with a smaller background-noise increase than lanczos4."
-        },
         "debayer_first": {
           "type": "boolean",
           "default": true,
           "description": "OSC-only mode. When true and a Bayer pattern is known, each calibrated frame is demosaiced before prewarp; source-quality maps are computed from luma and the final R/G/B planes are reconstructed directly from the prewarped RGB planes. This avoids reconstructing and later debayering a warped CFA mosaic."
-        },
-        "pre_debayer_method": {
-          "type": "string",
-          "enum": [
-            "bilinear",
-            "nearest",
-            "vng",
-            "edge_aware"
-          ],
-          "default": "edge_aware",
-          "description": "Demosaicing method used before prewarp when registration.debayer_first is true for OSC input. Ignored for mono/RGB input and for OSC input without a known Bayer pattern."
         }
       }
     },
@@ -1623,6 +1602,15 @@
             "neutralize_sky": {"type": "boolean", "default": false, "description": "Also shift G by (sky R + sky B)/2 - sky G so the sky itself is neutral (G level = mean of R and B). Without it the correction leaves a tinted sky tinted. Skipped when the offset would exceed 25 % of the R/B sky level."},
             "brightness_bins": {"type": "integer", "minimum": 1, "maximum": 32, "default": 8, "description": "Number of equal-count brightness classes of the object pixels; the strength is chosen per class (targets and protection apply per class) and interpolated over the pixel brightness, so a cast that differs between faint and bright regions is corrected in both. 1 = a single global strength."},
             "object_sigma": {"type": "number", "exclusiveMinimum": 0, "maximum": 50, "default": 3.0, "description": "Object pixels are those whose blurred luminance is more than this many sky sigmas above the sky; the brightest 1 % (stars) are excluded."}
+          }
+        },
+        "local_contrast": {
+          "type": "object",
+          "description": "Local contrast (clarity) on the stretched luma: lifts mid/large-scale detail that the single global tone curve compresses when it also lifts a faint background to target_bg. Off by default.",
+          "properties": {
+            "enabled": {"type": "boolean", "default": false, "description": "Enable local contrast. Default: false."},
+            "radius_px": {"type": "number", "exclusiveMinimum": 0, "maximum": 256, "default": 40, "description": "Radius of the detail scale in pixels, (0, 256]. Default: 40."},
+            "strength": {"type": "number", "minimum": 0, "maximum": 3, "default": 0.6, "description": "Strength of the boost, [0, 3]. Default: 0.6."}
           }
         },
         "large_scale_contrast": {

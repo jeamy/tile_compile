@@ -56,9 +56,7 @@ registration:
   star_shift_radius_px: 200
   affine_refinement_enabled: true
   smooth_local_refinement_enabled: true
-  prewarp_interpolation: cubic
   debayer_first: true
-  pre_debayer_method: edge_aware
 global_metrics:
   adaptive_weights: true
   weight_exponent_scale: 1.2
