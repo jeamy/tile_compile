@@ -372,6 +372,67 @@ int main() {
             EXPECT(v_ch.empty(), "curves validation accepts per-channel without master");
         }
 
+        // --- Joint Guided Chroma Denoise & 32-bit A-trous Luma Denoise ---
+        {
+            cv::Mat astro(96, 96, CV_32FC3, cv::Scalar(0.10f, 0.10f, 0.10f));
+            // Deterministic background chroma + luma noise
+            for (int y = 0; y < astro.rows; ++y) {
+                for (int x = 0; x < astro.cols; ++x) {
+                    const float n1 = (((x * 37 + y * 17) % 19) - 9) * 0.0025f;
+                    const float n2 = (((x * 13 + y * 43) % 19) - 9) * 0.0025f;
+                    auto& px = astro.at<cv::Vec3f>(y, x);
+                    px[0] = std::clamp(0.10f + n1, 0.0f, 1.0f);
+                    px[1] = std::clamp(0.10f + 0.5f * (n1 - n2), 0.0f, 1.0f);
+                    px[2] = std::clamp(0.10f + n2, 0.0f, 1.0f);
+                }
+            }
+            // Add a sharp synthetic star at (48, 48)
+            for (int y = 40; y <= 56; ++y) {
+                for (int x = 40; x <= 56; ++x) {
+                    const float r2 = static_cast<float>((x - 48) * (x - 48) + (y - 48) * (y - 48));
+                    const float g = 0.75f * std::exp(-r2 / 3.2f);
+                    auto& px = astro.at<cv::Vec3f>(y, x);
+                    px[0] = std::min(1.0f, px[0] + g * 0.90f);
+                    px[1] = std::min(1.0f, px[1] + g * 0.95f);
+                    px[2] = std::min(1.0f, px[2] + g * 1.00f);
+                }
+            }
+            auto luma_at = [](const cv::Mat& m, int y, int x) {
+                const auto& p = m.at<cv::Vec3f>(y, x);
+                return 0.114f * p[0] + 0.587f * p[1] + 0.299f * p[2];
+            };
+            auto bg_chroma_std = [](const cv::Mat& m) {
+                cv::Rect roi(4, 4, 28, 28);
+                std::vector<cv::Mat> ch;
+                cv::split(m(roi), ch);
+                cv::Mat diff = ch[2] - ch[0];
+                cv::Scalar mean, sd;
+                cv::meanStdDev(diff, mean, sd);
+                return sd[0];
+            };
+
+            const float star_y_in = luma_at(astro, 48, 48);
+            const double chroma_in = bg_chroma_std(astro);
+
+            auto cd_res = tile_compile::pi::apply_image_op_fits(astro, {
+                {"type", "chroma_denoise"},
+                {"params", {{"strength", 0.8}, {"protect", 0.4}, {"mode", "soft"}}}
+            });
+            EXPECT(cd_res.success, "joint guided chroma_denoise succeeds on CV_32FC3");
+            EXPECT_NEAR(luma_at(cd_res.image, 48, 48), star_y_in, 1e-4f,
+                        "joint guided chroma_denoise preserves exact star luminance");
+            EXPECT(bg_chroma_std(cd_res.image) < chroma_in * 0.5,
+                   "joint guided chroma_denoise reduces background chroma noise by >50%");
+
+            auto ld_res = tile_compile::pi::apply_image_op_fits(astro, {
+                {"type", "denoise"},
+                {"params", {{"strength", 0.7}, {"luminance", true}}}
+            });
+            EXPECT(ld_res.success, "32-bit a-trous luma denoise succeeds on CV_32FC3");
+            EXPECT(luma_at(ld_res.image, 48, 48) > star_y_in * 0.92f,
+                   "32-bit a-trous luma denoise preserves >92% of sharp star peak");
+        }
+
     } catch (const std::exception& e) {
         std::cerr << "EXCEPTION: " << e.what() << "\n";
         ++failures;

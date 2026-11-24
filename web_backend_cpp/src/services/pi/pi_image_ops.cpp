@@ -322,13 +322,219 @@ cv::Mat apply_local_contrast_float(const cv::Mat& img, double strength, double r
     out = img + static_cast<float>(strength) * (img - blur); cv::min(out, 1.0, out); cv::max(out, 0.0, out); return out;
 }
 
+namespace {
+
+float robust_median_subsampled(const cv::Mat& plane, bool abs_values = false) {
+    std::vector<float> samples;
+    const int step_y = std::max(1, plane.rows / 128);
+    const int step_x = std::max(1, plane.cols / 128);
+    samples.reserve(static_cast<size_t>((plane.rows / step_y + 1) * (plane.cols / step_x + 1)));
+    for (int y = 0; y < plane.rows; y += step_y) {
+        const float* row = plane.ptr<float>(y);
+        for (int x = 0; x < plane.cols; x += step_x) {
+            const float v = row[x];
+            if (std::isfinite(v)) samples.push_back(abs_values ? std::abs(v) : v);
+        }
+    }
+    if (samples.empty()) return 0.0f;
+    const size_t mid = samples.size() / 2;
+    std::nth_element(samples.begin(), samples.begin() + static_cast<std::ptrdiff_t>(mid), samples.end());
+    return samples[mid];
+}
+
+// Luminance-guided filter (He et al.): O(N) edge-preserving smoothing in 32-bit float.
+cv::Mat guided_filter_plane(const cv::Mat& guide_I, const cv::Mat& src_p, int radius, float eps) {
+    const int k = 2 * std::max(1, radius) + 1;
+    const cv::Size ksize(k, k);
+    cv::Mat mean_I, mean_p, corr_I, corr_Ip;
+    cv::boxFilter(guide_I, mean_I, CV_32F, ksize, cv::Point(-1, -1), true, cv::BORDER_REFLECT101);
+    cv::boxFilter(src_p, mean_p, CV_32F, ksize, cv::Point(-1, -1), true, cv::BORDER_REFLECT101);
+    cv::boxFilter(guide_I.mul(guide_I), corr_I, CV_32F, ksize, cv::Point(-1, -1), true, cv::BORDER_REFLECT101);
+    cv::boxFilter(guide_I.mul(src_p), corr_Ip, CV_32F, ksize, cv::Point(-1, -1), true, cv::BORDER_REFLECT101);
+
+    cv::Mat var_I = cv::max(corr_I - mean_I.mul(mean_I), 0.0f);
+    cv::Mat cov_Ip = corr_Ip - mean_I.mul(mean_p);
+    cv::Mat a = cov_Ip / (var_I + std::max(eps, 1e-7f));
+    cv::Mat b = mean_p - a.mul(mean_I);
+
+    cv::Mat mean_a, mean_b;
+    cv::boxFilter(a, mean_a, CV_32F, ksize, cv::Point(-1, -1), true, cv::BORDER_REFLECT101);
+    cv::boxFilter(b, mean_b, CV_32F, ksize, cv::Point(-1, -1), true, cv::BORDER_REFLECT101);
+    return mean_a.mul(guide_I) + mean_b;
+}
+
+// Smooth [0,1] star & high-SNR structure protection mask computed from luminance.
+cv::Mat build_astro_protection_mask(const cv::Mat& y_plane) {
+    const float sky_med = robust_median_subsampled(y_plane, false);
+    cv::Mat abs_dev;
+    cv::absdiff(y_plane, cv::Scalar(sky_med), abs_dev);
+    const float sky_sigma = std::max(1.4826f * robust_median_subsampled(abs_dev, false), 1e-4f);
+
+    // Star / bright signal mask: ramps smoothly from 3 sigma to 8 sigma above sky median.
+    cv::Mat snr = (y_plane - sky_med) / sky_sigma;
+    cv::Mat star_mask = (snr - 3.0f) / 5.0f;
+    cv::threshold(star_mask, star_mask, 1.0, 1.0, cv::THRESH_TRUNC);
+    cv::threshold(star_mask, star_mask, 0.0, 0.0, cv::THRESH_TOZERO);
+
+    // Local edge / fine structure mask via Sobel gradient normalized to sky sigma.
+    cv::Mat gx, gy, grad;
+    cv::Sobel(y_plane, gx, CV_32F, 1, 0, 3, 1.0 / 8.0, 0.0, cv::BORDER_REFLECT101);
+    cv::Sobel(y_plane, gy, CV_32F, 0, 1, 3, 1.0 / 8.0, 0.0, cv::BORDER_REFLECT101);
+    cv::magnitude(gx, gy, grad);
+    cv::Mat edge_mask = (grad / (4.0f * sky_sigma) - 0.5f);
+    cv::threshold(edge_mask, edge_mask, 1.0, 1.0, cv::THRESH_TRUNC);
+    cv::threshold(edge_mask, edge_mask, 0.0, 0.0, cv::THRESH_TOZERO);
+
+    cv::Mat combined = cv::max(star_mask, edge_mask);
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
+    cv::dilate(combined, combined, kernel);
+    cv::GaussianBlur(combined, combined, cv::Size(0, 0), 1.5, 1.5, cv::BORDER_REFLECT101);
+    cv::threshold(combined, combined, 1.0, 1.0, cv::THRESH_TRUNC);
+    cv::threshold(combined, combined, 0.0, 0.0, cv::THRESH_TOZERO);
+    return combined;
+}
+
+// Separable 1D B3-spline a-trous kernel with stride = 1 << scale.
+cv::Mat atrous_smooth_b3(const cv::Mat& plane, int scale) {
+    const int step = 1 << scale;
+    const int klen = 4 * step + 1;
+    cv::Mat k1d = cv::Mat::zeros(1, klen, CV_32F);
+    k1d.at<float>(0, 0) = 1.0f / 16.0f;
+    k1d.at<float>(0, step) = 4.0f / 16.0f;
+    k1d.at<float>(0, 2 * step) = 6.0f / 16.0f;
+    k1d.at<float>(0, 3 * step) = 4.0f / 16.0f;
+    k1d.at<float>(0, 4 * step) = 1.0f / 16.0f;
+    cv::Mat out;
+    cv::sepFilter2D(plane, out, CV_32F, k1d, k1d, cv::Point(-1, -1), 0.0, cv::BORDER_REFLECT101);
+    return out;
+}
+
+// 3-scale 32-bit float a-trous wavelet soft-thresholding with star/structure protection.
+cv::Mat atrous_denoise_luma_float(const cv::Mat& y_plane, double strength) {
+    if (strength <= 0.0) return y_plane.clone();
+    const cv::Mat protect = build_astro_protection_mask(y_plane);
+    constexpr int kLevels = 3;
+    const float k_mult[kLevels] = {3.0f, 1.8f, 0.9f};
+
+    cv::Mat curr = y_plane.clone();
+    std::vector<cv::Mat> details;
+    details.reserve(kLevels);
+    for (int s = 0; s < kLevels; ++s) {
+        cv::Mat smooth = atrous_smooth_b3(curr, s);
+        cv::Mat detail = curr - smooth;
+        const float sigma_s = 1.4826f * robust_median_subsampled(detail, true);
+        const float base_thr = static_cast<float>(strength) * k_mult[s] * sigma_s;
+        if (base_thr > 0.0f) {
+            for (int y = 0; y < detail.rows; ++y) {
+                float* d = detail.ptr<float>(y);
+                const float* p = protect.ptr<float>(y);
+                for (int x = 0; x < detail.cols; ++x) {
+                    const float thr = base_thr * (1.0f - 0.85f * p[x]);
+                    const float v = d[x];
+                    const float av = std::abs(v);
+                    d[x] = av <= thr ? 0.0f : (v > 0.0f ? (av - thr) : -(av - thr));
+                }
+            }
+        }
+        details.push_back(std::move(detail));
+        curr = std::move(smooth);
+    }
+    for (int s = kLevels - 1; s >= 0; --s) {
+        curr += details[static_cast<size_t>(s)];
+    }
+    cv::threshold(curr, curr, 1.0, 1.0, cv::THRESH_TRUNC);
+    cv::threshold(curr, curr, 0.0, 0.0, cv::THRESH_TOZERO);
+    return curr;
+}
+
+} // namespace
+
 cv::Mat apply_chroma_denoise_float(const cv::Mat& img, double strength, double protect, const std::string& mode) {
-    cv::Mat blur; cv::GaussianBlur(img, blur, cv::Size(0, 0), mode == "strong" ? 2.0 : 1.2);
-    cv::Mat out = img.clone();
-    for (int y = 0; y < out.rows; ++y) { auto* row = out.ptr<cv::Vec3f>(y); const auto* b = blur.ptr<cv::Vec3f>(y); for (int x = 0; x < out.cols; ++x) {
-        float lum = (row[x][0] + row[x][1] + row[x][2]) / 3.0f; float factor = static_cast<float>(strength * (1.0 - protect));
-        for (int c = 0; c < 3; ++c) row[x][c] = static_cast<float>(clamp_param(lum + (1.0 - factor) * (row[x][c] - lum) + factor * (b[x][c] - lum), 0.0, 1.0));
-    }} return out;
+    strength = clamp_param(strength, 0.0, 1.0);
+    protect = clamp_param(protect, 0.0, 1.0);
+    if (img.empty() || img.channels() < 3 || strength <= 0.0) return img.clone();
+
+    const bool input_u8 = (img.depth() == CV_8U);
+    cv::Mat f32;
+    if (input_u8) {
+        img.convertTo(f32, CV_32FC3, 1.0 / 255.0);
+    } else {
+        f32 = img;
+    }
+
+    // Split BGR -> exact BT.601 luminance Y + opponent chroma C1=(R-Y), C2=(B-Y).
+    // Luminance Y is never modified, guaranteeing zero sharpness/FWHM loss.
+    std::vector<cv::Mat> bgr;
+    cv::split(f32, bgr);
+    cv::Mat Y = 0.114f * bgr[0] + 0.587f * bgr[1] + 0.299f * bgr[2];
+    cv::Mat C1 = bgr[2] - Y;
+    cv::Mat C2 = bgr[0] - Y;
+
+    const float sky_med = robust_median_subsampled(Y, false);
+    cv::Mat abs_dev;
+    cv::absdiff(Y, cv::Scalar(sky_med), abs_dev);
+    const float sky_sigma = std::max(1.4826f * robust_median_subsampled(abs_dev, false), 1e-4f);
+
+    // Lightly pre-smooth the guide image to break pixel-level shot-noise
+    // correlation between Y and (R-Y, B-Y) while keeping star/nebula edges sharp.
+    cv::Mat Y_guide;
+    cv::GaussianBlur(Y, Y_guide, cv::Size(0, 0), 1.5, 1.5, cv::BORDER_REFLECT_101);
+
+    // Multi-scale Joint Guided Filter: removes both fine chroma speckle and
+    // medium/large-scale OSC color mottling (15-40 px) while stopping color
+    // bleeding at star and nebula edges. Luminance Y is untouched (0% FWHM loss).
+    const float eps = std::max(16.0f * sky_sigma * sky_sigma, 1e-4f);
+    cv::Mat C1_filt, C2_filt;
+    if (mode == "strong") {
+        const float eps_strong = eps * 2.0f;
+        C1_filt = guided_filter_plane(Y_guide, C1, 8, eps_strong);
+        C2_filt = guided_filter_plane(Y_guide, C2, 8, eps_strong);
+        C1_filt = guided_filter_plane(Y_guide, C1_filt, 18, eps_strong);
+        C2_filt = guided_filter_plane(Y_guide, C2_filt, 18, eps_strong);
+        C1_filt = guided_filter_plane(Y_guide, C1_filt, 32, eps_strong);
+        C2_filt = guided_filter_plane(Y_guide, C2_filt, 32, eps_strong);
+    } else {
+        C1_filt = guided_filter_plane(Y_guide, C1, 6, eps);
+        C2_filt = guided_filter_plane(Y_guide, C2, 6, eps);
+        C1_filt = guided_filter_plane(Y_guide, C1_filt, 14, eps);
+        C2_filt = guided_filter_plane(Y_guide, C2_filt, 14, eps);
+    }
+
+    const cv::Mat protect_mask = build_astro_protection_mask(Y);
+    cv::Mat out(f32.size(), CV_32FC3);
+    const float s = static_cast<float>(strength);
+    const float p_scale = static_cast<float>(protect);
+    constexpr float kGFromC1 = 0.299f / 0.587f;
+    constexpr float kGFromC2 = 0.114f / 0.587f;
+
+    for (int y = 0; y < out.rows; ++y) {
+        auto* dst = out.ptr<cv::Vec3f>(y);
+        const float* py = Y.ptr<float>(y);
+        const float* pc1 = C1.ptr<float>(y);
+        const float* pc2 = C2.ptr<float>(y);
+        const float* pf1 = C1_filt.ptr<float>(y);
+        const float* pf2 = C2_filt.ptr<float>(y);
+        const float* pm = protect_mask.ptr<float>(y);
+        for (int x = 0; x < out.cols; ++x) {
+            const float w = s * (1.0f - p_scale * pm[x]);
+            const float c1 = pc1[x] + w * (pf1[x] - pc1[x]);
+            const float c2 = pc2[x] + w * (pf2[x] - pc2[x]);
+            const float lum = py[x];
+            const float r = lum + c1;
+            const float b = lum + c2;
+            const float g = lum - kGFromC1 * c1 - kGFromC2 * c2;
+            dst[x][0] = static_cast<float>(clamp_param(b, 0.0, 1.0));
+            dst[x][1] = static_cast<float>(clamp_param(g, 0.0, 1.0));
+            dst[x][2] = static_cast<float>(clamp_param(r, 0.0, 1.0));
+        }
+    }
+
+    if (input_u8) {
+        cv::Mat out_u8;
+        out.convertTo(out_u8, CV_8UC3, 255.0);
+        return out_u8;
+    }
+    return out;
 }
 
 cv::Mat apply_saturation(const cv::Mat& img, double amount) {
@@ -791,33 +997,44 @@ cv::Mat apply_sharpen_fits(const cv::Mat& img, double amount, double radius) {
 
 cv::Mat apply_denoise_fits(const cv::Mat& img, double strength, bool luminance) {
     strength = clamp_param(strength, 0.0, 1.0);
-    const float h = static_cast<float>(strength * 10.0);
+    if (img.empty() || strength <= 0.0) return img.clone();
 
-    // fastNlMeansDenoising operates on 8-bit; convert float [0,1] to 8-bit and back.
-    cv::Mat u8;
-    img.convertTo(u8, CV_8U, 255.0);
+    if (img.channels() == 1) {
+        return atrous_denoise_luma_float(img, strength);
+    }
 
-    cv::Mat denoised_u8;
-    if (luminance) {
-        cv::Mat ycrcb;
-        cv::cvtColor(u8, ycrcb, cv::COLOR_BGR2YCrCb);
-        std::vector<cv::Mat> channels;
-        cv::split(ycrcb, channels);
-        cv::Mat y_denoised;
-        cv::fastNlMeansDenoising(channels[0], y_denoised, h, 7, 21);
-        channels[0] = y_denoised;
-        cv::merge(channels, ycrcb);
-        cv::cvtColor(ycrcb, denoised_u8, cv::COLOR_YCrCb2BGR);
-    } else {
-        if (img.channels() == 1) {
-            cv::fastNlMeansDenoising(u8, denoised_u8, h, 7, 21);
-        } else {
-            cv::fastNlMeansDenoisingColored(u8, denoised_u8, h, h, 7, 21);
+    // 32-bit float star/edge-preserving a-trous wavelet luminance denoise (no 8-bit quantization).
+    std::vector<cv::Mat> bgr;
+    cv::split(img, bgr);
+    cv::Mat Y = 0.114f * bgr[0] + 0.587f * bgr[1] + 0.299f * bgr[2];
+    cv::Mat Y_den = atrous_denoise_luma_float(Y, strength);
+
+    cv::Mat out(img.size(), CV_32FC3);
+    for (int y = 0; y < img.rows; ++y) {
+        const auto* src = img.ptr<cv::Vec3f>(y);
+        auto* dst = out.ptr<cv::Vec3f>(y);
+        const float* py = Y.ptr<float>(y);
+        const float* pyd = Y_den.ptr<float>(y);
+        for (int x = 0; x < img.cols; ++x) {
+            const float lum = py[x];
+            const float lum_new = pyd[x];
+            if (lum > 1e-4f) {
+                const float ratio = lum_new / lum;
+                dst[x][0] = static_cast<float>(clamp_param(src[x][0] * ratio, 0.0, 1.0));
+                dst[x][1] = static_cast<float>(clamp_param(src[x][1] * ratio, 0.0, 1.0));
+                dst[x][2] = static_cast<float>(clamp_param(src[x][2] * ratio, 0.0, 1.0));
+            } else {
+                const float delta = lum_new - lum;
+                dst[x][0] = static_cast<float>(clamp_param(src[x][0] + delta, 0.0, 1.0));
+                dst[x][1] = static_cast<float>(clamp_param(src[x][1] + delta, 0.0, 1.0));
+                dst[x][2] = static_cast<float>(clamp_param(src[x][2] + delta, 0.0, 1.0));
+            }
         }
     }
 
-    cv::Mat out;
-    denoised_u8.convertTo(out, CV_32F, 1.0 / 255.0);
+    if (!luminance) {
+        return apply_chroma_denoise_float(out, strength, 0.5, strength > 0.6 ? "strong" : "soft");
+    }
     return out;
 }
 
