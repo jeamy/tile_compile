@@ -1,5 +1,58 @@
 ## Changelog
 
+### (2026-11-24)
+
+**v0.5.2 — Pipeline denoise that keeps stars sharp, path checks before runs, code audit and frontend redesign:**
+
+**Pipeline denoise (`chroma_denoise`, `luma_denoise`, HMS):**
+
+- **`chroma_denoise.mode: off | manual | auto`.** `auto` scales the blend on the chroma noise excess: the measured chroma/luma ratio divided by the ratio that independent channel noise would give in the chosen colour space. Excess 1 means ordinary independent channel noise, below 1 shared noise, above 1 extra colour noise. At or below `auto_min_excess` (0.5) the pass is skipped, from `auto_full_excess` (1.0) on it runs at the full blend, linear in between. Both thresholds are provisional and not yet calibrated. An optional guided filter (`chroma_guided`) is available.
+- **Adaptation on the excess.** The strength adaptation now follows the same excess (`adaptation = clamp(excess / adaptation_reference_excess, 0.8, 1.4)`). Before, it read the raw ratio, so independent channel noise almost always ended at 1.4. `adaptation_reference_ratio` is migrated to `adaptation_reference_excess` when a config is loaded. **This changes the result** of every run with chroma denoise and ordinary noise (1.0 instead of 1.4).
+- **`luma_denoise.sharpness_guard`** (default off) measures FWHM and peak of bright stars before and after the pass, backs off the strength in steps and rejects the pass if the FWHM still grows more than `max_fwhm_increase_pct` (1 %).
+- **`hypermetric_stretch.params_from_pre_denoise`** (replaces `anchor_from_reference`, migrated): HMS derives every parameter (anchor, output scaling, MTF midtone) from the state without denoise and applies it to the denoised image. The post-stack passes are taken out through PCC's linear part (`PCCResult::applied_linear`), before the speckle suppressor. The delta is kept in `outputs/post_stack_denoise_delta_*.fit` for a PCC resume, the state in `outputs/pcc_predenoise_*.fit` for an HMS-only resume; the backend HMS preview uses it as well.
+- **`chroma_denoise.preserve_luminance: hms_profile`** restores, after the chroma pass, exactly the luminance HMS stretches (sensor profile weights instead of Y = 0.25/0.5/0.25), so colour noise no longer leaks into the stretched luminance.
+- **`chroma_denoise.excess_from_pre_denoise`** measures the excess on the image without the luma pass. The luma pass had inflated it (M42 2.40 instead of 0.97, M31 1.93 instead of 0.97, IC434 2.68 instead of 0.98).
+- **Defaults.** The three switches `preserve_luminance: hms_profile`, `excess_from_pre_denoise: true` and `params_from_pre_denoise: true` are on by default. Without a denoise pass the output stays byte-identical (verified on copies of M42, M31 and IC434). With them, luma + chroma leave the star FWHM of the final image unchanged where it grew before (M42 +9.5 %, IC434 +4.45 %).
+- **Diagnostics.** `phase_end` of HYPERMETRIC_STRETCH reports `output_scaling`, `params_source` and `pre_denoise_post_stack`; the chroma stats report `excess_source`, `luminance_preserved`, `auto_mode_scale` and the excess; the report shows the auto and guard diagnostics.
+- **Measured on IC434** (`ic434a_20261123_203422`, resumed from BGE, final image against the run with everything on): denoise off gives ×2.1 luma pixel noise and ×3.1–3.3 colour pixel noise with the same mottling and stars 0.65 % narrower; the three switches off give more mottling than no denoise at all (×1.13–1.17), colour mottling +42–62 % and stars 2.4 % wider. The control run with the original config is byte-identical.
+
+**Config cleanup:**
+
+- **Breaking: removed config keys.** `registration.prewarp_interpolation` (the prewarp always interpolates cubic) and `registration.pre_debayer_method` (no demosaic step read it) were parsed and validated but never passed on. The legacy migration strips both with a `[CONFIG-MIGRATION] WARN`; they were removed from schema, examples, `tile_compile.yaml`, docs and the JEV screening arms.
+- **New option `registration.model_prediction_max_residual_px`** (default 0.7 proxy px): model-predicted frames whose median star residual exceeds it, or cannot be measured, are left out of the stack.
+- **`hypermetric_stretch.local_contrast`** (parsed and used before) is now in `tile_compile.schema.json`/`.yaml` and the config reference.
+- **Doc examples.** Snippets with `bge.enabled` (rejected by the parser) and `pre_debayer_method: linear` (never a valid value) were fixed; every YAML block of the config docs now loads and validates. The example configs set the denoise switches explicitly, and the README and practical guides explain them.
+
+**Path checks before runs:**
+
+- **New library check (`config/path_check`).** Every non-empty configured path that does not exist (calibration masters and directories, ASTAP, Siril catalog) is reported. If a standard location or another source of the same data exists, the run warns and uses it; if the run needs the data and nothing replaces it, the check blocks. Calibration has no standard location.
+- **ASTAP paths** are resolved in the library (`astrometry/astap_paths`). A configured but missing `astap_data_dir` falls back to the per-user default, like an empty one. `is_astap_available` now also accepts D-series catalogs (`.1476`); before, the registration astrometric rescue never ran with D05/D20/D50/D80.
+- **Where it runs:** `validate-config` returns a separate `path_issues` array and accepts `--project-root` (also `/api/config/validate`); the Parameter window shows a path-check panel; run start checks the effective YAML (blocking issues stop the start, warnings go to the run-warning banner); the runner checks before the first phase of reconstruct, both resume paths and preprocess.
+
+**Code audit (tile_compile_cpp, web_backend_cpp):**
+
+- Calibration frame discovery and averaging are shared in `runner_shared` (double sum, NaN skipped per pixel); the two post-stack denoise blocks are one function.
+- `end_pilot()` with OpenMP and stack storage, source cache LRU hit check and full-row reads, exception propagation in `parallel_for_indices`, EINTR retry in the disk cache store, atomic FITS RGB writes.
+- The drizzle profile store and its manifest were removed. The CUDA clip parity harness moved from `tile_compile_lib` to the tests target.
+- An M31 comparison run (645 frames) gave byte-identical FITS and drizzle band output before and after these changes.
+- Backend: shared helpers instead of copies (base64url, `/proc` scan and process-group termination, run event file lookup, ISO time parsing, FITS plane reading, catalog archive extraction), audit security fixes and an origin guard.
+
+**Frontend (web_frontend_v3):**
+
+- **Redesign** of tokens, base, layout, components and page CSS and of the run dashboard.
+- Shared yaml-scalar and canvas-zoom helpers for the BGE/HMS previews, `ApiClient.wsUrl()`, an AI traffic component, page lifecycle and image blob utilities.
+
+**PI image operations (web backend):**
+
+- `chroma_denoise` smooths the chroma with a guided filter on the luminance, keeps the luminance and protects stars and fine structure with a smooth mask (3–8 σ above the sky, Sobel edges).
+- The luminance `denoise` is a 3-scale B3-spline à-trous wavelet soft threshold in 32-bit float, weakened under the same mask. 8-bit input is converted and returned as before.
+
+**Build and docs:**
+
+- `cmake/TileCompileOpenCV.cmake` picks the OpenCV build whose CUDA major version matches the toolkit, for both CMake projects. An automatically resolved choice is re-evaluated on the next configure instead of sticking like an explicit `-DOpenCV_DIR`.
+- The generated Doxygen HTML is no longer tracked or published (about 7,800 files / 91 MB that no page linked to); the API page explains how to generate it locally.
+- **Validation:** tile_compile_cpp 525/525; web_backend_cpp 34/35 (`run_start_naming` fails as before); jev_screening 24 OK; web_frontend_v3 9/9.
+
 ### (2026-11-05)
 
 **v0.5.1 — PI decision trace, unified run assistant, and code-review cleanup:**

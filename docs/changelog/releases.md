@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.5.2 (2026-11-24)
+
+**Pipeline denoise that keeps stars sharp, path checks before runs, code audit and frontend redesign:**
+
+- Chroma denoise has a new `auto` mode that scales its strength on the measured colour noise excess. Luma denoise has an optional sharpness guard on bright stars.
+- HMS now derives its stretch parameters from the image without denoise, the chroma pass keeps the luminance HMS stretches, and the excess is measured without the luma pass. All three are on by default: denoise no longer widens stars or steepens the stretch of the background in the final image. Without denoise the output is unchanged.
+- Breaking: `chroma_denoise.adaptation_reference_ratio` is now `adaptation_reference_excess` (migrated), and the adaptation changes the result of runs with chroma denoise. `registration.prewarp_interpolation` and `registration.pre_debayer_method` were never used and are removed with a migration warning.
+- Configured paths (calibration, ASTAP, Siril catalog) are checked before a run: a missing path falls back to a standard location with a warning, or blocks the start. ASTAP D-series catalogs are now recognized.
+- New option `registration.model_prediction_max_residual_px` drops badly predicted frames from the stack; `hypermetric_stretch.local_contrast` is in the schemas, and every config doc example validates.
+- Code audit of pipeline and backend with byte-identical output, a redesigned web frontend, better PI image denoise filters, and OpenCV builds chosen to match the CUDA toolkit.
+
 ## v0.5.1 (2026-11-05)
 
 **PI decision trace, unified run assistant, and code cleanup:**
