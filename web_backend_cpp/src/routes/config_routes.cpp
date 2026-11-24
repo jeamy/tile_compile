@@ -121,7 +121,7 @@ private:
         const auto mtime = fs::last_write_time(cli, ec);
         if (ec) return "";
         return cli + "|" + std::to_string(size) + "|" +
-               std::to_string(mtime.time_since_epoch().count());
+               std::to_string(static_cast<long long>(mtime.time_since_epoch().count()));
     }
     struct Entry { std::string stamp; nlohmann::json value; };
     std::mutex _mutex;
